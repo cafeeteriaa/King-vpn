@@ -20,6 +20,7 @@ part 'npv_am_extras.dart';
 part 'nat_ultra.dart';
 part 'net_diag.dart';
 part 'extras_plus.dart';
+part 'donate.dart';
 
 // One rewarded ad = one 4 hour session. When the 4 hours end the VPN is cut
 // and the next connect shows the ad again. Automatic server switches (bad
@@ -7656,6 +7657,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               if (v == 'log') _logSheet();
               if (v == 'diag') netDiagDialog();
               if (v == 'plus') plusSheet();
+              if (v == 'donate') donateSheet(context);
               if (v == 'reset') resetAllServers();
               if (v == 'clear') {
                 setState(() {
@@ -7678,6 +7680,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               PopupMenuItem(value: 'clear', child: Text('پاک کردن لیست سیاه')),
               PopupMenuItem(value: 'diag', child: Text('تشخیص شبکه')),
               PopupMenuItem(value: 'plus', child: Text('ابزارهای بیشتر')),
+              PopupMenuItem(value: 'donate', child: Text('حمایت از ما ❤️')),
               PopupMenuItem(value: 'log', child: Text('گزارش خطاها')),
               PopupMenuItem(
                   value: 'reset',
@@ -7836,6 +7839,7 @@ UiHero(
             UiTool(Icons.cloud_outlined, 'CDN / کلودفلر', () => connectRow('r:cdn')),
             UiTool(Icons.shield_outlined, 'Reality', () => connectRow('r:reality')),
             UiTool(Icons.power_outlined, 'WebSocket', () => connectRow('r:ws')),
+            UiTool(Icons.favorite_border, 'حمایت از ما', () => donateSheet(context)),
           ]),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
