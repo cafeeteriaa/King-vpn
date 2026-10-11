@@ -36,9 +36,51 @@ if os.path.exists(gpp):
         t += '\nandroid.suppressUnsupportedCompileSdk=37\n'
         open(gpp, 'w', encoding='utf-8').write(t)
 
-kd = os.path.join(APP, 'android/app/src/main/kotlin/com/vpn/vpn_app')
+
+# app name shown to the user
+m = open(mp, encoding='utf-8').read()
+m = re.sub(r'android:label="[^"]*"', 'android:label="King VPN"', m, count=1)
+open(mp, 'w', encoding='utf-8').write(m)
+
+# Release signing (keystore comes from env vars set by the workflow)
+SIGN_KTS = """signingConfigs {
+        create("release") {
+            val ksFile = System.getenv("KS_FILE")
+            if (ksFile != null) {
+                storeFile = file(ksFile)
+                storePassword = System.getenv("KS_PASS")
+                keyAlias = System.getenv("KS_ALIAS")
+                keyPassword = System.getenv("KS_PASS")
+            }
+        }
+    }
+"""
+SIGN_GROOVY = """signingConfigs {
+        release {
+            def ksFile = System.getenv("KS_FILE")
+            if (ksFile != null) {
+                storeFile file(ksFile)
+                storePassword System.getenv("KS_PASS")
+                keyAlias System.getenv("KS_ALIAS")
+                keyPassword System.getenv("KS_PASS")
+            }
+        }
+    }
+"""
+for name, block in (('build.gradle.kts', SIGN_KTS), ('build.gradle', SIGN_GROOVY)):
+    gp = os.path.join(APP, 'android/app', name)
+    if os.path.exists(gp):
+        g = open(gp, encoding='utf-8').read()
+        if 'KS_FILE' not in g:
+            g = g.replace('android {', 'android {\n    ' + block, 1)
+            g = g.replace('signingConfigs.getByName("debug")', 'signingConfigs.getByName("release")')
+            g = g.replace('signingConfig signingConfigs.debug', 'signingConfig signingConfigs.release')
+            g = g.replace('signingConfig = signingConfigs.debug', 'signingConfig = signingConfigs.release')
+        open(gp, 'w', encoding='utf-8').write(g)
+
+kd = os.path.join(APP, 'android/app/src/main/kotlin/com/kingvpn/king_vpn')
 os.makedirs(kd, exist_ok=True)
-open(os.path.join(kd, 'MainActivity.kt'), 'w', encoding='utf-8').write("""package com.vpn.vpn_app
+open(os.path.join(kd, 'MainActivity.kt'), 'w', encoding='utf-8').write("""package com.kingvpn.king_vpn
 
 import android.content.Context
 import android.content.Intent
