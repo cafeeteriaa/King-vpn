@@ -29,7 +29,7 @@ jobs:
       - name: Create project
         run: |
           flutter create --project-name vpn_app --org com.vpn --platforms=android build_app
-          for f in main iran_ai_extras npv_am_extras tg_proxy; do
+          for f in main iran_ai_extras npv_am_extras tg_proxy nat_ultra; do
             [ -f "lib/$f.dart" ] || { echo "ERROR: lib/$f.dart missing"; exit 1; }
             cp "lib/$f.dart" "build_app/lib/$f.dart"
           done
@@ -40,6 +40,10 @@ jobs:
         run: |
           flutter pub add http flutter_v2ray_client shared_preferences installed_apps:1.6.0 permission_handler workmanager url_launcher webview_flutter
           flutter pub get
+
+      - name: Analyze (errors only, fails early with a readable message)
+        working-directory: build_app
+        run: flutter analyze --no-fatal-warnings --no-fatal-infos
 
       - name: Build APK
         working-directory: build_app
