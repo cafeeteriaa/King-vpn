@@ -286,22 +286,47 @@ void aiShow(String raw) {
 // اگر raw.githubusercontent.com باز نشد، همان فایل از jsDelivr گرفته می‌شود.
 int _rawFail = 0, _rawOk = 0;
 
-String? _mirrorOf(String u) {
-  if (!u.startsWith(_gh)) return null;
+// hosts that serve the same GitHub files; when one is blocked another may work
+const _mirrorHosts = [
+  'cdn.jsdelivr.net',
+  'fastly.jsdelivr.net',
+  'gcore.jsdelivr.net',
+  'testingcf.jsdelivr.net',
+  'cdn.statically.io',
+];
+
+List<String> _mirrorsOf(String u) {
+  if (!u.startsWith(_gh)) return const [];
   final p = u.substring(_gh.length).split('/');
-  if (p.length < 4) return null;
+  if (p.length < 4) return const [];
   var rest = p.sublist(2);
   if (rest.length >= 3 && rest[0] == 'refs' && rest[1] == 'heads') {
     rest = rest.sublist(2);
   }
-  if (rest.length < 2) return null;
-  return 'https://cdn.jsdelivr.net/gh/${p[0]}/${p[1]}@${rest.first}/${rest.sublist(1).join('/')}';
+  if (rest.length < 2) return const [];
+  final path = rest.sublist(1).join('/');
+  return [
+    for (final h in _mirrorHosts)
+      if (h == 'cdn.statically.io')
+        'https://$h/gh/${p[0]}/${p[1]}/${rest.first}/$path'
+      else
+        'https://$h/gh/${p[0]}/${p[1]}@${rest.first}/$path',
+    'https://raw.githack.com/${p[0]}/${p[1]}/${rest.first}/$path',
+    'https://rawcdn.githack.com/${p[0]}/${p[1]}/${rest.first}/$path',
+  ];
 }
 
+String? _mirrorOf(String u) {
+  final l = _mirrorsOf(u);
+  return l.isEmpty ? null : l.first;
+}
+
+int _mirrorBest = 0; // index of the mirror host that worked last
+
 Future<http.Response> getListMirror(String u) async {
-  final m = _mirrorOf(u);
-  // raw کاملاً بسته است: مستقیم سراغ آینه برو
-  final skipRaw = m != null && _rawOk == 0 && _rawFail >= 6;
+  final ms = _mirrorsOf(u);
+  // raw is completely blocked: go straight to the mirrors
+  final skipRaw = ms.isNotEmpty && _rawOk == 0 && _rawFail >= 6;
   if (!skipRaw) {
     try {
       final r =
@@ -312,11 +337,17 @@ Future<http.Response> getListMirror(String u) async {
       _rawFail++;
     }
   }
-  if (m != null) {
+  // the mirror that worked last goes first, the others follow
+  for (var k = 0; k < ms.length; k++) {
+    final i = (_mirrorBest + k) % ms.length;
     try {
-      return await http
-          .get(Uri.parse(m))
-          .timeout(const Duration(seconds: 10));
+      final r = await http
+          .get(Uri.parse(ms[i]))
+          .timeout(Duration(seconds: k == 0 ? 10 : 7));
+      if (r.statusCode == 200) {
+        _mirrorBest = i;
+        return r;
+      }
     } catch (_) {}
   }
   return http.Response('', 599);
