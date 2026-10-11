@@ -301,6 +301,7 @@ DateTime? cleanIpsAt;
 String cleanIpStatus = '';
 Future<void>? _cleanBusy;
 bool _cleanLoaded = false;
+String _cleanOp = '';
 int _cleanRot = 0;
 
 // رنج‌های IPv4 منتشرشده‌ی Cloudflare. لیست‌های ثابتِ «IP تمیز» زود کهنه می‌شوند و
@@ -421,8 +422,8 @@ Future<void> _saveCleanIps() async {
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString(
-        'cip_list', jsonEncode(cleanIps.map((e) => [e.ip, e.ms]).toList()));
-    await p.setInt('cip_at', DateTime.now().millisecondsSinceEpoch);
+        'cip_list_$natOpKey', jsonEncode(cleanIps.map((e) => [e.ip, e.ms]).toList()));
+    await p.setInt('cip_at_$natOpKey', DateTime.now().millisecondsSinceEpoch);
   } catch (e) {
     logError(e);
   }
@@ -431,13 +432,13 @@ Future<void> _saveCleanIps() async {
 Future<void> _loadCleanIps() async {
   try {
     final p = await SharedPreferences.getInstance();
-    final s = p.getString('cip_list');
+    final s = p.getString('cip_list_$natOpKey');
     if (s == null) return;
     cleanIps = (jsonDecode(s) as List).map<CleanIp>((e) {
       final x = e as List;
       return CleanIp(x[0].toString(), (x[1] as num).toInt());
     }).toList();
-    final at = p.getInt('cip_at');
+    final at = p.getInt('cip_at_$natOpKey');
     if (at != null) cleanIpsAt = DateTime.fromMillisecondsSinceEpoch(at);
   } catch (e) {
     logError(e);
@@ -446,8 +447,13 @@ Future<void> _loadCleanIps() async {
 
 // یک IP تمیز برای یک سرور Cloudflare (بین ۵ تای سریع می‌چرخد)
 Future<String?> pickCleanIp() async {
-  if (!_cleanLoaded) {
+  if (!_cleanLoaded || _cleanOp != natOpKey) {
     _cleanLoaded = true;
+    if (_cleanOp != natOpKey) {
+      cleanIps = [];
+      cleanIpsAt = null;
+    }
+    _cleanOp = natOpKey;
     await _loadCleanIps();
   }
   final stale = cleanIpsAt == null ||
@@ -598,7 +604,17 @@ String withNpvAmCore(String cfg) {
     j['outbounds'] = outs;
     if (secureDns) {
       final d = j['dns'] is Map ? j['dns'] as Map : <String, dynamic>{};
-      d['servers'] = _dnsUrls[dnsProv] ?? _dnsUrls['cloudflare']!;
+      // DNSFALLBACK: the chosen provider first, the other DoH providers
+      // behind it, so one blocked DoH address does not break name lookups
+      final first = _dnsUrls[dnsProv] ?? _dnsUrls['cloudflare']!;
+      final all = <dynamic>[...first];
+      for (final e in _dnsUrls.entries) {
+        for (final u in e.value) {
+          if (u.startsWith('https://') && !all.contains(u)) all.add(u);
+        }
+      }
+      d['servers'] = all;
+      d['queryStrategy'] = 'UseIP';
       j['dns'] = d;
     }
     return jsonEncode(j);
@@ -645,6 +661,17 @@ List<Widget> npvAmSettingsItems(
           sub: 'روی سرورهای tcp/ws بدون flow؛ گاهی ثبات را بهتر و گاهی بدتر می‌کند'),
       sw('DNS امن (DoH)', secureDns, (v) => secureDns = v,
           sub: 'پرسش DNS از طریق https://1.1.1.1 و 8.8.8.8 انجام می‌شود'),
+      ListTile(
+        leading: const Icon(Icons.shield_outlined),
+        title: const Text('Kill switch (قطع نت اگر VPN افتاد)'),
+        subtitle: const Text(
+            'تنظیمات VPN اندروید باز می‌شود؛ برای این اپ «Always-on VPN» و «Block connections without VPN» را روشن کن'),
+        onTap: () {
+          try {
+            bgChannel.invokeMethod('vpnSettings');
+          } catch (_) {}
+        },
+      ),
     ];
 
 extension NpvAmExtras on _HomePageState {
