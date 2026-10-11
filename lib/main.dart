@@ -17,6 +17,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'tg_proxy.dart';
 part 'iran_ai_extras.dart';
 part 'npv_am_extras.dart';
+part 'nat_ultra.dart';
 
 // One rewarded ad = one 4 hour session. When the 4 hours end the VPN is cut
 // and the next connect shows the ad again. Automatic server switches (bad
@@ -1696,6 +1697,20 @@ Future<int?> pingAny(
 //     an unsupported location gets "User location is not supported";
 //     a supported one gets a normal "API key not valid" error
 //  2) the Gemini web app opens (200, no "not supported" page / redirect)
+// GEMFLAG: true when the LAST Gemini check got a clear "not supported here"
+// answer from Google (no point in retrying), false when it was only a network
+// problem (worth one more try)
+bool gemDefinite = false;
+
+// exit countries where Gemini is never available: skipped without a test
+const _gemBlockedCc = {
+  'IR', 'CN', 'RU', 'KP', 'CU', 'SY', 'BY', 'MM', 'AF', 'SD', 'SS', 'VE', 'HK', 'MO',
+};
+bool _gemSkip(Server s) {
+  final c = (s.country ?? '').toUpperCase();
+  return c.isNotEmpty && _gemBlockedCc.contains(c);
+}
+
 Future<bool> _geminiApiOk({bool direct = true}) async {
   final c = HttpClient()
     ..findProxy = ((_) =>
@@ -1717,6 +1732,7 @@ Future<bool> _geminiApiOk({bool direct = true}) async {
       if (b.contains('location is not supported') ||
           b.contains('not supported for the api use') ||
           b.contains('not available in your')) {
+        gemDefinite = true;
         return false;
       }
       // reached Google and got a normal JSON error / answer about the key
@@ -1749,6 +1765,7 @@ Future<bool> _geminiWebOk({bool direct = true}) async {
         final l = r.location.toString().toLowerCase();
         return l.contains('/faq') || l.contains('unsupported');
       })) {
+        gemDefinite = true;
         return false;
       }
       final sb = StringBuffer();
@@ -1766,7 +1783,11 @@ Future<bool> _geminiWebOk({bool direct = true}) async {
         'not available in your country',
         'not available in your region',
       ];
-      return !bad.any(b.contains);
+      if (bad.any(b.contains)) {
+        gemDefinite = true;
+        return false;
+      }
+      return true;
     }()
         .timeout(const Duration(seconds: 12));
   } catch (_swE) { _swl('_geminiWebOk#1', _swE);
@@ -1777,6 +1798,7 @@ Future<bool> _geminiWebOk({bool direct = true}) async {
 }
 
 Future<bool> geminiOpens({bool direct = true}) async {
+  gemDefinite = false;
   // with the user's real API key the answer is exact: 200 = works,
   // "location not supported" = does not
   if (geminiKey.isNotEmpty) {
@@ -2403,30 +2425,32 @@ Future<String?> dohResolve(String name) async {
   final c = _dohCache[name];
   if (c != null) return c;
   if (_dohFail >= 6) return null;
-  final cl = HttpClient()..connectionTimeout = const Duration(seconds: 3);
-  try {
-    final req = await cl
-        .getUrl(Uri.parse('https://1.1.1.1/dns-query?name=$name&type=A'))
-        .timeout(const Duration(seconds: 3));
-    req.headers.set('accept', 'application/dns-json');
-    final res = await req.close().timeout(const Duration(seconds: 3));
-    final body = await res
-        .transform(utf8.decoder)
-        .join()
-        .timeout(const Duration(seconds: 3));
-    for (final a in (jsonDecode(body)['Answer'] as List? ?? [])) {
-      if (a['type'] == 1) {
-        final ip = a['data'].toString();
-        _dohCache[name] = ip;
-        _dohFail = 0;
-        return ip;
+  for (final ep in _dohEps) {
+    final cl = HttpClient()..connectionTimeout = const Duration(seconds: 3);
+    try {
+      final req = await cl
+          .getUrl(Uri.parse(ep.replaceAll('%N', name)))
+          .timeout(const Duration(seconds: 3));
+      req.headers.set('accept', 'application/dns-json');
+      final res = await req.close().timeout(const Duration(seconds: 3));
+      final body = await res
+          .transform(utf8.decoder)
+          .join()
+          .timeout(const Duration(seconds: 3));
+      for (final a in (jsonDecode(body)['Answer'] as List? ?? [])) {
+        if (a['type'] == 1) {
+          final ip = a['data'].toString();
+          _dohCache[name] = ip;
+          _dohFail = 0;
+          return ip;
+        }
       }
+    } catch (_swE) { _swl('dohResolve#1', _swE);
+    } finally {
+      cl.close(force: true);
     }
-  } catch (_swE) { _swl('dohResolve#1', _swE);
-    _dohFail++;
-  } finally {
-    cl.close(force: true);
   }
+  _dohFail++;
   return null;
 }
 
@@ -2487,6 +2511,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool searching = false; // a search (foreground or standby) is running
   bool inForeground = true, pendingFailover = false;
   bool watchBusy = false;
+  int liveDown = 0, liveUp = 0, totalDown = 0, totalUp = 0; // LIVESTATS (bytes)
   bool rechecking = false; // a re-check of the healthy servers is running
   String _lastWhyV = '';
   String get lastWhy => _lastWhyV;
@@ -2679,8 +2704,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // activity was destroyed (app swiped away from the recent apps)
     bgChannel.setMethodCallHandler((call) async {
       if (call.method == 'gone') {
+        // BGKEEP: the screen was swiped away. While the VPN is wanted/up the
+        // native side keeps this Dart engine alive, so the server search
+        // goes on in the background. Only when there is no VPN everything stops.
+        if (wantVpn || connected) return true;
         appGone = true;
         abort = true;
+        return false;
       }
       return null;
     });
@@ -2718,6 +2748,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         .catchError((e) => logError(e as Object));
     v2ray = V2ray(onStatusChanged: (st) {
       lastState = st.state;
+      try {
+        final d = st as dynamic; // LIVESTATS
+        liveDown = (d.downloadSpeed as num?)?.toInt() ?? liveDown;
+        liveUp = (d.uploadSpeed as num?)?.toInt() ?? liveUp;
+        totalDown = (d.download as num?)?.toInt() ?? totalDown;
+        totalUp = (d.upload as num?)?.toInt() ?? totalUp;
+      } catch (_) {}
       dbgState(st.state);
       if (st.state == 'DISCONNECTED' &&
           downSig != null &&
@@ -2731,6 +2768,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       // an OpenVPN tunnel is in use: the V2Ray events do not matter
       if (current?.ovpn == true || ovpnActive) return;
+      if (st.state == 'CONNECTED' && wantVpn && mounted && (busy || switching)) {
+        // the event arrives while the app is busy: do not lose it, re-sync later
+        Future.delayed(const Duration(seconds: 4), () {
+          if (mounted) _syncCore();
+        });
+        Future.delayed(const Duration(seconds: 12), () {
+          if (mounted) _syncCore();
+        });
+      }
       if (!mounted || busy || switching) return;
       final on = st.state == 'CONNECTED';
       if (on && !wantVpn) {
@@ -2749,6 +2795,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (wantVpn &&
               lastState != 'CONNECTED' &&
               !busy &&
+              !netDown &&
               !switching) {
             lastWhy = 'هسته/اندروید اتصال را قطع کرد';
             _failover();
@@ -2762,7 +2809,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _inspectStart(); // INSPECTORPATCH
     // PERFPATCH: 5 s instead of 1 s (full page rebuild)
     tick = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (mounted && connected && inForeground) setState(() {});
+      if (mounted && connected && inForeground) {
+        if (!searching && !busy && !switching) status = _connStatus();
+        setState(() {});
+      }
     });
   }
 
@@ -2774,9 +2824,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _saveCache();
     }
     if (s == AppLifecycleState.detached) {
-      // removed from the recent apps: stop every background test now
-      appGone = true;
-      abort = true;
+      // BGKEEP: screen closed. With a VPN up the engine stays alive and the
+      // search must go on; without a VPN every background test stops.
+      if (!(wantVpn || connected)) {
+        appGone = true;
+        abort = true;
+      }
     } else if (s == AppLifecycleState.resumed && appGone) {
       appGone = false;
       abort = false;
@@ -2890,6 +2943,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     dropTimer?.cancel();
     tick?.cancel();
     saveT?.cancel();
+    _setT?.cancel();
     sessionT?.cancel();
     _resT?.cancel(); // NATRESPATCH
     _resSaveT?.cancel();
@@ -2920,7 +2974,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   DateTime _wbSince = DateTime.now();
   bool _syncCore() {
     try {
-      if (!mounted || busy || switching || searching) return false;
+      if (!mounted || busy || switching) return false; // a standby search must not block the sync
       if (current?.ovpn == true || ovpnActive) return false;
       if (!wantVpn || current == null) {
         _syncBad = 0;
@@ -2964,11 +3018,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return false;
   }
 
+  // PERFSET: a status text arrives for every single test; a full-page
+  // rebuild for each one made the UI stutter. Redraw at most ~3 times a second.
+  DateTime _setAt = DateTime.fromMillisecondsSinceEpoch(0);
+  Timer? _setT;
   void _set(String s) {
     dbgStatus(s);
     status = s;
     // no redraw while the app is in the background (saves battery / memory)
-    if (mounted && inForeground) setState(() {});
+    if (!mounted || !inForeground) return;
+    final now = DateTime.now();
+    if (now.difference(_setAt) >= const Duration(milliseconds: 350)) {
+      _setAt = now;
+      setState(() {});
+    } else if (_setT == null) {
+      _setT = Timer(const Duration(milliseconds: 350), () {
+        _setT = null;
+        _setAt = DateTime.now();
+        if (mounted && inForeground) setState(() {});
+      });
+    }
   }
 
   // stop whatever search/connect is running (used when the user taps)
@@ -3357,7 +3426,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   // ---------- smart ordering (no extra parallel tests needed) ----------
   String _profKey(Server s) =>
-      '${s.link.split('://').first.toLowerCase()}|${s.net}|'
+      '$natOpKey|${s.link.split('://').first.toLowerCase()}|${s.net}|'
       '${s.reality ? 'r' : (s.tls ? 't' : 'n')}|${s.port == 443 ? '443' : 'x'}';
 
   // learned success rate of this kind of server on this network (0..1)
@@ -3436,10 +3505,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final limit = (exhausted && autoCycle)
         ? const Duration(minutes: 2)
         : Duration(minutes: listRefreshMin);
-    final fresh = (nationalMode && !connected && fetchedAll.isNotEmpty) || // NATIONALPATCH
+    final fresh = (nationalMode && !connected && fetchedAll.isNotEmpty && !natRefetch) || // NATIONALPATCH
         (age != null && fetchedAll.length > 200 && age < limit);
     if (!fresh && now0.difference(lastFetchTry) > const Duration(seconds: 45)) {
       lastFetchTry = now0;
+      natRefetch = false;
       if (!bg) _set('در حال دریافت لیست‌ها...');
       try {
         final f = await fetchServers(stop: () => abort);
@@ -3726,6 +3796,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // straight to the core test, like v2rayNG.
     final ipList = batch.where((s) => s.isIp).toList();
     final alive = batch.where((s) => !s.isIp).toList();
+    if (nationalMode && natLevel >= 2) {
+      alive.addAll(ipList); // NATULTRA: straight to the real core test
+      ipList.clear();
+    }
     await pool<Server>(ipList, max(60, fastWorkers), (s) async {
       if (abort) return;
       final pg = await probe(s);
@@ -3773,6 +3847,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       for (final s in okNow) {
         if (abort || enough()) break;
         if (s.ai != null) continue;
+        if (_gemSkip(s)) {
+          s.ai = false; // exit country without Gemini: no test needed
+          continue;
+        }
         gi++;
         _set('بررسی Gemini $gi/${okNow.length} • '
             'سالم:${_usable().length}');
@@ -3781,7 +3859,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (tunnelMode ||
               await waitProxyPort(max: const Duration(seconds: 4))) {
             var ok = await geminiOpens(direct: tunnelMode);
-            if (!ok) ok = await geminiOpens(direct: tunnelMode);
+            if (!ok && !gemDefinite) ok = await geminiOpens(direct: tunnelMode);
             s.ai = ok;
             if (ok) _saveSoon();
           }
@@ -3819,6 +3897,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         break;
       }
       tried.add(s);
+      if (row == 'r:ai' && _gemSkip(s)) {
+        s.ai = false; // exit country without Gemini: no test needed
+        continue;
+      }
       final isO = s.ovpn;
       final tunnelMode = (viaVpn || isO) && row != 'r:ai';
       _set('تست ${realTested + 1}/${alive.length} • TCP:$dTcp • '
@@ -3846,7 +3928,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             _set('بررسی باز شدن Gemini روی ${s.name}...');
             // two tries: one flaky request must not throw away a good server
             var ok = await geminiOpens(direct: tunnelMode);
-            if (!ok) ok = await geminiOpens(direct: tunnelMode);
+            if (!ok && !gemDefinite) ok = await geminiOpens(direct: tunnelMode);
             s.ai = ok;
             if (ok) _saveSoon();
           }
@@ -3914,13 +3996,42 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<int?> _delayOf(Server s, {Duration? t, String? url}) async {
     if (s.ovpn) return null;
     final tt = t ?? delayTimeout;
+    // NATULTRA: in national-network mode every server is tried with several
+    // variants (other address, Fragment sizes, fingerprints, ALPN, 2nd URL)
+    final multi = nationalMode || _resBusy; // folder re-test uses variants too
+    final order = multi ? _natOrder(s, full: _resFull) : const [0];
+    for (var i = 0; i < order.length; i++) {
+      if (i > 0 && abort) break;
+      final code = order[i];
+      final v = code % 100;
+      final u = code >= 100 ? _natAltTestUrl : url;
+      final to = i == 0 ? tt : Duration(seconds: min(tt.inSeconds, 9));
+      final d = await _delayOnce(s, v, to, u);
+      if (d != null) {
+        if (multi) {
+          if (natVar[_nk(s)] != v) {
+            dbg('نت ملی: ${s.name} با حالت «${_natVarNames[v]}» جواب داد');
+          }
+          natVarSet(s, v);
+        }
+        return d;
+      }
+    }
+    return null;
+  }
+
+  Future<int?> _delayOnce(Server s, int v, Duration tt, String? url) async {
     try {
-      final cfg = V2ray.parseFromURL(s.useLink).getFullConfiguration();
-      final r = await v2ray
+      final cfg = natCfg(s, v);
+      final rr = await v2ray
           .getServerDelay(config: cfg, url: url ?? delayTestUrl)
           .timeout(Duration(seconds: tt.inSeconds + 5), // PERFPATCH
               onTimeout: () => -1);
+      final int r = rr is int ? rr : (int.tryParse('$rr') ?? -1);
       if (r > 0 && r >= minPingMs) return r;
+    } on TypeError {
+      // a malformed link / odd plugin answer: this server is simply unusable
+      s.badAt = DateTime.now();
     } catch (_swE) { _swl('_delayOf#1', _swE);}
     return null;
   }
@@ -4187,10 +4298,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (s.ovpn) return _startOvpn(s);
     final po = proxyOnly || proxyMode;
     try {
-      final v = V2ray.parseFromURL(s.useLink);
+      final nv = natVarFor(s); // NATULTRA: same variant that passed the test
+      final base = natCfg(s, nv);
       final cfg = proxyOnly
-          ? v.getFullConfiguration()
-          : withNpvAmCore(withIranRouting(v.getFullConfiguration()));
+          ? base
+          : withNpvAmCore(withIranRouting(base));
       if (!po && !await v2ray.requestPermission()) {
         lastFail = 'مجوز VPN داده نشد';
         return false;
@@ -4324,8 +4436,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!trust && !pin) {
         int? p;
         final pingT0 = DateTime.now(); // PINGLOGPATCH
-        for (var i = 0; i < 2 && p == null && !abort; i++) {
-          p = await pingAny(total: const Duration(seconds: 7), direct: true);
+        for (var i = 0; i < (nationalMode ? 3 : 2) && p == null && !abort; i++) {
+          p = await pingAny(
+              total: Duration(seconds: nationalMode ? 12 : 7), direct: true);
           if (p == null) await Future.delayed(const Duration(milliseconds: 500));
         }
         dbg(p == null
@@ -4381,9 +4494,77 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!searching) _set(_connStatus());
   }
 
+  // PROFILES: one tap sets a group of settings
+  void _applyProfile(String name) {
+    switch (name) {
+      case 'stable':
+        badPingMs = 3500;
+        badPingLimit = 3;
+        watchFailLimit = 3;
+        minSpeedKB = 300;
+        betterSwitch = false;
+        break;
+      case 'fast':
+        badPingMs = 1500;
+        badPingLimit = 2;
+        watchFailLimit = 2;
+        minSpeedKB = 1500;
+        betterSwitch = true;
+        break;
+      case 'weak':
+        delayTimeout = const Duration(seconds: 14);
+        badPingMs = 5000;
+        badPingLimit = 3;
+        watchFailLimit = 4;
+        minSpeedKB = 150;
+        break;
+    }
+    _saveSettings();
+    _set('پروفایل اعمال شد');
+  }
+
+  Future<void> _profilesSheet() async {
+    if (!mounted) return;
+    Widget tile(IconData i, String t, String sub, VoidCallback f) => ListTile(
+          leading: Icon(i),
+          title: Text(t),
+          subtitle: Text(sub),
+          onTap: () {
+            Navigator.pop(context);
+            f();
+          },
+        );
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            tile(Icons.shield_moon_outlined, 'پایدار',
+                'کمتر سرور عوض می‌کند', () => _applyProfile('stable')),
+            tile(Icons.bolt_outlined, 'سریع', 'همیشه دنبال بهترین سرور',
+                () => _applyProfile('fast')),
+            tile(Icons.network_check, 'اینترنت ضعیف / نت ملی',
+                'صبر بیشتر، تعویض کمتر', () => _applyProfile('weak')),
+            tile(Icons.auto_awesome, 'Gemini', 'فقط سرورهایی که Gemini را باز می‌کنند',
+                () => connectRow('r:ai')),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  String _fmtB(int b) {
+    if (b >= 1048576) return '${(b / 1048576).toStringAsFixed(1)}MB';
+    if (b >= 1024) return '${(b / 1024).toStringAsFixed(0)}KB';
+    return '${b}B';
+  }
+
   String _connStatus() {
     final sp = current?.speed;
-    return 'وصل شد${sp == null ? '' : ' • ${sp.toStringAsFixed(1)} MB/s'}'
+    final live = (liveDown > 0 || liveUp > 0 || totalDown > 0)
+        ? ' • ↓${_fmtB(liveDown)}/s ↑${_fmtB(liveUp)}/s • مصرف ${_fmtB(totalDown + totalUp)}'
+        : '';
+    return 'وصل شد${sp == null ? '' : ' • ${sp.toStringAsFixed(1)} MB/s'}$live'
         ' • سالم: $standbyCount'
         '${proxyMode ? ' • حالت پروکسی (SOCKS 10808 / HTTP 10809)' : ''}'
         '${tunWarn ? ' • ⚠ تونل VPN ساخته نشد' : ''}'
@@ -4397,7 +4578,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   DateTime? _resHold, _resLast, _resUi;
   int _resDone = 0, _resTotal = 0;
   static const int _resMax = 5000;
-  static const Duration _resEvery = Duration(hours: 24);
+  static const Duration _resEvery = Duration(hours: 12); // auto re-test every 12 h
+  bool _resFull = false; // second-chance pass: every variant
 
   Future<void> _resLoad() async {
     try {
@@ -4523,13 +4705,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return n;
   }
 
-  // 24 h after the last check: ping again. Works stay, fails get a second
+  // 12 h after the last check: ping again (automatic, VPN up or not). Works stay, fails get a second
   // chance at the end of the round and are deleted if they fail again.
   Future<void> _resDaily({bool force = false}) async {
     if (_resBusy || _resMap.isEmpty) return;
-    bool lost() => !connected || !wantVpn || abort || appGone;
-    if (lost() || busy || switching || upBusy) return;
-    if (current?.ovpn == true) return; // no silent test next to OpenVPN
+    // NATULTRA: the 12 h check also runs while the VPN is off (the core's
+    // delay test never needs the tunnel); a user connect/search stops it
+    final wasUp = connected && wantVpn;
+    bool lost() => appGone || busy || switching || upBusy ||
+        (wasUp ? (!connected || !wantVpn || abort) : searching);
+    if (lost() || busy || switching || upBusy || (!wasUp && searching)) return;
+    if (wasUp && current?.ovpn == true) return; // no silent test next to OpenVPN
     final now = DateTime.now();
     if (!force) {
       if (now.difference(lastSwitch) < const Duration(seconds: 60)) return;
@@ -4547,13 +4733,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (mounted) setState(() {});
     try {
       var tested = 0, passed = 0;
+      var netDead = false; // nothing passes at all: the network is down
       Future<void> run(List<_NatResItem> l, List<_NatResItem> out) async {
         await pool<_NatResItem>(l, natWorkers, (e) async {
-          if (lost()) return;
+          if (netDead || lost()) return;
           final d = await _delayOf(e.s, t: _bgTimeout);
           if (lost()) return; // the VPN dropped: this result is not trusted
           tested++;
           _resDone++;
+          if (d == null && tested >= 8 && passed == 0) netDead = true;
           if (d != null) {
             passed++;
             e.checked = DateTime.now();
@@ -4569,12 +4757,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final bad = <_NatResItem>[];
       await run(due, bad);
       if (lost()) return;
+      if (netDead) {
+        _resHold = DateTime.now().add(const Duration(hours: 1));
+        return; // nothing is deleted when the whole network is down
+      }
       final dead = <_NatResItem>[];
       if (bad.isNotEmpty) {
         _resTotal += bad.length;
         await Future.delayed(const Duration(seconds: 20)); // second chance
         if (lost()) return;
-        await run(bad, dead);
+        _resFull = true; // every variant (fragment, fingerprint...) this time
+        try {
+          await run(bad, dead);
+        } finally {
+          _resFull = false;
+        }
         if (lost()) return;
       }
       if (tested >= 5 && passed == 0) {
@@ -4592,6 +4789,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       logError(e);
     } finally {
       _resBusy = false;
+      if (_resDirty) _resSave(); // partial progress is kept too
       if (mounted) setState(() {});
     }
   }
@@ -4613,7 +4811,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       b.write('\nتست قبلی همه‌ی سرورها را خراب نشان داد؛ مشکل از نت بود، '
           'چیزی پاک نشد و بعداً دوباره تست می‌شود');
     }
-    if (!connected) b.write('\nتست پینگ فقط وقتی VPN وصل است انجام می‌شود');
+    b.write('\nتست خودکار هر ۱۲ ساعت؛ سرور خراب حذف و سالم می‌ماند');
     return b.toString();
   }
 
@@ -4654,8 +4852,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ListTile(
               leading: const Icon(Icons.network_ping),
               title: const Text('تست پینگ پوشه همین الان'),
-              subtitle: const Text('فقط وقتی VPN وصل است'),
-              enabled: connected && !_resBusy && _resMap.isNotEmpty,
+              subtitle: const Text('خراب‌ها حذف می‌شوند، سالم‌ها می‌مانند'),
+              enabled: !busy && !_resBusy && _resMap.isNotEmpty,
               onTap: () {
                 Navigator.pop(ctx);
                 _resHold = null;
@@ -4770,11 +4968,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _natDetect() async {
     if (connected) return;
     _natFetched = false;
+    await natDetectOperator(); // NATULTRA: per-operator learning
     try {
       if (!_natLoaded) {
         _natLoaded = true;
         final p = await SharedPreferences.getInstance();
         natGood.addAll(_resMap.keys); // FOLDERONLY
+        await natLoadPersisted(); // NATULTRA
       }
       final r = await Future.wait([
         _natOpen('https://www.gstatic.com/generate_204'),
@@ -4784,8 +4984,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _natOpen('https://www.aparat.com/'),
         _natOpen('https://www.digikala.com/'),
       ]);
-      final world = r[0] || r[1] || r[2] || r[3];
+      var world = r[0] || r[1] || r[2] || r[3];
       final home = r[4] || r[5];
+      // NATSLOW: the world answers but is throttled to a crawl -> same as cut
+      if (world && !natForce) {
+        final lat = await _tuneLatency('http://cp.cloudflare.com/generate_204');
+        if (lat == null || lat > 3000) {
+          world = false;
+        } else if (lat > 1200) {
+          final kb = await _tuneSpeedKB();
+          if (kb != null && kb < 40) world = false;
+        }
+      }
       final was = nationalMode;
       if (natForce) {
         nationalMode = true; // NATBTNPATCH: forced by the button
@@ -4882,12 +5092,36 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // speed-tested for real and the FASTEST one is connected. When none is
   // ready, a search runs and the first healthy server is enough; the rest of
   // the list is tested later while connected (standby search).
+  Future<void> _natEscalate(int round) async {
+    try {
+      await _natDetect(); // what does the network look like now?
+      if (!nationalMode) return;
+      natAll = true; // every source, skip none
+      natLevel = 2; // NATULTRA: every variant
+      tcpTimeout = const Duration(seconds: 6);
+      _dohFail = 0;
+      natRefetch = true; // download fresh lists again (mirrors included)
+      listTime = null;
+      lastFetchTry = DateTime(2000);
+      failed.clear();
+      pending.clear(); // rebuilt from the full list
+      _resInject();
+      if (delayTimeout.inSeconds < 14) delayTimeout = const Duration(seconds: 14);
+      _set('نت ملی: جستجوی گسترده با همه‌ی منابع (مرحله ${round ~/ 3})...');
+    } catch (e) {
+      logError(e);
+    }
+  }
+
   Future<bool> _acquire({bool strictRow = false, bool speed = false}) async {
     if (!strictRow && connRow == null && !_ovMode) {
       await _checkSaved();
     }
     var speedDone = !speed;
     for (var round = 0; !abort; round++) {
+      // NATESCALATE: every 3rd failed round the search gets wider (all sources,
+      // fresh lists, longer waits) and the network state is checked again
+      if (round > 0 && round % 3 == 0) await _natEscalate(round);
       // RETRYPATCH: quick test is repeated until a healthy server exists
       final row = connRow;
       final searchRow = (strictRow || round == 0) ? row : null;
@@ -4958,6 +5192,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _resNext = false;
       abort = false;
       await _natDetect(); // NATIONALPATCH
+      natLevel = natForce ? 2 : 1; // NATULTRA
       natAll = natForce; // NATBTNPATCH: full search of ALL sources
       natForce = false;
       if (nationalMode) _resInject(); // NATRESPATCH
@@ -5249,7 +5484,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         connected = false;
         if (mounted) setState(() {});
         _set('تعویض سرور (${lastWhy.isEmpty ? 'نامشخص' : lastWhy})...');
-        if (await _acquire()) {
+        if (await _acquire(strictRow: connRow == 'r:ai')) {
           _saveCache();
         } else if (abort) {
           wantVpn = false;
@@ -5372,7 +5607,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (mounted) setState(() {});
         if (await _connectLoop([t])) {
           _saveCache();
-        } else if (!abort && !await _acquire()) {
+        } else if (!abort && !await _acquire(strictRow: connRow == 'r:ai')) {
           if (!inForeground) pendingFailover = true;
           _set('سرور جایگزین پیدا نشد • تلاش دوباره...');
         }
@@ -5905,6 +6140,105 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     });
   }
 
+  // GEMWATCH: in the Gemini row the connection must KEEP opening Gemini. Every
+  // 3 minutes it is checked through the tunnel; two clear "no" answers in a
+  // row mark the server and the next Gemini server takes over.
+  DateTime _aiChkAt = DateTime.fromMillisecondsSinceEpoch(0);
+  int _aiChkBad = 0;
+  bool _aiChkBusy = false;
+  void _aiKeepCheck() {
+    try {
+      if (_aiChkBusy || connRow != 'r:ai' || busy || switching) return;
+      final cur = current;
+      if (cur == null || cur.ovpn || !connected) return;
+      final now = DateTime.now();
+      if (now.difference(_aiChkAt) < const Duration(minutes: 3)) return;
+      if (now.difference(lastSwitch) < const Duration(seconds: 40)) return;
+      _aiChkAt = now;
+      _aiChkBusy = true;
+      geminiOpens(direct: true).then((ok) {
+        if (!mounted || !identical(current, cur) || busy || switching) return;
+        if (ok) {
+          _aiChkBad = 0;
+          cur.ai = true;
+        } else if (gemDefinite) {
+          if (++_aiChkBad >= 2) {
+            _aiChkBad = 0;
+            cur.ai = false;
+            lastWhy = 'Gemini روی این سرور باز نمی‌شود';
+            _failover();
+          } else {
+            _aiChkAt = DateTime.now().subtract(const Duration(minutes: 2));
+          }
+        }
+      }).catchError((_) {}).whenComplete(() => _aiChkBusy = false);
+    } catch (e) {
+      logError(e);
+    }
+  }
+
+  // NETCHANGE: Wi-Fi <-> mobile data (or a new IP) while connected. The old
+  // tunnel is often dead right after such a change, so the next failed check
+  // switches server at once instead of waiting for several failures.
+  String _netSig = '';
+  bool netDown = false; // the phone has no network interface with an address
+  DateTime netUpAt = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _netDownSince = DateTime.now();
+  int _netDownRun = 0;
+  Future<void> _netWatch() async {
+    try {
+      final l = await NetworkInterface.list(
+          includeLoopback: false, includeLinkLocal: false);
+      var anyUp = false;
+      final parts = <String>[];
+      for (final i in l) {
+        final n = i.name.toLowerCase();
+        if (n.startsWith('tun') || n.startsWith('dummy')) continue;
+        if (i.addresses.isNotEmpty) anyUp = true;
+        final ips = i.addresses
+            .where((a) => a.type == InternetAddressType.IPv4)
+            .map((a) => a.address)
+            .toList();
+        if (ips.isEmpty) continue;
+        parts.add('${i.name}:${ips.join(',')}');
+      }
+      parts.sort();
+      final sig = parts.join('|');
+      if (_netSig.isNotEmpty && sig != _netSig && connected && wantVpn) {
+        dbg('تغییر شبکه (وای‌فای/دیتا)؛ بررسی فوری اتصال');
+        fails = max(fails, watchFailLimit - 1);
+      }
+      _netSig = sig;
+      // two checks in a row (~10 s) without any real interface = no internet
+      if (!anyUp) {
+        if (++_netDownRun >= 2 && !netDown) {
+          netDown = true;
+          _netDownSince = DateTime.now();
+          dbg('اینترنت گوشی قطع شد؛ VPN نگه داشته می‌شود');
+        }
+        // never hold forever: after 30 minutes the normal logic takes over
+        if (netDown &&
+            DateTime.now().difference(_netDownSince) >
+                const Duration(minutes: 30)) {
+          netDown = false;
+          netUpAt = DateTime.fromMillisecondsSinceEpoch(0);
+        }
+      } else {
+        _netDownRun = 0;
+        if (netDown) {
+          netDown = false;
+          netUpAt = DateTime.now();
+          fails = 0;
+          badPingRun = 0;
+          lowSpeed = 0;
+          stallRun = 0;
+          noData = 0;
+          dbg('اینترنت گوشی برگشت؛ همان اتصال ادامه پیدا می‌کند');
+        }
+      }
+    } catch (_) {}
+  }
+
   void _startWatch() {
     watch?.cancel();
     Future.delayed(const Duration(seconds: 25), _standbyRun);
@@ -5913,7 +6247,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // gone (swiped from recents) every background test is stopped.
       try {
         final alive = await bgChannel.invokeMethod<bool>('alive');
-        if (alive == false && !appGone) {
+        if (alive == false && !appGone && !(wantVpn || connected)) {
           appGone = true;
           abort = true;
         }
@@ -5926,6 +6260,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         watchBusy = false;
         dbg('همگام‌سازی خودکار: بررسی واچ‌داگ بیش از ۹۰s طول کشید؛ آزاد شد');
       }
+      unawaited(_netWatch()); // NETCHANGE
       if (watchBusy || !wantVpn || busy || switching) return;
       if (_syncCore()) return; // SELFHEALPATCH
       watchBusy = true;
@@ -5946,6 +6281,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (p != null) {
           fails = 0;
           current?.ping = p; // live ping of the connected server
+          _aiKeepCheck(); // GEMWATCH
           // Tunnel guard: a "direct" ping also passes when the phone has NO
           // VPN tunnel (no key icon). If tun is missing twice in a row, the
           // VPN is rebuilt on the same server (max 2 tries per connection).
@@ -6086,6 +6422,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _refillRun(); // SPEEDSWITCHPATCH
           // no automatic speed trials: they would cut the VPN. Use the
           // speed button in the panel (_upgradeRun(manual: true)) instead.
+          return;
+        }
+        // NETHOLD: the phone itself has no internet (or it just came back):
+        // changing servers cannot help, so the VPN is kept and we wait
+        if (netDown ||
+            DateTime.now().difference(netUpAt) < const Duration(seconds: 15)) {
+          _set(netDown
+              ? 'اینترنت گوشی قطع است؛ VPN نگه داشته شد، منتظر بازگشت اینترنت...'
+              : 'اینترنت برگشت؛ بررسی دوباره‌ی اتصال...');
           return;
         }
         fails++;
@@ -6308,7 +6653,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final v = int.tryParse(m.group(2)!) ?? 0;
       final o = _insPrevCnt[k] ?? 0;
       if (v > o && v >= 2) {
-        dbg('⚠ ریز: شمارنده‌ی $k بالا رفت ($o → $v)');
+        dbg('شمارنده‌ی $k بالا رفت ($o → $v)'); // info only, not a problem
       }
       _insPrevCnt[k] = v;
     }
@@ -6372,8 +6717,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _insWarn('fastoff', !fastDelay, 0,
         'تست سریع خاموش شد (جواب نداده بود)', every: 3600);
     final pg = num.tryParse('${current?.ping ?? ''}');
-    _insWarn('pingHigh', connected && pg != null && pg > 1500, 20,
-        'پینگ سرور بالاست (${pg ?? '-'} ms)', every: 300);
+    _insWarn('pingHigh', connected && pg != null && pg > max(5000, badPingMs * 2), 60,
+        'پینگ سرور بالاست (${pg ?? '-'} ms)', every: 900);
     final upAge = _insUpAt == null ? 0 : now.difference(_insUpAt!).inSeconds;
     _insWarn('standby', connected && autoUpgrade && !bgDisabled && upAge > 360 &&
         now.difference(lastStandby).inSeconds > 360 && !searching, 0,
@@ -7383,6 +7728,7 @@ UiHero(
             ),
           ),
           UiTools(items: [
+            UiTool(Icons.tune, 'پروفایل‌ها', () => _profilesSheet()),
             UiTool(Icons.add_home_outlined, 'ساخت سرور شخصی', () => connectPersonal()),
             UiTool(Icons.cleaning_services_outlined, 'IP تمیز (AM)', () => cleanIpDialog()),
             UiTool(Icons.send_outlined, 'پروکسی تلگرام', () => showModalBottomSheet(
@@ -8493,6 +8839,7 @@ Future<void> _natAdd(Server s) async {
 }
 
 // NATBTNPATCH
+bool natRefetch = false; // NATESCALATE: download the lists again even in national mode
 bool natForce = false; // the national-network button was tapped
 bool natAll = false; // button session: search ALL sources, skip none
 
