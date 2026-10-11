@@ -5,6 +5,31 @@ part of 'main.dart';
 // (TCP / DNS / TLS / سایت‌های ایرانی و خارجی / آینه‌های لیست) و می‌گوید
 // کدام روش دور زدن به احتمال زیاد جواب می‌دهد.
 
+// AUTONET: when on, the app measures the network itself before connecting and
+// switches the bypass options (Fragment / IP+DoH / clean IP / secure DNS) to
+// what this network needs, instead of only suggesting them.
+bool autoNetOn = true;
+
+Future<void> autoNetSave() async {
+  try {
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('autonet_on', autoNetOn);
+  } catch (e) {
+    logError(e);
+  }
+}
+
+class _NetVerdict {
+  final bool tcp, tls, web, home, dnsPoison, dohOk, srcRaw, srcMir;
+  final String op;
+  final DateTime at;
+  _NetVerdict(this.tcp, this.tls, this.web, this.home, this.dnsPoison,
+      this.dohOk, this.srcRaw, this.srcMir, this.op)
+      : at = DateTime.now();
+}
+
+_NetVerdict? lastNetVerdict;
+
 class _DiagItem {
   final String label;
   final bool ok;
@@ -153,6 +178,9 @@ Future<String> netDiagnose() async {
   final srcMir = any(15, 17);
   final home = any(18, 20);
 
+  lastNetVerdict = _NetVerdict(
+      tcp, tls, web, home, dnsPoison, dnsDoh != null, srcRaw, srcMir, natOpKey);
+
   b.writeln('— نتیجه و پیشنهاد —');
   if (!tcp && !web && home) {
     b.writeln('🔴 اینترنت بین‌الملل قطع است و فقط نت ملی کار می‌کند.\n'
@@ -181,6 +209,64 @@ Future<String> netDiagnose() async {
 }
 
 extension NetDiagExt on _HomePageState {
+  // applies what the measurement says this network needs; returns the list
+  // of changes (empty = nothing to change). Options are only turned ON when
+  // the network needs them; Fragment is also turned off when it is not needed.
+  List<String> autoNetApply(_NetVerdict v) {
+    final ch = <String>[];
+    if (v.tcp) {
+      final wantFrag = !v.tls;
+      if (fragEnabled != wantFrag) {
+        fragEnabled = wantFrag;
+        ch.add(wantFrag
+            ? 'Fragment روشن شد (فیلتر SNI/DPI)'
+            : 'Fragment خاموش شد (لازم نیست)');
+      }
+    }
+    final needDns = v.dnsPoison || (v.tcp && !v.tls) || (v.tls && !v.web);
+    if (needDns && !ipMode) {
+      ipMode = true;
+      ch.add('اتصال با IP (DoH) روشن شد');
+    }
+    if (needDns && !secureDns) {
+      secureDns = true;
+      ch.add('DNS امن روشن شد');
+    }
+    final needClean = (v.tcp && !v.tls) || (v.tls && !v.web);
+    if (needClean && !cleanIpMode) {
+      cleanIpMode = true;
+      ch.add('IP تمیز روشن شد');
+    }
+    return ch;
+  }
+
+  // called before every connect: measures the network (at most once per 10
+  // minutes per operator) and sets the best modes by itself
+  Future<void> autoNetPrep() async {
+    if (!autoNetOn || connected) return;
+    final old = lastNetVerdict;
+    if (old != null &&
+        old.op == natOpKey &&
+        DateTime.now().difference(old.at) < const Duration(minutes: 10)) {
+      return;
+    }
+    _set('تشخیص خودکار شبکه...');
+    try {
+      await netDiagnose().timeout(const Duration(seconds: 20));
+    } catch (e) {
+      logError(e);
+      return;
+    }
+    final v = lastNetVerdict;
+    if (v == null) return;
+    final ch = autoNetApply(v);
+    if (ch.isNotEmpty) {
+      await _saveSettings();
+      if (mounted) setState(() {});
+      _set('حالت شبکه خودکار: ${ch.join('، ')}');
+    }
+  }
+
   Future<void> netDiagDialog() async {
     if (!mounted) return;
     if (connected) {
@@ -188,7 +274,22 @@ extension NetDiagExt on _HomePageState {
       return;
     }
     final out = ValueNotifier<String>('در حال تست... (حدود ۱۰ ثانیه)');
-    unawaited(netDiagnose().then((t) => out.value = t).catchError((e) {
+    unawaited(netDiagnose().then((t) async {
+      var res = t;
+      final v = lastNetVerdict;
+      if (autoNetOn && v != null) {
+        final ch = autoNetApply(v);
+        if (ch.isNotEmpty) {
+          final lines = ch.map((e) => '• $e').join('\n');
+          res = '$t\n🤖 تنظیم خودکار انجام شد:\n$lines';
+          await _saveSettings();
+          if (mounted) setState(() {});
+        } else {
+          res = '$t\n🤖 حالت شبکه خودکار است و تنظیمات فعلی با این شبکه جور است؛ چیزی عوض نشد.';
+        }
+      }
+      out.value = res;
+    }).catchError((e) {
       out.value = 'خطا: $e';
     }));
     await showDialog<void>(
