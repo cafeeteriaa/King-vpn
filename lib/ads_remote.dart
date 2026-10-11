@@ -9,7 +9,7 @@ part of 'main.dart';
 // enabled=false  => تبلیغ کلاً خاموش
 // urls           => چند لینک بگذاری، هر بار یکی به‌صورت تصادفی نشان داده می‌شود
 // seconds        => حداقل زمان دیدن تبلیغ (۳ تا ۶۰)
-const String adsConfigUrl = 'PUT_RAW_GIST_URL_HERE';
+const String adsConfigUrl = 'https://gist.githubusercontent.com/cafeeteriaa/f403c732c9cd963deca653054c998bf4/raw/ads.json';
 
 bool _adsApply(String body) {
   try {
