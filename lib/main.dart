@@ -3151,6 +3151,42 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         failWindow = Duration(minutes: failMin);
         recheckAfter = Duration(minutes: recheckMin);
       }
+      // LOWDATA: lowest internet usage, applied ONCE (fastWorkers stays 50,
+      // batch stays 500). After that the user's own changes are kept.
+      if (p.getBool('lowdata_v1') != true) {
+        fastWorkers = 50;
+        batchSize = 500;
+        bgWorkers = 1;
+        delayTimeout = const Duration(seconds: 6);
+        speedTopN = 1;
+        badPingMs = 3000;
+        minSpeedKB = 0;
+        listRefreshMin = 240;
+        failMin = 120;
+        recheckMin = 30;
+        tcpWorkers = 50;
+        maxPerSource = 100;
+        fetchWorkers = 4;
+        fetchDeadline = const Duration(seconds: 20);
+        firstBatchSize = 50;
+        standbyBatchSize = 30;
+        maxBatches = 5;
+        watchFailLimit = 3;
+        badPingLimit = 3;
+        missLimit = 3;
+        watchEvery = const Duration(seconds: 60);
+        autoSpeed = false;
+        autoUpgrade = false;
+        badPingSwitch = false;
+        autoCycle = false;
+        ipMode = false;
+        cleanIpMode = false;
+        secureDns = false;
+        failWindow = Duration(minutes: failMin);
+        recheckAfter = Duration(minutes: recheckMin);
+        await p.setBool('lowdata_v1', true);
+        await _saveSettings();
+      }
       // FOLDERONLY: healthy servers are kept only in the folder
       for (final k in ['cache', 'bg_tcp', 'nat_keys']) {
         await p.remove(k);
