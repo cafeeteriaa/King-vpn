@@ -18,6 +18,8 @@ import 'tg_proxy.dart';
 part 'iran_ai_extras.dart';
 part 'npv_am_extras.dart';
 part 'nat_ultra.dart';
+part 'net_diag.dart';
+part 'extras_plus.dart';
 
 // One rewarded ad = one 4 hour session. When the 4 hours end the VPN is cut
 // and the next connect shows the ad again. Automatic server switches (bad
@@ -37,7 +39,7 @@ const bgChannel = MethodChannel('vpn/bg');
 int bgWorkers = 1; // RETRYPATCH
 // FAST SEARCH: parallel ping tests (core delay test, no VPN toggling) used
 // when looking for the first healthy server (settings 1..8).
-int fastWorkers = 24; // PERFPATCH (was 50)
+int fastWorkers = 50; // FASTSET: 50 parallel tests (fixed default)
 // a healthy server not checked for this long is pinged again (occasional
 // re-check, the server stays in the list until it really fails)
 Duration recheckAfter = const Duration(minutes: 3);
@@ -320,7 +322,7 @@ void _tuneApply(int lv) {
   if (lv == 0) {
     // weak / filtered network: fewer parallel tests, longer waits, and do not
     // switch servers for every small glitch
-    fastWorkers = 3;
+    // fastWorkers stays 50 (FASTSET)
     bgWorkers = 2;
     delayTimeout = const Duration(seconds: 10);
     batchSize = 150;
@@ -330,7 +332,7 @@ void _tuneApply(int lv) {
     watchFailLimit = 4;
   } else if (lv == 2) {
     // fast network: more parallel tests, strict about slow servers
-    fastWorkers = 8;
+    // fastWorkers stays 50 (FASTSET)
     bgWorkers = 6;
     delayTimeout = const Duration(seconds: 5);
     batchSize = 300;
@@ -340,7 +342,7 @@ void _tuneApply(int lv) {
     watchFailLimit = 2;
   } else {
     // normal = the app's own defaults
-    fastWorkers = 4;
+    // fastWorkers stays 50 (FASTSET)
     bgWorkers = 4;
     delayTimeout = const Duration(seconds: 8);
     batchSize = 300;
@@ -2947,6 +2949,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     sessionT?.cancel();
     _resT?.cancel(); // NATRESPATCH
     _resSaveT?.cancel();
+    _insT?.cancel(); // the 3 s inspector timer was never stopped
+    aiLoop?.cancel();
     super.dispose();
   }
 
@@ -4000,12 +4004,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // variants (other address, Fragment sizes, fingerprints, ALPN, 2nd URL)
     final multi = nationalMode || _resBusy; // folder re-test uses variants too
     final order = multi ? _natOrder(s, full: _resFull) : const [0];
+    // NATBUDGET: one server may only use a limited time per pass; the rest of
+    // its variants continue in the next pass (natCursorAdvance)
+    final budget = multi ? natBudget(full: _resFull) : null;
+    final bsw = Stopwatch()..start();
+    var genTried = 0;
+    // plain TCP check (once, lazily): when the port is closed, only variants
+    // that change the address / port / DNS can still help, the rest are skipped
+    bool? tcpOk;
     for (var i = 0; i < order.length; i++) {
       if (i > 0 && abort) break;
+      if (budget != null && i > 0 && bsw.elapsed > budget) break;
       final code = order[i];
-      final v = code % 100;
-      final u = code >= 100 ? _natAltTestUrl : url;
-      final to = i == 0 ? tt : Duration(seconds: min(tt.inSeconds, 9));
+      final v = code % _natCodeBase;
+      if (i >= 3 && s.ipLink == null && !_natChangesAddr(v)) {
+        tcpOk ??= s.isIp || (await probe(s)) != null;
+        if (!tcpOk) continue;
+      }
+      final u = _natUrlFor(code, url);
+      final to = i == 0
+          ? tt
+          : Duration(seconds: min(tt.inSeconds, i > 60 ? 5 : (i > 12 ? 6 : 9)));
+      if (v >= _natBaseCount) genTried++;
       final d = await _delayOnce(s, v, to, u);
       if (d != null) {
         if (multi) {
@@ -4017,6 +4037,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         return d;
       }
     }
+    if (multi && genTried > 0) natCursorAdvance(s, genTried);
     return null;
   }
 
@@ -4299,7 +4320,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final po = proxyOnly || proxyMode;
     try {
       final nv = natVarFor(s); // NATULTRA: same variant that passed the test
-      final base = natCfg(s, nv);
+      final base = natCfg(s, nv, reuse: true); // same port / clean IP as the test
       final cfg = proxyOnly
           ? base
           : withNpvAmCore(withIranRouting(base));
@@ -4380,6 +4401,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   void _onConnected(Server s) {
     current = s;
+    plusHistAdd(s);
     connBaseDelay = s.ping;
     betterRun = 0;
     aiGen++; // FASTPATCH-AI: analyse+apply after ANY connection
@@ -4418,6 +4440,38 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   String _short(String t, [int n = 90]) => t.length > n ? t.substring(0, n) : t;
 
+  // NATLADDER: other variants of one server through the REAL tunnel
+  // (the tunnel is up when this returns true)
+  Future<bool> _natLadder(Server s) async {
+    final first = natVarFor(s);
+    try {
+      final tried = <int>{first};
+      final cand = _natOrder(s, full: true)
+          .where((c) => c < _natCodeBase)
+          .where((v) => tried.add(v))
+          .take(4)
+          .toList();
+      for (final v in cand) {
+        if (abort || !wantVpn) break;
+        _set('اتصال به ${s.name} با حالت «${_natSpecs[v].name}»...');
+        natVar[_nk(s)] = v; // _start() reads the variant through natVarFor
+        if (!await _start(s)) continue;
+        final p = await pingAny(total: const Duration(seconds: 9), direct: true);
+        if (p != null) {
+          natVarSet(s, v);
+          dbg('نت ملی: ${s.name} با حالت «${_natSpecs[v].name}» از تونل واقعی جواب داد');
+          return true;
+        }
+        await _stopV2();
+      }
+    } catch (e) {
+      logError(e);
+    }
+    // nothing worked: forget the variant that only passed the core test
+    natVar.remove(_nk(s));
+    return false;
+  }
+
   // [trust] = the server was already tested: skip the extra verification.
   // Pinned / manually added configs are always trusted (the user chose them):
   // they are connected as they are, and the watchdog replaces them only if
@@ -4450,6 +4504,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 '• ${s.name} • tun: $tunNames');
         if (p == null) {
           await _stopV2();
+          // NATLADDER: the variant that passed the core test carried no real
+          // traffic: try the next ranked variants of the SAME server first
+          if (nationalMode && !abort && wantVpn && await _natLadder(s)) {
+            _onConnected(s);
+            return true;
+          }
           s.badAt = DateTime.now();
           errorLog.value = '${s.name}: وصل شد ولی اینترنت رد نشد '
               '(${_short(lastPingErr, 70)})';
@@ -4913,6 +4973,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           idle = 0;
           bgWorkers = natWorkers; // NATWORKERSPATCH: locked (4)
           autoUpgrade = true;
+          // NATBG: while connected the background search is deeper (more
+          // variants per server) and every healthy server goes into the folder
+          if (natLevel < 3) natLevel = 3;
           if (bgDisabled) {
             // the "nothing worked in 30 tests" shutdown must never stick
             bgDisabled = false;
@@ -4972,7 +5035,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     try {
       if (!_natLoaded) {
         _natLoaded = true;
-        final p = await SharedPreferences.getInstance();
         natGood.addAll(_resMap.keys); // FOLDERONLY
         await natLoadPersisted(); // NATULTRA
       }
@@ -5097,8 +5159,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       await _natDetect(); // what does the network look like now?
       if (!nationalMode) return;
       natAll = true; // every source, skip none
-      natLevel = 2; // NATULTRA: every variant
-      tcpTimeout = const Duration(seconds: 6);
+      // NATULTRA: 2 = every base variant, 3 = + every test address and ~120 generated
+      // variants, 4 = ~600 generated variants per pass (the cursor continues next round)
+      natLevel = round >= 8 ? 4 : (round >= 4 ? 3 : 2);
+      tcpTimeout = Duration(seconds: round >= 8 ? 8 : 6);
       _dohFail = 0;
       natRefetch = true; // download fresh lists again (mirrors included)
       listTime = null;
@@ -5107,7 +5171,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       pending.clear(); // rebuilt from the full list
       _resInject();
       if (delayTimeout.inSeconds < 14) delayTimeout = const Duration(seconds: 14);
-      _set('نت ملی: جستجوی گسترده با همه‌ی منابع (مرحله ${round ~/ 3})...');
+      _set('نت ملی: جستجوی گسترده با همه‌ی منابع (مرحله ${round ~/ 2} • سطح $natLevel)...');
     } catch (e) {
       logError(e);
     }
@@ -5121,7 +5185,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     for (var round = 0; !abort; round++) {
       // NATESCALATE: every 3rd failed round the search gets wider (all sources,
       // fresh lists, longer waits) and the network state is checked again
-      if (round > 0 && round % 3 == 0) await _natEscalate(round);
+      if (round > 0 && round % 2 == 0) await _natEscalate(round);
       // RETRYPATCH: quick test is repeated until a healthy server exists
       final row = connRow;
       final searchRow = (strictRow || round == 0) ? row : null;
@@ -7182,7 +7246,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     this.resetNumButton(setS),
                     head('⚡ سرعت تست'),
                     row('تست همزمان (جستجوی اول)', '$fastWorkers',
-                        fastWorkers.toDouble(), 1, 8, 7,
+                        fastWorkers.toDouble(), 1, 100, 99,
                         (x) => fastWorkers = x.round()),
                     row('تست همزمان (وقتی وصل است)', '$bgWorkers',
                         bgWorkers.toDouble(), 1, 6, 5,
@@ -7574,6 +7638,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               if (v == 'copy') _copyGood();
               if (v == 'src') _sourcesSheet();
               if (v == 'log') _logSheet();
+              if (v == 'diag') netDiagDialog();
+              if (v == 'plus') plusSheet();
               if (v == 'reset') resetAllServers();
               if (v == 'clear') {
                 setState(() {
@@ -7594,6 +7660,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               PopupMenuItem(value: 'copy', child: Text('کپی سرورهای سالم')),
               PopupMenuItem(value: 'src', child: Text('وضعیت منابع')),
               PopupMenuItem(value: 'clear', child: Text('پاک کردن لیست سیاه')),
+              PopupMenuItem(value: 'diag', child: Text('تشخیص شبکه')),
+              PopupMenuItem(value: 'plus', child: Text('ابزارهای بیشتر')),
               PopupMenuItem(value: 'log', child: Text('گزارش خطاها')),
               PopupMenuItem(
                   value: 'reset',
