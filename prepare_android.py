@@ -40,28 +40,94 @@ kd = os.path.join(APP, 'android/app/src/main/kotlin/com/vpn/vpn_app')
 os.makedirs(kd, exist_ok=True)
 open(os.path.join(kd, 'MainActivity.kt'), 'w', encoding='utf-8').write("""package com.vpn.vpn_app
 
+import android.content.Context
+import android.content.Intent
+import android.provider.Settings
+import android.os.Bundle
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.embedding.engine.FlutterEngineCache
+import io.flutter.embedding.engine.dart.DartExecutor
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugins.GeneratedPluginRegistrant
 
+// BGKEEP: the Flutter engine (and so the Dart server search) lives in a cache
+// and is NOT destroyed when the screen is swiped away from the recent apps.
+// The VPN service keeps the process alive, so the search keeps running.
+// When the screen closes, Dart is asked ("gone"): with no VPN wanted/up it
+// answers false and the engine is destroyed, otherwise it is kept.
 class MainActivity : FlutterActivity() {
-    private var ch: MethodChannel? = null
-    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-        super.configureFlutterEngine(flutterEngine)
-        ch = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "vpn/bg")
-        ch!!.setMethodCallHandler { call, result ->
-            when (call.method) {
-                "back" -> { moveTaskToBack(true); result.success(true) }
-                "alive" -> result.success(!isFinishing && !isDestroyed)
-                else -> result.notImplemented()
-            }
+    companion object {
+        private const val ENGINE_ID = "vpn_main_engine"
+        private var ch: MethodChannel? = null
+        private var liveActivity: MainActivity? = null
+
+        private fun killEngine() {
+            try {
+                val e = FlutterEngineCache.getInstance().get(ENGINE_ID)
+                FlutterEngineCache.getInstance().remove(ENGINE_ID)
+                e?.destroy()
+            } catch (x: Exception) {}
+            ch = null
         }
     }
-    override fun onDestroy() {
-        if (isFinishing) {
-            try { ch?.invokeMethod("gone", null) } catch (e: Exception) {}
+
+    override fun provideFlutterEngine(context: Context): FlutterEngine? {
+        val cache = FlutterEngineCache.getInstance()
+        var e = cache.get(ENGINE_ID)
+        if (e == null) {
+            e = FlutterEngine(context.applicationContext)
+            GeneratedPluginRegistrant.registerWith(e)
+            val c = MethodChannel(e.dartExecutor.binaryMessenger, "vpn/bg")
+            c.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "back" -> { liveActivity?.moveTaskToBack(true); result.success(true) }
+                    "alive" -> result.success(true)
+                    "vpnSettings" -> {
+                        try {
+                            val i = Intent(Settings.ACTION_VPN_SETTINGS)
+                            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            context.startActivity(i)
+                            result.success(true)
+                        } catch (x: Exception) { result.success(false) }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+            ch = c
+            e.dartExecutor.executeDartEntrypoint(
+                DartExecutor.DartEntrypoint.createDefault()
+            )
+            cache.put(ENGINE_ID, e)
         }
+        return e
+    }
+
+    // plugins are already registered in provideFlutterEngine
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {}
+
+    override fun shouldDestroyEngineWithHost(): Boolean = false
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        liveActivity = this
+        super.onCreate(savedInstanceState)
+    }
+
+    override fun onDestroy() {
+        val finishing = isFinishing
+        if (liveActivity === this) liveActivity = null
         super.onDestroy()
+        if (finishing) {
+            try {
+                ch?.invokeMethod("gone", null, object : MethodChannel.Result {
+                    override fun success(result: Any?) {
+                        if (result == false) killEngine()
+                    }
+                    override fun error(code: String, msg: String?, details: Any?) {}
+                    override fun notImplemented() {}
+                })
+            } catch (e: Exception) {}
+        }
     }
 }
 """)
