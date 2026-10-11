@@ -30,7 +30,7 @@ jobs:
         run: |
           flutter create --project-name vpn_app --org com.vpn --platforms=android build_app
           rm -rf build_app/test
-          for f in main iran_ai_extras npv_am_extras tg_proxy nat_ultra net_diag extras_plus; do
+          for f in main iran_ai_extras npv_am_extras tg_proxy nat_ultra net_diag extras_plus donate; do
             [ -f "lib/$f.dart" ] || { echo "ERROR: lib/$f.dart missing"; exit 1; }
             cp "lib/$f.dart" "build_app/lib/$f.dart"
           done
