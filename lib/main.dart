@@ -141,48 +141,48 @@ const hotOwners = {
   'AvenCores',
 };
 // below this download speed (KB/s) the connected server is replaced (0 = off)
-int minSpeedKB = 200;
+int minSpeedKB = 0; // LOWDATA: speed-based switching off (no download tests)
 
 // ---- settings ----
 // user-adjustable (saved in settings)
-int batchSize = 300; // servers tested per batch
+int batchSize = 500; // servers tested per batch (fixed 500)
 int delayWorkers = 20; // (kept for settings compatibility)
-Duration delayTimeout = const Duration(seconds: 10);
+Duration delayTimeout = const Duration(seconds: 6);
 int goodWant = 3; // (kept for settings compatibility, not used any more)
-bool autoSpeed = true; // speed-test the best few servers before connecting
-int speedTopN = 3; // how many top servers are speed-tested before connecting
-bool autoUpgrade = true; // keep searching for new servers while connected
+bool autoSpeed = false; // LOWDATA // speed-test the best few servers before connecting
+int speedTopN = 1; // LOWDATA // how many top servers are speed-tested before connecting
+bool autoUpgrade = false; // LOWDATA // keep searching for new servers while connected
 // real pings below this are fake -> server counts as bad / hidden.
 // 0 = off: the real speed test decides (done right after connecting).
 int minPingMs = 0;
 // connected server has a terrible ping -> jump at once to the best-ping server
-bool badPingSwitch = true;
-int badPingMs = 1500;
+bool badPingSwitch = false; // LOWDATA
+int badPingMs = 3000;
 // the healthy servers of the last session are tested first
 bool savedFirst = true;
 // learn what works on this network (protocol / transport / port / source) and
 // test the most likely servers first; skip lists that never give a server
 bool smartOrder = true;
 // when every server was tested: download a new list and go on, forever
-bool autoCycle = true;
+bool autoCycle = false; // LOWDATA: no endless list re-downloads
 // minutes before the downloaded list is refreshed. Big value on purpose: the
 // list is replaced when ALL servers were tested (autoCycle), not by the clock.
-int listRefreshMin = 60;
-int failMin = 30; // minutes a failed server is not tested again
-int recheckMin = 3; // minutes before a healthy server is pinged again
-int maxBatches = 15; // safety limit per search
+int listRefreshMin = 240;
+int failMin = 120; // minutes a failed server is not tested again
+int recheckMin = 30; // minutes before a healthy server is pinged again
+int maxBatches = 5; // safety limit per search
 const standbyBatches = 10; // batches per standby search cycle
 const bgSearchOff = false; // RETRYPATCH // SPEEDSWITCHPATCH: no search while connected
 // while connected the tunnel is shared with the tests, so the batch is bigger
 // and the timeout longer (fewer false "dead" results). The healthy servers
 // are re-checked inside the batch every 25 tests, so a big batch is safe.
-int standbyBatchSize = 200;
+int standbyBatchSize = 30;
 const bgTimeoutSecs = 8;
-int firstBatchSize = 80; // small first batch: the first test starts sooner
-int fetchWorkers = 24;
-Duration fetchDeadline = const Duration(seconds: 35);
-int tcpWorkers = 60;
-int maxPerSource = 400;
+int firstBatchSize = 50; // small first batch: the first test starts sooner
+int fetchWorkers = 4;
+Duration fetchDeadline = const Duration(seconds: 20);
+int tcpWorkers = 50;
+int maxPerSource = 100;
 Duration tcpTimeout = const Duration(milliseconds: 3000);
 // TLS handshakes in the prefilter leaked sockets (crash, instant failures)
 const probeTls = false;
@@ -192,9 +192,9 @@ const httpProxyPort = 10809;
 // anti-flapping / watchdog
 // A dead / broken server is replaced right away: 2 failed checks (~10 s),
 // no waiting for the 10 minute speed-trial timer.
-Duration watchEvery = const Duration(seconds: 5);
-int watchFailLimit = 2; // consecutive failed checks before switching
-int badPingLimit = 2; // consecutive bad pings (~10 s) before a ping switch
+Duration watchEvery = const Duration(seconds: 60);
+int watchFailLimit = 3; // consecutive failed checks before switching
+int badPingLimit = 3; // consecutive bad pings (~10 s) before a ping switch
 const minHold = Duration(seconds: 5); // min time between two switches
 // FASTPATCH ----------------------------------------------------
 int fastPickN = 4; // healthy servers collected before choosing
@@ -209,7 +209,7 @@ bool aiFastOn = true; // parallel Gemini test (off = old one-by-one)
 int aiTried = 0;
 int aiHit = 0;
 int aiGen = 0; // FASTPATCH-AI: one analysis loop per connection
-int aiEveryMin = 2; // minutes between two analyses
+int aiEveryMin = 30; // minutes between two analyses
 const badFor = Duration(minutes: 10);
 // continuous real-speed search: every new healthy server is speed-tested;
 // if it is faster than the connected one it takes over, if it is only faster
@@ -326,33 +326,33 @@ void _tuneApply(int lv) {
     // weak / filtered network: fewer parallel tests, longer waits, and do not
     // switch servers for every small glitch
     // fastWorkers stays 50 (FASTSET)
-    bgWorkers = 2;
-    delayTimeout = const Duration(seconds: 10);
-    batchSize = 150;
-    minSpeedKB = 150;
+    bgWorkers = 1;
+    delayTimeout = const Duration(seconds: 8);
+    batchSize = 500;
+    minSpeedKB = 0;
     badPingMs = 5000;
     badPingLimit = 3;
     watchFailLimit = 4;
   } else if (lv == 2) {
     // fast network: more parallel tests, strict about slow servers
     // fastWorkers stays 50 (FASTSET)
-    bgWorkers = 6;
+    bgWorkers = 1;
     delayTimeout = const Duration(seconds: 5);
-    batchSize = 300;
-    minSpeedKB = 1000;
+    batchSize = 500;
+    minSpeedKB = 0;
     badPingMs = 3000;
-    badPingLimit = 2;
-    watchFailLimit = 2;
+    badPingLimit = 3;
+    watchFailLimit = 3;
   } else {
     // normal = the app's own defaults
     // fastWorkers stays 50 (FASTSET)
-    bgWorkers = 4;
-    delayTimeout = const Duration(seconds: 8);
-    batchSize = 300;
-    minSpeedKB = 200;
-    badPingMs = 1500;
-    badPingLimit = 2;
-    watchFailLimit = 2;
+    bgWorkers = 1;
+    delayTimeout = const Duration(seconds: 6);
+    batchSize = 500;
+    minSpeedKB = 0;
+    badPingMs = 3000;
+    badPingLimit = 3;
+    watchFailLimit = 3;
   }
 }
 
@@ -2575,7 +2575,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final Map<String, int> profTested = {}, profOk = {};
   Set<String> topSrc = {};
   bool onlyHealthySrc = true;
-  bool ipMode = true; // resolve domains to IP (DoH) and connect by IP
+  bool ipMode = false; // LOWDATA // resolve domains to IP (DoH) and connect by IP
   String groupMode = 'type'; // 'type' rows, 'country' rows or 'source' rows
   String? connRow; // row the current connection was picked from
   int dTcp = 0, dFake = 0; // diagnostics
@@ -7281,7 +7281,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         delayTimeout.inSeconds.toDouble(), 3, 10, 7,
                         (x) => delayTimeout = Duration(seconds: x.round())),
                     row('اندازه دسته', '$batchSize', batchSize.toDouble(), 50,
-                        300, 5, (x) => batchSize = x.round()),
+                        1000, 0, (x) => batchSize = x.round()),
                     row('حداقل پینگ معتبر (۰ = خاموش، سرعت واقعی تصمیم می‌گیرد)',
                         '$minPingMs ms', minPingMs.toDouble(), 0, 300, 12,
                         (x) => minPingMs = x.round()),
@@ -7313,7 +7313,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             'وقتی وصل هستی، سرورهای جدید با پینگ تست می‌شوند'),
                     row('هر چند دقیقه لیست جدید (وقتی همه تست شد هم عوض می‌شود)',
                         '$listRefreshMin دقیقه',
-                        listRefreshMin.toDouble(), 2, 60, 58,
+                        listRefreshMin.toDouble(), 2, 240, 0,
                         (x) => listRefreshMin = x.round()),
                     row('سرور خراب تا چند دقیقه تست نشود', '$failMin دقیقه',
                         failMin.toDouble(), 5, 120, 23, (x) {
