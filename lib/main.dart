@@ -21,12 +21,14 @@ part 'nat_ultra.dart';
 part 'net_diag.dart';
 part 'extras_plus.dart';
 part 'donate.dart';
+part 'ads_remote.dart';
+part 'online.dart';
 
 // One rewarded ad = one 4 hour session. When the 4 hours end the VPN is cut
 // and the next connect shows the ad again. Automatic server switches (bad
 // ping / low speed / dead server) never show an ad and never end the session.
 // Ad gate = the in-app AdPage (no AdMob). Set requireRewardedAd to false to remove it.
-const requireRewardedAd = true;
+bool requireRewardedAd = true;
 const sessionLength = Duration(hours: 4);
 
 // package name of this app (org com.vpn + project vpn_app). It is never
@@ -2916,6 +2918,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<void> _init() async {
+    unawaited(adsRemoteLoad());
+    onlineStart();
     await _loadCache();
     await _resLoad(); // NATRESPATCH
     await autoTuneLoad(); // AUTOTUNEPATCH
@@ -3421,6 +3425,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<bool> _ensureSession() async {
     if (!requireRewardedAd || (_sessionValid && !_adEveryConnect)) return true;
     if (!mounted) return false;
+    unawaited(adsRemoteLoad());
       final ok = await showAdPage(context);
     if (ok) await _startSession();
     return ok;
@@ -7785,6 +7790,7 @@ UiHero(
             ),
           ),
           UiStatus(text: status, on: connected),
+          const OnlineBadge(),
           _speedPanel(u),
           aiBar(),
           Padding( // NATBTNPATCH
@@ -8594,8 +8600,8 @@ extension ResetAllExt on _HomePageState {
 
 // ADPAGE ---- in-app ad page shown before connecting ----
 const String _adUrl = 'https://motionless-bus.com/bteyn5';
-const List<String> _adUrls = [_adUrl];
-const int _adSeconds = 10;
+List<String> _adUrls = [_adUrl];
+int _adSeconds = 10;
 const int _adWebTries = 2;
 const bool _adEveryConnect = true;
 const Color _adBg = Color(0xFF1A1710);
