@@ -138,7 +138,7 @@ const hotOwners = {
   'AvenCores',
 };
 // below this download speed (KB/s) the connected server is replaced (0 = off)
-int minSpeedKB = 800;
+int minSpeedKB = 200;
 
 // ---- settings ----
 // user-adjustable (saved in settings)
@@ -154,7 +154,7 @@ bool autoUpgrade = true; // keep searching for new servers while connected
 int minPingMs = 0;
 // connected server has a terrible ping -> jump at once to the best-ping server
 bool badPingSwitch = true;
-int badPingMs = 2500;
+int badPingMs = 1500;
 // the healthy servers of the last session are tested first
 bool savedFirst = true;
 // learn what works on this network (protocol / transport / port / source) and
@@ -346,8 +346,8 @@ void _tuneApply(int lv) {
     bgWorkers = 4;
     delayTimeout = const Duration(seconds: 8);
     batchSize = 300;
-    minSpeedKB = 800;
-    badPingMs = 5000;
+    minSpeedKB = 200;
+    badPingMs = 1500;
     badPingLimit = 2;
     watchFailLimit = 2;
   }
@@ -3096,6 +3096,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final p = await SharedPreferences.getInstance();
       await loadGeminiPrefs(p);
       await loadNumPrefs(p);
+      autoNetOn = p.getBool('autonet_on') ?? true; // AUTONET
       // settings first: the fail window / re-check time are used below
       final st = await tunedSettings(p);
       if (st != null) {
@@ -5256,6 +5257,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _resNext = false;
       abort = false;
       await _natDetect(); // NATIONALPATCH
+      await autoNetPrep(); // AUTONET: detect the network, pick the best modes
       natLevel = natForce ? 2 : 1; // NATULTRA
       natAll = natForce; // NATBTNPATCH: full search of ALL sources
       natForce = false;
@@ -5296,12 +5298,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
         // tapping an OpenVPN server directly: replacements stay OpenVPN
         connRow = (row == null && only != null && only.ovpn) ? 'r:ovpn' : row;
-        final ok = only != null
+        var ok = only != null
             ? await _connectLoop([only], trust: good.contains(only))
             : (row == 'f:mine')
                 // "my configs" row: they are connected directly, no search
                 ? await _connectLoop(_mineList())
                 : await _acquire(strictRow: row != null, speed: autoSpeed);
+        // AUTONET: the tapped mode found nothing -> the app picks the best
+        // mode itself (all kinds of servers, the one that works best first)
+        if (!ok &&
+            !abort &&
+            autoNetOn &&
+            only == null &&
+            row != null &&
+            !row.startsWith('f:') &&
+            row != 'r:ai' &&
+            row != 'r:ovpn') {
+          _set('این حالت جواب نداد؛ بهترین حالت را خودم انتخاب می‌کنم...');
+          connRow = null;
+          ok = await _acquire(strictRow: false, speed: autoSpeed);
+        }
         if (ok) {
           _startWatch();
           _saveCache();
@@ -7797,6 +7813,16 @@ UiHero(
           ),
           UiTools(items: [
             UiTool(Icons.tune, 'پروفایل‌ها', () => _profilesSheet()),
+            UiTool(
+                Icons.auto_fix_high,
+                autoNetOn ? 'حالت شبکه: خودکار ✓' : 'حالت شبکه: دستی',
+                () {
+                  setState(() => autoNetOn = !autoNetOn);
+                  autoNetSave();
+                  _set(autoNetOn
+                      ? 'حالت شبکه خودکار روشن شد؛ هر بار قبل از اتصال شبکه را می‌سنجد'
+                      : 'حالت شبکه خودکار خاموش شد؛ تنظیمات دستی می‌مانند');
+                }),
             UiTool(Icons.add_home_outlined, 'ساخت سرور شخصی', () => connectPersonal()),
             UiTool(Icons.cleaning_services_outlined, 'IP تمیز (AM)', () => cleanIpDialog()),
             UiTool(Icons.send_outlined, 'پروکسی تلگرام', () => showModalBottomSheet(
