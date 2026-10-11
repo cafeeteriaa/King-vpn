@@ -31,9 +31,9 @@ part 'online.dart';
 bool requireRewardedAd = true;
 const sessionLength = Duration(hours: 4);
 
-// package name of this app (org com.vpn + project vpn_app). It is never
+// package name of this app (org com.kingvpn + project king_vpn). It is never
 // excluded from the VPN, because the app tests the tunnel itself.
-const ownPkg = 'com.vpn.vpn_app';
+const ownPkg = 'com.kingvpn.king_vpn';
 // native channel: the back button only minimizes the app while the VPN is on
 // (so the standby search keeps running). Needs the MainActivity patch from
 // the workflow file.
