@@ -878,9 +878,9 @@ final List<NumOpt> numOpts = [
       () => minPingMs, (v) => minPingMs = v),
   NumOpt('speedTopN', 'تعداد سرور برای تست سرعت', 1, 1000, 3, 10, false,
       () => speedTopN, (v) => speedTopN = v),
-  NumOpt('badPingMs', 'پینگ بد از', 70, 7000, 3000, 7000, false,
+  NumOpt('badPingMs', 'پینگ بد از', 70, 7000, 1500, 7000, false,
       () => badPingMs, (v) => badPingMs = v),
-  NumOpt('minSpeedKB', 'تعویض اگر سرعت کمتر از', 0, 50000, 300, 1000, false,
+  NumOpt('minSpeedKB', 'تعویض اگر سرعت کمتر از', 0, 50000, 200, 1000, false,
       () => minSpeedKB, (v) => minSpeedKB = v),
   NumOpt('listRefreshMin', 'هر چند دقیقه لیست جدید', 1, 1000, 30, 240, false,
       () => listRefreshMin, (v) => listRefreshMin = v),
@@ -1151,6 +1151,30 @@ Future<String?> tunedSettings(SharedPreferences p) async {
         }
       }
       await p.setBool('tuned_v2', true);
+    }
+    // TUNEDV3: bad ping 1500 ms, switch below 200 KB/s, applied ONCE
+    if (p.getBool('tuned_v3') != true) {
+      final st = p.getString('settings');
+      if (st != null) {
+        final j = jsonDecode(st);
+        if (j is Map) {
+          final m = Map<String, dynamic>.from(j);
+          m['bp'] = 1500;
+          m['ms'] = 200;
+          await p.setString('settings', jsonEncode(m));
+        }
+      }
+      final nx = p.getString('numx');
+      if (nx != null) {
+        final j = jsonDecode(nx);
+        if (j is Map) {
+          final m = Map<String, dynamic>.from(j);
+          m['badPingMs'] = 1500;
+          m['minSpeedKB'] = 200;
+          await p.setString('numx', jsonEncode(m));
+        }
+      }
+      await p.setBool('tuned_v3', true);
     }
   } catch (e) {
     logError(e);
