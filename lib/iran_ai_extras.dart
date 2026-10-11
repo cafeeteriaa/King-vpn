@@ -292,7 +292,19 @@ const _mirrorHosts = [
   'fastly.jsdelivr.net',
   'gcore.jsdelivr.net',
   'testingcf.jsdelivr.net',
+  'quantil.jsdelivr.net',
+  'originfastly.jsdelivr.net',
+  'jsdelivr.b-cdn.net',
   'cdn.statically.io',
+];
+
+// proxies that fetch a raw GitHub URL for us (the whole URL is appended)
+const _mirrorProxies = [
+  'https://ghproxy.net/',
+  'https://gh-proxy.com/',
+  'https://ghfast.top/',
+  'https://mirror.ghproxy.com/',
+  'https://gh.llkk.cc/',
 ];
 
 List<String> _mirrorsOf(String u) {
@@ -313,6 +325,8 @@ List<String> _mirrorsOf(String u) {
         'https://$h/gh/${p[0]}/${p[1]}@${rest.first}/$path',
     'https://raw.githack.com/${p[0]}/${p[1]}/${rest.first}/$path',
     'https://rawcdn.githack.com/${p[0]}/${p[1]}/${rest.first}/$path',
+    'https://raw.gitmirror.com/${p[0]}/${p[1]}/${rest.first}/$path',
+    for (final h in _mirrorProxies) '$h$u',
   ];
 }
 
@@ -322,6 +336,23 @@ String? _mirrorOf(String u) {
 }
 
 int _mirrorBest = 0; // index of the mirror host that worked last
+
+// asks every url at the same time, the first good (200) answer wins
+Future<http.Response?> _raceGet(List<String> urls, Duration t) {
+  final c = Completer<http.Response?>();
+  var left = urls.length;
+  if (left == 0) return Future.value(null);
+  for (final u in urls) {
+    http.get(Uri.parse(u)).timeout(t).then((r) {
+      if (r.statusCode == 200 && r.body.isNotEmpty && !c.isCompleted) {
+        c.complete(r);
+      }
+    }).catchError((_) {}).whenComplete(() {
+      if (--left == 0 && !c.isCompleted) c.complete(null);
+    });
+  }
+  return c.future;
+}
 
 Future<http.Response> getListMirror(String u) async {
   final ms = _mirrorsOf(u);
@@ -337,18 +368,18 @@ Future<http.Response> getListMirror(String u) async {
       _rawFail++;
     }
   }
-  // the mirror that worked last goes first, the others follow
-  for (var k = 0; k < ms.length; k++) {
-    final i = (_mirrorBest + k) % ms.length;
-    try {
-      final r = await http
-          .get(Uri.parse(ms[i]))
-          .timeout(Duration(seconds: k == 0 ? 10 : 7));
-      if (r.statusCode == 200) {
-        _mirrorBest = i;
-        return r;
-      }
-    } catch (_) {}
+  // the mirror that worked last goes first; they are asked 4 at a time
+  final order = [
+    for (var k = 0; k < ms.length; k++) ms[(_mirrorBest + k) % ms.length]
+  ];
+  for (var i = 0; i < order.length; i += 4) {
+    final grp = order.sublist(i, min(i + 4, order.length));
+    final r = await _raceGet(grp, Duration(seconds: i == 0 ? 10 : 8));
+    if (r != null) {
+      final w = ms.indexOf(r.request?.url.toString() ?? '');
+      if (w >= 0) _mirrorBest = w;
+      return r;
+    }
   }
   return http.Response('', 599);
 }
@@ -835,11 +866,11 @@ class NumOpt {
 }
 
 final List<NumOpt> numOpts = [
-  NumOpt('fastWorkers', 'تست همزمان (جستجوی اول)', 1, 1000, 50, 50, false,
+  NumOpt('fastWorkers', 'تست همزمان (جستجوی اول)', 1, 1000, 50, 100, false,
       () => fastWorkers, (v) => fastWorkers = v),
-  NumOpt('bgWorkers', 'تست همزمان (وقتی وصل است)', 1, 1000, 2, 2, false,
+  NumOpt('bgWorkers', 'تست همزمان (وقتی وصل است)', 1, 1000, 4, 6, false,
       () => bgWorkers, (v) => bgWorkers = v),
-  NumOpt('timeout', 'تایم‌اوت هر تست (ثانیه)', 1, 1000, 8, 20, false,
+  NumOpt('timeout', 'تایم‌اوت هر تست (ثانیه)', 1, 1000, 10, 20, false,
       () => delayTimeout.inSeconds, (v) => delayTimeout = Duration(seconds: v)),
   NumOpt('batch', 'اندازه دسته', 1, 1000, 300, 1000, false,
       () => batchSize, (v) => batchSize = v),
@@ -853,7 +884,7 @@ final List<NumOpt> numOpts = [
       () => minSpeedKB, (v) => minSpeedKB = v),
   NumOpt('listRefreshMin', 'هر چند دقیقه لیست جدید', 1, 1000, 30, 240, false,
       () => listRefreshMin, (v) => listRefreshMin = v),
-  NumOpt('failMin', 'سرور خراب تا چند دقیقه تست نشود', 1, 1000, 20, 240, false,
+  NumOpt('failMin', 'سرور خراب تا چند دقیقه تست نشود', 1, 1000, 12, 240, false,
       () => failMin, (v) {
     failMin = v;
     failWindow = Duration(minutes: v);
@@ -866,21 +897,21 @@ final List<NumOpt> numOpts = [
   // ----- 12 new options -----
   NumOpt('tcpWorkers', 'پیش‌فیلتر TCP همزمان', 1, 1000, 150, 500, true,
       () => tcpWorkers, (v) => tcpWorkers = v),
-  NumOpt('tcpTimeout', 'تایم‌اوت TCP (دهم ثانیه)', 1, 1000, 25, 40, true,
+  NumOpt('tcpTimeout', 'تایم‌اوت TCP (دهم ثانیه)', 1, 1000, 30, 40, true,
       () => tcpTimeout.inMilliseconds ~/ 100,
       (v) => tcpTimeout = Duration(milliseconds: v * 100)),
   NumOpt('maxPerSource', 'حداکثر سرور از هر منبع', 1, 1000, 500, 1000, true,
       () => maxPerSource, (v) => maxPerSource = v),
   NumOpt('fetchWorkers', 'دانلود همزمان لیست‌ها', 1, 1000, 24, 48, true,
       () => fetchWorkers, (v) => fetchWorkers = v),
-  NumOpt('fetchDeadline', 'مهلت دانلود لیست‌ها (ثانیه)', 1, 1000, 25, 120, true,
+  NumOpt('fetchDeadline', 'مهلت دانلود لیست‌ها (ثانیه)', 1, 1000, 40, 120, true,
       () => fetchDeadline.inSeconds,
       (v) => fetchDeadline = Duration(seconds: v)),
   NumOpt('firstBatchSize', 'اندازه دسته‌ی اول', 1, 1000, 100, 300, true,
       () => firstBatchSize, (v) => firstBatchSize = v),
-  NumOpt('standbyBatchSize', 'اندازه دسته (وقتی وصل است)', 1, 1000, 100, 600,
+  NumOpt('standbyBatchSize', 'اندازه دسته (وقتی وصل است)', 1, 1000, 150, 600,
       true, () => standbyBatchSize, (v) => standbyBatchSize = v),
-  NumOpt('maxBatches', 'حداکثر تعداد دسته در هر جستجو', 1, 1000, 15, 100, true,
+  NumOpt('maxBatches', 'حداکثر تعداد دسته در هر جستجو', 1, 1000, 40, 100, true,
       () => maxBatches, (v) => maxBatches = v),
   NumOpt('watchFailLimit', 'تعداد پینگ ناموفق تا تعویض', 1, 1000, 3, 6, true,
       () => watchFailLimit, (v) => watchFailLimit = v),
@@ -1040,6 +1071,36 @@ const Map<String, int> _tunedNums = {
   'badPingLimit': 3,
 };
 
+const Map<String, dynamic> _tunedSettings2 = {
+  't': 10,
+  'bw2': 4,
+  'st': 3,
+  'bp': 3000,
+  'ms': 300,
+  'lr': 30,
+  'fm': 12,
+  'rm': 3,
+};
+const Map<String, int> _tunedNums2 = {
+  'bgWorkers': 4,
+  'timeout': 10,
+  'speedTopN': 3,
+  'badPingMs': 3000,
+  'minSpeedKB': 300,
+  'listRefreshMin': 30,
+  'failMin': 12,
+  'recheckMin': 3,
+  'tcpWorkers': 150,
+  'tcpTimeout': 30,
+  'maxPerSource': 500,
+  'fetchDeadline': 40,
+  'firstBatchSize': 100,
+  'standbyBatchSize': 150,
+  'maxBatches': 40,
+  'watchFailLimit': 3,
+  'badPingLimit': 3,
+};
+
 // settings saved by an older build get the tuned values ONCE; after that the
 // user's own changes are kept. Auto tune, proxy mode and the parallel test of
 // the first search (fastWorkers) are never touched.
@@ -1065,6 +1126,31 @@ Future<String?> tunedSettings(SharedPreferences p) async {
         }
       }
       await p.setBool('tuned_v1', true);
+    }
+    // TUNEDV2: best values for national / slow internet, applied ONCE.
+    // fastWorkers is forced to 50 (the user's fixed number).
+    if (p.getBool('tuned_v2') != true) {
+      final st = p.getString('settings');
+      if (st != null) {
+        final j = jsonDecode(st);
+        if (j is Map) {
+          final m = Map<String, dynamic>.from(j);
+          _tunedSettings2.forEach((k, v) => m[k] = v);
+          m['fw2'] = 50;
+          await p.setString('settings', jsonEncode(m));
+        }
+      }
+      final nx = p.getString('numx');
+      if (nx != null) {
+        final j = jsonDecode(nx);
+        if (j is Map) {
+          final m = Map<String, dynamic>.from(j);
+          _tunedNums2.forEach((k, v) => m[k] = v);
+          m['fastWorkers'] = 50;
+          await p.setString('numx', jsonEncode(m));
+        }
+      }
+      await p.setBool('tuned_v2', true);
     }
   } catch (e) {
     logError(e);
