@@ -8602,6 +8602,7 @@ extension ResetAllExt on _HomePageState {
 // ADPAGE ---- in-app ad page shown before connecting ----
 const String _adUrl = 'https://motionless-bus.com/bteyn5';
 List<String> _adUrls = [_adUrl];
+String _adFallbackUrl = _adUrl;
 int _adSeconds = 10;
 const int _adWebTries = 2;
 const bool _adEveryConnect = true;
@@ -8693,7 +8694,12 @@ class _AdPageState extends State<AdPage> with WidgetsBindingObserver {
     _loadTimeout = Timer(const Duration(seconds: 20), () {
       if (!_loaded) _onFail();
     });
-    _c.loadRequest(Uri.parse(_adUrls[_urlIx % _adUrls.length]));
+    final cur = _adUrls[_urlIx % _adUrls.length];
+    if (cur.startsWith('<')) {
+      _c.loadHtmlString(cur);
+    } else {
+      _c.loadRequest(Uri.parse(cur));
+    }
   }
 
   // true when the page really shows something (text, image, frame, video...)
@@ -8779,7 +8785,8 @@ class _AdPageState extends State<AdPage> with WidgetsBindingObserver {
     setState(() => _msg = null);
     _extStart = DateTime.now();
     _external = true;
-    final uri = Uri.parse(_adUrls[_urlIx % _adUrls.length]);
+    final raw = _adUrls[_urlIx % _adUrls.length];
+    final uri = Uri.parse(raw.startsWith('<') ? _adFallbackUrl : raw);
     try {
       await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
     } catch (_) {
