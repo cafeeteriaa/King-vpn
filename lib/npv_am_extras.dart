@@ -357,10 +357,10 @@ Future<List<String>> _cleanCandidates() async {
   final r = Random();
   final set = <String>{};
   for (final c in _cfRanges) {
-    set.addAll(_cidrSample(c, 14, r).where(_cleanOk));
+    set.addAll(_cidrSample(c, 8, r).where(_cleanOk));
   }
   final l = set.toList()..shuffle(r);
-  return l.take(180).toList();
+  return l.take(100).toList();
 }
 
 // TLS واقعی روی 443 + بررسی اینکه جواب از Cloudflare است (فقط باز بودن پورت کافی نیست)
@@ -395,10 +395,14 @@ Future<void> _doRefreshClean() async {
     cleanIpStatus = 'در حال جمع‌آوری IP...';
     final c = await _cleanCandidates();
     final res = <CleanIp>[];
-    await pool<String>(c, 40, (ip) async {
-      final ms = await _cfProbeMs(ip, const Duration(milliseconds: 3000));
+    // ANR FIX: few parallel TLS handshakes, a short pause after each one so
+    // the screen stays responsive, stop early and a hard time limit
+    await pool<String>(c, 8, (ip) async {
+      if (res.length >= 20) return;
+      final ms = await _cfProbeMs(ip, const Duration(milliseconds: 2500));
       if (ms != null) res.add(CleanIp(ip, ms));
-    });
+      await Future.delayed(const Duration(milliseconds: 40));
+    }).timeout(const Duration(seconds: 25), onTimeout: () {});
     res.sort((a, b) => a.ms.compareTo(b.ms));
     cleanIps = res.take(20).toList();
     cleanIpsAt = DateTime.now();
