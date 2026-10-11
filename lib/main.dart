@@ -5257,6 +5257,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> connectRow(String gid) => _doConnect(row: gid);
 
   Future<void> _doConnect({Server? only, String? row}) async {
+    // AD FIRST: the ad page opens right when the user taps connect
+    if (!await _ensureSession()) {
+      _set('برای اتصال باید تبلیغ را کامل ببینید');
+      return;
+    }
     await _haltAll(); // tapping while a search runs interrupts it
     await _runBusy(() async {
       if (natForce || _resNext) _resInject(); // NATRESPATCH
@@ -5285,10 +5290,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // does not connect.
       if (!await _ensureBattery()) {
         _set('برای اتصال باید بهینه‌سازی باتری خاموش شود: دوباره «اتصال» را بزن و روی «اجازه» بزن');
-        return;
-      }
-      if (!await _ensureSession()) {
-        _set('برای اتصال باید تبلیغ را کامل ببینید');
         return;
       }
       switching = true;
