@@ -852,6 +852,24 @@ List<String>? _dbgHelpOf(String m) {
         'بعد از اتصال دانلود تست هیچ داده‌ای نیاورد؛ سرور «پینگ دارد ولی داده ندارد».',
         'عادی و مفید است (سرور رد می‌شود). اگر برای همه‌ی سرورها رخ داد آدرس تست سرعت را چک کن.');
   }
+  if (has('پینگ کمتر')) {
+    return h('E-LOWER-PING-SWITCH',
+        'app_main/main.dart → _startWatch / _swapTo (lastWhy = \'پینگ کمتر\')',
+        'اتصال سالم بود ولی سرور آماده‌ای با پینگ خیلی کمتر پیدا شد و برنامه عمداً به آن رفت. خطا نیست؛ فقط ثبت علت تعویض است.',
+        'نیازی به اصلاح نیست. اگر تعویض زیاد است حداقل اختلاف پینگ لازم برای تعویض را بیشتر کن.');
+  }
+  if (has('سرعت واقعی صفر')) {
+    return h('E-REAL-SPEED-ZERO-SWITCH',
+        'app_main/main.dart → _measureCurrent (lastWhy = \'سرعت واقعی صفر بود\' → _failover)',
+        'بعد از اتصال دانلود تست هیچ داده‌ای نیاورد، یعنی سرور پینگ داشت ولی داده نمی‌داد و عوض شد.',
+        'رفتار درست است. اگر برای همه‌ی سرورها رخ داد آدرس تست سرعت را چک کن.');
+  }
+  if (has('شمارنده‌ی')) {
+    return h('E-COUNTER-UP',
+        'تشخیص: app_main/main.dart → _inspect (شمارنده‌های واچ‌داگ)',
+        'یکی از شمارنده‌های واچ‌داگ (پینگ‌ناموفق، کندی، بدون‌داده...) به ۲ یا بیشتر رسید. اطلاعاتی است؛ اگر به حد مجاز برسد تعویض سرور خودکار انجام می‌شود.',
+        'نیازی به اقدام نیست. فقط اگر همراه قطع‌های زیاد بود watchFailLimit را بیشتر کن.');
+  }
   if (has('پینگ ناموفق')) {
     return h('E-PING-FAIL',
         'app_main/main.dart → _startWatch (انتها: fails >= watchFailLimit → _failover)',
@@ -1093,6 +1111,8 @@ void _swl(String site, Object e) {
     final t = e.toString();
     if (t.contains('Invalid character') ||
         t.contains('extension byte') ||
+        t.contains('UTF-8') ||
+        t.contains('percent') ||
         t.contains('Invalid length')) {
       return;
     }
@@ -1293,6 +1313,33 @@ String? detectCountry(String name) {
   return null;
 }
 
+// a broken %XX / UTF-8 sequence in a name must never throw
+String _safeDecodeComp(String t) {
+  try {
+    return Uri.decodeComponent(t);
+  } catch (_) {
+    try {
+      final out = <int>[];
+      final u = utf8.encode(t);
+      for (var i = 0; i < u.length; i++) {
+        if (u[i] == 0x25 && i + 2 < u.length) {
+          final v = int.tryParse(String.fromCharCodes([u[i + 1], u[i + 2]]),
+              radix: 16);
+          if (v != null) {
+            out.add(v);
+            i += 2;
+            continue;
+          }
+        }
+        out.add(u[i]);
+      }
+      return utf8.decode(out, allowMalformed: true);
+    } catch (_) {
+      return t;
+    }
+  }
+}
+
 class Server {
   final String link, name, host;
   final int port;
@@ -1365,7 +1412,7 @@ class Server {
       if (l.startsWith('ovpn://')) {
         final h = link.indexOf('#');
         final b = h < 0 ? link.substring(7) : link.substring(7, h);
-        final nm = h < 0 ? '' : Uri.decodeComponent(link.substring(h + 1));
+        final nm = h < 0 ? '' : _safeDecodeComp(link.substring(h + 1));
         final cfg = utf8.decode(base64.decode(base64.normalize(b)),
             allowMalformed: true);
         final rm = RegExp(r'^\s*remote\s+(\S+)\s+(\d+)', multiLine: true)
@@ -1417,7 +1464,7 @@ class Server {
       if (u.host.isEmpty) return null;
       final sv = Server(
           link,
-          u.fragment.isNotEmpty ? Uri.decodeComponent(u.fragment) : u.host,
+          u.fragment.isNotEmpty ? _safeDecodeComp(u.fragment) : u.host,
           u.host,
           u.port);
       if (sv.port == 443) sv.score += 2;
@@ -1546,17 +1593,28 @@ Future<int?> probe(Server s) async {
 Future<void> pool<T>(
     List<T> items, int workers, Future<void> Function(T) fn) async {
   final it = items.iterator;
-  Future<void> worker() async {
+  // UI-FREEZE FIX: 50 workers used to start in the same millisecond (50 config
+  // builds + 50 native calls on the UI thread). Starts are staggered and each
+  // worker gives the UI a chance to draw a frame between two items.
+  Future<void> worker(int idx) async {
+    if (workers > 8) {
+      await Future<void>.delayed(Duration(milliseconds: (idx % 25) * 12));
+    }
+    var n = 0;
     while (it.moveNext()) {
       try {
         await fn(it.current);
       } catch (e) {
         logError(e); // one failing item must never stop the whole pool
       }
+      if (workers > 8 && (++n % 2 == 0)) {
+        await Future<void>.delayed(const Duration(milliseconds: 4));
+      }
     }
   }
 
-  await Future.wait(List.generate(min(workers, items.length), (_) => worker()));
+  await Future.wait(
+      List.generate(min(workers, items.length), (i) => worker(i)));
 }
 
 // direct = true: no local proxy port, the request goes through the VPN tunnel
@@ -2963,11 +3021,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (busy) return;
     setState(() => busy = true);
     try {
-      await f();
+      // E-BUSY-STUCK: a never-ending await can no longer lock the app
+      await f().timeout(const Duration(minutes: 5));
+    } on TimeoutException {
+      logError('busy بیش از ۵ دقیقه طول کشید و آزاد شد');
     } catch (e) {
       logError(e);
     } finally {
       if (mounted) setState(() => busy = false);
+      // E-CORE-UP-APP-DOWN: a core event that arrived while busy is re-synced now
+      Future.delayed(const Duration(milliseconds: 1500), () {
+        if (mounted) _syncCore();
+      });
     }
   }
 
@@ -3037,11 +3102,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // no redraw while the app is in the background (saves battery / memory)
     if (!mounted || !inForeground) return;
     final now = DateTime.now();
-    if (now.difference(_setAt) >= const Duration(milliseconds: 350)) {
+    if (now.difference(_setAt) >=
+        Duration(milliseconds: searching ? 700 : 350)) {
       _setAt = now;
       setState(() {});
     } else if (_setT == null) {
-      _setT = Timer(const Duration(milliseconds: 350), () {
+      _setT = Timer(Duration(milliseconds: searching ? 700 : 350), () {
         _setT = null;
         _setAt = DateTime.now();
         if (mounted && inForeground) setState(() {});
@@ -7700,6 +7766,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               if (v == 'diag') netDiagDialog();
               if (v == 'plus') plusSheet();
               if (v == 'donate') donateSheet(context);
+              if (v == 'admin') _uiOpenAdmin(context);
               if (v == 'reset') resetAllServers();
               if (v == 'clear') {
                 setState(() {
@@ -7722,6 +7789,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               PopupMenuItem(value: 'clear', child: Text('پاک کردن لیست سیاه')),
               PopupMenuItem(value: 'diag', child: Text('تشخیص شبکه')),
               PopupMenuItem(value: 'plus', child: Text('ابزارهای بیشتر')),
+              PopupMenuItem(value: 'admin', child: Text('ارتباط با ادمین 💬')),
               PopupMenuItem(value: 'donate', child: Text('حمایت از ما ❤️')),
               PopupMenuItem(value: 'log', child: Text('گزارش خطاها')),
               PopupMenuItem(
@@ -7858,6 +7926,7 @@ UiHero(
             ),
           ),
           UiTools(items: [
+            UiTool(Icons.support_agent, 'ارتباط با ادمین', () => _uiOpenAdmin(context)),
             UiTool(Icons.tune, 'پروفایل‌ها', () => _profilesSheet()),
             UiTool(
                 Icons.auto_fix_high,
@@ -8311,6 +8380,24 @@ String _uiFa(String t) {
 }
 
 const String _uiChannelUrl = 'https://t.me/kingvpnn57';
+const String _uiAdminUrl = 'https://t.me/Kingg_vpnn';
+const String _uiAdminTg = 'tg://resolve?domain=Kingg_vpnn';
+
+// contact the admin: opens the Telegram chat directly
+Future<void> _uiOpenAdmin(BuildContext ctx) async {
+  for (final u in [_uiAdminTg, _uiAdminUrl]) {
+    try {
+      if (await launchUrl(Uri.parse(u), mode: LaunchMode.externalApplication)) {
+        return;
+      }
+    } catch (_swE) { _swl('_uiOpenAdmin#1', _swE);}
+  }
+  await Clipboard.setData(const ClipboardData(text: '@Kingg_vpnn'));
+  if (ctx.mounted) {
+    ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
+        content: Text('تلگرام باز نشد؛ آیدی @Kingg_vpnn کپی شد.')));
+  }
+}
 bool _uiJoinShown = false;
 
 Future<void> _uiOpenChannel(BuildContext ctx) async {
