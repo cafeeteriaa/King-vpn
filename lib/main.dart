@@ -26,6 +26,7 @@ part 'donate.dart';
 part 'ads_remote.dart';
 part 'online.dart';
 part 'server_shop.dart';
+part 'telegram_channels.dart';
 
 // One rewarded ad = one 4 hour session. When the 4 hours end the VPN is cut
 // and the next connect shows the ad again. Automatic server switches (bad
@@ -7770,6 +7771,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               if (v == 'plus') plusSheet();
               if (v == 'donate') donateSheet(context);
               if (v == 'shop') serverShopOpen(context);
+              if (v == 'tgch') telegramChannelsOpen(context);
               if (v == 'admin') _uiOpenAdmin(context);
               if (v == 'reset') resetAllServers();
               if (v == 'clear') {
@@ -7795,6 +7797,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               PopupMenuItem(value: 'plus', child: Text('ابزارهای بیشتر')),
               PopupMenuItem(value: 'admin', child: Text('ارتباط با ادمین 💬')),
               PopupMenuItem(value: 'shop', child: Text('خرید سرور شخصی 🛒')),
+              PopupMenuItem(value: 'tgch', child: Text('کانال‌های تلگرامی 📢')),
               PopupMenuItem(value: 'donate', child: Text('حمایت از ما ❤️')),
               PopupMenuItem(value: 'log', child: Text('گزارش خطاها')),
               PopupMenuItem(
@@ -7945,6 +7948,7 @@ UiHero(
                 }),
             UiTool(Icons.add_home_outlined, 'ساخت سرور شخصی', () => connectPersonal()),
             UiTool(Icons.shopping_cart_outlined, 'خرید سرور شخصی', () => serverShopOpen(context)),
+            UiTool(Icons.campaign_outlined, 'کانال‌های تلگرامی', () => telegramChannelsOpen(context)),
             UiTool(Icons.cleaning_services_outlined, 'IP تمیز (AM)', () => cleanIpDialog()),
             UiTool(Icons.rocket_launch_outlined, 'سرور Hiddify', () => vsOpen(context, VsKind.hiddify, onConnect: vsConnect)),
             UiTool(Icons.dns_outlined, 'سرور SlipNet', () => vsOpen(context, VsKind.slipnet)),
