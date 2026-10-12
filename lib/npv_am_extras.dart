@@ -363,70 +363,50 @@ Future<List<String>> _cleanCandidates() async {
   return l.take(100).toList();
 }
 
-// TLS واقعی روی 443 با SNI درست (cloudflare.com). بدون SNI کلودفلر هندشیک را رد
-// می‌کند و همه‌ی IP ها «ناسالم» دیده می‌شدند. ms = زمان تا اولین بایت جواب.
-int _cfTimeout = 0, _cfTlsFail = 0, _cfOther = 0;
-
+// TLS واقعی روی 443 + بررسی اینکه جواب از Cloudflare است (فقط باز بودن پورت کافی نیست)
 Future<int?> _cfProbeMs(String ip, Duration t) async {
   final sw = Stopwatch()..start();
-  Socket? raw;
   SecureSocket? k;
   try {
-    raw = await Socket.connect(ip, 443, timeout: t);
-    k = await SecureSocket.secure(raw,
-            host: 'cloudflare.com',
-            onBadCertificate: (_) => true,
-            supportedProtocols: ['http/1.1'])
-        .timeout(t);
+    k = await SecureSocket.connect(ip, 443,
+        timeout: t,
+        onBadCertificate: (_) => true,
+        supportedProtocols: ['http/1.1']);
     k.write(
         'GET /cdn-cgi/trace HTTP/1.1\r\nHost: cloudflare.com\r\nConnection: close\r\n\r\n');
     await k.flush();
-    final first = await k.first.timeout(t);
+    final data = <int>[];
+    await for (final c in k.timeout(t, onTimeout: (sink) => sink.close())) {
+      data.addAll(c);
+      if (data.length > 1500) break;
+    }
     sw.stop();
-    final txt = utf8.decode(first, allowMalformed: true).toLowerCase();
+    final txt = utf8.decode(data, allowMalformed: true).toLowerCase();
     return txt.contains('cloudflare') ? sw.elapsedMilliseconds : null;
-  } on TimeoutException {
-    _cfTimeout++;
-    return null;
-  } on HandshakeException {
-    _cfTlsFail++;
-    return null;
   } catch (_) {
-    _cfOther++;
     return null;
   } finally {
-    try {
-      k?.destroy();
-    } catch (_) {}
-    try {
-      raw?.destroy();
-    } catch (_) {}
+    k?.destroy();
   }
 }
 
 Future<void> _doRefreshClean() async {
   try {
     cleanIpStatus = 'در حال جمع‌آوری IP...';
-    _cfTimeout = 0;
-    _cfTlsFail = 0;
-    _cfOther = 0;
     final c = await _cleanCandidates();
     final res = <CleanIp>[];
-    // ANR FIX: limited parallel TLS handshakes, a short pause after each one so
+    // ANR FIX: few parallel TLS handshakes, a short pause after each one so
     // the screen stays responsive, stop early and a hard time limit
-    await pool<String>(c, 12, (ip) async {
+    await pool<String>(c, 8, (ip) async {
       if (res.length >= 20) return;
-      final ms = await _cfProbeMs(ip, const Duration(milliseconds: 3000));
+      final ms = await _cfProbeMs(ip, const Duration(milliseconds: 2500));
       if (ms != null) res.add(CleanIp(ip, ms));
-      await Future.delayed(const Duration(milliseconds: 30));
-    }).timeout(const Duration(seconds: 40), onTimeout: () {});
+      await Future.delayed(const Duration(milliseconds: 40));
+    }).timeout(const Duration(seconds: 25), onTimeout: () {});
     res.sort((a, b) => a.ms.compareTo(b.ms));
     cleanIps = res.take(20).toList();
     cleanIpsAt = DateTime.now();
     cleanIpStatus = '${cleanIps.length} IP سالم از ${c.length} تست';
-    if (cleanIps.isEmpty) {
-      cleanIpStatus += '\n(تایم‌اوت: $_cfTimeout ، خطای TLS: $_cfTlsFail ، سایر: $_cfOther)';
-    }
     await _saveCleanIps();
   } catch (e) {
     logError(e);
@@ -699,6 +679,16 @@ List<Widget> npvAmSettingsItems(
     ];
 
 extension NpvAmExtras on _HomePageState {
+  // power button in the Hiddify / HTTP Injector server pages
+  Future<void> vsConnect(String link) async {
+    final s = Server.parse(npvClean(link));
+    if (s == null) {
+      _set('این کانفیگ قابل خواندن نیست');
+      return;
+    }
+    await connect(s);
+  }
+
   // مقدارهای Fragment / Mux / DNS (سبک NPV و AM)
   void npvAdvDialog() {
     showDialog(
@@ -785,13 +775,6 @@ extension NpvAmExtras on _HomePageState {
                             : '${cleanIps.length} IP ذخیره‌شده'),
                     style: const TextStyle(fontSize: 12),
                   ),
-                  if (connected)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 6),
-                      child: Text(
-                          '⚠️ VPN وصل است و تست از داخل تونل انجام می‌شود. برای نتیجه‌ی درست، اول VPN را قطع کن.',
-                          style: TextStyle(fontSize: 12, color: Colors.orange)),
-                    ),
                   const SizedBox(height: 8),
                   Flexible(
                     child: ListView(
@@ -828,157 +811,6 @@ extension NpvAmExtras on _HomePageState {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  // ---------------- کانفیگ‌های سالم برای کپی در NPV Tunnel ----------------
-  List<Server> _npvHealthy(String proto) {
-    final seen = <String>{};
-    final out = <Server>[];
-    void add(Server s) {
-      if (s.ovpn || s.badAt != null) return;
-      final l = s.link.trim();
-      if (l.isEmpty || !seen.add(l)) return;
-      final lo = l.toLowerCase();
-      const ok = ['vmess://', 'vless://', 'trojan://', 'ss://'];
-      if (!ok.any(lo.startsWith)) return;
-      if (proto != 'all' && !lo.startsWith('$proto://')) return;
-      out.add(s);
-    }
-
-    for (final s in good) {
-      add(s);
-    }
-    for (final e in _resMap.values) {
-      add(e.s);
-    }
-    out.sort((a, b) {
-      final sa = a.speed ?? 0, sb = b.speed ?? 0;
-      if (sa != sb) return sb.compareTo(sa);
-      return (a.ping ?? 99999).compareTo(b.ping ?? 99999);
-    });
-    return out;
-  }
-
-  void npvConfigsDialog() {
-    var proto = 'all';
-    var working = false;
-    showDialog(
-      context: context,
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: StatefulBuilder(
-          builder: (ctx, setD) {
-            final list = _npvHealthy(proto);
-            void toast(String m) {
-              ScaffoldMessenger.of(ctx)
-                  .showSnackBar(SnackBar(content: Text(m)));
-            }
-
-            Future<void> copy(List<Server> l, String what) async {
-              if (l.isEmpty) {
-                toast('کانفیگ سالمی برای کپی نیست؛ اول «جستجو» را بزن');
-                return;
-              }
-              await Clipboard.setData(
-                  ClipboardData(text: l.map((s) => s.link.trim()).join('\n')));
-              toast('$what کپی شد؛ در NPV Tunnel یا Hiddify «افزودن از کلیپ‌بورد» را بزن');
-            }
-
-            return AlertDialog(
-              title: const Text('📋 کانفیگ سالم (NPV Tunnel / Hiddify)'),
-              content: SizedBox(
-                width: double.maxFinite,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                        working
-                            ? 'در حال جستجو... (چند دقیقه طول می‌کشد)'
-                            : '${list.length} کانفیگ سالم (مرتب‌شده بر اساس سرعت)',
-                        style: const TextStyle(fontSize: 12)),
-                    if (connected)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 4),
-                        child: Text(
-                            'برای جستجوی بهتر VPN را قطع کن؛ لیست فعلی همین الان قابل کپی است.',
-                            style: TextStyle(fontSize: 11, color: Colors.orange)),
-                      ),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 6,
-                      children: [
-                        for (final p in const ['all', 'vless', 'vmess', 'trojan', 'ss'])
-                          ChoiceChip(
-                            label: Text(p == 'all' ? 'همه' : p),
-                            selected: proto == p,
-                            onSelected: (_) => setD(() => proto = p),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Flexible(
-                      child: ListView(
-                        shrinkWrap: true,
-                        children: [
-                          for (final s in list.take(40))
-                            ListTile(
-                              dense: true,
-                              contentPadding: EdgeInsets.zero,
-                              title: Text(s.name.isEmpty ? s.host : s.name,
-                                  maxLines: 1, overflow: TextOverflow.ellipsis),
-                              subtitle: Directionality(
-                                textDirection: TextDirection.ltr,
-                                child: Text(
-                                    '${s.link.split('://').first}  ${s.ping ?? '-'} ms'
-                                    '${s.speed != null ? '  ${s.speed!.toStringAsFixed(1)} Mbps' : ''}',
-                                    style: const TextStyle(fontSize: 11)),
-                              ),
-                              trailing: const Icon(Icons.copy, size: 18),
-                              onTap: () => copy([s], 'یک کانفیگ'),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actionsAlignment: MainAxisAlignment.start,
-              actionsOverflowButtonSpacing: 4,
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('بستن')),
-                OutlinedButton(
-                    onPressed: working
-                        ? null
-                        : () async {
-                            if (busy || searching) {
-                              toast('یک جستجو یا اتصال در حال انجام است؛ کمی صبر کن');
-                              return;
-                            }
-                            setD(() => working = true);
-                            try {
-                              abort = false;
-                              await _findGood(30);
-                            } catch (e) {
-                              logError(e);
-                            }
-                            if (ctx.mounted) setD(() => working = false);
-                          },
-                    child: const Text('🔍 جستجو')),
-                OutlinedButton(
-                    onPressed: () => copy(list.take(10).toList(), '۱۰ کانفیگ برتر'),
-                    child: const Text('کپی ۱۰ تا')),
-                FilledButton(
-                    onPressed: () => copy(list, 'همه‌ی کانفیگ‌ها'),
-                    child: const Text('کپی همه')),
-              ],
-            );
-          },
         ),
       ),
     );
