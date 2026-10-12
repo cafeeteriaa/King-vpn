@@ -7945,6 +7945,7 @@ UiHero(
             UiTool(Icons.add_home_outlined, 'ساخت سرور شخصی', () => connectPersonal()),
             UiTool(Icons.shopping_cart_outlined, 'خرید سرور شخصی', () => serverShopOpen(context)),
             UiTool(Icons.cleaning_services_outlined, 'IP تمیز (AM)', () => cleanIpDialog()),
+            UiTool(Icons.content_copy_outlined, 'کانفیگ سالم NPV/Hiddify', () => npvConfigsDialog()),
             UiTool(Icons.send_outlined, 'پروکسی تلگرام', () => showModalBottomSheet(
                 context: context,
                 isScrollControlled: true,
