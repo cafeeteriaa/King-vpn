@@ -7769,10 +7769,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               if (v == 'plus') plusSheet();
               if (v == 'donate') donateSheet(context);
               if (v == 'shop') serverShopOpen(context);
-              if (v == 'help') {
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const HelpPage()));
-              }
               if (v == 'admin') _uiOpenAdmin(context);
               if (v == 'reset') resetAllServers();
               if (v == 'clear') {
@@ -7798,7 +7794,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               PopupMenuItem(value: 'plus', child: Text('ابزارهای بیشتر')),
               PopupMenuItem(value: 'admin', child: Text('ارتباط با ادمین 💬')),
               PopupMenuItem(value: 'shop', child: Text('خرید سرور شخصی 🛒')),
-              PopupMenuItem(value: 'help', child: Text('راهنمای برنامه 📖')),
               PopupMenuItem(value: 'donate', child: Text('حمایت از ما ❤️')),
               PopupMenuItem(value: 'log', child: Text('گزارش خطاها')),
               PopupMenuItem(
@@ -7962,6 +7957,8 @@ UiHero(
             UiTool(Icons.shield_outlined, 'Reality', () => connectRow('r:reality')),
             UiTool(Icons.power_outlined, 'WebSocket', () => connectRow('r:ws')),
             UiTool(Icons.favorite_border, 'حمایت از ما', () => donateSheet(context)),
+            UiTool(Icons.menu_book_outlined, 'راهنما', () => Navigator.push(
+                context, MaterialPageRoute(builder: (_) => const HelpPage()))),
           ]),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
