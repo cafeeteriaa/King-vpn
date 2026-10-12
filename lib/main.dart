@@ -15,6 +15,7 @@ import 'package:workmanager/workmanager.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'tg_proxy.dart';
+import 'help_page.dart';
 part 'iran_ai_extras.dart';
 part 'npv_am_extras.dart';
 part 'nat_ultra.dart';
@@ -7768,6 +7769,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               if (v == 'plus') plusSheet();
               if (v == 'donate') donateSheet(context);
               if (v == 'shop') serverShopOpen(context);
+              if (v == 'help') {
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const HelpPage()));
+              }
               if (v == 'admin') _uiOpenAdmin(context);
               if (v == 'reset') resetAllServers();
               if (v == 'clear') {
@@ -7793,6 +7798,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               PopupMenuItem(value: 'plus', child: Text('ابزارهای بیشتر')),
               PopupMenuItem(value: 'admin', child: Text('ارتباط با ادمین 💬')),
               PopupMenuItem(value: 'shop', child: Text('خرید سرور شخصی 🛒')),
+              PopupMenuItem(value: 'help', child: Text('راهنمای برنامه 📖')),
               PopupMenuItem(value: 'donate', child: Text('حمایت از ما ❤️')),
               PopupMenuItem(value: 'log', child: Text('گزارش خطاها')),
               PopupMenuItem(
