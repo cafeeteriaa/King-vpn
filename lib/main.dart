@@ -15,6 +15,7 @@ import 'package:workmanager/workmanager.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'tg_proxy.dart';
+import 'vpn_sources.dart';
 import 'help_page.dart';
 part 'iran_ai_extras.dart';
 part 'npv_am_extras.dart';
@@ -7945,7 +7946,10 @@ UiHero(
             UiTool(Icons.add_home_outlined, 'ساخت سرور شخصی', () => connectPersonal()),
             UiTool(Icons.shopping_cart_outlined, 'خرید سرور شخصی', () => serverShopOpen(context)),
             UiTool(Icons.cleaning_services_outlined, 'IP تمیز (AM)', () => cleanIpDialog()),
-            UiTool(Icons.content_copy_outlined, 'کانفیگ سالم NPV/Hiddify', () => npvConfigsDialog()),
+            UiTool(Icons.rocket_launch_outlined, 'سرور Hiddify', () => vsOpen(context, VsKind.hiddify, onConnect: vsConnect)),
+            UiTool(Icons.dns_outlined, 'سرور SlipNet', () => vsOpen(context, VsKind.slipnet)),
+            UiTool(Icons.vpn_lock_outlined, 'سرور VPN Client Pro', () => vsOpen(context, VsKind.vpnclient)),
+            UiTool(Icons.vaccines_outlined, 'سرور HTTP Injector', () => vsOpen(context, VsKind.injector, onConnect: vsConnect)),
             UiTool(Icons.send_outlined, 'پروکسی تلگرام', () => showModalBottomSheet(
                 context: context,
                 isScrollControlled: true,
