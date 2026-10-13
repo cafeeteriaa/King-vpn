@@ -357,52 +357,89 @@ Future<List<String>> _cleanCandidates() async {
   final r = Random();
   final set = <String>{};
   for (final c in _cfRanges) {
-    set.addAll(_cidrSample(c, 8, r).where(_cleanOk));
+    set.addAll(_cidrSample(c, 16, r).where(_cleanOk));
   }
   final l = set.toList()..shuffle(r);
-  return l.take(100).toList();
+  return l.take(160).toList();
 }
 
-// TLS واقعی روی 443 + بررسی اینکه جواب از Cloudflare است (فقط باز بودن پورت کافی نیست)
-Future<int?> _cfProbeMs(String ip, Duration t) async {
-  final sw = Stopwatch()..start();
-  SecureSocket? k;
+// CLEANIPFIX: the old probe connected with SecureSocket.connect(ip) which sends
+// NO SNI, and Cloudflare drops such handshakes -> every IP failed (0 of 100).
+// Now: TCP connect to the IP, TLS with SNI cloudflare.com, then
+// /cdn-cgi/trace. If TLS fails the plain HTTP (port 80) answer of Cloudflare is
+// used as a second chance.
+Future<String> _cfRead(Socket k, Duration t) async {
+  final data = <int>[];
   try {
-    k = await SecureSocket.connect(ip, 443,
-        timeout: t,
-        onBadCertificate: (_) => true,
-        supportedProtocols: ['http/1.1']);
-    k.write(
-        'GET /cdn-cgi/trace HTTP/1.1\r\nHost: cloudflare.com\r\nConnection: close\r\n\r\n');
-    await k.flush();
-    final data = <int>[];
     await for (final c in k.timeout(t, onTimeout: (sink) => sink.close())) {
       data.addAll(c);
       if (data.length > 1500) break;
     }
+  } catch (_) {}
+  return utf8.decode(data, allowMalformed: true).toLowerCase();
+}
+
+Future<int?> _cfProbeMs(String ip, Duration t) async {
+  final sw = Stopwatch()..start();
+  Socket? raw;
+  Socket? k;
+  try {
+    raw = await Socket.connect(ip, 443, timeout: t);
+    k = await SecureSocket.secure(raw,
+            host: 'cloudflare.com',
+            onBadCertificate: (_) => true,
+            supportedProtocols: const ['http/1.1'])
+        .timeout(t);
+    k.write(
+        'GET /cdn-cgi/trace HTTP/1.1\r\nHost: cloudflare.com\r\nConnection: close\r\n\r\n');
+    await k.flush();
+    final txt = await _cfRead(k, t);
     sw.stop();
-    final txt = utf8.decode(data, allowMalformed: true).toLowerCase();
-    return txt.contains('cloudflare') ? sw.elapsedMilliseconds : null;
+    if (txt.contains('cloudflare')) return sw.elapsedMilliseconds;
   } catch (_) {
-    return null;
   } finally {
     k?.destroy();
+    raw?.destroy();
   }
+  // second chance: plain HTTP on port 80
+  Socket? h;
+  try {
+    final sw2 = Stopwatch()..start();
+    h = await Socket.connect(ip, 80, timeout: t);
+    h.write(
+        'GET /cdn-cgi/trace HTTP/1.1\r\nHost: cloudflare.com\r\nConnection: close\r\n\r\n');
+    await h.flush();
+    final txt = await _cfRead(h, t);
+    sw2.stop();
+    if (txt.contains('cloudflare')) return sw2.elapsedMilliseconds + 40;
+  } catch (_) {
+  } finally {
+    h?.destroy();
+  }
+  return null;
 }
+
+final ValueNotifier<int> cleanTick = ValueNotifier<int>(0);
 
 Future<void> _doRefreshClean() async {
   try {
     cleanIpStatus = 'در حال جمع‌آوری IP...';
+    cleanTick.value++;
     final c = await _cleanCandidates();
     final res = <CleanIp>[];
-    // ANR FIX: few parallel TLS handshakes, a short pause after each one so
-    // the screen stays responsive, stop early and a hard time limit
-    await pool<String>(c, 8, (ip) async {
+    var done = 0;
+    // ANR-safe: async sockets only, a short pause after each probe
+    await pool<String>(c, 20, (ip) async {
       if (res.length >= 20) return;
-      final ms = await _cfProbeMs(ip, const Duration(milliseconds: 2500));
+      final ms = await _cfProbeMs(ip, const Duration(milliseconds: 3500));
+      done++;
       if (ms != null) res.add(CleanIp(ip, ms));
-      await Future.delayed(const Duration(milliseconds: 40));
-    }).timeout(const Duration(seconds: 25), onTimeout: () {});
+      if (done % 5 == 0) {
+        cleanIpStatus = 'در حال تست... $done از ${c.length} • ${res.length} سالم';
+        cleanTick.value++;
+      }
+      await Future.delayed(const Duration(milliseconds: 20));
+    }).timeout(const Duration(seconds: 40), onTimeout: () {});
     res.sort((a, b) => a.ms.compareTo(b.ms));
     cleanIps = res.take(20).toList();
     cleanIpsAt = DateTime.now();
@@ -412,12 +449,16 @@ Future<void> _doRefreshClean() async {
     logError(e);
     cleanIpStatus = 'خطا در دریافت IP';
   }
+  cleanTick.value++;
 }
 
 Future<void> refreshCleanIps() {
   final cur = _cleanBusy;
   if (cur != null) return cur;
-  final f = _doRefreshClean().whenComplete(() => _cleanBusy = null);
+  final f = _doRefreshClean().whenComplete(() {
+    _cleanBusy = null;
+    cleanTick.value++;
+  });
   _cleanBusy = f;
   return f;
 }
@@ -754,12 +795,34 @@ extension NpvAmExtras on _HomePageState {
   }
 
   void cleanIpDialog() {
+    // CLEANIPFIX: the scan starts by itself when the window opens and the
+    // window updates live (it used to show a frozen "collecting..." text)
+    if (_cleanBusy == null &&
+        (cleanIps.isEmpty ||
+            cleanIpsAt == null ||
+            DateTime.now().difference(cleanIpsAt!) >
+                const Duration(minutes: 30))) {
+      cleanIpStatus = 'در حال جمع‌آوری IP...';
+      unawaited(() async {
+        await _loadCleanIps();
+        final fresh = cleanIps.isNotEmpty &&
+            cleanIpsAt != null &&
+            DateTime.now().difference(cleanIpsAt!) < const Duration(minutes: 30);
+        if (fresh) {
+          cleanIpStatus = '${cleanIps.length} IP ذخیره‌شده';
+          cleanTick.value++;
+        } else {
+          await refreshCleanIps();
+        }
+      }());
+    }
     showDialog(
       context: context,
       builder: (ctx) => Directionality(
         textDirection: TextDirection.rtl,
-        child: StatefulBuilder(
-          builder: (ctx, setD) => AlertDialog(
+        child: ValueListenableBuilder<int>(
+          valueListenable: cleanTick,
+          builder: (ctx, _, __) => AlertDialog(
             title: const Text('🌐 IP تمیز (سبک AM)'),
             content: SizedBox(
               width: double.maxFinite,
@@ -775,6 +838,11 @@ extension NpvAmExtras on _HomePageState {
                             : '${cleanIps.length} IP ذخیره‌شده'),
                     style: const TextStyle(fontSize: 12),
                   ),
+                  if (_cleanBusy != null)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 6),
+                      child: LinearProgressIndicator(),
+                    ),
                   const SizedBox(height: 8),
                   Flexible(
                     child: ListView(
@@ -788,6 +856,13 @@ extension NpvAmExtras on _HomePageState {
                       ],
                     ),
                   ),
+                  if (cleanIps.isEmpty && _cleanBusy == null)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 8),
+                      child: Text(
+                          'اگر چیزی پیدا نشد، VPN را قطع کن و دوباره «تست دوباره» را بزن (تست با اینترنت مستقیم دقیق‌تر است).',
+                          style: TextStyle(fontSize: 12)),
+                    ),
                   if (!cleanIpMode)
                     const Padding(
                       padding: EdgeInsets.only(top: 8),
@@ -801,12 +876,27 @@ extension NpvAmExtras on _HomePageState {
             actions: [
               TextButton(
                   onPressed: () => Navigator.pop(ctx), child: const Text('بستن')),
+              if (cleanIps.isNotEmpty)
+                TextButton(
+                  onPressed: () async {
+                    await Clipboard.setData(ClipboardData(
+                        text: cleanIps.map((e) => e.ip).join('\n')));
+                    if (ctx.mounted) {
+                      ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
+                          content: Text('IPها کپی شد'),
+                          duration: Duration(seconds: 2)));
+                    }
+                  },
+                  child: const Text('کپی'),
+                ),
               FilledButton(
-                onPressed: () async {
-                  setD(() => cleanIpStatus = 'در حال تست...');
-                  await refreshCleanIps();
-                  if (ctx.mounted) setD(() {});
-                },
+                onPressed: _cleanBusy != null
+                    ? null
+                    : () {
+                        cleanIpStatus = 'در حال تست...';
+                        cleanTick.value++;
+                        unawaited(refreshCleanIps());
+                      },
                 child: const Text('تست دوباره'),
               ),
             ],
