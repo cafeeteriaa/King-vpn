@@ -196,8 +196,8 @@ int maxPerSource = 100;
 Duration tcpTimeout = const Duration(milliseconds: 3000);
 // TLS handshakes in the prefilter leaked sockets (crash, instant failures)
 const probeTls = false;
-const speedUrl = 'https://speed.cloudflare.com/__down?bytes=10000000';
-const smallSpeedUrl = 'https://speed.cloudflare.com/__down?bytes=1000000';
+const speedUrl = 'https://speed.cloudflare.com/__down?bytes=300000';
+const smallSpeedUrl = 'https://speed.cloudflare.com/__down?bytes=100000';
 const httpProxyPort = 10809;
 // anti-flapping / watchdog
 // A dead / broken server is replaced right away: 2 failed checks (~10 s),
@@ -209,7 +209,7 @@ const minHold = Duration(seconds: 5); // min time between two switches
 // FASTPATCH ----------------------------------------------------
 int fastPickN = 4; // healthy servers collected before choosing
 int fastPickMs = 3500; // never wait longer than this once one works
-bool betterSwitch = true; // swap to a clearly better standby server
+bool betterSwitch = false; // swap to a clearly better standby server
 const betterGain = 0.8; // ping must be <= 80% of the connected one
 const betterMinGapMs = 30; // ...and at least this many ms lower
 const betterEvery = Duration(minutes: 4); // min gap between swaps (was 90 s)
@@ -2410,8 +2410,10 @@ Future<List<Server>> fetchServers({bool Function()? stop}) async {
       if (!body.contains('://')) {
         if (!RegExp(r'^[A-Za-z0-9+/=_\-\s]+$').hasMatch(body)) return; // CLEANERR
         try {
-          body = utf8.decode(base64
-              .decode(base64.normalize(body.replaceAll(RegExp(r'\s'), ''))));
+          body = utf8.decode(
+              base64.decode(
+                  base64.normalize(body.replaceAll(RegExp(r'\s'), ''))),
+              allowMalformed: true);
         } catch (_swE) { _swl('build#1', _swE);
           return;
         }
@@ -2628,6 +2630,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool siteSeen = false; // a real site opened on THIS connection
   bool refilling = false; // SPEEDSWITCHPATCH: refill search running
   DateTime lastRefill = DateTime(2000);
+  Future<void>? _prepFut;
+  Future<void> _prepNow() => _prepFut ??= () async {
+        try {
+          await _natDetect();
+          await autoNetPrep();
+        } catch (e) {
+          logError(e);
+        }
+      }();
   // true during the first seconds after the app starts: a tunnel that is
   // already up (app was closed, VPN kept running) is picked up again
   bool startAdopt = true;
@@ -4306,7 +4317,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!wantVpn || abort || appGone || current?.ovpn == true) return;
     final now = DateTime.now();
     if (now.difference(lastSwitch) < const Duration(seconds: 25)) return;
-    if (now.difference(lastRefill) < const Duration(minutes: 3)) return;
     final okLeft = _usable()
         .where((s) =>
             !identical(s, current) &&
@@ -4315,12 +4325,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             s.miss == 0 &&
             !((s.speed ?? 99) * 1024 < minSpeedKB))
         .length;
-    if (okLeft > 0) return;
+    if (okLeft >= 2) return;
+    final gap = okLeft == 0
+        ? const Duration(seconds: 45)
+        : const Duration(minutes: 3);
+    if (now.difference(lastRefill) < gap) return;
     refilling = true;
     lastRefill = now;
     try {
-      _set('سرورهای سالم تمام شد؛ تست سریع برای سرور جدید...');
-      await _findGood(_ready() + 45);
+      _set('سرور آماده کم است؛ تست سریع برای سرور جدید...');
+      await _findGood(_ready() + 6);
     } catch (e) {
       logError(e);
     }
@@ -5427,6 +5441,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _doConnect({Server? only, String? row}) async {
     // AD FIRST: the ad page opens right when the user taps connect
+    unawaited(_prepNow()); // network detection runs while the ad is shown
     if (!await _ensureSession()) {
       _set('برای اتصال باید تبلیغ را کامل ببینید');
       return;
@@ -5436,8 +5451,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (natForce || _resNext) _resInject(); // NATRESPATCH
       _resNext = false;
       abort = false;
-      await _natDetect(); // NATIONALPATCH
-      await autoNetPrep(); // AUTONET: detect the network, pick the best modes
+      await _prepNow();
+      _prepFut = null;
       natLevel = natForce ? 2 : 1; // NATULTRA
       natAll = natForce; // NATBTNPATCH: full search of ALL sources
       natForce = false;
@@ -6893,7 +6908,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!inForeground || now.difference(_insBgAt).inSeconds < 15) {
         _insBgFreeze++;
       } else {
-        dbg('⚠ حلقه‌ی اپ ${gap}s گیر کرده بود • اپ در پیش‌زمینه');
+        _insBgFreeze++; // only counted, not listed as a problem
       }
     }
 
