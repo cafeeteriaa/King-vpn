@@ -744,7 +744,7 @@ List<String>? _dbgHelpOf(String m) {
     return h('E-LOOP-FREEZE',
         'تشخیص: app_main/main.dart → _inspect (تایمر ۳ ثانیه‌ای). مظنون‌ها: _standbyRun ← _findGood(bg:true) / _recheckStandby / _loadPending / _saveCache',
         'ترد اصلی برنامه بیش از ۸ ثانیه کار نکرد، در حالی که اپ در پیش‌زمینه بود (فریزهای پس‌زمینه دیگر ثبت نمی‌شوند چون کار اندروید است، نه خطای کد). یعنی کار سنگین روی ترد اصلی انجام شده (مرتب‌سازی/ذخیره‌ی لیست هزاران سرور).',
-        'اگر تکرار می‌شود sort و jsonEncode در _saveList / _loadPending را با compute() به isolate ببر و _saveSoon را کندتر کن (jsonEncode داخل _saveCache از قبل در isolate است).');
+        'اصلاح شد: پردازش لیست سرورها (fetchServers / _loadPending) حالا تکه‌تکه انجام می‌شود و ownerOf کش دارد. اگر بعد از این نسخه هنوز ثبت می‌شود، ساعت دقیق و کار قبل از آن در لاگ را بفرست.');
   }
   if (has('اجرا نشده')) {
     return h('E-STANDBY-STALE',
@@ -786,7 +786,7 @@ List<String>? _dbgHelpOf(String m) {
     return h('E-CORE-UP-APP-DOWN',
         'app_main/main.dart → شنونده‌ی FlutterV2ray(onStatusChanged:) در initState، خط «if (!mounted || busy || switching) return;»',
         'رویداد CONNECTED وقتی busy/switching روشن بود نادیده گرفته شد و connected هرگز true نشد؛ بعد از آزاد شدن busy رویداد تازه‌ای نمی‌آید. یا هسته بالا آمده ولی _onConnected صدا زده نشده (هسته‌ی بی‌صاحب).',
-        'خودکار اصلاح می‌شود (patch_selfheal.py → _syncCore: ۳ ثانیه بعد از هر تعویض و در هر تیک واچ‌داگ؛ connected=true و _startWatch). اگر عدد «بار» خیلی بالاست، ریشه‌اش رویداد گمشده‌ی هسته در حین busy/switching است؛ متن و ساعت‌ها را برای Claude بفرست.');
+        'اصلاح شد: اگر اپ اتصال نمی‌خواهد (میخواهم=0) و هسته هنوز CONNECTED است، بعد از حدود ۶ ثانیه هسته‌ی بی‌صاحب خودکار خاموش می‌شود؛ دکمه‌ی «قطع» هم تا ۳ بار توقف را تکرار می‌کند. اگر اپ اتصال می‌خواهد، _syncCore آن را همگام می‌کند. اگر بعد از این نسخه هنوز ثبت می‌شود، خطوط «حالت:» همان ساعت را بفرست.');
   }
   if (has('ولی هسته')) {
     return h('E-APP-UP-CORE-DOWN',
@@ -1297,6 +1297,7 @@ String flagOf(String c) =>
     String.fromCharCodes(c.codeUnits.map((u) => u - 65 + 0x1F1E6));
 
 // country from the config name: flag emoji, "DE |" prefix or a country word
+final RegExp _ccRe = RegExp(r'^\W*([A-Z]{2})\s*[|\-_:]');
 String? detectCountry(String name) {
   final r = name.runes.toList();
   for (var i = 0; i + 1 < r.length; i++) {
@@ -1308,7 +1309,7 @@ String? detectCountry(String name) {
           [r[i] - 0x1F1E6 + 65, r[i + 1] - 0x1F1E6 + 65]);
     }
   }
-  final m = RegExp(r'^\W*([A-Z]{2})\s*[|\-_:]').firstMatch(name);
+  final m = _ccRe.firstMatch(name);
   if (m != null && countryFa.containsKey(m.group(1))) return m.group(1);
   final l = name.toLowerCase();
   for (final e in countryWords.entries) {
@@ -2415,11 +2416,16 @@ Future<List<Server>> fetchServers({bool Function()? stop}) async {
               l.contains('://') && !l.contains('[email') && !l.contains('protected]'))
           .toList()
         ..shuffle();
+      var pn = 0;
       for (final l in lines.take(maxPerSource)) {
         final s = Server.parse(l);
         if (s != null) {
           s.src = u;
           all.putIfAbsent(s.key, () => s);
+        }
+        // FREEZEFIX: give the UI thread a frame every few parses
+        if (++pn % 25 == 0) {
+          await Future<void>.delayed(const Duration(milliseconds: 2));
         }
       }
     } catch (_swE) { _swl('build#2', _swE);
@@ -2459,17 +2465,26 @@ final rowDefs = <RowDef>[
   RowDef('ai', '🤖 سرورهای مخصوص هوش مصنوعی', (s) => s.ai == true && s.ping != null),
 ];
 
+final Map<String, String?> _ownerCache = {};
 String? ownerOf(Server s) {
   final u = s.src;
   if (u == null) return null;
-  if (!u.startsWith(_gh)) {
-    final x = Uri.parse(u);
-    if (x.host == 't.me' && x.pathSegments.length > 1) {
-      return 't.me/${x.pathSegments[1]}';
+  // FREEZEFIX: only ~50 distinct sources exist but this ran Uri.parse
+  // thousands of times inside list sorts on the UI thread
+  return _ownerCache.putIfAbsent(u, () {
+    if (!u.startsWith(_gh)) {
+      try {
+        final x = Uri.parse(u);
+        if (x.host == 't.me' && x.pathSegments.length > 1) {
+          return 't.me/${x.pathSegments[1]}';
+        }
+        return x.host;
+      } catch (_) {
+        return u;
+      }
     }
-    return x.host;
-  }
-  return u.replaceFirst(_gh, '').split('/').first;
+    return u.replaceFirst(_gh, '').split('/').first;
+  });
 }
 
 // favs = the pinned / manually added configs ("📌 کانفیگ‌های من" row)
@@ -3673,10 +3688,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (s != null) add(s);
     }
     (bgAlive.toList()..sort(byScoreThenPing)).forEach(add);
+    await Future<void>.delayed(const Duration(milliseconds: 2));
     final rest = fetched.toList()
       ..shuffle()
       ..sort(_cmpPending);
-    rest.forEach(add);
+    await Future<void>.delayed(const Duration(milliseconds: 2));
+    // FREEZEFIX: thousands of servers are filtered in small slices so the
+    // screen keeps drawing (this used to block the UI for 9-13 seconds)
+    var ri = 0;
+    for (final s in rest) {
+      add(s);
+      if (++ri % 150 == 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 2));
+      }
+    }
     pending = out;
     if (mounted) setState(() {});
   }
@@ -5460,6 +5485,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     dropTimer?.cancel();
     try {
       await _stopV2();
+      // ORPHANFIX: a stop sent right after the tunnel came up can be lost;
+      // the core then stays CONNECTED with the app showing "disconnected"
+      for (var i = 0; i < 3; i++) {
+        await Future.delayed(const Duration(milliseconds: 1000));
+        if (lastState != 'CONNECTED') break;
+        try {
+          await v2ray.stopV2Ray();
+        } catch (_swE) { _swl('disconnect#orphan', _swE);}
+      }
     } catch (e) {
       logError(e);
     }
@@ -6772,6 +6806,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   DateTime? _insUpAt;
   DateTime _insBgAt = DateTime.fromMillisecondsSinceEpoch(0);
   int _insBgFreeze = 0;
+  int _insOrphan = 0;
   final Map<String, int> _insPrevCnt = {};
 
   void _inspectStart() {
@@ -6882,6 +6917,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         inForeground, 90, 'واچ‌داگ در یک بررسی گیر کرده');
     _insWarn('upBusy', upBusy, 120, 'تست سرعت/ارتقا گیر کرده');
     _insWarn('rechk', rechecking, 240, 'بازبینی سرورهای سالم گیر کرده');
+    // ORPHANFIX: core CONNECTED but the app neither is connected nor wants
+    // a VPN (stop was lost): stop the core again so the key icon goes away
+    if (lastState == 'CONNECTED' &&
+        !wantVpn &&
+        !connected &&
+        !busy &&
+        !switching &&
+        !searching &&
+        !startAdopt &&
+        !ov) {
+      if (++_insOrphan >= 2) {
+        _insOrphan = 0;
+        dbg('هسته‌ی بی‌صاحب خاموش شد (CONNECTED بدون اتصال اپ)');
+        try {
+          unawaited(v2ray.stopV2Ray().catchError((_) {}));
+        } catch (_swE) { _swl('_inspect#orphan', _swE);}
+      }
+    } else {
+      _insOrphan = 0;
+    }
     _insWarn('mm1', lastState == 'CONNECTED' && !connected && !busy &&
         !switching && !searching && !ov, 12,
         'هسته CONNECTED است ولی اپ «متصل» نمی‌داند');
@@ -7950,10 +8005,10 @@ UiHero(
             UiTool(Icons.shopping_cart_outlined, 'خرید سرور شخصی', () => serverShopOpen(context)),
             UiTool(Icons.campaign_outlined, 'کانال‌های تلگرامی', () => telegramChannelsOpen(context)),
             UiTool(Icons.cleaning_services_outlined, 'IP تمیز (AM)', () => cleanIpDialog()),
-            UiTool(Icons.rocket_launch_outlined, 'سرور Hiddify', () => vsOpen(context, VsKind.hiddify, onConnect: vsConnect)),
+            UiTool(Icons.rocket_launch_outlined, 'سرور Hiddify', () => vsOpen(context, VsKind.hiddify)),
             UiTool(Icons.dns_outlined, 'سرور SlipNet', () => vsOpen(context, VsKind.slipnet)),
             UiTool(Icons.vpn_lock_outlined, 'سرور VPN Client Pro', () => vsOpen(context, VsKind.vpnclient)),
-            UiTool(Icons.vaccines_outlined, 'سرور HTTP Injector', () => vsOpen(context, VsKind.injector, onConnect: vsConnect)),
+            UiTool(Icons.vaccines_outlined, 'سرور HTTP Injector', () => vsOpen(context, VsKind.injector)),
             UiTool(Icons.send_outlined, 'پروکسی تلگرام', () => showModalBottomSheet(
                 context: context,
                 isScrollControlled: true,
