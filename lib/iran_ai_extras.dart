@@ -337,47 +337,13 @@ String? _mirrorOf(String u) {
 
 int _mirrorBest = 0; // index of the mirror host that worked last
 
-const int listMaxBytes = 128 * 1024;
-
-Future<http.Response> _getCapped(String u, Duration t) async {
-  final c = http.Client();
-  try {
-    return await () async {
-      final res = await c.send(http.Request('GET', Uri.parse(u)));
-      final buf = <int>[];
-      var cut = false;
-      await for (final ch in res.stream) {
-        buf.addAll(ch);
-        if (buf.length >= listMaxBytes) {
-          cut = true;
-          break;
-        }
-      }
-      var body = utf8.decode(buf, allowMalformed: true);
-      if (cut) {
-        if (body.contains('://')) {
-          final i = body.lastIndexOf('\n');
-          if (i > 0) body = body.substring(0, i);
-        } else {
-          final s = body.replaceAll(RegExp(r'\s'), '');
-          body = s.substring(0, s.length - s.length % 4);
-        }
-      }
-      return http.Response(body, res.statusCode, request: res.request);
-    }()
-        .timeout(t);
-  } finally {
-    c.close();
-  }
-}
-
 // asks every url at the same time, the first good (200) answer wins
 Future<http.Response?> _raceGet(List<String> urls, Duration t) {
   final c = Completer<http.Response?>();
   var left = urls.length;
   if (left == 0) return Future.value(null);
   for (final u in urls) {
-    _getCapped(u, t).then((r) {
+    http.get(Uri.parse(u)).timeout(t).then((r) {
       if (r.statusCode == 200 && r.body.isNotEmpty && !c.isCompleted) {
         c.complete(r);
       }
@@ -394,7 +360,8 @@ Future<http.Response> getListMirror(String u) async {
   final skipRaw = ms.isNotEmpty && _rawOk == 0 && _rawFail >= 6;
   if (!skipRaw) {
     try {
-      final r = await _getCapped(u, const Duration(seconds: 8));
+      final r =
+          await http.get(Uri.parse(u)).timeout(const Duration(seconds: 8));
       _rawOk++;
       return r;
     } catch (_) {
