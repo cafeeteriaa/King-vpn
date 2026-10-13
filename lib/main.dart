@@ -162,6 +162,12 @@ int minPingMs = 0;
 // connected server has a terrible ping -> jump at once to the best-ping server
 bool badPingSwitch = false; // LOWDATA
 int badPingMs = 3000;
+// BADPINGLOOP: when every server a quick test finds has a bad ping (> badPingMs),
+// the next quick parallel test starts at once, and so on. After
+// [badPingMaxRounds] such rounds in a row the loop gives up being picky (so a
+// slow network can still connect).
+int badPingRounds = 0;
+const int badPingMaxRounds = 6;
 // the healthy servers of the last session are tested first
 bool savedFirst = true;
 // learn what works on this network (protocol / transport / port / source) and
@@ -3956,6 +3962,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     realTotal = alive.length;
     final skipped = <Server>[];
     final okNow = <Server>[];
+    var slowNow = 0; // BADPINGLOOP
     await pool<Server>(alive, fastWorkers, (s) async {
       if (abort || enough() || (smartOrder && _srcDead(s))) {
         skipped.add(s);
@@ -3965,7 +3972,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         s.ipTried = true;
         s.ipLink = await ipLinkFor(s);
       }
-      final d = await _delayOf(s, t: _fgTimeout);
+      final d0 = await _delayOf(s, t: _fgTimeout);
+      // BADPINGLOOP: a server that answers but with a bad ping is not healthy
+      final slow = d0 != null &&
+          d0 > badPingMs &&
+          badPingRounds < badPingMaxRounds;
+      final d = slow ? null : d0;
+      if (slow) {
+        slowNow++;
+        fastTested++;
+        realTested++;
+        totalTested++;
+        return;
+      }
       if (d != null) {
         _svcOf(s).then((v) {
           s.svc = v;
@@ -4010,6 +4029,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
     }
     pending.insertAll(0, skipped);
+    // BADPINGLOOP: found some, but all of them had a bad ping -> the next
+    // quick test starts right away (the search loop keeps going)
+    if (okNow.isEmpty && slowNow > 0) {
+      badPingRounds++;
+      dbg('همه‌ی سرورهای پیداشده پینگ بد داشتند ($slowNow) • '
+          'تست سریع بعدی فوری • دور $badPingRounds/$badPingMaxRounds');
+    }
     if (fastOk == 0 && fastTested >= 300) {
       fastOk = 0;
       fastTested = 0;
@@ -4538,6 +4564,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   void _onConnected(Server s) {
+    badPingRounds = 0; // BADPINGLOOP
     current = s;
     plusHistAdd(s);
     connBaseDelay = s.ping;
@@ -4651,6 +4678,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           s.badAt = DateTime.now();
           errorLog.value = '${s.name}: وصل شد ولی اینترنت رد نشد '
               '(${_short(lastPingErr, 70)})';
+          continue;
+        }
+        // BADPINGLOOP: connected but the ping through the tunnel is bad
+        if (p > badPingMs && badPingRounds < badPingMaxRounds) {
+          await _stopV2();
+          s.badAt = DateTime.now();
+          badPingRounds++;
+          dbg('پینگ از تونل بد بود (${p}ms) • ${s.name} • '
+              'سرور بعدی / تست سریع بعدی • دور $badPingRounds/$badPingMaxRounds');
           continue;
         }
       }
@@ -5349,7 +5385,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // RETRYPATCH: nothing left to test -> forget the failures and go again
           if (pending.isEmpty) failed.clear();
           _set('سرور سالم پیدا نشد؛ تست سریع دوباره...');
-          await Future.delayed(const Duration(seconds: 2));
+          if (badPingRounds == 0) {
+            await Future.delayed(const Duration(seconds: 2));
+          }
           continue;
         }
       }
