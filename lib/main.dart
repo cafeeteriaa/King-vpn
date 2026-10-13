@@ -2410,10 +2410,8 @@ Future<List<Server>> fetchServers({bool Function()? stop}) async {
       if (!body.contains('://')) {
         if (!RegExp(r'^[A-Za-z0-9+/=_\-\s]+$').hasMatch(body)) return; // CLEANERR
         try {
-          body = utf8.decode(
-              base64.decode(
-                  base64.normalize(body.replaceAll(RegExp(r'\s'), ''))),
-              allowMalformed: true);
+          body = utf8.decode(base64
+              .decode(base64.normalize(body.replaceAll(RegExp(r'\s'), ''))));
         } catch (_swE) { _swl('build#1', _swE);
           return;
         }
