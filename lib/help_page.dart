@@ -56,13 +56,13 @@ class HelpPage extends StatelessWidget {
                   '  - 🌐 مصرف اینترنت: بسیار کم (بارگذاری صفحه).\n\n'
                   '• IP تمیز (AM): اسکن رنج‌های کلودفلر و پیدا کردن سریع‌ترین IP تمیز.\n'
                   '  - 🌐 مصرف اینترنت: اسکن چند مگابایت مصرف می‌کند.\n\n'
-                  '• سرور Hiddify: از لیست‌های عمومی گیت‌هاب که مرتب به‌روز می‌شوند، سرور سالم (با تست پورت) پیدا می‌کند تا کپی کنید و در Hiddify بچسبانید. کنار هر سرور دو دکمه است: کپی (برای چسباندن در Hiddify) و اتصال (دکمه‌ی خاموش/روشن، همین برنامه با آن سرور وصل می‌شود). سرورهای hysteria2 و tuic فقط کپی دارند.\n'
+                  '• سرور Hiddify: از لیست‌های عمومی گیت‌هاب که مرتب به‌روز می‌شوند، سرور سالم (با تست پورت) پیدا می‌کند تا کپی کنید و در Hiddify بچسبانید. کنار هر سرور دکمه‌ی کپی است (برای چسباندن در Hiddify).\n'
                   '  - 🌐 مصرف اینترنت: چند مگابایت برای دانلود لیست‌ها و تست؛ بعد از زدن اتصال، مصرف مثل اتصال معمولی است.\n\n'
                   '• سرور SlipNet: تازه‌ترین کانفیگ‌های slipnet:// را از کانال‌های تلگرام می‌آورد. سالم بودنش را خود SlipNet نشان می‌دهد.\n'
                   '  - 🌐 مصرف اینترنت: کم (چند صد کیلوبایت).\n\n'
                   '• سرور VPN Client Pro: سرورهای OpenVPN را از VPN Gate می‌آورد؛ متن .ovpn را کپی و با پسوند .ovpn ذخیره کنید و در VPN Client Pro وارد کنید.\n'
                   '  - 🌐 مصرف اینترنت: چند مگابایت.\n\n'
-                  '• سرور HTTP Injector: لینک‌های V2Ray سالم (تست پورت). با دکمه‌ی کپی در HTTP Injector بچسبانید، یا با دکمه‌ی اتصال (خاموش/روشن) همین برنامه با آن سرور وصل شود.\n'
+                  '• سرور HTTP Injector: لینک‌های V2Ray سالم (تست پورت). با دکمه‌ی کپی در HTTP Injector بچسبانید.\n'
                   '  - 🌐 مصرف اینترنت: چند مگابایت.\n\n'
                   '• پروکسی تلگرام: لیست پروکسی مخصوص تلگرام را می‌دهد.\n'
                   '  - 🌐 مصرف اینترنت: بسیار کم.\n\n'
@@ -265,18 +265,18 @@ class _HelpSection extends StatelessWidget {
             Text(
               title,
               style: const TextStyle(
-                fontSize: 16,
+                fontSize: 17,
                 fontWeight: FontWeight.bold,
-                color: Colors.blueAccent,
+                color: Color(0xFFE8C468),
               ),
             ),
-            const Divider(height: 16),
+            const Divider(height: 16, color: Color(0x55E8C468)),
             Text(
               content,
               style: const TextStyle(
-                fontSize: 14,
-                height: 1.6,
-                color: Colors.black87,
+                fontSize: 15,
+                height: 1.85,
+                color: Color(0xFFF2F4F7),
               ),
             ),
           ],
