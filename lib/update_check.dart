@@ -6,7 +6,7 @@ part of 'main.dart';
 //
 // هر بار که نسخه‌ی جدید می‌سازی:
 //   ۱) عدد appBuild پایین را یکی بیشتر کن (مثلاً 1 بشود 2)
-//   ۲) فایل update.json را در همان Gist تبلیغ‌ها آپدیت کن
+//   ۲) فایل داخل Gist آپدیت (0e04f5efe29b...) را ادیت کن
 //
 // نمونه‌ی محتوای update.json:
 // {
@@ -23,7 +23,7 @@ part of 'main.dart';
 // message => متن پیام (اختیاری)
 const int appBuild = 1;
 const String updateConfigUrl =
-    'https://gist.githubusercontent.com/cafeeteriaa/f403c732c9cd963deca653054c998bf4/raw/update.json';
+    'https://gist.githubusercontent.com/cafeeteriaa/0e04f5efe29b8101eb554c6e9a41d969/raw';
 
 bool _updateChecked = false;
 
