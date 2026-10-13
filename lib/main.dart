@@ -24,6 +24,7 @@ part 'net_diag.dart';
 part 'extras_plus.dart';
 part 'donate.dart';
 part 'ads_remote.dart';
+part 'update_check.dart';
 part 'online.dart';
 part 'server_shop.dart';
 part 'telegram_channels.dart';
@@ -3011,6 +3012,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _init() async {
     unawaited(adsRemoteLoad());
+    unawaited(checkForUpdate());
     onlineStart();
     await _loadCache();
     await _resLoad(); // NATRESPATCH
