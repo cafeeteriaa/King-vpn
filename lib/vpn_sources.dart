@@ -273,7 +273,9 @@ Future<void> _vsPool<T>(
   await Future.wait(List.generate(n, (_) => worker()));
 }
 
-Future<String?> _vsGet(String url, {int sec = 12}) async {
+int _vsNetFail = 0; // how many downloads failed in the current search
+
+Future<String?> _vsGetOnce(String url, int sec) async {
   try {
     final r = await http.get(Uri.parse(url), headers: const {
       'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36',
@@ -283,6 +285,23 @@ Future<String?> _vsGet(String url, {int sec = 12}) async {
   } catch (_) {
     return null;
   }
+}
+
+// SOURCEFIX: one retry, and t.me is also tried as telegram.me (some networks
+// block only one of the two names)
+Future<String?> _vsGet(String url, {int sec = 15}) async {
+  final alts = <String>[url];
+  if (url.startsWith('https://t.me/')) {
+    alts.add(url.replaceFirst('https://t.me/', 'https://telegram.me/'));
+  }
+  for (var round = 0; round < 2; round++) {
+    for (final u in alts) {
+      final b = await _vsGetOnce(u, sec);
+      if (b != null) return b;
+    }
+  }
+  _vsNetFail++;
+  return null;
 }
 
 Future<Set<String>> _vsLoadSeen(String id) async {
@@ -545,6 +564,7 @@ Future<void> vsRefresh(VsSpec spec) async {
   st.running = true;
   st.items = [];
   st.progress = null;
+  _vsNetFail = 0;
   st.status = 'در حال شروع...';
   st.tick.value++;
   try {
@@ -569,7 +589,9 @@ Future<void> vsRefresh(VsSpec spec) async {
     await _vsSaveSeen(spec.id, seen);
     final tested = r.where((e) => e.tested).length;
     st.status = r.isEmpty
-        ? 'چیزی پیدا نشد؛ اینترنت را چک کن و دوباره «جستجو» را بزن'
+        ? (_vsNetFail > 0
+            ? 'سایت منبع از این شبکه باز نشد (t.me و VPN Gate در ایران فیلتر هستند). اول با دکمه‌ی «اتصال» اصلی به یک سرور وصل شو، بعد دوباره «جستجو» را بزن.'
+            : 'منبع باز شد ولی کانفیگ جدیدی در آن نبود؛ کمی بعد دوباره «جستجو» را بزن')
         : '${r.length} مورد پیدا شد'
             '${tested > 0 ? ' • $tested مورد با تست پورت تأیید شد' : ''}'
             ' • با هر بار جستجو، موارد جدیدتر می‌آید';
@@ -628,9 +650,8 @@ class _VsPageState extends State<VsPage> {
   Widget _tile(VsItem it) {
     final isOvpn = spec.kind == VsKind.vpnclient;
     // the app core reads these four; hysteria2 / tuic have no connect button
-    final canConnect = widget.onConnect != null &&
-        (spec.kind == VsKind.hiddify || spec.kind == VsKind.injector) &&
-        const ['vless', 'vmess', 'trojan', 'ss'].contains(it.proto);
+    // COPYONLY: no connect button in any of these pages
+    const canConnect = false;
     final badge = it.tested
         ? '✅ ${it.ping} ms'
         : (it.proto == 'slipnet' ? '🆕' : '⚪ بدون تست');
