@@ -17,28 +17,6 @@ Timer? _netWatchTimer;
 int? _dsFw, _dsBw, _dsSt;
 bool? _dsAs;
 
-int qualityScore() {
-  if (!connected || current == null) return 0;
-  final s = current!;
-  final ping = s.ping ?? 9999;
-  final speed = s.speed ?? 0; // MB/s
-  // ping: 0ms → 40, 1500ms → 0
-  final pScore = (40 * (1 - (ping.clamp(0, 1500) / 1500))).round();
-  // speed: 0 → 0, 5 MB/s → 40
-  final spScore = (40 * (speed.clamp(0, 5) / 5)).round();
-  // stability: fewer recent switches → up to 20
-  final stScore = lastWhy.isEmpty ? 20 : 10;
-  return (pScore + spScore + stScore).clamp(0, 100);
-}
-
-String qualityLabel(int q) {
-  if (q >= 80) return 'عالی';
-  if (q >= 60) return 'خوب';
-  if (q >= 40) return 'متوسط';
-  if (q >= 20) return 'ضعیف';
-  return 'خیلی ضعیف';
-}
-
 void applyDataSaver(bool on) {
   if (on) {
     _dsFw ??= fastWorkers;
@@ -87,7 +65,6 @@ Future<String> _netFingerprint() async {
     final r = await InternetAddress.lookup('one.one.one.one')
         .timeout(const Duration(seconds: 3));
     final ips = r.map((e) => e.address).join(',');
-    // also note national mode as part of fingerprint
     return '${nationalMode ? 'N' : 'G'}|$ips';
   } catch (_) {
     return nationalMode ? 'N|down' : 'G|down';
@@ -95,6 +72,26 @@ Future<String> _netFingerprint() async {
 }
 
 extension UltimateExt on _HomePageState {
+  // quality uses State fields → must live on the State extension
+  int qualityScore() {
+    if (!connected || current == null) return 0;
+    final s = current!;
+    final ping = s.ping ?? 9999;
+    final speed = s.speed ?? 0; // MB/s
+    final pScore = (40 * (1 - (ping.clamp(0, 1500) / 1500))).round();
+    final spScore = (40 * (speed.clamp(0, 5) / 5)).round();
+    final stScore = lastWhy.isEmpty ? 20 : 10;
+    return (pScore + spScore + stScore).clamp(0, 100);
+  }
+
+  String qualityLabel(int q) {
+    if (q >= 80) return 'عالی';
+    if (q >= 60) return 'خوب';
+    if (q >= 40) return 'متوسط';
+    if (q >= 20) return 'ضعیف';
+    return 'خیلی ضعیف';
+  }
+
   void startNetWatch() {
     _netWatchTimer?.cancel();
     if (!autoNetReconnect) return;
@@ -130,7 +127,6 @@ extension UltimateExt on _HomePageState {
     _netWatchTimer = null;
   }
 
-  // preflight: quick DNS + HTTP 204 checks before burning full search budget
   Future<bool> runPreflight() async {
     if (!preflightOn) return true;
     _set('پیش‌پرواز: بررسی DNS و دسترسی شبکه...');
@@ -145,7 +141,8 @@ extension UltimateExt on _HomePageState {
       final c = HttpClient()..connectionTimeout = const Duration(seconds: 4);
       try {
         final req = await c
-            .getUrl(Uri.parse('http://connectivitycheck.gstatic.com/generate_204'))
+            .getUrl(Uri.parse(
+                'http://connectivitycheck.gstatic.com/generate_204'))
             .timeout(const Duration(seconds: 5));
         final res = await req.close().timeout(const Duration(seconds: 5));
         httpOk = res.statusCode == 204 || res.statusCode == 200;
@@ -155,14 +152,12 @@ extension UltimateExt on _HomePageState {
     } catch (_) {}
     if (!dnsOk && !httpOk) {
       _set('پیش‌پرواز: شبکه خیلی ضعیف است — باز هم تلاش می‌کنم');
-      // still allow connect; just warn
       return true;
     }
     _set('پیش‌پرواز OK • DNS:${dnsOk ? '✓' : '✗'} HTTP:${httpOk ? '✓' : '✗'}');
     return true;
   }
 
-  // emergency: stop everything sensitive, keep UI simple
   Future<void> panicNow() async {
     abort = true;
     stopGrokPilot();
@@ -198,13 +193,19 @@ extension UltimateExt on _HomePageState {
     b.writeln('time: ${DateTime.now().toIso8601String()}');
     b.writeln('connected: $connected wantVpn: $wantVpn');
     b.writeln('national: $nationalMode level: $natLevel op: $natOpKey');
-    b.writeln('ultra: $ultraMode indestructible: $indestructibleMode turbo: $turboSpeed');
-    b.writeln('offlineOnly: $offlineOnly dataSaver: $dataSaver preflight: $preflightOn');
-    b.writeln('autoNetReconnect: $autoNetReconnect reconnects: $reconnectCount');
-    b.writeln('quality: ${qualityScore()} (${qualityLabel(qualityScore())})');
-    b.writeln('aiProvider: $aiProvider lastAi: $aiLastProvider session: $aiSession');
+    b.writeln(
+        'ultra: $ultraMode indestructible: $indestructibleMode turbo: $turboSpeed');
+    b.writeln(
+        'offlineOnly: $offlineOnly dataSaver: $dataSaver preflight: $preflightOn');
+    b.writeln(
+        'autoNetReconnect: $autoNetReconnect reconnects: $reconnectCount');
+    final q = qualityScore();
+    b.writeln('quality: $q (${qualityLabel(q)})');
+    b.writeln(
+        'aiProvider: $aiProvider lastAi: $aiLastProvider session: $aiSession');
     b.writeln('mux: $muxEnabled/$muxConc frag: $fragEnabled proxy: $proxyMode');
-    b.writeln('servers: total=$total good=${good.length} pending=${pending.length}');
+    b.writeln(
+        'servers: total=$total good=${good.length} pending=${pending.length}');
     b.writeln('tests: $totalOk/$totalTested');
     if (current != null) {
       final c = current!;
@@ -237,18 +238,16 @@ extension UltimateExt on _HomePageState {
       const Padding(
         padding: EdgeInsets.only(top: 14, bottom: 4),
         child: Text('امکانات Ultimate',
-            style: TextStyle(
-                fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
       ),
       sw('فقط سرورهای ذخیره‌شده (آفلاین)', offlineOnly, (v) {
         offlineOnly = v;
         ultimateSave();
-      }, sub: 'لیست جدید دانلود نمی‌شود — فقط good/cache'),
+      }, sub: 'بدون دانلود لیست جدید — فقط پوشه سالم‌ها'),
       sw('صرفه‌جویی دیتا و باتری', dataSaver, (v) {
         applyDataSaver(v);
         ultimateSave();
-        _saveSettings();
-      }, sub: 'workers کمتر، بدون تست سرعت سنگین'),
+      }, sub: 'workers کمتر و بدون تست سرعت سنگین'),
       sw('وصل مجدد خودکار بعد از تغییر شبکه', autoNetReconnect, (v) {
         autoNetReconnect = v;
         ultimateSave();
