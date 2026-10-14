@@ -5753,10 +5753,54 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             c.miss == 0 &&
             c.ping != null &&
             !_spSkip.containsKey(c.key) &&
+            _spSpeedOk(c) &&
             (row == null || inRowGid(c, row)))
         .toList()
       ..sort(byPing);
     return l;
+  }
+
+  // SPEEDKEEP: a lower ping must not bring a slower server. A candidate whose
+  // real speed is known and clearly below the connected server's speed (or
+  // zero = no data) is not used for a ping swap.
+  bool _spSpeedOk(Server c) {
+    final cs = c.speed;
+    if (cs == null) return true; // unknown: allowed, checked after the swap
+    if (cs <= 0) return false;
+    final cur = current?.speed;
+    if (cur == null || cur < 0.3) return true;
+    return cs >= cur * 0.7;
+  }
+
+  // SPEEDKEEP: after a ping swap the real speed is measured (by
+  // _measureCurrent). If it is clearly lower than the old server's speed,
+  // the old server comes back and the new one is not tried again for a while.
+  Future<void> _spCheckSpeed(Server t, Server old) async {
+    try {
+      final oldSp = old.speed ?? 0;
+      if (oldSp < 0.3) return;
+      final t0 = DateTime.now();
+      for (var i = 0; i < 30; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+        if (!connected || !identical(t, current) || abort) return;
+        final at = t.speedAt;
+        if (at != null && at.isAfter(t0)) break;
+      }
+      final at = t.speedAt;
+      if (at == null || !at.isAfter(t0)) return;
+      final sp = t.speed ?? 0;
+      if (sp <= 0) return; // no data: _measureCurrent handles it
+      if (sp >= oldSp * 0.6) return;
+      dbg('سرعت سرور جدید ${sp.toStringAsFixed(2)} MB/s کمتر از سرور قبلی '
+          '(${oldSp.toStringAsFixed(2)} MB/s) بود؛ برگشت به سرور قبلی');
+      _spSkip[t.key] = DateTime.now().add(const Duration(minutes: 20));
+      await _stopCore();
+      connected = false;
+      if (mounted) setState(() {});
+      if (await _connectLoop([old])) _saveCache();
+    } catch (e) {
+      logError(e);
+    }
   }
 
   // called by the watchdog every tick with the live ping [p] (ms)
@@ -5873,6 +5917,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (mounted) setState(() {});
         if (await _connectLoop([t])) {
           _saveCache();
+          await _spCheckSpeed(t, old); // SPEEDKEEP
         } else if (!abort) {
           _spSkip[t.key] = DateTime.now();
           if (await _connectLoop([old])) {
