@@ -30,7 +30,7 @@ jobs:
         run: |
           flutter create --project-name king_vpn --org com.kingvpn --platforms=android build_app
           rm -rf build_app/test
-          for f in main iran_ai_extras npv_am_extras tg_proxy nat_ultra net_diag extras_plus donate ads_remote update_check online server_shop telegram_channels vpn_sources help_page; do
+          for f in main iran_ai_extras npv_am_extras tg_proxy nat_ultra net_diag extras_plus donate ads_remote update_check online server_shop telegram_channels vpn_sources help_page conn_specs; do
             [ -f "lib/$f.dart" ] || { echo "ERROR: lib/$f.dart missing"; exit 1; }
             cp "lib/$f.dart" "build_app/lib/$f.dart"
           done
