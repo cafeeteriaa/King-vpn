@@ -17,6 +17,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'tg_proxy.dart';
 import 'vpn_sources.dart';
 import 'help_page.dart';
+import 'conn_specs.dart';
 part 'iran_ai_extras.dart';
 part 'npv_am_extras.dart';
 part 'nat_ultra.dart';
@@ -446,7 +447,8 @@ final errorLog = ValueNotifier<String>('');
 // ERRLOGPATCH: in-app error report (menu -> گزارش خطاها)
 final List<String> dbgLines = [];
 List<String> dbgPrev = []; // lines saved by the previous run
-int dbgNet = 0; // harmless network errors (counted, not listed)
+int dbgNet = 0;
+DateTime? _lastNoHealthyLog; // harmless network errors (counted, not listed)
 bool _dbgLoaded = false;
 String _dbgLastSt = '';
 Timer? _dbgSaveT;
@@ -660,6 +662,8 @@ String _dbgWhere() {
 List<String>? _dbgHelpOf(String m) {
   List<String> h(String c, String w, String a, String f) => [c, w, a, f];
   bool has(String k) => m.contains(k);
+  final extra = extraDiagOf(m);
+  if (extra != null) return extra;
   // SWALLOWPATCH: errors that a catch (_) used to throw away
   if (m.startsWith('🕳')) {
     var code = 'E-SWALLOW-OTHER';
@@ -3863,8 +3867,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ' • سالم ${good.length}');
     }
     _saveSrc();
-    if (!bg && !abort && upServer == null && _ready(row) == 0) {
-      logError('سرور سالمی پیدا نشد');
+    if (!bg && !abort && upServer == null && good.isEmpty) {
+      final now = DateTime.now();
+      if (_lastNoHealthyLog == null ||
+          now.difference(_lastNoHealthyLog!) > const Duration(seconds: 60)) {
+        _lastNoHealthyLog = now;
+        logError('سرور سالمی پیدا نشد');
+      }
     }
   }
 
@@ -4664,6 +4673,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (!lastStartNoTunnel && !pin) s.badAt = DateTime.now();
         errorLog.value =
             '${s.name}: ${lastFail.isEmpty ? 'شروع نشد' : lastFail}';
+        dbg(configFailMsg(
+          s.link,
+          'شروع هسته (_start)',
+          lastFail.isEmpty ? 'شروع نشد' : lastFail,
+          ovpnText: s.ovpnConf,
+        ));
         continue;
       }
       if (!trust && !pin) {
@@ -4689,6 +4704,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             _onConnected(s);
             return true;
           }
+          dbg(configFailMsg(
+            s.link,
+            'پینگ از داخل تونل',
+            lastPingErr.isEmpty ? 'بدون پاسخ' : lastPingErr,
+            ovpnText: s.ovpnConf,
+          ));
           s.badAt = DateTime.now();
           errorLog.value = '${s.name}: وصل شد ولی اینترنت رد نشد '
               '(${_short(lastPingErr, 70)})';
@@ -5399,9 +5420,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // RETRYPATCH: nothing left to test -> forget the failures and go again
           if (pending.isEmpty) failed.clear();
           _set('سرور سالم پیدا نشد؛ تست سریع دوباره...');
-          if (badPingRounds == 0) {
-            await Future.delayed(const Duration(seconds: 2));
-          }
+          await Future.delayed(
+              Duration(seconds: badPingRounds == 0 ? min(15, 2 + round) : 1));
           continue;
         }
       }
