@@ -146,6 +146,29 @@ const hotOwners = {
   'soroushmirzaei',
   'itsyebekhe',
   'AvenCores',
+  'Alirewa',
+  'ZendanTeam',
+  'miladtahanian',
+  'morpheusadam',
+  'mmbateni',
+  'liketolivefree',
+  'Delta-Kronecker',
+};
+
+// منابع با لیست verified/fast — در اتصال عادی اول تست می‌شوند
+const speedOwners = {
+  '0xRadikal', // top100 + verified + fast
+  'Alirewa', // sub تازه و اولویت‌دار
+  'ZendanTeam', // SS44 gold — تست ترافیک واقعی
+  'MatinGhanbari', // super-sub
+  'ebrasha',
+  'Epodonios',
+  'liketolivefree', // kobabi تست‌شده
+  'iboxz',
+  'V2RAYCONFIGSPOOL',
+  'mmbateni',
+  'miladtahanian',
+  'Delta-Kronecker',
 };
 // below this download speed (KB/s) the connected server is replaced (0 = off)
 int minSpeedKB = 0; // LOWDATA: speed-based switching off (no download tests)
@@ -493,8 +516,13 @@ String _dbgHms(DateTime t) {
 // tiny problems: any log line with one of these words is kept too
 bool _dbgMicro(String m) {
   const keys = [
-    'ناموفق', 'نشد', 'نیامد', 'خطا', 'شکست', 'خراب', 'گیر',
-    'Exception', 'xception', 'imeout', 'timeout', 'Error', 'error', 'failed'
+    'ناموفق', 'نشد', 'نیامد', 'خطا', 'شکست', 'خراب', 'گیر', 'رد',
+    'قطع', 'ضعیف', 'کند', 'خالی', 'صفر', 'blacklist', 'لیست سیاه',
+    'Exception', 'xception', 'imeout', 'timeout', 'Error', 'error',
+    'failed', 'Failed', 'warn', 'Warn', 'assert', 'null', 'Null',
+    'Stack', 'overflow', 'denied', 'permission', 'Permission',
+    'E-CONFIG', 'E-SITE', 'E-TUN', 'E-START', 'E-SWALLOW',
+    'کانفیگ ناموفق', 'سایت‌چک', 'پینگ داشت',
   ];
   for (final k in keys) {
     if (m.contains(k)) return true;
@@ -3723,7 +3751,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         more = true;
         final r = srcRate[k] ?? 0.3;
         if (r < 0.1 && round % 4 != 0) continue; // weak lists: 1 round in 4
-        final per = _tier(q.first) == 2 ? 3 : 1;
+        final ti = _tier(q.first);
+        final per = ti >= 3 ? 4 : (ti == 2 ? 3 : 1);
         for (var n = 0; n < per && p0 < q.length; n++) {
           out.add(q[p0++]);
         }
@@ -4875,11 +4904,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (!lastStartNoTunnel && !pin) s.badAt = DateTime.now();
         errorLog.value =
             '${s.name}: ${lastFail.isEmpty ? 'شروع نشد' : lastFail}';
+        final ip0 = await resolveHostIp(s.host);
         dbg(configFailMsg(
           s.link,
           'شروع هسته (_start)',
           lastFail.isEmpty ? 'شروع نشد' : lastFail,
           ovpnText: s.ovpnConf,
+          knownIp: ip0,
         ));
         continue;
       }
@@ -4909,11 +4940,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             _onConnected(s);
             return true;
           }
+          final ip1 = await resolveHostIp(s.host);
           dbg(configFailMsg(
             s.link,
             'پینگ از داخل تونل',
             lastPingErr.isEmpty ? 'بدون پاسخ' : lastPingErr,
             ovpnText: s.ovpnConf,
+            knownIp: ip1,
           ));
           s.badAt = DateTime.now();
           errorLog.value = '${s.name}: وصل شد ولی اینترنت رد نشد '
@@ -4930,32 +4963,53 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           continue;
         }
       }
-      // SITEPRECHECK: the ping passed, but does a real site open through this
-      // server? If none of Instagram / Telegram / YouTube opens, the next
-      // server is tried at once (max 3 skips, never the last candidate, so a
-      // network where the check itself fails still connects).
+      // SITEPRECHECK: ping passed — confirm real traffic. Instagram/Telegram
+      // often fail in Iran even on a working tunnel, so we use light 204
+      // checks first; if those fail we still accept when real download > 0.
       if (!trust &&
           !pin &&
           !nationalMode &&
           siteSkips < 3 &&
           !identical(list.last, s)) {
-        _set('بررسی باز شدن سایت‌ها روی ${s.name}...');
+        _set('بررسی ترافیک واقعی روی ${s.name}...');
         final r = await Future.wait([
-          _siteOpens('https://www.instagram.com/'),
-          _siteOpens('https://web.telegram.org/'),
-          _siteOpens('https://www.youtube.com/generate_204'),
+          _siteOpens('http://connectivitycheck.gstatic.com/generate_204'),
+          _siteOpens('https://www.gstatic.com/generate_204'),
+          _siteOpens('https://cp.cloudflare.com/generate_204'),
         ]);
         if (abort) return false;
         if (!r.any((x) => x)) {
-          siteSkips++;
-          s.svc = 0;
-          s.badAt = DateTime.now();
-          await _stopV2();
-          dbg('اتصال: ${s.name} پینگ داشت ولی هیچ سایتی باز نشد؛ سرور بعدی '
-              '($siteSkips/3)');
-          continue;
+          // fallback: real download — if data flows, keep this server
+          final sp = await measure(
+              win: const Duration(seconds: 2),
+              total: const Duration(seconds: 6),
+              direct: true);
+          if (abort) return false;
+          if (sp != null && sp > 0.05) {
+            s.speed = sp;
+            s.svc = s.svc < 0 ? 1 : (s.svc | 1);
+            dbg('اتصال: ${s.name} سایت‌چک رد شد ولی سرعت واقعی '
+                '${sp.toStringAsFixed(2)} MB/s — قبول شد');
+          } else {
+            siteSkips++;
+            s.svc = 0;
+            s.badAt = DateTime.now();
+            await _stopV2();
+            final ip2 = await resolveHostIp(s.host);
+            dbg('اتصال: ${s.name} پینگ داشت ولی هیچ سایتی باز نشد؛ سرور بعدی '
+                '($siteSkips/3)');
+            dbg(configFailMsg(
+              s.link,
+              'چک ترافیک واقعی (سایت/سرعت)',
+              'پینگ OK ولی 204 و سرعت واقعی رد شد',
+              ovpnText: s.ovpnConf,
+              knownIp: ip2,
+            ));
+            continue;
+          }
+        } else {
+          s.svc = s.svc < 0 ? 1 : (s.svc | 1);
         }
-        s.svc = s.svc < 0 ? 1 : (s.svc | 1);
       }
       _onConnected(s);
       return true;
@@ -5721,10 +5775,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (round >= 4 && natLevel < 3) natLevel = 3;
         if (round >= 8 && natLevel < 4) natLevel = 4;
       } else if (bestEffort) {
-        if (natLevel < 2) natLevel = 2;
-        if (round >= 1 && natLevel < 3) natLevel = 3;
-        if (round >= 3 && natLevel < 4) natLevel = 4;
-        // thorough but finite: stop after ~10 failed rounds
+        // round 0 stays at current level (usually 1) → more servers, faster
+        if (round >= 1 && natLevel < 2) natLevel = 2;
+        if (round >= 3 && natLevel < 3) natLevel = 3;
+        if (round >= 5 && natLevel < 4) natLevel = 4;
         if (round >= 10) break;
       }
       // RETRYPATCH: quick test is repeated until a healthy server exists
@@ -5839,15 +5893,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         tcpTimeout = Duration(
             milliseconds: max(tcpTimeout.inMilliseconds, 4500));
       } else if (ultraMode) {
-        // NORMAL BEST-CONNECT: same matrix quality as national, bounded cost
-        if (natLevel < 2) natLevel = 2;
+        // NORMAL: start light (level 1) so many servers get a quick ping first;
+        // bestEffort in _acquire escalates 2→4 only if needed. No folder inject.
+        if (natLevel < 1) natLevel = 1;
         natWorkers = max(natWorkers, 6);
         delayTimeout = Duration(
             seconds: max(delayTimeout.inSeconds, 12));
         tcpTimeout = Duration(
             milliseconds: max(tcpTimeout.inMilliseconds, 4000));
-        // reuse healthy folder first (learned winners)
-        _resInject();
       }
       // NORMAL: Fragment always off (kills post-connect speed).
       // National mode may still use Fragment inside the variant matrix.
@@ -7218,12 +7271,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return r == null || r >= 0.25 || topSrc.contains(u);
   }
 
-  // 4 = saved healthy server of the last session (tested first),
-  // 3 = pinned by the user, 2 = hot GitHub source, 1 = rest
+  // 5 = saved healthy, 4 = pinned, 3 = verified/fast sources, 2 = hot, 1 = rest
   int _tier(Server s) {
-    if (warmKeys.contains(s.key)) return 4;
-    if (favs.containsKey(s.key)) return 3;
-    return hotOwners.contains(ownerOf(s)) ? 2 : 1;
+    if (warmKeys.contains(s.key)) return 5;
+    if (favs.containsKey(s.key)) return 4;
+    final o = ownerOf(s);
+    if (speedOwners.contains(o)) return 3; // تست اول: کیفیت/سرعت بالا
+    if (hotOwners.contains(o)) return 2;
+    return 1;
   }
 
   int _cmpPending(Server a, Server b) {
@@ -9272,6 +9327,21 @@ final List<String> _morePaths = [
   'mmbateni/iran-intranet-access/main/outputs/ir_mobile_exit_configs.txt',
   'mmbateni/iran-intranet-access/main/outputs/armenian_bridge_configs.txt',
   'mmbateni/iran-intranet-access/main/outputs/passing_intranet_configs.txt',
+  // ---- NEW 2026 sources (fresh + Iran-oriented) ----
+  'Alirewa/V2ray-Configs/main/config.txt',
+  'Alirewa/V2ray-Configs/main/sub1.txt',
+  'Alirewa/V2ray-Configs/main/sub2.txt',
+  '0xRadikal/Free-v2ray-Configs/main/top100.txt',
+  '0xRadikal/Free-v2ray-Configs/main/verified/configs.txt',
+  '0xRadikal/Free-v2ray-Configs/main/fast/configs.txt',
+  // ایران / ایرانسل‌محور (برای فیلتر و نت ملی بهتر از لیست عمومی خام)
+  'ZendanTeam/SS44-sub/main/SS44-gold.txt',
+  'ZendanTeam/SS44-sub/main/SS44.txt',
+  'miladtahanian/Config-Collector/main/mixed_iran.txt',
+  'morpheusadam/v2ray-config/main/subs/bundles/iran.txt',
+  'morpheusadam/v2ray-config/main/subs/bundles/best.txt',
+  'Delta-Kronecker/V2ray-Config/main/config/protocols/trojan.txt',
+  'Delta-Kronecker/V2ray-Config/main/config/protocols/ss.txt',
 ];
 
 final List<String> _extraUrls = [
@@ -9294,6 +9364,9 @@ final List<String> _extraUrls = [
   'https://raw.githubusercontent.com/Delta-Kronecker/V2ray-Config/refs/heads/main/config/protocols/vmess.txt',
   'https://raw.githubusercontent.com/Delta-Kronecker/V2ray-Config/refs/heads/main/config/protocols/vless.txt',
   'https://raw.githubusercontent.com/ebrasha/free-v2ray-public-list/refs/heads/main/all_extracted_configs.txt',
+  // Iran-focused full URLs
+  'https://raw.githubusercontent.com/ZendanTeam/SS44-sub/main/SS44-gold.txt',
+  'https://raw.githubusercontent.com/liketolivefree/kobabi/main/sub.txt',
 ];
 
 
@@ -9684,11 +9757,32 @@ class _AdPageState extends State<AdPage> with WidgetsBindingObserver {
 bool nationalMode = false; // international internet cut, national network works
 final Set<String> natGood = {}; // keys of servers that worked in national mode
 
-bool _natSrc(Server s) => (s.src ?? '').contains('iran-intranet-access');
+// منابع مناسب فیلتر / نت ملی (ایران‌محور + تست‌شده)
+bool _natSrc(Server s) {
+  final u = (s.src ?? '').toLowerCase();
+  if (u.isEmpty) return false;
+  return u.contains('iran-intranet') ||
+      u.contains('zendenteam') ||
+      u.contains('ss44') ||
+      u.contains('mixed_iran') ||
+      u.contains('miladtahanian') ||
+      u.contains('kobabi') ||
+      u.contains('mahsanet') ||
+      u.contains('hosseinkoofi') ||
+      u.contains('mmbateni') ||
+      (u.contains('morpheusadam') && u.contains('iran')) ||
+      u.contains('delta-kronecker');
+}
 
-int _natRank(Server s) => natGood.contains(s.key)
-    ? 3
-    : (_natSrc(s) ? 2 : (s.country == 'IR' ? 1 : 0));
+// رتبه نت ملی: برندگان قبلی > منبع ایران‌محور > Reality > IR > CDN
+int _natRank(Server s) {
+  if (natGood.contains(s.key)) return 5;
+  if (_natSrc(s)) return 4;
+  if (s.reality) return 3;
+  if (s.country == 'IR') return 2;
+  if (s.cdn) return 1;
+  return 0;
+}
 
 Future<void> _natAdd(Server s) async {
   natGood.add(s.key); // FOLDERONLY: the folder keeps them, no file
