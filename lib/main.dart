@@ -29,6 +29,7 @@ part 'update_check.dart';
 part 'online.dart';
 part 'server_shop.dart';
 part 'telegram_channels.dart';
+part 'ultimate_extras.dart';
 
 // One rewarded ad = one 4 hour session. When the 4 hours end the VPN is cut
 // and the next connect shows the ad again. Automatic server switches (bad
@@ -45,10 +46,10 @@ const ownPkg = 'com.kingvpn.king_vpn';
 // the workflow file.
 const bgChannel = MethodChannel('vpn/bg');
 // parallel ping tests while connected (settings 1..6).
-int bgWorkers = 1; // RETRYPATCH
+int bgWorkers = 2; // low data while connected; AI may raise freely
 // FAST SEARCH: parallel ping tests (core delay test, no VPN toggling) used
 // when looking for the first healthy server (settings 1..8).
-int fastWorkers = 50; // FASTSET: 50 parallel tests (fixed default)
+int fastWorkers = 50; // fixed default — do not change without user request
 // a healthy server not checked for this long is pinged again (occasional
 // re-check, the server stays in the list until it really fails)
 Duration recheckAfter = const Duration(minutes: 3);
@@ -177,6 +178,16 @@ bool savedFirst = true;
 bool smartOrder = true;
 // when every server was tested: download a new list and go on, forever
 bool autoCycle = false; // LOWDATA: no endless list re-downloads
+// ULTRA: multi-variant matrix (Fragment/fp/ALPN/DNS/port/cleanIP/Mux/Noise...)
+// even on normal global connections — commercial apps never do this.
+bool ultraMode = true;
+// INDESTRUCTIBLE: endless search — default OFF to save data; national mode
+// and AI pilot can still turn it on when needed.
+bool indestructibleMode = false;
+// TURBO: after a working tunnel is up, try the same server without Fragment/
+// Noise (the biggest speed killers) and with Mux, then keep it if traffic
+// still flows. Ping does not matter — throughput does.
+bool turboSpeed = true;
 // minutes before the downloaded list is refreshed. Big value on purpose: the
 // list is replaced when ALL servers were tested (autoCycle), not by the clock.
 int listRefreshMin = 240;
@@ -3277,6 +3288,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final p = await SharedPreferences.getInstance();
       await loadGeminiPrefs(p);
       await loadNumPrefs(p);
+      await ultimateLoad(p);
       autoNetOn = p.getBool('autonet_on') ?? true; // AUTONET
       // settings first: the fail window / re-check time are used below
       final st = await tunedSettings(p);
@@ -3304,6 +3316,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           savedFirst = j['sf'] as bool? ?? savedFirst;
           smartOrder = j['so'] as bool? ?? smartOrder;
           autoCycle = j['ac'] as bool? ?? autoCycle;
+          ultraMode = j['um'] as bool? ?? ultraMode;
+          indestructibleMode = j['idm'] as bool? ?? indestructibleMode;
+          turboSpeed = j['tb'] as bool? ?? turboSpeed;
           listRefreshMin = _ci(j['lr'], listRefreshMin, 1, 1000);
           failMin = _ci(j['fm'], failMin, 1, 1000);
           recheckMin = _ci(j['rm'], recheckMin, 1, 1000);
@@ -3567,6 +3582,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             'sf': savedFirst,
             'so': smartOrder,
             'ac': autoCycle,
+            'um': ultraMode,
+            'idm': indestructibleMode,
+            'tb': turboSpeed,
             'lr': listRefreshMin,
             'fm': failMin,
             'rm': recheckMin,
@@ -3723,6 +3741,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // exhausted = the queue ran empty: the list is refreshed after only 2 min
   // (new servers appear in the hot lists all the time) and the cycle goes on.
   Future<void> _loadPending({bool bg = false, bool exhausted = false}) async {
+    // ULTIMATE: offline-only never downloads new lists
+    if (offlineOnly) {
+      if (!bg) _set('حالت آفلاین: فقط سرورهای ذخیره‌شده');
+      return;
+    }
     final now0 = DateTime.now();
     final age = listTime == null ? null : now0.difference(listTime!);
     final limit = (exhausted && autoCycle)
@@ -4034,8 +4057,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // straight to the core test, like v2rayNG.
     final ipList = batch.where((s) => s.isIp).toList();
     final alive = batch.where((s) => !s.isIp).toList();
-    if (nationalMode && natLevel >= 2) {
-      alive.addAll(ipList); // NATULTRA: straight to the real core test
+    if ((nationalMode && natLevel >= 2) || ultraMode) {
+      alive.addAll(ipList); // NATULTRA / ULTRA: straight to the real core test
       ipList.clear();
     }
     await pool<Server>(ipList, max(60, fastWorkers), (s) async {
@@ -4256,7 +4279,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final tt = t ?? delayTimeout;
     // NATULTRA: in national-network mode every server is tried with several
     // variants (other address, Fragment sizes, fingerprints, ALPN, 2nd URL)
-    final multi = nationalMode || _resBusy; // folder re-test uses variants too
+    // ULTRA: multi-variant on every connection attempt when ultraMode is on
+    final multi = nationalMode || _resBusy || ultraMode;
     final order = multi ? _natOrder(s, full: _resFull) : const [0];
     // NATBUDGET: one server may only use a limited time per pass; the rest of
     // its variants continue in the next pass (natCursorAdvance)
@@ -4271,6 +4295,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (budget != null && i > 0 && bsw.elapsed > budget) break;
       final code = order[i];
       final v = code % _natCodeBase;
+      // LIVE UI: which variant / dimension is under test right now
+      if (multi && (i == 0 || i % 2 == 0 || i == order.length - 1)) {
+        final vn = (v >= 0 && v < _natVarNames.length)
+            ? _natVarNames[v]
+            : 'حالت $v';
+        final dims = (v > 0 && v < _natSpecs.length)
+            ? _natDims(_natSpecs[v]).take(3).join(' · ')
+            : '';
+        _set('ماتریس ${i + 1}/${order.length} • ${s.name}\n'
+            'حالت: $vn${dims.isEmpty ? '' : '\n$dims'}');
+      }
       if (i >= 3 && s.ipLink == null && !_natChangesAddr(v)) {
         tcpOk ??= s.isIp || (await probe(s)) != null;
         if (!tcpOk) continue;
@@ -4284,7 +4319,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (d != null) {
         if (multi) {
           if (natVar[_nk(s)] != v) {
-            dbg('نت ملی: ${s.name} با حالت «${_natVarNames[v]}» جواب داد');
+            final vn = (v >= 0 && v < _natVarNames.length)
+                ? _natVarNames[v]
+                : '#$v';
+            dbg('ماتریس: ${s.name} با حالت «$vn» جواب داد');
+            _set('پیدا شد • ${s.name} • حالت: $vn');
           }
           natVarSet(s, v);
         }
@@ -4695,30 +4734,121 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _measureCurrent(s);
     autoAiAfterConnect();
     _showChannelPrompt();
+    // TURBO: after the tunnel is proven, try a high-throughput profile
+    if (turboSpeed && !s.ovpn) {
+      unawaited(_turboAfterConnect(s));
+    }
+  }
+
+  // TURBO SPEED ============================================================
+  // All throughput levers after a working tunnel:
+  //  - strip Fragment/Noise (biggest speed killers)
+  //  - force Mux with high concurrency
+  //  - try several light variants, keep the first that still carries traffic
+  //  - re-measure real download speed
+  // If none work, restore the previous stable tunnel immediately.
+  bool _turboBusy = false;
+  Future<void> _turboAfterConnect(Server s) async {
+    if (_turboBusy || !turboSpeed || !wantVpn || !connected) return;
+    if (!identical(current, s)) return;
+    final curV = natVarFor(s);
+    final needLight = natIsHeavy(curV);
+    final needMux = !muxEnabled || muxConc < 8;
+    if (!needLight && !needMux) {
+      // still re-measure so ranking gets a real speed
+      return;
+    }
+    _turboBusy = true;
+    final prevV = curV;
+    final prevMux = muxEnabled;
+    final prevFrag = fragEnabled;
+    final prevConc = muxConc;
+    try {
+      await Future.delayed(const Duration(seconds: 2));
+      if (!wantVpn || !connected || !identical(current, s) || abort) return;
+      _set('توربو سرعت: Mux + بدون Fragment...');
+      muxEnabled = true;
+      muxConc = max(muxConc, 16);
+      fragEnabled = false;
+
+      // candidates: light speed variant, then 0, then keep current if already light
+      final cands = <int>[];
+      final light = natSpeedVariant(s, prefer: curV % _natCodeBase);
+      if (light != null) cands.add(light);
+      if (!cands.contains(0)) cands.add(0);
+      if (!needLight && !cands.contains(curV % _natCodeBase)) {
+        cands.add(curV % _natCodeBase);
+      }
+
+      var kept = false;
+      for (final target in cands) {
+        if (!wantVpn || !identical(current, s) || abort) break;
+        natVar[_nk(s)] = target;
+        await _stopV2();
+        if (!await _start(s)) continue;
+        final p = await pingAny(
+            total: const Duration(seconds: 8), direct: true);
+        if (p == null) continue;
+        natVarSet(s, target);
+        kept = true;
+        dbg('توربو سرعت فعال • حالت $target • Mux $muxConc • '
+            'پینگ تونل ${p}ms (پینگ مهم نیست)');
+        _set('توربو سرعت فعال • Mux $muxConc • بدون Fragment');
+        if (mounted) setState(() {});
+        _measureCurrent(s);
+        break;
+      }
+      if (!kept) {
+        natVar[_nk(s)] = prevV;
+        muxEnabled = prevMux;
+        fragEnabled = prevFrag;
+        muxConc = prevConc;
+        await _stopV2();
+        await _start(s);
+        _set(_connStatus());
+        dbg('توربو: حالت سبک جواب نداد؛ حالت قبلی برگشت');
+      }
+    } catch (e) {
+      logError(e);
+      try {
+        natVar[_nk(s)] = prevV;
+        muxEnabled = prevMux;
+        fragEnabled = prevFrag;
+        muxConc = prevConc;
+        if (wantVpn && identical(current, s)) await _start(s);
+      } catch (_) {}
+    } finally {
+      _turboBusy = false;
+    }
   }
 
   String _short(String t, [int n = 90]) => t.length > n ? t.substring(0, n) : t;
 
-  // NATLADDER: other variants of one server through the REAL tunnel
-  // (the tunnel is up when this returns true)
+  // NATLADDER / PHANTOM LADDER: other variants of one server through the REAL
+  // tunnel. Expanded for ultraMode: tries many more ranked variants so a
+  // server that almost works is not discarded after one failed traffic check.
   Future<bool> _natLadder(Server s) async {
     final first = natVarFor(s);
     try {
       final tried = <int>{first};
+      final takeN = (nationalMode || indestructibleMode)
+          ? 12
+          : (ultraMode ? 8 : 4);
       final cand = _natOrder(s, full: true)
           .where((c) => c < _natCodeBase)
           .where((v) => tried.add(v))
-          .take(4)
+          .take(takeN)
           .toList();
       for (final v in cand) {
         if (abort || !wantVpn) break;
         _set('اتصال به ${s.name} با حالت «${_natSpecs[v].name}»...');
         natVar[_nk(s)] = v; // _start() reads the variant through natVarFor
         if (!await _start(s)) continue;
-        final p = await pingAny(total: const Duration(seconds: 9), direct: true);
+        final p = await pingAny(
+            total: Duration(seconds: nationalMode ? 12 : 9), direct: true);
         if (p != null) {
           natVarSet(s, v);
-          dbg('نت ملی: ${s.name} با حالت «${_natSpecs[v].name}» از تونل واقعی جواب داد');
+          dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» از تونل واقعی جواب داد');
           return true;
         }
         await _stopV2();
@@ -4772,7 +4902,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await _stopV2();
           // NATLADDER: the variant that passed the core test carried no real
           // traffic: try the next ranked variants of the SAME server first
-          if (nationalMode && !abort && wantVpn && await _natLadder(s)) {
+          if ((nationalMode || ultraMode || indestructibleMode) &&
+              !abort &&
+              wantVpn &&
+              await _natLadder(s)) {
             _onConnected(s);
             return true;
           }
@@ -4878,6 +5011,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         watchFailLimit = 2;
         minSpeedKB = 1500;
         betterSwitch = true;
+        turboSpeed = true;
+        autoSpeed = true;
+        speedTopN = max(speedTopN, 5);
+        muxEnabled = true;
+        muxConc = max(muxConc, 16);
+        fragEnabled = false;
+        sortSpeed = true;
         break;
       case 'weak':
         delayTimeout = const Duration(seconds: 14);
@@ -4886,9 +5026,40 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         watchFailLimit = 4;
         minSpeedKB = 150;
         break;
+      case 'turbo':
+        turboSpeed = true;
+        autoSpeed = true;
+        speedTopN = max(speedTopN, 8);
+        muxEnabled = true;
+        muxConc = 16;
+        fragEnabled = false;
+        sortSpeed = true;
+        betterSwitch = true;
+        minSpeedKB = max(minSpeedKB, 800);
+        autoUpgrade = true;
+        badPingMs = 2000;
+        break;
     }
     _saveSettings();
     _set('پروفایل اعمال شد');
+  }
+
+  // TURBO LEVERS: every throughput lever before connect (when turboSpeed is on).
+  void _applyTurboLevers() {
+    if (!turboSpeed) return;
+    // 1) real download test of the best candidates before picking one
+    autoSpeed = true;
+    if (speedTopN < 5) speedTopN = 5;
+    // 2) Mux = parallel streams on one tunnel
+    muxEnabled = true;
+    if (muxConc < 8) muxConc = 8;
+    // 3) do not force global Fragment outside national crisis
+    if (!nationalMode) fragEnabled = false;
+    // 4) rank by real speed, not ping
+    sortSpeed = true;
+    // 5) replace slow tunnels automatically
+    if (minSpeedKB <= 0) minSpeedKB = 400;
+    betterSwitch = true;
   }
 
   Future<void> _profilesSheet() async {
@@ -4911,9 +5082,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 'کمتر سرور عوض می‌کند', () => _applyProfile('stable')),
             tile(Icons.bolt_outlined, 'سریع', 'همیشه دنبال بهترین سرور',
                 () => _applyProfile('fast')),
+            tile(Icons.speed, 'توربو حداکثر سرعت',
+                'همه اهرم‌های سرعت با هم: Mux ۱۶، بدون Fragment، تست سرعت قبل از وصل',
+                () => _applyProfile('turbo')),
             tile(Icons.network_check, 'اینترنت ضعیف / نت ملی',
                 'صبر بیشتر، تعویض کمتر', () => _applyProfile('weak')),
-            tile(Icons.auto_awesome, 'Gemini', 'فقط سرورهایی که Gemini را باز می‌کنند',
+            tile(Icons.auto_awesome, 'سرور AI (Gemini/Grok)',
+                'سرورهایی که API هوش مصنوعی را باز می‌کنند',
                 () => connectRow('r:ai')),
           ]),
         ),
@@ -4932,10 +5107,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final live = (liveDown > 0 || liveUp > 0 || totalDown > 0)
         ? ' • ↓${_fmtB(liveDown)}/s ↑${_fmtB(liveUp)}/s • مصرف ${_fmtB(totalDown + totalUp)}'
         : '';
-    return 'وصل شد${sp == null ? '' : ' • ${sp.toStringAsFixed(1)} MB/s'}$live'
+    // show active matrix variant when ultra/national learned one
+    var mode = '';
+    final cur = current;
+    if (cur != null) {
+      final v = natVarFor(cur);
+      if (v > 0 && v < _natVarNames.length) {
+        mode = ' • حالت: ${_natVarNames[v]}';
+      }
+    }
+    final q = qualityScore();
+    return 'وصل شد${sp == null ? '' : ' • ${sp.toStringAsFixed(1)} MB/s'}$live$mode'
+        ' • کیفیت: $q (${qualityLabel(q)})'
         ' • سالم: $standbyCount'
         '${proxyMode ? ' • حالت پروکسی (SOCKS 10808 / HTTP 10809)' : ''}'
         '${tunWarn ? ' • ⚠ تونل VPN ساخته نشد' : ''}'
+        '${offlineOnly ? ' • آفلاین' : ''}'
+        '${dataSaver ? ' • صرفه‌جویی' : ''}'
         '${lastWhy.isEmpty ? '' : ' • علت تعویض قبلی: $lastWhy'}';
   }
 
@@ -5264,7 +5452,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
-  // NATBTNPATCH: in national mode the 4-at-a-time search never stops
+  // NATBTNPATCH: in national mode the search never stops
   bool _natKeepOn = false;
   Server? _natKickFor;
 
@@ -5279,8 +5467,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (connected) {
           seen = true;
           idle = 0;
-          bgWorkers = natWorkers; // NATWORKERSPATCH: locked (4)
+          bgWorkers = max(natWorkers, indestructibleMode ? 8 : 4);
           autoUpgrade = true;
+          autoCycle = true;
           // NATBG: while connected the background search is deeper (more
           // variants per server) and every healthy server goes into the folder
           if (natLevel < 3) natLevel = 3;
@@ -5304,7 +5493,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
         } else if (!wantVpn && !busy) {
           // disconnected by the user (or the connect never succeeded)
-          if (seen || ++idle > 15) break;
+          // INDESTRUCTIBLE: stay alive longer while still hunting
+          final limit = indestructibleMode ? 90 : 15;
+          if (seen || ++idle > limit) break;
         }
       }
     } catch (e) {
@@ -5465,12 +5656,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _natEscalate(int round) async {
     try {
       await _natDetect(); // what does the network look like now?
-      if (!nationalMode) return;
+      if (!nationalMode && !indestructibleMode) return;
       natAll = true; // every source, skip none
+      autoCycle = true;
       // NATULTRA: 2 = every base variant, 3 = + every test address and ~120 generated
       // variants, 4 = ~600 generated variants per pass (the cursor continues next round)
       natLevel = round >= 8 ? 4 : (round >= 4 ? 3 : 2);
-      tcpTimeout = Duration(seconds: round >= 8 ? 8 : 6);
+      tcpTimeout = Duration(seconds: round >= 8 ? 10 : (round >= 4 ? 8 : 6));
+      delayTimeout = Duration(seconds: max(delayTimeout.inSeconds, round >= 8 ? 18 : 14));
+      natWorkers = max(natWorkers, round >= 4 ? 8 : 6);
+      // grow the variant matrix so later rounds cover more combinations
+      try {
+        natGrow(round >= 8 ? 400 : (round >= 4 ? 200 : 80));
+      } catch (_) {}
       _dohFail = 0;
       natRefetch = true; // download fresh lists again (mirrors included)
       listTime = null;
@@ -5478,8 +5676,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       failed.clear();
       pending.clear(); // rebuilt from the full list
       _resInject();
-      if (delayTimeout.inSeconds < 14) delayTimeout = const Duration(seconds: 14);
-      _set('نت ملی: جستجوی گسترده با همه‌ی منابع (مرحله ${round ~/ 2} • سطح $natLevel)...');
+      _set(nationalMode
+          ? 'نت ملی: جستجوی گسترده با همه‌ی منابع (مرحله ${round ~/ 2} • سطح $natLevel)...'
+          : 'حالت شکست‌ناپذیر: جستجوی گسترده (مرحله ${round ~/ 2} • سطح $natLevel)...');
     } catch (e) {
       logError(e);
     }
@@ -5505,10 +5704,29 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     var speedDone = !speed;
     var emptyRounds = 0; // EMPTYROWFIX: rounds in a row with nothing to try
+    // INDESTRUCTIBLE: national / forced modes never exit the outer loop
+    final neverStop = nationalMode || indestructibleMode;
+    // BEST-EFFORT: normal connect with Ultra uses the same matrix ladder as
+    // national search (levels 2→4, operator DNA) but stops after enough rounds
+    // so data usage stays bounded.
+    final bestEffort = ultraMode && !neverStop;
     for (var round = 0; !abort; round++) {
-      // NATESCALATE: every 3rd failed round the search gets wider (all sources,
+      // NATESCALATE: every 2nd failed round the search gets wider (all sources,
       // fresh lists, longer waits) and the network state is checked again
       if (round > 0 && round % 2 == 0) await _natEscalate(round);
+      // force endless list cycling when in crusade mode
+      if (neverStop) {
+        autoCycle = true;
+        if (natLevel < 2) natLevel = 2;
+        if (round >= 4 && natLevel < 3) natLevel = 3;
+        if (round >= 8 && natLevel < 4) natLevel = 4;
+      } else if (bestEffort) {
+        if (natLevel < 2) natLevel = 2;
+        if (round >= 1 && natLevel < 3) natLevel = 3;
+        if (round >= 3 && natLevel < 4) natLevel = 4;
+        // thorough but finite: stop after ~10 failed rounds
+        if (round >= 10) break;
+      }
       // RETRYPATCH: quick test is repeated until a healthy server exists
       final row = connRow;
       final searchRow = (strictRow || round == 0) ? row : null;
@@ -5537,12 +5755,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // at all while the other healthy servers do not belong to it. The
           // search then ended after 0 s again and again for ever. After a few
           // empty rounds we stop and tell the user; the watchdog / the user
-          // can try again.
+          // can try again. INDESTRUCTIBLE overrides this for national crusade.
           emptyRounds++;
-          if (strictRow && row != null && emptyRounds >= 6) {
+          if (strictRow && row != null && emptyRounds >= 6 && !neverStop) {
             break;
           }
-          _set('سرور سالم پیدا نشد؛ تست سریع دوباره...');
+          if (neverStop) {
+            _set('حالت شکست‌ناپذیر: دور ${round + 1} • سطح $natLevel • '
+                'جستجوی دوباره با همه منابع...');
+            failed.clear();
+            pending.clear();
+            natRefetch = true;
+            listTime = null;
+            lastFetchTry = DateTime(2000);
+            await _loadPending(bg: false, exhausted: true);
+            _resInject();
+          } else {
+            _set('سرور سالم پیدا نشد؛ تست سریع دوباره...');
+          }
           await Future.delayed(
               Duration(seconds: badPingRounds == 0 ? min(15, 2 + round) : 1));
           continue;
@@ -5600,6 +5830,30 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       natLevel = natForce ? 2 : 1; // NATULTRA
       natAll = natForce; // NATBTNPATCH: full search of ALL sources
       natForce = false;
+      if (nationalMode || indestructibleMode) {
+        autoCycle = true; // endless list cycling
+        if (natLevel < 2) natLevel = 2;
+        natWorkers = max(natWorkers, 6); // smoother parallel tests
+        delayTimeout = Duration(
+            seconds: max(delayTimeout.inSeconds, 14));
+        tcpTimeout = Duration(
+            milliseconds: max(tcpTimeout.inMilliseconds, 4500));
+      } else if (ultraMode) {
+        // NORMAL BEST-CONNECT: same matrix quality as national, bounded cost
+        if (natLevel < 2) natLevel = 2;
+        natWorkers = max(natWorkers, 6);
+        delayTimeout = Duration(
+            seconds: max(delayTimeout.inSeconds, 12));
+        tcpTimeout = Duration(
+            milliseconds: max(tcpTimeout.inMilliseconds, 4000));
+        // reuse healthy folder first (learned winners)
+        _resInject();
+      }
+      // NORMAL: Fragment always off (kills post-connect speed).
+      // National mode may still use Fragment inside the variant matrix.
+      if (!nationalMode) fragEnabled = false;
+      // all throughput levers (Mux, no Fragment, speed-test top servers, ...)
+      _applyTurboLevers();
       if (nationalMode) _resInject(); // NATRESPATCH
       if (nationalMode) _natKeep(); // never-stopping search
       if (nationalMode) warm = null; // no list download in national mode
@@ -5620,6 +5874,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _set('برای اتصال باید بهینه‌سازی باتری خاموش شود: دوباره «اتصال» را بزن و روی «اجازه» بزن');
         return;
       }
+      await runPreflight();
+      startNetWatch();
       switching = true;
       try {
         bgDisabled = false;
@@ -5677,6 +5933,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> disconnect() async {
     aiSession = false;
     aiLoop?.cancel();
+    stopNetWatch();
+    stopGrokPilot();
     wantVpn = false;
     pendingFailover = false;
     switching = true;
@@ -7724,6 +7982,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     sw('چرخش خودکار لیست', autoCycle, (v) => autoCycle = v,
                         sub:
                             'وقتی همه تست شد، لیست جدید گرفته می‌شود و ادامه دارد'),
+                    sw('حالت فوق‌العاده (ماتریس حالت‌ها)', ultraMode,
+                        (v) => ultraMode = v,
+                        sub:
+                            'حتی در اتصال عادی هر سرور با ده‌ها حالت (Fragment، fingerprint، ALPN، DNS، Mux، Noise، پورت CDN، IP تمیز و ...) تست می‌شود — هیچ اپ تجاری این کار را نمی‌کند'),
+                    sw('حالت شکست‌ناپذیر (جستجوی بی‌نهایت)', indestructibleMode,
+                        (v) => indestructibleMode = v,
+                        sub:
+                            'در نت ملی یا وقتی دکمه نت ملی زده شود جستجو هرگز متوقف نمی‌شود؛ سطح را بالا می‌برد، لیست را تازه می‌کند و تا پیدا شدن کانفیگ وصل‌شدنی ادامه می‌دهد'),
+                    sw('توربو سرعت بعد از اتصال', turboSpeed,
+                        (v) => turboSpeed = v,
+                        sub:
+                            'بعد از وصل شدن، همان سرور بدون Fragment/Noise و با Mux دوباره امتحان می‌شود؛ اگر اینترنت هنوز رد شد نگه داشته می‌شود (پینگ مهم نیست، سرعت دانلود چند برابر می‌شود)'),
                     sw('فقط از منابع سالم سرور بردار', onlyHealthySrc,
                         (v) => onlyHealthySrc = v),
                     sw('اتصال با IP (حل دامنه با DoH)', ipMode,
@@ -7776,6 +8046,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         1000,
                         20,
                         (x) => minSpeedKB = x.round()),
+                    ...ultimateSettingsItems(setS),
                     SizedBox(height: MediaQuery.of(ctx).viewInsets.bottom + 60),
                   ]),
             ),
@@ -8090,6 +8361,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               if (v == 'src') _sourcesSheet();
               if (v == 'log') _logSheet();
               if (v == 'diag') netDiagDialog();
+              if (v == 'dna') _plusDnaBoard();
+              if (v == 'diagfull') exportFullDiag();
+              if (v == 'panic') panicNow();
+              if (v == 'offline') connectBestCached();
               if (v == 'plus') plusSheet();
               if (v == 'donate') donateSheet(context);
               if (v == 'shop') serverShopOpen(context);
@@ -8116,6 +8391,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               PopupMenuItem(value: 'src', child: Text('وضعیت منابع')),
               PopupMenuItem(value: 'clear', child: Text('پاک کردن لیست سیاه')),
               PopupMenuItem(value: 'diag', child: Text('تشخیص شبکه')),
+              PopupMenuItem(
+                  value: 'dna', child: Text('جدول DNA اپراتور / برندگان')),
+              PopupMenuItem(
+                  value: 'diagfull', child: Text('گزارش کامل تشخیص (کپی)')),
+              PopupMenuItem(
+                  value: 'offline', child: Text('وصل فقط از سرورهای ذخیره‌شده')),
+              PopupMenuItem(
+                  value: 'panic', child: Text('⚠ حالت اضطراری (قطع + پاکسازی)')),
               PopupMenuItem(value: 'plus', child: Text('ابزارهای بیشتر')),
               PopupMenuItem(value: 'admin', child: Text('ارتباط با ادمین 💬')),
               PopupMenuItem(value: 'shop', child: Text('خرید سرور شخصی 🛒')),
@@ -8282,7 +8565,7 @@ UiHero(
                 builder: (_) => SafeArea(
                     child: SingleChildScrollView(child: tgProxyRow(context))))),
             UiTool(Icons.push_pin_outlined, 'کانفیگ‌های من', () => connectRow('f:mine')),
-            UiTool(Icons.auto_awesome, 'سرورهای Gemini', () => connectRow('r:ai')),
+            UiTool(Icons.auto_awesome, 'سرورهای AI', () => connectRow('r:ai')),
             UiTool(Icons.pin_outlined, 'اتصال با IP', () => connectRow('r:ip')),
             UiTool(Icons.cloud_outlined, 'CDN / کلودفلر', () => connectRow('r:cdn')),
             UiTool(Icons.shield_outlined, 'Reality', () => connectRow('r:reality')),
