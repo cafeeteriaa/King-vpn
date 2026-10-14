@@ -74,7 +74,17 @@ const List<List<String>> _natNoises = [
 ];
 
 // DNS هایی که هسته با آن‌ها آدرس سرور را پیدا می‌کند (DoH یا IP ساده)
+// اولویت با DNSهای ایرانی و محلی که روی نت ملی معمولاً باز می‌مانند.
 const List<String> _natDnsList = [
+  // Iranian / national-friendly first
+  '178.22.122.100',
+  '185.51.200.2',
+  '78.157.42.100',
+  '78.157.42.101',
+  '10.202.10.10',
+  '10.202.10.11',
+  '10.202.10.202',
+  // global DoH
   'https+local://1.1.1.1/dns-query',
   'https+local://8.8.8.8/dns-query',
   'https+local://9.9.9.9/dns-query',
@@ -83,12 +93,13 @@ const List<String> _natDnsList = [
   'https+local://149.112.112.112/dns-query',
   'https+local://94.140.14.14/dns-query',
   'https+local://208.67.222.222/dns-query',
+  'https+local://208.67.220.220/dns-query',
+  // plain IPs as fallback
   '1.1.1.1',
   '8.8.8.8',
-  '178.22.122.100',
-  '185.51.200.2',
-  '78.157.42.100',
-  '10.202.10.10',
+  '9.9.9.9',
+  '94.140.14.14',
+  '208.67.222.222',
 ];
 
 // مشخصات یک حالت. null / false = دست نمی‌زند.
@@ -752,12 +763,30 @@ List<int> _natOrder(Server s, {bool full = false}) {
     if (used.add(c)) out.add(c);
   }
 
+  // NORMAL: never use Fragment/Noise variants (they kill post-connect speed).
+  // National mode may still try heavy variants when the filter is hard.
+  final preferLight = !nationalMode;
+  final skipHeavy = !nationalMode;
+
   final knownOk = known != null && _natAppliesF(f, known);
-  if (knownOk) put(known!);
+  // known light winner first; skip known heavy on normal
+  if (knownOk && (!skipHeavy || !natIsHeavy(known!))) put(known!);
+
+  if (preferLight) {
+    // dedicated light speed candidates before anything heavy
+    final lightFirst = <int>[0, 1, 4, 13, 7, 20, 12, 33, 38, 40, 44];
+    for (final w in _natTopWinners(8)) {
+      if (!natIsHeavy(w) && !lightFirst.contains(w)) lightFirst.add(w);
+    }
+    for (final v in lightFirst) {
+      if (_natAppliesF(f, v)) put(v);
+    }
+  }
 
   // variants that worked on OTHER servers of this operator come first
   if (lvl >= 2) {
     for (final w in _natTopWinners(6)) {
+      if (skipHeavy && natIsHeavy(w)) continue;
       if (_natAppliesF(f, w)) put(w);
     }
   }
@@ -767,12 +796,18 @@ List<int> _natOrder(Server s, {bool full = false}) {
       ? <int>[for (var i = 0; i < _natBaseCount; i++) i]
       : <int>[0, 1, 2, 8])
     ..sort((a, b) {
+      if (preferLight) {
+        final ha = natIsHeavy(a) ? 1 : 0;
+        final hb = natIsHeavy(b) ? 1 : 0;
+        if (ha != hb) return ha - hb; // light first
+      }
       final d = (natWins['$natOpKey#$b'] ?? 0) - (natWins['$natOpKey#$a'] ?? 0);
       return d != 0 ? d : a - b;
     });
   if (!again) {
-    if (!knownOk) {
+    if (!knownOk || (preferLight && knownOk && natIsHeavy(known!))) {
       for (final v in cand) {
+        if (skipHeavy && natIsHeavy(v)) continue;
         if (_natAppliesF(f, v)) {
           put(v);
           break; // the first (best ranked) variant, then the early URLs
@@ -787,6 +822,7 @@ List<int> _natOrder(Server s, {bool full = false}) {
       }
     }
     for (final v in cand) {
+      if (skipHeavy && natIsHeavy(v)) continue;
       if (v != known && _natAppliesF(f, v)) put(v);
     }
   } else if (_natAppliesF(f, 0)) {
@@ -813,7 +849,9 @@ List<int> _natOrder(Server s, {bool full = false}) {
     if (app.isNotEmpty) {
       final st = cursor % app.length;
       for (var k = 0; k < app.length && k < cap; k++) {
-        gens.add(app[(st + k) % app.length]);
+        final gv = app[(st + k) % app.length];
+        if (skipHeavy && natIsHeavy(gv)) continue;
+        gens.add(gv);
       }
     }
   }
@@ -1094,8 +1132,49 @@ String natCfg(Server s, int v, {bool reuse = false}) {
   return cfg;
 }
 
-// حالتی که برای اتصال واقعی استفاده می‌شود
-int natVarFor(Server s) => nationalMode ? (natVar[_nk(s)] ?? 0) : 0;
+// حالتی که برای اتصال واقعی استفاده می‌شود.
+// ULTRA: وقتی ultraMode روشن است هم حالت یادگرفته‌شده اعمال می‌شود
+// (قبلاً فقط nationalMode بود و ماتریس در اتصال عادی بی‌اثر می‌ماند).
+int natVarFor(Server s) =>
+    (nationalMode || ultraMode || indestructibleMode)
+        ? (natVar[_nk(s)] ?? 0)
+        : 0;
+
+// TURBO: is this variant a speed-killer (Fragment / Noise)?
+bool natIsHeavy(int v) {
+  final base = v % _natCodeBase;
+  if (base <= 0 || base >= _natSpecs.length) return false;
+  final x = _natSpecs[base];
+  return x.frag != null || x.noise;
+}
+
+// TURBO: pick a light (no Fragment/Noise) variant that still fits this server.
+// Prefers: known light winner > base 0 > other non-heavy ranked variants.
+int? natSpeedVariant(Server s, {int prefer = 0}) {
+  final f = _NatFacts(s);
+  final known = natVar[_nk(s)];
+  if (known != null &&
+      !natIsHeavy(known) &&
+      _natAppliesF(f, known % _natCodeBase)) {
+    return known % _natCodeBase;
+  }
+  // candidates that keep address tricks (other/port/clean/doh) but drop frag/noise
+  final cand = <int>[0, 1, 4, 13, 7, 20, 12, 33, 38, 40];
+  for (final w in _natTopWinners(8)) {
+    if (!cand.contains(w)) cand.add(w);
+  }
+  for (final v in cand) {
+    if (v == prefer) continue;
+    if (natIsHeavy(v)) continue;
+    if (_natAppliesF(f, v)) return v;
+  }
+  // any non-heavy base that applies
+  for (var i = 0; i < _natBaseCount; i++) {
+    if (i == prefer) continue;
+    if (!natIsHeavy(i) && _natAppliesF(f, i)) return i;
+  }
+  return null;
+}
 
 // DoH با چند آدرس (اگر 1.1.1.1 بسته بود بقیه امتحان می‌شوند)
 const List<String> _dohEps = [
