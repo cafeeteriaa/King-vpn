@@ -89,13 +89,36 @@ List<Widget> iranSettingsItems(
           sub: 'اگر با روشن کردنش اتصال برقرار نشد، خاموشش کن'),
     ];
 
-// ======================= Gemini =======================
+// ======================= Multi-AI =======================
+// Gemini / Grok (xAI) / Claude (Anthropic) / ChatGPT (OpenAI) / DeepSeek
 String geminiKey = '';
 String geminiModel = 'gemini-flash-latest';
+String grokKey = '';
+String grokModel = 'grok-3';
+String claudeKey = '';
+String claudeModel = 'claude-sonnet-4-20250514';
+String openaiKey = '';
+String openaiModel = 'gpt-4o-mini';
+String deepseekKey = '';
+String deepseekModel = 'deepseek-chat';
+// auto | grok | claude | openai | deepseek | gemini
+String aiProvider = 'auto';
+String aiLastProvider = '';
 
 class GeminiLocationError implements Exception {
   @override
   String toString() => 'Gemini روی IP این سرور مسدود است (منطقه/آی‌پی)';
+}
+
+class AiApiError implements Exception {
+  final String msg;
+  AiApiError(this.msg);
+  @override
+  String toString() => msg;
+}
+
+class GrokApiError extends AiApiError {
+  GrokApiError(super.msg);
 }
 
 final aiText = ValueNotifier<String>('');
@@ -105,9 +128,25 @@ final aiSuggest = ValueNotifier<Map<String, int>>(<String, int>{});
 DateTime _lastAutoAi = DateTime.fromMillisecondsSinceEpoch(0);
 String aiActionName = '';
 
+bool get _hasAnyAiKey =>
+    geminiKey.isNotEmpty ||
+    grokKey.isNotEmpty ||
+    claudeKey.isNotEmpty ||
+    openaiKey.isNotEmpty ||
+    deepseekKey.isNotEmpty;
+
 Future<void> loadGeminiPrefs(SharedPreferences p) async {
   geminiKey = p.getString('gem_key') ?? '';
   geminiModel = p.getString('gem_model') ?? geminiModel;
+  grokKey = p.getString('grok_key') ?? '';
+  grokModel = p.getString('grok_model') ?? grokModel;
+  claudeKey = p.getString('claude_key') ?? '';
+  claudeModel = p.getString('claude_model') ?? claudeModel;
+  openaiKey = p.getString('openai_key') ?? '';
+  openaiModel = p.getString('openai_model') ?? openaiModel;
+  deepseekKey = p.getString('deepseek_key') ?? '';
+  deepseekModel = p.getString('deepseek_model') ?? deepseekModel;
+  aiProvider = p.getString('ai_prov') ?? aiProvider;
 }
 
 Future<void> saveGeminiPrefs() async {
@@ -115,6 +154,15 @@ Future<void> saveGeminiPrefs() async {
     final p = await SharedPreferences.getInstance();
     await p.setString('gem_key', geminiKey);
     await p.setString('gem_model', geminiModel);
+    await p.setString('grok_key', grokKey);
+    await p.setString('grok_model', grokModel);
+    await p.setString('claude_key', claudeKey);
+    await p.setString('claude_model', claudeModel);
+    await p.setString('openai_key', openaiKey);
+    await p.setString('openai_model', openaiModel);
+    await p.setString('deepseek_key', deepseekKey);
+    await p.setString('deepseek_model', deepseekModel);
+    await p.setString('ai_prov', aiProvider);
   } catch (e) {
     logError(e);
   }
@@ -217,7 +265,10 @@ Future<String> geminiAsk(String prompt) async {
   for (final r in routes) {
     try {
       final t = await _geminiTry(r, prompt);
-      if (t != null) return t;
+      if (t != null) {
+        aiLastProvider = 'Gemini';
+        return t;
+      }
       blocked = true;
     } on IOException catch (e) {
       lastErr = e;
@@ -227,6 +278,314 @@ Future<String> geminiAsk(String prompt) async {
   }
   if (blocked) throw GeminiLocationError(); // یعنی IP این سرور مسدود است
   throw lastErr ?? Exception('Gemini بدون پاسخ');
+}
+
+// ----------------------- Grok (xAI) -----------------------
+Future<String?> _grokTry(String route, String prompt) async {
+  if (grokKey.isEmpty) return null;
+  final c = HttpClient()
+    ..findProxy = ((_) => route)
+    ..connectionTimeout = const Duration(seconds: 8);
+  try {
+    final req = await c
+        .postUrl(Uri.parse('https://api.x.ai/v1/chat/completions'))
+        .timeout(const Duration(seconds: 10));
+    req.headers.set('content-type', 'application/json');
+    req.headers.set('authorization', 'Bearer $grokKey');
+    req.add(utf8.encode(jsonEncode({
+      'model': grokModel,
+      'messages': [
+        {
+          'role': 'system',
+          'content':
+              'You are Grok, the AI assistant inside King VPN (Iran). '
+              'Answer in Persian. Be practical about VPN, national net, speed, and settings.'
+        },
+        {'role': 'user', 'content': prompt}
+      ],
+      'temperature': 0.4,
+    })));
+    final res = await req.close().timeout(const Duration(seconds: 45));
+    final body = await res
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .join()
+        .timeout(const Duration(seconds: 45));
+    if (res.statusCode == 200) {
+      try {
+        final j = jsonDecode(body);
+        final t = (j['choices'][0]['message']['content'] ?? '').toString().trim();
+        return t.isEmpty ? 'پاسخ خالی بود.' : t;
+      } catch (_) {
+        throw GrokApiError('پاسخ Grok قابل خواندن نبود');
+      }
+    }
+    final cut = body.length > 180 ? body.substring(0, 180) : body;
+    throw GrokApiError('Grok ${res.statusCode}: $cut');
+  } finally {
+    c.close(force: true);
+  }
+}
+
+Future<String> grokAsk(String prompt) async {
+  final routes = proxyMode
+      ? <String>['PROXY 127.0.0.1:$httpProxyPort', 'DIRECT']
+      : <String>['DIRECT', 'PROXY 127.0.0.1:$httpProxyPort'];
+  Object? lastErr;
+  for (final r in routes) {
+    try {
+      final t = await _grokTry(r, prompt);
+      if (t != null) {
+        aiLastProvider = 'Grok';
+        return t;
+      }
+    } on IOException catch (e) {
+      lastErr = e;
+    } on TimeoutException catch (e) {
+      lastErr = e;
+    } on GrokApiError catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr ?? Exception('Grok بدون پاسخ');
+}
+
+// OpenAI-compatible chat (ChatGPT, DeepSeek, and similar)
+Future<String?> _openAiCompatTry({
+  required String route,
+  required String prompt,
+  required String key,
+  required String model,
+  required String url,
+  required String label,
+  Map<String, String>? extraHeaders,
+}) async {
+  if (key.isEmpty) return null;
+  final c = HttpClient()
+    ..findProxy = ((_) => route)
+    ..connectionTimeout = const Duration(seconds: 8);
+  try {
+    final req =
+        await c.postUrl(Uri.parse(url)).timeout(const Duration(seconds: 10));
+    req.headers.set('content-type', 'application/json');
+    req.headers.set('authorization', 'Bearer $key');
+    extraHeaders?.forEach(req.headers.set);
+    req.add(utf8.encode(jsonEncode({
+      'model': model,
+      'messages': [
+        {
+          'role': 'system',
+          'content':
+              'You are the AI assistant inside King VPN (Iran). '
+              'Answer in Persian. Be practical about VPN, national net, speed, settings.'
+        },
+        {'role': 'user', 'content': prompt}
+      ],
+      'temperature': 0.4,
+    })));
+    final res = await req.close().timeout(const Duration(seconds: 50));
+    final body = await res
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .join()
+        .timeout(const Duration(seconds: 50));
+    if (res.statusCode == 200) {
+      try {
+        final j = jsonDecode(body);
+        final t =
+            (j['choices'][0]['message']['content'] ?? '').toString().trim();
+        return t.isEmpty ? 'پاسخ خالی بود.' : t;
+      } catch (_) {
+        throw AiApiError('پاسخ $label قابل خواندن نبود');
+      }
+    }
+    final cut = body.length > 180 ? body.substring(0, 180) : body;
+    throw AiApiError('$label ${res.statusCode}: $cut');
+  } finally {
+    c.close(force: true);
+  }
+}
+
+Future<String> _openAiCompatAsk({
+  required String prompt,
+  required String key,
+  required String model,
+  required String url,
+  required String label,
+  Map<String, String>? extraHeaders,
+}) async {
+  final routes = proxyMode
+      ? <String>['PROXY 127.0.0.1:$httpProxyPort', 'DIRECT']
+      : <String>['DIRECT', 'PROXY 127.0.0.1:$httpProxyPort'];
+  Object? lastErr;
+  for (final r in routes) {
+    try {
+      final t = await _openAiCompatTry(
+        route: r,
+        prompt: prompt,
+        key: key,
+        model: model,
+        url: url,
+        label: label,
+        extraHeaders: extraHeaders,
+      );
+      if (t != null) {
+        aiLastProvider = label;
+        return t;
+      }
+    } on IOException catch (e) {
+      lastErr = e;
+    } on TimeoutException catch (e) {
+      lastErr = e;
+    } on AiApiError catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr ?? Exception('$label بدون پاسخ');
+}
+
+Future<String> openaiAsk(String prompt) => _openAiCompatAsk(
+      prompt: prompt,
+      key: openaiKey,
+      model: openaiModel,
+      url: 'https://api.openai.com/v1/chat/completions',
+      label: 'ChatGPT',
+    );
+
+Future<String> deepseekAsk(String prompt) => _openAiCompatAsk(
+      prompt: prompt,
+      key: deepseekKey,
+      model: deepseekModel,
+      url: 'https://api.deepseek.com/chat/completions',
+      label: 'DeepSeek',
+    );
+
+// Claude (Anthropic Messages API)
+Future<String?> _claudeTry(String route, String prompt) async {
+  if (claudeKey.isEmpty) return null;
+  final c = HttpClient()
+    ..findProxy = ((_) => route)
+    ..connectionTimeout = const Duration(seconds: 8);
+  try {
+    final req = await c
+        .postUrl(Uri.parse('https://api.anthropic.com/v1/messages'))
+        .timeout(const Duration(seconds: 10));
+    req.headers.set('content-type', 'application/json');
+    req.headers.set('x-api-key', claudeKey);
+    req.headers.set('anthropic-version', '2023-06-01');
+    req.add(utf8.encode(jsonEncode({
+      'model': claudeModel,
+      'max_tokens': 2048,
+      'system':
+          'You are the AI assistant inside King VPN (Iran). '
+          'Answer in Persian. Be practical about VPN, national net, speed, settings.',
+      'messages': [
+        {'role': 'user', 'content': prompt}
+      ],
+    })));
+    final res = await req.close().timeout(const Duration(seconds: 50));
+    final body = await res
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .join()
+        .timeout(const Duration(seconds: 50));
+    if (res.statusCode == 200) {
+      try {
+        final j = jsonDecode(body);
+        final parts = j['content'] as List? ?? const [];
+        final t = parts
+            .map((p) => (p is Map ? (p['text'] ?? '') : '').toString())
+            .join('\n')
+            .trim();
+        return t.isEmpty ? 'پاسخ خالی بود.' : t;
+      } catch (_) {
+        throw AiApiError('پاسخ Claude قابل خواندن نبود');
+      }
+    }
+    final cut = body.length > 180 ? body.substring(0, 180) : body;
+    throw AiApiError('Claude ${res.statusCode}: $cut');
+  } finally {
+    c.close(force: true);
+  }
+}
+
+Future<String> claudeAsk(String prompt) async {
+  final routes = proxyMode
+      ? <String>['PROXY 127.0.0.1:$httpProxyPort', 'DIRECT']
+      : <String>['DIRECT', 'PROXY 127.0.0.1:$httpProxyPort'];
+  Object? lastErr;
+  for (final r in routes) {
+    try {
+      final t = await _claudeTry(r, prompt);
+      if (t != null) {
+        aiLastProvider = 'Claude';
+        return t;
+      }
+    } on IOException catch (e) {
+      lastErr = e;
+    } on TimeoutException catch (e) {
+      lastErr = e;
+    } on AiApiError catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr ?? Exception('Claude بدون پاسخ');
+}
+
+// unified entry: auto tries providers in order until one answers
+Future<String> aiAsk(String prompt) async {
+  final want = aiProvider;
+
+  Future<String> run(String id) async {
+    switch (id) {
+      case 'grok':
+        if (grokKey.isEmpty) throw Exception('کلید Grok نیست (console.x.ai)');
+        return grokAsk(prompt);
+      case 'claude':
+        if (claudeKey.isEmpty) {
+          throw Exception('کلید Claude نیست (console.anthropic.com)');
+        }
+        return claudeAsk(prompt);
+      case 'openai':
+        if (openaiKey.isEmpty) {
+          throw Exception('کلید ChatGPT نیست (platform.openai.com)');
+        }
+        return openaiAsk(prompt);
+      case 'deepseek':
+        if (deepseekKey.isEmpty) {
+          throw Exception('کلید DeepSeek نیست (platform.deepseek.com)');
+        }
+        return deepseekAsk(prompt);
+      case 'gemini':
+        if (geminiKey.isEmpty) {
+          throw Exception('کلید Gemini نیست (aistudio.google.com)');
+        }
+        return geminiAsk(prompt);
+      default:
+        throw Exception('ارائه‌دهنده ناشناخته: $id');
+    }
+  }
+
+  if (want != 'auto') return run(want);
+
+  // auto order: Grok → Claude → ChatGPT → DeepSeek → Gemini
+  final order = <String>[
+    if (grokKey.isNotEmpty) 'grok',
+    if (claudeKey.isNotEmpty) 'claude',
+    if (openaiKey.isNotEmpty) 'openai',
+    if (deepseekKey.isNotEmpty) 'deepseek',
+    if (geminiKey.isNotEmpty) 'gemini',
+  ];
+  if (order.isEmpty) {
+    throw Exception(
+        'هیچ کلید API نیست. یکی از Grok / Claude / ChatGPT / DeepSeek / Gemini را وارد کن.');
+  }
+  Object? lastErr;
+  for (final id in order) {
+    try {
+      return await run(id);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr ?? Exception('هیچ دستیار AI جواب نداد');
 }
 
 // پاسخ Gemini را به «متن» و «تنظیمات پیشنهادی» جدا می‌کند
@@ -468,9 +827,15 @@ extension HomeExtras on _HomePageState {
     final sb = StringBuffer();
     final c = current;
     sb.writeln('Connected: $connected');
+    sb.writeln('NationalMode: $nationalMode ultra=$ultraMode turbo=$turboSpeed '
+        'indestructible=$indestructibleMode natLevel=$natLevel');
+    sb.writeln('Operator: $natOpKey provider=$aiProvider lastAi=$aiLastProvider');
+    sb.writeln('Mux=$muxEnabled conc=$muxConc frag=$fragEnabled');
     if (c != null) {
+      final v = natVarFor(c);
+      final vn = (v >= 0 && v < _natVarNames.length) ? _natVarNames[v] : '$v';
       sb.writeln('Current kind: ${_profKey(c)} ping=${c.ping}ms '
-          'speed=${(c.speed ?? 0).toStringAsFixed(2)}MB/s');
+          'speed=${(c.speed ?? 0).toStringAsFixed(2)}MB/s variant=$vn');
     }
     sb.writeln(
         'Servers: list=$total queue=${pending.length} healthy=${_usable().length}');
@@ -533,24 +898,46 @@ extension HomeExtras on _HomePageState {
         'You may also put ONE string key "action" inside the same SETTINGS '
         'JSON: "switch_best" (move now to the fastest standby server), '
         '"refresh_lists" (download new lists and search again), '
-        '"reset_blacklist" (give failed servers another chance), or "none".\n'
-        'Be proactive: if the current speed or ping is poor and faster '
-        'standby servers exist, use switch_best; if few servers are healthy '
-        'or the success rate is very low, use refresh_lists.\n\n'
+        '"reset_blacklist" (give failed servers another chance), '
+        '"connect" (start full server search and connect), '
+        '"search_national" (Iran national-net aggressive search), '
+        '"enable_turbo" (max throughput levers), '
+        '"escalate" (widen search / raise natLevel), '
+        'or "none".\n'
+        'Be proactive: if not connected use connect; if speed is poor use '
+        'switch_best; if few healthy servers use refresh_lists; if national '
+        'net use search_national.\n'
+        'You have FULL freedom over every numeric setting in range and every '
+        'toggle (1/0). Prefer higher throughput (Mux on, Fragment off) when '
+        'the tunnel already works; prefer low data when searching lists.\n\n'
         '$sb';
+  }
+
+  // PILOT: richer prompt when Grok fully drives the VPN
+  String grokPilotPrompt() {
+    final base = aiPrompt();
+    return 'You are Grok fully piloting King VPN on this phone until the user '
+        'disconnects. Analyze network quality and location (operator/ASN only, '
+        'no personal data). Decide the next concrete action to keep the best '
+        'possible connection.\n'
+        'Prefer actions over long text. Always end with SETTINGS JSON including '
+        'an "action" key. Prefer Grok-style direct decisions.\n\n$base';
   }
 
   // auto = بعد از اتصال به‌صورت خودکار (هیچ‌وقت سرور را عوض نمی‌کند)
   Future<void> aiAnalyze({bool auto = false}) async {
     if (aiLoading.value) return;
-    if (geminiKey.isEmpty) {
-      if (!auto) aiText.value = 'اول کلید API را وارد و ذخیره کن.';
+    if (!_hasAnyAiKey) {
+      if (!auto) {
+        aiText.value =
+            'اول کلید API گروک (console.x.ai) یا جمینای را وارد و ذخیره کن.';
+      }
       return;
     }
     if (!connected) {
       if (!auto) {
         aiText.value =
-            'اول به VPN وصل شو (ترجیحاً با دکمه‌ی «اتصال به سرور مخصوص AI»)، چون Gemini بدون سرور مناسب باز نمی‌شود.';
+            'اول به VPN وصل شو (ترجیحاً با «اتصال به سرور مخصوص AI»).';
       }
       return;
     }
@@ -558,16 +945,22 @@ extension HomeExtras on _HomePageState {
     try {
       for (var attempt = 0; attempt < 2; attempt++) {
         if (!auto) {
+          final who = aiProvider == 'grok'
+              ? 'Grok'
+              : (aiProvider == 'gemini' ? 'Gemini' : 'دستیار (Grok/Gemini)');
           aiText.value = attempt == 0
-              ? 'در حال ارسال آمار به Gemini...'
-              : 'این سرور برای Gemini جواب نداد؛ تعویض به سرور مخصوص AI...';
+              ? 'در حال ارسال آمار به $who...'
+              : 'این سرور برای AI جواب نداد؛ تعویض به سرور مخصوص AI...';
         }
         try {
-          aiShow(await geminiAsk(aiPrompt()));
+          aiShow(await aiAsk(aiPrompt()));
+          if (aiLastProvider.isNotEmpty && !auto) {
+            aiText.value = '[$aiLastProvider]\n${aiText.value}';
+          }
           applyAiSuggest();
           if (auto && mounted) {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: const Text('🤖 تحلیل دستیار آماده شد'),
+              content: Text('🤖 تحلیل $aiLastProvider آماده شد'),
               duration: const Duration(seconds: 8),
               action: SnackBarAction(
                   label: 'نمایش', onPressed: () => this.aiSheet()),
@@ -576,13 +969,24 @@ extension HomeExtras on _HomePageState {
           return;
         } on GeminiLocationError {
           current?.ai = false;
+          // if Grok is available, try it once without switching server
+          if (grokKey.isNotEmpty && aiProvider != 'gemini') {
+            try {
+              aiShow(await grokAsk(aiPrompt()));
+              if (aiLastProvider.isNotEmpty) {
+                aiText.value = '[$aiLastProvider]\n${aiText.value}';
+              }
+              applyAiSuggest();
+              return;
+            } catch (_) {}
+          }
           if (auto) return; // خودکار: اتصال را به‌هم نمی‌زنیم
           final has =
               _usable().any((s) =>
               s.ai == true && s.ping != null && !identical(s, current));
           if (attempt == 1 || !has) {
             aiText.value =
-                'Gemini روی این سرور باز نمی‌شود و سرور AI سالمی هم آماده نیست. ردیف «🤖 سرورهای مخصوص هوش مصنوعی» را بزن تا جستجو کند، بعد دوباره امتحان کن.';
+                'Gemini روی این سرور باز نمی‌شود. کلید Grok بگذار یا ردیف «🤖 سرورهای مخصوص هوش مصنوعی» را بزن.';
             return;
           }
           await connectRow('r:ai');
@@ -603,7 +1007,7 @@ extension HomeExtras on _HomePageState {
 
   // چند ثانیه بعد از اتصال، دستیار خودش اتصال را بررسی می‌کند (حداکثر هر ۲۰ دقیقه)
   void autoAiAfterConnect() {
-    if (geminiKey.isEmpty || !aiSession) return;
+    if (!_hasAnyAiKey || !aiSession) return;
     if (DateTime.now().difference(_lastAutoAi) < const Duration(minutes: 20)) {
       return;
     }
@@ -618,32 +1022,116 @@ extension HomeExtras on _HomePageState {
   void aiAutopilotStart() {
     aiLoop?.cancel();
     aiLoop =
-        Timer.periodic(const Duration(minutes: 3), (_) => aiAutopilotTick());
-    Future.delayed(const Duration(seconds: 45), aiAutopilotTick);
+        Timer.periodic(const Duration(seconds: 90), (_) => aiAutopilotTick());
+    Future.delayed(const Duration(seconds: 8), aiAutopilotTick);
+  }
+
+  // FULL PILOT: Grok takes over from search to keep-alive until user disconnects
+  Future<void> startGrokPilot() async {
+    if (!_hasAnyAiKey) {
+      _set('اول کلید Grok یا Gemini را در دستیار ذخیره کن');
+      aiSheet();
+      return;
+    }
+    // prefer Grok for pilot when available
+    if (grokKey.isNotEmpty && aiProvider == 'gemini') {
+      aiProvider = 'auto';
+      await saveGeminiPrefs();
+    }
+    aiSession = true;
+    wantVpn = true;
+    abort = false;
+    turboSpeed = true;
+    ultraMode = true;
+    indestructibleMode = true;
+    _applyTurboLevers();
+    _set('خلبان Grok: تحلیل شبکه و جستجوی بهترین سرور...');
+    aiAutopilotStart();
+    // immediate bootstrap without waiting for first AI round-trip
+    unawaited(() async {
+      try {
+        await natDetectOperator();
+        await _natDetect();
+        if (!connected && !busy) {
+          if (nationalMode) {
+            natForce = true;
+            _set('خلبان: نت ملی تشخیص داده شد — جستجوی گسترده...');
+          }
+          connect();
+        }
+      } catch (e) {
+        logError(e);
+        if (!connected && !busy) connect();
+      }
+    }());
+  }
+
+  void stopGrokPilot() {
+    aiSession = false;
+    aiLoop?.cancel();
+    aiLoop = null;
   }
 
   Future<void> aiAutopilotTick() async {
-    if (!aiSession ||
-        !mounted ||
-        !connected ||
-        busy ||
-        switching ||
-        aiLoading.value ||
-        geminiKey.isEmpty) {
+    if (!aiSession || !mounted || !_hasAnyAiKey) return;
+    if (busy || switching || aiLoading.value) return;
+    // user turned VPN off → pilot ends
+    if (!wantVpn && !connected) {
+      stopGrokPilot();
       return;
     }
     aiLoading.value = true;
     try {
-      aiShow(await geminiAsk(aiPrompt()));
+      _set('خلبان AI: تحلیل اینترنت و مکان...');
+      final prompt = grokPilotPrompt();
+      try {
+        aiShow(await aiAsk(prompt));
+      } on GeminiLocationError {
+        // try any other provider that has a key
+        aiShow(await aiAsk(prompt));
+      }
       applyAiSuggest();
       await aiRunAction();
+      // if still disconnected, force a connect cycle
+      if (aiSession && wantVpn && !connected && !busy && !switching) {
+        _set('خلبان: هنوز وصل نیست — جستجوی سرور...');
+        if (aiActionName.isEmpty) {
+          await _acquire(strictRow: false, speed: true);
+        }
+      }
+      // if connected but very slow, nudge switch
+      if (connected && current != null) {
+        final sp = current!.speed ?? 0;
+        if (sp > 0 && sp * 1024 < minSpeedKB && minSpeedKB > 0) {
+          final l = _pickList();
+          if (l.isNotEmpty && !identical(l.first, current)) {
+            lastWhy = 'خلبان: سرعت پایین';
+            await _swapTo(l.first);
+          }
+        }
+      }
+      if (aiSession && connected) {
+        _set('خلبان Grok فعال • $aiLastProvider • ${_connStatus()}');
+      }
     } on GeminiLocationError {
       current?.ai = false;
-      if (_usable().any((s) => s.ai == true && !identical(s, current))) {
+      if (grokKey.isNotEmpty) {
+        try {
+          aiShow(await grokAsk(grokPilotPrompt()));
+          applyAiSuggest();
+          await aiRunAction();
+        } catch (_) {}
+      } else if (_usable().any((s) => s.ai == true && !identical(s, current))) {
         await connectRow('r:ai');
       }
     } catch (e) {
       logError(e);
+      // still try to stay connected
+      if (aiSession && wantVpn && !connected && !busy) {
+        try {
+          await connect();
+        } catch (_) {}
+      }
     } finally {
       aiLoading.value = false;
     }
@@ -652,10 +1140,11 @@ extension HomeExtras on _HomePageState {
   Future<void> aiRunAction() async {
     final a = aiActionName;
     aiActionName = '';
+    if (a.isEmpty || a == 'none') return;
+    lastWhy = 'خلبان AI: $a';
     if (a == 'switch_best') {
       final l = _pickList();
       if (l.isNotEmpty && !busy && !switching) {
-        lastWhy = 'تصمیم دستیار';
         await _swapTo(l.first);
       }
     } else if (a == 'refresh_lists') {
@@ -669,6 +1158,30 @@ extension HomeExtras on _HomePageState {
       for (final g in good) {
         g.badAt = null;
       }
+    } else if (a == 'connect') {
+      if (!connected && !busy) {
+        turboSpeed = true;
+        _applyTurboLevers();
+        await connect();
+      }
+    } else if (a == 'search_national') {
+      natForce = true;
+      indestructibleMode = true;
+      nationalMode = true;
+      if (!busy) await connect();
+    } else if (a == 'enable_turbo') {
+      turboSpeed = true;
+      muxEnabled = true;
+      muxConc = max(muxConc, 16);
+      if (!nationalMode) fragEnabled = false;
+      _applyTurboLevers();
+      _saveSettings();
+      if (connected && current != null && !busy) {
+        unawaited(_turboAfterConnect(current!));
+      }
+    } else if (a == 'escalate') {
+      await _natEscalate(max(natLevel * 2, 4));
+      if (!connected && !busy) await connect();
     }
   }
 
@@ -713,25 +1226,75 @@ extension HomeExtras on _HomePageState {
   // دکمه‌ی دستیار روی صفحه‌ی اصلی (زیر پنل سرعت)
   Widget aiBar() => Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-        child: SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: () => this.aiSheet(),
-            icon: const Icon(Icons.smart_toy_outlined, size: 18),
-            label: const Text('🤖 دستیار هوشمند (Gemini)'),
-          ),
+        child: Column(
+          children: [
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => this.aiSheet(),
+                icon: const Icon(Icons.smart_toy_outlined, size: 18),
+                label: Text(
+                    '🤖 دستیارهای AI (Grok/Claude/ChatGPT/DeepSeek/Gemini'
+                    '${aiLastProvider.isEmpty ? '' : ' · $aiLastProvider'})'),
+              ),
+            ),
+            const SizedBox(height: 4),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.tonalIcon(
+                onPressed: busy
+                    ? null
+                    : () {
+                        if (aiSession) {
+                          stopGrokPilot();
+                          _set(
+                              'خلبان AI خاموش شد — برای قطع کامل VPN دکمه قطع را بزن');
+                        } else {
+                          startGrokPilot();
+                        }
+                      },
+                icon: Icon(aiSession ? Icons.flight_land : Icons.flight_takeoff,
+                    size: 18),
+                label: Text(aiSession
+                    ? '⏹ توقف خلبان (VPN تا قطع دستی می‌ماند)'
+                    : '🚀 خلبان کامل AI — کنترل خودکار تا قطع تو'),
+              ),
+            ),
+          ],
         ),
       );
 
   void aiSheet() {
     final k = TextEditingController(text: geminiKey);
     final m = TextEditingController(text: geminiModel);
+    final gk = TextEditingController(text: grokKey);
+    final gm = TextEditingController(text: grokModel);
+    final ck = TextEditingController(text: claudeKey);
+    final cm = TextEditingController(text: claudeModel);
+    final ok = TextEditingController(text: openaiKey);
+    final om = TextEditingController(text: openaiModel);
+    final dk = TextEditingController(text: deepseekKey);
+    final dm = TextEditingController(text: deepseekModel);
+    var prov = aiProvider;
     Future<void> save() async {
       geminiKey = k.text.trim();
       final mm = m.text.trim().replaceFirst(RegExp(r'^models/'), '');
       geminiModel = mm.isEmpty ? 'gemini-flash-latest' : mm;
+      grokKey = gk.text.trim();
+      final gmm = gm.text.trim();
+      grokModel = gmm.isEmpty ? 'grok-3' : gmm;
+      claudeKey = ck.text.trim();
+      final cmm = cm.text.trim();
+      claudeModel = cmm.isEmpty ? 'claude-sonnet-4-20250514' : cmm;
+      openaiKey = ok.text.trim();
+      final omm = om.text.trim();
+      openaiModel = omm.isEmpty ? 'gpt-4o-mini' : omm;
+      deepseekKey = dk.text.trim();
+      final dmm = dm.text.trim();
+      deepseekModel = dmm.isEmpty ? 'deepseek-chat' : dmm;
+      aiProvider = prov;
       for (final g in good) {
-        g.ai = null; // با API دوباره سنجیده می‌شوند
+        g.ai = null;
       }
       await saveGeminiPrefs();
     }
@@ -745,39 +1308,75 @@ extension HomeExtras on _HomePageState {
           child: Padding(
             padding: EdgeInsets.fromLTRB(
                 16, 16, 16, MediaQuery.of(ctx).viewInsets.bottom + 16),
-            child: SingleChildScrollView(
+            child: StatefulBuilder(builder: (ctx, setS) {
+              Widget fields(String title, TextEditingController keyC,
+                      TextEditingController modelC, String keyLabel,
+                      String modelLabel) =>
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 10),
+                      Text(title,
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                      TextField(
+                          controller: keyC,
+                          obscureText: true,
+                          textDirection: TextDirection.ltr,
+                          decoration: InputDecoration(labelText: keyLabel)),
+                      TextField(
+                          controller: modelC,
+                          textDirection: TextDirection.ltr,
+                          decoration: InputDecoration(labelText: modelLabel)),
+                    ],
+                  );
+              return SingleChildScrollView(
               child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('🤖 دستیار هوشمند (Gemini)',
+                    const Text('🤖 دستیارهای هوشمند (چند AI)',
                         style: TextStyle(
                             fontWeight: FontWeight.bold, fontSize: 16)),
                     const SizedBox(height: 6),
                     const Text(
-                        'کلید رایگان را از aistudio.google.com بگیر. کلید فقط روی همین گوشی ذخیره می‌شود (رمزنگاری‌شده نیست). '
-                        'فقط آمار کلی اتصال ارسال می‌شود، نه آدرس سرور یا لینک. '
-                        'بعد از هر اتصال، دستیار خودش اتصال را بررسی می‌کند و می‌گوید چطور سرور بهتر پیدا شود؛ '
-                        'با دکمه‌ی «اعمال» تنظیمات پیشنهادی‌اش را روی اپ می‌گذاری. '
-                        'Gemini با هر سروری باز نمی‌شود؛ برنامه خودش سرور مناسب را انتخاب می‌کند.',
+                        'Grok، Claude، ChatGPT، DeepSeek و Gemini پشتیبانی می‌شوند. '
+                        'حالت Auto به ترتیب آن‌ها را امتحان می‌کند تا یکی جواب بدهد. '
+                        'کلیدها فقط روی همین گوشی ذخیره می‌شوند. لینک سرور ارسال نمی‌شود.',
                         style: TextStyle(fontSize: 12, color: Color(0xFFCDD1D8))),
-                    TextField(
-                        controller: k,
-                        obscureText: true,
-                        textDirection: TextDirection.ltr,
-                        decoration:
-                            const InputDecoration(labelText: 'کلید API')),
-                    TextField(
-                        controller: m,
-                        textDirection: TextDirection.ltr,
-                        decoration:
-                            const InputDecoration(labelText: 'نام مدل')),
+                    const SizedBox(height: 8),
+                    const Text('ارائه‌دهنده',
+                        style: TextStyle(fontWeight: FontWeight.w600)),
+                    Wrap(spacing: 6, runSpacing: 4, children: [
+                      for (final e in const [
+                        ('auto', 'Auto'),
+                        ('grok', 'Grok'),
+                        ('claude', 'Claude'),
+                        ('openai', 'ChatGPT'),
+                        ('deepseek', 'DeepSeek'),
+                        ('gemini', 'Gemini'),
+                      ])
+                        ChoiceChip(
+                          label: Text(e.$2),
+                          selected: prov == e.$1,
+                          onSelected: (_) => setS(() => prov = e.$1),
+                        ),
+                    ]),
+                    fields('Grok — console.x.ai', gk, gm,
+                        'کلید API گروک', 'مدل (مثلاً grok-3)'),
+                    fields('Claude — console.anthropic.com', ck, cm,
+                        'کلید API کلود', 'مدل (مثلاً claude-sonnet-4-20250514)'),
+                    fields('ChatGPT — platform.openai.com', ok, om,
+                        'کلید API اوپن‌ای‌آی', 'مدل (مثلاً gpt-4o-mini)'),
+                    fields('DeepSeek — platform.deepseek.com', dk, dm,
+                        'کلید API دیپ‌سیک', 'مدل (مثلاً deepseek-chat)'),
+                    fields('Gemini — aistudio.google.com', k, m,
+                        'کلید API جمینای', 'مدل Gemini'),
                     const SizedBox(height: 10),
                     Wrap(spacing: 8, runSpacing: 4, children: [
                       FilledButton(
                           onPressed: () async {
                             await save();
-                            _set('تنظیمات Gemini ذخیره شد');
+                            _set('تنظیمات دستیار ذخیره شد ($aiProvider)');
                           },
                           child: const Text('ذخیره')),
                       FilledButton.tonal(
@@ -795,6 +1394,13 @@ extension HomeExtras on _HomePageState {
                             connectRow('r:ai');
                           },
                           child: const Text('اتصال به سرور مخصوص AI')),
+                      FilledButton(
+                          onPressed: () async {
+                            await save();
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            await startGrokPilot();
+                          },
+                          child: const Text('🚀 خلبان کامل AI (کنترل خودکار VPN)')),
                     ]),
                     ValueListenableBuilder<bool>(
                         valueListenable: aiLoading,
@@ -837,7 +1443,8 @@ extension HomeExtras on _HomePageState {
                                     ]),
                               )),
                   ]),
-            ),
+            );
+            }),
           ),
         ),
       ),
@@ -853,11 +1460,12 @@ extension HomeExtras on _HomePageState {
 int firstCapSec = 120;
 
 // the AI assistant must not change these
-const aiLockedNums = {'firstCapSec'};
+// AI may change every number (no locked keys)
+const aiLockedNums = <String>{};
 
 class NumOpt {
   final String id, title;
-  final int lo, hi, def, aiHi; // aiHi = the highest value the AI may set
+  final int lo, hi, def, aiHi; // aiHi = hi so AI has full range
   final bool extra; // shown in the extra section
   final int Function() get;
   final void Function(int) set;
@@ -866,63 +1474,64 @@ class NumOpt {
 }
 
 final List<NumOpt> numOpts = [
-  NumOpt('fastWorkers', 'تست همزمان (جستجوی اول)', 1, 1000, 50, 100, false,
+  // defaults: low data + fastWorkers fixed at 50; aiHi == hi (AI unrestricted)
+  NumOpt('fastWorkers', 'تست همزمان (جستجوی اول)', 1, 1000, 50, 1000, false,
       () => fastWorkers, (v) => fastWorkers = v),
-  NumOpt('bgWorkers', 'تست همزمان (وقتی وصل است)', 1, 1000, 4, 6, false,
+  NumOpt('bgWorkers', 'تست همزمان (وقتی وصل است)', 1, 1000, 2, 1000, false,
       () => bgWorkers, (v) => bgWorkers = v),
-  NumOpt('timeout', 'تایم‌اوت هر تست (ثانیه)', 1, 1000, 10, 20, false,
+  NumOpt('timeout', 'تایم‌اوت هر تست (ثانیه)', 1, 1000, 10, 1000, false,
       () => delayTimeout.inSeconds, (v) => delayTimeout = Duration(seconds: v)),
   NumOpt('batch', 'اندازه دسته', 1, 1000, 300, 1000, false,
       () => batchSize, (v) => batchSize = v),
-  NumOpt('minPingMs', 'حداقل پینگ معتبر', 0, 1000, 0, 300, false,
+  NumOpt('minPingMs', 'حداقل پینگ معتبر', 0, 1000, 0, 1000, false,
       () => minPingMs, (v) => minPingMs = v),
-  NumOpt('speedTopN', 'تعداد سرور برای تست سرعت', 1, 1000, 3, 10, false,
+  NumOpt('speedTopN', 'تعداد سرور برای تست سرعت', 1, 1000, 1, 1000, false,
       () => speedTopN, (v) => speedTopN = v),
-  NumOpt('badPingMs', 'پینگ بد از', 70, 7000, 1500, 7000, false,
+  NumOpt('badPingMs', 'پینگ بد از', 70, 7000, 3000, 7000, false,
       () => badPingMs, (v) => badPingMs = v),
-  NumOpt('minSpeedKB', 'تعویض اگر سرعت کمتر از', 0, 50000, 200, 1000, false,
+  NumOpt('minSpeedKB', 'تعویض اگر سرعت کمتر از', 0, 50000, 0, 50000, false,
       () => minSpeedKB, (v) => minSpeedKB = v),
-  NumOpt('listRefreshMin', 'هر چند دقیقه لیست جدید', 1, 1000, 30, 240, false,
+  NumOpt('listRefreshMin', 'هر چند دقیقه لیست جدید', 1, 1000, 240, 1000, false,
       () => listRefreshMin, (v) => listRefreshMin = v),
-  NumOpt('failMin', 'سرور خراب تا چند دقیقه تست نشود', 1, 1000, 12, 240, false,
+  NumOpt('failMin', 'سرور خراب تا چند دقیقه تست نشود', 1, 1000, 120, 1000, false,
       () => failMin, (v) {
     failMin = v;
     failWindow = Duration(minutes: v);
   }),
-  NumOpt('recheckMin', 'بررسی دوباره سرورهای سالم (دقیقه)', 1, 1000, 3, 60,
+  NumOpt('recheckMin', 'بررسی دوباره سرورهای سالم (دقیقه)', 1, 1000, 30, 1000,
       false, () => recheckMin, (v) {
     recheckMin = v;
     recheckAfter = Duration(minutes: v);
   }),
   // ----- 12 new options -----
-  NumOpt('tcpWorkers', 'پیش‌فیلتر TCP همزمان', 1, 1000, 150, 500, true,
+  NumOpt('tcpWorkers', 'پیش‌فیلتر TCP همزمان', 1, 1000, 80, 1000, true,
       () => tcpWorkers, (v) => tcpWorkers = v),
-  NumOpt('tcpTimeout', 'تایم‌اوت TCP (دهم ثانیه)', 1, 1000, 30, 40, true,
+  NumOpt('tcpTimeout', 'تایم‌اوت TCP (دهم ثانیه)', 1, 1000, 30, 1000, true,
       () => tcpTimeout.inMilliseconds ~/ 100,
       (v) => tcpTimeout = Duration(milliseconds: v * 100)),
   NumOpt('maxPerSource', 'حداکثر سرور از هر منبع', 1, 1000, 500, 1000, true,
       () => maxPerSource, (v) => maxPerSource = v),
-  NumOpt('fetchWorkers', 'دانلود همزمان لیست‌ها', 1, 1000, 24, 48, true,
+  NumOpt('fetchWorkers', 'دانلود همزمان لیست‌ها', 1, 1000, 12, 1000, true,
       () => fetchWorkers, (v) => fetchWorkers = v),
-  NumOpt('fetchDeadline', 'مهلت دانلود لیست‌ها (ثانیه)', 1, 1000, 40, 120, true,
+  NumOpt('fetchDeadline', 'مهلت دانلود لیست‌ها (ثانیه)', 1, 1000, 40, 1000, true,
       () => fetchDeadline.inSeconds,
       (v) => fetchDeadline = Duration(seconds: v)),
-  NumOpt('firstBatchSize', 'اندازه دسته‌ی اول', 1, 1000, 100, 300, true,
+  NumOpt('firstBatchSize', 'اندازه دسته‌ی اول', 1, 1000, 50, 1000, true,
       () => firstBatchSize, (v) => firstBatchSize = v),
-  NumOpt('standbyBatchSize', 'اندازه دسته (وقتی وصل است)', 1, 1000, 150, 600,
+  NumOpt('standbyBatchSize', 'اندازه دسته (وقتی وصل است)', 1, 1000, 30, 1000,
       true, () => standbyBatchSize, (v) => standbyBatchSize = v),
-  NumOpt('maxBatches', 'حداکثر تعداد دسته در هر جستجو', 1, 1000, 40, 100, true,
+  NumOpt('maxBatches', 'حداکثر تعداد دسته در هر جستجو', 1, 1000, 5, 1000, true,
       () => maxBatches, (v) => maxBatches = v),
-  NumOpt('watchFailLimit', 'تعداد پینگ ناموفق تا تعویض', 1, 1000, 3, 6, true,
+  NumOpt('watchFailLimit', 'تعداد پینگ ناموفق تا تعویض', 1, 1000, 3, 1000, true,
       () => watchFailLimit, (v) => watchFailLimit = v),
-  NumOpt('badPingLimit', 'تعداد پینگ بد تا تعویض', 1, 1000, 3, 6, true,
+  NumOpt('badPingLimit', 'تعداد پینگ بد تا تعویض', 1, 1000, 3, 1000, true,
       () => badPingLimit, (v) => badPingLimit = v),
-  NumOpt('missLimit', 'تعداد شکست تا حذف سرور سالم', 1, 1000, 3, 8, true,
+  NumOpt('missLimit', 'تعداد شکست تا حذف سرور سالم', 1, 1000, 3, 1000, true,
       () => missLimit, (v) => missLimit = v),
-  NumOpt('watchEvery', 'فاصله‌ی چک اتصال (ثانیه)', 1, 1000, 5, 30, true,
+  NumOpt('watchEvery', 'فاصله‌ی چک اتصال (ثانیه)', 1, 1000, 8, 1000, true,
       () => watchEvery.inSeconds, (v) => watchEvery = Duration(seconds: v)),
   // ----- first search: time cap -----
-  NumOpt('firstCapSec', 'سقف زمان جستجوی اول (ثانیه)', 1, 1000, 120, 120, true,
+  NumOpt('firstCapSec', 'سقف زمان جستجوی اول (ثانیه)', 1, 1000, 120, 1000, true,
       () => firstCapSec, (v) => firstCapSec = v),
 ];
 
@@ -1010,12 +1619,12 @@ extension NumHomeExtras on _HomePageState {
         ),
       );
 
-  // the AI may only move a number inside [lo, aiHi]
+  // AI has full range [lo, hi] — no artificial caps
   void applyNumSuggest(Map<String, int> m) {
     for (final o in numOpts) {
       if (aiLockedNums.contains(o.id)) continue;
       final v = m['num_${o.id}'];
-      if (v != null) o.set(v.clamp(o.lo, o.aiHi).toInt());
+      if (v != null) o.set(v.clamp(o.lo, o.hi).toInt());
     }
     saveNumPrefs();
   }
@@ -1023,24 +1632,25 @@ extension NumHomeExtras on _HomePageState {
 
 
 // TUNEDPATCH ===================== مقدارهای بهینه (یک‌بار) =====================
+// low-data + high post-connect speed defaults (AI may override any of these)
 const Map<String, dynamic> _tunedSettings = {
-  't': 8,
+  't': 10,
   'bw2': 2,
-  'st': 3,
+  'st': 1,
   'bp': 3000,
-  'ms': 300,
-  'lr': 30,
-  'fm': 20,
-  'rm': 3,
-  'a2': true,
+  'ms': 0,
+  'lr': 240,
+  'fm': 120,
+  'rm': 30,
+  'a2': false,
   'i': true,
   'cip': true,
   'sdns': true,
   'sf': true,
   'so': true,
-  'ac': true,
+  'ac': false,
   'o': true,
-  'u': true,
+  'u': false,
   'fd': true,
   'bps': true,
   'npv': true,
@@ -1049,56 +1659,112 @@ const Map<String, dynamic> _tunedSettings = {
   'lan': true,
   'ro': false,
   'frg': false,
-  'mux': false,
+  'mux': true,
+  'mc': 16,
   'ig': false,
+  'um': true,
+  'idm': false,
+  'tb': true,
+  'fw2': 50,
 };
 const Map<String, int> _tunedNums = {
+  'fastWorkers': 50,
   'bgWorkers': 2,
-  'timeout': 8,
-  'speedTopN': 3,
+  'timeout': 10,
+  'speedTopN': 1,
   'badPingMs': 3000,
-  'minSpeedKB': 300,
-  'listRefreshMin': 30,
-  'failMin': 20,
-  'recheckMin': 3,
-  'tcpWorkers': 150,
-  'tcpTimeout': 25,
+  'minSpeedKB': 0,
+  'listRefreshMin': 240,
+  'failMin': 120,
+  'recheckMin': 30,
+  'tcpWorkers': 80,
+  'tcpTimeout': 30,
   'maxPerSource': 500,
-  'fetchDeadline': 25,
-  'firstBatchSize': 100,
-  'standbyBatchSize': 100,
+  'fetchWorkers': 12,
+  'fetchDeadline': 40,
+  'firstBatchSize': 50,
+  'standbyBatchSize': 30,
+  'maxBatches': 5,
   'watchFailLimit': 3,
   'badPingLimit': 3,
 };
 
+// v2 kept for old installs; v3 is the low-data + turbo speed preset
 const Map<String, dynamic> _tunedSettings2 = {
   't': 10,
-  'bw2': 4,
-  'st': 3,
+  'bw2': 2,
+  'st': 1,
   'bp': 3000,
-  'ms': 300,
-  'lr': 30,
-  'fm': 12,
-  'rm': 3,
+  'ms': 0,
+  'lr': 240,
+  'fm': 120,
+  'rm': 30,
+  'a2': false,
+  'ac': false,
+  'frg': false,
+  'mux': true,
+  'mc': 16,
+  'tb': true,
+  'um': true,
+  'idm': false,
+  'fw2': 50,
 };
 const Map<String, int> _tunedNums2 = {
-  'bgWorkers': 4,
+  'fastWorkers': 50,
+  'bgWorkers': 2,
   'timeout': 10,
-  'speedTopN': 3,
+  'speedTopN': 1,
   'badPingMs': 3000,
-  'minSpeedKB': 300,
-  'listRefreshMin': 30,
-  'failMin': 12,
-  'recheckMin': 3,
-  'tcpWorkers': 150,
+  'minSpeedKB': 0,
+  'listRefreshMin': 240,
+  'failMin': 120,
+  'recheckMin': 30,
+  'tcpWorkers': 80,
   'tcpTimeout': 30,
   'maxPerSource': 500,
+  'fetchWorkers': 12,
   'fetchDeadline': 40,
-  'firstBatchSize': 100,
-  'standbyBatchSize': 150,
-  'maxBatches': 40,
+  'firstBatchSize': 50,
+  'standbyBatchSize': 30,
+  'maxBatches': 5,
   'watchFailLimit': 3,
   'badPingLimit': 3,
+};
+
+const Map<String, dynamic> _tunedSettings3 = {
+  't': 10,
+  'bw2': 2,
+  'st': 1,
+  'bp': 3000,
+  'ms': 0,
+  'lr': 240,
+  'fm': 120,
+  'rm': 30,
+  'a2': false,
+  'ac': false,
+  'frg': false,
+  'mux': true,
+  'mc': 16,
+  'tb': true,
+  'um': true,
+  'idm': false,
+  'fw2': 50,
+};
+const Map<String, int> _tunedNums3 = {
+  'fastWorkers': 50,
+  'bgWorkers': 2,
+  'timeout': 10,
+  'speedTopN': 1,
+  'badPingMs': 3000,
+  'minSpeedKB': 0,
+  'listRefreshMin': 240,
+  'failMin': 120,
+  'recheckMin': 30,
+  'tcpWorkers': 80,
+  'fetchWorkers': 12,
+  'firstBatchSize': 50,
+  'standbyBatchSize': 30,
+  'maxBatches': 5,
 };
 
 // settings saved by an older build get the tuned values ONCE; after that the
@@ -1152,29 +1818,41 @@ Future<String?> tunedSettings(SharedPreferences p) async {
       }
       await p.setBool('tuned_v2', true);
     }
-    // TUNEDV3: bad ping 1500 ms, switch below 200 KB/s, applied ONCE
+    // TUNEDV3 kept as applied flag for old installs
     if (p.getBool('tuned_v3') != true) {
+      await p.setBool('tuned_v3', true);
+    }
+    // TUNEDV4: low data + multi-x speed + fastWorkers=50; AI fully free
+    if (p.getBool('tuned_v4') != true) {
       final st = p.getString('settings');
       if (st != null) {
         final j = jsonDecode(st);
         if (j is Map) {
           final m = Map<String, dynamic>.from(j);
-          m['bp'] = 1500;
-          m['ms'] = 200;
+          _tunedSettings3.forEach((k, v) => m[k] = v);
+          m['fw2'] = 50;
           await p.setString('settings', jsonEncode(m));
         }
+      } else {
+        await p.setString(
+            'settings',
+            jsonEncode({
+              'ver': 6,
+              ..._tunedSettings3,
+              'fw2': 50,
+            }));
       }
       final nx = p.getString('numx');
       if (nx != null) {
         final j = jsonDecode(nx);
         if (j is Map) {
           final m = Map<String, dynamic>.from(j);
-          m['badPingMs'] = 1500;
-          m['minSpeedKB'] = 200;
+          _tunedNums3.forEach((k, v) => m[k] = v);
+          m['fastWorkers'] = 50;
           await p.setString('numx', jsonEncode(m));
         }
       }
-      await p.setBool('tuned_v3', true);
+      await p.setBool('tuned_v4', true);
     }
   } catch (e) {
     logError(e);
