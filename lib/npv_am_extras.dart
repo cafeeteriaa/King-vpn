@@ -18,19 +18,19 @@ part of 'main.dart';
 // ---------------------------- تنظیمات (ذخیره در settings) ----------------------------
 bool npvParse = true; // خواندن کانفیگ‌های غیراستاندارد
 bool cleanIpMode = true; // IP تمیز برای سرورهای Cloudflare
-bool fragEnabled = false; // Fragment روی TLS Hello (نیاز به هسته‌ی Xray)
-bool muxEnabled = false; // Mux روی خروجی اصلی
+bool fragEnabled = false; // OFF by default = much higher post-connect speed
+bool muxEnabled = true; // ON by default = multi-stream throughput
 bool secureDns = true; // DNS از طریق DoH
 bool blockQuic = true; // مسدود کردن QUIC (UDP 443) تا مرورگرها به TCP/TLS برگردند
 bool lanDirect = true; // شبکه‌ی محلی (LAN) از تونل رد نشود
 bool routeOnly = false; // دامنه‌ی sniff شده فقط برای مسیریابی، مقصد IP دست‌نخورده
 String fragLen = '100-200'; // طول تکه‌های Fragment
 String fragInt = '10-20'; // فاصله‌ی تکه‌ها (میلی‌ثانیه)
-int muxConc = 8; // تعداد اتصال همزمان Mux
+int muxConc = 16; // high concurrency default for multi-x speed
 String dnsProv = 'cloudflare'; // ارائه‌دهنده‌ی DoH: cloudflare | google | quad9
 const _fragLenOpts = <String>['100-200', '50-100', '10-30'];
 const _fragIntOpts = <String>['10-20', '1-5', '20-40'];
-const _muxOpts = <int>[4, 8, 16];
+const _muxOpts = <int>[4, 8, 16, 32];
 const _dnsOpts = <String>['cloudflare', 'google', 'quad9'];
 const _dnsUrls = <String, List<String>>{
   'cloudflare': ['https://1.1.1.1/dns-query', '1.1.1.1'],
