@@ -194,28 +194,136 @@ extension PlusExt on _HomePageState {
       if (v != null && v >= 0 && v < _natSpecs.length) rows.add(MapEntry(v, n));
     });
     rows.sort((a, b) => b.value.compareTo(a.value));
-    final b = StringBuffer('شبکه / اپراتور: $natOpKey\n\n');
+    final b = StringBuffer('شبکه / اپراتور: $natOpKey\n');
+    b.writeln('Ultra: ${ultraMode ? 'روشن' : 'خاموش'} • '
+        'توربو: ${turboSpeed ? 'روشن' : 'خاموش'} • '
+        'نت ملی: ${nationalMode ? 'بله' : 'خیر'}');
+    b.writeln('سطح ماتریس: $natLevel • کل حالت‌ها: ${_natSpecs.length}');
+    final cur = current;
+    if (cur != null) {
+      final v = natVarFor(cur);
+      final vn = (v >= 0 && v < _natVarNames.length) ? _natVarNames[v] : '#$v';
+      b.writeln('سرور فعلی: ${cur.name}');
+      b.writeln('حالت فعال: $vn');
+      if (v > 0 && v < _natSpecs.length) {
+        final ds = _natDims(_natSpecs[v]);
+        if (ds.isNotEmpty) b.writeln('ابعاد: ${ds.join(' · ')}');
+      }
+    }
+    b.writeln('');
     if (rows.isEmpty) {
       b.write('هنوز حالتی روی این شبکه جواب نداده است.');
     } else {
-      b.writeln('حالت‌هایی که روی این شبکه جواب داده‌اند:');
-      for (final r in rows) {
+      b.writeln('جدول برندگان حالت (این اپراتور):');
+      for (final r in rows.take(25)) {
         b.writeln('• ${_natSpecs[r.key].name}: ${r.value} بار');
       }
+      if (rows.length > 25) b.writeln('… و ${rows.length - 25} مورد دیگر');
     }
     b.writeln('\nسرورهای یادگرفته‌شده: ${natVar.length}');
-    b.writeln('تعداد کل حالت‌های اتصال: ${_natSpecs.length}');
     final dims = natDimWins.entries
         .where((e) => e.key.startsWith(pre))
         .toList()
       ..sort((x, y) => y.value.compareTo(x.value));
     if (dims.isNotEmpty) {
-      b.writeln('\nویژگی‌های برنده روی این شبکه:');
-      for (final e in dims.take(8)) {
+      b.writeln('\nویژگی‌های برنده (ابعاد DNA اپراتور):');
+      for (final e in dims.take(20)) {
         b.writeln('• ${e.key.substring(pre.length)}: ${e.value} بار');
       }
     }
     return b.toString();
+  }
+
+  // rich scrollable DNA board (winners table + dimensions)
+  Future<void> _plusDnaBoard() async {
+    await plusLoad();
+    if (!mounted) return;
+    final pre = '$natOpKey#';
+    final rows = <MapEntry<int, int>>[];
+    natWins.forEach((k, n) {
+      if (!k.startsWith(pre)) return;
+      final v = int.tryParse(k.substring(pre.length));
+      if (v != null && v >= 0 && v < _natSpecs.length) {
+        rows.add(MapEntry(v, n));
+      }
+    });
+    rows.sort((a, b) => b.value.compareTo(a.value));
+    final dims = natDimWins.entries
+        .where((e) => e.key.startsWith(pre))
+        .toList()
+      ..sort((x, y) => y.value.compareTo(x.value));
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SafeArea(
+          child: SizedBox(
+            height: MediaQuery.of(ctx).size.height * 0.85,
+            child: ListView(
+              padding: const EdgeInsets.all(12),
+              children: [
+                Text('DNA اپراتور: $natOpKey',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 16)),
+                const SizedBox(height: 6),
+                Text(
+                    'Ultra ${ultraMode ? '✓' : '✗'} • توربو ${turboSpeed ? '✓' : '✗'} • '
+                    'سطح $natLevel • ${_natSpecs.length} حالت',
+                    style: const TextStyle(fontSize: 13)),
+                if (current != null) ...[
+                  const SizedBox(height: 8),
+                  Builder(builder: (_) {
+                    final v = natVarFor(current!);
+                    final vn = v < _natVarNames.length ? _natVarNames[v] : '$v';
+                    return Text('الان: ${current!.name} • حالت $vn',
+                        style: const TextStyle(fontSize: 13));
+                  }),
+                ],
+                const Divider(height: 24),
+                const Text('برندگان حالت',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                if (rows.isEmpty)
+                  const ListTile(
+                      dense: true,
+                      title: Text('هنوز چیزی یاد گرفته نشده'))
+                else
+                  ...rows.take(40).map((r) => ListTile(
+                        dense: true,
+                        title: Text(_natSpecs[r.key].name),
+                        trailing: Text('${r.value}×',
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold)),
+                        subtitle: Text(_natDims(_natSpecs[r.key])
+                            .take(4)
+                            .join(' · ')),
+                      )),
+                const Divider(height: 24),
+                const Text('ابعاد برنده (ویژگی‌ها)',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                if (dims.isEmpty)
+                  const ListTile(
+                      dense: true, title: Text('هنوز بُعدی ثبت نشده'))
+                else
+                  ...dims.take(30).map((e) => ListTile(
+                        dense: true,
+                        title: Text(e.key.substring(pre.length)),
+                        trailing: Text('${e.value}×'),
+                      )),
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: _plusStats()));
+                    _set('جدول DNA کپی شد');
+                  },
+                  child: const Text('کپی متن کامل'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _plusVariants() async {
@@ -322,7 +430,10 @@ extension PlusExt on _HomePageState {
                       style:
                           TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 ),
-                tile(Icons.insights, 'آمار حالت‌های نت ملی (این اپراتور)',
+                tile(Icons.insights, 'جدول DNA اپراتور (برندگان حالت)',
+                    _plusDnaBoard,
+                    sub: 'حالت‌ها و ویژگی‌هایی که روی این شبکه جواب داده‌اند'),
+                tile(Icons.text_snippet_outlined, 'آمار متنی کامل',
                     () => _plusText('آمار حالت‌ها', _plusStats())),
                 tile(Icons.tune, 'روشن / خاموش کردن حالت‌های نت ملی',
                     _plusVariants,
