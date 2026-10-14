@@ -2631,6 +2631,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int stallRun = 0; // SPEEDSWITCHPATCH: checks in a row under 100 KB/s
   int siteFail = 0; // checks in a row where no real site opened
   bool siteSeen = false; // a real site opened on THIS connection
+  int siteNever = 0; // SITENEVER: checks in a row where no site opened since connect
+  int siteNeverSwitches = 0; // SITENEVER: switches done for that reason in a row
   bool refilling = false; // SPEEDSWITCHPATCH: refill search running
   DateTime lastRefill = DateTime(2000);
   Future<void>? _prepFut;
@@ -2773,6 +2775,70 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return out;
   }
 
+  // TGPREFER: servers that opened Telegram in the check come first (bit 0 of
+  // svc), then the ones that opened everything. Not checked yet (-1) comes
+  // after those, and servers checked WITHOUT Telegram come last.
+  int _svcRank(Server s) {
+    if (s.svc < 0) return 0;
+    if ((s.svc & 1) != 0) return s.svc == 15 ? 3 : 2;
+    return -1;
+  }
+
+  // TGWATCH: while connected, Telegram must keep opening. Every 3 minutes it
+  // is checked through the tunnel (only when other sites DO open, so a dead
+  // internet is not blamed on Telegram). Two "no" answers in a row mark the
+  // server and the next server (Telegram ones first) takes over.
+  DateTime _tgChkAt = DateTime.fromMillisecondsSinceEpoch(0);
+  int _tgChkBad = 0;
+  bool _tgChkBusy = false;
+  void _tgKeepCheck() {
+    try {
+      if (_tgChkBusy || busy || switching || connRow == 'r:ai') return;
+      final cur = current;
+      if (cur == null || cur.ovpn || !connected) return;
+      final now = DateTime.now();
+      if (now.difference(_tgChkAt) < const Duration(minutes: 3)) return;
+      if (now.difference(lastSwitch) < const Duration(seconds: 40)) return;
+      _tgChkAt = now;
+      _tgChkBusy = true;
+      (() async {
+        final tg = await Future.wait([
+          _siteOpens('https://web.telegram.org/'),
+          _siteOpens('https://telegram.org/'),
+        ]);
+        if (tg.any((x) => x)) return true;
+        // Telegram did not open: is the internet itself fine?
+        final other = await Future.wait([
+          _siteOpens('https://www.youtube.com/generate_204'),
+          _siteOpens('https://www.instagram.com/'),
+        ]);
+        return other.any((x) => x) ? false : null; // null = no internet
+      })()
+          .then((bool? ok) {
+        if (!mounted || !identical(current, cur) || busy || switching) return;
+        if (ok == true) {
+          _tgChkBad = 0;
+          cur.svc = cur.svc < 0 ? 1 : (cur.svc | 1);
+        } else if (ok == false) {
+          cur.svc = cur.svc < 0 ? 0 : (cur.svc & ~1);
+          if (++_tgChkBad >= 2) {
+            _tgChkBad = 0;
+            // switch only when another server can still be tried
+            final other = _pickList().any((x) => x.svc < 0 || (x.svc & 1) != 0);
+            if (other) {
+              lastWhy = 'تلگرام روی این سرور باز نمی‌شود';
+              _failover();
+            }
+          } else {
+            _tgChkAt = DateTime.now().subtract(const Duration(minutes: 2));
+          }
+        }
+      }).catchError((_) {}).whenComplete(() => _tgChkBusy = false);
+    } catch (e) {
+      logError(e);
+    }
+  }
+
   // replacement candidates: servers of the active row first, then the rest.
   // Servers really checked in this session come before the ones only loaded
   // from disk; inside each group the HIGHEST REAL SPEED wins (saved speeds of
@@ -2782,7 +2848,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         .where((s) => !identical(s, current) && s.ovpn == _ovMode)
         .toList()
       ..sort((a, b) {
-        final sv = (b.svc == 15 ? 1 : 0) - (a.svc == 15 ? 1 : 0); // MULTICHK
+        final sv = _svcRank(b) - _svcRank(a); // MULTICHK + TGPREFER
         if (sv != 0) return sv;
         final x = (a.checkedAt == null ? 1 : 0) - (b.checkedAt == null ? 1 : 0);
         if (x != 0) return x;
@@ -3064,7 +3130,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // E-BUSY-STUCK: a never-ending await can no longer lock the app
       await f().timeout(const Duration(minutes: 5));
     } on TimeoutException {
-      logError('busy بیش از ۵ دقیقه طول کشید و آزاد شد');
+      if (_acquiring) {
+        dbg('جستجوی سرور بیش از ۵ دقیقه طول کشید؛ ادامه می‌دهد و قفل آزاد شد');
+      } else {
+        logError('busy بیش از ۵ دقیقه طول کشید و آزاد شد');
+      }
     } catch (e) {
       logError(e);
     } finally {
@@ -4605,6 +4675,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     stallRun = 0;
     siteFail = 0;
     siteSeen = false;
+    siteNever = 0;
     needTrial = false;
     speedTick = 0;
     wantVpn = true;
@@ -4665,6 +4736,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // they are connected as they are, and the watchdog replaces them only if
   // they really stay dead. The real reason of a failure is shown at the bottom.
   Future<bool> _connectLoop(List<Server> list, {bool trust = false}) async {
+    var siteSkips = 0; // SITEPRECHECK: servers skipped because no site opened
     for (final s in list) {
       if (abort) return false;
       final pin = favs.containsKey(s.key);
@@ -4724,6 +4796,33 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               'سرور بعدی / تست سریع بعدی • دور $badPingRounds/$badPingMaxRounds');
           continue;
         }
+      }
+      // SITEPRECHECK: the ping passed, but does a real site open through this
+      // server? If none of Instagram / Telegram / YouTube opens, the next
+      // server is tried at once (max 3 skips, never the last candidate, so a
+      // network where the check itself fails still connects).
+      if (!trust &&
+          !pin &&
+          !nationalMode &&
+          siteSkips < 3 &&
+          !identical(list.last, s)) {
+        _set('بررسی باز شدن سایت‌ها روی ${s.name}...');
+        final r = await Future.wait([
+          _siteOpens('https://www.instagram.com/'),
+          _siteOpens('https://web.telegram.org/'),
+          _siteOpens('https://www.youtube.com/generate_204'),
+        ]);
+        if (abort) return false;
+        if (!r.any((x) => x)) {
+          siteSkips++;
+          s.svc = 0;
+          s.badAt = DateTime.now();
+          await _stopV2();
+          dbg('اتصال: ${s.name} پینگ داشت ولی هیچ سایتی باز نشد؛ سرور بعدی '
+              '($siteSkips/3)');
+          continue;
+        }
+        s.svc = s.svc < 0 ? 1 : (s.svc | 1);
       }
       _onConnected(s);
       return true;
@@ -5386,11 +5485,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  // ACQUIREFLAG: true while the server search of _acquire is running, so the
+  // inspector does not call a normal long search a "stuck switch flag"
+  bool _acquiring = false;
+
   Future<bool> _acquire({bool strictRow = false, bool speed = false}) async {
+    _acquiring = true;
+    try {
+      return await _acquireInner(strictRow: strictRow, speed: speed);
+    } finally {
+      _acquiring = false;
+    }
+  }
+
+  Future<bool> _acquireInner(
+      {bool strictRow = false, bool speed = false}) async {
     if (!strictRow && connRow == null && !_ovMode) {
       await _checkSaved();
     }
     var speedDone = !speed;
+    var emptyRounds = 0; // EMPTYROWFIX: rounds in a row with nothing to try
     for (var round = 0; !abort; round++) {
       // NATESCALATE: every 3rd failed round the search gets wider (all sources,
       // fresh lists, longer waits) and the network state is checked again
@@ -5419,6 +5533,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (abort) break;
           // RETRYPATCH: nothing left to test -> forget the failures and go again
           if (pending.isEmpty) failed.clear();
+          // EMPTYROWFIX: a fixed row (e.g. the Gemini row) can have no server
+          // at all while the other healthy servers do not belong to it. The
+          // search then ended after 0 s again and again for ever. After a few
+          // empty rounds we stop and tell the user; the watchdog / the user
+          // can try again.
+          emptyRounds++;
+          if (strictRow && row != null && emptyRounds >= 6) {
+            break;
+          }
           _set('سرور سالم پیدا نشد؛ تست سریع دوباره...');
           await Future.delayed(
               Duration(seconds: badPingRounds == 0 ? min(15, 2 + round) : 1));
@@ -5431,6 +5554,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         list = pickRow();
         if (list.isEmpty) continue;
       }
+      emptyRounds = 0;
       if (await _connectLoop(list)) return true;
     }
     return false;
@@ -5538,7 +5662,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (only?.personal == true && !abort) _checkPersonal(force: true);
           _set(abort
               ? 'لغو شد'
-              : (only == null && row != null)
+              : (only == null && row == 'r:ai')
+                  ? 'هیچ سروری که Gemini را باز کند پیدا نشد؛ بعداً دوباره امتحان کن یا حالت دیگری را بزن'
+                  : (only == null && row != null)
                   ? 'در این ردیف سرور سالمی پیدا نشد'
                   : 'هیچ سروری وصل نشد، دوباره تلاش کنید');
         }
@@ -6582,6 +6708,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           fails = 0;
           current?.ping = p; // live ping of the connected server
           _aiKeepCheck(); // GEMWATCH
+          _tgKeepCheck(); // TGWATCH
           // Tunnel guard: a "direct" ping also passes when the phone has NO
           // VPN tunnel (no key icon). If tun is missing twice in a row, the
           // VPN is rebuilt on the same server (max 2 tries per connection).
@@ -6694,8 +6821,30 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             if (sitesOk > 0) {
               siteSeen = true;
               siteFail = 0;
+              siteNever = 0;
+              siteNeverSwitches = 0;
             } else if (siteSeen) {
               siteFail++;
+            } else {
+              // SITENEVER: ping and speed pass, but NO real site (YouTube /
+              // Instagram / Telegram) has ever opened on this server. This
+              // used to be ignored for ever. Now the server is replaced after
+              // 3 checks in a row, if another server is ready. To be safe
+              // when the check itself does not work on this network (sites
+              // blocked everywhere), it stops after 3 such switches in a row.
+              siteNever++;
+              if (siteNever >= 3 &&
+                  siteNeverSwitches < 3 &&
+                  _ready() > 0 &&
+                  DateTime.now().difference(lastSwitch) >
+                      const Duration(seconds: 20)) {
+                siteNever = 0;
+                siteNeverSwitches++;
+                current?.svc = 0; // Telegram / Instagram do not open here
+                lastWhy = 'سایت‌ها از ابتدا باز نمی‌شوند';
+                await _failover();
+                return;
+              }
             }
             if (siteFail >= 2 &&
                 DateTime.now().difference(lastSwitch) >
@@ -6985,7 +7134,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     // 5) problems
     _insWarn('busy', busy && !searching, 90, 'پرچم «مشغول» گیر کرده');
-    _insWarn('sw', switching && !busy && !searching, 60, 'پرچم «تعویض» گیر کرده');
+    _insWarn('sw', switching && !busy && !searching && !_acquiring, 60, 'پرچم «تعویض» گیر کرده');
     _insWarn('watchBusy', watchBusy && !busy && !switching && !searching &&
         inForeground, 90, 'واچ‌داگ در یک بررسی گیر کرده');
     _insWarn('upBusy', upBusy, 120, 'تست سرعت/ارتقا گیر کرده');
