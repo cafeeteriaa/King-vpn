@@ -19,8 +19,8 @@ part of 'main.dart';
 bool npvParse = true; // خواندن کانفیگ‌های غیراستاندارد
 bool cleanIpMode = true; // IP تمیز برای سرورهای Cloudflare
 bool fragEnabled = false; // OFF by default = much higher post-connect speed
-bool muxEnabled = true; // ON by default = multi-stream throughput
-bool secureDns = true; // DNS از طریق DoH
+bool muxEnabled = false; // OFF: many free servers break with Mux (apps hang)
+bool secureDns = true; // DNS از طریق DoH + IP fallback
 bool blockQuic = true; // مسدود کردن QUIC (UDP 443) تا مرورگرها به TCP/TLS برگردند
 bool lanDirect = true; // شبکه‌ی محلی (LAN) از تونل رد نشود
 bool routeOnly = false; // دامنه‌ی sniff شده فقط برای مسیریابی، مقصد IP دست‌نخورده
@@ -649,18 +649,38 @@ String withNpvAmCore(String cfg) {
     j['outbounds'] = outs;
     if (secureDns) {
       final d = j['dns'] is Map ? j['dns'] as Map : <String, dynamic>{};
-      // DNSFALLBACK: the chosen provider first, the other DoH providers
-      // behind it, so one blocked DoH address does not break name lookups
+      // Plain IP DNS FIRST (fast, reliable for apps), then DoH.
+      // DoH-only often makes Telegram/apps hang when the tunnel is weak.
       final first = _dnsUrls[dnsProv] ?? _dnsUrls['cloudflare']!;
-      final all = <dynamic>[...first];
-      for (final e in _dnsUrls.entries) {
-        for (final u in e.value) {
-          if (u.startsWith('https://') && !all.contains(u)) all.add(u);
+      final ips = <dynamic>[];
+      final doh = <dynamic>[];
+      for (final u in first) {
+        if (u.toString().startsWith('https://')) {
+          doh.add(u);
+        } else {
+          ips.add(u);
         }
       }
-      d['servers'] = all;
-      d['queryStrategy'] = 'UseIP';
+      for (final e in _dnsUrls.entries) {
+        for (final u in e.value) {
+          if (u.startsWith('https://')) {
+            if (!doh.contains(u)) doh.add(u);
+          } else if (!ips.contains(u)) {
+            ips.add(u);
+          }
+        }
+      }
+      // Always include common public DNS IPs
+      for (final ip in ['1.1.1.1', '8.8.8.8', '9.9.9.9']) {
+        if (!ips.contains(ip)) ips.add(ip);
+      }
+      d['servers'] = [...ips, ...doh];
+      d['queryStrategy'] = 'UseIPv4';
       j['dns'] = d;
+      // Help domain-based routing resolve correctly for apps
+      final rt = j['routing'] is Map ? j['routing'] as Map : <String, dynamic>{};
+      rt['domainStrategy'] = rt['domainStrategy'] ?? 'AsIs';
+      j['routing'] = rt;
     }
     return jsonEncode(j);
   } catch (e) {
