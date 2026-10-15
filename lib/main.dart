@@ -175,7 +175,7 @@ int minSpeedKB = 0; // LOWDATA: speed-based switching off (no download tests)
 
 // ---- settings ----
 // user-adjustable (saved in settings)
-int batchSize = 40; // FAST: smaller batches, first healthy sooner
+int batchSize = 100; // دسته ۱۰۰ سرور در هر دور
 int delayWorkers = 20; // (kept for settings compatibility)
 Duration delayTimeout = const Duration(seconds: 6);
 int goodWant = 3; // (kept for settings compatibility, not used any more)
@@ -375,7 +375,7 @@ void _tuneApply(int lv) {
     // fastWorkers stays 50 (FASTSET)
     bgWorkers = 1;
     delayTimeout = const Duration(seconds: 8);
-    batchSize = 40;
+    batchSize = 100;
     minSpeedKB = 0;
     badPingMs = 5000;
     badPingLimit = 3;
@@ -385,7 +385,7 @@ void _tuneApply(int lv) {
     // fastWorkers stays 50 (FASTSET)
     bgWorkers = 1;
     delayTimeout = const Duration(seconds: 5);
-    batchSize = 40;
+    batchSize = 100;
     minSpeedKB = 0;
     badPingMs = 3000;
     badPingLimit = 3;
@@ -395,7 +395,7 @@ void _tuneApply(int lv) {
     // fastWorkers stays 50 (FASTSET)
     bgWorkers = 1;
     delayTimeout = const Duration(seconds: 6);
-    batchSize = 40;
+    batchSize = 100;
     minSpeedKB = 0;
     badPingMs = 3000;
     badPingLimit = 3;
@@ -3500,7 +3500,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // batch stays 500). After that the user's own changes are kept.
       if (p.getBool('lowdata_v1') != true) {
         fastWorkers = 50;
-        batchSize = 40;
+        batchSize = 100;
         bgWorkers = 1;
         delayTimeout = const Duration(seconds: 6);
         speedTopN = 1;
@@ -6228,7 +6228,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // tight timeouts so first healthy server connects under ~30s
         delayTimeout = Duration(seconds: min(delayTimeout.inSeconds, 5));
         firstBatchSize = min(firstBatchSize, 20);
-        batchSize = min(batchSize, 40);
+        batchSize = min(batchSize, 100);
         fastPickN = 1;
       }
       if (nationalMode || indestructibleMode) {
