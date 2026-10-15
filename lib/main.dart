@@ -5057,9 +5057,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!trust && !pin) {
         int? p;
         final pingT0 = DateTime.now(); // PINGLOGPATCH
-        for (var i = 0; i < (nationalMode ? 3 : 1) && p == null && !abort; i++) {
+        for (var i = 0; i < (nationalMode ? 3 : 2) && p == null && !abort; i++) {
           p = await pingAny(
-              total: Duration(seconds: nationalMode ? 12 : 5), direct: true);
+              total: Duration(seconds: nationalMode ? 12 : 7), direct: true);
           if (p == null) await Future.delayed(const Duration(milliseconds: 300));
         }
         dbg(p == null
@@ -5117,9 +5117,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _siteOpens('https://www.gstatic.com/generate_204', viaCore: true),
           _siteOpens('https://telegram.org/', viaCore: true),
           _siteOpens('https://www.youtube.com/generate_204', viaCore: true),
+          _siteOpens('https://www.instagram.com/', viaCore: true),
         ]);
         if (abort) return false;
         final sitesOk = r.where((x) => x).length;
+        // FIXSOCIAL: cloudflare/gstatic alone are not enough: at least one of
+        // Telegram / YouTube / Instagram must really open through the tunnel
+        final socialOk = r[2] || r[3] || r[4];
+        dbg('چک سایت‌ها ${s.name}: cloudflare=${r[0]} gstatic=${r[1]} '
+            'telegram=${r[2]} youtube=${r[3]} instagram=${r[4]}');
         final sp = await measure(
             win: const Duration(seconds: 2),
             total: const Duration(seconds: 6),
@@ -5127,15 +5133,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (abort) return false;
         final speedOk = sp != null && sp >= 0.08;
         // Need at least 2 real endpoints OR (1 endpoint + download)
-        final accept = sitesOk >= 2 || (sitesOk >= 1 && speedOk);
+        final accept = socialOk && (sitesOk >= 2 || speedOk);
         if (!accept) {
           siteSkips++;
           s.svc = 0;
           s.badAt = DateTime.now();
           await _stopV2();
           final ip2 = await resolveHostIp(s.host);
-          final why = sitesOk == 0
-              ? 'تلگرام/یوتیوب/سایت از تونل باز نشد'
+          final why = (sitesOk == 0 || !socialOk)
+              ? 'تلگرام/اینستاگرام/یوتیوب از تونل باز نشد'
               : 'ترافیک واقعی کافی نبود (سایت=$sitesOk سرعت=${sp?.toStringAsFixed(2) ?? "-"})';
           dbg('اتصال: ${s.name} رد شد — $why • سرور بعدی');
           dbg(configFailMsg(
@@ -5164,8 +5170,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // is detected here and replaced; the real speed is also saved for ranking.
   Future<void> _measureCurrent(Server s) async {
     double? sp;
-    for (var i = 0; i < 2 && sp == null; i++) {
+    for (var i = 0; i < 3 && sp == null; i++) {
+      // FIXSPEED: one failed download must not kill a working server;
+      // the 2nd/3rd try uses the small file
       sp = await measure(
+          url: i == 0 ? speedUrl : smallSpeedUrl,
           win: const Duration(seconds: 3),
           total: const Duration(seconds: 10),
           direct: true);
@@ -5173,10 +5182,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     dbg('سرعت واقعی ${s.name}: '
         '${sp == null ? 'داده‌ای نیامد' : '${sp.toStringAsFixed(2)} MB/s'}');
+    // FIXSPEED: no download data, but a real site still opens through the
+    // tunnel -> the server works (only the speed file was blocked), keep it
+    var sitesAlive = false;
+    if (sp == null) {
+      final r = await Future.wait([
+        _siteOpens('https://telegram.org/', viaCore: true),
+        _siteOpens('https://www.instagram.com/', viaCore: true),
+        _siteOpens('https://www.gstatic.com/generate_204', viaCore: true),
+      ]);
+      sitesAlive = r.any((x) => x);
+      if (!connected || !identical(s, current)) return;
+      if (sitesAlive) {
+        dbg('سرعت ${s.name}: فایل تست نیامد ولی سایت‌ها از تونل باز شدند؛ سرور می‌ماند');
+      }
+    }
     if (sp != null) {
       s.speed = sp;
       s.speedAt = DateTime.now();
-    } else if (!s.personal && !favs.containsKey(s.key) && wantVpn) {
+    } else if (!sitesAlive && !s.personal && !favs.containsKey(s.key) && wantVpn) {
       // no data at all: the ping was fake. Replace it (if the app is busy
       // right now, the watchdog's no-data check does the same a bit later)
       s.speed = 0;
