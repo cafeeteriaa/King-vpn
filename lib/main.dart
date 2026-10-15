@@ -5015,6 +5015,40 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return false;
   }
 
+  // FIXSOCIAL2: in VPN mode this app's OWN traffic bypasses the tunnel (and the
+  // core has no local port), so "direct" tests only see the phone's normal
+  // internet: cloudflare/gstatic open there even with a dead server. The only
+  // honest test is a silent proxy-only core (its local port works): Telegram /
+  // Instagram / YouTube must open through it BEFORE the real VPN is started.
+  // true = opens, false = does not open, null = could not test.
+  Future<bool?> _preSocialCheck(Server s) async {
+    try {
+      if (s.ovpn || proxyMode) return null;
+      if (!await _start(s, proxyOnly: true)) return null;
+      if (!await waitProxyPort(max: const Duration(seconds: 6))) {
+        await _stopCore();
+        return null;
+      }
+      final r = await Future.wait([
+        _siteOpens('https://telegram.org/', viaCore: true),
+        _siteOpens('https://www.instagram.com/', viaCore: true),
+        _siteOpens('https://www.youtube.com/generate_204', viaCore: true),
+        _siteOpens('https://www.gstatic.com/generate_204', viaCore: true),
+      ]);
+      await _stopCore();
+      await Future.delayed(const Duration(milliseconds: 300));
+      dbg('تست بی‌صدا ${s.name}: telegram=${r[0]} instagram=${r[1]} '
+          'youtube=${r[2]} gstatic=${r[3]}');
+      return r[0] || r[1] || r[2];
+    } catch (e) {
+      logError(e);
+      try {
+        await _stopCore();
+      } catch (_) {}
+      return null;
+    }
+  }
+
   // [trust] = the server was already tested: skip the extra verification.
   // Pinned / manually added configs are always trusted (the user chose them):
   // they are connected as they are, and the watchdog replaces them only if
@@ -5024,6 +5058,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     for (final s in list) {
       if (abort) return false;
       final pin = favs.containsKey(s.key);
+      if (!trust && !pin && !nationalMode && !s.ovpn && !proxyMode) {
+        _set('بررسی تلگرام/اینستاگرام روی ${s.name}...');
+        final sc = await _preSocialCheck(s);
+        if (abort) return false;
+        if (sc == false) {
+          siteSkips++;
+          s.svc = 0;
+          s.badAt = DateTime.now();
+          errorLog.value = '${s.name}: تلگرام/اینستاگرام/یوتیوب باز نشد — سرور بعدی…';
+          dbg('اتصال: ${s.name} رد شد — تلگرام/اینستاگرام/یوتیوب باز نشد • سرور بعدی');
+          continue;
+        }
+      }
       _set('اتصال به ${s.name}...');
       if (!await _start(s)) {
         final noAct = lastFail.contains('Activity');
@@ -5105,7 +5152,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       // STRICT: verify through the CORE local proxy (not DIRECT).
       // Only accept servers that open real sites (Telegram/YouTube/IG path).
-      if (!trust && !pin && !nationalMode) {
+      if (!trust && !pin && !nationalMode && !proxyMode && !await _coreProxyOpen()) {
+        dbg('چک سایت‌ها ${s.name}: پورت هسته در حالت VPN بسته است؛ '
+            'تست واقعی قبل از اتصال (بی‌صدا) انجام شد');
+      }
+      if (!trust && !pin && !nationalMode && (proxyMode || await _coreProxyOpen())) {
         _set('بررسی ترافیک واقعی روی ${s.name}...');
         // wait until core HTTP port is ready
         if (proxyMode || (await tunUp()) != true) {
@@ -5189,7 +5240,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final r = await Future.wait([
         _siteOpens('https://telegram.org/', viaCore: true),
         _siteOpens('https://www.instagram.com/', viaCore: true),
-        _siteOpens('https://www.gstatic.com/generate_204', viaCore: true),
       ]);
       sitesAlive = r.any((x) => x);
       if (!connected || !identical(s, current)) return;
