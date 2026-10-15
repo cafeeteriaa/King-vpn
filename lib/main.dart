@@ -1729,6 +1729,31 @@ Future<void> pool<T>(
       List.generate(min(workers, items.length), (i) => worker(i)));
 }
 
+// FIXTUNNEL: in VPN mode the core may have NO local HTTP port (10809), so a
+// request sent to PROXY 127.0.0.1:10809 gets "Connection refused" even though
+// the tunnel works. Check whether the port is really open; if it is closed
+// and the VPN tunnel (tun0) is up, send the request normally (DIRECT): Android
+// then routes it through the tunnel, which is the real path of other apps.
+Future<bool> _coreProxyOpen() async {
+  try {
+    final k = await Socket.connect('127.0.0.1', httpProxyPort,
+        timeout: const Duration(milliseconds: 300));
+    k.destroy();
+    return true;
+  } catch (_swE) {
+    return false;
+  }
+}
+
+Future<bool> _useCoreProxy(bool wantProxy) async {
+  if (proxyMode) return true;
+  if (!wantProxy) return false;
+  if (await _coreProxyOpen()) return true;
+  // port closed: only fall back to the tunnel when it really exists
+  // (without a tunnel a DIRECT request would give a false "OK")
+  return (await tunUp()) != true;
+}
+
 // direct = true: no local proxy port, the request goes through the VPN tunnel
 // (in proxy mode there is no tunnel, so the local proxy port is used)
 Future<double?> measure(
@@ -1741,7 +1766,7 @@ Future<double?> measure(
   // viaCore / default when VPN is up: always hit the core's local HTTP proxy
   // so we test the REAL outbound. DIRECT from the VPN app often bypasses the
   // tunnel on Android and gives false "OK" while Telegram/apps still hang.
-  final useProxy = viaCore || proxyMode || !direct;
+  final useProxy = await _useCoreProxy(viaCore || !direct);
   final c = HttpClient()
     ..findProxy = ((_) =>
         useProxy ? 'PROXY 127.0.0.1:$httpProxyPort' : 'DIRECT')
@@ -1774,11 +1799,10 @@ String lastPingErr = '';
 // (only the headers are read, then the connection is closed)
 Future<bool> _siteOpens(String url, {bool viaCore = true}) async {
   // Default viaCore=true: verify through the core proxy (real tunnel path)
+  final useProxy = await _useCoreProxy(viaCore);
   final c = HttpClient()
     ..findProxy = ((_) =>
-        (viaCore || proxyMode)
-            ? 'PROXY 127.0.0.1:$httpProxyPort'
-            : 'DIRECT')
+        useProxy ? 'PROXY 127.0.0.1:$httpProxyPort' : 'DIRECT')
     ..connectionTimeout = const Duration(seconds: 6);
   try {
     final req =
@@ -1845,7 +1869,7 @@ Future<int?> pingProxy(
     bool direct = false,
     bool viaCore = false,
     String url = delayTestUrl}) async {
-  final useProxy = viaCore || proxyMode || !direct;
+  final useProxy = await _useCoreProxy(viaCore || !direct);
   final c = HttpClient()
     ..findProxy = ((_) =>
         useProxy ? 'PROXY 127.0.0.1:$httpProxyPort' : 'DIRECT')
@@ -4782,7 +4806,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             blockedApps: bypassApps.isEmpty ? null : bypassApps);
         // the core must report CONNECTED (it can hang in CONNECTING)
         ready = await connSig!.future
-            .timeout(const Duration(seconds: 10), onTimeout: () => false);
+            .timeout(const Duration(seconds: 15), onTimeout: () => false);
         t = null;
         if (ready) {
           // give the tunnel time to appear (FASTCONNECT: shorter wait)
@@ -5084,7 +5108,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!trust && !pin && !nationalMode) {
         _set('بررسی ترافیک واقعی روی ${s.name}...');
         // wait until core HTTP port is ready
-        await waitProxyPort(max: const Duration(seconds: 4));
+        if (proxyMode || (await tunUp()) != true) {
+          await waitProxyPort(max: const Duration(seconds: 4));
+        }
         if (abort) return false;
         final r = await Future.wait([
           _siteOpens('https://cp.cloudflare.com/generate_204', viaCore: true),
