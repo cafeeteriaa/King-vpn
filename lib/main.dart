@@ -4932,46 +4932,61 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   // TURBO SPEED ============================================================
-  // All throughput levers after a working tunnel:
-  //  - strip Fragment/Noise (biggest speed killers)
-  //  - force Mux with high concurrency
-  //  - try several light variants, keep the first that still carries traffic
-  //  - re-measure real download speed
-  // If none work, restore the previous stable tunnel immediately.
+  // بعد از اتصال واقعی، سرعت را واقعاً بالا می‌برد:
+  //  - Fragment/Noise را خاموش می‌کند (بزرگ‌ترین قاتل سرعت)
+  //  - Mux را با concurrency بالا اجباری می‌کند
+  //  - چند حالت سبک را امتحان می‌کند و بهترین را نگه می‌دارد
+  //  - سرعت واقعی را قبل و بعد اندازه می‌گیرد و اگر بهتر نشد برمی‌گرداند
+  // اگر هیچ‌کدام کار نکرد، تونل پایدار قبلی فوری برمی‌گردد.
   bool _turboBusy = false;
   Future<void> _turboAfterConnect(Server s) async {
     if (_turboBusy || !turboSpeed || !wantVpn || !connected) return;
-    if (!identical(current, s)) return;
-    final curV = natVarFor(s);
-    final needLight = natIsHeavy(curV);
-    final needMux = !muxEnabled || muxConc < 8;
-    if (!needLight && !needMux) {
-      // still re-measure so ranking gets a real speed
-      return;
-    }
+    if (!identical(current, s) || s.ovpn) return;
     _turboBusy = true;
+    final curV = natVarFor(s);
     final prevV = curV;
     final prevMux = muxEnabled;
     final prevFrag = fragEnabled;
     final prevConc = muxConc;
+    // baseline speed (may already be measuring; wait a bit then sample)
+    double? beforeSp = s.speed;
     try {
       await Future.delayed(const Duration(seconds: 2));
       if (!wantVpn || !connected || !identical(current, s) || abort) return;
-      _set('توربو سرعت: Mux + بدون Fragment...');
+
+      // همیشه اهرم‌های حداکثر throughput را اعمال کن
+      final alreadyLight = !natIsHeavy(curV);
+      final alreadyMux = muxEnabled && muxConc >= 24 && !fragEnabled;
+
+      _set('توربو سرعت: بهینه‌سازی حداکثر سرعت...');
       muxEnabled = true;
-      muxConc = max(muxConc, 16);
+      muxConc = max(muxConc, 24); // concurrency بالاتر = سرعت بیشتر
       fragEnabled = false;
 
-      // candidates: light speed variant, then 0, then keep current if already light
+      // اگر از قبل Mux قوی + حالت سبک بود، فقط یک بار تونل را با تنظیمات
+      // جدید restart کن تا Mux/concurrency واقعاً اعمال شود، بعد سرعت بگیر
+      if (alreadyLight && alreadyMux && muxConc == prevConc) {
+        // حتی در این حالت هم یک restart سبک با conc بالاتر
+        muxConc = max(muxConc, 32);
+      }
+
+      // کاندیدها: حالت سبک مخصوص سرعت → 0 → حالت فعلی اگر سبک باشد
       final cands = <int>[];
       final light = natSpeedVariant(s, prefer: curV % _natCodeBase);
       if (light != null) cands.add(light);
       if (!cands.contains(0)) cands.add(0);
-      if (!needLight && !cands.contains(curV % _natCodeBase)) {
-        cands.add(curV % _natCodeBase);
+      final curBase = curV % _natCodeBase;
+      if (!natIsHeavy(curV) && !cands.contains(curBase)) {
+        cands.add(curBase);
       }
+      // اگر هیچ کاندید جدیدی نیست و فقط Mux باید اعمال شود، همان حالت فعلی
+      if (cands.isEmpty) cands.add(curBase);
 
       var kept = false;
+      double? bestSp = beforeSp;
+      int bestV = prevV;
+      int bestConc = prevConc;
+
       for (final target in cands) {
         if (!wantVpn || !identical(current, s) || abort) break;
         natVar[_nk(s)] = target;
@@ -4980,16 +4995,41 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final p = await pingAny(
             total: const Duration(seconds: 8), direct: true);
         if (p == null) continue;
+
+        // سرعت واقعی بعد از توربو
+        final sp = await measure(
+            url: speedUrl,
+            win: const Duration(seconds: 3),
+            total: const Duration(seconds: 9),
+            direct: true);
+        if (!wantVpn || !identical(current, s)) break;
+
+        final ok = sp != null ||
+            await _siteOpens('https://telegram.org/', viaCore: true);
+        if (!ok) continue;
+
         natVarSet(s, target);
+        if (sp != null) {
+          s.speed = sp;
+          s.speedAt = DateTime.now();
+        }
         kept = true;
+        bestSp = sp ?? bestSp;
+        bestV = target;
+        bestConc = muxConc;
         dbg('توربو سرعت فعال • حالت $target • Mux $muxConc • '
-            'پینگ تونل ${p}ms (پینگ مهم نیست)');
-        _set('توربو سرعت فعال • Mux $muxConc • بدون Fragment');
+            'پینگ ${p}ms • سرعت ${sp == null ? "?" : sp.toStringAsFixed(2)} MB/s');
+        _set('توربو سرعت فعال • Mux $muxConc • بدون Fragment'
+            '${sp != null ? " • ${sp.toStringAsFixed(1)} MB/s" : ""}');
         if (mounted) setState(() {});
-        _measureCurrent(s);
-        break;
+        // اگر سرعت خوب بود دیگر کاندید بعدی را تست نکن
+        if (sp != null && sp >= 2.0) break;
+        // در غیر این صورت یک کاندید دیگر هم امتحان کن
+        if (cands.indexOf(target) >= 1) break;
       }
+
       if (!kept) {
+        // هیچ حالت توربو کار نکرد → برگرد به پایدار قبلی
         natVar[_nk(s)] = prevV;
         muxEnabled = prevMux;
         fragEnabled = prevFrag;
@@ -4998,6 +5038,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         await _start(s);
         _set(_connStatus());
         dbg('توربو: حالت سبک جواب نداد؛ حالت قبلی برگشت');
+      } else {
+        // بهترین را نگه دار
+        natVar[_nk(s)] = bestV;
+        muxConc = bestConc;
+        // یک بار دیگر اندازه‌گیری برای رتبه‌بندی
+        unawaited(_measureCurrent(s));
       }
     } catch (e) {
       logError(e);
@@ -5357,10 +5403,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // 1) real download test of the best candidates before picking one
     autoSpeed = true;
     if (speedTopN < 5) speedTopN = 5;
-    // 2) Mux = parallel streams on one tunnel
+    // 2) Mux = parallel streams on one tunnel (concurrency بالاتر = سرعت بیشتر)
     muxEnabled = true;
-    if (muxConc < 8) muxConc = 8;
-    // 3) do not force global Fragment outside national crisis
+    if (muxConc < 16) muxConc = 16;
+    // 3) do not force global Fragment outside national crisis (Fragment سرعت را می‌کشد)
     if (!nationalMode) fragEnabled = false;
     // 4) rank by real speed, not ping
     sortSpeed = true;
@@ -6291,6 +6337,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     aiLoop?.cancel();
     stopNetWatch();
     stopGrokPilot();
+    stopLocalPilot();
     wantVpn = false;
     pendingFailover = false;
     switching = true;
@@ -8362,7 +8409,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     sw('توربو سرعت بعد از اتصال', turboSpeed,
                         (v) => turboSpeed = v,
                         sub:
-                            'بعد از وصل شدن، همان سرور بدون Fragment/Noise و با Mux دوباره امتحان می‌شود؛ اگر اینترنت هنوز رد شد نگه داشته می‌شود (پینگ مهم نیست، سرعت دانلود چند برابر می‌شود)'),
+                            'بعد از وصل شدن، Fragment/Noise خاموش و Mux با concurrency بالا روشن می‌شود؛ چند حالت سبک تست می‌شود و سرعت واقعی اندازه‌گیری می‌شود تا دانلود چند برابر شود'),
                     sw('فقط از منابع سالم سرور بردار', onlyHealthySrc,
                         (v) => onlyHealthySrc = v),
                     sw('اتصال با IP (حل دامنه با DoH)', ipMode,
