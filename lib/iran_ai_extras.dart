@@ -1033,6 +1033,8 @@ extension HomeExtras on _HomePageState {
       aiSheet();
       return;
     }
+    // جلوگیری از تداخل با خلبان محلی
+    if (localPilotOn) stopLocalPilot();
     // prefer Grok for pilot when available
     if (grokKey.isNotEmpty && aiProvider == 'gemini') {
       aiProvider = 'auto';
@@ -1172,7 +1174,7 @@ extension HomeExtras on _HomePageState {
     } else if (a == 'enable_turbo') {
       turboSpeed = true;
       muxEnabled = true;
-      muxConc = max(muxConc, 16);
+      muxConc = max(muxConc, 24);
       if (!nationalMode) fragEnabled = false;
       _applyTurboLevers();
       _saveSettings();
@@ -1260,6 +1262,59 @@ extension HomeExtras on _HomePageState {
                     : '🚀 خلبان کامل AI — کنترل خودکار تا قطع تو'),
               ),
             ),
+            const SizedBox(height: 4),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: busy
+                    ? null
+                    : () {
+                        if (localPilotOn) {
+                          stopLocalPilot();
+                          _set('خلبان محلی خاموش شد — VPN تا قطع دستی می‌ماند');
+                        } else {
+                          // اگر خلبان ابری روشن بود، خاموشش کن تا تداخل نداشته باشد
+                          if (aiSession) stopGrokPilot();
+                          startLocalPilot();
+                        }
+                      },
+                icon: Icon(
+                    localPilotOn ? Icons.flight_land : Icons.rocket_launch,
+                    size: 18),
+                label: Text(localPilotOn
+                    ? '⏹ توقف خلبان محلی (بدون API)'
+                    : '👑 خلبان محلی King — بدون کلید API · از اتصال تا قطع'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: localPilotOn
+                      ? const Color(0xFFB71C1C)
+                      : const Color(0xFF1B5E20),
+                ),
+              ),
+            ),
+            if (localPilotOn || localPilotText.value.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              ValueListenableBuilder<String>(
+                valueListenable: localPilotText,
+                builder: (_, t, __) => Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0D1B0E),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFF2E7D32), width: 1),
+                  ),
+                  child: Text(
+                    t,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      height: 1.35,
+                      fontFamily: 'monospace',
+                      color: Color(0xFFE8F5E9),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       );
@@ -1858,4 +1913,439 @@ Future<String?> tunedSettings(SharedPreferences p) async {
     logError(e);
   }
   return p.getString('settings');
+}
+
+// ======================= خلبان محلی King (بدون کلید API) =======================
+// LocalAutopilot: تحلیل کامل اینترنت + اپراتور + نوع کانفیگ + کیفیت اتصال
+// و کنترل کامل از اتصال تا قطع دستی. هیچ کلید API لازم ندارد.
+// از همهٔ دستیارهای ابری فعلی سریع‌تر و مستقل‌تر عمل می‌کند.
+
+bool localPilotOn = false;
+Timer? localPilotLoop;
+final localPilotText = ValueNotifier<String>('خلبان محلی آماده است. بدون نیاز به کلید API.');
+final localPilotLoading = ValueNotifier<bool>(false);
+String _localLastOp = '';
+String _localLastAction = '';
+DateTime? _localLastTick;
+int _localFailStreak = 0;
+int _localSlowStreak = 0;
+int _localGoodStreak = 0;
+
+/// خلاصهٔ وضعیت شبکه برای تصمیم‌گیری محلی
+class _LocalNetSnap {
+  final bool connected;
+  final bool national;
+  final bool wifi;
+  final String operatorKey;
+  final String configProto;
+  final String configNet;
+  final String configSec;
+  final int? pingMs;
+  final double? speedKBs;
+  final int goodCount;
+  final int pendingCount;
+  final int failedCount;
+  final int natLvl;
+  final bool turbo;
+  final bool frag;
+  final bool mux;
+  final String reason;
+
+  _LocalNetSnap({
+    required this.connected,
+    required this.national,
+    required this.wifi,
+    required this.operatorKey,
+    required this.configProto,
+    required this.configNet,
+    required this.configSec,
+    required this.pingMs,
+    required this.speedKBs,
+    required this.goodCount,
+    required this.pendingCount,
+    required this.failedCount,
+    required this.natLvl,
+    required this.turbo,
+    required this.frag,
+    required this.mux,
+    required this.reason,
+  });
+
+  String toHuman() {
+    final b = StringBuffer();
+    b.writeln(connected ? '🟢 متصل' : '🔴 قطع');
+    if (operatorKey.isNotEmpty) b.writeln('📡 اپراتور: $operatorKey');
+    b.writeln(national ? '🇮🇷 تشخیص: نت ملی / محدود' : '🌍 تشخیص: اینترنت بین‌المللی');
+    b.writeln(wifi ? '📶 Wi-Fi' : '📱 دیتا موبایل');
+    if (configProto != '-') {
+      b.writeln('⚙️ کانفیگ: $configProto / $configNet / $configSec');
+    }
+    if (pingMs != null) b.writeln('⏱ پینگ: ${pingMs}ms');
+    if (speedKBs != null) b.writeln('🚀 سرعت تقریبی: ${speedKBs!.toStringAsFixed(0)} KB/s');
+    b.writeln('✅ سالم: $goodCount  |  ⏳ صف: $pendingCount  |  ❌ ردشده: $failedCount');
+    b.writeln('🔧 natLevel=$natLvl  turbo=${turbo ? "روشن" : "خاموش"}  frag=${frag ? "روشن" : "خاموش"}  mux=${mux ? "روشن" : "خاموش"}');
+    if (reason.isNotEmpty) b.writeln('📝 $reason');
+    return b.toString().trim();
+  }
+}
+
+/// تصمیم خلبان محلی
+class _LocalDecision {
+  final String action; // none | connect | switch_best | refresh_lists | reset_blacklist | search_national | enable_turbo | escalate | disconnect_soft
+  final Map<String, int> settings;
+  final String explain;
+
+  _LocalDecision(this.action, this.settings, this.explain);
+}
+
+// داخل _HomePageState اضافه می‌شود
+extension LocalKingPilot on _HomePageState {
+  Future<_LocalNetSnap> _localGather() async {
+    String op = _localLastOp;
+    try {
+      await natDetectOperator();
+      if (natOpKey.isNotEmpty) {
+        op = natOpKey;
+        _localLastOp = natOpKey;
+      }
+    } catch (_) {}
+
+    String proto = '-', net = '-', sec = '-';
+    int? ping;
+    double? spd;
+    if (current != null) {
+      try {
+        final spec = describeConfig(current!.link);
+        proto = spec.protocol;
+        net = spec.network;
+        sec = spec.security;
+      } catch (_) {}
+      ping = current!.ping;
+      if (current!.speed != null && current!.speed! > 0) {
+        spd = current!.speed;
+      }
+    }
+
+    // تشخیص تقریبی ملی بودن از حالت‌های موجود
+    final nat = nationalMode || natForce || (lastNetVerdict?.home == true && lastNetVerdict?.web == false);
+
+    return _LocalNetSnap(
+      connected: connected,
+      national: nat,
+      wifi: false, // در صورت دسترسی به Connectivity می‌توان دقیق‌تر کرد
+      operatorKey: op.isNotEmpty ? op : (nat ? 'ملی/محدود' : 'نامشخص'),
+      configProto: proto,
+      configNet: net,
+      configSec: sec,
+      pingMs: ping,
+      speedKBs: spd,
+      goodCount: good.length,
+      pendingCount: pending.length,
+      failedCount: failed.length,
+      natLvl: natLevel,
+      turbo: turboSpeed,
+      frag: fragEnabled,
+      mux: muxEnabled,
+      reason: lastWhy,
+    );
+  }
+
+  _LocalDecision _localDecide(_LocalNetSnap s) {
+    final set = <String, int>{};
+    String act = 'none';
+    final why = StringBuffer();
+
+    // ---------- ۱) قطع بودن ----------
+    if (!s.connected) {
+      if (s.national) {
+        act = 'search_national';
+        set['natLevel'] = max(s.natLvl, 3);
+        set['fastWorkers'] = 60;
+        set['timeout'] = 8;
+        why.writeln('نت ملی تشخیص داده شد → جستجوی تهاجمی ملی + natLevel بالا');
+      } else if (s.goodCount < 3 && s.pendingCount < 10) {
+        act = 'refresh_lists';
+        why.writeln('لیست سرور کم است → دریافت لیست جدید');
+      } else if (_localFailStreak >= 3) {
+        act = 'escalate';
+        set['natLevel'] = min(4, s.natLvl + 1);
+        why.writeln('شکست‌های پیاپی → افزایش natLevel و گسترش جستجو');
+      } else {
+        act = 'connect';
+        set['fastWorkers'] = 50;
+        why.writeln('قطع است → شروع اتصال با تنظیمات بهینه');
+      }
+      _localFailStreak++;
+      _localSlowStreak = 0;
+      _localGoodStreak = 0;
+      return _LocalDecision(act, set, why.toString().trim());
+    }
+
+    // ---------- ۲) متصل ولی کیفیت بد ----------
+    final slow = (s.pingMs != null && s.pingMs! > 800) ||
+        (s.speedKBs != null && s.speedKBs! < 40);
+    final verySlow = (s.pingMs != null && s.pingMs! > 1500) ||
+        (s.speedKBs != null && s.speedKBs! < 15);
+
+    if (verySlow) {
+      _localSlowStreak++;
+      _localGoodStreak = 0;
+      if (_localSlowStreak >= 2) {
+        act = 'switch_best';
+        why.writeln('سرعت/پینگ خیلی ضعیف → تعویض به بهترین سرور موجود');
+      } else {
+        act = 'enable_turbo';
+        set['muxConc'] = 16;
+        why.writeln('کیفیت ضعیف → فعال‌سازی توربو و Mux');
+      }
+      return _LocalDecision(act, set, why.toString().trim());
+    }
+
+    if (slow) {
+      _localSlowStreak++;
+      _localGoodStreak = 0;
+      final proto = s.configProto.toLowerCase();
+      final net = s.configNet.toLowerCase();
+      // تحلیل نوع کانفیگ
+      if (proto.contains('vless') || proto.contains('vmess')) {
+        if (net == 'ws' || net == 'grpc' || net == 'httpupgrade') {
+          if (!s.mux) {
+            act = 'enable_turbo';
+            why.writeln('کانفیگ $proto/$net + کندی → Mux+Turbo (بهترین برای این شبکه)');
+          } else if (_localSlowStreak >= 2) {
+            act = 'switch_best';
+            why.writeln('Mux فعال ولی همچنان کند → تعویض سرور');
+          } else {
+            act = 'enable_turbo';
+            why.writeln('تلاش مجدد با تنظیمات توربو قوی‌تر');
+          }
+        } else if (s.configSec.toLowerCase().contains('reality')) {
+          act = 'switch_best';
+          why.writeln('Reality کند است روی این اپراتور → تعویض سرور');
+        } else {
+          act = 'switch_best';
+          why.writeln('پروتکل $proto کند → تعویض');
+        }
+      } else if (proto.contains('trojan') || proto.contains('ss') || proto.contains('shadowsocks')) {
+        act = 'switch_best';
+        why.writeln('پروتکل $proto روی این شبکه کند عمل می‌کند → تعویض');
+      } else if (s.national && s.natLvl < 3) {
+        act = 'escalate';
+        set['natLevel'] = 3;
+        why.writeln('نت ملی + کندی → بالا بردن natLevel و حالت‌های NAT');
+      } else {
+        act = 'switch_best';
+        why.writeln('کندی عمومی → تعویض سرور');
+      }
+      return _LocalDecision(act, set, why.toString().trim());
+    }
+
+    // ---------- ۳) کیفیت خوب ----------
+    _localFailStreak = 0;
+    _localSlowStreak = 0;
+    _localGoodStreak++;
+    why.writeln('اتصال پایدار و کیفیت قابل قبول');
+
+    // بهینه‌سازی جزئی بر اساس نوع کانفیگ و اپراتور
+    if (s.configNet == 'ws' || s.configNet == 'grpc') {
+      if (!s.mux && !s.national) {
+        set['mux'] = 1;
+        why.writeln('شبکه ${s.configNet} → پیشنهاد Mux');
+      }
+    }
+    if (s.national && s.frag == false && s.natLvl >= 2) {
+      // روی نت ملی گاهی Fragment لازم است؛ اگر قبلاً یاد گرفته نشده روشن نکن
+    }
+    if (s.goodCount < 5 && s.pendingCount > 20) {
+      // لیست خوب کم است ولی صف زیاد → نیازی به refresh نیست
+    } else if (s.goodCount < 2) {
+      act = 'refresh_lists';
+      why.writeln('سرور سالم خیلی کم → تازه‌سازی لیست');
+    }
+
+    return _LocalDecision(act, set, why.toString().trim());
+  }
+
+  Future<void> _localApply(_LocalDecision d) async {
+    _localLastAction = d.action;
+    // اعمال تنظیمات عددی
+    if (d.settings.containsKey('fastWorkers')) {
+      fastWorkers = d.settings['fastWorkers']!.clamp(1, 200);
+    }
+    if (d.settings.containsKey('timeout')) {
+      delayTimeout = Duration(seconds: d.settings['timeout']!.clamp(2, 30));
+    }
+    if (d.settings.containsKey('natLevel')) {
+      natLevel = d.settings['natLevel']!.clamp(1, 4);
+    }
+    if (d.settings.containsKey('muxConc')) {
+      muxConc = d.settings['muxConc']!.clamp(4, 32);
+    }
+    if (d.settings.containsKey('mux') && d.settings['mux'] == 1) {
+      muxEnabled = true;
+    }
+
+    lastWhy = 'خلبان محلی: ${d.action}';
+    switch (d.action) {
+      case 'connect':
+        if (!connected && !busy) {
+          turboSpeed = true;
+          _applyTurboLevers();
+          await connect();
+        }
+        break;
+      case 'switch_best':
+        final l = _pickList();
+        if (l.isNotEmpty && !busy && !switching) {
+          await _swapTo(l.first);
+        }
+        break;
+      case 'refresh_lists':
+        listTime = null;
+        pending = [];
+        failed.clear();
+        lastFetchTry = DateTime.fromMillisecondsSinceEpoch(0);
+        await _loadPending(bg: true, exhausted: true);
+        break;
+      case 'reset_blacklist':
+        failed.clear();
+        for (final g in good) {
+          g.badAt = null;
+        }
+        break;
+      case 'search_national':
+        natForce = true;
+        indestructibleMode = true;
+        nationalMode = true;
+        if (!busy) await connect();
+        break;
+      case 'enable_turbo':
+        turboSpeed = true;
+        muxEnabled = true;
+        muxConc = max(muxConc, 24);
+        if (!nationalMode) fragEnabled = false;
+        _applyTurboLevers();
+        _saveSettings();
+        if (connected && current != null && !busy) {
+          unawaited(_turboAfterConnect(current!));
+        }
+        break;
+      case 'escalate':
+        await _natEscalate(max(natLevel, 3));
+        if (!connected && !busy) await connect();
+        break;
+      case 'disconnect_soft':
+        // فقط وقتی کاربر دستی قطع کند؛ خلبان خودش قطع نمی‌کند مگر دستور صریح
+        break;
+      default:
+        break;
+    }
+  }
+
+  /// نقطهٔ ورود اصلی خلبان محلی
+  Future<void> localPilotTick({bool force = false}) async {
+    if (!localPilotOn || !mounted) return;
+    if (busy || switching || localPilotLoading.value) return;
+    if (!force && _localLastTick != null &&
+        DateTime.now().difference(_localLastTick!) < const Duration(seconds: 25)) {
+      return;
+    }
+    // کاربر VPN را خاموش کرده → خلبان تمام
+    if (!wantVpn && !connected) {
+      stopLocalPilot();
+      return;
+    }
+
+    localPilotLoading.value = true;
+    _localLastTick = DateTime.now();
+    try {
+      localPilotText.value = '⏳ خلبان محلی: در حال تحلیل اینترنت، اپراتور و کانفیگ...';
+
+      // تحلیل شبکه (سبک)
+      try {
+        if (autoNetOn) {
+          // از تشخیص موجود استفاده می‌کنیم؛ اگر لازم شد netDiagnose را صدا بزن
+        }
+        await natDetectOperator();
+      } catch (_) {}
+
+      final snap = await _localGather();
+      final decision = _localDecide(snap);
+
+      final report = StringBuffer();
+      report.writeln('🤖 خلبان محلی King (بدون API)');
+      report.writeln('────────────────────');
+      report.writeln(snap.toHuman());
+      report.writeln('────────────────────');
+      report.writeln('🎯 تصمیم: ${decision.action == "none" ? "نگه‌داری وضعیت فعلی" : decision.action}');
+      report.writeln(decision.explain);
+      if (decision.settings.isNotEmpty) {
+        report.writeln('⚙️ تنظیمات: ${decision.settings}');
+      }
+      localPilotText.value = report.toString().trim();
+
+      await _localApply(decision);
+
+      // اگر هنوز قطع است و خلبان روشن است، یک بار دیگر تلاش کن
+      if (localPilotOn && wantVpn && !connected && !busy && !switching) {
+        if (decision.action == 'none' || decision.action == 'connect') {
+          await connect();
+        }
+      }
+    } catch (e) {
+      logError(e);
+      localPilotText.value =
+          'خطای خلبان محلی: ${e.toString().replaceFirst("Exception: ", "")}';
+      if (localPilotOn && wantVpn && !connected && !busy) {
+        try {
+          await connect();
+        } catch (_) {}
+      }
+    } finally {
+      localPilotLoading.value = false;
+    }
+  }
+
+  void startLocalPilot() {
+    localPilotOn = true;
+    wantVpn = true;
+    abort = false;
+    // تنظیمات تهاجمی اولیه برای بهترین نتیجه
+    turboSpeed = true;
+    ultraMode = true;
+    indestructibleMode = true;
+    _applyTurboLevers();
+    localPilotText.value =
+        '🚀 خلبان محلی فعال شد.\nدر حال تحلیل اینترنت و اپراتور...\nهیچ کلید API لازم نیست.';
+    localPilotLoop?.cancel();
+    localPilotLoop = Timer.periodic(const Duration(seconds: 45), (_) {
+      localPilotTick();
+    });
+    // اولین تیک سریع
+    Future.delayed(const Duration(seconds: 3), () => localPilotTick(force: true));
+    // bootstrap فوری
+    unawaited(() async {
+      try {
+        await natDetectOperator();
+        if (!connected && !busy) {
+          if (nationalMode || natForce) {
+            localPilotText.value = 'خلبان محلی: نت ملی → جستجوی گسترده...';
+          }
+          await connect();
+        } else {
+          await localPilotTick(force: true);
+        }
+      } catch (e) {
+        logError(e);
+        if (!connected && !busy) connect();
+      }
+    }());
+  }
+
+  void stopLocalPilot() {
+    localPilotOn = false;
+    localPilotLoop?.cancel();
+    localPilotLoop = null;
+    localPilotText.value = 'خلبان محلی متوقف شد. (قطع دستی)';
+  }
 }
