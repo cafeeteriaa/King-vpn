@@ -202,8 +202,9 @@ bool smartOrder = true;
 // when every server was tested: download a new list and go on, forever
 bool autoCycle = false; // LOWDATA: no endless list re-downloads
 // ULTRA: multi-variant matrix (Fragment/fp/ALPN/DNS/port/cleanIP/Mux/Noise...)
-// even on normal global connections — commercial apps never do this.
-bool ultraMode = true;
+// default OFF so normal search only tests the plain config (much faster).
+// Turn on from Settings → «حالت فوق‌العاده» when a hard network needs variants.
+bool ultraMode = false;
 // INDESTRUCTIBLE: endless search — default OFF to save data; national mode
 // and AI pilot can still turn it on when needed.
 bool indestructibleMode = false;
@@ -1258,7 +1259,19 @@ void dbgState(String st) {
   dbg('هسته: $st');
 }
 
+bool _isNoActivity(Object e) {
+  final s = e.toString();
+  return s.contains('NO_ACTIVITY') ||
+      s.contains('Activity is not available');
+}
+
 void logError(Object e) {
+  // NO_ACTIVITY is a transient Android race (no Activity for VPN dialog):
+  // never paint it red on the home screen — just log quietly.
+  if (_isNoActivity(e)) {
+    dbg('مجوز VPN: Activity نبود (نادیده گرفته شد)${_dbgWhere()}');
+    return;
+  }
   if (e is TimeoutException ||
       e is SocketException ||
       e is HandshakeException ||
@@ -4627,8 +4640,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       return true;
     } catch (e) {
-      logError(e);
-      lastFail = 'خطا: $e';
+      if (_isNoActivity(e)) {
+        lastFail = 'Activity در دسترس نیست برای مجوز VPN';
+        dbg('OpenVPN: Activity نبود');
+      } else {
+        logError(e);
+        lastFail = 'خطا: $e';
+      }
       await _stopV2();
       if (!inForeground && wantVpn) pendingFailover = true;
       return false;
@@ -4649,9 +4667,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final cfg = proxyOnly
           ? base
           : withNpvAmCore(withIranRouting(base));
-      if (!po && !await v2ray.requestPermission()) {
-        lastFail = 'مجوز VPN داده نشد';
-        return false;
+      // NO_ACTIVITY: requestPermission needs a live Activity. Skip/catch when
+      // the app is in background so parallel starts do not spam PlatformException.
+      if (!po) {
+        if (!inForeground) {
+          lastFail = 'Activity در دسترس نیست (اپ در پس‌زمینه)';
+          return false;
+        }
+        try {
+          if (!await v2ray.requestPermission()) {
+            lastFail = 'مجوز VPN داده نشد';
+            return false;
+          }
+        } on PlatformException catch (e) {
+          if ('${e.code}'.contains('NO_ACTIVITY') ||
+              '${e.message}'.contains('Activity is not available')) {
+            lastFail = 'Activity در دسترس نیست برای مجوز VPN';
+            return false;
+          }
+          rethrow;
+        }
       }
       if (!proxyOnly) {
         // a silent proxy-only core from the tests must be fully gone before
@@ -4717,6 +4752,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       lastStartNoTunnel = false;
       return true;
     } catch (e) {
+      if (_isNoActivity(e)) {
+        // quiet: no red PlatformException on the home screen
+        lastFail = 'Activity در دسترس نیست برای مجوز VPN';
+        dbg('شروع هسته: Activity نبود • ${s.name}');
+        if (!inForeground && wantVpn) pendingFailover = true;
+        return false;
+      }
       logError(e);
       lastFail = 'خطا: $e';
       if (!inForeground && wantVpn) pendingFailover = true;
@@ -4901,18 +4943,33 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final pin = favs.containsKey(s.key);
       _set('اتصال به ${s.name}...');
       if (!await _start(s)) {
-        if (!lastStartNoTunnel && !pin) s.badAt = DateTime.now();
-        errorLog.value =
-            '${s.name}: ${lastFail.isEmpty ? 'شروع نشد' : lastFail}';
-        final ip0 = await resolveHostIp(s.host);
-        dbg(configFailMsg(
-          s.link,
-          'شروع هسته (_start)',
-          lastFail.isEmpty ? 'شروع نشد' : lastFail,
-          ovpnText: s.ovpnConf,
-          knownIp: ip0,
-        ));
-        continue;
+        final noAct = lastFail.contains('Activity');
+        // NO_ACTIVITY is temporary — do not blacklist the server
+        if (!lastStartNoTunnel && !pin && !noAct) s.badAt = DateTime.now();
+        if (noAct) {
+          errorLog.value = 'مجوز VPN: Activity آماده نیست — تلاش بعدی…';
+          await Future.delayed(const Duration(milliseconds: 500));
+          if (abort) return false;
+          // one quiet retry after a short wait (Activity may have resumed)
+          if (inForeground && await _start(s)) {
+            // success — fall through to post-start checks
+          } else {
+            dbg('رد شد (Activity): ${s.name} • ${lastFail}');
+            continue;
+          }
+        } else {
+          errorLog.value =
+              '${s.name}: ${lastFail.isEmpty ? 'شروع نشد' : lastFail}';
+          final ip0 = await resolveHostIp(s.host);
+          dbg(configFailMsg(
+            s.link,
+            'شروع هسته (_start)',
+            lastFail.isEmpty ? 'شروع نشد' : lastFail,
+            ovpnText: s.ovpnConf,
+            knownIp: ip0,
+          ));
+          continue;
+        }
       }
       if (!trust && !pin) {
         int? p;
@@ -5873,6 +5930,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!await _ensureSession()) {
       _set('برای اتصال باید تبلیغ را کامل ببینید');
       return;
+    }
+    // Ask VPN permission once while Activity is alive (right after ad),
+    // so later _start calls do not hit NO_ACTIVITY during the server loop.
+    if (!proxyMode && inForeground) {
+      try {
+        final ok = await v2ray.requestPermission();
+        if (!ok) {
+          _set('مجوز VPN داده نشد');
+          errorLog.value = 'مجوز VPN را تأیید کنید و دوباره «اتصال» را بزنید';
+          return;
+        }
+      } on PlatformException catch (e) {
+        if (_isNoActivity(e)) {
+          _set('Activity آماده نیست؛ یک لحظه صبر کنید و دوباره اتصال را بزنید');
+          errorLog.value = 'مجوز VPN: Activity آماده نیست — دوباره تلاش کنید';
+          return;
+        }
+        rethrow;
+      }
     }
     await _haltAll(); // tapping while a search runs interrupts it
     await _runBusy(() async {
@@ -7523,9 +7599,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _insWarn('mm2', connected && lastState.isNotEmpty &&
         lastState != 'CONNECTED' && !searching && !ov, 12,
         'اپ «متصل» می‌داند ولی هسته $lastState است');
-    _insWarn('orph', wantVpn && !connected && !busy && !switching &&
-        !(dropTimer?.isActive ?? false), 20,
+    final orphaned = wantVpn && !connected && !busy && !switching &&
+        !(dropTimer?.isActive ?? false) && !_acquiring && !searching;
+    _insWarn('orph', orphaned, 20,
         'اتصال خواسته شده ولی هیچ کاری برای آن در حال انجام نیست');
+    // E-ORPHAN self-heal: after ~20s still wanting VPN with nothing running → failover
+    if (orphaned && now.difference(_insSince['orph'] ?? now).inSeconds >= 20) {
+      _insSince.remove('orph');
+      dbg('خودترمیمی: اتصال یتیم >20s؛ _failover()');
+      if (inForeground) {
+        unawaited(_failover());
+      } else {
+        pendingFailover = true;
+      }
+    }
     final dogOff = wantVpn && connected && !busy && !switching &&
         !(watch?.isActive ?? false);
     _insWarn('dog', dogOff, 10, 'واچ‌داگ خاموش است');
