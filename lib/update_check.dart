@@ -51,7 +51,8 @@ extension UpdateCheck on _HomePageState {
       await showDialog<void>(
         context: context,
         barrierDismissible: !force,
-        builder: (ctx) => WillPopScope(
+        builder: (ctx) => // ignore: deprecated_member_use
+            WillPopScope(
           onWillPop: () async => !force,
           child: Directionality(
             textDirection: TextDirection.rtl,
