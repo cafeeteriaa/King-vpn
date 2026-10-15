@@ -1291,6 +1291,50 @@ void logError(Object e) {
   errorLog.value = e.toString();
 }
 
+// Minimal real-VPN config: same as the delay test, plus reliable DNS only.
+// No Mux / Fragment / heavy Iran routing — those made free servers look
+// connected while Telegram / Instagram / YouTube stayed dead.
+String _reliableVpnCfg(String cfg) {
+  try {
+    final j = jsonDecode(cfg);
+    if (j is! Map<String, dynamic>) return cfg;
+    final d = j['dns'] is Map
+        ? Map<String, dynamic>.from(j['dns'] as Map)
+        : <String, dynamic>{};
+    d['servers'] = <dynamic>[
+      '1.1.1.1',
+      '8.8.8.8',
+      '9.9.9.9',
+      '1.0.0.1',
+      'https://1.1.1.1/dns-query',
+      'https://8.8.8.8/dns-query',
+    ];
+    d['queryStrategy'] = 'UseIPv4';
+    j['dns'] = d;
+    final rt = j['routing'] is Map
+        ? Map<String, dynamic>.from(j['routing'] as Map)
+        : <String, dynamic>{};
+    rt['domainStrategy'] = 'AsIs';
+    j['routing'] = rt;
+    for (final ib in (j['inbounds'] as List?) ?? <dynamic>[]) {
+      if (ib is Map) {
+        final sn = ib['sniffing'];
+        if (sn is! Map || sn['enabled'] != true) {
+          ib['sniffing'] = {
+            'enabled': true,
+            'destOverride': ['http', 'tls'],
+            'routeOnly': true,
+          };
+        }
+      }
+    }
+    return jsonEncode(j);
+  } catch (e) {
+    logError(e);
+    return cfg;
+  }
+}
+
 // completes when the VPN tunnel reports CONNECTED
 Completer<bool>? connSig;
 // جدید: completes when the V2Ray core really reports DISCONNECTED
@@ -1692,10 +1736,15 @@ Future<double?> measure(
     Duration win = const Duration(milliseconds: 1500),
     Duration total = const Duration(seconds: 10),
     int maxBytes = 0,
-    bool direct = false}) async {
+    bool direct = false,
+    bool viaCore = false}) async {
+  // viaCore / default when VPN is up: always hit the core's local HTTP proxy
+  // so we test the REAL outbound. DIRECT from the VPN app often bypasses the
+  // tunnel on Android and gives false "OK" while Telegram/apps still hang.
+  final useProxy = viaCore || proxyMode || !direct;
   final c = HttpClient()
     ..findProxy = ((_) =>
-        (direct && !proxyMode) ? 'DIRECT' : 'PROXY 127.0.0.1:$httpProxyPort')
+        useProxy ? 'PROXY 127.0.0.1:$httpProxyPort' : 'DIRECT')
     ..connectionTimeout = const Duration(seconds: 6);
   try {
     return await () async {
@@ -1723,10 +1772,13 @@ String lastPingErr = '';
 
 // SPEEDSWITCHPATCH: does a real site answer through the tunnel?
 // (only the headers are read, then the connection is closed)
-Future<bool> _siteOpens(String url) async {
+Future<bool> _siteOpens(String url, {bool viaCore = true}) async {
+  // Default viaCore=true: verify through the core proxy (real tunnel path)
   final c = HttpClient()
     ..findProxy = ((_) =>
-        !proxyMode ? 'DIRECT' : 'PROXY 127.0.0.1:$httpProxyPort')
+        (viaCore || proxyMode)
+            ? 'PROXY 127.0.0.1:$httpProxyPort'
+            : 'DIRECT')
     ..connectionTimeout = const Duration(seconds: 6);
   try {
     final req =
@@ -1791,10 +1843,12 @@ Future<bool?> tunUp() async {
 Future<int?> pingProxy(
     {Duration total = const Duration(seconds: 4),
     bool direct = false,
+    bool viaCore = false,
     String url = delayTestUrl}) async {
+  final useProxy = viaCore || proxyMode || !direct;
   final c = HttpClient()
     ..findProxy = ((_) =>
-        (direct && !proxyMode) ? 'DIRECT' : 'PROXY 127.0.0.1:$httpProxyPort')
+        useProxy ? 'PROXY 127.0.0.1:$httpProxyPort' : 'DIRECT')
     ..connectionTimeout = total;
   final sw = Stopwatch()..start();
   try {
@@ -1815,9 +1869,11 @@ Future<int?> pingProxy(
 Future<int?> pingAny(
     {Duration total = const Duration(seconds: 6),
     bool direct = true,
-    int tries = 2}) async {
+    int tries = 2,
+    bool viaCore = true}) async {
   for (final u in _pingUrls.take(tries)) {
-    final p = await pingProxy(total: total, direct: direct, url: u);
+    final p = await pingProxy(
+        total: total, direct: direct, viaCore: viaCore, url: u);
     if (p != null) return p;
   }
   return null;
@@ -2849,8 +2905,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final cur = current;
       if (cur == null || cur.ovpn || !connected) return;
       final now = DateTime.now();
-      if (now.difference(_tgChkAt) < const Duration(minutes: 3)) return;
-      if (now.difference(lastSwitch) < const Duration(seconds: 40)) return;
+      if (now.difference(_tgChkAt) < const Duration(seconds: 45)) return;
+      if (now.difference(lastSwitch) < const Duration(seconds: 15)) return;
       _tgChkAt = now;
       _tgChkBusy = true;
       (() async {
@@ -2873,7 +2929,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           cur.svc = cur.svc < 0 ? 1 : (cur.svc | 1);
         } else if (ok == false) {
           cur.svc = cur.svc < 0 ? 0 : (cur.svc & ~1);
-          if (++_tgChkBad >= 2) {
+          if (++_tgChkBad >= 1) {
             _tgChkBad = 0;
             // switch only when another server can still be tried
             final other = _pickList().any((x) => x.svc < 0 || (x.svc & 1) != 0);
@@ -4664,9 +4720,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     try {
       final nv = natVarFor(s); // NATULTRA: same variant that passed the test
       final base = natCfg(s, nv, reuse: true); // same port / clean IP as the test
+      // REALIBLE: real VPN config must match the test config as closely as
+      // possible. Heavy Mux/Fragment/routing made many free servers "connect"
+      // while Telegram/Instagram/YouTube stayed dead. Only light DNS is added.
       final cfg = proxyOnly
           ? base
-          : withNpvAmCore(withIranRouting(base));
+          : _reliableVpnCfg(base);
       // NO_ACTIVITY: requestPermission needs a live Activity. Skip/catch when
       // the app is in background so parallel starts do not spam PlatformException.
       if (!po) {
@@ -5020,52 +5079,53 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           continue;
         }
       }
-      // SITEPRECHECK: ping passed — confirm real traffic. Instagram/Telegram
-      // often fail in Iran even on a working tunnel, so we use light 204
-      // checks first; if those fail we still accept when real download > 0.
-      if (!trust &&
-          !pin &&
-          !nationalMode &&
-          siteSkips < 2 &&
-          !identical(list.last, s)) {
+      // STRICT: verify through the CORE local proxy (not DIRECT).
+      // Only accept servers that open real sites (Telegram/YouTube/IG path).
+      if (!trust && !pin && !nationalMode) {
         _set('بررسی ترافیک واقعی روی ${s.name}...');
+        // wait until core HTTP port is ready
+        await waitProxyPort(max: const Duration(seconds: 4));
+        if (abort) return false;
         final r = await Future.wait([
-          _siteOpens('http://connectivitycheck.gstatic.com/generate_204'),
-          _siteOpens('https://cp.cloudflare.com/generate_204'),
+          _siteOpens('https://cp.cloudflare.com/generate_204', viaCore: true),
+          _siteOpens('https://www.gstatic.com/generate_204', viaCore: true),
+          _siteOpens('https://telegram.org/', viaCore: true),
+          _siteOpens('https://www.youtube.com/generate_204', viaCore: true),
         ]);
         if (abort) return false;
-        if (!r.any((x) => x)) {
-          // fallback: real download — if data flows, keep this server
-          final sp = await measure(
-              win: const Duration(seconds: 2),
-              total: const Duration(seconds: 6),
-              direct: true);
-          if (abort) return false;
-          if (sp != null && sp > 0.05) {
-            s.speed = sp;
-            s.svc = s.svc < 0 ? 1 : (s.svc | 1);
-            dbg('اتصال: ${s.name} سایت‌چک رد شد ولی سرعت واقعی '
-                '${sp.toStringAsFixed(2)} MB/s — قبول شد');
-          } else {
-            siteSkips++;
-            s.svc = 0;
-            s.badAt = DateTime.now();
-            await _stopV2();
-            final ip2 = await resolveHostIp(s.host);
-            dbg('اتصال: ${s.name} پینگ داشت ولی هیچ سایتی باز نشد؛ سرور بعدی '
-                '($siteSkips/3)');
-            dbg(configFailMsg(
-              s.link,
-              'چک ترافیک واقعی (سایت/سرعت)',
-              'پینگ OK ولی 204 و سرعت واقعی رد شد',
-              ovpnText: s.ovpnConf,
-              knownIp: ip2,
-            ));
-            continue;
-          }
-        } else {
-          s.svc = s.svc < 0 ? 1 : (s.svc | 1);
+        final sitesOk = r.where((x) => x).length;
+        final sp = await measure(
+            win: const Duration(seconds: 2),
+            total: const Duration(seconds: 6),
+            viaCore: true);
+        if (abort) return false;
+        final speedOk = sp != null && sp >= 0.08;
+        // Need at least 2 real endpoints OR (1 endpoint + download)
+        final accept = sitesOk >= 2 || (sitesOk >= 1 && speedOk);
+        if (!accept) {
+          siteSkips++;
+          s.svc = 0;
+          s.badAt = DateTime.now();
+          await _stopV2();
+          final ip2 = await resolveHostIp(s.host);
+          final why = sitesOk == 0
+              ? 'تلگرام/یوتیوب/سایت از تونل باز نشد'
+              : 'ترافیک واقعی کافی نبود (سایت=$sitesOk سرعت=${sp?.toStringAsFixed(2) ?? "-"})';
+          dbg('اتصال: ${s.name} رد شد — $why • سرور بعدی');
+          dbg(configFailMsg(
+            s.link,
+            'چک ترافیک واقعی از پروکسی هسته',
+            why,
+            ovpnText: s.ovpnConf,
+            knownIp: ip2,
+          ));
+          errorLog.value = '${s.name}: $why — سرور بعدی…';
+          continue;
         }
+        if (sp != null) s.speed = sp;
+        s.svc = s.svc < 0 ? 1 : (s.svc | 1);
+        dbg('اتصال: ${s.name} ترافیک OK • سایت=$sitesOk • '
+            'سرعت=${sp?.toStringAsFixed(2) ?? "-"} MB/s');
       }
       _onConnected(s);
       return true;
