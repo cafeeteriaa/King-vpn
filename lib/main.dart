@@ -175,7 +175,7 @@ int minSpeedKB = 0; // LOWDATA: speed-based switching off (no download tests)
 
 // ---- settings ----
 // user-adjustable (saved in settings)
-int batchSize = 500; // servers tested per batch (fixed 500)
+int batchSize = 40; // FAST: smaller batches, first healthy sooner
 int delayWorkers = 20; // (kept for settings compatibility)
 Duration delayTimeout = const Duration(seconds: 6);
 int goodWant = 3; // (kept for settings compatibility, not used any more)
@@ -375,7 +375,7 @@ void _tuneApply(int lv) {
     // fastWorkers stays 50 (FASTSET)
     bgWorkers = 1;
     delayTimeout = const Duration(seconds: 8);
-    batchSize = 500;
+    batchSize = 40;
     minSpeedKB = 0;
     badPingMs = 5000;
     badPingLimit = 3;
@@ -385,7 +385,7 @@ void _tuneApply(int lv) {
     // fastWorkers stays 50 (FASTSET)
     bgWorkers = 1;
     delayTimeout = const Duration(seconds: 5);
-    batchSize = 500;
+    batchSize = 40;
     minSpeedKB = 0;
     badPingMs = 3000;
     badPingLimit = 3;
@@ -395,7 +395,7 @@ void _tuneApply(int lv) {
     // fastWorkers stays 50 (FASTSET)
     bgWorkers = 1;
     delayTimeout = const Duration(seconds: 6);
-    batchSize = 500;
+    batchSize = 40;
     minSpeedKB = 0;
     badPingMs = 3000;
     badPingLimit = 3;
@@ -3368,7 +3368,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           npvParse = j['npv'] as bool? ?? npvParse;
           cleanIpMode = j['cip'] as bool? ?? cleanIpMode;
           fragEnabled = j['frg'] as bool? ?? fragEnabled;
-          muxEnabled = j['mux'] as bool? ?? muxEnabled;
+          muxEnabled = false; // plain connect: ignore old Mux flag
           secureDns = j['sdns'] as bool? ?? secureDns;
           iranMore = j['irm'] as bool? ?? iranMore;
           blockQuic = j['bq'] as bool? ?? blockQuic;
@@ -3387,7 +3387,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // batch stays 500). After that the user's own changes are kept.
       if (p.getBool('lowdata_v1') != true) {
         fastWorkers = 50;
-        batchSize = 500;
+        batchSize = 40;
         bgWorkers = 1;
         delayTimeout = const Duration(seconds: 6);
         speedTopN = 1;
@@ -3951,8 +3951,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // test starts after ~1-2 s instead of ~4 s
         final size = bg
             ? standbyBatchSize
-            : (fast
-                ? batchSize /* ROWSFAST */
+            : (batches == 0
+                ? firstBatchSize // first batch small → connect ASAP
                 : batchSize);
         pending.sort(_cmpPending);
         var cand = pending
@@ -5980,9 +5980,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _resBusy = false;
         _resFull = false;
         fragEnabled = false;
+        muxEnabled = false; // Mux breaks many free servers → apps hang
         // tight timeouts so first healthy server connects under ~30s
         delayTimeout = Duration(seconds: min(delayTimeout.inSeconds, 5));
         firstBatchSize = min(firstBatchSize, 20);
+        batchSize = min(batchSize, 40);
         fastPickN = 1;
       }
       if (nationalMode || indestructibleMode) {
