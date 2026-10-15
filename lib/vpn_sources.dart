@@ -697,7 +697,7 @@ class _VsPageState extends State<VsPage> {
         appBar: AppBar(title: Text('${spec.emoji} سرور برای ${spec.title}')),
         body: ValueListenableBuilder<int>(
           valueListenable: st.tick,
-          builder: (ctx, _, __) {
+          builder: (ctx, _, _) {
             final items = st.items;
             final canCopyAll = items.isNotEmpty && spec.kind != VsKind.vpnclient;
             return Column(children: [
