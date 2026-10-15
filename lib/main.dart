@@ -517,7 +517,7 @@ String _dbgHms(DateTime t) {
 // tiny problems: any log line with one of these words is kept too
 bool _dbgMicro(String m) {
   const keys = [
-    'ناموفق', 'نشد', 'نیامد', 'خطا', 'شکست', 'خراب', 'گیر', 'رد',
+    'ناموفق', 'نشد', 'نیامد', 'خطا', 'شکست', 'خراب', 'گیر', 'رد شد',
     'قطع', 'ضعیف', 'کند', 'خالی', 'صفر', 'blacklist', 'لیست سیاه',
     'Exception', 'xception', 'imeout', 'timeout', 'Error', 'error',
     'failed', 'Failed', 'warn', 'Warn', 'assert', 'null', 'Null',
@@ -704,6 +704,36 @@ List<String>? _dbgHelpOf(String m) {
   bool has(String k) => m.contains(k);
   final extra = extraDiagOf(m);
   if (extra != null) return extra;
+  if (has('Activity')) {
+    return h('E-NO-ACTIVITY',
+        'app_main/main.dart → _start (شرط inForeground / vpnPermOk) و _connectLoop',
+        'اپ در پس‌زمینه بود و برای گرفتن مجوز VPN به Activity نیاز داشت. در نسخه‌های قبل هر تعویض در پس‌زمینه (مثلاً «پینگ کمتر») همین‌جا شکست می‌خورد، VPN وصل قطع می‌شد و برنامه چرخه‌ی بی‌پایان سرور عوض می‌کرد.',
+        'اصلاح شد: وقتی مجوز VPN قبلاً یک بار داده شده باشد (vpnPermOk) در پس‌زمینه دیگر درخواست مجوز نمی‌شود و اتصال ادامه پیدا می‌کند. اگر بعد از این نسخه هنوز ثبت می‌شود یعنی اپ از اول در پس‌زمینه وصل شده؛ یک بار اپ را باز کن و اتصال را بزن.');
+  }
+  if (m.startsWith('وضعیت: قطع شد')) {
+    return h('E-STATUS-DISCONNECT',
+        'app_main/main.dart → _swapTo / _stableSwap / disconnect (_set(قطع شد))',
+        'فقط ثبت قطع شدن اتصال است؛ خطا نیست. هنگام تعویض سرور هم برای چند ثانیه ثبت می‌شود.',
+        'نیازی به اصلاح نیست. فقط اگر بعدش اتصال برنگشت، خطوط «اتصال:» و کد E-NO-ACTIVITY را ببین.');
+  }
+  if (has('ردیف همه')) {
+    return h('E-STATUS-INFO',
+        'app_main/main.dart → _findGood (وضعیت تست موازی)',
+        'این فقط پیام پیشرفت جستجوست؛ مشکل نیست و به‌خاطر کلمه‌ی «ردیف» اشتباهی در لیست مشکل‌ها آمده بود.',
+        'اصلاح شد: دیگر ثبت نمی‌شود. با «پاک کردن» از لیست برود.');
+  }
+  if (has('پیش‌پرواز: شبکه خیلی ضعیف')) {
+    return h('E-PREFLIGHT-WEAK',
+        'app_main/main.dart → پیش‌پرواز قبل از جستجو (DNS و HTTP)',
+        'تست DNS/HTTP قبل از جستجو خیلی ضعیف بود (اینترنت موبایل ناپایدار). برنامه عمداً با تلاش دوباره ادامه می‌دهد.',
+        'نیازی به اصلاح نیست. اگر همیشه رخ می‌دهد اینترنت یا اپراتور مشکل دارد، نه کد.');
+  }
+  if (has('کیفیت: 0')) {
+    return h('E-QUALITY-ZERO',
+        'app_main/main.dart → _connStatus (کیفیت اتصال)',
+        'در لحظه‌ی اول اتصال هنوز هیچ پینگ یا سرور سالمی اندازه‌گیری نشده بود؛ عدد صفر موقتی است.',
+        'نیازی به اصلاح نیست؛ چند ثانیه بعد کیفیت به‌روز می‌شود.');
+  }
   // SWALLOWPATCH: errors that a catch (_) used to throw away
   if (m.startsWith('🕳')) {
     var code = 'E-SWALLOW-OTHER';
@@ -807,7 +837,7 @@ List<String>? _dbgHelpOf(String m) {
     return h('E-BUSY-STUCK',
         'app_main/main.dart → _runBusy (busy=true تا پایان f). صدازننده‌ها: _doConnect / _failover / _swapTo / _restartTunnel',
         'اغلب خطای واقعی نیست: busy تا پایان کل تعویض (شامل _acquire = جستجو و تست سرورها) روشن می‌ماند و بیش از ۹۰ ثانیه عادی است. گیر واقعی یعنی یک await بی‌پایان (_stopCore، startV2Ray، _ensureBattery، _ensureSession یا تبلیغ).',
-        'هشدار فقط وقتی searching خاموش است؛ و داخل _runBusy برای f یک .timeout(Duration(minutes: 5)) بگذار تا busy همیشه آزاد شود.');
+        'اصلاح شد: هشدار حالا فقط وقتی داده می‌شود که جستجو، تعویض و _acquire همه خاموش باشند (۵ دقیقه)، و _runBusy از قبل timeout پنج‌دقیقه‌ای دارد. اگر دوباره ثبت شد ساعت و خطوط قبلش را بفرست.');
   }
   if (has('تعویض»')) {
     return h('E-SWITCH-STUCK',
@@ -2735,6 +2765,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool switching = false;
   bool searching = false; // a search (foreground or standby) is running
   bool inForeground = true, pendingFailover = false;
+  // VPN permission was already granted once (stays valid in background)
+  bool vpnPermOk = false;
   bool watchBusy = false;
   int liveDown = 0, liveUp = 0, totalDown = 0, totalUp = 0; // LIVESTATS (bytes)
   bool rechecking = false; // a re-check of the healthy servers is running
@@ -3145,6 +3177,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _adopt() async {
     startAdopt = false;
     wantVpn = true;
+    vpnPermOk = true; // the VPN is already running, so permission exists
     lastSwitch = DateTime.now();
     try {
       final p = await SharedPreferences.getInstance();
@@ -4753,15 +4786,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // NO_ACTIVITY: requestPermission needs a live Activity. Skip/catch when
       // the app is in background so parallel starts do not spam PlatformException.
       if (!po) {
-        if (!inForeground) {
+        if (!inForeground && !vpnPermOk) {
           lastFail = 'Activity در دسترس نیست (اپ در پس‌زمینه)';
           return false;
         }
         try {
-          if (!await v2ray.requestPermission()) {
-            lastFail = 'مجوز VPN داده نشد';
-            return false;
+          if (inForeground || !vpnPermOk) {
+            if (!await v2ray.requestPermission()) {
+              lastFail = 'مجوز VPN داده نشد';
+              return false;
+            }
+            vpnPermOk = true;
           }
+          // in background with permission already granted: no dialog needed
         } on PlatformException catch (e) {
           if ('${e.code}'.contains('NO_ACTIVITY') ||
               '${e.message}'.contains('Activity is not available')) {
@@ -6109,6 +6146,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!proxyMode && inForeground) {
       try {
         final ok = await v2ray.requestPermission();
+        if (ok) vpnPermOk = true;
         if (!ok) {
           _set('مجوز VPN داده نشد');
           errorLog.value = 'مجوز VPN را تأیید کنید و دوباره «اتصال» را بزنید';
@@ -7756,7 +7794,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
 
     // 5) problems
-    _insWarn('busy', busy && !searching, 90, 'پرچم «مشغول» گیر کرده');
+    _insWarn('busy', busy && !searching && !_acquiring && !switching, 330, 'پرچم «مشغول» گیر کرده');
     _insWarn('sw', switching && !busy && !searching && !_acquiring, 60, 'پرچم «تعویض» گیر کرده');
     _insWarn('watchBusy', watchBusy && !busy && !switching && !searching &&
         inForeground, 90, 'واچ‌داگ در یک بررسی گیر کرده');
