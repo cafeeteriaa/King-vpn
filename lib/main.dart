@@ -225,7 +225,7 @@ const bgSearchOff = false; // RETRYPATCH // SPEEDSWITCHPATCH: no search while co
 // are re-checked inside the batch every 25 tests, so a big batch is safe.
 int standbyBatchSize = 30;
 const bgTimeoutSecs = 8;
-int firstBatchSize = 30; // smaller first batch: first working server sooner
+int firstBatchSize = 20; // FAST: first working server ASAP
 int fetchWorkers = 4;
 Duration fetchDeadline = const Duration(seconds: 20);
 int tcpWorkers = 50;
@@ -3357,7 +3357,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           savedFirst = j['sf'] as bool? ?? savedFirst;
           smartOrder = j['so'] as bool? ?? smartOrder;
           autoCycle = j['ac'] as bool? ?? autoCycle;
-          ultraMode = j['um'] as bool? ?? ultraMode;
+          ultraMode = false; // plain-only: ignore old saved Ultra flag
           indestructibleMode = j['idm'] as bool? ?? indestructibleMode;
           turboSpeed = j['tb'] as bool? ?? turboSpeed;
           listRefreshMin = _ci(j['lr'], listRefreshMin, 1, 1000);
@@ -4319,11 +4319,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<int?> _delayOf(Server s, {Duration? t, String? url}) async {
     if (s.ovpn) return null;
     final tt = t ?? delayTimeout;
-    // NATULTRA: in national-network mode every server is tried with several
-    // variants (other address, Fragment sizes, fingerprints, ALPN, 2nd URL)
-    // ULTRA: multi-variant on every connection attempt when ultraMode is on
-    final multi = nationalMode || _resBusy || ultraMode;
-    final order = multi ? _natOrder(s, full: _resFull) : const [0];
+    // NORMAL: only plain config (variant 0). Matrix only if nationalMode.
+    // ultraMode alone no longer enables matrix during ordinary connect tests.
+    final useMatrix = nationalMode;
+    final multi = useMatrix;
+    final order = useMatrix ? _natOrder(s, full: _resFull) : const [0];
     // NATBUDGET: one server may only use a limited time per pass; the rest of
     // its variants continue in the next pass (natCursorAdvance)
     final budget = multi ? natBudget(full: _resFull) : null;
@@ -4974,10 +4974,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!trust && !pin) {
         int? p;
         final pingT0 = DateTime.now(); // PINGLOGPATCH
-        for (var i = 0; i < (nationalMode ? 3 : 2) && p == null && !abort; i++) {
+        for (var i = 0; i < (nationalMode ? 3 : 1) && p == null && !abort; i++) {
           p = await pingAny(
-              total: Duration(seconds: nationalMode ? 12 : 7), direct: true);
-          if (p == null) await Future.delayed(const Duration(milliseconds: 500));
+              total: Duration(seconds: nationalMode ? 12 : 5), direct: true);
+          if (p == null) await Future.delayed(const Duration(milliseconds: 300));
         }
         dbg(p == null
             ? 'اتصال: ${s.name} هسته CONNECTED ولی پینگ از تونل رد نشد '
@@ -5026,12 +5026,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!trust &&
           !pin &&
           !nationalMode &&
-          siteSkips < 3 &&
+          siteSkips < 2 &&
           !identical(list.last, s)) {
         _set('بررسی ترافیک واقعی روی ${s.name}...');
         final r = await Future.wait([
           _siteOpens('http://connectivitycheck.gstatic.com/generate_204'),
-          _siteOpens('https://www.gstatic.com/generate_204'),
           _siteOpens('https://cp.cloudflare.com/generate_204'),
         ]);
         if (abort) return false;
@@ -5908,9 +5907,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (list.isEmpty) continue;
       }
       emptyRounds = 0;
-      // FASTCONNECT: already-tested healthy servers → trust (skip extra ping)
-      // so the first working one connects in a few seconds.
-      if (await _connectLoop(list, trust: true)) return true;
+      // Always verify tunnel ping so apps (Telegram, …) really work.
+      // trust:false = one quick ping through the tunnel before accepting.
+      if (await _connectLoop(list, trust: false)) return true;
     }
     return false;
   }
@@ -5971,9 +5970,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       abort = false;
       await _prepNow();
       _prepFut = null;
-      natLevel = natForce ? 2 : 1; // NATULTRA
+      natLevel = natForce ? 2 : 0;
       natAll = natForce; // NATBTNPATCH: full search of ALL sources
       natForce = false;
+      // Force PLAIN connect: no matrix, no ultra, no folder race
+      if (!nationalMode && !indestructibleMode) {
+        ultraMode = false;
+        natLevel = 0;
+        _resBusy = false;
+        _resFull = false;
+        fragEnabled = false;
+        // tight timeouts so first healthy server connects under ~30s
+        delayTimeout = Duration(seconds: min(delayTimeout.inSeconds, 5));
+        firstBatchSize = min(firstBatchSize, 20);
+        fastPickN = 1;
+      }
       if (nationalMode || indestructibleMode) {
         autoCycle = true; // endless list cycling
         if (natLevel < 2) natLevel = 2;
