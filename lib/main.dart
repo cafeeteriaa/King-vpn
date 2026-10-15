@@ -195,7 +195,7 @@ int badPingMs = 3000;
 int badPingRounds = 0;
 const int badPingMaxRounds = 6;
 // the healthy servers of the last session are tested first
-bool savedFirst = true;
+bool savedFirst = false; // never prefer folder/saved — test new servers
 // learn what works on this network (protocol / transport / port / source) and
 // test the most likely servers first; skip lists that never give a server
 bool smartOrder = true;
@@ -225,7 +225,7 @@ const bgSearchOff = false; // RETRYPATCH // SPEEDSWITCHPATCH: no search while co
 // are re-checked inside the batch every 25 tests, so a big batch is safe.
 int standbyBatchSize = 30;
 const bgTimeoutSecs = 8;
-int firstBatchSize = 50; // small first batch: the first test starts sooner
+int firstBatchSize = 30; // smaller first batch: first working server sooner
 int fetchWorkers = 4;
 Duration fetchDeadline = const Duration(seconds: 20);
 int tcpWorkers = 50;
@@ -244,8 +244,8 @@ int watchFailLimit = 3; // consecutive failed checks before switching
 int badPingLimit = 3; // consecutive bad pings (~10 s) before a ping switch
 const minHold = Duration(seconds: 5); // min time between two switches
 // FASTPATCH ----------------------------------------------------
-int fastPickN = 4; // healthy servers collected before choosing
-int fastPickMs = 3500; // never wait longer than this once one works
+int fastPickN = 1; // connect as soon as the first healthy server is found
+int fastPickMs = 2500; // never wait longer than this once one works
 bool betterSwitch = false; // swap to a clearly better standby server
 const betterGain = 0.8; // ping must be <= 80% of the connected one
 const betterMinGapMs = 30; // ...and at least this many ms lower
@@ -4694,7 +4694,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (lastState == 'CONNECTED' || lastState == 'CONNECTING' || ovpnActive) {
           await _stopCore();
         } else {
-          await Future.delayed(const Duration(milliseconds: 800));
+          await Future.delayed(const Duration(milliseconds: 200));
         }
       }
       if (po) {
@@ -4726,11 +4726,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             .timeout(const Duration(seconds: 10), onTimeout: () => false);
         t = null;
         if (ready) {
-          // give the tunnel time to appear
-          await Future.delayed(const Duration(milliseconds: 1500));
+          // give the tunnel time to appear (FASTCONNECT: shorter wait)
+          await Future.delayed(const Duration(milliseconds: 700));
           t = await tunUp();
           if (t == false) {
-            await Future.delayed(const Duration(seconds: 2));
+            await Future.delayed(const Duration(milliseconds: 900));
             t = await tunUp();
           }
         }
@@ -5692,7 +5692,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // in each of two sessions). The check stops as soon as enough working
   // servers are found, so a connection is available in a few seconds.
   Future<void> _checkSaved() async {
-    return; // FOLDERONLY: never test saved servers, only the fast search runs
+    // User request: do NOT search from folder/saved servers — only new ones.
+    return;
+    if (!savedFirst) return;
     bool stale(Server s) =>
         s.checkedAt == null ||
         DateTime.now().difference(s.checkedAt!) > recheckAfter;
@@ -5712,7 +5714,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         return r != 0 ? r : bySpeedThenPing(a, b);
       });
     }
-    final run = l.take(60).toList();
+    final run = l.take(12).toList(); // FASTCONNECT: only a handful
     final need = fastPickN;
     final fsw = Stopwatch()..start();
     var found = 0, i = 0;
@@ -5813,6 +5815,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!strictRow && connRow == null && !_ovMode) {
       await _checkSaved();
     }
+    // Prefer NEW servers: if pending has untested configs, search them first
+    // instead of reconnecting only to old healthy/folder list.
+    if (!strictRow && !nationalMode && !indestructibleMode && pending.isNotEmpty) {
+      // drop folder-injected entries from the "ready" list so _pickList is empty
+      // until a fresh test fills good again this session
+      final folderKeys = _resMap.keys.toSet();
+      if (folderKeys.isNotEmpty) {
+        good.removeWhere((s) => folderKeys.contains(s.key) && s.checkedAt == null);
+      }
+    }
     var speedDone = !speed;
     var emptyRounds = 0; // EMPTYROWFIX: rounds in a row with nothing to try
     // INDESTRUCTIBLE: national / forced modes never exit the outer loop
@@ -5889,14 +5901,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           continue;
         }
       }
-      if (!speedDone && list.length > 1 && !_ovMode) {
+      if (!speedDone && list.length > 1 && !_ovMode && autoSpeed) {
         speedDone = true;
         await _speedTest(speedTopN, from: list);
         list = pickRow();
         if (list.isEmpty) continue;
       }
       emptyRounds = 0;
-      if (await _connectLoop(list)) return true;
+      // FASTCONNECT: already-tested healthy servers → trust (skip extra ping)
+      // so the first working one connects in a few seconds.
+      if (await _connectLoop(list, trust: true)) return true;
     }
     return false;
   }
@@ -5983,7 +5997,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!nationalMode) fragEnabled = false;
       // all throughput levers (Mux, no Fragment, speed-test top servers, ...)
       _applyTurboLevers();
-      if (nationalMode) _resInject(); // NATRESPATCH
+      // Folder inject only when user explicitly asked (natForce/_resNext above).
+      // Normal connect must test NEW servers from sources, not the folder.
+      // if (nationalMode) _resInject();
       if (nationalMode) _natKeep(); // never-stopping search
       if (nationalMode) warm = null; // no list download in national mode
       // the list download started at app launch is still running: wait for it
