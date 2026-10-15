@@ -1457,7 +1457,7 @@ extension HomeExtras on _HomePageState {
 // first search (used by patch_fast.py): it stops at the FIRST healthy server
 // (for the Gemini row: the first Gemini server). Safety: after [firstCapSec]
 // seconds it goes on with the ones found.
-int firstCapSec = 120;
+int firstCapSec = 12; // FASTCONNECT: connect with 1 healthy server after 12s max
 
 // the AI assistant must not change these
 // AI may change every number (no locked keys)
@@ -1531,7 +1531,7 @@ final List<NumOpt> numOpts = [
   NumOpt('watchEvery', 'فاصله‌ی چک اتصال (ثانیه)', 1, 1000, 8, 1000, true,
       () => watchEvery.inSeconds, (v) => watchEvery = Duration(seconds: v)),
   // ----- first search: time cap -----
-  NumOpt('firstCapSec', 'سقف زمان جستجوی اول (ثانیه)', 1, 1000, 120, 1000, true,
+  NumOpt('firstCapSec', 'سقف زمان جستجوی اول (ثانیه)', 1, 1000, 12, 1000, true,
       () => firstCapSec, (v) => firstCapSec = v),
 ];
 
