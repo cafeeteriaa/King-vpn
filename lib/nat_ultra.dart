@@ -903,7 +903,8 @@ String _natSetParam(String link, String key, String val) {
     final q = Map<String, String>.from(u.queryParameters);
     q[key] = val;
     return u.replace(queryParameters: q).toString();
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return link;
   }
 }
@@ -918,7 +919,8 @@ String _natGetParam(String link, String key) {
       return (j[key] ?? '').toString();
     }
     return Uri.parse(link).queryParameters[key] ?? '';
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return '';
   }
 }
@@ -933,7 +935,8 @@ String _natSetPort(String link, int port) {
       return 'vmess://${base64.encode(utf8.encode(jsonEncode(j)))}';
     }
     return Uri.parse(link).replace(port: port).toString();
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return link;
   }
 }
@@ -957,7 +960,8 @@ String _natSetHost(String link, String ip, String host) {
     if ((q['sni'] ?? '').isEmpty) q['sni'] = host;
     if (q['type'] == 'ws' && (q['host'] ?? '').isEmpty) q['host'] = host;
     return u.replace(host: ip, queryParameters: q).toString();
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return link;
   }
 }
@@ -1058,7 +1062,8 @@ String _natFrag(String cfg, int fi, {bool noise = false, int noiseK = 0}) {
     st['sockopt'] = so;
     j['outbounds'] = outs;
     return jsonEncode(j);
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return cfg;
   }
 }
@@ -1073,7 +1078,8 @@ String _natMux(String cfg, [int n = 0]) {
     if (RegExp(r'"flow"\s*:\s*"xtls').hasMatch(cfg)) return cfg; // vision can't use mux
     o['mux'] = {'enabled': true, 'concurrency': n > 0 ? n : 8};
     return jsonEncode(j);
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return cfg;
   }
 }
@@ -1087,7 +1093,8 @@ String _natDns(String cfg, String doh) {
     d['servers'] = [doh, 'localhost'];
     j['dns'] = d;
     return jsonEncode(j);
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return cfg;
   }
 }
@@ -1109,7 +1116,8 @@ String _natSock(String cfg,
     if (v4) so['domainStrategy'] = 'UseIPv4';
     st['sockopt'] = so;
     return jsonEncode(j);
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return cfg;
   }
 }
@@ -1208,7 +1216,8 @@ Future<String> _natNetType() async {
       }
     }
     return wifi ? 'wifi' : (mob ? 'mob' : 'net');
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return 'net';
   }
 }
@@ -1227,7 +1236,8 @@ Future<String?> _natAsnFrom(String url, String field) async {
     final raw = '${j[field] ?? ''}';
     final m = RegExp(r'(\d{3,7})').firstMatch(raw);
     return m?.group(1);
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return null;
   } finally {
     c.close(force: true);
