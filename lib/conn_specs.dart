@@ -130,7 +130,8 @@ ConfigSpec describeConfig(String link, {String? ovpnText, String? knownIp}) {
     if (hashAt >= 0) {
       try {
         c.name = Uri.decodeComponent(link.substring(hashAt + 1));
-      } catch (_) {
+      } catch (e) {
+        logError(e);
         c.name = link.substring(hashAt + 1);
       }
     }
@@ -227,7 +228,8 @@ Future<String> resolveHostIp(String host) async {
         .timeout(const Duration(seconds: 3));
     if (r.isEmpty) return '-';
     return r.map((e) => e.address).join(',');
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return '-';
   }
 }
