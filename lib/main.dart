@@ -1575,37 +1575,75 @@ const countryFa = {
   'MD': 'مولداوی', 'RS': 'صربستان', 'BE': 'بلژیک', 'IR': 'ایران', 'MY': 'مالزی',
   'TH': 'تایلند', 'VN': 'ویتنام', 'ID': 'اندونزی', 'MX': 'مکزیک', 'AR': 'آرژانتین',
   'ZA': 'آفریقای جنوبی', 'IS': 'ایسلند', 'LU': 'لوکزامبورگ',
+  'PH': 'فیلیپین', 'NZ': 'نیوزیلند', 'CL': 'شیلی', 'CO': 'کلمبیا',
+  'PK': 'پاکستان', 'SA': 'عربستان', 'IQ': 'عراق', 'AZ': 'آذربایجان',
+  'BY': 'بلاروس', 'SK': 'اسلواکی', 'SI': 'اسلوونی', 'HR': 'کرواسی',
+  'BA': 'بوسنی', 'MK': 'مقدونیه', 'AL': 'آلبانی', 'CY': 'قبرس',
+  'MT': 'مالت', 'EG': 'مصر', 'NG': 'نیجریه', 'KE': 'کنیا',
 };
+
+// Longer / more specific phrases preferred by length when matching
 const countryWords = {
-  'germany': 'DE', 'united states': 'US', 'netherlands': 'NL',
-  'france': 'FR', 'finland': 'FI', 'united kingdom': 'GB', 'singapore': 'SG',
-  'japan': 'JP', 'turkey': 'TR', 'canada': 'CA', 'sweden': 'SE',
-  'hong kong': 'HK', 'russia': 'RU', 'poland': 'PL',
+  'united states': 'US', 'united kingdom': 'GB', 'hong kong': 'HK',
+  'south korea': 'KR', 'new zealand': 'NZ', 'saudi arabia': 'SA',
+  'south africa': 'ZA', 'czech republic': 'CZ', 'united arab': 'AE',
+  'germany': 'DE', 'deutschland': 'DE', 'netherlands': 'NL', 'holland': 'NL',
+  'france': 'FR', 'finland': 'FI', 'singapore': 'SG', 'japan': 'JP',
+  'turkey': 'TR', 'canada': 'CA', 'sweden': 'SE', 'russia': 'RU',
+  'poland': 'PL', 'italy': 'IT', 'spain': 'ES', 'switzerland': 'CH',
+  'austria': 'AT', 'australia': 'AU', 'brazil': 'BR', 'romania': 'RO',
+  'bulgaria': 'BG', 'norway': 'NO', 'denmark': 'DK', 'ireland': 'IE',
+  'israel': 'IL', 'lithuania': 'LT', 'latvia': 'LV', 'estonia': 'EE',
+  'hungary': 'HU', 'portugal': 'PT', 'greece': 'GR', 'china': 'CN',
+  'kazakhstan': 'KZ', 'armenia': 'AM', 'georgia': 'GE', 'moldova': 'MD',
+  'serbia': 'RS', 'belgium': 'BE', 'iran': 'IR', 'malaysia': 'MY',
+  'thailand': 'TH', 'vietnam': 'VN', 'indonesia': 'ID', 'mexico': 'MX',
+  'argentina': 'AR', 'iceland': 'IS', 'luxembourg': 'LU', 'taiwan': 'TW',
+  'ukraine': 'UA', 'india': 'IN', 'emirates': 'AE', 'philippines': 'PH',
+  'pakistan': 'PK', 'azerbaijan': 'AZ', 'iraq': 'IQ', 'belarus': 'BY',
+  'slovakia': 'SK', 'slovenia': 'SI', 'croatia': 'HR', 'cyprus': 'CY',
+  'egypt': 'EG', 'america': 'US', 'england': 'GB', 'britain': 'GB',
+  'korea': 'KR',
 };
 
-String flagOf(String c) =>
-    String.fromCharCodes(c.codeUnits.map((u) => u - 65 + 0x1F1E6));
+String flagOf(String c) {
+  if (c.length != 2) return '🌐';
+  final a = c.codeUnitAt(0), b = c.codeUnitAt(1);
+  if (a < 65 || a > 90 || b < 65 || b > 90) return '🌐';
+  return String.fromCharCodes([a - 65 + 0x1F1E6, b - 65 + 0x1F1E6]);
+}
 
-// country from the config name: flag emoji, "DE |" prefix or a country word
-final RegExp _ccRe = RegExp(r'^\W*([A-Z]{2})\s*[|\-_:]');
+// country from the config name: flag emoji, ISO code, or country word
+final RegExp _ccRe = RegExp(r'(?:^|[^\w])([A-Z]{2})(?:\s*[|\-_:.]|\s|$)');
 String? detectCountry(String name) {
+  // 1) flag emoji anywhere
   final r = name.runes.toList();
   for (var i = 0; i + 1 < r.length; i++) {
     if (r[i] >= 0x1F1E6 &&
         r[i] <= 0x1F1FF &&
         r[i + 1] >= 0x1F1E6 &&
         r[i + 1] <= 0x1F1FF) {
-      return String.fromCharCodes(
+      final cc = String.fromCharCodes(
           [r[i] - 0x1F1E6 + 65, r[i + 1] - 0x1F1E6 + 65]);
+      if (countryFa.containsKey(cc)) return cc;
     }
   }
-  final m = _ccRe.firstMatch(name);
-  if (m != null && countryFa.containsKey(m.group(1))) return m.group(1);
-  final l = name.toLowerCase();
-  for (final e in countryWords.entries) {
-    if (l.contains(e.key)) return e.value;
+  // 2) ISO codes like "DE |" / "US-" / " NL "
+  for (final m in _ccRe.allMatches(name.toUpperCase())) {
+    final cc = m.group(1);
+    if (cc != null && countryFa.containsKey(cc)) return cc;
   }
-  return null;
+  // 3) English names — longest match wins (avoids "korea" beating "south korea")
+  final l = name.toLowerCase();
+  String? best;
+  var bestLen = 0;
+  for (final e in countryWords.entries) {
+    if (e.key.length > bestLen && l.contains(e.key)) {
+      best = e.value;
+      bestLen = e.key.length;
+    }
+  }
+  return best;
 }
 
 // a broken %XX / UTF-8 sequence in a name must never throw
@@ -9107,20 +9145,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   child: Text('پاک کردن همه سرورها و جستجو از نو')),
             ],
           ),
-          // AUTOTUNETOPPATCH: auto tune on / off
+          // مداد جادویی: تنظیم خودکار سرعت/پینگ/تعداد worker بر اساس اینترنت
           IconButton(
             tooltip: autoTune
-                ? 'تنظیم خودکار: روشن (لمس = خاموش)'
-                : 'تنظیم خودکار: خاموش (لمس = روشن)',
+                ? 'مداد جادویی روشن — لمس = خاموش'
+                : 'مداد جادویی خاموش — لمس = روشن (تنظیم خودکار)',
             icon: Icon(
-                autoTune ? Icons.auto_fix_high : Icons.auto_fix_off_outlined),
+                autoTune ? Icons.auto_fix_high : Icons.auto_fix_off_outlined,
+                color: autoTune ? const Color(0xFFFFC107) : null),
             onPressed: () {
               setState(() => autoTune = !autoTune);
               autoTuneSave();
-              if (autoTune && !connected) autoTuneNow(force: true);
+              if (autoTune && !connected) {
+                unawaited(autoTuneNow(force: true));
+              }
               _set(autoTune
-                  ? 'تنظیم خودکار روشن شد'
-                  : 'تنظیم خودکار خاموش شد؛ عددها دستی می‌مانند');
+                  ? '✨ مداد جادویی روشن — عددها با سرعت اینترنت تنظیم می‌شوند'
+                  : 'مداد جادویی خاموش — عددها دستی می‌مانند');
             },
           ),
           // refresh = search again and connect. The healthy servers are NOT
