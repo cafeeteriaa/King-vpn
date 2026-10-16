@@ -6452,6 +6452,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _doConnect({Server? only, String? row}) async {
     // AD FIRST: the ad page opens right when the user taps connect
+    // خلبان فقط با دکمه «خلبان» روشن می‌شود — اتصال عادی مستقل است
     unawaited(_prepNow()); // network detection runs while the ad is shown
     if (!await _ensureSession()) {
       _set('برای اتصال باید تبلیغ را کامل ببینید');
