@@ -5497,11 +5497,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
       // CRITICAL FIX: "CONNECTED + tun" is not enough.
       // Many free configs report CONNECTED while no real traffic passes.
-      // Do a short real traffic probe before accepting the server.
-      final earlyPing = await pingAny(
+      // Give Android a moment to settle routing, then probe real traffic.
+      await Future.delayed(const Duration(milliseconds: 600));
+      var earlyPing = await pingAny(
           total: const Duration(seconds: 5),
           direct: true,
           tries: 3);
+      // one more chance: some OEMs need a second for the tunnel route
+      if (earlyPing == null) {
+        await Future.delayed(const Duration(milliseconds: 900));
+        earlyPing = await pingAny(
+            total: const Duration(seconds: 6),
+            direct: true,
+            tries: 3);
+      }
       if (earlyPing == null) {
         lastFail = 'وصل شد ولی اینترنت رد نشد (ترافیک تونل صفر)';
         lastStartNoTunnel = true;
