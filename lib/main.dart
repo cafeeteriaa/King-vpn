@@ -180,7 +180,7 @@ int delayWorkers = 20; // (kept for settings compatibility)
 Duration delayTimeout = const Duration(seconds: 6);
 int goodWant = 10; // حداقل سرور سالم هدف
 bool autoSpeed = true; // تست سرعت چند سرور برتر قبل از اتصال
-int speedTopN = 8; // چند سرور برتر برای تست سرعت
+int speedTopN = 3; // تست سرعت ۳ برتر — سریع‌تر وصل می‌شود
 bool autoUpgrade = false; // LOWDATA // keep searching for new servers while connected
 // real pings below this are fake -> server counts as bad / hidden.
 // 0 = off: the real speed test decides (done right after connecting).
@@ -225,7 +225,7 @@ const bgSearchOff = false; // RETRYPATCH // SPEEDSWITCHPATCH: no search while co
 // are re-checked inside the batch every 25 tests, so a big batch is safe.
 int standbyBatchSize = 30;
 const bgTimeoutSecs = 8;
-int firstBatchSize = 60; // دسته اول بزرگ‌تر → سرور سالم بیشتر
+int firstBatchSize = 40; // موازی کافی برای پیدا کردن سریع اولین سالم
 int fetchWorkers = 4;
 Duration fetchDeadline = const Duration(seconds: 20);
 int tcpWorkers = 50;
@@ -244,8 +244,8 @@ int watchFailLimit = 3; // consecutive failed checks before switching
 int badPingLimit = 3; // consecutive bad pings (~10 s) before a ping switch
 const minHold = Duration(seconds: 5); // min time between two switches
 // FASTPATCH ----------------------------------------------------
-int fastPickN = 10; // حداقل ۱۰ سرور سالم قبل از توقف تست سریع
-int fastPickMs = 45000; // تا پیدا شدن ۱۰ تا صبر کن (نه ۲.۵ ثانیه)
+int fastPickN = 2; // سریع وصل شو با ۲ سرور سالم؛ بقیه در پس‌زمینه
+int fastPickMs = 8000; // حداکثر ۸ثانیه بعد از اولین سالم
 bool betterSwitch = false; // swap to a clearly better standby server
 const betterGain = 0.8; // ping must be <= 80% of the connected one
 const betterMinGapMs = 30; // ...and at least this many ms lower
@@ -4044,12 +4044,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final ready = _ready(row);
         if (upServer != null) return true;
         if (ready >= want) return true;
-        // زودتر از حداقل ۱۰ سرور (یا want اگر کمتر بود) متوقف نشو
-        final minNeed = want <= 1 ? 1 : (want < 10 ? want : 10);
+        // اتصال سریع: با ۱ سرور سالم بعد از چند ثانیه برو وصل شو
+        // (جستجوی پس‌زمینه بعداً سرور بیشتر جمع می‌کند)
+        if (!bg && ready >= 1) {
+          final elapsed = searchSw?.elapsed ?? Duration.zero;
+          // حداقل ۱ سالم + ۲ثانیه → کافی برای اتصال فوری
+          if (elapsed > const Duration(seconds: 2)) return true;
+        }
         if (!bg &&
-            ready >= minNeed &&
+            ready >= 2 &&
             (searchSw?.elapsed ?? Duration.zero) >
-                Duration(seconds: firstCapSec)) {
+                Duration(seconds: min(firstCapSec, 15))) {
           return true;
         }
         return false;
@@ -4954,7 +4959,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!s.ovpn) {
       turboSpeed = true;
       muxEnabled = true;
-      if (muxConc < 16) muxConc = 16;
+      muxConc = max(muxConc, 32);
       if (!nationalMode) fragEnabled = false;
       unawaited(_turboAfterConnect(s));
     }
@@ -4980,7 +4985,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // اهرم‌های قطعی سرعت
       turboSpeed = true;
       muxEnabled = true;
-      muxConc = max(muxConc, 24);
+      muxConc = max(muxConc, 32);
       if (!nationalMode) fragEnabled = false;
 
       // حالت سبک (بدون Fragment/Noise) اگر لازم باشد
@@ -5393,7 +5398,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (speedTopN < 8) speedTopN = 8;
     // 2) Mux = parallel streams on one tunnel (concurrency بالاتر = سرعت بیشتر)
     muxEnabled = true;
-    if (muxConc < 16) muxConc = 16;
+    if (muxConc < 32) muxConc = 32;
     // 3) do not force global Fragment outside national crisis (Fragment سرعت را می‌کشد)
     if (!nationalMode) fragEnabled = false;
     // 4) rank by real speed, not ping
@@ -6093,7 +6098,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
       var list = pickRow();
       if (list.isEmpty) {
-        await _search(10, row: searchRow, keepUp: true);
+        await _search(2, row: searchRow, keepUp: true);
         final up = upServer;
         if (up != null) {
           _onConnected(up);
@@ -6127,7 +6132,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             _set('سرور سالم پیدا نشد؛ تست سریع دوباره...');
           }
           await Future.delayed(
-              Duration(seconds: badPingRounds == 0 ? min(15, 2 + round) : 1));
+              Duration(seconds: badPingRounds == 0 ? min(5, 1 + round) : 1));
           continue;
         }
       }
@@ -6212,18 +6217,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _resBusy = false;
         _resFull = false;
         fragEnabled = false;
-        // Mux را برای اتصال اول خاموش نکن — توربو سرعت بعد از وصل فعال است
         muxEnabled = true;
-        muxConc = max(muxConc, 16);
-        // تایم‌اوت معقول + حداقل ۱۰ سرور سالم
-        delayTimeout = Duration(seconds: max(delayTimeout.inSeconds, 8));
-        firstBatchSize = max(firstBatchSize, 60);
-        batchSize = max(batchSize, 100);
-        fastPickN = max(fastPickN, 10);
-        fastPickMs = max(fastPickMs, 45000);
-        turboSpeed = true; // توربو سرعت بعد از اتصال همیشه روشن
+        muxConc = max(muxConc, 32); // concurrency بالا = سرعت بیشتر
+        // اتصال سریع
+        delayTimeout = Duration(seconds: min(max(delayTimeout.inSeconds, 5), 8));
+        firstBatchSize = max(firstBatchSize, 40);
+        batchSize = max(batchSize, 80);
+        fastPickN = 2;
+        fastPickMs = 8000;
+        turboSpeed = true;
         autoSpeed = true;
-        speedTopN = max(speedTopN, 8);
+        speedTopN = max(speedTopN, 3);
       }
       if (nationalMode || indestructibleMode) {
         autoCycle = true; // endless list cycling
@@ -6259,7 +6263,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (w != null) {
         _set('آماده‌سازی لیست سرورها...');
         try {
-          await w.timeout(Duration(seconds: good.isNotEmpty ? 3 : 25));
+          await w.timeout(Duration(seconds: good.isNotEmpty ? 2 : 8));
         } catch (_swE) { _swl('_doConnect#1', _swE);}
       }
       // battery optimization must be OFF for this app, otherwise Android may
