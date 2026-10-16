@@ -2610,7 +2610,7 @@ extension HomeExtras on _HomePageState {
 // first search (used by patch_fast.py): it stops at the FIRST healthy server
 // (for the Gemini row: the first Gemini server). Safety: after [firstCapSec]
 // seconds it goes on with the ones found.
-int firstCapSec = 12; // اتصال سریع؛ سرور بیشتر در پس‌زمینه
+int firstCapSec = 15; // BEST: کمی بیشتر برای پیدا کردن سرور سالم
 
 // the AI assistant must not change these
 // AI may change every number (no locked keys)
@@ -2837,104 +2837,121 @@ const Map<String, dynamic> _tunedSettings = {
   'tb': true,
   'fw2': 50,
 };
+// BEST PROFILE — هم‌تراز numOpts.def
 const Map<String, int> _tunedNums = {
   'fastWorkers': 50,
-  'bgWorkers': 2,
-  'timeout': 10,
-  'speedTopN': 1,
-  'badPingMs': 3000,
-  'minSpeedKB': 0,
-  'listRefreshMin': 240,
-  'failMin': 120,
-  'recheckMin': 30,
-  'tcpWorkers': 80,
-  'tcpTimeout': 30,
-  'maxPerSource': 500,
-  'fetchWorkers': 12,
-  'fetchDeadline': 40,
+  'bgWorkers': 3,
+  'timeout': 8,
+  'batch': 120,
+  'speedTopN': 5,
+  'badPingMs': 2500,
+  'minSpeedKB': 80,
+  'listRefreshMin': 180,
+  'failMin': 90,
+  'recheckMin': 20,
+  'tcpWorkers': 60,
+  'tcpTimeout': 35,
+  'maxPerSource': 120,
+  'fetchWorkers': 6,
+  'fetchDeadline': 25,
   'firstBatchSize': 50,
-  'standbyBatchSize': 30,
-  'maxBatches': 5,
+  'standbyBatchSize': 40,
+  'maxBatches': 8,
   'watchFailLimit': 3,
   'badPingLimit': 3,
+  'missLimit': 3,
+  'watchEvery': 30,
+  'firstCapSec': 15,
 };
 
-// v2 kept for old installs; v3 is the low-data + turbo speed preset
+// v2/v3/v4: همان BEST تا نسخه‌های قدیمی هم یکدست شوند
 const Map<String, dynamic> _tunedSettings2 = {
-  't': 10,
-  'bw2': 2,
-  'st': 1,
-  'bp': 3000,
-  'ms': 0,
-  'lr': 240,
-  'fm': 120,
-  'rm': 30,
-  'a2': false,
-  'ac': false,
+  't': 8,
+  'bw2': 3,
+  'st': 5,
+  'bp': 2500,
+  'ms': 80,
+  'lr': 180,
+  'fm': 90,
+  'rm': 20,
+  'a2': true,
+  'ac': true,
   'frg': false,
   'mux': true,
-  'mc': 16,
+  'mc': 32,
   'tb': true,
-  'um': true,
+  'um': false,
   'idm': false,
+  'sf': true,
+  'so': true,
+  'bps': true,
+  'sdns': true,
   'fw2': 50,
 };
 const Map<String, int> _tunedNums2 = {
   'fastWorkers': 50,
-  'bgWorkers': 2,
-  'timeout': 10,
-  'speedTopN': 1,
-  'badPingMs': 3000,
-  'minSpeedKB': 0,
-  'listRefreshMin': 240,
-  'failMin': 120,
-  'recheckMin': 30,
-  'tcpWorkers': 80,
-  'tcpTimeout': 30,
-  'maxPerSource': 500,
-  'fetchWorkers': 12,
-  'fetchDeadline': 40,
+  'bgWorkers': 3,
+  'timeout': 8,
+  'batch': 120,
+  'speedTopN': 5,
+  'badPingMs': 2500,
+  'minSpeedKB': 80,
+  'listRefreshMin': 180,
+  'failMin': 90,
+  'recheckMin': 20,
+  'tcpWorkers': 60,
+  'tcpTimeout': 35,
+  'maxPerSource': 120,
+  'fetchWorkers': 6,
+  'fetchDeadline': 25,
   'firstBatchSize': 50,
-  'standbyBatchSize': 30,
-  'maxBatches': 5,
+  'standbyBatchSize': 40,
+  'maxBatches': 8,
   'watchFailLimit': 3,
   'badPingLimit': 3,
+  'firstCapSec': 15,
 };
 
 const Map<String, dynamic> _tunedSettings3 = {
-  't': 10,
-  'bw2': 2,
-  'st': 1,
-  'bp': 3000,
-  'ms': 0,
-  'lr': 240,
-  'fm': 120,
-  'rm': 30,
-  'a2': false,
-  'ac': false,
+  't': 8,
+  'bw2': 3,
+  'st': 5,
+  'bp': 2500,
+  'ms': 80,
+  'lr': 180,
+  'fm': 90,
+  'rm': 20,
+  'a2': true,
+  'ac': true,
   'frg': false,
   'mux': true,
-  'mc': 16,
+  'mc': 32,
   'tb': true,
-  'um': true,
+  'um': false,
   'idm': false,
+  'sf': true,
+  'so': true,
+  'bps': true,
+  'sdns': true,
   'fw2': 50,
 };
 const Map<String, int> _tunedNums3 = {
   'fastWorkers': 50,
-  'bgWorkers': 2,
-  'timeout': 10,
-  'speedTopN': 1,
-  'badPingMs': 3000,
-  'minSpeedKB': 0,
-  'listRefreshMin': 240,
-  'failMin': 120,
-  'recheckMin': 30,
-  'tcpWorkers': 80,
-  'fetchWorkers': 12,
+  'bgWorkers': 3,
+  'timeout': 8,
+  'batch': 120,
+  'speedTopN': 5,
+  'badPingMs': 2500,
+  'minSpeedKB': 80,
+  'listRefreshMin': 180,
+  'failMin': 90,
+  'recheckMin': 20,
+  'tcpWorkers': 60,
+  'fetchWorkers': 6,
   'firstBatchSize': 50,
-  'standbyBatchSize': 30,
-  'maxBatches': 5,
+  'standbyBatchSize': 40,
+  'maxBatches': 8,
+  'firstCapSec': 15,
 };
 
 // settings saved by an older build get the tuned values ONCE; after that the
@@ -3023,6 +3040,42 @@ Future<String?> tunedSettings(SharedPreferences p) async {
         }
       }
       await p.setBool('tuned_v4', true);
+    }
+    // TUNEDV5: پروفایل BEST (سرعت + پایداری) — یک‌بار برای همه نصب‌های قدیمی
+    if (p.getBool('tuned_v5') != true) {
+      final st = p.getString('settings');
+      if (st != null) {
+        final j = jsonDecode(st);
+        if (j is Map) {
+          final m = Map<String, dynamic>.from(j);
+          _tunedSettings.forEach((k, v) => m[k] = v);
+          m['fw2'] = 50;
+          m['st'] = 5;
+          m['bw2'] = 3;
+          m['bp'] = 2500;
+          m['ms'] = 80;
+          m['a2'] = true;
+          m['ac'] = true;
+          m['tb'] = true;
+          m['mux'] = true;
+          m['mc'] = 32;
+          await p.setString('settings', jsonEncode(m));
+        }
+      }
+      final nx = p.getString('numx');
+      if (nx != null) {
+        final j = jsonDecode(nx);
+        if (j is Map) {
+          final m = Map<String, dynamic>.from(j);
+          _tunedNums.forEach((k, v) => m[k] = v);
+          m['fastWorkers'] = 50;
+          await p.setString('numx', jsonEncode(m));
+        }
+      } else {
+        await p.setString('numx', jsonEncode(_tunedNums));
+      }
+      await p.setBool('tuned_v5', true);
+      await p.setBool('bestProfile26', true);
     }
   } catch (e) {
     logError(e);
