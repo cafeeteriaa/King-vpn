@@ -44,7 +44,8 @@ Future<_DiagItem> _diagTcp(String label, String host, int port) async {
     s = await Socket.connect(host, port,
         timeout: const Duration(seconds: 4));
     return _DiagItem(label, true, sw.elapsedMilliseconds);
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return _DiagItem(label, false, sw.elapsedMilliseconds);
   } finally {
     s?.destroy();
@@ -62,7 +63,8 @@ Future<_DiagItem> _diagHttp(String label, String url) async {
     final res = await req.close().timeout(const Duration(seconds: 5));
     await res.drain<void>().timeout(const Duration(seconds: 5));
     return _DiagItem(label, res.statusCode > 0, sw.elapsedMilliseconds);
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return _DiagItem(label, false, sw.elapsedMilliseconds);
   } finally {
     c.close(force: true);
@@ -80,7 +82,8 @@ Future<_DiagItem> _diagTls(String label, String ip, String sni) async {
             host: sni, onBadCertificate: (_) => true)
         .timeout(const Duration(seconds: 5));
     return _DiagItem(label, true, sw.elapsedMilliseconds);
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return _DiagItem(label, false, sw.elapsedMilliseconds);
   } finally {
     k?.destroy();
