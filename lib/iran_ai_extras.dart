@@ -1033,42 +1033,66 @@ extension HomeExtras on _HomePageState {
   // engine the pilot/assistant should use: v2ray | ovpn | wg
   String pilotEngine = 'v2ray';
 
-  /// Ask which VPN engine to use (V2Ray / OpenVPN / WireGuard).
+  /// Ask which VPN engine/mode to use.
   /// Returns null if user cancels.
   Future<String?> pickVpnEngineDialog() async {
     if (!mounted) return null;
     return showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('کدام موتور VPN؟'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.flash_on),
-              title: const Text('V2Ray'),
-              subtitle: const Text('VLESS / VMess / Trojan / SS'),
-              onTap: () => Navigator.pop(ctx, 'v2ray'),
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('کدام VPN را می‌خواهید؟'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.flash_on),
+                  title: const Text('V2Ray'),
+                  subtitle: const Text('VLESS / VMess / Trojan / SS'),
+                  onTap: () => Navigator.pop(ctx, 'v2ray'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.vpn_lock),
+                  title: const Text('OpenVPN'),
+                  subtitle: const Text('فایل‌های .ovpn / VPNGate'),
+                  onTap: () => Navigator.pop(ctx, 'ovpn'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.shield_outlined),
+                  title: const Text('WireGuard'),
+                  subtitle: const Text('کانفیگ‌های wireguard://'),
+                  onTap: () => Navigator.pop(ctx, 'wg'),
+                ),
+                const Divider(),
+                ListTile(
+                  leading: const Icon(Icons.cell_tower),
+                  title: const Text('AM Tunnel'),
+                  subtitle: const Text('حالت AM • IP تمیز کلودفلر'),
+                  onTap: () => Navigator.pop(ctx, 'am'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.tune),
+                  title: const Text('NPV Tunnel'),
+                  subtitle: const Text('حالت NPV • پارسر و Fragment'),
+                  onTap: () => Navigator.pop(ctx, 'npv'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.vaccines_outlined),
+                  title: const Text('HTTP Injector'),
+                  subtitle: const Text('پیدا کردن سرور برای کپی در Injector'),
+                  onTap: () => Navigator.pop(ctx, 'injector'),
+                ),
+              ],
             ),
-            ListTile(
-              leading: const Icon(Icons.vpn_lock),
-              title: const Text('OpenVPN'),
-              subtitle: const Text('فایل‌های .ovpn / VPNGate'),
-              onTap: () => Navigator.pop(ctx, 'ovpn'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.shield_outlined),
-              title: const Text('WireGuard'),
-              subtitle: const Text('کانفیگ‌های wireguard://'),
-              onTap: () => Navigator.pop(ctx, 'wg'),
-            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('انصراف')),
           ],
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('انصراف')),
-        ],
       ),
     );
   }
@@ -1081,22 +1105,56 @@ extension HomeExtras on _HomePageState {
     } else if (e == 'wg') {
       proto = 'wg';
       connRow = 'r:wg';
+    } else if (e == 'am') {
+      // AM Tunnel: clean IP + IP connect (Cloudflare-friendly)
+      proto = 'all';
+      connRow = null;
+      npvParse = true;
+      cleanIpMode = true;
+      ipMode = true;
+      muxEnabled = true;
+      if (muxConc < 16) muxConc = 16;
+      fragEnabled = false;
+    } else if (e == 'npv') {
+      // NPV Tunnel: nonstandard parser + Fragment + Mux
+      proto = 'all';
+      connRow = null;
+      npvParse = true;
+      cleanIpMode = false;
+      muxEnabled = true;
+      if (muxConc < 16) muxConc = 16;
+      fragEnabled = true;
+    } else if (e == 'injector') {
+      // HTTP Injector: external — handled in pickEngineThenStart
+      proto = 'all';
+      connRow = null;
     } else {
       proto = 'all';
       connRow = null;
     }
     if (mounted) setState(() {});
-    final label = e == 'ovpn'
-        ? 'OpenVPN'
-        : (e == 'wg' ? 'WireGuard' : 'V2Ray');
-    _set('موتور انتخاب شد: $label');
+    _set('موتور انتخاب شد: ${_engineLabel(e)}');
   }
 
+  String _engineLabel(String e) => switch (e) {
+        'ovpn' => 'OpenVPN',
+        'wg' => 'WireGuard',
+        'am' => 'AM Tunnel',
+        'npv' => 'NPV Tunnel',
+        'injector' => 'HTTP Injector',
+        _ => 'V2Ray',
+      };
+
   /// Dialog then start; returns false if cancelled.
+  /// For HTTP Injector opens the external config finder instead of connecting.
   Future<bool> pickEngineThenStart(Future<void> Function() start) async {
     final e = await pickVpnEngineDialog();
     if (e == null) return false;
     applyPilotEngine(e);
+    if (e == 'injector') {
+      if (mounted) vsOpen(context, VsKind.injector);
+      return true;
+    }
     await start();
     return true;
   }
@@ -1128,9 +1186,7 @@ extension HomeExtras on _HomePageState {
       _pilotForcedIndestructible = true;
     }
     _applyTurboLevers();
-    final eng = pilotEngine == 'ovpn'
-        ? 'OpenVPN'
-        : (pilotEngine == 'wg' ? 'WireGuard' : 'V2Ray');
+    final eng = _engineLabel(pilotEngine);
     _set('خلبان Grok ($eng): تحلیل شبکه و جستجوی بهترین سرور...');
     aiAutopilotStart();
     // immediate bootstrap without waiting for first AI round-trip
@@ -1565,9 +1621,11 @@ extension HomeExtras on _HomePageState {
                           onPressed: () async {
                             await save();
                             if (ctx.mounted) Navigator.pop(ctx);
-                            aiSession = true;
-                            aiAutopilotStart();
-                            connectRow('r:ai');
+                            await pickEngineThenStart(() async {
+                              aiSession = true;
+                              aiAutopilotStart();
+                              await connectRow('r:ai');
+                            });
                           },
                           child: const Text('اتصال به سرور مخصوص AI')),
                       FilledButton(
@@ -2355,9 +2413,7 @@ extension HomeExtras on _HomePageState {
 
   void startLocalPilot() {
     ensureLocalPilotRunning();
-    final eng = pilotEngine == 'ovpn'
-        ? 'OpenVPN'
-        : (pilotEngine == 'wg' ? 'WireGuard' : 'V2Ray');
+    final eng = _engineLabel(pilotEngine);
     localPilotText.value =
         '👑 خلبان فعال شد • موتور: $eng\n'
         '• قدرت خودکار از ۰ تا ∞\n'
