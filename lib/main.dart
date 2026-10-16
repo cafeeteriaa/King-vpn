@@ -240,17 +240,17 @@ const httpProxyPort = 10809;
 // anti-flapping / watchdog
 // A dead / broken server is replaced right away: 2 failed checks (~10 s),
 // no waiting for the 10 minute speed-trial timer.
-Duration watchEvery = const Duration(seconds: 60);
-int watchFailLimit = 3; // consecutive failed checks before switching
-int badPingLimit = 3; // consecutive bad pings (~10 s) before a ping switch
-const minHold = Duration(seconds: 5); // min time between two switches
+Duration watchEvery = const Duration(seconds: 45); // متعادل
+int watchFailLimit = 3;
+int badPingLimit = 3;
+const minHold = Duration(seconds: 6);
 // FASTPATCH ----------------------------------------------------
 int fastPickN = 2; // سریع وصل شو با ۲ سرور سالم؛ بقیه در پس‌زمینه
 int fastPickMs = 8000; // حداکثر ۸ثانیه بعد از اولین سالم
-bool betterSwitch = false; // swap to a clearly better standby server
-const betterGain = 0.8; // ping must be <= 80% of the connected one
-const betterMinGapMs = 30; // ...and at least this many ms lower
-const betterEvery = Duration(minutes: 4); // min gap between swaps (was 90 s)
+bool betterSwitch = true; // فعال ولی سخت‌گیرانه‌تر
+const betterGain = 0.65; // باید حداقل ۳۵٪ بهتر باشد (کمتر تعویض الکی)
+const betterMinGapMs = 40; // حداقل ۴۰ms اختلاف
+const betterEvery = Duration(minutes: 5); // هر ۵ دقیقه حداکثر یک‌بار
 int? connBaseDelay; // test ping of the connected server
 int betterRun = 0;
 bool aiFastOn = true; // parallel Gemini test (off = old one-by-one)
@@ -6498,13 +6498,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // Used immediately when the server is dead / broken / errors out: the
   // fastest known standby (by real speed) takes over, no timer is waited for.
   // STABLEPINGPATCH: always the lowest ping, without frequent cuts
-  static const double _spRatio = 0.7; // candidate must be 30 % better
-  static const int _spMinGain = 50; // and at least 50 ms better
-  static const Duration _spHold = Duration(minutes: 5); // gap between switches
-  static const Duration _spEvery = Duration(seconds: 45); // check rhythm
-  static const Duration _spRefreshEvery = Duration(minutes: 3);
-  static const Duration _spSkipFor = Duration(minutes: 10);
-  static const int _spMaxPerHour = 4;
+  static const double _spRatio = 0.60; // باید حداقل ۴۰٪ بهتر باشد
+  static const int _spMinGain = 70; // حداقل ۷۰ms اختلاف
+  static const Duration _spHold = Duration(minutes: 8); // فاصله بیشتر بین تعویض‌ها
+  static const Duration _spEvery = Duration(seconds: 60); // کمتر چک می‌کند
+  static const Duration _spRefreshEvery = Duration(minutes: 4);
+  static const Duration _spSkipFor = Duration(minutes: 15);
+  static const int _spMaxPerHour = 2; // حداکثر ۲ بار در ساعت
   final List<int> _spWin = []; // live pings of the connected server
   Server? _spFor; // the server the window belongs to
   bool _spBusy = false;
@@ -7661,29 +7661,27 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             } else if (siteSeen) {
               siteFail++;
             } else {
-              // SITENEVER: ping and speed pass, but NO real site (YouTube /
-              // Instagram / Telegram) has ever opened on this server. This
-              // used to be ignored for ever. Now the server is replaced after
-              // 3 checks in a row, if another server is ready. To be safe
-              // when the check itself does not work on this network (sites
-              // blocked everywhere), it stops after 3 such switches in a row.
+              // SITENEVER: تست سایت‌ها روی بعضی شبکه‌ها/هسته‌ها ناپایدار است
+              // (پورت پروکسی گاهی بسته گزارش می‌شود). بنابراین خیلی دیرتر
+              // و با محدودیت بیشتر تعویض می‌کنیم تا تعویض الکی کم شود.
               siteNever++;
-              if (siteNever >= 3 &&
-                  siteNeverSwitches < 3 &&
+              if (siteNever >= 6 &&
+                  siteNeverSwitches < 2 &&
                   _ready() > 0 &&
                   DateTime.now().difference(lastSwitch) >
-                      const Duration(seconds: 20)) {
+                      const Duration(seconds: 45)) {
                 siteNever = 0;
                 siteNeverSwitches++;
-                current?.svc = 0; // Telegram / Instagram do not open here
+                current?.svc = 0;
                 lastWhy = 'سایت‌ها از ابتدا باز نمی‌شوند';
                 await _failover();
                 return;
               }
             }
-            if (siteFail >= 2 &&
+            // siteFail هم سخت‌گیرانه‌تر شد
+            if (siteFail >= 4 &&
                 DateTime.now().difference(lastSwitch) >
-                    const Duration(seconds: 20)) {
+                    const Duration(seconds: 40)) {
               siteFail = 0;
               lastWhy = 'سایت‌ها باز نمی‌شوند';
               await _failover();
