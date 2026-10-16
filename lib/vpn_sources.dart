@@ -269,7 +269,7 @@ String _vsExpand(String body) {
     final c = t.replaceAll(RegExp(r'\s'), '');
     return utf8.decode(base64.decode(base64.normalize(c)), allowMalformed: true);
   } catch (e) {
-    logError(e);
+    debugPrint("err: $e");
     return t;
   }
 }
@@ -278,7 +278,7 @@ String _vsDec(String s) {
   try {
     return Uri.decodeComponent(s);
   } catch (e) {
-    logError(e);
+    debugPrint("err: $e");
     return s;
   }
 }
@@ -339,7 +339,7 @@ _Hp? _vsHostPort(String link) {
     final at = rest.lastIndexOf('@');
     return _vsSplitHp(at >= 0 ? rest.substring(at + 1) : rest, name);
   } catch (e) {
-    logError(e);
+    debugPrint("err: $e");
     return null;
   }
 }
@@ -352,7 +352,7 @@ Future<int?> _vsProbe(String host, int port) async {
     s.destroy();
     return sw.elapsedMilliseconds;
   } catch (e) {
-    logError(e);
+    debugPrint("err: $e");
     return null;
   }
 }
@@ -385,7 +385,7 @@ Future<String?> _vsGetOnce(String url, int sec) async {
     if (r.statusCode != 200) return null;
     return utf8.decode(r.bodyBytes, allowMalformed: true);
   } catch (e) {
-    logError(e);
+    debugPrint("err: $e");
     return null;
   }
 }
@@ -438,7 +438,7 @@ Future<Set<String>> _vsLoadSeen(String id) async {
     final p = await SharedPreferences.getInstance();
     return (p.getStringList('vsrc_seen_$id') ?? <String>[]).toSet();
   } catch (e) {
-    logError(e);
+    debugPrint("err: $e");
     return <String>{};
   }
 }
@@ -623,7 +623,7 @@ Future<List<VsItem>> _findVpnGate(VsSpec spec, _VsState st, Set<String> seen) as
       ovpn = utf8.decode(base64.decode(base64.normalize(f[14].trim())),
           allowMalformed: true);
     } catch (e) {
-      logError(e);
+      debugPrint("err: $e");
       continue;
     }
     if (!ovpn.contains('remote')) continue;
