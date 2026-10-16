@@ -1455,9 +1455,10 @@ void logError(Object e) {
   errorLog.value = e.toString();
 }
 
-// Minimal real-VPN config: same as the delay test, plus reliable DNS only.
-// No Mux / Fragment / heavy Iran routing — those made free servers look
-// connected while Telegram / Instagram / YouTube stayed dead.
+// Real-VPN config: keep the delay-test config as close as possible.
+// Only ensure DNS + sniffing are sane. Under national mode we MUST preserve
+// Iranian / operator DNS that the matrix found (overwriting with 1.1.1.1/8.8.8.8
+// made many servers "CONNECTED" while no traffic passed on filtered networks).
 String _reliableVpnCfg(String cfg) {
   try {
     final j = jsonDecode(cfg);
@@ -1465,14 +1466,32 @@ String _reliableVpnCfg(String cfg) {
     final d = j['dns'] is Map
         ? Map<String, dynamic>.from(j['dns'] as Map)
         : <String, dynamic>{};
-    d['servers'] = <dynamic>[
-      '1.1.1.1',
-      '8.8.8.8',
-      '9.9.9.9',
-      '1.0.0.1',
-      'https://1.1.1.1/dns-query',
-      'https://8.8.8.8/dns-query',
-    ];
+    final existing = d['servers'];
+    final hasServers = existing is List && existing.isNotEmpty;
+    // National / ultra / indestructible: keep matrix DNS (often Iranian).
+    // Normal mode: force a known-good global set so free servers resolve.
+    if (!nationalMode && !ultraMode && !indestructibleMode) {
+      d['servers'] = <dynamic>[
+        '1.1.1.1',
+        '8.8.8.8',
+        '9.9.9.9',
+        '1.0.0.1',
+        'https://1.1.1.1/dns-query',
+        'https://8.8.8.8/dns-query',
+      ];
+    } else if (!hasServers) {
+      // National but config had no DNS: use Iranian-first fallback
+      d['servers'] = <dynamic>[
+        '178.22.122.100',
+        '185.51.200.2',
+        '78.157.42.100',
+        '10.202.10.10',
+        '1.1.1.1',
+        '8.8.8.8',
+        'https://1.1.1.1/dns-query',
+      ];
+    }
+    // else: keep the matrix DNS untouched
     d['queryStrategy'] = 'UseIPv4';
     j['dns'] = d;
     final rt = j['routing'] is Map
@@ -2038,13 +2057,17 @@ Future<bool?> tunUp() async {
     if (l.isEmpty) return null;
     return l.any((i) {
       final n = i.name.toLowerCase();
-      // tun0, ppp0, wg0, vpn0, and names containing these (OEM variants)
+      // tun0, ppp0, wg0, vpn0, rmnet_data (some OEMs), and names containing these
       return n.startsWith('tun') ||
           n.startsWith('ppp') ||
           n.startsWith('wg') ||
           n.startsWith('vpn') ||
+          n.startsWith('ipsec') ||
+          n.startsWith('tap') ||
           n.contains('tun') ||
-          n.contains('ppp');
+          n.contains('ppp') ||
+          n.contains('vpn') ||
+          n.contains('ipsec');
     });
   } catch (_swE) { _swl('tunUp#1', _swE);
     return null;
@@ -4977,6 +5000,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       bool? t;
       var ready = false;
+      // National / slow networks: give the core and the OEM VPN service more time
+      final connWait = (nationalMode || indestructibleMode)
+          ? const Duration(seconds: 22)
+          : const Duration(seconds: 15);
+      final tunWait1 = (nationalMode || indestructibleMode) ? 1200 : 700;
+      final tunWait2 = (nationalMode || indestructibleMode) ? 1500 : 900;
       for (var attempt = 0; attempt < 2; attempt++) {
         connSig = Completer<bool>();
         // blockedApps = apps that skip the VPN (null when none are chosen,
@@ -4988,14 +5017,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             blockedApps: bypassApps.isEmpty ? null : bypassApps);
         // the core must report CONNECTED (it can hang in CONNECTING)
         ready = await connSig!.future
-            .timeout(const Duration(seconds: 15), onTimeout: () => false);
+            .timeout(connWait, onTimeout: () => false);
         t = null;
         if (ready) {
-          // give the tunnel time to appear (FASTCONNECT: shorter wait)
-          await Future.delayed(const Duration(milliseconds: 700));
+          // give the tunnel time to appear (OEM devices can be slow)
+          await Future.delayed(Duration(milliseconds: tunWait1));
           t = await tunUp();
           if (t == false) {
-            await Future.delayed(const Duration(milliseconds: 900));
+            await Future.delayed(Duration(milliseconds: tunWait2));
+            t = await tunUp();
+          }
+          // one more chance on national: some OEMs expose tun late
+          if (t == false && (nationalMode || indestructibleMode)) {
+            await Future.delayed(const Duration(milliseconds: 1200));
             t = await tunUp();
           }
         }
@@ -5298,15 +5332,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (!lastStartNoTunnel && !pin && !noAct) s.badAt = DateTime.now();
         if (noAct) {
           errorLog.value = 'مجوز VPN: Activity آماده نیست — تلاش بعدی…';
-          await Future.delayed(const Duration(milliseconds: 500));
+          // Give the Activity more time to come back (common after ad / screen)
+          await Future.delayed(Duration(
+              milliseconds: inForeground ? 800 : 1500));
           if (abort) return false;
-          // one quiet retry after a short wait (Activity may have resumed)
-          if (inForeground && await _start(s)) {
-            // success — fall through to post-start checks
-          } else {
+          // up to 2 quiet retries (Activity may have resumed)
+          var recovered = false;
+          for (var r = 0; r < 2 && !recovered && !abort; r++) {
+            if (inForeground || vpnPermOk) {
+              if (await _start(s)) {
+                recovered = true;
+                break;
+              }
+            }
+            await Future.delayed(const Duration(milliseconds: 700));
+          }
+          if (!recovered) {
             dbg('رد شد (Activity): ${s.name} • ${lastFail}');
             continue;
           }
+          // success — fall through to post-start checks
         } else {
           errorLog.value =
               '${s.name}: ${lastFail.isEmpty ? 'شروع نشد' : lastFail}';
@@ -5324,10 +5369,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!trust && !pin) {
         int? p;
         final pingT0 = DateTime.now(); // PINGLOGPATCH
-        for (var i = 0; i < (nationalMode ? 3 : 2) && p == null && !abort; i++) {
+        // National: more retries + longer waits — tunnel/DNS can be slow to settle
+        final pingTries = nationalMode || indestructibleMode ? 5 : 2;
+        final pingSec = nationalMode || indestructibleMode ? 14 : 7;
+        for (var i = 0; i < pingTries && p == null && !abort; i++) {
           p = await pingAny(
-              total: Duration(seconds: nationalMode ? 12 : 7), direct: true);
-          if (p == null) await Future.delayed(const Duration(milliseconds: 300));
+              total: Duration(seconds: pingSec), direct: true);
+          if (p == null) {
+            await Future.delayed(Duration(
+                milliseconds: nationalMode ? 600 : 300));
+          }
         }
         dbg(p == null
             ? 'اتصال: ${s.name} هسته CONNECTED ولی پینگ از تونل رد نشد '
