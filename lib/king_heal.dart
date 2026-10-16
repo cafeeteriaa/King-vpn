@@ -58,11 +58,13 @@ int _hSyncFix = 0;
 
 extension KingHealEngine on _HomePageState {
   /// نقطهٔ ورود اصلی — از واچ‌داگ، خلبان، و بعد از خطا
+  /// نسخهٔ تهاجمی: سریع‌تر حس می‌کند، زودتر وارد عمل می‌شود، کمتر صبر می‌کند
   Future<void> kingSelfHeal({String reason = ''}) async {
     if (!mounted) return;
     final now = DateTime.now();
+    // فاصلهٔ بین چرخه‌ها کمتر شد (۸ → ۴ ثانیه)
     if (_healLastRun != null &&
-        now.difference(_healLastRun!) < const Duration(seconds: 8)) {
+        now.difference(_healLastRun!) < const Duration(seconds: 4)) {
       return;
     }
     if (busy && switching && reason != 'force') return;
@@ -103,10 +105,11 @@ extension KingHealEngine on _HomePageState {
         _healPhase = _HealPhase.idle;
         return;
       }
+      // فاصلهٔ بین اقدامات تکراری کمتر شد (۲۰ → ۱۰ ثانیه)
       if (_healLastAct != null &&
-          now.difference(_healLastAct!) < const Duration(seconds: 20) &&
+          now.difference(_healLastAct!) < const Duration(seconds: 10) &&
           plan.$1 == _healLastAction) {
-        kingHealText.value = '⏳ همان اقدام اخیراً انجام شد — صبر';
+        kingHealText.value = '⏳ همان اقدام اخیراً انجام شد — صبر کوتاه';
         return;
       }
 
@@ -191,10 +194,10 @@ extension KingHealEngine on _HomePageState {
       _hNoHealthy = 0;
     }
 
-    // لیست سیاه متورم
-    if (failed.length > 80 && good.length < 3) {
+    // لیست سیاه متورم — حساس‌تر
+    if (failed.length > 40 && good.length < 5) {
       out.add(_HealSignal(
-          'blacklist', 7, 'لیست سیاه ${failed.length} — ممکن است سرورهای خوب قفل شده باشند'));
+          'blacklist', 8, 'لیست سیاه ${failed.length} — ممکن است سرورهای خوب قفل شده باشند'));
     }
 
     // علت آخرین تعویض / وضعیت
@@ -214,26 +217,26 @@ extension KingHealEngine on _HomePageState {
       _hNoTun = 0;
     }
 
-    // پینگ بد روی اتصال جاری
+    // پینگ بد روی اتصال جاری — حساس‌تر (از ۲ بار به ۱ بار)
     final cp = current?.ping;
     if (connected && cp != null && cp > badPingMs) {
       _hBadPing++;
-      if (_hBadPing >= 2) {
-        out.add(_HealSignal('bad_ping', 5, 'پینگ ${cp}ms'));
+      if (_hBadPing >= 1) {
+        out.add(_HealSignal('bad_ping', 6, 'پینگ ${cp}ms'));
       }
     } else {
       _hBadPing = 0;
     }
 
-    // سرعت صفر طولانی
+    // سرعت صفر — زودتر وارد عمل می‌شود (۴۵ ثانیه → ۲۵ ثانیه، آستانه ۱)
     final sp = current?.speed;
     if (connected &&
-        (sp == null || sp < 0.05) &&
+        (sp == null || sp < 0.08) &&
         _healStableSince != null &&
-        DateTime.now().difference(_healStableSince!).inSeconds > 45) {
+        DateTime.now().difference(_healStableSince!).inSeconds > 25) {
       _hNoData++;
-      if (_hNoData >= 2) {
-        out.add(_HealSignal('no_data', 6, 'سرعت نزدیک صفر'));
+      if (_hNoData >= 1) {
+        out.add(_HealSignal('no_data', 7, 'سرعت نزدیک صفر'));
       }
     } else {
       _hNoData = 0;
@@ -315,14 +318,17 @@ extension KingHealEngine on _HomePageState {
       );
     }
     if (ids.contains('no_data') || ids.contains('bad_ping')) {
-      // فقط اگر uptime کافی باشد failover
+      // تهاجمی‌تر: بعد از ۶۰ ثانیه پایداری، تعویض کند
       final up = _healStableSince == null
           ? 999
           : DateTime.now().difference(_healStableSince!).inSeconds;
-      if (up >= 120 && good.length > 1) {
-        return ('failover_soft', 'کندی پایدار — تعویض نرم', params);
+      if (up >= 60 && good.length > 0) {
+        return ('failover_soft', 'کندی پایدار — تعویض نرم تهاجمی', params);
       }
-      return ('none', 'کندی موقت — صبر', params);
+      if (up >= 30) {
+        return ('force_turbo', 'کندی — تقویت Mux/توربو', params);
+      }
+      return ('none', 'کندی خیلی کوتاه — صبر', params);
     }
     if (ids.contains('turbo_off')) {
       return ('force_turbo', 'اعمال Mux/توربو بدون قطع', params);
@@ -362,7 +368,8 @@ extension KingHealEngine on _HomePageState {
           abort = false;
           wantVpn = true;
           turboSpeed = true;
-          if (!muxEnabled) muxEnabled = true;
+          muxEnabled = true;
+          muxConc = max(muxConc, 28);
           if (!busy && !switching) await connect();
           return connected || busy;
 
@@ -376,20 +383,24 @@ extension KingHealEngine on _HomePageState {
 
         case 'soft_clear_blacklist':
         case 'soft_clear_and_search':
+          // تهاجمی‌تر: سرورهای قدیمی‌تر از ۱۰ دقیقه آزاد می‌شوند
           final cut =
-              DateTime.now().subtract(const Duration(minutes: 20));
+              DateTime.now().subtract(const Duration(minutes: 10));
           failed.removeWhere((_, t) => t.isBefore(cut));
-          // نصف قدیمی‌ها را هم آزاد کن اگر هنوز شلوغ است
-          if (failed.length > 100) {
+          // اگر هنوز شلوغ است، ۷۰٪ قدیمی‌ها را آزاد کن
+          if (failed.length > 60) {
             final keys = failed.keys.toList();
-            for (var i = 0; i < keys.length ~/ 2; i++) {
+            final removeCount = (keys.length * 0.7).round();
+            for (var i = 0; i < removeCount && i < keys.length; i++) {
               failed.remove(keys[i]);
             }
           }
-          dbg('خودترمیمی: سیاه‌لیست → ${failed.length}');
+          dbg('خودترمیمی تهاجمی: سیاه‌لیست → ${failed.length}');
           if (action == 'soft_clear_and_search') {
             abort = false;
             wantVpn = true;
+            listTime = null;
+            lastFetchTry = DateTime.fromMillisecondsSinceEpoch(0);
             if (!busy) await connect();
           }
           return true;
@@ -429,11 +440,15 @@ extension KingHealEngine on _HomePageState {
         case 'force_turbo':
           turboSpeed = true;
           muxEnabled = true;
-          muxConc = max(muxConc, 24);
+          muxConc = max(muxConc, 32);
           if (!nationalMode) fragEnabled = false;
           try {
             await _saveSettings();
           } catch (_) {}
+          // اگر وصل نیست، فوراً وصل شو
+          if (wantVpn && !connected && !busy) {
+            await connect();
+          }
           return true;
 
         default:
