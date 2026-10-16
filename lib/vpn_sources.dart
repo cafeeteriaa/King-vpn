@@ -743,18 +743,29 @@ Future<void> vsRefresh(VsSpec spec) async {
 VsSpec vsSpecOf(VsKind k) => vsSpecs.firstWhere((s) => s.kind == k);
 
 void vsOpen(BuildContext context, VsKind k,
-    {Future<void> Function(String link)? onConnect}) {
+    {Future<void> Function(String link)? onConnect, bool showCopy = true}) {
   Navigator.push(
       context,
       MaterialPageRoute(
-          builder: (_) => VsPage(spec: vsSpecOf(k), onConnect: onConnect)));
+          builder: (_) => VsPage(
+                spec: vsSpecOf(k),
+                onConnect: onConnect,
+                showCopy: showCopy,
+              )));
 }
 
 class VsPage extends StatefulWidget {
   final VsSpec spec;
-  // connects the app itself to a link (only Hiddify / HTTP Injector pages)
+  // connects the app itself to a link (Hiddify / Injector / AM / NPV)
   final Future<void> Function(String link)? onConnect;
-  const VsPage({super.key, required this.spec, this.onConnect});
+  /// اگر false باشد دکمهٔ کپی مخفی است (مسیر «اتصال»)
+  final bool showCopy;
+  const VsPage({
+    super.key,
+    required this.spec,
+    this.onConnect,
+    this.showCopy = true,
+  });
   @override
   State<VsPage> createState() => _VsPageState();
 }
@@ -807,7 +818,7 @@ class _VsPageState extends State<VsPage> {
         trailing: Row(mainAxisSize: MainAxisSize.min, children: [
           if (canConnect)
             IconButton(
-              tooltip: 'اتصال داخل اپ',
+              tooltip: 'اتصال',
               icon: const Icon(Icons.power_settings_new),
               onPressed: () {
                 final cb = widget.onConnect!;
@@ -815,12 +826,13 @@ class _VsPageState extends State<VsPage> {
                 cb(it.text);
               },
             ),
-          IconButton(
-            tooltip: 'کپی',
-            icon: const Icon(Icons.copy),
-            onPressed: () => _copy(
-                it.text, isOvpn ? 'متن .ovpn کپی شد' : 'کانفیگ کپی شد'),
-          ),
+          if (widget.showCopy)
+            IconButton(
+              tooltip: 'کپی',
+              icon: const Icon(Icons.copy),
+              onPressed: () => _copy(
+                  it.text, isOvpn ? 'متن .ovpn کپی شد' : 'کانفیگ کپی شد'),
+            ),
         ]),
       ),
     );
@@ -836,7 +848,9 @@ class _VsPageState extends State<VsPage> {
           valueListenable: st.tick,
           builder: (ctx, _, _) {
             final items = st.items;
-            final canCopyAll = items.isNotEmpty && spec.kind != VsKind.vpnclient;
+            final canCopyAll = widget.showCopy &&
+                items.isNotEmpty &&
+                spec.kind != VsKind.vpnclient;
             return Column(children: [
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
@@ -852,7 +866,7 @@ class _VsPageState extends State<VsPage> {
                               : '🔄 جستجوی تازه (سرور جدید)')),
                     ),
                   ),
-                  if (spec.kind != VsKind.vpnclient) ...[
+                  if (widget.showCopy && spec.kind != VsKind.vpnclient) ...[
                     const SizedBox(width: 8),
                     OutlinedButton(
                       onPressed: canCopyAll
