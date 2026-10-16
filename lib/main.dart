@@ -5459,65 +5459,105 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           continue;
         }
       }
-      // STRICT: verify through the CORE local proxy (not DIRECT).
-      // Only accept servers that open real sites (Telegram/YouTube/IG path).
-      if (!trust && !pin && !nationalMode && !proxyMode && !await _coreProxyOpen()) {
-        dbg('چک سایت‌ها ${s.name}: پورت هسته در حالت VPN بسته است؛ '
-            'تست واقعی قبل از اتصال (بی‌صدا) انجام شد');
-      }
-      if (!trust && !pin && !nationalMode && (proxyMode || await _coreProxyOpen())) {
-        _set('بررسی ترافیک واقعی روی ${s.name}...');
-        // wait until core HTTP port is ready
-        if (proxyMode || (await tunUp()) != true) {
-          await waitProxyPort(max: const Duration(seconds: 4));
+      // STRICT: Telegram / YouTube / Instagram must open through the tunnel.
+      // Also runs under national mode (softer retries + ladder before reject).
+      if (!trust && !pin) {
+        final needSocial = !proxyMode;
+        if (needSocial && !await _coreProxyOpen()) {
+          // VPN mode: traffic goes via tun; still try site checks with viaCore
+          dbg('چک سایت‌ها ${s.name}: پورت هسته ممکن است بسته باشد؛ تست مستقیم تونل');
         }
-        if (abort) return false;
-        final r = await Future.wait([
-          _siteOpens('https://cp.cloudflare.com/generate_204', viaCore: true),
-          _siteOpens('https://www.gstatic.com/generate_204', viaCore: true),
-          _siteOpens('https://telegram.org/', viaCore: true),
-          _siteOpens('https://www.youtube.com/generate_204', viaCore: true),
-          _siteOpens('https://www.instagram.com/', viaCore: true),
-        ]);
-        if (abort) return false;
-        final sitesOk = r.where((x) => x).length;
-        // FIXSOCIAL: cloudflare/gstatic alone are not enough: at least one of
-        // Telegram / YouTube / Instagram must really open through the tunnel
-        final socialOk = r[2] || r[3] || r[4];
-        dbg('چک سایت‌ها ${s.name}: cloudflare=${r[0]} gstatic=${r[1]} '
-            'telegram=${r[2]} youtube=${r[3]} instagram=${r[4]}');
-        final sp = await measure(
-            win: const Duration(seconds: 2),
-            total: const Duration(seconds: 6),
-            viaCore: true);
-        if (abort) return false;
-        final speedOk = sp != null && sp >= 0.08;
-        // Need at least 2 real endpoints OR (1 endpoint + download)
-        final accept = socialOk && (sitesOk >= 2 || speedOk);
-        if (!accept) {
-          siteSkips++;
-          s.svc = 0;
-          s.badAt = DateTime.now();
-          await _stopV2();
-          final ip2 = await resolveHostIp(s.host);
-          final why = (sitesOk == 0 || !socialOk)
-              ? 'تلگرام/اینستاگرام/یوتیوب از تونل باز نشد'
-              : 'ترافیک واقعی کافی نبود (سایت=$sitesOk سرعت=${sp?.toStringAsFixed(2) ?? "-"})';
-          dbg('اتصال: ${s.name} رد شد — $why • سرور بعدی');
-          dbg(configFailMsg(
-            s.link,
-            'چک ترافیک واقعی از پروکسی هسته',
-            why,
-            ovpnText: s.ovpnConf,
-            knownIp: ip2,
-          ));
-          errorLog.value = '${s.name}: $why — سرور بعدی…';
-          continue;
+        if (needSocial || proxyMode) {
+          _set('بررسی تلگرام/اینستا/یوتیوب روی ${s.name}...');
+          if (proxyMode || (await tunUp()) != true) {
+            await waitProxyPort(
+                max: Duration(seconds: nationalMode ? 8 : 4));
+          }
+          if (abort) return false;
+
+          Future<List<bool>> runSocial() async {
+            final checks = await Future.wait([
+              _siteOpens('https://telegram.org/', viaCore: true),
+              _siteOpens('https://web.telegram.org/', viaCore: true),
+              _siteOpens('https://www.youtube.com/generate_204', viaCore: true),
+              _siteOpens('https://www.youtube.com/', viaCore: true),
+              _siteOpens('https://www.instagram.com/', viaCore: true),
+              _siteOpens('https://i.instagram.com/', viaCore: true),
+              _siteOpens('https://cp.cloudflare.com/generate_204', viaCore: true),
+              _siteOpens('https://www.gstatic.com/generate_204', viaCore: true),
+            ]);
+            return checks;
+          }
+
+          var r = await runSocial();
+          if (abort) return false;
+          bool tg = r[0] || r[1];
+          bool yt = r[2] || r[3];
+          bool ig = r[4] || r[5];
+          bool socialOk = tg || yt || ig;
+          // National / slow: one more pass after short settle
+          if (!socialOk && (nationalMode || indestructibleMode)) {
+            await Future.delayed(const Duration(milliseconds: 800));
+            r = await runSocial();
+            tg = r[0] || r[1];
+            yt = r[2] || r[3];
+            ig = r[4] || r[5];
+            socialOk = tg || yt || ig;
+          }
+          dbg('چک سایت‌ها ${s.name}: tg=$tg yt=$yt ig=$ig '
+              'cf=${r[6]} gs=${r[7]}');
+
+          if (!socialOk &&
+              (nationalMode || ultraMode || indestructibleMode) &&
+              !abort &&
+              wantVpn) {
+            // Same server, other matrix variants — often fixes social path
+            await _stopV2();
+            if (await _natLadder(s)) {
+              await Future.delayed(const Duration(milliseconds: 500));
+              r = await runSocial();
+              tg = r[0] || r[1];
+              yt = r[2] || r[3];
+              ig = r[4] || r[5];
+              socialOk = tg || yt || ig;
+              if (socialOk) {
+                s.svc = (tg ? 1 : 0) | (yt ? 2 : 0) | (ig ? 4 : 0);
+                if (s.svc == 0) s.svc = 1;
+                _onConnected(s);
+                return true;
+              }
+            }
+            // ladder left core down — continue to reject path
+          }
+
+          final sp = await measure(
+              win: const Duration(seconds: 2),
+              total: Duration(seconds: nationalMode ? 10 : 6),
+              viaCore: true);
+          if (abort) return false;
+          final speedOk = sp != null && sp >= 0.08;
+          final socialCount = (tg ? 1 : 0) + (yt ? 1 : 0) + (ig ? 1 : 0);
+          // حداقل یکی از تلگرام/یوتیوب/اینستا باید باز شود
+          final accept2 = socialCount >= 1 &&
+              (socialCount >= 2 || speedOk || nationalMode);
+
+          if (!accept2) {
+            siteSkips++;
+            s.svc = 0;
+            s.badAt = DateTime.now();
+            await _stopV2();
+            final why =
+                'تلگرام/اینستاگرام/یوتیوب از تونل باز نشد (tg=$tg yt=$yt ig=$ig)';
+            dbg('اتصال: ${s.name} رد شد — $why • سرور بعدی');
+            errorLog.value = '${s.name}: $why — سرور بعدی…';
+            continue;
+          }
+          if (sp != null) s.speed = sp;
+          s.svc = (tg ? 1 : 0) | (yt ? 2 : 0) | (ig ? 4 : 0);
+          if (s.svc == 0) s.svc = 1;
+          dbg('اتصال: ${s.name} اجتماعی OK • tg=$tg yt=$yt ig=$ig • '
+              'سرعت=${sp?.toStringAsFixed(2) ?? "-"} MB/s');
         }
-        if (sp != null) s.speed = sp;
-        s.svc = s.svc < 0 ? 1 : (s.svc | 1);
-        dbg('اتصال: ${s.name} ترافیک OK • سایت=$sitesOk • '
-            'سرعت=${sp?.toStringAsFixed(2) ?? "-"} MB/s');
       }
       _onConnected(s);
       return true;
