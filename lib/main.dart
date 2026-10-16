@@ -9712,9 +9712,11 @@ UiHero(
             child: OutlinedButton.icon(
               onPressed: (busy || connected)
                   ? null
-                  : () {
-                      natForce = true;
-                      connect();
+                  : () async {
+                      await pickEngineThenStart(() async {
+                        natForce = true;
+                        await connect();
+                      });
                     },
               icon: const Icon(Icons.public_off),
               label: const Text('جستجوی سرور با نت ملی'),
@@ -9758,7 +9760,9 @@ UiHero(
                 builder: (_) => SafeArea(
                     child: SingleChildScrollView(child: tgProxyRow(context))))),
             UiTool(Icons.push_pin_outlined, 'کانفیگ‌های من', () => connectRow('f:mine')),
-            UiTool(Icons.auto_awesome, 'سرورهای AI', () => connectRow('r:ai')),
+            UiTool(Icons.auto_awesome, 'سرورهای AI', () async {
+              await pickEngineThenStart(() => connectRow('r:ai'));
+            }),
             UiTool(Icons.pin_outlined, 'اتصال با IP', () => connectRow('r:ip')),
             UiTool(Icons.cloud_outlined, 'CDN / کلودفلر', () => connectRow('r:cdn')),
             UiTool(Icons.shield_outlined, 'Reality', () => connectRow('r:reality')),
