@@ -155,6 +155,16 @@ class MainActivity : FlutterActivity() {
         super.onCreate(savedInstanceState)
     }
 
+    // required by openvpn_flutter so the VPN permission result starts the tunnel
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        try {
+            id.laskarmedia.openvpn_flutter.OpenVPNFlutterPlugin.connectWhileGranted(
+                requestCode == 24 && resultCode == RESULT_OK
+            )
+        } catch (e: Exception) {}
+        super.onActivityResult(requestCode, resultCode, data)
+    }
+
     override fun onDestroy() {
         val finishing = isFinishing
         if (liveActivity === this) liveActivity = null
