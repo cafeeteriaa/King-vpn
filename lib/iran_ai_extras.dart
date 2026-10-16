@@ -650,7 +650,7 @@ void aiShow(String raw) {
           }
         });
       }
-    } catch (_) {}
+    } catch (e) { logError(e); }
   }
   text = text.replaceAll('```json', '').replaceAll('```', '').trim();
   aiText.value = text.isEmpty ? raw : text;
@@ -722,7 +722,7 @@ Future<http.Response?> _raceGet(List<String> urls, Duration t) {
       if (r.statusCode == 200 && r.body.isNotEmpty && !c.isCompleted) {
         c.complete(r);
       }
-    }).catchError((_) {}).whenComplete(() {
+    }).catchError((e) { logError(e); }).whenComplete(() {
       if (--left == 0 && !c.isCompleted) c.complete(null);
     });
   }
@@ -994,7 +994,7 @@ extension HomeExtras on _HomePageState {
               }
               applyAiSuggest();
               return;
-            } catch (_) {}
+            } catch (e) { logError(e); }
           }
           if (auto) return; // خودکار: اتصال را به‌هم نمی‌زنیم
           final has =
@@ -1453,7 +1453,7 @@ extension HomeExtras on _HomePageState {
           aiShow(await grokAsk(grokPilotPrompt()));
           applyAiSuggest();
           await aiRunAction();
-        } catch (_) {}
+        } catch (e) { logError(e); }
       } else if (_usable().any((s) => s.ai == true && !identical(s, current))) {
         await connectRow('r:ai');
       }
@@ -1463,7 +1463,7 @@ extension HomeExtras on _HomePageState {
       if (aiSession && wantVpn && !connected && !busy) {
         try {
           await connect();
-        } catch (_) {}
+        } catch (e) { logError(e); }
       }
     } finally {
       aiLoading.value = false;
@@ -1882,7 +1882,7 @@ extension HomeExtras on _HomePageState {
       out['yt'] = rs[1] == true;
       out['ig'] = rs[2] == true;
       out['net'] = rs[3] == true || out['tg'] == true || out['yt'] == true;
-    } catch (_) {}
+    } catch (e) { logError(e); }
     return out;
   }
 
@@ -1938,7 +1938,7 @@ extension HomeExtras on _HomePageState {
         op = natOpKey;
         _localLastOp = natOpKey;
       }
-    } catch (_) {}
+    } catch (e) { logError(e); }
 
     String proto = '-', net = '-', sec = '-';
     int? ping;
@@ -1950,7 +1950,7 @@ extension HomeExtras on _HomePageState {
         proto = spec.protocol;
         net = spec.network;
         sec = spec.security;
-      } catch (_) {}
+      } catch (e) { logError(e); }
       ping = current!.ping;
       if (current!.speed != null && current!.speed! > 0) {
         spd = current!.speed;
@@ -2210,10 +2210,10 @@ extension HomeExtras on _HomePageState {
                     (_localOpWins['$op|soft_recover'] ?? 0) + 1;
               }
             }
-          } catch (_) {}
+          } catch (e) { logError(e); }
           try {
             unawaited(_measureCurrent(current!));
-          } catch (_) {}
+          } catch (e) { logError(e); }
         }
         break;
       case 'switch_best':
@@ -2238,7 +2238,7 @@ extension HomeExtras on _HomePageState {
             try {
               final p = describeConfig(s.link).protocol;
               if (curProto.isNotEmpty && p != curProto) sc += 15; // تنوع پروتکل
-            } catch (_) {}
+            } catch (e) { logError(e); }
             if (sc > bestScore) {
               bestScore = sc;
               best = s;
@@ -2321,10 +2321,10 @@ extension HomeExtras on _HomePageState {
 
       try {
         await natDetectOperator();
-      } catch (_) {}
+      } catch (e) { logError(e); }
       try {
         await _natDetect();
-      } catch (_) {}
+      } catch (e) { logError(e); }
 
       // قدرت را هر تیک با شبکه هماهنگ کن (تمام‌اتوماتیک)
       final wantPower = _localAutoPickPower();
@@ -2355,7 +2355,7 @@ extension HomeExtras on _HomePageState {
       await _localApply(decision);
       try {
         await kingSelfHeal(reason: 'pilot');
-      } catch (_) {}
+      } catch (e) { logError(e); }
 
       // اگر هنوز قطع است دوباره وصل کن
       if (localPilotOn && wantVpn && !connected && !busy && !switching) {
@@ -2373,7 +2373,7 @@ extension HomeExtras on _HomePageState {
       if (localPilotOn && wantVpn && !connected && !busy) {
         try {
           await connect();
-        } catch (_) {}
+        } catch (e) { logError(e); }
       }
     } finally {
       localPilotLoading.value = false;
@@ -2453,13 +2453,13 @@ extension HomeExtras on _HomePageState {
       autoCycle = true;
       try {
         natGrow((80 + p * 20).clamp(80, 600).toInt());
-      } catch (_) {}
+      } catch (e) { logError(e); }
     }
     if (p >= 8) {
       indestructibleMode = true;
       try {
         natGrow((150 + p * 25).clamp(150, 800).toInt());
-      } catch (_) {}
+      } catch (e) { logError(e); }
     }
     // Fragment فقط وقتی شبکه سخت است (نت ملی / قدرت بالا)
     fragEnabled = p >= 5 && (nationalMode || natForce);
@@ -2570,12 +2570,12 @@ extension HomeExtras on _HomePageState {
         await natDetectOperator();
         try {
           await _natDetect();
-        } catch (_) {}
+        } catch (e) { logError(e); }
         final want = _localAutoPickPower();
         if (want != _localPower) {
           _localApplyMaxPowerProfile(power: want);
         }
-      } catch (_) {}
+      } catch (e) { logError(e); }
     }());
   }
 
@@ -2592,7 +2592,7 @@ extension HomeExtras on _HomePageState {
         await natDetectOperator();
         try {
           await _natDetect();
-        } catch (_) {}
+        } catch (e) { logError(e); }
         final want = _localAutoPickPower();
         _localApplyMaxPowerProfile(power: want);
         if (nationalMode || _localPower >= 4) {
