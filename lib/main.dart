@@ -8965,7 +8965,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       ),
                       onTap: () {
                         Navigator.pop(ctx);
-                        vsOpen(context, s.kind);
+                        final canInApp = s.kind == VsKind.hiddify ||
+                            s.kind == VsKind.injector;
+                        vsOpen(
+                          context,
+                          s.kind,
+                          onConnect: canInApp
+                              ? (link) async {
+                                  await vsConnect(link);
+                                }
+                              : null,
+                        );
                       },
                     ),
                   ),
