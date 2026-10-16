@@ -3104,9 +3104,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return -1;
   }
 
-  // TGWATCH: while connected, Telegram must keep opening. Every 3 minutes it
+  // TGWATCH: while connected, Telegram must keep opening. Every ~45 seconds it
   // is checked through the tunnel (only when other sites DO open, so a dead
-  // internet is not blamed on Telegram). Two "no" answers in a row mark the
+  // internet is not blamed on Telegram). One "no" answer marks the
   // server and the next server (Telegram ones first) takes over.
   DateTime _tgChkAt = DateTime.fromMillisecondsSinceEpoch(0);
   int _tgChkBad = 0;
