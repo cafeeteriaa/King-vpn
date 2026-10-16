@@ -1282,8 +1282,8 @@ extension HomeExtras on _HomePageState {
                     localPilotOn ? Icons.flight_land : Icons.rocket_launch,
                     size: 18),
                 label: Text(localPilotOn
-                    ? '⏹ توقف خلبان محلی (بدون API)'
-                    : '👑 خلبان محلی King — بدون کلید API · از اتصال تا قطع'),
+                    ? '⏹ توقف خلبان King Pro'
+                    : '👑 خلبان King Pro — بدون API · هوشمندتر از AI ابری'),
                 style: FilledButton.styleFrom(
                   backgroundColor: localPilotOn
                       ? const Color(0xFFB71C1C)
@@ -1506,9 +1506,71 @@ extension HomeExtras on _HomePageState {
     );
   }
 
-  // ---- خلبان محلی (ادغام‌شده در HomeExtras) ----
+  // ---- خلبان محلی King Pro (داخل HomeExtras) ----
 
-  Future<_LocalNetSnap> _localGather() async {
+  /// پروب سبک و موازی: تلگرام / یوتیوب / اینستا / cloudflare از داخل تونل
+  Future<Map<String, bool>> _localProbeSites() async {
+    final out = <String, bool>{
+      'tg': false,
+      'yt': false,
+      'ig': false,
+      'net': false,
+    };
+    if (!connected) return out;
+    try {
+      final rs = await Future.wait([
+        _siteOpens('https://web.telegram.org/', viaCore: true),
+        _siteOpens('https://www.youtube.com/generate_204', viaCore: true),
+        _siteOpens('https://www.instagram.com/', viaCore: true),
+        _siteOpens('http://cp.cloudflare.com/generate_204', viaCore: true),
+      ]).timeout(const Duration(seconds: 12), onTimeout: () => [false, false, false, false]);
+      out['tg'] = rs[0] == true;
+      out['yt'] = rs[1] == true;
+      out['ig'] = rs[2] == true;
+      out['net'] = rs[3] == true || out['tg']! || out['yt']!;
+    } catch (_) {}
+    return out;
+  }
+
+  int _localScore({
+    required bool connected,
+    required bool? tg,
+    required bool? yt,
+    required bool? ig,
+    required bool? net,
+    required int? ping,
+    required double? speed,
+    required int good,
+  }) {
+    if (!connected) return 0;
+    var sc = 20; // base for being connected
+    if (tg == true) sc += 35; // تلگرام حیاتی است
+    if (yt == true) sc += 15;
+    if (ig == true) sc += 10;
+    if (net == true) sc += 10;
+    if (ping != null) {
+      if (ping < 400) {
+        sc += 8;
+      } else if (ping < 900) {
+        sc += 4;
+      } else if (ping > 2000) {
+        sc -= 8;
+      }
+    }
+    if (speed != null && speed > 0) {
+      if (speed >= 2.0) {
+        sc += 10;
+      } else if (speed >= 0.5) {
+        sc += 5;
+      } else if (speed < 0.12) {
+        sc -= 10;
+      }
+    }
+    if (good >= 3) sc += 5;
+    return sc.clamp(0, 100);
+  }
+
+  Future<_LocalNetSnap> _localGather({bool probe = true}) async {
     String op = _localLastOp;
     try {
       await natDetectOperator();
@@ -1521,6 +1583,7 @@ extension HomeExtras on _HomePageState {
     String proto = '-', net = '-', sec = '-';
     int? ping;
     double? spd;
+    int svc = -1;
     if (current != null) {
       try {
         final spec = describeConfig(current!.link);
@@ -1532,21 +1595,50 @@ extension HomeExtras on _HomePageState {
       if (current!.speed != null && current!.speed! > 0) {
         spd = current!.speed;
       }
+      svc = current!.svc;
     }
 
-    // تشخیص تقریبی ملی بودن از حالت‌های موجود
-    final nat = nationalMode || natForce || (lastNetVerdict?.home == true && lastNetVerdict?.web == false);
+    final nat = nationalMode ||
+        natForce ||
+        (lastNetVerdict?.home == true && lastNetVerdict?.web == false);
+
+    bool? tg, yt, ig, netOk;
+    if (probe && connected) {
+      final p = await _localProbeSites();
+      tg = p['tg'];
+      yt = p['yt'];
+      ig = p['ig'];
+      netOk = p['net'];
+      if (tg == true) {
+        _localTgOk++;
+        _localTgFail = 0;
+      } else if (tg == false) {
+        _localTgFail++;
+        _localTgOk = 0;
+      }
+    }
+
+    final score = _localScore(
+      connected: connected,
+      tg: tg,
+      yt: yt,
+      ig: ig,
+      net: netOk,
+      ping: ping,
+      speed: spd,
+      good: good.length,
+    );
 
     return _LocalNetSnap(
       connected: connected,
       national: nat,
-      wifi: false, // در صورت دسترسی به Connectivity می‌توان دقیق‌تر کرد
+      wifi: false,
       operatorKey: op.isNotEmpty ? op : (nat ? 'ملی/محدود' : 'نامشخص'),
       configProto: proto,
       configNet: net,
       configSec: sec,
       pingMs: ping,
-      speedKBs: spd,
+      speedMBs: spd,
       goodCount: good.length,
       pendingCount: pending.length,
       failedCount: failed.length,
@@ -1555,96 +1647,136 @@ extension HomeExtras on _HomePageState {
       frag: fragEnabled,
       mux: muxEnabled,
       reason: lastWhy,
+      tgOk: tg,
+      ytOk: yt,
+      igOk: ig,
+      netOk: netOk,
+      score: score,
+      svcMask: svc,
     );
   }
 
   _LocalDecision _localDecide(_LocalNetSnap s) {
     final set = <String, int>{};
-    String act = 'none';
     final why = StringBuffer();
+    String act = 'none';
+    var conf = 80;
 
-    // ========== اولویت ۱: اگر وصل است، تا جایی که ممکن است قطع نکن ==========
-    // گزارش خطا نشان داد switch_best / refresh_lists / enable_turbo
-    // اتصال‌های سالم را می‌کشتند و کیفیت را بدتر می‌کردند.
+    // -------- CONNECTED --------
     if (s.connected) {
       _localFailStreak = 0;
+      if (_localConnectedSince == null) {
+        _localConnectedSince = DateTime.now();
+      }
+      final uptime = DateTime.now().difference(_localConnectedSince!).inSeconds;
 
-      // سرعت بر حسب MB/s ذخیره می‌شود (measure). آستانه خیلی پایین نگذار.
-      final slow = (s.pingMs != null && s.pingMs! > 2500) ||
-          (s.speedKBs != null && s.speedKBs! > 0 && s.speedKBs! < 0.15);
-      final dead = (s.speedKBs != null && s.speedKBs! == 0) &&
-          (s.pingMs == null || s.pingMs! > 4000);
-
-      if (dead) {
-        _localSlowStreak++;
-        if (_localSlowStreak >= 3 && s.goodCount > 0) {
+      // تلگرام قطع = اولویت مطلق
+      if (s.tgOk == false) {
+        _localPhase = 'degraded';
+        if (_localTgFail >= 2 && s.goodCount > 0) {
           act = 'switch_best';
-          why.writeln('تونل مرده (۳ بار پشت‌سرهم) → تعویض سرور');
+          conf = 95;
+          why.writeln('❌ تلگرام از تونل باز نمی‌شود (×$_localTgFail) → تعویض فوری به سرور تلگرام‌دار');
         } else {
-          why.writeln('تونل مشکوک — هنوز نگه می‌داریم (صبور)');
+          why.writeln('تلگرام یک‌بار شکست — صبر برای تأیید');
+          conf = 60;
         }
-        return _LocalDecision(act, set, why.toString().trim());
+        return _LocalDecision(act, set, why.toString().trim(), confidence: conf);
       }
 
-      if (slow) {
-        _localSlowStreak++;
-        // فقط بعد از چند بار کندی و فقط اگر سرور جایگزین داریم
-        if (_localSlowStreak >= 4 && s.goodCount >= 2) {
-          act = 'switch_best';
-          why.writeln('کندی مداوم → تعویض محتاطانه');
-        } else {
-          // توربو بدون ریستارت تهاجمی: فقط فلگ‌ها
-          if (!s.mux) {
-            set['mux'] = 1;
-            set['muxConc'] = 16;
-            why.writeln('کندی خفیف → Mux روشن (بدون قطع تونل)');
-          } else {
-            why.writeln('وصل است و کار می‌کند — نگه می‌داریم');
-          }
+      // همه سایت‌های مهم OK
+      final appsOk = s.tgOk == true && (s.ytOk == true || s.netOk == true);
+      if (appsOk && s.score >= 55) {
+        _localPhase = 'stable';
+        _localSlowStreak = 0;
+        _localGoodStreak++;
+        why.writeln('✅ پایدار (امتیاز ${s.score}) — تلگرام OK — uptime ${uptime}s');
+        why.writeln('هیچ تعویضی انجام نمی‌شود. دستیار ابری هم اینجا دخالت نمی‌کند.');
+        // تنظیم نرم بدون ریستارت
+        if (!s.mux && (s.configNet == 'ws' || s.configNet == 'grpc' || s.configNet == 'tcp')) {
+          set['mux'] = 1;
+          set['muxConc'] = 16;
+          why.writeln('بهینهٔ نرم: Mux روشن شد (بدون قطع)');
         }
-        return _LocalDecision(act, set, why.toString().trim());
+        return _LocalDecision('none', set, why.toString().trim(), confidence: 99);
       }
 
-      // کیفیت قابل قبول: هیچ اقدامی نکن
-      _localSlowStreak = 0;
-      _localGoodStreak++;
-      why.writeln('✅ اتصال پایدار — تلگرام/اینترنت باید کار کند. تعویض نمی‌کنیم.');
-      // هرگز refresh_lists وقتی وصلیم
-      // هرگز enable_turbo که تونل را ریستارت کند
-      return _LocalDecision('none', set, why.toString().trim());
+      // امتیاز متوسط
+      if (s.score >= 35) {
+        _localPhase = 'stable';
+        _localSlowStreak++;
+        why.writeln('اتصال متوسط (امتیاز ${s.score}) — نگه می‌داریم');
+        if (_localSlowStreak >= 5 && s.goodCount >= 2 && s.tgOk != true) {
+          act = 'switch_best';
+          why.writeln('کندی طولانی بدون تلگرام → تعویض');
+          conf = 75;
+        }
+        return _LocalDecision(act, set, why.toString().trim(), confidence: conf);
+      }
+
+      // امتیاز خیلی ضعیف
+      _localPhase = 'degraded';
+      _localSlowStreak++;
+      if (_localSlowStreak >= 3 && s.goodCount > 0) {
+        act = 'switch_best';
+        conf = 85;
+        why.writeln('امتیاز ${s.score} ضعیف ×$_localSlowStreak → تعویض');
+      } else {
+        why.writeln('امتیاز ${s.score} — هنوز صبر (×$_localSlowStreak/3)');
+      }
+      return _LocalDecision(act, set, why.toString().trim(), confidence: conf);
     }
 
-    // ========== ۲) قطع است → وصل شو ==========
+    // -------- DISCONNECTED --------
+    _localConnectedSince = null;
+    _localTgOk = 0;
     _localSlowStreak = 0;
+    _localPhase = _localFailStreak >= 2 ? 'recover' : 'search';
+
     if (s.national) {
       act = 'search_national';
       set['natLevel'] = max(s.natLvl, 2);
       set['fastWorkers'] = 50;
       set['timeout'] = 12;
-      why.writeln('قطع + نت ملی → جستجوی ملی');
+      conf = 90;
+      why.writeln('قطع + نت ملی → جستجوی ملی (سطح ${set['natLevel']})');
     } else if (s.goodCount > 0) {
       act = 'connect';
       set['fastWorkers'] = 50;
-      why.writeln('قطع است ولی سرور سالم داریم → اتصال');
-    } else if (s.pendingCount > 5) {
+      conf = 92;
+      why.writeln('قطع — ${s.goodCount} سرور سالم آماده → اتصال فوری');
+    } else if (s.pendingCount > 8) {
       act = 'connect';
-      why.writeln('قطع است — صف سرور هست → اتصال/جستجو');
+      conf = 85;
+      why.writeln('قطع — صف ${s.pendingCount} سرور → جستجو/اتصال');
     } else if (_localFailStreak >= 2) {
       act = 'escalate';
       set['natLevel'] = min(4, max(s.natLvl + 1, 2));
-      why.writeln('شکست پیاپی → escalate');
+      conf = 80;
+      why.writeln('شکست پیاپی ×$_localFailStreak → escalate سطح ${set['natLevel']}');
     } else {
-      // فقط وقتی واقعاً لیست خالی است refresh کن — و لیست سیاه را پاک نکن
       act = 'connect';
-      why.writeln('قطع است → اتصال');
+      conf = 70;
+      why.writeln('قطع است → شروع اتصال');
     }
+
+    // یادگیری اپراتور
+    final opKey = s.operatorKey;
+    if (opKey.isNotEmpty && act != 'none') {
+      final w = _localOpWins['$opKey|$act'] ?? 0;
+      if (w >= 3) {
+        conf = min(100, conf + 5);
+        why.writeln('حافظه اپراتور: «$act» قبلاً $w بار موفق بود');
+      }
+    }
+
     _localFailStreak++;
-    return _LocalDecision(act, set, why.toString().trim());
+    return _LocalDecision(act, set, why.toString().trim(), confidence: conf);
   }
 
   Future<void> _localApply(_LocalDecision d) async {
     _localLastAction = d.action;
-    // اعمال تنظیمات عددی
+
     if (d.settings.containsKey('fastWorkers')) {
       fastWorkers = d.settings['fastWorkers']!.clamp(1, 200);
     }
@@ -1657,11 +1789,14 @@ extension HomeExtras on _HomePageState {
     if (d.settings.containsKey('muxConc')) {
       muxConc = d.settings['muxConc']!.clamp(4, 32);
     }
-    if (d.settings.containsKey('mux') && d.settings['mux'] == 1) {
+    if (d.settings.containsKey('mux') == true && d.settings['mux'] == 1) {
       muxEnabled = true;
     }
 
-    lastWhy = 'خلبان محلی: ${d.action}';
+    if (d.action != 'none') {
+      lastWhy = 'خلبان محلی: ${d.action}';
+    }
+
     switch (d.action) {
       case 'connect':
         if (!connected && !busy) {
@@ -1673,7 +1808,7 @@ extension HomeExtras on _HomePageState {
       case 'switch_best':
         if (!busy && !switching) {
           final l = _pickList();
-          // ترجیح سروری که تلگرام را باز می‌کند (بیت 0 در svc)
+          // اولویت ۱: سروری که تلگرام را باز می‌کند (بیت 0)
           Server? best;
           for (final s in l) {
             if (s.svc >= 0 && (s.svc & 1) != 0) {
@@ -1681,12 +1816,23 @@ extension HomeExtras on _HomePageState {
               break;
             }
           }
-          best ??= l.isNotEmpty ? l.first : null;
-          if (best != null) await _swapTo(best);
+          // اولویت ۲: بیشترین سرعت
+          if (best == null && l.isNotEmpty) {
+            l.sort((a, b) => (b.speed ?? 0).compareTo(a.speed ?? 0));
+            best = l.first;
+          }
+          if (best != null) {
+            final op = _localLastOp;
+            if (op.isNotEmpty) {
+              final k = '$op|switch_best';
+              _localOpWins[k] = (_localOpWins[k] ?? 0) + 1;
+            }
+            await _swapTo(best);
+          }
         }
         break;
       case 'refresh_lists':
-        // مخرب نباشد: لیست سالم و سیاه را پاک نکن
+        // هرگز لیست سالم/سیاه را نابود نکن
         if (!connected) {
           listTime = null;
           lastFetchTry = DateTime.fromMillisecondsSinceEpoch(0);
@@ -1706,7 +1852,7 @@ extension HomeExtras on _HomePageState {
         if (!busy) await connect();
         break;
       case 'enable_turbo':
-        // فقط فلگ‌ها — ریستارت تونل نکن (اتصال فعلی را نکش)
+        // فقط فلگ — بدون ریستارت تونل
         turboSpeed = true;
         muxEnabled = true;
         muxConc = max(muxConc, 16);
@@ -1717,23 +1863,19 @@ extension HomeExtras on _HomePageState {
         await _natEscalate(max(natLevel, 3));
         if (!connected && !busy) await connect();
         break;
-      case 'disconnect_soft':
-        // فقط وقتی کاربر دستی قطع کند؛ خلبان خودش قطع نمی‌کند مگر دستور صریح
-        break;
       default:
         break;
     }
   }
 
-  /// نقطهٔ ورود اصلی خلبان محلی
   Future<void> localPilotTick({bool force = false}) async {
     if (!localPilotOn || !mounted) return;
     if (busy || switching || localPilotLoading.value) return;
-    if (!force && _localLastTick != null &&
-        DateTime.now().difference(_localLastTick!) < const Duration(seconds: 25)) {
+    if (!force &&
+        _localLastTick != null &&
+        DateTime.now().difference(_localLastTick!) < const Duration(seconds: 40)) {
       return;
     }
-    // کاربر VPN را خاموش کرده → خلبان تمام
     if (!wantVpn && !connected) {
       stopLocalPilot();
       return;
@@ -1741,44 +1883,46 @@ extension HomeExtras on _HomePageState {
 
     localPilotLoading.value = true;
     _localLastTick = DateTime.now();
+    _localTickN++;
     try {
-      localPilotText.value = '⏳ خلبان محلی: در حال تحلیل اینترنت، اپراتور و کانفیگ...';
+      localPilotText.value =
+          '⏳ خلبان Pro: پروب تلگرام/یوتیوب/اینستا + تحلیل اپراتور...';
 
-      // تحلیل شبکه (سبک)
       try {
-        if (autoNetOn) {
-          // از تشخیص موجود استفاده می‌کنیم؛ اگر لازم شد netDiagnose را صدا بزن
-        }
         await natDetectOperator();
       } catch (_) {}
 
-      final snap = await _localGather();
+      final snap = await _localGather(probe: true);
       final decision = _localDecide(snap);
 
       final report = StringBuffer();
-      report.writeln('🤖 خلبان محلی King (بدون API)');
-      report.writeln('────────────────────');
+      report.writeln('👑 خلبان محلی King Pro  •  تیک #$_localTickN');
+      report.writeln('────────────────────────');
       report.writeln(snap.toHuman());
-      report.writeln('────────────────────');
-      report.writeln('🎯 تصمیم: ${decision.action == "none" ? "نگه‌داری وضعیت فعلی" : decision.action}');
+      report.writeln('────────────────────────');
+      report.writeln(
+          '🎯 تصمیم: ${decision.action == "none" ? "نگه‌داری (پایدار)" : decision.action}  |  اطمینان: ${decision.confidence}%');
       report.writeln(decision.explain);
       if (decision.settings.isNotEmpty) {
-        report.writeln('⚙️ تنظیمات: ${decision.settings}');
+        report.writeln('⚙️ ${decision.settings}');
       }
       localPilotText.value = report.toString().trim();
 
       await _localApply(decision);
 
-      // اگر هنوز قطع است و خلبان روشن است، یک بار دیگر تلاش کن
+      // اگر هنوز قطع است دوباره وصل کن
       if (localPilotOn && wantVpn && !connected && !busy && !switching) {
         if (decision.action == 'none' || decision.action == 'connect') {
           await connect();
         }
       }
+
+      // بازه تطبیقی: پایدار = آهسته‌تر، قطع = سریع‌تر
+      _localReschedule();
     } catch (e) {
       logError(e);
       localPilotText.value =
-          'خطای خلبان محلی: ${e.toString().replaceFirst("Exception: ", "")}';
+          'خطای خلبان: ${e.toString().replaceFirst("Exception: ", "")}';
       if (localPilotOn && wantVpn && !connected && !busy) {
         try {
           await connect();
@@ -1789,29 +1933,41 @@ extension HomeExtras on _HomePageState {
     }
   }
 
+  void _localReschedule() {
+    if (!localPilotOn) return;
+    localPilotLoop?.cancel();
+    // stable → 120s | degraded → 45s | search/recover → 25s
+    final sec = _localPhase == 'stable'
+        ? 120
+        : (_localPhase == 'degraded' ? 45 : 25);
+    localPilotLoop = Timer.periodic(Duration(seconds: sec), (_) {
+      localPilotTick();
+    });
+  }
+
   void startLocalPilot() {
     localPilotOn = true;
     wantVpn = true;
     abort = false;
-    // پایدار: توربو روشن، ولی ultra/indestructible را اجباری نکن (جستجوی بی‌نهایت قطع می‌کند)
+    _localPhase = 'boot';
+    _localTickN = 0;
+    _localFailStreak = 0;
+    _localSlowStreak = 0;
+    _localGoodStreak = 0;
+    _localTgOk = 0;
+    _localTgFail = 0;
+    _localConnectedSince = null;
     turboSpeed = true;
     _applyTurboLevers();
     localPilotText.value =
-        '🚀 خلبان محلی فعال شد.\nدر حال تحلیل اینترنت و اپراتور...\nهیچ کلید API لازم نیست.';
-    localPilotLoop?.cancel();
-    localPilotLoop = Timer.periodic(const Duration(seconds: 90), (_) {
-      localPilotTick();
-    });
-    // اولین تیک سریع
-    Future.delayed(const Duration(seconds: 3), () => localPilotTick(force: true));
-    // bootstrap فوری
+        '👑 خلبان محلی King Pro فعال شد\n• بدون API\n• پروب واقعی تلگرام/یوتیوب/اینستا\n• تعویض فقط وقتی لازم است';
+    _localReschedule();
+    Future.delayed(const Duration(seconds: 2), () => localPilotTick(force: true));
     unawaited(() async {
       try {
         await natDetectOperator();
         if (!connected && !busy) {
-          if (nationalMode || natForce) {
-            localPilotText.value = 'خلبان محلی: نت ملی → جستجوی گسترده...';
-          }
+          localPilotText.value = 'خلبان Pro: شروع اتصال...';
           await connect();
         } else {
           await localPilotTick(force: true);
@@ -1827,10 +1983,538 @@ extension HomeExtras on _HomePageState {
     localPilotOn = false;
     localPilotLoop?.cancel();
     localPilotLoop = null;
-    localPilotText.value = 'خلبان محلی متوقف شد. (قطع دستی)';
+    _localPhase = 'boot';
+    localPilotText.value = 'خلبان محلی متوقف شد. (قطع دستی کاربر)';
+  }
+
+}
+
+
+// NUMPATCH ======================= عددهای قابل تنظیم =======================
+// first search (used by patch_fast.py): it stops at the FIRST healthy server
+// (for the Gemini row: the first Gemini server). Safety: after [firstCapSec]
+// seconds it goes on with the ones found.
+int firstCapSec = 12; // FASTCONNECT: connect with 1 healthy server after 12s max
+
+// the AI assistant must not change these
+// AI may change every number (no locked keys)
+const aiLockedNums = <String>{};
+
+class NumOpt {
+  final String id, title;
+  final int lo, hi, def, aiHi; // aiHi = hi so AI has full range
+  final bool extra; // shown in the extra section
+  final int Function() get;
+  final void Function(int) set;
+  NumOpt(this.id, this.title, this.lo, this.hi, this.def, this.aiHi,
+      this.extra, this.get, this.set);
+}
+
+final List<NumOpt> numOpts = [
+  // defaults: low data + fastWorkers fixed at 50; aiHi == hi (AI unrestricted)
+  NumOpt('fastWorkers', 'تست همزمان (جستجوی اول)', 1, 1000, 50, 1000, false,
+      () => fastWorkers, (v) => fastWorkers = v),
+  NumOpt('bgWorkers', 'تست همزمان (وقتی وصل است)', 1, 1000, 2, 1000, false,
+      () => bgWorkers, (v) => bgWorkers = v),
+  NumOpt('timeout', 'تایم‌اوت هر تست (ثانیه)', 1, 1000, 10, 1000, false,
+      () => delayTimeout.inSeconds, (v) => delayTimeout = Duration(seconds: v)),
+  NumOpt('batch', 'اندازه دسته', 1, 1000, 300, 1000, false,
+      () => batchSize, (v) => batchSize = v),
+  NumOpt('minPingMs', 'حداقل پینگ معتبر', 0, 1000, 0, 1000, false,
+      () => minPingMs, (v) => minPingMs = v),
+  NumOpt('speedTopN', 'تعداد سرور برای تست سرعت', 1, 1000, 1, 1000, false,
+      () => speedTopN, (v) => speedTopN = v),
+  NumOpt('badPingMs', 'پینگ بد از', 70, 7000, 3000, 7000, false,
+      () => badPingMs, (v) => badPingMs = v),
+  NumOpt('minSpeedKB', 'تعویض اگر سرعت کمتر از', 0, 50000, 0, 50000, false,
+      () => minSpeedKB, (v) => minSpeedKB = v),
+  NumOpt('listRefreshMin', 'هر چند دقیقه لیست جدید', 1, 1000, 240, 1000, false,
+      () => listRefreshMin, (v) => listRefreshMin = v),
+  NumOpt('failMin', 'سرور خراب تا چند دقیقه تست نشود', 1, 1000, 120, 1000, false,
+      () => failMin, (v) {
+    failMin = v;
+    failWindow = Duration(minutes: v);
+  }),
+  NumOpt('recheckMin', 'بررسی دوباره سرورهای سالم (دقیقه)', 1, 1000, 30, 1000,
+      false, () => recheckMin, (v) {
+    recheckMin = v;
+    recheckAfter = Duration(minutes: v);
+  }),
+  // ----- 12 new options -----
+  NumOpt('tcpWorkers', 'پیش‌فیلتر TCP همزمان', 1, 1000, 80, 1000, true,
+      () => tcpWorkers, (v) => tcpWorkers = v),
+  NumOpt('tcpTimeout', 'تایم‌اوت TCP (دهم ثانیه)', 1, 1000, 30, 1000, true,
+      () => tcpTimeout.inMilliseconds ~/ 100,
+      (v) => tcpTimeout = Duration(milliseconds: v * 100)),
+  NumOpt('maxPerSource', 'حداکثر سرور از هر منبع', 1, 1000, 500, 1000, true,
+      () => maxPerSource, (v) => maxPerSource = v),
+  NumOpt('fetchWorkers', 'دانلود همزمان لیست‌ها', 1, 1000, 12, 1000, true,
+      () => fetchWorkers, (v) => fetchWorkers = v),
+  NumOpt('fetchDeadline', 'مهلت دانلود لیست‌ها (ثانیه)', 1, 1000, 40, 1000, true,
+      () => fetchDeadline.inSeconds,
+      (v) => fetchDeadline = Duration(seconds: v)),
+  NumOpt('firstBatchSize', 'اندازه دسته‌ی اول', 1, 1000, 50, 1000, true,
+      () => firstBatchSize, (v) => firstBatchSize = v),
+  NumOpt('standbyBatchSize', 'اندازه دسته (وقتی وصل است)', 1, 1000, 30, 1000,
+      true, () => standbyBatchSize, (v) => standbyBatchSize = v),
+  NumOpt('maxBatches', 'حداکثر تعداد دسته در هر جستجو', 1, 1000, 5, 1000, true,
+      () => maxBatches, (v) => maxBatches = v),
+  NumOpt('watchFailLimit', 'تعداد پینگ ناموفق تا تعویض', 1, 1000, 3, 1000, true,
+      () => watchFailLimit, (v) => watchFailLimit = v),
+  NumOpt('badPingLimit', 'تعداد پینگ بد تا تعویض', 1, 1000, 3, 1000, true,
+      () => badPingLimit, (v) => badPingLimit = v),
+  NumOpt('missLimit', 'تعداد شکست تا حذف سرور سالم', 1, 1000, 3, 1000, true,
+      () => missLimit, (v) => missLimit = v),
+  NumOpt('watchEvery', 'فاصله‌ی چک اتصال (ثانیه)', 1, 1000, 8, 1000, true,
+      () => watchEvery.inSeconds, (v) => watchEvery = Duration(seconds: v)),
+  // ----- first search: time cap -----
+  NumOpt('firstCapSec', 'سقف زمان جستجوی اول (ثانیه)', 1, 1000, 12, 1000, true,
+      () => firstCapSec, (v) => firstCapSec = v),
+];
+
+// one-time: an old saved batch size (e.g. 150) is replaced by 300, so the new
+// default also takes effect on phones that already saved their numbers.
+// After that, whatever the user types is kept.
+Future<void> loadNumPrefs(SharedPreferences p) async {
+  await _loadNumPrefs0(p);
+  if (p.getBool('batch300') != true) {
+    batchSize = 300;
+    await p.setBool('batch300', true);
+    saveNumPrefs();
   }
 }
 
+Future<void> _loadNumPrefs0(SharedPreferences p) async {
+  final str = p.getString('numx');
+  if (str == null) {
+    for (final o in numOpts) {
+      o.set(o.def);
+    }
+    return;
+  }
+  try {
+    final j = jsonDecode(str) as Map;
+    for (final o in numOpts) {
+      final v = j[o.id];
+      if (v is num) o.set(v.toInt().clamp(o.lo, o.hi).toInt());
+    }
+  } catch (e) {
+    logError(e);
+  }
+}
+
+Future<void> saveNumPrefs() async {
+  try {
+    final p = await SharedPreferences.getInstance();
+    await p.setString(
+        'numx', jsonEncode({for (final o in numOpts) o.id: o.get()}));
+  } catch (e) {
+    logError(e);
+  }
+}
+
+List<Widget> numSettingsItems(
+  Widget Function(String) head,
+  Widget Function(
+          String, String, double, double, double, int, void Function(double))
+      row,
+) =>
+    [
+      head('🔧 تنظیمات عددی بیشتر (هر عدد را می‌توانی تایپ کنی)'),
+      for (final o in numOpts.where((o) => o.extra))
+        row(
+            o.title,
+            '${o.get()}',
+            o.get().toDouble(),
+            o.lo.toDouble(),
+            (o.def * 4).clamp(o.lo + 10, o.hi).toDouble(),
+            0,
+            (x) => o.set(x.round())),
+    ];
+
+extension NumHomeExtras on _HomePageState {
+  void resetNumbers() {
+    for (final o in numOpts) {
+      o.set(o.def);
+    }
+    saveNumPrefs();
+    _saveSettings();
+    autoTune = false; // AUTOTUNEPATCH: reset = manual numbers
+    autoTuneSave();
+    _set('✅ همه‌ی عددها به پیش‌فرض برگشتند');
+  }
+
+  Widget resetNumButton(StateSetter setS) => Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: () => setS(resetNumbers),
+            icon: const Icon(Icons.restart_alt),
+            label: const Text('↩️ برگرداندن همه‌ی عددها به پیش‌فرض'),
+          ),
+        ),
+      );
+
+  // AI has full range [lo, hi] — no artificial caps
+  void applyNumSuggest(Map<String, int> m) {
+    for (final o in numOpts) {
+      if (aiLockedNums.contains(o.id)) continue;
+      final v = m['num_${o.id}'];
+      if (v != null) o.set(v.clamp(o.lo, o.hi).toInt());
+    }
+    saveNumPrefs();
+  }
+}
+
+
+// TUNEDPATCH ===================== مقدارهای بهینه (یک‌بار) =====================
+// low-data + high post-connect speed defaults (AI may override any of these)
+const Map<String, dynamic> _tunedSettings = {
+  't': 10,
+  'bw2': 2,
+  'st': 1,
+  'bp': 3000,
+  'ms': 0,
+  'lr': 240,
+  'fm': 120,
+  'rm': 30,
+  'a2': false,
+  'i': true,
+  'cip': true,
+  'sdns': true,
+  'sf': true,
+  'so': true,
+  'ac': false,
+  'o': true,
+  'u': false,
+  'fd': true,
+  'bps': true,
+  'npv': true,
+  'irm': true,
+  'bq': true,
+  'lan': true,
+  'ro': false,
+  'frg': false,
+  'mux': true,
+  'mc': 16,
+  'ig': false,
+  'um': true,
+  'idm': false,
+  'tb': true,
+  'fw2': 50,
+};
+const Map<String, int> _tunedNums = {
+  'fastWorkers': 50,
+  'bgWorkers': 2,
+  'timeout': 10,
+  'speedTopN': 1,
+  'badPingMs': 3000,
+  'minSpeedKB': 0,
+  'listRefreshMin': 240,
+  'failMin': 120,
+  'recheckMin': 30,
+  'tcpWorkers': 80,
+  'tcpTimeout': 30,
+  'maxPerSource': 500,
+  'fetchWorkers': 12,
+  'fetchDeadline': 40,
+  'firstBatchSize': 50,
+  'standbyBatchSize': 30,
+  'maxBatches': 5,
+  'watchFailLimit': 3,
+  'badPingLimit': 3,
+};
+
+// v2 kept for old installs; v3 is the low-data + turbo speed preset
+const Map<String, dynamic> _tunedSettings2 = {
+  't': 10,
+  'bw2': 2,
+  'st': 1,
+  'bp': 3000,
+  'ms': 0,
+  'lr': 240,
+  'fm': 120,
+  'rm': 30,
+  'a2': false,
+  'ac': false,
+  'frg': false,
+  'mux': true,
+  'mc': 16,
+  'tb': true,
+  'um': true,
+  'idm': false,
+  'fw2': 50,
+};
+const Map<String, int> _tunedNums2 = {
+  'fastWorkers': 50,
+  'bgWorkers': 2,
+  'timeout': 10,
+  'speedTopN': 1,
+  'badPingMs': 3000,
+  'minSpeedKB': 0,
+  'listRefreshMin': 240,
+  'failMin': 120,
+  'recheckMin': 30,
+  'tcpWorkers': 80,
+  'tcpTimeout': 30,
+  'maxPerSource': 500,
+  'fetchWorkers': 12,
+  'fetchDeadline': 40,
+  'firstBatchSize': 50,
+  'standbyBatchSize': 30,
+  'maxBatches': 5,
+  'watchFailLimit': 3,
+  'badPingLimit': 3,
+};
+
+const Map<String, dynamic> _tunedSettings3 = {
+  't': 10,
+  'bw2': 2,
+  'st': 1,
+  'bp': 3000,
+  'ms': 0,
+  'lr': 240,
+  'fm': 120,
+  'rm': 30,
+  'a2': false,
+  'ac': false,
+  'frg': false,
+  'mux': true,
+  'mc': 16,
+  'tb': true,
+  'um': true,
+  'idm': false,
+  'fw2': 50,
+};
+const Map<String, int> _tunedNums3 = {
+  'fastWorkers': 50,
+  'bgWorkers': 2,
+  'timeout': 10,
+  'speedTopN': 1,
+  'badPingMs': 3000,
+  'minSpeedKB': 0,
+  'listRefreshMin': 240,
+  'failMin': 120,
+  'recheckMin': 30,
+  'tcpWorkers': 80,
+  'fetchWorkers': 12,
+  'firstBatchSize': 50,
+  'standbyBatchSize': 30,
+  'maxBatches': 5,
+};
+
+// settings saved by an older build get the tuned values ONCE; after that the
+// user's own changes are kept. Auto tune, proxy mode and the parallel test of
+// the first search (fastWorkers) are never touched.
+Future<String?> tunedSettings(SharedPreferences p) async {
+  try {
+    if (p.getBool('tuned_v1') != true) {
+      final st = p.getString('settings');
+      if (st != null) {
+        final j = jsonDecode(st);
+        if (j is Map) {
+          final m = Map<String, dynamic>.from(j);
+          _tunedSettings.forEach((k, v) => m[k] = v);
+          await p.setString('settings', jsonEncode(m));
+        }
+      }
+      final nx = p.getString('numx');
+      if (nx != null) {
+        final j = jsonDecode(nx);
+        if (j is Map) {
+          final m = Map<String, dynamic>.from(j);
+          _tunedNums.forEach((k, v) => m[k] = v);
+          await p.setString('numx', jsonEncode(m));
+        }
+      }
+      await p.setBool('tuned_v1', true);
+    }
+    // TUNEDV2: best values for national / slow internet, applied ONCE.
+    // fastWorkers is forced to 50 (the user's fixed number).
+    if (p.getBool('tuned_v2') != true) {
+      final st = p.getString('settings');
+      if (st != null) {
+        final j = jsonDecode(st);
+        if (j is Map) {
+          final m = Map<String, dynamic>.from(j);
+          _tunedSettings2.forEach((k, v) => m[k] = v);
+          m['fw2'] = 50;
+          await p.setString('settings', jsonEncode(m));
+        }
+      }
+      final nx = p.getString('numx');
+      if (nx != null) {
+        final j = jsonDecode(nx);
+        if (j is Map) {
+          final m = Map<String, dynamic>.from(j);
+          _tunedNums2.forEach((k, v) => m[k] = v);
+          m['fastWorkers'] = 50;
+          await p.setString('numx', jsonEncode(m));
+        }
+      }
+      await p.setBool('tuned_v2', true);
+    }
+    // TUNEDV3 kept as applied flag for old installs
+    if (p.getBool('tuned_v3') != true) {
+      await p.setBool('tuned_v3', true);
+    }
+    // TUNEDV4: low data + multi-x speed + fastWorkers=50; AI fully free
+    if (p.getBool('tuned_v4') != true) {
+      final st = p.getString('settings');
+      if (st != null) {
+        final j = jsonDecode(st);
+        if (j is Map) {
+          final m = Map<String, dynamic>.from(j);
+          _tunedSettings3.forEach((k, v) => m[k] = v);
+          m['fw2'] = 50;
+          await p.setString('settings', jsonEncode(m));
+        }
+      } else {
+        await p.setString(
+            'settings',
+            jsonEncode({
+              'ver': 6,
+              ..._tunedSettings3,
+              'fw2': 50,
+            }));
+      }
+      final nx = p.getString('numx');
+      if (nx != null) {
+        final j = jsonDecode(nx);
+        if (j is Map) {
+          final m = Map<String, dynamic>.from(j);
+          _tunedNums3.forEach((k, v) => m[k] = v);
+          m['fastWorkers'] = 50;
+          await p.setString('numx', jsonEncode(m));
+        }
+      }
+      await p.setBool('tuned_v4', true);
+    }
+  } catch (e) {
+    logError(e);
+  }
+  return p.getString('settings');
+}
+
+// ======================= خلبان محلی King Pro (بدون کلید API) =======================
+// موتور تصمیم‌گیری چندلایه — سریع‌تر و پایدارتر از هر دستیار ابری.
+// لایه‌ها: پروب واقعی سایت‌ها | امتیازدهی چندعاملی | حافظه اپراتور | ماشین‌حالت
+// هیچ کلید API لازم نیست. تا قطع دستی کاربر، کنترل کامل دارد.
+
+bool localPilotOn = false;
+Timer? localPilotLoop;
+final localPilotText = ValueNotifier<String>(
+    'خلبان محلی King Pro آماده است.\nبدون API • تحلیل واقعی شبکه • اولویت تلگرام');
+final localPilotLoading = ValueNotifier<bool>(false);
+
+String _localLastOp = '';
+String _localLastAction = '';
+DateTime? _localLastTick;
+DateTime? _localConnectedSince;
+int _localFailStreak = 0;
+int _localSlowStreak = 0;
+int _localGoodStreak = 0;
+int _localTickN = 0;
+int _localTgOk = 0; // consecutive telegram OK
+int _localTgFail = 0;
+
+// حافظه یادگیری محلی: اپراتور → آخرین اقدام موفق / امتیاز
+final Map<String, int> _localOpWins = {}; // action hash → win count
+final Map<String, int> _localOpFails = {};
+
+// ماشین‌حالت
+// boot | search | stable | degraded | recover
+String _localPhase = 'boot';
+
+class _LocalNetSnap {
+  final bool connected;
+  final bool national;
+  final bool wifi;
+  final String operatorKey;
+  final String configProto;
+  final String configNet;
+  final String configSec;
+  final int? pingMs;
+  final double? speedMBs; // MB/s
+  final int goodCount;
+  final int pendingCount;
+  final int failedCount;
+  final int natLvl;
+  final bool turbo;
+  final bool frag;
+  final bool mux;
+  final String reason;
+  // پروب زنده
+  final bool? tgOk;
+  final bool? ytOk;
+  final bool? igOk;
+  final bool? netOk;
+  final int score; // 0..100
+  final int svcMask; // current server svc bits
+
+  _LocalNetSnap({
+    required this.connected,
+    required this.national,
+    required this.wifi,
+    required this.operatorKey,
+    required this.configProto,
+    required this.configNet,
+    required this.configSec,
+    required this.pingMs,
+    required this.speedMBs,
+    required this.goodCount,
+    required this.pendingCount,
+    required this.failedCount,
+    required this.natLvl,
+    required this.turbo,
+    required this.frag,
+    required this.mux,
+    required this.reason,
+    this.tgOk,
+    this.ytOk,
+    this.igOk,
+    this.netOk,
+    this.score = 0,
+    this.svcMask = -1,
+  });
+
+  String toHuman() {
+    final b = StringBuffer();
+    b.writeln(connected ? '🟢 متصل' : '🔴 قطع');
+    b.writeln('🧠 فاز: $_localPhase  |  امتیاز: $score/100');
+    if (operatorKey.isNotEmpty) b.writeln('📡 اپراتور: $operatorKey');
+    b.writeln(national ? '🇮🇷 نت ملی/محدود' : '🌍 اینترنت بین‌الملل');
+    if (configProto != '-') {
+      b.writeln('⚙️ $configProto / $configNet / $configSec');
+    }
+    if (pingMs != null) b.writeln('⏱ پینگ: ${pingMs}ms');
+    if (speedMBs != null && speedMBs! > 0) {
+      b.writeln('🚀 سرعت: ${speedMBs!.toStringAsFixed(2)} MB/s');
+    }
+    // سایت‌ها
+    String bit(String name, bool? v) =>
+        v == null ? '$name:?' : (v ? '$name:✅' : '$name:❌');
+    b.writeln(
+        '🌐 ${bit("تلگرام", tgOk)}  ${bit("یوتیوب", ytOk)}  ${bit("اینستا", igOk)}  ${bit("نت", netOk)}');
+    b.writeln(
+        '📦 سالم:$goodCount  صف:$pendingCount  سیاه:$failedCount  nat:$natLvl');
+    b.writeln(
+        '🔧 turbo=${turbo ? "✓" : "✗"} mux=${mux ? "✓" : "✗"} frag=${frag ? "✓" : "✗"}');
+    if (reason.isNotEmpty) b.writeln('📝 $reason');
+    return b.toString().trim();
+  }
+}
+
+class _LocalDecision {
+  final String action;
+  final Map<String, int> settings;
+  final String explain;
+  final int confidence; // 0..100
+
+  _LocalDecision(this.action, this.settings, this.explain,
+      {this.confidence = 70});
+}
 
 // NUMPATCH ======================= عددهای قابل تنظیم =======================
 // first search (used by patch_fast.py): it stops at the FIRST healthy server
