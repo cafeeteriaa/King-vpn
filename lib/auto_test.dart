@@ -395,7 +395,7 @@ extension AutoTestEngine on _HomePageState {
       abort = true;
       try {
         await disconnect();
-      } catch (_) {}
+      } catch (e) { logError(e); }
       await _atWaitUntil(() => !connected && !busy && !switching,
           timeout: const Duration(seconds: 25), label: 'قطع کامل');
       abort = false;
@@ -507,13 +507,13 @@ extension AutoTestEngine on _HomePageState {
     abort = true;
     try {
       await disconnect();
-    } catch (_) {}
+    } catch (e) { logError(e); }
     await _atWaitUntil(() => !busy && !switching,
         timeout: const Duration(seconds: 30), label: 'آزاد شدن بعد از abort');
 
     try {
       await fut.timeout(const Duration(seconds: 5));
-    } catch (_) {}
+    } catch (e) { logError(e); }
 
     if (busy || switching) {
       _atAdd('ABORT-STUCK',
@@ -612,7 +612,7 @@ extension AutoTestEngine on _HomePageState {
           if (connected && (sp == null || sp <= 0)) {
             _atAdd('STABLE-NODATA', 'در مانیتور طولانی، داده از تونل نیامد');
           }
-        } catch (_) {}
+        } catch (e) { logError(e); }
       }
 
       await Future<void>.delayed(const Duration(seconds: 2));
