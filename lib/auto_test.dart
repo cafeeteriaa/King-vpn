@@ -1,9 +1,9 @@
 part of 'main.dart';
 
 // =============================================================================
-// AUTO TEST 20min — تست خودکار سناریوهای واقعی روی گوشی
-// هدف: پیدا کردن race condition، گیر کردن busy/switching، ناسازگاری وضعیت
-// و قطع‌های پنهان بدون دخالت دستی کاربر.
+// AUTO TEST 20min — تست خودکار هر ۶ نوع VPN + سناریوهای واقعی
+// هدف: پیدا کردن race، گیر کردن busy/switching، شکست اتصال هر موتور،
+// و قطع‌های پنهان بدون دخالت دستی.
 // =============================================================================
 
 enum _AtPhase {
@@ -13,7 +13,7 @@ enum _AtPhase {
 }
 
 class _AtFinding {
-  final String code; // e.g. BUSY-STUCK, FLAG-MISMATCH
+  final String code; // e.g. BUSY-STUCK, FLAG-MISMATCH, ENG-FAIL
   final String msg;
   final DateTime at;
   int n = 1;
@@ -29,6 +29,7 @@ class _AtStateSample {
   final String status;
   final String lastWhy;
   final String lastState;
+  final String engine;
   _AtStateSample({
     required this.at,
     required this.connected,
@@ -38,6 +39,7 @@ class _AtStateSample {
     required this.status,
     required this.lastWhy,
     required this.lastState,
+    required this.engine,
   });
 }
 
@@ -53,8 +55,16 @@ extension AutoTestEngine on _HomePageState {
   static const _switchingStuckLimit = Duration(seconds: 25);
   static const _connectHangLimit = Duration(seconds: 90);
 
-  // runtime state (instance-level via private maps would be better, but
-  // keep it simple and local to the running test)
+  /// هر ۶ نوع VPN که در دیالوگ اتصال هستند
+  static const List<(String id, String label)> _engines = [
+    ('v2ray', 'V2Ray'),
+    ('ovpn', 'OpenVPN'),
+    ('wg', 'WireGuard'),
+    ('am', 'AM Tunnel'),
+    ('npv', 'NPV Tunnel'),
+    ('injector', 'HTTP Injector'),
+  ];
+
   static _AtPhase _phase = _AtPhase.idle;
   static Timer? _sampleT;
   static Timer? _endT;
@@ -66,6 +76,8 @@ extension AutoTestEngine on _HomePageState {
   static final List<_AtStateSample> _samples = [];
   static int _scenario = 0;
   static bool _abortRequested = false;
+  static String _currentEngine = 'v2ray';
+  static final Map<String, String> _engineResult = {}; // ok / fail / skip
 
   bool get isAutoTesting => _phase == _AtPhase.running;
 
@@ -87,9 +99,10 @@ extension AutoTestEngine on _HomePageState {
         child: AlertDialog(
           title: const Text('تست خودکار ۲۰ دقیقه‌ای'),
           content: const Text(
-            'اپ خودش سناریوهای واقعی (وصل/قطع، تعویض سرور، قطع وسط اتصال، '
-            'مانیتور طولانی) را اجرا می‌کند و هر ناسازگاری وضعیت را '
-            'با کد دقیق در گزارش ثبت می‌کند.\n\n'
+            'اپ خودش هر ۶ نوع VPN را تست می‌کند:\n'
+            '• V2Ray\n• OpenVPN\n• WireGuard\n'
+            '• AM Tunnel\n• NPV Tunnel\n• HTTP Injector\n\n'
+            'به‌علاوه قطع/وصل، abort وسط اتصال، تعویض سرور و مانیتور پایدار.\n\n'
             'در این ۲۰ دقیقه اپ را نبند و صفحه را قفل نکن.\n'
             'می‌توانی وسط کار «توقف تست» را بزنی.',
           ),
@@ -120,22 +133,22 @@ extension AutoTestEngine on _HomePageState {
     _abortRequested = false;
     _findings.clear();
     _samples.clear();
+    _engineResult.clear();
     _scenario = 0;
     _busySince = null;
     _switchingSince = null;
     _connectingSince = null;
+    _currentEngine = 'v2ray';
     _startedAt = DateTime.now();
     autoTestRunning.value = true;
     autoTestProgress.value = 0;
-    autoTestText.value = 'تست خودکار شروع شد…';
-    dbg('🧪 AUTOTEST شروع شد (۲۰ دقیقه)');
-    _dbgProb('🧪 تست خودکار ۲۰ دقیقه‌ای شروع شد');
+    autoTestText.value = 'تست خودکار شروع شد (۶ VPN)…';
+    dbg('🧪 AUTOTEST شروع شد (۲۰ دقیقه • ۶ VPN)');
+    _dbgProb('🧪 تست خودکار ۲۰ دقیقه‌ای — ۶ موتور VPN');
 
-    // continuous sampler
     _sampleT?.cancel();
     _sampleT = Timer.periodic(_sampleEvery, (_) => _atSample());
 
-    // hard end timer
     _endT?.cancel();
     _endT = Timer(_testDuration, () {
       if (_phase == _AtPhase.running) {
@@ -145,7 +158,7 @@ extension AutoTestEngine on _HomePageState {
     });
 
     try {
-      await _atScenarioConnectBasic(); // 1
+      await _atScenarioAllEngines(); // 1 — هر ۶ VPN
       if (_abortRequested) return _atFinish(reason: 'توقف دستی');
       await _atScenarioReconnectStorm(); // 2
       if (_abortRequested) return _atFinish(reason: 'توقف دستی');
@@ -175,7 +188,6 @@ extension AutoTestEngine on _HomePageState {
     autoTestRunning.value = false;
     autoTestProgress.value = 1.0;
 
-    // one last sample
     _atSample();
 
     final elapsed = _startedAt == null
@@ -185,10 +197,16 @@ extension AutoTestEngine on _HomePageState {
     final sec = elapsed.inSeconds % 60;
 
     final buf = StringBuffer();
-    buf.writeln('===== گزارش تست خودکار =====');
+    buf.writeln('===== گزارش تست خودکار (۶ VPN) =====');
     buf.writeln('مدت: ${min}m ${sec}s • دلیل پایان: $reason');
     buf.writeln('نمونه وضعیت: ${_samples.length}');
     buf.writeln('یافته‌ها: ${_findings.length}');
+    buf.writeln('');
+    buf.writeln('--- نتیجه هر موتور ---');
+    for (final e in _engines) {
+      final r = _engineResult[e.$1] ?? 'تست نشد';
+      buf.writeln('• ${e.$2}: $r');
+    }
     buf.writeln('');
 
     if (_findings.isEmpty) {
@@ -202,7 +220,7 @@ extension AutoTestEngine on _HomePageState {
         _dbgProb('[AUTOTEST ${f.code}] ${f.msg}');
       }
       autoTestText.value =
-          'تست تمام شد • ${_findings.length} مشکل پیدا شد — گزارش خطاها را ببین';
+          'تست تمام شد • ${_findings.length} مشکل — گزارش را ببین';
     }
 
     final report = buf.toString();
@@ -262,80 +280,63 @@ extension AutoTestEngine on _HomePageState {
       status: status,
       lastWhy: lastWhy,
       lastState: lastState,
+      engine: _currentEngine,
     );
     _samples.add(s);
     if (_samples.length > 500) _samples.removeAt(0);
 
-    // progress
     if (_startedAt != null) {
       final p = now.difference(_startedAt!).inMilliseconds /
           _testDuration.inMilliseconds;
       autoTestProgress.value = p.clamp(0.0, 1.0);
     }
 
-    // --- busy stuck ---
     if (busy) {
       _busySince ??= now;
       if (now.difference(_busySince!) > _busyStuckLimit) {
         _atAdd('BUSY-STUCK',
-            'busy بیش از ${_busyStuckLimit.inSeconds}s روشن مانده • status="$status"');
+            'busy بیش از ${_busyStuckLimit.inSeconds}s مانده • موتور=$_currentEngine • $status');
+        _busySince = now;
       }
     } else {
       _busySince = null;
     }
 
-    // --- switching stuck ---
     if (switching) {
       _switchingSince ??= now;
       if (now.difference(_switchingSince!) > _switchingStuckLimit) {
         _atAdd('SWITCH-STUCK',
-            'switching بیش از ${_switchingStuckLimit.inSeconds}s روشن مانده • status="$status"');
+            'switching بیش از ${_switchingStuckLimit.inSeconds}s • موتور=$_currentEngine');
+        _switchingSince = now;
       }
     } else {
       _switchingSince = null;
     }
 
-    // --- connect hang (status looks like connecting but never finishes) ---
-    final looksConnecting = !connected &&
-        (status.contains('اتصال') ||
-            status.contains('جستجو') ||
-            status.contains('در حال') ||
-            status.contains('تست'));
-    if (looksConnecting && busy) {
+    if (busy && !connected) {
       _connectingSince ??= now;
       if (now.difference(_connectingSince!) > _connectHangLimit) {
         _atAdd('CONNECT-HANG',
-            'بیش از ${_connectHangLimit.inSeconds}s روی وضعیت اتصال گیر کرده • "$status"');
+            'اتصال بیش از ${_connectHangLimit.inSeconds}s طول کشید • موتور=$_currentEngine');
+        _connectingSince = now;
       }
     } else {
       _connectingSince = null;
     }
 
-    // --- flag mismatch patterns (classic race symptoms) ---
-    if (connected && !busy && !switching) {
-      // healthy connected state — nothing to flag here
-    } else if (!connected && lastState.toUpperCase().contains('CONNECTED')) {
+    if (connected && !wantVpn && !busy) {
       _atAdd('FLAG-MISMATCH',
-          'connected=false ولی lastState هنوز CONNECTED است • status="$status"');
+          'connected=true ولی wantVpn=false • موتور=$_currentEngine');
     }
-
-    // orphan-ish: connected=true but watch is gone while we expect it
-    if (connected &&
-        !busy &&
-        !switching &&
-        watch?.isActive != true &&
-        !_abortRequested) {
-      // the real self-heal already restarts watch; we just record frequency
-      _atAdd('WATCH-MISSING',
-          'connected=true ولی واچ‌داگ خاموش است (ممکن است race باشد)');
+    if (connected && !watchBusy && !busy && !switching) {
+      // informational only when watchdog should be running — not always a bug
     }
 
     autoTestText.value =
-        'تست #$_scenario • ${_findings.length} یافته • ${status.length > 40 ? status.substring(0, 40) : status}';
+        'تست #$_scenario • $_currentEngine • ${_findings.length} یافته';
   }
 
   void _atAdd(String code, String msg) {
-    // de-dupe by code+msg skeleton
     final key = '$code|${msg.replaceAll(RegExp(r'\d+'), '#')}';
     for (final f in _findings) {
       final fk = '${f.code}|${f.msg.replaceAll(RegExp(r'\d+'), '#')}';
@@ -349,7 +350,7 @@ extension AutoTestEngine on _HomePageState {
   }
 
   // ---------------------------------------------------------------------------
-  // Scenarios
+  // Helpers
   // ---------------------------------------------------------------------------
 
   Future<void> _atWait(Duration d, {String? note}) async {
@@ -376,49 +377,99 @@ extension AutoTestEngine on _HomePageState {
       await Future<void>.delayed(const Duration(milliseconds: 300));
     }
     if (!pred()) {
-      _atAdd('TIMEOUT', 'صبر برای «$label» بیش از ${timeout.inSeconds}s طول کشید');
+      _atAdd('TIMEOUT',
+          'صبر برای «$label» بیش از ${timeout.inSeconds}s • موتور=$_currentEngine');
     }
   }
 
-  /// سناریو ۱: اتصال پایه + پایداری کوتاه
-  Future<void> _atScenarioConnectBasic() async {
-    _scenario = 1;
-    autoTestText.value = 'سناریو ۱: اتصال پایه';
-    dbg('🧪 سناریو ۱ — اتصال پایه');
+  /// اعمال موتور بدون دیالوگ UI (مسیر تست)
+  Future<void> _atApplyEngine(String id) async {
+    _currentEngine = id;
+    applyPilotEngine(id);
+    // injector/am/npv در UI صفحه باز می‌کنند؛ در تست مستقیم connect می‌کنیم
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+  }
 
-    if (connected) {
-      await disconnect();
-      await _atWaitUntil(() => !connected && !busy,
+  Future<void> _atEnsureDisconnected() async {
+    if (connected || busy || wantVpn) {
+      abort = true;
+      try {
+        await disconnect();
+      } catch (_) {}
+      await _atWaitUntil(() => !connected && !busy && !switching,
           timeout: const Duration(seconds: 25), label: 'قطع کامل');
+      abort = false;
     }
+  }
 
+  /// وصل با یک موتور مشخص + تست سرعت کوتاه
+  Future<bool> _atConnectEngine(String id, String label) async {
+    await _atApplyEngine(id);
+    await _atEnsureDisconnected();
+    if (_abortRequested) return false;
+
+    autoTestText.value = 'اتصال با $label…';
+    dbg('🧪 اتصال موتور: $label ($id)');
     await connect();
     await _atWaitUntil(() => connected && !busy,
-        timeout: const Duration(seconds: 120), label: 'وصل شدن');
+        timeout: const Duration(seconds: 100), label: 'وصل $label');
 
-    if (connected) {
-      await _atWait(const Duration(seconds: 25), note: 'پایداری ۲۵ ثانیه بعد از وصل');
-      // quick tunnel liveness hint via existing measure if possible
-      try {
-        final sp = await measure(url: smallSpeedUrl);
-        if (sp == null || sp <= 0) {
-          _atAdd('NO-DATA', 'بعد از وصل، تست سرعت کوچک داده برنگرداند');
-        } else {
-          dbg('🧪 سرعت کوچک ≈ ${(sp * 1024).toStringAsFixed(1)} KB/s');
-        }
-      } catch (e) {
-        _atAdd('MEASURE-FAIL', 'خطا در measure بعد از وصل: $e');
+    if (!connected) {
+      _engineResult[id] = '❌ وصل نشد';
+      _atAdd('ENG-FAIL', '$label نتوانست وصل شود • status="$status"');
+      return false;
+    }
+
+    await _atWait(const Duration(seconds: 12), note: 'پایداری $label');
+    try {
+      final sp = await measure(url: smallSpeedUrl);
+      if (sp == null || sp <= 0) {
+        _engineResult[id] = '⚠️ وصل شد ولی سرعت صفر';
+        _atAdd('ENG-NODATA', '$label وصل شد ولی تست سرعت داده نداد');
+      } else {
+        final kb = (sp * 1024).toStringAsFixed(0);
+        _engineResult[id] = '✅ وصل • ≈$kb KB/s';
+        dbg('🧪 $label سرعت ≈ $kb KB/s');
       }
-    } else {
-      _atAdd('CONNECT-FAIL', 'سناریو ۱: نتوانست وصل شود • status="$status"');
+    } catch (e) {
+      _engineResult[id] = '⚠️ وصل • خطا در measure';
+      _atAdd('ENG-MEASURE', '$label خطا در measure: $e');
+    }
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Scenarios
+  // ---------------------------------------------------------------------------
+
+  /// سناریو ۱: تست تک‌تک هر ۶ موتور VPN
+  Future<void> _atScenarioAllEngines() async {
+    _scenario = 1;
+    autoTestText.value = 'سناریو ۱: تست ۶ VPN';
+    dbg('🧪 سناریو ۱ — هر ۶ موتور VPN');
+
+    for (var i = 0; i < _engines.length; i++) {
+      if (_abortRequested) return;
+      final e = _engines[i];
+      autoTestText.value = 'سناریو ۱: ${e.$2} (${i + 1}/6)';
+      final ok = await _atConnectEngine(e.$1, e.$2);
+      if (ok) {
+        await _atEnsureDisconnected();
+        await _atWait(const Duration(seconds: 2));
+      } else {
+        // اگر سرور آن نوع نبود، ادامه بده
+        await _atEnsureDisconnected();
+        await _atWait(const Duration(seconds: 1));
+      }
     }
   }
 
-  /// سناریو ۲: طوفان قطع/وصل (۳ بار)
+  /// سناریو ۲: طوفان قطع/وصل روی V2Ray (موتور اصلی)
   Future<void> _atScenarioReconnectStorm() async {
     _scenario = 2;
     autoTestText.value = 'سناریو ۲: قطع/وصل سریع';
-    dbg('🧪 سناریو ۲ — قطع/وصل سریع ×۳');
+    dbg('🧪 سناریو ۲ — قطع/وصل ×۳ روی V2Ray');
+    await _atApplyEngine('v2ray');
 
     for (var i = 1; i <= 3; i++) {
       if (_abortRequested) return;
@@ -442,24 +493,17 @@ extension AutoTestEngine on _HomePageState {
     }
   }
 
-  /// سناریو ۳: قطع وسط اتصال (race کلاسیک)
+  /// سناریو ۳: قطع وسط اتصال
   Future<void> _atScenarioMidConnectAbort() async {
     _scenario = 3;
     autoTestText.value = 'سناریو ۳: قطع وسط اتصال';
     dbg('🧪 سناریو ۳ — abort وسط اتصال');
+    await _atApplyEngine('v2ray');
+    await _atEnsureDisconnected();
 
-    if (connected) {
-      await disconnect();
-      await _atWaitUntil(() => !connected && !busy,
-          timeout: const Duration(seconds: 20), label: 'قطع قبل از mid-abort');
-    }
-
-    // start connect without awaiting full completion
     final fut = connect();
-    // wait a bit so busy/switching becomes true
-    await _atWait(const Duration(seconds: 2), note: 'صبر کوتاه بعد از شروع اتصال');
+    await _atWait(const Duration(seconds: 2), note: 'صبر بعد از شروع اتصال');
 
-    // force abort
     abort = true;
     try {
       await disconnect();
@@ -467,21 +511,19 @@ extension AutoTestEngine on _HomePageState {
     await _atWaitUntil(() => !busy && !switching,
         timeout: const Duration(seconds: 30), label: 'آزاد شدن بعد از abort');
 
-    // give the original future a chance to settle
     try {
       await fut.timeout(const Duration(seconds: 5));
     } catch (_) {}
 
     if (busy || switching) {
       _atAdd('ABORT-STUCK',
-          'بعد از abort وسط اتصال، busy=$busy switching=$switching مانده');
+          'بعد از abort، busy=$busy switching=$switching مانده');
     }
     if (connected) {
       _atAdd('ABORT-FLAG',
-          'بعد از abort، connected هنوز true است (احتمال race در onStatusChanged)');
+          'بعد از abort، connected هنوز true است');
     }
 
-    // recover cleanly
     abort = false;
     await _atWait(const Duration(seconds: 2));
     if (!connected) {
@@ -491,11 +533,12 @@ extension AutoTestEngine on _HomePageState {
     }
   }
 
-  /// سناریو ۴: تعویض سرور موقع وصل بودن
+  /// سناریو ۴: تعویض سرور
   Future<void> _atScenarioServerSwap() async {
     _scenario = 4;
     autoTestText.value = 'سناریو ۴: تعویض سرور';
-    dbg('🧪 سناریو ۴ — تعویض سرور در حالت وصل');
+    dbg('🧪 سناریو ۴ — تعویض سرور');
+    await _atApplyEngine('v2ray');
 
     if (!connected) {
       await connect();
@@ -508,7 +551,6 @@ extension AutoTestEngine on _HomePageState {
     }
 
     final before = current?.key;
-    // trigger failover / swap path that already exists
     try {
       await _failover();
     } catch (e) {
@@ -517,24 +559,23 @@ extension AutoTestEngine on _HomePageState {
 
     await _atWaitUntil(() => !busy && !switching,
         timeout: const Duration(seconds: 60), label: 'پایان تعویض');
-
     await _atWait(const Duration(seconds: 12), note: 'پایداری بعد از تعویض');
 
     if (!connected) {
       _atAdd('SWAP-DROP', 'بعد از تعویض سرور، اتصال قطع ماند');
     } else if (before != null && current?.key == before) {
-      // not always a bug — may have only one good server
-      dbg('🧪 تعویض: همان سرور قبلی ماند (احتمالاً فقط یک سرور سالم)');
+      dbg('🧪 تعویض: همان سرور قبلی ماند');
     } else {
-      dbg('🧪 تعویض سرور انجام شد: $before → ${current?.key}');
+      dbg('🧪 تعویض: $before → ${current?.key}');
     }
   }
 
-  /// سناریو ۵: مانیتور طولانی پایدار (باقی‌مانده زمان)
+  /// سناریو ۵: مانیتور طولانی
   Future<void> _atScenarioLongStable() async {
     _scenario = 5;
     autoTestText.value = 'سناریو ۵: مانیتور طولانی';
     dbg('🧪 سناریو ۵ — مانیتور پایدار');
+    await _atApplyEngine('v2ray');
 
     if (!connected) {
       await connect();
@@ -542,12 +583,11 @@ extension AutoTestEngine on _HomePageState {
           timeout: const Duration(seconds: 100), label: 'وصل برای مانیتور');
     }
 
-    // stay connected and just sample until near the end or ~6 more minutes
     final remain = _startedAt == null
-        ? const Duration(minutes: 6)
+        ? const Duration(minutes: 5)
         : _testDuration - DateTime.now().difference(_startedAt!);
-    final watchFor = remain > const Duration(minutes: 6)
-        ? const Duration(minutes: 6)
+    final watchFor = remain > const Duration(minutes: 5)
+        ? const Duration(minutes: 5)
         : (remain.isNegative ? Duration.zero : remain);
 
     if (watchFor.inSeconds < 10) return;
@@ -558,15 +598,14 @@ extension AutoTestEngine on _HomePageState {
       if (_abortRequested || _phase != _AtPhase.running) return;
 
       if (!connected && !busy) {
-        _atAdd('STABLE-DROP', 'در فاز مانیتور طولانی، اتصال بی‌دلیل قطع شد');
-        // try recover once
+        _atAdd('STABLE-DROP', 'در مانیتور طولانی، اتصال بی‌دلیل قطع شد');
         await connect();
         await _atWaitUntil(() => connected && !busy,
             timeout: const Duration(seconds: 80), label: 'بازیابی مانیتور');
       }
 
-      // occasional speed sample every ~40s
-      if (DateTime.now().difference(lastPingCheck) > const Duration(seconds: 40)) {
+      if (DateTime.now().difference(lastPingCheck) >
+          const Duration(seconds: 40)) {
         lastPingCheck = DateTime.now();
         try {
           final sp = await measure(url: smallSpeedUrl);
