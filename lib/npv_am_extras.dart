@@ -19,7 +19,7 @@ part of 'main.dart';
 bool npvParse = true; // خواندن کانفیگ‌های غیراستاندارد
 bool cleanIpMode = true; // IP تمیز برای سرورهای Cloudflare
 bool fragEnabled = false; // OFF by default = much higher post-connect speed
-bool muxEnabled = false; // OFF: many free servers break with Mux (apps hang)
+bool muxEnabled = true; // ON: توربو سرعت بعد از اتصال — Mux فعال
 bool secureDns = true; // DNS از طریق DoH + IP fallback
 bool blockQuic = true; // مسدود کردن QUIC (UDP 443) تا مرورگرها به TCP/TLS برگردند
 bool lanDirect = true; // شبکه‌ی محلی (LAN) از تونل رد نشود
