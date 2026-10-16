@@ -385,8 +385,10 @@ Future<List<VsItem>> _findV2ray(VsSpec spec, _VsState st, Set<String> seen) asyn
   st.tick.value++;
   await _vsPool<VsItem>(cand, 16, (it) async {
     final p = it.key.lastIndexOf(':');
-    final ms = await _vsProbe(it.key.substring(0, p),
-        int.parse(it.key.substring(p + 1)));
+    if (p <= 0 || p >= it.key.length - 1) return;
+    final port = int.tryParse(it.key.substring(p + 1));
+    if (port == null || port <= 0 || port > 65535) return;
+    final ms = await _vsProbe(it.key.substring(0, p), port);
     done++;
     if (done % 8 == 0) {
       st.progress = 0.4 + 0.6 * done / cand.length;
@@ -398,7 +400,7 @@ Future<List<VsItem>> _findV2ray(VsSpec spec, _VsState st, Set<String> seen) asyn
       alive.add(it);
     }
   });
-  alive.sort((a, b) => a.ping!.compareTo(b.ping!));
+  alive.sort((a, b) => (a.ping ?? 99999).compareTo(b.ping ?? 99999));
   // new ones first among the alive, then the old ones
   final out = <VsItem>[
     ...alive.where((e) => !seen.contains(e.key)),
@@ -535,7 +537,10 @@ Future<List<VsItem>> _findVpnGate(VsSpec spec, _VsState st, Set<String> seen) as
   await _vsPool<VsItem>(toTest, 12, (it) async {
     final k = it.key.split('/').first;
     final p = k.lastIndexOf(':');
-    final ms = await _vsProbe(k.substring(0, p), int.parse(k.substring(p + 1)));
+    if (p <= 0 || p >= k.length - 1) return;
+    final port = int.tryParse(k.substring(p + 1));
+    if (port == null || port <= 0 || port > 65535) return;
+    final ms = await _vsProbe(k.substring(0, p), port);
     done++;
     st.progress = done / toTest.length;
     if (done % 6 == 0) st.tick.value++;
