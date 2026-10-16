@@ -247,10 +247,10 @@ const minHold = Duration(seconds: 6);
 // FASTPATCH ----------------------------------------------------
 int fastPickN = 2; // سریع وصل شو با ۲ سرور سالم؛ بقیه در پس‌زمینه
 int fastPickMs = 8000; // حداکثر ۸ثانیه بعد از اولین سالم
-bool betterSwitch = true; // فعال ولی سخت‌گیرانه‌تر
-const betterGain = 0.65; // باید حداقل ۳۵٪ بهتر باشد (کمتر تعویض الکی)
-const betterMinGapMs = 40; // حداقل ۴۰ms اختلاف
-const betterEvery = Duration(minutes: 5); // هر ۵ دقیقه حداکثر یک‌بار
+bool betterSwitch = true; // فقط وقتی سرور خیلی بهتر باشد
+const betterGain = 0.50; // باید حداقل ۵۰٪ بهتر باشد (پینگ نصف یا کمتر)
+const betterMinGapMs = 50; // حداقل ۵۰ms اختلاف
+const betterEvery = Duration(minutes: 6); // هر ۶ دقیقه حداکثر یک‌بار
 int? connBaseDelay; // test ping of the connected server
 int betterRun = 0;
 bool aiFastOn = true; // parallel Gemini test (off = old one-by-one)
@@ -6498,12 +6498,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // Used immediately when the server is dead / broken / errors out: the
   // fastest known standby (by real speed) takes over, no timer is waited for.
   // STABLEPINGPATCH: always the lowest ping, without frequent cuts
-  static const double _spRatio = 0.60; // باید حداقل ۴۰٪ بهتر باشد
-  static const int _spMinGain = 70; // حداقل ۷۰ms اختلاف
-  static const Duration _spHold = Duration(minutes: 8); // فاصله بیشتر بین تعویض‌ها
-  static const Duration _spEvery = Duration(seconds: 60); // کمتر چک می‌کند
-  static const Duration _spRefreshEvery = Duration(minutes: 4);
-  static const Duration _spSkipFor = Duration(minutes: 15);
+  static const double _spRatio = 0.50; // باید حداقل ۵۰٪ بهتر باشد
+  static const int _spMinGain = 80; // حداقل ۸۰ms اختلاف
+  static const Duration _spHold = Duration(minutes: 10); // فاصله بیشتر
+  static const Duration _spEvery = Duration(seconds: 75);
+  static const Duration _spRefreshEvery = Duration(minutes: 5);
+  static const Duration _spSkipFor = Duration(minutes: 20);
   static const int _spMaxPerHour = 2; // حداکثر ۲ بار در ساعت
   final List<int> _spWin = []; // live pings of the connected server
   Server? _spFor; // the server the window belongs to
@@ -7622,7 +7622,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               // keep the real speed of the connected server up to date
               current?.speed = sp;
               current?.speedAt = DateTime.now();
-              stallRun = (sp * 1024 < 100) ? stallRun + 1 : 0;
+              // فقط وقتی سرعت واقعاً نزدیک صفر است (زیر ۴۰ KB/s) حساب شود
+              // ۱۰۰ یا ۲۰۰ کیلوبایت دیگر باعث تعویض نمی‌شود
+              stallRun = (sp * 1024 < 40) ? stallRun + 1 : 0;
               if (minSpeedKB > 0 && sp * 1024 < minSpeedKB) {
                 needTrial = true;
                 lowSpeed++;
@@ -7630,17 +7632,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 lowSpeed = 0;
               }
             }
-            // pings pass but no data flows for ~2 minutes: dead server
-            if (noData >= 3) {
+            // فقط وقتی چند بار پشت‌سرهم هیچ داده‌ای نیامد
+            if (noData >= 5) {
               noData = 0;
               lastWhy = 'دانلود از سرور صفر است';
               await _failover();
               return;
             }
-            if (stallRun >= 2 &&
+            // قطع جریان: حداقل ۴ بار زیر ۴۰ KB/s + فاصله زمانی بیشتر
+            if (stallRun >= 4 &&
                 _ready() > 0 &&
                 DateTime.now().difference(lastSwitch) >
-                    const Duration(seconds: 20)) {
+                    const Duration(seconds: 45)) {
               stallRun = 0;
               lowSpeed = 0;
               lastWhy = 'قطع جریان داده';
@@ -7687,12 +7690,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               await _failover();
               return;
             }
-            // the connected server stays slow (2 checks in a row) and a
-            // healthy replacement exists: switch (not more than once / 2 min)
-            if (lowSpeed >= 4 &&
+            // سرعت پایین: فقط بعد از مدت طولانی‌تر و با آستانه بالاتر
+            if (lowSpeed >= 6 &&
                 _ready() > 0 &&
                 DateTime.now().difference(lastSwitch) >
-                    const Duration(seconds: 60)) {
+                    const Duration(seconds: 90)) {
               lowSpeed = 0;
               lastWhy = 'سرعت پایین';
               await _failover();
