@@ -1328,8 +1328,8 @@ extension HomeExtras on _HomePageState {
                     localPilotOn ? Icons.flight_land : Icons.rocket_launch,
                     size: 18),
                 label: Text(localPilotOn
-                    ? '⏹ توقف خلبان King Pro'
-                    : '👑 خلبان King Pro — بدون API · هوشمندتر از AI ابری'),
+                    ? '⏹ توقف خلبان (قدرت $_localPower/3)'
+                    : '👑 خلبان فوق‌پیشرفته — تمام‌اتوماتیک · بدون تنظیم دستی'),
                 style: FilledButton.styleFrom(
                   backgroundColor: localPilotOn
                       ? const Color(0xFFB71C1C)
@@ -1934,17 +1934,27 @@ extension HomeExtras on _HomePageState {
     _localTickN++;
     try {
       localPilotText.value =
-          '⏳ خلبان Pro: پروب تلگرام/یوتیوب/اینستا + تحلیل اپراتور...';
+          '⏳ خلبان قدرت $_localPower/3: پروب + تحلیل اپراتور...';
 
       try {
         await natDetectOperator();
       } catch (_) {}
+      try {
+        await _natDetect();
+      } catch (_) {}
+
+      // قدرت را هر تیک با شبکه هماهنگ کن (تمام‌اتوماتیک)
+      final wantPower = _localAutoPickPower();
+      if (wantPower != _localPower) {
+        _localApplyMaxPowerProfile(power: wantPower);
+      }
 
       final snap = await _localGather(probe: true);
       final decision = _localDecide(snap);
 
       final report = StringBuffer();
-      report.writeln('👑 خلبان محلی King Pro  •  تیک #$_localTickN');
+      report.writeln(
+          '👑 خلبان فوق‌پیشرفته  •  قدرت $_localPower/3  •  تیک #$_localTickN');
       report.writeln('────────────────────────');
       report.writeln(snap.toHuman());
       report.writeln('────────────────────────');
@@ -1954,6 +1964,9 @@ extension HomeExtras on _HomePageState {
       if (decision.settings.isNotEmpty) {
         report.writeln('⚙️ ${decision.settings}');
       }
+      report.writeln(
+          '⚙️ اتو: workers=$fastWorkers timeout=${delayTimeout.inSeconds}s '
+          'natLvl=$natLevel mux=$muxEnabled turbo=$turboSpeed');
       localPilotText.value = report.toString().trim();
 
       await _localApply(decision);
@@ -1996,7 +2009,117 @@ extension HomeExtras on _HomePageState {
     });
   }
 
+  /// قدرت خلبان ۰..۳ — خودکار بر اساس وضعیت شبکه تنظیم می‌شود
+  /// ۰=عادی  ۱=قوی  ۲=نت ملی  ۳=اضطراری حداکثر
+  int _localPower = 1;
+
+  /// پروفایل کامل خودکار: عددها + سوییچ‌ها — کاربر هیچ دستی لازم ندارد
+  void _localApplyMaxPowerProfile({int? power}) {
+    final p = power ?? _localPower;
+    _localPower = p.clamp(0, 3);
+
+    // --- سوییچ‌های حیاتی (همه اتوماتیک) ---
+    autoTune = false; // خلبان خودش عدد می‌چیند
+    unawaited(autoTuneSave());
+    proxyMode = false; // تونل واقعی VPN
+    turboSpeed = true;
+    muxEnabled = true;
+    autoSpeed = true;
+    autoCycle = true;
+    savedFirst = true;
+    offlineOnly = false;
+
+    // --- عددهای پیشنهادی بر اساس قدرت ---
+    switch (_localPower) {
+      case 0: // آرام / اینترنت خوب
+        fastWorkers = 40;
+        bgWorkers = 2;
+        delayTimeout = const Duration(seconds: 10);
+        batchSize = 200;
+        badPingMs = 3000;
+        minSpeedKB = 0;
+        watchFailLimit = 4;
+        speedTopN = 2;
+        muxConc = max(muxConc, 16);
+        fragEnabled = false;
+        natLevel = max(natLevel, 1);
+        break;
+      case 1: // قوی پیش‌فرض (روزمره)
+        fastWorkers = 50;
+        bgWorkers = 3;
+        delayTimeout = const Duration(seconds: 12);
+        batchSize = 250;
+        badPingMs = 2800;
+        minSpeedKB = 0;
+        watchFailLimit = 4;
+        speedTopN = 3;
+        muxConc = max(muxConc, 24);
+        fragEnabled = false;
+        natLevel = max(natLevel, 1);
+        ultraMode = true;
+        break;
+      case 2: // نت ملی / اینترنت ضعیف
+        fastWorkers = 50;
+        bgWorkers = 4;
+        delayTimeout = const Duration(seconds: 16);
+        tcpTimeout = Duration(
+            milliseconds: max(tcpTimeout.inMilliseconds, 5500));
+        batchSize = 300;
+        badPingMs = 3500;
+        minSpeedKB = 0;
+        watchFailLimit = 5;
+        speedTopN = 3;
+        muxConc = max(muxConc, 24);
+        natLevel = max(natLevel, 2);
+        natWorkers = max(natWorkers, 8);
+        nationalMode = true;
+        autoCycle = true;
+        try {
+          natGrow(120);
+        } catch (_) {}
+        break;
+      case 3: // اضطراری حداکثر
+      default:
+        fastWorkers = 60;
+        bgWorkers = 5;
+        delayTimeout = const Duration(seconds: 18);
+        tcpTimeout = Duration(
+            milliseconds: max(tcpTimeout.inMilliseconds, 7000));
+        batchSize = 350;
+        badPingMs = 4000;
+        minSpeedKB = 0;
+        watchFailLimit = 5;
+        speedTopN = 4;
+        muxConc = max(muxConc, 32);
+        natLevel = max(natLevel, 3);
+        natWorkers = max(natWorkers, 10);
+        nationalMode = true;
+        indestructibleMode = true;
+        ultraMode = true;
+        autoCycle = true;
+        try {
+          natGrow(200);
+        } catch (_) {}
+        break;
+    }
+    _applyTurboLevers();
+    unawaited(_saveSettings());
+  }
+
+  /// تشخیص خودکار قدرت مناسب از وضعیت فعلی شبکه
+  int _localAutoPickPower() {
+    if (nationalMode || natForce || indestructibleMode) return 2;
+    if (_localFailStreak >= 3 || _localSlowStreak >= 3) return 3;
+    if (_localFailStreak >= 1) return 2;
+    final v = lastNetVerdict;
+    if (v != null && v.home == true && v.web == false) return 2;
+    return 1; // روزمره قوی
+  }
+
   void startLocalPilot() {
+    // ابری را خاموش کن تا تداخل نباشد
+    if (aiSession) stopGrokPilot();
+
     localPilotOn = true;
     wantVpn = true;
     abort = false;
@@ -2008,17 +2131,39 @@ extension HomeExtras on _HomePageState {
     _localTgOk = 0;
     _localTgFail = 0;
     _localConnectedSince = null;
-    turboSpeed = true;
-    _applyTurboLevers();
+
+    // قدرت اولیه: قوی (۱) — بعد از تشخیص شبکه ممکن است ۲ یا ۳ شود
+    _localPower = 1;
+    _localApplyMaxPowerProfile(power: 1);
+
     localPilotText.value =
-        '👑 خلبان محلی King Pro فعال شد\n• بدون API\n• پروب واقعی تلگرام/یوتیوب/اینستا\n• تعویض فقط وقتی لازم است';
+        '👑 خلبان فوق‌پیشرفته فعال شد\n'
+        '• قدرت: $_localPower/3 (خودکار)\n'
+        '• عددها و سوییچ‌ها اتوماتیک تنظیم شدند\n'
+        '• بدون API • بدون تنظیم دستی\n'
+        '• فقط دکمه قطع = توقف';
     _localReschedule();
     Future.delayed(const Duration(seconds: 2), () => localPilotTick(force: true));
     unawaited(() async {
       try {
         await natDetectOperator();
+        try {
+          await _natDetect();
+        } catch (_) {}
+        // قدرت را با واقعیت شبکه هماهنگ کن
+        final want = _localAutoPickPower();
+        if (want != _localPower) {
+          _localApplyMaxPowerProfile(power: want);
+        }
+        localPilotText.value =
+            '👑 خلبان قدرت $_localPower/3\n'
+            '${nationalMode ? "• حالت نت ملی فعال\n" : ""}'
+            '• شروع اتصال خودکار...';
         if (!connected && !busy) {
-          localPilotText.value = 'خلبان Pro: شروع اتصال...';
+          if (nationalMode) {
+            natForce = true;
+            _resInject();
+          }
           await connect();
         } else {
           await localPilotTick(force: true);
@@ -2035,7 +2180,14 @@ extension HomeExtras on _HomePageState {
     localPilotLoop?.cancel();
     localPilotLoop = null;
     _localPhase = 'boot';
-    localPilotText.value = 'خلبان محلی متوقف شد. (قطع دستی کاربر)';
+    // حالت اضطراری که فقط خلبان روشن کرده بود را آرام کن
+    // (nationalMode را دست نمی‌زنیم — ممکن است شبکه هنوز ملی باشد)
+    if (_localPower >= 3) {
+      indestructibleMode = false;
+    }
+    _localPower = 1;
+    localPilotText.value =
+        'خلبان محلی متوقف شد.\nبرای ادامه، دوباره «خلبان King Pro» را بزن.';
   }
 
 }
