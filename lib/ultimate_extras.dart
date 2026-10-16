@@ -137,7 +137,7 @@ extension UltimateExt on _HomePageState {
       final r = await InternetAddress.lookup('dns.google')
           .timeout(const Duration(seconds: 4));
       dnsOk = r.isNotEmpty;
-    } catch (_) {}
+    } catch (e) { logError(e); }
     var httpOk = false;
     try {
       final c = HttpClient()..connectionTimeout = const Duration(seconds: 4);
@@ -151,7 +151,7 @@ extension UltimateExt on _HomePageState {
       } finally {
         c.close(force: true);
       }
-    } catch (_) {}
+    } catch (e) { logError(e); }
     if (!dnsOk && !httpOk) {
       _set('پیش‌پرواز: شبکه خیلی ضعیف است — باز هم تلاش می‌کنم');
       return true;
