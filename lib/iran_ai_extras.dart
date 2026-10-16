@@ -16,6 +16,22 @@ const iranDomains = <String>[
   'domain:eitaa.com',
   'domain:bale.ai',
   'domain:tapsi.cab',
+  'domain:snapp.ir',
+  'domain:snapp.site',
+  'domain:divar.ir',
+  'domain:sheypoor.com',
+  'domain:bankmellat.ir',
+  'domain:bmi.ir',
+  'domain:shaparak.ir',
+  'domain:myket.ir',
+  'domain:cafebazaar.ir',
+  'domain:rubika.ir',
+  'domain:soroush-app.ir',
+  'domain:irancell.ir',
+  'domain:mci.ir',
+  'domain:rightel.ir',
+  'domain:shatel.ir',
+  'domain:asiatech.ir',
 ];
 
 // فقط روی اتصال واقعی VPN اعمال می‌شود (تست‌ها دست‌نخورده می‌مانند)
@@ -2802,40 +2818,40 @@ extension NumHomeExtras on _HomePageState {
 }
 
 
-// TUNEDPATCH ===================== مقدارهای بهینه BEST =====================
+// TUNEDPATCH ===================== مقدارهای بهینه BEST (یکدست با numOpts) =====================
 const Map<String, dynamic> _tunedSettings = {
-  't': 8,
-  'bw2': 3,
-  'st': 5,
-  'bp': 2500,
-  'ms': 80,
-  'lr': 240,
-  'fm': 120,
-  'rm': 30,
-  'a2': false,
-  'i': true,
-  'cip': true,
-  'sdns': true,
-  'sf': true,
-  'so': true,
-  'ac': false,
+  't': 8, // delayTimeout sec
+  'bw2': 3, // bgWorkers
+  'st': 5, // speedTopN
+  'bp': 2500, // badPingMs
+  'ms': 80, // minSpeedKB
+  'lr': 180, // listRefreshMin
+  'fm': 90, // failMin
+  'rm': 20, // recheckMin
+  'a2': true, // autoUpgrade
+  'i': true, // ?
+  'cip': true, // cleanIpMode
+  'sdns': true, // secureDns
+  'sf': true, // savedFirst
+  'so': true, // smartOrder
+  'ac': true, // autoCycle
   'o': true,
   'u': false,
   'fd': true,
-  'bps': true,
-  'npv': true,
-  'irm': true,
-  'bq': true,
-  'lan': true,
-  'ro': false,
-  'frg': false,
+  'bps': true, // badPingSwitch
+  'npv': true, // npvParse
+  'irm': true, // iranMore
+  'bq': true, // blockQuic
+  'lan': true, // lanDirect
+  'ro': false, // routeOnly
+  'frg': false, // fragEnabled
   'mux': true,
-  'mc': 16,
-  'ig': false,
-  'um': true,
-  'idm': false,
-  'tb': true,
-  'fw2': 50,
+  'mc': 32, // muxConc
+  'ig': false, // iranGeoip
+  'um': false, // ultraMode — پیش‌فرض خاموش (جستجو سریع‌تر)
+  'idm': false, // indestructibleMode
+  'tb': true, // turboSpeed
+  'fw2': 50, // fastWorkers
 };
 // BEST PROFILE — هم‌تراز numOpts.def
 const Map<String, int> _tunedNums = {
