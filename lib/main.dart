@@ -5110,9 +5110,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     turboSpeed = true;
     if (_turboBusy || !wantVpn || !connected) return;
     if (!identical(current, s) || s.ovpn) return;
+    if (busy || switching) return; // نگذار با تعویض همزمان تداخل کند
     _turboBusy = true;
     final curV = natVarFor(s);
     final prevV = curV;
+    // در طول ریستارت توربو، واچ‌داگ نباید تعویض کند
+    final wasSwitching = switching;
+    switching = true;
     try {
       await Future.delayed(const Duration(seconds: 1));
       if (!wantVpn || !connected || !identical(current, s) || abort) return;
@@ -5185,6 +5189,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       } catch (_) {}
     } finally {
       _turboBusy = false;
+      switching = wasSwitching;
+      // کمی تأخیر تا رویدادهای هسته قاطی نشوند
+      _unlockLater();
     }
   }
 
@@ -7151,7 +7158,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
         ),
       ),
-    );
+    ).whenComplete(() {
+      host.dispose();
+      uuid.dispose();
+      days.dispose();
+      full.dispose();
+    });
   }
 
   Widget _personalHeader() => InkWell(
@@ -7969,6 +7981,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if ((wantVpn || connected) && now.difference(_insHb).inSeconds >= 60) {
       _insHb = now;
       final up = _insUpAt == null ? 0 : now.difference(_insUpAt!).inSeconds;
+      // اگر بیش از ۳ دقیقه پایدار بود، محدودیت تعویض سایت‌ها را ریست کن
+      if (up >= 180 && siteNeverSwitches > 0) {
+        siteNeverSwitches = 0;
+        siteNever = 0;
+      }
       dbg('♥ متصل ${up}s • ${current?.name ?? '-'} • پینگ ${current?.ping ?? '-'}'
           ' • سرعت ${current?.speed ?? '-'} • سالم ${good.length}'
           ' (آماده ${_ready()}) • صف ${pending.length}'
@@ -8336,7 +8353,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ],
         ),
       ),
-    );
+    ).whenComplete(() => c.dispose());
   }
 
   // choose the apps that do NOT go through the VPN
