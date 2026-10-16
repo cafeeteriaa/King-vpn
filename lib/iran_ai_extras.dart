@@ -1289,10 +1289,15 @@ extension HomeExtras on _HomePageState {
             : e == 'npv'
                 ? VsKind.npv
                 : VsKind.injector;
-        vsOpen(context, kind, onConnect: (link) async {
-          applyPilotEngine(e);
-          await vsConnect(link);
-        });
+        vsOpen(
+          context,
+          kind,
+          showCopy: false, // مسیر اتصال — فقط دکمه اتصال
+          onConnect: (link) async {
+            applyPilotEngine(e);
+            await vsConnect(link);
+          },
+        );
       }
       return true;
     }
