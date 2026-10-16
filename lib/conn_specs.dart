@@ -214,7 +214,7 @@ ConfigSpec describeConfig(String link, {String? ovpnText, String? knownIp}) {
       if (v != null && v.isNotEmpty) extras.add('$k=$v');
     }
     if (extras.isNotEmpty) c.extra = extras.join(', ');
-  } catch (_) {}
+  } catch (e) { debugPrint("catch: $e"); }
   return c;
 }
 
