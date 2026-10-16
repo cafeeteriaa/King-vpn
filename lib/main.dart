@@ -9647,9 +9647,9 @@ UiHero(
                     ? () => disconnect()
                     : busy
                         ? () => abort = true
-                        : () {
+                        : () async {
                           aiSession = false;
-                          connect();
+                          await pickEngineThenStart(() => connect());
                         },
           ),
           if (busy)
