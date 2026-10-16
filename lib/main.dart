@@ -2020,9 +2020,15 @@ Future<bool> _useCoreProxy(bool wantProxy) async {
   if (proxyMode) return true;
   if (!wantProxy) return false;
   if (await _coreProxyOpen()) return true;
-  // port closed: only fall back to the tunnel when it really exists
-  // (without a tunnel a DIRECT request would give a false "OK")
-  return (await tunUp()) != true;
+  // Port may appear a moment after CONNECTED (inbounds just bound)
+  for (var i = 0; i < 8; i++) {
+    await Future.delayed(const Duration(milliseconds: 200));
+    if (await _coreProxyOpen()) return true;
+  }
+  // Still closed: still request PROXY so the check FAILS honestly
+  // (DIRECT from this app often bypasses the VPN on Android → false "OK"
+  // while Telegram/Instagram/YouTube stay blocked for the user).
+  return true;
 }
 
 // direct = true: no local proxy port, the request goes through the VPN tunnel
@@ -5515,17 +5521,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (abort) return false;
 
           Future<List<bool>> runSocial() async {
-            final checks = await Future.wait([
-              _siteOpens('https://telegram.org/', viaCore: true),
-              _siteOpens('https://web.telegram.org/', viaCore: true),
-              _siteOpens('https://www.youtube.com/generate_204', viaCore: true),
-              _siteOpens('https://www.youtube.com/', viaCore: true),
-              _siteOpens('https://www.instagram.com/', viaCore: true),
-              _siteOpens('https://i.instagram.com/', viaCore: true),
-              _siteOpens('https://cp.cloudflare.com/generate_204', viaCore: true),
-              _siteOpens('https://www.gstatic.com/generate_204', viaCore: true),
-            ]);
-            return checks;
+            try {
+              final checks = await Future.wait([
+                _siteOpens('https://telegram.org/', viaCore: true),
+                _siteOpens('https://web.telegram.org/', viaCore: true),
+                _siteOpens('https://www.youtube.com/generate_204', viaCore: true),
+                _siteOpens('https://www.youtube.com/', viaCore: true),
+                _siteOpens('https://www.instagram.com/', viaCore: true),
+                _siteOpens('https://i.instagram.com/', viaCore: true),
+                _siteOpens('https://cp.cloudflare.com/generate_204', viaCore: true),
+                _siteOpens('https://www.gstatic.com/generate_204', viaCore: true),
+              ]).timeout(const Duration(seconds: 12),
+                  onTimeout: () => List<bool>.filled(8, false));
+              return checks;
+            } catch (_) {
+              return List<bool>.filled(8, false);
+            }
           }
 
           var r = await runSocial();
