@@ -20,7 +20,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 // protocol allows it (UDP based ones can not be tested this way).
 // ---------------------------------------------------------------------------
 
-enum VsKind { hiddify, slipnet, vpnclient, injector }
+enum VsKind { hiddify, slipnet, vpnclient, injector, am, npv }
 
 const _ghRaw = 'https://raw.githubusercontent.com/';
 
@@ -172,9 +172,33 @@ const List<VsSpec> vsSpecs = [
     title: 'HTTP Injector',
     emoji: '💉',
     howTo:
-        'کپی کن و در HTTP Injector نوع V2Ray را انتخاب کن و لینک را وارد کن.',
+        'اتصال داخل اپ یا کپی در HTTP Injector (نوع V2Ray).',
     honest:
-        'برای حساب‌های SSH و فایل‌های .hc منبع عمومی قابل‌اعتماد و خودکار وجود ندارد (سایت‌های ساخت اکانت کپچا دارند و هر چند روز منقضی می‌شوند)؛ پس اینجا لینک‌های V2Ray که HTTP Injector می‌خواند آورده می‌شود. تست = باز بودن پورت. منابع هر ۱۵–۳۰ دقیقه آپدیت می‌شوند.',
+        'لینک‌های V2Ray که HTTP Injector می‌خواند. می‌توانی مستقیم داخل King VPN وصل شوی یا کپی کنی. تست = باز بودن پورت.',
+    urls: _v2rayLists,
+    schemes: ['vless', 'vmess', 'trojan', 'ss'],
+  ),
+  VsSpec(
+    kind: VsKind.am,
+    id: 'am',
+    title: 'AM Tunnel',
+    emoji: '📡',
+    howTo:
+        'اتصال داخل اپ با حالت AM (IP تمیز کلودفلر) یا کپی کانفیگ.',
+    honest:
+        'همان لینک‌های V2Ray؛ با اتصال داخل اپ، حالت AM (IP تمیز + اتصال با IP) اعمال می‌شود.',
+    urls: _v2rayLists,
+    schemes: ['vless', 'vmess', 'trojan', 'ss'],
+  ),
+  VsSpec(
+    kind: VsKind.npv,
+    id: 'npv',
+    title: 'NPV Tunnel',
+    emoji: '🧩',
+    howTo:
+        'اتصال داخل اپ با حالت NPV (Fragment + Mux) یا کپی کانفیگ.',
+    honest:
+        'همان لینک‌های V2Ray؛ با اتصال داخل اپ، حالت NPV (پارسر + Fragment + Mux) اعمال می‌شود.',
     urls: _v2rayLists,
     schemes: ['vless', 'vmess', 'trojan', 'ss'],
   ),
@@ -685,6 +709,8 @@ Future<void> vsRefresh(VsSpec spec) async {
         break;
       case VsKind.hiddify:
       case VsKind.injector:
+      case VsKind.am:
+      case VsKind.npv:
         r = await _findV2ray(spec, st, seen);
         break;
     }
@@ -755,10 +781,12 @@ class _VsPageState extends State<VsPage> {
 
   Widget _tile(VsItem it) {
     final isOvpn = spec.kind == VsKind.vpnclient;
-    // V2Ray-style links (Hiddify / HTTP Injector) can connect inside this app
+    // V2Ray-style: Hiddify / Injector / AM / NPV → اتصال داخل اپ
     final canConnect = widget.onConnect != null &&
         (spec.kind == VsKind.hiddify ||
-            spec.kind == VsKind.injector) &&
+            spec.kind == VsKind.injector ||
+            spec.kind == VsKind.am ||
+            spec.kind == VsKind.npv) &&
         const {'vless', 'vmess', 'trojan', 'ss', 'shadowsocks'}
             .contains(it.proto.toLowerCase());
     final badge = it.tested
