@@ -1262,7 +1262,7 @@ Future<void> natDetectOperator() async {
       natOpKey = k;
       dbg('شبکه/اپراتور: $k');
     }
-  } catch (_) {}
+  } catch (e) { logError(e); }
 }
 
 // ====================== حافظه‌ی حالت‌های موفق ======================
