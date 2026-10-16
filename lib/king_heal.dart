@@ -67,7 +67,8 @@ extension KingHealEngine on _HomePageState {
         now.difference(_healLastRun!) < const Duration(seconds: 4)) {
       return;
     }
-    if (busy && switching && reason != 'force') return;
+    // اگر مشغول یا در حال تعویض است، دخالت نکن (قبلاً فقط وقتی هر دو true بود)
+    if ((busy || switching) && reason != 'force') return;
     _healLastRun = now;
     _healCycle++;
     kingHealBusy.value = true;
@@ -217,12 +218,12 @@ extension KingHealEngine on _HomePageState {
       _hNoTun = 0;
     }
 
-    // پینگ بد روی اتصال جاری — حساس‌تر (از ۲ بار به ۱ بار)
+    // پینگ بد — فقط بعد از ۲ بار متوالی (تعویض نمی‌کند، فقط Mux تقویت می‌شود)
     final cp = current?.ping;
     if (connected && cp != null && cp > badPingMs) {
       _hBadPing++;
-      if (_hBadPing >= 1) {
-        out.add(_HealSignal('bad_ping', 6, 'پینگ ${cp}ms'));
+      if (_hBadPing >= 2) {
+        out.add(_HealSignal('bad_ping', 5, 'پینگ ${cp}ms'));
       }
     } else {
       _hBadPing = 0;
@@ -317,18 +318,20 @@ extension KingHealEngine on _HomePageState {
         params
       );
     }
-    if (ids.contains('no_data') || ids.contains('bad_ping')) {
-      // تهاجمی‌تر: بعد از ۶۰ ثانیه پایداری، تعویض کند
+    if (ids.contains('no_data')) {
+      // فقط سرعت نزدیک صفر → بعد از پایداری کافی تعویض
       final up = _healStableSince == null
           ? 999
           : DateTime.now().difference(_healStableSince!).inSeconds;
-      if (up >= 60 && good.length > 0) {
-        return ('failover_soft', 'کندی پایدار — تعویض نرم تهاجمی', params);
+      if (up >= 45 && good.isNotEmpty) {
+        return ('failover_soft', 'سرعت نزدیک صفر — تعویض نرم', params);
       }
-      if (up >= 30) {
-        return ('force_turbo', 'کندی — تقویت Mux/توربو', params);
-      }
-      return ('none', 'کندی خیلی کوتاه — صبر', params);
+      return ('force_turbo', 'سرعت ضعیف — تقویت Mux', params);
+    }
+    if (ids.contains('bad_ping')) {
+      // پینگ بد به تنهایی تعویض نمی‌کند؛ فقط Mux را تقویت می‌کند
+      // مگر اینکه سرور ۵۰٪ بهتر در صف باشد (منطق betterSwitch در واچ‌داگ)
+      return ('force_turbo', 'پینگ بالا — تقویت Mux بدون تعویض', params);
     }
     if (ids.contains('turbo_off')) {
       return ('force_turbo', 'اعمال Mux/توربو بدون قطع', params);
