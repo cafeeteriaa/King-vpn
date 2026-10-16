@@ -76,7 +76,8 @@ extension UpdateCheck on _HomePageState {
                     try {
                       await launchUrl(Uri.parse(open),
                           mode: LaunchMode.externalApplication);
-                    } catch (_) {
+                    } catch (e) {
+                      logError(e);
                       await Clipboard.setData(ClipboardData(text: open));
                       _set('لینک آپدیت کپی شد');
                     }
