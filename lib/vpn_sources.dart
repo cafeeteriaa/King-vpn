@@ -260,11 +260,14 @@ Future<int?> _vsProbe(String host, int port) async {
 
 Future<void> _vsPool<T>(
     List<T> items, int workers, Future<void> Function(T) fn) async {
-  final it = items.iterator;
+  // Index-based to avoid any theoretical skip under concurrent moveNext.
+  var next = 0;
   Future<void> worker() async {
-    while (it.moveNext()) {
+    while (true) {
+      final i = next++;
+      if (i >= items.length) break;
       try {
-        await fn(it.current);
+        await fn(items[i]);
       } catch (_) {}
     }
   }
