@@ -1361,11 +1361,17 @@ extension HomeExtras on _HomePageState {
             natForce = true;
             _set('خلبان: نت ملی تشخیص داده شد — جستجوی گسترده...');
           }
-          connect();
+          await connect(); // was fire-and-forget — errors were lost
         }
       } catch (e) {
         logError(e);
-        if (!connected && !busy) connect();
+        if (!connected && !busy) {
+          try {
+            await connect();
+          } catch (e2) {
+            logError(e2);
+          }
+        }
       }
     }());
   }
@@ -2600,7 +2606,13 @@ extension HomeExtras on _HomePageState {
         }
       } catch (e) {
         logError(e);
-        if (!connected && !busy) connect();
+        if (!connected && !busy) {
+          try {
+            await connect();
+          } catch (e2) {
+            logError(e2);
+          }
+        }
       }
     }());
   }
