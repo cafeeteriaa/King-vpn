@@ -5529,6 +5529,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           : const Duration(seconds: 22);
       final tunWait1 = (nationalMode || indestructibleMode) ? 1600 : 1100;
       final tunWait2 = (nationalMode || indestructibleMode) ? 2000 : 1400;
+      // FALLBACK: first the config King VPN builds (DNS/routing changed), then,
+      // only if the core never reached CONNECTED, the plain config exactly as the
+      // manual V2Ray test ran it. Nothing changes when the first one works.
+      final cfgTries = <String>[cfg, if (base != cfg) base];
+      var usedFallback = false;
+      for (var ci = 0; ci < cfgTries.length; ci++) {
+        if (ci > 0) {
+          usedFallback = true;
+          // the first config is gone for good: drop its core before the next one
+          _connGen++;
+          if (connSig != null && !connSig!.isCompleted) {
+            connSig!.complete(false);
+          }
+          connSig = null;
+          await _stopCore();
+          await Future.delayed(const Duration(milliseconds: 500));
+          t = null;
+        }
       for (var attempt = 0; attempt < 2; attempt++) {
         // RARE BUG FIX: generation so late CONNECTED from attempt 0
         // cannot complete attempt 1's waiter
@@ -5538,7 +5556,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // so the behaviour is exactly the same as before)
         await v2ray.startV2Ray(
             remark: s.name,
-            config: cfg,
+            config: cfgTries[ci],
             proxyOnly: false,
             blockedApps: bypassApps.isEmpty ? null : bypassApps);
         // the core must report CONNECTED (it can hang in CONNECTING)
@@ -5575,6 +5593,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           connSig = null;
           await _stopCore();
         }
+      }
+      // the core reported CONNECTED with this config: no fallback needed
+      if (ready) break;
+      }
+      if (usedFallback && ready) {
+        dbg('اتصال با کانفیگ ساده (بدون تغییر DNS) برقرار شد: ${s.name}');
       }
       tunWarn = !ready || t == false;
       if (tunWarn) {
