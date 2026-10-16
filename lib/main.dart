@@ -6079,46 +6079,60 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // used right away, the dead ones are deleted after two failed checks (one
   // in each of two sessions). The check stops as soon as enough working
   // servers are found, so a connection is available in a few seconds.
+  //
+  // IMPORTANT for نت ملی: when international is cut, GitHub lists are often
+  // unreachable. Previously-working / folder / natGood servers are then the
+  // ONLY realistic way to connect. So in national / forced / indestructible
+  // mode we ALWAYS re-test saved servers first (even if the user preferred
+  // "only new" for normal mode).
   Future<void> _checkSaved() async {
-    // User request: do NOT search from folder/saved servers — only new ones.
-    return;
-    if (!savedFirst) return;
+    final forceSaved = nationalMode || natForce || indestructibleMode;
+    if (!forceSaved) {
+      // Normal mode: user request was "do NOT search from folder/saved —
+      // only new ones". Keep that behaviour outside national mode.
+      return;
+    }
+    if (!savedFirst && !forceSaved) return;
     bool stale(Server s) =>
         s.checkedAt == null ||
         DateTime.now().difference(s.checkedAt!) > recheckAfter;
+    // Also include servers that already passed national tests (natGood) and
+    // any still in the healthy list, even if not marked stale — under full
+    // national cut we must try everything we already know works.
     final l = good
         .where((s) =>
             !s.ovpn &&
             !identical(s, current) &&
             !_bad(s) &&
             _protoOk(s) &&
-            stale(s))
+            (forceSaved || stale(s)))
         .toList()
       ..sort(bySpeedThenPing);
     if (l.isEmpty) return;
-    if (nationalMode) {
-      l.sort((a, b) {
-        final r = _natRank(b) - _natRank(a); // NATIONALPATCH
-        return r != 0 ? r : bySpeedThenPing(a, b);
-      });
-    }
-    final run = l.take(40).toList(); // تست تعداد بیشتری از ذخیره‌شده‌ها
-    final need = max(fastPickN, 10);
+    // Rank national winners / Iran-oriented sources first
+    l.sort((a, b) {
+      final r = _natRank(b) - _natRank(a); // NATIONALPATCH
+      return r != 0 ? r : bySpeedThenPing(a, b);
+    });
+    final run = l.take(forceSaved ? 80 : 40).toList();
+    final need = max(fastPickN, forceSaved ? 6 : 10);
     final fsw = Stopwatch()..start();
     var found = 0, i = 0;
     final dead = <Server>[];
-    await pool<Server>(run, fastWorkers, (s) async {
+    await pool<Server>(run, max(fastWorkers, forceSaved ? 20 : 8), (s) async {
       if (abort ||
           found >= need ||
-          (found >= 1 && fsw.elapsedMilliseconds > fastPickMs)) {
+          (found >= 1 && fsw.elapsedMilliseconds > (forceSaved ? 15000 : fastPickMs))) {
         return;
       }
       if (ipMode && s.ipLink == null && !s.ipTried) {
         s.ipTried = true;
         s.ipLink = await ipLinkFor(s);
       }
-      _set('تست سرورهای ذخیره‌شده ${++i}/${run.length}...');
-      final d = await _delayOf(s, t: _fgTimeout);
+      _set('تست سرورهای ذخیره‌شده (نت ملی) ${++i}/${run.length}...');
+      final d = await _delayOf(s, t: forceSaved
+          ? Duration(seconds: max(_fgTimeout.inSeconds, 12))
+          : _fgTimeout);
       s.checkedAt = DateTime.now();
       if (d == null) {
         dead.add(s);
@@ -6127,21 +6141,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         s.miss = 0;
         s.badAt = null;
         found++;
+        if (forceSaved) await _natAdd(s);
       }
     });
     if (found > 0) {
-      // the test works on this phone, so the failed ones are really dead
       for (final s in dead) {
-        if (++s.miss >= 2) {
+        if (++s.miss >= (forceSaved ? 3 : 2)) {
           good.remove(s);
           failed[s.key] = DateTime.now();
         } else {
-          s.checkedAt = null; // stays in the list, checked again later
+          s.checkedAt = null;
         }
       }
     } else {
-      // nothing passed: maybe the test itself failed (no network?). Keep
-      // them; the real connect step verifies them through the tunnel.
+      // nothing passed: keep them — the real tunnel step may still succeed
+      // with a different variant (fragment / Iranian DNS / clean IP).
       for (final s in dead) {
         s.checkedAt = null;
       }
@@ -6171,14 +6185,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         natGrow(round >= 8 ? 400 : (round >= 4 ? 200 : 80));
       } catch (_) {}
       _dohFail = 0;
-      natRefetch = true; // download fresh lists again (mirrors included)
-      listTime = null;
-      lastFetchTry = DateTime(2000);
-      failed.clear();
-      pending.clear(); // rebuilt from the full list
+      // CRITICAL for نت ملی: do NOT destroy existing configs.
+      // When international is cut, GitHub raw lists are mostly unreachable.
+      // Clearing pending / forcing a full re-fetch left the app with an empty
+      // queue and no way to connect with the configs it already had.
+      // Soft refresh only: try mirrors in background, keep what we already know.
+      natRefetch = fetchedAll.isEmpty; // only force re-download if we have nothing
+      if (fetchedAll.isEmpty) {
+        listTime = null;
+        lastFetchTry = DateTime(2000);
+      }
+      // Only drop very recent hard-fails so previously-good servers get another
+      // chance with the higher variant matrix (fragment / Iranian DNS / clean IP).
+      final cutoff = DateTime.now().subtract(const Duration(minutes: 8));
+      failed.removeWhere((_, t) => t.isBefore(cutoff));
+      // Rebuild pending from existing knowledge instead of clearing it.
+      // _resInject brings back folder winners; _checkSaved will re-test good[].
+      if (pending.isEmpty && fetchedAll.isNotEmpty) {
+        // will be filled by the next _loadPending / _search
+      }
       _resInject();
       _set(nationalMode
-          ? 'نت ملی: جستجوی گسترده با همه‌ی منابع (مرحله ${round ~/ 2} • سطح $natLevel)...'
+          ? 'نت ملی: جستجوی گسترده با کانفیگ‌های موجود + منابع (مرحله ${round ~/ 2} • سطح $natLevel)...'
           : 'حالت شکست‌ناپذیر: جستجوی گسترده (مرحله ${round ~/ 2} • سطح $natLevel)...');
     } catch (e) {
       logError(e);
@@ -6385,11 +6413,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (nationalMode || indestructibleMode) {
         autoCycle = true; // endless list cycling
         if (natLevel < 2) natLevel = 2;
-        natWorkers = max(natWorkers, 6); // smoother parallel tests
+        natWorkers = max(natWorkers, 8); // more parallel under national cut
         delayTimeout = Duration(
-            seconds: max(delayTimeout.inSeconds, 14));
+            seconds: max(delayTimeout.inSeconds, 16));
         tcpTimeout = Duration(
-            milliseconds: max(tcpTimeout.inMilliseconds, 4500));
+            milliseconds: max(tcpTimeout.inMilliseconds, 5500));
+        // Prefer Iranian DNS + matrix from the first attempt
+        try {
+          natGrow(120);
+        } catch (_) {}
       } else if (ultraMode) {
         // NORMAL: start light (level 1) so many servers get a quick ping first;
         // bestEffort in _acquire escalates 2→4 only if needed. No folder inject.
@@ -6405,11 +6437,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!nationalMode) fragEnabled = false;
       // all throughput levers (Mux, no Fragment, speed-test top servers, ...)
       _applyTurboLevers();
-      // Folder inject only when user explicitly asked (natForce/_resNext above).
-      // Normal connect must test NEW servers from sources, not the folder.
-      // if (nationalMode) _resInject();
+      // Under national cut: always inject previously-successful folder servers
+      // so we can connect with existing configs even when GitHub is unreachable.
+      if (nationalMode || indestructibleMode) {
+        _resInject();
+        await _checkSaved(); // re-test known-good before searching new lists
+      }
       if (nationalMode) _natKeep(); // never-stopping search
-      if (nationalMode) warm = null; // no list download in national mode
+      if (nationalMode) warm = null; // do not wait on blocked list downloads
       // the list download started at app launch is still running: wait for it
       // (it is nearly done, and the search then starts with a full queue)
       final w = warm;
