@@ -1519,6 +1519,9 @@ String _reliableVpnCfg(String cfg) {
         '8.8.8.8',
         '9.9.9.9',
         '1.0.0.1',
+        // IPv6 DNS (اگر شبکه IPv6 داشته باشد استفاده می‌شود)
+        '2606:4700:4700::1111',
+        '2001:4860:4860::8888',
         'https://1.1.1.1/dns-query',
         'https://8.8.8.8/dns-query',
       ];
@@ -1531,11 +1534,13 @@ String _reliableVpnCfg(String cfg) {
         '10.202.10.10',
         '1.1.1.1',
         '8.8.8.8',
+        '2606:4700:4700::1111',
         'https://1.1.1.1/dns-query',
       ];
     }
     // else: keep the matrix DNS untouched
-    d['queryStrategy'] = 'UseIPv4';
+    // UseIP = هم IPv4 و هم IPv6 (هر کدام در دسترس باشد)
+    d['queryStrategy'] = 'UseIP';
     j['dns'] = d;
     final rt = j['routing'] is Map
         ? Map<String, dynamic>.from(j['routing'] as Map)
@@ -7978,8 +7983,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final n = i.name.toLowerCase();
         if (n.startsWith('tun') || n.startsWith('dummy')) continue;
         if (i.addresses.isNotEmpty) anyUp = true;
+        // هم IPv4 و هم IPv6 برای تشخیص تغییر شبکه
         final ips = i.addresses
-            .where((a) => a.type == InternetAddressType.IPv4)
+            .where((a) =>
+                a.type == InternetAddressType.IPv4 ||
+                a.type == InternetAddressType.IPv6)
             .map((a) => a.address)
             .toList();
         if (ips.isEmpty) continue;
