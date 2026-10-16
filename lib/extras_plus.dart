@@ -61,15 +61,15 @@ Future<String> _plusIpInfo() async {
   try {
     final req = await c
         .getUrl(Uri.parse(
-            'http://ip-api.com/json/?fields=status,country,regionName,city,isp,as,query'))
+            'https://ipapi.co/json/'))
         .timeout(const Duration(seconds: 8));
     final res = await req.close().timeout(const Duration(seconds: 8));
     final body =
         await res.transform(utf8.decoder).join().timeout(const Duration(seconds: 8));
     final j = jsonDecode(body);
-    if (j is! Map || j['status'] != 'success') return 'جوابی نیامد';
-    return 'IP: ${j['query']}\nکشور: ${j['country']}\nمنطقه: ${j['regionName']}\n'
-        'شهر: ${j['city']}\nاپراتور: ${j['isp']}\n${j['as']}';
+    if (j is! Map || j['error'] == true || j['ip'] == null) return 'جوابی نیامد';
+    return 'IP: ${j['ip']}\nکشور: ${j['country_name']}\nمنطقه: ${j['region']}\n'
+        'شهر: ${j['city']}\nاپراتور: ${j['org']}\n${j['asn']}';
   } catch (e) {
     return 'خطا: $e';
   } finally {
