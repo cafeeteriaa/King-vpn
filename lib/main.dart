@@ -9679,6 +9679,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ]),
           ),
         );
+    Widget searchAllRow(VoidCallback onTap) => InkWell(
+          onTap: onTap,
+          child: Container(
+            width: double.infinity,
+            color: const Color(0xFF1E88E5),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: const Row(children: [
+              Expanded(
+                  child: Text(
+                      '🔍 جستجوی همه • بزن تا بهترین سرور پیدا و وصل شود',
+                      style: TextStyle(fontWeight: FontWeight.bold))),
+              Icon(Icons.play_circle_outline, size: 22),
+            ]),
+          ),
+        );
     final rows = <Object>[];
     rows.add(searchAllRow(() => unawaited(connect().catchError((e) => logError(e)))));
     groups.forEach((g, l) {
