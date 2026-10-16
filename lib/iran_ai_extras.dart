@@ -1049,13 +1049,6 @@ extension HomeExtras on _HomePageState {
     Future.delayed(const Duration(seconds: 8), aiAutopilotTick);
   }
 
-  // Track flags forced by cloud pilot so stop can restore them
-  bool _pilotForcedUltra = false;
-  bool _pilotForcedIndestructible = false;
-  DateTime? _pilotConnectedAt; // hold before cloud pilot may switch
-  // engine the pilot/assistant should use: v2ray | ovpn | wg
-  String pilotEngine = 'v2ray';
-
   /// امتیاز و دلیل پیشنهاد هر موتور VPN (عدد بالاتر = قوی‌تر برای شرایط فعلی)
   List<({String id, String title, String sub, IconData icon, int score, String why})>
       _rankVpnEngines() {
@@ -2405,9 +2398,6 @@ extension HomeExtras on _HomePageState {
   }
 
   /// قدرت خلبان: ۰ تا ∞ — بدون سقف سخت؛ فقط با وضعیت شبکه/مکان بالا و پایین می‌شود
-  int _localPower = 1;
-  int _localPeakPower = 1; // بالاترین قدرت دیده‌شده در این نشست
-
   String get _localPowerLabel {
     if (_localPower <= 0) return 'آرام';
     if (_localPower <= 2) return 'عادی';
@@ -3128,6 +3118,17 @@ Timer? localPilotLoop;
 final localPilotText = ValueNotifier<String>(
     'خلبان محلی King Pro آماده است.\nبدون API • تحلیل واقعی شبکه • اولویت تلگرام');
 final localPilotLoading = ValueNotifier<bool>(false);
+
+// Track flags forced by cloud pilot so stop can restore them
+bool _pilotForcedUltra = false;
+bool _pilotForcedIndestructible = false;
+DateTime? _pilotConnectedAt; // hold before cloud pilot may switch
+// engine the pilot/assistant should use: v2ray | ovpn | wg
+String pilotEngine = 'v2ray';
+
+// قدرت خلبان محلی
+int _localPower = 1;
+int _localPeakPower = 1; // بالاترین قدرت دیده‌شده در این نشست
 
 String _localLastOp = '';
 String _localLastAction = '';
