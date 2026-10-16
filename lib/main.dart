@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_v2ray_client/flutter_v2ray.dart';
+import 'package:openvpn_flutter/openvpn_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:installed_apps/app_info.dart';
 import 'package:installed_apps/installed_apps.dart';
@@ -1921,16 +1922,28 @@ Server? ovpnFromText(String t, {String name = 'OpenVPN'}) {
       'ovpn://${base64.encode(utf8.encode(cfg))}#${Uri.encodeComponent(name)}');
 }
 
-// OpenVPN servers from VPNGate (public list, updated every few minutes)
+// OpenVPN servers from VPNGate (public list + hourly mirror)
 Future<List<Server>> fetchOvpn() async {
-  if (true) return <Server>[];
   final tmp = <MapEntry<int, Server>>[];
+  const urls = [
+    vpngateUrl,
+    'http://www.vpngate.net/api/iphone/',
+    'https://cdn.jsdelivr.net/gh/GeorgeXie2333/vpngate-list-mirror@latest/data/vpngate.csv',
+    'https://raw.githubusercontent.com/GeorgeXie2333/vpngate-list-mirror/main/data/vpngate.csv',
+  ];
   try {
-    final r = await http
-        .get(Uri.parse(vpngateUrl))
-        .timeout(const Duration(seconds: 15));
-    if (r.statusCode != 200) return [];
-    for (final line in r.body.split(RegExp(r'[\r\n]+'))) {
+    String? body;
+    for (final u in urls) {
+      try {
+        final r = await http.get(Uri.parse(u)).timeout(const Duration(seconds: 18));
+        if (r.statusCode == 200 && r.body.contains(',')) {
+          body = r.body;
+          break;
+        }
+      } catch (_) {}
+    }
+    if (body == null) return [];
+    for (final line in body.split(RegExp(r'[\r\n]+'))) {
       if (line.isEmpty || line.startsWith('*') || line.startsWith('#')) {
         continue;
       }
@@ -2941,6 +2954,7 @@ final rowDefs = <RowDef>[
           .contains(s.net)),
   RowDef('trojan', '🌑 Trojan', (s) => s.link.startsWith('trojan://')),
   RowDef('ss', '🔐 Shadowsocks (Outline)', (s) => s.link.startsWith('ss://')),
+  RowDef('ovpn', '🛡️ OpenVPN', (s) => s.ovpn),
   
   // shown as its own fixed row (second line of the list), see build()
   RowDef('ai', '🤖 سرورهای مخصوص هوش مصنوعی', (s) => s.ai == true && s.ping != null),
@@ -5043,19 +5057,62 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   // ---------- connect ----------
-  // OpenVPN start: the engine must report "connected" and a tun interface
-  // must exist (same rule as the V2Ray tunnel guard)
+  // OpenVPN: stop V2Ray first (Android allows one VPN), then start OpenVPN.
   Future<bool> _startOvpn(Server s) async {
-    // OpenVPN engine is intentionally removed from this build.
-    // Keep the parse / paste paths so old personal configs do not crash,
-    // but never attempt a real connection.
-    lastFail = 'پروتکل OpenVPN در این نسخه پشتیبانی نمی‌شود — از VLESS / VMess / Trojan / SS استفاده کنید';
-    dbg('OpenVPN: موتور حذف شده • ${s.name}');
-    ovpnActive = false;
+    final cfg = s.ovpnConf;
+    if (cfg == null || cfg.trim().isEmpty) {
+      lastFail = 'کانفیگ OpenVPN خالی است';
+      dbg('OpenVPN: کانفیگ خالی • ${s.name}');
+      return false;
+    }
     try {
-      await _stopV2();
-    } catch (_) {}
-    return false;
+      // one VpnService at a time
+      try {
+        await v2ray.stopV2Ray();
+      } catch (_) {}
+      await Future.delayed(const Duration(milliseconds: 800));
+      if (ovpnActive) {
+        try {
+          await ovpnCore.disconnect();
+        } catch (_) {}
+        ovpnActive = false;
+        await Future.delayed(const Duration(milliseconds: 1000));
+      }
+      try {
+        await ovpnCore.requestPermissionAndroid();
+      } catch (e) {
+        dbg('OpenVPN permission: $e');
+      }
+      ovpnSig = Completer<bool>();
+      ovpnActive = true;
+      ovpnStage = 'connecting';
+      await ovpnCore.connect(
+        cfg,
+        s.name.isNotEmpty ? s.name : 'King OpenVPN',
+        certIsRequired: false,
+      );
+      final ok = await ovpnSig!.future
+          .timeout(const Duration(seconds: 28), onTimeout: () => false);
+      if (!ok || ovpnStage != 'connected') {
+        ovpnActive = false;
+        try {
+          await ovpnCore.disconnect();
+        } catch (_) {}
+        lastFail = 'OpenVPN به connected نرسید (${s.name})';
+        dbg('OpenVPN fail stage=$ovpnStage • ${s.name}');
+        return false;
+      }
+      dbg('OpenVPN connected • ${s.name}');
+      return true;
+    } catch (e) {
+      ovpnActive = false;
+      lastFail = 'OpenVPN: $e';
+      logError(e);
+      try {
+        await ovpnCore.disconnect();
+      } catch (_) {}
+      return false;
+    }
   }
 
   // proxyOnly = silent test core (used by the tests).
@@ -10127,24 +10184,7 @@ class UiHero extends StatelessWidget {
 }
 
 
-class OpenVPN {
-  final Function? onVpnStageChanged;
-  final Function? onVpnStatusChanged;
-  OpenVPN({this.onVpnStageChanged, this.onVpnStatusChanged});
-  Future<void> initialize({String? localizedDescription}) async {}
-  Future<void> connect(String config, String name,
-      {String? username,
-      String? password,
-      List<String>? bypassPackages,
-      bool certIsRequired = false}) async {
-    // OpenVPN engine was intentionally removed. Fail cleanly so the UI
-    // shows a clear message instead of a red PlatformException / stack.
-    try {
-      onVpnStageChanged?.call('error', 'OpenVPN removed');
-    } catch (_) {}
-  }
-  Future<void> disconnect() async {}
-}
+// OpenVPN class comes from package:openvpn_flutter (real engine).
 
 final List<String> _morePaths = [
   'MatinGhanbari/v2ray-configs/main/subscriptions/v2ray/super-sub.txt',
