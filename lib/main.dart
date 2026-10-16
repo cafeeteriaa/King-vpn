@@ -5491,45 +5491,49 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   void _applyProfile(String name) {
     switch (name) {
       case 'stable':
+        // پایدار: تعویض کمتر، فقط نزدیک صفر یا سرور خیلی بهتر
         badPingMs = 3500;
-        badPingLimit = 3;
-        watchFailLimit = 3;
-        minSpeedKB = 300;
-        betterSwitch = false;
+        badPingLimit = 4;
+        watchFailLimit = 4;
+        minSpeedKB = 0; // تعویض با سرعت متوسط خاموش
+        betterSwitch = true; // فقط با قانون ۵۰٪
         break;
       case 'fast':
-        badPingMs = 1500;
-        badPingLimit = 2;
-        watchFailLimit = 2;
-        minSpeedKB = 1500;
+        badPingMs = 1800;
+        badPingLimit = 3;
+        watchFailLimit = 3;
+        minSpeedKB = 0;
         betterSwitch = true;
         turboSpeed = true;
         autoSpeed = true;
         speedTopN = max(speedTopN, 5);
         muxEnabled = true;
-        muxConc = max(muxConc, 16);
+        muxConc = max(muxConc, 24);
         fragEnabled = false;
         sortSpeed = true;
         break;
       case 'weak':
         delayTimeout = const Duration(seconds: 14);
         badPingMs = 5000;
-        badPingLimit = 3;
-        watchFailLimit = 4;
-        minSpeedKB = 150;
+        badPingLimit = 4;
+        watchFailLimit = 5;
+        minSpeedKB = 0;
+        betterSwitch = true;
         break;
       case 'turbo':
         turboSpeed = true;
         autoSpeed = true;
         speedTopN = max(speedTopN, 8);
         muxEnabled = true;
-        muxConc = 16;
+        muxConc = max(muxConc, 32);
         fragEnabled = false;
         sortSpeed = true;
         betterSwitch = true;
-        minSpeedKB = max(minSpeedKB, 800);
+        minSpeedKB = 0; // دیگر با ۸۰۰KB تعویض نمی‌کند
         autoUpgrade = true;
-        badPingMs = 2000;
+        badPingMs = 2500;
+        badPingLimit = 3;
+        watchFailLimit = 3;
         break;
     }
     _saveSettings();
@@ -5550,8 +5554,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!nationalMode) fragEnabled = false;
     // 4) rank by real speed, not ping
     sortSpeed = true;
-    // 5) replace slow tunnels automatically
-    if (minSpeedKB <= 0) minSpeedKB = 400;
+    // 5) تعویض فقط نزدیک صفر یا سرور ۵۰٪ بهتر — minSpeedKB را بالا نبر
+    // (قبلاً اگر ۰ بود به ۴۰۰ می‌رساند و باعث تعویض‌های زیاد می‌شد)
     betterSwitch = true;
   }
 
