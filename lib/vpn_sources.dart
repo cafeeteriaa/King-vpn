@@ -361,17 +361,43 @@ Future<String?> _vsGetOnce(String url, int sec) async {
   }
 }
 
-// SOURCEFIX: one retry, and t.me is also tried as telegram.me (some networks
-// block only one of the two names)
+// Convert raw.githubusercontent.com → jsDelivr / githack / ghproxy so lists
+// still load when GitHub is filtered (common on Iranian mobile networks).
+List<String> _vsMirrors(String url) {
+  const gh = 'https://raw.githubusercontent.com/';
+  if (!url.startsWith(gh)) return const [];
+  final p = url.substring(gh.length).split('/');
+  if (p.length < 4) return const [];
+  var rest = p.sublist(2);
+  if (rest.length >= 3 && rest[0] == 'refs' && rest[1] == 'heads') {
+    rest = rest.sublist(2);
+  }
+  if (rest.length < 2) return const [];
+  final path = rest.sublist(1).join('/');
+  final user = p[0], repo = p[1], branch = rest.first;
+  return [
+    'https://cdn.jsdelivr.net/gh/$user/$repo@$branch/$path',
+    'https://fastly.jsdelivr.net/gh/$user/$repo@$branch/$path',
+    'https://gcore.jsdelivr.net/gh/$user/$repo@$branch/$path',
+    'https://raw.githack.com/$user/$repo/$branch/$path',
+    'https://rawcdn.githack.com/$user/$repo/$branch/$path',
+    'https://ghproxy.net/$url',
+    'https://ghfast.top/$url',
+    'https://gh.llkk.cc/$url',
+  ];
+}
+
+// SOURCEFIX: retry + t.me/telegram.me + GitHub mirrors when raw is blocked
 Future<String?> _vsGet(String url, {int sec = 15}) async {
   final alts = <String>[url];
   if (url.startsWith('https://t.me/')) {
     alts.add(url.replaceFirst('https://t.me/', 'https://telegram.me/'));
   }
+  alts.addAll(_vsMirrors(url));
   for (var round = 0; round < 2; round++) {
     for (final u in alts) {
       final b = await _vsGetOnce(u, sec);
-      if (b != null) return b;
+      if (b != null && b.isNotEmpty) return b;
     }
   }
   _vsNetFail++;
@@ -479,12 +505,12 @@ Future<List<VsItem>> _findV2ray(VsSpec spec, _VsState st, Set<String> seen) asyn
   final out = <VsItem>[
     ...alive.where((e) => !seen.contains(e.key)),
     ...alive.where((e) => seen.contains(e.key)),
-  ].take(20).toList();
+  ].take(30).toList();
   if (spec.kind == VsKind.hiddify) {
     udpOnly.shuffle();
     out.addAll(udpOnly
         .where((e) => !seen.contains(e.key))
-        .take(6)
+        .take(10)
         .toList());
   }
   return out;
@@ -539,7 +565,7 @@ Future<List<VsItem>> _findSlipnet(VsSpec spec, _VsState st, Set<String> seen) as
   final l = found.values.toList();
   final fresh = l.where((e) => !seen.contains(e.key)).toList();
   final old = l.where((e) => seen.contains(e.key)).toList();
-  return [...fresh, ...old].take(20).toList();
+  return [...fresh, ...old].take(30).toList();
 }
 
 // VPN Client Pro: OpenVPN profiles from VPN Gate
@@ -630,11 +656,11 @@ Future<List<VsItem>> _findVpnGate(VsSpec spec, _VsState st, Set<String> seen) as
   final tcpOut = [
     ...alive.where((e) => !seen.contains(e.key)),
     ...alive.where((e) => seen.contains(e.key)),
-  ].take(12).toList();
+  ].take(18).toList();
   final udpOut = [
     ...udp.where((e) => !seen.contains(e.key)),
     ...udp.where((e) => seen.contains(e.key)),
-  ].take(8).toList();
+  ].take(12).toList();
   return [...tcpOut, ...udpOut];
 }
 
