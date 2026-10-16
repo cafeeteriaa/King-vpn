@@ -1033,64 +1033,194 @@ extension HomeExtras on _HomePageState {
   // engine the pilot/assistant should use: v2ray | ovpn | wg
   String pilotEngine = 'v2ray';
 
-  /// Ask which VPN engine/mode to use.
+  /// امتیاز و دلیل پیشنهاد هر موتور VPN (عدد بالاتر = قوی‌تر برای شرایط فعلی)
+  List<({String id, String title, String sub, IconData icon, int score, String why})>
+      _rankVpnEngines() {
+    final nat = nationalMode || natForce;
+    // تعداد سرورهای سالم فعلی (تقریبی برای رتبه‌بندی)
+    var nV2 = 0, nOvpn = 0, nWg = 0;
+    for (final s in good) {
+      if (s.ovpn) {
+        nOvpn++;
+      } else if (s.wg) {
+        nWg++;
+      } else {
+        nV2++;
+      }
+    }
+
+    // امتیاز پایه + شرایط شبکه + موجودی سرور
+    final items = <({String id, String title, String sub, IconData icon, int score, String why})>[
+      (
+        id: 'v2ray',
+        title: 'V2Ray',
+        sub: 'VLESS / VMess / Trojan / SS',
+        icon: Icons.flash_on,
+        score: 70 + (nV2 > 0 ? 15 : 0) + (nat ? -5 : 10),
+        why: nat
+            ? 'پروتکل اصلی؛ در نت ملی گاهی نیاز به Fragment دارد'
+            : 'بهترین گزینه عمومی — سرور زیاد و پایدار',
+      ),
+      (
+        id: 'npv',
+        title: 'NPV Tunnel',
+        sub: 'پارسر غیراستاندارد + Fragment + Mux',
+        icon: Icons.tune,
+        score: 55 + (nat ? 30 : 5) + (nV2 > 0 ? 5 : 0),
+        why: nat
+            ? 'قوی‌ترین برای نت ملی / فیلتر شدید'
+            : 'مناسب وقتی V2Ray ساده وصل نمی‌شود',
+      ),
+      (
+        id: 'am',
+        title: 'AM Tunnel',
+        sub: 'IP تمیز کلودفلر + اتصال با IP',
+        icon: Icons.cell_tower,
+        score: 50 + (nat ? 20 : 8) + (nV2 > 0 ? 5 : 0),
+        why: nat
+            ? 'خوب برای سرورهای پشت کلودفلر در فیلتر'
+            : 'سرعت بهتر روی CDN / کلودفلر',
+      ),
+      (
+        id: 'wg',
+        title: 'WireGuard',
+        sub: 'کانفیگ‌های wireguard://',
+        icon: Icons.shield_outlined,
+        score: 40 + (nWg > 0 ? 20 : -10) + (nat ? -15 : 0),
+        why: nWg > 0
+            ? 'سرور WireGuard آماده داری'
+            : 'سرور عمومی کمتر؛ اگر کانفیگ WG داری خوب است',
+      ),
+      (
+        id: 'ovpn',
+        title: 'OpenVPN',
+        sub: 'فایل‌های .ovpn / VPNGate',
+        icon: Icons.vpn_lock,
+        score: 35 + (nOvpn > 0 ? 20 : -10) + (nat ? -10 : 0),
+        why: nOvpn > 0
+            ? 'سرور OpenVPN آماده داری'
+            : 'پایدار ولی معمولاً کندتر از V2Ray',
+      ),
+      (
+        id: 'injector',
+        title: 'HTTP Injector',
+        sub: 'سرور V2Ray + اتصال داخل اپ یا کپی',
+        icon: Icons.vaccines_outlined,
+        score: 45 + (nV2 > 0 ? 5 : 0),
+        why: 'جستجو و اتصال مستقیم داخل همین اپ (یا کپی برای Injector)',
+      ),
+    ];
+    items.sort((a, b) => b.score.compareTo(a.score));
+    return items;
+  }
+
+  /// Ask which VPN engine/mode to use — مرتب از قوی‌ترین با پیشنهاد.
   /// Returns null if user cancels.
   Future<String?> pickVpnEngineDialog() async {
     if (!mounted) return null;
+    final ranked = _rankVpnEngines();
+    final best = ranked.first;
     return showDialog<String>(
       context: context,
       builder: (ctx) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          title: const Text('کدام VPN را می‌خواهید؟'),
+          title: const Text('پیشنهاد VPN (از قوی‌ترین)'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                ListTile(
-                  leading: const Icon(Icons.flash_on),
-                  title: const Text('V2Ray'),
-                  subtitle: const Text('VLESS / VMess / Trojan / SS'),
-                  onTap: () => Navigator.pop(ctx, 'v2ray'),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  margin: const EdgeInsets.only(bottom: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1B5E20).withOpacity(0.25),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFF4CAF50)),
+                  ),
+                  child: Text(
+                    'پیشنهاد الان: ${best.title}\n${best.why}',
+                    style: const TextStyle(fontSize: 13, height: 1.35),
+                  ),
                 ),
-                ListTile(
-                  leading: const Icon(Icons.vpn_lock),
-                  title: const Text('OpenVPN'),
-                  subtitle: const Text('فایل‌های .ovpn / VPNGate'),
-                  onTap: () => Navigator.pop(ctx, 'ovpn'),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.shield_outlined),
-                  title: const Text('WireGuard'),
-                  subtitle: const Text('کانفیگ‌های wireguard://'),
-                  onTap: () => Navigator.pop(ctx, 'wg'),
-                ),
-                const Divider(),
-                ListTile(
-                  leading: const Icon(Icons.cell_tower),
-                  title: const Text('AM Tunnel'),
-                  subtitle: const Text('حالت AM • IP تمیز کلودفلر'),
-                  onTap: () => Navigator.pop(ctx, 'am'),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.tune),
-                  title: const Text('NPV Tunnel'),
-                  subtitle: const Text('حالت NPV • پارسر و Fragment'),
-                  onTap: () => Navigator.pop(ctx, 'npv'),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.vaccines_outlined),
-                  title: const Text('HTTP Injector'),
-                  subtitle: const Text('پیدا کردن سرور برای کپی در Injector'),
-                  onTap: () => Navigator.pop(ctx, 'injector'),
-                ),
+                for (var i = 0; i < ranked.length; i++)
+                  Builder(builder: (_) {
+                    final e = ranked[i];
+                    final isBest = i == 0;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Material(
+                        color: isBest
+                            ? const Color(0xFF1B5E20).withOpacity(0.35)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(10),
+                        child: ListTile(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            side: BorderSide(
+                              color: isBest
+                                  ? const Color(0xFF4CAF50)
+                                  : Colors.grey.shade700,
+                            ),
+                          ),
+                          leading: CircleAvatar(
+                            backgroundColor: isBest
+                                ? const Color(0xFF2E7D32)
+                                : Colors.grey.shade800,
+                            child: Text(
+                              '${i + 1}',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold, color: Colors.white),
+                            ),
+                          ),
+                          title: Row(
+                            children: [
+                              Icon(e.icon, size: 18),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  e.title,
+                                  style: TextStyle(
+                                    fontWeight: isBest
+                                        ? FontWeight.bold
+                                        : FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              if (isBest)
+                                const Text(
+                                  '★ بهتر',
+                                  style: TextStyle(
+                                    color: Color(0xFF81C784),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                            ],
+                          ),
+                          subtitle: Text(
+                            '${e.sub}\n${e.why}',
+                            style: const TextStyle(fontSize: 11.5, height: 1.3),
+                          ),
+                          isThreeLine: true,
+                          onTap: () => Navigator.pop(ctx, e.id),
+                        ),
+                      ),
+                    );
+                  }),
               ],
             ),
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('انصراف')),
+              onPressed: () => Navigator.pop(ctx, best.id),
+              child: Text('همین پیشنهاد (${best.title})'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('انصراف'),
+            ),
           ],
         ),
       ),
@@ -1146,13 +1276,17 @@ extension HomeExtras on _HomePageState {
       };
 
   /// Dialog then start; returns false if cancelled.
-  /// For HTTP Injector opens the external config finder instead of connecting.
+  /// HTTP Injector: صفحهٔ جستجو با دکمهٔ اتصال داخل اپ.
   Future<bool> pickEngineThenStart(Future<void> Function() start) async {
     final e = await pickVpnEngineDialog();
     if (e == null) return false;
     applyPilotEngine(e);
     if (e == 'injector') {
-      if (mounted) vsOpen(context, VsKind.injector);
+      if (mounted) {
+        vsOpen(context, VsKind.injector, onConnect: (link) async {
+          await vsConnect(link);
+        });
+      }
       return true;
     }
     await start();
