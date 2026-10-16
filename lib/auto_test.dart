@@ -51,9 +51,12 @@ final ValueNotifier<double> autoTestProgress = ValueNotifier<double>(0);
 extension AutoTestEngine on _HomePageState {
   static const _testDuration = Duration(minutes: 20);
   static const _sampleEvery = Duration(seconds: 3);
-  static const _busyStuckLimit = Duration(seconds: 45);
-  static const _switchingStuckLimit = Duration(seconds: 25);
-  static const _connectHangLimit = Duration(seconds: 90);
+  // آستانه‌ها باید بیشتر از مهلت واقعی اتصال باشند (وگرنه اتصال عادی گزارش گیر می‌دهد)
+  static const _busyStuckLimit = Duration(seconds: 120);
+  static const _switchingStuckLimit = Duration(seconds: 40);
+  static const _connectHangLimit = Duration(seconds: 110);
+  // قابلیت‌های هسته‌ای که کانفیگ‌های ناموفق لازم داشتند
+  static final List<String> _atCfgNotes = [];
 
   /// هر ۶ نوع VPN که در دیالوگ اتصال هستند
   static const List<(String id, String label)> _engines = [
@@ -172,6 +175,7 @@ extension AutoTestEngine on _HomePageState {
     _abortRequested = false;
     _findings.clear();
     _samples.clear();
+    _atCfgNotes.clear();
     _engineResult.clear();
     _scenario = 0;
     _busySince = null;
@@ -261,6 +265,8 @@ extension AutoTestEngine on _HomePageState {
       autoTestText.value =
           'تست تمام شد • ${_findings.length} مشکل — گزارش را ببین';
     }
+
+    buf.write(_atDiagnosis());
 
     // privacy: keep only the first three octets of IPv4 addresses in the copied report
     final report = buf.toString().replaceAllMapped(
@@ -458,6 +464,9 @@ extension AutoTestEngine on _HomePageState {
 
     if (!connected) {
       _engineResult[id] = '❌ وصل نشد';
+      if (_atCfgNotes.length < 60) {
+        _atCfgNotes.add('${current?.name ?? '؟'} ← ${_atCfgNeeds(current)}');
+      }
       _atAdd('ENG-FAIL', '$label نتوانست وصل شود • status="$status"');
       return false;
     }
@@ -484,6 +493,134 @@ extension AutoTestEngine on _HomePageState {
   // Scenarios
   // ---------------------------------------------------------------------------
 
+  /// آیا V2Ray در همین اجرا وصل شده؟ اگر نه، سناریوهای فقط-V2Ray را رد می‌کنیم
+  /// تا ۲۰ دقیقه پشت‌سرهم صرف یک موتور خراب نشود و موتورهای بعدی تست شوند.
+  bool _atV2rayUsable() {
+    if (!_atSelected.contains('v2ray')) return false;
+    final r = _engineResult['v2ray'] ?? '';
+    final ok = r.startsWith('✅') || r.startsWith('⚠️');
+    if (!ok) dbg('🧪 V2Ray وصل نشده؛ سناریوهای V2Ray-only رد شد');
+    return ok;
+  }
+
+  /// چه قابلیتی از هسته این کانفیگ لازم دارد (فقط قوانین قطعی یا آنچه در changelog نسخه‌ی ۳.۵.۰ آمده)
+  String _atCfgNeeds(Server? s) {
+    if (s == null) return 'کانفیگ ثبت نشد';
+    final l = s.link;
+    final notes = <String>[];
+    if (l.contains('allowInsecure=1') ||
+        l.contains('allowInsecure=true') ||
+        l.contains('insecure=1')) {
+      notes.add('allowInsecure دارد؛ هسته‌ی ۳.۵.۰ (Xray v26.9.9) این گزینه را حذف کرده → با نسخه‌ی ۳.۴.۱ امتحان کن');
+    }
+    if (l.startsWith('vless://') && !s.tls && s.isIp) {
+      notes.add('VLESS بدون TLS به IP عمومی؛ هسته‌ی ۳.۵.۰ این را رد می‌کند');
+    }
+    if (s.reality) {
+      notes.add('REALITY دارد؛ فقط در هسته‌ی Xray کار می‌کند');
+    }
+    if (l.contains('type=xhttp') || l.contains('type=splithttp')) {
+      notes.add('transport xhttp/splithttp دارد؛ فقط در Xray کار می‌کند');
+    }
+    if (notes.isEmpty) {
+      return 'قابلیت خاصی لازم ندارد؛ علت احتمالاً سرور یا شبکه است';
+    }
+    return notes.join(' | ');
+  }
+
+  /// راهنمای هر کد: [کجا، علت، راه حل]
+  List<String> _atHelpOf(String code) {
+    switch (code) {
+      case 'SWITCH-STUCK':
+        return [
+          'lib/main.dart → _swapTo / _stableSwap (فلگ switching)',
+          'تعویض سرور بیش از حد طول کشید؛ معمولاً اتصال قبلی هنوز بسته نشده',
+          'قطع کامل را قبل از وصل جدید منتظر بمان. اگر همراه ENG-FAIL است، مشکل از هسته است',
+        ];
+      case 'BUSY-STUCK':
+        return [
+          'lib/auto_test.dart → _atSample (آستانه ۱۲۰ ثانیه)',
+          'اتصال یا تست سرعت بیش از حد مانده',
+          'اگر همراه ENG-FAIL یا CONNECT-HANG است، هسته به CONNECTED نرسیده؛ بخش قابلیت‌های هسته را ببین',
+        ];
+      case 'CONNECT-HANG':
+        return [
+          'lib/auto_test.dart → _atSample (آستانه ۱۱۰ ثانیه)',
+          'اتصال بیش از ۱۱۰ ثانیه طول کشید',
+          'کانفیگ یا سرور پاسخ نمی‌دهد. اگر برای همه‌ی کانفیگ‌ها تکرار شد، نسخه‌ی هسته یا patch_v2ray_core.py را بررسی کن',
+        ];
+      case 'TIMEOUT':
+        return [
+          'lib/auto_test.dart → _atWaitUntil',
+          'منتظر وصل شدن موتور ماندیم و نشد',
+          'اگر ENG-FAIL هم هست، اتصال واقعاً برقرار نشده؛ علت را در بخش قابلیت‌های هسته ببین',
+        ];
+      case 'ENG-FAIL':
+        return [
+          'lib/auto_test.dart → _atConnectEngine',
+          'موتور وصل نشد؛ status آخر اپ در همان خط آمده',
+          'اگر برای همه‌ی کانفیگ‌ها است: نسخه‌ی هسته (flutter_v2ray_client) یا patch_v2ray_core.py. اگر فقط بعضی‌ها: همان کانفیگ‌ها را با قابلیت‌های بالا بررسی کن',
+        ];
+      case 'RECONNECT-FAIL':
+        return [
+          'lib/auto_test.dart → _atScenarioReconnectStorm',
+          'بعد از قطع و وصل مجدد، اتصال برنگشت',
+          'ناپایداری روی همان سرور. ENG-FAIL و بخش هسته را ببین',
+        ];
+      case 'ENG-NODATA':
+        return [
+          'lib/auto_test.dart → _atConnectEngine',
+          'وصل شد ولی تست سرعت داده نداد',
+          'تونل بالا آمده ولی ترافیک رد نمی‌شود. DNS و مسیریابی TUN را بررسی کن (در ۳.۵.۰ TUN بومی شده)',
+        ];
+      case 'ENG-MEASURE':
+        return [
+          'lib/auto_test.dart → _atConnectEngine',
+          'خطا هنگام تست سرعت',
+          'متن خطای measure در همان خط را ببین',
+        ];
+      case 'FLAG-MISMATCH':
+        return [
+          'lib/auto_test.dart → _atSample',
+          'وضعیت داخلی ناسازگار: connected ولی wantVpn=false',
+          'باگ state. این را باید در کد اصلاح کرد',
+        ];
+      default:
+        return [
+          'نامشخص',
+          'این کد در راهنما تعریف نشده',
+          'متن پیام را برای بررسی بفرست',
+        ];
+    }
+  }
+
+  /// بخش «تشخیص و راه‌حل» گزارش
+  String _atDiagnosis() {
+    final out = StringBuffer();
+    if (_findings.isNotEmpty) {
+      out.writeln('');
+      out.writeln('🔧 تشخیص و راه‌حل:');
+      final seen = <String>{};
+      for (final f in _findings) {
+        if (!seen.add(f.code)) continue;
+        final r = _atHelpOf(f.code);
+        out.writeln('• [${f.code}]');
+        out.writeln('   📍 کجا: ${r[0]}');
+        out.writeln('   🔎 علت: ${r[1]}');
+        out.writeln('   🛠 راه حل: ${r[2]}');
+      }
+    }
+    if (_atCfgNotes.isNotEmpty) {
+      out.writeln('');
+      out.writeln('🧩 کانفیگ‌های ناموفق و قابلیت هسته‌ای که لازم داشتند:');
+      final seen = <String>{};
+      for (final n in _atCfgNotes) {
+        if (seen.add(n)) out.writeln('• $n');
+      }
+    }
+    return out.toString();
+  }
+
   /// سناریو ۱: تست تک‌تک هر ۶ موتور VPN
   Future<void> _atScenarioAllEngines() async {
     _scenario = 1;
@@ -509,7 +646,7 @@ extension AutoTestEngine on _HomePageState {
 
   /// سناریو ۲: طوفان قطع/وصل روی V2Ray (موتور اصلی)
   Future<void> _atScenarioReconnectStorm() async {
-    if (!_atSelected.contains('v2ray')) return; // فقط V2Ray
+    if (!_atV2rayUsable()) return; // فقط V2Ray، و فقط اگر V2Ray در تست ۱ وصل شده
     _scenario = 2;
     autoTestText.value = 'سناریو ۲: قطع/وصل سریع';
     dbg('🧪 سناریو ۲ — قطع/وصل ×۳ روی V2Ray');
@@ -539,7 +676,7 @@ extension AutoTestEngine on _HomePageState {
 
   /// سناریو ۳: قطع وسط اتصال
   Future<void> _atScenarioMidConnectAbort() async {
-    if (!_atSelected.contains('v2ray')) return; // فقط V2Ray
+    if (!_atV2rayUsable()) return; // فقط V2Ray، و فقط اگر V2Ray در تست ۱ وصل شده
     _scenario = 3;
     autoTestText.value = 'سناریو ۳: قطع وسط اتصال';
     dbg('🧪 سناریو ۳ — abort وسط اتصال');
@@ -580,7 +717,7 @@ extension AutoTestEngine on _HomePageState {
 
   /// سناریو ۴: تعویض سرور
   Future<void> _atScenarioServerSwap() async {
-    if (!_atSelected.contains('v2ray')) return; // فقط V2Ray
+    if (!_atV2rayUsable()) return; // فقط V2Ray، و فقط اگر V2Ray در تست ۱ وصل شده
     _scenario = 4;
     autoTestText.value = 'سناریو ۴: تعویض سرور';
     dbg('🧪 سناریو ۴ — تعویض سرور');
@@ -618,7 +755,7 @@ extension AutoTestEngine on _HomePageState {
 
   /// سناریو ۵: مانیتور طولانی
   Future<void> _atScenarioLongStable() async {
-    if (!_atSelected.contains('v2ray')) return; // فقط V2Ray
+    if (!_atV2rayUsable()) return; // فقط V2Ray، و فقط اگر V2Ray در تست ۱ وصل شده
     _scenario = 5;
     autoTestText.value = 'سناریو ۵: مانیتور طولانی';
     dbg('🧪 سناریو ۵ — مانیتور پایدار');
