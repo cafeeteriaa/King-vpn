@@ -77,6 +77,11 @@ const List<String> _v2rayLists = [
   '${_ghRaw}lagzian/SS-Collector/main/configs/mixed/trojan.txt',
   '${_ghRaw}lagzian/SS-Collector/main/configs/mixed/ss.txt',
   '${_ghRaw}lagzian/SS-Collector/main/configs/psg/reality.txt',
+  // verified live 2026-10-16 (HTTP 200 + content)
+  '${_ghRaw}3inker/v2ray-subscription/main/subs/all_not_ru.txt',
+  '${_ghRaw}3inker/v2ray-subscription/main/subs/all_ru.txt',
+  '${_ghRaw}free-nodes/v2rayfree/main/sub',
+  '${_ghRaw}ermaozi/get_subscribe/main/subscribe/v2ray.txt',
   // ---- backup / larger pools
   '${_ghRaw}kasesm/Free-Config/refs/heads/main/all_raw.txt',
   '${_ghRaw}kasesm/Free-Config/refs/heads/main/vless_raw.txt',
@@ -139,8 +144,7 @@ const List<VsSpec> vsSpecs = [
       'https://t.me/s/Configforvpn01',
       'https://t.me/s/msv2ray',
       'https://t.me/s/v2box_free',
-      // GitHub mirrors that repost slipnet:// links
-      '${_ghRaw}V2RAYCONFIGSPOOL/SLIPNET_SUB/main/slipnet.txt',
+      // GitHub mirror that still has slipnet:// links (checked 2026-10-16)
       '${_ghRaw}kiamoo2/Telegram_configs/main/slipnet.txt',
     ],
   ),
