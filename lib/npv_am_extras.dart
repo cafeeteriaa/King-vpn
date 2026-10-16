@@ -33,9 +33,21 @@ const _fragIntOpts = <String>['10-20', '1-5', '20-40'];
 const _muxOpts = <int>[4, 8, 16, 32];
 const _dnsOpts = <String>['cloudflare', 'google', 'quad9'];
 const _dnsUrls = <String, List<String>>{
-  'cloudflare': ['https://1.1.1.1/dns-query', '1.1.1.1'],
-  'google': ['https://8.8.8.8/dns-query', '8.8.8.8'],
-  'quad9': ['https://9.9.9.9/dns-query', '9.9.9.9'],
+  'cloudflare': [
+    'https://1.1.1.1/dns-query',
+    '1.1.1.1',
+    '2606:4700:4700::1111',
+  ],
+  'google': [
+    'https://8.8.8.8/dns-query',
+    '8.8.8.8',
+    '2001:4860:4860::8888',
+  ],
+  'quad9': [
+    'https://9.9.9.9/dns-query',
+    '9.9.9.9',
+    '2620:fe::fe',
+  ],
 };
 // رنج‌های خصوصی؛ بدون نیاز به فایل geoip
 const _lanCidrs = <String>[
@@ -718,12 +730,19 @@ String withNpvAmCore(String cfg) {
           }
         }
       }
-      // Always include common public DNS IPs
-      for (final ip in ['1.1.1.1', '8.8.8.8', '9.9.9.9']) {
+      // Always include common public DNS (IPv4 + IPv6)
+      for (final ip in [
+        '1.1.1.1',
+        '8.8.8.8',
+        '9.9.9.9',
+        '2606:4700:4700::1111',
+        '2001:4860:4860::8888',
+      ]) {
         if (!ips.contains(ip)) ips.add(ip);
       }
       d['servers'] = [...ips, ...doh];
-      d['queryStrategy'] = 'UseIPv4';
+      // UseIP = هم IPv4 و هم IPv6
+      d['queryStrategy'] = 'UseIP';
       j['dns'] = d;
       // Help domain-based routing resolve correctly for apps
       final rt = j['routing'] is Map ? j['routing'] as Map : <String, dynamic>{};
