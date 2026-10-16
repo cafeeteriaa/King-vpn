@@ -26,6 +26,7 @@ part 'extras_plus.dart';
 part 'donate.dart';
 part 'ads_remote.dart';
 part 'update_check.dart';
+part 'king_heal.dart';
 part 'online.dart';
 part 'server_shop.dart';
 part 'telegram_channels.dart';
