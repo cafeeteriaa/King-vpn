@@ -3691,7 +3691,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     inForeground = s == AppLifecycleState.resumed;
     // healthy servers are kept on disk, so the next start tests them first
     if (s == AppLifecycleState.paused || s == AppLifecycleState.detached) {
-      _saveCache();
+      unawaited(_saveCache().catchError((e) => logError(e)));
     }
     if (s == AppLifecycleState.detached) {
       // BGKEEP: screen closed. With a VPN up the engine stays alive and the
@@ -3829,6 +3829,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     localPilotLoop?.cancel();
     _onlineTimer?.cancel();
     _netWatchTimer?.cancel();
+    _dbgSaveT?.cancel();
+    _dbgProbT?.cancel();
     super.dispose();
   }
 
@@ -5200,7 +5202,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       logError(e);
     }
     refilling = false;
-    _saveCache();
+    unawaited(_saveCache().catchError((e) => logError(e)));
     if (mounted && connected) _set(_connStatus());
   }
 
@@ -5292,7 +5294,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       logError(e);
     }
     lastStandby = DateTime.now();
-    _saveCache(); // healthy servers stay on disk for the next start
+    unawaited(_saveCache().catchError((e) => logError(e))); // healthy servers stay on disk for the next start
     if (mounted && connected) {
       _set(_connStatus());
     }
@@ -5536,7 +5538,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
         if (ready && t != false) break;
         // no core / no VPN tunnel: restart the VPN once
-        if (attempt == 0) await _stopCore();
+        if (attempt == 0) {
+          // invalidate any late CONNECTED from this attempt so it cannot
+          // complete the next attempt's connSig
+          _connGen++;
+          if (connSig != null && !connSig!.isCompleted) {
+            connSig!.complete(false);
+          }
+          connSig = null;
+          await _stopCore();
+        }
       }
       tunWarn = !ready || t == false;
       if (tunWarn) {
@@ -6168,7 +6179,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         watchFailLimit = 3;
         break;
     }
-    _saveSettings();
+    unawaited(_saveSettings().catchError((e) => logError(e)));
     _set('پروفایل اعمال شد');
   }
 
@@ -7148,7 +7159,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
         if (ok) {
           _startWatch();
-          _saveCache();
+          unawaited(_saveCache().catchError((e) => logError(e)));
           _adAfterConnect();
         } else {
           // the personal server did not connect: tell the user why
@@ -7309,7 +7320,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       await _stopCore();
       connected = false;
       if (mounted) setState(() {});
-      if (await _connectLoop([old])) _saveCache();
+      if (await _connectLoop([old])) unawaited(_saveCache().catchError((e) => logError(e)));
     } catch (e) {
       logError(e);
     }
@@ -7428,12 +7439,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         connected = false;
         if (mounted) setState(() {});
         if (await _connectLoop([t])) {
-          _saveCache();
+          unawaited(_saveCache().catchError((e) => logError(e)));
           await _spCheckSpeed(t, old); // SPEEDKEEP
         } else if (!abort) {
           _spSkip[t.key] = DateTime.now();
           if (await _connectLoop([old])) {
-            _saveCache();
+            unawaited(_saveCache().catchError((e) => logError(e)));
           } else if (!abort && !await _acquire()) {
             if (!inForeground) pendingFailover = true;
             _set('سرور جایگزین پیدا نشد • تلاش دوباره...');
@@ -7468,7 +7479,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (mounted) setState(() {});
         _set('تعویض سرور (${lastWhy.isEmpty ? 'نامشخص' : lastWhy})...');
         if (await _acquire(strictRow: connRow == 'r:ai')) {
-          _saveCache();
+          unawaited(_saveCache().catchError((e) => logError(e)));
         } else if (abort) {
           wantVpn = false;
           watch?.cancel();
@@ -7538,7 +7549,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       bgWorkers = bw;
       fix = true;
     }
-    if (fix) _saveSettings();
+    if (fix) unawaited(_saveSettings().catchError((e) => logError(e)));
   }
 
   // 6 s after a connection, then every aiEveryMin minutes while connected
@@ -7589,7 +7600,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         connected = false;
         if (mounted) setState(() {});
         if (await _connectLoop([t])) {
-          _saveCache();
+          unawaited(_saveCache().catchError((e) => logError(e)));
         } else if (!abort && !await _acquire(strictRow: connRow == 'r:ai')) {
           if (!inForeground) pendingFailover = true;
           _set('سرور جایگزین پیدا نشد • تلاش دوباره...');
@@ -9437,7 +9448,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         );
       }),
     ).then((_) {
-      _saveSettings();
+      unawaited(_saveSettings().catchError((e) => logError(e)));
       if (mounted) setState(() {});
       // the connection type changed while connected: rebuild it right away
       if (connected && pmBefore != proxyMode && !busy) _restartTunnel();
@@ -9636,7 +9647,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
         );
     final rows = <Object>[];
-    rows.add(searchAllRow(() => connect()));
+    rows.add(searchAllRow(() => unawaited(connect().catchError((e) => logError(e)))));
     groups.forEach((g, l) {
       if (g == 'p:personal') {
         rows.add(_personalHeader());
@@ -9763,7 +9774,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   }
                 });
                 // Persist so blacklist does not come back after app restart
-                unawaited(_saveCache());
+                unawaited(_saveCache().catchError((e) => logError(e)));
                 _set('لیست سیاه پاک شد');
               }
             },
@@ -9836,7 +9847,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     fastDelay = true;
                     fastTested = 0;
                     fastOk = 0;
-                    connect();
+                    unawaited(connect().catchError((e) => logError(e)));
                   },
           ),
         ],
@@ -10016,7 +10027,7 @@ UiHero(
                       ? null
                       : () {
                           setState(() => proxyMode = !proxyMode);
-                          _saveSettings();
+                          unawaited(_saveSettings().catchError((e) => logError(e)));
                           if (connected) {
                             _restartTunnel();
                           } else {
