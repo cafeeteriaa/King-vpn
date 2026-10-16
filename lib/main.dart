@@ -3844,14 +3844,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _runBusy(Future<void> Function() f) async {
     if (busy) return;
     setState(() => busy = true);
+    // The timeout below only stops WAITING; the work itself keeps running.
+    // Releasing the lock while the work still runs let a second connect flow
+    // start on the same fixed ports (10808/10809) -> CONNECTED without traffic.
+    // So on timeout we ask the work to stop (abort) and wait for it to really end.
+    final work = f().catchError((Object e) {
+      logError(e);
+    });
     try {
-      // E-BUSY-STUCK: a never-ending await can no longer lock the app
-      await f().timeout(const Duration(minutes: 5));
+      await work.timeout(const Duration(minutes: 5));
     } on TimeoutException {
-      if (_acquiring) {
-        dbg('جستجوی سرور بیش از ۵ دقیقه طول کشید؛ ادامه می‌دهد و قفل آزاد شد');
-      } else {
-        logError('busy بیش از ۵ دقیقه طول کشید و آزاد شد');
+      abort = true;
+      dbg('کار بیش از ۵ دقیقه طول کشید؛ توقف خواسته شد و منتظر پایان آن می‌مانیم');
+      try {
+        await work.timeout(const Duration(seconds: 90));
+      } on TimeoutException {
+        logError('کار بعد از توقف هم تمام نشد؛ قفل آزاد شد');
       }
     } catch (e) {
       logError(e);
@@ -5537,6 +5545,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       for (var ci = 0; ci < cfgTries.length; ci++) {
         if (ci > 0) {
           usedFallback = true;
+          dbg('کانفیگ ساده امتحان می‌شود: ${s.name}');
           // the first config is gone for good: drop its core before the next one
           _connGen++;
           if (connSig != null && !connSig!.isCompleted) {
