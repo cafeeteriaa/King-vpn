@@ -1026,6 +1026,11 @@ extension HomeExtras on _HomePageState {
     Future.delayed(const Duration(seconds: 8), aiAutopilotTick);
   }
 
+  // Track flags forced by cloud pilot so stop can restore them
+  bool _pilotForcedUltra = false;
+  bool _pilotForcedIndestructible = false;
+  DateTime? _pilotConnectedAt; // hold before cloud pilot may switch
+
   // FULL PILOT: Grok takes over from search to keep-alive until user disconnects
   Future<void> startGrokPilot() async {
     if (!_hasAnyAiKey) {
@@ -1044,8 +1049,14 @@ extension HomeExtras on _HomePageState {
     wantVpn = true;
     abort = false;
     turboSpeed = true;
-    ultraMode = true;
-    indestructibleMode = true;
+    if (!ultraMode) {
+      ultraMode = true;
+      _pilotForcedUltra = true;
+    }
+    if (!indestructibleMode) {
+      indestructibleMode = true;
+      _pilotForcedIndestructible = true;
+    }
     _applyTurboLevers();
     _set('خلبان Grok: تحلیل شبکه و جستجوی بهترین سرور...');
     aiAutopilotStart();
@@ -1072,6 +1083,16 @@ extension HomeExtras on _HomePageState {
     aiSession = false;
     aiLoop?.cancel();
     aiLoop = null;
+    // Restore modes the pilot forced (do not touch nationalMode — network may still be cut)
+    if (_pilotForcedUltra) {
+      ultraMode = false;
+      _pilotForcedUltra = false;
+    }
+    if (_pilotForcedIndestructible) {
+      indestructibleMode = false;
+      _pilotForcedIndestructible = false;
+    }
+    _pilotConnectedAt = null;
   }
 
   Future<void> aiAutopilotTick() async {
@@ -1101,16 +1122,29 @@ extension HomeExtras on _HomePageState {
           await _acquire(strictRow: false, speed: true);
         }
       }
-      // if connected but very slow, nudge switch
+      // if connected but very slow, nudge switch — only after 3 min hold
       if (connected && current != null) {
+        _pilotConnectedAt ??= DateTime.now();
+        final holdOk = DateTime.now().difference(_pilotConnectedAt!) >=
+            const Duration(minutes: 3);
         final sp = current!.speed ?? 0;
-        if (sp > 0 && sp * 1024 < minSpeedKB && minSpeedKB > 0) {
-          final l = _pickList();
-          if (l.isNotEmpty && !identical(l.first, current)) {
+        if (holdOk &&
+            sp > 0 &&
+            minSpeedKB > 0 &&
+            sp * 1024 < minSpeedKB &&
+            !busy &&
+            !switching) {
+          final l = _pickList()
+              .where((s) => !identical(s, current))
+              .toList();
+          if (l.isNotEmpty) {
             lastWhy = 'خلبان: سرعت پایین';
             await _swapTo(l.first);
+            _pilotConnectedAt = DateTime.now(); // reset hold after switch
           }
         }
+      } else if (!connected) {
+        _pilotConnectedAt = null;
       }
       if (aiSession && connected) {
         _set('خلبان Grok فعال • $aiLastProvider • ${_connStatus()}');
@@ -1145,21 +1179,30 @@ extension HomeExtras on _HomePageState {
     if (a.isEmpty || a == 'none') return;
     lastWhy = 'خلبان AI: $a';
     if (a == 'switch_best') {
-      final l = _pickList();
-      if (l.isNotEmpty && !busy && !switching) {
+      // Respect 3-minute hold after connect (same as local pilot)
+      final holdOk = _pilotConnectedAt == null ||
+          DateTime.now().difference(_pilotConnectedAt!) >=
+              const Duration(minutes: 3);
+      if (!holdOk || busy || switching) return;
+      final l = _pickList().where((s) => !identical(s, current)).toList();
+      if (l.isNotEmpty) {
         await _swapTo(l.first);
+        _pilotConnectedAt = DateTime.now();
       }
     } else if (a == 'refresh_lists') {
-      listTime = null;
-      pending = [];
-      failed.clear();
-      lastFetchTry = DateTime.fromMillisecondsSinceEpoch(0);
-      await _loadPending(bg: true, exhausted: true);
+      // Do NOT wipe good/failed — only force a fresh download when disconnected
+      if (!connected) {
+        listTime = null;
+        lastFetchTry = DateTime.fromMillisecondsSinceEpoch(0);
+        await _loadPending(bg: true, exhausted: true);
+      }
     } else if (a == 'reset_blacklist') {
       failed.clear();
       for (final g in good) {
         g.badAt = null;
+        g.miss = 0;
       }
+      unawaited(_saveCache());
     } else if (a == 'connect') {
       if (!connected && !busy) {
         turboSpeed = true;
@@ -1168,7 +1211,10 @@ extension HomeExtras on _HomePageState {
       }
     } else if (a == 'search_national') {
       natForce = true;
-      indestructibleMode = true;
+      if (!indestructibleMode) {
+        indestructibleMode = true;
+        _pilotForcedIndestructible = true;
+      }
       nationalMode = true;
       if (!busy) await connect();
     } else if (a == 'enable_turbo') {
@@ -1804,7 +1850,9 @@ extension HomeExtras on _HomePageState {
         break;
       case 'switch_best':
         if (!busy && !switching) {
-          final l = _pickList();
+          final l = _pickList()
+              .where((s) => !identical(s, current))
+              .toList();
           // اولویت ۱: سروری که تلگرام را باز می‌کند (بیت 0)
           Server? best;
           for (final s in l) {
@@ -1825,6 +1873,7 @@ extension HomeExtras on _HomePageState {
               _localOpWins[k] = (_localOpWins[k] ?? 0) + 1;
             }
             await _swapTo(best);
+            _localConnectedSince = DateTime.now(); // reset hold after switch
           }
         }
         break;
@@ -1840,7 +1889,9 @@ extension HomeExtras on _HomePageState {
         failed.clear();
         for (final g in good) {
           g.badAt = null;
+          g.miss = 0;
         }
+        unawaited(_saveCache());
         break;
       case 'search_national':
         natForce = true;
