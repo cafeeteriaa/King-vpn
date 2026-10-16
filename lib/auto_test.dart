@@ -77,6 +77,8 @@ extension AutoTestEngine on _HomePageState {
   static int _scenario = 0;
   static bool _abortRequested = false;
   static String _currentEngine = 'v2ray';
+  // موتورهایی که کاربر برای این تست انتخاب کرده (پیش‌فرض: همه)
+  static Set<String> _atSelected = {for (final e in _engines) e.$1};
   static final Map<String, String> _engineResult = {}; // ok / fail / skip
 
   bool get isAutoTesting => _phase == _AtPhase.running;
@@ -92,28 +94,65 @@ extension AutoTestEngine on _HomePageState {
       return;
     }
 
+    final sel = Set<String>.from(_atSelected);
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => Directionality(
         textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          title: const Text('تست خودکار ۲۰ دقیقه‌ای'),
-          content: const Text(
-            'اپ خودش هر ۶ نوع VPN را تست می‌کند:\n'
-            '• V2Ray\n• OpenVPN\n• WireGuard\n'
-            '• AM Tunnel\n• NPV Tunnel\n• HTTP Injector\n\n'
-            'به‌علاوه قطع/وصل، abort وسط اتصال، تعویض سرور و مانیتور پایدار.\n\n'
-            'در این ۲۰ دقیقه اپ را نبند و صفحه را قفل نکن.\n'
-            'می‌توانی وسط کار «توقف تست» را بزنی.',
+        child: StatefulBuilder(
+          builder: (ctx, setD) => AlertDialog(
+            title: const Text('تست خودکار ۲۰ دقیقه‌ای'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('موتورهایی که می‌خواهی تست شوند:'),
+                  const SizedBox(height: 4),
+                  for (final e in _engines)
+                    CheckboxListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: Text(e.$2),
+                      value: sel.contains(e.$1),
+                      onChanged: (v) => setD(() {
+                        if (v == true) {
+                          sel.add(e.$1);
+                        } else {
+                          sel.remove(e.$1);
+                        }
+                      }),
+                    ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'سناریوهای ۲ تا ۵ فقط روی V2Ray اجرا می‌شوند؛ '
+                    'اگر V2Ray انتخاب نشود، اجرا نمی‌شوند.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'در این ۲۰ دقیقه اپ را نبند و صفحه را قفل نکن.\n'
+                    'می‌توانی وسط کار «توقف تست» را بزنی.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('انصراف')),
+              FilledButton(
+                  onPressed: sel.isEmpty
+                      ? null
+                      : () {
+                          _atSelected = Set<String>.from(sel);
+                          Navigator.pop(ctx, true);
+                        },
+                  child: const Text('شروع تست')),
+            ],
           ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('انصراف')),
-            FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('شروع تست')),
-          ],
         ),
       ),
     );
@@ -142,8 +181,8 @@ extension AutoTestEngine on _HomePageState {
     _startedAt = DateTime.now();
     autoTestRunning.value = true;
     autoTestProgress.value = 0;
-    autoTestText.value = 'تست خودکار شروع شد (۶ VPN)…';
-    dbg('🧪 AUTOTEST شروع شد (۲۰ دقیقه • ۶ VPN)');
+    autoTestText.value = 'تست خودکار شروع شد (${_atSelected.length} VPN)…';
+    dbg('🧪 AUTOTEST شروع شد (۲۰ دقیقه • ${_atSelected.length} VPN)');
     _dbgProb('🧪 تست خودکار ۲۰ دقیقه‌ای — ۶ موتور VPN');
 
     _sampleT?.cancel();
@@ -448,10 +487,11 @@ extension AutoTestEngine on _HomePageState {
     autoTestText.value = 'سناریو ۱: تست ۶ VPN';
     dbg('🧪 سناریو ۱ — هر ۶ موتور VPN');
 
-    for (var i = 0; i < _engines.length; i++) {
+    final list = _engines.where((e) => _atSelected.contains(e.$1)).toList();
+    for (var i = 0; i < list.length; i++) {
       if (_abortRequested) return;
-      final e = _engines[i];
-      autoTestText.value = 'سناریو ۱: ${e.$2} (${i + 1}/6)';
+      final e = list[i];
+      autoTestText.value = 'سناریو ۱: ${e.$2} (${i + 1}/${list.length})';
       final ok = await _atConnectEngine(e.$1, e.$2);
       if (ok) {
         await _atEnsureDisconnected();
@@ -466,6 +506,7 @@ extension AutoTestEngine on _HomePageState {
 
   /// سناریو ۲: طوفان قطع/وصل روی V2Ray (موتور اصلی)
   Future<void> _atScenarioReconnectStorm() async {
+    if (!_atSelected.contains('v2ray')) return; // فقط V2Ray
     _scenario = 2;
     autoTestText.value = 'سناریو ۲: قطع/وصل سریع';
     dbg('🧪 سناریو ۲ — قطع/وصل ×۳ روی V2Ray');
@@ -495,6 +536,7 @@ extension AutoTestEngine on _HomePageState {
 
   /// سناریو ۳: قطع وسط اتصال
   Future<void> _atScenarioMidConnectAbort() async {
+    if (!_atSelected.contains('v2ray')) return; // فقط V2Ray
     _scenario = 3;
     autoTestText.value = 'سناریو ۳: قطع وسط اتصال';
     dbg('🧪 سناریو ۳ — abort وسط اتصال');
@@ -535,6 +577,7 @@ extension AutoTestEngine on _HomePageState {
 
   /// سناریو ۴: تعویض سرور
   Future<void> _atScenarioServerSwap() async {
+    if (!_atSelected.contains('v2ray')) return; // فقط V2Ray
     _scenario = 4;
     autoTestText.value = 'سناریو ۴: تعویض سرور';
     dbg('🧪 سناریو ۴ — تعویض سرور');
@@ -572,6 +615,7 @@ extension AutoTestEngine on _HomePageState {
 
   /// سناریو ۵: مانیتور طولانی
   Future<void> _atScenarioLongStable() async {
+    if (!_atSelected.contains('v2ray')) return; // فقط V2Ray
     _scenario = 5;
     autoTestText.value = 'سناریو ۵: مانیتور طولانی';
     dbg('🧪 سناریو ۵ — مانیتور پایدار');
