@@ -6136,6 +6136,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // ONLY realistic way to connect. So in national / forced / indestructible
   // mode we ALWAYS re-test saved servers first (even if the user preferred
   // "only new" for normal mode).
+  DateTime? _checkSavedAt;
   Future<void> _checkSaved() async {
     final forceSaved = nationalMode || natForce || indestructibleMode;
     if (!forceSaved) {
@@ -6143,7 +6144,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // only new ones". Keep that behaviour outside national mode.
       return;
     }
-    if (!savedFirst && !forceSaved) return;
+    // Avoid running twice in the same connect path (_doConnect + _acquireInner)
+    if (_checkSavedAt != null &&
+        DateTime.now().difference(_checkSavedAt!) <
+            const Duration(seconds: 25)) {
+      return;
+    }
+    _checkSavedAt = DateTime.now();
     bool stale(Server s) =>
         s.checkedAt == null ||
         DateTime.now().difference(s.checkedAt!) > recheckAfter;
@@ -6494,7 +6501,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _resInject();
         await _checkSaved(); // re-test known-good before searching new lists
       }
-      if (nationalMode) _natKeep(); // never-stopping search
+      // Fire-and-forget: keeps searching in background while connected/hunting
+      if (nationalMode) unawaited(_natKeep());
       if (nationalMode) warm = null; // do not wait on blocked list downloads
       // the list download started at app launch is still running: wait for it
       // (it is nearly done, and the search then starts with a full queue)
