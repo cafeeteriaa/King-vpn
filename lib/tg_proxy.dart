@@ -58,7 +58,7 @@ Future<List<_TgPx>> _tgPxLoad() async {
               }
             }
           }
-        } catch (_) {}
+        } catch (e) { debugPrint("catch: $e"); }
       } else {
         for (final raw in body.split(RegExp(r'[\r\n]+'))) {
           final line = raw.trim();
@@ -80,7 +80,7 @@ Future<List<_TgPx>> _tgPxLoad() async {
           }
         }
       }
-    } catch (_) {}
+    } catch (e) { debugPrint("catch: $e"); }
   }
   return out;
 }
@@ -132,7 +132,7 @@ class _TgProxyPanelState extends State<_TgProxyPanel> {
         await launchUrl(u, mode: LaunchMode.externalApplication);
         return;
       }
-    } catch (_) {}
+    } catch (e) { debugPrint("catch: $e"); }
     await _copy(link);
   }
 
