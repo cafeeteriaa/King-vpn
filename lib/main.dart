@@ -1981,6 +1981,14 @@ Future<bool> _siteOpens(String url, {bool viaCore = true}) async {
 }
 
 Future<int> _sitesOpen() async {
+  // اگر پورت پروکسی هسته آماده نیست، تست را بی‌اعتبار بدان
+  // (قبلاً باعث تعویض الکی «سایت‌ها باز نمی‌شوند» می‌شد)
+  try {
+    final ready = await waitProxyPort(max: const Duration(seconds: 2));
+    if (!ready) return -1; // نامعتبر — نباید باعث تعویض شود
+  } catch (_) {
+    return -1;
+  }
   final r = await Future.wait([
     _siteOpens('https://www.youtube.com/generate_204'),
     _siteOpens('https://www.instagram.com/'),
@@ -7653,10 +7661,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             // SPEEDSWITCHPATCH: ping and speed pass but no real site opens
             final sitesOk = await _sitesOpen();
             if (!connected || busy || switching) return;
-            // only a server where the sites opened before and then stopped
-            // counts as stalled (if they never open, the check itself is
-            // not trustworthy on this network: no switching)
-            if (sitesOk > 0) {
+            // sitesOk == -1 یعنی پورت پروکسی آماده نبود → نادیده بگیر
+            if (sitesOk < 0) {
+              // تست نامعتبر؛ شمارنده‌ها را دست نزن
+            } else if (sitesOk > 0) {
               siteSeen = true;
               siteFail = 0;
               siteNever = 0;
@@ -7664,9 +7672,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             } else if (siteSeen) {
               siteFail++;
             } else {
-              // SITENEVER: تست سایت‌ها روی بعضی شبکه‌ها/هسته‌ها ناپایدار است
-              // (پورت پروکسی گاهی بسته گزارش می‌شود). بنابراین خیلی دیرتر
-              // و با محدودیت بیشتر تعویض می‌کنیم تا تعویض الکی کم شود.
+              // SITENEVER: خیلی دیرتر و با محدودیت بیشتر تعویض می‌کند
               siteNever++;
               if (siteNever >= 6 &&
                   siteNeverSwitches < 2 &&
@@ -7681,8 +7687,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 return;
               }
             }
-            // siteFail هم سخت‌گیرانه‌تر شد
-            if (siteFail >= 4 &&
+            if (sitesOk >= 0 &&
+                siteFail >= 4 &&
                 DateTime.now().difference(lastSwitch) >
                     const Duration(seconds: 40)) {
               siteFail = 0;
