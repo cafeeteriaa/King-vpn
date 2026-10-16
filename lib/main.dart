@@ -50,15 +50,15 @@ const ownPkg = 'com.kingvpn.king_vpn';
 // the workflow file.
 const bgChannel = MethodChannel('vpn/bg');
 // parallel ping tests while connected (settings 1..6).
-int bgWorkers = 2; // low data while connected; AI may raise freely
+int bgWorkers = 3; // BEST: کمی بیشتر برای پیدا کردن جایگزین بهتر
 // FAST SEARCH: parallel ping tests (core delay test, no VPN toggling) used
 // when looking for the first healthy server (settings 1..8).
 int fastWorkers = 50; // fixed default — do not change without user request
 // a healthy server not checked for this long is pinged again (occasional
 // re-check, the server stays in the list until it really fails)
-Duration recheckAfter = const Duration(minutes: 3);
+Duration recheckAfter = const Duration(minutes: 4);
 // servers that failed are not tested again for this long (also kept on disk)
-Duration failWindow = const Duration(minutes: 30);
+Duration failWindow = const Duration(minutes: 25);
 // a healthy server is only deleted after this many failed re-checks in a row
 int missLimit = 3;
 
@@ -215,23 +215,24 @@ const speedOwners = {
   'Delta-Kronecker',
 };
 // below this download speed (KB/s) the connected server is replaced (0 = off)
-int minSpeedKB = 0; // LOWDATA: speed-based switching off (no download tests)
+// BEST: زیر ~۸۰ KB/s تقریباً مرده است → تعویض (نه آن‌قدر حساس که مدام بپرد)
+int minSpeedKB = 80;
 
-// ---- settings ----
+// ---- settings ---- BEST PROFILE (پایدار + سریع)
 // user-adjustable (saved in settings)
-int batchSize = 100; // دسته ۱۰۰ سرور در هر دور
-int delayWorkers = 20; // (kept for settings compatibility)
-Duration delayTimeout = const Duration(seconds: 6);
-int goodWant = 10; // حداقل سرور سالم هدف
+int batchSize = 120; // دسته بزرگ‌تر = شانس بیشتر برای سرور خوب
+int delayWorkers = 24; // (kept for settings compatibility)
+Duration delayTimeout = const Duration(seconds: 8); // شبکه ضعیف هم شانس دارد
+int goodWant = 12; // حداقل سرور سالم هدف
 bool autoSpeed = true; // تست سرعت چند سرور برتر قبل از اتصال
-int speedTopN = 3; // تست سرعت ۳ برتر — سریع‌تر وصل می‌شود
-bool autoUpgrade = false; // LOWDATA // keep searching for new servers while connected
+int speedTopN = 5; // BEST: ۵ برتر را سرعت‌سنجی کن، بعد وصل شو
+bool autoUpgrade = true; // BEST: حین اتصال دنبال سرور بهتر بگرد
 // real pings below this are fake -> server counts as bad / hidden.
 // 0 = off: the real speed test decides (done right after connecting).
 int minPingMs = 0;
 // connected server has a terrible ping -> jump at once to the best-ping server
-bool badPingSwitch = false; // LOWDATA
-int badPingMs = 3000;
+bool badPingSwitch = true; // BEST: پینگ افتضاح → تعویض
+int badPingMs = 2500;
 // BADPINGLOOP: when every server a quick test finds has a bad ping (> badPingMs),
 // the next quick parallel test starts at once, and so on. After
 // [badPingMaxRounds] such rounds in a row the loop gives up being picky (so a
@@ -239,12 +240,12 @@ int badPingMs = 3000;
 int badPingRounds = 0;
 const int badPingMaxRounds = 6;
 // the healthy servers of the last session are tested first
-bool savedFirst = false; // never prefer folder/saved — test new servers
+bool savedFirst = true; // BEST: اول پوشه/سالم‌های قبلی، بعد سرورهای جدید
 // learn what works on this network (protocol / transport / port / source) and
 // test the most likely servers first; skip lists that never give a server
 bool smartOrder = true;
 // when every server was tested: download a new list and go on, forever
-bool autoCycle = false; // LOWDATA: no endless list re-downloads
+bool autoCycle = true; // BEST: لیست تمام شد → لیست تازه و ادامه
 // ULTRA: multi-variant matrix (Fragment/fp/ALPN/DNS/port/cleanIP/Mux/Noise...)
 // default OFF so normal search only tests the plain config (much faster).
 // Turn on from Settings → «حالت فوق‌العاده» when a hard network needs variants.
@@ -258,42 +259,42 @@ bool indestructibleMode = false;
 bool turboSpeed = true;
 // minutes before the downloaded list is refreshed. Big value on purpose: the
 // list is replaced when ALL servers were tested (autoCycle), not by the clock.
-int listRefreshMin = 240;
-int failMin = 120; // minutes a failed server is not tested again
-int recheckMin = 30; // minutes before a healthy server is pinged again
-int maxBatches = 5; // safety limit per search
-const standbyBatches = 10; // batches per standby search cycle
+int listRefreshMin = 180;
+int failMin = 90; // minutes a failed server is not tested again
+int recheckMin = 20; // minutes before a healthy server is pinged again
+int maxBatches = 8; // safety limit per search
+const standbyBatches = 12; // batches per standby search cycle
 const bgSearchOff = false; // RETRYPATCH // SPEEDSWITCHPATCH: no search while connected
 // while connected the tunnel is shared with the tests, so the batch is bigger
 // and the timeout longer (fewer false "dead" results). The healthy servers
 // are re-checked inside the batch every 25 tests, so a big batch is safe.
-int standbyBatchSize = 30;
-const bgTimeoutSecs = 8;
-int firstBatchSize = 40; // موازی کافی برای پیدا کردن سریع اولین سالم
-int fetchWorkers = 4;
-Duration fetchDeadline = const Duration(seconds: 20);
-int tcpWorkers = 50;
-int maxPerSource = 100;
-Duration tcpTimeout = const Duration(milliseconds: 3000);
+int standbyBatchSize = 40;
+const bgTimeoutSecs = 10;
+int firstBatchSize = 50; // BEST: پیدا کردن سریع‌تر اولین سالم
+int fetchWorkers = 6;
+Duration fetchDeadline = const Duration(seconds: 25);
+int tcpWorkers = 60;
+int maxPerSource = 120;
+Duration tcpTimeout = const Duration(milliseconds: 3500);
 // TLS handshakes in the prefilter leaked sockets (crash, instant failures)
 const probeTls = false;
-const speedUrl = 'https://speed.cloudflare.com/__down?bytes=300000';
-const smallSpeedUrl = 'https://speed.cloudflare.com/__down?bytes=100000';
+const speedUrl = 'https://speed.cloudflare.com/__down?bytes=500000';
+const smallSpeedUrl = 'https://speed.cloudflare.com/__down?bytes=150000';
 const httpProxyPort = 10809;
 // anti-flapping / watchdog
 // A dead / broken server is replaced right away: 2 failed checks (~10 s),
 // no waiting for the 10 minute speed-trial timer.
-Duration watchEvery = const Duration(seconds: 45); // متعادل
+Duration watchEvery = const Duration(seconds: 30); // BEST: حساس‌تر به قطعی
 int watchFailLimit = 3;
 int badPingLimit = 3;
-const minHold = Duration(seconds: 6);
+const minHold = Duration(seconds: 8); // کمی نگه دار تا زود تعویض نشود
 // FASTPATCH ----------------------------------------------------
-int fastPickN = 2; // سریع وصل شو با ۲ سرور سالم؛ بقیه در پس‌زمینه
-int fastPickMs = 8000; // حداکثر ۸ثانیه بعد از اولین سالم
+int fastPickN = 3; // با ۳ سرور سالم وصل شو؛ بقیه در پس‌زمینه
+int fastPickMs = 10000; // حداکثر ۱۰ثانیه بعد از اولین سالم
 bool betterSwitch = true; // فقط وقتی سرور خیلی بهتر باشد
-const betterGain = 0.50; // باید حداقل ۵۰٪ بهتر باشد (پینگ نصف یا کمتر)
-const betterMinGapMs = 50; // حداقل ۵۰ms اختلاف
-const betterEvery = Duration(minutes: 6); // هر ۶ دقیقه حداکثر یک‌بار
+const betterGain = 0.40; // BEST: اگر ۴۰٪ بهتر بود تعویض کن
+const betterMinGapMs = 40;
+const betterEvery = Duration(minutes: 4);
 int? connBaseDelay; // test ping of the connected server
 int betterRun = 0;
 bool aiFastOn = true; // parallel Gemini test (off = old one-by-one)
