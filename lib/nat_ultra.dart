@@ -646,8 +646,6 @@ bool _natAppliesF(_NatFacts f, int v) {
   return true;
 }
 
-bool _natApplies(Server s, int v) => _natAppliesF(_NatFacts(s), v);
-
 // does this variant change WHERE the core connects (address / port / DNS)?
 // (when the plain TCP port is closed, only those can still help)
 bool _natChangesAddr(int v) {
