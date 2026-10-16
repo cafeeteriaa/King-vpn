@@ -1516,24 +1516,43 @@ String _reliableVpnCfg(String cfg) {
     if (!nationalMode && !ultraMode && !indestructibleMode) {
       d['servers'] = <dynamic>[
         '1.1.1.1',
-        '8.8.8.8',
-        '9.9.9.9',
         '1.0.0.1',
-        // IPv6 DNS (اگر شبکه IPv6 داشته باشد استفاده می‌شود)
+        '8.8.8.8',
+        '8.8.4.4',
+        '9.9.9.9',
+        '149.112.112.112',
+        '208.67.222.222',
+        '208.67.220.220',
+        '94.140.14.14',
+        '94.140.15.15',
+        '178.22.122.100',
+        '185.51.200.2',
+        '78.157.42.100',
+        '78.157.42.101',
+        '10.202.10.10',
+        '10.202.10.11',
         '2606:4700:4700::1111',
         '2001:4860:4860::8888',
+        '2620:fe::fe',
         'https://1.1.1.1/dns-query',
         'https://8.8.8.8/dns-query',
+        'https://9.9.9.9/dns-query',
+        'https://dns.adguard-dns.com/dns-query',
       ];
     } else if (!hasServers) {
-      // National but config had no DNS: use Iranian-first fallback
+      // National: Iranian-first, then global
       d['servers'] = <dynamic>[
         '178.22.122.100',
         '185.51.200.2',
         '78.157.42.100',
+        '78.157.42.101',
         '10.202.10.10',
+        '10.202.10.11',
         '1.1.1.1',
         '8.8.8.8',
+        '9.9.9.9',
+        '94.140.14.14',
+        '208.67.222.222',
         '2606:4700:4700::1111',
         'https://1.1.1.1/dns-query',
       ];
@@ -6824,6 +6843,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!await _ensureSession()) {
       _set('برای اتصال باید تبلیغ را کامل ببینید');
       return;
+    }
+    // DNS خودکار: سریع‌ترین ارائه‌دهنده (کش ۱۰ دقیقه؛ موازی با مجوز VPN)
+    if (secureDns && dnsProv == 'auto') {
+      try {
+        final p = await pickBestDns()
+            .timeout(const Duration(seconds: 3), onTimeout: () => dnsProvActive);
+        dbg('DNS خودکار انتخاب شد: $p');
+      } catch (_) {}
     }
     // Ask VPN permission once while Activity is alive (right after ad),
     // so later _start calls do not hit NO_ACTIVITY during the server loop.
