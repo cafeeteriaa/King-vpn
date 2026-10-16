@@ -66,7 +66,8 @@ Future<String> _netFingerprint() async {
         .timeout(const Duration(seconds: 3));
     final ips = r.map((e) => e.address).join(',');
     return '${nationalMode ? 'N' : 'G'}|$ips';
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return nationalMode ? 'N|down' : 'G|down';
   }
 }
