@@ -2233,12 +2233,17 @@ extension HomeExtras on _HomePageState {
     return p.clamp(0, 1000000);
   }
 
-  void startLocalPilot() {
+  /// فعال‌سازی خلبان بدون حلقهٔ اتصال (برای وقتی کاربر فقط «اتصال» زده)
+  void ensureLocalPilotRunning() {
     if (aiSession) stopGrokPilot();
-
+    final wasOff = !localPilotOn;
     localPilotOn = true;
     wantVpn = true;
     abort = false;
+    if (!wasOff && localPilotLoop != null) {
+      // قبلاً روشن بوده — فقط مطمئن شو wantVpn زنده است
+      return;
+    }
     _localPhase = 'boot';
     _localTickN = 0;
     _localFailStreak = 0;
@@ -2248,17 +2253,38 @@ extension HomeExtras on _HomePageState {
     _localTgFail = 0;
     _localConnectedSince = null;
     _localPeakPower = 1;
-
     _localPower = 1;
     _localApplyMaxPowerProfile(power: 1);
+    localPilotText.value =
+        '👑 خلبان خودکار فعال است\n'
+        '• فقط «اتصال» کافی است — بقیه اتوماتیک\n'
+        '• قدرت ۰→∞ با اینترنت و مکان';
+    _localReschedule();
+    Future.delayed(const Duration(seconds: 3), () {
+      if (localPilotOn) localPilotTick(force: true);
+    });
+    // تشخیص شبکه در پس‌زمینه و تنظیم قدرت — بدون connect دوباره
+    unawaited(() async {
+      try {
+        await natDetectOperator();
+        try {
+          await _natDetect();
+        } catch (_) {}
+        final want = _localAutoPickPower();
+        if (want != _localPower) {
+          _localApplyMaxPowerProfile(power: want);
+        }
+      } catch (_) {}
+    }());
+  }
 
+  void startLocalPilot() {
+    ensureLocalPilotRunning();
     localPilotText.value =
         '👑 خلبان فعال شد\n'
         '• قدرت خودکار از ۰ تا ∞\n'
         '• اینترنت، مکان، جستجوی عادی و نت ملی را خودش تشخیص می‌دهد\n'
         '• نیازی به تنظیم دستی نیست';
-    _localReschedule();
-    Future.delayed(const Duration(seconds: 2), () => localPilotTick(force: true));
     unawaited(() async {
       try {
         await natDetectOperator();
@@ -2267,16 +2293,11 @@ extension HomeExtras on _HomePageState {
         } catch (_) {}
         final want = _localAutoPickPower();
         _localApplyMaxPowerProfile(power: want);
-        localPilotText.value =
-            '👑 قدرت $_localPower ($_localPowerLabel)\n'
-            'قله نشست: $_localPeakPower\n'
-            '${nationalMode ? "• نت ملی فعال\n" : "• جستجوی عادی\n"}'
-            '• اتصال خودکار...';
+        if (nationalMode || _localPower >= 4) {
+          natForce = true;
+          _resInject();
+        }
         if (!connected && !busy) {
-          if (nationalMode || _localPower >= 4) {
-            natForce = true;
-            _resInject();
-          }
           await connect();
         } else {
           await localPilotTick(force: true);
@@ -2299,7 +2320,7 @@ extension HomeExtras on _HomePageState {
     final peak = _localPeakPower;
     _localPower = 1;
     localPilotText.value =
-        'خلبان متوقف شد.\nقله قدرت این نشست: $peak\nدوباره بزن تا از نو شروع کند.';
+        'خلبان متوقف شد.\nقله قدرت این نشست: $peak';
   }
 
 }
