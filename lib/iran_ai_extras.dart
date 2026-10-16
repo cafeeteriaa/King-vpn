@@ -209,7 +209,8 @@ Future<bool?> geminiApiStatus({bool direct = true}) async {
       return null;
     }()
         .timeout(const Duration(seconds: 10));
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return null;
   } finally {
     c.close(force: true);
@@ -254,7 +255,8 @@ Future<String?> _geminiTry(String route, String prompt) async {
         final parts = j['candidates'][0]['content']['parts'] as List;
         final t = parts.map((p) => (p['text'] ?? '').toString()).join('\n');
         return t.trim().isEmpty ? 'پاسخ خالی بود.' : t.trim();
-      } catch (_) {
+      } catch (e) {
+        logError(e);
         throw Exception('پاسخ Gemini قابل خواندن نبود');
       }
     }
@@ -331,7 +333,8 @@ Future<String?> _grokTry(String route, String prompt) async {
         final j = jsonDecode(body);
         final t = (j['choices'][0]['message']['content'] ?? '').toString().trim();
         return t.isEmpty ? 'پاسخ خالی بود.' : t;
-      } catch (_) {
+      } catch (e) {
+        logError(e);
         throw GrokApiError('پاسخ Grok قابل خواندن نبود');
       }
     }
@@ -409,7 +412,8 @@ Future<String?> _openAiCompatTry({
         final t =
             (j['choices'][0]['message']['content'] ?? '').toString().trim();
         return t.isEmpty ? 'پاسخ خالی بود.' : t;
-      } catch (_) {
+      } catch (e) {
+        logError(e);
         throw AiApiError('پاسخ $label قابل خواندن نبود');
       }
     }
@@ -511,7 +515,8 @@ Future<String?> _claudeTry(String route, String prompt) async {
             .join('\n')
             .trim();
         return t.isEmpty ? 'پاسخ خالی بود.' : t;
-      } catch (_) {
+      } catch (e) {
+        logError(e);
         throw AiApiError('پاسخ Claude قابل خواندن نبود');
       }
     }
@@ -739,7 +744,8 @@ Future<http.Response> getListMirror(String u) async {
           await http.get(Uri.parse(u)).timeout(const Duration(seconds: 8));
       _rawOk++;
       return r;
-    } catch (_) {
+    } catch (e) {
+      logError(e);
       _rawFail++;
     }
   }
@@ -770,7 +776,8 @@ Future<List<Server>> fetchSubscription(String url) async {
       try {
         body = utf8.decode(base64
             .decode(base64.normalize(body.replaceAll(RegExp(r'\s'), ''))));
-      } catch (_) {
+      } catch (e) {
+        logError(e);
         return [];
       }
     }
@@ -1151,7 +1158,7 @@ extension HomeExtras on _HomePageState {
                   padding: const EdgeInsets.all(10),
                   margin: const EdgeInsets.only(bottom: 10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1B5E20).withOpacity(0.25),
+                    color: Color(0xFF1B5E20).withValues(alpha: 0.25),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(color: const Color(0xFF4CAF50)),
                   ),
@@ -1168,7 +1175,7 @@ extension HomeExtras on _HomePageState {
                       padding: const EdgeInsets.only(bottom: 6),
                       child: Material(
                         color: isBest
-                            ? const Color(0xFF1B5E20).withOpacity(0.35)
+                            ? Color(0xFF1B5E20).withValues(alpha: 0.35)
                             : Colors.transparent,
                         borderRadius: BorderRadius.circular(10),
                         child: ListTile(
