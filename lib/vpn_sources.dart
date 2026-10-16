@@ -755,9 +755,12 @@ class _VsPageState extends State<VsPage> {
 
   Widget _tile(VsItem it) {
     final isOvpn = spec.kind == VsKind.vpnclient;
-    // the app core reads these four; hysteria2 / tuic have no connect button
-    // COPYONLY: no connect button in any of these pages
-    const canConnect = false;
+    // V2Ray-style links (Hiddify / HTTP Injector) can connect inside this app
+    final canConnect = widget.onConnect != null &&
+        (spec.kind == VsKind.hiddify ||
+            spec.kind == VsKind.injector) &&
+        const {'vless', 'vmess', 'trojan', 'ss', 'shadowsocks'}
+            .contains(it.proto.toLowerCase());
     final badge = it.tested
         ? '✅ ${it.ping} ms'
         : (it.proto == 'slipnet' ? '🆕' : '⚪ بدون تست');
@@ -776,7 +779,7 @@ class _VsPageState extends State<VsPage> {
         trailing: Row(mainAxisSize: MainAxisSize.min, children: [
           if (canConnect)
             IconButton(
-              tooltip: 'اتصال',
+              tooltip: 'اتصال داخل اپ',
               icon: const Icon(Icons.power_settings_new),
               onPressed: () {
                 final cb = widget.onConnect!;
