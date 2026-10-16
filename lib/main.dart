@@ -1874,7 +1874,10 @@ Future<int?> probe(Server s) async {
 
 Future<void> pool<T>(
     List<T> items, int workers, Future<void> Function(T) fn) async {
-  final it = items.iterator;
+  // Safer index-based pool: a shared Iterator can theoretically skip an item
+  // if two workers call moveNext before either yields (rare but possible under
+  // heavy microtask pressure). An atomic index eliminates that.
+  var next = 0;
   // UI-FREEZE FIX: 50 workers used to start in the same millisecond (50 config
   // builds + 50 native calls on the UI thread). Starts are staggered and each
   // worker gives the UI a chance to draw a frame between two items.
@@ -1883,9 +1886,11 @@ Future<void> pool<T>(
       await Future<void>.delayed(Duration(milliseconds: (idx % 25) * 12));
     }
     var n = 0;
-    while (it.moveNext()) {
+    while (true) {
+      final i = next++;
+      if (i >= items.length) break;
       try {
-        await fn(it.current);
+        await fn(items[i]);
       } catch (e) {
         logError(e); // one failing item must never stop the whole pool
       }
@@ -4894,56 +4899,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // OpenVPN start: the engine must report "connected" and a tun interface
   // must exist (same rule as the V2Ray tunnel guard)
   Future<bool> _startOvpn(Server s) async {
+    // OpenVPN engine is intentionally removed from this build.
+    // Keep the parse / paste paths so old personal configs do not crash,
+    // but never attempt a real connection.
+    lastFail = 'پروتکل OpenVPN در این نسخه پشتیبانی نمی‌شود — از VLESS / VMess / Trojan / SS استفاده کنید';
+    dbg('OpenVPN: موتور حذف شده • ${s.name}');
+    ovpnActive = false;
     try {
-      if (lastState == 'CONNECTED' || lastState == 'CONNECTING') {
-        await _stopCore();
-      } else if (ovpnActive) {
-        await _stopV2();
-      }
-      ovpnSig = Completer<bool>();
-      ovpnStage = '';
-      ovpnActive = true;
-      await ovpnCore.connect(
-        s.ovpnConf!,
-        s.name,
-        username: 'vpn',
-        password: 'vpn',
-        bypassPackages: bypassApps,
-        certIsRequired: false,
-      );
-      final ok = await ovpnSig!.future
-          .timeout(ovpnConnectTimeout, onTimeout: () => false);
-      if (!ok) {
-        lastFail = 'OpenVPN وصل نشد';
-        await _stopV2();
-        return false;
-      }
-      await Future.delayed(const Duration(milliseconds: 1500));
-      var t = await tunUp();
-      if (t == false) {
-        await Future.delayed(const Duration(seconds: 2));
-        t = await tunUp();
-      }
-      tunWarn = t == false;
-      if (tunWarn) {
-        lastFail = 'اندروید تونل VPN نساخت';
-        lastStartNoTunnel = true;
-        await _stopV2();
-        return false;
-      }
-      return true;
-    } catch (e) {
-      if (_isNoActivity(e)) {
-        lastFail = 'Activity در دسترس نیست برای مجوز VPN';
-        dbg('OpenVPN: Activity نبود');
-      } else {
-        logError(e);
-        lastFail = 'خطا: $e';
-      }
       await _stopV2();
-      if (!inForeground && wantVpn) pendingFailover = true;
-      return false;
-    }
+    } catch (_) {}
+    return false;
   }
 
   // proxyOnly = silent test core (used by the tests).
@@ -9852,7 +9817,11 @@ class OpenVPN {
       String? password,
       List<String>? bypassPackages,
       bool certIsRequired = false}) async {
-    throw Exception('OpenVPN removed');
+    // OpenVPN engine was intentionally removed. Fail cleanly so the UI
+    // shows a clear message instead of a red PlatformException / stack.
+    try {
+      onVpnStageChanged?.call('error', 'OpenVPN removed');
+    } catch (_) {}
   }
   Future<void> disconnect() async {}
 }
