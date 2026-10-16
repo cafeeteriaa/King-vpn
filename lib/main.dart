@@ -5509,7 +5509,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!proxyOnly) {
         // a silent proxy-only core from the tests must be fully gone before
         // the real VPN service starts, or the tunnel can fail to come up
-        if (lastState == 'CONNECTED' || lastState == 'CONNECTING' || ovpnActive) {
+        if (lastState == 'CONNECTED' || lastState == 'CONNECTING' || ovpnActive || wgActive) {
           await _stopCore();
         } else {
           await Future.delayed(const Duration(milliseconds: 200));
