@@ -106,7 +106,8 @@ Future<int?> _probeDoh(String url) async {
     if (res.statusCode >= 200 && res.statusCode < 400) {
       return sw.elapsedMilliseconds;
     }
-  } catch (_) {
+  } catch (e) {
+    logError(e);
   } finally {
     cl.close(force: true);
   }
@@ -123,7 +124,8 @@ Future<int?> _probeDnsIp(String ip) async {
     final ms = sw.elapsedMilliseconds;
     s.destroy();
     return ms;
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return null;
   }
 }
@@ -255,7 +257,8 @@ String? _b64Text(String raw) {
     final c = raw.replaceAll(RegExp(r'\s'), '').replaceAll('-', '+').replaceAll('_', '/');
     if (c.length < 16) return null;
     return utf8.decode(base64.decode(base64.normalize(c)), allowMalformed: true);
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return null;
   }
 }
@@ -460,7 +463,8 @@ String? _npvOutboundLink(dynamic o, String remark) {
         .encode(utf8.encode('${sv['method']}:${sv['password']}'))
         .replaceAll('=', '');
     return 'ss://$ui@$addr:$port#${Uri.encodeComponent(name)}';
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return null;
   }
 }
@@ -588,7 +592,8 @@ Future<int?> _cfProbeMs(String ip, Duration t) async {
     final txt = await _cfRead(k, t);
     sw.stop();
     if (txt.contains('cloudflare')) return sw.elapsedMilliseconds;
-  } catch (_) {
+  } catch (e) {
+    logError(e);
   } finally {
     k?.destroy();
     raw?.destroy();
@@ -604,7 +609,8 @@ Future<int?> _cfProbeMs(String ip, Duration t) async {
     final txt = await _cfRead(h, t);
     sw2.stop();
     if (txt.contains('cloudflare')) return sw2.elapsedMilliseconds + 40;
-  } catch (_) {
+  } catch (e) {
+    logError(e);
   } finally {
     h?.destroy();
   }
