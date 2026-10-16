@@ -2375,19 +2375,28 @@ Future<bool?> tunUp() async {
     if (l.isEmpty) return null;
     return l.any((i) {
       final n = i.name.toLowerCase();
-      // tun0, ppp0, wg0, vpn0, rmnet_data (some OEMs), and names containing these
+      // Broad OEM coverage: tun/ppp/wg/vpn + Xiaomi/Huawei/Samsung/OPPO/Vivo quirks
       return n.startsWith('tun') ||
           n.startsWith('ppp') ||
           n.startsWith('wg') ||
           n.startsWith('vpn') ||
           n.startsWith('ipsec') ||
           n.startsWith('tap') ||
+          n.startsWith('utun') ||
+          n.startsWith('ccmni') ||
+          n.startsWith('rmnet') ||
+          n.startsWith('seth') ||
+          n.startsWith('v4-rmnet') ||
           n.contains('tun') ||
           n.contains('ppp') ||
           n.contains('vpn') ||
-          n.contains('ipsec');
+          n.contains('ipsec') ||
+          n.contains('wireguard') ||
+          n.contains('xray') ||
+          n.contains('v2ray');
     });
-  } catch (_swE) { _swl('tunUp#1', _swE);
+  } catch (_swE) {
+    _swl('tunUp#1', _swE);
     return null;
   }
 }
@@ -5437,12 +5446,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       bool? t;
       var ready = false;
       // National / slow networks: give the core and the OEM VPN service more time
-      // BEST: کمی صبر بیشتر تا CONNECTING روی گوشی‌های ضعیف به CONNECTED برسد
+      // CRITICAL FIX: normal mode also needs a bit more patience on weak devices
       final connWait = (nationalMode || indestructibleMode)
-          ? const Duration(seconds: 28)
-          : const Duration(seconds: 18);
-      final tunWait1 = (nationalMode || indestructibleMode) ? 1400 : 900;
-      final tunWait2 = (nationalMode || indestructibleMode) ? 1800 : 1100;
+          ? const Duration(seconds: 30)
+          : const Duration(seconds: 22);
+      final tunWait1 = (nationalMode || indestructibleMode) ? 1600 : 1100;
+      final tunWait2 = (nationalMode || indestructibleMode) ? 2000 : 1400;
       for (var attempt = 0; attempt < 2; attempt++) {
         connSig = Completer<bool>();
         // blockedApps = apps that skip the VPN (null when none are chosen,
@@ -5464,9 +5473,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             await Future.delayed(Duration(milliseconds: tunWait2));
             t = await tunUp();
           }
-          // one more chance on national: some OEMs expose tun late
-          if (t == false && (nationalMode || indestructibleMode)) {
-            await Future.delayed(const Duration(milliseconds: 1200));
+          // one more chance on national / weak OEMs: some expose tun late
+          if (t == false) {
+            await Future.delayed(const Duration(milliseconds: 1400));
             t = await tunUp();
           }
         }
@@ -5485,6 +5494,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         await _stopCore();
         return false;
       }
+
+      // CRITICAL FIX: "CONNECTED + tun" is not enough.
+      // Many free configs report CONNECTED while no real traffic passes.
+      // Do a short real traffic probe before accepting the server.
+      final earlyPing = await pingAny(
+          total: const Duration(seconds: 5),
+          direct: true,
+          tries: 3);
+      if (earlyPing == null) {
+        lastFail = 'وصل شد ولی اینترنت رد نشد (ترافیک تونل صفر)';
+        lastStartNoTunnel = true;
+        dbg('شروع ناموفق: CONNECTED+tun ولی ترافیک رد نشد • ${s.name}');
+        await _stopCore();
+        return false;
+      }
+
       lastStartNoTunnel = false;
       return true;
     } catch (e) {
@@ -8269,18 +8294,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 lowSpeed = 0;
               }
             }
-            // فقط وقتی چند بار پشت‌سرهم هیچ داده‌ای نیامد
-            if (noData >= 5) {
+            // CRITICAL FIX: detect dead traffic faster (was 5 → ~2.5 min, now 3)
+            if (noData >= 3) {
               noData = 0;
               lastWhy = 'دانلود از سرور صفر است';
               await _failover();
               return;
             }
-            // قطع جریان: حداقل ۴ بار زیر ۴۰ KB/s + فاصله زمانی بیشتر
-            if (stallRun >= 4 &&
+            // قطع جریان: حداقل ۳ بار زیر ۴۰ KB/s + فاصله زمانی کمتر
+            if (stallRun >= 3 &&
                 _ready() > 0 &&
                 DateTime.now().difference(lastSwitch) >
-                    const Duration(seconds: 45)) {
+                    const Duration(seconds: 35)) {
               stallRun = 0;
               lowSpeed = 0;
               lastWhy = 'قطع جریان داده';
@@ -8301,13 +8326,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             } else if (siteSeen) {
               siteFail++;
             } else {
-              // SITENEVER: خیلی دیرتر و با محدودیت بیشتر تعویض می‌کند
+              // SITENEVER: زودتر تشخیص بده که سرور فقط پینگ می‌دهد
               siteNever++;
-              if (siteNever >= 6 &&
-                  siteNeverSwitches < 2 &&
+              if (siteNever >= 4 &&
+                  siteNeverSwitches < 3 &&
                   _ready() > 0 &&
                   DateTime.now().difference(lastSwitch) >
-                      const Duration(seconds: 45)) {
+                      const Duration(seconds: 30)) {
                 siteNever = 0;
                 siteNeverSwitches++;
                 current?.svc = 0;
