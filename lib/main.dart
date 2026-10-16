@@ -5588,6 +5588,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         return false;
       }
 
+      // user may have tapped disconnect while earlyPing was running
+      if (!wantVpn || abort) {
+        lastFail = 'لغو توسط کاربر';
+        await _stopCore();
+        return false;
+      }
+
       lastStartNoTunnel = false;
       return true;
     } catch (e) {
