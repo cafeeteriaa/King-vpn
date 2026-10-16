@@ -1563,114 +1563,82 @@ extension HomeExtras on _HomePageState {
     String act = 'none';
     final why = StringBuffer();
 
-    // ---------- ۱) قطع بودن ----------
-    if (!s.connected) {
-      if (s.national) {
-        act = 'search_national';
-        set['natLevel'] = max(s.natLvl, 3);
-        set['fastWorkers'] = 60;
-        set['timeout'] = 8;
-        why.writeln('نت ملی تشخیص داده شد → جستجوی تهاجمی ملی + natLevel بالا');
-      } else if (s.goodCount < 3 && s.pendingCount < 10) {
-        act = 'refresh_lists';
-        why.writeln('لیست سرور کم است → دریافت لیست جدید');
-      } else if (_localFailStreak >= 3) {
-        act = 'escalate';
-        set['natLevel'] = min(4, s.natLvl + 1);
-        why.writeln('شکست‌های پیاپی → افزایش natLevel و گسترش جستجو');
-      } else {
-        act = 'connect';
-        set['fastWorkers'] = 50;
-        why.writeln('قطع است → شروع اتصال با تنظیمات بهینه');
-      }
-      _localFailStreak++;
-      _localSlowStreak = 0;
-      _localGoodStreak = 0;
-      return _LocalDecision(act, set, why.toString().trim());
-    }
+    // ========== اولویت ۱: اگر وصل است، تا جایی که ممکن است قطع نکن ==========
+    // گزارش خطا نشان داد switch_best / refresh_lists / enable_turbo
+    // اتصال‌های سالم را می‌کشتند و کیفیت را بدتر می‌کردند.
+    if (s.connected) {
+      _localFailStreak = 0;
 
-    // ---------- ۲) متصل ولی کیفیت بد ----------
-    final slow = (s.pingMs != null && s.pingMs! > 800) ||
-        (s.speedKBs != null && s.speedKBs! < 40);
-    final verySlow = (s.pingMs != null && s.pingMs! > 1500) ||
-        (s.speedKBs != null && s.speedKBs! < 15);
+      // سرعت بر حسب MB/s ذخیره می‌شود (measure). آستانه خیلی پایین نگذار.
+      final slow = (s.pingMs != null && s.pingMs! > 2500) ||
+          (s.speedKBs != null && s.speedKBs! > 0 && s.speedKBs! < 0.15);
+      final dead = (s.speedKBs != null && s.speedKBs! == 0) &&
+          (s.pingMs == null || s.pingMs! > 4000);
 
-    if (verySlow) {
-      _localSlowStreak++;
-      _localGoodStreak = 0;
-      if (_localSlowStreak >= 2) {
-        act = 'switch_best';
-        why.writeln('سرعت/پینگ خیلی ضعیف → تعویض به بهترین سرور موجود');
-      } else {
-        act = 'enable_turbo';
-        set['muxConc'] = 16;
-        why.writeln('کیفیت ضعیف → فعال‌سازی توربو و Mux');
-      }
-      return _LocalDecision(act, set, why.toString().trim());
-    }
-
-    if (slow) {
-      _localSlowStreak++;
-      _localGoodStreak = 0;
-      final proto = s.configProto.toLowerCase();
-      final net = s.configNet.toLowerCase();
-      // تحلیل نوع کانفیگ
-      if (proto.contains('vless') || proto.contains('vmess')) {
-        if (net == 'ws' || net == 'grpc' || net == 'httpupgrade') {
-          if (!s.mux) {
-            act = 'enable_turbo';
-            why.writeln('کانفیگ $proto/$net + کندی → Mux+Turbo (بهترین برای این شبکه)');
-          } else if (_localSlowStreak >= 2) {
-            act = 'switch_best';
-            why.writeln('Mux فعال ولی همچنان کند → تعویض سرور');
-          } else {
-            act = 'enable_turbo';
-            why.writeln('تلاش مجدد با تنظیمات توربو قوی‌تر');
-          }
-        } else if (s.configSec.toLowerCase().contains('reality')) {
+      if (dead) {
+        _localSlowStreak++;
+        if (_localSlowStreak >= 3 && s.goodCount > 0) {
           act = 'switch_best';
-          why.writeln('Reality کند است روی این اپراتور → تعویض سرور');
+          why.writeln('تونل مرده (۳ بار پشت‌سرهم) → تعویض سرور');
         } else {
-          act = 'switch_best';
-          why.writeln('پروتکل $proto کند → تعویض');
+          why.writeln('تونل مشکوک — هنوز نگه می‌داریم (صبور)');
         }
-      } else if (proto.contains('trojan') || proto.contains('ss') || proto.contains('shadowsocks')) {
-        act = 'switch_best';
-        why.writeln('پروتکل $proto روی این شبکه کند عمل می‌کند → تعویض');
-      } else if (s.national && s.natLvl < 3) {
-        act = 'escalate';
-        set['natLevel'] = 3;
-        why.writeln('نت ملی + کندی → بالا بردن natLevel و حالت‌های NAT');
-      } else {
-        act = 'switch_best';
-        why.writeln('کندی عمومی → تعویض سرور');
+        return _LocalDecision(act, set, why.toString().trim());
       }
-      return _LocalDecision(act, set, why.toString().trim());
+
+      if (slow) {
+        _localSlowStreak++;
+        // فقط بعد از چند بار کندی و فقط اگر سرور جایگزین داریم
+        if (_localSlowStreak >= 4 && s.goodCount >= 2) {
+          act = 'switch_best';
+          why.writeln('کندی مداوم → تعویض محتاطانه');
+        } else {
+          // توربو بدون ریستارت تهاجمی: فقط فلگ‌ها
+          if (!s.mux) {
+            set['mux'] = 1;
+            set['muxConc'] = 16;
+            why.writeln('کندی خفیف → Mux روشن (بدون قطع تونل)');
+          } else {
+            why.writeln('وصل است و کار می‌کند — نگه می‌داریم');
+          }
+        }
+        return _LocalDecision(act, set, why.toString().trim());
+      }
+
+      // کیفیت قابل قبول: هیچ اقدامی نکن
+      _localSlowStreak = 0;
+      _localGoodStreak++;
+      why.writeln('✅ اتصال پایدار — تلگرام/اینترنت باید کار کند. تعویض نمی‌کنیم.');
+      // هرگز refresh_lists وقتی وصلیم
+      // هرگز enable_turbo که تونل را ریستارت کند
+      return _LocalDecision('none', set, why.toString().trim());
     }
 
-    // ---------- ۳) کیفیت خوب ----------
-    _localFailStreak = 0;
+    // ========== ۲) قطع است → وصل شو ==========
     _localSlowStreak = 0;
-    _localGoodStreak++;
-    why.writeln('اتصال پایدار و کیفیت قابل قبول');
-
-    // بهینه‌سازی جزئی بر اساس نوع کانفیگ و اپراتور
-    if (s.configNet == 'ws' || s.configNet == 'grpc') {
-      if (!s.mux && !s.national) {
-        set['mux'] = 1;
-        why.writeln('شبکه ${s.configNet} → پیشنهاد Mux');
-      }
+    if (s.national) {
+      act = 'search_national';
+      set['natLevel'] = max(s.natLvl, 2);
+      set['fastWorkers'] = 50;
+      set['timeout'] = 12;
+      why.writeln('قطع + نت ملی → جستجوی ملی');
+    } else if (s.goodCount > 0) {
+      act = 'connect';
+      set['fastWorkers'] = 50;
+      why.writeln('قطع است ولی سرور سالم داریم → اتصال');
+    } else if (s.pendingCount > 5) {
+      act = 'connect';
+      why.writeln('قطع است — صف سرور هست → اتصال/جستجو');
+    } else if (_localFailStreak >= 2) {
+      act = 'escalate';
+      set['natLevel'] = min(4, max(s.natLvl + 1, 2));
+      why.writeln('شکست پیاپی → escalate');
+    } else {
+      // فقط وقتی واقعاً لیست خالی است refresh کن — و لیست سیاه را پاک نکن
+      act = 'connect';
+      why.writeln('قطع است → اتصال');
     }
-    if (s.national && s.frag == false && s.natLvl >= 2) {
-      // روی نت ملی گاهی Fragment لازم است؛ اگر قبلاً یاد گرفته نشده روشن نکن
-    }
-    if (s.goodCount < 5 && s.pendingCount > 20) {
-      // لیست خوب کم است ولی صف زیاد → نیازی به refresh نیست
-    } else if (s.goodCount < 2) {
-      act = 'refresh_lists';
-      why.writeln('سرور سالم خیلی کم → تازه‌سازی لیست');
-    }
-
+    _localFailStreak++;
     return _LocalDecision(act, set, why.toString().trim());
   }
 
@@ -1703,17 +1671,27 @@ extension HomeExtras on _HomePageState {
         }
         break;
       case 'switch_best':
-        final l = _pickList();
-        if (l.isNotEmpty && !busy && !switching) {
-          await _swapTo(l.first);
+        if (!busy && !switching) {
+          final l = _pickList();
+          // ترجیح سروری که تلگرام را باز می‌کند (بیت 0 در svc)
+          Server? best;
+          for (final s in l) {
+            if (s.svc >= 0 && (s.svc & 1) != 0) {
+              best = s;
+              break;
+            }
+          }
+          best ??= l.isNotEmpty ? l.first : null;
+          if (best != null) await _swapTo(best);
         }
         break;
       case 'refresh_lists':
-        listTime = null;
-        pending = [];
-        failed.clear();
-        lastFetchTry = DateTime.fromMillisecondsSinceEpoch(0);
-        await _loadPending(bg: true, exhausted: true);
+        // مخرب نباشد: لیست سالم و سیاه را پاک نکن
+        if (!connected) {
+          listTime = null;
+          lastFetchTry = DateTime.fromMillisecondsSinceEpoch(0);
+          await _loadPending(bg: true, exhausted: true);
+        }
         break;
       case 'reset_blacklist':
         failed.clear();
@@ -1728,15 +1706,12 @@ extension HomeExtras on _HomePageState {
         if (!busy) await connect();
         break;
       case 'enable_turbo':
+        // فقط فلگ‌ها — ریستارت تونل نکن (اتصال فعلی را نکش)
         turboSpeed = true;
         muxEnabled = true;
-        muxConc = max(muxConc, 24);
+        muxConc = max(muxConc, 16);
         if (!nationalMode) fragEnabled = false;
-        _applyTurboLevers();
         _saveSettings();
-        if (connected && current != null && !busy) {
-          unawaited(_turboAfterConnect(current!));
-        }
         break;
       case 'escalate':
         await _natEscalate(max(natLevel, 3));
@@ -1818,15 +1793,13 @@ extension HomeExtras on _HomePageState {
     localPilotOn = true;
     wantVpn = true;
     abort = false;
-    // تنظیمات تهاجمی اولیه برای بهترین نتیجه
+    // پایدار: توربو روشن، ولی ultra/indestructible را اجباری نکن (جستجوی بی‌نهایت قطع می‌کند)
     turboSpeed = true;
-    ultraMode = true;
-    indestructibleMode = true;
     _applyTurboLevers();
     localPilotText.value =
         '🚀 خلبان محلی فعال شد.\nدر حال تحلیل اینترنت و اپراتور...\nهیچ کلید API لازم نیست.';
     localPilotLoop?.cancel();
-    localPilotLoop = Timer.periodic(const Duration(seconds: 45), (_) {
+    localPilotLoop = Timer.periodic(const Duration(seconds: 90), (_) {
       localPilotTick();
     });
     // اولین تیک سریع
