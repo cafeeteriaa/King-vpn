@@ -1687,6 +1687,20 @@ const countryFa = {
   'BY': 'بلاروس', 'SK': 'اسلواکی', 'SI': 'اسلوونی', 'HR': 'کرواسی',
   'BA': 'بوسنی', 'MK': 'مقدونیه', 'AL': 'آلبانی', 'CY': 'قبرس',
   'MT': 'مالت', 'EG': 'مصر', 'NG': 'نیجریه', 'KE': 'کنیا',
+  // به‌روز — کشورهای پرکاربرد در لیست‌های رایگان
+  'UK': 'انگلیس', // بعضی کانفیگ‌ها UK می‌نویسند نه GB
+  'EU': 'اروپا',
+  'MO': 'ماکائو', 'KH': 'کامبوج', 'BD': 'بنگلادش', 'NP': 'نپال',
+  'LK': 'سری‌لانکا', 'MM': 'میانمار', 'LA': 'لائوس', 'BN': 'برونئی',
+  'PE': 'پرو', 'VE': 'ونزوئلا', 'UY': 'اروگوئه', 'EC': 'اکوادور',
+  'PA': 'پاناما', 'CR': 'کاستاریکا', 'DO': 'دومینیکن', 'PR': 'پورتوریکو',
+  'JM': 'جامائیکا', 'TT': 'ترینیداد',
+  'MA': 'مراکش', 'TN': 'تونس', 'DZ': 'الجزایر', 'LY': 'لیبی',
+  'GH': 'غنا', 'TZ': 'تانزانیا', 'UG': 'اوگاندا', 'ET': 'اتیوپی',
+  'QA': 'قطر', 'KW': 'کویت', 'BH': 'بحرین', 'OM': 'عمان', 'JO': 'اردن',
+  'LB': 'لبنان', 'SY': 'سوریه', 'AF': 'افغانستان', 'UZ': 'ازبکستان',
+  'TM': 'ترکمنستان', 'KG': 'قرقیزستان', 'TJ': 'تاجیکستان',
+  'MN': 'مغولستان',
 };
 
 // Longer / more specific phrases preferred by length when matching
@@ -1696,7 +1710,7 @@ const countryWords = {
   'south africa': 'ZA', 'czech republic': 'CZ', 'united arab': 'AE',
   'germany': 'DE', 'deutschland': 'DE', 'netherlands': 'NL', 'holland': 'NL',
   'france': 'FR', 'finland': 'FI', 'singapore': 'SG', 'japan': 'JP',
-  'turkey': 'TR', 'canada': 'CA', 'sweden': 'SE', 'russia': 'RU',
+  'turkey': 'TR', 'turkiye': 'TR', 'canada': 'CA', 'sweden': 'SE', 'russia': 'RU',
   'poland': 'PL', 'italy': 'IT', 'spain': 'ES', 'switzerland': 'CH',
   'austria': 'AT', 'australia': 'AU', 'brazil': 'BR', 'romania': 'RO',
   'bulgaria': 'BG', 'norway': 'NO', 'denmark': 'DK', 'ireland': 'IE',
@@ -1710,7 +1724,21 @@ const countryWords = {
   'pakistan': 'PK', 'azerbaijan': 'AZ', 'iraq': 'IQ', 'belarus': 'BY',
   'slovakia': 'SK', 'slovenia': 'SI', 'croatia': 'HR', 'cyprus': 'CY',
   'egypt': 'EG', 'america': 'US', 'england': 'GB', 'britain': 'GB',
-  'korea': 'KR',
+  'great britain': 'GB', 'korea': 'KR', 'macau': 'MO', 'macao': 'MO',
+  'bangladesh': 'BD', 'cambodia': 'KH', 'nepal': 'NP', 'sri lanka': 'LK',
+  'myanmar': 'MM', 'burma': 'MM', 'panama': 'PA', 'peru': 'PE',
+  'venezuela': 'VE', 'colombia': 'CO', 'chile': 'CL', 'uruguay': 'UY',
+  'ecuador': 'EC', 'morocco': 'MA', 'tunisia': 'TN', 'algeria': 'DZ',
+  'qatar': 'QA', 'kuwait': 'KW', 'bahrain': 'BH', 'oman': 'OM',
+  'jordan': 'JO', 'lebanon': 'LB', 'syria': 'SY', 'afghanistan': 'AF',
+  'uzbekistan': 'UZ', 'mongolia': 'MN', 'nigeria': 'NG', 'kenya': 'KE',
+  'ghana': 'GH', 'ethiopia': 'ET', 'bosnia': 'BA', 'albania': 'AL',
+  'macedonia': 'MK', 'north macedonia': 'MK', 'malta': 'MT',
+  // فارسی رایج در نام کانفیگ‌ها
+  'آمریکا': 'US', 'آلمان': 'DE', 'هلند': 'NL', 'انگلیس': 'GB', 'انگلستان': 'GB',
+  'فرانسه': 'FR', 'کانادا': 'CA', 'ژاپن': 'JP', 'ترکیه': 'TR', 'سنگاپور': 'SG',
+  'روسیه': 'RU', 'اوکراین': 'UA', 'هند': 'IN', 'امارات': 'AE', 'ایران': 'IR',
+  'چین': 'CN', 'کره': 'KR', 'استرالیا': 'AU', 'برزیل': 'BR', 'فنلاند': 'FI',
 };
 
 String flagOf(String c) {
@@ -1732,15 +1760,27 @@ String? detectCountry(String name) {
         r[i + 1] <= 0x1F1FF) {
       final cc = String.fromCharCodes(
           [r[i] - 0x1F1E6 + 65, r[i + 1] - 0x1F1E6 + 65]);
-      if (countryFa.containsKey(cc)) return cc;
+      // UK در ISO رسمی GB است
+      if (cc == 'UK') return 'GB';
+      if (countryFa.containsKey(cc)) return cc == 'UK' ? 'GB' : cc;
     }
   }
-  // 2) ISO codes like "DE |" / "US-" / " NL "
-  for (final m in _ccRe.allMatches(name.toUpperCase())) {
-    final cc = m.group(1);
-    if (cc != null && countryFa.containsKey(cc)) return cc;
+  // 2) ISO codes like "DE |" / "US-" / " NL " / "[US]"
+  final up = name.toUpperCase();
+  for (final m in _ccRe.allMatches(up)) {
+    var cc = m.group(1);
+    if (cc == null) continue;
+    if (cc == 'UK') cc = 'GB';
+    if (countryFa.containsKey(cc)) return cc;
   }
-  // 3) English names — longest match wins (avoids "korea" beating "south korea")
+  // کد داخل براکت رایج در کانفیگ‌ها: [DE] (US) {NL}
+  final br = RegExp(r'[\[\(\{]([A-Z]{2})[\]\)\}]').firstMatch(up);
+  if (br != null) {
+    var cc = br.group(1)!;
+    if (cc == 'UK') cc = 'GB';
+    if (countryFa.containsKey(cc)) return cc;
+  }
+  // 3) English / فارسی — longest match wins
   final l = name.toLowerCase();
   String? best;
   var bestLen = 0;
@@ -1750,7 +1790,7 @@ String? detectCountry(String name) {
       bestLen = e.key.length;
     }
   }
-  return best;
+  return best == 'UK' ? 'GB' : best;
 }
 
 // a broken %XX / UTF-8 sequence in a name must never throw
@@ -5378,11 +5418,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       bool? t;
       var ready = false;
       // National / slow networks: give the core and the OEM VPN service more time
+      // BEST: کمی صبر بیشتر تا CONNECTING روی گوشی‌های ضعیف به CONNECTED برسد
       final connWait = (nationalMode || indestructibleMode)
-          ? const Duration(seconds: 22)
-          : const Duration(seconds: 15);
-      final tunWait1 = (nationalMode || indestructibleMode) ? 1200 : 700;
-      final tunWait2 = (nationalMode || indestructibleMode) ? 1500 : 900;
+          ? const Duration(seconds: 28)
+          : const Duration(seconds: 18);
+      final tunWait1 = (nationalMode || indestructibleMode) ? 1400 : 900;
+      final tunWait2 = (nationalMode || indestructibleMode) ? 1800 : 1100;
       for (var attempt = 0; attempt < 2; attempt++) {
         connSig = Completer<bool>();
         // blockedApps = apps that skip the VPN (null when none are chosen,
