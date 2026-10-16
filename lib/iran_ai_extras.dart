@@ -1328,8 +1328,8 @@ extension HomeExtras on _HomePageState {
                     localPilotOn ? Icons.flight_land : Icons.rocket_launch,
                     size: 18),
                 label: Text(localPilotOn
-                    ? '⏹ توقف خلبان (قدرت $_localPower/3)'
-                    : '👑 خلبان فوق‌پیشرفته — تمام‌اتوماتیک · بدون تنظیم دستی'),
+                    ? '⏹ توقف خلبان (قدرت $_localPower)'
+                    : '👑 خلبان'),
                 style: FilledButton.styleFrom(
                   backgroundColor: localPilotOn
                       ? const Color(0xFFB71C1C)
@@ -1720,9 +1720,10 @@ extension HomeExtras on _HomePageState {
     final why = StringBuffer();
     String act = 'none';
     var conf = 80;
+    // hold تطبیقی با قدرت: قدرت بالاتر → واکنش کمی زودتر (حداقل ۱۲۰ث)
+    final minHoldSec = (180 - (_localPower * 3).clamp(0, 60)).clamp(120, 180);
 
     // -------- CONNECTED --------
-    // گزارش واقعی: switch_best هر ~۵۰ث با سرعت ۱MB/s و کیفیت ۵۰+ → اشتباه بود
     if (s.connected) {
       _localFailStreak = 0;
       if (_localConnectedSince == null) {
@@ -1731,41 +1732,60 @@ extension HomeExtras on _HomePageState {
       final uptime = DateTime.now().difference(_localConnectedSince!).inSeconds;
       final spd = s.speedMBs;
       final hasSpeed = spd != null && spd >= 0.25;
+      final softSpeed = spd != null && spd >= 0.12;
       final hasPing = s.pingMs != null && s.pingMs! > 0 && s.pingMs! < 3000;
-
-      // حداقل ۳ دقیقه بعد از وصل هیچ تعویضی نکن (مگر تونل کاملاً مرده)
-      const minHoldSec = 180;
       final deadTunnel = !hasSpeed && !hasPing && s.score < 25;
+      final weakTunnel = !hasSpeed && softSpeed && s.score < 40;
 
       if (uptime < minHoldSec && !deadTunnel) {
         _localPhase = 'stable';
         _localSlowStreak = 0;
         _localGoodStreak++;
-        why.writeln('✅ وصل پایدار — uptime ${uptime}s/${minHoldSec}s — تعویض ممنوع');
+        why.writeln(
+            '✅ وصل پایدار — uptime ${uptime}s/${minHoldSec}s — تعویض ممنوع');
         if (hasSpeed) {
-          why.writeln('سرعت ${spd!.toStringAsFixed(2)} MB/s • امتیاز ${s.score}');
+          why.writeln(
+              'سرعت ${spd!.toStringAsFixed(2)} MB/s • امتیاز ${s.score}');
         }
-        return _LocalDecision('none', set, why.toString().trim(), confidence: 99);
+        return _LocalDecision('none', set, why.toString().trim(),
+            confidence: 99);
       }
 
-      // سرعت قابل قبول → نگه دار (حتی اگر پروب سایت false باشد)
       if (hasSpeed || (hasPing && s.score >= 40)) {
         _localPhase = 'stable';
         _localSlowStreak = 0;
         _localGoodStreak++;
-        why.writeln('✅ نگه می‌داریم — سرعت/پینگ OK • امتیاز ${s.score} • uptime ${uptime}s');
-        return _LocalDecision('none', set, why.toString().trim(), confidence: 98);
+        why.writeln(
+            '✅ نگه می‌داریم — سرعت/پینگ OK • امتیاز ${s.score} • uptime ${uptime}s');
+        return _LocalDecision('none', set, why.toString().trim(),
+            confidence: 98);
       }
 
-      // فقط تونل واقعاً مرده
+      // لایه پیش‌بینی: ضعیف ولی نه مرده → soft_recover قبل از تعویض کامل
       _localPhase = 'degraded';
       _localSlowStreak++;
-      if (deadTunnel && _localSlowStreak >= 4 && s.goodCount > 0 && uptime >= minHoldSec) {
+      if (weakTunnel &&
+          _localSlowStreak >= 2 &&
+          _localSlowStreak < 4 &&
+          uptime >= minHoldSec) {
+        act = 'soft_recover';
+        conf = 85;
+        why.writeln(
+            'پیش‌بینی ضعف ×$_localSlowStreak → بازیابی نرم (ladder/turbo)');
+        return _LocalDecision(act, set, why.toString().trim(),
+            confidence: conf);
+      }
+      if (deadTunnel &&
+          _localSlowStreak >= 4 &&
+          s.goodCount > 0 &&
+          uptime >= minHoldSec) {
         act = 'switch_best';
-        conf = 90;
-        why.writeln('تونل مرده ×$_localSlowStreak بعد از ${uptime}s → تعویض');
+        conf = 92;
+        why.writeln(
+            'تونل مرده ×$_localSlowStreak بعد از ${uptime}s → تعویض هوشمند');
       } else {
-        why.writeln('ضعیف ولی هنوز صبر — streak $_localSlowStreak/4 • uptime ${uptime}s');
+        why.writeln(
+            'ضعیف — صبر $_localSlowStreak/4 • uptime ${uptime}s • قدرت $_localPower');
       }
       return _LocalDecision(act, set, why.toString().trim(), confidence: conf);
     }
@@ -1776,40 +1796,63 @@ extension HomeExtras on _HomePageState {
     _localSlowStreak = 0;
     _localPhase = _localFailStreak >= 2 ? 'recover' : 'search';
 
-    if (s.national) {
-      act = 'search_national';
-      set['natLevel'] = max(s.natLvl, 2);
-      set['fastWorkers'] = 50;
-      set['timeout'] = 12;
-      conf = 90;
-      why.writeln('قطع + نت ملی → جستجوی ملی (سطح ${set['natLevel']})');
-    } else if (s.goodCount > 0) {
-      act = 'connect';
-      set['fastWorkers'] = 50;
-      conf = 92;
-      why.writeln('قطع — ${s.goodCount} سرور سالم آماده → اتصال فوری');
-    } else if (s.pendingCount > 8) {
-      act = 'connect';
-      conf = 85;
-      why.writeln('قطع — صف ${s.pendingCount} سرور → جستجو/اتصال');
-    } else if (_localFailStreak >= 2) {
-      act = 'escalate';
-      set['natLevel'] = min(4, max(s.natLvl + 1, 2));
-      conf = 80;
-      why.writeln('شکست پیاپی ×$_localFailStreak → escalate سطح ${set['natLevel']}');
-    } else {
-      act = 'connect';
-      conf = 70;
-      why.writeln('قطع است → شروع اتصال');
+    set['fastWorkers'] = fastWorkers;
+    set['timeout'] = delayTimeout.inSeconds;
+    set['natLevel'] = natLevel;
+
+    // بهترین اقدام یادگرفته‌شده برای این اپراتور
+    final opKey = s.operatorKey;
+    String? memoryBest;
+    var memoryBestW = 0;
+    if (opKey.isNotEmpty) {
+      for (final e in _localOpWins.entries) {
+        if (e.key.startsWith('$opKey|') && e.value > memoryBestW) {
+          memoryBestW = e.value;
+          memoryBest = e.key.split('|').last;
+        }
+      }
     }
 
-    // یادگیری اپراتور
-    final opKey = s.operatorKey;
+    if (s.national || _localPower >= 4) {
+      act = 'search_national';
+      set['natLevel'] = max(s.natLvl, max(2, natLevel));
+      conf = 92;
+      why.writeln(
+          'قطع + ${s.national ? "نت ملی" : "قدرت $_localPower"} → جستجوی ملی سطح ${set['natLevel']}');
+    } else if (memoryBest != null &&
+        memoryBestW >= 3 &&
+        (memoryBest == 'connect' ||
+            memoryBest == 'search_national' ||
+            memoryBest == 'escalate')) {
+      act = memoryBest;
+      conf = 94;
+      why.writeln(
+          'حافظه اپراتور «$opKey»: $act قبلاً $memoryBestW بار موفق');
+    } else if (s.goodCount > 0) {
+      act = 'connect';
+      conf = 93;
+      why.writeln('قطع — ${s.goodCount} سرور سالم → اتصال فوری');
+    } else if (s.pendingCount > 8) {
+      act = 'connect';
+      conf = 86;
+      why.writeln('قطع — صف ${s.pendingCount} → جستجو/اتصال');
+    } else if (_localFailStreak >= 2 || _localPower >= 6) {
+      act = 'escalate';
+      set['natLevel'] = min(4, max(s.natLvl + 1, 2));
+      conf = 88;
+      why.writeln(
+          'شکست ×$_localFailStreak / قدرت $_localPower → escalate ${set['natLevel']}');
+    } else {
+      act = 'connect';
+      conf = 75;
+      why.writeln('قطع است → شروع اتصال (قدرت $_localPower)');
+    }
+
     if (opKey.isNotEmpty && act != 'none') {
       final w = _localOpWins['$opKey|$act'] ?? 0;
       if (w >= 3) {
         conf = min(100, conf + 5);
-        why.writeln('حافظه اپراتور: «$act» قبلاً $w بار موفق بود');
+        why.writeln('تقویت اطمینان از حافظه: $w برد');
       }
     }
 
@@ -1848,20 +1891,58 @@ extension HomeExtras on _HomePageState {
           await connect();
         }
         break;
+      case 'soft_recover':
+        // بازیابی نرم: توربو + ladder همان سرور قبل از تعویض کامل
+        if (connected && current != null && !busy && !switching) {
+          turboSpeed = true;
+          muxEnabled = true;
+          muxConc = max(muxConc, 24);
+          _applyTurboLevers();
+          try {
+            final ok = await _natLadder(current!);
+            if (ok) {
+              _localSlowStreak = 0;
+              _localConnectedSince = DateTime.now();
+              final op = _localLastOp;
+              if (op.isNotEmpty) {
+                _localOpWins['$op|soft_recover'] =
+                    (_localOpWins['$op|soft_recover'] ?? 0) + 1;
+              }
+            }
+          } catch (_) {}
+          try {
+            unawaited(_measureCurrent(current!));
+          } catch (_) {}
+        }
+        break;
       case 'switch_best':
         if (!busy && !switching) {
           final l = _pickList()
-              .where((s) => !identical(s, current))
+              .where((s) => !identical(s, current) && !_bad(s))
               .toList();
-          // اولویت ۱: سروری که تلگرام را باز می‌کند (بیت 0)
+          // امتیاز ترکیبی: تلگرام + سرعت + پینگ کمتر + ترجیح پروتکل متفاوت
           Server? best;
+          double bestScore = -1e9;
+          final curProto = current != null
+              ? (describeConfig(current!.link).protocol)
+              : '';
           for (final s in l) {
-            if (s.svc >= 0 && (s.svc & 1) != 0) {
+            var sc = 0.0;
+            if (s.svc >= 0 && (s.svc & 1) != 0) sc += 100; // تلگرام
+            if (s.svc >= 0 && (s.svc & 2) != 0) sc += 30; // یوتیوب
+            sc += (s.speed ?? 0) * 40;
+            if (s.ping != null && s.ping! > 0) {
+              sc += max(0, 80 - s.ping! / 20);
+            }
+            try {
+              final p = describeConfig(s.link).protocol;
+              if (curProto.isNotEmpty && p != curProto) sc += 15; // تنوع پروتکل
+            } catch (_) {}
+            if (sc > bestScore) {
+              bestScore = sc;
               best = s;
-              break;
             }
           }
-          // اولویت ۲: بیشترین سرعت
           if (best == null && l.isNotEmpty) {
             l.sort((a, b) => (b.speed ?? 0).compareTo(a.speed ?? 0));
             best = l.first;
@@ -1873,7 +1954,8 @@ extension HomeExtras on _HomePageState {
               _localOpWins[k] = (_localOpWins[k] ?? 0) + 1;
             }
             await _swapTo(best);
-            _localConnectedSince = DateTime.now(); // reset hold after switch
+            _localConnectedSince = DateTime.now();
+            _localSlowStreak = 0;
           }
         }
         break;
@@ -1934,7 +2016,7 @@ extension HomeExtras on _HomePageState {
     _localTickN++;
     try {
       localPilotText.value =
-          '⏳ خلبان قدرت $_localPower/3: پروب + تحلیل اپراتور...';
+          '⏳ قدرت $_localPower ($_localPowerLabel): پروب + اینترنت + مکان...';
 
       try {
         await natDetectOperator();
@@ -1954,7 +2036,7 @@ extension HomeExtras on _HomePageState {
 
       final report = StringBuffer();
       report.writeln(
-          '👑 خلبان فوق‌پیشرفته  •  قدرت $_localPower/3  •  تیک #$_localTickN');
+          '👑 خلبان ∞  •  قدرت $_localPower ($_localPowerLabel)  •  قله $_localPeakPower  •  تیک #$_localTickN');
       report.writeln('────────────────────────');
       report.writeln(snap.toHuman());
       report.writeln('────────────────────────');
@@ -2000,124 +2082,158 @@ extension HomeExtras on _HomePageState {
   void _localReschedule() {
     if (!localPilotOn) return;
     localPilotLoop?.cancel();
-    // stable → 120s | degraded → 45s | search/recover → 25s
-    final sec = _localPhase == 'stable'
-        ? 180
-        : (_localPhase == 'degraded' ? 90 : 30);
+    // بازه تطبیقی با فاز + قدرت (قدرت بالاتر = چک کمی سریع‌تر در بحران)
+    int sec;
+    if (_localPhase == 'stable') {
+      sec = (180 - _localPower.clamp(0, 40)).clamp(90, 180);
+    } else if (_localPhase == 'degraded') {
+      sec = (90 - _localPower.clamp(0, 40)).clamp(35, 90);
+    } else {
+      sec = (30 - (_localPower / 2).floor().clamp(0, 15)).clamp(12, 30);
+    }
     localPilotLoop = Timer.periodic(Duration(seconds: sec), (_) {
       localPilotTick();
     });
   }
 
-  /// قدرت خلبان ۰..۳ — خودکار بر اساس وضعیت شبکه تنظیم می‌شود
-  /// ۰=عادی  ۱=قوی  ۲=نت ملی  ۳=اضطراری حداکثر
+  /// قدرت خلبان: ۰ تا ∞ — بدون سقف سخت؛ فقط با وضعیت شبکه/مکان بالا و پایین می‌شود
   int _localPower = 1;
+  int _localPeakPower = 1; // بالاترین قدرت دیده‌شده در این نشست
 
-  /// پروفایل کامل خودکار: عددها + سوییچ‌ها — کاربر هیچ دستی لازم ندارد
+  String get _localPowerLabel {
+    if (_localPower <= 0) return 'آرام';
+    if (_localPower <= 2) return 'عادی';
+    if (_localPower <= 5) return 'قوی';
+    if (_localPower <= 10) return 'نت ملی / سخت';
+    if (_localPower <= 20) return 'اضطراری';
+    return 'حداکثر بی‌نهایت';
+  }
+
+  /// اعمال پروفایل از روی قدرت (۰…∞) — همه عددها فرمولی، بدون سقف قدرت
   void _localApplyMaxPowerProfile({int? power}) {
-    final p = power ?? _localPower;
-    _localPower = p.clamp(0, 3);
+    final p = (power ?? _localPower).clamp(0, 1000000);
+    _localPower = p;
+    if (p > _localPeakPower) _localPeakPower = p;
 
-    // --- سوییچ‌های حیاتی (همه اتوماتیک) ---
-    autoTune = false; // خلبان خودش عدد می‌چیند
+    // --- سوییچ‌های حیاتی (همیشه اتوماتیک) ---
+    autoTune = false;
     unawaited(autoTuneSave());
-    proxyMode = false; // تونل واقعی VPN
+    proxyMode = false;
     turboSpeed = true;
     muxEnabled = true;
     autoSpeed = true;
     autoCycle = true;
     savedFirst = true;
     offlineOnly = false;
+    minSpeedKB = 0;
 
-    // --- عددهای پیشنهادی بر اساس قدرت ---
-    switch (_localPower) {
-      case 0: // آرام / اینترنت خوب
-        fastWorkers = 40;
-        bgWorkers = 2;
-        delayTimeout = const Duration(seconds: 10);
-        batchSize = 200;
-        badPingMs = 3000;
-        minSpeedKB = 0;
-        watchFailLimit = 4;
-        speedTopN = 2;
-        muxConc = max(muxConc, 16);
-        fragEnabled = false;
-        natLevel = max(natLevel, 1);
-        break;
-      case 1: // قوی پیش‌فرض (روزمره)
-        fastWorkers = 50;
-        bgWorkers = 3;
-        delayTimeout = const Duration(seconds: 12);
-        batchSize = 250;
-        badPingMs = 2800;
-        minSpeedKB = 0;
-        watchFailLimit = 4;
-        speedTopN = 3;
-        muxConc = max(muxConc, 24);
-        fragEnabled = false;
-        natLevel = max(natLevel, 1);
-        ultraMode = true;
-        break;
-      case 2: // نت ملی / اینترنت ضعیف
-        fastWorkers = 50;
-        bgWorkers = 4;
-        delayTimeout = const Duration(seconds: 16);
-        tcpTimeout = Duration(
-            milliseconds: max(tcpTimeout.inMilliseconds, 5500));
-        batchSize = 300;
-        badPingMs = 3500;
-        minSpeedKB = 0;
-        watchFailLimit = 5;
-        speedTopN = 3;
-        muxConc = max(muxConc, 24);
-        natLevel = max(natLevel, 2);
-        natWorkers = max(natWorkers, 8);
-        nationalMode = true;
-        autoCycle = true;
-        try {
-          natGrow(120);
-        } catch (_) {}
-        break;
-      case 3: // اضطراری حداکثر
-      default:
-        fastWorkers = 60;
-        bgWorkers = 5;
-        delayTimeout = const Duration(seconds: 18);
-        tcpTimeout = Duration(
-            milliseconds: max(tcpTimeout.inMilliseconds, 7000));
-        batchSize = 350;
-        badPingMs = 4000;
-        minSpeedKB = 0;
-        watchFailLimit = 5;
-        speedTopN = 4;
-        muxConc = max(muxConc, 32);
-        natLevel = max(natLevel, 3);
-        natWorkers = max(natWorkers, 10);
-        nationalMode = true;
-        indestructibleMode = true;
-        ultraMode = true;
-        autoCycle = true;
-        try {
-          natGrow(200);
-        } catch (_) {}
-        break;
+    // فرمول‌های پیوسته نسبت به قدرت (هرچه بالاتر = تهاجمی‌تر)
+    // workers: 35 → رشد آرام تا سقف عملی سخت‌افزار
+    fastWorkers = (35 + p * 4).clamp(20, 200).toInt();
+    bgWorkers = (2 + (p / 3).floor()).clamp(1, 20).toInt();
+    // timeout ثانیه: 9 + قدرت p
+    delayTimeout =
+        Duration(seconds: (9 + p * 0.7).clamp(8, 45).round());
+    tcpTimeout = Duration(
+        milliseconds: (3500 + p * 250).clamp(3000, 15000).round());
+    batchSize = (180 + p * 15).clamp(100, 800).toInt();
+    badPingMs = (2500 + p * 80).clamp(2000, 8000).toInt();
+    watchFailLimit = (3 + (p / 4).floor()).clamp(2, 12).toInt();
+    speedTopN = (2 + (p / 5).floor()).clamp(1, 10).toInt();
+    muxConc = (16 + p * 2).clamp(8, 64).toInt();
+    natWorkers = (4 + p).clamp(4, 24).toInt();
+    // سطح ماتریس ملی: 1..4
+    natLevel = (1 + (p / 3).floor()).clamp(1, 4).toInt();
+
+    // سوییچ‌های وابسته به قدرت / مکان / نوع جستجو
+    if (p >= 2) ultraMode = true;
+    if (p >= 4) {
+      nationalMode = true;
+      autoCycle = true;
+      try {
+        natGrow((80 + p * 20).clamp(80, 600).toInt());
+      } catch (_) {}
     }
+    if (p >= 8) {
+      indestructibleMode = true;
+      try {
+        natGrow((150 + p * 25).clamp(150, 800).toInt());
+      } catch (_) {}
+    }
+    // Fragment فقط وقتی شبکه سخت است (نت ملی / قدرت بالا)
+    fragEnabled = p >= 5 && (nationalMode || natForce);
+
     _applyTurboLevers();
     unawaited(_saveSettings());
   }
 
-  /// تشخیص خودکار قدرت مناسب از وضعیت فعلی شبکه
+  /// محاسبه قدرت از اینترنت + مکان/اپراتور + نوع جستجو (عادی / نت ملی)
+  /// بدون سقف: با هر شکست بیشتر بالا می‌رود؛ با پایداری آرام پایین می‌آید
   int _localAutoPickPower() {
-    if (nationalMode || natForce || indestructibleMode) return 2;
-    if (_localFailStreak >= 3 || _localSlowStreak >= 3) return 3;
-    if (_localFailStreak >= 1) return 2;
+    var p = 1; // پایه روزمره
+
+    // --- اینترنت / تشخیص شبکه ---
     final v = lastNetVerdict;
-    if (v != null && v.home == true && v.web == false) return 2;
-    return 1; // روزمره قوی
+    if (v != null) {
+      if (v.home == true && v.web == false) {
+        p += 5; // نت ملی کلاسیک
+      } else if (v.web == false) {
+        p += 3; // بین‌الملل بسته
+      } else if (v.tls == false || v.tcp == false) {
+        p += 2; // شبکه نیمه‌خراب
+      } else if (v.dnsPoison == true) {
+        p += 2;
+      }
+    }
+    if (nationalMode || natForce) p += 4;
+    if (indestructibleMode) p += 2;
+
+    // --- مکان / اپراتور ---
+    final op = (_localLastOp.isNotEmpty ? _localLastOp : natOpKey).toLowerCase();
+    if (op.contains('ایرانسل') || op.contains('irancell') || op.contains('mci') ||
+        op.contains('همراه') || op.contains('رایتل') || op.contains('rightel') ||
+        op.contains('ملی') || op.contains('national')) {
+      p += 2; // اپراتورهای ایران معمولاً فیلتر سنگین‌تر
+    }
+    if (op.isNotEmpty && op != 'نامشخص') {
+      // اگر این اپراتور قبلاً زیاد شکست خورده، قدرت بالاتر
+      final fails = _localOpFails.entries
+          .where((e) => e.key.startsWith(op))
+          .fold<int>(0, (a, e) => a + e.value);
+      p += (fails / 2).floor().clamp(0, 15);
+    }
+
+    // --- وضعیت اتصال / جستجو ---
+    if (!connected) {
+      p += 1;
+      if (good.isEmpty) p += 2;
+      if (pending.isEmpty && fetchedAll.isEmpty) p += 3; // لیست خالی = سخت‌تر
+    } else {
+      final spd = current?.speed;
+      if (spd != null && spd > 0 && spd < 0.15) p += 2; // وصل ولی خیلی کند
+      if (spd != null && spd >= 1.0 && _localFailStreak == 0) {
+        p = max(0, p - 1); // اینترنت خوب → کمی آرام‌تر
+      }
+    }
+
+    // --- شکست‌ها: هر شکست قدرت را بالا می‌برد (مسیر به ∞) ---
+    p += _localFailStreak * 2;
+    p += _localSlowStreak;
+    if (_localTgFail >= 3) p += 2;
+
+    // --- پایداری: آرام پایین بیا (نه یک‌دفعه) ---
+    if (_localGoodStreak >= 5 && _localFailStreak == 0 && connected) {
+      p = max(0, p - 2);
+    }
+    if (_localPhase == 'stable' && connected && _localFailStreak == 0) {
+      p = max(0, p - 1);
+    }
+
+    // هرگز منفی نشود؛ سقف نرم فقط برای جلوگیری از int دیوانه‌وار در UI
+    return p.clamp(0, 1000000);
   }
 
   void startLocalPilot() {
-    // ابری را خاموش کن تا تداخل نباشد
     if (aiSession) stopGrokPilot();
 
     localPilotOn = true;
@@ -2131,17 +2247,16 @@ extension HomeExtras on _HomePageState {
     _localTgOk = 0;
     _localTgFail = 0;
     _localConnectedSince = null;
+    _localPeakPower = 1;
 
-    // قدرت اولیه: قوی (۱) — بعد از تشخیص شبکه ممکن است ۲ یا ۳ شود
     _localPower = 1;
     _localApplyMaxPowerProfile(power: 1);
 
     localPilotText.value =
-        '👑 خلبان فوق‌پیشرفته فعال شد\n'
-        '• قدرت: $_localPower/3 (خودکار)\n'
-        '• عددها و سوییچ‌ها اتوماتیک تنظیم شدند\n'
-        '• بدون API • بدون تنظیم دستی\n'
-        '• فقط دکمه قطع = توقف';
+        '👑 خلبان فعال شد\n'
+        '• قدرت خودکار از ۰ تا ∞\n'
+        '• اینترنت، مکان، جستجوی عادی و نت ملی را خودش تشخیص می‌دهد\n'
+        '• نیازی به تنظیم دستی نیست';
     _localReschedule();
     Future.delayed(const Duration(seconds: 2), () => localPilotTick(force: true));
     unawaited(() async {
@@ -2150,17 +2265,15 @@ extension HomeExtras on _HomePageState {
         try {
           await _natDetect();
         } catch (_) {}
-        // قدرت را با واقعیت شبکه هماهنگ کن
         final want = _localAutoPickPower();
-        if (want != _localPower) {
-          _localApplyMaxPowerProfile(power: want);
-        }
+        _localApplyMaxPowerProfile(power: want);
         localPilotText.value =
-            '👑 خلبان قدرت $_localPower/3\n'
-            '${nationalMode ? "• حالت نت ملی فعال\n" : ""}'
-            '• شروع اتصال خودکار...';
+            '👑 قدرت $_localPower ($_localPowerLabel)\n'
+            'قله نشست: $_localPeakPower\n'
+            '${nationalMode ? "• نت ملی فعال\n" : "• جستجوی عادی\n"}'
+            '• اتصال خودکار...';
         if (!connected && !busy) {
-          if (nationalMode) {
+          if (nationalMode || _localPower >= 4) {
             natForce = true;
             _resInject();
           }
@@ -2180,14 +2293,13 @@ extension HomeExtras on _HomePageState {
     localPilotLoop?.cancel();
     localPilotLoop = null;
     _localPhase = 'boot';
-    // حالت اضطراری که فقط خلبان روشن کرده بود را آرام کن
-    // (nationalMode را دست نمی‌زنیم — ممکن است شبکه هنوز ملی باشد)
-    if (_localPower >= 3) {
+    if (_localPower >= 8) {
       indestructibleMode = false;
     }
+    final peak = _localPeakPower;
     _localPower = 1;
     localPilotText.value =
-        'خلبان محلی متوقف شد.\nبرای ادامه، دوباره «خلبان King Pro» را بزن.';
+        'خلبان متوقف شد.\nقله قدرت این نشست: $peak\nدوباره بزن تا از نو شروع کند.';
   }
 
 }
