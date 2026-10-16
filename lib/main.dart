@@ -8882,6 +8882,70 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     ).whenComplete(() => c.dispose());
   }
 
+  /// یک دکمه برای چهار اپ خارجی: با زدن «سرور برای اپ‌های دیگر»
+  /// از کاربر می‌پرسد کدام VPN را می‌خواهد، بعد صفحه‌ی مربوط را باز می‌کند.
+  void _pickOtherVpn(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'کدام VPN را می‌خواهید؟',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'سرورهای سالم پیدا می‌شود تا در اپ موردنظر کپی کنید.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13, color: Colors.grey),
+                ),
+                const SizedBox(height: 16),
+                for (final s in vsSpecs)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(color: Colors.grey.shade700),
+                      ),
+                      leading: Text(s.emoji, style: const TextStyle(fontSize: 28)),
+                      title: Text(s.title,
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: Text(
+                        s.howTo.split('،').first,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        vsOpen(context, s.kind);
+                      },
+                    ),
+                  ),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('انصراف'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   // choose the apps that do NOT go through the VPN
   Future<void> _appsSheet() async {
     List<AppInfo> apps = [];
@@ -9687,10 +9751,7 @@ UiHero(
             UiTool(Icons.shopping_cart_outlined, 'خرید سرور شخصی', () => serverShopOpen(context)),
             UiTool(Icons.campaign_outlined, 'کانال‌های تلگرامی', () => telegramChannelsOpen(context)),
             UiTool(Icons.cleaning_services_outlined, 'IP تمیز (AM)', () => cleanIpDialog()),
-            UiTool(Icons.rocket_launch_outlined, 'سرور Hiddify', () => vsOpen(context, VsKind.hiddify)),
-            UiTool(Icons.dns_outlined, 'سرور SlipNet', () => vsOpen(context, VsKind.slipnet)),
-            UiTool(Icons.vpn_lock_outlined, 'سرور VPN Client Pro', () => vsOpen(context, VsKind.vpnclient)),
-            UiTool(Icons.vaccines_outlined, 'سرور HTTP Injector', () => vsOpen(context, VsKind.injector)),
+            UiTool(Icons.apps_outlined, 'سرور برای اپ‌های دیگر', () => _pickOtherVpn(context)),
             UiTool(Icons.send_outlined, 'پروکسی تلگرام', () => showModalBottomSheet(
                 context: context,
                 isScrollControlled: true,
