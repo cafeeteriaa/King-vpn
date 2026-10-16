@@ -3858,6 +3858,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       logError(e);
     } finally {
       if (mounted) setState(() => busy = false);
+      // ABORT-STUCK fix: busy is gone; if switching was left true, schedule its unlock
+      if (switching) _unlockLater();
       // E-CORE-UP-APP-DOWN: a core event that arrived while busy is re-synced now
       Future.delayed(const Duration(milliseconds: 1500), () {
         if (mounted) _syncCore();
@@ -3882,6 +3884,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // switch and on every watchdog tick. Returns true when it changed something.
   int _syncBad = 0, _syncFixes = 0;
   DateTime _wbSince = DateTime.now();
+  DateTime? _swSince; // SWITCH-STUCK watchdog: when switching=true was first seen
   bool _syncCore() {
     try {
       if (!mounted || busy || switching) return false; // a standby search must not block the sync
@@ -3960,6 +3963,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       await Future.delayed(const Duration(milliseconds: 200));
     }
     abort = false;
+    if (!busy && switching) _unlockLater(); // ABORT-STUCK fix
   }
 
   // stops V2Ray + OpenVPN + WireGuard (one VpnService at a time)
@@ -8296,6 +8300,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         dbg('همگام‌سازی خودکار: بررسی واچ‌داگ بیش از ۹۰s طول کشید؛ آزاد شد');
       }
       unawaited(_netWatch()); // NETCHANGE
+      // SWITCH-STUCK fix: switching=true with no busy task for >40s is an orphan
+      if (switching && !busy) {
+        _swSince ??= DateTime.now();
+        if (DateTime.now().difference(_swSince!) > const Duration(seconds: 40)) {
+          _swSince = null;
+          dbg('تعویض بیش از ۴۰s بی‌صاحب مانده بود؛ آزاد شد (SWITCH-STUCK)');
+          _unlockLater();
+        }
+      } else {
+        _swSince = null;
+      }
       if (watchBusy || !wantVpn || busy || switching) return;
       if (_syncCore()) return; // SELFHEALPATCH
       // خودترمیمی اول اجرا شود؛ اگر وارد عمل شد واچ‌داگ این تیک را رد کند
