@@ -3435,6 +3435,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _resSaveT?.cancel();
     _insT?.cancel(); // the 3 s inspector timer was never stopped
     aiLoop?.cancel();
+    localPilotLoop?.cancel();
+    _onlineTimer?.cancel();
     super.dispose();
   }
 
@@ -7542,8 +7544,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       unawaited(_netWatch()); // NETCHANGE
       if (watchBusy || !wantVpn || busy || switching) return;
       if (_syncCore()) return; // SELFHEALPATCH
-      // خودترمیمی King — قوی‌تر از تصمیم دستی
-      unawaited(kingSelfHeal(reason: 'watch'));
+      // خودترمیمی اول اجرا شود؛ اگر وارد عمل شد واچ‌داگ این تیک را رد کند
+      // تا دو موتور هم‌زمان تعویض نکنند
+      await kingSelfHeal(reason: 'watch');
+      if (busy || switching || !wantVpn) return;
       watchBusy = true;
       _wbSince = DateTime.now();
       try {
@@ -7985,6 +7989,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (up >= 180 && siteNeverSwitches > 0) {
         siteNeverSwitches = 0;
         siteNever = 0;
+      }
+      // سیاه‌لیست خیلی بزرگ → پاک‌سازی نرم خودکار (جلوگیری از قفل شدن سرورهای خوب)
+      if (failed.length > 80) {
+        final cut = now.subtract(const Duration(minutes: 15));
+        failed.removeWhere((_, t) => t.isBefore(cut));
+        if (failed.length > 120) {
+          final keys = failed.keys.toList();
+          final n = (keys.length * 0.4).round();
+          for (var i = 0; i < n && i < keys.length; i++) {
+            failed.remove(keys[i]);
+          }
+        }
       }
       dbg('♥ متصل ${up}s • ${current?.name ?? '-'} • پینگ ${current?.ping ?? '-'}'
           ' • سرعت ${current?.speed ?? '-'} • سالم ${good.length}'
