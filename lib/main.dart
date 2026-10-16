@@ -263,7 +263,7 @@ const badFor = Duration(minutes: 10);
 // if it is faster than the connected one it takes over, if it is only faster
 // than a standby it moves up in the standby ranking (failover uses the order)
 const upgradeEvery = Duration(seconds: 30); // min gap between two trials
-const upgradeGain = 1.1; // replacement must be 10% faster (real speed)
+const upgradeGain = 1.5; // باید حداقل ۵۰٪ سریع‌تر باشد (هماهنگ با قانون تعویض)
 const manualSpeedMax = 1000; // no real limit: all healthy servers are tested
 const speedBatch = 1; // servers speed-tested per trial
 const speedFresh = Duration(minutes: 15); // older than this -> test again
