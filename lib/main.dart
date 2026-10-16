@@ -3185,11 +3185,19 @@ Map<String, String> _favsRef = {};
 bool inRowGid(Server s, String gid) {
   if (gid.startsWith('p:')) return s.personal;
   if (gid.startsWith('f:')) return _favsRef.containsKey(s.key);
-  if (gid.startsWith('s:')) return ownerOf(s) == gid.substring(2);
-  if (gid.startsWith('c:')) return (s.country ?? '??') == gid.substring(2);
-  final id = gid.substring(2);
+  if (gid.startsWith('s:')) {
+    return gid.length > 2 && ownerOf(s) == gid.substring(2);
+  }
+  if (gid.startsWith('c:')) {
+    return gid.length > 2 && (s.country ?? '??') == gid.substring(2);
+  }
+  // RARE BUG FIX: firstWhere without orElse threw StateError on unknown id
+  final id = gid.length > 2 ? gid.substring(2) : gid;
   if (id == 'other') return !rowDefs.any((d) => d.test(s));
-  return rowDefs.firstWhere((d) => d.id == id).test(s);
+  for (final d in rowDefs) {
+    if (d.id == id) return d.test(s);
+  }
+  return false;
 }
 
 // DNS over HTTPS to a plain IP, so a poisoned local DNS cannot break it
@@ -3841,11 +3849,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  // late status events from our own stop/start must not trigger a switch
-  void _unlockLater() => Future.delayed(const Duration(milliseconds: 3000), () {
-        switching = false;
-        _syncCore(); // SELFHEALPATCH
-      });
+  // late status events from our own stop/start must not trigger a switch.
+  // RARE BUG FIX: previous version scheduled multiple delayed callbacks;
+  // a later switch could be unlocked early by an older callback.
+  int _unlockGen = 0;
+  void _unlockLater() {
+    final g = ++_unlockGen;
+    Future.delayed(const Duration(milliseconds: 3000), () {
+      if (g != _unlockGen) return; // superseded by a newer unlock
+      switching = false;
+      _syncCore(); // SELFHEALPATCH
+    });
+  }
 
   // SELFHEALPATCH: the core and the app must agree. Runs 3 s after every
   // switch and on every watchdog tick. Returns true when it changed something.
@@ -3962,8 +3977,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     await _stopV2();
     var gotDown = !wasUp;
     if (wasUp && downSig != null) {
-      gotDown = await downSig!.future
-          .timeout(const Duration(seconds: 5), onTimeout: () => false);
+      // RARE BUG FIX: complete on timeout so a late DISCONNECTED cannot
+      // complete a future stop's downSig
+      final waitDown = downSig!;
+      gotDown = await waitDown.future
+          .timeout(const Duration(seconds: 5), onTimeout: () {
+        if (!waitDown.isCompleted) waitDown.complete(false);
+        return false;
+      });
     }
     downSig = null;
     // a stale CONNECTED must not stay behind after a stop
@@ -5306,8 +5327,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         s.name.isNotEmpty ? s.name : 'King OpenVPN',
         certIsRequired: false,
       );
-      final ok = await ovpnSig!.future
-          .timeout(const Duration(seconds: 28), onTimeout: () => false);
+      // RARE BUG FIX: complete Completer on timeout to avoid late event races
+      final waitOvpn = ovpnSig;
+      final ok = await waitOvpn!.future
+          .timeout(const Duration(seconds: 28), onTimeout: () {
+        if (waitOvpn != null && !waitOvpn.isCompleted) {
+          waitOvpn.complete(false);
+        }
+        return false;
+      });
       if (!ok || ovpnStage != 'connected') {
         ovpnActive = false;
         try {
@@ -5462,8 +5490,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             proxyOnly: false,
             blockedApps: bypassApps.isEmpty ? null : bypassApps);
         // the core must report CONNECTED (it can hang in CONNECTING)
-        ready = await connSig!.future
-            .timeout(connWait, onTimeout: () => false);
+        // RARE BUG FIX: on timeout complete the Completer so a late CONNECTED
+        // event cannot complete a newer attempt's connSig by mistake
+        final waitSig = connSig;
+        ready = await waitSig!.future.timeout(connWait, onTimeout: () {
+          if (waitSig != null && !waitSig.isCompleted) {
+            waitSig.complete(false);
+          }
+          return false;
+        });
         t = null;
         if (ready) {
           // give the tunnel time to appear (OEM devices can be slow)
