@@ -31,6 +31,7 @@ part 'online.dart';
 part 'server_shop.dart';
 part 'telegram_channels.dart';
 part 'ultimate_extras.dart';
+part 'auto_test.dart';
 
 // One rewarded ad = one 4 hour session. When the 4 hours end the VPN is cut
 // and the next connect shows the ad again. Automatic server switches (bad
@@ -9340,6 +9341,37 @@ UiHero(
             ),
           ),
           UiStatus(text: status, on: connected),
+          ValueListenableBuilder<bool>(
+            valueListenable: autoTestRunning,
+            builder: (_, running, __) {
+              if (!running) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ValueListenableBuilder<String>(
+                      valueListenable: autoTestText,
+                      builder: (_, t, __) => Text(
+                        '🧪 $t',
+                        style: const TextStyle(fontSize: 12),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    ValueListenableBuilder<double>(
+                      valueListenable: autoTestProgress,
+                      builder: (_, p, __) => LinearProgressIndicator(value: p),
+                    ),
+                    TextButton(
+                      onPressed: stopAutoTest,
+                      child: const Text('توقف تست خودکار'),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
           const OnlineBadge(),
           _speedPanel(u),
           aiBar(),
@@ -9403,6 +9435,13 @@ UiHero(
             UiTool(Icons.shield_outlined, 'Reality', () => connectRow('r:reality')),
             UiTool(Icons.power_outlined, 'WebSocket', () => connectRow('r:ws')),
             UiTool(Icons.favorite_border, 'حمایت از ما', () => donateSheet(context)),
+            UiTool(Icons.bug_report_outlined, 'تست خودکار ۲۰ دقیقه', () {
+              if (isAutoTesting) {
+                stopAutoTest();
+              } else {
+                startAutoTest20();
+              }
+            }),
             UiTool(Icons.menu_book_outlined, 'راهنما', () => Navigator.push(
                 context, MaterialPageRoute(builder: (_) => const HelpPage()))),
           ]),
