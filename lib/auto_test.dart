@@ -262,7 +262,10 @@ extension AutoTestEngine on _HomePageState {
           'تست تمام شد • ${_findings.length} مشکل — گزارش را ببین';
     }
 
-    final report = buf.toString();
+    // privacy: keep only the first three octets of IPv4 addresses in the copied report
+    final report = buf.toString().replaceAllMapped(
+        RegExp(r'\b(\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}\b'),
+        (m) => '${m.group(1)}.x');
     dbg(report);
     errorLog.value = '${errorLog.value}\n$report'.trim();
 
