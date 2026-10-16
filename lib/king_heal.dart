@@ -228,14 +228,14 @@ extension KingHealEngine on _HomePageState {
       _hBadPing = 0;
     }
 
-    // سرعت صفر — زودتر وارد عمل می‌شود (۴۵ ثانیه → ۲۵ ثانیه، آستانه ۱)
+    // سرعت نزدیک صفر (زیر ~۴۰ KB/s) — فقط بعد از پایداری کافی
     final sp = current?.speed;
     if (connected &&
-        (sp == null || sp < 0.08) &&
+        (sp == null || sp < 0.04) &&
         _healStableSince != null &&
-        DateTime.now().difference(_healStableSince!).inSeconds > 25) {
+        DateTime.now().difference(_healStableSince!).inSeconds > 35) {
       _hNoData++;
-      if (_hNoData >= 1) {
+      if (_hNoData >= 2) {
         out.add(_HealSignal('no_data', 7, 'سرعت نزدیک صفر'));
       }
     } else {
