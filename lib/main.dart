@@ -1434,7 +1434,8 @@ void _swl(String site, Object e) {
       dbg(msg);
       _dbgProbSave();
     }
-  } catch (_) {
+  } catch (e) {
+    logError(e);
   } finally {
     _swBusy = false;
   }
