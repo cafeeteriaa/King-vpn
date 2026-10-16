@@ -459,15 +459,15 @@ extension AutoTestEngine on _HomePageState {
     autoTestText.value = 'اتصال با $label…';
     dbg('🧪 اتصال موتور: $label ($id)');
     await connect();
+    // اپ قبل از وصل نهایی جستجو و تست سرعت سرورها را انجام می‌دهد که چند دقیقه طول می‌کشد؛
+    // پس مهلت باید بیشتر از آن باشد تا «نرسیدن» با «هنوز در جستجو» اشتباه نشود
     await _atWaitUntil(() => connected && !busy,
-        timeout: const Duration(seconds: 100), label: 'وصل $label');
+        timeout: const Duration(seconds: 300), label: 'وصل $label');
 
     if (!connected) {
       _engineResult[id] = '❌ وصل نشد';
-      if (_atCfgNotes.length < 60) {
-        _atCfgNotes.add('${current?.name ?? '؟'} ← ${_atCfgNeeds(current)}');
-      }
-      _atAdd('ENG-FAIL', '$label نتوانست وصل شود • status="$status"');
+      _atAdd('ENG-FAIL',
+          '$label نتوانست وصل شود • status="$status" • lastFail="$lastFail" • lastWhy="$lastWhy"');
       return false;
     }
 
@@ -547,7 +547,7 @@ extension AutoTestEngine on _HomePageState {
         return [
           'lib/auto_test.dart → _atSample (آستانه ۱۱۰ ثانیه)',
           'اتصال بیش از ۱۱۰ ثانیه طول کشید',
-          'کانفیگ یا سرور پاسخ نمی‌دهد. اگر برای همه‌ی کانفیگ‌ها تکرار شد، نسخه‌ی هسته یا patch_v2ray_core.py را بررسی کن',
+          'کانفیگ یا سرور پاسخ نمی‌دهد. اگر برای همه‌ی کانفیگ‌ها تکرار شد، نسخه‌ی هسته (flutter_v2ray_client) را بررسی کن',
         ];
       case 'TIMEOUT':
         return [
@@ -559,7 +559,7 @@ extension AutoTestEngine on _HomePageState {
         return [
           'lib/auto_test.dart → _atConnectEngine',
           'موتور وصل نشد؛ status آخر اپ در همان خط آمده',
-          'اگر برای همه‌ی کانفیگ‌ها است: نسخه‌ی هسته (flutter_v2ray_client) یا patch_v2ray_core.py. اگر فقط بعضی‌ها: همان کانفیگ‌ها را با قابلیت‌های بالا بررسی کن',
+          'lastFail و lastWhy داخل همان خط علت دقیق شکست اپ را می‌گویند. اگر برای همه‌ی کانفیگ‌ها تکرار شد، مشکل از شروع هسته در حالت VPN است؛ مشخصات کانفیگ‌ها در بخش E-CONFIG-FAIL گزارش اصلی است',
         ];
       case 'RECONNECT-FAIL':
         return [
