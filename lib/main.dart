@@ -5097,7 +5097,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (mounted) uiJoinPrompt(context);
     _set(_connStatus());
     autoAiAfterConnect();
-    _showChannelPrompt();
+    // _showChannelPrompt حذف شد — با uiJoinPrompt تکراری بود و دو دیالوگ کانال نشان می‌داد
     // TURBO: بعد از هر اتصال واقعی حتماً توربو سرعت فعال شود
     // مهم: تست سرعت را قبل از توربو شروع نکن — توربو هسته را ریستارت می‌کند
     // و تست سرعت ممکن بود صفر ببیند و به‌اشتباه failover کند
