@@ -135,7 +135,7 @@ Future<String> netDiagnose() async {
       dnsSys = l.first.address;
       dnsPoison = l.any((a) => _privateIp(a)) || dnsSys.startsWith('10.');
     }
-  } catch (_) {}
+  } catch (e) { logError(e); }
   final dnsDoh = await dohResolve('www.google.com');
 
   void sec(String t, int a, int z) {
