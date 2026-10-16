@@ -740,7 +740,9 @@ Future<void> vsRefresh(VsSpec spec) async {
 // UI
 // ---------------------------------------------------------------------------
 
-VsSpec vsSpecOf(VsKind k) => vsSpecs.firstWhere((s) => s.kind == k);
+// RARE BUG FIX: firstWhere without orElse threw if kind was unknown
+VsSpec vsSpecOf(VsKind k) =>
+    vsSpecs.firstWhere((s) => s.kind == k, orElse: () => vsSpecs.first);
 
 void vsOpen(BuildContext context, VsKind k,
     {Future<void> Function(String link)? onConnect, bool showCopy = true}) {
