@@ -42,16 +42,60 @@ class VsSpec {
 }
 
 // v2ray style public lists (auto updated by their owners); a dead link is
-// simply skipped
+// simply skipped. HOT sources first — updated every 5–30 minutes.
 const List<String> _v2rayLists = [
-  '${_ghRaw}kasesm/Free-Config/refs/heads/main/all_raw.txt',
-  '${_ghRaw}kasesm/Free-Config/refs/heads/main/vless_raw.txt',
+  // ---- HOT (frequent updates)
+  '${_ghRaw}0xRadikal/Free-v2ray-Configs/main/top100.txt',
+  '${_ghRaw}0xRadikal/Free-v2ray-Configs/main/verified/configs.txt',
+  '${_ghRaw}0xRadikal/Free-v2ray-Configs/main/fast/configs.txt',
+  '${_ghRaw}0xRadikal/Free-v2ray-Configs/main/all/configs.txt',
+  '${_ghRaw}Alirewa/V2ray-Configs/main/config.txt',
+  '${_ghRaw}Alirewa/V2ray-Configs/main/sub1.txt',
+  '${_ghRaw}Alirewa/V2ray-Configs/main/sub2.txt',
+  '${_ghRaw}MatinGhanbari/v2ray-configs/main/subscriptions/v2ray/super-sub.txt',
+  '${_ghRaw}MatinGhanbari/v2ray-configs/main/subscriptions/v2ray/all_sub.txt',
+  '${_ghRaw}Epodonios/v2ray-configs/main/All_Configs_Sub.txt',
+  '${_ghRaw}barry-far/V2ray-Config/main/All_Configs_Sub.txt',
   '${_ghRaw}ebrasha/free-v2ray-public-list/refs/heads/main/vless_configs.txt',
   '${_ghRaw}ebrasha/free-v2ray-public-list/refs/heads/main/vmess_configs.txt',
   '${_ghRaw}ebrasha/free-v2ray-public-list/refs/heads/main/trojan_configs.txt',
-  '${_ghRaw}Epodonios/v2ray-configs/main/All_Configs_Sub.txt',
-  '${_ghRaw}barry-far/V2ray-Config/main/All_Configs_Sub.txt',
-  '${_ghRaw}MatinGhanbari/v2ray-configs/main/subscriptions/v2ray/super-sub.txt',
+  '${_ghRaw}ebrasha/free-v2ray-public-list/refs/heads/main/ss_configs.txt',
+  '${_ghRaw}ebrasha/free-v2ray-public-list/refs/heads/main/all_extracted_configs.txt',
+  '${_ghRaw}hamedcode/port-based-v2ray-configs/main/sub/vless.txt',
+  '${_ghRaw}hamedcode/port-based-v2ray-configs/main/sub/vmess.txt',
+  '${_ghRaw}hamedcode/port-based-v2ray-configs/main/sub/trojan.txt',
+  '${_ghRaw}hamedcode/port-based-v2ray-configs/main/sub/ss.txt',
+  '${_ghRaw}hamedcode/port-based-v2ray-configs/main/sub/top100.txt',
+  '${_ghRaw}morpheusadam/v2ray-config/main/subs/bundles/best.txt',
+  '${_ghRaw}morpheusadam/v2ray-config/main/subs/bundles/iran.txt',
+  '${_ghRaw}morpheusadam/v2ray-config/main/subs/bundles/lite.txt',
+  '${_ghRaw}morpheusadam/v2ray-config/main/subs/bundles/reality.txt',
+  '${_ghRaw}Alirewa/V2ray-Configs/main/sub3.txt',
+  '${_ghRaw}hamedcode/port-based-v2ray-configs/main/sub/port_443.txt',
+  '${_ghRaw}Au1rxx/free-vpn-subscriptions/main/output/v2ray-base64.txt',
+  '${_ghRaw}lagzian/SS-Collector/main/configs/mixed/vless.txt',
+  '${_ghRaw}lagzian/SS-Collector/main/configs/mixed/trojan.txt',
+  '${_ghRaw}lagzian/SS-Collector/main/configs/mixed/ss.txt',
+  '${_ghRaw}lagzian/SS-Collector/main/configs/psg/reality.txt',
+  // ---- backup / larger pools
+  '${_ghRaw}kasesm/Free-Config/refs/heads/main/all_raw.txt',
+  '${_ghRaw}kasesm/Free-Config/refs/heads/main/vless_raw.txt',
+  '${_ghRaw}mahdibland/V2RayAggregator/master/sub/sub_merge.txt',
+  '${_ghRaw}Pawdroid/Free-servers/main/sub',
+  '${_ghRaw}roosterkid/openproxylist/main/V2RAY_RAW.txt',
+  '${_ghRaw}SoliSpirit/v2ray-configs/refs/heads/main/all_configs.txt',
+  '${_ghRaw}soroushmirzaei/telegram-configs-collector/main/protocols/vless',
+  '${_ghRaw}soroushmirzaei/telegram-configs-collector/main/protocols/vmess',
+  '${_ghRaw}soroushmirzaei/telegram-configs-collector/main/protocols/trojan',
+  '${_ghRaw}itsyebekhe/PSG/main/subscriptions/xray/normal/mix',
+  '${_ghRaw}itsyebekhe/PSG/main/subscriptions/xray/normal/vless',
+  '${_ghRaw}iboxz/free-v2ray-collector/main/main/mix.txt',
+  '${_ghRaw}iboxz/free-v2ray-collector/main/main/vless.txt',
+  '${_ghRaw}V2RayRoot/V2RayConfig/main/Config/vless.txt',
+  '${_ghRaw}V2RayRoot/V2RayConfig/main/Config/vmess.txt',
+  '${_ghRaw}V2RayRoot/V2RayConfig/main/Config/shadowsocks.txt',
+  '${_ghRaw}HosseinKoofi/GO_V2rayCollector/main/mixed_iran.txt',
+  '${_ghRaw}youfoundamin/V2rayCollector/main/mixed_iran.txt',
 ];
 
 const List<VsSpec> vsSpecs = [
@@ -63,7 +107,7 @@ const List<VsSpec> vsSpecs = [
     howTo:
         'کپی کن، بعد در Hiddify: «+» ← «افزودن از کلیپ‌بورد». کپی همه هم یک‌جا وارد می‌شود.',
     honest:
-        'تست = باز بودن پورت سرور. پروتکل‌های UDP (hysteria2 و tuic) قابل تست پورت نیستند و آخر لیست با برچسب «بدون تست» می‌آیند.',
+        'تست = باز بودن پورت سرور. پروتکل‌های UDP (hysteria2 و tuic) قابل تست پورت نیستند و آخر لیست با برچسب «بدون تست» می‌آیند. منابع هر ۱۵–۳۰ دقیقه آپدیت می‌شوند.',
     urls: _v2rayLists,
     schemes: ['vless', 'vmess', 'trojan', 'ss', 'hysteria2', 'hy2', 'tuic'],
   ),
@@ -75,10 +119,29 @@ const List<VsSpec> vsSpecs = [
     howTo:
         'کپی کن، بعد در SlipNet روی لینک slipnet:// بزن یا از «Import» کلیپ‌بورد را بچسبان.',
     honest:
-        'SlipNet تونل DNS است و با تست پورت سالم بودنش معلوم نمی‌شود. تازه‌ترین کانفیگ‌های پست‌شده در کانال‌ها آورده می‌شوند؛ سالم بودن را خود SlipNet با «Test Server Reachability» نشان می‌دهد.',
+        'SlipNet تونل DNS است و با تست پورت سالم بودنش معلوم نمی‌شود. تازه‌ترین کانفیگ‌های پست‌شده در کانال‌ها و گیت‌هاب آورده می‌شوند؛ سالم بودن را خود SlipNet با «Test Server Reachability» نشان می‌دهد.',
     urls: [
+      // official + active config channels (t.me preview pages)
       'https://t.me/s/SlipNet_app',
+      'https://t.me/s/slipnet_app',
       'https://t.me/s/FreakConfig',
+      'https://t.me/s/soonteam',
+      'https://t.me/s/vip_fragment_v2ray',
+      'https://t.me/s/free2config',
+      'https://t.me/s/v2ray_configs_pool',
+      'https://t.me/s/ConfigsHUB',
+      'https://t.me/s/V2rayNG3',
+      'https://t.me/s/DirectVPN',
+      'https://t.me/s/PrivateVPNs',
+      'https://t.me/s/vmessorg',
+      'https://t.me/s/v2rayng_org',
+      'https://t.me/s/v2ray_free_conf',
+      'https://t.me/s/Configforvpn01',
+      'https://t.me/s/msv2ray',
+      'https://t.me/s/v2box_free',
+      // GitHub mirrors that repost slipnet:// links
+      '${_ghRaw}V2RAYCONFIGSPOOL/SLIPNET_SUB/main/slipnet.txt',
+      '${_ghRaw}kiamoo2/Telegram_configs/main/slipnet.txt',
     ],
   ),
   VsSpec(
@@ -89,10 +152,14 @@ const List<VsSpec> vsSpecs = [
     howTo:
         'متن .ovpn را کپی کن، در یادداشت‌ها یا مدیر فایل با پسوند .ovpn ذخیره کن و در VPN Client Pro با «Import» بازش کن.',
     honest:
-        'منبع: لیست زنده‌ی VPN Gate (دانشگاه تسوکوبا). سرورهای TCP با تست پورت واقعی بررسی می‌شوند؛ سرورهای UDP را فقط می‌توان با امتیاز و پینگ خود VPN Gate مرتب کرد. بعضی IPها در ایران بسته‌اند.',
+        'منبع اصلی: لیست زنده‌ی VPN Gate + آینه ساعتی. سرورهای TCP با تست پورت واقعی بررسی می‌شوند؛ UDP فقط با امتیاز VPN Gate مرتب می‌شود. بعضی IPها در ایران بسته‌اند.',
     urls: [
+      // official VPN Gate API
       'https://www.vpngate.net/api/iphone/',
       'http://www.vpngate.net/api/iphone/',
+      // hourly mirror (same CSV format, useful when vpngate.net is filtered)
+      'https://cdn.jsdelivr.net/gh/GeorgeXie2333/vpngate-list-mirror@latest/data/vpngate.csv',
+      'https://raw.githubusercontent.com/GeorgeXie2333/vpngate-list-mirror/main/data/vpngate.csv',
     ],
   ),
   VsSpec(
@@ -103,7 +170,7 @@ const List<VsSpec> vsSpecs = [
     howTo:
         'کپی کن و در HTTP Injector نوع V2Ray را انتخاب کن و لینک را وارد کن.',
     honest:
-        'برای حساب‌های SSH و فایل‌های .hc منبع عمومی قابل‌اعتماد و خودکار وجود ندارد (سایت‌های ساخت اکانت کپچا دارند و هر چند روز منقضی می‌شوند)؛ پس اینجا لینک‌های V2Ray که HTTP Injector می‌خواند آورده می‌شود. تست = باز بودن پورت.',
+        'برای حساب‌های SSH و فایل‌های .hc منبع عمومی قابل‌اعتماد و خودکار وجود ندارد (سایت‌های ساخت اکانت کپچا دارند و هر چند روز منقضی می‌شوند)؛ پس اینجا لینک‌های V2Ray که HTTP Injector می‌خواند آورده می‌شود. تست = باز بودن پورت. منابع هر ۱۵–۳۰ دقیقه آپدیت می‌شوند.',
     urls: _v2rayLists,
     schemes: ['vless', 'vmess', 'trojan', 'ss'],
   ),
@@ -419,8 +486,9 @@ Future<List<VsItem>> _findV2ray(VsSpec spec, _VsState st, Set<String> seen) asyn
   return out;
 }
 
-// SlipNet: slipnet:// links from public Telegram channel previews
-final RegExp _slipRe = RegExp(r'slipnet://[A-Za-z0-9+/=_\-%]{16,}');
+// SlipNet: slipnet:// and slipnet-enc:// links from public Telegram / GitHub
+final RegExp _slipRe =
+    RegExp(r'slipnet(?:-enc)?://[A-Za-z0-9+/=_\-%]{16,}', caseSensitive: false);
 
 Future<List<VsItem>> _findSlipnet(VsSpec spec, _VsState st, Set<String> seen) async {
   final found = <String, VsItem>{};
