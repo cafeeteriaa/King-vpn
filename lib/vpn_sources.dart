@@ -363,7 +363,7 @@ Future<void> _vsPool<T>(
       if (i >= items.length) break;
       try {
         await fn(items[i]);
-      } catch (_) {}
+      } catch (e) { debugPrint("catch: $e"); }
     }
   }
 
@@ -443,7 +443,7 @@ Future<void> _vsSaveSeen(String id, Set<String> seen) async {
     final l = seen.toList();
     await p.setStringList(
         'vsrc_seen_$id', l.length > 600 ? l.sublist(l.length - 600) : l);
-  } catch (_) {}
+  } catch (e) { debugPrint("catch: $e"); }
 }
 
 String _vsFlag(String cc) {
@@ -574,7 +574,7 @@ Future<List<VsItem>> _findSlipnet(VsSpec spec, _VsState st, Set<String> seen) as
           if (name.isNotEmpty && name.length < 60) title = name;
           sub = '${f[1].trim()} • ${f[3].trim()} • @$src';
         }
-      } catch (_) {}
+      } catch (e) { debugPrint("catch: $e"); }
       found[link] = VsItem(
         text: link,
         title: title,
