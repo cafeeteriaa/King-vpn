@@ -7521,6 +7521,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       unawaited(_netWatch()); // NETCHANGE
       if (watchBusy || !wantVpn || busy || switching) return;
       if (_syncCore()) return; // SELFHEALPATCH
+      // خودترمیمی King — قوی‌تر از تصمیم دستی
+      unawaited(kingSelfHeal(reason: 'watch'));
       watchBusy = true;
       _wbSince = DateTime.now();
       try {
