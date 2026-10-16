@@ -231,9 +231,14 @@ String? _npvOutboundLink(dynamic o, String remark) {
     if (proto == 'vmess' || proto == 'vless') {
       final vn = (settings['vnext'] as List?)?.first as Map?;
       if (vn == null) return null;
-      final u = (vn['users'] as List).first as Map;
-      final addr = vn['address'].toString();
-      final port = int.parse(vn['port'].toString());
+      final users = vn['users'];
+      if (users is! List || users.isEmpty) return null;
+      final u = users.first;
+      if (u is! Map) return null;
+      final addr = vn['address']?.toString() ?? '';
+      if (addr.isEmpty) return null;
+      final port = int.tryParse('${vn['port']}') ?? 0;
+      if (port <= 0 || port > 65535) return null;
       if (proto == 'vless') {
         q['encryption'] = (u['encryption'] ?? 'none').toString();
         if ((u['flow'] ?? '').toString().isNotEmpty) q['flow'] = u['flow'].toString();
@@ -267,8 +272,10 @@ String? _npvOutboundLink(dynamic o, String remark) {
     }
     final sv = (settings['servers'] as List?)?.first as Map?;
     if (sv == null) return null;
-    final addr = sv['address'].toString();
-    final port = int.parse(sv['port'].toString());
+    final addr = sv['address']?.toString() ?? '';
+    if (addr.isEmpty) return null;
+    final port = int.tryParse('${sv['port']}') ?? 0;
+    if (port <= 0 || port > 65535) return null;
     if (proto == 'trojan') {
       return Uri(
               scheme: 'trojan',
