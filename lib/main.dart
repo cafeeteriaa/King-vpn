@@ -3437,6 +3437,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     aiLoop?.cancel();
     localPilotLoop?.cancel();
     _onlineTimer?.cancel();
+    _netWatchTimer?.cancel();
     super.dispose();
   }
 
