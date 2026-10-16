@@ -1499,17 +1499,56 @@ String _reliableVpnCfg(String cfg) {
         : <String, dynamic>{};
     rt['domainStrategy'] = 'AsIs';
     j['routing'] = rt;
-    for (final ib in (j['inbounds'] as List?) ?? <dynamic>[]) {
-      if (ib is Map) {
-        final sn = ib['sniffing'];
-        if (sn is! Map || sn['enabled'] != true) {
-          ib['sniffing'] = {
-            'enabled': true,
-            'destOverride': ['http', 'tls'],
-            'routeOnly': true,
-          };
-        }
+    // Keep local SOCKS/HTTP so post-connect social checks (TG/IG/YT) go through
+    // the REAL core path — not the app's direct network (often bypasses VPN).
+    var inbounds = j['inbounds'];
+    if (inbounds is! List) {
+      inbounds = <dynamic>[];
+      j['inbounds'] = inbounds;
+    }
+    var hasHttp = false, hasSocks = false;
+    for (final ib in inbounds) {
+      if (ib is! Map) continue;
+      final p = ib['port'];
+      final proto = '${ib['protocol'] ?? ''}'.toLowerCase();
+      if (p == httpProxyPort || p == 10809) hasHttp = true;
+      if (p == 10808 || proto.contains('socks')) hasSocks = true;
+      final sn = ib['sniffing'];
+      if (sn is! Map || sn['enabled'] != true) {
+        ib['sniffing'] = {
+          'enabled': true,
+          'destOverride': ['http', 'tls'],
+          'routeOnly': true,
+        };
       }
+    }
+    if (!hasSocks) {
+      inbounds.add({
+        'tag': 'socks-in',
+        'listen': '127.0.0.1',
+        'port': 10808,
+        'protocol': 'socks',
+        'settings': {'udp': true},
+        'sniffing': {
+          'enabled': true,
+          'destOverride': ['http', 'tls'],
+          'routeOnly': true,
+        },
+      });
+    }
+    if (!hasHttp) {
+      inbounds.add({
+        'tag': 'http-in',
+        'listen': '127.0.0.1',
+        'port': httpProxyPort,
+        'protocol': 'http',
+        'settings': <String, dynamic>{},
+        'sniffing': {
+          'enabled': true,
+          'destOverride': ['http', 'tls'],
+          'routeOnly': true,
+        },
+      });
     }
     return jsonEncode(j);
   } catch (e) {
@@ -5514,7 +5553,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             // Same server, other matrix variants — often fixes social path
             await _stopV2();
             if (await _natLadder(s)) {
-              await Future.delayed(const Duration(milliseconds: 500));
+              await waitProxyPort(
+                  max: Duration(seconds: nationalMode ? 8 : 5));
+              await Future.delayed(const Duration(milliseconds: 400));
               r = await runSocial();
               tg = r[0] || r[1];
               yt = r[2] || r[3];
@@ -5526,8 +5567,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 _onConnected(s);
                 return true;
               }
+              await _stopV2();
             }
-            // ladder left core down — continue to reject path
+            // ladder left core down — reject and try next server
           }
 
           final sp = await measure(
