@@ -267,12 +267,17 @@ const manualSpeedMax = 1000; // no real limit: all healthy servers are tested
 const speedBatch = 1; // servers speed-tested per trial
 const speedFresh = Duration(minutes: 15); // older than this -> test again
 const delayTestUrl = 'https://www.gstatic.com/generate_204';
-// internet check through the tunnel: the plain-http URL goes first (fewer
-// round trips, so slow servers also pass), then the https ones
+// internet check through the tunnel.
+// اول URLهای بدون نیاز به DNS سخت (IP/cloudflare)، بعد gstatic/google.
+// خطای «Failed host lookup: www.gstatic.com» وقتی DNS تونل خراب است می‌آید.
 const _pingUrls = [
   'http://cp.cloudflare.com/generate_204',
+  'http://1.1.1.1/',
+  'http://9.9.9.9/',
+  'https://www.cloudflare.com/cdn-cgi/trace',
   delayTestUrl,
   'https://www.google.com/generate_204',
+  'https://telegram.org/',
 ];
 
 // PROXY MODE: no VPN tunnel / no key icon. Only a local proxy is started:
@@ -1885,7 +1890,13 @@ Future<bool?> tunUp() async {
     if (l.isEmpty) return null;
     return l.any((i) {
       final n = i.name.toLowerCase();
-      return n.startsWith('tun') || n.startsWith('ppp');
+      // tun0, ppp0, wg0, vpn0, and names containing these (OEM variants)
+      return n.startsWith('tun') ||
+          n.startsWith('ppp') ||
+          n.startsWith('wg') ||
+          n.startsWith('vpn') ||
+          n.contains('tun') ||
+          n.contains('ppp');
     });
   } catch (_swE) { _swl('tunUp#1', _swE);
     return null;
@@ -1923,9 +1934,11 @@ Future<int?> pingProxy(
 Future<int?> pingAny(
     {Duration total = const Duration(seconds: 6),
     bool direct = true,
-    int tries = 2,
+    int tries = 5,
     bool viaCore = true}) async {
-  for (final u in _pingUrls.take(tries)) {
+  // تا ۵ آدرس مختلف — یکی کافی است که تونل سالم باشد
+  final n = tries.clamp(1, _pingUrls.length);
+  for (final u in _pingUrls.take(n)) {
     final p = await pingProxy(
         total: total, direct: direct, viaCore: viaCore, url: u);
     if (p != null) return p;
@@ -4942,6 +4955,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _turboAfterConnect(Server s) async {
     if (_turboBusy || !turboSpeed || !wantVpn || !connected) return;
     if (!identical(current, s) || s.ovpn) return;
+    // خلبان محلی روشن است → تونل را ریستارت نکن (گزارش: E-NO-TUN / قطع زود)
+    if (localPilotOn) return;
     _turboBusy = true;
     final curV = natVarFor(s);
     final prevV = curV;
