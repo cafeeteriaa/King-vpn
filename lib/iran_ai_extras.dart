@@ -1508,26 +1508,33 @@ extension HomeExtras on _HomePageState {
 
   // ---- خلبان محلی King Pro (داخل HomeExtras) ----
 
-  /// پروب سبک و موازی: تلگرام / یوتیوب / اینستا / cloudflare از داخل تونل
-  Future<Map<String, bool>> _localProbeSites() async {
-    final out = <String, bool>{
-      'tg': false,
-      'yt': false,
-      'ig': false,
-      'net': false,
+  /// پروب سبک — اگر سرعت واقعی داریم، پروب سخت‌گیرانه نیست (گزارش: پورت هسته بسته → false اشتباه)
+  Future<Map<String, bool?>> _localProbeSites({bool soft = true}) async {
+    final out = <String, bool?>{
+      'tg': null,
+      'yt': null,
+      'ig': null,
+      'net': null,
     };
     if (!connected) return out;
+    // اگر همین الان سرعت واقعی >0.3 داریم، فرض کن نت OK است
+    final spd = current?.speed;
+    if (soft && spd != null && spd >= 0.3) {
+      out['net'] = true;
+      out['tg'] = true; // فرض موقت؛ تعویض فقط با کندی واقعی
+      return out;
+    }
     try {
       final rs = await Future.wait([
         _siteOpens('https://web.telegram.org/', viaCore: true),
         _siteOpens('https://www.youtube.com/generate_204', viaCore: true),
         _siteOpens('https://www.instagram.com/', viaCore: true),
         _siteOpens('http://cp.cloudflare.com/generate_204', viaCore: true),
-      ]).timeout(const Duration(seconds: 12), onTimeout: () => [false, false, false, false]);
+      ]).timeout(const Duration(seconds: 10), onTimeout: () => [false, false, false, false]);
       out['tg'] = rs[0] == true;
       out['yt'] = rs[1] == true;
       out['ig'] = rs[2] == true;
-      out['net'] = rs[3] == true || out['tg']! || out['yt']!;
+      out['net'] = rs[3] == true || out['tg'] == true || out['yt'] == true;
     } catch (_) {}
     return out;
   }
@@ -1543,29 +1550,35 @@ extension HomeExtras on _HomePageState {
     required int good,
   }) {
     if (!connected) return 0;
-    var sc = 20; // base for being connected
-    if (tg == true) sc += 35; // تلگرام حیاتی است
-    if (yt == true) sc += 15;
-    if (ig == true) sc += 10;
-    if (net == true) sc += 10;
-    if (ping != null) {
-      if (ping < 400) {
+    var sc = 25; // پایه اتصال
+    // سرعت واقعی مهم‌ترین سیگنال است (پروب سایت اغلب false منفی می‌دهد)
+    if (speed != null && speed > 0) {
+      if (speed >= 1.5) {
+        sc += 40;
+      } else if (speed >= 0.6) {
+        sc += 30;
+      } else if (speed >= 0.3) {
+        sc += 20;
+      } else if (speed < 0.1) {
+        sc -= 15;
+      } else {
         sc += 8;
-      } else if (ping < 900) {
-        sc += 4;
-      } else if (ping > 2000) {
-        sc -= 8;
       }
     }
-    if (speed != null && speed > 0) {
-      if (speed >= 2.0) {
+    if (ping != null) {
+      if (ping < 300) {
+        sc += 15;
+      } else if (ping < 600) {
         sc += 10;
-      } else if (speed >= 0.5) {
+      } else if (ping < 1200) {
         sc += 5;
-      } else if (speed < 0.12) {
+      } else if (ping > 2500) {
         sc -= 10;
       }
     }
+    if (tg == true) sc += 10;
+    if (yt == true) sc += 5;
+    if (net == true) sc += 5;
     if (good >= 3) sc += 5;
     return sc.clamp(0, 100);
   }
@@ -1663,66 +1676,50 @@ extension HomeExtras on _HomePageState {
     var conf = 80;
 
     // -------- CONNECTED --------
+    // گزارش واقعی: switch_best هر ~۵۰ث با سرعت ۱MB/s و کیفیت ۵۰+ → اشتباه بود
     if (s.connected) {
       _localFailStreak = 0;
       if (_localConnectedSince == null) {
         _localConnectedSince = DateTime.now();
       }
       final uptime = DateTime.now().difference(_localConnectedSince!).inSeconds;
+      final spd = s.speedMBs;
+      final hasSpeed = spd != null && spd >= 0.25;
+      final hasPing = s.pingMs != null && s.pingMs! > 0 && s.pingMs! < 3000;
 
-      // تلگرام قطع = اولویت مطلق
-      if (s.tgOk == false) {
-        _localPhase = 'degraded';
-        if (_localTgFail >= 2 && s.goodCount > 0) {
-          act = 'switch_best';
-          conf = 95;
-          why.writeln('❌ تلگرام از تونل باز نمی‌شود (×$_localTgFail) → تعویض فوری به سرور تلگرام‌دار');
-        } else {
-          why.writeln('تلگرام یک‌بار شکست — صبر برای تأیید');
-          conf = 60;
-        }
-        return _LocalDecision(act, set, why.toString().trim(), confidence: conf);
-      }
+      // حداقل ۳ دقیقه بعد از وصل هیچ تعویضی نکن (مگر تونل کاملاً مرده)
+      const minHoldSec = 180;
+      final deadTunnel = !hasSpeed && !hasPing && s.score < 25;
 
-      // همه سایت‌های مهم OK
-      final appsOk = s.tgOk == true && (s.ytOk == true || s.netOk == true);
-      if (appsOk && s.score >= 55) {
+      if (uptime < minHoldSec && !deadTunnel) {
         _localPhase = 'stable';
         _localSlowStreak = 0;
         _localGoodStreak++;
-        why.writeln('✅ پایدار (امتیاز ${s.score}) — تلگرام OK — uptime ${uptime}s');
-        why.writeln('هیچ تعویضی انجام نمی‌شود. دستیار ابری هم اینجا دخالت نمی‌کند.');
-        // تنظیم نرم بدون ریستارت
-        if (!s.mux && (s.configNet == 'ws' || s.configNet == 'grpc' || s.configNet == 'tcp')) {
-          set['mux'] = 1;
-          set['muxConc'] = 16;
-          why.writeln('بهینهٔ نرم: Mux روشن شد (بدون قطع)');
+        why.writeln('✅ وصل پایدار — uptime ${uptime}s/${minHoldSec}s — تعویض ممنوع');
+        if (hasSpeed) {
+          why.writeln('سرعت ${spd!.toStringAsFixed(2)} MB/s • امتیاز ${s.score}');
         }
         return _LocalDecision('none', set, why.toString().trim(), confidence: 99);
       }
 
-      // امتیاز متوسط
-      if (s.score >= 35) {
+      // سرعت قابل قبول → نگه دار (حتی اگر پروب سایت false باشد)
+      if (hasSpeed || (hasPing && s.score >= 40)) {
         _localPhase = 'stable';
-        _localSlowStreak++;
-        why.writeln('اتصال متوسط (امتیاز ${s.score}) — نگه می‌داریم');
-        if (_localSlowStreak >= 5 && s.goodCount >= 2 && s.tgOk != true) {
-          act = 'switch_best';
-          why.writeln('کندی طولانی بدون تلگرام → تعویض');
-          conf = 75;
-        }
-        return _LocalDecision(act, set, why.toString().trim(), confidence: conf);
+        _localSlowStreak = 0;
+        _localGoodStreak++;
+        why.writeln('✅ نگه می‌داریم — سرعت/پینگ OK • امتیاز ${s.score} • uptime ${uptime}s');
+        return _LocalDecision('none', set, why.toString().trim(), confidence: 98);
       }
 
-      // امتیاز خیلی ضعیف
+      // فقط تونل واقعاً مرده
       _localPhase = 'degraded';
       _localSlowStreak++;
-      if (_localSlowStreak >= 3 && s.goodCount > 0) {
+      if (deadTunnel && _localSlowStreak >= 4 && s.goodCount > 0 && uptime >= minHoldSec) {
         act = 'switch_best';
-        conf = 85;
-        why.writeln('امتیاز ${s.score} ضعیف ×$_localSlowStreak → تعویض');
+        conf = 90;
+        why.writeln('تونل مرده ×$_localSlowStreak بعد از ${uptime}s → تعویض');
       } else {
-        why.writeln('امتیاز ${s.score} — هنوز صبر (×$_localSlowStreak/3)');
+        why.writeln('ضعیف ولی هنوز صبر — streak $_localSlowStreak/4 • uptime ${uptime}s');
       }
       return _LocalDecision(act, set, why.toString().trim(), confidence: conf);
     }
@@ -1938,8 +1935,8 @@ extension HomeExtras on _HomePageState {
     localPilotLoop?.cancel();
     // stable → 120s | degraded → 45s | search/recover → 25s
     final sec = _localPhase == 'stable'
-        ? 120
-        : (_localPhase == 'degraded' ? 45 : 25);
+        ? 180
+        : (_localPhase == 'degraded' ? 90 : 30);
     localPilotLoop = Timer.periodic(Duration(seconds: sec), (_) {
       localPilotTick();
     });
