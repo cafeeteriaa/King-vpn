@@ -5120,7 +5120,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     turboSpeed = true;
     if (_turboBusy || !wantVpn || !connected) return;
     if (!identical(current, s) || s.ovpn) return;
-    if (busy || switching) return; // نگذار با تعویض همزمان تداخل کند
+    // بعد از اتصال هنوز busy=true است (_runBusy). صبر کن تا آزاد شود
+    // قبلاً if (busy) return باعث می‌شد توربو هیچ‌وقت اجرا نشود
+    for (var i = 0; i < 40 && (busy || switching); i++) {
+      await Future.delayed(const Duration(milliseconds: 150));
+      if (!wantVpn || !connected || !identical(current, s) || abort) return;
+    }
+    if (!wantVpn || !connected || !identical(current, s) || abort) return;
+    if (_turboBusy) return;
+    if (busy || switching) {
+      // هنوز مشغول — توربو را رد کن ولی سرعت را بسنج
+      unawaited(_measureCurrent(s));
+      return;
+    }
     _turboBusy = true;
     final curV = natVarFor(s);
     final prevV = curV;
@@ -5128,7 +5140,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final wasSwitching = switching;
     switching = true;
     try {
-      await Future.delayed(const Duration(seconds: 1));
+      await Future.delayed(const Duration(milliseconds: 400));
       if (!wantVpn || !connected || !identical(current, s) || abort) return;
 
       _set('توربو سرعت: فعال‌سازی Mux و حذف Fragment...');
