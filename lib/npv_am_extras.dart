@@ -51,9 +51,28 @@ bool iranMore = true; // دامنه‌های ایرانیِ غیر .ir هم مس
 // پر از &amp; و userinfo درصدی که پارسر NPV درستشان می‌کند). مسیر vmess/trojan از README خود ریپو.
 // لینک مرده خودکار رد می‌شود.
 final List<String> _npvUrls = [
+  // ebrasha — updated every ~15 min, includes escaped/messy links NPV parser handles
   'https://raw.githubusercontent.com/ebrasha/free-v2ray-public-list/refs/heads/main/vless_configs.txt',
   'https://raw.githubusercontent.com/ebrasha/free-v2ray-public-list/refs/heads/main/vmess_configs.txt',
   'https://raw.githubusercontent.com/ebrasha/free-v2ray-public-list/refs/heads/main/trojan_configs.txt',
+  'https://raw.githubusercontent.com/ebrasha/free-v2ray-public-list/refs/heads/main/ss_configs.txt',
+  'https://raw.githubusercontent.com/ebrasha/free-v2ray-public-list/refs/heads/main/all_extracted_configs.txt',
+  'https://raw.githubusercontent.com/ebrasha/free-v2ray-public-list/refs/heads/main/V2Ray-Config-By-EbraSha-All-Type.txt',
+  // frequent updaters (good for npv:// / percent-encoded / messy lines)
+  'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/verified/configs.txt',
+  'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/configs.txt',
+  'https://raw.githubusercontent.com/Alirewa/V2ray-Configs/main/config.txt',
+  'https://raw.githubusercontent.com/MatinGhanbari/v2ray-configs/main/subscriptions/v2ray/all_sub.txt',
+  'https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/All_Configs_Sub.txt',
+  'https://raw.githubusercontent.com/barry-far/V2ray-Config/main/All_Configs_Sub.txt',
+  'https://raw.githubusercontent.com/hamedcode/port-based-v2ray-configs/main/sub/vless.txt',
+  'https://raw.githubusercontent.com/hamedcode/port-based-v2ray-configs/main/sub/vmess.txt',
+  'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/iran.txt',
+  'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/best.txt',
+  'https://raw.githubusercontent.com/HosseinKoofi/GO_V2rayCollector/main/mixed_iran.txt',
+  'https://raw.githubusercontent.com/youfoundamin/V2rayCollector/main/mixed_iran.txt',
+  'https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/protocols/vless',
+  'https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/protocols/vmess',
 ];
 
 // =========================== 1) پارسر سازگار با NPV ===========================
@@ -363,11 +382,12 @@ List<String> _cidrSample(String cidr, int n, Random r) {
 Future<List<String>> _cleanCandidates() async {
   final r = Random();
   final set = <String>{};
+  // sample more IPs from each Cloudflare range so the probe finds live ones
   for (final c in _cfRanges) {
-    set.addAll(_cidrSample(c, 16, r).where(_cleanOk));
+    set.addAll(_cidrSample(c, 28, r).where(_cleanOk));
   }
   final l = set.toList()..shuffle(r);
-  return l.take(160).toList();
+  return l.take(240).toList();
 }
 
 // CLEANIPFIX: the old probe connected with SecureSocket.connect(ip) which sends
