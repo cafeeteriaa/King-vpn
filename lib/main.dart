@@ -527,8 +527,15 @@ bool _dbgMicro(String m) {
     'Exception', 'xception', 'imeout', 'timeout', 'Error', 'error',
     'failed', 'Failed', 'warn', 'Warn', 'assert', 'null', 'Null',
     'Stack', 'overflow', 'denied', 'permission', 'Permission',
-    'E-CONFIG', 'E-SITE', 'E-TUN', 'E-START', 'E-SWALLOW',
-    'کانفیگ ناموفق', 'سایت‌چک', 'پینگ داشت',
+    'E-CONFIG', 'E-SITE', 'E-TUN', 'E-START', 'E-SWALLOW', 'E-CORE',
+    'E-APP', 'E-ORPHAN', 'E-NO-', 'E-PING', 'E-STATUS',
+    'کانفیگ ناموفق', 'سایت‌چک', 'پینگ داشت', 'خودترمیمی',
+    'خلبان', 'switch_best', 'تعویض', 'توربو', 'سالم پیدا نشد',
+    'پاک شد', 'DISCONNECT', 'CONNECTED', 'failover', 'orphan',
+    'تونل', 'tun', 'DNS', 'dns', 'مجوز', 'باتری', 'battery',
+    'Mux', 'Fragment', 'core', 'هسته', 'جستجو', 'صف خالی',
+    'ندارد', 'نیست', 'نمی', 'نمی‌', 'abort', 'لغو', 'busy',
+    'switching', 'در حال', 'یتیم', 'مردود', 'blacklist',
   ];
   for (final k in keys) {
     if (m.contains(k)) return true;
@@ -704,7 +711,7 @@ String _dbgWhere() {
 }
 
 // [code, where, cause, fix] for a problem line, or null when unknown
-List<String>? _dbgHelpOf(String m) {
+List<String> _dbgHelpOf(String m) {
   List<String> h(String c, String w, String a, String f) => [c, w, a, f];
   bool has(String k) => m.contains(k);
   final extra = extraDiagOf(m);
@@ -1073,13 +1080,13 @@ List<String>? _dbgHelpOf(String m) {
       return h('E-ERR-FORMAT',
           'محل ثبت: بعد از «@» همین خط (تابع:شماره‌ی خط در main.dart پیوست Release)',
           'کانفیگ/JSON ناقص یا نامعتبر (Server.parse، parseFromURL، jsonDecode).',
-          'سروری که کانفیگش خراب است رد شود؛ اگر برای همه رخ می‌دهد منبع لیست را چک کن. محل دقیق را برای Claude بفرست.');
+          'آن سرور را نادیده بگیر؛ اگر برای همه رخ می‌دهد منبع لیست را عوض کن یا پاک کردن لیست سیاه + اتصال دوباره.');
     }
     if (has('PlatformException') || has('MissingPluginException')) {
       return h('E-ERR-PLATFORM',
           'محل ثبت: بعد از «@» همین خط',
           'خطای بخش native (هسته v2ray، OpenVPN یا کانال vpn/bg).',
-          'متن خطا و محل را برای Claude بفرست؛ معمولاً به نسخه‌ی پلاگین یا مجوز اندروید مربوط است.');
+          'اپ را کامل ببند و باز کن؛ مجوز VPN را یک‌بار از تنظیمات اندروید بده؛ اگر تکرار شد نسخه‌ی flutter_v2ray را بررسی کن.');
     }
     if (has('NoSuchMethodError') ||
         has('RangeError') ||
@@ -1088,14 +1095,140 @@ List<String>? _dbgHelpOf(String m) {
       return h('E-ERR-BUG',
           'محل ثبت: بعد از «@» همین خط (تابع:شماره‌ی خط در main.dart پیوست Release)',
           'باگ کد (مقدار null، اندیس بیرون از لیست یا نوع اشتباه).',
-          'تابع و خط بعد از «@» را برای Claude بفرست تا شرط null/اندیس درست شود.');
+          'اپ را ری‌استارت کن؛ اگر تکرار شد همان خط «@ تابع:شماره» را نگه دار تا در آپدیت بعدی همان نقطه فیکس شود.');
+    }
+    if (has('سرور سالمی پیدا نشد') || has('سرور سالم پیدا نشد')) {
+      return h('E-NO-HEALTHY',
+          'app_main/main.dart → _findGood / _search / _acquireInner',
+          'کل صف تست شد ولی هیچ سروری سالم نبود (منبع مرده، تایم‌اوت کم، یا اینترنت ضعیف).',
+          'چند ثانیه صبر کن و دوباره «اتصال» بزن؛ در تنظیمات تایم‌اوت را ۸–۱۲ث بگذار؛ لیست سیاه را پاک کن؛ وای‌فای/دیتا را یک‌بار قطع‌وصل کن.');
     }
     return h('E-ERR-OTHER',
         'محل ثبت: بعد از «@» همین خط (تابع:شماره‌ی خط در main.dart پیوست Release)',
         'استثنای غیرمنتظره در یکی از try/catch ها.',
-        'نوع خطا + محل را برای Claude بفرست.');
+        'اپ را ببند و باز کن؛ اگر همان خطا تکرار شد متن کامل خط را نگه دار. معمولاً با ری‌استارت یا تعویض سرور برطرف می‌شود.');
   }
-  return null;
+
+  // ---- خلبان محلی ----
+  if (has('خلبان محلی: switch_best') || has('خلبان') && has('switch_best')) {
+    return h('E-PILOT-SWITCH',
+        'lib/iran_ai_extras.dart → _localDecide / _localApply (switch_best)',
+        'خلبان محلی تصمیم گرفت سرور را عوض کند (قبلاً با پروب اشتباه تلگرام هم این کار را می‌کرد).',
+        'نسخه‌ی جدید: حداقل ۳ دقیقه بعد از وصل تعویض نمی‌کند اگر سرعت ≥۰.۲۵ MB/s باشد. اگر هنوز زود عوض می‌کند خلبان را خاموش کن یا صبر کن تا hold تمام شود.');
+  }
+  if (has('خلبان محلی: connect') || (has('خلبان') && has('connect'))) {
+    return h('E-PILOT-CONNECT',
+        'lib/iran_ai_extras.dart → _localApply (connect)',
+        'خلبان محلی دستور اتصال زد چون قطع بودی یا wantVpn روشن بود.',
+        'طبیعی است. اگر حلقه شد، خلبان را خاموش کن، لیست سیاه را پاک کن، دوباره اتصال بزن.');
+  }
+  if (has('خلبان محلی') || has('خلبان Pro') || has('King Pro')) {
+    return h('E-PILOT-OTHER',
+        'lib/iran_ai_extras.dart → localPilotTick / startLocalPilot',
+        'رویداد مربوط به خلبان محلی (تحلیل/اقدام).',
+        'اگر تعویض زیاد است خلبان را موقتاً خاموش کن؛ نسخه‌ی جدید روی اتصال پایدار تعویض نمی‌کند.');
+  }
+
+  // ---- پاک شدن لیست / جستجو ----
+  if (has('پاک شد') || has('همه‌ی سرورهای پیداشده')) {
+    return h('E-LIST-CLEARED',
+        'app_main/main.dart → پاک‌کردن دستی یا ریست لیست توسط کاربر/خلبان',
+        'لیست سرورهای پیدا‌شده خالی شد؛ باید دوباره جستجو شود.',
+        'دکمه «اتصال» را بزن تا از نو لیست بگیرد و تست کند. اگر خودکار پاک می‌شود، خلبان/حالت شکست‌ناپذیر را چک کن.');
+  }
+  if (has('سرور سالم پیدا نشد') || has('تست سریع دوباره')) {
+    return h('E-NO-HEALTHY-RETRY',
+        'app_main/main.dart → _acquireInner (emptyRounds) / _findGood',
+        'در آن دور هیچ سرور سالمی نبود؛ برنامه دوباره تست می‌کند.',
+        'صبر کن تا دور بعدی تمام شود؛ اینترنت را چک کن؛ تایم‌اوت را بیشتر کن؛ لیست سیاه را پاک کن.');
+  }
+  if (has('توربو')) {
+    return h('E-TURBO-INFO',
+        'app_main/main.dart → _turboAfterConnect',
+        'رویداد توربو سرعت بعد از اتصال (فعال‌سازی Mux / حذف Fragment).',
+        'اگر پیام «توربو سرعت فعال • Mux» آمد یعنی موفق بوده. اگر بعدش قطع شد، به E-CORE-DROP نگاه کن نه توربو.');
+  }
+  if (has('خودترمیمی') || has('یتیم') || has('ORPHAN') || has('orphan')) {
+    return h('E-ORPHAN',
+        'app_main/main.dart → _startWatch / dropTimer',
+        'میخواهم وصل باشم ولی چند ثانیه هیچ کار اتصال/تعویضی در جریان نبود؛ واچ‌داگ failover کرد.',
+        'معمولاً خودش درست می‌شود. اگر تکرار شد یک‌بار قطع کن و دوباره وصل کن؛ بهینه‌سازی باتری اپ را خاموش کن.');
+  }
+  if (has('هسته/اندروید') || has('CORE-DROP') || has('هسته قطع')) {
+    return h('E-CORE-DROP',
+        'app_main/main.dart → شنونده‌ی onStatusChanged / dropTimer → _failover',
+        'هسته یا اندروید سرویس VPN را بست (باتری، حافظه، یا تداخل VPN دیگر).',
+        'بهینه‌سازی باتری این اپ را «بدون محدودیت» کن؛ VPNهای دیگر را ببند؛ اگر مکرر است گوشی را یک‌بار ری‌استارت کن.');
+  }
+  if (has('اپ وصل است ولی هسته') || has('APP-UP-CORE')) {
+    return h('E-APP-UP-CORE-DOWN',
+        'app_main/main.dart → _syncCore / onStatusChanged',
+        'UI فکر می‌کرد وصل است ولی هسته DISCONNECTED بود؛ همگام‌سازی خودکار تعویض کرد.',
+        'خودکار اصلاح می‌شود. اگر زیاد تکرار شد بهینه‌سازی باتری را خاموش کن و از تداخل VPN دیگر جلوگیری کن.');
+  }
+  if (has('CONNECTED نرسید') || has('START-CORE') || has('کانفیگ را هسته نپذیرفت')) {
+    return h('E-START-CORE',
+        'app_main/main.dart → _start (timeout وضعیت CONNECTED)',
+        'هسته برای این کانفیگ به CONNECTED نرسید (کانفیگ بد یا بلاک).',
+        'آن سرور رد می‌شود. اگر برای همه‌ی سرورهاست مجوز VPN و نسخه‌ی هسته را چک کن؛ وگرنه فقط آن کانفیگ خراب است.');
+  }
+  if (has('کانفیگ ناموفق') || has('CONFIG-FAIL')) {
+    return h('E-CONFIG-FAIL',
+        'app_main/main.dart → _connectLoop / _start',
+        'این کانفیگ مشخصاً وصل نشد (پروتکل/آدرس/پورت/transport).',
+        'سرور بعدی را امتحان کن؛ اگر path شامل proxyip است لینک استاندارد بگیر؛ شکست‌های هم‌نوع موقتاً در لیست سیاه می‌مانند.');
+  }
+  if (has('پورت هسته') || has('سایت‌چک') || has('چک سایت')) {
+    return h('E-SITE-CHECK',
+        'app_main/main.dart → چک سایت‌ها / ping از تونل',
+        'تست سایت از داخل تونل کامل نشد (گاهی پورت HTTP هسته در حالت VPN بسته است).',
+        'اگر سرعت واقعی و پینگ تونل OK است نادیده بگیر. نسخه‌ی جدید خلبان با سرعت واقعی تعویض نمی‌کند.');
+  }
+  if (has('علت تعویض:')) {
+    return h('E-SWAP-REASON',
+        'app_main/main.dart → _swapTo / _failover (ثبت علت)',
+        'ثبت دلیل تعویض سرور (خلبان، هسته، پینگ، و غیره).',
+        'متن بعد از «علت تعویض:» را بخوان؛ همان کد متناظر (E-PILOT / E-CORE-DROP / …) را اعمال کن. اگر علت خلبان بود و اتصال خوب بود، نسخه‌ی جدید hold سه‌دقیقه‌ای دارد.');
+  }
+  if (has('وضعیت:')) {
+    return h('E-STATUS-INFO',
+        'app_main/main.dart → dbgStatus / _set',
+        'پیام وضعیت پیشرفت (جستجو، اتصال، توربو، …)؛ لزوماً خطا نیست.',
+        'اگر فقط اطلاع‌رسانی است نادیده بگیر. اگر همراه قطعی مکرر است، کدهای E-CORE-DROP و E-PILOT-SWITCH را در همین گزارش ببین.');
+  }
+
+  // ---- fallback هوشمند: هرگز null برنگردان ----
+  final where = has('@')
+      ? 'محل ثبت: بعد از «@» در همین خط'
+      : 'app_main/main.dart یا lib/iran_ai_extras.dart (لاگ عمومی)';
+  var cause = 'رویداد ثبت‌شده در گزارش؛ الگوی از‌پیش‌تعریف‌شده نداشت.';
+  var fix = 'اپ را یک‌بار قطع و وصل کن؛ اگر تکرار شد لیست سیاه را پاک کن و دوباره اتصال بزن.';
+  if (has('قطع') || has('DISCONNECT')) {
+    cause = 'قطع اتصال یا وضعیت DISCONNECTED ثبت شده.';
+    fix = 'اگر عمدی نبوده: بهینه‌سازی باتری را خاموش کن و دوباره وصل شو. اگر هنگام تعویض است طبیعی است.';
+  } else if (has('timeout') || has('Timeout') || has('تایم')) {
+    cause = 'عملیات در زمان مشخص تمام نشد (شبکه کند یا سرور بی‌پاسخ).';
+    fix = 'تایم‌اوت را در تنظیمات کمی بیشتر کن (۸–۱۲ث)؛ اینترنت پایدارتر امتحان کن.';
+  } else if (has('DNS') || has('dns')) {
+    cause = 'مشکل یا تأخیر در DNS.';
+    fix = 'DNS امن (DoH) را در تنظیمات روشن نگه دار؛ یک‌بار حالت هواپیما را بزن و خاموش کن.';
+  } else if (has('مجوز') || has('permission') || has('VPN')) {
+    cause = 'مجوز VPN یا دسترسی سیستم.';
+    fix = 'در تنظیمات اندروید → برنامه‌ها → این اپ → VPN/مجوزها را اجازه بده؛ یک‌بار دستی وصل کن.';
+  } else if (has('باتری') || has('battery')) {
+    cause = 'محدودیت باتری اندروید ممکن است سرویس VPN را بکشد.';
+    fix = 'بهینه‌سازی باتری این اپ را «بدون محدودیت» یا «عدم بهینه‌سازی» بگذار.';
+  } else if (has('جستجو') || has('صف') || has('لیست')) {
+    cause = 'مربوط به جستجو یا صف سرورها.';
+    fix = 'صبر کن تا جستجو تمام شود؛ اگر صف خالی است اتصال دوباره بزن تا لیست تازه بگیرد.';
+  } else if (has('پینگ') || has('ping')) {
+    cause = 'پینگ ناموفق یا بد.';
+    fix = 'سرور دیگری انتخاب کن؛ اگر همه پینگ بد دارند اینترنت/اپراتور را چک کن.';
+  } else if (has('Mux') || has('Fragment') || has('توربو')) {
+    cause = 'تنظیمات throughput (Mux/Fragment/توربو).';
+    fix = 'توربو را روشن و Fragment را خاموش نگه دار؛ بعد از پیام «توربو فعال» سرعت را بسنج.';
+  }
+  return h('E-GENERIC', where, cause, fix);
 }
 
 // the report section: every problem with where / cause / fix
@@ -1109,6 +1242,7 @@ String _dbgProbText() {
   final b = StringBuffer(
       '== مشکل‌های پیدا شده (${l.length} نوع • $total بار) ==\n');
   b.write('تا «پاک کردن» نزنی همه می‌مانند؛ عدد جلوی هر مورد = تعداد کل بار (همه‌ی اجراها)\n');
+  b.write('هر مورد کد + علت + راه حل دارد — نیازی به فرستادن برای AI نیست مگر باگ کد (E-ERR-BUG)\n');
   b.write('شماره‌ی خط‌ها: main.dart پیوست همین Release\n');
   if (l.isEmpty) b.write('هیچ مشکلی ثبت نشده\n');
   final shown = <String>{};
@@ -1118,18 +1252,12 @@ String _dbgProbText() {
     b.write('$i) ${p.msg} • اولین ${_dbgStamp(p.first)} • '
         'آخرین ${_dbgStamp(p.last)} • ${p.n} بار\n');
     final h = _dbgHelpOf(p.msg);
-    if (h == null) {
-      b.write('   ❓ برای این مشکل هنوز راه حل ثبت نشده؛ کل گزارش را برای Claude بفرست\n');
-    } else {
-      b.write('   کد: ${h[0]}\n');
-      if (shown.add(h[0])) {
-        b.write('   📍 کجا: ${h[1]}\n');
-        b.write('   🔎 علت: ${h[2]}\n');
-        b.write('   🛠 راه حل: ${h[3]}\n');
-      } else {
-        b.write('   (کجا / علت / راه حل همین کد بالاتر آمده)\n');
-      }
-    }
+    // همیشه کد + محل + علت + راه حل کامل
+    b.write('   کد: ${h[0]}\n');
+    b.write('   📍 کجا: ${h[1]}\n');
+    b.write('   🔎 علت: ${h[2]}\n');
+    b.write('   🛠 راه حل: ${h[3]}\n');
+    shown.add(h[0]);
   }
   b.write('====================');
   return b.toString();
