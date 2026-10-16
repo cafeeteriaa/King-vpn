@@ -27,29 +27,65 @@ bool routeOnly = false; // دامنه‌ی sniff شده فقط برای مسیر
 String fragLen = '100-200'; // طول تکه‌های Fragment
 String fragInt = '10-20'; // فاصله‌ی تکه‌ها (میلی‌ثانیه)
 int muxConc = 32; // concurrency بالا برای سرعت بیشتر
-String dnsProv = 'auto'; // auto | cloudflare | google | quad9
+String dnsProv = 'auto'; // auto | cloudflare | google | quad9 | opendns | adguard | shecan | electro | radar
 /// آخرین ارائه‌دهندهٔ برنده‌شده وقتی dnsProv=auto است
 String dnsProvActive = 'cloudflare';
 DateTime? _dnsPickAt;
 const _fragLenOpts = <String>['100-200', '50-100', '10-30'];
 const _fragIntOpts = <String>['10-20', '1-5', '20-40'];
 const _muxOpts = <int>[4, 8, 16, 32];
-const _dnsOpts = <String>['auto', 'cloudflare', 'google', 'quad9'];
+const _dnsOpts = <String>[
+  'auto',
+  'cloudflare',
+  'google',
+  'quad9',
+  'opendns',
+  'adguard',
+  'shecan',
+  'electro',
+  'radar',
+];
 const _dnsUrls = <String, List<String>>{
   'cloudflare': [
     'https://1.1.1.1/dns-query',
     '1.1.1.1',
+    '1.0.0.1',
     '2606:4700:4700::1111',
   ],
   'google': [
     'https://8.8.8.8/dns-query',
     '8.8.8.8',
+    '8.8.4.4',
     '2001:4860:4860::8888',
   ],
   'quad9': [
     'https://9.9.9.9/dns-query',
     '9.9.9.9',
+    '149.112.112.112',
     '2620:fe::fe',
+  ],
+  'opendns': [
+    '208.67.222.222',
+    '208.67.220.220',
+    '2620:119:35::35',
+  ],
+  'adguard': [
+    'https://dns.adguard-dns.com/dns-query',
+    '94.140.14.14',
+    '94.140.15.15',
+    '2a10:50c0::ad1:ff',
+  ],
+  'shecan': [
+    '178.22.122.100',
+    '185.51.200.2',
+  ],
+  'electro': [
+    '78.157.42.100',
+    '78.157.42.101',
+  ],
+  'radar': [
+    '10.202.10.10',
+    '10.202.10.11',
   ],
 };
 
@@ -57,7 +93,42 @@ const _dnsUrls = <String, List<String>>{
 String effectiveDnsProv() =>
     dnsProv == 'auto' ? dnsProvActive : dnsProv;
 
-/// تست سریع سه ارائه‌دهنده و انتخاب کم‌تأخیرترین.
+/// تست DoH با HTTP
+Future<int?> _probeDoh(String url) async {
+  final sw = Stopwatch()..start();
+  final cl = HttpClient()..connectionTimeout = const Duration(seconds: 2);
+  try {
+    final req =
+        await cl.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 2));
+    req.headers.set('accept', 'application/dns-json');
+    final res = await req.close().timeout(const Duration(seconds: 2));
+    await res.drain().timeout(const Duration(seconds: 2));
+    if (res.statusCode >= 200 && res.statusCode < 400) {
+      return sw.elapsedMilliseconds;
+    }
+  } catch (_) {
+  } finally {
+    cl.close(force: true);
+  }
+  return null;
+}
+
+/// تست DNS فقط با IP (پورت ۵۳)
+Future<int?> _probeDnsIp(String ip) async {
+  final sw = Stopwatch()..start();
+  try {
+    final s = await Socket.connect(ip, 53,
+            timeout: const Duration(seconds: 2))
+        .timeout(const Duration(seconds: 2));
+    final ms = sw.elapsedMilliseconds;
+    s.destroy();
+    return ms;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// تست همهٔ ارائه‌دهنده‌ها و انتخاب کم‌تأخیرترین.
 /// نتیجه حدود ۱۰ دقیقه کش می‌شود.
 Future<String> pickBestDns({bool force = false}) async {
   if (dnsProv != 'auto') {
@@ -69,35 +140,43 @@ Future<String> pickBestDns({bool force = false}) async {
       DateTime.now().difference(_dnsPickAt!) < const Duration(minutes: 10)) {
     return dnsProvActive;
   }
-  const probes = <String, String>{
+
+  // DoH-capable providers
+  const dohProbes = <String, String>{
     'cloudflare': 'https://1.1.1.1/dns-query?name=google.com&type=A',
     'google': 'https://8.8.8.8/resolve?name=google.com&type=A',
     'quad9': 'https://9.9.9.9:5053/dns-query?name=google.com&type=A',
+    'adguard':
+        'https://94.140.14.14/dns-query?name=google.com&type=A',
   };
+  // Plain-IP providers (TCP :53)
+  const ipProbes = <String, String>{
+    'opendns': '208.67.222.222',
+    'shecan': '178.22.122.100',
+    'electro': '78.157.42.100',
+    'radar': '10.202.10.10',
+  };
+
   String best = 'cloudflare';
   var bestMs = 1 << 30;
-  await Future.wait(probes.entries.map((e) async {
-    final sw = Stopwatch()..start();
-    final cl = HttpClient()..connectionTimeout = const Duration(seconds: 2);
-    try {
-      final req = await cl
-          .getUrl(Uri.parse(e.value))
-          .timeout(const Duration(seconds: 2));
-      req.headers.set('accept', 'application/dns-json');
-      final res = await req.close().timeout(const Duration(seconds: 2));
-      await res.drain().timeout(const Duration(seconds: 2));
-      if (res.statusCode >= 200 && res.statusCode < 400) {
-        final ms = sw.elapsedMilliseconds;
-        if (ms < bestMs) {
-          bestMs = ms;
-          best = e.key;
-        }
+
+  await Future.wait([
+    ...dohProbes.entries.map((e) async {
+      final ms = await _probeDoh(e.value);
+      if (ms != null && ms < bestMs) {
+        bestMs = ms;
+        best = e.key;
       }
-    } catch (_) {
-    } finally {
-      cl.close(force: true);
-    }
-  }));
+    }),
+    ...ipProbes.entries.map((e) async {
+      final ms = await _probeDnsIp(e.value);
+      if (ms != null && ms < bestMs) {
+        bestMs = ms;
+        best = e.key;
+      }
+    }),
+  ]);
+
   dnsProvActive = best;
   _dnsPickAt = DateTime.now();
   return best;
@@ -784,11 +863,17 @@ String withNpvAmCore(String cfg) {
           }
         }
       }
-      // Always include common public DNS (IPv4 + IPv6)
+      // Always include common public + Iranian DNS as fallback chain
       for (final ip in [
         '1.1.1.1',
         '8.8.8.8',
         '9.9.9.9',
+        '208.67.222.222',
+        '94.140.14.14',
+        '178.22.122.100',
+        '185.51.200.2',
+        '78.157.42.100',
+        '10.202.10.10',
         '2606:4700:4700::1111',
         '2001:4860:4860::8888',
       ]) {
