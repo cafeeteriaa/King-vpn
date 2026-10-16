@@ -119,6 +119,12 @@ final List<String> _paths = [
   'lagzian/SS-Collector/main/configs/mixed/ss.txt',
   'lagzian/SS-Collector/main/configs/psg/reality.txt',
   'lagzian/SS-Collector/main/configs/psg/vmess.txt',
+  // verified live 2026-10-16
+  '3inker/v2ray-subscription/main/subs/all_not_ru.txt',
+  '3inker/v2ray-subscription/main/subs/all_ru.txt',
+  'free-nodes/v2rayfree/main/sub',
+  'ermaozi/get_subscribe/main/subscribe/v2ray.txt',
+  'Au1rxx/free-vpn-subscriptions/main/output/v2ray-base64.txt',
   // ---- the rest
   'SoliSpirit/v2ray-configs/refs/heads/main/all_configs.txt',
   'nyeinkokoaung404/V2ray-Configs/main/All_Configs_Sub.txt',
@@ -178,13 +184,17 @@ const hotOwners = {
   'hamedcode',
   'morpheusadam',
   'lagzian',
-  'Alirewa',
   'ZendanTeam',
   'miladtahanian',
-  'morpheusadam',
   'mmbateni',
   'liketolivefree',
   'Delta-Kronecker',
+  '3inker',
+  'free-nodes',
+  'ermaozi',
+  'Au1rxx',
+  'HosseinKoofi',
+  'youfoundamin',
 };
 
 // منابع با لیست verified/fast — در اتصال عادی اول تست می‌شوند
@@ -10195,7 +10205,7 @@ final List<String> _morePaths = [
 ];
 
 final List<String> _extraUrls = [
-  // Telegram public channels (web preview page): add more names here
+  // Telegram public channels (web preview page)
   for (final c in [
     'v2ray_configs_pool',
     'V2rayNG3',
@@ -10207,13 +10217,23 @@ final List<String> _extraUrls = [
     'v2rayng_org',
     'ConfigsHUB',
     'v2ray_free_conf',
+    'Configforvpn01',
+    'msv2ray',
+    'v2box_free',
+    'soonteam',
+    'FreakConfig',
+    'free2config',
+    'vip_fragment_v2ray',
   ])
     'https://t.me/s/$c',
-  // lists found in a search (full links; dead ones are skipped)
+  // full links (dead ones are skipped)
   'https://raw.githubusercontent.com/awesome-vpn/awesome-vpn/master/all',
   'https://raw.githubusercontent.com/Delta-Kronecker/V2ray-Config/refs/heads/main/config/protocols/vmess.txt',
   'https://raw.githubusercontent.com/Delta-Kronecker/V2ray-Config/refs/heads/main/config/protocols/vless.txt',
   'https://raw.githubusercontent.com/ebrasha/free-v2ray-public-list/refs/heads/main/all_extracted_configs.txt',
+  'https://raw.githubusercontent.com/3inker/v2ray-subscription/main/subs/all_not_ru.txt',
+  'https://raw.githubusercontent.com/free-nodes/v2rayfree/main/sub',
+  'https://raw.githubusercontent.com/Au1rxx/free-vpn-subscriptions/main/output/v2ray-base64.txt',
   // Iran-focused full URLs
   'https://raw.githubusercontent.com/ZendanTeam/SS44-sub/main/SS44-gold.txt',
   'https://raw.githubusercontent.com/liketolivefree/kobabi/main/sub.txt',
