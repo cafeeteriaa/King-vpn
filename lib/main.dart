@@ -3970,7 +3970,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (ovpnActive) {
       ovpnActive = false;
       try {
-        await ovpnCore.disconnect();
+        ovpnCore.disconnect();
       } catch (_swE) { _swl('_stopV2#2', _swE);}
       await Future.delayed(const Duration(milliseconds: 1200));
     }
@@ -5327,7 +5327,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       await Future.delayed(const Duration(milliseconds: 800));
       if (ovpnActive) {
         try {
-          await ovpnCore.disconnect();
+          ovpnCore.disconnect();
         } catch (e) {
           _swl('_startOvpn/prevDisconnect', e);
         }
@@ -5357,7 +5357,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!ok || ovpnStage != 'connected') {
         ovpnActive = false;
         try {
-          await ovpnCore.disconnect();
+          ovpnCore.disconnect();
         } catch (e) {
           _swl('_startOvpn/failDisconnect', e);
         }
@@ -5372,7 +5372,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       lastFail = 'OpenVPN: $e';
       logError(e);
       try {
-        await ovpnCore.disconnect();
+        ovpnCore.disconnect();
       } catch (e2) {
         _swl('_startOvpn/catchDisconnect', e2);
       }
@@ -5394,7 +5394,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       if (ovpnActive) {
         try {
-          await ovpnCore.disconnect();
+          ovpnCore.disconnect();
         } catch (e) {
           _swl('_startWg/ovpnDisconnect', e);
         }
@@ -7236,7 +7236,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       // OpenVPN / WireGuard هم اگر روشن بودند
       try {
-        if (ovpnActive) await ovpnCore.disconnect();
+        if (ovpnActive) ovpnCore.disconnect();
       } catch (e) {
         logError(e); // was silent — hid disconnect failures
       }
