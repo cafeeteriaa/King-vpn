@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_v2ray_client/flutter_v2ray.dart';
 import 'package:openvpn_flutter/openvpn_flutter.dart';
+import 'package:wireguard_flutter/wireguard_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:installed_apps/app_info.dart';
 import 'package:installed_apps/installed_apps.dart';
@@ -338,8 +339,8 @@ set lastFail(String v) {
 // links pasted with extra text around them ("@channel vless://...") are
 // cleaned: the first vmess/vless/trojan/ss link inside the text is used
 final _schemeRe =
-    RegExp(r'^(vmess|vless|trojan|ss|ovpn)://', caseSensitive: false);
-final _linkRe = RegExp(r'(vmess|vless|trojan|ss|ovpn)://[^\s<>"]+',
+    RegExp(r'^(vmess|vless|trojan|ss|ovpn|wireguard)://', caseSensitive: false);
+final _linkRe = RegExp(r'(vmess|vless|trojan|ss|ovpn|wireguard)://[^\s<>"]+',
     caseSensitive: false);
 
 // fast search state: if the parallel delay test never finds anything on this
@@ -1772,13 +1773,16 @@ class Server {
   bool ipTried = false;
   // OpenVPN: the full .ovpn text (null for every other protocol)
   String? ovpnConf;
+  // WireGuard: full wg-quick conf text
+  String? wgConf;
   bool udp = false; // OpenVPN over UDP cannot be TCP-probed
   bool get ovpn => ovpnConf != null;
+  bool get wg => wgConf != null;
   String get useLink => ipLink ?? link;
   bool get isIp => InternetAddress.tryParse(host) != null;
   bool get reality => link.contains('security=reality');
   bool get cdn {
-    if (ovpn) return false;
+    if (ovpn || wg) return false;
     final h = host.toLowerCase();
     if (h.endsWith('workers.dev') ||
         h.endsWith('pages.dev') ||
@@ -1805,7 +1809,8 @@ class Server {
     country = detectCountry(name);
   }
 
-  String get key => ovpn ? 'ovpn:$host:$port' : '$host:$port';
+  String get key =>
+      ovpn ? 'ovpn:$host:$port' : (wg ? 'wg:$host:$port' : '$host:$port');
 
   static Server? parse(String link) {
     try {
@@ -1822,6 +1827,11 @@ class Server {
         }
       }
       final l = link.toLowerCase();
+      // WireGuard: wireguard://PRIVATE_KEY@host:port?publickey=...&address=...
+      if (l.startsWith('wireguard://')) {
+        final sv = _parseWireguardUri(link);
+        if (sv != null) return sv;
+      }
       // OpenVPN: ovpn://<base64 of the .ovpn text>#<name>
       if (l.startsWith('ovpn://')) {
         final h = link.indexOf('#');
@@ -1910,6 +1920,93 @@ class Server {
       return null;
     }
   }
+}
+
+// wireguard://privateKey@host:port?publickey=...&address=...&mtu=...
+Server? _parseWireguardUri(String link) {
+  try {
+    final u = Uri.parse(link);
+    if (u.scheme.toLowerCase() != 'wireguard') return null;
+    final userInfo = Uri.decodeComponent(u.userInfo);
+    if (userInfo.isEmpty) return null;
+    final host = u.host;
+    final port = u.port > 0 ? u.port : 51820;
+    if (host.isEmpty) return null;
+    final q = u.queryParameters;
+    final pub = q['publickey'] ?? q['publicKey'] ?? '';
+    if (pub.isEmpty) return null;
+    final addr = q['address'] ?? q['Address'] ?? '10.0.0.2/32';
+    final dns = q['dns'] ?? q['DNS'] ?? '1.1.1.1';
+    final mtu = q['mtu'] ?? q['MTU'] ?? '1280';
+    final psk = q['presharedkey'] ?? q['presharedKey'] ?? '';
+    final reserved = q['reserved'] ?? '';
+    final name = u.fragment.isNotEmpty
+        ? Uri.decodeComponent(u.fragment)
+        : 'WG $host:$port';
+    final conf = StringBuffer()
+      ..writeln('[Interface]')
+      ..writeln('PrivateKey = $userInfo')
+      ..writeln('Address = $addr')
+      ..writeln('DNS = $dns')
+      ..writeln('MTU = $mtu')
+      ..writeln()
+      ..writeln('[Peer]')
+      ..writeln('PublicKey = ${Uri.decodeComponent(pub)}')
+      ..writeln('Endpoint = $host:$port')
+      ..writeln('AllowedIPs = 0.0.0.0/0, ::/0')
+      ..writeln('PersistentKeepalive = 25');
+    if (psk.isNotEmpty) {
+      conf.writeln('PresharedKey = ${Uri.decodeComponent(psk)}');
+    }
+    // reserved is WARP-specific; ignored by stock WireGuard if unknown
+    if (reserved.isNotEmpty) {
+      conf.writeln('# reserved=$reserved');
+    }
+    final sv = Server(link, name, host, port);
+    sv.wgConf = conf.toString();
+    sv.udp = true;
+    sv.tls = true;
+    sv.net = 'wireguard';
+    return sv;
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<List<Server>> fetchWireguard() async {
+  const urls = [
+    'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/wireguard.txt',
+    'https://cdn.jsdelivr.net/gh/morpheusadam/v2ray-config@main/subs/bundles/wireguard.txt',
+  ];
+  final all = <String, Server>{};
+  for (final u in urls) {
+    try {
+      final r =
+          await http.get(Uri.parse(u)).timeout(const Duration(seconds: 18));
+      if (r.statusCode != 200) continue;
+      var body = r.body;
+      if (!body.contains('wireguard://') &&
+          RegExp(r'^[A-Za-z0-9+/=\s]+$').hasMatch(body.trim())) {
+        try {
+          body = utf8.decode(base64.decode(base64.normalize(body.replaceAll(RegExp(r'\s'), ''))),
+              allowMalformed: true);
+        } catch (_) {}
+      }
+      for (final m in RegExp(r'wireguard://[^\s<>"]+', caseSensitive: false)
+          .allMatches(body)) {
+        final s = Server.parse(m.group(0)!);
+        if (s != null && s.wg) {
+          s.src = 'wg:${Uri.parse(u).pathSegments.take(2).join('/')}';
+          all.putIfAbsent(s.key, () => s);
+        }
+      }
+      if (all.isNotEmpty) break;
+    } catch (e) {
+      logError(e);
+    }
+  }
+  final l = all.values.toList()..shuffle();
+  return l.take(60).toList();
 }
 
 // a pasted .ovpn file (several lines with a "remote host port" line)
@@ -2933,6 +3030,12 @@ Future<List<Server>> fetchServers({bool Function()? stop}) async {
       all.putIfAbsent(s.key, () => s);
     }
   }
+  // WireGuard public lists
+  if (!(stop?.call() ?? false)) {
+    for (final s in await fetchWireguard()) {
+      all.putIfAbsent(s.key, () => s);
+    }
+  }
   return all.values.toList();
 }
 
@@ -2955,6 +3058,7 @@ final rowDefs = <RowDef>[
   RowDef('trojan', '🌑 Trojan', (s) => s.link.startsWith('trojan://')),
   RowDef('ss', '🔐 Shadowsocks (Outline)', (s) => s.link.startsWith('ss://')),
   RowDef('ovpn', '🛡️ OpenVPN', (s) => s.ovpn),
+  RowDef('wg', '🔐 WireGuard', (s) => s.wg),
   
   // shown as its own fixed row (second line of the list), see build()
   RowDef('ai', '🤖 سرورهای مخصوص هوش مصنوعی', (s) => s.ai == true && s.ping != null),
@@ -3072,6 +3176,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   late final OpenVPN ovpnCore;
   bool ovpnActive = false; // the OpenVPN engine was started and not stopped
   String ovpnStage = '';
+  bool wgActive = false;
+  bool wgReady = false;
   // ALL healthy servers (no count limit). Servers saved from the last session
   // are loaded here too (checkedAt == null) and tested first.
   final List<Server> good = [];
@@ -3204,9 +3310,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return t != null && DateTime.now().difference(t) < failWindow;
   }
 
-  // true when the active row / protocol filter is OpenVPN: only OpenVPN
-  // servers are candidates then (the other engines cannot run them)
+  // true when the active row / protocol filter is OpenVPN / WireGuard:
+  // only that engine's servers are candidates (one VpnService at a time)
   bool get _ovMode => connRow == 'r:ovpn' || proto == 'ovpn';
+  bool get _wgMode => connRow == 'r:wg' || proto == 'wireguard' || proto == 'wg';
+  bool _engineMatch(Server s) {
+    if (_ovMode) return s.ovpn;
+    if (_wgMode) return s.wg;
+    return !s.ovpn && !s.wg;
+  }
 
   // healthy servers, best first
   List<Server> _usable() => good
@@ -3221,7 +3333,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int _ready([String? row]) => _usable()
       .where((s) =>
           !identical(s, current) &&
-          (row == null ? s.ovpn == _ovMode : inRowGid(s, row)))
+          (row == null ? _engineMatch(s) : inRowGid(s, row)))
       .length;
 
   int get standbyCount => _ready();
@@ -3331,7 +3443,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // the last session count), servers without a speed are ordered by ping.
   List<Server> _pickList() {
     final u = _usable()
-        .where((s) => !identical(s, current) && s.ovpn == _ovMode)
+        .where((s) => !identical(s, current) && _engineMatch(s))
         .toList()
       ..sort((a, b) {
         final sv = _svcRank(b) - _svcRank(a); // MULTICHK + TGPREFER
@@ -3726,7 +3838,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     abort = false;
   }
 
-  // stops both engines (V2Ray core and OpenVPN)
+  // stops V2Ray + OpenVPN + WireGuard (one VpnService at a time)
   Future<void> _stopV2() async {
     try {
       await v2ray.stopV2Ray();
@@ -3736,6 +3848,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       try {
         await ovpnCore.disconnect();
       } catch (_swE) { _swl('_stopV2#2', _swE);}
+      await Future.delayed(const Duration(milliseconds: 1200));
+    }
+    if (wgActive) {
+      wgActive = false;
+      try {
+        await WireGuardFlutter.instance.stopVpn();
+      } catch (_swE) { _swl('_stopV2#wg', _swE);}
       await Future.delayed(const Duration(milliseconds: 1200));
     }
   }
@@ -4312,11 +4431,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   // can this server be a test candidate for the given row?
-  // OpenVPN servers are only tested for the OpenVPN row (or the OpenVPN
-  // protocol filter); every other row never touches them.
+  // OpenVPN / WireGuard only for their own row; V2Ray rows never touch them.
   bool _cand(Server s, String? row) {
     if (s.ovpn) return row == 'r:ovpn' || (row == null && proto == 'ovpn');
-    if (row == 'r:ovpn') return false;
+    if (s.wg) {
+      return row == 'r:wg' ||
+          (row == null && (proto == 'wireguard' || proto == 'wg'));
+    }
+    if (row == 'r:ovpn' || row == 'r:wg') return false;
     if (row == null) return true;
     if (row == 'r:ai') return true; // every server is a Gemini candidate
     if (row == 'r:ip') return !s.link.startsWith('ss://'); // resolved to IP
@@ -4683,7 +4805,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         s.ai = false; // exit country without Gemini: no test needed
         continue;
       }
-      final isO = s.ovpn;
+      final isO = s.ovpn || s.wg;
       final tunnelMode = (viaVpn || isO) && row != 'r:ai';
       _set('تست ${realTested + 1}/${alive.length} • TCP:$dTcp • '
           'سالم:${_usable().length}${tunnelMode ? ' • VPN' : ''}');
@@ -4939,7 +5061,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final okLeft = _usable()
         .where((s) =>
             !identical(s, current) &&
-            s.ovpn == _ovMode &&
+            _engineMatch(s) &&
             !s.personal &&
             s.miss == 0 &&
             !((s.speed ?? 99) * 1024 < minSpeedKB))
@@ -5115,6 +5237,54 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  Future<bool> _startWg(Server s) async {
+    final cfg = s.wgConf;
+    if (cfg == null || cfg.trim().isEmpty) {
+      lastFail = 'کانفیگ WireGuard خالی است';
+      return false;
+    }
+    try {
+      try {
+        await v2ray.stopV2Ray();
+      } catch (_) {}
+      if (ovpnActive) {
+        try {
+          await ovpnCore.disconnect();
+        } catch (_) {}
+        ovpnActive = false;
+      }
+      if (wgActive) {
+        try {
+          await WireGuardFlutter.instance.stopVpn();
+        } catch (_) {}
+        wgActive = false;
+        await Future.delayed(const Duration(milliseconds: 800));
+      }
+      if (!wgReady) {
+        await WireGuardFlutter.instance.initialize(interfaceName: 'wg0');
+        wgReady = true;
+      }
+      wgActive = true;
+      await WireGuardFlutter.instance.startVpn(
+        serverAddress: '${s.host}:${s.port}',
+        wgQuickConfig: cfg,
+        providerBundleIdentifier: 'com.kingvpn.king_vpn',
+      );
+      // give the tunnel a moment; package has no reliable connected completer
+      await Future.delayed(const Duration(seconds: 4));
+      dbg('WireGuard start requested • ${s.name}');
+      return true;
+    } catch (e) {
+      wgActive = false;
+      lastFail = 'WireGuard: $e';
+      logError(e);
+      try {
+        await WireGuardFlutter.instance.stopVpn();
+      } catch (_) {}
+      return false;
+    }
+  }
+
   // proxyOnly = silent test core (used by the tests).
   // proxyMode (setting) = the REAL connection is also only a local proxy:
   // no VPN permission, no tunnel, no key icon.
@@ -5122,6 +5292,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     lastStartNoTunnel = false;
     lastFail = '';
     if (s.ovpn) return _startOvpn(s);
+    if (s.wg) return _startWg(s);
     final po = proxyOnly || proxyMode;
     try {
       final nv = natVarFor(s); // NATULTRA: same variant that passed the test
@@ -7180,7 +7351,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final l = _usable()
         .where((s) =>
             !identical(s, current) &&
-            s.ovpn == _ovMode &&
+            _engineMatch(s) &&
             !s.personal &&
             s.miss == 0 &&
             s.ping != null &&
