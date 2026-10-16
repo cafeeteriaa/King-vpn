@@ -127,7 +127,7 @@ extension UpdateCheck on _HomePageState {
       try {
         await launchUrl(Uri.parse(apkUrl),
             mode: LaunchMode.externalApplication);
-      } catch (_) {}
+      } catch (e) { logError(e); }
       _set('آپدیت: از مرورگر نصب کن');
     }
   }
@@ -141,6 +141,6 @@ extension UpdateCheck on _HomePageState {
       final mc = (_remoteHeal['muxConc'] as num?)?.toInt();
       if (mc != null && mc >= 8) muxConc = mc.clamp(8, 64);
       dbg('ترمیم از راه دور اعمال شد: $_remoteHeal');
-    } catch (_) {}
+    } catch (e) { logError(e); }
   }
 }
