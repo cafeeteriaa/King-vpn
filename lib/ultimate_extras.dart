@@ -95,8 +95,8 @@ extension UltimateExt on _HomePageState {
   void startNetWatch() {
     _netWatchTimer?.cancel();
     if (!autoNetReconnect) return;
-    _netWatchTimer = Timer.periodic(const Duration(seconds: 25), (_) async {
-      if (!mounted || !wantVpn) return;
+    _netWatchTimer = Timer.periodic(const Duration(seconds: 30), (_) async {
+      if (!mounted || !wantVpn || busy || switching) return;
       try {
         final fp = await _netFingerprint();
         if (_lastNetFp.isEmpty) {
@@ -105,15 +105,17 @@ extension UltimateExt on _HomePageState {
         }
         if (fp != _lastNetFp) {
           _lastNetFp = fp;
-          if (wantVpn && !busy && !switching) {
+          // دیگر disconnect کامل نمی‌کند (با واچ‌داگ اصلی تداخل داشت)
+          // فقط اگر قطع شده باشد وصل مجدد می‌کند؛ وگرنه فقط fails را بالا می‌برد
+          if (!connected && wantVpn && !busy && !switching) {
             reconnectCount++;
             lastWhy = 'تغییر شبکه';
-            _set('شبکه عوض شد — وصل مجدد خودکار...');
-            if (connected) {
-              await disconnect();
-              wantVpn = true;
-            }
+            _set('شبکه عوض شد — وصل مجدد...');
             await connect();
+          } else if (connected) {
+            // اجازه بده واچ‌داگ اصلی یک‌بار چک فوری کند
+            fails = max(fails, watchFailLimit - 1);
+            dbg('تغییر شبکه تشخیص داده شد؛ بررسی فوری به واچ‌داگ سپرده شد');
           }
         }
       } catch (e) {
