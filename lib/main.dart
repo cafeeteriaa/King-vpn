@@ -417,39 +417,55 @@ int _tuneRate(int? lat, double? kb) {
   return 1;
 }
 
-// the values stay inside the real slider ranges of the settings page
+// مداد جادویی — سه سطح هم‌تراز پروفایل BEST (نه مقادیر قدیمی low-data)
 void _tuneApply(int lv) {
+  // fastWorkers همیشه ۵۰ می‌ماند
   if (lv == 0) {
-    // weak / filtered network: fewer parallel tests, longer waits, and do not
-    // switch servers for every small glitch
-    // fastWorkers stays 50 (FASTSET)
-    bgWorkers = 1;
-    delayTimeout = const Duration(seconds: 8);
+    // شبکه ضعیف / فیلتر: صبر بیشتر، تعویض کمتر حساس
+    bgWorkers = 2;
+    delayTimeout = const Duration(seconds: 12);
     batchSize = 100;
-    minSpeedKB = 0;
-    badPingMs = 5000;
-    badPingLimit = 3;
+    firstBatchSize = 40;
+    minSpeedKB = 40;
+    badPingMs = 4500;
+    badPingLimit = 4;
     watchFailLimit = 4;
+    watchEvery = const Duration(seconds: 40);
+    speedTopN = 3;
+    autoSpeed = true;
+    badPingSwitch = true;
   } else if (lv == 2) {
-    // fast network: more parallel tests, strict about slow servers
-    // fastWorkers stays 50 (FASTSET)
-    bgWorkers = 1;
-    delayTimeout = const Duration(seconds: 5);
-    batchSize = 100;
-    minSpeedKB = 0;
-    badPingMs = 3000;
-    badPingLimit = 3;
-    watchFailLimit = 3;
-  } else {
-    // normal = the app's own defaults
-    // fastWorkers stays 50 (FASTSET)
-    bgWorkers = 1;
+    // شبکه سریع: سخت‌گیرتر روی سرعت و پینگ
+    bgWorkers = 4;
     delayTimeout = const Duration(seconds: 6);
-    batchSize = 100;
-    minSpeedKB = 0;
-    badPingMs = 3000;
+    batchSize = 140;
+    firstBatchSize = 60;
+    minSpeedKB = 120;
+    badPingMs = 1800;
+    badPingLimit = 2;
+    watchFailLimit = 2;
+    watchEvery = const Duration(seconds: 25);
+    speedTopN = 6;
+    autoSpeed = true;
+    autoUpgrade = true;
+    badPingSwitch = true;
+    turboSpeed = true;
+  } else {
+    // معمولی = BEST پیش‌فرض اپ
+    bgWorkers = 3;
+    delayTimeout = const Duration(seconds: 8);
+    batchSize = 120;
+    firstBatchSize = 50;
+    minSpeedKB = 80;
+    badPingMs = 2500;
     badPingLimit = 3;
     watchFailLimit = 3;
+    watchEvery = const Duration(seconds: 30);
+    speedTopN = 5;
+    autoSpeed = true;
+    autoUpgrade = true;
+    badPingSwitch = true;
+    turboSpeed = true;
   }
 }
 
@@ -516,6 +532,9 @@ Future<void> autoTuneNow({bool force = false}) async {
     _tuneLog('[AutoTune] $tuneInfo | fw=$fastWorkers bw=$bgWorkers '
         'to=${delayTimeout.inSeconds}s minKB=$minSpeedKB '
         'badPing=${badPingMs}ms limits=$badPingLimit/$watchFailLimit');
+    try {
+      saveNumPrefs();
+    } catch (_) {}
   } catch (e) {
     _tuneLog('[AutoTuneError] $e');
   } finally {
@@ -7062,6 +7081,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     stopNetWatch();
     stopGrokPilot();
     stopLocalPilot();
+    abort = true; // جستجوی در جریان را هم قطع کن
     wantVpn = false;
     pendingFailover = false;
     switching = true;
@@ -7078,12 +7098,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await v2ray.stopV2Ray();
         } catch (_swE) { _swl('disconnect#orphan', _swE);}
       }
+      // OpenVPN / WireGuard هم اگر روشن بودند
+      try {
+        if (ovpnActive) await ovpnCore.disconnect();
+      } catch (_) {}
+      try {
+        if (wgActive) await WireGuardFlutter.instance.stopVpn();
+      } catch (_) {}
+      ovpnActive = false;
+      wgActive = false;
     } catch (e) {
       logError(e);
     }
     current = null;
     upServer = null;
     tunWarn = false;
+    abort = false;
     if (mounted) setState(() => connected = false);
     _saveCache(); // the healthy servers are kept for the next start
     _set('قطع شد');
