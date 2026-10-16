@@ -265,7 +265,7 @@ extension NetDiagExt on _HomePageState {
     final ch = autoNetApply(v);
     if (ch.isNotEmpty) {
       await _saveSettings();
-      if (mounted) setState(() {});
+      // _set already triggers setState
       _set('حالت شبکه خودکار: ${ch.join('، ')}');
     }
   }
@@ -286,7 +286,7 @@ extension NetDiagExt on _HomePageState {
           final lines = ch.map((e) => '• $e').join('\n');
           res = '$t\n🤖 تنظیم خودکار انجام شد:\n$lines';
           await _saveSettings();
-          if (mounted) setState(() {});
+          _set(status); // refresh UI after settings change
         } else {
           res = '$t\n🤖 حالت شبکه خودکار است و تنظیمات فعلی با این شبکه جور است؛ چیزی عوض نشد.';
         }
