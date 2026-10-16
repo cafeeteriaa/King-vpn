@@ -1646,6 +1646,8 @@ String _reliableVpnCfg(String cfg) {
 
 // completes when the VPN tunnel reports CONNECTED
 Completer<bool>? connSig;
+// RARE BUG FIX: generation to ignore late CONNECTED from a previous start
+int _connGen = 0;
 // جدید: completes when the V2Ray core really reports DISCONNECTED
 Completer<bool>? downSig;
 // completes when the OpenVPN engine reports connected
@@ -3526,7 +3528,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             final other = _pickList().any((x) => x.svc < 0 || (x.svc & 1) != 0);
             if (other) {
               lastWhy = 'تلگرام روی این سرور باز نمی‌شود';
-              _failover();
+              unawaited(_failover().catchError((e) => logError(e)));
             }
           } else {
             _tgChkAt = DateTime.now().subtract(const Duration(minutes: 2));
@@ -3601,7 +3603,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           dropTimer = Timer(const Duration(seconds: 2), () {
             if (wantVpn && ovpnStage != 'connected' && !busy && !switching) {
               lastWhy = 'اتصال OpenVPN قطع شد';
-              _failover();
+              unawaited(_failover().catchError((e) => logError(e)));
             }
           });
         } else if (n == 'connected' && current?.ovpn == true) {
@@ -3665,7 +3667,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               !netDown &&
               !switching) {
             lastWhy = 'هسته/اندروید اتصال را قطع کرد';
-            _failover();
+            unawaited(_failover().catchError((e) => logError(e)));
           }
         });
       }
@@ -3704,7 +3706,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (inForeground && mounted) setState(() {});
     if (inForeground && pendingFailover) {
       pendingFailover = false;
-      if (wantVpn && !busy) _failover();
+      if (wantVpn && !busy) {
+        unawaited(_failover().catchError((e) => logError(e)));
+      }
     }
   }
 
@@ -3791,8 +3795,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // WARM-UP: download the server lists and rank the sources right at launch
     // (only when the VPN is not already running), so the first connect starts
     // testing at once instead of waiting for the download.
-    if (!connected && !startAdopt == false) {
-      // startAdopt is still true in the first 15 s: give _adopt a moment
+    // SERIOUS: was written as !startAdopt == false (confusing precedence).
+    // Intent: wait 2s only while startAdopt is still true (first 15s).
+    if (!connected && startAdopt) {
       await Future.delayed(const Duration(seconds: 2));
     }
     if (!connected && !wantVpn && !busy && !searching) {
@@ -3902,7 +3907,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             'اپ وصل است ولی هسته قطع است • خودکار تعویض شد');
         setState(() => connected = false);
         lastWhy = 'هسته/اندروید اتصال را قطع کرد';
-        _failover();
+        unawaited(_failover().catchError((e) => logError(e)));
         return true;
       }
       _syncBad = 0;
@@ -5305,12 +5310,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // one VpnService at a time
       try {
         await v2ray.stopV2Ray();
-      } catch (_) {}
+      } catch (e) {
+        _swl('_startOvpn/stopV2', e);
+      }
       await Future.delayed(const Duration(milliseconds: 800));
       if (ovpnActive) {
         try {
           await ovpnCore.disconnect();
-        } catch (_) {}
+        } catch (e) {
+          _swl('_startOvpn/prevDisconnect', e);
+        }
         ovpnActive = false;
         await Future.delayed(const Duration(milliseconds: 1000));
       }
@@ -5328,19 +5337,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         certIsRequired: false,
       );
       // RARE BUG FIX: complete Completer on timeout to avoid late event races
-      final waitOvpn = ovpnSig;
-      final ok = await waitOvpn!.future
+      final waitOvpn = ovpnSig!;
+      final ok = await waitOvpn.future
           .timeout(const Duration(seconds: 28), onTimeout: () {
-        if (waitOvpn != null && !waitOvpn.isCompleted) {
-          waitOvpn.complete(false);
-        }
+        if (!waitOvpn.isCompleted) waitOvpn.complete(false);
         return false;
       });
       if (!ok || ovpnStage != 'connected') {
         ovpnActive = false;
         try {
           await ovpnCore.disconnect();
-        } catch (_) {}
+        } catch (e) {
+          _swl('_startOvpn/failDisconnect', e);
+        }
         lastFail = 'OpenVPN به connected نرسید (${s.name})';
         dbg('OpenVPN fail stage=$ovpnStage • ${s.name}');
         return false;
@@ -5353,7 +5362,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       logError(e);
       try {
         await ovpnCore.disconnect();
-      } catch (_) {}
+      } catch (e2) {
+        _swl('_startOvpn/catchDisconnect', e2);
+      }
       return false;
     }
   }
@@ -5367,17 +5378,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     try {
       try {
         await v2ray.stopV2Ray();
-      } catch (_) {}
+      } catch (e) {
+        _swl('_startWg/stopV2', e);
+      }
       if (ovpnActive) {
         try {
           await ovpnCore.disconnect();
-        } catch (_) {}
+        } catch (e) {
+          _swl('_startWg/ovpnDisconnect', e);
+        }
         ovpnActive = false;
       }
       if (wgActive) {
         try {
           await WireGuardFlutter.instance.stopVpn();
-        } catch (_) {}
+        } catch (e) {
+          _swl('_startWg/prevStop', e);
+        }
         wgActive = false;
         await Future.delayed(const Duration(milliseconds: 800));
       }
@@ -5401,7 +5418,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       logError(e);
       try {
         await WireGuardFlutter.instance.stopVpn();
-      } catch (_) {}
+      } catch (e2) {
+        _swl('_startWg/catchStop', e2);
+      }
       return false;
     }
   }
@@ -5481,6 +5500,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final tunWait1 = (nationalMode || indestructibleMode) ? 1600 : 1100;
       final tunWait2 = (nationalMode || indestructibleMode) ? 2000 : 1400;
       for (var attempt = 0; attempt < 2; attempt++) {
+        // RARE BUG FIX: generation so late CONNECTED from attempt 0
+        // cannot complete attempt 1's waiter
+        final myGen = ++_connGen;
         connSig = Completer<bool>();
         // blockedApps = apps that skip the VPN (null when none are chosen,
         // so the behaviour is exactly the same as before)
@@ -5490,15 +5512,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             proxyOnly: false,
             blockedApps: bypassApps.isEmpty ? null : bypassApps);
         // the core must report CONNECTED (it can hang in CONNECTING)
-        // RARE BUG FIX: on timeout complete the Completer so a late CONNECTED
-        // event cannot complete a newer attempt's connSig by mistake
-        final waitSig = connSig;
-        ready = await waitSig!.future.timeout(connWait, onTimeout: () {
-          if (waitSig != null && !waitSig.isCompleted) {
-            waitSig.complete(false);
-          }
+        final waitSig = connSig!;
+        ready = await waitSig.future.timeout(connWait, onTimeout: () {
+          if (!waitSig.isCompleted) waitSig.complete(false);
           return false;
         });
+        if (myGen != _connGen) ready = false; // superseded
         t = null;
         if (ready) {
           // give the tunnel time to appear (OEM devices can be slow)
@@ -5547,8 +5566,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             tries: 3);
       }
       if (earlyPing == null) {
+        // SERIOUS BUG FIX: this is a DEAD SERVER (fake CONNECTED), not an
+        // Android tunnel problem. Must NOT set lastStartNoTunnel or the
+        // server is never blacklisted and tunFailRun rises wrongly.
         lastFail = 'وصل شد ولی اینترنت رد نشد (ترافیک تونل صفر)';
-        lastStartNoTunnel = true;
+        lastStartNoTunnel = false;
         dbg('شروع ناموفق: CONNECTED+tun ولی ترافیک رد نشد • ${s.name}');
         await _stopCore();
         return false;
@@ -6500,7 +6522,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 Navigator.pop(ctx);
                 natForce = true;
                 _resNext = true;
-                connect();
+                unawaited(connect().catchError((e) => logError(e)));
               },
             ),
             ListTile(
@@ -6510,7 +6532,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               onTap: () {
                 Navigator.pop(ctx);
                 _resNext = true;
-                connect();
+                unawaited(connect().catchError((e) => logError(e)));
               },
             ),
             ListTile(
@@ -7170,10 +7192,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // OpenVPN / WireGuard هم اگر روشن بودند
       try {
         if (ovpnActive) await ovpnCore.disconnect();
-      } catch (_) {}
+      } catch (e) {
+        logError(e); // was silent — hid disconnect failures
+      }
       try {
         if (wgActive) await WireGuardFlutter.instance.stopVpn();
-      } catch (_) {}
+      } catch (e) {
+        logError(e);
+      }
       ovpnActive = false;
       wgActive = false;
     } catch (e) {
@@ -7184,7 +7210,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     tunWarn = false;
     abort = false;
     if (mounted) setState(() => connected = false);
-    _saveCache(); // the healthy servers are kept for the next start
+    // was fire-and-forget — cache could be lost on crash right after disconnect
+    unawaited(_saveCache().catchError((e) => logError(e)));
     _set('قطع شد');
     _chShown = false;
     _unlockLater();
@@ -8126,12 +8153,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             _aiChkBad = 0;
             cur.ai = false;
             lastWhy = 'Gemini روی این سرور باز نمی‌شود';
-            _failover();
+            unawaited(_failover().catchError((e) => logError(e)));
           } else {
             _aiChkAt = DateTime.now().subtract(const Duration(minutes: 2));
           }
         }
-      }).catchError((_) {}).whenComplete(() => _aiChkBusy = false);
+      }).catchError((e) { logError(e); }).whenComplete(() => _aiChkBusy = false);
     } catch (e) {
       logError(e);
     }
