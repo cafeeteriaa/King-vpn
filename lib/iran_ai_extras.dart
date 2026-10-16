@@ -1346,14 +1346,17 @@ extension HomeExtras on _HomePageState {
     wantVpn = true;
     abort = false;
     turboSpeed = true;
+    // کم‌مصرف: خلبان دیگر حالت شکست‌ناپذیر (جستجوی بی‌پایان) را اجباری نمی‌کند
+    // تا دیتای اینترنت زیاد مصرف نشود. در صورت نیاز کاربر خودش روشن می‌کند.
     if (!ultraMode) {
       ultraMode = true;
       _pilotForcedUltra = true;
     }
-    if (!indestructibleMode) {
-      indestructibleMode = true;
-      _pilotForcedIndestructible = true;
-    }
+    // keep current indestructibleMode — do not force it on (saves data)
+    // lower concurrent tests while pilot is active
+    bgWorkers = min(bgWorkers, 2);
+    firstBatchSize = min(firstBatchSize, 30);
+    maxBatches = min(maxBatches, 4);
     _applyTurboLevers();
     final eng = _engineLabel(pilotEngine);
     _set('خلبان Grok ($eng): تحلیل شبکه و جستجوی بهترین سرور...');
@@ -1515,10 +1518,7 @@ extension HomeExtras on _HomePageState {
       }
     } else if (a == 'search_national') {
       natForce = true;
-      if (!indestructibleMode) {
-        indestructibleMode = true;
-        _pilotForcedIndestructible = true;
-      }
+      // do not force endless search — keeps data usage low
       nationalMode = true;
       if (!busy) await connect();
     } else if (a == 'enable_turbo') {
@@ -2285,7 +2285,7 @@ extension HomeExtras on _HomePageState {
         break;
       case 'search_national':
         natForce = true;
-        indestructibleMode = true;
+        // do not force endless search — keeps data usage low
         nationalMode = true;
         if (!busy) await connect();
         break;
