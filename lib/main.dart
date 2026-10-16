@@ -5116,10 +5116,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // بعد از اتصال: Fragment خاموش + Mux با concurrency بالا + یک ریستارت تونل
   // تا تنظیمات واقعاً اعمال شوند. در صورت شکست، Mux را خاموش نمی‌کنیم.
   bool _turboBusy = false;
+  DateTime? _lastTurboAt;
   Future<void> _turboAfterConnect(Server s) async {
     turboSpeed = true;
     if (_turboBusy || !wantVpn || !connected) return;
     if (!identical(current, s) || s.ovpn) return;
+    // جلوگیری از توربو پشت‌سرهم (مثلاً بعد از _restartTunnel که دوباره _onConnected می‌زند)
+    if (_lastTurboAt != null &&
+        DateTime.now().difference(_lastTurboAt!) < const Duration(seconds: 45)) {
+      unawaited(_measureCurrent(s));
+      return;
+    }
     // بعد از اتصال هنوز busy=true است (_runBusy). صبر کن تا آزاد شود
     // قبلاً if (busy) return باعث می‌شد توربو هیچ‌وقت اجرا نشود
     for (var i = 0; i < 40 && (busy || switching); i++) {
@@ -5134,6 +5141,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       return;
     }
     _turboBusy = true;
+    _lastTurboAt = DateTime.now();
     final curV = natVarFor(s);
     final prevV = curV;
     // در طول ریستارت توربو، واچ‌داگ نباید تعویض کند
