@@ -2627,53 +2627,53 @@ class NumOpt {
 }
 
 final List<NumOpt> numOpts = [
-  // defaults: low data + fastWorkers fixed at 50; aiHi == hi (AI unrestricted)
+  // BEST PROFILE defaults — هم‌تراز با پیش‌فرض main.dart
   NumOpt('fastWorkers', 'تست همزمان (جستجوی اول)', 1, 1000, 50, 1000, false,
       () => fastWorkers, (v) => fastWorkers = v),
-  NumOpt('bgWorkers', 'تست همزمان (وقتی وصل است)', 1, 1000, 2, 1000, false,
+  NumOpt('bgWorkers', 'تست همزمان (وقتی وصل است)', 1, 1000, 3, 1000, false,
       () => bgWorkers, (v) => bgWorkers = v),
-  NumOpt('timeout', 'تایم‌اوت هر تست (ثانیه)', 1, 1000, 10, 1000, false,
+  NumOpt('timeout', 'تایم‌اوت هر تست (ثانیه)', 1, 1000, 8, 1000, false,
       () => delayTimeout.inSeconds, (v) => delayTimeout = Duration(seconds: v)),
-  NumOpt('batch', 'اندازه دسته', 1, 1000, 300, 1000, false,
+  NumOpt('batch', 'اندازه دسته', 1, 1000, 120, 1000, false,
       () => batchSize, (v) => batchSize = v),
   NumOpt('minPingMs', 'حداقل پینگ معتبر', 0, 1000, 0, 1000, false,
       () => minPingMs, (v) => minPingMs = v),
-  NumOpt('speedTopN', 'تعداد سرور برای تست سرعت', 1, 1000, 1, 1000, false,
+  NumOpt('speedTopN', 'تعداد سرور برای تست سرعت', 1, 1000, 5, 1000, false,
       () => speedTopN, (v) => speedTopN = v),
-  NumOpt('badPingMs', 'پینگ بد از', 70, 7000, 3000, 7000, false,
+  NumOpt('badPingMs', 'پینگ بد از', 70, 7000, 2500, 7000, false,
       () => badPingMs, (v) => badPingMs = v),
-  NumOpt('minSpeedKB', 'تعویض اگر سرعت کمتر از', 0, 50000, 0, 50000, false,
+  NumOpt('minSpeedKB', 'تعویض اگر سرعت کمتر از', 0, 50000, 80, 50000, false,
       () => minSpeedKB, (v) => minSpeedKB = v),
-  NumOpt('listRefreshMin', 'هر چند دقیقه لیست جدید', 1, 1000, 240, 1000, false,
+  NumOpt('listRefreshMin', 'هر چند دقیقه لیست جدید', 1, 1000, 180, 1000, false,
       () => listRefreshMin, (v) => listRefreshMin = v),
-  NumOpt('failMin', 'سرور خراب تا چند دقیقه تست نشود', 1, 1000, 120, 1000, false,
+  NumOpt('failMin', 'سرور خراب تا چند دقیقه تست نشود', 1, 1000, 90, 1000, false,
       () => failMin, (v) {
     failMin = v;
     failWindow = Duration(minutes: v);
   }),
-  NumOpt('recheckMin', 'بررسی دوباره سرورهای سالم (دقیقه)', 1, 1000, 30, 1000,
+  NumOpt('recheckMin', 'بررسی دوباره سرورهای سالم (دقیقه)', 1, 1000, 20, 1000,
       false, () => recheckMin, (v) {
     recheckMin = v;
     recheckAfter = Duration(minutes: v);
   }),
   // ----- 12 new options -----
-  NumOpt('tcpWorkers', 'پیش‌فیلتر TCP همزمان', 1, 1000, 80, 1000, true,
+  NumOpt('tcpWorkers', 'پیش‌فیلتر TCP همزمان', 1, 1000, 60, 1000, true,
       () => tcpWorkers, (v) => tcpWorkers = v),
-  NumOpt('tcpTimeout', 'تایم‌اوت TCP (دهم ثانیه)', 1, 1000, 30, 1000, true,
+  NumOpt('tcpTimeout', 'تایم‌اوت TCP (دهم ثانیه)', 1, 1000, 35, 1000, true,
       () => tcpTimeout.inMilliseconds ~/ 100,
       (v) => tcpTimeout = Duration(milliseconds: v * 100)),
-  NumOpt('maxPerSource', 'حداکثر سرور از هر منبع', 1, 1000, 500, 1000, true,
+  NumOpt('maxPerSource', 'حداکثر سرور از هر منبع', 1, 1000, 120, 1000, true,
       () => maxPerSource, (v) => maxPerSource = v),
-  NumOpt('fetchWorkers', 'دانلود همزمان لیست‌ها', 1, 1000, 12, 1000, true,
+  NumOpt('fetchWorkers', 'دانلود همزمان لیست‌ها', 1, 1000, 6, 1000, true,
       () => fetchWorkers, (v) => fetchWorkers = v),
-  NumOpt('fetchDeadline', 'مهلت دانلود لیست‌ها (ثانیه)', 1, 1000, 40, 1000, true,
+  NumOpt('fetchDeadline', 'مهلت دانلود لیست‌ها (ثانیه)', 1, 1000, 25, 1000, true,
       () => fetchDeadline.inSeconds,
       (v) => fetchDeadline = Duration(seconds: v)),
-  NumOpt('firstBatchSize', 'اندازه دسته‌ی اول', 1, 1000, 60, 1000, true,
+  NumOpt('firstBatchSize', 'اندازه دسته‌ی اول', 1, 1000, 50, 1000, true,
       () => firstBatchSize, (v) => firstBatchSize = v),
-  NumOpt('standbyBatchSize', 'اندازه دسته (وقتی وصل است)', 1, 1000, 30, 1000,
+  NumOpt('standbyBatchSize', 'اندازه دسته (وقتی وصل است)', 1, 1000, 40, 1000,
       true, () => standbyBatchSize, (v) => standbyBatchSize = v),
-  NumOpt('maxBatches', 'حداکثر تعداد دسته در هر جستجو', 1, 1000, 5, 1000, true,
+  NumOpt('maxBatches', 'حداکثر تعداد دسته در هر جستجو', 1, 1000, 8, 1000, true,
       () => maxBatches, (v) => maxBatches = v),
   NumOpt('watchFailLimit', 'تعداد پینگ ناموفق تا تعویض', 1, 1000, 3, 1000, true,
       () => watchFailLimit, (v) => watchFailLimit = v),
@@ -2681,21 +2681,22 @@ final List<NumOpt> numOpts = [
       () => badPingLimit, (v) => badPingLimit = v),
   NumOpt('missLimit', 'تعداد شکست تا حذف سرور سالم', 1, 1000, 3, 1000, true,
       () => missLimit, (v) => missLimit = v),
-  NumOpt('watchEvery', 'فاصله‌ی چک اتصال (ثانیه)', 1, 1000, 8, 1000, true,
+  NumOpt('watchEvery', 'فاصله‌ی چک اتصال (ثانیه)', 1, 1000, 30, 1000, true,
       () => watchEvery.inSeconds, (v) => watchEvery = Duration(seconds: v)),
   // ----- first search: time cap -----
-  NumOpt('firstCapSec', 'سقف زمان جستجوی اول (ثانیه)', 1, 1000, 12, 1000, true,
+  NumOpt('firstCapSec', 'سقف زمان جستجوی اول (ثانیه)', 1, 1000, 15, 1000, true,
       () => firstCapSec, (v) => firstCapSec = v),
 ];
 
-// one-time: an old saved batch size (e.g. 150) is replaced by 300, so the new
-// default also takes effect on phones that already saved their numbers.
-// After that, whatever the user types is kept.
+// یک‌بار: همگام‌سازی با پروفایل BEST (اگر قبلاً فقط batch300 اعمال شده بود)
 Future<void> loadNumPrefs(SharedPreferences p) async {
   await _loadNumPrefs0(p);
-  if (p.getBool('batch300') != true) {
-    batchSize = 300;
-    await p.setBool('batch300', true);
+  if (p.getBool('bestProfile26') != true) {
+    for (final o in numOpts) {
+      o.set(o.def);
+    }
+    await p.setBool('bestProfile26', true);
+    await p.setBool('batch300', true); // جلوگیری از override قدیمی
     saveNumPrefs();
   }
 }
@@ -2753,11 +2754,28 @@ extension NumHomeExtras on _HomePageState {
     for (final o in numOpts) {
       o.set(o.def);
     }
+    // بولین‌های BEST هم برگردند
+    autoSpeed = true;
+    autoUpgrade = true;
+    badPingSwitch = true;
+    savedFirst = true;
+    smartOrder = true;
+    autoCycle = true;
+    turboSpeed = true;
+    betterSwitch = true;
+    sortSpeed = true;
+    secureDns = true;
+    dnsProv = 'auto';
+    muxEnabled = true;
+    if (muxConc < 16) muxConc = 16;
+    fragEnabled = false;
+    cleanIpMode = true;
+    npvParse = true;
     saveNumPrefs();
     _saveSettings();
     autoTune = false; // AUTOTUNEPATCH: reset = manual numbers
     autoTuneSave();
-    _set('✅ همه‌ی عددها به پیش‌فرض برگشتند');
+    _set('✅ همه‌ی عددها و تنظیمات سرعت به پیش‌فرض BEST برگشتند');
   }
 
   Widget resetNumButton(StateSetter setS) => Padding(
@@ -2784,14 +2802,13 @@ extension NumHomeExtras on _HomePageState {
 }
 
 
-// TUNEDPATCH ===================== مقدارهای بهینه (یک‌بار) =====================
-// low-data + high post-connect speed defaults (AI may override any of these)
+// TUNEDPATCH ===================== مقدارهای بهینه BEST =====================
 const Map<String, dynamic> _tunedSettings = {
-  't': 10,
-  'bw2': 2,
-  'st': 1,
-  'bp': 3000,
-  'ms': 0,
+  't': 8,
+  'bw2': 3,
+  'st': 5,
+  'bp': 2500,
+  'ms': 80,
   'lr': 240,
   'fm': 120,
   'rm': 30,
