@@ -8966,12 +8966,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       onTap: () {
                         Navigator.pop(ctx);
                         final canInApp = s.kind == VsKind.hiddify ||
-                            s.kind == VsKind.injector;
+                            s.kind == VsKind.injector ||
+                            s.kind == VsKind.am ||
+                            s.kind == VsKind.npv;
                         vsOpen(
                           context,
                           s.kind,
                           onConnect: canInApp
                               ? (link) async {
+                                  if (s.kind == VsKind.am) {
+                                    applyPilotEngine('am');
+                                  } else if (s.kind == VsKind.npv) {
+                                    applyPilotEngine('npv');
+                                  }
                                   await vsConnect(link);
                                 }
                               : null,
