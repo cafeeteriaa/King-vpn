@@ -1694,10 +1694,12 @@ class Server {
         final rm = RegExp(r'^\s*remote\s+(\S+)\s+(\d+)', multiLine: true)
             .firstMatch(cfg);
         if (rm == null) return null;
+        final host = rm.group(1) ?? '';
+        final port = int.tryParse(rm.group(2) ?? '') ?? 0;
+        if (host.isEmpty || port <= 0 || port > 65535) return null;
         final pm =
             RegExp(r'^\s*proto\s+(\w+)', multiLine: true).firstMatch(cfg);
-        final sv = Server(link, nm.isEmpty ? rm.group(1)! : nm,
-            rm.group(1)!, int.parse(rm.group(2)!));
+        final sv = Server(link, nm.isEmpty ? host : nm, host, port);
         sv.ovpnConf = cfg;
         sv.udp = (pm?.group(1) ?? 'udp').toLowerCase().startsWith('udp');
         sv.tls = true;
@@ -1720,8 +1722,12 @@ class Server {
           return null;
         }
         if (j is! Map) return null;
-        final sv = Server(link, j['ps']?.toString() ?? j['add'].toString(),
-            j['add'].toString(), int.parse(j['port'].toString()));
+        final add = j['add']?.toString() ?? '';
+        if (add.isEmpty) return null;
+        final port = int.tryParse('${j['port']}') ?? 0;
+        if (port <= 0 || port > 65535) return null;
+        final sv = Server(
+            link, j['ps']?.toString() ?? add, add, port);
         if (sv.port == 443) sv.score += 2;
         sv.tls = j['tls']?.toString() == 'tls';
         sv.sni = (j['sni'] ?? j['host'] ?? '').toString();
