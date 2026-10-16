@@ -5603,6 +5603,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await _stopCore();
         }
       }
+      // DIAG: the core never reported CONNECTED: log the exact config it got
+      // (the start of it) so the report shows what was sent to the core
+      if (!ready) {
+        final dumpCfg = cfgTries[ci];
+        dbg('CFG-DUMP ${s.name}: ${dumpCfg.substring(0, dumpCfg.length < 3000 ? dumpCfg.length : 3000)}');
+      }
       // the core reported CONNECTED with this config: no fallback needed
       if (ready) break;
       }
