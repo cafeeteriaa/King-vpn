@@ -3620,6 +3620,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           badPingSwitch = j['bps'] as bool? ?? badPingSwitch;
           badPingMs = _ci(j['bp'], badPingMs, 70, 7000);
           minSpeedKB = _ci(j['ms'], minSpeedKB, 0, 50000);
+          // مهاجرت: مقادیر اجباری قدیمی توربو/پروفایل که باعث تعویض زیاد می‌شد
+          if (const {150, 300, 400, 800, 1500}.contains(minSpeedKB)) {
+            minSpeedKB = 0;
+          }
           savedFirst = j['sf'] as bool? ?? savedFirst;
           smartOrder = j['so'] as bool? ?? smartOrder;
           autoCycle = j['ac'] as bool? ?? autoCycle;
@@ -5092,16 +5096,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (mounted) setState(() {});
     if (mounted) uiJoinPrompt(context);
     _set(_connStatus());
-    _measureCurrent(s);
     autoAiAfterConnect();
     _showChannelPrompt();
     // TURBO: بعد از هر اتصال واقعی حتماً توربو سرعت فعال شود
+    // مهم: تست سرعت را قبل از توربو شروع نکن — توربو هسته را ریستارت می‌کند
+    // و تست سرعت ممکن بود صفر ببیند و به‌اشتباه failover کند
     if (!s.ovpn) {
       turboSpeed = true;
       muxEnabled = true;
       muxConc = max(muxConc, 32);
       if (!nationalMode) fragEnabled = false;
-      unawaited(_turboAfterConnect(s));
+      unawaited(_turboAfterConnect(s)); // خودش در پایان _measureCurrent را صدا می‌زند
+    } else {
+      unawaited(_measureCurrent(s));
     }
   }
 
@@ -5472,9 +5479,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (sp != null) {
       s.speed = sp;
       s.speedAt = DateTime.now();
-    } else if (!sitesAlive && !s.personal && !favs.containsKey(s.key) && wantVpn) {
-      // no data at all: the ping was fake. Replace it (if the app is busy
-      // right now, the watchdog's no-data check does the same a bit later)
+    } else if (!sitesAlive &&
+        !s.personal &&
+        !favs.containsKey(s.key) &&
+        wantVpn &&
+        !_turboBusy) {
+      // no data at all: the ping was fake. Replace it
+      // در طول توربو failover نکن (ریستارت عمدی هسته است)
       s.speed = 0;
       s.speedAt = DateTime.now();
       lastWhy = 'سرعت واقعی صفر بود';
