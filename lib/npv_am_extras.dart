@@ -273,7 +273,7 @@ String? npvNormalizeLink(String line) {
     if (h >= 0) payload = payload.substring(0, h);
     try {
       payload = Uri.decodeComponent(payload);
-    } catch (_) {}
+    } catch (e) { logError(e); }
   } else {
     payload = t;
   }
@@ -287,7 +287,7 @@ String? npvNormalizeLink(String line) {
     try {
       final l = npvJsonToLinks(jsonDecode(tt));
       if (l.isNotEmpty) return l.first;
-    } catch (_) {}
+    } catch (e) { logError(e); }
   }
   return null;
 }
@@ -304,7 +304,7 @@ List<String> npvSplit(String text) {
     try {
       out.addAll(npvJsonToLinks(jsonDecode(t)));
       if (out.isNotEmpty) return out;
-    } catch (_) {}
+    } catch (e) { logError(e); }
   }
   // 2) کل متن یک بلوک base64 است
   if (!t.contains('://') && _b64Body.hasMatch(t)) {
@@ -547,7 +547,7 @@ Future<List<String>> _cleanCandidates() async {
           .toList();
       if (live.length >= 5) ranges = live;
     }
-  } catch (_) {}
+  } catch (e) { logError(e); }
   for (final c in ranges) {
     set.addAll(_cidrSample(c, 28, r).where(_cleanOk));
   }
@@ -567,7 +567,7 @@ Future<String> _cfRead(Socket k, Duration t) async {
       data.addAll(c);
       if (data.length > 1500) break;
     }
-  } catch (_) {}
+  } catch (e) { logError(e); }
   return utf8.decode(data, allowMalformed: true).toLowerCase();
 }
 
@@ -831,7 +831,7 @@ String withNpvAmCore(String cfg) {
           flow = ((s['vnext'] as List).first['users'] as List).first['flow']
                   ?.toString() ??
               '';
-        } catch (_) {}
+        } catch (e) { logError(e); }
         // Mux با flow (xtls-rprx-vision) کار نمی‌کند
         if (flow.isEmpty) {
           proxy['mux'] = {'enabled': true, 'concurrency': muxConc};
@@ -940,7 +940,7 @@ List<Widget> npvAmSettingsItems(
         onTap: () {
           try {
             bgChannel.invokeMethod('vpnSettings');
-          } catch (_) {}
+          } catch (e) { logError(e); }
         },
       ),
     ];
