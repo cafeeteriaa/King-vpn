@@ -171,7 +171,7 @@ extension KingHealEngine on _HomePageState {
         out.add(_HealSignal('sync', 6, 'ناهمگامی اپ/هسته اصلاح شد'));
         _hSyncFix++;
       }
-    } catch (_) {}
+    } catch (e) { logError(e); }
 
     // یتیم: می‌خواهد وصل باشد ولی بیکار است
     if (wantVpn && !connected && !busy && !switching && !searching) {
@@ -447,7 +447,7 @@ extension KingHealEngine on _HomePageState {
           if (!nationalMode) fragEnabled = false;
           try {
             await _saveSettings();
-          } catch (_) {}
+          } catch (e) { logError(e); }
           // اگر وصل نیست، فوراً وصل شو
           if (wantVpn && !connected && !busy) {
             await connect();
