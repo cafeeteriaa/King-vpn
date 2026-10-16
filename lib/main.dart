@@ -375,7 +375,8 @@ Future<int?> _tuneLatency(String url) async {
     final res = await req.close().timeout(const Duration(seconds: 5));
     await res.drain<void>();
     return sw.elapsedMilliseconds;
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return null;
   } finally {
     c.close(force: true);
@@ -402,7 +403,8 @@ Future<double?> _tuneSpeedKB() async {
       return bytes / 1024 / secs;
     }()
         .timeout(const Duration(seconds: 9));
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return null;
   } finally {
     c.close(force: true);
@@ -769,7 +771,8 @@ String _dbgWhere() {
       if (out.length >= 3) break;
     }
     return out.isEmpty ? '' : ' @ ${out.join(' ← ')}';
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return '';
   }
 }
@@ -1351,7 +1354,8 @@ String _shJsonIso(Object o) => jsonEncode(o);
 Future<String> _shJson(Object o) async {
   try {
     return await compute(_shJsonIso, o);
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return jsonEncode(o);
   }
 }
@@ -1819,7 +1823,7 @@ String? detectCountry(String name) {
 String _safeDecodeComp(String t) {
   try {
     return Uri.decodeComponent(t);
-  } catch (_) {
+  } catch (e) {
     try {
       final out = <int>[];
       final u = utf8.encode(t);
@@ -1836,7 +1840,8 @@ String _safeDecodeComp(String t) {
         out.add(u[i]);
       }
       return utf8.decode(out, allowMalformed: true);
-    } catch (_) {
+    } catch (e) {
+      logError(e);
       return t;
     }
   }
@@ -2055,7 +2060,8 @@ Server? _parseWireguardUri(String link) {
     sv.tls = true;
     sv.net = 'wireguard';
     return sv;
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return null;
   }
 }
@@ -2337,7 +2343,8 @@ Future<int> _sitesOpen() async {
   try {
     final ready = await waitProxyPort(max: const Duration(seconds: 2));
     if (!ready) return -1; // نامعتبر — نباید باعث تعویض شود
-  } catch (_) {
+  } catch (e) {
+    logError(e);
     return -1;
   }
   final r = await Future.wait([
@@ -3174,7 +3181,8 @@ String? ownerOf(Server s) {
           return 't.me/${x.pathSegments[1]}';
         }
         return x.host;
-      } catch (_) {
+      } catch (e) {
+        logError(e);
         return u;
       }
     }
@@ -5411,9 +5419,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         wgQuickConfig: cfg,
         providerBundleIdentifier: 'com.kingvpn.king_vpn',
       );
-      // give the tunnel a moment; package has no reliable connected completer
-      await Future.delayed(const Duration(seconds: 4));
-      dbg('WireGuard start requested • ${s.name}');
+      // package has no reliable connected completer — verify tun if possible
+      await Future.delayed(const Duration(seconds: 3));
+      var t = await tunUp();
+      if (t == false) {
+        await Future.delayed(const Duration(milliseconds: 1500));
+        t = await tunUp();
+      }
+      if (t == false) {
+        wgActive = false;
+        lastFail = 'WireGuard تونل نساخت (${s.name})';
+        try {
+          await WireGuardFlutter.instance.stopVpn();
+        } catch (e) {
+          _swl('_startWg/noTun', e);
+        }
+        dbg('WireGuard fail: no tun • ${s.name}');
+        return false;
+      }
+      dbg('WireGuard start OK • ${s.name}');
       return true;
     } catch (e) {
       wgActive = false;
@@ -6000,7 +6024,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               ]).timeout(const Duration(seconds: 12),
                   onTimeout: () => List<bool>.filled(8, false));
               return checks;
-            } catch (_) {
+            } catch (e) {
+              logError(e);
               return List<bool>.filled(8, false);
             }
           }
@@ -6669,7 +6694,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           .timeout(const Duration(milliseconds: 3000));
       final res = await req.close().timeout(const Duration(milliseconds: 3000));
       return res.statusCode > 0;
-    } catch (_) {
+    } catch (e) {
+      logError(e);
       return false;
     } finally {
       c.close(force: true);
@@ -10927,7 +10953,8 @@ class _AdPageState extends State<AdPage> with WidgetsBindingObserver {
           "return n;})()");
       final n = double.tryParse(r.toString().replaceAll('"', '')) ?? 1;
       return n > 0;
-    } catch (_) {
+    } catch (e) {
+      logError(e);
       return true;
     }
   }
@@ -11004,10 +11031,12 @@ class _AdPageState extends State<AdPage> with WidgetsBindingObserver {
     final uri = Uri.parse(raw.startsWith('<') ? _adFallbackUrl : raw);
     try {
       await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
-    } catch (_) {
+    } catch (e) {
+      logError(e);
       try {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } catch (_) {
+      } catch (e2) {
+        logError(e2);
         _external = false;
         if (mounted) setState(() => _msg = 'مرورگر باز نشد، دوباره تلاش کن');
       }
