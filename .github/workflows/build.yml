@@ -42,6 +42,54 @@ jobs:
           flutter pub add http flutter_v2ray_client openvpn_flutter wireguard_flutter shared_preferences installed_apps:1.6.0 permission_handler workmanager url_launcher webview_flutter
           flutter pub get
 
+      - name: Fix plugin compileSdk (wireguard_flutter etc require API 33+)
+        run: |
+          # Raise compileSdk in outdated plugins so AGP accepts modern AndroidX deps
+          find "$HOME/.pub-cache" -type f \( -name 'build.gradle' -o -name 'build.gradle.kts' \) \
+            \( -path '*/wireguard_flutter*/android/*' -o -path '*/openvpn_flutter*/android/*' -o -path '*/flutter_v2ray_client*/android/*' \) \
+            2>/dev/null | while read -r f; do
+            echo "Patching $f"
+            sed -i -E \
+              -e 's/compileSdkVersion[[:space:]]+[0-9]+/compileSdkVersion 35/' \
+              -e 's/compileSdk[[:space:]]*=[[:space:]]*[0-9]+/compileSdk = 35/' \
+              "$f" || true
+          done
+          # Also force all subprojects (plugins) via root build script if present
+          for rootg in build_app/android/build.gradle build_app/android/build.gradle.kts; do
+            if [ -f "$rootg" ]; then
+              if ! grep -q 'FORCE_COMPILE_SDK' "$rootg"; then
+                if [[ "$rootg" == *.kts ]]; then
+                  cat >> "$rootg" << 'EOF'
+
+// FORCE_COMPILE_SDK: make every Android subproject (plugins) use a modern compileSdk
+subprojects {
+    afterEvaluate {
+        extensions.findByType(com.android.build.gradle.BaseExtension::class.java)?.apply {
+            compileSdkVersion(35)
+        }
+    }
+}
+EOF
+                else
+                  cat >> "$rootg" << 'EOF'
+
+// FORCE_COMPILE_SDK: make every Android subproject (plugins) use a modern compileSdk
+subprojects {
+    afterEvaluate { project ->
+        if (project.hasProperty('android')) {
+            project.android {
+                compileSdkVersion 35
+            }
+        }
+    }
+}
+EOF
+                fi
+                echo "Patched $rootg"
+              fi
+            fi
+          done
+
       - name: Analyze (errors only, fails early with a readable message)
         working-directory: build_app
         run: flutter analyze --no-fatal-warnings --no-fatal-infos
