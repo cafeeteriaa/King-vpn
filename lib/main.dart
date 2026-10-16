@@ -178,9 +178,9 @@ int minSpeedKB = 0; // LOWDATA: speed-based switching off (no download tests)
 int batchSize = 100; // دسته ۱۰۰ سرور در هر دور
 int delayWorkers = 20; // (kept for settings compatibility)
 Duration delayTimeout = const Duration(seconds: 6);
-int goodWant = 3; // (kept for settings compatibility, not used any more)
-bool autoSpeed = false; // LOWDATA // speed-test the best few servers before connecting
-int speedTopN = 1; // LOWDATA // how many top servers are speed-tested before connecting
+int goodWant = 10; // حداقل سرور سالم هدف
+bool autoSpeed = true; // تست سرعت چند سرور برتر قبل از اتصال
+int speedTopN = 8; // چند سرور برتر برای تست سرعت
 bool autoUpgrade = false; // LOWDATA // keep searching for new servers while connected
 // real pings below this are fake -> server counts as bad / hidden.
 // 0 = off: the real speed test decides (done right after connecting).
@@ -225,7 +225,7 @@ const bgSearchOff = false; // RETRYPATCH // SPEEDSWITCHPATCH: no search while co
 // are re-checked inside the batch every 25 tests, so a big batch is safe.
 int standbyBatchSize = 30;
 const bgTimeoutSecs = 8;
-int firstBatchSize = 20; // FAST: first working server ASAP
+int firstBatchSize = 60; // دسته اول بزرگ‌تر → سرور سالم بیشتر
 int fetchWorkers = 4;
 Duration fetchDeadline = const Duration(seconds: 20);
 int tcpWorkers = 50;
@@ -244,8 +244,8 @@ int watchFailLimit = 3; // consecutive failed checks before switching
 int badPingLimit = 3; // consecutive bad pings (~10 s) before a ping switch
 const minHold = Duration(seconds: 5); // min time between two switches
 // FASTPATCH ----------------------------------------------------
-int fastPickN = 1; // connect as soon as the first healthy server is found
-int fastPickMs = 2500; // never wait longer than this once one works
+int fastPickN = 10; // حداقل ۱۰ سرور سالم قبل از توقف تست سریع
+int fastPickMs = 45000; // تا پیدا شدن ۱۰ تا صبر کن (نه ۲.۵ ثانیه)
 bool betterSwitch = false; // swap to a clearly better standby server
 const betterGain = 0.8; // ping must be <= 80% of the connected one
 const betterMinGapMs = 30; // ...and at least this many ms lower
@@ -3515,8 +3515,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         fastWorkers = 50;
         batchSize = 100;
         bgWorkers = 1;
-        delayTimeout = const Duration(seconds: 6);
-        speedTopN = 1;
+        delayTimeout = const Duration(seconds: 8);
+        speedTopN = 8;
         badPingMs = 3000;
         minSpeedKB = 0;
         listRefreshMin = 240;
@@ -4034,13 +4034,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // at least one after 90 s so the user is not kept waiting
       bool enough() {
         if (explore) return false;
-        return upServer != null ||
-            _ready(row) >= want ||
-            (!bg &&
-                want > 1 &&
-                _ready(row) >= 1 &&
-                (searchSw?.elapsed ?? Duration.zero) >
-                    Duration(seconds: firstCapSec));
+        final ready = _ready(row);
+        if (upServer != null) return true;
+        if (ready >= want) return true;
+        // زودتر از حداقل ۱۰ سرور (یا want اگر کمتر بود) متوقف نشو
+        final minNeed = want <= 1 ? 1 : (want < 10 ? want : 10);
+        if (!bg &&
+            ready >= minNeed &&
+            (searchSw?.elapsed ?? Duration.zero) >
+                Duration(seconds: firstCapSec)) {
+          return true;
+        }
+        return false;
       }
 
       if (pending.isEmpty) await _loadPending(bg: bg, exhausted: true);
@@ -5414,10 +5419,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   // TURBO LEVERS: every throughput lever before connect (when turboSpeed is on).
   void _applyTurboLevers() {
-    if (!turboSpeed) return;
+    // توربو همیشه هدف است وقتی این تابع صدا زده می‌شود
+    turboSpeed = true;
     // 1) real download test of the best candidates before picking one
     autoSpeed = true;
-    if (speedTopN < 5) speedTopN = 5;
+    if (speedTopN < 8) speedTopN = 8;
     // 2) Mux = parallel streams on one tunnel (concurrency بالاتر = سرعت بیشتر)
     muxEnabled = true;
     if (muxConc < 16) muxConc = 16;
@@ -5971,8 +5977,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         return r != 0 ? r : bySpeedThenPing(a, b);
       });
     }
-    final run = l.take(12).toList(); // FASTCONNECT: only a handful
-    final need = fastPickN;
+    final run = l.take(40).toList(); // تست تعداد بیشتری از ذخیره‌شده‌ها
+    final need = max(fastPickN, 10);
     final fsw = Stopwatch()..start();
     var found = 0, i = 0;
     final dead = <Server>[];
@@ -6120,7 +6126,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
       var list = pickRow();
       if (list.isEmpty) {
-        await _search(1, row: searchRow, keepUp: true);
+        await _search(10, row: searchRow, keepUp: true);
         final up = upServer;
         if (up != null) {
           _onConnected(up);
@@ -6240,11 +6246,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _resFull = false;
         fragEnabled = false;
         muxEnabled = false; // Mux breaks many free servers → apps hang
-        // tight timeouts so first healthy server connects under ~30s
-        delayTimeout = Duration(seconds: min(delayTimeout.inSeconds, 5));
-        firstBatchSize = min(firstBatchSize, 20);
-        batchSize = min(batchSize, 100);
-        fastPickN = 1;
+        // تایم‌اوت معقول + حداقل ۱۰ سرور سالم
+        delayTimeout = Duration(seconds: max(delayTimeout.inSeconds, 8));
+        firstBatchSize = max(firstBatchSize, 60);
+        batchSize = max(batchSize, 100);
+        fastPickN = max(fastPickN, 10);
+        fastPickMs = max(fastPickMs, 45000);
+        turboSpeed = true; // توربو سرعت بعد از اتصال همیشه روشن
+        autoSpeed = true;
+        speedTopN = max(speedTopN, 8);
       }
       if (nationalMode || indestructibleMode) {
         autoCycle = true; // endless list cycling
