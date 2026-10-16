@@ -73,6 +73,12 @@ final List<String> _npvUrls = [
   'https://raw.githubusercontent.com/youfoundamin/V2rayCollector/main/mixed_iran.txt',
   'https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/protocols/vless',
   'https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/protocols/vmess',
+  // verified live 2026-10-16
+  'https://raw.githubusercontent.com/3inker/v2ray-subscription/main/subs/all_not_ru.txt',
+  'https://raw.githubusercontent.com/3inker/v2ray-subscription/main/subs/all_ru.txt',
+  'https://raw.githubusercontent.com/free-nodes/v2rayfree/main/sub',
+  'https://raw.githubusercontent.com/ermaozi/get_subscribe/main/subscribe/v2ray.txt',
+  'https://raw.githubusercontent.com/Au1rxx/free-vpn-subscriptions/main/output/v2ray-base64.txt',
 ];
 
 // =========================== 1) پارسر سازگار با NPV ===========================
@@ -382,8 +388,23 @@ List<String> _cidrSample(String cidr, int n, Random r) {
 Future<List<String>> _cleanCandidates() async {
   final r = Random();
   final set = <String>{};
-  // sample more IPs from each Cloudflare range so the probe finds live ones
-  for (final c in _cfRanges) {
+  // built-in Cloudflare ranges
+  var ranges = List<String>.of(_cfRanges);
+  // try official live list (updated by Cloudflare) — if it fails we keep fallback
+  try {
+    final res = await http
+        .get(Uri.parse('https://www.cloudflare.com/ips-v4'))
+        .timeout(const Duration(seconds: 8));
+    if (res.statusCode == 200) {
+      final live = res.body
+          .split(RegExp(r'[\r\n]+'))
+          .map((e) => e.trim())
+          .where((e) => e.contains('/'))
+          .toList();
+      if (live.length >= 5) ranges = live;
+    }
+  } catch (_) {}
+  for (final c in ranges) {
     set.addAll(_cidrSample(c, 28, r).where(_cleanOk));
   }
   final l = set.toList()..shuffle(r);
