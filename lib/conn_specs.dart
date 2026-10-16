@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 
 // conn_specs.dart
 // مشخصات کامل کانفیگ برای گزارش خطا + راهنمای رفع.
@@ -131,7 +132,7 @@ ConfigSpec describeConfig(String link, {String? ovpnText, String? knownIp}) {
       try {
         c.name = Uri.decodeComponent(link.substring(hashAt + 1));
       } catch (e) {
-        logError(e);
+        debugPrint("err: $e");
         c.name = link.substring(hashAt + 1);
       }
     }
@@ -229,7 +230,7 @@ Future<String> resolveHostIp(String host) async {
     if (r.isEmpty) return '-';
     return r.map((e) => e.address).join(',');
   } catch (e) {
-    logError(e);
+    debugPrint("err: $e");
     return '-';
   }
 }
