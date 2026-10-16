@@ -5451,6 +5451,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _aiLoop(aiGen);
     // the personal server has its own row, it never joins the healthy list
     if (!s.personal && !good.contains(s)) good.add(s);
+    // پوشهٔ نت ملی: هر سرور سالم وصل‌شده (هر ۶ نوع VPN) ذخیره شود
+    if (!s.personal) _resAdd(s);
     upServer = null;
     fails = 0;
     slowCount = 0;
@@ -6167,9 +6169,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   // a server passed a real test: it goes into the folder (or is refreshed)
+  // همهٔ ۶ نوع: V2Ray / OpenVPN / WireGuard / AM / NPV / Injector
+  // (سرور شخصی جدا می‌ماند و وارد پوشه نمی‌شود)
   void _resAdd(Server srv) {
     try {
-      if (srv.ovpn || srv.personal) return;
+      if (srv.personal) return;
       final now = DateTime.now();
       final old = _resMap[srv.key];
       if (old != null) {
