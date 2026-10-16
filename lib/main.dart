@@ -16,7 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'tg_proxy.dart';
+import 'tg_proxy.dart' show tgProxyRow; // فقط پروکسی تلگرام — بدون تداخل VsKind
 import 'vpn_sources.dart';
 import 'help_page.dart';
 import 'conn_specs.dart';
