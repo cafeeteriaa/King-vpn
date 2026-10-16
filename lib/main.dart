@@ -2117,7 +2117,6 @@ Future<List<Server>> fetchOvpn() async {
   final tmp = <MapEntry<int, Server>>[];
   const urls = [
     vpngateUrl,
-    'http://www.vpngate.net/api/iphone/',
     'https://cdn.jsdelivr.net/gh/GeorgeXie2333/vpngate-list-mirror@latest/data/vpngate.csv',
     'https://raw.githubusercontent.com/GeorgeXie2333/vpngate-list-mirror/main/data/vpngate.csv',
   ];
