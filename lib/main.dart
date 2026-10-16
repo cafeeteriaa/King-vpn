@@ -360,7 +360,7 @@ int _tuneVote = -1, _tuneVoteN = 0;
 void _tuneLog(String m) {
   try {
     dbg(m);
-  } catch (_) {}
+  } catch (e) { logError(e); }
 }
 
 // latency of one URL, straight over the phone's own internet (no proxy)
@@ -534,7 +534,7 @@ Future<void> autoTuneNow({bool force = false}) async {
         'badPing=${badPingMs}ms limits=$badPingLimit/$watchFailLimit');
     try {
       saveNumPrefs();
-    } catch (_) {}
+    } catch (e) { logError(e); }
   } catch (e) {
     _tuneLog('[AutoTuneError] $e');
   } finally {
@@ -563,7 +563,7 @@ Future<void> _dbgLoadPrev() async {
     dbgPrev = p.getStringList('dbgLines') ?? <String>[];
     await _dbgProbLoad(p); // DIAGPATCH
     dbgProbPrev = p.getStringList('dbgProbs') ?? <String>[];
-  } catch (_) {}
+  } catch (e) { logError(e); }
 }
 
 // INSPECTORPATCH: persistent list of problems found
@@ -656,9 +656,9 @@ void _dbgProb(String msg) {
     _dbgProbT = Timer(const Duration(seconds: 3), () async {
       try {
         await _dbgProbSave();
-      } catch (_) {}
+      } catch (e) { logError(e); }
     });
-  } catch (_) {}
+  } catch (e) { logError(e); }
 }
 
 String _dbgProbTextOld() {
@@ -712,7 +712,7 @@ Future<void> _dbgProbLoad(SharedPreferences p) async {
         cur.n += n0;
       }
     }
-  } catch (_) {}
+  } catch (e) { logError(e); }
 }
 
 Future<void> _dbgProbSave() async {
@@ -732,7 +732,7 @@ Future<void> _dbgProbSave() async {
       ].join('\u0001'));
     }
     await pr.setStringList('dbgProbs3', out);
-  } catch (_) {}
+  } catch (e) { logError(e); }
 }
 
 // "پاک کردن": everything goes, memory and disk
@@ -746,7 +746,7 @@ Future<void> _dbgClearAll() async {
     await p.remove('dbgLines');
     await p.remove('dbgProbs');
     await p.remove('dbgProbs3');
-  } catch (_) {}
+  } catch (e) { logError(e); }
 }
 
 // where an error was logged from: function names + line numbers of the stack
@@ -1342,7 +1342,7 @@ void _shProb(String key, String msg) {
       d.last = now;
     }
     _dbgProbSave();
-  } catch (_) {}
+  } catch (e) { logError(e); }
 }
 
 // SELFHEALPATCH: heavy json work in a separate isolate (no UI freeze)
@@ -1374,7 +1374,7 @@ String _swSite() {
       if (file != 'main.dart') continue;
       return '${fn.replaceAll('<anonymous closure>', 'fn')}:${mm.group(3)}';
     }
-  } catch (_) {}
+  } catch (e) { logError(e); }
   return '';
 }
 
@@ -1463,9 +1463,9 @@ void dbg(String m) {
             ? dbgLines.sublist(dbgLines.length - 400)
             : List<String>.of(dbgLines);
         await p.setStringList('dbgLines', keep);
-      } catch (_) {}
+      } catch (e) { logError(e); }
     });
-  } catch (_) {}
+  } catch (e) { logError(e); }
 }
 
 // status texts: progress counters like "12/300" are kept at most once per
@@ -2076,7 +2076,7 @@ Future<List<Server>> fetchWireguard() async {
         try {
           body = utf8.decode(base64.decode(base64.normalize(body.replaceAll(RegExp(r'\s'), ''))),
               allowMalformed: true);
-        } catch (_) {}
+        } catch (e) { logError(e); }
       }
       for (final m in RegExp(r'wireguard://[^\s<>"]+', caseSensitive: false)
           .allMatches(body)) {
@@ -2123,7 +2123,7 @@ Future<List<Server>> fetchOvpn() async {
           body = r.body;
           break;
         }
-      } catch (_) {}
+      } catch (e) { logError(e); }
     }
     if (body == null) return [];
     for (final line in body.split(RegExp(r'[\r\n]+'))) {
@@ -3534,7 +3534,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             _tgChkAt = DateTime.now().subtract(const Duration(minutes: 2));
           }
         }
-      }).catchError((_) {}).whenComplete(() => _tgChkBusy = false);
+      }).catchError((e) { logError(e); }).whenComplete(() => _tgChkBusy = false);
     } catch (e) {
       logError(e);
     }
@@ -3623,7 +3623,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         liveUp = (d.uploadSpeed as num?)?.toInt() ?? liveUp;
         totalDown = (d.download as num?)?.toInt() ?? totalDown;
         totalUp = (d.upload as num?)?.toInt() ?? totalUp;
-      } catch (_) {}
+      } catch (e) { logError(e); }
       dbgState(st.state);
       if (st.state == 'DISCONNECTED' &&
           downSig != null &&
@@ -3769,7 +3769,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         mode: LaunchMode.externalApplication)) {
                       return;
                     }
-                  } catch (_) {}
+                  } catch (e) { logError(e); }
                   await Clipboard.setData(const ClipboardData(text: url));
                   _set('لینک کانال کپی شد');
                 },
@@ -4843,7 +4843,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (d != null) {
         _svcOf(s).then((v) {
           s.svc = v;
-        }).catchError((_) {}); // MULTICHK, PERFPATCH: not awaited
+        }).catchError((e) { logError(e); }); // MULTICHK, PERFPATCH: not awaited
       }
       fastTested++;
       if (d != null) {
@@ -5010,7 +5010,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       for (var i = 0; i < 4; i++) {
         if (rs[i] > 0) m |= (1 << i);
       }
-    } catch (_) {}
+    } catch (e) { logError(e); }
     return m;
   }
 
@@ -5250,7 +5250,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       dbg('جستجوی پس‌زمینه: $r • autoUpgrade=$autoUpgrade '
           'bgWorkers=$bgWorkers rechecking=$rechecking '
           'تست‌شده=$bgTested موفق=$bgOk صف=${pending.length}');
-    } catch (_) {}
+    } catch (e) { logError(e); }
   }
 
   Future<void> _standbyRun() async {
@@ -5733,7 +5733,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // ذخیره تنظیمات تا بعداً خاموش نشود
       try {
         await _saveSettings();
-      } catch (_) {}
+      } catch (e) { logError(e); }
 
       dbg('توربو سرعت فعال • حالت $target • Mux $muxConc • پینگ ${p}ms');
       _set('✅ توربو سرعت فعال • Mux $muxConc • بدون Fragment');
@@ -5751,7 +5751,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await _start(s);
         }
         _set('توربو: خطا — اتصال با Mux برقرار شد');
-      } catch (_) {}
+      } catch (e) { logError(e); }
     } finally {
       _turboBusy = false;
       switching = wasSwitching;
@@ -5828,7 +5828,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       logError(e);
       try {
         await _stopCore();
-      } catch (_) {}
+      } catch (e) { logError(e); }
       return null;
     }
   }
@@ -6821,7 +6821,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // grow the variant matrix so later rounds cover more combinations
       try {
         natGrow(round >= 8 ? 400 : (round >= 4 ? 200 : 80));
-      } catch (_) {}
+      } catch (e) { logError(e); }
       _dohFail = 0;
       // CRITICAL for نت ملی: do NOT destroy existing configs.
       // When international is cut, GitHub raw lists are mostly unreachable.
@@ -7006,7 +7006,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final p = await pickBestDns()
             .timeout(const Duration(seconds: 3), onTimeout: () => dnsProvActive);
         dbg('DNS خودکار انتخاب شد: $p');
-      } catch (_) {}
+      } catch (e) { logError(e); }
     }
     // Ask VPN permission once while Activity is alive (right after ad),
     // so later _start calls do not hit NO_ACTIVITY during the server loop.
@@ -7068,7 +7068,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // Prefer Iranian DNS + matrix from the first attempt
         try {
           natGrow(120);
-        } catch (_) {}
+        } catch (e) { logError(e); }
       } else if (ultraMode) {
         // NORMAL: start light (level 1) so many servers get a quick ping first;
         // bestEffort in _acquire escalates 2→4 only if needed. No folder inject.
@@ -8226,7 +8226,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           dbg('اینترنت گوشی برگشت؛ همان اتصال ادامه پیدا می‌کند');
         }
       }
-    } catch (_) {}
+    } catch (e) { logError(e); }
   }
 
   void _startWatch() {
@@ -8738,7 +8738,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _insOrphan = 0;
         dbg('هسته‌ی بی‌صاحب خاموش شد (CONNECTED بدون اتصال اپ)');
         try {
-          unawaited(v2ray.stopV2Ray().catchError((_) {}));
+          unawaited(v2ray.stopV2Ray().catchError((e) { logError(e); }));
         } catch (_swE) { _swl('_inspect#orphan', _swE);}
       }
     } else {
@@ -10925,7 +10925,7 @@ class _AdPageState extends State<AdPage> with WidgetsBindingObserver {
         try {
           final cu = await _c.currentUrl();
           _pageHost = Uri.tryParse(cu ?? '')?.host ?? '';
-        } catch (_) {}
+        } catch (e) { logError(e); }
         _onLoaded();
         return;
       }
@@ -10972,7 +10972,7 @@ class _AdPageState extends State<AdPage> with WidgetsBindingObserver {
     _clicked = true;
     try {
       await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-    } catch (_) {}
+    } catch (e) { logError(e); }
     Future.delayed(const Duration(seconds: 3), () => _clicked = false);
   }
 
