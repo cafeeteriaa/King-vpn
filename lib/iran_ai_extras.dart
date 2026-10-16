@@ -1906,6 +1906,9 @@ extension HomeExtras on _HomePageState {
       localPilotText.value = report.toString().trim();
 
       await _localApply(decision);
+      try {
+        await kingSelfHeal(reason: 'pilot');
+      } catch (_) {}
 
       // اگر هنوز قطع است دوباره وصل کن
       if (localPilotOn && wantVpn && !connected && !busy && !switching) {
