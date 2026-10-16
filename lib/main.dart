@@ -8322,6 +8322,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         p.setString('country', c);
       }
     });
+    // Rebuild the queue for the new country filter so the next connect/search
+    // does not sit on an empty pending until the user taps something else.
+    if (!connected && !busy && !searching) {
+      unawaited(_loadPending(bg: true));
+    }
+    _set(c == null
+        ? 'فیلتر کشور: همه کشورها'
+        : 'فیلتر کشور: ${flagOf(c)} ${countryFa[c] ?? c}');
   }
 
   void _countrySheet() {
@@ -9053,8 +9061,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   failed.clear();
                   for (final g in good) {
                     g.badAt = null;
+                    g.miss = 0;
                   }
                 });
+                // Persist so blacklist does not come back after app restart
+                unawaited(_saveCache());
+                _set('لیست سیاه پاک شد');
               }
             },
             itemBuilder: (_) => const [
@@ -10011,6 +10023,7 @@ extension ResetAllExt on _HomePageState {
     lastFetchTry = DateTime.fromMillisecondsSinceEpoch(0);
     srcTested.clear();
     srcOkN.clear();
+    srcRate.clear();
     totalTested = 0;
     totalOk = 0;
     batchNo = 0;
@@ -10021,17 +10034,25 @@ extension ResetAllExt on _HomePageState {
     aiFastOn = true;
     aiTried = 0;
     aiHit = 0;
+    // Full wipe of national folder / learned variants too (user asked "از نو")
+    natGood.clear();
+    natVar.clear();
+    _resMap.clear();
+    _natCursor.clear();
     // the connection that is running right now stays
     if (connected && cur != null) good.add(cur);
     try {
       final p = await SharedPreferences.getInstance();
-      for (final k in ['cache', 'failed2', 'list_cache', 'list_time']) {
+      for (final k in [
+        'cache', 'failed2', 'list_cache', 'list_time',
+        'nat_var', 'nat_wins', 'nat_res', 'nat_good',
+      ]) {
         await p.remove(k);
       }
     } catch (e) {
       logError(e);
     }
-    _set('🗑 همه‌ی سرورهای پیداشده پاک شد • «اتصال» را بزن تا از نو جستجو کند');
+    _set('🗑 همه‌ی سرورهای پیداشده + پوشه + لیست سیاه پاک شد • «اتصال» را بزن تا از نو جستجو کند');
   }
 }
 
