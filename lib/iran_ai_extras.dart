@@ -1030,6 +1030,76 @@ extension HomeExtras on _HomePageState {
   bool _pilotForcedUltra = false;
   bool _pilotForcedIndestructible = false;
   DateTime? _pilotConnectedAt; // hold before cloud pilot may switch
+  // engine the pilot/assistant should use: v2ray | ovpn | wg
+  String pilotEngine = 'v2ray';
+
+  /// Ask which VPN engine to use (V2Ray / OpenVPN / WireGuard).
+  /// Returns null if user cancels.
+  Future<String?> pickVpnEngineDialog() async {
+    if (!mounted) return null;
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('کدام موتور VPN؟'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.flash_on),
+              title: const Text('V2Ray'),
+              subtitle: const Text('VLESS / VMess / Trojan / SS'),
+              onTap: () => Navigator.pop(ctx, 'v2ray'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.vpn_lock),
+              title: const Text('OpenVPN'),
+              subtitle: const Text('فایل‌های .ovpn / VPNGate'),
+              onTap: () => Navigator.pop(ctx, 'ovpn'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.shield_outlined),
+              title: const Text('WireGuard'),
+              subtitle: const Text('کانفیگ‌های wireguard://'),
+              onTap: () => Navigator.pop(ctx, 'wg'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('انصراف')),
+        ],
+      ),
+    );
+  }
+
+  void applyPilotEngine(String e) {
+    pilotEngine = e;
+    if (e == 'ovpn') {
+      proto = 'ovpn';
+      connRow = 'r:ovpn';
+    } else if (e == 'wg') {
+      proto = 'wg';
+      connRow = 'r:wg';
+    } else {
+      proto = 'all';
+      connRow = null;
+    }
+    if (mounted) setState(() {});
+    final label = e == 'ovpn'
+        ? 'OpenVPN'
+        : (e == 'wg' ? 'WireGuard' : 'V2Ray');
+    _set('موتور انتخاب شد: $label');
+  }
+
+  /// Dialog then start; returns false if cancelled.
+  Future<bool> pickEngineThenStart(Future<void> Function() start) async {
+    final e = await pickVpnEngineDialog();
+    if (e == null) return false;
+    applyPilotEngine(e);
+    await start();
+    return true;
+  }
 
   // FULL PILOT: Grok takes over from search to keep-alive until user disconnects
   Future<void> startGrokPilot() async {
@@ -1058,7 +1128,10 @@ extension HomeExtras on _HomePageState {
       _pilotForcedIndestructible = true;
     }
     _applyTurboLevers();
-    _set('خلبان Grok: تحلیل شبکه و جستجوی بهترین سرور...');
+    final eng = pilotEngine == 'ovpn'
+        ? 'OpenVPN'
+        : (pilotEngine == 'wg' ? 'WireGuard' : 'V2Ray');
+    _set('خلبان Grok ($eng): تحلیل شبکه و جستجوی بهترین سرور...');
     aiAutopilotStart();
     // immediate bootstrap without waiting for first AI round-trip
     unawaited(() async {
@@ -1292,13 +1365,13 @@ extension HomeExtras on _HomePageState {
               child: FilledButton.tonalIcon(
                 onPressed: busy
                     ? null
-                    : () {
+                    : () async {
                         if (aiSession) {
                           stopGrokPilot();
                           _set(
                               'خلبان AI خاموش شد — برای قطع کامل VPN دکمه قطع را بزن');
                         } else {
-                          startGrokPilot();
+                          await pickEngineThenStart(startGrokPilot);
                         }
                       },
                 icon: Icon(aiSession ? Icons.flight_land : Icons.flight_takeoff,
@@ -1314,14 +1387,16 @@ extension HomeExtras on _HomePageState {
               child: FilledButton.icon(
                 onPressed: busy
                     ? null
-                    : () {
+                    : () async {
                         if (localPilotOn) {
                           stopLocalPilot();
                           _set('خلبان محلی خاموش شد — VPN تا قطع دستی می‌ماند');
                         } else {
                           // اگر خلبان ابری روشن بود، خاموشش کن تا تداخل نداشته باشد
                           if (aiSession) stopGrokPilot();
-                          startLocalPilot();
+                          await pickEngineThenStart(() async {
+                            startLocalPilot();
+                          });
                         }
                       },
                 icon: Icon(
@@ -1499,7 +1574,7 @@ extension HomeExtras on _HomePageState {
                           onPressed: () async {
                             await save();
                             if (ctx.mounted) Navigator.pop(ctx);
-                            await startGrokPilot();
+                            await pickEngineThenStart(startGrokPilot);
                           },
                           child: const Text('🚀 خلبان کامل AI (کنترل خودکار VPN)')),
                     ]),
@@ -2280,11 +2355,14 @@ extension HomeExtras on _HomePageState {
 
   void startLocalPilot() {
     ensureLocalPilotRunning();
+    final eng = pilotEngine == 'ovpn'
+        ? 'OpenVPN'
+        : (pilotEngine == 'wg' ? 'WireGuard' : 'V2Ray');
     localPilotText.value =
-        '👑 خلبان فعال شد\n'
+        '👑 خلبان فعال شد • موتور: $eng\n'
         '• قدرت خودکار از ۰ تا ∞\n'
         '• اینترنت، مکان، جستجوی عادی و نت ملی را خودش تشخیص می‌دهد\n'
-        '• نیازی به تنظیم دستی نیست';
+        '• فقط روی موتور انتخاب‌شده کار می‌کند';
     unawaited(() async {
       try {
         await natDetectOperator();
