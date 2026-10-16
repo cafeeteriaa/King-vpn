@@ -1064,22 +1064,22 @@ extension HomeExtras on _HomePageState {
       (
         id: 'npv',
         title: 'NPV Tunnel',
-        sub: 'پارسر غیراستاندارد + Fragment + Mux',
+        sub: 'جستجو + اتصال با Fragment و Mux',
         icon: Icons.tune,
         score: 55 + (nat ? 30 : 5) + (nV2 > 0 ? 5 : 0),
         why: nat
-            ? 'قوی‌ترین برای نت ملی / فیلتر شدید'
-            : 'مناسب وقتی V2Ray ساده وصل نمی‌شود',
+            ? 'قوی‌ترین برای نت ملی / فیلتر شدید — دکمه اتصال دارد'
+            : 'وقتی V2Ray ساده وصل نمی‌شود — جستجو و اتصال',
       ),
       (
         id: 'am',
         title: 'AM Tunnel',
-        sub: 'IP تمیز کلودفلر + اتصال با IP',
+        sub: 'جستجو + اتصال با IP تمیز کلودفلر',
         icon: Icons.cell_tower,
         score: 50 + (nat ? 20 : 8) + (nV2 > 0 ? 5 : 0),
         why: nat
-            ? 'خوب برای سرورهای پشت کلودفلر در فیلتر'
-            : 'سرعت بهتر روی CDN / کلودفلر',
+            ? 'خوب برای کلودفلر در فیلتر — دکمه اتصال دارد'
+            : 'سرعت بهتر روی CDN — جستجو و اتصال',
       ),
       (
         id: 'wg',
@@ -1276,14 +1276,21 @@ extension HomeExtras on _HomePageState {
       };
 
   /// Dialog then start; returns false if cancelled.
-  /// HTTP Injector: صفحهٔ جستجو با دکمهٔ اتصال داخل اپ.
+  /// injector / am / npv: صفحهٔ جستجو + دکمهٔ اتصال داخل اپ
+  /// بقیه: اتصال خودکار با همان موتور
   Future<bool> pickEngineThenStart(Future<void> Function() start) async {
     final e = await pickVpnEngineDialog();
     if (e == null) return false;
     applyPilotEngine(e);
-    if (e == 'injector') {
+    if (e == 'injector' || e == 'am' || e == 'npv') {
       if (mounted) {
-        vsOpen(context, VsKind.injector, onConnect: (link) async {
+        final kind = e == 'am'
+            ? VsKind.am
+            : e == 'npv'
+                ? VsKind.npv
+                : VsKind.injector;
+        vsOpen(context, kind, onConnect: (link) async {
+          applyPilotEngine(e);
           await vsConnect(link);
         });
       }
