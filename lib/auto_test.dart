@@ -501,7 +501,7 @@ extension AutoTestEngine on _HomePageState {
     await _atApplyEngine('v2ray');
     await _atEnsureDisconnected();
 
-    final fut = connect();
+    final fut = connect().catchError((e) { logError(e); });
     await _atWait(const Duration(seconds: 2), note: 'صبر بعد از شروع اتصال');
 
     abort = true;
