@@ -1847,9 +1847,51 @@ String _safeDecodeComp(String t) {
   }
 }
 
+// The core's own error log. Xray writes its real reason here (bad config field,
+// TLS/REALITY failure, port in use...). The app reads it after a failed start and
+// puts it into the report, so the report says WHY the core did not connect.
+const String kXrayErrPath = '/data/data/com.kingvpn.king_vpn/cache/xray_err.log';
+
+String withErrLog(String cfgJson) {
+  try {
+    final m = jsonDecode(cfgJson) as Map<String, dynamic>;
+    final log = Map<String, dynamic>.from((m['log'] as Map?) ?? <String, dynamic>{});
+    log['error'] = kXrayErrPath;
+    log['loglevel'] = 'warning';
+    m['log'] = log;
+    return jsonEncode(m);
+  } catch (_) {
+    return cfgJson;
+  }
+}
+
+// logs the tail of the core error file, in short numbered lines
+void dbgXrayErr(String name) {
+  try {
+    final f = File(kXrayErrPath);
+    if (!f.existsSync()) {
+      dbg('XRAY-ERR $name: فایل خطای هسته ساخته نشد (هسته قبل از خواندن کانفیگ متوقف شد)');
+      return;
+    }
+    final txt = f.readAsStringSync().replaceAll('\n', ' | ');
+    final tail = txt.length > 1400 ? txt.substring(txt.length - 1400) : txt;
+    if (tail.trim().isEmpty) {
+      dbg('XRAY-ERR $name: فایل خطا خالی است');
+      return;
+    }
+    const chunk = 200;
+    for (var i = 0; i < tail.length; i += chunk) {
+      final end = i + chunk < tail.length ? i + chunk : tail.length;
+      dbg('XRAY${i ~/ chunk} $name: ${tail.substring(i, end)}');
+    }
+  } catch (e) {
+    dbg('XRAY-ERR $name: خواندن فایل خطا ناموفق: $e');
+  }
+}
+
 // Experiment switch: the own VLESS+REALITY config made the app crash natively
 // on connect ("King VPN متوقف شد"). Keep false until that is solved.
-const bool useOwnVlessCfg = false;
+const bool useOwnVlessCfg = true;
 
 // Own VLESS+REALITY config builder: same shape as the config v2rayNG builds
 // from the same link (which is known to work). Returns null for any link that
@@ -5573,7 +5615,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final po = proxyOnly || proxyMode;
     try {
       final nv = natVarFor(s); // NATULTRA: same variant that passed the test
-      final base = natCfg(s, nv, reuse: true); // same port / clean IP as the test
+      // the package config uses domainStrategy "UseIp" (not a valid Xray value);
+      // "AsIs" is the valid one, the same one the config v2rayNG builds uses
+      final base = natCfg(s, nv, reuse: true)
+          .replaceAll('"UseIp"', '"AsIs"'); // same port / clean IP as the test
       // REALIBLE: real VPN config must match the test config as closely as
       // possible. Heavy Mux/Fragment/routing made many free servers "connect"
       // while Telegram/Instagram/YouTube stayed dead. Only light DNS is added.
@@ -5646,7 +5691,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (ownCfg != null) ownCfg,
         cfg,
         if (base != cfg) base,
-      ];
+      ].map(withErrLog).toList();
       var usedFallback = false;
       for (var ci = 0; ci < cfgTries.length; ci++) {
         if (ci > 0) {
@@ -5663,6 +5708,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           t = null;
         }
       for (var attempt = 0; attempt < 2; attempt++) {
+        try { File(kXrayErrPath).deleteSync(); } catch (_) {}
         // RARE BUG FIX: generation so late CONNECTED from attempt 0
         // cannot complete attempt 1's waiter
         final myGen = ++_connGen;
@@ -5721,6 +5767,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           dbg('CFG${i ~/ chunk} ${s.name}: ${dumpCfg.substring(i, end)}');
         }
       }
+      if (!ready) dbgXrayErr(s.name);
       // the core reported CONNECTED with this config: no fallback needed
       if (ready) break;
       }
