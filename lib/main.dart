@@ -1847,6 +1847,94 @@ String _safeDecodeComp(String t) {
   }
 }
 
+// Own VLESS+REALITY config builder: same shape as the config v2rayNG builds
+// from the same link (which is known to work). Returns null for any link that
+// is not vless + reality + tcp, so other protocols keep the old path.
+String? vlessRealityOwnCfg(String link) {
+  try {
+    final u = Uri.parse(link.trim());
+    if (u.scheme != 'vless' || u.host.isEmpty || !u.hasPort) return null;
+    final q = u.queryParameters;
+    if ((q['security'] ?? '') != 'reality') return null;
+    if ((q['type'] ?? 'tcp').toLowerCase() != 'tcp') return null;
+    final uuid = Uri.decodeComponent(u.userInfo);
+    if (uuid.isEmpty) return null;
+    final flow = q['flow'] ?? '';
+    final user = <String, dynamic>{
+      'id': uuid,
+      'encryption': 'none',
+      'level': 8,
+      if (flow.isNotEmpty) 'flow': flow,
+    };
+    final sniff = <String, dynamic>{
+      'enabled': true,
+      'destOverride': ['http', 'tls'],
+      'routeOnly': false,
+    };
+    final cfg = <String, dynamic>{
+      'log': {'loglevel': 'warning'},
+      'inbounds': [
+        {
+          'tag': 'socks',
+          'listen': '127.0.0.1',
+          'port': 10808,
+          'protocol': 'socks',
+          'settings': {'auth': 'noauth', 'udp': true, 'userLevel': 8},
+          'sniffing': sniff,
+        },
+        {
+          'tag': 'http',
+          'listen': '127.0.0.1',
+          'port': 10809,
+          'protocol': 'http',
+          'settings': {},
+          'sniffing': sniff,
+        },
+      ],
+      'outbounds': [
+        {
+          'tag': 'proxy',
+          'protocol': 'vless',
+          'settings': {
+            'vnext': [
+              {'address': u.host, 'port': u.port, 'users': [user]},
+            ],
+          },
+          'streamSettings': {
+            'network': 'tcp',
+            'security': 'reality',
+            'tcpSettings': {'header': {'type': 'none'}},
+            'realitySettings': {
+              'serverName': q['sni'] ?? '',
+              'fingerprint': q['fp'] ?? 'chrome',
+              'publicKey': q['pbk'] ?? '',
+              'shortId': q['sid'] ?? '',
+              'spiderX': q['spx'] ?? '',
+              'show': false,
+            },
+          },
+          'mux': {'enabled': false, 'concurrency': -1},
+        },
+        {'tag': 'direct', 'protocol': 'freedom', 'settings': {'domainStrategy': 'UseIP'}},
+        {'tag': 'block', 'protocol': 'blackhole', 'settings': {}},
+      ],
+      'dns': {
+        'servers': ['1.1.1.1', '8.8.8.8'],
+      },
+      'routing': {
+        'domainStrategy': 'AsIs',
+        'rules': [
+          {'type': 'field', 'ip': ['geoip:private'], 'outboundTag': 'direct'},
+          {'type': 'field', 'inboundTag': ['socks', 'http'], 'outboundTag': 'proxy'},
+        ],
+      },
+    };
+    return jsonEncode(cfg);
+  } catch (_) {
+    return null;
+  }
+}
+
 class Server {
   final String link, name, host;
   final int port;
@@ -5547,7 +5635,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // FALLBACK: first the config King VPN builds (DNS/routing changed), then,
       // only if the core never reached CONNECTED, the plain config exactly as the
       // manual V2Ray test ran it. Nothing changes when the first one works.
-      final cfgTries = <String>[cfg, if (base != cfg) base];
+      // Our own v2rayNG-shaped config goes FIRST for vless+reality links, then the
+      // config King VPN builds, then the plain package config.
+      final ownCfg = vlessRealityOwnCfg(s.link);
+      final cfgTries = <String>[
+        if (ownCfg != null) ownCfg,
+        cfg,
+        if (base != cfg) base,
+      ];
       var usedFallback = false;
       for (var ci = 0; ci < cfgTries.length; ci++) {
         if (ci > 0) {
