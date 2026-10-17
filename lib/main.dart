@@ -1847,6 +1847,10 @@ String _safeDecodeComp(String t) {
   }
 }
 
+// Experiment switch: the own VLESS+REALITY config made the app crash natively
+// on connect ("King VPN متوقف شد"). Keep false until that is solved.
+const bool useOwnVlessCfg = false;
+
 // Own VLESS+REALITY config builder: same shape as the config v2rayNG builds
 // from the same link (which is known to work). Returns null for any link that
 // is not vless + reality + tcp, so other protocols keep the old path.
@@ -5637,7 +5641,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // manual V2Ray test ran it. Nothing changes when the first one works.
       // Our own v2rayNG-shaped config goes FIRST for vless+reality links, then the
       // config King VPN builds, then the plain package config.
-      final ownCfg = vlessRealityOwnCfg(s.link);
+      final ownCfg = useOwnVlessCfg ? vlessRealityOwnCfg(s.link) : null;
       final cfgTries = <String>[
         if (ownCfg != null) ownCfg,
         cfg,
