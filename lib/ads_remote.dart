@@ -77,7 +77,8 @@ bool _adsApply(String body) {
   try {
     final j = jsonDecode(body);
     if (j is! Map) return false;
-    if (j['enabled'] is bool) requireRewardedAd = j['enabled'] as bool;
+    // remote config may not turn the ad gate back on (gate is off in this build)
+    // if (j['enabled'] is bool) requireRewardedAd = j['enabled'] as bool;
     final all = <String>[];
     String? firstLink;
     final u = j['urls'];
