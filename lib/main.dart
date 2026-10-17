@@ -5678,7 +5678,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // CRITICAL FIX: normal mode also needs a bit more patience on weak devices
       final connWait = (nationalMode || indestructibleMode)
           ? const Duration(seconds: 30)
-          : const Duration(seconds: 22);
+          : const Duration(seconds: 12); // a good server reports CONNECTED in a few seconds
       final tunWait1 = (nationalMode || indestructibleMode) ? 1600 : 1100;
       final tunWait2 = (nationalMode || indestructibleMode) ? 2000 : 1400;
       // FALLBACK: first the config King VPN builds (DNS/routing changed), then,
@@ -5707,7 +5707,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await Future.delayed(const Duration(milliseconds: 500));
           t = null;
         }
-      for (var attempt = 0; attempt < 2; attempt++) {
+      // one attempt per config: a config that does not reach CONNECTED in time
+      // is skipped, so a failing server cannot eat the whole wait
+      for (var attempt = 0; attempt < 1; attempt++) {
         try { File(kXrayErrPath).deleteSync(); } catch (_) {}
         // RARE BUG FIX: generation so late CONNECTED from attempt 0
         // cannot complete attempt 1's waiter
@@ -9010,8 +9012,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _insWarn('mm2', connected && lastState.isNotEmpty &&
         lastState != 'CONNECTED' && !searching && !ov, 12,
         'اپ «متصل» می‌داند ولی هسته $lastState است');
+    // when the core itself is CONNECTED the tunnel is up: never treat it as an
+    // orphan (that caused unnecessary server switches right after connecting)
     final orphaned = wantVpn && !connected && !busy && !switching &&
-        !(dropTimer?.isActive ?? false) && !_acquiring && !searching;
+        !(dropTimer?.isActive ?? false) && !_acquiring && !searching &&
+        lastState != 'CONNECTED';
     _insWarn('orph', orphaned, 20,
         'اتصال خواسته شده ولی هیچ کاری برای آن در حال انجام نیست');
     // E-ORPHAN self-heal: after ~20s still wanting VPN with nothing running → failover
