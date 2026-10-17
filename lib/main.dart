@@ -5471,6 +5471,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     lastFail = '';
     if (s.ovpn) return _startOvpn(s);
     if (s.wg) return _startWg(s);
+    // GUARD: a real VPN tunnel is started only when the user asked for it
+    // (wantVpn, set by connect / adopt). Background search or standby must
+    // never bring the VPN key up by itself. Proxy-only tests are not affected.
+    if (!proxyOnly && !wantVpn) {
+      lastFail = 'اتصال توسط کاربر خواسته نشده بود';
+      return false;
+    }
     final po = proxyOnly || proxyMode;
     try {
       final nv = natVarFor(s); // NATULTRA: same variant that passed the test
@@ -5606,8 +5613,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // DIAG: the core never reported CONNECTED: log the exact config it got
       // (the start of it) so the report shows what was sent to the core
       if (!ready) {
-        final dumpCfg = cfgTries[ci];
-        dbg('CFG-DUMP ${s.name}: ${dumpCfg.substring(0, dumpCfg.length < 3000 ? dumpCfg.length : 3000)}');
+        // the log viewer cuts long lines, so the config goes out in short
+        // numbered chunks (one line each), newlines removed
+        final dumpCfg = cfgTries[ci].replaceAll('\n', ' ');
+        const chunk = 200;
+        for (var i = 0; i < dumpCfg.length && i < 6000; i += chunk) {
+          final end = i + chunk < dumpCfg.length ? i + chunk : dumpCfg.length;
+          dbg('CFG${i ~/ chunk} ${s.name}: ${dumpCfg.substring(i, end)}');
+        }
       }
       // the core reported CONNECTED with this config: no fallback needed
       if (ready) break;
