@@ -7100,9 +7100,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _set('برای اتصال باید تبلیغ را کامل ببینید');
       return;
     }
-    // the user asked to connect (ad passed): allow the real tunnel to start.
-    // The guard in _start blocks VPN starts when wantVpn is false.
-    wantVpn = true;
     // DNS خودکار: سریع‌ترین ارائه‌دهنده (کش ۱۰ دقیقه؛ موازی با مجوز VPN)
     if (secureDns && dnsProv == 'auto') {
       try {
@@ -7132,6 +7129,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
     }
     await _haltAll(); // tapping while a search runs interrupts it
+    // set AFTER _haltAll: stopping the search sets abort, and the background
+    // watcher then resets wantVpn when abort is set in manual mode
+    wantVpn = true;
     await _runBusy(() async {
       if (natForce || _resNext) _resInject(); // NATRESPATCH
       _resNext = false;
