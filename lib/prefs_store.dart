@@ -47,6 +47,10 @@ class SharedPreferences {
 
   bool containsKey(String key) => _data.containsKey(key);
 
+  Set<String> getKeys() => _data.keys.toSet();
+
+  Object? get(String key) => _data[key];
+
   bool? getBool(String key) {
     final v = _data[key];
     return v is bool ? v : null;
