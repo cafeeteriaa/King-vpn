@@ -3756,6 +3756,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         .initialize(localizedDescription: 'VPN')
         .catchError((e) => logError(e as Object));
     v2ray = V2ray(onStatusChanged: (st) {
+      // RAW-STATUS: every real change of the core/VPN state goes into the report
+      // (the live-stats ticks are skipped), so the report shows where it stops
+      if (st.state != lastState) {
+        final raw = st.toString();
+        dbg('V2RAY-STATE ${st.state}${raw.length > 160 ? '' : ' | $raw'}');
+      }
       lastState = st.state;
       try {
         final d = st as dynamic; // LIVESTATS
@@ -5715,11 +5721,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         connSig = Completer<bool>();
         // blockedApps = apps that skip the VPN (null when none are chosen,
         // so the behaviour is exactly the same as before)
-        await v2ray.startV2Ray(
-            remark: s.name,
-            config: cfgTries[ci],
-            proxyOnly: false,
-            blockedApps: bypassApps.isEmpty ? null : bypassApps);
+        dbg('V2RAY-START ${s.name} (cfg ${ci + 1}/${cfgTries.length}, ${cfgTries[ci].length} bytes)');
+        try {
+          await v2ray.startV2Ray(
+              remark: s.name,
+              config: cfgTries[ci],
+              proxyOnly: false,
+              blockedApps: bypassApps.isEmpty ? null : bypassApps);
+          dbg('V2RAY-START-RETURNED ${s.name}');
+        } catch (e) {
+          dbg('V2RAY-START-ERROR ${s.name}: ${e.toString().length > 300 ? e.toString().substring(0, 300) : e.toString()}');
+          rethrow;
+        }
         // the core must report CONNECTED (it can hang in CONNECTING)
         final waitSig = connSig!;
         ready = await waitSig.future.timeout(connWait, onTimeout: () {
