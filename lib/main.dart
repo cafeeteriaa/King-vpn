@@ -6,13 +6,13 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_v2ray_client/flutter_v2ray.dart';
-import 'package:openvpn_flutter/openvpn_flutter.dart';
-import 'package:wireguard_flutter/wireguard_flutter.dart';
+import 'vpn_stubs.dart';
+
 import 'package:http/http.dart' as http;
 import 'package:installed_apps/app_info.dart';
 import 'package:installed_apps/installed_apps.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'prefs_store.dart';
 import 'package:workmanager/workmanager.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -3293,8 +3293,6 @@ final rowDefs = <RowDef>[
           .contains(s.net)),
   RowDef('trojan', '🌑 Trojan', (s) => s.link.startsWith('trojan://')),
   RowDef('ss', '🔐 Shadowsocks (Outline)', (s) => s.link.startsWith('ss://')),
-  RowDef('ovpn', '🛡️ OpenVPN', (s) => s.ovpn),
-  RowDef('wg', '🔐 WireGuard', (s) => s.wg),
   
   // shown as its own fixed row (second line of the list), see build()
   RowDef('ai', '🤖 سرورهای مخصوص هوش مصنوعی', (s) => s.ai == true && s.ping != null),
