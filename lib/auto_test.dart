@@ -58,14 +58,9 @@ extension AutoTestEngine on _HomePageState {
   // قابلیت‌های هسته‌ای که کانفیگ‌های ناموفق لازم داشتند
   static final List<String> _atCfgNotes = [];
 
-  /// هر ۶ نوع VPN که در دیالوگ اتصال هستند
+  /// only V2Ray: the other engines are removed from this build
   static const List<(String id, String label)> _engines = [
     ('v2ray', 'V2Ray'),
-    ('ovpn', 'OpenVPN'),
-    ('wg', 'WireGuard'),
-    ('am', 'AM Tunnel'),
-    ('npv', 'NPV Tunnel'),
-    ('injector', 'HTTP Injector'),
   ];
 
   static _AtPhase _phase = _AtPhase.idle;
@@ -201,7 +196,7 @@ extension AutoTestEngine on _HomePageState {
     });
 
     try {
-      await _atScenarioAllEngines(); // 1 — هر ۶ VPN
+      await _atScenarioAllEngines(); // 1 — V2Ray
       if (_abortRequested) return _atFinish(reason: 'توقف دستی');
       await _atScenarioReconnectStorm(); // 2
       if (_abortRequested) return _atFinish(reason: 'توقف دستی');
@@ -240,7 +235,7 @@ extension AutoTestEngine on _HomePageState {
     final sec = elapsed.inSeconds % 60;
 
     final buf = StringBuffer();
-    buf.writeln('===== گزارش تست خودکار (۶ VPN) =====');
+    buf.writeln('===== گزارش تست خودکار (V2Ray) =====');
     buf.writeln('مدت: ${min}m ${sec}s • دلیل پایان: $reason');
     buf.writeln('نمونه وضعیت: ${_samples.length}');
     buf.writeln('یافته‌ها: ${_findings.length}');
@@ -624,8 +619,8 @@ extension AutoTestEngine on _HomePageState {
   /// سناریو ۱: تست تک‌تک هر ۶ موتور VPN
   Future<void> _atScenarioAllEngines() async {
     _scenario = 1;
-    autoTestText.value = 'سناریو ۱: تست ۶ VPN';
-    dbg('🧪 سناریو ۱ — هر ۶ موتور VPN');
+    autoTestText.value = 'سناریو ۱: تست V2Ray';
+    dbg('🧪 سناریو ۱ — موتور V2Ray');
 
     final list = _engines.where((e) => _atSelected.contains(e.$1)).toList();
     for (var i = 0; i < list.length; i++) {
