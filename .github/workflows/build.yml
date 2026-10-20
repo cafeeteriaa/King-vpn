@@ -73,7 +73,17 @@ jobs:
           KS_ALIAS: ${{ secrets.KS_ALIAS }}
         run: |
           printf '\norg.gradle.vfs.watch=false\norg.gradle.daemon=false\norg.gradle.jvmargs=-Xmx3g\n' >> android/gradle.properties
-          flutter build apk --release --target-platform android-arm64 --build-number=${{ github.run_number }}
+          # Gradle plugin repos sometimes answer HTTP 429 (Too Many Requests) to
+          # shared CI runners. That is temporary: wait and try again, up to 3 times.
+          for attempt in 1 2 3; do
+            if flutter build apk --release --target-platform android-arm64 --build-number=${{ github.run_number }}; then
+              exit 0
+            fi
+            echo "Build attempt $attempt failed; waiting before retry..."
+            sleep $((attempt * 90))
+          done
+          echo "Build failed after 3 attempts"
+          exit 1
 
       - name: Publish APK as Release
         uses: softprops/action-gh-release@v3
