@@ -314,6 +314,126 @@ patch('main.dart',
       "    wantVpn = false;\n    pendingFailover = false;",
       "    wantVpn = false;\n    _connGen++; // DISCONNECTFIX: cancel any connect still in flight\n    pendingFailover = false;")
 
+# 4f) main.dart: IDMDEFAULT — حالت شکست‌ناپذیر همیشه روشن (یک بار، کاربر می‌تواند خاموشش کند)
+patch('main.dart',
+      "      // FOLDERONLY: healthy servers are kept only in the folder",
+      "      // IDMDEFAULT: حالت شکست‌ناپذیر همیشه روشن (یک بار)\n"
+      "      if (p.getBool('idm_v2') != true) {\n"
+      "        indestructibleMode = true;\n"
+      "        await p.setBool('idm_v2', true);\n"
+      "        await _saveSettings();\n"
+      "      }\n"
+      "      // FOLDERONLY: healthy servers are kept only in the folder")
+
+# 4g) main.dart: NATDEFAULTS — Fragment و اتصال با IP (DoH) روشن (یک بار)
+# Fragment is forced off outside national mode by the existing code, so it only acts in national mode.
+patch('main.dart',
+      "      // FOLDERONLY: healthy servers are kept only in the folder",
+      "      // NATDEFAULTS: فرگمنت و اتصال با IP (DoH) روشن (یک بار)\n"
+      "      if (p.getBool('nat_v2') != true) {\n"
+      "        fragEnabled = true;\n"
+      "        ipMode = true;\n"
+      "        await p.setBool('nat_v2', true);\n"
+      "        await _saveSettings();\n"
+      "      }\n"
+      "      // FOLDERONLY: healthy servers are kept only in the folder")
+
+# 4h) PILOTAUTO: خلبان محلی همیشه روشن (با شروع برنامه) و وقتی VPN خاموش است خودش را متوقف نکند
+patch('main.dart',
+      "    _favsRef = favs;\n    WidgetsBinding.instance.addObserver(this);",
+      "    _favsRef = favs;\n    WidgetsBinding.instance.addObserver(this);\n"
+      "    WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) startLocalPilot(); }); // PILOTAUTO")
+
+patch('iran_ai_extras.dart',
+      "    if (!wantVpn && !connected) {\n      stopLocalPilot();\n      return;\n    }\n\n    localPilotLoading.value = true;",
+      "    if (!wantVpn && !connected) return; // PILOTKEEP: stay on while the VPN is off\n\n    localPilotLoading.value = true;")
+
+# 4i) DOHAUTO: خلبان IP (DoH) را خودش روشن/خاموش می‌کند بر اساس نتیجه‌ی اتصال
+patch('iran_ai_extras.dart',
+      "bool localPilotOn = false;",
+      "int _localConnFail = 0; // DOHAUTO: connect failures in a row\nbool localPilotOn = false;")
+
+patch('iran_ai_extras.dart',
+      "      _localReschedule();\n    } catch (e) {",
+      "      // DOHAUTO: IP (DoH) را خلبان خودش روشن/خاموش می‌کند بر اساس نتیجه‌ی اتصال\n"
+      "      if (connected) {\n"
+      "        _localConnFail = 0;\n"
+      "        if (!ipMode) {\n"
+      "          ipMode = true;\n"
+      "          await _saveSettings();\n"
+      "        }\n"
+      "      } else if (wantVpn) {\n"
+      "        _localConnFail++;\n"
+      "        if (_localConnFail >= 2 && ipMode) {\n"
+      "          ipMode = false;\n"
+      "          _localConnFail = 0;\n"
+      "          await _saveSettings();\n"
+      "        }\n"
+      "      }\n"
+      "      _localReschedule();\n    } catch (e) {")
+
+# 4j) TOGGLES: خلبان Fragment، ماتریس (Ultra)، IP تمیز و DoH را خودش تنظیم می‌کند
+patch('iran_ai_extras.dart',
+      "bool localPilotOn = false;",
+      "int _localGoodTog = 0; // TOGGLES: connected ticks in a row\nbool localPilotOn = false;")
+
+patch('iran_ai_extras.dart',
+      "  Future<void> localPilotTick({bool force = false}) async {",
+      "  // TOGGLES: خلبان بر اساس نتیجه‌ی اتصال، Fragment / ماتریس / IP تمیز را خودش روشن و خاموش می‌کند\n"
+      "  void _localTuneToggles() {\n"
+      "    var changed = false;\n"
+      "    if (connected) {\n"
+      "      _localGoodTog++;\n"
+      "      // وصل و پایدار: ماتریس سنگین است، خاموشش کن تا دیتا کم شود\n"
+      "      if (_localGoodTog >= 3 && ultraMode) {\n"
+      "        ultraMode = false;\n"
+      "        changed = true;\n"
+      "      }\n"
+      "    } else if (wantVpn) {\n"
+      "      _localGoodTog = 0;\n"
+      "      if (_localFailStreak >= 2) {\n"
+      "        // جستجو شکست می‌خورد: IP تمیز و Fragment (نت ملی) را روشن کن\n"
+      "        if (!cleanIpMode) {\n"
+      "          cleanIpMode = true;\n"
+      "          changed = true;\n"
+      "        }\n"
+      "        if (nationalMode && !fragEnabled) {\n"
+      "          fragEnabled = true;\n"
+      "          changed = true;\n"
+      "        }\n"
+      "      }\n"
+      "      if (_localFailStreak >= 3 && nationalMode && !ultraMode) {\n"
+      "        ultraMode = true;\n"
+      "        changed = true;\n"
+      "      }\n"
+      "    }\n"
+      "    if (changed) unawaited(_saveSettings().catchError((e) => logError(e)));\n"
+      "  }\n\n"
+      "  Future<void> localPilotTick({bool force = false}) async {")
+
+patch('iran_ai_extras.dart',
+      "      await _localApply(decision);",
+      "      await _localApply(decision);\n"
+      "      _localTuneToggles(); // TOGGLES")
+
+# 4k) NATKICK: خلبان وقتی نت ملی است همان «جستجوی سرور با نت ملی» را اجرا کند
+patch('iran_ai_extras.dart',
+      "  Future<void> localPilotTick({bool force = false}) async {",
+      "  // NATKICK: در حالت نت ملی، خلبان همان مسیر دکمه‌ی «جستجوی سرور با نت ملی» را اجرا می‌کند\n"
+      "  Future<void> _localNatConnect() async {\n"
+      "    if (nationalMode && !connected && !busy) natForce = true;\n"
+      "    await connect();\n"
+      "  }\n\n"
+      "  Future<void> localPilotTick({bool force = false}) async {")
+
+patch('iran_ai_extras.dart',
+      "          _applyTurboLevers();\n          await connect();",
+      "          _applyTurboLevers();\n          await _localNatConnect();")
+
+patch('iran_ai_extras.dart',
+      "        if (decision.action == 'none' || decision.action == 'connect') {\n          await connect();",
+      "        if (decision.action == 'none' || decision.action == 'connect') {\n          await _localNatConnect();")
+
 # 5) write the new part file
 with open(os.path.join(LIB, 'nip_scan.dart'), 'w', encoding='utf-8') as f:
     f.write(NIP_FILE)
