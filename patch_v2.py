@@ -179,7 +179,11 @@ extension NipHunt on _HomePageState {
 
     final templates = <Server>[];
     final seen = <String>{};
-    for (final s in [...good, ...pending, ..._resMap.values]) {
+    final pool = <Server>[];
+    pool.addAll(good);
+    pool.addAll(pending);
+    pool.addAll(_resMap.values.whereType<Server>());
+    for (final s in pool) {
       if (s.isIp || s.link.toLowerCase().startsWith('ss://')) continue;
       if (!seen.add(s.host)) continue;
       templates.add(s);
