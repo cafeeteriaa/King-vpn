@@ -237,7 +237,7 @@ extension NipHunt on _HomePageState {
 '''
 
 # ---------------------------------------------------------------------------
-# Patches to existing files
+# Patches to the ORIGINAL files from the zip (must match exactly once)
 # ---------------------------------------------------------------------------
 
 # 1) main.dart: include the new part file
@@ -245,19 +245,19 @@ patch('main.dart',
       "part 'extras_plus.dart';",
       "part 'extras_plus.dart';\npart 'nip_scan.dart';")
 
-# 2) main.dart: hunt after the normal list fails (national mode only)
+# 2) main.dart: national IP hunt after the normal list fails
 patch('main.dart',
       "      if (await _connectLoop(list, trust: false)) return true;\n",
       "      if (await _connectLoop(list, trust: false)) return true;\n"
       "      if (nationalMode && await _natIpHunt()) return true; // NIPHUNT\n")
 
-# 3) main.dart: hunt also when there is nothing to try (empty round)
+# 3) main.dart: national IP hunt also on an empty round
 patch('main.dart',
       "          emptyRounds++;\n",
       "          if (nationalMode && await _natIpHunt()) return true; // NIPHUNT\n"
       "          emptyRounds++;\n")
 
-# 4) auto_test.dart: core-dead streak counter
+# 4) auto_test.dart: CORE-DEAD verdict (core never opens its local port)
 patch('auto_test.dart',
       "  static bool _abortRequested = false;",
       "  static bool _abortRequested = false;\n"
