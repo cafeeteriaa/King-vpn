@@ -39,7 +39,7 @@ jobs:
       - name: Add packages
         working-directory: build_app
         run: |
-          flutter pub add http flutter_v2ray_client:3.4.1 installed_apps:1.6.0 permission_handler workmanager url_launcher webview_flutter
+          flutter pub add http flutter_v2ray_client:3.5.0 installed_apps:1.6.0 permission_handler workmanager url_launcher webview_flutter
           flutter pub get
 
       - name: Fix compileSdk of plugins
