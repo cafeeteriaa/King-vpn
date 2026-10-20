@@ -292,6 +292,28 @@ patch('auto_test.dart',
       }
       _atAdd('ENG-FAIL',""")
 
+# 4b) main.dart: national button turns on Ultra (matrix) for that connect only
+patch('main.dart',
+      "      natLevel = natForce ? 2 : 0;",
+      "      ultraMode = natForce; // NATULTRA: Ultra/matrix only for the national button\n"
+      "      natLevel = natForce ? 2 : 0;")
+
+# 4c) main.dart: IP تمیز (clean IP) ON by default, once, for normal and national connect
+patch('main.dart',
+      "      // FOLDERONLY: healthy servers are kept only in the folder",
+      "      // CIPDEFAULT: IP تمیز روشن پیش‌فرض (یک بار برای همه)\n"
+      "      if (p.getBool('cip_v2') != true) {\n"
+      "        cleanIpMode = true;\n"
+      "        await p.setBool('cip_v2', true);\n"
+      "        await _saveSettings();\n"
+      "      }\n"
+      "      // FOLDERONLY: healthy servers are kept only in the folder")
+
+# 4e) main.dart: DISCONNECTFIX — a connect still in flight must not reconnect after Disconnect
+patch('main.dart',
+      "    wantVpn = false;\n    pendingFailover = false;",
+      "    wantVpn = false;\n    _connGen++; // DISCONNECTFIX: cancel any connect still in flight\n    pendingFailover = false;")
+
 # 5) write the new part file
 with open(os.path.join(LIB, 'nip_scan.dart'), 'w', encoding='utf-8') as f:
     f.write(NIP_FILE)
