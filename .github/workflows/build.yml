@@ -39,6 +39,8 @@ jobs:
             || { echo "ERROR: requireRewardedAd line not found in main.dart"; exit 1; }
           sed -i 's/bool requireRewardedAd = false;/bool requireRewardedAd = true;/' build_app/lib/main.dart
           echo "requireRewardedAd is now true"
+          # Apply verified patches (test report + national IP hunt). Stops the build if anything does not match.
+          python3 patch_v2.py build_app/lib
           python3 prepare_android.py
 
       - name: Add packages
