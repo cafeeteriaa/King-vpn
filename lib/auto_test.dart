@@ -479,8 +479,10 @@ extension AutoTestEngine on _HomePageState {
       if (lastFail.contains('uuid')) {
         _atVerdict = 'کانفیگ uuid ندارد (لینک سرور ناقص است).';
       } else if (coreUp) {
-        _atVerdict = 'هسته روی پورت محلی بالا است ولی وضعیت CONNECTED از پلاگین نمی‌رسد. '
-            'مشکل در حالت VPN/سرویس VPN یا پلاگین است، نه سرور.';
+        _atVerdict = 'هسته روی پورت محلی بالا است ولی وضعیت CONNECTED از پلاگین نمی‌رسد؛ '
+            'یعنی مشکل از سرور نیست. محل‌ها: lib/main.dart → شنونده‌ی onStatusChanged (در initState) '
+            'و _start (انتظار connSig). راه حل: build.yml خط نصب flutter_v2ray_client را از ۳.۴.۱ '
+            'به ۳.۵.۰ ببر، چون کد انتظار TUN بومی ۳.۵.۰ را دارد؛ اگر بیلد شکست خورد، لاگ بیلد را بفرست.';
       } else {
         _atVerdict = 'هسته روی پورت محلی بالا نمی‌آید. هسته یا سرویس VPN اجرا نشده است.';
       }
