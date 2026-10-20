@@ -34,6 +34,11 @@ jobs:
             [ -f "lib/$f.dart" ] || { echo "ERROR: lib/$f.dart missing"; exit 1; }
             cp "lib/$f.dart" "build_app/lib/$f.dart"
           done
+          # Turn the pre-connect ad back on (it was switched off in the test build)
+          grep -q 'bool requireRewardedAd = false;' build_app/lib/main.dart \
+            || { echo "ERROR: requireRewardedAd line not found in main.dart"; exit 1; }
+          sed -i 's/bool requireRewardedAd = false;/bool requireRewardedAd = true;/' build_app/lib/main.dart
+          echo "requireRewardedAd is now true"
           python3 prepare_android.py
 
       - name: Add packages
