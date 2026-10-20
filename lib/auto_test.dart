@@ -73,6 +73,9 @@ extension AutoTestEngine on _HomePageState {
   static final List<_AtFinding> _findings = [];
   static final List<_AtStateSample> _samples = [];
   static int _scenario = 0;
+  // FLAG-MISMATCH is reported only when it lasts 3 samples in a row (about 9 s);
+  // a state that changes during a normal disconnect is not a bug
+  static int _atMismatchTicks = 0;
   static bool _abortRequested = false;
   // EARLY-STOP: consecutive engine failures with the same cause end the test early
   static int _atFailStreak = 0;
@@ -381,8 +384,13 @@ extension AutoTestEngine on _HomePageState {
     }
 
     if (connected && !wantVpn && !busy) {
-      _atAdd('FLAG-MISMATCH',
-          'connected=true ولی wantVpn=false • موتور=$_currentEngine');
+      _atMismatchTicks++;
+      if (_atMismatchTicks >= 3) {
+        _atAdd('FLAG-MISMATCH',
+            'connected=true ولی wantVpn=false برای ${_atMismatchTicks * 3}s • موتور=$_currentEngine');
+      }
+    } else {
+      _atMismatchTicks = 0;
     }
     if (connected && !watchBusy && !busy && !switching) {
       // informational only when watchdog should be running — not always a bug
@@ -593,6 +601,60 @@ extension AutoTestEngine on _HomePageState {
           'lib/auto_test.dart → _atScenarioAllEngines (توقف زودهنگام)',
           'سه سرور پشت‌سرهم با یک علت وصل نشدند؛ تست برای صرفه‌جویی زودتر تمام شد',
           'علت احتمالی بالای گزارش را بخوان؛ بعد از رفع، تست را دوباره اجرا کن',
+        ];
+      case 'ABORT-STUCK':
+        return [
+          'lib/main.dart → _runBusy و تابع‌هایی که abort را چک می‌کنند (_doConnect / _failover / _swapTo)',
+          'بعد از توقف، busy یا switching هنوز true است؛ یعنی کاری که به abort جواب نمی‌دهد هنوز در جریان است',
+          'در آن تابع، بعد از هر await یک if (abort) return بگذار و در finally پرچم‌ها را پاک کن (busy=false، switching=false)',
+        ];
+      case 'ABORT-FLAG':
+        return [
+          'lib/main.dart → disconnect و شنونده‌ی onStatusChanged',
+          'بعد از توقف، connected هنوز true است؛ یعنی وضعیت DISCONNECTED از هسته نرسیده',
+          'مسیر disconnect را بررسی کن که منتظر رویداد DISCONNECTED بماند و بعد از timeout connected را خودش false کند',
+        ];
+      case 'SWAP-SKIP':
+        return [
+          'lib/auto_test.dart → _atScenarioServerSwap',
+          'سناریوی تعویض سرور بدون اتصال اولیه شروع شد، چون اتصال اول برقرار نشد',
+          'ریشه‌ی آن ENG-FAIL / VERDICT است؛ اول آن را رفع کن',
+        ];
+      case 'SWAP-EX':
+        return [
+          'lib/main.dart → _failover',
+          'استثنا هنگام تعویض سرور',
+          'متن استثنا در همان خط را بفرست؛ جای دقیق آن در stack trace مشخص می‌شود',
+        ];
+      case 'SWAP-DROP':
+        return [
+          'lib/main.dart → _failover / _swapTo (بعد از وصل جدید)',
+          'بعد از تعویض سرور، اتصال قطع ماند',
+          'بعد از وصل جدید، شنونده‌ی onStatusChanged باید connected را true نگه دارد؛ مسیر قطع را با رویداد DISCONNECTED ناخواسته مقایسه کن',
+        ];
+      case 'STABLE-DROP':
+        return [
+          'lib/main.dart → شنونده‌ی onStatusChanged (dropTimer) و _startWatch',
+          'در مانیتور طولانی، اتصال بدون درخواست کاربر قطع شد',
+          'همان شنونده‌ی DISCONNECTED؛ خطوط «هسته:» و «V2RAY-STATE» همان ساعت را در گزارش اصلی ببین',
+        ];
+      case 'STABLE-NODATA':
+        return [
+          'lib/auto_test.dart → _atScenarioLongStable',
+          'در مانیتور طولانی، تونل بالا بود ولی داده‌ای نرسید',
+          'DNS و مسیریابی TUN؛ در ۳.۵.۰ TUN بومی است، پس نسخه‌ی پلاگین را بررسی کن (build.yml)',
+        ];
+      case 'RECONNECT-FAIL':
+        return [
+          'lib/auto_test.dart → _atScenarioReconnectStorm',
+          'بعد از قطع و وصل دوباره، اتصال برنگشت',
+          'ناپایداری روی همان سرور؛ ENG-FAIL و VERDICT را ببین',
+        ];
+      case 'CRASH':
+        return [
+          'lib/auto_test.dart → _atRun',
+          'استثنای داخل تست خودکار',
+          'stack trace همین خط را بفرست؛ این باگ کد است',
         ];
       case 'ENG-NODATA':
         return [
