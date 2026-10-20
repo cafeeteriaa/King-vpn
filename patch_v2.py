@@ -338,16 +338,6 @@ patch('main.dart',
       "      }\n"
       "      // FOLDERONLY: healthy servers are kept only in the folder")
 
-# 4h) PILOTAUTO: خلبان محلی همیشه روشن (با شروع برنامه) و وقتی VPN خاموش است خودش را متوقف نکند
-patch('main.dart',
-      "    _favsRef = favs;\n    WidgetsBinding.instance.addObserver(this);",
-      "    _favsRef = favs;\n    WidgetsBinding.instance.addObserver(this);\n"
-      "    WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) startLocalPilot(); }); // PILOTAUTO")
-
-patch('iran_ai_extras.dart',
-      "    if (!wantVpn && !connected) {\n      stopLocalPilot();\n      return;\n    }\n\n    localPilotLoading.value = true;",
-      "    if (!wantVpn && !connected) return; // PILOTKEEP: stay on while the VPN is off\n\n    localPilotLoading.value = true;")
-
 # 4i) DOHAUTO: خلبان IP (DoH) را خودش روشن/خاموش می‌کند بر اساس نتیجه‌ی اتصال
 patch('iran_ai_extras.dart',
       "bool localPilotOn = false;",
