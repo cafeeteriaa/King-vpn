@@ -1958,7 +1958,14 @@ String? vlessRealityOwnCfg(String link) {
           },
           'mux': {'enabled': false, 'concurrency': -1},
         },
-        {'tag': 'direct', 'protocol': 'freedom', 'settings': {'domainStrategy': 'UseIP'}},
+        // XRAY-3.5.0: freedom domainStrategy moved to streamSettings.sockopt
+        {
+          'tag': 'direct',
+          'protocol': 'freedom',
+          'streamSettings': {
+            'sockopt': {'domainStrategy': 'UseIP'},
+          },
+        },
         {'tag': 'block', 'protocol': 'blackhole', 'settings': {}},
       ],
       'dns': {
