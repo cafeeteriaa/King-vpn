@@ -639,7 +639,7 @@ patch('auto_test.dart',
       "    // XRAY-NOLOG: the core starts without its error file, so its own errors are invisible\n"
       "    final noLog = RegExp('فایل خطای هسته ساخته نشد').allMatches(logWin).length;\n"
       "    if (noLog > 0) {\n"
-      "      _atAdd('XRAY-NOLOG', 'هسته $noLog بار بدون فایل خطا شروع شد؛ خطای داخلی هسته در گزارش دیده نمی‌شود');\n"
+      "      _atAdd('XRAY-NOLOG', 'هسته $noLog بار بدون فایل خطا شروع شد؛ این فقط یک نشانه است؛ اگر اتصال برقرار شده بی‌اهمیت است');\n"
       "    }\n"
       "    final elapsed = _startedAt == null")
 
@@ -654,8 +654,8 @@ patch('auto_test.dart',
       "      case 'XRAY-NOLOG':\n"
       "        return [\n"
       "          'lib/main.dart → _start (نوشتن کانفیگ هسته، کلید log.error)',\n"
-      "          'پوشه‌ی cache فایل xray_err.log را نمی‌سازد؛ هسته قبل از شروع خطایش را نمی‌نویسد و علت شکست‌ها پنهان می‌ماند',\n"
-      "          'قبل از شروع هسته پوشه را با createSync(recursive: true) بساز، یا کلید log.error را حذف کن تا هسته به خروجی استاندارد بنویسد',\n"
+      "          'Xray فایل خطا را معمولاً فقط وقتی خطا دارد می‌سازد؛ نبودنش به‌تنهایی لزوماً مشکل نیست',\n"
+      "          'این هشدار را فقط وقتی جدی بگیر که اتصال هم شکست خورده باشد (E-CONFIG-FAIL را ببین)',\n"
       "        ];\n"
       "      case 'CRASH':")
 
@@ -707,6 +707,67 @@ patch('auto_test.dart',
 patch('auto_test.dart',
       "    final logWin = errorLog.value.length >= _atLogStart\n        ? errorLog.value.substring(_atLogStart)\n        : errorLog.value;",
       "    final logWin = _atLogSince().join('\\n'); // LOGFIX")
+
+# 4y) ABORTFAST: پیش‌آزمون سایت‌ها بعد از توقف سریع برگردد (قبلاً بعد از شروع هسته تا ~۳۰ ثانیه ادامه می‌داد)
+patch('main.dart',
+      "      if (!await _start(s, proxyOnly: true)) return null;",
+      "      if (abort) return null; // ABORTFAST\n"
+      "      if (!await _start(s, proxyOnly: true)) return null;\n"
+      "      if (abort) {\n"
+      "        await _stopCore(); // ABORTFAST\n"
+      "        return null;\n"
+      "      }")
+
+# 4z) NEWRULES: پیام‌هایی که قبلاً E-GENERIC یا شکست کانفیگ اشتباه بودند، کد و راه‌حل درست بگیرند
+patch('main.dart',
+      "  if (has('کانفیگ ناموفق') || has('CONFIG-FAIL')) {",
+      "  // NEWRULES: lines that used to be generic or wrongly counted as a config failure\n"
+      "  if (has('اتصال توسط کاربر خواسته نشده بود')) {\n"
+      "    return h('E-ABORT-SIDE',\n"
+      "        'app_main/main.dart → _connectLoop / _start (توقف یا قطع اتصال)',\n"
+      "        'اتصال وسط راه لغو شد. این شکست سرور یا کانفیگ نیست.',\n"
+      "        'نادیده بگیر. اگر بدون تست و بدون قطع دستی هم دیده شد، یک کار دیگر (تست، خلبان یا دکمه) اتصال را لغو کرده است.');\n"
+      "  }\n"
+      "  if (m.startsWith('CFG') && m.length > 3 && '0123456789'.contains(m[3])) {\n"
+      "    return h('E-CFG-DUMP', 'لاگ عیب‌یابی هسته',\n"
+      "        'یک خط از متن کانفیگ هسته است؛ خودش خطا نیست.',\n"
+      "        'نادیده بگیر؛ علت واقعی را در خط XRAY-ERR یا E-CONFIG-FAIL ببین.');\n"
+      "  }\n"
+      "  if (has('فایل خطای هسته ساخته نشد')) {\n"
+      "    return h('E-XRAY-NOLOG', 'لاگ هسته (XRAY-ERR)',\n"
+      "        'Xray فایل خطا را معمولاً فقط وقتی خطا دارد می‌سازد؛ نبودنش تنها به معنی شکست نیست.',\n"
+      "        'فقط وقتی جدی بگیر که همان لحظه اتصال هم شکست خورده باشد (E-CONFIG-FAIL).');\n"
+      "  }\n"
+      "  if (has('V2RAY-STATE') || has('هسته: CONNECTED') || has('هسته: DISCONNECTED')) {\n"
+      "    return h('E-CORE-EVENT', 'app_main/main.dart → listener onStatusChanged',\n"
+      "        'رویداد عادی هسته (وصل/قطع). فقط تعداد زیاد آن در مدت کوتاه مشکل است.',\n"
+      "        'اگر بیش از ۱۰ بار در ۲۰ دقیقه پرش داشتی، E-CORE-DROP را در همین گزارش ببین.');\n"
+      "  }\n"
+      "  if (has('جستجوی') && has('busy')) {\n"
+      "    return h('E-BG-BUSY', 'app_main/main.dart → جستجوی پس‌زمینه (پرچم busy)',\n"
+      "        'جستجوی پس‌زمینه پرچم busy را نگه داشته؛ کارهای دیگر را مسدود و دیتا مصرف می‌کند.',\n"
+      "        'وقتی وصل هستی جستجوی پس‌زمینه را خاموش یا محدود کن (نسخه‌ی جدید هر ۱۰ دقیقه یک بار).');\n"
+      "  }\n"
+      "  if (has('کانفیگ ناموفق') || has('CONFIG-FAIL')) {")
+
+# 5a) TOPACTIONS: در بالای گزارش، سه کار مهم‌تر با اولویت مشخص نشان داده شود
+patch('auto_test.dart',
+      "    buf.writeln('نمونه وضعیت: ${_samples.length}');",
+      "    buf.writeln('نمونه وضعیت: ${_samples.length}');\n"
+      "    // TOPACTIONS: the three most important findings first, each with its first action\n"
+      "    const atPriority = ['ABORT-STUCK', 'TIMEOUT', 'SWITCH-FLAG-STUCK', 'SWITCH-STUCK', 'BG-BUSY',\n"
+      "        'BUSY-STUCK', 'CONNECT-HANG', 'STABLE-NODATA', 'PLUGIN-SWALLOW', 'XRAY-NOLOG', 'PILOT-FLAP'];\n"
+      "    int atRank(String c) {\n"
+      "      final i = atPriority.indexOf(c);\n"
+      "      return i < 0 ? 99 : i;\n"
+      "    }\n"
+      "    final ranked = [..._findings]..sort((a, b) => atRank(a.code).compareTo(atRank(b.code)));\n"
+      "    if (ranked.isNotEmpty) {\n"
+      "      buf.writeln('🎯 اول این‌ها را حل کن:');\n"
+      "      for (final f in ranked.take(3)) {\n"
+      "        buf.writeln('  • [${f.code}] ${_atHelpOf(f.code)[2]}');\n"
+      "      }\n"
+      "    }")
 
 # 5) write the new part file
 with open(os.path.join(LIB, 'nip_scan.dart'), 'w', encoding='utf-8') as f:
