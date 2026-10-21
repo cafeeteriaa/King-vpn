@@ -769,6 +769,23 @@ patch('auto_test.dart',
       "      }\n"
       "    }")
 
+# 5b) ABORTCTX: لحظه‌ی توقف را ثبت کن تا معلوم شود کدام مرحله‌ی اپ جواب توقف را نداد
+patch('auto_test.dart',
+      "    abort = true;\n    try {\n      await disconnect();",
+      "    // ABORTCTX: snapshot what the app was doing at the moment of the stop\n"
+      "    _atAdd('ABORT-CONTEXT', 'لحظه‌ی توقف: status=\"$status\" • آخرین رویداد: $lastState • lastWhy=\"$lastWhy\"');\n"
+      "    abort = true;\n    try {\n      await disconnect();")
+
+patch('auto_test.dart',
+      "      case 'CRASH':",
+      "      case 'ABORT-CONTEXT':\n"
+      "        return [\n"
+      "          'lib/main.dart → همان مرحله‌ای که در «status» نوشته شده (مثلاً _start یا _preSocialCheck)',\n"
+      "          'این مرحله وقتی توقف رسید هنوز در حال انتظار بود',\n"
+      "          'در همان تابع بعد از هر await یک if (abort) return بگذار؛ اسم تابع را از status بگیر و برای من بفرست',\n"
+      "        ];\n"
+      "      case 'CRASH':")
+
 # 5) write the new part file
 with open(os.path.join(LIB, 'nip_scan.dart'), 'w', encoding='utf-8') as f:
     f.write(NIP_FILE)
