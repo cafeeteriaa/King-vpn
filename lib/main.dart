@@ -251,6 +251,9 @@ bool indestructibleMode = false;
 // Noise (the biggest speed killers) and with Mux, then keep it if traffic
 // still flows. Ping does not matter — throughput does.
 bool turboSpeed = true;
+// TURBO-OFF: false = no forced Mux/turbo after connect (old behaviour).
+// Set to true to bring back the forced turbo + Mux 32.
+const bool kTurboEnabled = false;
 // minutes before the downloaded list is refreshed. Big value on purpose: the
 // list is replaced when ALL servers were tested (autoCycle), not by the clock.
 int listRefreshMin = 180;
@@ -3884,7 +3887,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           fragEnabled = j['frg'] as bool? ?? fragEnabled;
           // Mux برای توربو سرعت بعد از اتصال روشن می‌ماند
           muxEnabled = j['mux'] as bool? ?? true;
-          if (!muxEnabled) muxEnabled = true;
+          if (!muxEnabled) muxEnabled = kTurboEnabled;
           secureDns = j['sdns'] as bool? ?? secureDns;
           iranMore = j['irm'] as bool? ?? iranMore;
           blockQuic = j['bq'] as bool? ?? blockQuic;
@@ -3933,6 +3936,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         failWindow = Duration(minutes: failMin);
         recheckAfter = Duration(minutes: recheckMin);
         await p.setBool('lowdata_v1', true);
+        await _saveSettings();
+      }
+      // RESTORE-SPEED v1: the LOWDATA preset above turned the search for faster
+      // servers off (autoUpgrade=false, bgWorkers=1). Put the speed search back
+      // once, so the app keeps finding servers that are as fast as before.
+      if (p.getBool('restore_speed_v1') != true) {
+        autoUpgrade = true;
+        bgWorkers = 3;
+        await p.setBool('restore_speed_v1', true);
         await _saveSettings();
       }
       // FOLDERONLY: healthy servers are kept only in the folder
@@ -5429,10 +5441,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // مهم: تست سرعت را قبل از توربو شروع نکن — توربو هسته را ریستارت می‌کند
     // و تست سرعت ممکن بود صفر ببیند و به‌اشتباه failover کند
     turboSpeed = true;
-    muxEnabled = true;
-    muxConc = max(muxConc, 32);
+    muxEnabled = kTurboEnabled;
+    muxConc = max(muxConc, kTurboEnabled ? 32 : 8);
     if (!nationalMode) fragEnabled = false;
-    unawaited(_turboAfterConnect(s)); // خودش در پایان _measureCurrent را صدا می‌زند
+    if (kTurboEnabled) unawaited(_turboAfterConnect(s)); // خودش در پایان _measureCurrent را صدا می‌زند
   }
 
   // TURBO SPEED ============================================================
@@ -5478,8 +5490,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
       // اهرم‌های قطعی سرعت
       turboSpeed = true;
-      muxEnabled = true;
-      muxConc = max(muxConc, 32);
+      muxEnabled = kTurboEnabled;
+      muxConc = max(muxConc, kTurboEnabled ? 32 : 8);
       if (!nationalMode) fragEnabled = false;
 
       // حالت سبک (بدون Fragment/Noise) اگر لازم باشد
@@ -5494,8 +5506,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!okStart) {
         // برگرد به حالت قبلی ولی Mux را روشن نگه دار
         natVar[_nk(s)] = prevV;
-        muxEnabled = true;
-        muxConc = max(muxConc, 16);
+        muxEnabled = kTurboEnabled;
+        muxConc = max(muxConc, kTurboEnabled ? 16 : 8);
         if (!nationalMode) fragEnabled = false;
         await _start(s);
         _set('توربو: تونل برگشت — Mux روشن ماند');
@@ -5508,7 +5520,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (p == null) {
         // پینگ توربو رد شد — حالت قبل، اما Mux روشن
         natVar[_nk(s)] = prevV;
-        muxEnabled = true;
+        muxEnabled = kTurboEnabled;
         if (!nationalMode) fragEnabled = false;
         await _stopV2();
         await _start(s);
@@ -5531,7 +5543,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       logError(e);
       try {
         // حتی در خطا Mux را خاموش نکن
-        muxEnabled = true;
+        muxEnabled = kTurboEnabled;
         if (!nationalMode) fragEnabled = false;
         turboSpeed = true;
         if (wantVpn && identical(current, s)) {
@@ -5946,8 +5958,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         turboSpeed = true;
         autoSpeed = true;
         speedTopN = max(speedTopN, 5);
-        muxEnabled = true;
-        muxConc = max(muxConc, 24);
+        muxEnabled = kTurboEnabled;
+        muxConc = max(muxConc, kTurboEnabled ? 24 : 8);
         fragEnabled = false;
         sortSpeed = true;
         break;
@@ -5963,8 +5975,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         turboSpeed = true;
         autoSpeed = true;
         speedTopN = max(speedTopN, 8);
-        muxEnabled = true;
-        muxConc = max(muxConc, 32);
+        muxEnabled = kTurboEnabled;
+        muxConc = max(muxConc, kTurboEnabled ? 32 : 8);
         fragEnabled = false;
         sortSpeed = true;
         betterSwitch = true;
@@ -5987,8 +5999,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     autoSpeed = true;
     if (speedTopN < 8) speedTopN = 8;
     // 2) Mux = parallel streams on one tunnel (concurrency بالاتر = سرعت بیشتر)
-    muxEnabled = true;
-    if (muxConc < 32) muxConc = 32;
+    muxEnabled = kTurboEnabled;
+    if (kTurboEnabled && muxConc < 32) muxConc = 32;
     // 3) do not force global Fragment outside national crisis (Fragment سرعت را می‌کشد)
     if (!nationalMode) fragEnabled = false;
     // 4) rank by real speed, not ping
@@ -6855,8 +6867,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _resBusy = false;
         _resFull = false;
         fragEnabled = false;
-        muxEnabled = true;
-        muxConc = max(muxConc, 32); // concurrency بالا = سرعت بیشتر
+        muxEnabled = kTurboEnabled;
+        muxConc = max(muxConc, kTurboEnabled ? 32 : 8); // concurrency بالا = سرعت بیشتر
         // اتصال سریع
         delayTimeout = Duration(seconds: min(max(delayTimeout.inSeconds, 5), 8));
         firstBatchSize = max(firstBatchSize, 40);
