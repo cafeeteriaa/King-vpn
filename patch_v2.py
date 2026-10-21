@@ -424,6 +424,126 @@ patch('iran_ai_extras.dart',
       "        if (decision.action == 'none' || decision.action == 'connect') {\n          await connect();",
       "        if (decision.action == 'none' || decision.action == 'connect') {\n          await _localNatConnect();")
 
+# 4l) FOLDERFIRST: پوشه‌ی سرورها فقط وقتی اول تست می‌شود که نت ملی باشد (نه با حالت شکست‌ناپذیر در نت جهانی)
+patch('main.dart',
+      "    final forceSaved = nationalMode || natForce || indestructibleMode;",
+      "    final forceSaved = nationalMode || natForce; // FOLDERFIRST: folder only in national mode")
+
+# 4m) TESTUPGRADE: هشدار‌های اشتباه کمتر، گزارش شبکه/خلبان، و سناریوی نت ملی
+patch('auto_test.dart',
+      "  static const _busyStuckLimit = Duration(seconds: 120);",
+      "  static const _busyStuckLimit = Duration(seconds: 240); // TESTUPGRADE")
+
+patch('auto_test.dart',
+      "  static const _switchingStuckLimit = Duration(seconds: 40);",
+      "  static const _switchingStuckLimit = Duration(seconds: 90); // TESTUPGRADE")
+
+patch('auto_test.dart',
+      "      if (now.difference(_switchingSince!) > _switchingStuckLimit) {",
+      "      if (!busy && now.difference(_switchingSince!) > _switchingStuckLimit) { // TESTUPGRADE")
+
+patch('auto_test.dart',
+      "    buf.writeln('یافته‌ها: ${_findings.length}');",
+      "    buf.writeln('یافته‌ها: ${_findings.length}');\n"
+      "    buf.writeln('🌐 شبکه: ${nationalMode ? 'نت ملی' : 'نت جهانی'} • خلبان: ${localPilotOn ? 'روشن' : 'خاموش'}');\n"
+      "    buf.writeln('⚙ تنظیمات: IP تمیز=${cleanIpMode ? 'روشن' : 'خاموش'} • DoH=${ipMode ? 'روشن' : 'خاموش'} • Fragment=${fragEnabled ? 'روشن' : 'خاموش'} • ماتریس=${ultraMode ? 'روشن' : 'خاموش'} • شکست‌ناپذیر=${indestructibleMode ? 'روشن' : 'خاموش'}');")
+
+patch('auto_test.dart',
+      "      await _atScenarioLongStable(); // 5",
+      "      await _atScenarioLongStable(); // 5\n      await _atScenarioNational(); // 6 TESTUPGRADE")
+
+patch('auto_test.dart',
+      "extension AutoTestEngine on _HomePageState {",
+      "extension AutoTestEngine on _HomePageState {\n"
+      "  /// سناریو ۶: تشخیص شبکه (جهانی یا ملی) و ثبت آن در گزارش\n"
+      "  Future<void> _atScenarioNational() async {\n"
+      "    _scenario = 6;\n"
+      "    autoTestText.value = 'سناریو ۶: تشخیص شبکه';\n"
+      "    if (busy || switching || connected) return;\n"
+      "    try {\n"
+      "      await _natDetect();\n"
+      "    } catch (e) {\n"
+      "      _atAdd('NAT-DETECT', 'تشخیص شبکه خطا داد: $e');\n"
+      "      return;\n"
+      "    }\n"
+      "    dbg('🧪 تشخیص شبکه: ${nationalMode ? 'نت ملی' : 'نت جهانی'}');\n"
+      "  }\n")
+
+# 4n) TESTDEEP: شمارش تعویض‌های خلبان (PILOT-FLAP)، و خلاصه‌ی سناریوی رسیده‌شده در گزارش
+patch('auto_test.dart',
+      "  static int _scenario = 0;",
+      "  static int _scenario = 0;\n"
+      "  // PILOT-FLAP: how many times the pilot switched the server during this run\n"
+      "  static int _atPilotSwitches = 0;")
+
+patch('auto_test.dart',
+      "    _scenario = 0;\n    _busySince = null;",
+      "    _scenario = 0;\n    _atPilotSwitches = 0;\n    _busySince = null;")
+
+patch('auto_test.dart',
+      "    _samples.add(s);",
+      "    _samples.add(s);\n"
+      "    // PILOT-FLAP: a server change caused by the pilot, counted once per change\n"
+      "    if (_samples.length >= 2) {\n"
+      "      final prevWhy = _samples[_samples.length - 2].lastWhy;\n"
+      "      if (lastWhy != prevWhy && lastWhy.contains('خلبان')) {\n"
+      "        _atPilotSwitches++;\n"
+      "      }\n"
+      "      if (_atPilotSwitches == 6) {\n"
+      "        _atAdd('PILOT-FLAP', 'خلبان ۶ بار سرور را عوض کرد؛ شاید بیش از حد تعویض می‌کند');\n"
+      "      }\n"
+      "    }")
+
+patch('auto_test.dart',
+      "    buf.writeln('نمونه وضعیت: ${_samples.length}');",
+      "    buf.writeln('نمونه وضعیت: ${_samples.length}');\n"
+      "    buf.writeln('🧭 سناریوی رسیده‌شده: $_scenario از ۶ • تعویض‌های خلبان: $_atPilotSwitches');")
+
+# 4o) TESTDEEP2: راه‌حل برای کدهای جدید، و تشخیص خطاهای بلعیده‌شده‌ی بخش native (مثل MissingPluginException)
+patch('auto_test.dart',
+      "  static int _scenario = 0;",
+      "  static int _scenario = 0;\n"
+      "  // PLUGIN-SWALLOW: where this run's log starts inside errorLog\n"
+      "  static int _atLogStart = 0;")
+
+patch('auto_test.dart',
+      "    _scenario = 0;\n    _atPilotSwitches = 0;",
+      "    _scenario = 0;\n    _atPilotSwitches = 0;\n    _atLogStart = errorLog.value.length;")
+
+patch('auto_test.dart',
+      "    final elapsed = _startedAt == null",
+      "    // PLUGIN-SWALLOW: platform errors the app caught silently during this run\n"
+      "    final logWin = errorLog.value.length >= _atLogStart\n"
+      "        ? errorLog.value.substring(_atLogStart)\n"
+      "        : errorLog.value;\n"
+      "    final swallowed = RegExp('بلعیده|MissingPluginException').allMatches(logWin).length;\n"
+      "    if (swallowed > 0) {\n"
+      "      _atAdd('PLUGIN-SWALLOW', 'خطای بخش native اندروید $swallowed بار بلعیده شد (مثلاً کانال vpn/bg)');\n"
+      "    }\n"
+      "    final elapsed = _startedAt == null")
+
+patch('auto_test.dart',
+      "      case 'CRASH':",
+      "      case 'PILOT-FLAP':\n"
+      "        return [\n"
+      "          'lib/iran_ai_extras.dart → localPilotTick / _localApply',\n"
+      "          'خلبان بیش از حد سرور را عوض کرد',\n"
+      "          'قانون مدت ماندن روی سرور در خلبان وجود ندارد؛ باید در تصمیم تعویض (localPilotTick / _localDecide) اضافه شود',\n"
+      "        ];\n"
+      "      case 'NAT-DETECT':\n"
+      "        return [\n"
+      "          'lib/main.dart → _natDetect',\n"
+      "          'تشخیص شبکه (جهانی یا ملی) خطا داد',\n"
+      "          'متن خطا را بفرست؛ معمولاً به دسترسی سایت‌های تست یا لغو زودهنگام مربوط است',\n"
+      "        ];\n"
+      "      case 'PLUGIN-SWALLOW':\n"
+      "        return [\n"
+      "          'lib/main.dart → _startWatch (کانال vpn/bg)',\n"
+      "          'بخش native اندروید متد alive را ندارد؛ هر دقیقه خطا می‌دهد ولی اتصال قطع نمی‌شود',\n"
+      "          'متد alive در کد اندروید پیاده‌سازی نشده (فقط در Dart تعریف شده). اپ کار می‌کند، ولی یا باید در MainActivity اضافه شود یا این فراخوانی حذف شود',\n"
+      "        ];\n"
+      "      case 'CRASH':")
+
 # 5) write the new part file
 with open(os.path.join(LIB, 'nip_scan.dart'), 'w', encoding='utf-8') as f:
     f.write(NIP_FILE)
