@@ -659,6 +659,41 @@ patch('auto_test.dart',
       "        ];\n"
       "      case 'CRASH':")
 
+# 4t) ABORTPOOL: وقتی کار متوقف شد، دسته‌ی تست موازی دیگر آیتم جدید برنمی‌دارد (گیر ABORT-STUCK)
+patch('main.dart',
+      "bool _bgAliveUnsupported = false;",
+      "bool _bgAliveUnsupported = false;\n"
+      "bool poolStop = false; // ABORTPOOL: stop taking new items in parallel tests")
+
+patch('main.dart',
+      "      if (i >= items.length) break;",
+      "      if (i >= items.length || poolStop) break; // ABORTPOOL")
+
+patch('main.dart',
+      "    } on TimeoutException {\n      abort = true;",
+      "    } on TimeoutException {\n      abort = true;\n      poolStop = true; // ABORTPOOL")
+
+patch('main.dart',
+      "      if (mounted) setState(() => busy = false);",
+      "      poolStop = false; // ABORTPOOL\n      if (mounted) setState(() => busy = false);")
+
+# 4u) DATASAVE: وقتی وصل هستیم، بررسی پس‌زمینه‌ی سرورها حداکثر هر ۱۰ دقیقه (قبلاً هر ~۴ ثانیه و دیتای زیاد)
+patch('main.dart',
+      "    if (!wantVpn || abort || upBusy || appGone) return;",
+      "    if (!wantVpn || abort || upBusy || appGone) return;\n"
+      "    // DATASAVE: while connected, background re-checks run at most every 10 minutes\n"
+      "    if (connected && DateTime.now().difference(lastStandby) < const Duration(minutes: 10)) return;")
+
+# 4v) ABORTPOOL2: هر اجرای جدید از پرچم توقف قبلی پاک شود (وگرنه بعد از قطع، تست موازی بلافاصله خالی می‌ماند)
+patch('main.dart',
+      "  Future<void> _runBusy(Future<void> Function() f) async {\n    if (busy) return;",
+      "  Future<void> _runBusy(Future<void> Function() f) async {\n    if (busy) return;\n    poolStop = false; // ABORTPOOL2: a new run starts clean")
+
+# 4w) TIMEOUTFIX: مهلت تست بعد از توقف با رفتار واقعی اپ هماهنگ شد (اپ تا ۹۰ ثانیه صبر می‌کند)
+patch('auto_test.dart',
+      "        timeout: const Duration(seconds: 30), label: 'آزاد شدن بعد از abort');",
+      "        timeout: const Duration(seconds: 100), label: 'آزاد شدن بعد از abort'); // TIMEOUTFIX: app waits up to 90s")
+
 # 5) write the new part file
 with open(os.path.join(LIB, 'nip_scan.dart'), 'w', encoding='utf-8') as f:
     f.write(NIP_FILE)
