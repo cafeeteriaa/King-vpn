@@ -629,6 +629,36 @@ patch('main.dart',
       "                return null;\n"
       "              });")
 
+# 4s) TESTDEEP3: busy در حال اتصال بودن از busy گیرکرده جدا شود؛ نبود فایل خطای هسته گزارش شود؛ راه‌حل برای هر دو
+patch('auto_test.dart',
+      "        _atAdd('BUSY-STUCK',",
+      "        _atAdd(connected ? 'BG-BUSY' : 'BUSY-STUCK',")
+
+patch('auto_test.dart',
+      "    final elapsed = _startedAt == null",
+      "    // XRAY-NOLOG: the core starts without its error file, so its own errors are invisible\n"
+      "    final noLog = RegExp('فایل خطای هسته ساخته نشد').allMatches(logWin).length;\n"
+      "    if (noLog > 0) {\n"
+      "      _atAdd('XRAY-NOLOG', 'هسته $noLog بار بدون فایل خطا شروع شد؛ خطای داخلی هسته در گزارش دیده نمی‌شود');\n"
+      "    }\n"
+      "    final elapsed = _startedAt == null")
+
+patch('auto_test.dart',
+      "      case 'CRASH':",
+      "      case 'BG-BUSY':\n"
+      "        return [\n"
+      "          'lib/main.dart → _runBusy (جستجوی پس‌زمینه / ردیف همه)',\n"
+      "          'اتصال برقرار است ولی جستجوی پس‌زمینه پرچم busy را نگه داشته؛ کارهای دیگر (تعویض، قطع، تست) مسدود می‌شوند',\n"
+      "          'وقتی connected=true است جستجوی پس‌زمینه را محدود کن (worker کمتر یا توقف) و قبل از هر کار دستی آن را متوقف کن',\n"
+      "        ];\n"
+      "      case 'XRAY-NOLOG':\n"
+      "        return [\n"
+      "          'lib/main.dart → _start (نوشتن کانفیگ هسته، کلید log.error)',\n"
+      "          'پوشه‌ی cache فایل xray_err.log را نمی‌سازد؛ هسته قبل از شروع خطایش را نمی‌نویسد و علت شکست‌ها پنهان می‌ماند',\n"
+      "          'قبل از شروع هسته پوشه را با createSync(recursive: true) بساز، یا کلید log.error را حذف کن تا هسته به خروجی استاندارد بنویسد',\n"
+      "        ];\n"
+      "      case 'CRASH':")
+
 # 5) write the new part file
 with open(os.path.join(LIB, 'nip_scan.dart'), 'w', encoding='utf-8') as f:
     f.write(NIP_FILE)
