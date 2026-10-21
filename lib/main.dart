@@ -3766,8 +3766,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     while ((busy || searching) && sw.elapsed < const Duration(seconds: 25)) {
       await Future.delayed(const Duration(milliseconds: 200));
     }
-    abort = false;
+    // If the old work is still running (it did not stop in 25 s), keep the
+    // stop request alive until it really ends. Clearing it now let the old
+    // search/connect keep running and ignore the user's tap.
+    if (busy || searching) {
+      unawaited(_clearAbortWhenIdle());
+    } else {
+      abort = false;
+    }
     if (!busy && switching) _unlockLater(); // ABORT-STUCK fix
+  }
+
+  Future<void> _clearAbortWhenIdle() async {
+    final sw = Stopwatch()..start();
+    while ((busy || searching) && sw.elapsed < const Duration(minutes: 3)) {
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+    abort = false;
+    if (!busy && switching) _unlockLater();
   }
 
   // stops V2Ray (the only engine)
