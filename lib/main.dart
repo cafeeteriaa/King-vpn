@@ -5343,7 +5343,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // server is never blacklisted and tunFailRun rises wrongly.
         lastFail = 'وصل شد ولی اینترنت رد نشد (ترافیک تونل صفر)';
         lastStartNoTunnel = false;
-        dbg('شروع ناموفق: CONNECTED+tun ولی ترافیک رد نشد • ${s.name}');
+        dbg(configFailMsg(
+            s.link,
+            'تست ترافیک تونل (بعد از اتصال)',
+            'وصل شد ولی اینترنت رد نشد (ترافیک تونل صفر)',
+            knownIp: await resolveHostIp(s.host)));
         await _stopCore();
         return false;
       }
@@ -5373,6 +5377,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   void _onConnected(Server s) {
+    s.miss = 0; // BADCFG: a working config starts healthy again
     badPingRounds = 0; // BADPINGLOOP
     current = s;
     plusHistAdd(s);
@@ -5658,6 +5663,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
           // success — fall through to post-start checks
         } else {
+          // BADCFG: a config that fails to start twice in a row is not healthy;
+          // remove it from the healthy list (pinned servers are never removed)
+          if (!pin && ++s.miss >= 2) good.remove(s);
           errorLog.value =
               '${s.name}: ${lastFail.isEmpty ? 'شروع نشد' : lastFail}';
           final ip0 = await resolveHostIp(s.host);
