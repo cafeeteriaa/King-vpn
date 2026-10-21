@@ -710,9 +710,10 @@ extension AutoTestEngine on _HomePageState {
     }
     if (codes.contains('ABORT-STUCK') || codes.contains('SWITCH-STUCK') ||
         codes.contains('BUSY-STUCK') || codes.contains('TIMEOUT')) {
-      return 'بعد از توقف یا تعویض، قفل‌های برنامه (busy/switching) آزاد نشدند؛ این باگ کد است. '
-          'راه حل: خطوط ABORT-CONTEXT و BUSY-STUCK همین گزارش را بفرست. '
-          'محل بررسی: lib/main.dart → _runBusy و _unlockLater.';
+      return 'بعد از توقف یا تعویض، قفل‌های برنامه (busy/switching) آزاد نشدند. '
+          'این ممکن است نتیجه‌ی شکست شروع هسته باشد؛ اول خطوط XRAY-ERR و CORE-PORT را ببین. '
+          'اگر هسته بالا نیامده، logcat را هنگام اتصال بگیر و بفرست. '
+          'اگر هسته بالا آمده ولی قفل ماند، خطوط ABORT-CONTEXT و BUSY-STUCK را بفرست (lib/main.dart → _runBusy).';
     }
     if (codes.contains('RECONNECT-FAIL')) {
       return 'قطع و وصل پشت‌سرهم شکست خورد. '
