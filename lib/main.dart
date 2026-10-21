@@ -297,6 +297,9 @@ int aiHit = 0;
 int aiGen = 0; // FASTPATCH-AI: one analysis loop per connection
 int aiEveryMin = 30; // minutes between two analyses
 const badFor = Duration(minutes: 10);
+// REALBAD: a server whose REAL start / tunnel ping failed is kept out of the
+// healthy list for this long, even if the quick core delay test passes again
+const realBadFor = Duration(minutes: 30);
 // continuous real-speed search: every new healthy server is speed-tested;
 // if it is faster than the connected one it takes over, if it is only faster
 // than a standby it moves up in the standby ranking (failover uses the order)
@@ -1988,6 +1991,8 @@ class Server {
   DateTime? badAt;
   int score = 0;
   int miss = 0; // consecutive failed re-checks (missLimit in a row -> removed)
+  DateTime? realBadAt; // REALBAD: last REAL connect failure (not cleared by the quick test)
+  int realFails = 0; // REALBAD: real connect failures in a row
   bool tls = false;
   String sni = '', net = 'tcp';
   String? country;
@@ -4543,7 +4548,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   void _record(Server s, int? d) {
     s.checkedAt = DateTime.now();
-    if (d != null) {
+    // REALBAD: the quick core test passed, but this server already failed a
+    // REAL connect lately -> do not let it back into the healthy list
+    final realBad = d != null &&
+        s.realBadAt != null &&
+        DateTime.now().difference(s.realBadAt!) < realBadFor &&
+        !favs.containsKey(s.key);
+    if (realBad) {
+      s.ping = d;
+      good.remove(s);
+      failed[s.key] = DateTime.now();
+    } else if (d != null) {
       s.ping = d;
       s.badAt = null;
       s.miss = 0;
@@ -4574,7 +4589,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       profTested[hk] = profTested[hk]! ~/ 2;
       profOk[hk] = (profOk[hk] ?? 0) ~/ 2;
     }
-    _srcRecord(s, d != null);
+    _srcRecord(s, d != null && !realBad);
     totalTested++;
   }
 
@@ -5378,6 +5393,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   void _onConnected(Server s) {
     s.miss = 0; // BADCFG: a working config starts healthy again
+    s.realBadAt = null; // REALBAD: it really connected
+    s.realFails = 0;
     badPingRounds = 0; // BADPINGLOOP
     current = s;
     plusHistAdd(s);
@@ -5639,7 +5656,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!await _start(s)) {
         final noAct = lastFail.contains('Activity');
         // NO_ACTIVITY is temporary — do not blacklist the server
-        if (!lastStartNoTunnel && !pin && !noAct) s.badAt = DateTime.now();
+        if (!lastStartNoTunnel && !pin && !noAct) {
+          s.badAt = DateTime.now();
+          s.realBadAt = DateTime.now(); // REALBAD: the core refused this config
+          s.realFails++;
+        }
         if (noAct) {
           errorLog.value = 'مجوز VPN: Activity آماده نیست — تلاش بعدی…';
           // Give the Activity more time to come back (common after ad / screen)
@@ -5718,6 +5739,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             knownIp: ip1,
           ));
           s.badAt = DateTime.now();
+          // REALBAD: 2 strikes (one could be the phone's own network hiccup)
+          if (++s.realFails >= 2) s.realBadAt = DateTime.now();
           errorLog.value = '${s.name}: وصل شد ولی اینترنت رد نشد '
               '(${_short(lastPingErr, 70)})';
           continue;
