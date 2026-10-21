@@ -694,6 +694,20 @@ patch('auto_test.dart',
       "        timeout: const Duration(seconds: 30), label: 'آزاد شدن بعد از abort');",
       "        timeout: const Duration(seconds: 100), label: 'آزاد شدن بعد از abort'); // TIMEOUTFIX: app waits up to 90s")
 
+# 4x) LOGFIX: تست‌های PLUGIN-SWALLOW و XRAY-NOLOG باید از dbgLines بخوانند (قبلاً از errorLog می‌خواندند و هرگز فعال نمی‌شدند)
+patch('auto_test.dart',
+      "extension AutoTestEngine on _HomePageState {",
+      "extension AutoTestEngine on _HomePageState {\n"
+      "  /// LOGFIX: lines of the debug log written since this test started (HH:MM:SS sorted)\n"
+      "  List<String> _atLogSince() {\n"
+      "    final start = _startedAt == null ? '00:00:00' : _dbgHms(_startedAt!);\n"
+      "    return dbgLines.where((l) => l.compareTo(start) >= 0).toList();\n"
+      "  }\n")
+
+patch('auto_test.dart',
+      "    final logWin = errorLog.value.length >= _atLogStart\n        ? errorLog.value.substring(_atLogStart)\n        : errorLog.value;",
+      "    final logWin = _atLogSince().join('\\n'); // LOGFIX")
+
 # 5) write the new part file
 with open(os.path.join(LIB, 'nip_scan.dart'), 'w', encoding='utf-8') as f:
     f.write(NIP_FILE)
