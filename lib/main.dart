@@ -254,6 +254,8 @@ bool turboSpeed = true;
 // TURBO-OFF: false = no forced Mux/turbo after connect (old behaviour).
 // Set to true to bring back the forced turbo + Mux 32.
 const bool kTurboEnabled = false;
+// SPEEDPAUSE: true while a speed test runs; the background search waits.
+bool speedTestBusy = false;
 // minutes before the downloaded list is refreshed. Big value on purpose: the
 // list is replaced when ALL servers were tested (autoCycle), not by the clock.
 int listRefreshMin = 180;
@@ -1996,6 +1998,18 @@ class Server {
   double? speed;
   DateTime? speedAt; // time of the last real speed test
   DateTime? badAt;
+  // MEDIAN: last 3 real speed tests, so one lucky/unlucky test does not decide
+  final List<double> speedHist = [];
+  void remember(double? v) {
+    if (v == null || v <= 0) return;
+    speedHist.add(v);
+    if (speedHist.length > 3) speedHist.removeAt(0);
+  }
+  double? get medianSpeed {
+    if (speedHist.isEmpty) return null;
+    final l = [...speedHist]..sort();
+    return l[l.length ~/ 2];
+  }
   int score = 0;
   int miss = 0; // consecutive failed re-checks (missLimit in a row -> removed)
   bool tls = false;
@@ -2144,7 +2158,8 @@ int byScoreThenPing(Server a, Server b) {
 }
 
 int bySpeedThenPing(Server a, Server b) {
-  final c = (b.speed ?? -1).compareTo(a.speed ?? -1);
+  final c = (b.medianSpeed ?? b.speed ?? -1)
+      .compareTo(a.medianSpeed ?? a.speed ?? -1);
   return c != 0 ? c : byPing(a, b);
 }
 
@@ -5087,6 +5102,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _standbyRun() async {
     _sbWhy(); // STANDBYLOGPATCH
     if (bgSearchOff ||
+        speedTestBusy ||
         searching ||
         busy ||
         switching ||
@@ -5889,7 +5905,36 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // valid ping" filter). A server with a fake / empty ping that moves no data
   // is detected here and replaced; the real speed is also saved for ranking.
   Future<void> _measureCurrent(Server s) async {
+    speedTestBusy = true;
+    try {
+      await _measureCurrentInner(s);
+    } finally {
+      speedTestBusy = false;
+    }
+  }
+
+  Future<void> _measureCurrentInner(Server s) async {
     double? sp;
+    // MULTICONN: two downloads at the same time. One TCP stream often stays
+    // below the real capacity of the server, so the sum shows it better.
+    final parts = await Future.wait([
+      for (var k = 0; k < 2; k++)
+        measure(
+            url: speedUrl,
+            win: const Duration(seconds: 3),
+            total: const Duration(seconds: 10),
+            direct: true),
+    ]);
+    if (!connected || !identical(s, current)) return;
+    var okN = 0;
+    double sum = 0;
+    for (final v in parts) {
+      if (v != null && v > 0) {
+        sum += v;
+        okN++;
+      }
+    }
+    if (okN > 0) sp = sum;
     for (var i = 0; i < 3 && sp == null; i++) {
       // FIXSPEED: one failed download must not kill a working server;
       // the 2nd/3rd try uses the small file
@@ -5918,6 +5963,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     if (sp != null) {
       s.speed = sp;
+      s.remember(sp);
       s.speedAt = DateTime.now();
     } else if (!sitesAlive &&
         !s.personal &&
@@ -7812,6 +7858,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     direct: true) ??
                 0;
             old.speed = oldSp;
+            old.remember(oldSp);
             old.speedAt = DateTime.now();
           }
           changed = true;
@@ -7843,6 +7890,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               }
             }
             c.speed = sp;
+            c.remember(sp);
             c.speedAt = DateTime.now();
             if (sp == 0) {
               c.badAt = DateTime.now();
@@ -8164,6 +8212,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               noData = 0;
               // keep the real speed of the connected server up to date
               current?.speed = sp;
+              current?.remember(sp);
               current?.speedAt = DateTime.now();
               // فقط وقتی سرعت واقعاً نزدیک صفر است (زیر ۴۰ KB/s) حساب شود
               // ۱۰۰ یا ۲۰۰ کیلوبایت دیگر باعث تعویض نمی‌شود
@@ -8827,6 +8876,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             0;
       }
       s.speed = sp;
+      s.remember(sp);
       s.speedAt = DateTime.now();
       if (sp == 0) s.badAt = DateTime.now();
       await _stopV2();
