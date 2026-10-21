@@ -2197,8 +2197,9 @@ extension HomeExtras on _HomePageState {
         DateTime.now().difference(_localLastTick!) < const Duration(seconds: 40)) {
       return;
     }
+    // PILOT-KEEP: a short abort / switch / search can leave wantVpn false.
+    // That must not turn the pilot off; only the user's button does that.
     if (!wantVpn && !connected) {
-      stopLocalPilot();
       return;
     }
 
