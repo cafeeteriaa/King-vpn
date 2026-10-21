@@ -81,6 +81,8 @@ extension AutoTestEngine on _HomePageState {
   static int _atFailStreak = 0;
   static bool _atStopEarly = false;
   static String _atVerdict = ''; // one plain-language cause, printed first in the report
+  static String _atLastFail = ''; // lastFail of the last failed connect (facts, not guesses)
+  static bool _atLastCoreUp = false; // was the local core port open at that failure
   static String _currentEngine = 'v2ray';
   // موتورهایی که کاربر برای این تست انتخاب کرده (پیش‌فرض: همه)
   static Set<String> _atSelected = {for (final e in _engines) e.$1};
@@ -247,13 +249,14 @@ extension AutoTestEngine on _HomePageState {
     final min = elapsed.inMinutes;
     final sec = elapsed.inSeconds % 60;
 
+    _atVerdict = _atRootCause();
     final buf = StringBuffer();
     buf.writeln('===== گزارش تست خودکار (V2Ray) =====');
     buf.writeln('مدت: ${min}m ${sec}s • دلیل پایان: $reason');
     buf.writeln('نمونه وضعیت: ${_samples.length}');
     buf.writeln('یافته‌ها: ${_findings.length}');
     if (_atVerdict.isNotEmpty) {
-      buf.writeln('🎯 علت احتمالی: $_atVerdict');
+      buf.writeln('🎯 علت اصلی و راه حل: $_atVerdict');
     }
     buf.writeln('');
     buf.writeln('--- نتیجه هر موتور ---');
@@ -482,18 +485,11 @@ extension AutoTestEngine on _HomePageState {
     if (!connected) {
       _engineResult[id] = '❌ وصل نشد';
       _atFailStreak++;
-      // VERDICT: is the core listening locally? (CORE-PORT check, same as the main report)
+      // VERDICT: record the facts, then derive the cause from them (see _atCauseOfFail)
       final coreUp = await localPortOpen(10807) || await localPortOpen(10809);
-      if (lastFail.contains('uuid')) {
-        _atVerdict = 'کانفیگ uuid ندارد (لینک سرور ناقص است).';
-      } else if (coreUp) {
-        _atVerdict = 'هسته روی پورت محلی بالا است ولی وضعیت CONNECTED از پلاگین نمی‌رسد؛ '
-            'یعنی مشکل از سرور نیست. محل‌ها: lib/main.dart → شنونده‌ی onStatusChanged (در initState) '
-            'و _start (انتظار connSig). راه حل: build.yml خط نصب flutter_v2ray_client را از ۳.۴.۱ '
-            'به ۳.۵.۰ ببر، چون کد انتظار TUN بومی ۳.۵.۰ را دارد؛ اگر بیلد شکست خورد، لاگ بیلد را بفرست.';
-      } else {
-        _atVerdict = 'هسته روی پورت محلی بالا نمی‌آید. هسته یا سرویس VPN اجرا نشده است.';
-      }
+      _atLastCoreUp = coreUp;
+      _atLastFail = lastFail;
+      _atVerdict = _atCauseOfFail();
       _atAdd('ENG-FAIL',
           '$label نتوانست وصل شود • status="$status" • lastFail="$lastFail" • lastWhy="$lastWhy"');
       return false;
@@ -684,6 +680,52 @@ extension AutoTestEngine on _HomePageState {
   }
 
   /// بخش «تشخیص و راه‌حل» گزارش
+  /// علت احتمالی یک شکست اتصال، از روی چیزهایی که واقعاً ثبت شده
+  String _atCauseOfFail() {
+    if (_atLastFail.contains('uuid')) {
+      return 'کانفیگ uuid ندارد (لینک سرور ناقص است). '
+          'راه حل: لینک سرور را دوباره از منبع بگیر.';
+    }
+    if (_atLastCoreUp) {
+      return 'هسته روی پورت محلی بالا است ولی وضعیت CONNECTED از پلاگین نمی‌رسد؛ '
+          'پس مشکل از سرور نیست. راه حل: خطوط V2RAY-STATE و V2RAY-START همین گزارش '
+          'را بفرست تا بررسی شود که شنونده‌ی onStatusChanged در lib/main.dart وضعیت را می‌گیرد.';
+    }
+    return 'هسته روی پورت محلی بالا نمی‌آید؛ هسته قبل از شروع متوقف شده است. '
+        'راه حل: خط XRAY-ERR و بلوک E-CONFIG-FAIL همین گزارش را بفرست؛ '
+        'علت معمولاً کانفیگ (پروتکل، امنیت یا ترنسپورت) یا نبود مجوز VPN است.';
+  }
+
+  /// جمع‌بندی پایان تست: یک علت اصلی و یک کار مشخص
+  String _atRootCause() {
+    final codes = _findings.map((f) => f.code).toSet();
+    final anyUp = _engineResult.values.any((r) =>
+        r.startsWith('✅') || r.contains('وصل شد') || r.contains('measure'));
+    final anyFail = _engineResult.values.any((r) => r.contains('وصل نشد'));
+    if (!anyUp && anyFail) return _atCauseOfFail();
+    if (codes.contains('ENG-NODATA') || codes.contains('ENG-MEASURE')) {
+      return 'وصل شد ولی از تونل داده‌ای رد نشد (ترافیک صفر). '
+          'راه حل: سرور دیگری را امتحان کن؛ اگر همه‌ی سرورها همین‌طور بودند، '
+          'اینترنت یا DNS گوشی/اپراتور را بررسی کن.';
+    }
+    if (codes.contains('ABORT-STUCK') || codes.contains('SWITCH-STUCK') ||
+        codes.contains('BUSY-STUCK') || codes.contains('TIMEOUT')) {
+      return 'بعد از توقف یا تعویض، قفل‌های برنامه (busy/switching) آزاد نشدند؛ این باگ کد است. '
+          'راه حل: خطوط ABORT-CONTEXT و BUSY-STUCK همین گزارش را بفرست. '
+          'محل بررسی: lib/main.dart → _runBusy و _unlockLater.';
+    }
+    if (codes.contains('RECONNECT-FAIL')) {
+      return 'قطع و وصل پشت‌سرهم شکست خورد. '
+          'راه حل: خط RECONNECT-FAIL و چند خط قبل از آن را بفرست.';
+    }
+    if (codes.contains('CRASH')) {
+      return 'خود تست با خطا متوقف شد (CRASH). راه حل: متن CRASH را بفرست.';
+    }
+    if (codes.isEmpty) return 'هیچ مشکلی در این اجرا دیده نشد.';
+    return 'مشکل‌های غیرمنتظره: ${codes.join('، ')}. '
+        'راه حل: همین گزارش را برای بررسی بفرست.';
+  }
+
   String _atDiagnosis() {
     final out = StringBuffer();
     if (_findings.isNotEmpty) {
