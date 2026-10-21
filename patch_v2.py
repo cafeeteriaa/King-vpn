@@ -544,6 +544,67 @@ patch('auto_test.dart',
       "        ];\n"
       "      case 'CRASH':")
 
+# 4p) TESTFIX2: CONNECT-HANG فقط برای اتصال واقعی؛ SWITCH-FLAG-STUCK برای پرچم گیرکرده‌ی تعویض با راه‌حل
+patch('auto_test.dart',
+      "  static DateTime? _busySince;",
+      "  static DateTime? _busySince;\n"
+      "  // TESTFIX2: true only while _atConnectEngine is waiting for a connect\n"
+      "  static bool _atConnecting = false;\n"
+      "  static DateTime? _switchFlagSince;")
+
+patch('auto_test.dart',
+      "    dbg('🧪 اتصال موتور: $label ($id)');\n    await connect();",
+      "    dbg('🧪 اتصال موتور: $label ($id)');\n    _atConnecting = true;\n    try {\n      await connect();\n    } finally {\n      _atConnecting = false;\n    }")
+
+patch('auto_test.dart',
+      "    if (busy && !connected) {",
+      "    if (_atConnecting && busy && !connected) {")
+
+patch('auto_test.dart',
+      "    if (busy) {\n      _busySince ??= now;",
+      "    // SWITCH-FLAG-STUCK: switching stays true while connected and idle (blocks later actions)\n"
+      "    if (switching && connected && !busy) {\n"
+      "      _switchFlagSince ??= now;\n"
+      "      if (now.difference(_switchFlagSince!) > const Duration(seconds: 40)) {\n"
+      "        _atAdd('SWITCH-FLAG-STUCK', 'switching=true با اتصال برقرار و بدون کار، بیش از 40s • موتور=$_currentEngine');\n"
+      "        switching = false; // release it so later actions are not blocked\n"
+      "        _switchFlagSince = null;\n"
+      "      }\n"
+      "    } else {\n"
+      "      _switchFlagSince = null;\n"
+      "    }\n"
+      "    if (busy) {\n      _busySince ??= now;")
+
+patch('auto_test.dart',
+      "      case 'CRASH':",
+      "      case 'SWITCH-FLAG-STUCK':\n"
+      "        return [\n"
+      "          'lib/main.dart → _swapTo / _failover / _doConnect (هر جایی که switching=true می‌شود)',\n"
+      "          'پرچم switching بعد از وصل شدن آزاد نشده؛ اپ را در حالت «تعویض» نگه می‌دارد و کارهای بعدی را مسدود می‌کند',\n"
+      "          'در finally همان تابع switching = false بگذار؛ تست همین الان آن را آزاد می‌کند و کد آن را نشان می‌دهد',\n"
+      "        ];\n"
+      "      case 'CRASH':")
+
+# 4q) TESTNOAD: تست ۲۰ دقیقه‌ای هیچ تبلیغی نشان نمی‌دهد
+patch('auto_test.dart',
+      "part of 'main.dart';",
+      "part of 'main.dart';\n"
+      "// TESTNOAD: true only while the 20-minute test runs; the ad gate lets connects through\n"
+      "bool autoTestAdFree = false;")
+
+patch('auto_test.dart',
+      "    _phase = _AtPhase.running;",
+      "    _phase = _AtPhase.running;\n    autoTestAdFree = true; // TESTNOAD")
+
+patch('auto_test.dart',
+      "    _phase = _AtPhase.idle;",
+      "    _phase = _AtPhase.idle;\n    autoTestAdFree = false; // TESTNOAD")
+
+patch('main.dart',
+      "    if (!requireRewardedAd || (_sessionValid && !_adEveryConnect)) return true;",
+      "    if (autoTestAdFree) return true; // TESTNOAD: no ad during the 20-minute test\n"
+      "    if (!requireRewardedAd || (_sessionValid && !_adEveryConnect)) return true;")
+
 # 5) write the new part file
 with open(os.path.join(LIB, 'nip_scan.dart'), 'w', encoding='utf-8') as f:
     f.write(NIP_FILE)
