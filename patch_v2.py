@@ -605,6 +605,30 @@ patch('main.dart',
       "    if (autoTestAdFree) return true; // TESTNOAD: no ad during the 20-minute test\n"
       "    if (!requireRewardedAd || (_sessionValid && !_adEveryConnect)) return true;")
 
+# 4r) SWITCHRELEASE: وقتی هسته CONNECTED می‌شود و برنامه بیکار است، پرچم گیرکرده‌ی switching آزاد شود
+# (listener قبلاً در switching=true همه‌ی رویدادها را نادیده می‌گرفت، پس اتصال واقعی دیده نمی‌شد)
+patch('main.dart',
+      "      if (!mounted || busy || switching) return;\n      final on = st.state == 'CONNECTED';",
+      "      if (st.state == 'CONNECTED' && wantVpn && mounted && !busy && switching) {\n"
+      "        _unlockLater(); // SWITCHRELEASE: core is up and the app is idle, the flag is stale\n"
+      "      }\n"
+      "      if (!mounted || busy || switching) return;\n      final on = st.state == 'CONNECTED';")
+
+# 4s) ALIVEONCE: کانال vpn/bg در اندروید متد alive ندارد؛ یک بار خطا می‌گیریم و دیگر صدا نمی‌زنیم
+patch('main.dart',
+      "const bgChannel = MethodChannel('vpn/bg');",
+      "const bgChannel = MethodChannel('vpn/bg');\n"
+      "bool _bgAliveUnsupported = false; // ALIVEONCE: native side has no 'alive' handler")
+
+patch('main.dart',
+      "        final alive = await bgChannel.invokeMethod<bool>('alive');",
+      "        final alive = _bgAliveUnsupported\n"
+      "            ? null\n"
+      "            : await bgChannel.invokeMethod<bool>('alive').catchError((e) {\n"
+      "                _bgAliveUnsupported = true; // ALIVEONCE\n"
+      "                return null;\n"
+      "              });")
+
 # 5) write the new part file
 with open(os.path.join(LIB, 'nip_scan.dart'), 'w', encoding='utf-8') as f:
     f.write(NIP_FILE)
