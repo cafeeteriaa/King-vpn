@@ -5744,7 +5744,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             knownIp: ip1,
           ));
           s.badAt = DateTime.now();
-          failed[s.key] = DateTime.now(); // TRAFFIC0: skip in searches for failWindow
           errorLog.value = '${s.name}: وصل شد ولی اینترنت رد نشد '
               '(${_short(lastPingErr, 70)})';
           continue;
