@@ -49,7 +49,7 @@ const ownPkg = 'com.kingvpn.king_vpn';
 // the workflow file.
 const bgChannel = MethodChannel('vpn/bg');
 // parallel ping tests while connected (settings 1..6).
-int bgWorkers = 3; // BEST: کمی بیشتر برای پیدا کردن جایگزین بهتر
+int bgWorkers = 1; // تست همزمان (وقتی وصل است) — پیش‌فرض ۱
 // FAST SEARCH: parallel ping tests (core delay test, no VPN toggling) used
 // when looking for the first healthy server (settings 1..8).
 int fastWorkers = 50; // fixed default — do not change without user request
@@ -453,7 +453,7 @@ void _tuneApply(int lv) {
     turboSpeed = true;
   } else {
     // معمولی = BEST پیش‌فرض اپ
-    bgWorkers = 3;
+    bgWorkers = 1;
     delayTimeout = const Duration(seconds: 8);
     batchSize = 120;
     firstBatchSize = 50;
@@ -4089,7 +4089,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // once, so the app keeps finding servers that are as fast as before.
       if (p.getBool('restore_speed_v1') != true) {
         autoUpgrade = true;
-        bgWorkers = 3;
+        bgWorkers = 1;
         await p.setBool('restore_speed_v1', true);
         await _saveSettings();
       }
@@ -6807,7 +6807,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       autoCycle = true;
       // NATULTRA: 2 = every base variant, 3 = + every test address and ~120 generated
       // variants, 4 = ~600 generated variants per pass (the cursor continues next round)
-      natLevel = round >= 8 ? 4 : (round >= 4 ? 3 : 2);
+      natLevel = max(round >= 8 ? 4 : (round >= 4 ? 3 : 2), natFloor);
       tcpTimeout = Duration(seconds: round >= 8 ? 10 : (round >= 4 ? 8 : 6));
       delayTimeout = Duration(seconds: max(delayTimeout.inSeconds, round >= 8 ? 18 : 14));
       natWorkers = max(natWorkers, round >= 4 ? 8 : 6);
@@ -7039,7 +7039,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       abort = false;
       await _prepNow();
       _prepFut = null;
-      natLevel = natForce ? 2 : 0;
+      natFloor = natForce ? 4 : 0; // دکمه نت ملی: بالاترین سطح ماتریس
+      natLevel = natFloor;
       natAll = natForce; // NATBTNPATCH: full search of ALL sources
       natForce = false;
       // Force PLAIN connect: no matrix, no ultra, no folder race
