@@ -210,13 +210,13 @@ const speedOwners = {
 };
 // below this download speed (KB/s) the connected server is replaced (0 = off)
 // BEST: زیر ~۸۰ KB/s تقریباً مرده است → تعویض (نه آن‌قدر حساس که مدام بپرد)
-int minSpeedKB = 80;
+int minSpeedKB = 200; // USER: تعویض سرور اگر سرعت کمتر از ۲۰۰ KB/s بود
 
 // ---- settings ---- BEST PROFILE (پایدار + سریع)
 // user-adjustable (saved in settings)
-int batchSize = 120; // دسته بزرگ‌تر = شانس بیشتر برای سرور خوب
+int batchSize = 200; // USER: دسته‌ی تست سریع ۲۰۰ (دسته بزرگ‌تر = شانس بیشتر برای سرور خوب)
 int delayWorkers = 24; // (kept for settings compatibility)
-Duration delayTimeout = const Duration(seconds: 8); // شبکه ضعیف هم شانس دارد
+Duration delayTimeout = const Duration(seconds: 5); // USER: سرور مرده زودتر رد شود (اتصال سریع‌تر)
 int goodWant = 12; // حداقل سرور سالم هدف
 bool autoSpeed = true; // تست سرعت چند سرور برتر قبل از اتصال
 int speedTopN = 5; // BEST: ۵ برتر را سرعت‌سنجی کن، بعد وصل شو
@@ -10077,9 +10077,10 @@ UiHero(
               },
             ),
           ),
+          // USER: پیام‌های خطا روی صفحه‌ی اصلی نمایش داده نمی‌شوند (فقط در گزارش خطا)
           ValueListenableBuilder<String>(
             valueListenable: errorLog,
-            builder: (_, v, __) => v.isEmpty
+            builder: (_, v, __) => true
                 ? const SizedBox.shrink()
                 : Padding(
                     padding: const EdgeInsets.all(8),
