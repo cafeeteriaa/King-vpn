@@ -773,7 +773,7 @@ patch('auto_test.dart',
 patch('auto_test.dart',
       "    abort = true;\n    try {\n      await disconnect();",
       "    // ABORTCTX: snapshot what the app was doing at the moment of the stop\n"
-      "    _atAdd('ABORT-CONTEXT', 'لحظه‌ی توقف: status=\"$status\" • آخرین رویداد: $lastState • lastWhy=\"$lastWhy\"');\n"
+      "    dbg('🧪 توقف وسط اتصال (اطلاعات، نه خطا): status=\"$status\" • آخرین رویداد: $lastState • lastWhy=\"$lastWhy\"');\n"
       "    abort = true;\n    try {\n      await disconnect();")
 
 patch('auto_test.dart',
