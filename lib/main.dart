@@ -6773,7 +6773,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // national search (levels 2→4, operator DNA) but stops after enough rounds
     // so data usage stays bounded.
     final bestEffort = ultraMode && !neverStop;
-    for (var round = 0; !abort; round++) {
+    // STOP-LOOP: the user asked to stop (wantVpn=false): leave the endless
+    // round loop at once instead of spinning 'indestructible' rounds that
+    // can never start the VPN (every _start refuses without wantVpn).
+    for (var round = 0; !abort && wantVpn; round++) {
       // NATESCALATE: every 2nd failed round the search gets wider (all sources,
       // fresh lists, longer waits) and the network state is checked again
       if (round > 0 && round % 2 == 0) await _natEscalate(round);
