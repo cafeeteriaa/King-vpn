@@ -7295,6 +7295,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // old one (the old one is NOT marked bad: it was working)
   Future<void> _stableSwap(Server t, Server old, int curMed, int newMed) async {
     if (busy) return;
+    // STOP-RACE: a switch must not undo a stop the user already asked for
+    if (!wantVpn) return;
     abort = false;
     await _runBusy(() async {
       switching = true;
@@ -7325,6 +7327,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _failover() async {
     if (busy) return;
+    // STOP-RACE: a switch must not undo a stop the user already asked for
+    if (!wantVpn) return;
     abort = false;
     await _runBusy(() async {
       switching = true;
@@ -7453,6 +7457,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // come up, the normal replacement search takes over.
   Future<void> _swapTo(Server t) async {
     if (busy) return;
+    // STOP-RACE: a switch must not undo a stop the user already asked for
+    if (!wantVpn) return;
     abort = false;
     await _runBusy(() async {
       switching = true;
