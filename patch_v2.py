@@ -838,8 +838,93 @@ patch('main.dart',
       "        if (myGen != _connGen) ready = false; // superseded",
       "        abortPoll.cancel(); // ABORTWAIT\n        if (myGen != _connGen) ready = false; // superseded")
 
+# ---------------------------------------------------------------------------
+# HOTFOLDER: the 'fresh sources' folder (hot_cache.txt) was an invisible cache that only
+# national mode built. Now: a row in the folder menu shows its state and rebuilds it (any mode),
+# a failed download is retried after 30 minutes instead of on every connect, and a connect
+# no longer waits for the download (it runs in the background).
+# ---------------------------------------------------------------------------
+patch('nat_ultra.dart',
+      "bool _hotBusy = false;\n",
+      "bool _hotBusy = false;\n"
+      "DateTime? _hotFailAt; // HOTRETRY: last failed download (retry after a cooldown, not on every connect)\n")
+
+patch('nat_ultra.dart',
+      "Future<void> natHotEnsure() async {\n",
+      "Future<void> natHotEnsure({bool force = false}) async {\n")
+
+patch('nat_ultra.dart',
+      "    if (age < natHotTtl && (_hotLines != null || f.lengthSync() > 0)) return;\n",
+      "    if (!force && age < natHotTtl && (_hotLines != null || f.lengthSync() > 0)) return;\n"
+      "    if (!force && _hotFailAt != null &&\n"
+      "        DateTime.now().difference(_hotFailAt!) < const Duration(minutes: 30)) return; // HOTRETRY\n")
+
+patch('nat_ultra.dart',
+      "    final fresh = await natHotFetch(natHotUrls());\n",
+      "    final fresh = await natHotFetch(natHotUrls());\n"
+      "    _hotFailAt = fresh.isEmpty ? DateTime.now() : null; // HOTRETRY\n")
+
+patch('nat_ultra.dart',
+      "    await natHotEnsure();",
+      "    unawaited(natHotEnsure()); // HOTBG: background, the connect must not wait for the download")
+
+patch('main.dart',
+      "            const Divider(height: 1),\n"
+      "            ListTile(\n"
+      "              leading: const Icon(Icons.public_off),\n",
+      "            const Divider(height: 1),\n"
+      "            ListTile( // HOTFOLDER row\n"
+      "              leading: const Icon(Icons.cloud_download_outlined),\n"
+      "              title: const Text('پوشه منابع تازه (کانفیگ ها)'),\n"
+      "              subtitle: Text(hotFolderInfo()),\n"
+      "              onTap: () {\n"
+      "                Navigator.pop(ctx);\n"
+      "                unawaited(hotFolderRebuild());\n"
+      "              },\n"
+      "            ),\n"
+      "            ListTile(\n"
+      "              leading: const Icon(Icons.public_off),\n")
+
+HOT_UI = r'''
+// HOTFOLDER UI ==============================================================
+// وضعیت پوشه‌ی منابع تازه و ساخت دستی آن (در هر حالتی، نه فقط نت ملی).
+extension HotFolderUi on _HomePageState {
+  String hotFolderInfo() {
+    try {
+      final f = File(_hotPath());
+      if (!f.existsSync()) {
+        return 'هنوز ساخته نشده؛ با زدن همین ردیف ساخته می‌شود';
+      }
+      final age = DateTime.now().difference(f.lastModifiedSync());
+      final mb = (f.lengthSync() / 1048576).toStringAsFixed(1);
+      return '$mb MB • ${age.inHours} ساعت پیش ساخته شده • با زدن این ردیف تازه می‌شود';
+    } catch (_) {
+      return 'خطا در خواندن وضعیت پوشه';
+    }
+  }
+
+  Future<void> hotFolderRebuild() async {
+    if (_hotBusy) {
+      _set('پوشه‌ی منابع تازه هم‌اکنون در حال ساخت است؛ کمی صبر کن');
+      return;
+    }
+    _set('پوشه‌ی منابع تازه: در حال دریافت از منبع‌ها...');
+    _hotFailAt = null;
+    await natHotEnsure(force: true);
+    final ok = _hotFailAt == null && File(_hotPath()).existsSync();
+    _set(ok
+        ? 'پوشه‌ی منابع تازه آماده شد (${hotFolderInfo()})'
+        : 'ساخته نشد: منبع‌ها دریافت نشدند؛ اینترنت یا دسترسی به GitHub و میرورها را چک کن');
+  }
+}
+'''
+
+
 # 5) write the new part file
 with open(os.path.join(LIB, 'nip_scan.dart'), 'w', encoding='utf-8') as f:
     f.write(NIP_FILE)
 print('OK: nip_scan.dart written')
+with open(os.path.join(LIB, 'nip_scan.dart'), 'a', encoding='utf-8') as f:
+    f.write(HOT_UI)
+print('OK: hot folder UI appended to nip_scan.dart')
 print('ALL PATCHES APPLIED')
