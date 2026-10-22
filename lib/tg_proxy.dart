@@ -126,12 +126,19 @@ class _TgProxyPanelState extends State<_TgProxyPanel> {
   }
 
   Future<void> _open(String link) async {
-    // USER: مستقیم به تلگرام بفرست (canLaunchUrl روی اندروید ۱۱+ بدون <queries> false می‌دهد و قبلاً کپی می‌شد)
-    try {
-      final u = Uri.parse(link);
-      final ok = await launchUrl(u, mode: LaunchMode.externalApplication);
-      if (ok) return;
-    } catch (e) { debugPrint("catch: $e"); }
+    // USER: مستقیم وارد تلگرام شود نه سایت.
+    // اول با اسکیم خود تلگرام (tg://) باز می‌شود تا مرورگر دخالت نکند.
+    // اگر تلگرام نصب نبود یا باز نشد، لینک https را امتحان می‌کنیم.
+    final tgLink = link
+        .replaceFirst('https://t.me/proxy', 'tg://proxy')
+        .replaceFirst('https://t.me/socks', 'tg://socks');
+    for (final candidate in [tgLink, link]) {
+      try {
+        final ok = await launchUrl(Uri.parse(candidate),
+            mode: LaunchMode.externalNonBrowserApplication);
+        if (ok) return;
+      } catch (e) { debugPrint("catch: $e"); }
+    }
     await _copy(link);
   }
 
