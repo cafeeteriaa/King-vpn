@@ -6804,6 +6804,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       var list = pickRow();
       if (list.isEmpty) {
         await _search(2, row: searchRow, keepUp: true);
+        if (abort) return false; // ABORT-STUCK: stop right after a long step
         final up = upServer;
         if (up != null) {
           _onConnected(up);
@@ -6832,6 +6833,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             listTime = null;
             lastFetchTry = DateTime(2000);
             await _loadPending(bg: false, exhausted: true);
+            if (abort) return false;
             _resInject();
           } else {
             _set('سرور سالم پیدا نشد؛ تست سریع دوباره...');
@@ -6844,13 +6846,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!speedDone && list.length > 1 && autoSpeed) {
         speedDone = true;
         await _speedTest(speedTopN, from: list);
+        if (abort) return false; // ABORT-STUCK: speed test was cut
         list = pickRow();
         if (list.isEmpty) continue;
       }
       emptyRounds = 0;
       // Always verify tunnel ping so apps (Telegram, …) really work.
       // trust:false = one quick ping through the tunnel before accepting.
+      if (abort) return false;
       if (await _connectLoop(list, trust: false)) return true;
+      if (abort) return false;
     }
     return false;
   }
