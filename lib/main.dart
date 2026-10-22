@@ -1510,6 +1510,7 @@ void logError(Object e) {
   }
   if (e is TimeoutException ||
       e is SocketException ||
+      e is TlsException ||
       e is HandshakeException ||
       e is HttpException ||
       e is http.ClientException) {
@@ -1519,6 +1520,7 @@ void logError(Object e) {
   }
   if (e is TimeoutException ||
       e is SocketException ||
+      e is TlsException ||
       e is HandshakeException ||
       e is HttpException ||
       e is http.ClientException) {
@@ -3162,7 +3164,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool busy = false, connected = false;
   bool wantVpn = false, abort = false;
   // true while the app itself starts/stops the VPN: status events are ignored
-  bool switching = false;
+  bool _switching = false;
+  bool get switching => _switching;
+  set switching(bool v) {
+    // a new switch started: an older pending _unlockLater() must not clear it
+    if (v) _unlockGen++;
+    _switching = v;
+  }
   bool searching = false; // a search (foreground or standby) is running
   bool inForeground = true, pendingFailover = false;
   // VPN permission was already granted once (stays valid in background)
@@ -7879,9 +7887,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             var sp = 0.0;
             if (await _start(c)) {
               live = c;
-              final p = await pingProxy(
-                  total: const Duration(seconds: 5), direct: true);
-              if (p != null) {
+              final p = abort
+                  ? null
+                  : await pingProxy(
+                      total: const Duration(seconds: 5), direct: true);
+              if (p != null && !abort) {
                 sp = await measure(
                         win: const Duration(seconds: 2),
                         total: const Duration(seconds: 7),
@@ -7892,7 +7902,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             c.speed = sp;
             c.remember(sp);
             c.speedAt = DateTime.now();
-            if (sp == 0) {
+            if (sp == 0 && !abort) {
               c.badAt = DateTime.now();
               if (++c.miss >= 2) good.remove(c); // no data twice: deleted
             }
@@ -8104,7 +8114,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (DateTime.now().difference(_swSince!) > const Duration(seconds: 40)) {
           _swSince = null;
           dbg('تعویض بیش از ۴۰s بی‌صاحب مانده بود؛ آزاد شد (SWITCH-STUCK)');
-          _unlockLater();
+          _unlockGen++; // cancel any pending delayed unlock
+          switching = false; // no busy task owns it: release right now
+          _syncCore();
         }
       } else {
         _swSince = null;
