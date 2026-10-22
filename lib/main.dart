@@ -3710,10 +3710,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // RARE BUG FIX: previous version scheduled multiple delayed callbacks;
   // a later switch could be unlocked early by an older callback.
   int _unlockGen = 0;
+  int _unlockSchedGen = -1; // generation that already has an unlock timer
   void _unlockLater() {
-    final g = ++_unlockGen;
+    // A timer for the current generation is already running: do not restart
+    // it (repeated CONNECTED events used to push the unlock back forever).
+    if (_unlockSchedGen == _unlockGen) return;
+    final g = _unlockSchedGen = _unlockGen;
     Future.delayed(const Duration(milliseconds: 3000), () {
-      if (g != _unlockGen) return; // superseded by a newer unlock
+      if (g != _unlockGen) return; // a newer switch started: keep its flag
+      _unlockSchedGen = -1;
       switching = false;
       _syncCore(); // SELFHEALPATCH
     });
@@ -5633,7 +5638,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     try {
       if (proxyMode) return null;
       if (!await _start(s, proxyOnly: true)) return null;
+      if (abort) {
+        await _stopCore();
+        return null;
+      }
       if (!await waitProxyPort(max: const Duration(seconds: 6))) {
+        await _stopCore();
+        return null;
+      }
+      if (abort) {
         await _stopCore();
         return null;
       }
