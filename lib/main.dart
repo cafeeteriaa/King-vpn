@@ -16,6 +16,7 @@ import 'package:workmanager/workmanager.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'tg_proxy.dart' show tgProxyRow; // فقط پروکسی تلگرام
+import 'nat_ip_scan.dart'; // اسکن TCP آدرس IP و دامنه
 import 'help_page.dart';
 import 'conn_specs.dart';
 part 'iran_ai_extras.dart';
@@ -3081,7 +3082,8 @@ class ProviderPage extends StatelessWidget {
 Future<List<Server>> fetchServers({bool Function()? stop}) async {
   final all = <String, Server>{};
   final sw = Stopwatch()..start();
-  await pool<String>(listUrls, fetchWorkers, (u) async {
+  // لینک‌های اضافه‌ی کاربر اول دریافت می‌شوند
+  await pool<String>([...userListUrls, ...listUrls], fetchWorkers, (u) async {
     if ((stop?.call() ?? false) || sw.elapsed > fetchDeadline) return;
     try {
       final r =
@@ -5540,6 +5542,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   void _onConnected(Server s) {
+    if (nationalMode) unawaited(natIpMemSave(s.host, s.port)); // IP کارا به حافظه
     s.miss = 0; // BADCFG: a working config starts healthy again
     badPingRounds = 0; // BADPINGLOOP
     current = s;
@@ -6593,6 +6596,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           bgWorkers = max(natWorkers, indestructibleMode ? 8 : 4);
           autoUpgrade = true;
           autoCycle = true;
+          // NATRANGE: پس‌زمینه، هر ۵ دقیقه، بخشی کم از بازه‌های IP با سرعت کم
+          if (DateTime.now().difference(natRangeLast) >
+              const Duration(minutes: 5)) {
+            natRangeLast = DateTime.now();
+            unawaited(() async {
+              final ips = await natRangeScanStep(
+                  known: [...pending, ...natRestPending],
+                  maxAddrs: 256,
+                  conc: 20);
+              await _natRangeAdd(ips);
+            }());
+          }
           // NATBG: while connected the background search is deeper (more
           // variants per server) and every healthy server goes into the folder
           if (natLevel < 3) natLevel = 3;
@@ -6799,6 +6814,164 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // speed-tested for real and the FASTEST one is connected. When none is
   // ready, a search runs and the first healthy server is enough; the rest of
   // the list is tested later while connected (standby search).
+  // NATSCAN: IP و دامنه‌ی همه‌ی سرورهای صف با TCP سبک بررسی می‌شوند.
+  // دامنه‌ها ابتدا به IP تبدیل می‌شوند. سرورهایی که پورتشان باز است جلوی صف
+  // می‌آیند؛ بقیه حذف نمی‌شوند. اعتبار واقعی همچنان با تست اتصال از تونل است.
+  // پوشه‌ی منابع تازه را (در صورت نیاز ۲۴ ساعته بازسازی) به صف جستجوی نت ملی اضافه می‌کند
+  Future<void> _natMergeCache() async {
+    if (!nationalMode) return;
+    final c = await natHotNext(3000); // هر دور یک تکه از پوشه
+    if (c.isEmpty) return;
+    final seen = {for (final s in pending) s.link};
+    final add = [for (final s in c) if (seen.add(s.link)) s];
+    if (add.isEmpty) return;
+    pending = [...add, ...pending];
+    _set('نت ملی: ${add.length} کانفیگ از پوشه‌ی منابع تازه اضافه شد');
+  }
+
+  // NATSCAN: IP و دامنه‌ی سرورها در دسته‌های ۲۰تایی با TCP سبک بررسی می‌شوند.
+  // IPهای حافظه اول. به محض پیدا شدن اولین دسته‌ی باز، همان‌ها تست کانفیگ می‌شوند.
+  // بقیه‌ی سرورها در natRestPending می‌مانند و در دور بعد بررسی می‌شوند.
+  Future<void> _natPrescan() async {
+    try {
+      final seenLinks = <String>{};
+      final cands = <Server>[
+        for (final s in [...pending, ...natRestPending])
+          if (seenLinks.add(s.link)) s,
+      ];
+      if (cands.isEmpty) return;
+      final memHosts = natIpMemHosts();
+      cands.sort((a, b) =>
+          (memHosts.contains(a.host) ? 0 : 1) -
+          (memHosts.contains(b.host) ? 0 : 1));
+      // سقف بررسی در هر دور: بقیه برای دور بعد نگه داشته می‌شوند
+      const checkCap = 3000;
+      final overflow = cands.length > checkCap ? cands.sublist(checkCap) : <Server>[];
+      if (cands.length > checkCap) cands.removeRange(checkCap, cands.length);
+      final ipOf = <String, String>{};
+      for (final h in {for (final s in cands) if (s.host.isNotEmpty) s.host}) {
+        if (InternetAddress.tryParse(h) != null) {
+          ipOf[h] = h;
+          continue;
+        }
+        try {
+          final r = await InternetAddress.lookup(h)
+              .timeout(const Duration(seconds: 3));
+          if (r.isNotEmpty) ipOf[h] = r.first.address;
+        } catch (_) {}
+      }
+      final targets = [for (final s in cands) if (ipOf.containsKey(s.host)) s];
+      final ok = <Server>[];
+      const batch = 20;
+      final deadline = DateTime.now().add(const Duration(seconds: 90));
+      for (var i = 0;
+          i < targets.length && !abort && DateTime.now().isBefore(deadline);
+          i += batch) {
+        final chunk = targets.sublist(i, min(i + batch, targets.length));
+        _set('نت ملی: بررسی IP ${i + chunk.length}/${targets.length}...');
+        final res = await Future.wait(chunk.map((s) => natTcpProbe(
+            ipOf[s.host]!, s.port, const Duration(milliseconds: 1500))));
+        for (var k = 0; k < chunk.length; k++) {
+          if (res[k] != null) ok.add(chunk[k]);
+        }
+        if (ok.isNotEmpty) break; // اولین دسته‌ی باز را فوراً تست می‌کنیم
+      }
+      if (ok.isEmpty) {
+        // هیچ IP ای باز نشد: همه‌ی سرورها تست می‌شوند (چیزی حذف نمی‌شود)
+        pending = [...cands, ...overflow];
+        natRestPending = [];
+        return;
+      }
+      final okLinks = {for (final s in ok) s.link};
+      pending = ok;
+      natRestPending = [
+        for (final s in cands) if (!okLinks.contains(s.link)) s,
+        ...overflow,
+      ];
+      _set('نت ملی: ${ok.length} سرور با IP باز پیدا شد، تست می‌شود');
+    } catch (e) {
+      logError(e);
+    }
+  }
+
+  // IPهای بازِ پیداشده در بازه‌ها: با دو سرور نمونه کانفیگ ساخته و جلوی صف گذاشته می‌شود
+  Future<void> _natRangeAdd(List<String> items) async {
+    if (items.isEmpty) return;
+    final tpl = [...pending, ...natRestPending].take(2).toList();
+    if (tpl.isEmpty) return;
+    final made = <Server>[
+      for (final item in items)
+        for (final t in tpl)
+          Server(
+            _natSetHost(t.link, item.split('|')[0], t.host),
+            t.name,
+            item.split('|')[0],
+            int.parse(item.split('|')[1]),
+          ),
+    ];
+    pending = [...made, ...pending];
+    natRangeCursor = 0; // دور بعد از همان بلوک‌های پیداشده شروع می‌شود
+    _set('نت ملی: ${items.length} آدرس باز (IP و پورت) در بازه‌ها پیدا شد');
+  }
+
+  void _userListsDialog(BuildContext context) {
+    final c = TextEditingController(text: userListUrls.join('\n'));
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('لینک‌های اشتراک کانفیگ'),
+        content: TextField(
+          controller: c,
+          maxLines: 8,
+          decoration: const InputDecoration(
+              hintText:
+                  'هر لینک در یک خط (لینک مستقیم txt یا base64 از منبع مورد اعتماد)'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('بستن')),
+          TextButton(
+            onPressed: () async {
+              await userListsSave(c.text);
+              if (ctx.mounted) Navigator.pop(ctx);
+              lastFetchTry = DateTime(2000); // فوراً دوباره دریافت کن
+              _set('لینک‌ها ذخیره شد (${userListUrls.length} لینک)');
+            },
+            child: const Text('ذخیره'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _natRangesDialog(BuildContext context) {
+    final c = TextEditingController(text: natRanges.join('\n'));
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('بازه‌های IP برای جستجو'),
+        content: TextField(
+          controller: c,
+          maxLines: 8,
+          decoration: const InputDecoration(
+              hintText: 'هر بازه در یک خط: مثلاً 5.160.0.0/16 یا 5.160.0.0-5.160.3.255 (بدون فاصله)'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('بستن')),
+          TextButton(
+            onPressed: () async {
+              await natRangesSave(c.text);
+              if (ctx.mounted) Navigator.pop(ctx);
+              _set('بازه‌ها ذخیره شد (${natRanges.length} بازه)');
+            },
+            child: const Text('ذخیره'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _natEscalate(int round) async {
     try {
       await _natDetect(); // what does the network look like now?
@@ -6808,6 +6981,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // NATULTRA: 2 = every base variant, 3 = + every test address and ~120 generated
       // variants, 4 = ~600 generated variants per pass (the cursor continues next round)
       natLevel = max(round >= 8 ? 4 : (round >= 4 ? 3 : 2), natFloor);
+      if (natFloor >= 10) natLevel = 10;
       tcpTimeout = Duration(seconds: round >= 8 ? 10 : (round >= 4 ? 8 : 6));
       delayTimeout = Duration(seconds: max(delayTimeout.inSeconds, round >= 8 ? 18 : 14));
       natWorkers = max(natWorkers, round >= 4 ? 8 : 6);
@@ -6816,6 +6990,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         natGrow(round >= 8 ? 400 : (round >= 4 ? 200 : 80));
       } catch (e) { logError(e); }
       _dohFail = 0;
+      if (natFloor >= 5) {
+        try {
+          natGrow(3000);
+        } catch (e) { logError(e); }
+      }
+      // NATSCAN: IP و دامنه‌ی سرورها قبل از تست سنگین بررسی می‌شوند
+      if (nationalMode) await _natMergeCache();
+      if (nationalMode) await _natPrescan();
+      if (nationalMode && !abort) {
+        final ips = await natRangeScanStep(
+            known: [...pending, ...natRestPending],
+            maxAddrs: 512,
+            conc: 200,
+            stop: () => abort);
+        await _natRangeAdd(ips);
+      }
       // CRITICAL for نت ملی: do NOT destroy existing configs.
       // When international is cut, GitHub raw lists are mostly unreachable.
       // Clearing pending / forcing a full re-fetch left the app with an empty
@@ -6893,12 +7083,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (natLevel < 2) natLevel = 2;
         if (round >= 4 && natLevel < 3) natLevel = 3;
         if (round >= 8 && natLevel < 4) natLevel = 4;
+        if (natFloor >= 10) natLevel = 10; // حلقه‌ی بی‌پایان با سطح ۱۰
       } else if (bestEffort) {
         // round 0 stays at current level (usually 1) → more servers, faster
         if (round >= 1 && natLevel < 2) natLevel = 2;
         if (round >= 3 && natLevel < 3) natLevel = 3;
         if (round >= 5 && natLevel < 4) natLevel = 4;
-        if (round >= 10) break;
+        if (round >= 10 && natFloor < 10) break; // سطح ۱۰ حلقه‌ی بی‌پایان دارد
       }
       // RETRYPATCH: quick test is repeated until a healthy server exists
       final row = connRow;
@@ -7039,7 +7230,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       abort = false;
       await _prepNow();
       _prepFut = null;
-      natFloor = natForce ? 4 : 0; // دکمه نت ملی: بالاترین سطح ماتریس
+      natFloor = natForce ? 10 : 0; // دکمه نت ملی: سطح ۱۰ با حلقه‌ی بی‌پایان
       natLevel = natFloor;
       natAll = natForce; // NATBTNPATCH: full search of ALL sources
       natForce = false;
@@ -7094,6 +7285,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (nationalMode || indestructibleMode) {
         _resInject();
         await _checkSaved(); // re-test known-good before searching new lists
+        if (nationalMode) await _natMergeCache(); // پوشه‌ی منابع تازه (فقط نت ملی)
       }
       // Fire-and-forget: keeps searching in background while connected/hunting
       if (nationalMode) unawaited(_natKeep());
@@ -9918,6 +10110,8 @@ UiHero(
           ),
           UiTools(items: [
             UiTool(Icons.support_agent, 'ارتباط با ادمین', () => _uiOpenAdmin(context)),
+            UiTool(Icons.radar, 'بازه‌های IP برای نت ملی', () => _natRangesDialog(context)),
+            UiTool(Icons.link, 'لینک‌های اشتراک کانفیگ', () => _userListsDialog(context)),
             UiTool(Icons.tune, 'پروفایل‌ها', () => _profilesSheet()),
             UiTool(
                 Icons.auto_fix_high,
