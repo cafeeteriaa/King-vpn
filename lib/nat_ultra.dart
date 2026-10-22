@@ -1247,7 +1247,10 @@ Future<String?> _natAsnFrom(String url, String field) async {
     final res = await req.close().timeout(const Duration(seconds: 3));
     final body =
         await res.transform(utf8.decoder).join().timeout(const Duration(seconds: 3));
-    final j = jsonDecode(body);
+    final t = body.trimLeft();
+    if (!t.startsWith('{')) return null; // HTML page from a portal/filter
+    final j = jsonDecode(t);
+    if (j is! Map) return null;
     final raw = '${j[field] ?? ''}';
     final m = RegExp(r'(\d{3,7})').firstMatch(raw);
     return m?.group(1);
