@@ -2553,7 +2553,7 @@ final List<NumOpt> numOpts = [
   // BEST PROFILE defaults — هم‌تراز با پیش‌فرض main.dart
   NumOpt('fastWorkers', 'تست همزمان (جستجوی اول)', 1, 1000, 50, 1000, false,
       () => fastWorkers, (v) => fastWorkers = v),
-  NumOpt('bgWorkers', 'تست همزمان (وقتی وصل است)', 1, 1000, 3, 1000, false,
+  NumOpt('bgWorkers', 'تست همزمان (وقتی وصل است)', 1, 1000, 1, 1000, false,
       () => bgWorkers, (v) => bgWorkers = v),
   NumOpt('timeout', 'تایم‌اوت هر تست (ثانیه)', 1, 1000, 8, 1000, false,
       () => delayTimeout.inSeconds, (v) => delayTimeout = Duration(seconds: v)),
@@ -2620,6 +2620,11 @@ Future<void> loadNumPrefs(SharedPreferences p) async {
     }
     await p.setBool('bestProfile26', true);
     await p.setBool('batch300', true); // جلوگیری از override قدیمی
+    saveNumPrefs();
+  }
+  if (p.getBool('bgWorkersOne') != true) {
+    bgWorkers = 1; // تست همزمان (وقتی وصل است) از ۳ به ۱
+    await p.setBool('bgWorkersOne', true);
     saveNumPrefs();
   }
 }
@@ -2728,7 +2733,7 @@ extension NumHomeExtras on _HomePageState {
 // TUNEDPATCH ===================== مقدارهای بهینه BEST (یکدست با numOpts) =====================
 const Map<String, dynamic> _tunedSettings = {
   't': 8, // delayTimeout sec
-  'bw2': 3, // bgWorkers
+  'bw2': 1, // bgWorkers
   'st': 5, // speedTopN
   'bp': 2500, // badPingMs
   'ms': 80, // minSpeedKB
@@ -2763,7 +2768,7 @@ const Map<String, dynamic> _tunedSettings = {
 // BEST PROFILE — هم‌تراز numOpts.def
 const Map<String, int> _tunedNums = {
   'fastWorkers': 50,
-  'bgWorkers': 3,
+  'bgWorkers': 1,
   'timeout': 8,
   'batch': 120,
   'speedTopN': 5,
@@ -2790,7 +2795,7 @@ const Map<String, int> _tunedNums = {
 // v2/v3/v4: همان BEST تا نسخه‌های قدیمی هم یکدست شوند
 const Map<String, dynamic> _tunedSettings2 = {
   't': 8,
-  'bw2': 3,
+  'bw2': 1,
   'st': 5,
   'bp': 2500,
   'ms': 80,
@@ -2813,7 +2818,7 @@ const Map<String, dynamic> _tunedSettings2 = {
 };
 const Map<String, int> _tunedNums2 = {
   'fastWorkers': 50,
-  'bgWorkers': 3,
+  'bgWorkers': 1,
   'timeout': 8,
   'batch': 120,
   'speedTopN': 5,
@@ -2837,7 +2842,7 @@ const Map<String, int> _tunedNums2 = {
 
 const Map<String, dynamic> _tunedSettings3 = {
   't': 8,
-  'bw2': 3,
+  'bw2': 1,
   'st': 5,
   'bp': 2500,
   'ms': 80,
@@ -2860,7 +2865,7 @@ const Map<String, dynamic> _tunedSettings3 = {
 };
 const Map<String, int> _tunedNums3 = {
   'fastWorkers': 50,
-  'bgWorkers': 3,
+  'bgWorkers': 1,
   'timeout': 8,
   'batch': 120,
   'speedTopN': 5,
