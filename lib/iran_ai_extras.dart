@@ -2452,6 +2452,7 @@ extension HomeExtras on _HomePageState {
     _localApplyMaxPowerProfile(power: 1);
     localPilotText.value =
         '👑 خلبان خودکار فعال است\n'
+        '⚠ تنظیمات برای خلبان عوض شد. برای جستجوی عادی: تنظیمات ← «برگرداندن همه‌ی عددها به پیش‌فرض»\n'
         '• فقط «اتصال» کافی است — بقیه اتوماتیک\n'
         '• قدرت ۰→∞ با اینترنت و مکان';
     _localReschedule();
