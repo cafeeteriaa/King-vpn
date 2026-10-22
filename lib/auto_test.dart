@@ -364,7 +364,7 @@ extension AutoTestEngine on _HomePageState {
       _busySince = null;
     }
 
-    if (switching) {
+    if (switching && !busy) {
       _switchingSince ??= now;
       if (now.difference(_switchingSince!) > _switchingStuckLimit) {
         _atAdd('SWITCH-STUCK',
