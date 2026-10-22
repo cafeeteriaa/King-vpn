@@ -4,6 +4,7 @@
 # Every patch must match EXACTLY ONCE. If not, the build stops with a clear message.
 
 import os
+import shutil
 import sys
 
 LIB = sys.argv[1] if len(sys.argv) > 1 else 'build_app/lib'
@@ -21,6 +22,20 @@ def patch(fname, old, new):
     with open(path, 'w', encoding='utf-8') as f:
         f.write(src)
     print(f'OK: {fname} <- {old[:50]!r}')
+
+
+# ---------------------------------------------------------------------------
+# main.dart imports 'nat_ip_scan.dart' (nat_ultra.dart and main.dart use it), but build.yml
+# never copied that file into build_app/lib, so the build failed with
+# "Target of URI doesn't exist". Copy it from the repo (lib/ next to this script).
+# ---------------------------------------------------------------------------
+REPO_DIR = os.path.dirname(os.path.abspath(__file__))
+NAT_SCAN_SRC = os.path.join(REPO_DIR, 'lib', 'nat_ip_scan.dart')
+if not os.path.exists(NAT_SCAN_SRC):
+    print(f'ERROR: {NAT_SCAN_SRC} not found in the repo')
+    sys.exit(1)
+shutil.copyfile(NAT_SCAN_SRC, os.path.join(LIB, 'nat_ip_scan.dart'))
+print('OK: nat_ip_scan.dart copied from lib/')
 
 
 # ---------------------------------------------------------------------------
@@ -292,11 +307,24 @@ patch('auto_test.dart',
       }
       _atAdd('ENG-FAIL',""")
 
-# 4b) main.dart: national button turns on Ultra (matrix) for that connect only
+# 4b) main.dart: national button turns on Ultra (matrix) for that connect only.
+# The old anchor "natLevel = natForce ? 2 : 0;" no longer exists in main.dart (the
+# national-button connect was rewritten by NATBTNPATCH), so the build stopped here.
+# Fix: read the button flag BEFORE natForce is cleared, and switch Ultra on AFTER the
+# plain-connect block (that block forces Ultra off for ordinary connects), so it is kept.
 patch('main.dart',
-      "      natLevel = natForce ? 2 : 0;",
-      "      ultraMode = natForce; // NATULTRA: Ultra/matrix only for the national button\n"
-      "      natLevel = natForce ? 2 : 0;")
+      "      natAll = natForce; // NATBTNPATCH: full search of ALL sources\n"
+      "      natForce = false;\n",
+      "      natAll = natForce; // NATBTNPATCH: full search of ALL sources\n"
+      "      final bool natBtnUltra = natForce; // NATULTRA: the national button turns Ultra on for this connect\n"
+      "      natForce = false;\n")
+
+patch('main.dart',
+      "      if (nationalMode || indestructibleMode) {\n"
+      "        autoCycle = true; // endless list cycling\n",
+      "      if (natBtnUltra) ultraMode = true; // NATULTRA: Ultra/matrix only for the national button\n"
+      "      if (nationalMode || indestructibleMode) {\n"
+      "        autoCycle = true; // endless list cycling\n")
 
 # 4c) main.dart: IP تمیز (clean IP) ON by default, once, for normal and national connect
 patch('main.dart',
