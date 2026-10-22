@@ -126,12 +126,11 @@ class _TgProxyPanelState extends State<_TgProxyPanel> {
   }
 
   Future<void> _open(String link) async {
+    // USER: مستقیم به تلگرام بفرست (canLaunchUrl روی اندروید ۱۱+ بدون <queries> false می‌دهد و قبلاً کپی می‌شد)
     try {
       final u = Uri.parse(link);
-      if (await canLaunchUrl(u)) {
-        await launchUrl(u, mode: LaunchMode.externalApplication);
-        return;
-      }
+      final ok = await launchUrl(u, mode: LaunchMode.externalApplication);
+      if (ok) return;
     } catch (e) { debugPrint("catch: $e"); }
     await _copy(link);
   }
