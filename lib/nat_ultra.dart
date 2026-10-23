@@ -1616,11 +1616,11 @@ Future<void> userListsSave(String text) async {
 // هر دور جستجوی نت ملی فقط یک تکه (مثلاً ۳۰۰۰ تا) پارس و تست می‌شود و ادامه‌ی دور
 // بعد از همان جای قبلی است. این پوشه فقط در حالت نت ملی استفاده می‌شود؛ خلبان هم
 // وقتی نت ملی تشخیص داده شود از همین مسیر (connect با نت ملی) از آن استفاده می‌کند.
-const int natHotPerSource = 30000;
+const int natHotPerSource = 200000; // GITHUB-ONLY: max configs per GitHub file
 const int natHotMin = 30000; // کمترین تعداد کانفیگ پوشه
-const int natHotMax = 300000;
+const int natHotMax = 1000000; // GITHUB-ONLY: max configs saved in the folder
 const Duration natHotTtl = Duration(hours: 48); // هر ۴۸ ساعت تازه می‌شود
-const Duration natHotFetchDeadline = Duration(seconds: 180);
+const Duration natHotFetchDeadline = Duration(seconds: 600); // GITHUB-ONLY: time for the bigger cap
 bool _hotBusy = false;
 List<String>? _hotLines; // خطوط «src\tlink» در حافظه (فقط یک بار خوانده می‌شود)
 int _hotCursor = 0;
@@ -1630,16 +1630,18 @@ String _hotPath() {
   try {
     final d = Directory(dir);
     if (!d.existsSync()) d.createSync(recursive: true);
-    return '$dir/hot_cache.txt';
+    return '$dir/hot_github_v2.txt';
   } catch (_) {
-    return '${Directory.systemTemp.path}/hot_cache.txt';
+    return '${Directory.systemTemp.path}/hot_github_v2.txt';
   }
 }
 
 // منبع‌های HOT: همان‌هایی که قبل از بخش «SoliSpirit» در فهرست اصلی هستند
+// FAST-ONLY: the folder holds only the fast-updating sources (the HOT part of
+// _paths, above the slow 'SoliSpirit/' section). Everything else is not stored.
 List<String> natHotUrls() {
   var end = _paths.indexWhere((p) => p.startsWith('SoliSpirit/'));
-  if (end < 0) end = min(80, _paths.length);
+  if (end < 0) end = _paths.length;
   return [for (final p in _paths.sublist(0, end)) '$_gh$p'];
 }
 
