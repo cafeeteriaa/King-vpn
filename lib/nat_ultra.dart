@@ -1638,7 +1638,16 @@ String _hotPath() {
 
 // منبع‌های HOT: همان‌هایی که قبل از بخش «SoliSpirit» در فهرست اصلی هستند
 // SAME-SOURCES: the folder uses exactly the same sources as the online list
-List<String> natHotUrls() => listUrls;
+// SRC70: the folder uses the same sources as the online list, but only those
+// with a success rate of 70% or more (new/unranked ones are allowed).
+// Epodonios is exempt from the rate gate and is written LAST in the folder.
+List<String> natHotUrls() => [for (final u in listUrls) if (_hotSrcOk(u)) u];
+
+bool _hotSrcOk(String u) {
+  if (u.contains('Epodonios/')) return true;
+  final r = srcRate[u];
+  return r == null || r >= 0.70;
+}
 
 // دریافت خام خطوط کانفیگ از منبع‌ها (بدون پارس، تا حافظه کم مصرف بماند)
 Future<Set<String>> natHotFetch(List<String> urls) async {
@@ -1695,7 +1704,10 @@ Future<void> natHotEnsure() async {
     _hotBusy = true;
     final fresh = await natHotFetch(natHotUrls());
     if (fresh.isNotEmpty) {
-      final list = fresh.toList()..shuffle();
+      // SRC70: Epodonios lines go to the end of the file (read last)
+      final epo = fresh.where((l) => l.split('\t').first.contains('Epodonios/')).toList()..shuffle();
+      final rest = fresh.where((l) => !l.split('\t').first.contains('Epodonios/')).toList()..shuffle();
+      final list = [...rest, ...epo];
       final take = list.length > natHotMax ? list.sublist(0, natHotMax) : list;
       if (take.length < natHotMin) {
         dbg('پوشه‌ی منابع تازه: ${take.length} کانفیگ (کمتر از $natHotMin)');
