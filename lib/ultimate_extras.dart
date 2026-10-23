@@ -207,7 +207,7 @@ extension UltimateExt on _HomePageState {
     b.writeln('quality: $q (${qualityLabel(q)})');
     b.writeln(
         'aiProvider: $aiProvider lastAi: $aiLastProvider session: $aiSession');
-    b.writeln('mux: $muxEnabled/$muxConc frag: $fragEnabled proxy: $proxyMode');
+    b.writeln('mux: $muxEnabled/$muxConc frag: $fragEnabled');
     b.writeln(
         'servers: total=$total good=${good.length} pending=${pending.length}');
     b.writeln('tests: $totalOk/$totalTested');
