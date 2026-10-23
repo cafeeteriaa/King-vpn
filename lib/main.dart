@@ -6987,9 +6987,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!nationalMode || abort) return;
       final ips = await natRangeScanStep(
           known: [...pending, ...natRestPending],
-          maxAddrs: 512,
+          maxAddrs: 100000, // هر دور تا ۱۰۰ هزار آدرس
           conc: 200,
-          stop: () => abort);
+          stop: () => abort,
+          budget: const Duration(minutes: 12));
       await _natRangeAdd(ips);
     } catch (e) {
       logError(e);
@@ -7025,9 +7026,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (nationalMode && !abort) {
         final ips = await natRangeScanStep(
             known: [...pending, ...natRestPending],
-            maxAddrs: 512,
+            maxAddrs: 100000, // هر دور تا ۱۰۰ هزار آدرس
             conc: 200,
-            stop: () => abort);
+            stop: () => abort,
+            budget: const Duration(minutes: 12));
         await _natRangeAdd(ips);
       }
       // CRITICAL for نت ملی: do NOT destroy existing configs.
