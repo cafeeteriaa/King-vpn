@@ -1547,7 +1547,10 @@ Future<List<String>> natRangeScanStep({
   bool Function()? stop,
 }) async {
   final blocks = natRanges.isNotEmpty ? natRanges : natAutoBlocks(known);
-  if (blocks.isEmpty) return const [];
+  if (blocks.isEmpty) {
+    dbg('اسکن IP: بازه‌ای برای اسکن نیست؛ یک بار اتصال عادی برای ساخت بازه لازم است، یا بازه‌ها را دستی وارد کن');
+    return const [];
+  }
   final addrs = <String>[];
   for (final r in blocks) {
     addrs.addAll(natExpandAny(r));
