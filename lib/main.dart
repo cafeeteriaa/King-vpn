@@ -66,63 +66,30 @@ const _gh = 'https://raw.githubusercontent.com/';
 // Only lists that are refreshed often. HOT ones come first and are tested
 // first; dead links are skipped automatically and ranked by health at runtime.
 final List<String> _paths = [
-  // ---- HOT: updated every few minutes / hours
-  for (var i = 1; i <= 10; i++)
-    'V2RAYCONFIGSPOOL/V2RAY_SUB/main/v2ray_configs_no$i.txt',
-  for (final p in ['mix', 'vless', 'vmess', 'shadowsocks', 'trojan'])
-    'iboxz/free-v2ray-collector/main/main/$p.txt',
-  'ebrasha/free-v2ray-public-list/main/V2Ray-Config-By-EbraSha.txt',
-  'MatinGhanbari/v2ray-configs/main/subscriptions/v2ray/all_sub.txt',
-  for (final p in ['vless', 'vmess', 'trojan'])
-    '0xRadikal/Free-v2ray-Configs/main/protocols/$p.txt',
-  for (final p in ['vless', 'vmess', 'trojan'])
-    'Idolvpn/Automate-V2ray-Config-Collector/main/configs/$p.txt',
-  'barry-far/V2ray-Config/main/All_Configs_Sub.txt',
+  // ---- ONLY sources with a documented update interval of 30 minutes or less ----
+  // barry-far: README says every 10-15 min
   for (var i = 1; i <= 8; i++) 'barry-far/V2ray-Config/main/Sub$i.txt',
   for (final p in ['vmess', 'vless'])
     'barry-far/V2ray-Config/main/Splitted-By-Protocol/$p.txt',
+  // Epodonios: description says every 5 min
   'Epodonios/v2ray-configs/refs/heads/main/All_Configs_Sub.txt',
   for (var i = 1; i <= 10; i++)
     'Epodonios/v2ray-configs/refs/heads/main/Sub$i.txt',
-  for (final p in ['mixed', 'vmess', 'vless', 'trojan', 'shadowsocks'])
-    'soroushmirzaei/telegram-configs-collector/main/splitted/$p',
-  for (final p in ['mix', 'vmess', 'vless', 'trojan', 'ss'])
-    'itsyebekhe/PSG/main/subscriptions/xray/normal/$p',
-  for (var i = 1; i <= 8; i++)
-    'AvenCores/goida-vpn-configs/main/githubmirror/$i.txt',
-  // ---- HOT 2026: verified frequent updaters (every 5–30 min / 4h)
+  // ebrasha: README says every 15 min
   'ebrasha/free-v2ray-public-list/refs/heads/main/V2Ray-Config-By-EbraSha-All-Type.txt',
+  'ebrasha/free-v2ray-public-list/refs/heads/main/V2Ray-Config-By-EbraSha.txt',
   'ebrasha/free-v2ray-public-list/refs/heads/main/all_extracted_configs.txt',
-  'MatinGhanbari/v2ray-configs/main/subscriptions/v2ray/super-sub.txt',
+  // 0xRadikal: release v2.0 says every 15 min
   '0xRadikal/Free-v2ray-Configs/main/top100.txt',
   '0xRadikal/Free-v2ray-Configs/main/verified/configs.txt',
   '0xRadikal/Free-v2ray-Configs/main/fast/configs.txt',
   '0xRadikal/Free-v2ray-Configs/main/all/configs.txt',
-  'Alirewa/V2ray-Configs/main/config.txt',
-  'Alirewa/V2ray-Configs/main/sub1.txt',
-  'Alirewa/V2ray-Configs/main/sub2.txt',
-  'Alirewa/V2ray-Configs/main/sub3.txt',
-  for (final p in ['vless', 'vmess', 'trojan', 'ss'])
-    'hamedcode/port-based-v2ray-configs/main/sub/$p.txt',
-  'hamedcode/port-based-v2ray-configs/main/sub/top100.txt',
-  'hamedcode/port-based-v2ray-configs/main/sub/port_443.txt',
-  'hamedcode/port-based-v2ray-configs/main/sub/port_80.txt',
-  'morpheusadam/v2ray-config/main/subs/bundles/best.txt',
-  'morpheusadam/v2ray-config/main/subs/bundles/iran.txt',
-  'morpheusadam/v2ray-config/main/subs/bundles/lite.txt',
-  'morpheusadam/v2ray-config/main/subs/bundles/reality.txt',
-  'lagzian/SS-Collector/main/configs/mixed/vless.txt',
-  'lagzian/SS-Collector/main/configs/mixed/trojan.txt',
-  'lagzian/SS-Collector/main/configs/mixed/ss.txt',
-  'lagzian/SS-Collector/main/configs/psg/reality.txt',
-  'lagzian/SS-Collector/main/configs/psg/vmess.txt',
-  // ---- ≤3h only (kept by request): 0xRadikal base64 (README: 15 min)
   '0xRadikal/Free-v2ray-Configs/main/verified-configs-base64.txt',
-  // FAST-GH 2026-10: M-Mashreghi collector, README says every 10 minutes
+  // M-Mashreghi: README says every 10 min
   for (var i = 1; i <= 14; i++)
     'M-Mashreghi/Free-V2ray-Collector/main/Files/shuffle/Sub${i}_shuffled.conf',
 ];
-final List<String> listUrls = [...([..._paths, ..._morePaths].map((p) => '$_gh$p').toList()), ..._extraUrls, ..._npvUrls];
+final List<String> listUrls = [...[for (final p in _paths) '$_gh$p'], ..._npvUrls]; // 30-MIN GitHub + national pilot lists
 // repos that publish fresh servers every few minutes / hours: tested first
 const hotOwners = {
   'V2RAYCONFIGSPOOL',
@@ -10805,63 +10772,7 @@ class UiHero extends StatelessWidget {
 }
 
 
-final List<String> _morePaths = [
-  'MatinGhanbari/v2ray-configs/main/subscriptions/v2ray/super-sub.txt',
-  for (var i = 1; i <= 4; i++)
-    'MatinGhanbari/v2ray-configs/main/subscriptions/v2ray/subs/sub$i.txt',
-  'Epodonios/v2ray-configs/main/Splitted-By-Protocol/vless.txt',
-  'Epodonios/v2ray-configs/main/Splitted-By-Protocol/vmess.txt',
-  'ebrasha/free-v2ray-public-list/refs/heads/main/ss_configs.txt',
-  // NEW sources (dead links are skipped automatically)
-  for (final p in ['trojan', 'ss'])
-    'barry-far/V2ray-Config/main/Splitted-By-Protocol/$p.txt',
-  for (final p in ['trojan', 'ss'])
-    'Epodonios/v2ray-configs/main/Splitted-By-Protocol/$p.txt',
-  for (final p in ['vless', 'vmess', 'trojan'])
-    'ebrasha/free-v2ray-public-list/main/${p}_configs.txt',
-  'mahdibland/V2RayAggregator/master/sub/sub_merge_base64.txt',
-  'mahdibland/V2RayAggregator/master/Eternity.txt',
-  'Pawdroid/Free-servers/main/sub',
-  'ermaozi/get_subscribe/main/subscribe/v2ray.txt',
-  'aiboboxx/v2rayfree/main/v2',
-  'freefq/free/master/v2',
-  'mfuu/v2ray/master/v2ray',
-  'ripaojiedian/freenode/main/sub',
-  'vpei/Free-Node-Merge/main/o/node.txt',
-  'w1770946466/Auto_proxy/main/Long_term_subscription_num',
-  'liketolivefree/kobabi/main/sub.txt',
-  'Everyday-VPN/Everyday-VPN/main/subscription/main.txt',
-  'free18/v2ray/main/v2ray.txt',
-  'tbbatbb/Proxy/master/dist/v2ray.config.txt',
-  'ts-sf/fly/main/v2',
-  'Jsnzkpg/Jsnzkpg/Jsnzkpg/Jsnzkpg',
-  'HosseinKoofi/GO_V2rayCollector/main/mixed_iran.txt',
-  'ALIILAPRO/v2rayNG-Config/main/server.txt',
-  'soroushmirzaei/telegram-configs-collector/main/protocols/vless',
-  'soroushmirzaei/telegram-configs-collector/main/protocols/vmess',
-  'soroushmirzaei/telegram-configs-collector/main/protocols/trojan',
-  // Iran-exit / intranet servers (used first in national-network mode)
-  'mmbateni/iran-intranet-access/main/outputs/ir_exit_configs.txt',
-  'mmbateni/iran-intranet-access/main/outputs/ir_reality_configs.txt',
-  'mmbateni/iran-intranet-access/main/outputs/ir_mobile_exit_configs.txt',
-  'mmbateni/iran-intranet-access/main/outputs/armenian_bridge_configs.txt',
-  'mmbateni/iran-intranet-access/main/outputs/passing_intranet_configs.txt',
-  // ---- NEW 2026 sources (fresh + Iran-oriented) ----
-  'Alirewa/V2ray-Configs/main/config.txt',
-  'Alirewa/V2ray-Configs/main/sub1.txt',
-  'Alirewa/V2ray-Configs/main/sub2.txt',
-  '0xRadikal/Free-v2ray-Configs/main/top100.txt',
-  '0xRadikal/Free-v2ray-Configs/main/verified/configs.txt',
-  '0xRadikal/Free-v2ray-Configs/main/fast/configs.txt',
-  // ایران / ایرانسل‌محور (برای فیلتر و نت ملی بهتر از لیست عمومی خام)
-  'ZendanTeam/SS44-sub/main/SS44-gold.txt',
-  'ZendanTeam/SS44-sub/main/SS44.txt',
-  'miladtahanian/Config-Collector/main/mixed_iran.txt',
-  'morpheusadam/v2ray-config/main/subs/bundles/iran.txt',
-  'morpheusadam/v2ray-config/main/subs/bundles/best.txt',
-  'Delta-Kronecker/V2ray-Config/main/config/protocols/trojan.txt',
-  'Delta-Kronecker/V2ray-Config/main/config/protocols/ss.txt',
-];
+final List<String> _morePaths = [];
 
 final List<String> _extraUrls = [
   // Telegram public channels (web preview page)
