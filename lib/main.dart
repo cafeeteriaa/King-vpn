@@ -62,6 +62,8 @@ Duration failWindow = const Duration(minutes: 25);
 // a healthy server is only deleted after this many failed re-checks in a row
 int missLimit = 3;
 
+// SRC70: top-level so nat_ultra.dart (top-level functions) can read source rates
+final Map<String, double> srcRate = {};
 const _gh = 'https://raw.githubusercontent.com/';
 // Only lists that are refreshed often. HOT ones come first and are tested
 // first; dead links are skipped automatically and ranked by health at runtime.
@@ -3347,7 +3349,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool sortSpeed = true;
   String? selCountry;
   // source (list) health: rate 0..1, last check, real-test counters
-  final Map<String, double> srcRate = {};
   final Map<String, int> srcAt = {};
   final Map<String, int> srcTested = {}, srcOkN = {};
   final Set<String> srcReal = {};
