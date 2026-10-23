@@ -10305,7 +10305,7 @@ UiHero(
                       if (!await confirmHeavyFeature(context, 'جستجوی سرور با نت ملی')) return;
                       await pickEngineThenStart(() async {
                         natForce = true;
-                        await connect();
+                        startLocalPilot(national: true);
                       });
                     },
               icon: const Icon(Icons.public_off),
