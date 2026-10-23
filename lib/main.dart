@@ -1746,6 +1746,67 @@ const countryFa = {
   'LB': 'لبنان', 'SY': 'سوریه', 'AF': 'افغانستان', 'UZ': 'ازبکستان',
   'TM': 'ترکمنستان', 'KG': 'قرقیزستان', 'TJ': 'تاجیکستان',
   'MN': 'مغولستان',
+  // کشورهای تکمیلی
+  'ME': 'مونته‌نگرو',
+  'XK': 'کوزوو',
+  'AD': 'آندورا',
+  'MC': 'موناکو',
+  'LI': 'لیختن‌اشتاین',
+  'SM': 'سان‌مارینو',
+  'FO': 'جزایر فارو',
+  'GL': 'گرینلند',
+  'BT': 'بوتان',
+  'MV': 'مالدیو',
+  'TL': 'تیمور شرقی',
+  'PG': 'پاپوآ گینه نو',
+  'YE': 'یمن',
+  'PS': 'فلسطین',
+  'KP': 'کره شمالی',
+  'FJ': 'فیجی',
+  'GT': 'گواتمالا',
+  'HN': 'هندوراس',
+  'SV': 'السالوادور',
+  'NI': 'نیکاراگوئه',
+  'BO': 'بولیوی',
+  'PY': 'پاراگوئه',
+  'CU': 'کوبا',
+  'HT': 'هائیتی',
+  'BS': 'باهاما',
+  'BB': 'باربادوس',
+  'GY': 'گویان',
+  'SR': 'سورینام',
+  'BZ': 'بلیز',
+  'SN': 'سنگال',
+  'CM': 'کامرون',
+  'CI': 'ساحل عاج',
+  'SD': 'سودان',
+  'SS': 'سودان جنوبی',
+  'SO': 'سومالی',
+  'DJ': 'جیبوتی',
+  'ER': 'اریتره',
+  'ML': 'مالی',
+  'BF': 'بورکینافاسو',
+  'NE': 'نیجر',
+  'TD': 'چاد',
+  'GN': 'گینه',
+  'SL': 'سیرالئون',
+  'LR': 'لیبریا',
+  'TG': 'توگو',
+  'BJ': 'بنین',
+  'ZM': 'زامبیا',
+  'ZW': 'زیمبابوه',
+  'MZ': 'موزامبیک',
+  'AO': 'آنگولا',
+  'NA': 'نامیبیا',
+  'BW': 'بوتسوانا',
+  'RW': 'رواندا',
+  'MG': 'ماداگاسکار',
+  'MU': 'موریس',
+  'MW': 'مالاوی',
+  'GA': 'گابن',
+  'CG': 'کنگو',
+  'CD': 'کنگوی دموکراتیک',
+  'GQ': 'گینه‌ی استوایی',
 };
 
 // Longer / more specific phrases preferred by length when matching
@@ -1784,6 +1845,79 @@ const countryWords = {
   'فرانسه': 'FR', 'کانادا': 'CA', 'ژاپن': 'JP', 'ترکیه': 'TR', 'سنگاپور': 'SG',
   'روسیه': 'RU', 'اوکراین': 'UA', 'هند': 'IN', 'امارات': 'AE', 'ایران': 'IR',
   'چین': 'CN', 'کره': 'KR', 'استرالیا': 'AU', 'برزیل': 'BR', 'فنلاند': 'FI',
+  // نام‌های تکمیلی
+  'montenegro': 'ME',
+  'kosovo': 'XK',
+  'andorra': 'AD',
+  'monaco': 'MC',
+  'liechtenstein': 'LI',
+  'san marino': 'SM',
+  'faroe': 'FO',
+  'greenland': 'GL',
+  'bhutan': 'BT',
+  'maldives': 'MV',
+  'timor': 'TL',
+  'papua': 'PG',
+  'yemen': 'YE',
+  'palestine': 'PS',
+  'north korea': 'KP',
+  'fiji': 'FJ',
+  'guatemala': 'GT',
+  'honduras': 'HN',
+  'el salvador': 'SV',
+  'nicaragua': 'NI',
+  'bolivia': 'BO',
+  'paraguay': 'PY',
+  'cuba': 'CU',
+  'haiti': 'HT',
+  'bahamas': 'BS',
+  'barbados': 'BB',
+  'guyana': 'GY',
+  'suriname': 'SR',
+  'belize': 'BZ',
+  'senegal': 'SN',
+  'cameroon': 'CM',
+  'ivory coast': 'CI',
+  'south sudan': 'SS',
+  'sudan': 'SD',
+  'somalia': 'SO',
+  'djibouti': 'DJ',
+  'eritrea': 'ER',
+  'burkina': 'BF',
+  'sierra leone': 'SL',
+  'liberia': 'LR',
+  'togo': 'TG',
+  'benin': 'BJ',
+  'zambia': 'ZM',
+  'zimbabwe': 'ZW',
+  'mozambique': 'MZ',
+  'angola': 'AO',
+  'namibia': 'NA',
+  'botswana': 'BW',
+  'rwanda': 'RW',
+  'madagascar': 'MG',
+  'mauritius': 'MU',
+  'malawi': 'MW',
+  'gabon': 'GA',
+  'democratic republic of congo': 'CD',
+  'equatorial guinea': 'GQ',
+  'مونته‌نگرو': 'ME',
+  'کوزوو': 'XK',
+  'بوتان': 'BT',
+  'مالدیو': 'MV',
+  'یمن': 'YE',
+  'فلسطین': 'PS',
+  'کره شمالی': 'KP',
+  'فیجی': 'FJ',
+  'کوبا': 'CU',
+  'سنگال': 'SN',
+  'کامرون': 'CM',
+  'سودان': 'SD',
+  'زامبیا': 'ZM',
+  'زیمبابوه': 'ZW',
+  'موزامبیک': 'MZ',
+  'آنگولا': 'AO',
+  'موناکو': 'MC',
 };
 
 String flagOf(String c) {
@@ -6203,11 +6337,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _profilesSheet() async {
     if (!mounted) return;
-    Widget tile(IconData i, String t, String sub, VoidCallback f) => ListTile(
+    Widget tile(IconData i, String t, String sub, VoidCallback f,
+            {bool heavy = false}) =>
+        ListTile(
           leading: Icon(i),
           title: Text(t),
           subtitle: Text(sub),
-          onTap: () {
+          onTap: () async {
+            if (heavy && !await confirmHeavyFeature(context, t)) return;
+            if (!mounted) return;
             Navigator.pop(context);
             f();
           },
@@ -6223,12 +6361,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 () => _applyProfile('fast')),
             tile(Icons.speed, 'توربو حداکثر سرعت',
                 'همه اهرم‌های سرعت با هم: Mux ۱۶، بدون Fragment، تست سرعت قبل از وصل',
-                () => _applyProfile('turbo')),
+                () => _applyProfile('turbo'), heavy: true),
             tile(Icons.network_check, 'اینترنت ضعیف / نت ملی',
-                'صبر بیشتر، تعویض کمتر', () => _applyProfile('weak')),
+                'صبر بیشتر، تعویض کمتر', () => _applyProfile('weak'), heavy: true),
             tile(Icons.auto_awesome, 'سرور AI (Gemini/Grok)',
                 'سرورهایی که API هوش مصنوعی را باز می‌کنند',
-                () => connectRow('r:ai')),
+                () => connectRow('r:ai'), heavy: true),
           ]),
         ),
       ),
@@ -6528,7 +6666,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               leading: const Icon(Icons.public_off),
               title: const Text('اتصال با سرورهای پوشه (نت ملی)'),
               enabled: !busy && !connected && _resMap.isNotEmpty,
-              onTap: () {
+              onTap: () async {
+                if (!await confirmHeavyFeature(
+                    context, 'اتصال با سرورهای پوشه (نت ملی)')) {
+                  return;
+                }
+                if (!mounted) return;
                 Navigator.pop(ctx);
                 natForce = true;
                 _resNext = true;
@@ -6539,7 +6682,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               leading: const Icon(Icons.public),
               title: const Text('جستجو در پوشه با نت جهانی'),
               enabled: !busy && !connected && _resMap.isNotEmpty,
-              onTap: () {
+              onTap: () async {
+                if (!await confirmHeavyFeature(
+                    context, 'جستجو در پوشه با نت جهانی')) {
+                  return;
+                }
+                if (!mounted) return;
                 Navigator.pop(ctx);
                 _resNext = true;
                 unawaited(connect().catchError((e) => logError(e)));
