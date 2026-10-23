@@ -339,8 +339,8 @@ patch('main.dart',
 
 # 4e) main.dart: DISCONNECTFIX — a connect still in flight must not reconnect after Disconnect
 patch('main.dart',
-      "    wantVpn = false;\n    pendingFailover = false;",
-      "    wantVpn = false;\n    _connGen++; // DISCONNECTFIX: cancel any connect still in flight\n    pendingFailover = false;")
+      "    abort = true; // جستجوی در جریان را هم قطع کن\n    wantVpn = false;\n    pendingFailover = false;",
+      "    abort = true; // جستجوی در جریان را هم قطع کن\n    wantVpn = false;\n    _connGen++; // DISCONNECTFIX: cancel any connect still in flight\n    pendingFailover = false;")
 
 # 4f) main.dart: IDMDEFAULT — حالت شکست‌ناپذیر همیشه روشن (یک بار، کاربر می‌تواند خاموشش کند)
 patch('main.dart',
@@ -865,8 +865,8 @@ patch('nat_ultra.dart',
       "    _hotFailAt = fresh.isEmpty ? DateTime.now() : null; // HOTRETRY\n")
 
 patch('nat_ultra.dart',
-      "    await natHotEnsure();",
-      "    unawaited(natHotEnsure()); // HOTBG: background, the connect must not wait for the download")
+      "    if (fetch) await natHotEnsure();",
+      "    if (fetch) unawaited(natHotEnsure()); // HOTBG: background, the connect must not wait for the download")
 
 patch('main.dart',
       "            const Divider(height: 1),\n"
