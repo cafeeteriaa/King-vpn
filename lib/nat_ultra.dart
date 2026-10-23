@@ -1617,7 +1617,7 @@ Future<void> userListsSave(String text) async {
 // بعد از همان جای قبلی است. این پوشه فقط در حالت نت ملی استفاده می‌شود؛ خلبان هم
 // وقتی نت ملی تشخیص داده شود از همین مسیر (connect با نت ملی) از آن استفاده می‌کند.
 const int natHotPerSource = 200000; // GITHUB-ONLY: max configs per GitHub file
-const int natHotMin = 30000; // کمترین تعداد کانفیگ پوشه
+const int natHotMin = 20000; // کمترین تعداد کانفیگ پوشه
 const int natHotMax = 1000000; // GITHUB-ONLY: max configs saved in the folder
 const Duration natHotTtl = Duration(hours: 48); // هر ۴۸ ساعت تازه می‌شود
 const Duration natHotFetchDeadline = Duration(seconds: 600); // GITHUB-ONLY: time for the bigger cap
