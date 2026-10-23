@@ -245,9 +245,9 @@ bool autoCycle = true; // BEST: لیست تمام شد → لیست تازه و 
 // default OFF so normal search only tests the plain config (much faster).
 // Turn on from Settings → «حالت فوق‌العاده» when a hard network needs variants.
 bool ultraMode = false;
-// INDESTRUCTIBLE: endless search — default OFF to save data; national mode
-// and AI pilot can still turn it on when needed.
-bool indestructibleMode = false;
+// INDESTRUCTIBLE: endless search — default ON (national search never stops).
+// Saved under key 'idm2' so older saved 'off' values do not override this.
+bool indestructibleMode = true;
 // TURBO: after a working tunnel is up, try the same server without Fragment/
 // Noise (the biggest speed killers) and with Mux, then keep it if traffic
 // still flows. Ping does not matter — throughput does.
@@ -4018,7 +4018,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           smartOrder = j['so'] as bool? ?? smartOrder;
           autoCycle = j['ac'] as bool? ?? autoCycle;
           ultraMode = false; // plain-only: ignore old saved Ultra flag
-          indestructibleMode = j['idm'] as bool? ?? indestructibleMode;
+          indestructibleMode = j['idm2'] as bool? ?? true;
           // توربو سرعت بعد از اتصال: پیش‌فرض و ترجیح همیشه روشن
           turboSpeed = j['tb'] as bool? ?? true;
           if (j['tb'] == false) {
@@ -4299,7 +4299,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             'so': smartOrder,
             'ac': autoCycle,
             'um': ultraMode,
-            'idm': indestructibleMode,
+            'idm2': indestructibleMode,
             'tb': turboSpeed,
             'lr': listRefreshMin,
             'fm': failMin,
@@ -6704,6 +6704,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       } else if (home) {
         nationalMode = true;
       }
+      // نت ملی: جستجوی بی‌نهایت همیشه روشن است
+      if (nationalMode) indestructibleMode = true;
       if (nationalMode != was && mounted) {
         _set(nationalMode
             ? 'حالت شبکه ملی: اینترنت بین‌الملل قطع است؛ سرورهای ایران و سرورهای ذخیره‌شده اول تست می‌شوند'
@@ -7144,7 +7146,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           continue;
         }
       }
-      if (!speedDone && list.length > 1 && autoSpeed) {
+      if (!speedDone && list.length > 1 && autoSpeed &&
+          !(nationalMode || indestructibleMode)) {
         speedDone = true;
         await _speedTest(speedTopN, from: list);
         if (abort) return false; // ABORT-STUCK: speed test was cut
@@ -7358,6 +7361,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       } finally {
         _unlockLater();
       }
+    });
+  }
+
+  // لغو فوری: جستجو یا اتصال در جریان همین لحظه متوقف می‌شود
+  void _cancelNow() {
+    abort = true;
+    wantVpn = false;
+    pendingFailover = false;
+    aiSession = false;
+    _set('در حال لغو...');
+    // stopping the core makes every in-flight test fail at once, so the
+    // running work ends in a moment instead of waiting for each timeout
+    unawaited(_stopV2().catchError((e) => logError(e)));
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted && !busy && !searching) _set('لغو شد');
     });
   }
 
@@ -9237,7 +9255,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       s.speed = sp;
       s.remember(sp);
       s.speedAt = DateTime.now();
-      if (sp == 0) s.badAt = DateTime.now();
+      // under national cut the speed target is unreachable: do not mark servers dead
+      if (sp == 0 && !nationalMode && !indestructibleMode) {
+        s.badAt = DateTime.now();
+      }
       await _stopV2();
       await Future.delayed(const Duration(milliseconds: 300));
       if (mounted) setState(() {});
@@ -10015,11 +10036,13 @@ UiHero(
             speed: (connected && current != null && (current!.speed ?? 0) > 0)
                 ? current!.speed!.toStringAsFixed(1)
                 : '-',
-            onTap: (connected || wantVpn || lastState == 'CONNECTED')
+            // busy while not connected = connecting/searching: cancel at once
+            // (wantVpn is already true during a connect, so this must come first)
+            onTap: (busy && !connected)
+                    ? () => _cancelNow()
+                    : (connected || wantVpn || lastState == 'CONNECTED')
                     ? () => disconnect()
-                    : busy
-                        ? () => abort = true
-                        : () async {
+                    : () async {
                           aiSession = false;
                           await pickEngineThenStart(() => connect());
                         },
