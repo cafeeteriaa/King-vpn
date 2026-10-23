@@ -4449,6 +4449,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       round++;
     }
+    // SRC70: Epodonios goes after everything else (tested only when the others are done)
+    final lastOnes = out.where(_isLastSrc).toList();
+    out.removeWhere(_isLastSrc);
+    out.addAll(lastOnes);
     return out;
   }
 
@@ -8793,13 +8797,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return srcRate[u] ?? 0.3;
   }
 
+  // SRC70: only sources with a success rate of 70% or more are tested.
+  // Epodonios is the exception: it is tested LAST (see _isLastSrc), after all others.
   bool _srcOk(Server s) {
     final u = s.src;
     if (nationalMode && (natAll || _natSrc(s))) return true; // NATIONALPATCH
     if (u == null || !onlyHealthySrc) return true;
+    if (_isLastSrc(s)) return true;
     final r = srcRate[u];
-    return r == null || r >= 0.25 || topSrc.contains(u);
+    return r == null || r >= 0.70;
   }
+
+  // SRC70: Epodonios is always tested after every other source
+  bool _isLastSrc(Server s) => (s.src ?? '').contains('Epodonios/');
 
   // 5 = saved healthy, 4 = pinned, 3 = verified/fast sources, 2 = hot, 1 = rest
   int _tier(Server s) {
@@ -8812,6 +8822,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   int _cmpPending(Server a, Server b) {
+    final lastX = (_isLastSrc(a) ? 1 : 0) - (_isLastSrc(b) ? 1 : 0); // SRC70: Epodonios last
+    if (lastX != 0) return lastX;
     if (nationalMode) {
       final nx = _natRank(b) - _natRank(a); // NATIONALPATCH
       if (nx != 0) return nx;
