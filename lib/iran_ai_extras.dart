@@ -274,10 +274,8 @@ Future<String?> _geminiTry(String route, String prompt) async {
 }
 
 Future<String> geminiAsk(String prompt) async {
-  // حالت پروکسی: اول پورت محلی؛ حالت VPN: اول تونل، بعد پورت محلی
-  final routes = proxyMode
-      ? <String>['PROXY 127.0.0.1:$httpProxyPort', 'DIRECT']
-      : <String>['DIRECT', 'PROXY 127.0.0.1:$httpProxyPort'];
+  // اول تونل، بعد پورت محلی
+  final routes = <String>['DIRECT', 'PROXY 127.0.0.1:\$httpProxyPort'];
   var blocked = false;
   Object? lastErr;
   for (final r in routes) {
@@ -346,9 +344,7 @@ Future<String?> _grokTry(String route, String prompt) async {
 }
 
 Future<String> grokAsk(String prompt) async {
-  final routes = proxyMode
-      ? <String>['PROXY 127.0.0.1:$httpProxyPort', 'DIRECT']
-      : <String>['DIRECT', 'PROXY 127.0.0.1:$httpProxyPort'];
+  final routes = <String>['DIRECT', 'PROXY 127.0.0.1:\$httpProxyPort'];
   Object? lastErr;
   for (final r in routes) {
     try {
@@ -432,9 +428,7 @@ Future<String> _openAiCompatAsk({
   required String label,
   Map<String, String>? extraHeaders,
 }) async {
-  final routes = proxyMode
-      ? <String>['PROXY 127.0.0.1:$httpProxyPort', 'DIRECT']
-      : <String>['DIRECT', 'PROXY 127.0.0.1:$httpProxyPort'];
+  final routes = <String>['DIRECT', 'PROXY 127.0.0.1:\$httpProxyPort'];
   Object? lastErr;
   for (final r in routes) {
     try {
@@ -528,9 +522,7 @@ Future<String?> _claudeTry(String route, String prompt) async {
 }
 
 Future<String> claudeAsk(String prompt) async {
-  final routes = proxyMode
-      ? <String>['PROXY 127.0.0.1:$httpProxyPort', 'DIRECT']
-      : <String>['DIRECT', 'PROXY 127.0.0.1:$httpProxyPort'];
+  final routes = <String>['DIRECT', 'PROXY 127.0.0.1:\$httpProxyPort'];
   Object? lastErr;
   for (final r in routes) {
     try {
@@ -2433,7 +2425,6 @@ extension HomeExtras on _HomePageState {
     if (p > _localPeakPower) _localPeakPower = p;
 
     // --- سوییچ‌های حیاتی (همیشه اتوماتیک) ---
-    proxyMode = false;
     turboSpeed = true;
     muxEnabled = true;
     autoSpeed = true;
@@ -2829,7 +2820,6 @@ extension NumHomeExtras on _HomePageState {
   // برگرداندن کامل: همه‌ی عددها + همه‌ی کلیدهای روشن/خاموش به مقدار اولیه‌ی برنامه
   void resetAllToDefaults() {
     resetNumbers();
-    proxyMode = false;
     onlyHealthySrc = true;
     ipMode = false;
     ultraMode = false;
