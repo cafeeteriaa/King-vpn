@@ -1637,13 +1637,8 @@ String _hotPath() {
 }
 
 // منبع‌های HOT: همان‌هایی که قبل از بخش «SoliSpirit» در فهرست اصلی هستند
-// FAST-ONLY: the folder holds only the fast-updating sources (the HOT part of
-// _paths, above the slow 'SoliSpirit/' section). Everything else is not stored.
-List<String> natHotUrls() {
-  var end = _paths.indexWhere((p) => p.startsWith('SoliSpirit/'));
-  if (end < 0) end = _paths.length;
-  return [for (final p in _paths.sublist(0, end)) '$_gh$p'];
-}
+// SAME-SOURCES: the folder uses exactly the same sources as the online list
+List<String> natHotUrls() => listUrls;
 
 // دریافت خام خطوط کانفیگ از منبع‌ها (بدون پارس، تا حافظه کم مصرف بماند)
 Future<Set<String>> natHotFetch(List<String> urls) async {
