@@ -1964,7 +1964,7 @@ void dbgCoreLogcat(String name) {
 
 // Experiment switch: the own VLESS+REALITY config made the app crash natively
 // on connect ("King VPN متوقف شد"). Keep false until that is solved.
-const bool useOwnVlessCfg = true;
+const bool useOwnVlessCfg = false; // OWNCFG OFF: run the server configs as they are
 
 // Own VLESS+REALITY config builder: same shape as the config v2rayNG builds
 // from the same link (which is known to work). Returns null for any link that
@@ -2401,6 +2401,49 @@ Future<double?> measure(
 
 String lastPingErr = '';
 
+// TGDOMAIN: Telegram by domain only (no IP). Any one of its sites opening
+// through the core counts as Telegram working.
+Future<bool> _tgAnyOpens() async {
+  try {
+    final r = await Future.wait([
+      _siteOpens('https://web.telegram.org/', viaCore: true),
+      _siteOpens('https://t.me/', viaCore: true),
+      _siteOpens('https://telegram.org/', viaCore: true),
+      _siteOpens('https://api.telegram.org/', viaCore: true),
+    ]);
+    return r.any((x) => x);
+  } catch (_) {
+    return false;
+  }
+}
+
+// NETCHECK (strict): 5 filtered sites (Telegram, YouTube, Instagram, Pornhub,
+// WhatsApp) are opened through the core's local proxy. ALL 5 must answer.
+Future<bool> _netOpens() async {
+  try {
+    if (!await _coreProxyOpen()) return true; // cannot test here: keep result
+    // filtered sites only: a real VPN must open these through the tunnel
+    final r = await Future.wait([
+      _tgAnyOpens(), // Telegram counts as one item: any of its domains
+      _siteOpens('https://www.youtube.com/generate_204', viaCore: true),
+      _siteOpens('https://www.instagram.com/', viaCore: true),
+      _siteOpens('https://www.pornhub.com/', viaCore: true),
+      _siteOpens('https://web.whatsapp.com/', viaCore: true),
+    ]);
+    // show every item, so it is clear which site failed
+    const names = ['Telegram', 'YouTube', 'Instagram', 'Pornhub', 'WhatsApp'];
+    final parts = <String>[];
+    for (var i = 0; i < r.length; i++) {
+      parts.add('${names[i]}=${r[i] ? "✓" : "✗"}');
+    }
+    final allOk = r.every((x) => x); // all 5 must open
+    dbg('تست سخت اینترنت: ${parts.join(' ')} → ${allOk ? 'قبول' : 'رد'}');
+    return allOk;
+  } catch (_) {
+    return false;
+  }
+}
+
 // SPEEDSWITCHPATCH: does a real site answer through the tunnel?
 // (only the headers are read, then the connection is closed)
 Future<bool> _siteOpens(String url, {bool viaCore = true}) async {
@@ -2485,16 +2528,14 @@ Future<bool?> tunUp() async {
     return l.any((i) {
       final n = i.name.toLowerCase();
       // Broad OEM coverage: tun/ppp/vpn + Xiaomi/Huawei/Samsung/OPPO/Vivo quirks
+      // VPNFIX: rmnet/ccmni/seth are the normal MOBILE DATA interfaces. They
+      // exist even with no VPN, so counting them made "tunnel up" always true.
       return n.startsWith('tun') ||
           n.startsWith('ppp') ||
           n.startsWith('vpn') ||
           n.startsWith('ipsec') ||
           n.startsWith('tap') ||
           n.startsWith('utun') ||
-          n.startsWith('ccmni') ||
-          n.startsWith('rmnet') ||
-          n.startsWith('seth') ||
-          n.startsWith('v4-rmnet') ||
           n.contains('tun') ||
           n.contains('ppp') ||
           n.contains('vpn') ||
@@ -3477,11 +3518,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _tgChkAt = now;
       _tgChkBusy = true;
       (() async {
-        final tg = await Future.wait([
-          _siteOpens('https://web.telegram.org/'),
-          _siteOpens('https://telegram.org/'),
-        ]);
-        if (tg.any((x) => x)) return true;
+        if (await _netOpens()) return true;
         // Telegram did not open: is the internet itself fine?
         final other = await Future.wait([
           _siteOpens('https://www.youtube.com/generate_204'),
@@ -5470,6 +5507,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
       }
       if (!ready) dbgXrayErr(s.name);
+      // TUNCHECK: CONNECTED but no tun interface = the VPN key will not show.
+      // Try the next config variant instead of keeping this one.
+      if (ready && t == false && ci < cfgTries.length - 1) {
+        dbg('تونل ساخته نشد با این کانفیگ: ${s.name} • کانفیگ بعدی امتحان می‌شود');
+        continue;
+      }
       // the core reported CONNECTED with this config: no fallback needed
       if (ready) break;
       }
@@ -5766,7 +5809,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         return null;
       }
       // فقط تلگرام (طبق خواسته‌ی کاربر): اینستاگرام/یوتیوب چک نمی‌شوند
-      final tgOk = await _siteOpens('https://telegram.org/', viaCore: true);
+      final tgOk = await _netOpens();
       await _stopCore();
       await Future.delayed(const Duration(milliseconds: 300));
       dbg('تست بی‌صدا ${s.name}: telegram=$tgOk');
@@ -5946,9 +5989,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               final checks = await Future.wait([
                 _siteOpens('https://telegram.org/', viaCore: true),
                 _siteOpens('https://web.telegram.org/', viaCore: true),
-              ]).timeout(const Duration(seconds: 8),
-                  onTimeout: () => <bool>[false, false]);
-              return [checks[0], checks[1], false, false, false, false, false, false];
+                _netOpens(),
+              ]).timeout(const Duration(seconds: 30),
+                  onTimeout: () => <bool>[false, false, false]);
+              final tgReal = checks[2]; // strict internet check; Telegram optional
+              return [tgReal, tgReal, false, false, false, false, false, false];
             } catch (e) {
               logError(e);
               return List<bool>.filled(8, false);
