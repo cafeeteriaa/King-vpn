@@ -207,9 +207,24 @@ final List<String> _npvUrls = [
   // frequent updaters (good for npv:// / percent-encoded / messy lines)
   'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/verified/configs.txt',
   'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/configs.txt',
+  'https://raw.githubusercontent.com/Alirewa/V2ray-Configs/main/config.txt',
   'https://raw.githubusercontent.com/MatinGhanbari/v2ray-configs/main/subscriptions/v2ray/all_sub.txt',
   'https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/All_Configs_Sub.txt',
   'https://raw.githubusercontent.com/barry-far/V2ray-Config/main/All_Configs_Sub.txt',
+  'https://raw.githubusercontent.com/hamedcode/port-based-v2ray-configs/main/sub/vless.txt',
+  'https://raw.githubusercontent.com/hamedcode/port-based-v2ray-configs/main/sub/vmess.txt',
+  'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/iran.txt',
+  'https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/best.txt',
+  'https://raw.githubusercontent.com/HosseinKoofi/GO_V2rayCollector/main/mixed_iran.txt',
+  'https://raw.githubusercontent.com/youfoundamin/V2rayCollector/main/mixed_iran.txt',
+  'https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/protocols/vless',
+  'https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/protocols/vmess',
+  // verified live 2026-10-16
+  'https://raw.githubusercontent.com/3inker/v2ray-subscription/main/subs/all_not_ru.txt',
+  'https://raw.githubusercontent.com/3inker/v2ray-subscription/main/subs/all_ru.txt',
+  'https://raw.githubusercontent.com/free-nodes/v2rayfree/main/sub',
+  'https://raw.githubusercontent.com/ermaozi/get_subscribe/main/subscribe/v2ray.txt',
+  'https://raw.githubusercontent.com/Au1rxx/free-vpn-subscriptions/main/output/v2ray-base64.txt',
 ];
 
 // =========================== 1) پارسر سازگار با NPV ===========================
