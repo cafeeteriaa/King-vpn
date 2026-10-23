@@ -2777,14 +2777,47 @@ extension NumHomeExtras on _HomePageState {
     _set('✅ همه‌ی عددها و تنظیمات سرعت به پیش‌فرض BEST برگشتند');
   }
 
+  // برگرداندن کامل: همه‌ی عددها + همه‌ی کلیدهای روشن/خاموش به مقدار اولیه‌ی برنامه
+  void resetAllToDefaults() {
+    resetNumbers();
+    autoTune = false;
+    proxyMode = false;
+    onlyHealthySrc = true;
+    ipMode = false;
+    ultraMode = false;
+    indestructibleMode = true;
+    turboSpeed = true;
+    fastDelay = true;
+    iranRoute = true;
+    iranGeoip = false;
+    iranMore = true;
+    blockQuic = true;
+    lanDirect = true;
+    routeOnly = false;
+    fragEnabled = false;
+    muxEnabled = true;
+    secureDns = true;
+    cleanIpMode = true;
+    npvParse = true;
+    offlineOnly = false;
+    dataSaver = false;
+    autoNetReconnect = true;
+    preflightOn = true;
+    saveNumPrefs();
+    unawaited(_saveSettings());
+    unawaited(ultimateSave());
+    unawaited(autoTuneSave());
+    _set('✅ همه‌ی تنظیمات به پیش‌فرض برگشتند');
+  }
+
   Widget resetNumButton(StateSetter setS) => Padding(
         padding: const EdgeInsets.only(bottom: 6),
         child: SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
-            onPressed: () => setS(resetNumbers),
+            onPressed: () => setS(resetAllToDefaults),
             icon: const Icon(Icons.restart_alt),
-            label: const Text('↩️ برگرداندن همه‌ی عددها به پیش‌فرض'),
+            label: const Text('↩️ برگرداندن همه‌ی تنظیمات به پیش‌فرض'),
           ),
         ),
       );
