@@ -6981,6 +6981,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
+  // اسکن IP بدون تغییر تنظیمات دیگر: در هر دور نت ملی اجرا می‌شود
+  Future<void> _natScanOnly() async {
+    try {
+      if (!nationalMode || abort) return;
+      final ips = await natRangeScanStep(
+          known: [...pending, ...natRestPending],
+          maxAddrs: 512,
+          conc: 200,
+          stop: () => abort);
+      await _natRangeAdd(ips);
+    } catch (e) {
+      logError(e);
+    }
+  }
+
   Future<void> _natEscalate(int round) async {
     try {
       await _natDetect(); // what does the network look like now?
@@ -7085,7 +7100,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     for (var round = 0; !abort && wantVpn; round++) {
       // NATESCALATE: every 2nd failed round the search gets wider (all sources,
       // fresh lists, longer waits) and the network state is checked again
-      if (round > 0 && round % 2 == 0) await _natEscalate(round);
+      // نت ملی: اسکن IP از همان دور اول شروع می‌شود و در هر دور ادامه دارد
+      if (round == 0 && nationalMode) {
+        await _natEscalate(round);
+      } else if (round > 0 && round % 2 == 0) {
+        await _natEscalate(round);
+      } else if (nationalMode) {
+        await _natScanOnly();
+      }
+      if (abort) return false;
       // force endless list cycling when in crusade mode
       if (neverStop) {
         autoCycle = true;
