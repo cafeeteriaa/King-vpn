@@ -5769,11 +5769,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         await _stopCore();
         return null;
       }
-      // pre-connect check: Instagram only
-      final tgOk = await _siteOpens('https://www.instagram.com/', viaCore: true);
+      // LENIENT pre-check: the config passes if Instagram OR a general internet
+      // address opens through it (2 tries). It is rejected only when nothing opens,
+      // so working configs connect easily and most apps/sites keep working.
+      const checkUrls = [
+        'https://www.instagram.com/',
+        'http://cp.cloudflare.com/generate_204',
+        'https://www.google.com/generate_204',
+      ];
+      var tgOk = false;
+      for (var attempt = 0; attempt < 2 && !tgOk; attempt++) {
+        if (abort) break;
+        final rs = await Future.wait(
+            checkUrls.map((u) => _siteOpens(u, viaCore: true)));
+        tgOk = rs.any((x) => x);
+        if (!tgOk) await Future.delayed(const Duration(milliseconds: 500));
+      }
       await _stopCore();
       await Future.delayed(const Duration(milliseconds: 300));
-      dbg('تست بی‌صدا ${s.name}: telegram=$tgOk');
+      dbg('تست بی‌صدا ${s.name}: sites=$tgOk');
       return tgOk;
     } catch (e) {
       logError(e);
@@ -5809,8 +5823,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           siteSkips++;
           s.svc = 0;
           s.badAt = DateTime.now();
-          errorLog.value = '${s.name}: تلگرام باز نشد — سرور بعدی…';
-          dbg('اتصال: ${s.name} رد شد — تلگرام باز نشد • سرور بعدی');
+          errorLog.value = '${s.name}: هیچ سایتی باز نشد — سرور بعدی…';
+          dbg('اتصال: ${s.name} رد شد — هیچ سایتی باز نشد • سرور بعدی');
           continue;
         }
       }
