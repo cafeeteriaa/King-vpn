@@ -1616,9 +1616,10 @@ Future<void> userListsSave(String text) async {
 // هر دور جستجوی نت ملی فقط یک تکه (مثلاً ۳۰۰۰ تا) پارس و تست می‌شود و ادامه‌ی دور
 // بعد از همان جای قبلی است. این پوشه فقط در حالت نت ملی استفاده می‌شود؛ خلبان هم
 // وقتی نت ملی تشخیص داده شود از همین مسیر (connect با نت ملی) از آن استفاده می‌کند.
-const int natHotPerSource = 15000;
+const int natHotPerSource = 30000;
+const int natHotMin = 30000; // کمترین تعداد کانفیگ پوشه
 const int natHotMax = 300000;
-const Duration natHotTtl = Duration(hours: 24);
+const Duration natHotTtl = Duration(hours: 48); // هر ۴۸ ساعت تازه می‌شود
 const Duration natHotFetchDeadline = Duration(seconds: 180);
 bool _hotBusy = false;
 List<String>? _hotLines; // خطوط «src\tlink» در حافظه (فقط یک بار خوانده می‌شود)
@@ -1699,6 +1700,9 @@ Future<void> natHotEnsure() async {
     if (fresh.isNotEmpty) {
       final list = fresh.toList()..shuffle();
       final take = list.length > natHotMax ? list.sublist(0, natHotMax) : list;
+      if (take.length < natHotMin) {
+        dbg('پوشه‌ی منابع تازه: ${take.length} کانفیگ (کمتر از $natHotMin)');
+      }
       await f.writeAsString(take.join('\n'), flush: true);
       _hotLines = null; // دفعه‌ی بعد از فایل تازه خوانده شود
       _hotCursor = 0;
@@ -1710,10 +1714,21 @@ Future<void> natHotEnsure() async {
   }
 }
 
-// تکه‌ی بعدی از پوشه (حداکثر n کانفیگ). وقتی به آخر رسید، از اول شروع می‌شود.
-Future<List<Server>> natHotNext(int n) async {
+// آیا پوشه‌ی منابع تازه ساخته شده و پر است؟ (برای هشدار حالت آفلاین)
+bool natHotReady() {
   try {
-    await natHotEnsure(); // هر ۲۴ ساعت تازه می‌شود (حتی اگر برنامه باز مانده باشد)
+    final f = File(_hotPath());
+    return f.existsSync() && f.lengthSync() > 0;
+  } catch (_) {
+    return false;
+  }
+}
+
+// تکه‌ی بعدی از پوشه (حداکثر n کانفیگ). وقتی به آخر رسید، از اول شروع می‌شود.
+Future<List<Server>> natHotNext(int n, {bool fetch = true}) async {
+  try {
+    // fetch=false: فقط فایل ذخیره‌شده خوانده می‌شود (حالت آفلاین، بدون دانلود)
+    if (fetch) await natHotEnsure(); // هر ۴۸ ساعت تازه می‌شود
     if (_hotLines == null) {
       final f = File(_hotPath());
       _hotLines = f.existsSync()
