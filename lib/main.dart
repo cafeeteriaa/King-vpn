@@ -5804,6 +5804,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // they really stay dead. The real reason of a failure is shown at the bottom.
   Future<bool> _connectLoop(List<Server> list, {bool trust = false}) async {
     var siteSkips = 0; // SITEPRECHECK: servers skipped because no site opened
+    var noTunRun = 0; // NOTUN-STOP: in a row, the Android VPN interface was not created
     var coreDownCount = 0, coreUpCount = 0; // CORE-SYSTEMIC: core up/down per run
     for (final s in list) {
       if (abort) return false;
@@ -5845,6 +5846,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           coreDownCount++;
         }
         final systemic = coreDownCount >= 3 && coreDownCount > coreUpCount;
+        // NOTUN-STOP: Android built no VPN interface for several servers in a row.
+        // The fault is the phone's VPN service, not the servers: stop and tell the user.
+        if (lastStartNoTunnel) {
+          noTunRun++;
+          if (noTunRun >= 3) {
+            errorLog.value =
+                'اندروید VPN را نساخت (۳ بار پشت‌سرهم). تنظیمات اندروید → VPN را بررسی کن: '
+                'اجازه‌ی King VPN داده شده باشد و VPN دیگری فعال نباشد؛ بعد دوباره وصل شو.';
+            dbg('NOTUN-STOP: ${s.name} • ${lastFail}');
+            return false;
+          }
+        } else {
+          noTunRun = 0;
+        }
         // NO_ACTIVITY is temporary — do not blacklist the server
         if (!lastStartNoTunnel && !pin && !noAct && !systemic) {
           s.badAt = DateTime.now();
