@@ -4686,7 +4686,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!bg) searchSw?.stop();
       dbg('پایان جستجو (${bg ? 'پس‌زمینه' : 'اصلی'}): '
           '${searchSw?.elapsed.inSeconds ?? 0}s • تست سریع $fastOk/$fastTested'
-          ' • سالم ${good.length}');
+          ' • سالم ${good.length}'
+          ' • IP: اسکن $natIpScanned / باز $natIpFound / تست هسته $natIpTested / سالم $natIpOk');
     }
     _saveSrc();
     if (!bg && !abort && upServer == null && good.isEmpty) {
@@ -4836,6 +4837,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (d != null) {
         fastOk++;
         okNow.add(s);
+      }
+      if (s.isIp) {
+        natIpTested++;
+        if (d != null) natIpOk++;
       }
       _record(s, d);
       realTested++;
@@ -6911,6 +6916,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             int.parse(item.split('|')[1]),
           ),
     ];
+    natIpFound += items.length;
+    dbg('اسکن IP: باز پیداشده ${items.length} • جمع $natIpFound • اسکن‌شده $natIpScanned');
     pending = [...made, ...pending];
     natRangeCursor = 0; // دور بعد از همان بلوک‌های پیداشده شروع می‌شود
     _set('نت ملی: ${items.length} آدرس باز (IP و پورت) در بازه‌ها پیدا شد');
@@ -11303,6 +11310,11 @@ class _AdPageState extends State<AdPage> with WidgetsBindingObserver {
 }
 
 // NATIONALPATCH
+// آمار IP در نت ملی (تجمعی در این اجرای برنامه؛ در گزارش خطا دیده می‌شود)
+int natIpScanned = 0; // آدرس‌های اسکن‌شده در بازه‌ها
+int natIpFound = 0;   // آدرس IP باز پیداشده
+int natIpTested = 0;  // سرور IP که به تست کامل هسته رسید
+int natIpOk = 0;      // سرور IP که سالم شد
 bool nationalMode = false; // international internet cut, national network works
 final Set<String> natGood = {}; // keys of servers that worked in national mode
 
