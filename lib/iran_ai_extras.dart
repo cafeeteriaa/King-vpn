@@ -795,6 +795,35 @@ Future<List<Server>> fetchSubscription(String url) async {
 }
 
 // ======================= بخش‌های رابط و منطق (روی State) =======================
+// ======================= هشدار مصرف بالا =======================
+// قبل از روشن شدن قابلیت‌های پرمصرف (دستیارها، خلبان‌ها، نت ملی، مداد جادویی) هشدار می‌دهد.
+// فقط موقع روشن شدن نشان داده می‌شود، نه موقع خاموش کردن.
+// true = ادامه بده، false = لغو شد
+Future<bool> confirmHeavyFeature(BuildContext context, String featureName) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: AlertDialog(
+        title: Text('⚠️ $featureName'),
+        content: const Text(
+          'این قابلیت حجم اینترنت زیادی مصرف می‌کند، چون مدام سرورها را تست و جستجو می‌کند.\n\n'
+          'برای برگشت به اتصال عادی و کم‌مصرف: تنظیمات ← «↩️ برگرداندن همه‌ی تنظیمات به پیش‌فرض» را بزن.',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('انصراف')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('متوجه شدم، ادامه')),
+        ],
+      ),
+    ),
+  );
+  return ok == true;
+}
+
 extension HomeExtras on _HomePageState {
   Future<void> importSubscription(BuildContext ctx, String url) async {
     Navigator.pop(ctx);
@@ -1533,7 +1562,11 @@ extension HomeExtras on _HomePageState {
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: () => this.aiSheet(),
+                onPressed: () async {
+                  if (await confirmHeavyFeature(context, 'دستیارهای AI')) {
+                    this.aiSheet();
+                  }
+                },
                 icon: const Icon(Icons.smart_toy_outlined, size: 18),
                 label: Text(
                     '🤖 دستیارهای AI (Grok/Claude/ChatGPT/DeepSeek/Gemini'
@@ -1552,6 +1585,7 @@ extension HomeExtras on _HomePageState {
                           _set(
                               'خلبان AI خاموش شد — برای قطع کامل VPN دکمه قطع را بزن');
                         } else {
+                          if (!await confirmHeavyFeature(context, 'خلبان کامل AI')) return;
                           await pickEngineThenStart(startGrokPilot);
                         }
                       },
@@ -1573,6 +1607,7 @@ extension HomeExtras on _HomePageState {
                           stopLocalPilot();
                           _set('خلبان محلی خاموش شد — VPN تا قطع دستی می‌ماند');
                         } else {
+                          if (!await confirmHeavyFeature(context, 'خلبان')) return;
                           // اگر خلبان ابری روشن بود، خاموشش کن تا تداخل نداشته باشد
                           if (aiSession) stopGrokPilot();
                           await pickEngineThenStart(() async {
