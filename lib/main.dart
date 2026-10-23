@@ -66,30 +66,113 @@ const _gh = 'https://raw.githubusercontent.com/';
 // Only lists that are refreshed often. HOT ones come first and are tested
 // first; dead links are skipped automatically and ranked by health at runtime.
 final List<String> _paths = [
-  // ---- ONLY sources with a documented update interval of 30 minutes or less ----
-  // barry-far: README says every 10-15 min
+  // ---- HOT: updated every few minutes / hours
+  for (var i = 1; i <= 10; i++)
+    'V2RAYCONFIGSPOOL/V2RAY_SUB/main/v2ray_configs_no$i.txt',
+  for (final p in ['mix', 'vless', 'vmess', 'shadowsocks', 'trojan'])
+    'iboxz/free-v2ray-collector/main/main/$p.txt',
+  'ebrasha/free-v2ray-public-list/main/V2Ray-Config-By-EbraSha.txt',
+  'MatinGhanbari/v2ray-configs/main/subscriptions/v2ray/all_sub.txt',
+  for (final p in ['vless', 'vmess', 'trojan'])
+    '0xRadikal/Free-v2ray-Configs/main/protocols/$p.txt',
+  for (final p in ['vless', 'vmess', 'trojan'])
+    'Idolvpn/Automate-V2ray-Config-Collector/main/configs/$p.txt',
+  'barry-far/V2ray-Config/main/All_Configs_Sub.txt',
   for (var i = 1; i <= 8; i++) 'barry-far/V2ray-Config/main/Sub$i.txt',
   for (final p in ['vmess', 'vless'])
     'barry-far/V2ray-Config/main/Splitted-By-Protocol/$p.txt',
-  // Epodonios: description says every 5 min
   'Epodonios/v2ray-configs/refs/heads/main/All_Configs_Sub.txt',
   for (var i = 1; i <= 10; i++)
     'Epodonios/v2ray-configs/refs/heads/main/Sub$i.txt',
-  // ebrasha: README says every 15 min
+  for (final p in ['mixed', 'vmess', 'vless', 'trojan', 'shadowsocks'])
+    'soroushmirzaei/telegram-configs-collector/main/splitted/$p',
+  for (final p in ['mix', 'vmess', 'vless', 'trojan', 'ss'])
+    'itsyebekhe/PSG/main/subscriptions/xray/normal/$p',
+  for (var i = 1; i <= 8; i++)
+    'AvenCores/goida-vpn-configs/main/githubmirror/$i.txt',
+  // ---- HOT 2026: verified frequent updaters (every 5–30 min / 4h)
   'ebrasha/free-v2ray-public-list/refs/heads/main/V2Ray-Config-By-EbraSha-All-Type.txt',
-  'ebrasha/free-v2ray-public-list/refs/heads/main/V2Ray-Config-By-EbraSha.txt',
   'ebrasha/free-v2ray-public-list/refs/heads/main/all_extracted_configs.txt',
-  // 0xRadikal: release v2.0 says every 15 min
+  'MatinGhanbari/v2ray-configs/main/subscriptions/v2ray/super-sub.txt',
   '0xRadikal/Free-v2ray-Configs/main/top100.txt',
   '0xRadikal/Free-v2ray-Configs/main/verified/configs.txt',
   '0xRadikal/Free-v2ray-Configs/main/fast/configs.txt',
   '0xRadikal/Free-v2ray-Configs/main/all/configs.txt',
+  'Alirewa/V2ray-Configs/main/config.txt',
+  'Alirewa/V2ray-Configs/main/sub1.txt',
+  'Alirewa/V2ray-Configs/main/sub2.txt',
+  'Alirewa/V2ray-Configs/main/sub3.txt',
+  for (final p in ['vless', 'vmess', 'trojan', 'ss'])
+    'hamedcode/port-based-v2ray-configs/main/sub/$p.txt',
+  'hamedcode/port-based-v2ray-configs/main/sub/top100.txt',
+  'hamedcode/port-based-v2ray-configs/main/sub/port_443.txt',
+  'hamedcode/port-based-v2ray-configs/main/sub/port_80.txt',
+  'morpheusadam/v2ray-config/main/subs/bundles/best.txt',
+  'morpheusadam/v2ray-config/main/subs/bundles/iran.txt',
+  'morpheusadam/v2ray-config/main/subs/bundles/lite.txt',
+  'morpheusadam/v2ray-config/main/subs/bundles/reality.txt',
+  'lagzian/SS-Collector/main/configs/mixed/vless.txt',
+  'lagzian/SS-Collector/main/configs/mixed/trojan.txt',
+  'lagzian/SS-Collector/main/configs/mixed/ss.txt',
+  'lagzian/SS-Collector/main/configs/psg/reality.txt',
+  'lagzian/SS-Collector/main/configs/psg/vmess.txt',
+  // verified live 2026-10-16
+  '3inker/v2ray-subscription/main/subs/all_not_ru.txt',
+  '3inker/v2ray-subscription/main/subs/all_ru.txt',
+  'free-nodes/v2rayfree/main/sub',
+  'ermaozi/get_subscribe/main/subscribe/v2ray.txt',
+  'Au1rxx/free-vpn-subscriptions/main/output/v2ray-base64.txt',
+  // ---- the rest
+  'SoliSpirit/v2ray-configs/refs/heads/main/all_configs.txt',
+  'nyeinkokoaung404/V2ray-Configs/main/All_Configs_Sub.txt',
+  for (final p in ['vmess', 'vless', 'trojan', 'ss'])
+    'nyeinkokoaung404/V2ray-Configs/main/Splitted-By-Protocol/$p.txt',
+  'mahdibland/V2RayAggregator/master/sub/sub_merge.txt',
+  for (final p in ['vmess', 'vless', 'trojan', 'ss'])
+    'mahdibland/V2RayAggregator/master/sub/splitted/$p.txt',
+  for (final p in ['mix', 'vmess', 'vless', 'trojan', 'ss'])
+    'yebekhe/TelegramV2rayCollector/main/sub/normal/$p',
+  'Danialsamadi/v2go/main/AllConfigsSub.txt',
+  'roosterkid/openproxylist/main/V2RAY_RAW.txt',
+  'Leon406/SubCrawler/main/sub/share/v2',
+  for (final p in ['mixed', 'vmess', 'vless', 'trojan', 'shadowsocks'])
+    'Surfboardv2ray/TGParse/main/splitted/$p',
+  for (final p in ['vless', 'vmess', 'trojan', 'shadowsocks'])
+    'V2RayRoot/V2RayConfig/main/Config/$p.txt',
+  for (final p in ['vless', 'vmess', 'trojan', 'ss'])
+    'mohamadfg-dev/telegram-v2ray-configs-collector/main/category/$p.txt',
+  for (final p in ['vmess', 'vless', 'trojan', 'ss'])
+    'Bardiafa/Free-V2ray-Config/main/Splitted-By-Protocol/$p.txt',
+  for (final p in ['vmess', 'vless', 'trojan', 'ss'])
+    'F0rc3Run/F0rc3Run/main/splitted-by-protocol/$p.txt',
+  for (final p in ['vl', 'vm', 'tr', 'ss'])
+    'sevcator/5ubscrpt10n/main/protocols/$p.txt',
+  'MahsaNetConfigTopic/config/main/xray_final.txt',
+  'peasoft/NoMoreWalls/master/list.txt',
+  'chengaopan/AutoMergePublicNodes/master/list.txt',
+  'NiREvil/vless/main/sub/SSTime',
+  for (final p in ['mix', 'vmess', 'vless', 'trojan', 'ss'])
+    'MhdiTaheri/V2rayCollector/main/sub/$p',
+  for (final p in ['mixed', 'vmess', 'vless', 'trojan', 'shadowsocks'])
+    'Kwinshadow/TelegramV2rayCollector/main/sub/$p',
+  'Mahdi0024/ProxyCollector/master/sub/proxies.txt',
+  'ShatakVPN/ConfigForge/main/configs/all.txt',
+  'MrMohebi/xray-proxy-grabber-telegram/master/collected-proxies/row-url/all.txt',
+  'Argh94/Proxy-List/main/All_Config.txt',
+  'mehran1404/Sub_Link/main/V2RAY-Sub.txt',
+  'sakha1370/OpenRay/main/output/all_valid_proxies.txt',
+  'wuqb2i4f/xray-config-toolkit/main/output/base64/mix-uri',
+  // ---- added sources (kept on request) ----
+  'kasesm/Free-Config/refs/heads/main/all_raw.txt',
+  'kasesm/Free-Config/refs/heads/main/vless_raw.txt',
+  'kasesm/Free-Config/refs/heads/main/vmess_raw.txt',
+  'kasesm/Free-Config/refs/heads/main/trojan_raw.txt',
+  'kasesm/Free-Config/refs/heads/main/ss_raw.txt',
   '0xRadikal/Free-v2ray-Configs/main/verified-configs-base64.txt',
-  // M-Mashreghi: README says every 10 min
   for (var i = 1; i <= 14; i++)
     'M-Mashreghi/Free-V2ray-Collector/main/Files/shuffle/Sub${i}_shuffled.conf',
 ];
-final List<String> listUrls = [...[for (final p in _paths) '$_gh$p'], ..._npvUrls]; // 30-MIN GitHub + national pilot lists
+final List<String> listUrls = [...([..._paths, ..._morePaths].map((p) => '$_gh$p').toList()), ..._extraUrls, ..._npvUrls];
 // repos that publish fresh servers every few minutes / hours: tested first
 const hotOwners = {
   'V2RAYCONFIGSPOOL',
@@ -250,6 +333,11 @@ const _pingUrls = [
   'https://www.google.com/generate_204',
   'https://telegram.org/',
 ];
+
+// PROXY MODE: no VPN tunnel / no key icon. Only a local proxy is started:
+// SOCKS 127.0.0.1:10808 and HTTP 127.0.0.1:10809 (set it in the other app or
+// in the Wi-Fi proxy settings). Saved in settings ('px').
+bool proxyMode = false;
 // the reason of the last failed start (shown to the user)
 String _lastFailV = '';
 String get lastFail => _lastFailV;
@@ -878,9 +966,9 @@ List<String> _dbgHelpOf(String m) {
   }
   if (has('پورت پروکسی')) {
     return h('E-START-PORT',
-        'app_main/main.dart → _start (waitProxyPort ۸ ثانیه برای تست بی‌صدا)',
+        'app_main/main.dart → _start (waitProxyPort ۸ ثانیه در حالت پروکسی)',
         'هسته بالا نیامد و پورت پروکسی محلی باز نشد.',
-        'مهلت waitProxyPort را بیشتر کن یا به E-START-CORE نگاه کن.');
+        'در حالت پروکسی مهلت waitProxyPort را بیشتر کن یا به E-START-CORE نگاه کن.');
   }
   if (has('مجوز VPN')) {
     return h('E-START-PERM',
@@ -2267,6 +2355,7 @@ Future<bool> _coreProxyOpen() async {
 }
 
 Future<bool> _useCoreProxy(bool wantProxy) async {
+  if (proxyMode) return true;
   if (!wantProxy) return false;
   if (await _coreProxyOpen()) return true;
   // Port may appear a moment after CONNECTED (inbounds just bound)
@@ -2352,12 +2441,9 @@ Future<int> _sitesOpen() async {
     logError(e);
     return -1;
   }
-  // TELEGRAM-REMOVED: pre-connect site check = YouTube, Instagram, WhatsApp, Pornhub
+  // pre-connect check: Instagram only
   final r = await Future.wait([
-    _siteOpens('https://www.youtube.com/generate_204'),
     _siteOpens('https://www.instagram.com/'),
-    _siteOpens('https://web.whatsapp.com/'),
-    _siteOpens('https://www.pornhub.com/'),
   ]);
   return r.where((x) => x).length;
 }
@@ -2489,7 +2575,7 @@ bool _gemSkip(Server s) {
 Future<bool> _geminiApiOk({bool direct = true}) async {
   final c = HttpClient()
     ..findProxy = ((_) =>
-        direct ? 'DIRECT' : 'PROXY 127.0.0.1:$httpProxyPort')
+        (direct && !proxyMode) ? 'DIRECT' : 'PROXY 127.0.0.1:$httpProxyPort')
     ..connectionTimeout = const Duration(seconds: 5);
   try {
     return await () async {
@@ -2526,7 +2612,7 @@ Future<bool> _geminiApiOk({bool direct = true}) async {
 Future<bool> _geminiWebOk({bool direct = true}) async {
   final c = HttpClient()
     ..findProxy = ((_) =>
-        direct ? 'DIRECT' : 'PROXY 127.0.0.1:$httpProxyPort')
+        (direct && !proxyMode) ? 'DIRECT' : 'PROXY 127.0.0.1:$httpProxyPort')
     ..connectionTimeout = const Duration(seconds: 5);
   try {
     return await () async {
@@ -3950,6 +4036,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           fragInt = j['fi'] as String? ?? fragInt;
           muxConc = (j['mc'] as num?)?.toInt() ?? muxConc;
           dnsProv = j['dp'] as String? ?? dnsProv;
+          proxyMode = j['px'] as bool? ?? proxyMode;
         }
         failWindow = Duration(minutes: failMin);
         recheckAfter = Duration(minutes: recheckMin);
@@ -4223,6 +4310,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             'fi': fragInt,
             'mc': muxConc,
             'dp': dnsProv,
+            'px': proxyMode,
           }));
     } catch (e) {
       logError(e);
@@ -4896,14 +4984,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // MULTICHK: does this server also reach Telegram/YouTube/Instagram/Pornhub?
   Future<int> _svcOf(Server s) async {
     var m = 0;
-    const urls = ['https://www.instagram.com/', 'https://www.youtube.com/generate_204', 'https://web.whatsapp.com/', 'https://www.pornhub.com/'];
+    const urls = ['https://www.instagram.com/'];
     try {
       final cfg = V2ray.parseFromURL(s.useLink).getFullConfiguration();
       final rs = await Future.wait(urls.map((u) => v2ray
           .getServerDelay(config: cfg, url: u)
           .timeout(const Duration(seconds: 8), onTimeout: () => -1)
           .catchError((_) => -1)));
-      for (var i = 0; i < 4; i++) {
+      for (var i = 0; i < urls.length; i++) {
         if (rs[i] > 0) m |= (1 << i);
       }
     } catch (e) { logError(e); }
@@ -5199,7 +5287,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       lastFail = 'اتصال توسط کاربر خواسته نشده بود';
       return false;
     }
-    final po = proxyOnly;
+    final po = proxyOnly || proxyMode;
     // FIX: بعد از توقف هسته قبلی، کمی صبر کن تا پورت آزاد شود (رفع XRAY-ERR)
     await Future.delayed(const Duration(milliseconds: 1500));
     try {
@@ -5257,9 +5345,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
       }
       if (po) {
-        // silent test core only (proxyOnly): no VPN permission, no tunnel
         await v2ray.startV2Ray(
             remark: s.name, config: cfg, proxyOnly: true);
+        if (proxyOnly) return true;
+        // proxy mode as the real connection: the local proxy port must open
+        if (!await waitProxyPort(max: const Duration(seconds: 8))) {
+          lastFail = 'پورت پروکسی باز نشد (هسته بالا نیامد)';
+          await _stopCore();
+          return false;
+        }
+        tunWarn = false;
         return true;
       }
       bool? t;
@@ -5656,7 +5751,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // true = opens, false = does not open, null = could not test.
   Future<bool?> _preSocialCheck(Server s) async {
     try {
-        if (!await _start(s, proxyOnly: true)) return null;
+      if (proxyMode) return null;
+      if (!await _start(s, proxyOnly: true)) return null;
       if (abort) {
         await _stopCore();
         return null;
@@ -5669,13 +5765,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         await _stopCore();
         return null;
       }
-      // TELEGRAM-REMOVED: the silent test checks YouTube/Instagram/WhatsApp/Pornhub
-      final tgOk = (await Future.wait([
-        _siteOpens('https://www.youtube.com/generate_204', viaCore: true),
-        _siteOpens('https://www.instagram.com/', viaCore: true),
-        _siteOpens('https://web.whatsapp.com/', viaCore: true),
-        _siteOpens('https://www.pornhub.com/', viaCore: true),
-      ])).any((x) => x);
+      // pre-connect check: Instagram only
+      final tgOk = await _siteOpens('https://www.instagram.com/', viaCore: true);
       await _stopCore();
       await Future.delayed(const Duration(milliseconds: 300));
       dbg('تست بی‌صدا ${s.name}: telegram=$tgOk');
@@ -5706,7 +5797,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         dbg('ℹ ${s.name}: برای هسته ۳.۵.۰ پشتیبانی نمی‌شود ($badCfg) • بدون تست رد شد • سرور بعدی');
         continue;
       }
-      if (!trust && !pin && !nationalMode) {
+      if (!trust && !pin && !nationalMode && !proxyMode) {
         _set('بررسی سایت‌ها روی ${s.name}...');
         final sc = await _preSocialCheck(s);
         if (abort) return false;
@@ -5836,14 +5927,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // STRICT: Telegram / YouTube / Instagram must open through the tunnel.
       // Also runs under national mode (softer retries + ladder before reject).
       if (!trust && !pin) {
-        final needSocial = true;
+        final needSocial = !proxyMode;
         if (needSocial && !await _coreProxyOpen()) {
           // VPN mode: traffic goes via tun; still try site checks with viaCore
           dbg('چک سایت‌ها ${s.name}: پورت هسته ممکن است بسته باشد؛ تست مستقیم تونل');
         }
-        if (needSocial) {
+        if (needSocial || proxyMode) {
           _set('بررسی سایت‌ها روی ${s.name}...');
-          if ((await tunUp()) != true) {
+          if (proxyMode || (await tunUp()) != true) {
             await waitProxyPort(
                 max: Duration(seconds: nationalMode ? 8 : 4));
           }
@@ -6159,6 +6250,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return 'وصل شد${sp == null ? '' : ' • ${sp.toStringAsFixed(1)} MB/s'}$live$mode'
         ' • کیفیت: $q (${qualityLabel(q)})'
         ' • سالم: $standbyCount'
+        '${proxyMode ? ' • حالت پروکسی (SOCKS 10808 / HTTP 10809)' : ''}'
         '${tunWarn ? ' • ⚠ تونل VPN ساخته نشد' : ''}'
         '${offlineOnly ? ' • آفلاین' : ''}'
         '${dataSaver ? ' • صرفه‌جویی' : ''}'
@@ -7202,7 +7294,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     // Ask VPN permission once while Activity is alive (right after ad),
     // so later _start calls do not hit NO_ACTIVITY during the server loop.
-    if (inForeground) {
+    if (!proxyMode && inForeground) {
       try {
         final ok = await v2ray.requestPermission();
         if (ok) vpnPermOk = true;
@@ -8509,7 +8601,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // VPN tunnel (no key icon). If tun is missing twice in a row, the
           // VPN is rebuilt on the same server (max 2 tries per connection).
           // (not used in proxy mode: there is no tunnel on purpose)
-          final tn = await tunUp();
+          final tn = proxyMode ? null : await tunUp();
           if (tn == false) dbg('تونل VPN اندروید (tun) دیده نشد');
           if (!connected || busy || switching) return;
           if (tn == true) {
@@ -9020,7 +9112,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       dbg('همگام‌سازی خودکار: واچ‌داگ خاموش بود؛ دوباره روشن شد');
       _startWatch();
     }
-    _insWarn('tunw', connected && tunWarn, 6,
+    _insWarn('tunw', connected && tunWarn && !proxyMode, 6,
         'تونل VPN اندروید (tun) دیده نمی‌شود');
     _insWarn('noready', connected && _ready() == 0 && !searching, 60,
         'سرور آماده‌ی جایگزین نیست و جستجویی هم در کار نیست');
@@ -9423,6 +9515,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   void _settingsSheet() {
+    final pmBefore = proxyMode;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -9486,6 +9579,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     head('🧩 نوع اتصال'),
+                    sw('حالت پروکسی (بدون VPN)', proxyMode,
+                        (v) => proxyMode = v,
+                        sub:
+                            'فقط یک پروکسی محلی روشن می‌شود: SOCKS روی 127.0.0.1:10808 و HTTP روی 127.0.0.1:10809. آیکن کلید VPN نمی‌آید و برنامه‌های دیگر خودکار رد نمی‌شوند؛ باید در آن‌ها (یا در تنظیم پروکسی Wi-Fi) این آدرس را بدهی'),
                     this.resetNumButton(setS),
                     head('⚡ سرعت تست'),
                     row('تست همزمان (جستجوی اول)', '$fastWorkers',
@@ -9591,6 +9688,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       unawaited(_saveSettings().catchError((e) => logError(e)));
       if (mounted) setState(() {});
       // the connection type changed while connected: rebuild it right away
+      if (connected && pmBefore != proxyMode && !busy) _restartTunnel();
     });
   }
 
@@ -10157,6 +10255,26 @@ UiHero(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Row(children: [
+              // connection type: VPN (tunnel + key icon) or only a local proxy
+              Padding(
+                padding: const EdgeInsets.only(left: 6),
+                child: ActionChip(
+                  label: Text(proxyMode ? '🧩 حالت: پروکسی' : '🔐 حالت: VPN'),
+                  onPressed: busy
+                      ? null
+                      : () {
+                          setState(() => proxyMode = !proxyMode);
+                          unawaited(_saveSettings().catchError((e) => logError(e)));
+                          if (connected) {
+                            _restartTunnel();
+                          } else {
+                            _set(proxyMode
+                                ? 'حالت پروکسی: بعد از اتصال، SOCKS روی 127.0.0.1:10808 و HTTP روی 127.0.0.1:10809 است'
+                                : 'حالت VPN');
+                          }
+                        },
+                ),
+              ),
               Padding(
                 padding: const EdgeInsets.only(left: 6),
                 child: ActionChip(
@@ -10772,7 +10890,63 @@ class UiHero extends StatelessWidget {
 }
 
 
-final List<String> _morePaths = [];
+final List<String> _morePaths = [
+  'MatinGhanbari/v2ray-configs/main/subscriptions/v2ray/super-sub.txt',
+  for (var i = 1; i <= 4; i++)
+    'MatinGhanbari/v2ray-configs/main/subscriptions/v2ray/subs/sub$i.txt',
+  'Epodonios/v2ray-configs/main/Splitted-By-Protocol/vless.txt',
+  'Epodonios/v2ray-configs/main/Splitted-By-Protocol/vmess.txt',
+  'ebrasha/free-v2ray-public-list/refs/heads/main/ss_configs.txt',
+  // NEW sources (dead links are skipped automatically)
+  for (final p in ['trojan', 'ss'])
+    'barry-far/V2ray-Config/main/Splitted-By-Protocol/$p.txt',
+  for (final p in ['trojan', 'ss'])
+    'Epodonios/v2ray-configs/main/Splitted-By-Protocol/$p.txt',
+  for (final p in ['vless', 'vmess', 'trojan'])
+    'ebrasha/free-v2ray-public-list/main/${p}_configs.txt',
+  'mahdibland/V2RayAggregator/master/sub/sub_merge_base64.txt',
+  'mahdibland/V2RayAggregator/master/Eternity.txt',
+  'Pawdroid/Free-servers/main/sub',
+  'ermaozi/get_subscribe/main/subscribe/v2ray.txt',
+  'aiboboxx/v2rayfree/main/v2',
+  'freefq/free/master/v2',
+  'mfuu/v2ray/master/v2ray',
+  'ripaojiedian/freenode/main/sub',
+  'vpei/Free-Node-Merge/main/o/node.txt',
+  'w1770946466/Auto_proxy/main/Long_term_subscription_num',
+  'liketolivefree/kobabi/main/sub.txt',
+  'Everyday-VPN/Everyday-VPN/main/subscription/main.txt',
+  'free18/v2ray/main/v2ray.txt',
+  'tbbatbb/Proxy/master/dist/v2ray.config.txt',
+  'ts-sf/fly/main/v2',
+  'Jsnzkpg/Jsnzkpg/Jsnzkpg/Jsnzkpg',
+  'HosseinKoofi/GO_V2rayCollector/main/mixed_iran.txt',
+  'ALIILAPRO/v2rayNG-Config/main/server.txt',
+  'soroushmirzaei/telegram-configs-collector/main/protocols/vless',
+  'soroushmirzaei/telegram-configs-collector/main/protocols/vmess',
+  'soroushmirzaei/telegram-configs-collector/main/protocols/trojan',
+  // Iran-exit / intranet servers (used first in national-network mode)
+  'mmbateni/iran-intranet-access/main/outputs/ir_exit_configs.txt',
+  'mmbateni/iran-intranet-access/main/outputs/ir_reality_configs.txt',
+  'mmbateni/iran-intranet-access/main/outputs/ir_mobile_exit_configs.txt',
+  'mmbateni/iran-intranet-access/main/outputs/armenian_bridge_configs.txt',
+  'mmbateni/iran-intranet-access/main/outputs/passing_intranet_configs.txt',
+  // ---- NEW 2026 sources (fresh + Iran-oriented) ----
+  'Alirewa/V2ray-Configs/main/config.txt',
+  'Alirewa/V2ray-Configs/main/sub1.txt',
+  'Alirewa/V2ray-Configs/main/sub2.txt',
+  '0xRadikal/Free-v2ray-Configs/main/top100.txt',
+  '0xRadikal/Free-v2ray-Configs/main/verified/configs.txt',
+  '0xRadikal/Free-v2ray-Configs/main/fast/configs.txt',
+  // ایران / ایرانسل‌محور (برای فیلتر و نت ملی بهتر از لیست عمومی خام)
+  'ZendanTeam/SS44-sub/main/SS44-gold.txt',
+  'ZendanTeam/SS44-sub/main/SS44.txt',
+  'miladtahanian/Config-Collector/main/mixed_iran.txt',
+  'morpheusadam/v2ray-config/main/subs/bundles/iran.txt',
+  'morpheusadam/v2ray-config/main/subs/bundles/best.txt',
+  'Delta-Kronecker/V2ray-Config/main/config/protocols/trojan.txt',
+  'Delta-Kronecker/V2ray-Config/main/config/protocols/ss.txt',
+];
 
 final List<String> _extraUrls = [
   // Telegram public channels (web preview page)
