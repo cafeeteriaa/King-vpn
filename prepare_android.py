@@ -50,9 +50,9 @@ OLD_PATH = """String _hotPath() {
   try {
     final d = Directory(dir);
     if (!d.existsSync()) d.createSync(recursive: true);
-    return '$dir/hot_cache.txt';
+    return '$dir/hot_github_v2.txt';
   } catch (_) {
-    return '${Directory.systemTemp.path}/hot_cache.txt';
+    return '${Directory.systemTemp.path}/hot_github_v2.txt';
   }
 }
 """
@@ -65,15 +65,15 @@ String _hotPath() {
   try {
     final v = Directory(hotVisibleDir);
     if (!v.existsSync()) v.createSync(recursive: true);
-    return '$hotVisibleDir/hot_configs.txt';
+    return '$hotVisibleDir/hot_github_v2.txt';
   } catch (_) {}
   const dir = '/data/data/com.kingvpn.king_vpn/files';
   try {
     final d = Directory(dir);
     if (!d.existsSync()) d.createSync(recursive: true);
-    return '$dir/hot_cache.txt';
+    return '$dir/hot_github_v2.txt';
   } catch (_) {
-    return '${Directory.systemTemp.path}/hot_cache.txt';
+    return '${Directory.systemTemp.path}/hot_github_v2.txt';
   }
 }
 """
