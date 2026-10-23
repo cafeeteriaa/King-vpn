@@ -1199,11 +1199,82 @@ extension HomeExtras on _HomePageState {
   String _engineLabel(String e) => 'V2Ray';
 
   /// Dialog then start; returns false if cancelled.
-  Future<bool> pickEngineThenStart(Future<void> Function() start) async {
+  /// اتصال آنلاین (همه‌ی منابع) یا آفلاین (فقط پوشه، بدون دانلود)
+  Future<String?> _pickOnlineOffline() async {
+    if (!mounted) return null;
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('نوع اتصال'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.public),
+                title: const Text('🌐 اتصال آنلاین'),
+                subtitle: const Text('در تمام منابع کانفیگ می‌گردد و سرور پیدا می‌کند'),
+                onTap: () => Navigator.pop(ctx, 'online'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.folder_outlined),
+                title: const Text('📦 اتصال آفلاین'),
+                subtitle: const Text('فقط از پوشه‌ی منابع تازه (۳۰ هزار کانفیگ)؛ مصرف اینترنت کم'),
+                onTap: () => Navigator.pop(ctx, 'offline'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// همه‌ی دکمه‌های اتصال اول می‌پرسند: آنلاین یا آفلاین، بعد موتور VPN.
+  Future<bool> pickEngineThenStart(Future<void> Function() start,
+      {bool askMode = true}) async {
+    if (askMode) {
+      final ok = await _askOnlineOfflineMode();
+      if (!ok) return false;
+    }
     final e = await pickVpnEngineDialog();
     if (e == null) return false;
     applyPilotEngine(e);
     await start();
+    return true;
+  }
+
+  // انتخاب آنلاین/آفلاین برای دکمه‌ی اتصال اصلی؛ false = لغو شد
+  Future<bool> _askOnlineOfflineMode() async {
+    var mode = await _pickOnlineOffline();
+    if (mode == null) return false;
+    if (mode == 'offline' && !natHotReady()) {
+      // اولین بار: پوشه هنوز ساخته نشده، پس آفلاین خالی است
+      final goOnline = await showDialog<bool>(
+        context: context,
+        builder: (dctx) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('⚠️ هنوز پوشه ساخته نشده'),
+            content: const Text(
+                'برای اتصال آفلاین اول باید یک بار اتصال آنلاین بزنی تا پوشه‌ی '
+                'منابع تازه (۳۰ هزار کانفیگ) ساخته شود. بعد از آن آفلاین کار می‌کند.'),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(dctx, false),
+                  child: const Text('انصراف')),
+              TextButton(
+                  onPressed: () => Navigator.pop(dctx, true),
+                  child: const Text('اتصال آنلاین')),
+            ],
+          ),
+        ),
+      );
+      if (goOnline != true) return false;
+      mode = 'online';
+    }
+    offlineOnly = mode == 'offline';
+    await ultimateSave();
     return true;
   }
 
