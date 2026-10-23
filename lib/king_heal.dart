@@ -211,7 +211,7 @@ extension KingHealEngine on _HomePageState {
     }
 
     // تونل
-    if (connected && tunWarn) {
+    if (connected && !proxyMode && tunWarn) {
       _hNoTun++;
       out.add(_HealSignal('no_tun', 9, 'تونل هشدار دارد'));
     } else {
