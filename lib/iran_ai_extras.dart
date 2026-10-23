@@ -2033,6 +2033,15 @@ extension HomeExtras on _HomePageState {
       final hasPing = s.pingMs != null && s.pingMs! > 0 && s.pingMs! < 3000;
       final deadTunnel = !hasSpeed && !hasPing && s.score < 25;
       final weakTunnel = !hasSpeed && softSpeed && s.score < 40;
+      // بین‌الملل قطع شده (تلگرام چند بار جواب نمی‌دهد) و تونل مرده است:
+      // نت ملی را روشن کن؛ قطع بعدی با همان تصمیم «جستجوی ملی» وصل می‌شود
+      if (deadTunnel && _localTgFail >= 2) {
+        natForce = true;
+        _localPhase = 'degraded';
+        return _LocalDecision('switch_best', set,
+            'بین‌الملل قطع ×$_localTgFail + تونل مرده → سوئیچ به نت ملی',
+            confidence: 90);
+      }
 
       if (uptime < minHoldSec && !deadTunnel) {
         _localPhase = 'stable';
@@ -2308,6 +2317,8 @@ extension HomeExtras on _HomePageState {
     if (!wantVpn && !connected) {
       return;
     }
+    // مداد جادویی زنده: وقتی وصل نیستیم، با هر تیک خلبان سرعت/پینگ را دوباره می‌سنجد
+    if (autoTune && !connected) unawaited(autoTuneNow());
     // STABLE-PILOT: a working tunnel that was switched less than 3 minutes ago
     // is left alone (stops the repeated search_national switches)
     if (connected && lastState == 'CONNECTED' &&
@@ -2330,7 +2341,7 @@ extension HomeExtras on _HomePageState {
       } catch (e) { logError(e); }
 
       // قدرت را هر تیک با شبکه هماهنگ کن (تمام‌اتوماتیک)
-      final wantPower = _localAutoPickPower();
+      final wantPower = _localNatBtn ? max(_localAutoPickPower(), 4) : _localAutoPickPower();
       if (wantPower != _localPower) {
         _localApplyMaxPowerProfile(power: wantPower);
       }
@@ -2417,8 +2428,6 @@ extension HomeExtras on _HomePageState {
     if (p > _localPeakPower) _localPeakPower = p;
 
     // --- سوییچ‌های حیاتی (همیشه اتوماتیک) ---
-    autoTune = false;
-    unawaited(autoTuneSave());
     proxyMode = false;
     turboSpeed = true;
     muxEnabled = true;
@@ -2555,7 +2564,7 @@ extension HomeExtras on _HomePageState {
     _localConnectedSince = null;
     _localPeakPower = 1;
     _localPower = 1;
-    _localApplyMaxPowerProfile(power: 1);
+    _localApplyMaxPowerProfile(power: _localNatBtn ? 4 : 1);
     localPilotText.value =
         '👑 خلبان خودکار فعال است\n'
         '⚠ تنظیمات برای خلبان عوض شد. برای جستجوی عادی: تنظیمات ← «برگرداندن همه‌ی عددها به پیش‌فرض»\n'
@@ -2572,7 +2581,7 @@ extension HomeExtras on _HomePageState {
         try {
           await _natDetect();
         } catch (e) { logError(e); }
-        final want = _localAutoPickPower();
+        final want = _localNatBtn ? max(_localAutoPickPower(), 4) : _localAutoPickPower();
         if (want != _localPower) {
           _localApplyMaxPowerProfile(power: want);
         }
@@ -2580,7 +2589,8 @@ extension HomeExtras on _HomePageState {
     }());
   }
 
-  void startLocalPilot() {
+  void startLocalPilot({bool national = false}) {
+    _localNatBtn = national;
     ensureLocalPilotRunning();
     final eng = _engineLabel(pilotEngine);
     localPilotText.value =
@@ -2594,7 +2604,7 @@ extension HomeExtras on _HomePageState {
         try {
           await _natDetect();
         } catch (e) { logError(e); }
-        final want = _localAutoPickPower();
+        final want = _localNatBtn ? max(_localAutoPickPower(), 4) : _localAutoPickPower();
         _localApplyMaxPowerProfile(power: want);
         if (nationalMode || _localPower >= 4) {
           natForce = true;
@@ -2620,6 +2630,7 @@ extension HomeExtras on _HomePageState {
 
   void stopLocalPilot() {
     localPilotOn = false;
+    _localNatBtn = false;
     localPilotLoop?.cancel();
     localPilotLoop = null;
     _localPhase = 'boot';
@@ -3180,6 +3191,8 @@ DateTime? _localConnectedSince;
 int _localFailStreak = 0;
 int _localSlowStreak = 0;
 int _localGoodStreak = 0;
+// دکمه‌ی «جستجوی سرور با نت ملی» خلبان را با قدرت حداقل ۴ (نت ملی) روشن می‌کند
+bool _localNatBtn = false;
 int _localTickN = 0;
 int _localTgOk = 0; // consecutive telegram OK
 int _localTgFail = 0;
