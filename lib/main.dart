@@ -3556,6 +3556,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     super.initState();
     _favsRef = favs;
     WidgetsBinding.instance.addObserver(this);
+    // پوشه‌ی منابع تازه خودکار است: چند ثانیه بعد از باز شدن و بعد هر ساعت
+    // چک می‌شود؛ اگر ۴۸ ساعت گذشته باشد، کانفیگ‌ها از نو دانلود می‌شوند
+    Future.delayed(const Duration(seconds: 20), () => unawaited(natHotEnsure()));
+    Timer.periodic(const Duration(hours: 1), (_) => unawaited(natHotEnsure()));
     // native side (MainActivity patch in the workflow) tells us the screen /
     // activity was destroyed (app swiped away from the recent apps)
     bgChannel.setMethodCallHandler((call) async {
@@ -4470,9 +4474,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _loadPending({bool bg = false, bool exhausted = false}) async {
     // ULTIMATE: offline-only never downloads new lists
     if (offlineOnly) {
-      if (!bg) _set('حالت آفلاین: فقط سرورهای ذخیره‌شده');
+      if (!bg) _set('حالت آفلاین: پوشه‌ی منابع تازه و سرورهای ذخیره‌شده');
+      final seenOff = {for (final s in pending) s.link};
+      final hotOff = await natHotNext(natHotMin, fetch: false);
+      pending = [...pending, for (final s in hotOff) if (seenOff.add(s.link)) s];
       return;
     }
+    // حالت آنلاین: پوشه‌ی منابع تازه هم در پس‌زمینه بازسازی می‌شود (۴۸ ساعت)
+    unawaited(natHotEnsure());
     final now0 = DateTime.now();
     final age = listTime == null ? null : now0.difference(listTime!);
     final limit = (exhausted && autoCycle)
@@ -10076,7 +10085,7 @@ UiHero(
                     ? () => disconnect()
                     : () async {
                           aiSession = false;
-                          await pickEngineThenStart(() => connect());
+                          await pickEngineThenStart(() => connect(), askMode: true);
                         },
           ),
           if (busy)
