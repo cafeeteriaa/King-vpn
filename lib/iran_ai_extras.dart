@@ -2761,7 +2761,7 @@ const Map<String, dynamic> _tunedSettings = {
   'mc': 32, // muxConc
   'ig': false, // iranGeoip
   'um': false, // ultraMode — پیش‌فرض خاموش (جستجو سریع‌تر)
-  'idm': false, // indestructibleMode
+  'idm': true, // indestructibleMode
   'tb': true, // turboSpeed
   'fw2': 50, // fastWorkers
 };
@@ -2809,7 +2809,7 @@ const Map<String, dynamic> _tunedSettings2 = {
   'mc': 32,
   'tb': true,
   'um': false,
-  'idm': false,
+  'idm': true,
   'sf': true,
   'so': true,
   'bps': true,
@@ -2856,7 +2856,7 @@ const Map<String, dynamic> _tunedSettings3 = {
   'mc': 32,
   'tb': true,
   'um': false,
-  'idm': false,
+  'idm': true,
   'sf': true,
   'so': true,
   'bps': true,
