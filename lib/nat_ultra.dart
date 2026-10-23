@@ -1545,6 +1545,7 @@ Future<List<String>> natRangeScanStep({
   int maxAddrs = 256,
   int conc = 200,
   bool Function()? stop,
+  Duration budget = const Duration(minutes: 2),
 }) async {
   final blocks = natRanges.isNotEmpty ? natRanges : natAutoBlocks(known);
   if (blocks.isEmpty) {
@@ -1568,7 +1569,7 @@ Future<List<String>> natRangeScanStep({
       port: port,
       concurrency: conc,
       want: 50,
-      budget: const Duration(minutes: 2),
+      budget: budget,
       timeout: const Duration(milliseconds: 1500),
       cancelled: stop,
     );
