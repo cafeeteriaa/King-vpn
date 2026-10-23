@@ -10014,7 +10014,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             icon: Icon(
                 autoTune ? Icons.auto_fix_high : Icons.auto_fix_off_outlined,
                 color: autoTune ? const Color(0xFFFFC107) : null),
-            onPressed: () {
+            onPressed: () async {
+              if (!autoTune &&
+                  !await confirmHeavyFeature(context, 'مداد جادویی')) {
+                return;
+              }
+              if (!mounted) return;
               setState(() => autoTune = !autoTune);
               autoTuneSave();
               if (autoTune && !connected) {
@@ -10149,6 +10154,7 @@ UiHero(
               onPressed: (busy || connected)
                   ? null
                   : () async {
+                      if (!await confirmHeavyFeature(context, 'جستجوی سرور با نت ملی')) return;
                       await pickEngineThenStart(() async {
                         natForce = true;
                         await connect();
