@@ -819,9 +819,7 @@ patch('main.dart',
       "    await Future.delayed(const Duration(milliseconds: 1500));\n    try {\n      final nv = natVarFor(s);",
       "    await Future.delayed(const Duration(milliseconds: 1500));\n    if (abort) return false; // ABORTWAIT\n    try {\n      final nv = natVarFor(s);")
 
-patch('main.dart',
-      "        if (!await waitProxyPort(max: const Duration(seconds: 8))) {",
-      "        if (abort || !await waitProxyPort(max: const Duration(seconds: 8))) { // ABORTWAIT")
+# (proxy-mode block removed from the project, so this patch is no longer needed)
 
 patch('main.dart',
       "        ready = await waitSig.future.timeout(connWait, onTimeout: () {",
