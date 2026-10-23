@@ -1556,6 +1556,7 @@ Future<List<String>> natRangeScanStep({
   final from = natRangeCursor % addrs.length;
   final slice = addrs.skip(from).take(maxAddrs).toList();
   natRangeCursor = from + slice.length;
+  natIpScanned += slice.length;
   final out = <String>[];
   for (final port in natAutoPorts(known)) {
     if (stop != null && stop()) break;
