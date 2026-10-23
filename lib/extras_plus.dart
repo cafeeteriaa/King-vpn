@@ -56,7 +56,7 @@ void plusHistAdd(Server s) {
 
 Future<String> _plusIpInfo() async {
   final c = HttpClient()
-    ..findProxy = ((_) => proxyMode ? 'PROXY 127.0.0.1:$httpProxyPort' : 'DIRECT')
+    ..findProxy = ((_) => 'DIRECT')
     ..connectionTimeout = const Duration(seconds: 6);
   try {
     final req = await c
