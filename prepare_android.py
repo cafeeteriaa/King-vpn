@@ -3,7 +3,7 @@ import re
 
 # Android setup for build_app (manifest permissions, gradle versions) and the
 # Dart changes that make the fresh-sources folder visible on the phone
-# (Download/King-VPN) and filled automatically when the app opens.
+# (King-VPN, next to DCIM/Documents) and filled automatically when the app opens.
 # Every edit must match exactly once, otherwise the build stops with a message.
 APP = 'build_app'
 
@@ -57,10 +57,10 @@ OLD_PATH = """String _hotPath() {
 }
 """
 
-NEW_PATH = """// HOTVISIBLE: the fresh-sources folder is Download/King-VPN, so it can be seen in
+NEW_PATH = """// HOTVISIBLE: the fresh-sources folder is King-VPN in the phone's storage root, so it can be seen in
 // the phone's file manager. It needs the "All files access" permission; without it
 // the app keeps using the old private file.
-const String hotVisibleDir = '/storage/emulated/0/Download/King-VPN';
+const String hotVisibleDir = '/storage/emulated/0/King-VPN';
 String _hotPath() {
   try {
     final v = Directory(hotVisibleDir);
