@@ -116,52 +116,11 @@ final List<String> _paths = [
   'lagzian/SS-Collector/main/configs/mixed/ss.txt',
   'lagzian/SS-Collector/main/configs/psg/reality.txt',
   'lagzian/SS-Collector/main/configs/psg/vmess.txt',
-  // verified live 2026-10-16
-  '3inker/v2ray-subscription/main/subs/all_not_ru.txt',
-  '3inker/v2ray-subscription/main/subs/all_ru.txt',
-  'free-nodes/v2rayfree/main/sub',
-  'ermaozi/get_subscribe/main/subscribe/v2ray.txt',
-  'Au1rxx/free-vpn-subscriptions/main/output/v2ray-base64.txt',
-  // ---- the rest
-  'SoliSpirit/v2ray-configs/refs/heads/main/all_configs.txt',
-  'nyeinkokoaung404/V2ray-Configs/main/All_Configs_Sub.txt',
-  for (final p in ['vmess', 'vless', 'trojan', 'ss'])
-    'nyeinkokoaung404/V2ray-Configs/main/Splitted-By-Protocol/$p.txt',
-  'mahdibland/V2RayAggregator/master/sub/sub_merge.txt',
-  for (final p in ['vmess', 'vless', 'trojan', 'ss'])
-    'mahdibland/V2RayAggregator/master/sub/splitted/$p.txt',
-  for (final p in ['mix', 'vmess', 'vless', 'trojan', 'ss'])
-    'yebekhe/TelegramV2rayCollector/main/sub/normal/$p',
-  'Danialsamadi/v2go/main/AllConfigsSub.txt',
-  'roosterkid/openproxylist/main/V2RAY_RAW.txt',
-  'Leon406/SubCrawler/main/sub/share/v2',
-  for (final p in ['mixed', 'vmess', 'vless', 'trojan', 'shadowsocks'])
-    'Surfboardv2ray/TGParse/main/splitted/$p',
-  for (final p in ['vless', 'vmess', 'trojan', 'shadowsocks'])
-    'V2RayRoot/V2RayConfig/main/Config/$p.txt',
-  for (final p in ['vless', 'vmess', 'trojan', 'ss'])
-    'mohamadfg-dev/telegram-v2ray-configs-collector/main/category/$p.txt',
-  for (final p in ['vmess', 'vless', 'trojan', 'ss'])
-    'Bardiafa/Free-V2ray-Config/main/Splitted-By-Protocol/$p.txt',
-  for (final p in ['vmess', 'vless', 'trojan', 'ss'])
-    'F0rc3Run/F0rc3Run/main/splitted-by-protocol/$p.txt',
-  for (final p in ['vl', 'vm', 'tr', 'ss'])
-    'sevcator/5ubscrpt10n/main/protocols/$p.txt',
-  'MahsaNetConfigTopic/config/main/xray_final.txt',
-  'peasoft/NoMoreWalls/master/list.txt',
-  'chengaopan/AutoMergePublicNodes/master/list.txt',
-  'NiREvil/vless/main/sub/SSTime',
-  for (final p in ['mix', 'vmess', 'vless', 'trojan', 'ss'])
-    'MhdiTaheri/V2rayCollector/main/sub/$p',
-  for (final p in ['mixed', 'vmess', 'vless', 'trojan', 'shadowsocks'])
-    'Kwinshadow/TelegramV2rayCollector/main/sub/$p',
-  'Mahdi0024/ProxyCollector/master/sub/proxies.txt',
-  'ShatakVPN/ConfigForge/main/configs/all.txt',
-  'MrMohebi/xray-proxy-grabber-telegram/master/collected-proxies/row-url/all.txt',
-  'Argh94/Proxy-List/main/All_Config.txt',
-  'mehran1404/Sub_Link/main/V2RAY-Sub.txt',
-  'sakha1370/OpenRay/main/output/all_valid_proxies.txt',
-  'wuqb2i4f/xray-config-toolkit/main/output/base64/mix-uri',
+  // ---- ≤3h only (kept by request): 0xRadikal base64 (README: 15 min)
+  '0xRadikal/Free-v2ray-Configs/main/verified-configs-base64.txt',
+  // FAST-GH 2026-10: M-Mashreghi collector, README says every 10 minutes
+  for (var i = 1; i <= 14; i++)
+    'M-Mashreghi/Free-V2ray-Collector/main/Files/shuffle/Sub${i}_shuffled.conf',
 ];
 final List<String> listUrls = [...([..._paths, ..._morePaths].map((p) => '$_gh$p').toList()), ..._extraUrls, ..._npvUrls];
 // repos that publish fresh servers every few minutes / hours: tested first
@@ -324,11 +283,6 @@ const _pingUrls = [
   'https://www.google.com/generate_204',
   'https://telegram.org/',
 ];
-
-// PROXY MODE: no VPN tunnel / no key icon. Only a local proxy is started:
-// SOCKS 127.0.0.1:10808 and HTTP 127.0.0.1:10809 (set it in the other app or
-// in the Wi-Fi proxy settings). Saved in settings ('px').
-bool proxyMode = false;
 // the reason of the last failed start (shown to the user)
 String _lastFailV = '';
 String get lastFail => _lastFailV;
@@ -957,9 +911,9 @@ List<String> _dbgHelpOf(String m) {
   }
   if (has('پورت پروکسی')) {
     return h('E-START-PORT',
-        'app_main/main.dart → _start (waitProxyPort ۸ ثانیه در حالت پروکسی)',
+        'app_main/main.dart → _start (waitProxyPort ۸ ثانیه برای تست بی‌صدا)',
         'هسته بالا نیامد و پورت پروکسی محلی باز نشد.',
-        'در حالت پروکسی مهلت waitProxyPort را بیشتر کن یا به E-START-CORE نگاه کن.');
+        'مهلت waitProxyPort را بیشتر کن یا به E-START-CORE نگاه کن.');
   }
   if (has('مجوز VPN')) {
     return h('E-START-PERM',
@@ -2346,7 +2300,6 @@ Future<bool> _coreProxyOpen() async {
 }
 
 Future<bool> _useCoreProxy(bool wantProxy) async {
-  if (proxyMode) return true;
   if (!wantProxy) return false;
   if (await _coreProxyOpen()) return true;
   // Port may appear a moment after CONNECTED (inbounds just bound)
@@ -2432,10 +2385,12 @@ Future<int> _sitesOpen() async {
     logError(e);
     return -1;
   }
+  // TELEGRAM-REMOVED: pre-connect site check = YouTube, Instagram, WhatsApp, Pornhub
   final r = await Future.wait([
     _siteOpens('https://www.youtube.com/generate_204'),
     _siteOpens('https://www.instagram.com/'),
-    _siteOpens('https://telegram.org/'),
+    _siteOpens('https://web.whatsapp.com/'),
+    _siteOpens('https://www.pornhub.com/'),
   ]);
   return r.where((x) => x).length;
 }
@@ -2482,23 +2437,17 @@ Future<bool?> tunUp() async {
     final l = await NetworkInterface.list();
     tunNames = l.map((i) => i.name).join(',');
     if (l.isEmpty) return null;
+    // VPNFIX: only real VPN interfaces count. rmnet/ccmni/seth are the phone's
+    // mobile-data interfaces and always exist, so counting them made the app
+    // think the tunnel was up while Android had built no VPN (no key icon).
     return l.any((i) {
       final n = i.name.toLowerCase();
-      // Broad OEM coverage: tun/ppp/vpn + Xiaomi/Huawei/Samsung/OPPO/Vivo quirks
       return n.startsWith('tun') ||
           n.startsWith('ppp') ||
-          n.startsWith('vpn') ||
-          n.startsWith('ipsec') ||
           n.startsWith('tap') ||
           n.startsWith('utun') ||
-          n.startsWith('ccmni') ||
-          n.startsWith('rmnet') ||
-          n.startsWith('seth') ||
-          n.startsWith('v4-rmnet') ||
-          n.contains('tun') ||
-          n.contains('ppp') ||
-          n.contains('vpn') ||
-          n.contains('ipsec') ||
+          n.startsWith('ipsec') ||
+          n.startsWith('vpn') ||
           n.contains('xray') ||
           n.contains('v2ray');
     });
@@ -2573,7 +2522,7 @@ bool _gemSkip(Server s) {
 Future<bool> _geminiApiOk({bool direct = true}) async {
   final c = HttpClient()
     ..findProxy = ((_) =>
-        (direct && !proxyMode) ? 'DIRECT' : 'PROXY 127.0.0.1:$httpProxyPort')
+        direct ? 'DIRECT' : 'PROXY 127.0.0.1:$httpProxyPort')
     ..connectionTimeout = const Duration(seconds: 5);
   try {
     return await () async {
@@ -2610,7 +2559,7 @@ Future<bool> _geminiApiOk({bool direct = true}) async {
 Future<bool> _geminiWebOk({bool direct = true}) async {
   final c = HttpClient()
     ..findProxy = ((_) =>
-        (direct && !proxyMode) ? 'DIRECT' : 'PROXY 127.0.0.1:$httpProxyPort')
+        direct ? 'DIRECT' : 'PROXY 127.0.0.1:$httpProxyPort')
     ..connectionTimeout = const Duration(seconds: 5);
   try {
     return await () async {
@@ -4034,7 +3983,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           fragInt = j['fi'] as String? ?? fragInt;
           muxConc = (j['mc'] as num?)?.toInt() ?? muxConc;
           dnsProv = j['dp'] as String? ?? dnsProv;
-          proxyMode = j['px'] as bool? ?? proxyMode;
         }
         failWindow = Duration(minutes: failMin);
         recheckAfter = Duration(minutes: recheckMin);
@@ -4308,7 +4256,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             'fi': fragInt,
             'mc': muxConc,
             'dp': dnsProv,
-            'px': proxyMode,
           }));
     } catch (e) {
       logError(e);
@@ -4982,7 +4929,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // MULTICHK: does this server also reach Telegram/YouTube/Instagram/Pornhub?
   Future<int> _svcOf(Server s) async {
     var m = 0;
-    const urls = ['https://web.telegram.org/', 'https://www.youtube.com/generate_204', 'https://www.instagram.com/', 'https://www.pornhub.com/'];
+    const urls = ['https://www.instagram.com/', 'https://www.youtube.com/generate_204', 'https://web.whatsapp.com/', 'https://www.pornhub.com/'];
     try {
       final cfg = V2ray.parseFromURL(s.useLink).getFullConfiguration();
       final rs = await Future.wait(urls.map((u) => v2ray
@@ -5275,8 +5222,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   // ---------- connect ----------
   // proxyOnly = silent test core (used by the tests).
-  // proxyMode (setting) = the REAL connection is also only a local proxy:
-  // no VPN permission, no tunnel, no key icon.
   Future<bool> _start(Server s, {bool proxyOnly = false}) async {
     lastStartNoTunnel = false;
     lastFail = '';
@@ -5287,7 +5232,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       lastFail = 'اتصال توسط کاربر خواسته نشده بود';
       return false;
     }
-    final po = proxyOnly || proxyMode;
+    final po = proxyOnly;
     // FIX: بعد از توقف هسته قبلی، کمی صبر کن تا پورت آزاد شود (رفع XRAY-ERR)
     await Future.delayed(const Duration(milliseconds: 1500));
     try {
@@ -5345,16 +5290,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
       }
       if (po) {
+        // silent test core only (proxyOnly): no VPN permission, no tunnel
         await v2ray.startV2Ray(
             remark: s.name, config: cfg, proxyOnly: true);
-        if (proxyOnly) return true;
-        // proxy mode as the real connection: the local proxy port must open
-        if (!await waitProxyPort(max: const Duration(seconds: 8))) {
-          lastFail = 'پورت پروکسی باز نشد (هسته بالا نیامد)';
-          await _stopCore();
-          return false;
-        }
-        tunWarn = false;
         return true;
       }
       bool? t;
@@ -5751,8 +5689,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // true = opens, false = does not open, null = could not test.
   Future<bool?> _preSocialCheck(Server s) async {
     try {
-      if (proxyMode) return null;
-      if (!await _start(s, proxyOnly: true)) return null;
+        if (!await _start(s, proxyOnly: true)) return null;
       if (abort) {
         await _stopCore();
         return null;
@@ -5765,8 +5702,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         await _stopCore();
         return null;
       }
-      // فقط تلگرام (طبق خواسته‌ی کاربر): اینستاگرام/یوتیوب چک نمی‌شوند
-      final tgOk = await _siteOpens('https://telegram.org/', viaCore: true);
+      // TELEGRAM-REMOVED: the silent test checks YouTube/Instagram/WhatsApp/Pornhub
+      final tgOk = (await Future.wait([
+        _siteOpens('https://www.youtube.com/generate_204', viaCore: true),
+        _siteOpens('https://www.instagram.com/', viaCore: true),
+        _siteOpens('https://web.whatsapp.com/', viaCore: true),
+        _siteOpens('https://www.pornhub.com/', viaCore: true),
+      ])).any((x) => x);
       await _stopCore();
       await Future.delayed(const Duration(milliseconds: 300));
       dbg('تست بی‌صدا ${s.name}: telegram=$tgOk');
@@ -5797,8 +5739,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         dbg('ℹ ${s.name}: برای هسته ۳.۵.۰ پشتیبانی نمی‌شود ($badCfg) • بدون تست رد شد • سرور بعدی');
         continue;
       }
-      if (!trust && !pin && !nationalMode && !proxyMode) {
-        _set('بررسی تلگرام روی ${s.name}...');
+      if (!trust && !pin && !nationalMode) {
+        _set('بررسی سایت‌ها روی ${s.name}...');
         final sc = await _preSocialCheck(s);
         if (abort) return false;
         if (sc == false) {
@@ -5927,14 +5869,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // STRICT: Telegram / YouTube / Instagram must open through the tunnel.
       // Also runs under national mode (softer retries + ladder before reject).
       if (!trust && !pin) {
-        final needSocial = !proxyMode;
+        final needSocial = true;
         if (needSocial && !await _coreProxyOpen()) {
           // VPN mode: traffic goes via tun; still try site checks with viaCore
           dbg('چک سایت‌ها ${s.name}: پورت هسته ممکن است بسته باشد؛ تست مستقیم تونل');
         }
-        if (needSocial || proxyMode) {
-          _set('بررسی تلگرام روی ${s.name}...');
-          if (proxyMode || (await tunUp()) != true) {
+        if (needSocial) {
+          _set('بررسی سایت‌ها روی ${s.name}...');
+          if ((await tunUp()) != true) {
             await waitProxyPort(
                 max: Duration(seconds: nationalMode ? 8 : 4));
           }
@@ -5943,12 +5885,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           Future<List<bool>> runSocial() async {
             try {
               // فقط تلگرام: یوتیوب/اینستاگرام/cloudflare/gstatic برای اتصال سریع‌تر حذف شدند
+              // TELEGRAM-REMOVED: pre-connect check now uses Instagram, YouTube, WhatsApp, Pornhub
               final checks = await Future.wait([
-                _siteOpens('https://telegram.org/', viaCore: true),
-                _siteOpens('https://web.telegram.org/', viaCore: true),
+                _siteOpens('https://www.instagram.com/', viaCore: true),
+                _siteOpens('https://www.youtube.com/generate_204', viaCore: true),
+                _siteOpens('https://web.whatsapp.com/', viaCore: true),
+                _siteOpens('https://www.pornhub.com/', viaCore: true),
               ]).timeout(const Duration(seconds: 8),
-                  onTimeout: () => <bool>[false, false]);
-              return [checks[0], checks[1], false, false, false, false, false, false];
+                  onTimeout: () => <bool>[false, false, false, false]);
+              return [checks[0], checks[1], checks[2], checks[3], false, false, false, false];
             } catch (e) {
               logError(e);
               return List<bool>.filled(8, false);
@@ -5957,21 +5902,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
           var r = await runSocial();
           if (abort) return false;
-          bool tg = r[0] || r[1];
-          bool yt = r[2] || r[3];
-          bool ig = r[4] || r[5];
+          bool tg = r[0] || r[1] || r[2] || r[3];
+          bool yt = r[1];
+          bool ig = r[0];
           bool socialOk = tg;
           // National / slow: one more pass after short settle
           if (!socialOk && (nationalMode || indestructibleMode)) {
             await Future.delayed(const Duration(milliseconds: 800));
             r = await runSocial();
-            tg = r[0] || r[1];
-            yt = r[2] || r[3];
-            ig = r[4] || r[5];
+            tg = r[0] || r[1] || r[2] || r[3];
+            yt = r[1];
+            ig = r[0];
             socialOk = tg;
           }
           dbg('چک سایت‌ها ${s.name}: tg=$tg yt=$yt ig=$ig '
-              'cf=${r[6]} gs=${r[7]}');
+              'wa=${r[2]} ph=${r[3]}');
 
           if (!socialOk &&
               (nationalMode || ultraMode || indestructibleMode) &&
@@ -5984,9 +5929,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   max: Duration(seconds: nationalMode ? 8 : 5));
               await Future.delayed(const Duration(milliseconds: 400));
               r = await runSocial();
-              tg = r[0] || r[1];
-              yt = r[2] || r[3];
-              ig = r[4] || r[5];
+              tg = r[0] || r[1] || r[2] || r[3];
+              yt = r[1];
+              ig = r[0];
               socialOk = tg;
               if (socialOk) {
                 s.svc = (tg ? 1 : 0) | (yt ? 2 : 0) | (ig ? 4 : 0);
@@ -6247,7 +6192,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return 'وصل شد${sp == null ? '' : ' • ${sp.toStringAsFixed(1)} MB/s'}$live$mode'
         ' • کیفیت: $q (${qualityLabel(q)})'
         ' • سالم: $standbyCount'
-        '${proxyMode ? ' • حالت پروکسی (SOCKS 10808 / HTTP 10809)' : ''}'
         '${tunWarn ? ' • ⚠ تونل VPN ساخته نشد' : ''}'
         '${offlineOnly ? ' • آفلاین' : ''}'
         '${dataSaver ? ' • صرفه‌جویی' : ''}'
@@ -7291,7 +7235,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     // Ask VPN permission once while Activity is alive (right after ad),
     // so later _start calls do not hit NO_ACTIVITY during the server loop.
-    if (!proxyMode && inForeground) {
+    if (inForeground) {
       try {
         final ok = await v2ray.requestPermission();
         if (ok) vpnPermOk = true;
@@ -8598,7 +8542,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // VPN tunnel (no key icon). If tun is missing twice in a row, the
           // VPN is rebuilt on the same server (max 2 tries per connection).
           // (not used in proxy mode: there is no tunnel on purpose)
-          final tn = proxyMode ? null : await tunUp();
+          final tn = await tunUp();
           if (tn == false) dbg('تونل VPN اندروید (tun) دیده نشد');
           if (!connected || busy || switching) return;
           if (tn == true) {
@@ -9109,7 +9053,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       dbg('همگام‌سازی خودکار: واچ‌داگ خاموش بود؛ دوباره روشن شد');
       _startWatch();
     }
-    _insWarn('tunw', connected && tunWarn && !proxyMode, 6,
+    _insWarn('tunw', connected && tunWarn, 6,
         'تونل VPN اندروید (tun) دیده نمی‌شود');
     _insWarn('noready', connected && _ready() == 0 && !searching, 60,
         'سرور آماده‌ی جایگزین نیست و جستجویی هم در کار نیست');
@@ -9512,7 +9456,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   void _settingsSheet() {
-    final pmBefore = proxyMode;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -9576,10 +9519,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     head('🧩 نوع اتصال'),
-                    sw('حالت پروکسی (بدون VPN)', proxyMode,
-                        (v) => proxyMode = v,
-                        sub:
-                            'فقط یک پروکسی محلی روشن می‌شود: SOCKS روی 127.0.0.1:10808 و HTTP روی 127.0.0.1:10809. آیکن کلید VPN نمی‌آید و برنامه‌های دیگر خودکار رد نمی‌شوند؛ باید در آن‌ها (یا در تنظیم پروکسی Wi-Fi) این آدرس را بدهی'),
                     this.resetNumButton(setS),
                     head('⚡ سرعت تست'),
                     row('تست همزمان (جستجوی اول)', '$fastWorkers',
@@ -9685,7 +9624,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       unawaited(_saveSettings().catchError((e) => logError(e)));
       if (mounted) setState(() {});
       // the connection type changed while connected: rebuild it right away
-      if (connected && pmBefore != proxyMode && !busy) _restartTunnel();
     });
   }
 
@@ -10252,26 +10190,6 @@ UiHero(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Row(children: [
-              // connection type: VPN (tunnel + key icon) or only a local proxy
-              Padding(
-                padding: const EdgeInsets.only(left: 6),
-                child: ActionChip(
-                  label: Text(proxyMode ? '🧩 حالت: پروکسی' : '🔐 حالت: VPN'),
-                  onPressed: busy
-                      ? null
-                      : () {
-                          setState(() => proxyMode = !proxyMode);
-                          unawaited(_saveSettings().catchError((e) => logError(e)));
-                          if (connected) {
-                            _restartTunnel();
-                          } else {
-                            _set(proxyMode
-                                ? 'حالت پروکسی: بعد از اتصال، SOCKS روی 127.0.0.1:10808 و HTTP روی 127.0.0.1:10809 است'
-                                : 'حالت VPN');
-                          }
-                        },
-                ),
-              ),
               Padding(
                 padding: const EdgeInsets.only(left: 6),
                 child: ActionChip(
