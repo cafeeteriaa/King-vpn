@@ -6392,7 +6392,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 'صبر بیشتر، تعویض کمتر', () => _applyProfile('weak'), heavy: true),
             tile(Icons.auto_awesome, 'سرور AI (Gemini/Grok)',
                 'سرورهایی که API هوش مصنوعی را باز می‌کنند',
-                () => connectRow('r:ai'), heavy: true),
+                () => pickEngineThenStart(() => connectRow('r:ai')), heavy: true),
           ]),
         ),
       ),
@@ -6699,9 +6699,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 }
                 if (!mounted) return;
                 Navigator.pop(ctx);
-                natForce = true;
-                _resNext = true;
-                unawaited(connect().catchError((e) => logError(e)));
+                if (!await pickEngineThenStart(() async {
+                  _resNext = true;
+                  await connect();
+                }, askNet: true)) return;
               },
             ),
             ListTile(
@@ -6715,8 +6716,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 }
                 if (!mounted) return;
                 Navigator.pop(ctx);
-                _resNext = true;
-                unawaited(connect().catchError((e) => logError(e)));
+                if (!await pickEngineThenStart(() async {
+                  _resNext = true;
+                  await connect();
+                }, askNet: true)) return;
               },
             ),
             ListTile(
@@ -9922,7 +9925,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             InkWell(
               onTap: (connected && identical(s, current))
                   ? null
-                  : () => connect(s),
+                  : () => pickEngineThenStart(() => connect(s)),
               child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               child: Row(children: [
@@ -10036,7 +10039,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           child: Text(t, style: const TextStyle(fontWeight: FontWeight.bold)),
         );
     Widget rowHeader(String gid, String t) => InkWell(
-          onTap: () => connectRow(gid),
+          onTap: () => pickEngineThenStart(() => connectRow(gid)),
           child: Container(
             width: double.infinity,
             color: Color(0xFF2A2D33),
@@ -10065,7 +10068,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
         );
     final rows = <Object>[];
-    rows.add(searchAllRow(() => unawaited(connect().catchError((e) => logError(e)))));
+    rows.add(searchAllRow(() => unawaited(pickEngineThenStart(() => connect())
+        .catchError((e) { logError(e); return false; }))));
     groups.forEach((g, l) {
       if (g == 'p:personal') {
         rows.add(_personalHeader());
@@ -10256,7 +10260,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             icon: const Icon(Icons.refresh),
             onPressed: (busy || connected)
                 ? null
-                : () {
+                : () async {
+                    if (!await pickEngineThenStart(() async {})) return;
                     for (final g in good) {
                       g.checkedAt = null;
                     }
@@ -10376,11 +10381,8 @@ UiHero(
                   : () async {
                       if (!await confirmHeavyFeature(context, 'جستجوی سرور با نت ملی')) return;
                       await pickEngineThenStart(() async {
-                        userModeChoice = true;
-                        nationalMode = true;
-                        natForce = true;
-                        startLocalPilot(national: true);
-                      }, askNet: false);
+                        startLocalPilot(national: userModeChoice == true);
+                      }, askNet: true);
                     },
               icon: const Icon(Icons.public_off),
               label: const Text('جستجوی سرور با نت ملی'),
@@ -10424,14 +10426,14 @@ UiHero(
                 isScrollControlled: true,
                 builder: (_) => SafeArea(
                     child: SingleChildScrollView(child: tgProxyRow(context))))),
-            UiTool(Icons.push_pin_outlined, 'کانفیگ‌های من', () => connectRow('f:mine')),
+            UiTool(Icons.push_pin_outlined, 'کانفیگ‌های من', () => pickEngineThenStart(() => connectRow('f:mine'))),
             UiTool(Icons.auto_awesome, 'سرورهای AI', () async {
               await pickEngineThenStart(() => connectRow('r:ai'));
             }),
-            UiTool(Icons.pin_outlined, 'اتصال با IP', () => connectRow('r:ip')),
-            UiTool(Icons.cloud_outlined, 'CDN / کلودفلر', () => connectRow('r:cdn')),
-            UiTool(Icons.shield_outlined, 'Reality', () => connectRow('r:reality')),
-            UiTool(Icons.power_outlined, 'WebSocket', () => connectRow('r:ws')),
+            UiTool(Icons.pin_outlined, 'اتصال با IP', () => pickEngineThenStart(() => connectRow('r:ip'))),
+            UiTool(Icons.cloud_outlined, 'CDN / کلودفلر', () => pickEngineThenStart(() => connectRow('r:cdn'))),
+            UiTool(Icons.shield_outlined, 'Reality', () => pickEngineThenStart(() => connectRow('r:reality'))),
+            UiTool(Icons.power_outlined, 'WebSocket', () => pickEngineThenStart(() => connectRow('r:ws'))),
             UiTool(Icons.favorite_border, 'حمایت از ما', () => donateSheet(context)),
             UiTool(Icons.bug_report_outlined, 'تست خودکار ۶۰ دقیقه', () {
               if (isAutoTesting) {
@@ -10558,7 +10560,7 @@ UiHero(
                       ? null
                       : (s.personal
                           ? () => connectPersonal()
-                          : () => connect(s, gid)),
+                          : () => pickEngineThenStart(() => connect(s, gid))),
                   onLongPress: () => _toggleFav(s),
                 ));
               },
