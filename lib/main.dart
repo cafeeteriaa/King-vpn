@@ -6885,7 +6885,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
       }
       final was = nationalMode;
-      if (natForce) {
+      if (userModeChoice == false) {
+        nationalMode = false; // کاربر نت جهانی انتخاب کرده
+      } else if (natForce) {
         nationalMode = true; // NATBTNPATCH: forced by the button
       } else if (world) {
         nationalMode = false;
@@ -10374,9 +10376,11 @@ UiHero(
                   : () async {
                       if (!await confirmHeavyFeature(context, 'جستجوی سرور با نت ملی')) return;
                       await pickEngineThenStart(() async {
+                        userModeChoice = true;
+                        nationalMode = true;
                         natForce = true;
                         startLocalPilot(national: true);
-                      });
+                      }, askNet: false);
                     },
               icon: const Icon(Icons.public_off),
               label: const Text('جستجوی سرور با نت ملی'),
