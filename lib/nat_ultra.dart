@@ -1904,7 +1904,7 @@ Future<void> natHotEnsure({bool force = false}) async {
         _hotFailAt = DateTime.now();
         try {
           await File(newPath).delete();
-        } catch (_) {}
+        } catch (e) { errJournalAdd(e, kind: 'SILENT-FILE'); }
       } else if (total > 0) {
         _hotFailAt = null;
         await File(newPath).rename(_hotPath());
@@ -1917,13 +1917,13 @@ Future<void> natHotEnsure({bool force = false}) async {
         _hotFailAt = DateTime.now();
         try {
           await File(newPath).delete();
-        } catch (_) {}
+        } catch (e) { errJournalAdd(e, kind: 'SILENT-FILE'); }
       }
     } finally {
       for (final p in [...parts, extraPath]) {
         try {
           await File(p).delete();
-        } catch (_) {}
+        } catch (e) { errJournalAdd(e, kind: 'SILENT-FILE'); }
       }
     }
   } catch (e) {
