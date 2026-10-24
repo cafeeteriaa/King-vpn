@@ -844,29 +844,8 @@ patch('main.dart',
 # a failed download is retried after 30 minutes instead of on every connect, and a connect
 # no longer waits for the download (it runs in the background).
 # ---------------------------------------------------------------------------
-patch('nat_ultra.dart',
-      "bool _hotBusy = false;\n",
-      "bool _hotBusy = false;\n"
-      "DateTime? _hotFailAt; // HOTRETRY: last failed download (retry after a cooldown, not on every connect)\n")
-
-patch('nat_ultra.dart',
-      "Future<void> natHotEnsure() async {\n",
-      "Future<void> natHotEnsure({bool force = false}) async {\n")
-
-patch('nat_ultra.dart',
-      "    if (age < natHotTtl && (_hotLines != null || f.lengthSync() > 0)) return;\n",
-      "    if (!force && age < natHotTtl && (_hotLines != null || f.lengthSync() > 0)) return;\n"
-      "    if (!force && _hotFailAt != null &&\n"
-      "        DateTime.now().difference(_hotFailAt!) < const Duration(minutes: 30)) return; // HOTRETRY\n")
-
-patch('nat_ultra.dart',
-      "    final fresh = await natHotFetch(natHotUrls());\n",
-      "    final fresh = await natHotFetch(natHotUrls());\n"
-      "    _hotFailAt = fresh.isEmpty ? DateTime.now() : null; // HOTRETRY\n")
-
-patch('nat_ultra.dart',
-      "    if (fetch) await natHotEnsure();",
-      "    if (fetch) unawaited(natHotEnsure()); // HOTBG: background, the connect must not wait for the download")
+# HOTRETRY / HOTBG / natHotEnsure(force) are now written directly in lib/nat_ultra.dart
+# (cooldown, background build, streamed file). The old anchors no longer exist, so they are not applied.
 
 patch('main.dart',
       "            const Divider(height: 1),\n"
