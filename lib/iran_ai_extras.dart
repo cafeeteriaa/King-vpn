@@ -1340,6 +1340,7 @@ extension HomeExtras on _HomePageState {
       return false; // اتصال آفلاین بعد از ساخته شدن پوشه
     }
     offlineOnly = mode == 'offline';
+    userOfflineChoice = offlineOnly;
     await ultimateSave();
     return true;
   }
@@ -1533,9 +1534,10 @@ extension HomeExtras on _HomePageState {
         await connect();
       }
     } else if (a == 'search_national') {
-      natForce = true;
-      // do not force endless search — keeps data usage low
-      nationalMode = true;
+      if (userModeChoice != false) {
+        natForce = true;
+        nationalMode = true;
+      }
       if (!busy) await connect();
     } else if (a == 'enable_turbo') {
       turboSpeed = true;
@@ -1811,6 +1813,7 @@ extension HomeExtras on _HomePageState {
                       FilledButton.tonal(
                           onPressed: () async {
                             await save();
+                            if (!await pickNetworkThenOnlineOffline()) return;
                             aiAnalyze();
                           },
                           child: const Text('📊 تحلیل اتصال')),
@@ -2072,7 +2075,7 @@ extension HomeExtras on _HomePageState {
       final weakTunnel = !hasSpeed && softSpeed && s.score < 40;
       // بین‌الملل قطع شده (تلگرام چند بار جواب نمی‌دهد) و تونل مرده است:
       // نت ملی را روشن کن؛ قطع بعدی با همان تصمیم «جستجوی ملی» وصل می‌شود
-      if (deadTunnel && _localTgFail >= 2) {
+      if (deadTunnel && _localTgFail >= 2 && userModeChoice != false) {
         natForce = true;
         _localPhase = 'degraded';
         return _LocalDecision('switch_best', set,
@@ -2319,9 +2322,10 @@ extension HomeExtras on _HomePageState {
         unawaited(_saveCache());
         break;
       case 'search_national':
-        natForce = true;
-        // do not force endless search — keeps data usage low
-        nationalMode = true;
+        if (userModeChoice != false) {
+          natForce = true;
+          nationalMode = true;
+        }
         if (!busy) await connect();
         break;
       case 'enable_turbo':
@@ -2475,7 +2479,7 @@ extension HomeExtras on _HomePageState {
     autoSpeed = true;
     autoCycle = true;
     savedFirst = true;
-    offlineOnly = false;
+    if (userOfflineChoice != true) offlineOnly = false;
     minSpeedKB = 0;
 
     // فرمول‌های پیوسته نسبت به قدرت (هرچه بالاتر = تهاجمی‌تر)
@@ -3219,6 +3223,8 @@ Future<String?> tunedSettings(SharedPreferences p) async {
 bool localPilotOn = false;
 // انتخاب صریح کاربر: null = نامشخص (خودکار)، true = نت ملی، false = نت جهانی
 bool? userModeChoice;
+// انتخاب صریح کاربر: null = نامشخص، true = آفلاین، false = آنلاین
+bool? userOfflineChoice;
 Timer? localPilotLoop;
 final localPilotText = ValueNotifier<String>(
     'خلبان محلی King Pro آماده است.\nبدون API • تحلیل واقعی شبکه • اولویت تلگرام');
