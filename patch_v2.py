@@ -10,8 +10,23 @@ import sys
 LIB = sys.argv[1] if len(sys.argv) > 1 else 'build_app/lib'
 
 
+# Anchors that point at the OLD V2Ray-only auto test (replaced by the 60-minute
+# section test in auto_test.dart). They no longer exist, so these patches are
+# skipped on purpose. Any other anchor mismatch still stops the build.
+OBSOLETE_ANCHORS = (
+    "_atStopEarly = false;",
+    "_atFailStreak = 0;\n\n    await _atWait(const Duration(seconds: 12)",
+    "_atAdd('ENG-FAIL',",
+    "await _atScenarioLongStable(); // 5",
+    "dbg('🧪 اتصال موتور: $label ($id)');",
+)
+
+
 def patch(fname, old, new):
     path = os.path.join(LIB, fname)
+    if fname == 'auto_test.dart' and any(k in old for k in OBSOLETE_ANCHORS):
+        print(f'SKIP (obsolete auto test anchor): {old[:50]!r}')
+        return
     with open(path, encoding='utf-8') as f:
         src = f.read()
     n = src.count(old)
