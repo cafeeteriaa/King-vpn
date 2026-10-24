@@ -51,7 +51,7 @@ OLD_PATH = """String _hotPath() {
     final d = Directory(dir);
     if (!d.existsSync()) d.createSync(recursive: true);
     return '$dir/hot_cache.txt';
-  } catch (_) {
+  } catch (jex, jstk) { errJournalAdd(jex, st: jstk);
     return '${Directory.systemTemp.path}/hot_cache.txt';
   }
 }
