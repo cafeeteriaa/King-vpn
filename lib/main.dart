@@ -5436,8 +5436,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             t = await tunUp();
           }
           // one more chance on national / weak OEMs: some expose tun late
-          if (t == false) {
-            await Future.delayed(const Duration(milliseconds: 1400));
+          // HEALTHY-FIX: poll up to ~6s for the tunnel (it can appear late)
+          for (var pi = 0; pi < 6 && t == false && !abort; pi++) {
+            await Future.delayed(const Duration(milliseconds: 1000));
             t = await tunUp();
           }
         }
@@ -6042,7 +6043,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               viaCore: true);
           if (abort) return false;
           // فقط تلگرام باید از تونل باز شود
-          final accept2 = tg;
+          // HEALTHY-FIX: if no site opened but the tunnel IS up and the core is
+          // CONNECTED, the server is healthy: accept it (the speed test follows).
+          final accept2 = tg || (await tunUp()) == true;
 
           if (!accept2) {
             siteSkips++;
