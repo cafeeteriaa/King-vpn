@@ -8070,6 +8070,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   // ---------- personal Cloudflare server ----------
+  /// سرور شخصی هم اول می‌پرسد نت ملی/جهانی و آنلاین/آفلاین (اگر سرور شخصی نباشد، راهنما باز می‌شود)
+  Future<void> connectPersonalAsk() async {
+    if (personal == null) {
+      _guideSheet();
+      return;
+    }
+    await pickEngineThenStart(() => connectPersonal());
+  }
+
   Future<void> connectPersonal() async {
     final s = personal;
     if (s == null) {
@@ -10417,7 +10426,7 @@ UiHero(
                       ? 'حالت شبکه خودکار روشن شد؛ هر بار قبل از اتصال شبکه را می‌سنجد'
                       : 'حالت شبکه خودکار خاموش شد؛ تنظیمات دستی می‌مانند');
                 }),
-            UiTool(Icons.add_home_outlined, 'ساخت سرور شخصی', () => connectPersonal()),
+            UiTool(Icons.add_home_outlined, 'ساخت سرور شخصی', () => connectPersonalAsk()),
             UiTool(Icons.shopping_cart_outlined, 'خرید سرور شخصی', () => serverShopOpen(context)),
             UiTool(Icons.campaign_outlined, 'کانال‌های تلگرامی', () => telegramChannelsOpen(context)),
             UiTool(Icons.cleaning_services_outlined, 'IP تمیز', () => cleanIpDialog()),
@@ -10559,7 +10568,7 @@ UiHero(
                   onTap: isCur
                       ? null
                       : (s.personal
-                          ? () => connectPersonal()
+                          ? () => connectPersonalAsk()
                           : () => pickEngineThenStart(() => connect(s, gid))),
                   onLongPress: () => _toggleFav(s),
                 ));
