@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart' show compute;
 import 'dart:convert';
 import 'dart:io';
@@ -1516,7 +1517,47 @@ bool _isNoActivity(Object e) {
       s.contains('Activity is not available');
 }
 
+// ERRJOURNAL: دفتر کامل خطاها برای تست ۶۰ دقیقه‌ای.
+// هر خطایی که از logError رد شود (حتی خطاهای شبکه‌ای که قبلاً فقط شمرده می‌شدند)
+// با زمان، نوع، پیام کامل، جای دقیق در کد (فایل:خط) و بخش فعلی تست ثبت می‌شود.
+class ErrEntry {
+  final DateTime at;
+  final String type;
+  final String msg;
+  final String where;
+  final String tag;
+  ErrEntry(this.at, this.type, this.msg, this.where, this.tag);
+}
+
+final List<ErrEntry> errJournal = [];
+const int kErrJournalMax = 100000;
+const String kErrJournalPath =
+    '/data/data/com.kingvpn.king_vpn/cache/errjournal.log';
+String errTag = ''; // نام بخش فعلی تست، تا معلوم شود خطا در کدام بخش افتاده
+
+void errJournalAdd(Object e, {String kind = ''}) {
+  try {
+    if (errJournal.length >= kErrJournalMax) errJournal.removeAt(0);
+    final now = DateTime.now();
+    final k = kind.isNotEmpty ? kind : e.runtimeType.toString();
+    final where = _dbgWhere();
+    errJournal.add(ErrEntry(now, k, e.toString(), where, errTag));
+    // روی دیسک هم ذخیره می‌شود تا با بسته شدن برنامه از بین نرود
+    try {
+      final f = File(kErrJournalPath);
+      // وقتی فایل خیلی بزرگ شد، نسخه‌ی قبلی نگه داشته می‌شود (چیزی پاک نمی‌شود)
+      if (f.existsSync() && f.lengthSync() > 256 * 1024 * 1024) {
+        f.renameSync('$kErrJournalPath.old');
+      }
+      f.writeAsStringSync(
+          '${now.toIso8601String()} | $k | بخش: $errTag\nجای خطا: $where\n${e.toString()}\n\n',
+          mode: FileMode.append);
+    } catch (_) {}
+  } catch (_) {}
+}
+
 void logError(Object e) {
+  errJournalAdd(e);
   // NO_ACTIVITY is a transient Android race (no Activity for VPN dialog):
   // never paint it red on the home screen — just log quietly.
   if (_isNoActivity(e)) {
@@ -1681,6 +1722,11 @@ void main() {
   runZonedGuarded(() {
     WidgetsFlutterBinding.ensureInitialized();
     FlutterError.onError = (d) => logError(d.exception);
+    // خطاهای async که هیچ‌جا گرفته نشده‌اند هم ثبت شوند
+    ui.PlatformDispatcher.instance.onError = (e, st) {
+      logError(e);
+      return true;
+    };
     // errors coming from native code / platform channels must never kill
     // the app
     WidgetsBinding.instance.platformDispatcher.onError = (e, st) {
@@ -5568,7 +5614,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // one attempt per config: a config that does not reach CONNECTED in time
       // is skipped, so a failing server cannot eat the whole wait
       for (var attempt = 0; attempt < 1; attempt++) {
-        try { File(kXrayErrPath).deleteSync(); } catch (_) {}
+        try { File(kXrayErrPath).deleteSync(); } catch (e) { errJournalAdd(e, kind: 'SILENT-FILE'); }
         // RARE BUG FIX: generation so late CONNECTED from attempt 0
         // cannot complete attempt 1's waiter
         final myGen = ++_connGen;
@@ -7061,7 +7107,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           final r = await InternetAddress.lookup(h)
               .timeout(const Duration(seconds: 3));
           if (r.isNotEmpty) ipOf[h] = r.first.address;
-        } catch (_) {}
+        } catch (e) { errJournalAdd(e, kind: 'SILENT-DNS'); }
       }
       final targets = [for (final s in cands) if (ipOf.containsKey(s.host)) s];
       final ok = <Server>[];
