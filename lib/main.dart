@@ -6888,8 +6888,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
       }
       final was = nationalMode;
-      if (userModeChoice == false) {
-        nationalMode = false; // کاربر نت جهانی انتخاب کرده
+      if (userModeChoice != null) {
+        // کاربر خودش انتخاب کرده: همان حالت را نگه می‌داریم، تشخیص خودکار تغییرش نمی‌دهد
+        nationalMode = userModeChoice == true;
       } else if (natForce) {
         nationalMode = true; // NATBTNPATCH: forced by the button
       } else if (world) {
@@ -10189,7 +10190,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               if (v == 'dna') _plusDnaBoard();
               if (v == 'diagfull') exportFullDiag();
               if (v == 'panic') panicNow();
-              if (v == 'offline') connectBestCached();
+              if (v == 'offline') {
+                unawaited(pickNetworkThenOnlineOffline().then((ok) {
+                  if (ok) connectBestCached();
+                }));
+              }
               if (v == 'plus') plusSheet();
               if (v == 'donate') donateSheet(context);
               if (v == 'shop') serverShopOpen(context);
@@ -10250,6 +10255,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             onPressed: () async {
               if (!autoTune &&
                   !await confirmHeavyFeature(context, 'مداد جادویی')) {
+                return;
+              }
+              // مداد جادویی هم اول می‌پرسد نت ملی/جهانی و آنلاین/آفلاین
+              if (!autoTune && !await pickNetworkThenOnlineOffline()) {
                 return;
               }
               if (!mounted) return;
