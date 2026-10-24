@@ -1260,10 +1260,44 @@ extension HomeExtras on _HomePageState {
   }
 
   /// همه‌ی دکمه‌های اتصال اول می‌پرسند: آنلاین یا آفلاین، بعد موتور VPN.
+  /// اول می‌پرسد نت جهانی یا ملی، بعد آنلاین/آفلاین
+  Future<bool> pickNetworkThenOnlineOffline() async {
+    final net = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('کدام اینترنت؟'),
+          content: const Text('اتصال با اینترنت جهانی یا نت ملی؟'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dctx, null),
+                child: const Text('انصراف')),
+            TextButton(
+                onPressed: () => Navigator.pop(dctx, false),
+                child: const Text('نت جهانی')),
+            TextButton(
+                onPressed: () => Navigator.pop(dctx, true),
+                child: const Text('نت ملی')),
+          ],
+        ),
+      ),
+    );
+    if (net == null) return false;
+    userModeChoice = net;
+    natForce = net;
+    nationalMode = net;
+    indestructibleMode = net; // جهانی: قفل نت ملی باز شود
+    return _askOnlineOfflineMode();
+  }
+
+  /// همه‌ی دکمه‌های اتصال اول می‌پرسند: شبکه (ملی/جهانی)، آنلاین/آفلاین، بعد موتور
   Future<bool> pickEngineThenStart(Future<void> Function() start,
-      {bool askMode = true}) async {
+      {bool askMode = true, bool askNet = true}) async {
     if (askMode) {
-      final ok = await _askOnlineOfflineMode();
+      final ok = askNet
+          ? await pickNetworkThenOnlineOffline()
+          : await _askOnlineOfflineMode();
       if (!ok) return false;
     }
     final e = await pickVpnEngineDialog();
@@ -2464,14 +2498,14 @@ extension HomeExtras on _HomePageState {
 
     // سوییچ‌های وابسته به قدرت / مکان / نوع جستجو
     if (p >= 2) ultraMode = true;
-    if (p >= 4) {
+    if (p >= 4 && userModeChoice != false) {
       nationalMode = true;
       autoCycle = true;
       try {
         natGrow((80 + p * 20).clamp(80, 600).toInt());
       } catch (e) { logError(e); }
     }
-    if (p >= 8) {
+    if (p >= 8 && userModeChoice != false) {
       indestructibleMode = true;
       try {
         natGrow((150 + p * 25).clamp(150, 800).toInt());
@@ -2613,7 +2647,11 @@ extension HomeExtras on _HomePageState {
         } catch (e) { logError(e); }
         final want = _localNatBtn ? max(_localAutoPickPower(), 4) : _localAutoPickPower();
         _localApplyMaxPowerProfile(power: want);
-        if (nationalMode || _localPower >= 4) {
+        if (userModeChoice == false) {
+          natForce = false;
+          nationalMode = false;
+        } else if (national || userModeChoice == true ||
+            nationalMode || _localPower >= 4) {
           natForce = true;
           _resInject();
         }
@@ -2642,6 +2680,11 @@ extension HomeExtras on _HomePageState {
     localPilotLoop = null;
     _localPhase = 'boot';
     if (_localPower >= 8) {
+      indestructibleMode = false;
+    }
+    natForce = false;
+    if (userModeChoice != true) {
+      nationalMode = false;
       indestructibleMode = false;
     }
     final peak = _localPeakPower;
@@ -3174,6 +3217,8 @@ Future<String?> tunedSettings(SharedPreferences p) async {
 // هیچ کلید API لازم نیست. تا قطع دستی کاربر، کنترل کامل دارد.
 
 bool localPilotOn = false;
+// انتخاب صریح کاربر: null = نامشخص (خودکار)، true = نت ملی، false = نت جهانی
+bool? userModeChoice;
 Timer? localPilotLoop;
 final localPilotText = ValueNotifier<String>(
     'خلبان محلی King Pro آماده است.\nبدون API • تحلیل واقعی شبکه • اولویت تلگرام');
