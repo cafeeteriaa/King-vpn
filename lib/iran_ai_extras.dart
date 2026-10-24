@@ -87,8 +87,8 @@ String withIranRouting(String cfg) {
     if (iranGeoip) routing['domainStrategy'] = 'IPIfNonMatch';
     j['routing'] = routing;
     return jsonEncode(j);
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return cfg;
   }
 }
@@ -179,8 +179,8 @@ Future<void> saveGeminiPrefs() async {
     await p.setString('deepseek_key', deepseekKey);
     await p.setString('deepseek_model', deepseekModel);
     await p.setString('ai_prov', aiProvider);
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
 }
 
@@ -209,8 +209,8 @@ Future<bool?> geminiApiStatus({bool direct = true}) async {
       return null;
     }()
         .timeout(const Duration(seconds: 10));
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return null;
   } finally {
     c.close(force: true);
@@ -255,8 +255,8 @@ Future<String?> _geminiTry(String route, String prompt) async {
         final parts = j['candidates'][0]['content']['parts'] as List;
         final t = parts.map((p) => (p['text'] ?? '').toString()).join('\n');
         return t.trim().isEmpty ? 'پاسخ خالی بود.' : t.trim();
-      } catch (e) {
-        logError(e);
+      } catch (e, stk) {
+        logError(e, stk);
         throw Exception('پاسخ Gemini قابل خواندن نبود');
       }
     }
@@ -333,8 +333,8 @@ Future<String?> _grokTry(String route, String prompt) async {
         final j = jsonDecode(body);
         final t = (j['choices'][0]['message']['content'] ?? '').toString().trim();
         return t.isEmpty ? 'پاسخ خالی بود.' : t;
-      } catch (e) {
-        logError(e);
+      } catch (e, stk) {
+        logError(e, stk);
         throw GrokApiError('پاسخ Grok قابل خواندن نبود');
       }
     }
@@ -412,8 +412,8 @@ Future<String?> _openAiCompatTry({
         final t =
             (j['choices'][0]['message']['content'] ?? '').toString().trim();
         return t.isEmpty ? 'پاسخ خالی بود.' : t;
-      } catch (e) {
-        logError(e);
+      } catch (e, stk) {
+        logError(e, stk);
         throw AiApiError('پاسخ $label قابل خواندن نبود');
       }
     }
@@ -515,8 +515,8 @@ Future<String?> _claudeTry(String route, String prompt) async {
             .join('\n')
             .trim();
         return t.isEmpty ? 'پاسخ خالی بود.' : t;
-      } catch (e) {
-        logError(e);
+      } catch (e, stk) {
+        logError(e, stk);
         throw AiApiError('پاسخ Claude قابل خواندن نبود');
       }
     }
@@ -602,7 +602,7 @@ Future<String> aiAsk(String prompt) async {
   for (final id in order) {
     try {
       return await run(id);
-    } catch (e) {
+    } catch (e, jstk) { errJournalAdd(e, st: jstk);
       lastErr = e;
     }
   }
@@ -655,7 +655,7 @@ void aiShow(String raw) {
           }
         });
       }
-    } catch (e) { logError(e); }
+    } catch (e, stk) { logError(e, stk); }
   }
   text = text.replaceAll('```json', '').replaceAll('```', '').trim();
   aiText.value = text.isEmpty ? raw : text;
@@ -744,8 +744,8 @@ Future<http.Response> getListMirror(String u) async {
           await http.get(Uri.parse(u)).timeout(const Duration(seconds: 8));
       _rawOk++;
       return r;
-    } catch (e) {
-      logError(e);
+    } catch (e, stk) {
+      logError(e, stk);
       _rawFail++;
     }
   }
@@ -776,8 +776,8 @@ Future<List<Server>> fetchSubscription(String url) async {
       try {
         body = utf8.decode(base64
             .decode(base64.normalize(body.replaceAll(RegExp(r'\s'), ''))));
-      } catch (e) {
-        logError(e);
+      } catch (e, stk) {
+        logError(e, stk);
         return [];
       }
     }
@@ -788,8 +788,8 @@ Future<List<Server>> fetchSubscription(String url) async {
       if (s != null && seen.add(s.key)) out.add(s);
     }
     return out;
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return [];
   }
 }
@@ -1030,7 +1030,7 @@ extension HomeExtras on _HomePageState {
               }
               applyAiSuggest();
               return;
-            } catch (e) { logError(e); }
+            } catch (e, stk) { logError(e, stk); }
           }
           if (auto) return; // خودکار: اتصال را به‌هم نمی‌زنیم
           final has =
@@ -1048,7 +1048,7 @@ extension HomeExtras on _HomePageState {
           }
         }
       }
-    } catch (e) {
+    } catch (e, jstk) { errJournalAdd(e, st: jstk);
       if (!auto) {
         aiText.value = 'خطا: ${e.toString().replaceFirst('Exception: ', '')}';
       }
@@ -1390,8 +1390,8 @@ extension HomeExtras on _HomePageState {
           }
           await connect(); // was fire-and-forget — errors were lost
         }
-      } catch (e) {
-        logError(e);
+      } catch (e, stk) {
+        logError(e, stk);
         if (!connected && !busy) {
           try {
             await connect();
@@ -1480,17 +1480,17 @@ extension HomeExtras on _HomePageState {
           aiShow(await grokAsk(grokPilotPrompt()));
           applyAiSuggest();
           await aiRunAction();
-        } catch (e) { logError(e); }
+        } catch (e, stk) { logError(e, stk); }
       } else if (_usable().any((s) => s.ai == true && !identical(s, current))) {
         await connectRow('r:ai');
       }
-    } catch (e) {
-      logError(e);
+    } catch (e, stk) {
+      logError(e, stk);
       // still try to stay connected
       if (aiSession && wantVpn && !connected && !busy) {
         try {
           await connect();
-        } catch (e) { logError(e); }
+        } catch (e, stk) { logError(e, stk); }
       }
     } finally {
       aiLoading.value = false;
@@ -1914,7 +1914,7 @@ extension HomeExtras on _HomePageState {
       out['yt'] = rs[1] == true;
       out['ig'] = rs[2] == true;
       out['net'] = rs[3] == true || out['tg'] == true || out['yt'] == true;
-    } catch (e) { logError(e); }
+    } catch (e, stk) { logError(e, stk); }
     return out;
   }
 
@@ -1973,7 +1973,7 @@ extension HomeExtras on _HomePageState {
         op = natOpKey;
         _localLastOp = natOpKey;
       }
-    } catch (e) { logError(e); }
+    } catch (e, stk) { logError(e, stk); }
 
     String proto = '-', net = '-', sec = '-';
     int? ping;
@@ -1985,7 +1985,7 @@ extension HomeExtras on _HomePageState {
         proto = spec.protocol;
         net = spec.network;
         sec = spec.security;
-      } catch (e) { logError(e); }
+      } catch (e, stk) { logError(e, stk); }
       ping = current!.ping;
       if (current!.speed != null && current!.speed! > 0) {
         spd = current!.speed;
@@ -2255,10 +2255,10 @@ extension HomeExtras on _HomePageState {
                     (_localOpWins['$op|soft_recover'] ?? 0) + 1;
               }
             }
-          } catch (e) { logError(e); }
+          } catch (e, stk) { logError(e, stk); }
           try {
             unawaited(_measureCurrent(current!));
-          } catch (e) { logError(e); }
+          } catch (e, stk) { logError(e, stk); }
         }
         break;
       case 'switch_best':
@@ -2283,7 +2283,7 @@ extension HomeExtras on _HomePageState {
             try {
               final p = describeConfig(s.link).protocol;
               if (curProto.isNotEmpty && p != curProto) sc += 15; // تنوع پروتکل
-            } catch (e) { logError(e); }
+            } catch (e, stk) { logError(e, stk); }
             if (sc > bestScore) {
               bestScore = sc;
               best = s;
@@ -2376,10 +2376,10 @@ extension HomeExtras on _HomePageState {
 
       try {
         await natDetectOperator();
-      } catch (e) { logError(e); }
+      } catch (e, stk) { logError(e, stk); }
       try {
         await _natDetect();
-      } catch (e) { logError(e); }
+      } catch (e, stk) { logError(e, stk); }
 
       // قدرت را هر تیک با شبکه هماهنگ کن (تمام‌اتوماتیک)
       final wantPower = _localNatBtn ? max(_localAutoPickPower(), 4) : _localAutoPickPower();
@@ -2414,7 +2414,7 @@ extension HomeExtras on _HomePageState {
       await _localApply(decision);
       try {
         await kingSelfHeal(reason: 'pilot');
-      } catch (e) { logError(e); }
+      } catch (e, stk) { logError(e, stk); }
 
       // اگر هنوز قطع است دوباره وصل کن
       if (localPilotOn && wantVpn && !connected && !busy && !switching) {
@@ -2425,14 +2425,14 @@ extension HomeExtras on _HomePageState {
 
       // بازه تطبیقی: پایدار = آهسته‌تر، قطع = سریع‌تر
       _localReschedule();
-    } catch (e) {
-      logError(e);
+    } catch (e, stk) {
+      logError(e, stk);
       localPilotText.value =
           'خطای خلبان: ${e.toString().replaceFirst("Exception: ", "")}';
       if (localPilotOn && wantVpn && !connected && !busy) {
         try {
           await connect();
-        } catch (e) { logError(e); }
+        } catch (e, stk) { logError(e, stk); }
       }
     } finally {
       localPilotLoading.value = false;
@@ -2507,13 +2507,13 @@ extension HomeExtras on _HomePageState {
       autoCycle = true;
       try {
         natGrow((80 + p * 20).clamp(80, 600).toInt());
-      } catch (e) { logError(e); }
+      } catch (e, stk) { logError(e, stk); }
     }
     if (p >= 8 && userModeChoice != false) {
       indestructibleMode = true;
       try {
         natGrow((150 + p * 25).clamp(150, 800).toInt());
-      } catch (e) { logError(e); }
+      } catch (e, stk) { logError(e, stk); }
     }
     // Fragment فقط وقتی شبکه سخت است (نت ملی / قدرت بالا)
     fragEnabled = p >= 5 && (nationalMode || natForce);
@@ -2625,12 +2625,12 @@ extension HomeExtras on _HomePageState {
         await natDetectOperator();
         try {
           await _natDetect();
-        } catch (e) { logError(e); }
+        } catch (e, stk) { logError(e, stk); }
         final want = _localNatBtn ? max(_localAutoPickPower(), 4) : _localAutoPickPower();
         if (want != _localPower) {
           _localApplyMaxPowerProfile(power: want);
         }
-      } catch (e) { logError(e); }
+      } catch (e, stk) { logError(e, stk); }
     }());
   }
 
@@ -2648,7 +2648,7 @@ extension HomeExtras on _HomePageState {
         await natDetectOperator();
         try {
           await _natDetect();
-        } catch (e) { logError(e); }
+        } catch (e, stk) { logError(e, stk); }
         final want = _localNatBtn ? max(_localAutoPickPower(), 4) : _localAutoPickPower();
         _localApplyMaxPowerProfile(power: want);
         if (userModeChoice == false) {
@@ -2664,8 +2664,8 @@ extension HomeExtras on _HomePageState {
         } else {
           await localPilotTick(force: true);
         }
-      } catch (e) {
-        logError(e);
+      } catch (e, stk) {
+        logError(e, stk);
         if (!connected && !busy) {
           try {
             await connect();
@@ -2814,8 +2814,8 @@ Future<void> _loadNumPrefs0(SharedPreferences p) async {
       final v = j[o.id];
       if (v is num) o.set(v.toInt().clamp(o.lo, o.hi).toInt());
     }
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
 }
 
@@ -2824,8 +2824,8 @@ Future<void> saveNumPrefs() async {
     final p = await SharedPreferences.getInstance();
     await p.setString(
         'numx', jsonEncode({for (final o in numOpts) o.id: o.get()}));
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
 }
 
@@ -3209,8 +3209,8 @@ Future<String?> tunedSettings(SharedPreferences p) async {
       await p.setBool('tuned_v5', true);
       await p.setBool('bestProfile26', true);
     }
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
   return p.getString('settings');
 }

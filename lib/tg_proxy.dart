@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'errjournal.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -58,7 +59,7 @@ Future<List<_TgPx>> _tgPxLoad() async {
               }
             }
           }
-        } catch (e) { debugPrint("catch: $e"); }
+        } catch (e, jstk) { errJournalAdd(e, st: jstk); debugPrint("catch: $e"); }
       } else {
         for (final raw in body.split(RegExp(r'[\r\n]+'))) {
           final line = raw.trim();
@@ -80,7 +81,7 @@ Future<List<_TgPx>> _tgPxLoad() async {
           }
         }
       }
-    } catch (e) { debugPrint("catch: $e"); }
+    } catch (e, jstk) { errJournalAdd(e, st: jstk); debugPrint("catch: $e"); }
   }
   return out;
 }
@@ -137,7 +138,7 @@ class _TgProxyPanelState extends State<_TgProxyPanel> {
         final ok = await launchUrl(Uri.parse(candidate),
             mode: LaunchMode.externalNonBrowserApplication);
         if (ok) return;
-      } catch (e) { debugPrint("catch: $e"); }
+      } catch (e, jstk) { errJournalAdd(e, st: jstk); debugPrint("catch: $e"); }
     }
     await _copy(link);
   }

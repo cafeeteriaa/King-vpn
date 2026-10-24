@@ -110,8 +110,8 @@ bool _adsApply(String body) {
     final s = j['seconds'];
     if (s is int && s >= 3 && s <= 60) _adSeconds = s;
     return true;
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return false;
   }
 }
@@ -123,8 +123,8 @@ Future<void> adsRemoteLoad() async {
     p = await SharedPreferences.getInstance();
     final cached = p.getString('ads_cfg');
     if (cached != null) _adsApply(cached);
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
   if (!adsConfigUrl.startsWith('https://')) return;
   try {
@@ -134,7 +134,7 @@ Future<void> adsRemoteLoad() async {
     if (r.statusCode == 200 && _adsApply(r.body)) {
       await p?.setString('ads_cfg', r.body);
     }
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
 }

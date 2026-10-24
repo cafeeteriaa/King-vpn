@@ -315,6 +315,7 @@ extension AutoTestEngine on _HomePageState {
     }
 
     buf.write(_atJournalSection());
+    buf.write(_atXrayTail());
     buf.write(_atDiagnosis());
 
     // کامل: آدرس IP و جزئیات بدون پوشش (برای پیدا کردن دقیق مشکل)
@@ -504,7 +505,7 @@ extension AutoTestEngine on _HomePageState {
       abort = true;
       try {
         await disconnect();
-      } catch (e) { logError(e); }
+      } catch (e, stk) { logError(e, stk); }
       await _atWaitUntil(() => !connected && !busy && !switching,
           timeout: const Duration(seconds: 25), label: 'قطع کامل');
       abort = false;
@@ -771,6 +772,23 @@ extension AutoTestEngine on _HomePageState {
         'راه حل: همین گزارش را برای بررسی بفرست.';
   }
 
+  /// خط‌های آخر لاگ هسته‌ی V2Ray (xray_err.log): خطای واقعی اتصال اغلب همین‌جاست
+  String _atXrayTail() {
+    try {
+      final f = File(kXrayErrPath);
+      if (!f.existsSync()) {
+        return '\n(فایل لاگ هسته پیدا نشد: $kXrayErrPath)\n';
+      }
+      final lines = f.readAsLinesSync();
+      final tail = lines.length > 400 ? lines.sublist(lines.length - 400) : lines;
+      return '\n📡 لاگ هسته V2Ray — ${tail.length} خط آخر از ${lines.length} خط:\n'
+          '${tail.join('\n')}\n';
+    } catch (jex, jstk) {
+      errJournalAdd(jex, kind: 'XRAY-READ', st: jstk);
+      return '\n(خواندن لاگ هسته ناموفق بود)\n';
+    }
+  }
+
   /// دفتر کامل خطاها: خطاهای مشابه گروه می‌شوند ولی هیچ‌کدام حذف نمی‌شود
   String _atJournalSection() {
     final out = StringBuffer();
@@ -910,7 +928,7 @@ extension AutoTestEngine on _HomePageState {
         _itemResult[name] =
             '✅ وصل • ≈${(sp * 1024).toStringAsFixed(0)} KB/s';
       }
-    } catch (e) {
+    } catch (e, jstk) { errJournalAdd(e, st: jstk);
       _itemResult[name] = '⚠️ وصل • خطا در تست سرعت';
       _atAdd('ITEM-MEASURE', '$name خطا در measure: $e');
     }
@@ -1136,13 +1154,13 @@ extension AutoTestEngine on _HomePageState {
     abort = true;
     try {
       await disconnect();
-    } catch (e) { logError(e); }
+    } catch (e, stk) { logError(e, stk); }
     await _atWaitUntil(() => !busy && !switching,
         timeout: const Duration(seconds: 30), label: 'آزاد شدن بعد از abort');
 
     try {
       await fut.timeout(const Duration(seconds: 5));
-    } catch (e) { logError(e); }
+    } catch (e, stk) { logError(e, stk); }
 
     if (busy || switching) {
       _atAdd('ABORT-STUCK',
@@ -1183,7 +1201,7 @@ extension AutoTestEngine on _HomePageState {
     final before = current?.key;
     try {
       await _failover();
-    } catch (e) {
+    } catch (e, jstk) { errJournalAdd(e, st: jstk);
       _atAdd('SWAP-EX', 'استثنا در _failover: $e');
     }
 
@@ -1242,7 +1260,7 @@ extension AutoTestEngine on _HomePageState {
           if (connected && (sp == null || sp <= 0)) {
             _atAdd('STABLE-NODATA', 'در مانیتور طولانی، داده از تونل نیامد');
           }
-        } catch (e) { logError(e); }
+        } catch (e, stk) { logError(e, stk); }
       }
 
       await Future<void>.delayed(const Duration(seconds: 2));

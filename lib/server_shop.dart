@@ -59,8 +59,8 @@ List<_ShopChannel>? _shopParse(String body) {
       }
     }
     return out;
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return null;
   }
 }
@@ -71,8 +71,8 @@ Future<void> _shopOpen(BuildContext ctx, String url) async {
     if (await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication)) {
       return;
     }
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
   await Clipboard.setData(ClipboardData(text: url));
   if (ctx.mounted) {
@@ -89,8 +89,8 @@ Future<List<_ShopChannel>> _shopLoad({bool force = false}) async {
     p = await SharedPreferences.getInstance();
     final c = p.getString('shop_cfg');
     if (c != null) cached = _shopParse(c);
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
   if (shopConfigUrl.startsWith('https://')) {
     try {
@@ -105,8 +105,8 @@ Future<List<_ShopChannel>> _shopLoad({bool force = false}) async {
           return list;
         }
       }
-    } catch (e) {
-      logError(e);
+    } catch (e, stk) {
+      logError(e, stk);
     }
   }
   return cached ?? _shopParse(_shopDefaultJson) ?? <_ShopChannel>[];

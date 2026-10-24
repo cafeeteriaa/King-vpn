@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'errjournal.dart';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 
@@ -114,7 +115,7 @@ ConfigSpec describeConfig(String link, {String? knownIp}) {
     if (hashAt >= 0) {
       try {
         c.name = Uri.decodeComponent(link.substring(hashAt + 1));
-      } catch (e) {
+      } catch (e, jstk) { errJournalAdd(e, st: jstk);
         debugPrint("err: $e");
         c.name = link.substring(hashAt + 1);
       }
@@ -198,7 +199,7 @@ ConfigSpec describeConfig(String link, {String? knownIp}) {
       if (v != null && v.isNotEmpty) extras.add('$k=$v');
     }
     if (extras.isNotEmpty) c.extra = extras.join(', ');
-  } catch (e) { debugPrint("catch: $e"); }
+  } catch (e, jstk) { errJournalAdd(e, st: jstk); debugPrint("catch: $e"); }
   return c;
 }
 
@@ -211,7 +212,7 @@ Future<String> resolveHostIp(String host) async {
         .timeout(const Duration(seconds: 3));
     if (r.isEmpty) return '-';
     return r.map((e) => e.address).join(',');
-  } catch (e) {
+  } catch (e, jstk) { errJournalAdd(e, st: jstk);
     debugPrint("err: $e");
     return '-';
   }

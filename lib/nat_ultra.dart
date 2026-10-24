@@ -923,8 +923,8 @@ String _natSetParam(String link, String key, String val) {
     final q = Map<String, String>.from(u.queryParameters);
     q[key] = val;
     return u.replace(queryParameters: q).toString();
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return link;
   }
 }
@@ -939,8 +939,8 @@ String _natGetParam(String link, String key) {
       return (j[key] ?? '').toString();
     }
     return Uri.parse(link).queryParameters[key] ?? '';
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return '';
   }
 }
@@ -955,8 +955,8 @@ String _natSetPort(String link, int port) {
       return 'vmess://${base64.encode(utf8.encode(jsonEncode(j)))}';
     }
     return Uri.parse(link).replace(port: port).toString();
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return link;
   }
 }
@@ -980,8 +980,8 @@ String _natSetHost(String link, String ip, String host) {
     if ((q['sni'] ?? '').isEmpty) q['sni'] = host;
     if (q['type'] == 'ws' && (q['host'] ?? '').isEmpty) q['host'] = host;
     return u.replace(host: ip, queryParameters: q).toString();
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return link;
   }
 }
@@ -1081,8 +1081,8 @@ String _natFrag(String cfg, int fi, {bool noise = false, int noiseK = 0}) {
     st['sockopt'] = so;
     j['outbounds'] = outs;
     return jsonEncode(j);
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return cfg;
   }
 }
@@ -1097,8 +1097,8 @@ String _natMux(String cfg, [int n = 0]) {
     if (RegExp(r'"flow"\s*:\s*"xtls').hasMatch(cfg)) return cfg; // vision can't use mux
     o['mux'] = {'enabled': true, 'concurrency': n > 0 ? n : 8};
     return jsonEncode(j);
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return cfg;
   }
 }
@@ -1112,8 +1112,8 @@ String _natDns(String cfg, String doh) {
     d['servers'] = [doh, 'localhost'];
     j['dns'] = d;
     return jsonEncode(j);
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return cfg;
   }
 }
@@ -1136,8 +1136,8 @@ String _natSock(String cfg,
     if (v4) so['domainStrategy'] = 'UseIPv4';
     st['sockopt'] = so;
     return jsonEncode(j);
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return cfg;
   }
 }
@@ -1236,8 +1236,8 @@ Future<String> _natNetType() async {
       }
     }
     return wifi ? 'wifi' : (mob ? 'mob' : 'net');
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return 'net';
   }
 }
@@ -1259,8 +1259,8 @@ Future<String?> _natAsnFrom(String url, String field) async {
     final raw = '${j[field] ?? ''}';
     final m = RegExp(r'(\d{3,7})').firstMatch(raw);
     return m?.group(1);
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return null;
   } finally {
     c.close(force: true);
@@ -1295,7 +1295,7 @@ Future<void> natDetectOperator() async {
       natOpKey = k;
       dbg('شبکه/اپراتور: $k');
     }
-  } catch (e) { logError(e); }
+  } catch (e, stk) { logError(e, stk); }
 }
 
 // ====================== حافظه‌ی حالت‌های موفق ======================
@@ -1334,8 +1334,8 @@ Future<void> natSavePersisted() async {
     final p = await SharedPreferences.getInstance();
     await p.setString('natvar2',
         jsonEncode({'v': natVar, 'w': natWins, 'd': natDimWins, 'g': _natGenVer}));
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
 }
 
@@ -1375,8 +1375,8 @@ Future<void> natLoadPersisted() async {
       natGrow(mx - _natSpecs.length + 1);
     }
     _natLearnVer++;
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
 }
 
@@ -1412,8 +1412,8 @@ Future<void> natIpMemLoad() async {
         .split(RegExp(r'[\r\n,; ]+'))
         .where((x) => x.contains('/') || x.contains('-'))
         .toList();
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
 }
 
@@ -1426,8 +1426,8 @@ Future<void> natIpMemSave(String ip, int port) async {
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString(_ipMemKey, jsonEncode(natIpMem));
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
 }
 
@@ -1440,8 +1440,8 @@ Future<void> natRangesSave(String text) async {
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString(_rangeKey, natRanges.join('\n'));
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
 }
 
@@ -1601,8 +1601,8 @@ Future<List<String>> natDeviceHosts() async {
         if (!private && !out.contains(h)) out.add(h);
       }
     }
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
   return out;
 }
@@ -1650,8 +1650,8 @@ Future<List<String>> natRangeScanStep({
   if (seeds.length < 50) {
     try {
       seeds = [...known, ...await natHotNext(800, fetch: false)];
-    } catch (e) {
-      logError(e);
+    } catch (e, stk) {
+      logError(e, stk);
     }
   }
   natTemplateSeeds = seeds.take(2).toList();
@@ -1715,8 +1715,8 @@ Future<void> userListsLoad() async {
         .split(RegExp(r'[\r\n\s]+'))
         .where((x) => x.startsWith('http'))
         .toList();
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
 }
 
@@ -1728,8 +1728,8 @@ Future<void> userListsSave(String text) async {
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString('userListUrls', userListUrls.join('\n'));
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
 }
 
@@ -1767,7 +1767,7 @@ String _hotPath() {
     final d = Directory(dir);
     if (!d.existsSync()) d.createSync(recursive: true);
     return '$dir/hot_cache.txt';
-  } catch (_) {
+  } catch (jex, jstk) { errJournalAdd(jex, st: jstk);
     return '${Directory.systemTemp.path}/hot_cache.txt';
   }
 }
@@ -1799,7 +1799,7 @@ Future<List<String>> _hotFetchOne(String u) async {
       try {
         body = utf8.decode(
             base64.decode(base64.normalize(body.replaceAll(RegExp(r'\s'), ''))));
-      } catch (_) {
+      } catch (jex, jstk) { errJournalAdd(jex, st: jstk);
         return out;
       }
     }
@@ -1811,8 +1811,8 @@ Future<List<String>> _hotFetchOne(String u) async {
       }
       out.add('$u\t$t');
     }
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
   return out;
 }
@@ -1939,7 +1939,7 @@ bool natHotReady() {
   try {
     final f = File(_hotPath());
     return f.existsSync() && f.lengthSync() > 0;
-  } catch (_) {
+  } catch (jex, jstk) { errJournalAdd(jex, st: jstk);
     return false;
   }
 }
@@ -1963,8 +1963,8 @@ Future<_HotIdx?> _hotLoad() async {
     _hot = _HotIdx(f.path, offs);
     _hotCursor = 0;
     return _hot;
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return null;
   }
 }
@@ -2007,8 +2007,8 @@ Future<List<Server>> natHotNext(int n, {bool fetch = true}) async {
       await raf.close();
     }
     return out;
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return const [];
   }
 }

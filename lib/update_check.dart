@@ -76,8 +76,8 @@ extension UpdateCheck on _HomePageState {
                     try {
                       await launchUrl(Uri.parse(open),
                           mode: LaunchMode.externalApplication);
-                    } catch (e) {
-                      logError(e);
+                    } catch (e, stk) {
+                      logError(e, stk);
                       await Clipboard.setData(ClipboardData(text: open));
                       _set('لینک آپدیت کپی شد');
                     }
@@ -90,8 +90,8 @@ extension UpdateCheck on _HomePageState {
           ),
         ),
       );
-    } catch (e) {
-      logError(e);
+    } catch (e, stk) {
+      logError(e, stk);
     }
   }
 
@@ -123,12 +123,12 @@ extension UpdateCheck on _HomePageState {
         await Clipboard.setData(ClipboardData(text: apkUrl));
         _set('لینک APK کپی شد');
       }
-    } catch (e) {
-      logError(e);
+    } catch (e, stk) {
+      logError(e, stk);
       try {
         await launchUrl(Uri.parse(apkUrl),
             mode: LaunchMode.externalApplication);
-      } catch (e) { logError(e); }
+      } catch (e, stk) { logError(e, stk); }
       _set('آپدیت: از مرورگر نصب کن');
     }
   }
@@ -142,6 +142,6 @@ extension UpdateCheck on _HomePageState {
       final mc = (_remoteHeal['muxConc'] as num?)?.toInt();
       if (mc != null && mc >= 8) muxConc = mc.clamp(8, 64);
       dbg('ترمیم از راه دور اعمال شد: $_remoteHeal');
-    } catch (e) { logError(e); }
+    } catch (e, stk) { logError(e, stk); }
   }
 }

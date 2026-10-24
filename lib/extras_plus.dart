@@ -23,8 +23,8 @@ Future<void> plusLoad() async {
     connHist
       ..clear()
       ..addAll(p.getStringList('plus_hist') ?? const <String>[]);
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
 }
 
@@ -34,8 +34,8 @@ Future<void> plusSave() async {
     await p.setStringList(
         'plus_dis', natDisabled.map((e) => '$e').toList());
     await p.setStringList('plus_hist', connHist);
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
 }
 
@@ -49,8 +49,8 @@ void plusHistAdd(Server s) {
       connHist.removeAt(0);
     }
     plusSave();
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
 }
 
@@ -70,7 +70,7 @@ Future<String> _plusIpInfo() async {
     if (j is! Map || j['error'] == true || j['ip'] == null) return 'جوابی نیامد';
     return 'IP: ${j['ip']}\nکشور: ${j['country_name']}\nمنطقه: ${j['region']}\n'
         'شهر: ${j['city']}\nاپراتور: ${j['org']}\n${j['asn']}';
-  } catch (e) {
+  } catch (e, jstk) { errJournalAdd(e, st: jstk);
     return 'خطا: $e';
   } finally {
     c.close(force: true);
@@ -405,8 +405,8 @@ extension PlusExt on _HomePageState {
               Navigator.pop(ctx);
               try {
                 await f();
-              } catch (e) {
-                logError(e);
+              } catch (e, stk) {
+                logError(e, stk);
                 _set('خطا: $e');
               }
             },

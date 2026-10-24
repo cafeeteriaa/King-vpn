@@ -153,8 +153,8 @@ extension KingHealEngine on _HomePageState {
               'چند ترمیم محلی کافی نبود. نسخه‌ی جدید ممکن است ریشه‌ی مشکل را بسته باشد.'));
         }
       }
-    } catch (e) {
-      logError(e);
+    } catch (e, stk) {
+      logError(e, stk);
       kingHealText.value = 'خطای موتور ترمیم: $e';
     } finally {
       _healPhase = _HealPhase.idle;
@@ -171,7 +171,7 @@ extension KingHealEngine on _HomePageState {
         out.add(_HealSignal('sync', 6, 'ناهمگامی اپ/هسته اصلاح شد'));
         _hSyncFix++;
       }
-    } catch (e) { logError(e); }
+    } catch (e, stk) { logError(e, stk); }
 
     // یتیم: می‌خواهد وصل باشد ولی بیکار است
     if (wantVpn && !connected && !busy && !switching && !searching) {
@@ -447,7 +447,7 @@ extension KingHealEngine on _HomePageState {
           if (!nationalMode) fragEnabled = false;
           try {
             await _saveSettings();
-          } catch (e) { logError(e); }
+          } catch (e, stk) { logError(e, stk); }
           // اگر وصل نیست، فوراً وصل شو
           if (wantVpn && !connected && !busy) {
             await connect();
@@ -457,8 +457,8 @@ extension KingHealEngine on _HomePageState {
         default:
           return false;
       }
-    } catch (e) {
-      logError(e);
+    } catch (e, stk) {
+      logError(e, stk);
       return false;
     }
   }
@@ -471,8 +471,8 @@ extension KingHealEngine on _HomePageState {
       // اجازه‌ی چک مجدد آپدیت
       _updateChecked = false;
       await checkForUpdate();
-    } catch (e) {
-      logError(e);
+    } catch (e, stk) {
+      logError(e, stk);
     }
   }
 

@@ -4,6 +4,7 @@
 // فقط می‌گوید آن آدرس و پورت جواب می‌دهد. تایید نهایی را موتور اصلی انجام می‌دهد.
 
 import 'dart:async';
+import 'errjournal.dart';
 import 'dart:io';
 import 'dart:math';
 
@@ -48,7 +49,7 @@ Future<int?> natTcpProbe(String ip, int port, Duration timeout) async {
     sw.stop();
     s.destroy();
     return sw.elapsedMilliseconds;
-  } catch (_) {
+  } catch (jex, jstk) { errJournalAdd(jex, st: jstk);
     return null;
   }
 }

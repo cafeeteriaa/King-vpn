@@ -54,8 +54,8 @@ Future<void> ultimateSave() async {
     await p.setBool('ult_ds', dataSaver);
     await p.setBool('ult_anr', autoNetReconnect);
     await p.setBool('ult_pf', preflightOn);
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
 }
 
@@ -66,8 +66,8 @@ Future<String> _netFingerprint() async {
         .timeout(const Duration(seconds: 3));
     final ips = r.map((e) => e.address).join(',');
     return '${nationalMode ? 'N' : 'G'}|$ips';
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return nationalMode ? 'N|down' : 'G|down';
   }
 }
@@ -120,8 +120,8 @@ extension UltimateExt on _HomePageState {
             dbg('تغییر شبکه تشخیص داده شد؛ اتصال فعلی حفظ شد');
           }
         }
-      } catch (e) {
-        logError(e);
+      } catch (e, stk) {
+        logError(e, stk);
       }
     });
   }
@@ -139,7 +139,7 @@ extension UltimateExt on _HomePageState {
       final r = await InternetAddress.lookup('dns.google')
           .timeout(const Duration(seconds: 4));
       dnsOk = r.isNotEmpty;
-    } catch (e) { logError(e); }
+    } catch (e, stk) { logError(e, stk); }
     var httpOk = false;
     try {
       final c = HttpClient()..connectionTimeout = const Duration(seconds: 4);
@@ -153,7 +153,7 @@ extension UltimateExt on _HomePageState {
       } finally {
         c.close(force: true);
       }
-    } catch (e) { logError(e); }
+    } catch (e, stk) { logError(e, stk); }
     if (!dnsOk && !httpOk) {
       _set('پیش‌پرواز: شبکه خیلی ضعیف است — باز هم تلاش می‌کنم');
       return true;

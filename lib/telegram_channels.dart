@@ -54,8 +54,8 @@ List<_TgcChannel>? _tgcParse(String body) {
       }
     }
     return out;
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return null;
   }
 }
@@ -66,8 +66,8 @@ Future<void> _tgcOpen(BuildContext ctx, String url) async {
     if (await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication)) {
       return;
     }
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
   await Clipboard.setData(ClipboardData(text: url));
   if (ctx.mounted) {
@@ -84,8 +84,8 @@ Future<List<_TgcChannel>> _tgcLoad({bool force = false}) async {
     p = await SharedPreferences.getInstance();
     final c = p.getString('tgc_cfg');
     if (c != null) cached = _tgcParse(c);
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
   if (tgChannelsConfigUrl.startsWith('https://')) {
     try {
@@ -101,8 +101,8 @@ Future<List<_TgcChannel>> _tgcLoad({bool force = false}) async {
           return list;
         }
       }
-    } catch (e) {
-      logError(e);
+    } catch (e, stk) {
+      logError(e, stk);
     }
   }
   return cached ?? _tgcParse(_tgcDefaultJson) ?? <_TgcChannel>[];

@@ -38,8 +38,8 @@ Future<void> onlinePing() async {
         onlineNotifier.value = j['online'] as int;
       }
     }
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
 }
 

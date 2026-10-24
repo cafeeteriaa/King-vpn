@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'errjournal.dart';
 import 'dart:io';
 
 // Replacement for the shared_preferences plugin. On this build the plugin's
@@ -23,7 +24,7 @@ class SharedPreferences {
       final dir = Directory(_dirPath);
       if (!dir.existsSync()) dir.createSync(recursive: true);
       f = File('$_dirPath/prefs.json');
-    } catch (_) {
+    } catch (jex, jstk) { errJournalAdd(jex, st: jstk);
       f = File('${Directory.systemTemp.path}/prefs.json');
     }
     Map<String, dynamic> data = <String, dynamic>{};
@@ -32,7 +33,7 @@ class SharedPreferences {
         final m = jsonDecode(f.readAsStringSync());
         if (m is Map) data = Map<String, dynamic>.from(m);
       }
-    } catch (_) {
+    } catch (jex, jstk) { errJournalAdd(jex, st: jstk);
       data = <String, dynamic>{};
     }
     _inst = SharedPreferences._(f, data);
@@ -42,7 +43,7 @@ class SharedPreferences {
   void _save() {
     try {
       _file.writeAsStringSync(jsonEncode(_data));
-    } catch (_) {}
+    } catch (jex, jstk) { errJournalAdd(jex, st: jstk);}
   }
 
   bool containsKey(String key) => _data.containsKey(key);

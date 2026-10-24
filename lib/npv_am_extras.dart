@@ -106,8 +106,8 @@ Future<int?> _probeDoh(String url) async {
     if (res.statusCode >= 200 && res.statusCode < 400) {
       return sw.elapsedMilliseconds;
     }
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   } finally {
     cl.close(force: true);
   }
@@ -124,8 +124,8 @@ Future<int?> _probeDnsIp(String ip) async {
     final ms = sw.elapsedMilliseconds;
     s.destroy();
     return ms;
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return null;
   }
 }
@@ -257,8 +257,8 @@ String? _b64Text(String raw) {
     final c = raw.replaceAll(RegExp(r'\s'), '').replaceAll('-', '+').replaceAll('_', '/');
     if (c.length < 16) return null;
     return utf8.decode(base64.decode(base64.normalize(c)), allowMalformed: true);
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return null;
   }
 }
@@ -276,7 +276,7 @@ String? npvNormalizeLink(String line) {
     if (h >= 0) payload = payload.substring(0, h);
     try {
       payload = Uri.decodeComponent(payload);
-    } catch (e) { logError(e); }
+    } catch (e, stk) { logError(e, stk); }
   } else {
     payload = t;
   }
@@ -290,7 +290,7 @@ String? npvNormalizeLink(String line) {
     try {
       final l = npvJsonToLinks(jsonDecode(tt));
       if (l.isNotEmpty) return l.first;
-    } catch (e) { logError(e); }
+    } catch (e, stk) { logError(e, stk); }
   }
   return null;
 }
@@ -307,7 +307,7 @@ List<String> npvSplit(String text) {
     try {
       out.addAll(npvJsonToLinks(jsonDecode(t)));
       if (out.isNotEmpty) return out;
-    } catch (e) { logError(e); }
+    } catch (e, stk) { logError(e, stk); }
   }
   // 2) کل متن یک بلوک base64 است
   if (!t.contains('://') && _b64Body.hasMatch(t)) {
@@ -463,8 +463,8 @@ String? _npvOutboundLink(dynamic o, String remark) {
         .encode(utf8.encode('${sv['method']}:${sv['password']}'))
         .replaceAll('=', '');
     return 'ss://$ui@$addr:$port#${Uri.encodeComponent(name)}';
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return null;
   }
 }
@@ -551,7 +551,7 @@ Future<List<String>> _cleanCandidates() async {
           .toList();
       if (live.length >= 5) ranges = live;
     }
-  } catch (e) { logError(e); }
+  } catch (e, stk) { logError(e, stk); }
   for (final c in ranges) {
     set.addAll(_cidrSample(c, 28, r).where(_cleanOk));
   }
@@ -571,7 +571,7 @@ Future<String> _cfRead(Socket k, Duration t) async {
       data.addAll(c);
       if (data.length > 1500) break;
     }
-  } catch (e) { logError(e); }
+  } catch (e, stk) { logError(e, stk); }
   return utf8.decode(data, allowMalformed: true).toLowerCase();
 }
 
@@ -592,8 +592,8 @@ Future<int?> _cfProbeMs(String ip, Duration t) async {
     final txt = await _cfRead(k, t);
     sw.stop();
     if (txt.contains('cloudflare')) return sw.elapsedMilliseconds;
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   } finally {
     k?.destroy();
     raw?.destroy();
@@ -609,8 +609,8 @@ Future<int?> _cfProbeMs(String ip, Duration t) async {
     final txt = await _cfRead(h, t);
     sw2.stop();
     if (txt.contains('cloudflare')) return sw2.elapsedMilliseconds + 40;
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   } finally {
     h?.destroy();
   }
@@ -643,8 +643,8 @@ Future<void> _doRefreshClean() async {
     cleanIpsAt = DateTime.now();
     cleanIpStatus = '${cleanIps.length} IP سالم از ${c.length} تست';
     await _saveCleanIps();
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     cleanIpStatus = 'خطا در دریافت IP';
   }
   cleanTick.value++;
@@ -667,8 +667,8 @@ Future<void> _saveCleanIps() async {
     await p.setString(
         'cip_list_$natOpKey', jsonEncode(cleanIps.map((e) => [e.ip, e.ms]).toList()));
     await p.setInt('cip_at_$natOpKey', DateTime.now().millisecondsSinceEpoch);
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
 }
 
@@ -683,8 +683,8 @@ Future<void> _loadCleanIps() async {
     }).toList();
     final at = p.getInt('cip_at_$natOpKey');
     if (at != null) cleanIpsAt = DateTime.fromMillisecondsSinceEpoch(at);
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
 }
 
@@ -837,7 +837,7 @@ String withNpvAmCore(String cfg) {
           flow = ((s['vnext'] as List).first['users'] as List).first['flow']
                   ?.toString() ??
               '';
-        } catch (e) { logError(e); }
+        } catch (e, stk) { logError(e, stk); }
         // Mux با flow (xtls-rprx-vision) کار نمی‌کند
         if (flow.isEmpty) {
           proxy['mux'] = {'enabled': true, 'concurrency': muxConc};
@@ -895,8 +895,8 @@ String withNpvAmCore(String cfg) {
       j['routing'] = rt;
     }
     return jsonEncode(j);
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return cfg;
   }
 }
@@ -946,7 +946,7 @@ List<Widget> npvAmSettingsItems(
         onTap: () {
           try {
             bgChannel.invokeMethod('vpnSettings');
-          } catch (e) { logError(e); }
+          } catch (e, stk) { logError(e, stk); }
         },
       ),
     ];

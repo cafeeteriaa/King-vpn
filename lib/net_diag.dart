@@ -14,8 +14,8 @@ Future<void> autoNetSave() async {
   try {
     final p = await SharedPreferences.getInstance();
     await p.setBool('autonet_on', autoNetOn);
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
   }
 }
 
@@ -44,8 +44,8 @@ Future<_DiagItem> _diagTcp(String label, String host, int port) async {
     s = await Socket.connect(host, port,
         timeout: const Duration(seconds: 4));
     return _DiagItem(label, true, sw.elapsedMilliseconds);
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return _DiagItem(label, false, sw.elapsedMilliseconds);
   } finally {
     s?.destroy();
@@ -63,8 +63,8 @@ Future<_DiagItem> _diagHttp(String label, String url) async {
     final res = await req.close().timeout(const Duration(seconds: 5));
     await res.drain<void>().timeout(const Duration(seconds: 5));
     return _DiagItem(label, res.statusCode > 0, sw.elapsedMilliseconds);
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return _DiagItem(label, false, sw.elapsedMilliseconds);
   } finally {
     c.close(force: true);
@@ -82,8 +82,8 @@ Future<_DiagItem> _diagTls(String label, String ip, String sni) async {
             host: sni, onBadCertificate: (_) => true)
         .timeout(const Duration(seconds: 5));
     return _DiagItem(label, true, sw.elapsedMilliseconds);
-  } catch (e) {
-    logError(e);
+  } catch (e, stk) {
+    logError(e, stk);
     return _DiagItem(label, false, sw.elapsedMilliseconds);
   } finally {
     k?.destroy();
@@ -138,7 +138,7 @@ Future<String> netDiagnose() async {
       dnsSys = l.first.address;
       dnsPoison = l.any((a) => _privateIp(a)) || dnsSys.startsWith('10.');
     }
-  } catch (e) { logError(e); }
+  } catch (e, stk) { logError(e, stk); }
   final dnsDoh = await dohResolve('www.google.com');
 
   void sec(String t, int a, int z) {
@@ -256,8 +256,8 @@ extension NetDiagExt on _HomePageState {
     _set('تشخیص خودکار شبکه...');
     try {
       await netDiagnose().timeout(const Duration(seconds: 20));
-    } catch (e) {
-      logError(e);
+    } catch (e, stk) {
+      logError(e, stk);
       return;
     }
     final v = lastNetVerdict;
