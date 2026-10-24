@@ -314,12 +314,11 @@ extension AutoTestEngine on _HomePageState {
           'تست تمام شد • ${_findings.length} مشکل — گزارش را ببین';
     }
 
+    buf.write(_atJournalSection());
     buf.write(_atDiagnosis());
 
-    // privacy: keep only the first three octets of IPv4 addresses in the copied report
-    final report = buf.toString().replaceAllMapped(
-        RegExp(r'\b(\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}\b'),
-        (m) => '${m.group(1)}.x');
+    // کامل: آدرس IP و جزئیات بدون پوشش (برای پیدا کردن دقیق مشکل)
+    final report = buf.toString();
     dbg(report);
     errorLog.value = '${errorLog.value}\n$report'.trim();
 
@@ -444,6 +443,7 @@ extension AutoTestEngine on _HomePageState {
   void _atAdd(String code, String msg) {
     if (_atInfoCodes.contains(code)) {
       _atNoTraffic = true;
+      errJournalAdd('[$code] $msg', kind: 'INFO-$code');
       dbg('ℹ [$code] $msg (اطلاعاتی، خطا نیست)');
       return;
     }
@@ -771,6 +771,45 @@ extension AutoTestEngine on _HomePageState {
         'راه حل: همین گزارش را برای بررسی بفرست.';
   }
 
+  /// دفتر کامل خطاها: خطاهای مشابه گروه می‌شوند ولی هیچ‌کدام حذف نمی‌شود
+  String _atJournalSection() {
+    final out = StringBuffer();
+    out.writeln('');
+    out.writeln('📜 دفتر کامل خطاها (${errJournal.length} ثبت):');
+    if (errJournal.isEmpty) {
+      out.writeln('• هیچ خطایی ثبت نشد.');
+      return out.toString();
+    }
+    // فقط خطاهای همین اجرای تست (از وقتی که شروع شد)
+    final since = _startedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final runEntries = errJournal.where((e) => !e.at.isBefore(since)).toList();
+    out.writeln('(این اجرا: ${runEntries.length} • کل دفتر: ${errJournal.length})');
+    final groups = <String, List<ErrEntry>>{};
+    for (final e in runEntries) {
+      final key = '${e.type}|${e.msg.replaceAll(RegExp(r'\d+'), '#')}';
+      (groups[key] ??= <ErrEntry>[]).add(e);
+    }
+    final keys = groups.keys.toList()
+      ..sort((a, b) => groups[b]!.length.compareTo(groups[a]!.length));
+    var i = 0;
+    for (final k in keys) {
+      final g = groups[k]!;
+      final first = g.first;
+      final last = g.last;
+      i++;
+      out.writeln('#$i ×${g.length}  نوع: ${first.type}');
+      out.writeln(
+          '   اولین: ${_dbgHms(first.at)}  •  آخرین: ${_dbgHms(last.at)}');
+      out.writeln('   بخش تست: ${first.tag.isEmpty ? '-' : first.tag}');
+      out.writeln('   جای خطا در کد: ${first.where}');
+      out.writeln('   پیام کامل: ${first.msg}');
+      // همه‌ی زمان‌های این گروه (تا ۶۰ مورد) برای دیدن الگوی زمانی
+      final times = g.take(60).map((x) => _dbgHms(x.at)).join('، ');
+      out.writeln('   همه‌ی زمان‌ها: $times${g.length > 60 ? ' …' : ''}');
+    }
+    return out.toString();
+  }
+
   String _atDiagnosis() {
     final out = StringBuffer();
     if (_findings.isNotEmpty) {
@@ -841,6 +880,7 @@ extension AutoTestEngine on _HomePageState {
   /// وصل با تنظیمات فعلی برنامه تا CONNECTED یا مهلت؛ نتیجه در _itemResult[name]
   Future<bool> _atConnectItem(String name,
       {Duration timeout = const Duration(minutes: 6)}) async {
+    errTag = name;
     await _atEnsureDisconnected();
     if (_abortRequested) return false;
 
@@ -974,6 +1014,7 @@ extension AutoTestEngine on _HomePageState {
   Future<void> _atItemPilot({required bool national}) async {
     _scenario = national ? 5 : 4;
     final name = _atItemNames[national ? 4 : 3];
+    errTag = name;
     await _atEnsureDisconnected();
     if (localPilotOn) stopLocalPilot();
     natForce = national;
