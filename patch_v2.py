@@ -387,7 +387,7 @@ patch('iran_ai_extras.dart',
       "int _localConnFail = 0; // DOHAUTO: connect failures in a row\nbool localPilotOn = false;")
 
 patch('iran_ai_extras.dart',
-      "      _localReschedule();\n    } catch (e) {",
+      "      _localReschedule();\n    } catch (e, stk) {",
       "      // DOHAUTO: IP (DoH) را خلبان خودش روشن/خاموش می‌کند بر اساس نتیجه‌ی اتصال\n"
       "      if (connected) {\n"
       "        _localConnFail = 0;\n"
@@ -403,7 +403,7 @@ patch('iran_ai_extras.dart',
       "          await _saveSettings();\n"
       "        }\n"
       "      }\n"
-      "      _localReschedule();\n    } catch (e) {")
+      "      _localReschedule();\n    } catch (e, stk) {")
 
 # 4j) TOGGLES: خلبان Fragment، ماتریس (Ultra)، IP تمیز و DoH را خودش تنظیم می‌کند
 patch('iran_ai_extras.dart',
