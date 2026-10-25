@@ -5795,7 +5795,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
           connSig = null;
           await _stopCore();
-          await Future.delayed(const Duration(milliseconds: 500));
+          // VPNRACE: the plugin's native shutdown callback can clear its service
+          // reference AFTER a new service started (NPE in V2rayVPNService). Wait longer.
+          await Future.delayed(const Duration(milliseconds: 2500));
           t = null;
         }
       // one attempt per config: a config that does not reach CONNECTED in time
@@ -5810,6 +5812,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // so the behaviour is exactly the same as before)
         dbg('V2RAY-START ${s.name} (cfg ${ci + 1}/${cfgTries.length}, ${cfgTries[ci].length} bytes)');
         try {
+          // VPNRACE: short pause so the previous VPN service finishes shutting down
+          await Future.delayed(const Duration(milliseconds: 1500));
           await v2ray.startV2Ray(
               remark: s.name,
               config: cfgTries[ci],

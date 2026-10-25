@@ -59,6 +59,8 @@ String netNoiseKind(Object e) {
   for (final k in marks) {
     if (m.contains(k)) return 'SILENT-NET';
   }
+  // ERRFIX2: فایل موقت که قبلاً پاک شده (مثلاً xray_err.log) خطای مهمی نیست
+  if (m.contains('PathNotFoundException')) return 'SILENT-FILE';
   return '';
 }
 
@@ -79,6 +81,9 @@ String errCategory(ErrEntry e) {
   if (t.startsWith('SILENT-NET') || t.startsWith('SILENT-DNS')) {
     return 'شبکه / دامنه‌ی مرده (عادی)';
   }
+  if (t.startsWith('SILENT-FILE')) return 'فایل موقت (بی‌اهمیت)';
+  // ERRFIX2: ArgumentError روی نام کانفیگ همیشه داخل try گرفته و مدیریت می‌شود
+  if (m.contains('ArgumentError')) return 'داده‌ی نامعتبر (مدیریت‌شده)';
   if (m.contains('Socket') || m.contains('Timeout') || m.contains('Handshake')) {
     return 'شبکه (عادی)';
   }

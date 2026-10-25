@@ -852,7 +852,10 @@ extension AutoTestEngine on _HomePageState {
         return groups[b]!.length.compareTo(groups[a]!.length);
       });
     // ERRREPORT2: خطاهای عادی شبکه (دامنه‌ی مرده، timeout) در لیست نمی‌آیند؛ فقط شمارششان نشان داده می‌شود
-    final important = keys.where((k) => !k.startsWith('شبکه')).toList();
+    bool noisy(String k) => k.startsWith('شبکه') ||
+        k.startsWith('فایل موقت') ||
+        k.startsWith('داده‌ی نامعتبر');
+    final important = keys.where((k) => !noisy(k)).toList();
     final noiseCount = keys.length - important.length;
     if (noiseCount > 0) {
       out.writeln('(خطاهای عادی شبکه‌ی ${noiseCount} گروه نادیده گرفته شد؛ نیازی به کار نیست)');
