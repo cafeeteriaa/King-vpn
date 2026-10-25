@@ -1371,8 +1371,7 @@ List<String> _dbgHelpOf(String m) {
 String _dbgProbText() {
   // INFOSPLIT: پیام‌های اطلاعاتی (وضعیت، پینگ خوب، جستجوی پس‌زمینه…) جدا می‌شوند
   const infoCodes = {
-    'E-STATUS-INFO', 'E-STATUS-DISCONNECT', 'E-CORE-EVENT', 'E-CFG-DUMP',
-    'E-SOCIAL-OK', 'E-PING-OK', 'E-BG-SEARCH', 'E-SWITCH-INFO', 'E-USER-CANCEL',
+    'E-STATUS-INFO', 'E-STATUS-DISCONNECT', 'E-CORE-EVENT',
   };
   final allP = dbgProbs.values.toList();
   var infoN = 0;
@@ -2316,6 +2315,9 @@ String? vlessRealityOwnCfg(String link) {
     return null;
   }
 }
+
+// SOFTRETRY: شمارش شکست‌های موقت (تایم‌اوت/پینگ) به‌ازای هر سرور
+final Map<String, int> softFailN = {};
 
 class Server {
   final String link, name, host;
@@ -4936,7 +4938,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     s.checkedAt = DateTime.now();
     if (d != null) {
       s.ping = d;
-      s.badAt = null;
+      s.badAt = null; softFailN.remove(s.key);
       s.miss = 0;
       failed.remove(s.key);
       totalOk++;
@@ -5387,7 +5389,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         } else {
           s.miss = 0;
           s.ping = d;
-          s.badAt = null;
+          s.badAt = null; softFailN.remove(s.key);
         }
       });
     } finally {
@@ -5704,7 +5706,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final pIn = await localPortOpen(10807);
         final pHttp = await localPortOpen(10809);
         dbg('CORE-PORT ${s.name}: socks10808=${pSocks ? 'باز' : 'بسته'} • in10807=${pIn ? 'باز' : 'بسته'} • http10809=${pHttp ? 'باز' : 'بسته'}');
-        // DUMPOFF: متن کامل کانفیگ دیگر در لاگ نوشته نمی‌شود (نویز بود و رمزها را هم داشت)
+        // the log viewer cuts long lines, so the config goes out in short
+        // numbered chunks (one line each), newlines removed
+        // secrets (uuid/password/keys) are masked: reports get shared
+        final dumpCfg = cfgTries[ci].replaceAll('\n', ' ').replaceAllMapped(
+            RegExp(r'"(id|password|pass|uuid|publicKey|pbk|shortId|sid)"\s*:\s*"[^"]*"'),
+            (mm) => '"${mm[1]}":"***"');
+        const chunk = 200;
+        for (var i = 0; i < dumpCfg.length && i < 6000; i += chunk) {
+          final end = i + chunk < dumpCfg.length ? i + chunk : dumpCfg.length;
+          dbg('CFG${i ~/ chunk} ${s.name}: ${dumpCfg.substring(i, end)}');
+        }
       }
       if (!ready) dbgXrayErr(s.name);
       // the core reported CONNECTED with this config: no fallback needed
@@ -6068,8 +6080,27 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
         final systemic = coreDownCount >= 3 && coreDownCount > coreUpCount;
         // NO_ACTIVITY is temporary — do not blacklist the server
-        if (!lastStartNoTunnel && !pin && !noAct && !systemic) {
+        // خطای خود کانفیگ (TLS/پروتکل) با خطای موقت (تایم‌اوت/پینگ کند) فرق دارد
+        final cfgFault = lastFail.contains('TLS') ||
+            lastFail.contains('هندشیک') ||
+            lastFail.contains('CONFIG') ||
+            lastFail.contains('کانفیگ') ||
+            lastFail.contains('پروتکل');
+        final nFails = (softFailN[s.key] ?? 0) + 1;
+        softFailN[s.key] = nFails;
+        // SOFTRETRY: تایم‌اوت/پینگ کند ممکن است لحظه‌ای باشد؛ فقط بعد از دو شکست پیاپی کنار برو
+        final penalise = cfgFault || nFails >= 2;
+        if (!lastStartNoTunnel && !pin && !noAct && !systemic && penalise) {
           s.badAt = DateTime.now();
+          // SIBLINGBAN: فقط برای خطای کانفیگ. همان host و پورت = همان سرور فیزیکی.
+          if (cfgFault) {
+            final now0 = DateTime.now();
+            for (final o in [...good, ...pending]) {
+              if (!identical(o, s) && o.host == s.host && o.port == s.port) {
+                o.badAt = now0;
+              }
+            }
+          }
         }
         if (noAct) {
           errorLog.value = 'مجوز VPN: Activity آماده نیست — تلاش بعدی…';
@@ -7045,7 +7076,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       } else {
         s.ping = d;
         s.miss = 0;
-        s.badAt = null;
+        s.badAt = null; softFailN.remove(s.key);
         found++;
         if (forceSaved) await _natAdd(s);
       }
@@ -10269,7 +10300,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 setState(() {
                   failed.clear();
                   for (final g in good) {
-                    g.badAt = null;
+                    g.badAt = null; softFailN.remove(g.key);
                     g.miss = 0;
                   }
                 });
