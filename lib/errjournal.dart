@@ -35,8 +35,17 @@ const String kErrJournalPath =
     '/data/data/com.kingvpn.king_vpn/cache/errjournal.log';
 String errTag = ''; // نام بخش فعلی تست، تا معلوم شود خطا در کدام بخش افتاده
 
+final Map<String, int> _journalKindCount = {};
+
 void errJournalAdd(Object e, {String kind = '', StackTrace? st}) {
   try {
+    // NOISE: خطاهای تکراری و قابل‌انتظار (مثل DNS دامنه‌های مرده) فقط ۳۰۰ بار ثبت می‌شوند
+    final kk = kind;
+    if (kk.startsWith('SILENT-')) {
+      final c = (_journalKindCount[kk] ?? 0) + 1;
+      _journalKindCount[kk] = c;
+      if (c > 300) return;
+    }
     if (errJournal.length >= kErrJournalMax) errJournal.removeAt(0);
     final now = DateTime.now();
     final k = kind.isNotEmpty ? kind : e.runtimeType.toString();

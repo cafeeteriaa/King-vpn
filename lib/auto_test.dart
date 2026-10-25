@@ -913,6 +913,7 @@ extension AutoTestEngine on _HomePageState {
     natForce = false;
     nationalMode = false;
     natFloor = 0;
+    userModeChoice = null;
     offlineOnly = false;
     await ultimateSave();
     await _atEnsureDisconnected();
@@ -1007,6 +1008,9 @@ extension AutoTestEngine on _HomePageState {
     final name = _atItemNames[2];
     natForce = true;
     nationalMode = true;
+    // NATCHOICE: بدون این، تشخیص خودکار شبکه (وقتی اینترنت جهانی هست) نت ملی را خاموش می‌کند
+    // و جستجوی ملی اصلاً اجرا نمی‌شود (NAT-LEVEL 0 / NAT-NOIP). همان انتخاب دکمه‌ی نت ملی است.
+    userModeChoice = true;
     offlineOnly = false;
     await ultimateSave();
 
@@ -1068,8 +1072,9 @@ extension AutoTestEngine on _HomePageState {
     // وگرنه خلبان خودش به نت ملی می‌رود و سناریو درست سنجیده نمی‌شود
     userModeChoice = national;
     startLocalPilot(national: national);
+    // PILOTWAIT: اتصال نت ملی با ماتریس کامل چند دقیقه طول می‌کشد؛ مهلت متناسب با آن
     await _atWaitUntil(() => connected && !busy,
-        timeout: const Duration(minutes: 8), label: name);
+        timeout: Duration(minutes: national ? 15 : 8), label: name);
 
     if (!connected) {
       _itemResult[name] = '❌ خلبان وصل نکرد • status="$status" • lastFail="$lastFail"';
@@ -1165,7 +1170,7 @@ extension AutoTestEngine on _HomePageState {
       await _atWait(const Duration(milliseconds: 600));
       await connect();
       await _atWaitUntil(() => connected && !busy,
-          timeout: const Duration(seconds: 90), label: 'وصل چرخه $i');
+          timeout: const Duration(minutes: 4), label: 'وصل چرخه $i');
 
       if (!connected) {
         _atAdd('RECONNECT-FAIL', 'چرخه $i نتوانست دوباره وصل شود');
@@ -1211,7 +1216,7 @@ extension AutoTestEngine on _HomePageState {
     if (!connected) {
       await connect();
       await _atWaitUntil(() => connected && !busy,
-          timeout: const Duration(seconds: 90), label: 'بازیابی بعد از abort');
+          timeout: const Duration(minutes: 4), label: 'بازیابی بعد از abort');
     }
   }
 
@@ -1226,7 +1231,7 @@ extension AutoTestEngine on _HomePageState {
     if (!connected) {
       await connect();
       await _atWaitUntil(() => connected && !busy,
-          timeout: const Duration(seconds: 100), label: 'وصل برای تعویض');
+          timeout: const Duration(minutes: 5), label: 'وصل برای تعویض');
     }
     if (!connected) {
       _atAdd('SWAP-SKIP', 'نتوانست برای سناریو تعویض وصل شود');
@@ -1264,7 +1269,7 @@ extension AutoTestEngine on _HomePageState {
     if (!connected) {
       await connect();
       await _atWaitUntil(() => connected && !busy,
-          timeout: const Duration(seconds: 100), label: 'وصل برای مانیتور');
+          timeout: const Duration(minutes: 5), label: 'وصل برای مانیتور');
     }
 
     final remain = _startedAt == null
@@ -1284,7 +1289,7 @@ extension AutoTestEngine on _HomePageState {
         _atAdd('STABLE-DROP', 'در مانیتور طولانی، اتصال بی‌دلیل قطع شد');
         await connect();
         await _atWaitUntil(() => connected && !busy,
-            timeout: const Duration(seconds: 80), label: 'بازیابی مانیتور');
+            timeout: const Duration(minutes: 4), label: 'بازیابی مانیتور');
       }
 
       if (DateTime.now().difference(lastPingCheck) >

@@ -1316,6 +1316,64 @@ List<String> _dbgHelpOf(String m) {
     cause = 'تنظیمات throughput (Mux/Fragment/توربو).';
     fix = 'توربو را روشن و Fragment را خاموش نگه دار؛ بعد از پیام «توربو فعال» سرعت را بسنج.';
   }
+  // NOISE: پیام‌های تکراری و اطلاعاتی (ماتریس، پیش‌پرواز، DNS، اسکن، تیک خلبان) جدا می‌شوند
+  if (has('ماتریس') || has('پیدا شد •')) {
+    return h('E-MATRIX-INFO', 'app_main/main.dart → ماتریس حالت‌ها',
+        'پیشرفت ماتریس حالت‌ها (Fragment/fp/ALPN…)؛ خطا نیست.', 'نادیده بگیر.');
+  }
+  if (has('خلبان: تیک به‌خاطر')) {
+    return h('E-PILOT-RETRY', 'iran_ai_extras.dart → _localRetryLater',
+        'تیک خلبان چون کار دیگری در جریان بود دوباره امتحان شد؛ خطا نیست.',
+        'اگر تا ۶۰ بار ادامه پیدا کرد، یعنی busy گیر کرده؛ خط «کار بیش از ۱۰ دقیقه» را ببین.');
+  }
+  if (has('پیش‌پرواز') || has('موتور انتخاب شد')) {
+    return h('E-PREFLIGHT-INFO', 'app_main/main.dart → پیش‌پرواز',
+        'مرحله‌ی آماده‌سازی اتصال؛ خطا نیست.', 'نادیده بگیر.');
+  }
+  if (has('DNS خودکار انتخاب شد')) {
+    return h('E-DNS-INFO', 'app_main/main.dart → DNS خودکار',
+        'DNS خودکار انتخاب شد؛ اطلاع است.', 'اگر اتصال کند است DoH را روشن نگه دار.');
+  }
+  if (has('تست سرورهای ذخیره‌شده') || has('تست سریع') || has('تست سرعت')) {
+    return h('E-SCAN-INFO', 'app_main/main.dart → تست سرورها',
+        'پیشرفت تست سرورها؛ خطا نیست.', 'اگر تمام نشد، خط «گیر در» را ببین.');
+  }
+  // GENERIC-CUT: باقی‌مانده‌های E-GENERIC به کد و راه‌حل مشخص
+  if (has('there is no outbound handler')) {
+    return h('E-OUTBOUND-MISSING', 'کانفیگ → sockopt.dialerProxy',
+        'کانفیگ به outbound ناموجود اشاره می‌کرد؛ ترافیک صفر می‌شد.',
+        'نسخه‌ی جدید این را خودکار اصلاح می‌کند (sanitizeCfg). اگر تکرار شد، منبع کانفیگ را عوض کن.');
+  }
+  if (has('CurvePreferences')) {
+    return h('E-FP-CURVE', 'کانفیگ → fingerprint',
+        'اثر انگشت TLS مجموعه‌ی curve پشتیبانی‌نشده داشت.',
+        'نسخه‌ی جدید random/randomized را به chrome تبدیل می‌کند. اگر ادامه داشت، همان fp را در لاگ ببین.');
+  }
+  if (has('Illegal percent encoding')) {
+    return h('E-PARSE-PERCENT', 'conn_specs.dart → نام/لینک',
+        'نام یا لینک کانفیگ کاراکتر درصدی ناقص داشت؛ همان کانفیگ کنار گذاشته شد.',
+        'نادیده بگیر؛ اگر روی همه‌ی سرورها بود، منبع لیست را بررسی کن.');
+  }
+  if (has('گیر در')) {
+    return h('E-STUCK-WAIT', 'main.dart → _runBusy',
+        'کاری بیش از حد طول کشید و متوقف شد؛ معمولاً جستجوی سنگین یا تایم‌اوت شبکه.',
+        'اگر تکرار شد، لاگ همان دقیقه‌ها را بفرست (busy گیر کرده است).');
+  }
+  if (has('هسته‌ی بی‌صاحب')) {
+    return h('E-CORE-ORPHAN', 'main.dart → شنونده‌ی هسته',
+        'هسته وصل بود ولی برنامه دیگر نمی‌خواست؛ خودکار خاموش شد.',
+        'نادیده بگیر؛ این یک ایمنی است.');
+  }
+  if (has('لیست سیاه') || has('آزادسازی')) {
+    return h('E-BLACKLIST-INFO', 'main.dart → لیست سیاه',
+        'اطلاع لیست سیاه (افزایش یا آزادسازی سرورها).',
+        'نادیده بگیر.');
+  }
+  if (has('تغییر شبکه') || has('شبکه عوض شد')) {
+    return h('E-NET-CHANGE', 'main.dart → تشخیص تغییر شبکه',
+        'شبکه تغییر کرد و اتصال مجدد شد.',
+        'نادیده بگیر؛ اگر بعد از هر تعویض قطع می‌شود، اتصال Wi-Fi/موبایل را ثابت نگه دار.');
+  }
   // SPECIFIC: پیام‌هایی که قبلاً E-GENERIC بودند، کد و راه‌حل واقعی بگیرند
   if (has('اجتماعی OK')) {
     return h('E-SOCIAL-OK', 'app_main/main.dart → تست اجتماعی سرور',
@@ -1372,6 +1430,9 @@ String _dbgProbText() {
   // INFOSPLIT: پیام‌های اطلاعاتی (وضعیت، پینگ خوب، جستجوی پس‌زمینه…) جدا می‌شوند
   const infoCodes = {
     'E-STATUS-INFO', 'E-STATUS-DISCONNECT', 'E-CORE-EVENT',
+    'E-SOCIAL-OK', 'E-PING-OK', 'E-MATRIX-INFO', 'E-PILOT-RETRY',
+    'E-PREFLIGHT-INFO', 'E-DNS-INFO', 'E-BG-SEARCH', 'E-SCAN-INFO',
+    'E-PILOT-OTHER', 'E-NET-CHANGE', 'E-BLACKLIST-INFO', 'E-SWITCH-INFO',
   };
   final allP = dbgProbs.values.toList();
   var infoN = 0;
@@ -1579,6 +1640,53 @@ bool _isNoActivity(Object e) {
   final s = e.toString();
   return s.contains('NO_ACTIVITY') ||
       s.contains('Activity is not available');
+}
+
+// TUNRESET: تعداد شکست‌های پیاپی شروع هسته (برای مکث بیشتر و ریست سرویس VPN)
+int _nativeStartFails = 0;
+
+// SANITIZE: قبل از رفتن کانفیگ به هسته، dialerProxy که outbound هم‌نامش وجود ندارد حذف می‌شود.
+// (خطای هسته: "there is no outbound handler for dialerProxy" که باعث ترافیک صفر می‌شد)
+String sanitizeCfg(String cfg) {
+  try {
+    final j = jsonDecode(cfg);
+    if (j is! Map) return cfg;
+    final outs = (j['outbounds'] ?? j['outbound']);
+    if (outs is! List) return cfg;
+    final tags = <String>{
+      for (final o in outs)
+        if (o is Map && o['tag'] != null) o['tag'].toString()
+    };
+    var changed = false;
+    for (final o in outs) {
+      if (o is! Map) continue;
+      final st = o['streamSettings'];
+      if (st is! Map) continue;
+      final so = st['sockopt'];
+      if (so is Map) {
+        final dp = so['dialerProxy']?.toString();
+        if (dp != null && !tags.contains(dp)) {
+          so.remove('dialerProxy');
+          changed = true;
+        }
+      }
+      // FPSAFE: fingerprint «random/randomized» می‌تواند مجموعه‌ی curve پشتیبانی‌نشده بسازد
+      // و هسته خطای "CurvePreferences includes unsupported curve" می‌دهد؛ به chrome برمی‌گردد
+      for (final key in const ['tlsSettings', 'realitySettings']) {
+        final ss = st[key];
+        if (ss is Map) {
+          final fpv = ss['fingerprint']?.toString();
+          if (fpv == 'random' || fpv == 'randomized') {
+            ss['fingerprint'] = 'chrome';
+            changed = true;
+          }
+        }
+      }
+    }
+    return changed ? jsonEncode(j) : cfg;
+  } catch (_) {
+    return cfg;
+  }
 }
 
 void logError(Object e, [StackTrace? st]) {
@@ -2736,7 +2844,14 @@ Future<int?> pingProxy(
     bool direct = false,
     bool viaCore = false,
     String url = delayTestUrl}) async {
-  final useProxy = await _useCoreProxy(viaCore || !direct);
+  var useProxy = await _useCoreProxy(viaCore || !direct);
+  // TUNPING: در حالت VPN (TUN) پورت HTTP هسته ممکن است اصلاً باز نشود؛ آن‌وقت
+  // پینگ همیشه شکست می‌خورد و سرور سالم «ترافیک صفر» حساب می‌شود.
+  // اگر پورت بسته است و حالت پروکسی نیست، از مسیر عادی (که TUN روی آن است) استفاده کن.
+  if (useProxy && !proxyMode && !await _coreProxyOpen()) {
+    useProxy = false;
+    dbg('پینگ: پورت HTTP هسته بسته است؛ پینگ از مسیر TUN انجام می‌شود');
+  }
   final c = HttpClient()
     ..findProxy = ((_) =>
         useProxy ? 'PROXY 127.0.0.1:$httpProxyPort' : 'DIRECT')
@@ -4017,13 +4132,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       logError(e);
     });
     try {
-      await work.timeout(const Duration(minutes: 5));
+      // BUSYCAP: جستجوی نت ملی و تست گروهی طبیعتاً بیشتر از ۵ دقیقه می‌برند؛
+      // سقف به ۱۰ دقیقه رسید تا کارهای سالم به‌اشتباه قطع نشوند
+      await work.timeout(const Duration(minutes: 10));
     } on TimeoutException {
       abort = true;
       // STUCK-WHERE: the status text shows which step was waiting when it hung
-      dbg('کار بیش از ۵ دقیقه طول کشید؛ توقف خواسته شد • گیر در: «$status»');
+      dbg('کار بیش از ۱۰ دقیقه طول کشید؛ توقف خواسته شد • گیر در: «$status»');
       try {
-        await work.timeout(const Duration(seconds: 20));
+        // BUSYCAP: مهلت توقف از ۲۰ ثانیه به ۶۰ ثانیه تا کار بتواند خودش تمیز تمام شود
+        await work.timeout(const Duration(seconds: 60));
       } on TimeoutException {
         logError('کار بعد از توقف هم تمام نشد • آخرین وضعیت: «$status» • قفل آزاد شد');
       }
@@ -4561,7 +4679,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         await p.remove('sessionEnd');
       } catch (_swE) { _swl('_startSessionTimer#1', _swE);}
       if (connected || wantVpn) {
-        await disconnect();
+        await disconnect(keepPilot: true); // خلبان روشن می‌ماند، فقط VPN قطع می‌شود
         _set('⏱ ۴ ساعت اتصال تمام شد؛ برای ادامه دوباره «اتصال» را بزن (تبلیغ نمایش داده می‌شود)');
       }
     });
@@ -5592,6 +5710,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         } else {
           await Future.delayed(const Duration(milliseconds: 200));
         }
+        // TUNRESET: بعد از شکست‌های پیاپی، سرویس VPN ریست و مکث بیشتری داده می‌شود
+        if (_nativeStartFails > 0) {
+          await _stopCore();
+          await Future.delayed(Duration(
+              milliseconds: 1200 * (_nativeStartFails > 5 ? 5 : _nativeStartFails)));
+        }
       }
       if (po) {
         await v2ray.startV2Ray(
@@ -5625,7 +5749,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (ownCfg != null) ownCfg,
         cfg,
         if (base != cfg) base,
-      ].map(withErrLog).toList();
+      ].map((c) => withErrLog(sanitizeCfg(c))).toList();
       var usedFallback = false;
       for (var ci = 0; ci < cfgTries.length; ci++) {
         if (ci > 0) {
@@ -5670,6 +5794,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           return false;
         });
         if (myGen != _connGen) ready = false; // superseded
+        // TUNRESET: شمارش شکست‌های شروع هسته
+        if (ready) {
+          _nativeStartFails = 0;
+        } else if (myGen == _connGen) {
+          _nativeStartFails++;
+        }
         t = null;
         if (ready) {
           // give the tunnel time to appear (OEM devices can be slow)
@@ -7739,12 +7869,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     });
   }
 
-  Future<void> disconnect() async {
+  // PILOTKEEP: خلبان فقط با دکمه‌ی قطع/خلبان خودش خاموش می‌شود.
+  // قطع خودکار (مثل پایان ۴ ساعت) نباید خلبان را خاموش کند.
+  Future<void> disconnect({bool keepPilot = false}) async {
     aiSession = false;
     aiLoop?.cancel();
     stopNetWatch();
     stopGrokPilot();
-    stopLocalPilot();
+    if (!keepPilot) stopLocalPilot();
     abort = true; // جستجوی در جریان را هم قطع کن
     wantVpn = false;
     pendingFailover = false;
