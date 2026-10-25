@@ -1316,22 +1316,85 @@ List<String> _dbgHelpOf(String m) {
     cause = 'تنظیمات throughput (Mux/Fragment/توربو).';
     fix = 'توربو را روشن و Fragment را خاموش نگه دار؛ بعد از پیام «توربو فعال» سرعت را بسنج.';
   }
+  // SPECIFIC: پیام‌هایی که قبلاً E-GENERIC بودند، کد و راه‌حل واقعی بگیرند
+  if (has('اجتماعی OK')) {
+    return h('E-SOCIAL-OK', 'app_main/main.dart → تست اجتماعی سرور',
+        'تلگرام/یوتیوب/اینستاگرام از تونل باز شد. خبر خوب است، خطا نیست.',
+        'نادیده بگیر.');
+  }
+  if (has('پینگ از تونل')) {
+    final ms = RegExp(r'(\d+)ms').firstMatch(m);
+    final v = ms == null ? 0 : (int.tryParse(ms.group(1)!) ?? 0);
+    if (v > 0 && v <= 800) {
+      return h('E-PING-OK', 'app_main/main.dart → پینگ از تونل',
+          'پینگ از داخل تونل طبیعی است ($v ms). خطا نیست.', 'نادیده بگیر.');
+    }
+  }
+  if (has('جستجوی پس‌زمینه:')) {
+    return h('E-BG-SEARCH', 'app_main/main.dart → _standbyRun (جستجوی پس‌زمینه)',
+        'وضعیت جستجوی پس‌زمینه؛ خطا نیست.',
+        'اگر صف زیاد و بدون پیشرفت ماند، E-BG-BUSY را ببین.');
+  }
+  if (has('تعویض سرور (نامشخص)') || has('تعویض:')) {
+    return h('E-SWITCH-INFO', 'app_main/main.dart → _swapTo',
+        'اطلاع تعویض سرور؛ اگر پشت سرش قطعی نبود، خطا نیست.',
+        'اگر بعدش اتصال افتاد، E-CORE-DROP را ببین.');
+  }
+  if (has('لغو توسط کاربر')) {
+    return h('E-USER-CANCEL', 'app_main/main.dart → لغو اتصال',
+        'اتصال را خودت یا یکی از دکمه‌ها لغو کرد.', 'نادیده بگیر.');
+  }
+  if (has('PILOT-NOTICK')) {
+    return h('E-PILOT-NOTICK', 'app_main/main.dart → localPilotTick',
+        'خلبان روشن شد ولی تیک نزد: تیک وقتی busy یا localPilotLoading بود برنمی‌گردد.',
+        'نسخه‌ی جدید تست صبر می‌کند تا آزاد شود و تیک را اجبار می‌کند. اگر تکرار شد، خط «جستجوی پس‌زمینه: busy» را ببین.');
+  }
+  if (has('NAT-NOIP')) {
+    return h('E-NAT-NOIP', 'app_main/main.dart → نت ملی / بازه‌های IP',
+        'اسکن IP نت ملی شروع نشد؛ معمولاً بازه‌ی IP خالی است.',
+        'در «بازه‌های IP برای جستجو» بازه وارد کن، یا یک بار با نت ملی اجرا کن.');
+  }
+  if (has('TLS handshake timeout') || has('i/o timeout') || has('connection timed out')) {
+    return h('E-NET-TIMEOUT', 'لاگ هسته (GoLog)',
+        'سرور در زمان مشخص جواب نداد (تایم‌اوت شبکه یا سرور بسته).',
+        'سرور دیگری امتحان کن؛ اگر همه‌ی سرورها تایم‌اوت دارند، اینترنت/اپراتور را چک کن.');
+  }
+  if (has('closed pipe') || has('EOF')) {
+    return h('E-SERVER-CLOSED', 'لاگ هسته (GoLog)',
+        'اتصال از طرف سرور یا مسیر بسته شد.',
+        'سرور را عوض کن؛ اگر تکرار شد لیست سیاه را پاک کن.');
+  }
   return h('E-GENERIC', where, cause, fix);
 }
 
 // the report section: every problem with where / cause / fix
 String _dbgProbText() {
-  final l = dbgProbs.values.toList()
-    ..sort((a, b) => b.last.compareTo(a.last));
+  // INFOSPLIT: پیام‌های اطلاعاتی (وضعیت، پینگ خوب، جستجوی پس‌زمینه…) جدا می‌شوند
+  const infoCodes = {
+    'E-STATUS-INFO', 'E-STATUS-DISCONNECT', 'E-CORE-EVENT', 'E-CFG-DUMP',
+    'E-SOCIAL-OK', 'E-PING-OK', 'E-BG-SEARCH', 'E-SWITCH-INFO', 'E-USER-CANCEL',
+  };
+  final allP = dbgProbs.values.toList();
+  var infoN = 0;
+  final l = <dynamic>[];
+  for (final p in allP) {
+    if (infoCodes.contains(_dbgHelpOf(p.msg)[0])) {
+      infoN += p.n as int;
+    } else {
+      l.add(p);
+    }
+  }
+  l.sort((a, b) => b.last.compareTo(a.last));
   var total = 0;
   for (final p in l) {
-    total += p.n;
+    total += p.n as int;
   }
   final b = StringBuffer(
       '== مشکل‌های پیدا شده (${l.length} نوع • $total بار) ==\n');
   b.write('تا «پاک کردن» نزنی همه می‌مانند؛ عدد جلوی هر مورد = تعداد کل بار (همه‌ی اجراها)\n');
   b.write('هر مورد کد + علت + راه حل دارد — نیازی به فرستادن برای AI نیست مگر باگ کد (E-ERR-BUG)\n');
   b.write('شماره‌ی خط‌ها: main.dart پیوست همین Release\n');
+  b.write('ℹ اطلاعات (نه خطا): $infoN بار — در فهرست مشکل‌ها نیست\n');
   if (l.isEmpty) b.write('هیچ مشکلی ثبت نشده\n');
   final shown = <String>{};
   var i = 0;
@@ -4773,12 +4836,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       var batches = 0;
       var reloaded = false;
+      final bgStart = DateTime.now(); // BGCAP: هر دور جستجوی پس‌زمینه حداکثر ۲۰ دقیقه
       // standby search: bigger batches (the tunnel is shared), the healthy
       // servers are re-checked every 25 tests and after every batch
       final maxB = bg ? standbyBatches : 1000000; // RETRYPATCH
       while (!abort &&
           !(bg && (!connected || appGone)) &&
           !enough() &&
+          !(bg && DateTime.now().difference(bgStart) > const Duration(minutes: 20)) &&
           batches < maxB) {
         // the whole list was tested: download a new one and go on (endless)
         if (pending.isEmpty) {
@@ -5639,17 +5704,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final pIn = await localPortOpen(10807);
         final pHttp = await localPortOpen(10809);
         dbg('CORE-PORT ${s.name}: socks10808=${pSocks ? 'باز' : 'بسته'} • in10807=${pIn ? 'باز' : 'بسته'} • http10809=${pHttp ? 'باز' : 'بسته'}');
-        // the log viewer cuts long lines, so the config goes out in short
-        // numbered chunks (one line each), newlines removed
-        // secrets (uuid/password/keys) are masked: reports get shared
-        final dumpCfg = cfgTries[ci].replaceAll('\n', ' ').replaceAllMapped(
-            RegExp(r'"(id|password|pass|uuid|publicKey|pbk|shortId|sid)"\s*:\s*"[^"]*"'),
-            (mm) => '"${mm[1]}":"***"');
-        const chunk = 200;
-        for (var i = 0; i < dumpCfg.length && i < 6000; i += chunk) {
-          final end = i + chunk < dumpCfg.length ? i + chunk : dumpCfg.length;
-          dbg('CFG${i ~/ chunk} ${s.name}: ${dumpCfg.substring(i, end)}');
-        }
+        // DUMPOFF: متن کامل کانفیگ دیگر در لاگ نوشته نمی‌شود (نویز بود و رمزها را هم داشت)
       }
       if (!ready) dbgXrayErr(s.name);
       // the core reported CONNECTED with this config: no fallback needed

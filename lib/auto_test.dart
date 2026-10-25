@@ -316,6 +316,7 @@ extension AutoTestEngine on _HomePageState {
 
     buf.write(_atJournalSection());
     buf.write(_atXrayTail());
+    buf.write(await _atLogcatTail());
     buf.write(_atDiagnosis());
 
     // کامل: آدرس IP و جزئیات بدون پوشش (برای پیدا کردن دقیق مشکل)
@@ -772,6 +773,28 @@ extension AutoTestEngine on _HomePageState {
         'راه حل: همین گزارش را برای بررسی بفرست.';
   }
 
+  /// logcat اندروید: خط‌های هسته (GoLog/xray/V2Ray) که خود برنامه ثبت کرده
+  Future<String> _atLogcatTail() async {
+    try {
+      final r = await Process.run('logcat', ['-d', '-t', '800', '-v', 'brief']);
+      final all = (r.stdout as String).split('\n');
+      final lines = all.where((l) {
+        final low = l.toLowerCase();
+        return low.contains('golog') ||
+            low.contains('xray') ||
+            low.contains('v2ray') ||
+            low.contains('proxyerror') ||
+            low.contains('[error]') ||
+            low.contains('[warning]');
+      }).toList();
+      final tail = lines.length > 300 ? lines.sublist(lines.length - 300) : lines;
+      return '\n📱 logcat (خطوط هسته) — ${tail.length} خط:\n${tail.join('\n')}\n';
+    } catch (e, stk) {
+      errJournalAdd(e, kind: 'LOGCAT-READ', st: stk);
+      return '\n(گرفتن logcat ممکن نشد)\n';
+    }
+  }
+
   /// خط‌های آخر لاگ هسته‌ی V2Ray (xray_err.log): خطای واقعی اتصال اغلب همین‌جاست
   String _atXrayTail() {
     try {
@@ -1054,6 +1077,14 @@ extension AutoTestEngine on _HomePageState {
     }
 
     // خلبان باید حداقل یک تیک بزند؛ کادر خلبان از همان تیک پر می‌شود
+    // PILOTFIX: تیک خلبان وقتی busy باشد برنمی‌گردد؛ اول صبر کن آزاد شود، بعد تیک را اجبار کن
+    final bEnd = DateTime.now().add(const Duration(seconds: 30));
+    while (busy && DateTime.now().isBefore(bEnd) && !_abortRequested) {
+      await Future<void>.delayed(const Duration(seconds: 1));
+    }
+    if (!_abortRequested && _localTickN <= tick0) {
+      unawaited(localPilotTick(force: true));
+    }
     final tEnd = DateTime.now().add(const Duration(seconds: 100));
     while (_localTickN <= tick0 &&
         DateTime.now().isBefore(tEnd) &&
