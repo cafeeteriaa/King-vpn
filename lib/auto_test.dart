@@ -1064,6 +1064,9 @@ extension AutoTestEngine on _HomePageState {
     final tick0 = _localTickN;
     autoTestText.value = 'بخش «$name»: روشن کردن خلبان…';
     dbg('🧪 بخش «$name» — روشن کردن خلبان');
+    // PILOTCHOICE: تست باید همان انتخاب کاربر را داشته باشد (بدون نت ملی = جهانی)،
+    // وگرنه خلبان خودش به نت ملی می‌رود و سناریو درست سنجیده نمی‌شود
+    userModeChoice = national;
     startLocalPilot(national: national);
     await _atWaitUntil(() => connected && !busy,
         timeout: const Duration(minutes: 8), label: name);
@@ -1091,6 +1094,7 @@ extension AutoTestEngine on _HomePageState {
         !_abortRequested) {
       await Future<void>.delayed(const Duration(seconds: 2));
     }
+    userModeChoice = null; // پایان بخش: خلبان دوباره خودکار (بدون قفل تست)
     if (_localTickN <= tick0) {
       _atAdd('PILOT-NOTICK', '$name وصل شد ولی خلبان تیکی نزد');
     }

@@ -116,7 +116,7 @@ ConfigSpec describeConfig(String link, {String? knownIp}) {
       try {
         c.name = Uri.decodeComponent(link.substring(hashAt + 1));
       } catch (e, jstk) { errJournalAdd(e, st: jstk);
-        debugPrint("err: $e");
+        // NOISE-OFF: خطای نام کانفیگ فقط در دفتر خطا ثبت می‌شود، نه در لاگ عمومی
         c.name = link.substring(hashAt + 1);
       }
     }
@@ -213,7 +213,7 @@ Future<String> resolveHostIp(String host) async {
     if (r.isEmpty) return '-';
     return r.map((e) => e.address).join(',');
   } catch (e, jstk) { errJournalAdd(e, st: jstk);
-    debugPrint("err: $e");
+    errJournalAdd(e, kind: 'CONFIG-PARSE'); // NOISE-OFF: فقط دفتر خطا
     return '-';
   }
 }
