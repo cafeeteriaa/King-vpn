@@ -323,6 +323,8 @@ extension AutoTestEngine on _HomePageState {
     final report = buf.toString();
     dbg(report);
     errorLog.value = '${errorLog.value}\n$report'.trim();
+    // REPORTSAVE: گزارش داخل فایل هم ذخیره می‌شود تا بعداً بتوانی کپی یا بفرستی
+    final savedPath = await atSaveReport(report);
 
     if (mounted) {
       await showDialog<void>(
@@ -336,8 +338,19 @@ extension AutoTestEngine on _HomePageState {
             content: SizedBox(
               width: double.maxFinite,
               child: SingleChildScrollView(
-                child: SelectableText(report,
-                    style: const TextStyle(fontSize: 13, height: 1.4)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (savedPath.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text('ذخیره شد در:\n$savedPath',
+                            style: const TextStyle(fontSize: 12)),
+                      ),
+                    SelectableText(report,
+                        style: const TextStyle(fontSize: 13, height: 1.4)),
+                  ],
+                ),
               ),
             ),
             actions: [
@@ -1337,4 +1350,32 @@ extension AutoTestEngine on _HomePageState {
       await Future<void>.delayed(const Duration(seconds: 2));
     }
   }
+}
+
+
+// REPORTSAVE: گزارش تست ۶۰ دقیقه‌ای را در پوشه‌ی Download/King-VPN ذخیره می‌کند
+// (و یک نسخه‌ی ثابت به اسم last_auto_test_report.txt). مسیر ذخیره را برمی‌گرداند.
+Future<String> atSaveReport(String report) async {
+  final stamp = DateTime.now()
+      .toIso8601String()
+      .replaceAll(':', '-')
+      .split('.')
+      .first;
+  final name = 'auto_test_report_$stamp.txt';
+  const dirs = [
+    '/storage/emulated/0/Download/King-VPN',
+    '/data/data/com.kingvpn.king_vpn/files/reports',
+  ];
+  for (final d in dirs) {
+    try {
+      final dir = Directory(d);
+      if (!dir.existsSync()) dir.createSync(recursive: true);
+      final f = File('${dir.path}/$name');
+      await f.writeAsString(report, flush: true);
+      await File('${dir.path}/last_auto_test_report.txt')
+          .writeAsString(report, flush: true);
+      return f.path;
+    } catch (_) {}
+  }
+  return '';
 }
