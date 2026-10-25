@@ -12,11 +12,23 @@ mp = os.path.join(APP, 'android/app/src/main/AndroidManifest.xml')
 m = open(mp, encoding='utf-8').read()
 perms = ('<uses-permission android:name="android.permission.INTERNET"/>\n'
          '    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>\n'
+         '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>\n'
+         '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>\n'
          '    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>\n'
          '    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n'
          '    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>\n    ')
 if 'QUERY_ALL_PACKAGES' not in m:
     m = m.replace('<application', perms + '<application', 1)
+# FGSTYPE: Android 14+ (targetSDK 36) needs a foreground service type. The plugin starts its
+# proxy service without one ("Starting FGS without a type"), so the type is declared here.
+SVC = ('<service android:name="dev.amirzr.flutter_v2ray_client.v2ray.services.V2rayProxyOnlyService"\n'
+       '             android:foregroundServiceType="specialUse">\n'
+       '            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"\n'
+       '                      android:value="local proxy core for the user"/>\n'
+       '        </service>\n    ')
+if 'foregroundServiceType' not in m and '</application>' in m:
+    m = m.replace('</application>', SVC + '</application>', 1)
+    print('OK: foreground service type declared in manifest')
 open(mp, 'w', encoding='utf-8').write(m)
 print('OK: manifest permissions')
 
@@ -80,8 +92,8 @@ String _hotPath() {
 
 OLD_ENSURE = "  if (_hotBusy) return;\n  final f = File(_hotPath());\n"
 
-NEW_ENSURE = ("  if (_hotBusy) return;\n"
-              "  if (force) await hotStorageAllow(); // HOTVISIBLE: asks when the user taps the row\n"
+NEW_ENSURE = ("  if (force) await hotStorageAllow(); // HOTVISIBLE: asks when the user taps the row\n"
+              "  if (_hotBusy) return; // HOTRACE: no await between this check and _hotBusy = true\n"
               "  final f = File(_hotPath());\n")
 
 APPEND = """
