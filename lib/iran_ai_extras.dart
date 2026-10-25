@@ -2345,8 +2345,6 @@ extension HomeExtras on _HomePageState {
     }
   }
 
-  int _localRetryN = 0;
-
   /// اگر تیک اجباری به‌خاطر کار دیگر گم شد، ۵ ثانیه بعد دوباره امتحان کن (حداکثر ۶۰ بار)
   void _localRetryLater() {
     if (_localRetryN >= 60 || !localPilotOn) return;
@@ -3241,6 +3239,7 @@ Future<String?> tunedSettings(SharedPreferences p) async {
 bool localPilotOn = false;
 // انتخاب صریح کاربر: null = نامشخص (خودکار)، true = نت ملی، false = نت جهانی
 bool? userModeChoice;
+int _localRetryN = 0; // تعداد تلاش‌های تیک خلبان که گم شده (فیلد باید بیرون extension باشد)
 // انتخاب صریح کاربر: null = نامشخص، true = آفلاین، false = آنلاین
 bool? userOfflineChoice;
 Timer? localPilotLoop;
