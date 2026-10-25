@@ -208,8 +208,7 @@ Future<String> resolveHostIp(String host) async {
   if (host.isEmpty || host == '-') return '-';
   if (InternetAddress.tryParse(host) != null) return host;
   try {
-    final r = await InternetAddress.lookup(host)
-        .timeout(const Duration(seconds: 3));
+    final r = await safeLookup(host);
     if (r.isEmpty) return '-';
     return r.map((e) => e.address).join(',');
   } catch (e, jstk) { errJournalAdd(e, st: jstk);

@@ -825,29 +825,57 @@ extension AutoTestEngine on _HomePageState {
     final since = _startedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
     final runEntries = errJournal.where((e) => !e.at.isBefore(since)).toList();
     out.writeln('(این اجرا: ${runEntries.length} • کل دفتر: ${errJournal.length})');
+    // ERRREPORT: خلاصه‌ی دسته‌ها: باگ واقعی جدا از خطای عادی شبکه
+    final cats = <String, int>{};
+    for (final e in runEntries) {
+      final c = errCategory(e);
+      cats[c] = (cats[c] ?? 0) + 1;
+    }
+    out.writeln('خلاصه بر اساس نوع:');
+    final catKeys = cats.keys.toList()
+      ..sort((a, b) => cats[b]!.compareTo(cats[a]!));
+    for (final c in catKeys) {
+      out.writeln('• $c: ${cats[c]}');
+    }
+    // گروه‌بندی بر اساس محل خطا در کد (نه متن کامل که برای هر دامنه فرق دارد)
     final groups = <String, List<ErrEntry>>{};
     for (final e in runEntries) {
-      final key = '${e.type}|${e.msg.replaceAll(RegExp(r'\d+'), '#')}';
+      final key = '${errCategory(e)}|${e.type}|${e.where}';
       (groups[key] ??= <ErrEntry>[]).add(e);
     }
+    // اول باگ‌ها، بعد بقیه؛ داخل هر دسته پرتکرارترها اول
     final keys = groups.keys.toList()
-      ..sort((a, b) => groups[b]!.length.compareTo(groups[a]!.length));
+      ..sort((a, b) {
+        final ba = a.startsWith('باگ') ? 0 : 1;
+        final bb = b.startsWith('باگ') ? 0 : 1;
+        if (ba != bb) return ba.compareTo(bb);
+        return groups[b]!.length.compareTo(groups[a]!.length);
+      });
+    // ERRREPORT2: خطاهای عادی شبکه (دامنه‌ی مرده، timeout) در لیست نمی‌آیند؛ فقط شمارششان نشان داده می‌شود
+    final important = keys.where((k) => !k.startsWith('شبکه')).toList();
+    final noiseCount = keys.length - important.length;
+    if (noiseCount > 0) {
+      out.writeln('(خطاهای عادی شبکه‌ی ${noiseCount} گروه نادیده گرفته شد؛ نیازی به کار نیست)');
+    }
+    if (important.isEmpty) {
+      out.writeln('• هیچ باگ واقعی‌ای در این اجرا ثبت نشد.');
+      return out.toString();
+    }
     var i = 0;
-    for (final k in keys) {
+    for (final k in important.take(40)) {
       final g = groups[k]!;
       final first = g.first;
       final last = g.last;
       i++;
-      out.writeln('#$i ×${g.length}  نوع: ${first.type}');
+      out.writeln('#$i ×${g.length}  ${k.split('|')[0]}  نوع: ${first.type}');
       out.writeln(
           '   اولین: ${_dbgHms(first.at)}  •  آخرین: ${_dbgHms(last.at)}');
       out.writeln('   بخش تست: ${first.tag.isEmpty ? '-' : first.tag}');
       out.writeln('   جای خطا در کد: ${first.where}');
-      out.writeln('   پیام کامل: ${first.msg}');
-      // همه‌ی زمان‌های این گروه (تا ۶۰ مورد) برای دیدن الگوی زمانی
-      final times = g.take(60).map((x) => _dbgHms(x.at)).join('، ');
-      out.writeln('   همه‌ی زمان‌ها: $times${g.length > 60 ? ' …' : ''}');
+      final m = first.msg;
+      out.writeln('   نمونه‌ی پیام: ${m.length > 300 ? '${m.substring(0, 300)}…' : m}');
     }
+    if (important.length > 40) out.writeln('… و ${important.length - 40} گروه دیگر');
     return out.toString();
   }
 

@@ -1683,11 +1683,44 @@ String sanitizeCfg(String cfg) {
         }
       }
     }
+    // WSPATHFIX: Xray کاربرد path/Host را به‌صورت رشته می‌خواهد. اگر لیست بیاید
+    // هسته خطای "cannot unmarshal array" می‌دهد و کانفیگ هرگز بالا نمی‌آید.
+    for (final o in outs) {
+      if (o is! Map) continue;
+      final st2 = o['streamSettings'];
+      if (st2 is! Map) continue;
+      for (final key in const ['wsSettings', 'httpupgradeSettings', 'xhttpSettings', 'splithttpSettings']) {
+        final ws = st2[key];
+        if (ws is! Map) continue;
+        final p = ws['path'];
+        if (p is List) {
+          ws['path'] = p.map((e) => e.toString()).join('');
+          changed = true;
+        } else if (p != null && p is! String) {
+          ws['path'] = p.toString();
+          changed = true;
+        }
+        final hd = ws['headers'];
+        if (hd is Map && hd['Host'] is List) {
+          hd['Host'] = (hd['Host'] as List).map((e) => e.toString()).join('');
+          changed = true;
+        }
+        final hs = ws['host'];
+        if (hs is List) {
+          ws['host'] = hs.map((e) => e.toString()).join('');
+          changed = true;
+        }
+      }
+    }
     return changed ? jsonEncode(j) : cfg;
   } catch (_) {
     return cfg;
   }
 }
+
+// CFGBUILD: همه‌ی ساخت کانفیگ هسته از این تابع می‌گذرد (قبلاً بعضی مسیرها sanitize نمی‌شدند)
+String buildCoreConfig(String link) =>
+    sanitizeCfg(V2ray.parseFromURL(link).getFullConfiguration());
 
 void logError(Object e, [StackTrace? st]) {
   errJournalAdd(e, st: st);
@@ -5351,7 +5384,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     var m = 0;
     const urls = ['https://web.telegram.org/', 'https://www.youtube.com/generate_204', 'https://www.instagram.com/', 'https://www.pornhub.com/'];
     try {
-      final cfg = V2ray.parseFromURL(s.useLink).getFullConfiguration();
+      final cfg = buildCoreConfig(s.useLink);
       final rs = await Future.wait(urls.map((u) => v2ray
           .getServerDelay(config: cfg, url: u)
           .timeout(const Duration(seconds: 8), onTimeout: () => -1)
@@ -7282,11 +7315,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ipOf[h] = h;
           continue;
         }
-        try {
-          final r = await InternetAddress.lookup(h)
-              .timeout(const Duration(seconds: 3));
-          if (r.isNotEmpty) ipOf[h] = r.first.address;
-        } catch (e) { errJournalAdd(e, kind: 'SILENT-DNS'); }
+        final r = await safeLookup(h);
+        if (r.isNotEmpty) ipOf[h] = r.first.address;
       }
       final targets = [for (final s in cands) if (ipOf.containsKey(s.host)) s];
       final ok = <Server>[];
@@ -8342,8 +8372,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     String? ip;
     try {
-      final r = await InternetAddress.lookup(s.host)
-          .timeout(const Duration(seconds: 5));
+      final r = await safeLookup(s.host, timeout: const Duration(seconds: 5));
       if (r.isNotEmpty) ip = r.first.address;
     } catch (_swE) { _swl('_diagnosePersonal#1', _swE);}
     ip ??= await dohResolve(s.host);
@@ -9648,8 +9677,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       try {
         var ip = s.host;
         if (InternetAddress.tryParse(ip) == null) {
-          final r = await InternetAddress.lookup(ip)
-              .timeout(const Duration(seconds: 3));
+          final r = await safeLookup(ip);
           if (r.isEmpty) return;
           ip = r.first.address;
         }

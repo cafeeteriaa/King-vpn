@@ -1144,8 +1144,7 @@ String _natSock(String cfg,
 
 // کانفیگ نهایی یک سرور با حالت v (v=0 دقیقاً مثل قبل است)
 String natCfg(Server s, int v, {bool reuse = false}) {
-  var cfg =
-      V2ray.parseFromURL(_natLinkFor(s, v, reuse: reuse)).getFullConfiguration();
+  var cfg = buildCoreConfig(_natLinkFor(s, v, reuse: reuse));
   if (v <= 0 || v >= _natSpecs.length) return cfg;
   final x = _natSpecs[v];
   if (x.frag != null) {

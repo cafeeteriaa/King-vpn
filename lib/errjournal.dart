@@ -1,8 +1,11 @@
 import 'dart:io';
 
-// ERRJOURNAL (مستقل از main تا فایل‌های جدا هم بتوانند ثبت کنند): دفتر کامل خطاها برای تست ۶۰ دقیقه‌ای.
-// هر خطایی که از logError رد شود (حتی خطاهای شبکه‌ای که قبلاً فقط شمرده می‌شدند)
-// با زمان، نوع، پیام کامل، جای دقیق در کد (فایل:خط) و بخش فعلی تست ثبت می‌شود.
+// ERRJOURNAL (مستقل از main تا فایل‌های جدا هم بتوانند ثبت کنند): دفتر خطاها برای تست ۶۰ دقیقه‌ای.
+// هر خطایی که از logError رد شود با زمان، نوع، پیام، جای دقیق در کد (فایل:خط) و بخش فعلی تست ثبت می‌شود.
+//
+// ERRFIX: خطاهای شبکه‌ای عادی (دامنه‌ی مرده، timeout، connection refused، …) حالا همه با یک نوع
+// SILENT-NET شمرده می‌شوند و فقط ۳۰۰ بار ثبت می‌شوند. قبلاً هر خطا با نوع خالی می‌آمد و دفتر را
+// تا ۱۰۰ هزار مورد پر می‌کرد و باگ‌های واقعی گم می‌شدند.
 class ErrEntry {
   final DateTime at;
   final String type;
@@ -30,6 +33,7 @@ String stackHead(StackTrace st) {
     return '';
   }
 }
+
 const int kErrJournalMax = 100000;
 const String kErrJournalPath =
     '/data/data/com.kingvpn.king_vpn/cache/errjournal.log';
@@ -37,10 +41,70 @@ String errTag = ''; // نام بخش فعلی تست، تا معلوم شود خ
 
 final Map<String, int> _journalKindCount = {};
 
+// ERRFIX: تشخیص خطاهای شبکه‌ای عادی از روی متن خطا
+String netNoiseKind(Object e) {
+  final m = e.toString();
+  const marks = [
+    'Failed host lookup',
+    'Connection timed out',
+    'Connection refused',
+    'No route to host',
+    'Network is unreachable',
+    'Connection reset',
+    'Connection failed',
+    'TLS handshake timeout',
+    'closed pipe',
+    'TimeoutException',
+  ];
+  for (final k in marks) {
+    if (m.contains(k)) return 'SILENT-NET';
+  }
+  return '';
+}
+
+// ERRFIX: دسته‌ی هر خطا برای خلاصه‌ی گزارش: باگ واقعی جدا از خطای عادی شبکه
+String errCategory(ErrEntry e) {
+  final t = e.type;
+  final m = e.msg;
+  if (m.contains('PathExistsException') || m.contains('FileSystemException')) {
+    return 'باگ فایل (باید رفع شود)';
+  }
+  if (m.contains('FormatException') ||
+      m.contains('TypeError') ||
+      m.contains('RangeError') ||
+      m.contains('Null check') ||
+      m.contains('cannot unmarshal')) {
+    return 'باگ کد (باید رفع شود)';
+  }
+  if (t.startsWith('SILENT-NET') || t.startsWith('SILENT-DNS')) {
+    return 'شبکه / دامنه‌ی مرده (عادی)';
+  }
+  if (m.contains('Socket') || m.contains('Timeout') || m.contains('Handshake')) {
+    return 'شبکه (عادی)';
+  }
+  return 'سایر';
+}
+
+// ERRFIX: هر جستجوی DNS از این تابع می‌گذرد. host های نامعتبر (مثل دامنه‌ی درصد‌کدشده) قبل از lookup
+// کنار گذاشته می‌شوند و خطا هرگز به بیرون پرت نمی‌شود.
+Future<List<InternetAddress>> safeLookup(String host,
+    {Duration timeout = const Duration(seconds: 3)}) async {
+  final h = host.trim();
+  if (h.isEmpty || h == '-' || h.contains('%') || h.contains(' ') || h.contains('/')) {
+    return const <InternetAddress>[];
+  }
+  try {
+    return await InternetAddress.lookup(h).timeout(timeout);
+  } catch (e) {
+    errJournalAdd(e, kind: 'SILENT-DNS');
+    return const <InternetAddress>[];
+  }
+}
+
 void errJournalAdd(Object e, {String kind = '', StackTrace? st}) {
   try {
-    // NOISE: خطاهای تکراری و قابل‌انتظار (مثل DNS دامنه‌های مرده) فقط ۳۰۰ بار ثبت می‌شوند
-    final kk = kind;
+    // NOISE: خطاهای تکراری و قابل‌انتظار فقط ۳۰۰ بار در هر نوع ثبت می‌شوند
+    final kk = kind.isNotEmpty ? kind : netNoiseKind(e);
     if (kk.startsWith('SILENT-')) {
       final c = (_journalKindCount[kk] ?? 0) + 1;
       _journalKindCount[kk] = c;
@@ -48,7 +112,7 @@ void errJournalAdd(Object e, {String kind = '', StackTrace? st}) {
     }
     if (errJournal.length >= kErrJournalMax) errJournal.removeAt(0);
     final now = DateTime.now();
-    final k = kind.isNotEmpty ? kind : e.runtimeType.toString();
+    final k = kk.isNotEmpty ? kk : e.runtimeType.toString();
     final where = st != null ? stackHead(st) : _whereHere();
     errJournal.add(ErrEntry(now, k, e.toString(), where, errTag));
     // روی دیسک هم ذخیره می‌شود تا با بسته شدن برنامه از بین نرود
@@ -64,6 +128,5 @@ void errJournalAdd(Object e, {String kind = '', StackTrace? st}) {
     } catch (_) {}
   } catch (_) {}
 }
-
 
 String _whereHere() => stackHead(StackTrace.current);
