@@ -2345,9 +2345,27 @@ extension HomeExtras on _HomePageState {
     }
   }
 
+  int _localRetryN = 0;
+
+  /// اگر تیک اجباری به‌خاطر کار دیگر گم شد، ۵ ثانیه بعد دوباره امتحان کن (حداکثر ۶۰ بار)
+  void _localRetryLater() {
+    if (_localRetryN >= 60 || !localPilotOn) return;
+    _localRetryN++;
+    dbg('خلبان: تیک به‌خاطر کار در جریان عقب ماند • تلاش دوباره #$_localRetryN');
+    Future.delayed(const Duration(seconds: 5), () {
+      if (localPilotOn && mounted) localPilotTick(force: true);
+    });
+  }
+
   Future<void> localPilotTick({bool force = false}) async {
     if (!localPilotOn || !mounted) return;
-    if (busy || switching || localPilotLoading.value) return;
+    // PILOTRETRY: تیک خلبان وقتی کار دیگری در جریان است، قبلاً بی‌صدا گم می‌شد
+    // (تیک اجباری شروع خلبان هم گم می‌شد و کادر «تیک نزد» می‌شد). حالا دوباره تلاش می‌کند.
+    if (busy || switching || localPilotLoading.value) {
+      if (force) _localRetryLater();
+      return;
+    }
+    _localRetryN = 0;
     if (!force &&
         _localLastTick != null &&
         DateTime.now().difference(_localLastTick!) < const Duration(seconds: 40)) {

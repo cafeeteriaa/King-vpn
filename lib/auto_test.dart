@@ -1085,7 +1085,7 @@ extension AutoTestEngine on _HomePageState {
     if (!_abortRequested && _localTickN <= tick0) {
       unawaited(localPilotTick(force: true));
     }
-    final tEnd = DateTime.now().add(const Duration(seconds: 100));
+    final tEnd = DateTime.now().add(const Duration(seconds: 240));
     while (_localTickN <= tick0 &&
         DateTime.now().isBefore(tEnd) &&
         !_abortRequested) {
