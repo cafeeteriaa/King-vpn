@@ -341,12 +341,14 @@ extension AutoTestEngine on _HomePageState {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (savedPath.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Text('ذخیره شد در:\n$savedPath',
-                            style: const TextStyle(fontSize: 12)),
-                      ),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                          savedPath.isNotEmpty
+                              ? 'ذخیره شد در:\n$savedPath'
+                              : 'ذخیره در پوشه‌ی Download انجام نشد. در تنظیمات برنامه، دسترسی «همه‌ی فایل‌ها» را روشن کن و دوباره تست بگیر.',
+                          style: const TextStyle(fontSize: 12)),
+                    ),
                     SelectableText(report,
                         style: const TextStyle(fontSize: 13, height: 1.4)),
                   ],
@@ -1356,6 +1358,10 @@ extension AutoTestEngine on _HomePageState {
 // REPORTSAVE: گزارش تست ۶۰ دقیقه‌ای را در پوشه‌ی Download/King-VPN ذخیره می‌کند
 // (و یک نسخه‌ی ثابت به اسم last_auto_test_report.txt). مسیر ذخیره را برمی‌گرداند.
 Future<String> atSaveReport(String report) async {
+  try {
+    final st = Permission.manageExternalStorage;
+    if (!await st.isGranted) await st.request();
+  } catch (_) {}
   final stamp = DateTime.now()
       .toIso8601String()
       .replaceAll(':', '-')
