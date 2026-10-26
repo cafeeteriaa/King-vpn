@@ -1143,7 +1143,12 @@ String _natSock(String cfg,
 }
 
 // کانفیگ نهایی یک سرور با حالت v (v=0 دقیقاً مثل قبل است)
-String natCfg(Server s, int v, {bool reuse = false}) {
+// DIALERFIX: the final pass always drops a dialerProxy whose outbound is gone,
+// because fragment/mux/dns/sockopt edits below can leave one behind.
+String natCfg(Server s, int v, {bool reuse = false}) =>
+    sanitizeCfg(_natCfgRaw(s, v, reuse: reuse));
+
+String _natCfgRaw(Server s, int v, {bool reuse = false}) {
   var cfg = buildCoreConfig(_natLinkFor(s, v, reuse: reuse));
   if (v <= 0 || v >= _natSpecs.length) return cfg;
   final x = _natSpecs[v];

@@ -113,11 +113,13 @@ ConfigSpec describeConfig(String link, {String? knownIp}) {
 
     final hashAt = link.indexOf('#');
     if (hashAt >= 0) {
+      // NAMESAFE: a broken %XX in a display name is harmless; keep the raw text
+      // silently instead of journaling it as an error.
+      final rawName = link.substring(hashAt + 1);
       try {
-        c.name = Uri.decodeComponent(link.substring(hashAt + 1));
-      } catch (e, jstk) { errJournalAdd(e, st: jstk);
-        // NOISE-OFF: خطای نام کانفیگ فقط در دفتر خطا ثبت می‌شود، نه در لاگ عمومی
-        c.name = link.substring(hashAt + 1);
+        c.name = Uri.decodeComponent(rawName);
+      } catch (_) {
+        c.name = rawName;
       }
     }
     final body = hashAt >= 0 ? link.substring(0, hashAt) : link;
