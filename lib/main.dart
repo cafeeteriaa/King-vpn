@@ -5194,6 +5194,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // straight to the core test, like v2rayNG.
     final ipList = batch.where((s) => s.isIp).toList();
     final alive = batch.where((s) => !s.isIp).toList();
+    final batchSw = Stopwatch()..start(); // WATCHDOG
     // نت ملی: IP همیشه اول با TCP بررسی می‌شود؛ فقط IPهای باز به تست کانفیگ می‌روند.
     // (قبلاً نت ملی با natLevel>=2 این بررسی را دور می‌زد و IPها بی‌بررسی تست می‌شدند)
     if (ultraMode && !nationalMode) {
@@ -5241,11 +5242,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         skipped.add(s);
         return;
       }
+      // WATCHDOG: after 4 minutes the rest of the national batch is postponed
+      if (nationalMode && batchSw.elapsed > const Duration(minutes: 4)) {
+        dbg('WATCHDOG: دسته‌ی نت ملی بیش از ۴ دقیقه شد؛ بقیه به دور بعد');
+        skipped.add(s);
+        return;
+      }
       if (ipMode && s.ipLink == null && !s.ipTried) {
         s.ipTried = true;
         s.ipLink = await ipLinkFor(s);
       }
-      final d0 = await _delayOf(s, t: _fgTimeout);
+      // WATCHDOG: one server may never hold the batch longer than 40 s
+      // (the national matrix can run many variants). Shows progress meanwhile.
+      if (nationalMode) {
+        _set('نت ملی: تست ${s.name} • ${realTested + 1}/${alive.length}');
+      }
+      final d0 = await _delayOf(s, t: _fgTimeout).timeout(
+          const Duration(seconds: 40),
+          onTimeout: () {
+            dbg('WATCHDOG: ${s.name} بیش از ۴۰ ثانیه طول کشید؛ رد شد');
+            s.badAt = DateTime.now();
+            return null;
+          });
       // BADPINGLOOP: a server that answers but with a bad ping is not healthy
       final slow = d0 != null &&
           d0 > badPingMs &&
