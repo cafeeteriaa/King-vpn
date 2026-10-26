@@ -2433,8 +2433,11 @@ extension HomeExtras on _HomePageState {
       } catch (e, stk) { logError(e, stk); }
 
       // اگر هنوز قطع است دوباره وصل کن
-      if (localPilotOn && wantVpn && !connected && !busy && !switching) {
+      // PILOTKEEP2: the pilot stays on until the user turns it off or disconnects;
+      // it sets wantVpn itself so a cancelled search is retried by the pilot.
+      if (localPilotOn && !connected && !busy && !switching) {
         if (decision.action == 'none' || decision.action == 'connect') {
+          wantVpn = true;
           await connect();
         }
       }

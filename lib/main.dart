@@ -7614,7 +7614,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (nationalMode) await _natMergeCache();
       if (nationalMode) await _natMemoryReuse();
       if (nationalMode) await _natPrescan();
-      if (nationalMode && !abort) {
+      // FREEZEFIX2: IP servers already found are tested first. The long scan
+      // (up to 12 min) used to run before them, which is what looked like a freeze.
+      final ipWaiting = [...pending, ...natRestPending].any((s) => s.isIp);
+      if (nationalMode && !abort && !ipWaiting) {
         final ips = await natRangeScanStep(
             known: [...pending, ...natRestPending],
             maxAddrs: 100000, // هر دور تا ۱۰۰ هزار آدرس
