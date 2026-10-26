@@ -96,6 +96,15 @@ jobs:
           echo "Build failed after 3 attempts"
           exit 1
 
+      # ARTIFACT-FALLBACK: keep the APK in the run even if the Release step fails
+      - name: Keep APK as run artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: king-vpn-apk-${{ github.run_number }}
+          path: build_app/build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: warn
+
       - name: Publish APK as Release
         uses: softprops/action-gh-release@v3
         with:
