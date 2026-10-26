@@ -5740,7 +5740,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
         try {
           if (inForeground || !vpnPermOk) {
-            if (!await v2ray.requestPermission()) {
+            // PERMTIMEOUT: the permission dialog must not wait forever
+            if (!await v2ray.requestPermission().timeout(
+                const Duration(seconds: 60), onTimeout: () {
+              dbg('مجوز VPN: ۶۰ ثانیه جواب نیامد؛ شکست در نظر گرفته شد');
+              return false;
+            })) {
               lastFail = 'مجوز VPN داده نشد';
               return false;
             }
@@ -7777,7 +7782,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // so later _start calls do not hit NO_ACTIVITY during the server loop.
     if (!proxyMode && inForeground) {
       try {
-        final ok = await v2ray.requestPermission();
+        // PERMTIMEOUT: same limit as above
+        final ok = await v2ray.requestPermission().timeout(
+            const Duration(seconds: 60), onTimeout: () {
+          dbg('مجوز VPN: ۶۰ ثانیه جواب نیامد؛ شکست در نظر گرفته شد');
+          return false;
+        });
         if (ok) vpnPermOk = true;
         if (!ok) {
           _set('مجوز VPN داده نشد');
