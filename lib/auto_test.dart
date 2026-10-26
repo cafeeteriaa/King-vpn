@@ -51,7 +51,7 @@ final ValueNotifier<bool> autoTestRunning = ValueNotifier<bool>(false);
 final ValueNotifier<double> autoTestProgress = ValueNotifier<double>(0);
 
 extension AutoTestEngine on _HomePageState {
-  static const _testDuration = Duration(minutes: 60);
+  static const _testDuration = Duration(minutes: 25); // NATONLY: کوتاه‌شده
   static const _sampleEvery = Duration(seconds: 3);
   // آستانه‌ها باید بیشتر از مهلت واقعی اتصال باشند (وگرنه اتصال عادی گزارش گیر می‌دهد)
   static const _busyStuckLimit = Duration(seconds: 120);
@@ -216,40 +216,18 @@ extension AutoTestEngine on _HomePageState {
       if (!natHotReady()) unawaited(natHotEnsure(force: true));
 
       // بخش‌های اصلی: هر کدام فقط اگر وقت باقی‌مانده‌ی کافی داشته باشد اجرا می‌شود
+      // NATONLY: فقط نت ملی (جستجو) و خلبان نت ملی؛ بقیه‌ی بخش‌ها حذف شدند
       final steps = <(String, Duration, Future<void> Function())>[
-        (_atItemNames[0], const Duration(minutes: 6), _atItemGlobal),
-        (_atItemNames[1], const Duration(minutes: 2), _atItemFolder),
         (_atItemNames[2], const Duration(minutes: 12), _atItemNational),
-        (_atItemNames[3], const Duration(minutes: 8),
-            () => _atItemPilot(national: false)),
         (_atItemNames[4], const Duration(minutes: 10),
             () => _atItemPilot(national: true)),
-        (_atItemNames[5], const Duration(minutes: 6), _atItemOffline),
-        (_atItemNames[6], const Duration(minutes: 6), _atItemOnline),
       ];
       for (final s in steps) {
         if (_abortRequested) return _atFinish(reason: 'توقف دستی');
         if (_atCanRun(s.$1, s.$2)) await s.$3();
       }
 
-      // سناریوهای پایداری روی V2Ray عادی (جهانی/آنلاین) با باقی‌مانده‌ی وقت
-      await _atResetToGlobal();
-      if (_abortRequested) return _atFinish(reason: 'توقف دستی');
-      if (_atCanRun('قطع/وصل سریع', const Duration(minutes: 6))) {
-        await _atScenarioReconnectStorm();
-      }
-      if (_abortRequested) return _atFinish(reason: 'توقف دستی');
-      if (_atCanRun('قطع وسط اتصال', const Duration(minutes: 3))) {
-        await _atScenarioMidConnectAbort();
-      }
-      if (_abortRequested) return _atFinish(reason: 'توقف دستی');
-      if (_atCanRun('تعویض سرور', const Duration(minutes: 3))) {
-        await _atScenarioServerSwap();
-      }
-      if (_abortRequested) return _atFinish(reason: 'توقف دستی');
-      // مانیتور طولانی: تا پایان ۶۰ دقیقه روی اتصال می‌ماند
-      await _atScenarioLongStable();
-      if (_abortRequested) return _atFinish(reason: 'توقف دستی');
+      // NATONLY: سناریوهای پایداری حذف شدند
     } catch (e) {
       _atAdd('CRASH', 'استثنای تست: $e');
       logError(e);
@@ -278,7 +256,7 @@ extension AutoTestEngine on _HomePageState {
     final min = elapsed.inMinutes;
     final sec = elapsed.inSeconds % 60;
 
-    _atVerdict = _atRootCause();
+    _atVerdict = _atNatDiagnosis(); // NATONLY
     final buf = StringBuffer();
     buf.writeln('===== گزارش تست خودکار ۶۰ دقیقه‌ای =====');
     buf.writeln('مدت: ${min}m ${sec}s • دلیل پایان: $reason');
@@ -754,6 +732,51 @@ extension AutoTestEngine on _HomePageState {
   }
 
   /// جمع‌بندی پایان تست: یک علت اصلی و یک کار مشخص
+  /// NATONLY: تشخیص مشکل اصلی نت ملی از شمارنده‌های واقعی همان اجرا
+  String _atNatDiagnosis() {
+    final scanned = natIpScanned;
+    final found = natIpFound;
+    final tested = natIpTested;
+    final ok = natIpOk;
+    final lastFail = _atLastFail;
+    final codes = _findings.map((f) => f.code).toSet();
+    final stuck = codes.contains('BUSY-STUCK') ||
+        codes.contains('SWITCH-STUCK') ||
+        codes.contains('ABORT-STUCK');
+    final protoBlocked = lastFail.contains('EOF') ||
+        lastFail.contains('reset') ||
+        lastFail.contains('TLS') ||
+        lastFail.contains('handshake');
+
+    if (scanned == 0) {
+      return 'مشکل: اسکن IP اجرا نشد. '
+          'راه حل: در ابزارها «بازه‌های IP برای جستجو» را خالی نگذار و یک بازه‌ی معتبر (مثلاً 5.160.0.0/16) وارد کن.';
+    }
+    if (found == 0) {
+      return 'مشکل از شبکه است: روی $scanned آدرس هیچ IP با پورت باز پیدا نشد. '
+          'راه حل: بازه‌ی IP دیگری اضافه کن (CDN یا ابر داخلی)، یا از حالت «اینترنت ضعیف / نت ملی» با IP تمیز استفاده کن.';
+    }
+    if (tested == 0) {
+      return 'مشکل از کد است: $found IP باز پیدا شد ولی هیچ‌کدام به تست هسته نرسید '
+          '(صف گیر کرد). راه حل: همین گزارش و خط‌های TRACE / WATCHDOG را بفرست؛ این باگ باید در کد رفع شود.';
+    }
+    if (ok == 0 && protoBlocked) {
+      return 'مشکل از فیلترینگ پروتکل است: TCP به $found IP وصل می‌شود ولی هندشیک VPN ($lastFail) قطع می‌شود. '
+          'راه حل: در تنظیمات نت ملی «Fragment» و «DNS ایرانی» را روشن کن، SNI را با دامنه‌ی واقعی یکی کن، '
+          'و سرورهایی با پروتکل دیگر (مثلاً ws روی 443 یا TLS با SNI معتبر) را امتحان کن.';
+    }
+    if (ok == 0) {
+      return 'مشکل: $tested سرور تست شد ولی هیچ‌کدام سالم نشد (علت آخر: ${lastFail.isEmpty ? 'نامشخص' : lastFail}). '
+          'راه حل: کانفیگ‌های این IPها را با منبع اصلی مقایسه کن و Fragment را روشن کن.';
+    }
+    if (stuck) {
+      return 'سرور سالم پیدا شد ($ok) ولی اتصال قفل شد (busy/switching آزاد نشد). '
+          'راه حل: همین گزارش را بفرست؛ این باگ کد است.';
+    }
+    return 'نت ملی کار کرد: $ok سرور سالم از $found IP باز پیدا شد. '
+        'اگر وصل نشدی، مشکل از خلبان است؛ بخش «خلبان نت ملی» را ببین.';
+  }
+
   String _atRootCause() {
     final codes = _findings.map((f) => f.code).toSet();
     final anyUp = _engineResult.values.any((r) =>
