@@ -2432,12 +2432,11 @@ extension HomeExtras on _HomePageState {
         await kingSelfHeal(reason: 'pilot');
       } catch (e, stk) { logError(e, stk); }
 
+      // PILOTKEEP2: خلبان روشن که وصل نیست خودش دوباره تلاش می‌کند (بلوک زیر دست‌نخورده)
+      if (localPilotOn && !connected && !busy && !switching) wantVpn = true;
       // اگر هنوز قطع است دوباره وصل کن
-      // PILOTKEEP2: the pilot stays on until the user turns it off or disconnects;
-      // it sets wantVpn itself so a cancelled search is retried by the pilot.
-      if (localPilotOn && !connected && !busy && !switching) {
+      if (localPilotOn && wantVpn && !connected && !busy && !switching) {
         if (decision.action == 'none' || decision.action == 'connect') {
-          wantVpn = true;
           await connect();
         }
       }
