@@ -40,6 +40,8 @@ const String kErrJournalPath =
 String errTag = ''; // نام بخش فعلی تست، تا معلوم شود خطا در کدام بخش افتاده
 
 final Map<String, int> _journalKindCount = {};
+// FREEZEFIX: writes are queued one after another (never blocking the UI)
+Future<void> _journalWrite = Future<void>.value();
 
 // ERRFIX: تشخیص خطاهای شبکه‌ای عادی از روی متن خطا
 String netNoiseKind(Object e) {
@@ -129,16 +131,19 @@ void errJournalAdd(Object e, {String kind = '', StackTrace? st}) {
     final where = st != null ? stackHead(st) : _whereHere();
     errJournal.add(ErrEntry(now, k, e.toString(), where, errTag));
     // روی دیسک هم ذخیره می‌شود تا با بسته شدن برنامه از بین نرود
-    try {
-      final f = File(kErrJournalPath);
-      // وقتی فایل خیلی بزرگ شد، نسخه‌ی قبلی نگه داشته می‌شود (چیزی پاک نمی‌شود)
-      if (f.existsSync() && f.lengthSync() > 256 * 1024 * 1024) {
-        f.renameSync('$kErrJournalPath.old');
-      }
-      f.writeAsStringSync(
-          '${now.toIso8601String()} | $k | بخش: $errTag\nجای خطا: $where\n${e.toString()}\n\n',
-          mode: FileMode.append);
-    } catch (_) {}
+    // FREEZEFIX: disk write is async. The old sync version (existsSync /
+    // lengthSync / writeAsStringSync) blocked the UI thread on every error.
+    final line =
+        '${now.toIso8601String()} | $k | بخش: $errTag\nجای خطا: $where\n${e.toString()}\n\n';
+    _journalWrite = _journalWrite.then((_) async {
+      try {
+        final f = File(kErrJournalPath);
+        if (await f.exists() && await f.length() > 256 * 1024 * 1024) {
+          await f.rename('$kErrJournalPath.old');
+        }
+        await f.writeAsString(line, mode: FileMode.append, flush: false);
+      } catch (_) {}
+    });
   } catch (_) {}
 }
 

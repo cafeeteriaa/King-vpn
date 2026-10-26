@@ -5005,6 +5005,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       var batches = 0;
       var reloaded = false;
+      var stallBatches = 0; // FREEZEFIX
       final bgStart = DateTime.now(); // BGCAP: هر دور جستجوی پس‌زمینه حداکثر ۲۰ دقیقه
       // standby search: bigger batches (the tunnel is shared), the healthy
       // servers are re-checked every 25 tests and after every batch
@@ -5037,7 +5038,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         var cand = pending
             .where((s) =>
                 _cand(s, row) &&
-                !(smartOrder && _srcDead(s)))
+                !(smartOrder && _srcDead(s)) &&
+                !(nationalMode && (_recentFail(s) || _bad(s))))
             .take(size * 3)
             .toList();
         if (smartOrder) cand = _diversify(cand);
@@ -5057,6 +5059,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         reloaded = false;
         final bs = batch.toSet();
         pending.removeWhere(bs.contains);
+        final progressBefore = fastTested + bgTested + totalTested;
         if (bg) {
           await _testBatchDelay(batch, enough);
           if (bgDisabled) break;
@@ -5068,6 +5071,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (selCountry != null) await _geoFill();
         }
         if (upServer != null) break;
+        // FREEZEFIX: a batch that tested nothing counts as a stall; after 3 in a
+        // row we stop instead of spinning (the spin was what froze the UI).
+        if (fastTested + bgTested + totalTested == progressBefore) {
+          stallBatches++;
+          if (stallBatches >= 3) {
+            dbg('جستجو: ${stallBatches} دور بدون تست پشت‌سرهم؛ توقف امن');
+            break;
+          }
+        } else {
+          stallBatches = 0;
+        }
+        // FREEZEFIX: always give the event loop a turn (timers, heartbeat, taps)
+        await Future<void>.delayed(const Duration(milliseconds: 5));
         // healthy servers are tested again between the batches: dead ones
         // are deleted, the ping of the others is refreshed
         if (bg) await _recheckStandby();
@@ -5289,7 +5305,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         await _stopCore();
       }
     }
-    pending.insertAll(0, skipped);
+    // FREEZEFIX: skipped servers go to the END of the queue, never the front.
+    // Putting them at the front made the same batch come back forever.
+    pending.addAll(skipped);
     // BADPINGLOOP: found some, but all of them had a bad ping -> the next
     // quick test starts right away (the search loop keeps going)
     if (okNow.isEmpty && slowNow > 0) {
@@ -7396,6 +7414,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ];
         natRestPending = [];
         return;
+      }
+      // FREEZEFIX: fresh TCP-open IP beats an old failure record
+      for (final s in ok) {
+        failed.remove(s.key);
+        s.badAt = null;
       }
       final okLinks = {for (final s in ok) s.link};
       pending = ok;
