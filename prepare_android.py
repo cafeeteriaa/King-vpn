@@ -29,7 +29,32 @@ SVC = ('<service android:name="dev.amirzr.flutter_v2ray_client.v2ray.services.V2
 if 'foregroundServiceType' not in m and '</application>' in m:
     m = m.replace('</application>', SVC + '</application>', 1)
     print('OK: foreground service type declared in manifest')
+# KINGVPN: our own VPN service (android_src/KingVpnService.java) — declared in the manifest
+KSVC = ('<service android:name="com.kingvpn.king_vpn.KingVpnService"\n'
+        '            android:permission="android.permission.BIND_VPN_SERVICE"\n'
+        '            android:exported="false"\n'
+        '            android:foregroundServiceType="specialUse">\n'
+        '            <intent-filter><action android:name="android.net.VpnService"/></intent-filter>\n'
+        '            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"\n'
+        '                      android:value="vpn"/>\n'
+        '        </service>\n    ')
+if 'com.kingvpn.king_vpn.KingVpnService' not in m and '</application>' in m:
+    m = m.replace('</application>', KSVC + '</application>', 1)
+    print('OK: own VPN service declared in manifest')
 open(mp, 'w', encoding='utf-8').write(m)
+
+# KINGVPN: copy our Java service and MainActivity (channel king/vpn) into the project
+import shutil
+ja = os.path.join(APP, 'android/app/src/main/java/com/kingvpn/king_vpn')
+os.makedirs(ja, exist_ok=True)
+shutil.copy('android_src/KingVpnService.java', ja)
+old_java_main = os.path.join(ja, 'MainActivity.java')
+if os.path.exists(old_java_main):
+    os.remove(old_java_main)
+ka = os.path.join(APP, 'android/app/src/main/kotlin/com/kingvpn/king_vpn')
+os.makedirs(ka, exist_ok=True)
+shutil.copy('android_src/MainActivity.kt', os.path.join(ka, 'MainActivity.kt'))
+print('OK: KingVpnService.java and MainActivity.kt copied')
 print('OK: manifest permissions')
 
 # ---- 2) Gradle: minSdk 24, compileSdk 37 (permission_handler_android needs 37) -
