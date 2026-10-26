@@ -9466,6 +9466,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   DateTime _insBgAt = DateTime.fromMillisecondsSinceEpoch(0);
   int _insBgFreeze = 0;
   int _insOrphan = 0;
+  DateTime? _lastOrphanHeal; // LOOPFIX
   final Map<String, int> _insPrevCnt = {};
 
   void _inspectStart() {
@@ -9644,8 +9645,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _insWarn('orph', orphaned, 45,
         'اتصال خواسته شده ولی هیچ کاری برای آن در حال انجام نیست');
     // E-ORPHAN self-heal: after ~45s still wanting VPN with nothing running → failover
-    if (orphaned && now.difference(_insSince['orph'] ?? now).inSeconds >= 45) {
+    // LOOPFIX: the self-heal used to fire again every ~50 s, and each failover
+    // restarted (and cancelled) the national search, so it never finished.
+    // Now it fires at most once per 3 minutes.
+    if (orphaned && now.difference(_insSince['orph'] ?? now).inSeconds >= 45 &&
+        (_lastOrphanHeal == null ||
+            now.difference(_lastOrphanHeal!).inSeconds >= 180)) {
       _insSince.remove('orph');
+      _lastOrphanHeal = now;
       dbg('خودترمیمی: اتصال یتیم >20s؛ _failover()');
       if (inForeground) {
         unawaited(_failover());
