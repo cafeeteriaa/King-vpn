@@ -89,6 +89,9 @@ extension AutoTestEngine on _HomePageState {
   static Set<String> _atSelected = {for (final e in _engines) e.$1};
   static final Map<String, String> _engineResult = {}; // ok / fail / skip
   // بخش‌های تست با ترتیب اجرا (نام نمایشی)
+  // NATONLY2: فقط این دو بخش در تست و گزارش دیده می‌شوند
+  static List<String> get _atActiveNames =>
+      [_atItemNames[2], _atItemNames[4]];
   static const List<String> _atItemNames = [
     'اینترنت جهانی (عادی)',
     'پوشه‌ی منابع تازه (ساخت)',
@@ -126,22 +129,23 @@ extension AutoTestEngine on _HomePageState {
         textDirection: TextDirection.rtl,
         child: StatefulBuilder(
           builder: (ctx, setD) => AlertDialog(
-            title: const Text('تست خودکار ۶۰ دقیقه‌ای'),
+            title: const Text('تست نت ملی ۶۰ دقیقه‌ای'),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('این بخش‌ها به ترتیب تست می‌شوند:'),
+                  const Text('فقط نت ملی تست می‌شود:'),
                   const SizedBox(height: 4),
-                  for (final item in _atItemNames)
+                  for (final item in [_atItemNames[2], _atItemNames[4]])
                     Text('• $item', style: const TextStyle(fontSize: 13)),
-                  const SizedBox(height: 8),
                   const Text(
-                    'خلبان ابری (Grok/Gemini) کلید API می‌خواهد و در این تست نیست. '
-                    'قطع/وصل و تعویض سرور هم بعد از بخش‌ها و با باقی‌مانده‌ی وقت اجرا می‌شوند.',
-                    style: TextStyle(fontSize: 12),
+                    '• هر سطح ماتریس نت ملی (۰ تا ۱۰) جدا تست می‌شود\n'
+                    '• برای هر سطح: IP اسکن‌شده، IP باز، تست‌شده، سالم و وصل یا نشدن ثبت می‌شود\n'
+                    '• در پایان علت اصلی و راه‌حل گفته می‌شود',
+                    style: TextStyle(fontSize: 13),
                   ),
+                  const SizedBox(height: 8),
                   const SizedBox(height: 6),
                   const Text(
                     'در این ۶۰ دقیقه اپ را نبند و صفحه را قفل نکن.\n'
@@ -200,8 +204,8 @@ extension AutoTestEngine on _HomePageState {
     autoTestRunning.value = true;
     autoTestProgress.value = 0;
     autoTestText.value = 'تست خودکار شروع شد (${_atSelected.length} VPN)…';
-    dbg('🧪 AUTOTEST شروع شد (۶۰ دقیقه • ${_atItemNames.length} بخش)');
-    _dbgProb('🧪 تست خودکار ۶۰ دقیقه‌ای — جهانی، نت ملی، خلبان، پوشه، آفلاین، آنلاین');
+    dbg('🧪 AUTOTEST نت ملی شروع شد (۶۰ دقیقه • ${_atActiveNames.length} بخش)');
+    _dbgProb('🧪 تست نت ملی ۶۰ دقیقه‌ای — همه‌ی سطح‌های ماتریس + خلبان نت ملی');
 
     _sampleT?.cancel();
     _sampleT = Timer.periodic(_sampleEvery, (_) => _atSample());
@@ -277,7 +281,7 @@ extension AutoTestEngine on _HomePageState {
     }
     buf.writeln('');
     buf.writeln('--- نتیجه هر بخش ---');
-    for (final n in _atItemNames) {
+    for (final n in _atActiveNames) {
       buf.writeln('• $n: ${_itemResult[n] ?? 'تست نشد'}');
     }
     buf.writeln('');
