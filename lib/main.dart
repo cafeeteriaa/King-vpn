@@ -2185,6 +2185,20 @@ String? detectCountry(String name) {
   return best == 'UK' ? 'GB' : best;
 }
 
+// HOSTVALID: a host from a config link must be a plain domain or IP.
+// A percent-encoded name (e.g. an emoji) made Socket.connect throw.
+bool _validHost(String h) {
+  if (h.isEmpty || h.length > 253) return false;
+  if (h.contains('%') || h.contains(' ')) return false;
+  for (final c in h.codeUnits) {
+    if (c > 127) return false;
+  }
+  return true;
+}
+
+// BUSYDROP: how many times a dropped failover was re-scheduled
+int _failoverRetries = 0;
+
 // a broken %XX / UTF-8 sequence in a name must never throw
 String _safeDecodeComp(String t) {
   try {
@@ -2369,7 +2383,7 @@ String? coreUnsupportedReason(String link) {
 String? vlessRealityOwnCfg(String link) {
   try {
     final u = Uri.parse(link.trim());
-    if (u.scheme != 'vless' || u.host.isEmpty || !u.hasPort) return null;
+    if (u.scheme != 'vless' || u.host.isEmpty || !_validHost(u.host) || !u.hasPort) return null;
     final q = u.queryParameters;
     if ((q['security'] ?? '') != 'reality') return null;
     if ((q['type'] ?? 'tcp').toLowerCase() != 'tcp') return null;
@@ -2553,7 +2567,7 @@ class Server {
         }
         if (j is! Map) return null;
         final add = j['add']?.toString() ?? '';
-        if (add.isEmpty) return null;
+        if (add.isEmpty || !_validHost(add)) return null;
         final port = int.tryParse('${j['port']}') ?? 0;
         if (port <= 0 || port > 65535) return null;
         final sv = Server(
@@ -2573,7 +2587,7 @@ class Server {
         return null; // QUIETPATCH: broken link, skipped quietly
       }
       final u = u0;
-      if (u.host.isEmpty) return null;
+      if (u.host.isEmpty || !_validHost(u.host)) return null;
       final sv = Server(
           link,
           u.fragment.isNotEmpty ? _safeDecodeComp(u.fragment) : u.host,
@@ -4315,7 +4329,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _stopV2() async {
     try {
       if (kOwnVpnService) await ownVpnStop(); // KINGVPN
-      await v2ray.stopV2Ray();
+      await v2ray.stopV2Ray().timeout(const Duration(seconds: 8), onTimeout: () {});
     } catch (_swE) { _swl('_stopV2#1', _swE);}
   }
 
@@ -8209,7 +8223,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<void> _failover() async {
-    if (busy) return;
+    if (busy) {
+      // BUSYDROP: busy → try again in 10 s (max 30 times) instead of dropping it
+      if (_failoverRetries < 30) {
+        _failoverRetries++;
+        Future.delayed(const Duration(seconds: 10), () {
+          if (mounted && wantVpn && !connected && !busy) {
+            unawaited(_failover().catchError((e) => logError(e)));
+          }
+        });
+      }
+      return;
+    }
+    _failoverRetries = 0;
     // STOP-RACE: a switch must not undo a stop the user already asked for
     if (!wantVpn) return;
     abort = false;
