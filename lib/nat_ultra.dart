@@ -1575,6 +1575,90 @@ const List<String> natIranDnsHosts = [
   '10.202.10.10', '10.202.10.11',
 ];
 
+// IRDOMAINS: فهرست دامنه‌های .ir برای تست IP و پورت‌ها.
+// فهرست کامل همه‌ی .ir در دسترس عمومی نیست؛ این فهرست را می‌توان با دامنه‌های بیشتر پر کرد.
+const List<String> natIrDomains = [
+  'irna.ir', 'isna.ir', 'irib.ir', 'snapp.ir', 'divar.ir', 'iran.ir',
+  'gov.ir', 'mci.ir', 'ut.ac.ir', 'bmi.ir', 'tci.ir', 'ict.gov.ir',
+  'tehran.ir', 'mashhad.ir', 'isfahan.ir', 'shiraz.ir', 'tabriz.ir',
+  'bsi.ir', 'ir-ms.ir', 'konkur-hesabdari.blog.ir', 'khoshenevis.blog.ir',
+  'kerman-econtent.blog.ir', 'karunposter.blog.ir', 'kaliuser.blog.ir',
+  'kafeserial.blog.ir', 'jooshkarii.blog.ir', 'gholamreza-test.blog.ir',
+  'ghalamchi-gaj-gozinedo-sanjesh.blog.ir', 'gardeshgari2.blog.ir',
+  'gamepersian.blog.ir', 'game-star.blog.ir', 'funtab.blog.ir',
+  'thermocouple.blog.ir', 'thematic-commentary-quran.blog.ir',
+  'testdownload.blog.ir', 'telecomp.blog.ir', 'technology-articles.blog.ir',
+  'tblabkhand.blog.ir', 'maroon.blog.ir', 'majestic.blog.ir',
+  'majalemashin.blog.ir', 'majaleie-sanati.blog.ir', 'mahdikeikha.blog.ir',
+  'm-a-amjadi.blog.ir', 'lyrics4u.blog.ir', 'hesare-aseman.blog.ir',
+  'hesabdaritosee.blog.ir', 'hello.blog.ir', 'helli5school.blog.ir',
+  'heiatozahra.blog.ir', 'heiat-graph.blog.ir', 'hedeshamlak.blog.ir',
+  'pmis1.blog.ir', 'f-p-c.blog.ir', 'explosionproof.blog.ir',
+  'exceliran.blog.ir', 'evermotion3d.blog.ir', 'esfahanrepair.blog.ir',
+  'erfaneabjad.blog.ir', 'galebbeton-sabbagi-tabriz.blog.ir',
+  'freepikdl.blog.ir', 'doorbin123.blog.ir', 'chini1.blog.ir',
+  'breachgame.blog.ir', 'berozbash.blog.ir', 'capitan-irani-pilot.blog.ir',
+  'calisthenics.blog.ir', 'c2soundgm.blog.ir', 'buysellscorpions.blog.ir',
+  'businesssoftware.blog.ir', 'bourseban.blog.ir', 'farsijani.blog.ir',
+  'farsi-kawthar-ilc.blog.ir', 'farshidjanati.blog.ir',
+  'fardadfariba.blog.ir', 'fakkar.blog.ir', 'computermiyandoab.blog.ir',
+  'yousha.blog.ir', 'youfiles.blog.ir', 'yaddasht1.blog.ir',
+  'worldwisdom.blog.ir', 'world-music.blog.ir', 'withtech.blog.ir',
+  'wiring.blog.ir', 'wikilib.blog.ir', 'bestmuzic.blog.ir', 'ben20.blog.ir',
+  'behdadteb.blog.ir', 'bearing1.blog.ir', 'bazibebazi.blog.ir',
+  'bankmoshtari.blog.ir', 'bache-heiaty.blog.ir', 'ebpnovin.blog.ir',
+  'drtandorosti.blog.ir', 'drmortezaheidari.blog.ir', 'downloadicon.blog.ir',
+  'downloadfile98.blog.ir', 'downloadbookpdfketab2.blog.ir', 'time.ir',
+  'imna.ir',
+];
+
+// DOMAINFIRST: دامنه‌ها → IP → همه‌ی پورت‌ها (هر پورت باز = یک کانفیگ آن IP)
+Future<List<String>> _natDomainFirst(List<Server> known,
+    {required int conc, bool Function()? stop}) async {
+  final out = <String>[];
+  try {
+    // IRDOMAINS: دامنه‌های .ir (فهرست داخلی + دامنه‌های کانفیگ) با DNS حل می‌شوند
+    final hosts = <String>{
+      for (final s in known) if (!s.isIp && s.host.isNotEmpty) s.host,
+      ...natIrDomains,
+    }.take(3000).toList();
+    final ips = <String>{};
+    // حل موازی با ۵۰ درخواست همزمان تا سریع باشد
+    for (var i = 0; i < hosts.length; i += 50) {
+      if (stop != null && stop()) break;
+      final chunk = hosts.skip(i).take(50);
+      final res = await Future.wait(chunk.map((h) => safeLookup(h)));
+      for (final list in res) {
+        for (final a in list) {
+          if (a.type == InternetAddressType.IPv4) ips.add(a.address);
+        }
+      }
+    }
+    if (ips.isEmpty) return out;
+    natLiveBox('دامنه‌ها: ${hosts.length} دامنه • ${ips.length} IP برای همه‌ی پورت‌ها');
+    final tw = Stopwatch()..start();
+    for (var p = 1; p < 65536; p++) {
+      if (tw.elapsed > const Duration(minutes: 8)) break;
+      if (stop != null && stop()) break;
+      final hits = await natScanIps(
+        ips.toList(),
+        port: p,
+        concurrency: conc,
+        want: 50,
+        budget: const Duration(seconds: 5),
+        timeout: const Duration(milliseconds: 1500),
+        cancelled: stop,
+      );
+      for (final h in hits) {
+        out.add('${h.ip}|$p');
+      }
+    }
+  } catch (e, stk) {
+    logError(e, stk);
+  }
+  return out;
+}
+
 // IPv4 عمومی تصادفی (بدون آدرس خصوصی، لوپ‌بک، CGNAT، چندپخشی و رزرو)
 List<String> natRandomPublicIps(int n) {
   final out = <String>[];
@@ -1654,6 +1738,8 @@ Future<List<String>> natRangeScanStep({
   bool Function()? stop,
   Duration budget = const Duration(minutes: 2),
 }) async {
+  // DOMAINFIRST: دامنه‌های کانفیگ اول تست می‌شوند؛ IP هر دامنه روی همه‌ی پورت‌ها
+  final domOut = await _natDomainFirst(known, conc: conc, stop: stop);
   // IPهای کانفیگ‌ها در نت ملی فیلتر می‌شوند، پس بلوک‌ها از IPهای داخلی ساخته می‌شوند:
   // ۱) IPهایی که قبلاً واقعاً در نت ملی جواب دادند (حافظه)
   // ۲) IP عمومی خود گوشی (اپراتور داخلی)
@@ -1697,7 +1783,7 @@ Future<List<String>> natRangeScanStep({
   }
   natIpScanned += slice.length;
   natLiveBox('IP اسکن: ${slice.length} آدرس این دور (تصادفی + بلوک‌های داخلی)');
-  final out = <String>[];
+  final out = <String>[...domOut];
   final portList = natAutoPorts(seeds);
   // PORTSHARE: زمان دور بین همه‌ی پورت‌ها تقسیم می‌شود تا هیچ پورتی بی‌تست نماند
   final perPort = Duration(
