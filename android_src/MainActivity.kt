@@ -31,5 +31,13 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+        // ALIVE-NATIVE: Dart asks 'alive' on channel vpn/bg every minute; answer it here
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "vpn/bg")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "alive" -> result.success(true)
+                    else -> result.notImplemented()
+                }
+            }
     }
 }
