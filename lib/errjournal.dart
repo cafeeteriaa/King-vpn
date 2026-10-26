@@ -59,6 +59,14 @@ String netNoiseKind(Object e) {
   for (final k in marks) {
     if (m.contains(k)) return 'SILENT-NET';
   }
+  // NOISE2: هر خطای اتصال/سوکت/TLS از جنس شبکه است و هم‌ردیف بقیه‌ی نویز شمرده می‌شود.
+  // (قبلاً SocketException و HandshakeException بدون محدودیت ثبت می‌شدند و ۲۰۰+ مورد می‌شدند)
+  if (m.startsWith('SocketException') ||
+      m.startsWith('HandshakeException') ||
+      m.startsWith('HttpException') ||
+      m.startsWith('TimeoutException')) {
+    return 'SILENT-NET';
+  }
   // ERRFIX2: فایل موقت که قبلاً پاک شده (مثلاً xray_err.log) خطای مهمی نیست
   if (m.contains('PathNotFoundException')) return 'SILENT-FILE';
   return '';

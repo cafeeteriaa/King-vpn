@@ -14,6 +14,7 @@ import 'package:installed_apps/app_info.dart';
 import 'package:installed_apps/installed_apps.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'prefs_store.dart';
+import 'own_vpn.dart'; // KINGVPN: سرویس VPN خودمان (پیش‌فرض خاموش)
 import 'package:workmanager/workmanager.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -4313,6 +4314,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // stops V2Ray (the only engine)
   Future<void> _stopV2() async {
     try {
+      if (kOwnVpnService) await ownVpnStop(); // KINGVPN
       await v2ray.stopV2Ray();
     } catch (_swE) { _swl('_stopV2#1', _swE);}
   }
@@ -5199,8 +5201,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final skipped = <Server>[];
     final okNow = <Server>[];
     var slowNow = 0; // BADPINGLOOP
-    await pool<Server>(alive, fastWorkers, (s) async {
-      if (abort || enough() || (smartOrder && _srcDead(s))) {
+    // NATPOOL: در نت ملی هر سرور ماتریس چندده حالته دارد و همه روی یک هسته اجرا می‌شوند.
+    // ۵۰ تست همزمان روی یک هسته باعث می‌شد هیچ‌کدام تمام نشوند (گیر در «تست می‌شود»).
+    await pool<Server>(alive, nationalMode ? min(fastWorkers, 4) : fastWorkers,
+        (s) async {
+      // DEADSKIP: نت ملی سرورهایی را که اخیراً شکست خورده‌اند تا پایان failWindow دوباره تست نمی‌کند
+      if (abort || enough() || (smartOrder && _srcDead(s)) ||
+          (nationalMode && (_recentFail(s) || _bad(s)))) {
         skipped.add(s);
         return;
       }
@@ -5814,11 +5821,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         try {
           // VPNRACE: short pause so the previous VPN service finishes shutting down
           await Future.delayed(const Duration(milliseconds: 1500));
-          await v2ray.startV2Ray(
-              remark: s.name,
-              config: cfgTries[ci],
-              proxyOnly: false,
-              blockedApps: bypassApps.isEmpty ? null : bypassApps);
+          if (kOwnVpnService) {
+            // KINGVPN: سرویس خودمان (کانال king/vpn)
+            await ownVpnStart(
+                config: cfgTries[ci],
+                remark: s.name,
+                addr: s.host,
+                port: '${s.port}');
+          } else {
+            await v2ray.startV2Ray(
+                remark: s.name,
+                config: cfgTries[ci],
+                proxyOnly: false,
+                blockedApps: bypassApps.isEmpty ? null : bypassApps);
+          }
           dbg('V2RAY-START-RETURNED ${s.name}');
         } catch (e) {
           dbg('V2RAY-START-ERROR ${s.name}: ${e.toString().length > 300 ? e.toString().substring(0, 300) : e.toString()}');
@@ -6187,7 +6203,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // فقط تلگرام (طبق خواسته‌ی کاربر): اینستاگرام/یوتیوب چک نمی‌شوند
       final tgOk = await _siteOpens('https://telegram.org/', viaCore: true);
       await _stopCore();
-      await Future.delayed(const Duration(milliseconds: 300));
+      // VPNCYCLE: the proxy core must be fully down (its shutdown callback can
+      // clear the plugin's service reference) before the real VPN starts.
+      // 300 ms was too short and caused the start/stop cycle in the logs.
+      await Future.delayed(const Duration(milliseconds: 2500));
       dbg('تست بی‌صدا ${s.name}: telegram=$tgOk');
       return tgOk;
     } catch (e, stk) {
@@ -7223,7 +7242,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final fsw = Stopwatch()..start();
     var found = 0, i = 0;
     final dead = <Server>[];
-    await pool<Server>(run, max(fastWorkers, forceSaved ? 20 : 8), (s) async {
+    // NATPOOL: same reason for the saved national servers
+    await pool<Server>(run,
+        nationalMode ? 4 : max(fastWorkers, forceSaved ? 20 : 8), (s) async {
       if (abort ||
           found >= need ||
           (found >= 1 && fsw.elapsedMilliseconds > (forceSaved ? 15000 : fastPickMs))) {
@@ -7284,13 +7305,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final hs = Server.parse(e.link);
       if (hs != null) healthy.add(hs);
     }
-    final fromFresh = await natHotNext(3000); // هر دور یک تکه از پوشه‌ی منابع تازه
+    // NATQUEUE: هر دور ۴۰۰ کانفیگ تازه (قبلاً ۳۰۰۰) و سقف کل صف ۱۲۰۰.
+    // قبلاً هر دور ۳۰۰۰ تا به صف اضافه می‌شد و صف تا ۳۱۶۹ می‌رسید؛ بیشترش
+    // هیچ‌وقت تست نمی‌شد و تست‌های واقعی را گرسنه نگه می‌داشت.
+    final fromFresh = await natHotNext(400);
     final c = [...healthy, ...fromFresh];
     if (c.isEmpty) return;
-    final seen = {for (final s in pending) s.link};
+    final seen = {for (final s in [...pending, ...natRestPending]) s.link};
     final add = [for (final s in c) if (seen.add(s.link)) s];
     if (add.isEmpty) return;
     pending = [...add, ...pending];
+    if (pending.length > 1200) pending = pending.sublist(0, 1200);
     _set('نت ملی: ${add.length} کانفیگ از پوشه‌ی منابع تازه اضافه شد');
   }
 
@@ -7345,15 +7370,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       if (ok.isEmpty) {
         // هیچ IP ای باز نشد: همه‌ی سرورها تست می‌شوند (چیزی حذف نمی‌شود)
-        pending = [...cands, ...overflow];
+        // DEADSKIP: فقط سرورهایی که اخیراً شکست نخورده‌اند دوباره به صف می‌روند
+        pending = [
+          for (final s in [...cands, ...overflow])
+            if (!_recentFail(s) && !_bad(s)) s
+        ];
         natRestPending = [];
         return;
       }
       final okLinks = {for (final s in ok) s.link};
       pending = ok;
+      // DEADSKIP: همان قاعده برای باقی‌مانده‌ی صف نت ملی
       natRestPending = [
-        for (final s in cands) if (!okLinks.contains(s.link)) s,
-        ...overflow,
+        for (final s in cands)
+          if (!okLinks.contains(s.link) && !_recentFail(s) && !_bad(s)) s,
+        for (final s in overflow)
+          if (!_recentFail(s) && !_bad(s)) s,
       ];
       _set('نت ملی: ${ok.length} سرور با IP باز پیدا شد، تست می‌شود');
     } catch (e, stk) {
@@ -7757,7 +7789,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       abort = false;
       await _prepNow();
       _prepFut = null;
-      natFloor = natForce ? 10 : 0; // دکمه نت ملی: سطح ۱۰ با حلقه‌ی بی‌پایان
+      // NATFLOOR: any national connect (button, auto test or saved mode) runs at
+      // level 10. Before, only the one-time button flag set it, so a national
+      // connect started from the saved mode stayed at level 2.
+      natFloor = (natForce || nationalMode) ? 10 : 0;
       natLevel = natFloor;
       natAll = natForce; // NATBTNPATCH: full search of ALL sources
       natForce = false;
