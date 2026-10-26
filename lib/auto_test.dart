@@ -51,7 +51,7 @@ final ValueNotifier<bool> autoTestRunning = ValueNotifier<bool>(false);
 final ValueNotifier<double> autoTestProgress = ValueNotifier<double>(0);
 
 extension AutoTestEngine on _HomePageState {
-  static const _testDuration = Duration(minutes: 25); // NATONLY: کوتاه‌شده
+  static const _testDuration = Duration(minutes: 60); // NATMODES: ۶۰ دقیقه
   static const _sampleEvery = Duration(seconds: 3);
   // آستانه‌ها باید بیشتر از مهلت واقعی اتصال باشند (وگرنه اتصال عادی گزارش گیر می‌دهد)
   static const _busyStuckLimit = Duration(seconds: 120);
@@ -102,6 +102,9 @@ extension AutoTestEngine on _HomePageState {
   static final Map<String, String> _itemResult = {};
   // بیشترین سطح ماتریس نت ملی که در بخش‌های ملی دیده شد
   static int _atMaxNatLevel = 0;
+  // NATMODES: نتیجه‌ی هر سطح و اینکه آیا حداقل یک سطح وصل شد
+  static final List<String> _atNatRows = [];
+  static bool _atNatWorking = false;
 
   bool get isAutoTesting => _phase == _AtPhase.running;
 
@@ -217,9 +220,10 @@ extension AutoTestEngine on _HomePageState {
 
       // بخش‌های اصلی: هر کدام فقط اگر وقت باقی‌مانده‌ی کافی داشته باشد اجرا می‌شود
       // NATONLY: فقط نت ملی (جستجو) و خلبان نت ملی؛ بقیه‌ی بخش‌ها حذف شدند
+      // NATMODES: هر سطح ماتریس نت ملی (۰ تا ۱۰) جداگانه تست می‌شود، سپس خلبان نت ملی
       final steps = <(String, Duration, Future<void> Function())>[
-        (_atItemNames[2], const Duration(minutes: 12), _atItemNational),
-        (_atItemNames[4], const Duration(minutes: 10),
+        (_atItemNames[2], const Duration(minutes: 50), _atItemNatModes),
+        (_atItemNames[4], const Duration(minutes: 8),
             () => _atItemPilot(national: true)),
       ];
       for (final s in steps) {
@@ -1122,6 +1126,41 @@ extension AutoTestEngine on _HomePageState {
         ' • باز +${natIpFound - f0} • تست هسته +${natIpTested - t0}'
         ' • سالم +${natIpOk - o0} • بیشترین سطح $_atMaxNatLevel';
     await _atEnsureDisconnected();
+  }
+
+  /// NATMODES: هر سطح ماتریس نت ملی جدا با سقف ۴ دقیقه؛ نتیجه‌ی هر سطح ثبت می‌شود
+  Future<void> _atItemNatModes() async {
+    _scenario = 3;
+    final name = _atItemNames[2];
+    natForce = true;
+    nationalMode = true;
+    userModeChoice = true;
+    offlineOnly = false;
+    await ultimateSave();
+    final rows = <String>[];
+    _atNatRows.clear();
+    _atNatWorking = false;
+    for (var lvl = 0; lvl <= 10; lvl++) {
+      if (_abortRequested || _phase != _AtPhase.running) break;
+      natFloor = lvl;
+      natLevel = lvl;
+      final s0 = natIpScanned, f0 = natIpFound, t0 = natIpTested, o0 = natIpOk;
+      final connected = await _atConnectItem('$name • سطح $lvl',
+          timeout: const Duration(minutes: 4));
+      final row = 'سطح $lvl: اسکن +${natIpScanned - s0} • باز +${natIpFound - f0}'
+          ' • تست +${natIpTested - t0} • سالم +${natIpOk - o0}'
+          ' • ${connected ? 'وصل شد ✅' : 'وصل نشد ❌'}';
+      rows.add(row);
+      _atNatRows.add(row);
+      if (connected) _atNatWorking = true;
+      await _atEnsureDisconnected();
+    }
+    natFloor = 0;
+    _itemResult[name] = rows.isEmpty ? 'اجرا نشد' : rows.join('\n');
+    if (!_atNatWorking) {
+      _atAdd('NAT-NOCONNECT',
+          'نت ملی: هیچ سطحی وصل نشد (${_atNatRows.length} سطح تست شد)');
+    }
   }
 
   /// بخش ۴ و ۵: خلبان محلی؛ بدون نت ملی و با نت ملی (دکمه‌ی خلبان نت ملی)

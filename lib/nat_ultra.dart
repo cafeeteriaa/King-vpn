@@ -1451,6 +1451,12 @@ Future<void> natRangesSave(String text) async {
 
 // پورت‌ها از خود کانفیگ‌های برنامه گرفته می‌شوند (حداکثر ۵۰ تا). اگر کانفیگ‌ها
 // پورت کمتری داشته باشند، همان کمتر اسکن می‌شود. اگر هیچ کانفیگی نبود، ۴۴۳ استفاده می‌شود.
+// NATPORTS: پورت‌های پرکاربرد TLS/CDN (اسکن همه‌ی ۶۵ هزار پورت برای هر IP ممکن نیست)
+const List<int> natCommonPorts = [
+  443, 2053, 2083, 2087, 2096, 8443, 80, 8080, 8880, 2052, 2082, 2086, 2095,
+  8444, 9443, 4443, 5443, 6443, 7443, 10443, 2222, 8000, 8008, 8888, 3128, 1080,
+];
+
 List<int> natAutoPorts(List<Server> known) {
   final cnt = <int, int>{};
   for (final s in known) {
@@ -1461,10 +1467,13 @@ List<int> natAutoPorts(List<Server> known) {
     final p = (e['port'] as num?)?.toInt() ?? 0;
     if (p > 0 && p < 65536) cnt[p] = (cnt[p] ?? 0) + 5;
   }
-  if (cnt.isEmpty) return const [443];
   final ports = cnt.keys.toList()
     ..sort((x, y) => cnt[y]! - cnt[x]!);
-  return ports.take(50).toList();
+  final out = <int>[...ports.take(10)];
+  for (final p in natCommonPorts) {
+    if (!out.contains(p)) out.add(p);
+  }
+  return out;
 }
 
 // [a, b, c] از IPv4 یا null
@@ -1673,7 +1682,8 @@ Future<List<String>> natRangeScanStep({
   // نیمی دیگر از بلوک‌های داخلی که از cursor ادامه می‌یابد
   final List<String> slice;
   if (natRanges.isEmpty) {
-    final rnd = natRandomPublicIps(maxAddrs ~/ 2);
+    // RANDOMFIRST: ۹۰٪ IP تصادفی عمومی (مستقل از کانفیگ‌ها)، ۱۰٪ بلوک داخلی
+    final rnd = natRandomPublicIps((maxAddrs * 0.9).round());
     natRandomLast = rnd.length;
     final from = addrs.isEmpty ? 0 : natRangeCursor % addrs.length;
     final blockPart = addrs.skip(from).take(maxAddrs - rnd.length).toList();
@@ -1688,14 +1698,18 @@ Future<List<String>> natRangeScanStep({
   natIpScanned += slice.length;
   natLiveBox('IP اسکن: ${slice.length} آدرس این دور (تصادفی + بلوک‌های داخلی)');
   final out = <String>[];
-  for (final port in natAutoPorts(seeds)) {
+  final portList = natAutoPorts(seeds);
+  // PORTSHARE: زمان دور بین همه‌ی پورت‌ها تقسیم می‌شود تا هیچ پورتی بی‌تست نماند
+  final perPort = Duration(
+      milliseconds: max(20000, budget.inMilliseconds ~/ max(1, portList.length)));
+  for (final port in portList) {
     if (stop != null && stop()) break;
     final hits = await natScanIps(
       slice,
       port: port,
       concurrency: conc,
       want: 50,
-      budget: budget,
+      budget: perPort,
       timeout: const Duration(milliseconds: 1500),
       cancelled: stop,
     );
@@ -1703,6 +1717,32 @@ Future<List<String>> natRangeScanStep({
       out.add('${h.ip}|$port');
     }
     natLiveBox('بازه: پورت $port • باز ${hits.length}');
+  }
+  // ALLPORTS: IPهایی که روی پورت‌های پرکاربرد جواب دادند، روی همه‌ی پورت‌های
+  // ۱ تا ۶۵۵۳۵ هم تست می‌شوند (سقف زمانی ۸ دقیقه در هر دور تا بقیه گیر نکنند)
+  final liveIps = {for (final o in out) o.split('|')[0]}.toList();
+  if (liveIps.isNotEmpty && !(stop != null && stop())) {
+    final doneTw = Stopwatch()..start();
+    final scanned = portList.toSet();
+    for (var p = 1; p < 65536; p++) {
+      if (doneTw.elapsed > const Duration(minutes: 8)) break;
+      if (stop != null && stop()) break;
+      if (scanned.contains(p)) continue;
+      final more = await natScanIps(
+        liveIps,
+        port: p,
+        concurrency: conc,
+        want: 50,
+        budget: const Duration(seconds: 5),
+        timeout: const Duration(milliseconds: 1500),
+        cancelled: stop,
+      );
+      for (final h in more) {
+        final key = '${h.ip}|$p';
+        if (!out.contains(key)) out.add(key);
+      }
+    }
+    natLiveBox('همه‌ی پورت‌ها روی ${liveIps.length} IP زنده تست شد');
   }
   return out;
 }
