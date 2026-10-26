@@ -5064,7 +5064,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await _testBatchDelay(batch, enough);
           if (bgDisabled) break;
         } else if (fast) {
-          await _testBatchFast(batch, enough, row: row);
+          // WATCHDOG2: a batch that hangs on any await is abandoned after 3 min
+          await _testBatchFast(batch, enough, row: row).timeout(
+              const Duration(minutes: 3),
+              onTimeout: () {
+                dbg('WATCHDOG2: دسته بیش از ۳ دقیقه طول کشید؛ دسته رها شد');
+              });
           if (selCountry != null) await _geoFill();
         } else {
           await _testBatchSeq(batch, enough, keepUp: keepUp, row: row);
@@ -5195,6 +5200,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final ipList = batch.where((s) => s.isIp).toList();
     final alive = batch.where((s) => !s.isIp).toList();
     final batchSw = Stopwatch()..start(); // WATCHDOG
+    dbg('TRACE batch: ${batch.length} سرور • IP ${batch.where((s) => s.isIp).length} • nat=$nationalMode');
     // نت ملی: IP همیشه اول با TCP بررسی می‌شود؛ فقط IPهای باز به تست کانفیگ می‌روند.
     // (قبلاً نت ملی با natLevel>=2 این بررسی را دور می‌زد و IPها بی‌بررسی تست می‌شدند)
     if (ultraMode && !nationalMode) {
@@ -5211,6 +5217,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (dropped > 0) dbg('نت ملی: $dropped کانفیگ با IP ناشناخته کنار گذاشته شد');
     }
     var ipOpen = 0;
+    dbg('TRACE ipList: ${ipList.length} آدرس برای TCP');
     await pool<Server>(ipList, max(60, fastWorkers), (s) async {
       if (abort) return;
       final pg = await probe(s);
