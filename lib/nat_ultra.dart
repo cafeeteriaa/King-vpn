@@ -1636,6 +1636,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
     }
     natDomainHosts = hosts.length;
     natDomainIps = ips.length;
+    dbg('دامنه‌ها: ${hosts.length} دامنه • ${ips.length} IP یکتا');
     if (ips.isEmpty) return out;
     natLiveBox('دامنه‌ها: ${hosts.length} دامنه • ${ips.length} IP برای همه‌ی پورت‌ها');
     final tw = Stopwatch()..start();
