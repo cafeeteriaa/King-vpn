@@ -42,7 +42,7 @@ part 'net_state.dart';
 // and the next connect shows the ad again. Automatic server switches (bad
 // ping / low speed / dead server) never show an ad and never end the session.
 // Ad gate = the in-app AdPage (no AdMob). Set requireRewardedAd to false to remove it.
-bool requireRewardedAd = true; // تبلیغ فقط برای دکمه‌ی دستی اتصال
+bool requireRewardedAd = false; // ad gate OFF (test build); set true to bring the ad back
 const sessionLength = Duration(hours: 4);
 
 // package name of this app (org com.kingvpn + project king_vpn). It is never
