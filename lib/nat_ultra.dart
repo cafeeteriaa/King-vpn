@@ -1639,8 +1639,13 @@ Future<List<String>> _natDomainFirst(List<Server> known,
     if (ips.isEmpty) return out;
     natLiveBox('دامنه‌ها: ${hosts.length} دامنه • ${ips.length} IP برای همه‌ی پورت‌ها');
     final tw = Stopwatch()..start();
-    for (var p = 1; p < 65536; p++) {
-      if (tw.elapsed > const Duration(minutes: 8)) break;
+    // DOMAINCAP: پورت‌های پرکاربرد اول، سقف ۳ دقیقه
+    final portOrder = <int>[
+      ...natCommonPorts,
+      for (var p = 1; p < 65536; p++) if (!natCommonPorts.contains(p)) p,
+    ];
+    for (final p in portOrder) {
+      if (tw.elapsed > const Duration(minutes: 3)) break;
       if (stop != null && stop()) break;
       final hits = await natScanIps(
         ips.toList(),
