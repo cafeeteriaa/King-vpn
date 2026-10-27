@@ -7444,6 +7444,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       for (final s in ok) {
         failed.remove(s.key);
         s.badAt = null;
+        natScanHits.add(s.host); // TRUSTFIX: این IP ها واقعاً باز بودند؛ فیلتر IP ناشناخته نباید حذفشان کند
       }
       final okLinks = {for (final s in ok) s.link};
       pending = ok;
