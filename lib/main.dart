@@ -7441,6 +7441,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         return;
       }
       // FREEZEFIX: fresh TCP-open IP beats an old failure record
+      natFreshHosts = {for (final s in ok) s.host};
       for (final s in ok) {
         failed.remove(s.key);
         s.badAt = null;
@@ -7617,7 +7618,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (nationalMode) await _natPrescan();
       // FREEZEFIX2: IP servers already found are tested first. The long scan
       // (up to 12 min) used to run before them, which is what looked like a freeze.
-      final ipWaiting = [...pending, ...natRestPending].any((s) => s.isIp);
+      // IPFIX: فقط IP های تازه‌ی همین prescan منتظر تست‌اند (نه همه‌ی IP های کانفیگ‌ها)
+      final ipWaiting = [...pending, ...natRestPending]
+          .any((s) => natFreshHosts.contains(s.host));
       if (nationalMode && !abort && !ipWaiting) {
         final ips = await natRangeScanStep(
             known: [...pending, ...natRestPending],
