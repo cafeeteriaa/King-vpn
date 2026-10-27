@@ -1153,10 +1153,11 @@ extension AutoTestEngine on _HomePageState {
           timeout: const Duration(minutes: 4));
       final ownOk = natIpOk - o0; // سالم‌هایی که همین سطح پیدا کرده
       final viaSaved = connected && ownOk == 0; // وصل شده ولی از سرور ذخیره‌شده، نه از این سطح
+      // WORKOK: اتصال واقعی موفق است، حتی اگر از سرور ذخیره‌شده‌ی جستجوی قبلی باشد
       final status = connected && !viaSaved
           ? 'وصل شد ✅ (از همین سطح)'
           : viaSaved
-              ? 'وصل شد ⚠ (از سرور ذخیره‌شده، نه از این سطح)'
+              ? 'وصل شد ✅ (سرور ذخیره‌شده‌ی قبلی؛ جستجوی این سطح سالم پیدا نکرد)'
               : 'وصل نشد ❌';
       final reason = connected
           ? ''
@@ -1165,7 +1166,7 @@ extension AutoTestEngine on _HomePageState {
           ' • تست +${natIpTested - t0} • سالم +$ownOk • $status$reason';
       rows.add(row);
       _atNatRows.add(row);
-      if (connected && !viaSaved) _atNatWorking = true;
+      if (connected) _atNatWorking = true; // WORKOK
       await _atEnsureDisconnected();
     }
     natFloor = 0;
