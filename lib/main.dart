@@ -5269,7 +5269,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _set('نت ملی: تست ${s.name} • ${realTested + 1}/${alive.length}');
       }
       final d0 = await _delayOf(s, t: _fgTimeout).timeout(
-          const Duration(seconds: 40),
+          Duration(seconds: nationalMode ? 150 : 40), // VARCAP2
           onTimeout: () {
             dbg('WATCHDOG: ${s.name} بیش از ۴۰ ثانیه طول کشید؛ رد شد');
             s.badAt = DateTime.now();
@@ -5454,7 +5454,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     try {
       final cfg = buildCoreConfig(s.useLink);
       final rs = await Future.wait(urls.map((u) => v2ray
-          .getServerDelay(config: cfg, url: u)
+          .getServerDelay(config: sanitizeCfg(cfg), url: u)
           .timeout(const Duration(seconds: 8), onTimeout: () => -1)
           .catchError((_) => -1)));
       for (var i = 0; i < 4; i++) {
@@ -5472,7 +5472,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // ultraMode alone no longer enables matrix during ordinary connect tests.
     final useMatrix = nationalMode;
     final multi = useMatrix;
-    final order = useMatrix ? _natOrder(s, full: _resFull) : const [0];
+    final order = useMatrix
+        ? _natOrder(s, full: _resFull).take(natMaxVariants).toList()
+        : const [0]; // VARCAP: سقف حالت‌ها برای هر سرور
     // NATBUDGET: one server may only use a limited time per pass; the rest of
     // its variants continue in the next pass (natCursorAdvance)
     final budget = multi ? natBudget(full: _resFull) : null;
@@ -5529,7 +5531,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     try {
       final cfg = natCfg(s, v);
       final rr = await v2ray
-          .getServerDelay(config: cfg, url: url ?? delayTestUrl)
+          .getServerDelay(config: sanitizeCfg(cfg), url: url ?? delayTestUrl)
           .timeout(Duration(seconds: tt.inSeconds + 5), // PERFPATCH
               onTimeout: () => -1);
       final int r = rr is int ? rr : (int.tryParse('$rr') ?? -1);
@@ -5825,7 +5827,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       if (po) {
         await v2ray.startV2Ray(
-            remark: s.name, config: cfg, proxyOnly: true);
+            remark: s.name, config: sanitizeCfg(cfg), proxyOnly: true);
         if (proxyOnly) return true;
         // proxy mode as the real connection: the local proxy port must open
         if (!await waitProxyPort(max: const Duration(seconds: 8))) {
@@ -5890,14 +5892,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (kOwnVpnService) {
             // KINGVPN: سرویس خودمان (کانال king/vpn)
             await ownVpnStart(
-                config: cfgTries[ci],
+                config: sanitizeCfg(cfgTries[ci]),
                 remark: s.name,
                 addr: s.host,
                 port: '${s.port}');
           } else {
             await v2ray.startV2Ray(
                 remark: s.name,
-                config: cfgTries[ci],
+                config: sanitizeCfg(cfgTries[ci]),
                 proxyOnly: false,
                 blockedApps: bypassApps.isEmpty ? null : bypassApps);
           }
