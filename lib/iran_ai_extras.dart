@@ -3240,6 +3240,7 @@ Future<String?> tunedSettings(SharedPreferences p) async {
 // هیچ کلید API لازم نیست. تا قطع دستی کاربر، کنترل کامل دارد.
 
 bool localPilotOn = false;
+bool healActive = false; // ADAUTO: خودترمیمی خودکار در حال کار است
 // انتخاب صریح کاربر: null = نامشخص (خودکار)، true = نت ملی، false = نت جهانی
 bool? userModeChoice;
 int _localRetryN = 0; // تعداد تلاش‌های تیک خلبان که گم شده (فیلد باید بیرون extension باشد)
