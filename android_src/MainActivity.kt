@@ -36,6 +36,11 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "alive" -> result.success(true)
+                    // BACK-NATIVE: Dart برای دکمه‌ی برگشت این متد را صدا می‌زند؛ فقط به پس‌زمینه می‌رویم
+                    "back" -> {
+                        moveTaskToBack(true)
+                        result.success(true)
+                    }
                     else -> result.notImplemented()
                 }
             }
