@@ -241,7 +241,7 @@ extension AutoTestEngine on _HomePageState {
       logError(e);
     } finally {
       if (_phase == _AtPhase.running) {
-        await _atFinish(reason: 'سناریوها تمام شد');
+        await _atFinish(reason: 'تست نت ملی تمام شد');
       }
     }
   }
@@ -1151,12 +1151,18 @@ extension AutoTestEngine on _HomePageState {
       final s0 = natIpScanned, f0 = natIpFound, t0 = natIpTested, o0 = natIpOk;
       final connected = await _atConnectItem('$name • سطح $lvl',
           timeout: const Duration(minutes: 4));
+      final ownOk = natIpOk - o0; // سالم‌هایی که همین سطح پیدا کرده
+      final viaSaved = connected && ownOk == 0; // وصل شده ولی از سرور ذخیره‌شده، نه از این سطح
+      final status = connected && !viaSaved
+          ? 'وصل شد ✅ (از همین سطح)'
+          : viaSaved
+              ? 'وصل شد ⚠ (از سرور ذخیره‌شده، نه از این سطح)'
+              : 'وصل نشد ❌';
       final row = 'سطح $lvl: اسکن +${natIpScanned - s0} • باز +${natIpFound - f0}'
-          ' • تست +${natIpTested - t0} • سالم +${natIpOk - o0}'
-          ' • ${connected ? 'وصل شد ✅' : 'وصل نشد ❌'}';
+          ' • تست +${natIpTested - t0} • سالم +$ownOk • $status';
       rows.add(row);
       _atNatRows.add(row);
-      if (connected) _atNatWorking = true;
+      if (connected && !viaSaved) _atNatWorking = true;
       await _atEnsureDisconnected();
     }
     natFloor = 0;
