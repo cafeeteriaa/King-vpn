@@ -42,7 +42,7 @@ part 'net_state.dart';
 // and the next connect shows the ad again. Automatic server switches (bad
 // ping / low speed / dead server) never show an ad and never end the session.
 // Ad gate = the in-app AdPage (no AdMob). Set requireRewardedAd to false to remove it.
-bool requireRewardedAd = false; // ad gate OFF (test build); set true to bring the ad back
+bool requireRewardedAd = true; // تبلیغ فقط برای دکمه‌ی دستی اتصال
 const sessionLength = Duration(hours: 4);
 
 // package name of this app (org com.kingvpn + project king_vpn). It is never
@@ -4749,7 +4749,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // Before a user-started connect: if no 4 hour session is running, the ad
   // must be seen first (patch_adpage.py swaps the AdMob rewarded ad for the
   // in-app ad page). Seen -> a new 4 hour session starts. Not seen -> false.
+  bool get _automationRunning => localPilotOn || isAutoTesting || healActive;
+
   Future<bool> _ensureSession() async {
+    // ADAUTO: خلبان، تست خودکار و خودترمیمی هرگز تبلیغ نشان نمی‌دهند؛ فقط دکمه‌ی دستی
+    if (_automationRunning) return true;
     if (!requireRewardedAd || (_sessionValid && !_adEveryConnect)) return true;
     if (!mounted) return false;
     unawaited(adsRemoteLoad());
