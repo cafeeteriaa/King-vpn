@@ -117,7 +117,13 @@ extension KingHealEngine on _HomePageState {
       _healPhase = _HealPhase.act;
       _healLastAct = now;
       _healLastAction = plan.$1;
-      final ok = await _healAct(plan.$1, plan.$3);
+      healActive = true; // ADAUTO: کار خودکار خلبان، تبلیغ نشان نمی‌دهد
+      final bool ok;
+      try {
+        ok = await _healAct(plan.$1, plan.$3);
+      } finally {
+        healActive = false;
+      }
       _healMem.remember(plan.$1, ok);
       _healActStreak = ok ? 0 : _healActStreak + 1;
 
