@@ -7141,7 +7141,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             unawaited(() async {
               final ips = await natRangeScanStep(
                   known: [...pending, ...natRestPending],
-                  maxAddrs: 256,
+                  maxAddrs: 100000, // LEVELADDR: هر سطح ۱۰۰ هزار آدرس
                   conc: 20);
               await _natRangeAdd(ips);
             }());
@@ -7625,8 +7625,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // IPFIX: فقط IP های تازه‌ی همین prescan منتظر تست‌اند (نه همه‌ی IP های کانفیگ‌ها)
       final ipWaiting = [...pending, ...natRestPending]
           .any((s) => natFreshHosts.contains(s.host));
-      // DOMAINALWAYS: دامنه‌های .ir همیشه قبل از اسکن IP تست می‌شوند (حتی وقتی IP منتظر است)
-      if (nationalMode && !abort) {
+      // DOMAINORDER: دامنه‌های .ir فقط وقتی IP تازه‌ای منتظر تست نیست اجرا می‌شوند
+      if (nationalMode && !abort && !ipWaiting) {
         final domHits = await _natDomainFirst(
             [...pending, ...natRestPending], conc: 200, stop: () => abort);
         await _natRangeAdd(domHits);
