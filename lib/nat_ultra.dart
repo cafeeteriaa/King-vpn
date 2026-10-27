@@ -1634,6 +1634,8 @@ Future<List<String>> _natDomainFirst(List<Server> known,
         }
       }
     }
+    natDomainHosts = hosts.length;
+    natDomainIps = ips.length;
     if (ips.isEmpty) return out;
     natLiveBox('دامنه‌ها: ${hosts.length} دامنه • ${ips.length} IP برای همه‌ی پورت‌ها');
     final tw = Stopwatch()..start();
@@ -1651,6 +1653,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
       );
       for (final h in hits) {
         out.add('${h.ip}|$p');
+        natDomainOpen = out.length;
       }
     }
   } catch (e, stk) {
@@ -1729,6 +1732,10 @@ int natRandomLast = 0; // چند IP تصادفی در آخرین دور اسکن
 final Set<String> natScanHits = {};
 // IPFIX: IP هایی که همین prescan تازه پیدا کرده (تا وقتی تست نشوند اسکن بزرگ صبر می‌کند)
 Set<String> natFreshHosts = {};
+// DOMAINCOUNT: شمارنده‌های مرحله‌ی دامنه‌های .ir برای نمایش در کادر
+int natDomainHosts = 0; // چند دامنه حل شد
+int natDomainIps = 0; // چند IP یکتا از آن‌ها
+int natDomainOpen = 0; // چند IP:پورت باز از آن‌ها
 
 // سرورهای الگو برای ساختن کانفیگ IP جدید (وقتی صف خالی است هم کار می‌کند)
 List<Server> natTemplateSeeds = [];
@@ -1741,7 +1748,7 @@ Future<List<String>> natRangeScanStep({
   Duration budget = const Duration(minutes: 2),
 }) async {
   // DOMAINFIRST: دامنه‌های کانفیگ اول تست می‌شوند؛ IP هر دامنه روی همه‌ی پورت‌ها
-  final domOut = await _natDomainFirst(known, conc: conc, stop: stop);
+  final domOut = <String>[]; // DOMAINALWAYS: مرحله‌ی دامنه‌ها از جای دیگری (قبل از همه) صدا زده می‌شود
   // IPهای کانفیگ‌ها در نت ملی فیلتر می‌شوند، پس بلوک‌ها از IPهای داخلی ساخته می‌شوند:
   // ۱) IPهایی که قبلاً واقعاً در نت ملی جواب دادند (حافظه)
   // ۲) IP عمومی خود گوشی (اپراتور داخلی)
