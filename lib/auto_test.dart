@@ -1158,8 +1158,11 @@ extension AutoTestEngine on _HomePageState {
           : viaSaved
               ? 'وصل شد ⚠ (از سرور ذخیره‌شده، نه از این سطح)'
               : 'وصل نشد ❌';
+      final reason = connected
+          ? ''
+          : (_atLastFail.isEmpty ? ' • علت: ثبت نشد' : ' • علت: $_atLastFail');
       final row = 'سطح $lvl: اسکن +${natIpScanned - s0} • باز +${natIpFound - f0}'
-          ' • تست +${natIpTested - t0} • سالم +$ownOk • $status';
+          ' • تست +${natIpTested - t0} • سالم +$ownOk • $status$reason';
       rows.add(row);
       _atNatRows.add(row);
       if (connected && !viaSaved) _atNatWorking = true;
