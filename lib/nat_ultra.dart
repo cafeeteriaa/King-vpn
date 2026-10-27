@@ -1727,6 +1727,8 @@ int natMemQueued = 0; // چند IP از حافظه دوباره به صف اضا
 int natRandomLast = 0; // چند IP تصادفی در آخرین دور اسکن بود
 // IPهایی که اسکن پیدا کرده (معتبر برای تست کانفیگ در نت ملی، همراه حافظه)
 final Set<String> natScanHits = {};
+// IPFIX: IP هایی که همین prescan تازه پیدا کرده (تا وقتی تست نشوند اسکن بزرگ صبر می‌کند)
+Set<String> natFreshHosts = {};
 
 // سرورهای الگو برای ساختن کانفیگ IP جدید (وقتی صف خالی است هم کار می‌کند)
 List<Server> natTemplateSeeds = [];
