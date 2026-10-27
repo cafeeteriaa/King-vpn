@@ -6461,13 +6461,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
           Future<List<bool>> runSocial() async {
             try {
-              // فقط تلگرام: یوتیوب/اینستاگرام/cloudflare/gstatic برای اتصال سریع‌تر حذف شدند
-              final checks = await Future.wait([
+              // SOCIALALL: تلگرام، یوتیوب، اینستاگرام، X و واتس‌اپ همه چک می‌شوند
+              final res = await Future.wait([
                 _siteOpens('https://telegram.org/', viaCore: true),
                 _siteOpens('https://web.telegram.org/', viaCore: true),
-              ]).timeout(const Duration(seconds: 8),
-                  onTimeout: () => <bool>[false, false]);
-              return [checks[0], checks[1], false, false, false, false, false, false];
+                _siteOpens('https://www.youtube.com/', viaCore: true),
+                _siteOpens('https://www.instagram.com/', viaCore: true),
+                _siteOpens('https://x.com/', viaCore: true),
+                _siteOpens('https://web.whatsapp.com/', viaCore: true),
+              ]).timeout(const Duration(seconds: 15),
+                  onTimeout: () => List<bool>.filled(6, false));
+              return [res[0], res[1], res[2], res[3], res[4], res[5], false, false];
             } catch (e, stk) {
               logError(e, stk);
               return List<bool>.filled(8, false);
@@ -6477,17 +6481,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           var r = await runSocial();
           if (abort) return false;
           bool tg = r[0] || r[1];
-          bool yt = r[2] || r[3];
-          bool ig = r[4] || r[5];
-          bool socialOk = tg;
+          bool yt = r[2]; // SOCIALALL
+          bool ig = r[3];
+          bool socialOk = tg && yt && ig; // همه‌ی سایت‌های اصلی باید تیک بخورند
           // National / slow: one more pass after short settle
           if (!socialOk && (nationalMode || indestructibleMode)) {
             await Future.delayed(const Duration(milliseconds: 800));
             r = await runSocial();
             tg = r[0] || r[1];
-            yt = r[2] || r[3];
-            ig = r[4] || r[5];
-            socialOk = tg;
+            yt = r[2];
+            ig = r[3];
+            socialOk = tg && yt && ig;
           }
           dbg('چک سایت‌ها ${s.name}: tg=$tg yt=$yt ig=$ig '
               'cf=${r[6]} gs=${r[7]}');
@@ -7621,6 +7625,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // IPFIX: فقط IP های تازه‌ی همین prescan منتظر تست‌اند (نه همه‌ی IP های کانفیگ‌ها)
       final ipWaiting = [...pending, ...natRestPending]
           .any((s) => natFreshHosts.contains(s.host));
+      // DOMAINALWAYS: دامنه‌های .ir همیشه قبل از اسکن IP تست می‌شوند (حتی وقتی IP منتظر است)
+      if (nationalMode && !abort) {
+        final domHits = await _natDomainFirst(
+            [...pending, ...natRestPending], conc: 200, stop: () => abort);
+        await _natRangeAdd(domHits);
+      }
       if (nationalMode && !abort && !ipWaiting) {
         final ips = await natRangeScanStep(
             known: [...pending, ...natRestPending],
