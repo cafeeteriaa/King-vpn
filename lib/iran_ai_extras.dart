@@ -2412,6 +2412,7 @@ extension HomeExtras on _HomePageState {
       report.writeln('────────────────────────');
       if (nationalMode) {
         report.writeln('🌐 نت ملی — IP اسکن $natIpScanned • باز $natIpFound • تست هسته $natIpTested • سالم $natIpOk');
+        report.writeln('🌍 دامنه‌های .ir: $natDomainHosts دامنه • $natDomainIps IP • باز $natDomainOpen');
         report.writeln('💾 حافظه‌ی IP: ${natIpMem.length} • از حافظه به صف: $natMemQueued • تصادفی این دور: $natRandomLast');
       }
       report.writeln(snap.toHuman());
