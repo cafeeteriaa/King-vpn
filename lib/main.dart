@@ -7625,8 +7625,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // IPFIX: فقط IP های تازه‌ی همین prescan منتظر تست‌اند (نه همه‌ی IP های کانفیگ‌ها)
       final ipWaiting = [...pending, ...natRestPending]
           .any((s) => natFreshHosts.contains(s.host));
-      // DOMAINORDER: دامنه‌های .ir فقط وقتی IP تازه‌ای منتظر تست نیست اجرا می‌شوند
-      if (nationalMode && !abort && !ipWaiting) {
+      // DOMAINALWAYS2: دامنه‌های .ir در هر دور اجرا می‌شوند (سقف ۳ دقیقه)
+      if (nationalMode && !abort) {
         final domHits = await _natDomainFirst(
             [...pending, ...natRestPending], conc: 200, stop: () => abort);
         await _natRangeAdd(domHits);
