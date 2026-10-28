@@ -1140,6 +1140,20 @@ List<String> _dbgHelpOf(String m) {
 
   // ---- real exceptions: logError(e) ----
   if (m.startsWith('خطا:')) {
+    // ERRREPORT2: the text-encoding bug (http.Response(String) → latin1) and the
+    // storage bug used to show as "handled" or as a generic error
+    if (has('Contains invalid characters')) {
+      return h('E-LATIN1-BUG',
+          'lib/iran_ai_extras.dart → _safeResp / _raceGet (پاسخ فهرست‌ها)',
+          'متن فهرست با latin1 ساخته شد و کاراکترهای فارسی/ایموجی رد شدند؛ فهرست کامل دور ریخته شد.',
+          'باید از http.Response.bytes(utf8.encode(...)) استفاده شود. اگر این خطا هست، build قدیمی است: iran_ai_extras.dart جدید را بگذار.');
+    }
+    if (has('PathAccessException')) {
+      return h('E-STORAGE',
+          'lib/nat_ultra.dart → نوشتن فایل‌های بخشی (PARTSPRIV)',
+          'نوشتن در پوشه‌ی Download رد شد (errno 13)؛ فایل‌های قدیمی مالک دیگری دارند.',
+          'nat_ultra.dart جدید را بگذار و دوباره بساز. اگر ادامه داشت، پوشه‌ی Download/King-VPN را از گوشی پاک کن.');
+    }
     if (has('FormatException')) {
       return h('E-ERR-FORMAT',
           'محل ثبت: بعد از «@» همین خط (تابع:شماره‌ی خط در main.dart پیوست Release)',
@@ -4224,7 +4238,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     try {
       // BUSYCAP: جستجوی نت ملی و تست گروهی طبیعتاً بیشتر از ۵ دقیقه می‌برند؛
       // سقف به ۱۰ دقیقه رسید تا کارهای سالم به‌اشتباه قطع نشوند
-      await work.timeout(const Duration(minutes: 10));
+      await work.timeout(Duration(minutes: nationalMode ? 20 : 10));
     } on TimeoutException {
       abort = true;
       // STUCK-WHERE: the status text shows which step was waiting when it hung
@@ -5119,11 +5133,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final fast = !bg && fastDelay;
         // first batch is small when nothing healthy is known yet: the first
         // test starts after ~1-2 s instead of ~4 s
-        final size = bg
+        final size0 = bg
             ? standbyBatchSize
             : (batches == 0
                 ? firstBatchSize // first batch small → connect ASAP
                 : batchSize);
+        // BATCHFIT: national tests run one server at a time through the single
+        // core, so a big batch cannot finish inside the 4-minute watchdog.
+        final size = nationalMode ? min(size0, 15) : size0;
         // PERF: sorting the whole queue on every batch froze the UI (E-LOOP-FREEZE)
         if (batches == 1 || batches % 8 == 0) {
           await Future<void>.delayed(Duration.zero); // LOOPFREEZE: let the UI breathe
