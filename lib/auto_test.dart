@@ -69,6 +69,7 @@ extension AutoTestEngine on _HomePageState {
   static Timer? _sampleT;
   static Timer? _endT;
   static DateTime? _startedAt;
+  static int _dbgStartIdx = 0; // KNOWN-ISSUES: only this run's debug lines
   static DateTime? _busySince;
   static DateTime? _switchingSince;
   static DateTime? _connectingSince;
@@ -201,6 +202,7 @@ extension AutoTestEngine on _HomePageState {
     _connectingSince = null;
     _currentEngine = 'v2ray';
     _startedAt = DateTime.now();
+    _dbgStartIdx = dbgLines.length;
     autoTestRunning.value = true;
     autoTestProgress.value = 0;
     autoTestText.value = 'تست خودکار شروع شد (${_atSelected.length} VPN)…';
@@ -264,6 +266,7 @@ extension AutoTestEngine on _HomePageState {
     final min = elapsed.inMinutes;
     final sec = elapsed.inSeconds % 60;
 
+    _atKnownIssues(); // KNOWN-ISSUES: the problems still open in this build
     _atVerdict = _atNatDiagnosis(); // NATONLY
     final buf = StringBuffer();
     buf.writeln('===== گزارش تست خودکار ۶۰ دقیقه‌ای =====');
@@ -562,6 +565,48 @@ extension AutoTestEngine on _HomePageState {
   /// راهنمای هر کد: [کجا، علت، راه حل]
   List<String> _atHelpOf(String code) {
     switch (code) {
+      case 'ORPHAN-LOOP':
+        return [
+          'lib/main.dart → _inspect (بخش orph) و _runBusy (abort) و _failover',
+          'جستجو لغو شد ولی wantVpn روشن ماند؛ واچ‌داگ _failover را صدا زد و جستجو از اول شروع شد',
+          'بعد از لغو، جستجوی باقی‌مانده را ادامه بده و _failover را صدا نزن. این اصلاح بزرگ‌تر است؛ گزارش را بفرست',
+        ];
+      case 'BUSY-CAP':
+        return [
+          'lib/main.dart → _runBusy (سقف زمان)',
+          'کار طولانی‌تر از سقف بود و وسط راه abort شد',
+          'سقف نت ملی ۲۰ دقیقه است؛ اگر هنوز رخ داد، کار را به مراحل کوچک‌تر با سقف جدا تقسیم کن',
+        ];
+      case 'BATCH-SLOW':
+        return [
+          'lib/main.dart → WATCHDOG دسته‌ی نت ملی و اندازه‌ی دسته (BATCHFIT)',
+          'تست‌های یک دسته یکی‌یکی از یک هسته رد می‌شوند؛ دسته‌ی بزرگ در ۴ دقیقه تمام نمی‌شود',
+          'اندازه‌ی دسته‌ی نت ملی را کمتر کن (مثلاً ۸) یا حالت‌های ماتریس را برای سرورهای بی‌پاسخ کوتاه‌تر کن',
+        ];
+      case 'NO-TRAFFIC':
+        return [
+          'lib/main.dart → pingAny و مسیر iranRoute / DNS',
+          'سرور وصل می‌شود ولی بسته‌ها از تونل برنمی‌گردند (سرور فیلتر، مسیر یا DNS)',
+          'اگر همه‌ی سرورها همین‌اند مسیر DNS و iranRoute را بررسی کن؛ وگرنه این گروه سرور را لیست سیاه کن',
+        ];
+      case 'TLS-MISMATCH':
+        return [
+          'lib/nat_ultra.dart → ساخت کانفیگ IP (security و SNI بعد از جایگزینی IP)',
+          'سرور روی پورتی که TLS ندارد جواب می‌دهد ولی کانفیگ security=tls دارد؛ یا SNI بعد از جایگزینی IP درست نمانده',
+          'یک کانفیگ را با v2rayNG مقایسه کن (serverName، Host و security). اگر فقط کانفیگ‌های IP-جایگزین خطا دارند، SNI را حفظ کن',
+        ];
+      case 'DIALER-PROXY':
+        return [
+          'lib/main.dart → sanitizeCfg (پاک‌سازی dialerProxy)',
+          'یک outbound با dialerProxy به outbound ناموجود ارجاع داده',
+          'اگر در نسخه‌ی جدید هم هست، sanitizeCfg را روی مسیری که این کانفیگ را می‌سازد اعمال کن',
+        ];
+      case 'PATH-ACCESS':
+        return [
+          'lib/nat_ultra.dart → نوشتن فایل‌های بخشی (PARTSPRIV)',
+          'نوشتن در Download رد شد؛ معمولاً nat_ultra.dart قدیمی در build است',
+          'nat_ultra.dart جدید را جایگزین کن و دوباره بساز',
+        ];
       case 'SWITCH-STUCK':
         return [
           'lib/main.dart → _swapTo / _stableSwap (فلگ switching)',
@@ -759,6 +804,65 @@ extension AutoTestEngine on _HomePageState {
 
   /// جمع‌بندی پایان تست: یک علت اصلی و یک کار مشخص
   /// NATONLY: تشخیص مشکل اصلی نت ملی از شمارنده‌های واقعی همان اجرا
+  /// KNOWN-ISSUES: هر مشکل باقی‌مانده را از لاگ همین اجرا پیدا می‌کند و
+  /// با محل و راه حل گزارش می‌دهد (به‌جای اینکه کاربر حدس بزند).
+  void _atKnownIssues() {
+    try {
+      final since = _dbgStartIdx.clamp(0, dbgLines.length);
+      final lines = dbgLines.sublist(since);
+      int cnt(bool Function(String) test) => lines.where(test).length;
+
+      String xrayText = '';
+      try {
+        final f = File(kXrayErrPath);
+        if (f.existsSync()) {
+          final all = f.readAsLinesSync();
+          xrayText = (all.length > 400 ? all.sublist(all.length - 400) : all).join('\n');
+        }
+      } catch (_) {}
+
+      final journalMsgs = errJournal
+          .where((e) => _startedAt == null || !e.at.isBefore(_startedAt!))
+          .map((e) => e.msg)
+          .toList();
+
+      final orphan = cnt((l) => l.contains('خودترمیمی: اتصال یتیم'));
+      if (orphan >= 2) {
+        _atAdd('ORPHAN-LOOP',
+            'اتصال یتیم $orphan بار: بعد از لغو جستجو اپ بدون کار ماند و جستجو از اول شروع شد');
+      }
+      final busyCap = cnt((l) => l.contains('کار بیش از ۱۰ دقیقه'));
+      if (busyCap >= 1) {
+        _atAdd('BUSY-CAP', 'سقف زمان کار $busyCap بار قطع کرد (کار وسط راه متوقف شد)');
+      }
+      final slow = cnt((l) => l.contains('WATCHDOG: دسته‌ی نت ملی'));
+      if (slow >= 3) {
+        _atAdd('BATCH-SLOW',
+            'دسته‌های نت ملی $slow بار از ۴ دقیقه گذشتند و سرورهای باقی‌مانده کنار رفتند');
+      }
+      final noTraffic = cnt((l) =>
+          l.contains('اینترنت از تونل هنوز رد نشد') || l.contains('ترافیک تونل صفر'));
+      if (noTraffic >= 3) {
+        _atAdd('NO-TRAFFIC', '$noTraffic بار وصل شد ولی ترافیک از تونل رد نشد');
+      }
+      const tlsBad = 'tls: first record does not look like a TLS handshake';
+      final tlsN = tlsBad.isEmpty ? 0 : xrayText.split(tlsBad).length - 1;
+      if (tlsN >= 5) {
+        _atAdd('TLS-MISMATCH',
+            'سرورهایی با security=tls روی پورتی که TLS ندارد ($tlsN خطا در لاگ هسته)');
+      }
+      if (xrayText.contains('no outbound handler for dialerProxy')) {
+        _atAdd('DIALER-PROXY', 'کانفیگی به یک outbound نامعتبر dialerProxy ارجاع می‌دهد');
+      }
+      final pa = journalMsgs.where((m) => m.contains('PathAccessException')).length;
+      if (pa > 0) {
+        _atAdd('PATH-ACCESS', 'نوشتن فایل در پوشه‌ی Download رد شد ($pa بار)');
+      }
+    } catch (e, stk) {
+      errJournalAdd(e, kind: 'KNOWN-ISSUES', st: stk);
+    }
+  }
+
   String _atNatDiagnosis() {
     final scanned = natIpScanned;
     final found = natIpFound;
