@@ -140,7 +140,8 @@ extension UpdateCheck on _HomePageState {
         muxEnabled = true;
       }
       final mc = (_remoteHeal['muxConc'] as num?)?.toInt();
-      if (mc != null && mc >= 8) muxConc = mc.clamp(8, 64);
+      // MUXCAP: 32 streams per core made most servers fail in the tests
+      if (mc != null && mc >= 8) muxConc = mc.clamp(8, 16);
       dbg('ترمیم از راه دور اعمال شد: $_remoteHeal');
     } catch (e, stk) { logError(e, stk); }
   }
