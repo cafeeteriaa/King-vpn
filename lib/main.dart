@@ -4210,7 +4210,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<void> _runBusy(Future<void> Function() f) async {
-    if (busy) return;
+    if (busy) {
+      dbg('درخواست جدید رد شد چون کار دیگری در جریان است: «$status»');
+      return;
+    }
     setState(() => busy = true);
     // The timeout below only stops WAITING; the work itself keeps running.
     // Releasing the lock while the work still runs let a second connect flow
@@ -8390,7 +8393,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // switch to the lower-ping server; if it does not come up, go back to the
   // old one (the old one is NOT marked bad: it was working)
   Future<void> _stableSwap(Server t, Server old, int curMed, int newMed) async {
-    if (busy) return;
+    if (busy) {
+      dbg('تعویض پایدار به ${t.name} رد شد چون کار دیگری در جریان است');
+      return;
+    }
     // STOP-RACE: a switch must not undo a stop the user already asked for
     if (!wantVpn) return;
     abort = false;
@@ -8564,7 +8570,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // fast switch to a chosen server (bad ping of the old one). If it does not
   // come up, the normal replacement search takes over.
   Future<void> _swapTo(Server t) async {
-    if (busy) return;
+    if (busy) {
+      // ORPHAN-LOG: قبلاً بی‌صدا رد می‌شد و بعد خودترمیمی (E-ORPHAN) می‌آمد
+      dbg('تعویض سریع به ${t.name} رد شد چون کار دیگری در جریان است');
+      return;
+    }
     // STOP-RACE: a switch must not undo a stop the user already asked for
     if (!wantVpn) return;
     abort = false;
