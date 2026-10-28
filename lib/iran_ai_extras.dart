@@ -717,13 +717,23 @@ String? _mirrorOf(String u) {
 
 int _mirrorBest = 0; // index of the mirror host that worked last
 
+// FORMAT-FIX: strict utf8 threw "FormatException: Unexpected extension byte"
+// when a list was cut mid-character. Decode leniently instead.
+http.Response _safeResp(http.Response r) => http.Response(
+      utf8.decode(r.bodyBytes, allowMalformed: true),
+      r.statusCode,
+      request: r.request,
+      headers: r.headers,
+    );
+
 // asks every url at the same time, the first good (200) answer wins
 Future<http.Response?> _raceGet(List<String> urls, Duration t) {
   final c = Completer<http.Response?>();
   var left = urls.length;
   if (left == 0) return Future.value(null);
   for (final u in urls) {
-    http.get(Uri.parse(u)).timeout(t).then((r) {
+    http.get(Uri.parse(u)).timeout(t).then((r0) {
+      final r = _safeResp(r0);
       if (r.statusCode == 200 && r.body.isNotEmpty && !c.isCompleted) {
         c.complete(r);
       }
@@ -743,7 +753,7 @@ Future<http.Response> getListMirror(String u) async {
       final r =
           await http.get(Uri.parse(u)).timeout(const Duration(seconds: 8));
       _rawOk++;
-      return r;
+      return _safeResp(r);
     } catch (e, stk) {
       logError(e, stk);
       _rawFail++;
