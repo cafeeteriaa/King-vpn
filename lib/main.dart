@@ -1734,6 +1734,25 @@ String sanitizeCfg(String cfg) {
         }
       }
     }
+    // SNIFIX: tls بدون serverName (معمولاً وقتی آدرس IP است) بدون SNI هندشیک
+    // را رد می‌کند؛ مثل v2rayNG، Host سرور (ws) را به‌عنوان SNI می‌گذاریم.
+    for (final o in outs) {
+      if (o is! Map) continue;
+      final st3 = o['streamSettings'];
+      if (st3 is! Map || st3['security'] != 'tls') continue;
+      final tls = st3['tlsSettings'];
+      if (tls is! Map) continue;
+      if ((tls['serverName'] ?? '').toString().isNotEmpty) continue;
+      final ws3 = st3['wsSettings'];
+      if (ws3 is! Map) continue;
+      final hd3 = ws3['headers'];
+      final h3 = (hd3 is Map ? hd3['Host'] : null) ?? ws3['host'];
+      final host3 = h3?.toString() ?? '';
+      if (host3.isNotEmpty && !host3.contains(':')) {
+        tls['serverName'] = host3;
+        changed = true;
+      }
+    }
     return changed ? jsonEncode(j) : cfg;
   } catch (_) {
     return cfg;
@@ -4212,7 +4231,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // BUSYCAP: مهلت توقف از ۲۰ ثانیه به ۶۰ ثانیه تا کار بتواند خودش تمیز تمام شود
         await work.timeout(const Duration(seconds: 60));
       } on TimeoutException {
-        logError('کار بعد از توقف هم تمام نشد • آخرین وضعیت: «$status» • قفل آزاد شد');
+        logError('کار بعد از توقف هم تمام نشد • آخرین وضعیت: «$status» • هسته به زور متوقف شد');
+        // Never release the lock while the old flow can still touch the core
+        // ports (that produced CONNECTED without traffic). Stop the core first.
+        await _stopV2().catchError((_) {});
+        await work.timeout(const Duration(seconds: 30), onTimeout: () {});
       }
     } catch (e, stk) {
       logError(e, stk);
@@ -4944,10 +4967,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     (bgAlive.toList()..sort(byScoreThenPing)).forEach(add);
     await Future<void>.delayed(const Duration(milliseconds: 2));
-    final rest = fetched.toList()
-      ..shuffle()
-      ..sort(_cmpPending);
+    final rest = fetched.toList()..shuffle();
     await Future<void>.delayed(const Duration(milliseconds: 2));
+    final headLen = out.length; // favs + alive servers stay on top
     // FREEZEFIX: thousands of servers are filtered in small slices so the
     // screen keeps drawing (this used to block the UI for 9-13 seconds)
     var ri = 0;
@@ -4957,6 +4979,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         await Future<void>.delayed(const Duration(milliseconds: 2));
       }
     }
+    // PERF: sort only the servers that passed the filters, not the whole list
+    final tail = out.sublist(headLen)..sort(_cmpPending);
+    out.replaceRange(headLen, out.length, tail);
     // IPFUNNEL: IPهای صف قبلی (از اسکن) که در فهرست تازه نیستند، از بین می‌روند
     final outKeys = {for (final s in out) s.key};
     natFun('reload_dropped_ip',
@@ -5076,7 +5101,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             : (batches == 0
                 ? firstBatchSize // first batch small → connect ASAP
                 : batchSize);
-        pending.sort(_cmpPending);
+        // PERF: sorting the whole queue on every batch froze the UI (E-LOOP-FREEZE)
+        if (batches == 1 || batches % 8 == 0) pending.sort(_cmpPending);
         var cand = pending
             .where((s) =>
                 _cand(s, row) &&
@@ -5184,7 +5210,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     while (searching && sw.elapsed < const Duration(seconds: 20) && !abort) {
       await Future.delayed(const Duration(milliseconds: 250));
     }
-    if (abort || searching) return;
+    if (abort || searching) {
+      dbg('جستجو: درخواست جدید نادیده گرفته شد چون جستجوی دیگری در جریان بود');
+      return;
+    }
     await _findGood(want, row: row, keepUp: keepUp);
   }
 
