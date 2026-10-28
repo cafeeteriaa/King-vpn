@@ -1038,10 +1038,14 @@ extension AutoTestEngine on _HomePageState {
       'loop_enough_at_start',
       'loop_pending_ip',
       'loop_zero_batches',
+      'skip_searching',
     ];
     final path = keys.map((k) => '$k=${d(k)}').join(' • ');
     String fix;
-    if (d('loop_calls') == 0) {
+    if (d('skip_searching') > 0) {
+      fix = 'جستجوی دیگری (پس‌زمینه یا قبلی) قفل بود و این جستجو کنار گذاشته شد. '
+          'راه حل: در _findGood نسخه‌ی IPWAIT را بگذار (جستجوی اصلی منتظر می‌ماند)';
+    } else if (d('loop_calls') == 0) {
       fix = 'حلقه‌ی جستجوی IP اصلاً شروع نشد؛ بعد از اسکن، _findGood صدا زده نشد '
           'یا زودتر برگشت. راه حل: مسیر اسکن → _search → _findGood را در main.dart بررسی کن';
     } else if (d('loop_enough_at_start') > 0 && d('ip_batched') == 0) {
