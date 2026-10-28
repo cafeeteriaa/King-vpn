@@ -719,8 +719,10 @@ int _mirrorBest = 0; // index of the mirror host that worked last
 
 // FORMAT-FIX: strict utf8 threw "FormatException: Unexpected extension byte"
 // when a list was cut mid-character. Decode leniently instead.
-http.Response _safeResp(http.Response r) => http.Response(
-      utf8.decode(r.bodyBytes, allowMalformed: true),
+http.Response _safeResp(http.Response r) => http.Response.bytes(
+      // re-encode the lenient text as valid UTF-8; http.Response(String) would
+      // encode it as latin1 and throw "Contains invalid characters"
+      utf8.encode(utf8.decode(r.bodyBytes, allowMalformed: true)),
       r.statusCode,
       request: r.request,
       headers: r.headers,
