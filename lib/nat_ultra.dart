@@ -1981,7 +1981,7 @@ Future<void> natHotEnsure({bool force = false}) async {
         DateTime.now().difference(_hotFailAt!) < const Duration(minutes: 30)) return;
     _hotBusy = true;
     final urls = natHotUrls();
-    final dir = f.parent.path;
+    final dir = '/data/data/com.kingvpn.king_vpn/files'; // PARTSPRIV: never the shared Download folder
     final parts = [for (var i = 0; i < urls.length; i++) '$dir/hot_part_$i.txt'];
     final extraPath = '$dir/hot_part_extra.txt';
     final sw = Stopwatch()..start();
