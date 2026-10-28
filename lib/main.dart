@@ -3703,6 +3703,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _switching = v;
   }
   bool searching = false; // a search (foreground or standby) is running
+  bool _searchIsBg = false; // IPWAIT: is the running search a standby one?
+  bool _bgYield = false; // IPWAIT: a foreground search asks the standby one to stop
   bool inForeground = true, pendingFailover = false;
   // VPN permission was already granted once (stays valid in background)
   bool vpnPermOk = false;
@@ -5008,8 +5010,27 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       bool bg = false,
       bool explore = false}) async {
     if (bg && connected) return; // NOCORE
-    if (searching) return;
+    if (searching) {
+      if (bg) {
+        natFun('skip_searching');
+        return;
+      }
+      // IPWAIT: a connect must not be dropped silently while a standby search
+      // holds the lock: ask it to stop at its next turn and wait for it.
+      if (_searchIsBg) _bgYield = true;
+      final waitFrom = DateTime.now();
+      while (searching &&
+          DateTime.now().difference(waitFrom) < const Duration(seconds: 60)) {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+      if (searching) {
+        natFun('skip_searching');
+        return;
+      }
+    }
     searching = true;
+    _searchIsBg = bg;
+    _bgYield = false;
     try {
       if (!bg) {
         if (autoTune && !connected) unawaited(autoTuneNow()); // AUTOTUNEPATCH
@@ -5080,6 +5101,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final maxB = bg ? standbyBatches : 1000000; // RETRYPATCH
       while (!abort &&
           !(bg && (!connected || appGone)) &&
+          !(bg && _bgYield) &&
           !enough() &&
           !(bg && DateTime.now().difference(bgStart) > const Duration(minutes: 20)) &&
           batches < maxB) {
@@ -5193,6 +5215,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (batches == 0) natFun('loop_zero_batches');
     } finally {
       searching = false;
+      _searchIsBg = false;
       if (!bg) searchSw?.stop();
       dbg('پایان جستجو (${bg ? 'پس‌زمینه' : 'اصلی'}): '
           '${searchSw?.elapsed.inSeconds ?? 0}s • تست سریع $fastOk/$fastTested'
