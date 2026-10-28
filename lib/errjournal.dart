@@ -78,9 +78,13 @@ String netNoiseKind(Object e) {
 String errCategory(ErrEntry e) {
   final t = e.type;
   final m = e.msg;
-  if (m.contains('PathExistsException') || m.contains('FileSystemException')) {
+  if (m.contains('PathExistsException') || m.contains('FileSystemException') ||
+      m.contains('PathAccessException')) {
     return 'باگ فایل (باید رفع شود)';
   }
+  // LATIN1-FIX: this message comes from our own http.Response(String) call,
+  // not from a bad config, so it is a bug to fix (it used to be hidden)
+  if (m.contains('Contains invalid characters')) return 'باگ کد (باید رفع شود)';
   if (m.contains('FormatException') ||
       m.contains('TypeError') ||
       m.contains('RangeError') ||
