@@ -5007,6 +5007,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       bool keepUp = false,
       bool bg = false,
       bool explore = false}) async {
+    if (bg && connected) return; // NOCORE
     if (searching) return;
     searching = true;
     try {
@@ -5102,7 +5103,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ? firstBatchSize // first batch small → connect ASAP
                 : batchSize);
         // PERF: sorting the whole queue on every batch froze the UI (E-LOOP-FREEZE)
-        if (batches == 1 || batches % 8 == 0) pending.sort(_cmpPending);
+        if (batches == 1 || batches % 8 == 0) {
+          await Future<void>.delayed(Duration.zero); // LOOPFREEZE: let the UI breathe
+          pending.sort(_cmpPending);
+        }
         var cand = pending
             .where((s) =>
                 _cand(s, row) &&
@@ -5116,7 +5120,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // rebuilt on the next cycle (صف=3586, تست‌شده=0). Background search
         // now drops the soft filters (dead source / recent fail / bad) for
         // this batch so the queue actually drains.
-        if (cand.isEmpty && bg && pending.isNotEmpty) {
+        // IPFUNNEL-FIX: the foreground search also falls back when the soft
+        // filters leave an empty batch (it used to just stop)
+        if (cand.isEmpty && pending.isNotEmpty) {
           cand = pending
               .where((s) => _cand(s, row))
               .take(size * 3)
@@ -5694,6 +5700,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // A server is only deleted after [missLimit] failed re-checks in a row; a
   // server that still works stays (it is never dropped just for being old).
   Future<void> _recheckStandby() async {
+    if (connected) return; // NOCORE
     if (rechecking) return;
     rechecking = true;
     try {
@@ -5810,6 +5817,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _standbyRun() async {
     _sbWhy(); // STANDBYLOGPATCH
+    // NOCORE: tests need a proxy core on the same local ports as the live
+    // tunnel; running them now drops the connection the user is using.
+    if (connected) return;
     if (bgSearchOff ||
         speedTestBusy ||
         searching ||
@@ -5861,6 +5871,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // GUARD: a real VPN tunnel is started only when the user asked for it
     // (wantVpn, set by connect / adopt). Background search or standby must
     // never bring the VPN key up by itself. Proxy-only tests are not affected.
+    // NOCORE: a proxy-only test core uses the same ports as the live tunnel.
+    if (proxyOnly && connected) {
+      lastFail = 'تونل زنده است؛ تست همزمان با اتصال ممنوع';
+      return false;
+    }
     if (!proxyOnly && !wantVpn) {
       lastFail = 'اتصال توسط کاربر خواسته نشده بود';
       return false;
@@ -6554,6 +6569,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // اطلاعاتی است، نه خطا: اتصال برقرار شد ولی ترافیک رد نشد
           dbg('ℹ ${s.name}: وصل شد ولی اینترنت رد نشد (${_short(lastPingErr, 70)}) • اطلاعاتی، خطا نیست • سرور بعدی');
           continue;
+        }
+        // PINGRETRY: the first ping after connect is often slow while the tunnel
+        // warms up (9346 ms seen in the logs); measure once more before judging
+        if (p != null && p > badPingMs && !abort) {
+          await Future.delayed(const Duration(seconds: 3));
+          final p2 = await pingAny(total: Duration(seconds: pingSec), direct: true);
+          if (p2 != null && p2 < p) p = p2;
         }
         // BADPINGLOOP: connected but the ping through the tunnel is bad
         if (p > badPingMs && badPingRounds < badPingMaxRounds) {
@@ -9801,6 +9823,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             now.difference(_lastOrphanHeal!).inSeconds >= 180)) {
       _insSince.remove('orph');
       _lastOrphanHeal = now;
+      lastWhy = 'خودترمیمی: اتصال یتیم';
       dbg('خودترمیمی: اتصال یتیم >20s؛ _failover()');
       if (inForeground) {
         unawaited(_failover());
