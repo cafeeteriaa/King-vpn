@@ -4210,10 +4210,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<void> _runBusy(Future<void> Function() f) async {
-    if (busy) {
-      dbg('درخواست جدید رد شد چون کار دیگری در جریان است: «$status»');
-      return;
-    }
+    if (busy) return;
     setState(() => busy = true);
     // The timeout below only stops WAITING; the work itself keeps running.
     // Releasing the lock while the work still runs let a second connect flow
