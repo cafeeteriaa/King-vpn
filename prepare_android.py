@@ -102,6 +102,10 @@ String _hotPath() {
   try {
     final v = Directory(hotVisibleDir);
     if (!v.existsSync()) v.createSync(recursive: true);
+    // PERMFIX: the folder can exist without write access (errno 13); probe it first.
+    final probe = File('$hotVisibleDir/.kv_probe');
+    probe.writeAsStringSync('ok', flush: true);
+    probe.deleteSync();
     return '$hotVisibleDir/hot_configs.txt';
   } catch (_) {}
   const dir = '/data/data/com.kingvpn.king_vpn/files';
