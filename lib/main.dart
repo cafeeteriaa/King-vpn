@@ -555,6 +555,7 @@ final errorLog = ValueNotifier<String>('');
 // user: it is never shown
 // ERRLOGPATCH: in-app error report (menu -> گزارش خطاها)
 final List<String> dbgLines = [];
+DateTime dbgLastAt = DateTime.now(); // IDLECAP: when the app last wrote a line
 List<String> dbgPrev = []; // lines saved by the previous run
 int dbgNet = 0;
 DateTime? _lastNoHealthyLog; // harmless network errors (counted, not listed)
@@ -1638,6 +1639,7 @@ void dbg(String m) {
     String two(int n) => n.toString().padLeft(2, '0');
     if (dbgLines.isNotEmpty && dbgLines.last.endsWith('  $msg')) return;
     dbgLines.add('${two(t.hour)}:${two(t.minute)}:${two(t.second)}  $msg');
+    dbgLastAt = t;
     if (dbgLines.length > 1500) {
       dbgLines.removeRange(0, dbgLines.length - 1500);
     }
@@ -4236,13 +4238,29 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       logError(e);
     });
     try {
-      // BUSYCAP: جستجوی نت ملی و تست گروهی طبیعتاً بیشتر از ۵ دقیقه می‌برند؛
-      // سقف به ۱۰ دقیقه رسید تا کارهای سالم به‌اشتباه قطع نشوند
-      await work.timeout(Duration(minutes: nationalMode ? 20 : 10));
+      // IDLECAP: a long national search is fine while it keeps writing progress
+      // lines. It is cut only when it has been silent for a while, or when it
+      // runs past the hard limit. (A fixed 20-min cut killed working searches.)
+      final startedAt = DateTime.now();
+      final hardLimit = Duration(minutes: nationalMode ? 60 : 10);
+      final idleLimit = Duration(minutes: nationalMode ? 5 : 3);
+      var done = false;
+      work.whenComplete(() => done = true);
+      while (!done) {
+        await Future.any(
+            [work, Future<void>.delayed(const Duration(seconds: 20))]);
+        if (done) break;
+        final now = DateTime.now();
+        if (now.difference(startedAt) > hardLimit ||
+            now.difference(dbgLastAt) > idleLimit) {
+          throw TimeoutException('idle-or-hard-cap');
+        }
+      }
     } on TimeoutException {
       abort = true;
       // STUCK-WHERE: the status text shows which step was waiting when it hung
-      dbg('کار بیش از ۱۰ دقیقه طول کشید؛ توقف خواسته شد • گیر در: «$status»');
+      final quietMin = DateTime.now().difference(dbgLastAt).inMinutes;
+      dbg('کار متوقف شد (بی‌فعالیتی ~$quietMin دقیقه یا سقف زمان) • گیر در: «$status»');
       try {
         // BUSYCAP: مهلت توقف از ۲۰ ثانیه به ۶۰ ثانیه تا کار بتواند خودش تمیز تمام شود
         await work.timeout(const Duration(seconds: 60));
@@ -6383,7 +6401,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // NATLADDER / PHANTOM LADDER: other variants of one server through the REAL
   // tunnel. Expanded for ultraMode: tries many more ranked variants so a
   // server that almost works is not discarded after one failed traffic check.
-  Future<bool> _natLadder(Server s) async {
+  Future<bool> _natLadder(Server s,
+      {Future<bool> Function()? socialGate}) async {
     final first = natVarFor(s);
     try {
       final tried = <int>{first};
@@ -6402,6 +6421,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (!await _start(s)) continue;
         final p = await pingAny(
             total: Duration(seconds: nationalMode ? 12 : 9), direct: true);
+        // SOCIALGATE: a variant whose ping works but whose Telegram does not
+        // is not a good variant; the next one is tried instead (the old code
+        // accepted it, then rejected the server, then tried it again)
+        if (p != null && socialGate != null && !await socialGate()) {
+          dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» ping داشت ولی تلگرام نه؛ حالت بعدی');
+          await _stopV2();
+          continue;
+        }
         if (p != null) {
           natVarSet(s, v);
           dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» از تونل واقعی جواب داد');
@@ -6686,14 +6713,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               wantVpn) {
             // Same server, other matrix variants — often fixes social path
             await _stopV2();
-            if (await _natLadder(s)) {
+            if (await _natLadder(s, socialGate: () async {
+                  final rr = await runSocial();
+                  // IPTEST: national IP variants are judged by YouTube/Instagram
+                  return rr[2] || rr[3];
+                })) {
               await waitProxyPort(
                   max: Duration(seconds: nationalMode ? 8 : 5));
               await Future.delayed(const Duration(milliseconds: 400));
               r = await runSocial();
               tg = r[0] || r[1];
-              yt = r[2] || r[3];
-              ig = r[4] || r[5];
+              yt = r[2];
+              ig = r[3];
               socialOk = tg;
               if (socialOk) {
                 s.svc = (tg ? 1 : 0) | (yt ? 2 : 0) | (ig ? 4 : 0);
@@ -6712,7 +6743,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               viaCore: true);
           if (abort) return false;
           // فقط تلگرام باید از تونل باز شود
-          final accept2 = tg;
+          // IPTEST: in national mode the server is accepted when YouTube or
+          // Instagram opens through the tunnel (Telegram was too strict for IPs)
+          final accept2 = nationalMode ? (yt || ig) : tg;
 
           if (!accept2) {
             siteSkips++;
