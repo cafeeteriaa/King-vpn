@@ -6714,9 +6714,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             // Same server, other matrix variants — often fixes social path
             await _stopV2();
             if (await _natLadder(s, socialGate: () async {
-                  final rr = await runSocial();
-                  // IPTEST: national IP variants are judged by YouTube/Instagram
-                  return rr[2] || rr[3];
+                  // IPTEST: national IP variants are judged by YouTube/Instagram.
+                  // Only these two are checked, with a short timeout, because the
+                  // gate runs for every variant (the full 6-site check made each
+                  // variant take ~15 s and the national batches never finished).
+                  final rr = await Future.wait([
+                    _siteOpens('https://www.youtube.com/', viaCore: true),
+                    _siteOpens('https://www.instagram.com/', viaCore: true),
+                  ]).timeout(const Duration(seconds: 8),
+                      onTimeout: () => <bool>[false, false]);
+                  return rr[0] || rr[1];
                 })) {
               await waitProxyPort(
                   max: Duration(seconds: nationalMode ? 8 : 5));
