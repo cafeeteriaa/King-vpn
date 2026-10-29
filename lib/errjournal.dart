@@ -85,6 +85,7 @@ String errCategory(ErrEntry e) {
   // LATIN1-FIX: this message comes from our own http.Response(String) call,
   // not from a bad config, so it is a bug to fix (it used to be hidden)
   if (m.contains('Contains invalid characters')) return 'باگ کد (باید رفع شود)';
+  if (m.contains('Illegal percent encoding')) return 'داده‌ی نامعتبر (مدیریت‌شده)';
   if (m.contains('FormatException') ||
       m.contains('TypeError') ||
       m.contains('RangeError') ||
