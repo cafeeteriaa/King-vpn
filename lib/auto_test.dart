@@ -202,6 +202,7 @@ extension AutoTestEngine on _HomePageState {
     _connectingSince = null;
     _currentEngine = 'v2ray';
     _startedAt = DateTime.now();
+    _atDomesticProbe(); // DOMESTIC: which sites open on the national network now
     _dbgStartIdx = dbgLines.length;
     autoTestRunning.value = true;
     autoTestProgress.value = 0;
@@ -267,6 +268,14 @@ extension AutoTestEngine on _HomePageState {
     final sec = elapsed.inSeconds % 60;
 
     _atKnownIssues(); // KNOWN-ISSUES: the problems still open in this build
+    if (_atDomesticResult.isNotEmpty) {
+      final domOpen = _atDomesticOk.length;
+      if (domOpen <= 2) {
+        _atAdd('NAT-CLOSED',
+            'نت ملی بیشتر سایت‌های داخلی را هم رد می‌کند ($_atDomesticResult)');
+      }
+      dbg('DOMESTIC-REPORT: $_atDomesticResult • باز: ${_atDomesticOk.join(' ، ')}');
+    }
     _atVerdict = _atNatDiagnosis(); // NATONLY
     final buf = StringBuffer();
     buf.writeln('===== گزارش تست خودکار ۶۰ دقیقه‌ای =====');
@@ -565,6 +574,12 @@ extension AutoTestEngine on _HomePageState {
   /// راهنمای هر کد: [کجا، علت، راه حل]
   List<String> _atHelpOf(String code) {
     switch (code) {
+      case 'NAT-CLOSED':
+        return [
+          'lib/auto_test.dart → _atDomesticProbe (تست سایت‌های داخلی بدون تونل)',
+          'در این لحظه فقط تعداد کمی از سایت‌های داخلی باز بودند؛ مسیر نت ملی تنگ است',
+          'خط DOMESTIC-REPORT را بفرست؛ دامنه‌هایی که باز شده‌اند را برای مسیر مجاز امتحان می‌کنیم',
+        ];
       case 'ORPHAN-LOOP':
         return [
           'lib/main.dart → _inspect (بخش orph) و _runBusy (abort) و _failover',
@@ -804,6 +819,47 @@ extension AutoTestEngine on _HomePageState {
 
   /// جمع‌بندی پایان تست: یک علت اصلی و یک کار مشخص
   /// NATONLY: تشخیص مشکل اصلی نت ملی از شمارنده‌های واقعی همان اجرا
+  /// DOMESTIC: در شروع تست بدون تونل نگاه می‌کند کدام سایت‌های داخلی و کدام
+  /// سایت‌های خارجی باز می‌شوند. نتیجه نشان می‌دهد نت ملی چه چیزهایی را رد
+  /// می‌کند و کدام دامنه‌ها را برای مسیر مجاز امتحان کنیم.
+  Future<void> _atDomesticProbe() async {
+    const domestic = [
+      'https://www.aparat.com/',
+      'https://www.digikala.com/',
+      'https://divar.ir/',
+      'https://www.snapp.ir/',
+      'https://www.iranserver.com/',
+      'https://www.bale.ai/',
+      'https://eitaa.com/',
+      'https://www.zarinpal.com/',
+    ];
+    const global = [
+      'https://www.google.com/generate_204',
+      'https://www.youtube.com/',
+      'https://www.instagram.com/',
+      'https://web.telegram.org/',
+    ];
+    try {
+      final domOk = <String>[];
+      final globOk = <String>[];
+      for (final u in domestic) {
+        if (await _siteOpens(u, viaCore: false)) domOk.add(u);
+      }
+      for (final u in global) {
+        if (await _siteOpens(u, viaCore: false)) globOk.add(u);
+      }
+      _atDomesticResult = 'داخلی باز: ${domOk.length}/${domestic.length} • '
+          'خارجی باز: ${globOk.length}/${global.length}';
+      dbg('DOMESTIC: $_atDomesticResult');
+      _atDomesticOk = domOk;
+    } catch (e, stk) {
+      errJournalAdd(e, kind: 'DOMESTIC', st: stk);
+    }
+  }
+
+  static String _atDomesticResult = '';
+  static List<String> _atDomesticOk = [];
+
   /// KNOWN-ISSUES: هر مشکل باقی‌مانده را از لاگ همین اجرا پیدا می‌کند و
   /// با محل و راه حل گزارش می‌دهد (به‌جای اینکه کاربر حدس بزند).
   void _atKnownIssues() {
