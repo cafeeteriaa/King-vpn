@@ -1394,6 +1394,8 @@ const String _rangeKey = 'natRanges';
 const int _ipMemMax = 200;
 
 final List<Map<String, dynamic>> natIpMem = [];
+// DEADRUN: IP|port that failed every variant in this app run (not re-queued)
+final Set<String> natIpDeadRun = {};
 List<String> natRanges = [];
 int natRangeCursor = 0;
 DateTime natRangeLast = DateTime.fromMillisecondsSinceEpoch(0);
