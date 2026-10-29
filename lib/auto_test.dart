@@ -71,6 +71,12 @@ extension AutoTestEngine on _HomePageState {
   static DateTime? _startedAt;
   static int _dbgStartIdx = 0; // KNOWN-ISSUES: only this run's debug lines
   static DateTime? _busySince;
+  static String? _busyStatus; // PROGRESS: آخرین وضعیت وقتی busy بود
+  static DateTime? _busyStatusAt; // PROGRESS: از کی وضعیت عوض نشده
+  static DateTime? _noHealthySince; // NOHEALTHY: از کی بدون سرور سالم جستجو می‌کنیم
+  static bool _noHealthyReported = false;
+  static const _busyQuietLimit = Duration(seconds: 90);
+  static const _noHealthyLimit = Duration(minutes: 10);
   static DateTime? _switchingSince;
   static DateTime? _connectingSince;
   static final List<_AtFinding> _findings = [];
@@ -198,6 +204,10 @@ extension AutoTestEngine on _HomePageState {
     _atVerdict = '';
     _scenario = 0;
     _busySince = null;
+    _busyStatus = null;
+    _busyStatusAt = null;
+    _noHealthySince = null;
+    _noHealthyReported = false;
     _switchingSince = null;
     _connectingSince = null;
     _currentEngine = 'v2ray';
@@ -403,13 +413,34 @@ extension AutoTestEngine on _HomePageState {
 
     if (busy) {
       _busySince ??= now;
-      if (now.difference(_busySince!) > _busyLimitNow()) {
+      // PROGRESS: جستجوی طولانی که وضعیتش هنوز عوض می‌شود گیر نیست
+      if (status != _busyStatus) {
+        _busyStatus = status;
+        _busyStatusAt = now;
+      }
+      final quietFor = now.difference(_busyStatusAt ?? now);
+      if (now.difference(_busySince!) > _busyLimitNow() &&
+          quietFor > _busyQuietLimit) {
         _atAdd('BUSY-STUCK',
             'busy بیش از ${_busyStuckLimit.inSeconds}s مانده • موتور=$_currentEngine • $status');
         _busySince = now;
       }
     } else {
       _busySince = null;
+    }
+
+    // NOHEALTHY: ده دقیقه‌ی پیاپی جستجو بدون هیچ سرور سالم
+    if (!connected && searching && _ready() == 0) {
+      _noHealthySince ??= now;
+      if (!_noHealthyReported &&
+          now.difference(_noHealthySince!) > _noHealthyLimit) {
+        _noHealthyReported = true;
+        _atAdd('NO-HEALTHY-LONG',
+            '${_noHealthyLimit.inMinutes} دقیقه بدون سرور سالم • تست سریع $fastOk/$fastTested • وضعیت: $status');
+      }
+    } else if (connected || _ready() > 0) {
+      _noHealthySince = null;
+      _noHealthyReported = false;
     }
 
     if (switching && !busy) {
@@ -633,6 +664,12 @@ extension AutoTestEngine on _HomePageState {
           'lib/auto_test.dart → _atSample (آستانه ۱۲۰ ثانیه)',
           'اتصال یا تست سرعت بیش از حد مانده',
           'اگر همراه ENG-FAIL یا CONNECT-HANG است، هسته به CONNECTED نرسیده؛ بخش قابلیت‌های هسته را ببین',
+        ];
+      case 'NO-HEALTHY-LONG':
+        return [
+          'lib/main.dart → _findGood / _acquireInner (حلقه‌ی جستجو)',
+          'منابع تست شدند ولی هیچ سرور سالمی پیدا نشد',
+          'خط‌های «TRACE batch» و «تست سریع» را ببین؛ اگر تست‌ها فوری با closed pipe شکست می‌خورند، مشکل از اجرای تست هسته است نه از منابع',
         ];
       case 'CONNECT-HANG':
         return [
