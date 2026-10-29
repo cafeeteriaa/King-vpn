@@ -2733,6 +2733,41 @@ Future<int?> probe(Server s) async {
   }
 }
 
+// DELAYGATE: getServerDelay runs on ONE shared native core. When many calls
+// run at once, they close each other's pipe ("io: read/write on closed pipe"),
+// so every test fails even for healthy servers (report: 1000+ tests, 0 healthy).
+// All native delay calls go through this gate. The timeout of a call starts
+// only after it got its slot, so waiting in the queue is never counted.
+const int kDelayConcurrency = 4;
+
+class _DelayGate {
+  _DelayGate(this.max);
+  final int max;
+  int _running = 0;
+  final List<Completer<void>> _queue = <Completer<void>>[];
+
+  Future<T> run<T>(Future<T> Function() f) async {
+    if (_running < max) {
+      _running++;
+    } else {
+      final c = Completer<void>();
+      _queue.add(c);
+      await c.future; // slot handed over to us; _running is unchanged
+    }
+    try {
+      return await f();
+    } finally {
+      if (_queue.isNotEmpty) {
+        _queue.removeAt(0).complete();
+      } else {
+        _running--;
+      }
+    }
+  }
+}
+
+final _DelayGate _delayGate = _DelayGate(kDelayConcurrency);
+
 Future<void> pool<T>(
     List<T> items, int workers, Future<void> Function(T) fn) async {
   // Safer index-based pool: a shared Iterator can theoretically skip an item
@@ -4012,8 +4047,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // RAW-STATUS: every real change of the core/VPN state goes into the report
       // (the live-stats ticks are skipped), so the report shows where it stops
       if (st.state != lastState) {
-        final raw = st.toString();
-        dbg('V2RAY-STATE ${st.state}${raw.length > 160 ? '' : ' | $raw'}');
+        dbg('V2RAY-STATE ${st.state}');
       }
       lastState = st.state;
       try {
@@ -5408,7 +5442,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     var slowNow = 0; // BADPINGLOOP
     // NATPOOL: در نت ملی هر سرور ماتریس چندده حالته دارد و همه روی یک هسته اجرا می‌شوند.
     // ۵۰ تست همزمان روی یک هسته باعث می‌شد هیچ‌کدام تمام نشوند (گیر در «تست می‌شود»).
-    await pool<Server>(alive, nationalMode ? min(fastWorkers, 4) : fastWorkers,
+    await pool<Server>(alive, min(fastWorkers, kDelayConcurrency),
         (s) async {
       // DEADSKIP: نت ملی سرورهایی را که اخیراً شکست خورده‌اند تا پایان failWindow دوباره تست نمی‌کند
       if (abort || stale() || enough() || (smartOrder && _srcDead(s)) ||
@@ -5443,9 +5477,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _set('نت ملی: تست ${s.name} • ${realTested + 1}/${alive.length}');
       }
       final d0 = await _delayOf(s, t: _fgTimeout).timeout(
-          Duration(seconds: nationalMode ? 150 : 40), // VARCAP2
+          Duration(seconds: nationalMode ? 150 : 60), // VARCAP2 (60: queue margin)
           onTimeout: () {
-            dbg('WATCHDOG: ${s.name} بیش از ۴۰ ثانیه طول کشید؛ رد شد');
+            dbg('WATCHDOG: ${s.name} بیش از ${nationalMode ? 150 : 60} ثانیه طول کشید؛ رد شد');
             s.badAt = DateTime.now();
             return null;
           });
@@ -5628,10 +5662,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     const urls = ['https://web.telegram.org/', 'https://www.youtube.com/generate_204', 'https://www.instagram.com/', 'https://www.pornhub.com/'];
     try {
       final cfg = buildCoreConfig(s.useLink);
-      final rs = await Future.wait(urls.map((u) => v2ray
+      final rs = await Future.wait(urls.map((u) => _delayGate.run<dynamic>(() => v2ray
           .getServerDelay(config: sanitizeCfg(cfg), url: u)
           .timeout(const Duration(seconds: 8), onTimeout: () => -1)
-          .catchError((_) => -1)));
+          .catchError((_) => -1))));
       for (var i = 0; i < 4; i++) {
         if (rs[i] > 0) m |= (1 << i);
       }
@@ -5709,10 +5743,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<int?> _delayOnce(Server s, int v, Duration tt, String? url) async {
     try {
       final cfg = natCfg(s, v);
-      final rr = await v2ray
+      final rr = await _delayGate.run<dynamic>(() => v2ray
           .getServerDelay(config: sanitizeCfg(cfg), url: url ?? delayTestUrl)
           .timeout(Duration(seconds: tt.inSeconds + 5), // PERFPATCH
-              onTimeout: () => -1);
+              onTimeout: () => -1));
       final int r = rr is int ? rr : (int.tryParse('$rr') ?? -1);
       if (r > 0 && r >= minPingMs) return r;
     } on TypeError {
