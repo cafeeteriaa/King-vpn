@@ -1813,6 +1813,9 @@ void logError(Object e, [StackTrace? st]) {
 // Iranian / operator DNS that the matrix found (overwriting with 1.1.1.1/8.8.8.8
 // made many servers "CONNECTED" while no traffic passed on filtered networks).
 String _reliableVpnCfg(String cfg) {
+  // TUNFIX: remove dialerProxy that points to a missing outbound first;
+  // otherwise the core connects and then passes no traffic at all
+  cfg = sanitizeCfg(cfg);
   try {
     final j = jsonDecode(cfg);
     if (j is! Map<String, dynamic>) return cfg;
@@ -6196,6 +6199,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             total: const Duration(seconds: 6),
             direct: true,
             tries: 3);
+      }
+      if (earlyPing == null) {
+        // TUNFIX2: a short pause and a third probe before giving up on a server
+        await Future.delayed(const Duration(milliseconds: 2500));
+        earlyPing = await pingAny(
+            total: const Duration(seconds: 6), direct: true, tries: 2);
       }
       if (earlyPing == null) {
         // SERIOUS BUG FIX: this is a DEAD SERVER (fake CONNECTED), not an
