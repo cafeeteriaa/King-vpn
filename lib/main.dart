@@ -5660,6 +5660,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (budget != null && i > 0 && bsw.elapsed > budget) break;
       final code = order[i];
       final v = code % _natCodeBase;
+      // REALITY-EARLY: a REALITY server with a swapped address answers with a
+      // normal site's certificate; the later variants cannot fix that.
+      if (s.reality && i >= 3) break;
       // LIVE UI: which variant / dimension is under test right now
       if (multi && (i == 0 || i % 2 == 0 || i == order.length - 1)) {
         final vn = (v >= 0 && v < _natVarNames.length)
@@ -5696,6 +5699,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
     }
     if (multi && genTried > 0) natCursorAdvance(s, genTried);
+    if (s.isIp) natIpDeadRun.add('${s.host}|${s.port}'); // DEADRUN
     return null;
   }
 
@@ -7703,6 +7707,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final port = (e['port'] as num?)?.toInt() ?? 0;
         if (InternetAddress.tryParse(ip) == null || port <= 0) continue;
         if (have.contains('$ip|$port') || have.contains('$ip:$port')) continue;
+        if (natIpDeadRun.contains('$ip|$port')) continue; // DEADRUN: failed this run
         items.add('$ip|$port');
       }
       if (items.isEmpty) return;
