@@ -3999,8 +3999,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // from disk; inside each group the HIGHEST REAL SPEED wins (saved speeds of
   // the last session count), servers without a speed are ordered by ping.
   List<Server> _pickList() {
+    // OFFLINE-SRC: حالت آفلاین فقط از پوشه‌ی منابع تازه است؛ پوشه‌ی سرورهای سالم کنار گذاشته می‌شود
     final u = _usable()
-        .where((s) => !identical(s, current))
+        .where((s) => !identical(s, current) &&
+            !(offlineOnly && _resMap.containsKey(s.key)))
         .toList()
       ..sort((a, b) {
         final sv = _svcRank(b) - _svcRank(a); // MULTICHK + TGPREFER
@@ -4971,12 +4973,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // ULTIMATE: offline-only never downloads new lists
     if (offlineOnly) {
       if (!bg) _set('حالت آفلاین: پوشه‌ی منابع تازه و سرورهای ذخیره‌شده');
-      final seenOff = {for (final s in pending) s.link};
+      final seenOff = <String>{};
       if (!natHotReady()) {
         _set('پوشه‌ی منابع تازه هنوز ساخته نشده: روی «پوشه منابع تازه» بزن و حدود ۱۰ دقیقه صبر کن');
       }
       final hotOff = await natHotNext(300, fetch: false); // هر دور ۳۰۰ تا؛ اگر پیدا نشد دور بعد ادامه می‌دهد
-      pending = [...pending, for (final s in hotOff) if (seenOff.add(s.link)) s];
+      // OFFLINE-SRC: صف قبلی (آنلاین) کنار گذاشته می‌شود؛ فقط منابع تازه تست می‌شوند
+      pending = [for (final s in hotOff) if (seenOff.add(s.link)) s];
       return;
     }
     // حالت آنلاین: پوشه‌ی منابع تازه هم در پس‌زمینه بازسازی می‌شود (۴۸ ساعت)
@@ -5145,12 +5148,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // RESFOLDER-FIX: پوشه‌ی سرورهای سالم (natres2) در مسیر اصلی جستجو هیچ‌وقت
       // وارد لیست نمی‌شد؛ بعد از شروع، فقط ۱ سرور سالم تست می‌شد (گزارش: ۵۲ → ۱).
       // اگر سرور سالم کمتر از هدف است، اول سرورهای پوشه به لیست سالم اضافه می‌شوند.
-      if (_ready(row) < want) {
+      // SOURCES-FIRST: در حالت عادی (آنلاین) اول منابع تست می‌شوند و پوشه‌ی
+      // سرورهای سالم فقط وقتی منابع تمام شد یا هیچ سالمی پیدا نشد (پایین‌تر).
+      // نت ملی/شکست‌ناپذیر همان رفتار قبلی را دارد.
+      if ((nationalMode || indestructibleMode) && _ready(row) < want) {
         final injected = _resInject();
         if (injected > 0) {
           dbg('پوشه‌ی سرورهای سالم: $injected سرور به لیست اضافه شد');
         }
       }
+      // FOLDER-FALLBACK: پوشه‌ی سرورهای سالم حداکثر یک‌بار در هر جستجو به‌عنوان پشتیبان
+      bool folderFallback = false;
       // IPFUNNEL: ورود به حلقه‌ی جستجو و وضعیت اولیه‌ی آن
       natFun('loop_calls');
       if (enough()) natFun('loop_enough_at_start');
@@ -5176,6 +5184,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           batches < maxB) {
         // the whole list was tested: download a new one and go on (endless)
         if (pending.isEmpty) {
+          // منابع تازه تمام شد و هیچ سرور سالمی نیست: پوشه‌ی سرورهای سالم پشتیبان می‌شود
+          if (!bg && !folderFallback && !offlineOnly && !nationalMode &&
+              !indestructibleMode && _ready(row) == 0) {
+            folderFallback = true;
+            if (_resInject() > 0) {
+              dbg('منابع تمام شد و سالمی پیدا نشد؛ پوشه‌ی سرورهای سالم به صف اضافه شد');
+              break;
+            }
+          }
           if (!autoCycle || reloaded) break;
           reloaded = true;
           await _loadPending(bg: bg, exhausted: true);
@@ -5285,6 +5302,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       // IPFUNNEL: حلقه اجرا شد ولی هیچ دسته‌ای ساخته نشد
       if (batches == 0) natFun('loop_zero_batches');
+      // FOLDER-FALLBACK: حلقه تمام شد و هنوز سالمی نیست (مثلاً توقف امن)
+      if (!bg && !abort && !folderFallback && !offlineOnly && !nationalMode &&
+          !indestructibleMode && upServer == null && _ready(row) == 0) {
+        folderFallback = true;
+        final injectedFb = _resInject();
+        if (injectedFb > 0) {
+          dbg('جستجو بدون سرور سالم تمام شد؛ پوشه‌ی سرورهای سالم ($injectedFb) به صف اضافه شد');
+        }
+      }
     } finally {
       searching = false;
       _searchIsBg = false;
@@ -5748,11 +5774,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           .timeout(Duration(seconds: tt.inSeconds + 5), // PERFPATCH
               onTimeout: () => -1));
       final int r = rr is int ? rr : (int.tryParse('$rr') ?? -1);
+      // CORELOG: هر تست هسته یک خط: اسم سرور، نتیجه و مهلت
+      dbg('CORE-TEST ${s.name} • نتیجه=$r ms • مهلت=${tt.inSeconds}s • ${s.link.split('://').first}');
       if (r > 0 && r >= minPingMs) return r;
     } on TypeError {
       // a malformed link / odd plugin answer: this server is simply unusable
       s.badAt = DateTime.now();
-    } catch (_swE) { _swl('_delayOf#1', _swE);}
+      dbg('CORE-TEST ${s.name} • خطای نوع: ${s.link.split('://').first}');
+    } catch (_swE) {
+      // CORELOG: خطای دقیق هسته (مثلاً closed pipe) را با اسم سرور ثبت کن
+      dbg('CORE-TEST ${s.name} • خطا: $_swE');
+      _swl('_delayOf#1', _swE);
+    }
     return null;
   }
 
@@ -8053,8 +8086,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           } else {
             _set('سرور سالم پیدا نشد؛ تست سریع دوباره...');
           }
-          await Future.delayed(
-              Duration(seconds: badPingRounds == 0 ? min(5, 1 + round) : 1));
+          // BACKOFF: هر دور خالی کمی بیشتر صبر کن (سقف ۲۰ ثانیه) تا حلقه بی‌وقفه نچرخد
+          await Future.delayed(Duration(
+              seconds: badPingRounds == 0 ? min(20, 1 + round * 2) : 1));
           continue;
         }
       }
