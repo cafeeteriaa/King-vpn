@@ -2742,7 +2742,7 @@ const int kDelayConcurrency = 4;
 
 class _DelayGate {
   _DelayGate(this.max);
-  final int max;
+  int max; // FASTGATE: قابل تنظیم؛ تست سریع/آفلاین/عادی با تنظیم «تست همزمان» هم‌اندازه می‌شود
   int _running = 0;
   final List<Completer<void>> _queue = <Completer<void>>[];
 
@@ -5128,6 +5128,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (explore) return false;
         final ready = _ready(row);
         if (upServer != null) return true;
+        // NAT-NEWFIRST: نت ملی: تا کاندید تازه‌ی تست‌نشده هست (حداکثر ۲ دقیقه)، سرور ذخیره‌شده کافی نیست
+        if (natNewFirstRun &&
+            !bg &&
+            (searchSw?.elapsed ?? Duration.zero) < const Duration(minutes: 2) &&
+            pending.any((s) => s.checkedAt == null && !_bad(s) && !_recentFail(s))) {
+          return false;
+        }
         if (ready >= want) return true;
         // اتصال سریع: با ۱ سرور سالم بعد از چند ثانیه برو وصل شو
         // (جستجوی پس‌زمینه بعداً سرور بیشتر جمع می‌کند)
@@ -5468,7 +5475,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     var slowNow = 0; // BADPINGLOOP
     // NATPOOL: در نت ملی هر سرور ماتریس چندده حالته دارد و همه روی یک هسته اجرا می‌شوند.
     // ۵۰ تست همزمان روی یک هسته باعث می‌شد هیچ‌کدام تمام نشوند (گیر در «تست می‌شود»).
-    await pool<Server>(alive, min(fastWorkers, kDelayConcurrency),
+    // FASTGATE: قبلاً همیشه ۴ تست هم‌زمان بود (حتی وقتی «تست همزمان» ۵۰ بود)، و هر تست
+    // شکست‌خورده ~۱۳ ثانیه طول می‌کشید؛ دسته‌ی ۱۲۰تایی چند دقیقه و بعد WATCHDOG2 می‌شد.
+    // حالت عادی/آفلاین حالا با تنظیم «تست همزمان» اجرا می‌شود؛ نت ملی همان ۴ را نگه می‌دارد.
+    final gateMax = (nationalMode || indestructibleMode)
+        ? kDelayConcurrency
+        : fastWorkers.clamp(kDelayConcurrency, 60);
+    _delayGate.max = gateMax;
+    dbg('تست سریع: $gateMax تست هم‌زمان • دسته ${alive.length}');
+    await pool<Server>(alive, gateMax,
         (s) async {
       // DEADSKIP: نت ملی سرورهایی را که اخیراً شکست خورده‌اند تا پایان failWindow دوباره تست نمی‌کند
       if (abort || stale() || enough() || (smartOrder && _srcDead(s)) ||
@@ -5769,13 +5784,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<int?> _delayOnce(Server s, int v, Duration tt, String? url) async {
     try {
       final cfg = natCfg(s, v);
-      final rr = await _delayGate.run<dynamic>(() => v2ray
-          .getServerDelay(config: sanitizeCfg(cfg), url: url ?? delayTestUrl)
-          .timeout(Duration(seconds: tt.inSeconds + 5), // PERFPATCH
-              onTimeout: () => -1));
+      // TIMING: زمان کل (با صف) و زمان واقعی تماس هسته را جدا ثبت می‌کنیم
+      final tQ = Stopwatch()..start();
+      int nativeMs = 0;
+      final rr = await _delayGate.run<dynamic>(() async {
+        final tN = Stopwatch()..start();
+        try {
+          return await v2ray
+              .getServerDelay(config: sanitizeCfg(cfg), url: url ?? delayTestUrl)
+              .timeout(Duration(seconds: tt.inSeconds + 5), // PERFPATCH
+                  onTimeout: () => -1);
+        } finally {
+          nativeMs = tN.elapsedMilliseconds;
+        }
+      });
+      final waitMs = max(0, tQ.elapsedMilliseconds - nativeMs);
       final int r = rr is int ? rr : (int.tryParse('$rr') ?? -1);
       // CORELOG: هر تست هسته یک خط: اسم سرور، نتیجه و مهلت
-      dbg('CORE-TEST ${s.name} • نتیجه=$r ms • مهلت=${tt.inSeconds}s • ${s.link.split('://').first}');
+      dbg('CORE-TEST ${s.name} • نتیجه=$r ms • مهلت=${tt.inSeconds}s • ${s.link.split('://').first} • native=${nativeMs}ms صف=${waitMs}ms • گیت=${_delayGate._running}/${_delayGate.max} منتظر=${_delayGate._queue.length}');
       if (r > 0 && r >= minPingMs) return r;
     } on TypeError {
       // a malformed link / odd plugin answer: this server is simply unusable
@@ -8050,8 +8076,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
 
       var list = pickRow();
-      if (list.isEmpty) {
+      // NAT-NEWFIRST: نت ملی: اگر کاندید تازه‌ی تست‌نشده (مثلاً IPهای اسکن‌شده) هست،
+      // اول همان‌ها تست شوند؛ قبلاً همیشه همان سرور ذخیره‌شده‌ی قبلی دوباره وصل می‌شد.
+      final natNew = (nationalMode || indestructibleMode) &&
+          pending.any((s) => s.checkedAt == null && !_bad(s) && !_recentFail(s));
+      if (list.isEmpty || natNew) {
+        natNewFirstRun = natNew;
         await _search(2, row: searchRow, keepUp: true);
+        natNewFirstRun = false;
         if (abort) return false; // ABORT-STUCK: stop right after a long step
         final up = upServer;
         if (up != null) {
@@ -8086,9 +8118,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           } else {
             _set('سرور سالم پیدا نشد؛ تست سریع دوباره...');
           }
-          // BACKOFF: هر دور خالی کمی بیشتر صبر کن (سقف ۲۰ ثانیه) تا حلقه بی‌وقفه نچرخد
-          await Future.delayed(Duration(
-              seconds: badPingRounds == 0 ? min(20, 1 + round * 2) : 1));
+          await Future.delayed(
+              Duration(seconds: badPingRounds == 0 ? min(5, 1 + round) : 1));
           continue;
         }
       }
@@ -12315,7 +12346,8 @@ class _AdPageState extends State<AdPage> with WidgetsBindingObserver {
 // NATIONALPATCH
 // آمار IP در نت ملی (تجمعی در این اجرای برنامه؛ در گزارش خطا دیده می‌شود)
 int natIpScanned = 0; // آدرس‌های اسکن‌شده در بازه‌ها
-int natIpFound = 0;   // آدرس IP باز پیداشده
+int natIpFound = 0;
+bool natNewFirstRun = false; // NAT-NEWFIRST: جستجوی فعلی برای کاندیدهای تازه‌ی نت ملی است   // آدرس IP باز پیداشده
 int natIpTested = 0;  // سرور IP که به تست کامل هسته رسید
 // IPFUNNEL: شمارنده‌ی مرحله‌به‌مرحله‌ی مسیر IP نت ملی تا تست هسته.
 // تست خودکار ۶۰ دقیقه از آن می‌فهمد IPها کجا از بین رفته‌اند.
