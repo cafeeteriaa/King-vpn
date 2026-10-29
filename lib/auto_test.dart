@@ -831,7 +831,7 @@ extension AutoTestEngine on _HomePageState {
         _atAdd('ORPHAN-LOOP',
             'اتصال یتیم $orphan بار: بعد از لغو جستجو اپ بدون کار ماند و جستجو از اول شروع شد');
       }
-      final busyCap = cnt((l) => l.contains('کار بیش از ۱۰ دقیقه'));
+      final busyCap = cnt((l) => l.contains('کار متوقف شد'));
       if (busyCap >= 1) {
         _atAdd('BUSY-CAP', 'سقف زمان کار $busyCap بار قطع کرد (کار وسط راه متوقف شد)');
       }
