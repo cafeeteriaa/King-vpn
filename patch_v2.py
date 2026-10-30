@@ -217,23 +217,41 @@ extension NipHunt on _HomePageState {
       if (s.isIp || s.link.toLowerCase().startsWith('ss://')) continue;
       if (!seen.add(s.host)) continue;
       templates.add(s);
-      if (templates.length >= 5) break;
+      if (templates.length >= 40) break; // CDNHUNT: keep enough to find CDN ones
     }
     if (templates.isEmpty) {
       _set('برای جستجوی IP سرور دامنه‌دار نمونه نداریم؛ یک بار با سرورهای پوشه وصل شو');
       return false;
     }
 
-    final blocks = await nipIranCidrs();
-    if (blocks.isEmpty) {
-      _set('فهرست IP ایران گرفته نشد؛ اینترنت را چک کن');
-      return false;
+    // CDNHUNT: کانفیگ‌های SNI/Host (پشت Cloudflare) فقط به یک لبه‌ی CDN باز نیاز دارند.
+    // پس رنج‌های Cloudflare اسکن می‌شوند و SNI/Host همان سرور حفظ می‌شود.
+    // بقیه‌ی کانفیگ‌ها همان روش قبلی (IP های باز ایران) را دارند.
+    final cdnT = templates.where((s) => s.cdn).toList();
+    final useCdn = cdnT.isNotEmpty;
+    if (useCdn) {
+      templates
+        ..clear()
+        ..addAll(cdnT);
     }
-    final per = max(16, 30000 ~/ blocks.length);
     final ips = <String>[];
-    for (final b in blocks) {
-      ips.addAll(nipExpandCidr(b, maxPerBlock: per));
+    if (useCdn) {
+      for (final c in _cfRanges) {
+        ips.addAll(nipExpandCidr(c, maxPerBlock: 512));
+      }
+      _set('نت ملی: ${templates.length} کانفیگ CDN؛ جستجوی لبه‌ی Cloudflare باز…');
+    } else {
+      final blocks = await nipIranCidrs();
+      if (blocks.isEmpty) {
+        _set('فهرست IP ایران گرفته نشد؛ اینترنت را چک کن');
+        return false;
+      }
+      final per = max(16, 30000 ~/ blocks.length);
+      for (final b in blocks) {
+        ips.addAll(nipExpandCidr(b, maxPerBlock: per));
+      }
     }
+    if (ips.isEmpty) return false;
     ips.shuffle(Random());
 
     final port = templates.first.port;
@@ -245,7 +263,9 @@ extension NipHunt on _HomePageState {
         cancelled: () => abort);
     if (abort) return false;
     if (hits.isEmpty) {
-      _set('نت ملی: هیچ IP بازی پیدا نشد');
+      _set(useCdn
+          ? 'نت ملی: هیچ لبه‌ی Cloudflare باز پیدا نشد'
+          : 'نت ملی: هیچ IP بازی پیدا نشد');
       return false;
     }
 
