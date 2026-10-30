@@ -198,6 +198,9 @@ String? nipSwapLink(Server t, String ip) {
 const natRelayHosts = <String>[];
 
 Future<String?> nipResolve(String host) async {
+  // DNSDOH: اول DoH (در نت ملی DNS معمولی جواب بسته می‌دهد)
+  final d = await dohResolve(host);
+  if (d != null) return d;
   try {
     final l = await InternetAddress.lookup(host).timeout(const Duration(seconds: 5));
     return l.isEmpty ? null : l.first.address;
@@ -206,8 +209,25 @@ Future<String?> nipResolve(String host) async {
   }
 }
 
+/// بلوک‌های هاست یک IP را برای نت ملی ذخیره می‌کند (کلید: IP).
+Future<void> natPrefetchAsn(List<Server> list) async {
+  var n = 0;
+  for (final s in list) {
+    if (n >= 20) break;
+    if (s.cdn) continue;
+    final ip = s.isIp ? s.host : await nipResolve(s.host);
+    if (ip == null) continue;
+    n++;
+    await nipAsnPrefixes(ip); // نتیجه خودکار در کش ذخیره می‌شود
+  }
+}
+
 /// بلوک‌های IPv4 اعلام‌شده‌ی شرکت هاست همان IP (از RIPE Stat).
 Future<List<String>> nipAsnPrefixes(String ip) async {
+  final prefs = await SharedPreferences.getInstance();
+  final cacheKey = 'nip_asn_v1_$ip';
+  final cached = prefs.getStringList(cacheKey);
+  if (cached != null && cached.isNotEmpty) return cached;
   try {
     final r = await http
         .get(Uri.parse('https://stat.ripe.net/data/network-info/data.json?resource=$ip'))
@@ -226,6 +246,7 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
         if (pr.contains('/') && !pr.contains(':')) out.add(pr);
       }
     }
+    if (out.isNotEmpty) await prefs.setStringList(cacheKey, out);
     return out;
   } catch (_) {
     return const [];
