@@ -1033,7 +1033,7 @@ patch('main.dart',
       "        if (abort || !await waitProxyPort(max: const Duration(seconds: 8))) { // ABORTWAIT")
 
 patch('main.dart',
-      "        ready = await waitSig.future.timeout(connWait, onTimeout: () {",
+      "        ready = await waitSig.future.timeout(connWait, onTimeout: () => false);",
       "        // ABORTWAIT: a stop request completes the wait at once instead of after connWait\n"
       "        final abortPoll = Timer.periodic(const Duration(milliseconds: 300), (tm) {\n"
       "          if ((abort || myGen != _connGen) && !waitSig.isCompleted) {\n"
@@ -1041,7 +1041,7 @@ patch('main.dart',
       "            tm.cancel();\n"
       "          }\n"
       "        });\n"
-      "        ready = await waitSig.future.timeout(connWait, onTimeout: () {")
+      "        ready = await waitSig.future.timeout(connWait, onTimeout: () => false);")
 
 patch('main.dart',
       "        if (myGen != _connGen) ready = false; // superseded",
