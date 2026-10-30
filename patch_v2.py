@@ -232,6 +232,69 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
   }
 }
 
+// FRONTSNI: کانفیگ‌های CDN: اگر SNI اصلی فیلتر شده باشد، SNI را به یک دامنه‌ی دیگر
+// روی همان Cloudflare تغییر می‌دهیم و Host را همان سرور نگه می‌داریم.
+// لیست کاندید؛ هر کدام که TLS روی IP باز کامل شد نگه داشته می‌شود.
+// خودت می‌توانی دامنه‌های بیشتری به این لیست اضافه کنی.
+const natFrontSnis = <String>[
+  'cdnjs.cloudflare.com',
+  'www.cloudflare.com',
+  'cloudflare.com',
+  'speed.cloudflare.com',
+];
+
+/// روی IP:port یک TLS با SNI داده‌شده کامل شود؟ برمی‌گرداند همان SNI یا null.
+Future<String?> nipFrontProbe(String ip, int port, String sni) async {
+  Socket? raw;
+  SecureSocket? sec;
+  try {
+    raw = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 2000));
+    sec = await SecureSocket.secure(raw, host: sni, onBadCertificate: (_) => true)
+        .timeout(const Duration(seconds: 3));
+    return sni;
+  } catch (_) {
+    return null;
+  } finally {
+    try { sec?.destroy(); } catch (_) {}
+    try { raw?.destroy(); } catch (_) {}
+  }
+}
+
+Future<String?> nipFindFrontSni(String ip, int port) async {
+  for (final sni in natFrontSnis) {
+    final ok = await nipFrontProbe(ip, port, sni);
+    if (ok != null) return ok;
+  }
+  return null;
+}
+
+/// همان کانفیگ را با IP و SNI جدید می‌سازد؛ Host اصلی سرور حفظ می‌شود.
+String? nipSwapSni(Server t, String ip, String sni) {
+  final l = t.link;
+  final lower = l.toLowerCase();
+  if (lower.startsWith('ss://')) return null;
+  try {
+    if (lower.startsWith('vmess://')) {
+      var b = l.substring(8);
+      b = b.padRight(b.length + (4 - b.length % 4) % 4, '=');
+      final j = jsonDecode(utf8.decode(base64.decode(b)));
+      final oldSni = (j['sni'] ?? '').toString().isNotEmpty ? j['sni'].toString() : t.host;
+      if ((j['host'] ?? '').toString().isEmpty) j['host'] = oldSni;
+      j['add'] = ip;
+      j['sni'] = sni;
+      return 'vmess://${base64.encode(utf8.encode(jsonEncode(j)))}';
+    }
+    final u = Uri.parse(l);
+    final q = Map<String, String>.from(u.queryParameters);
+    final oldSni = (q['sni'] ?? '').isNotEmpty ? q['sni']! : t.host;
+    if ((q['host'] ?? '').isEmpty) q['host'] = oldSni;
+    q['sni'] = sni;
+    return u.replace(host: ip, queryParameters: q).toString();
+  } catch (_) {
+    return null;
+  }
+}
+
 extension NipHunt on _HomePageState {
   static DateTime? _nipLastHunt;
 
@@ -274,7 +337,7 @@ extension NipHunt on _HomePageState {
       }
       ips.shuffle(Random());
       if (await _natTryScan(cdnT, ips,
-          port: cdnT.first.port, label: 'لبه‌ی Cloudflare')) {
+          port: cdnT.first.port, label: 'لبه‌ی Cloudflare', front: true)) {
         return true;
       }
       if (abort) return false;
@@ -329,8 +392,9 @@ extension NipHunt on _HomePageState {
   }
 
   /// اسکن IP ها و امتحان نتیجه‌ها با همان کانفیگ‌ها (فقط IP عوض می‌شود).
+  /// front = true (CDN): برای IP های باز، SNI دامنه‌ی باز هم امتحان می‌شود.
   Future<bool> _natTryScan(List<Server> tpls, List<String> ips,
-      {required int port, required String label}) async {
+      {required int port, required String label, bool front = false}) async {
     if (ips.isEmpty) return false;
     _set('نت ملی: جستجوی $label (${ips.length} آدرس)…');
     final hits = await nipScan(ips,
@@ -343,15 +407,31 @@ extension NipHunt on _HomePageState {
       _set('نت ملی: هیچ $label بازی پیدا نشد');
       return false;
     }
+    final top = hits.take(12).toList();
+    final snis = front
+        ? await Future.wait(top.map((h) => nipFindFrontSni(h.ip, port)))
+        : <String?>[];
     final cands = <Server>[];
-    for (var i = 0; i < hits.length && cands.length < 8; i++) {
+    for (var i = 0; i < top.length && cands.length < 8; i++) {
       final t = tpls[i % tpls.length];
-      final link = nipSwapLink(t, hits[i].ip);
-      if (link == null) continue;
-      final c = Server.parse(link);
-      if (c != null) cands.add(c);
+      final link = nipSwapLink(t, top[i].ip);
+      if (link != null) {
+        final c = Server.parse(link);
+        if (c != null) cands.add(c);
+      }
+      final sni = i < snis.length ? snis[i] : null;
+      if (sni != null && cands.length < 8) {
+        final fl = nipSwapSni(t, top[i].ip, sni);
+        if (fl != null) {
+          final c = Server.parse(fl);
+          if (c != null) cands.add(c);
+        }
+      }
     }
-    if (cands.isEmpty) return false;
+    if (cands.isEmpty) {
+      _set('نت ملی: IP باز پیدا شد ولی هیچ SNI باز نگرفت ($label)');
+      return false;
+    }
     _set('نت ملی: امتحان ${cands.length} آدرس ($label)…');
     final ok = await _connectLoop(cands, trust: false);
     if (ok) {
