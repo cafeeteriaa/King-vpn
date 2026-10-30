@@ -452,7 +452,7 @@ public final class V2rayCoreManager {
     //  - at most DELAY_THREADS native calls run at the same time (own pool),
     //  - every call gets a real Java-side timeout (DELAY_TIMEOUT_MS) and returns -1,
     //  - the worker threads are daemon threads, so a stuck call never blocks app exit.
-    private static final int DELAY_THREADS = 2;
+    private static final int DELAY_THREADS = 4;
     private static final long DELAY_TIMEOUT_MS = 12000L;
     private static final java.util.concurrent.ExecutorService DELAY_POOL =
             java.util.concurrent.Executors.newFixedThreadPool(DELAY_THREADS, new java.util.concurrent.ThreadFactory() {
