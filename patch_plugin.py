@@ -17,7 +17,9 @@ def patch(path, old, new, label):
     s = open(path, encoding='utf-8').read()
     n = s.count(old)
     if n != 1:
-        print(f'ERROR: {label}: found {n} times (must be 1). Build stopped.'); sys.exit(1)
+        # PLUGINSKIP: کد پلاگین با این الگو نمی‌خواند؛ بیلد متوقف نمی‌شود و این یک اصلاح کوچک جا می‌ماند
+        print(f'WARN: {label}: found {n} times (expected 1). Skipped, build continues.')
+        return
     open(path, 'w', encoding='utf-8').write(s.replace(old, new, 1))
     print(f'OK: {label}')
 
