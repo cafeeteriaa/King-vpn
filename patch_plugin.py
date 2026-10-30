@@ -42,7 +42,7 @@ patch(vpn,
 # 3) DELAYPOOL: پلاگین یک صف مخصوص تست تأخیر دارد: DELAY_THREADS = 2 (خط ۴۵۵)
 #    که با Executors.newFixedThreadPool(DELAY_THREADS, ...) ساخته می‌شود.
 #    این عدد سقف واقعی تست همزمان است؛ آن را به ۱۶ می‌بریم.
-DELAY_THREADS_NEW = 16
+DELAY_THREADS_NEW = 12
 try:
     src = open(core, encoding='utf-8').read()
     pat = re.compile(r'(private\s+static\s+final\s+int\s+DELAY_THREADS\s*=\s*)(\d+)(\s*;)')
