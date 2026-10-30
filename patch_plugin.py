@@ -1,7 +1,7 @@
 # patch_plugin.py — fixes the race in flutter_v2ray_client 3.5.0 (Android VPN mode).
 # Run from the repo root AFTER `flutter pub get`. Finds the plugin in the pub cache and edits 2 Java files.
 # Every edit must match exactly once, otherwise the build stops with a message.
-import glob, os, sys
+import glob, os, re, sys
 PUB = os.environ.get('PUB_CACHE', os.path.expanduser('~/.pub-cache'))
 
 roots = glob.glob(os.path.join(PUB, 'hosted/*/flutter_v2ray_client-3.5.0/android/src/main/java'))
@@ -39,32 +39,22 @@ patch(vpn,
       "            // 1) Establish VpnService TUN first (v2rayNG order).",
       're-register listener before start')
 
-# 3) DELAYPOOL: سرعت تست. getServerDelay در پلاگین روی یک Executor داخل V2rayCoreManager اجرا می‌شود.
-#    اگر آن تک‌نخی یا ۴ نخی باشد، تست‌ها «۴ تا ۴ تا» جلو می‌روند (همان علامتی که دیده شد).
-#    اینجا اندازه‌ی آن را بالا می‌بریم. خطوط مرتبط در لاگ چاپ می‌شوند تا اگر الگو نخواند ببینیم.
-import re
-DELAY_THREADS = 16  # با kDelayConcurrency در main.dart هماهنگ؛ کف دارت ۴ است، بالا رفتنش با تنظیم کاربر
+# 3) DELAYPOOL: پلاگین یک صف مخصوص تست تأخیر دارد: DELAY_THREADS = 2 (خط ۴۵۵)
+#    که با Executors.newFixedThreadPool(DELAY_THREADS, ...) ساخته می‌شود.
+#    این عدد سقف واقعی تست همزمان است؛ آن را به ۱۶ می‌بریم.
+DELAY_THREADS_NEW = 16
 try:
     src = open(core, encoding='utf-8').read()
-    print('--- DELAYPOOL: خطوط executor/delay در V2rayCoreManager.java ---')
-    for i, ln in enumerate(src.split('\n'), 1):
-        if re.search(r'Executor|ThreadPool|getV2rayServerDelay|measureDelay|DELAY_THREADS', ln):
-            print(f'{i}: {ln.strip()}')
-    print('--- پایان ---')
-    new = src
-    cnt = 0
-    # newSingleThreadExecutor() -> newFixedThreadPool(N)
-    new, n1 = re.subn(r'Executors\.newSingleThreadExecutor\(\s*\)',
-                      f'Executors.newFixedThreadPool({DELAY_THREADS})', new)
-    # newFixedThreadPool(k) با k کوچک (1..8) -> N
-    def bump(m):
-        return m.group(0) if int(m.group(1)) >= DELAY_THREADS else f'Executors.newFixedThreadPool({DELAY_THREADS})'
-    new, n2 = re.subn(r'Executors\.newFixedThreadPool\(\s*(\d+)\s*\)', bump, new)
-    cnt = n1 + n2
-    if cnt and new != src:
-        open(core, 'w', encoding='utf-8').write(new)
-        print(f'OK: DELAYPOOL executor -> {DELAY_THREADS} threads ({cnt} place)')
+    pat = re.compile(r'(private\s+static\s+final\s+int\s+DELAY_THREADS\s*=\s*)(\d+)(\s*;)')
+    m = pat.findall(src)
+    if len(m) == 1:
+        if int(m[0][1]) != DELAY_THREADS_NEW:
+            src2 = pat.sub(lambda g: g.group(1) + str(DELAY_THREADS_NEW) + g.group(3), src, count=1)
+            open(core, 'w', encoding='utf-8').write(src2)
+            print(f'OK: DELAYPOOL DELAY_THREADS {m[0][1]} -> {DELAY_THREADS_NEW}')
+        else:
+            print('OK: DELAYPOOL already ' + str(DELAY_THREADS_NEW))
     else:
-        print('WARN: DELAYPOOL: executor pattern not found; نمونه‌ی خطوط بالا را برای اصلاح الگو بفرست.')
+        print(f'WARN: DELAYPOOL: DELAY_THREADS found {len(m)} times (expected 1). Skipped.')
 except Exception as e:
     print(f'WARN: DELAYPOOL failed: {e}')
