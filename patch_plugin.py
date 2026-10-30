@@ -38,3 +38,33 @@ patch(vpn,
       "            V2rayCoreManager.getInstance().setUpListener(this);\n\n"
       "            // 1) Establish VpnService TUN first (v2rayNG order).",
       're-register listener before start')
+
+# 3) DELAYPOOL: سرعت تست. getServerDelay در پلاگین روی یک Executor داخل V2rayCoreManager اجرا می‌شود.
+#    اگر آن تک‌نخی یا ۴ نخی باشد، تست‌ها «۴ تا ۴ تا» جلو می‌روند (همان علامتی که دیده شد).
+#    اینجا اندازه‌ی آن را بالا می‌بریم. خطوط مرتبط در لاگ چاپ می‌شوند تا اگر الگو نخواند ببینیم.
+import re
+DELAY_THREADS = 16  # با kDelayConcurrency در main.dart هماهنگ؛ کف دارت ۴ است، بالا رفتنش با تنظیم کاربر
+try:
+    src = open(core, encoding='utf-8').read()
+    print('--- DELAYPOOL: خطوط executor/delay در V2rayCoreManager.java ---')
+    for i, ln in enumerate(src.split('\n'), 1):
+        if re.search(r'Executor|ThreadPool|getV2rayServerDelay|measureDelay|DELAY_THREADS', ln):
+            print(f'{i}: {ln.strip()}')
+    print('--- پایان ---')
+    new = src
+    cnt = 0
+    # newSingleThreadExecutor() -> newFixedThreadPool(N)
+    new, n1 = re.subn(r'Executors\.newSingleThreadExecutor\(\s*\)',
+                      f'Executors.newFixedThreadPool({DELAY_THREADS})', new)
+    # newFixedThreadPool(k) با k کوچک (1..8) -> N
+    def bump(m):
+        return m.group(0) if int(m.group(1)) >= DELAY_THREADS else f'Executors.newFixedThreadPool({DELAY_THREADS})'
+    new, n2 = re.subn(r'Executors\.newFixedThreadPool\(\s*(\d+)\s*\)', bump, new)
+    cnt = n1 + n2
+    if cnt and new != src:
+        open(core, 'w', encoding='utf-8').write(new)
+        print(f'OK: DELAYPOOL executor -> {DELAY_THREADS} threads ({cnt} place)')
+    else:
+        print('WARN: DELAYPOOL: executor pattern not found; نمونه‌ی خطوط بالا را برای اصلاح الگو بفرست.')
+except Exception as e:
+    print(f'WARN: DELAYPOOL failed: {e}')
