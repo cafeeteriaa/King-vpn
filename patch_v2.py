@@ -192,6 +192,46 @@ String? nipSwapLink(Server t, String ip) {
   }
 }
 
+// CHAINHUNT: کمک‌های جستجوی IP (پشت هم، هرکدام جواب داد همان استفاده می‌شود)
+// آدرس واسط (relay) که خودت اضافه می‌کنی: IP سرور داخلی/واسط با همان پورت سرور.
+// مثال: const natRelayHosts = <String>['1.2.3.4'];
+const natRelayHosts = <String>[];
+
+Future<String?> nipResolve(String host) async {
+  try {
+    final l = await InternetAddress.lookup(host).timeout(const Duration(seconds: 5));
+    return l.isEmpty ? null : l.first.address;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// بلوک‌های IPv4 اعلام‌شده‌ی شرکت هاست همان IP (از RIPE Stat).
+Future<List<String>> nipAsnPrefixes(String ip) async {
+  try {
+    final r = await http
+        .get(Uri.parse('https://stat.ripe.net/data/network-info/data.json?resource=$ip'))
+        .timeout(const Duration(seconds: 12));
+    if (r.statusCode != 200) return const [];
+    final asns = ((jsonDecode(r.body)['data']?['asns']) as List?) ?? const [];
+    final out = <String>[];
+    for (final a in asns.take(2)) {
+      final rr = await http
+          .get(Uri.parse('https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS$a'))
+          .timeout(const Duration(seconds: 12));
+      if (rr.statusCode != 200) continue;
+      final prefixes = ((jsonDecode(rr.body)['data']?['prefixes']) as List?) ?? const [];
+      for (final pe in prefixes) {
+        final pr = '${pe['prefix']}';
+        if (pr.contains('/') && !pr.contains(':')) out.add(pr);
+      }
+    }
+    return out;
+  } catch (_) {
+    return const [];
+  }
+}
+
 extension NipHunt on _HomePageState {
   static DateTime? _nipLastHunt;
 
@@ -214,48 +254,85 @@ extension NipHunt on _HomePageState {
     pool.addAll(pending);
     pool.addAll(_resMap.values.whereType<Server>());
     for (final s in pool) {
-      if (s.isIp || s.link.toLowerCase().startsWith('ss://')) continue;
+      if (s.link.toLowerCase().startsWith('ss://')) continue;
       if (!seen.add(s.host)) continue;
       templates.add(s);
-      if (templates.length >= 40) break; // CDNHUNT: keep enough to find CDN ones
+      if (templates.length >= 40) break;
     }
     if (templates.isEmpty) {
-      _set('برای جستجوی IP سرور دامنه‌دار نمونه نداریم؛ یک بار با سرورهای پوشه وصل شو');
+      _set('برای جستجوی IP سرور نمونه نداریم؛ یک بار با سرورهای پوشه وصل شو');
       return false;
     }
-
-    // CDNHUNT: کانفیگ‌های SNI/Host (پشت Cloudflare) فقط به یک لبه‌ی CDN باز نیاز دارند.
-    // پس رنج‌های Cloudflare اسکن می‌شوند و SNI/Host همان سرور حفظ می‌شود.
-    // بقیه‌ی کانفیگ‌ها همان روش قبلی (IP های باز ایران) را دارند.
     final cdnT = templates.where((s) => s.cdn).toList();
-    final useCdn = cdnT.isNotEmpty;
-    if (useCdn) {
-      templates
-        ..clear()
-        ..addAll(cdnT);
-    }
-    final ips = <String>[];
-    if (useCdn) {
+    final direct = templates.where((s) => !s.cdn).toList();
+
+    // مرحله ۱: کانفیگ‌های CDN (SNI/Host) ← لبه‌های باز Cloudflare
+    if (cdnT.isNotEmpty) {
+      final ips = <String>[];
       for (final c in _cfRanges) {
         ips.addAll(nipExpandCidr(c, maxPerBlock: 512));
       }
-      _set('نت ملی: ${templates.length} کانفیگ CDN؛ جستجوی لبه‌ی Cloudflare باز…');
-    } else {
-      final blocks = await nipIranCidrs();
-      if (blocks.isEmpty) {
-        _set('فهرست IP ایران گرفته نشد؛ اینترنت را چک کن');
-        return false;
+      ips.shuffle(Random());
+      if (await _natTryScan(cdnT, ips,
+          port: cdnT.first.port, label: 'لبه‌ی Cloudflare')) {
+        return true;
       }
-      final per = max(16, 30000 ~/ blocks.length);
-      for (final b in blocks) {
-        ips.addAll(nipExpandCidr(b, maxPerBlock: per));
+      if (abort) return false;
+    }
+    if (direct.isEmpty) return false;
+
+    // مرحله ۲: واسط‌های تعریف‌شده (natRelayHosts) — مستقیم امتحان می‌شوند
+    if (natRelayHosts.isNotEmpty) {
+      final cands = <Server>[];
+      for (final ip in natRelayHosts) {
+        final link = nipSwapLink(direct[cands.length % direct.length], ip);
+        if (link == null) continue;
+        final c = Server.parse(link);
+        if (c != null) cands.add(c);
+        if (cands.length >= 8) break;
+      }
+      if (cands.isNotEmpty) {
+        _set('نت ملی: امتحان ${cands.length} واسط…');
+        if (await _connectLoop(cands, trust: false)) {
+          final w = current;
+          if (w != null) _natAdd(w);
+          return true;
+        }
+        if (abort) return false;
       }
     }
-    if (ips.isEmpty) return false;
-    ips.shuffle(Random());
 
-    final port = templates.first.port;
-    _set('نت ملی: جستجوی IP سالم ایران (${ips.length} آدرس)…');
+    // مرحله ۳: IP های همان شرکت هاست سرور (ASN) روی همان پورت
+    final t0 = direct.first;
+    final sIp = t0.isIp ? t0.host : await nipResolve(t0.host);
+    if (sIp != null) {
+      final prefixes = await nipAsnPrefixes(sIp);
+      if (prefixes.isNotEmpty) {
+        final ips = <String>[];
+        for (final p in prefixes.take(80)) {
+          ips.addAll(nipExpandCidr(p, maxPerBlock: 256));
+        }
+        ips.shuffle(Random());
+        if (ips.isNotEmpty &&
+            await _natTryScan(direct, ips,
+                port: t0.port, label: 'IP هم‌شرکت سرور')) {
+          return true;
+        }
+        if (abort) return false;
+      }
+    }
+
+    // مرحله ۴ (IP های باز ایران) حذف شد: یک IP باز ایران فوروارد نمی‌کند،
+    // پس برای REALITY/TCP وقت تلف می‌کرد و هیچ‌وقت وصل نمی‌شد.
+    _set('نت ملی: واسط یا IP هم‌شرکت سالم پیدا نشد');
+    return false;
+  }
+
+  /// اسکن IP ها و امتحان نتیجه‌ها با همان کانفیگ‌ها (فقط IP عوض می‌شود).
+  Future<bool> _natTryScan(List<Server> tpls, List<String> ips,
+      {required int port, required String label}) async {
+    if (ips.isEmpty) return false;
+    _set('نت ملی: جستجوی $label (${ips.length} آدرس)…');
     final hits = await nipScan(ips,
         port: port,
         want: 12,
@@ -263,23 +340,19 @@ extension NipHunt on _HomePageState {
         cancelled: () => abort);
     if (abort) return false;
     if (hits.isEmpty) {
-      _set(useCdn
-          ? 'نت ملی: هیچ لبه‌ی Cloudflare باز پیدا نشد'
-          : 'نت ملی: هیچ IP بازی پیدا نشد');
+      _set('نت ملی: هیچ $label بازی پیدا نشد');
       return false;
     }
-
     final cands = <Server>[];
     for (var i = 0; i < hits.length && cands.length < 8; i++) {
-      final t = templates[i % templates.length];
+      final t = tpls[i % tpls.length];
       final link = nipSwapLink(t, hits[i].ip);
       if (link == null) continue;
       final c = Server.parse(link);
       if (c != null) cands.add(c);
     }
     if (cands.isEmpty) return false;
-
-    _set('نت ملی: امتحان ${cands.length} IP پیداشده…');
+    _set('نت ملی: امتحان ${cands.length} آدرس ($label)…');
     final ok = await _connectLoop(cands, trust: false);
     if (ok) {
       final w = current;
