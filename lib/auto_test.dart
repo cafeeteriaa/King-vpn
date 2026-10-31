@@ -1636,51 +1636,6 @@ extension AutoTestEngine on _HomePageState {
     }
   }
 
-  // REALTUN: جایگزین را با اتصال واقعی VPN امتحان می‌کند. فقط وقتی ترافیک واقعی از تونل
-  // رد شود قبول است؛ وگرنه تنظیم قبلی برمی‌گردد.
-  Future<bool> _atTunnelPasses(Server s, int v) async {
-    final key = _nk(s);
-    final prevVar = natVar[key];
-    final prevWant = wantVpn;
-    natVar[key] = v;
-    var ok = false;
-    try {
-      wantVpn = true;
-      final up = await _start(s);
-      if (up) {
-        await Future.delayed(const Duration(seconds: 2));
-        // هر دو سایت خارجی باید از تونل باز شوند (فقط سایت داخلی کافی نیست)
-        final g = await _siteOpens('https://www.google.com/generate_204', viaCore: false)
-            .timeout(const Duration(seconds: 12), onTimeout: () => false);
-        final y = g &&
-            await _siteOpens('https://www.youtube.com/generate_204', viaCore: false)
-                .timeout(const Duration(seconds: 12), onTimeout: () => false);
-        ok = g && y;
-      }
-    } catch (_) {
-      ok = false;
-    } finally {
-      try {
-        await _stopCore();
-      } catch (_) {}
-      wantVpn = prevWant;
-      if (!ok) {
-        if (prevVar == null) {
-          natVar.remove(key);
-        } else {
-          natVar[key] = prevVar;
-        }
-      }
-    }
-    // PERSIST: natVarSet هم یاد می‌گیرد و هم ذخیره‌ی پایدار (SharedPreferences) را زمان‌بندی می‌کند.
-    // نوشتن مستقیم در natVar ذخیره نمی‌شد و بعد از بستن اپ گم می‌شد.
-    if (ok) {
-      natVarSet(s, v);
-    }
-    dbg('SUBST-TUNNEL ${s.name} → ${ok ? 'ترافیک رد شد ✅ (ذخیره شد)' : 'ترافیک رد نشد ❌'}');
-    return ok;
-  }
-
   Future<void> _atItemSubst() async {
     // SUBST-REAL2: تست هر جایگزین را با اتصال واقعی و بررسی ترافیک تونل امتحان می‌کند.
     // همان حالت‌هایی که در پروژه هستند. هر حالت که ترافیک را رد نکند، در گزارش «بی‌اثر» می‌شود.
