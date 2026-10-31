@@ -1350,6 +1350,10 @@ Future<void> natDetectOperator() async {
 final Map<String, int> natWins = {}; // '<op>#<variant>' -> تعداد موفقیت
 Timer? _natSaveT;
 
+// NATCOUNT: هر حالت جایگزین چند بار با اتصال واقعی امتحان شده و چند بار سرور را نجات داده
+final Map<int, int> natTryCount = {};
+final Map<int, int> natWinCount = {};
+
 String _nk(Server s) => '$natOpKey#${s.key}';
 
 void natVarSet(Server s, int v) {
