@@ -12881,13 +12881,13 @@ extension ProjectNatSweep on _HomePageState {
     // اسکن همه‌ی پورت‌های CDN؛ هر IP باز همراه پورتش ذخیره می‌شود
     final opened = <CleanIp>[];
     for (final port in _natCfPorts) {
-      if (_abortRequested) break;
+      if (AutoTestEngine._abortRequested) break;
       final hits = await natScanIps(pool2,
           port: port,
           concurrency: 150,
           want: 60,
           budget: const Duration(minutes: 2),
-          cancelled: () => _abortRequested);
+          cancelled: () => AutoTestEngine._abortRequested);
       for (final h in hits) {
         opened.add(CleanIp(h.ip, h.ms, port));
       }
@@ -12906,7 +12906,7 @@ extension ProjectNatSweep on _HomePageState {
     try {
       wantVpn = true;
       for (var i = 0; i < cands.length; i++) {
-        if (_abortRequested || _phase != _AtPhase.running) break;
+        if (AutoTestEngine._abortRequested || AutoTestEngine._phase != _AtPhase.running) break;
         if (winners.length >= 10) break;
         if (DateTime.now().difference(t0) > budget) break;
         final c = cands[i];
