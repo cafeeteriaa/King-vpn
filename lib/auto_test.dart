@@ -1769,6 +1769,7 @@ extension AutoTestEngine on _HomePageState {
 
         // (ب) جایگزین‌ها: هر سرور بخشی از حالت‌ها را امتحان می‌کند (چرخشی، تا همه‌ی حالت‌ها پوشش داده شوند)
         final passed = <String>[];
+        int? winner; // اولین جایگزینی که ترافیک داد؛ در پروژه همین اعمال می‌شود
         if (subVars.isNotEmpty) {
           final offset = (i * _atSubstPerServer) % subVars.length;
           for (var k = 0; k < _atSubstPerServer && k < subVars.length; k++) {
@@ -1790,10 +1791,17 @@ extension AutoTestEngine on _HomePageState {
             if (ok) {
               perWin[v] = (perWin[v] ?? 0) + 1;
               passed.add(v < _natSpecs.length ? _natSpecs[v].name : '#$v');
+              winner ??= v;
             }
           }
         }
-        natVar.remove(key);
+        // APPLY: جایگزینی که ترافیک داد، برای همین سرور ذخیره می‌شود تا اتصال واقعی پروژه
+        // همان را اول امتحان کند (با natVarSet ذخیره‌ی پایدار هم می‌شود)
+        if (winner != null) {
+          natVarSet(s, winner);
+        } else {
+          natVar.remove(key);
+        }
 
         if (passed.isNotEmpty) substServers++;
         if (!baseTun && passed.isEmpty) brokenServers++;
