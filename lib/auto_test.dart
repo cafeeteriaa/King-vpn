@@ -1643,10 +1643,54 @@ extension AutoTestEngine on _HomePageState {
     }
   }
 
+  // REALTUN: جایگزین را با اتصال واقعی VPN امتحان می‌کند. فقط وقتی ترافیک واقعی از تونل
+  // رد شود قبول است؛ وگرنه تنظیم قبلی برمی‌گردد.
+  Future<bool> _atTunnelPasses(Server s, int v) async {
+    final key = _nk(s);
+    final prevVar = natVar[key];
+    final prevWant = wantVpn;
+    natVar[key] = v;
+    var ok = false;
+    try {
+      wantVpn = true;
+      final up = await _start(s);
+      if (up) {
+        await Future.delayed(const Duration(seconds: 2));
+        // هر دو سایت خارجی باید از تونل باز شوند (فقط سایت داخلی کافی نیست)
+        final g = await _siteOpens('https://www.google.com/generate_204', viaCore: false)
+            .timeout(const Duration(seconds: 12), onTimeout: () => false);
+        final y = g &&
+            await _siteOpens('https://www.youtube.com/generate_204', viaCore: false)
+                .timeout(const Duration(seconds: 12), onTimeout: () => false);
+        ok = g && y;
+      }
+    } catch (_) {
+      ok = false;
+    } finally {
+      try {
+        await _stopCore();
+      } catch (_) {}
+      wantVpn = prevWant;
+      if (!ok) {
+        if (prevVar == null) {
+          natVar.remove(key);
+        } else {
+          natVar[key] = prevVar;
+        }
+      }
+    }
+    // PERSIST: natVarSet هم یاد می‌گیرد و هم ذخیره‌ی پایدار (SharedPreferences) را زمان‌بندی می‌کند.
+    // نوشتن مستقیم در natVar ذخیره نمی‌شد و بعد از بستن اپ گم می‌شد.
+    if (ok) {
+      natVarSet(s, v);
+    }
+    dbg('SUBST-TUNNEL ${s.name} → ${ok ? 'ترافیک رد شد ✅ (ذخیره شد)' : 'ترافیک رد نشد ❌'}');
+    return ok;
+  }
+
   Future<void> _atItemSubst() async {
-    // SUBST-WHOLE: جایگزین قرار است وقتی نت جهانی قطع است و نت ملی فعال است کار کند.
-    // دو گروه تست می‌شود: (الف) سرورهای سالم فعلی — آیا با جایگزین هم کار می‌کنند؟
-    // (ب) سرورهای خراب فعلی — آیا با جایگزین زنده می‌شوند؟
+    // SUBST-REAL2: تست هر جایگزین را با اتصال واقعی و بررسی ترافیک تونل امتحان می‌کند.
+    // همان حالت‌هایی که در پروژه هستند. هر حالت که ترافیک را رد نکند، در گزارش «بی‌اثر» می‌شود.
     _scenario = 3;
     final name = _atSubstName;
     natForce = true;
@@ -1655,7 +1699,6 @@ extension AutoTestEngine on _HomePageState {
     offlineOnly = false;
     await ultimateSave();
 
-    // SUBSTWAIT: لیست سالم بعد از باز شدن برنامه ممکن است هنوز آماده نباشد؛ تا ۳۰ ثانیه صبر کن
     var healthy = _usable().take(_atSubstServers).toList();
     for (var w = 0; healthy.isEmpty && w < 30 && !_abortRequested; w++) {
       await Future<void>.delayed(const Duration(seconds: 1));
@@ -1667,7 +1710,6 @@ extension AutoTestEngine on _HomePageState {
       _itemResult[name] = 'اجرا نشد: سرور سالمی نبود';
       return;
     }
-    // سرورهای خراب: از همان پوشه‌ی منابع که قبلاً تست شده‌اند و الان سالم نیستند
     final healthySet = _usable().toSet();
     final dead = good
         .where((x) => !healthySet.contains(x) &&
@@ -1676,152 +1718,114 @@ extension AutoTestEngine on _HomePageState {
         .toList();
     if (cleanIps.isEmpty) {
       _atAdd('SUBST-NOCLEAN',
-          'لیست IP تمیز خالی است؛ جایگزینی IP امتحان نشد (فقط پورت/DNS/SNI)');
+          'لیست IP تمیز خالی است؛ جایگزین IP امتحان نشد (فقط پورت/DNS/SNI)');
     }
     if (dead.isEmpty) {
       _atAdd('SUBST-NODEAD',
           'سرور خراب (تست‌شده و ناسالم) برای آزمایش پیدا نشد؛ زنده کردن امتحان نشد');
     }
+
+    // همه‌ی حالت‌های جایگزین پروژه
     final subVars = [
       for (var v = 1; v < _natSpecs.length; v++)
         if (_atIsSubst(v)) v
     ];
+    final perTry = <int, int>{}; // هر حالت: چند بار امتحان شد
+    final perWin = <int, int>{}; // هر حالت: چند بار ترافیک تونل را رد کرد
     final groups = <(String, List<Server>)>[
       ('سالم', healthy),
       ('خراب', dead),
     ];
     final rows = <String>[];
-    // آمار به تفکیک گروه و بخش
-    final keepOk = <String, int>{}; // سالم: جایگزین کار را نگه داشت
-    final reviveOk = <String, int>{}; // خراب: جایگزین زنده کرد
-    final dimTried = <String, int>{};
-    var subTried = 0, subOk = 0, groupWorkedKeep = 0, groupWorkedRevive = 0;
-    var chainTried = 0, chainOk = 0, chainKeep = 0, chainRevive = 0;
-    // GLOBAL: بعد از اینکه جایگزین جواب داد، یک سایت جهانی دیگر هم از داخل تونل باز می‌شود
-    // تا معلوم شود واقعاً به نت جهانی رسیده یا فقط سرور جواب داده
-    const globalProbe = 'https://www.google.com/generate_204';
-    final globalOk = <String, int>{};
-    var globalReach = 0;
+    var total = 0, baseOk = 0, substServers = 0, brokenServers = 0;
     final t0 = DateTime.now();
-    // SUBSTDEADLINE: سقف زمان کل؛ هیچ وقت بی‌پایان نمی‌ماند
-    bool substLate() => DateTime.now().difference(t0) > const Duration(minutes: 25);
+    bool late() => DateTime.now().difference(t0) > const Duration(minutes: 40);
 
+    wantVpn = true;
     for (final g in groups) {
-      final gname = g.$1;
-      final isHealthyGroup = gname == 'سالم';
-      rows.add('— گروه $gname: ${g.$2.length} سرور —');
+      rows.add('— گروه ${g.$1}: ${g.$2.length} سرور —');
       for (var i = 0; i < g.$2.length; i++) {
-        if (_abortRequested || _phase != _AtPhase.running || substLate()) break;
+        if (_abortRequested || _phase != _AtPhase.running || late()) break;
         final s = g.$2[i];
-        autoTestProgress.value = i / (g.$2.length == 0 ? 1 : g.$2.length);
-        autoTestText.value = 'جایگزینی ($gname) ${i + 1}/${g.$2.length} • ${s.name}';
+        total++;
+        autoTestProgress.value = i / (g.$2.isEmpty ? 1 : g.$2.length);
+        autoTestText.value = 'اتصال واقعی (${g.$1}) ${i + 1}/${g.$2.length} • ${s.name}';
+        final key = _nk(s);
 
-        final base = await _delayOnce(s, 0, _atSubstTimeout, null);
-        final okNames = <String>[];
-        var tried = 0;
-        // SAVE-VARIANT: اتصال واقعی فقط از natVar می‌خواند؛ اولین جایگزینی که پایه‌ی خراب را
-        // هم با سایت جهانی زنده کرد، همین‌جا ذخیره می‌شود تا اتصال واقعی از آن استفاده کند
-        var natStored = false;
-        for (final v in subVars) {
-          if (_abortRequested || _phase != _AtPhase.running || substLate()) break;
-          if (tried >= _atSubstPerServer) break;
-          tried++;
-          final dims = _atSubstDims(v);
-          for (final dm in dims) {
-            dimTried[dm] = (dimTried[dm] ?? 0) + 1;
+        // (الف) پایه با اتصال واقعی
+        natVar.remove(key);
+        var baseTun = false;
+        try {
+          if (await _start(s)) {
+            await Future.delayed(const Duration(seconds: 2));
+            baseTun = await _tunnelTrafficOk();
           }
-          final d = await _delayOnce(s, v, _atSubstTimeout, null);
-          subTried++;
-          if (d != null) {
-            subOk++;
-            final gl = await _delayOnce(s, v, _atSubstTimeout, globalProbe);
-            if (base == null && gl != null && !natStored) {
-              natVar[_nk(s)] = v;
-              natStored = true;
-              dbg('SUBST-SAVED ${s.name} → ${v < _natVarNames.length ? _natVarNames[v] : '#$v'}');
-            }
-            if (gl != null) {
-              globalReach++;
-              for (final dm in dims) {
-                globalOk[dm] = (globalOk[dm] ?? 0) + 1;
+        } catch (e, stk) {
+          logError(e, stk);
+        } finally {
+          await _stopV2();
+        }
+        if (baseTun) baseOk++;
+
+        // (ب) جایگزین‌ها: هر سرور بخشی از حالت‌ها را امتحان می‌کند (چرخشی، تا همه‌ی حالت‌ها پوشش داده شوند)
+        final passed = <String>[];
+        if (subVars.isNotEmpty) {
+          final offset = (i * _atSubstPerServer) % subVars.length;
+          for (var k = 0; k < _atSubstPerServer && k < subVars.length; k++) {
+            if (_abortRequested || _phase != _AtPhase.running || late()) break;
+            final v = subVars[(offset + k) % subVars.length];
+            perTry[v] = (perTry[v] ?? 0) + 1;
+            natVar[key] = v; // _start() خواندن حالت را از natVarFor می‌گیرد
+            var ok = false;
+            try {
+              if (await _start(s)) {
+                await Future.delayed(const Duration(seconds: 2));
+                ok = await _tunnelTrafficOk();
               }
+            } catch (e, stk) {
+              logError(e, stk);
+            } finally {
+              await _stopV2();
             }
-            okNames.add(v < _natVarNames.length ? _natVarNames[v] : '#$v');
-            for (final dm in dims) {
-              if (isHealthyGroup) {
-                keepOk[dm] = (keepOk[dm] ?? 0) + 1;
-              } else {
-                reviveOk[dm] = (reviveOk[dm] ?? 0) + 1;
-              }
-            }
-          }
-        }
-        if (okNames.isNotEmpty) {
-          if (isHealthyGroup) {
-            groupWorkedKeep++;
-          } else {
-            groupWorkedRevive++;
-          }
-        }
-        // زنجیره: این سرور (exit) از پشت یک سرور سالم (relay) رد می‌شود
-        // relay = سرور سالم دیگری (در گروه سالم خود سرور را دور می‌زنیم تا relay با exit یکی نشود)
-        final relay = healthy[(i + 1) % healthy.length];
-        if (!identical(relay, s) && healthy.length > 1) {
-          chainTried++;
-          final cd = await _atChainDelay(s, relay);
-          if (cd != null) {
-            chainOk++;
-            if (isHealthyGroup) {
-              chainKeep++;
-            } else {
-              chainRevive++;
+            if (ok) {
+              perWin[v] = (perWin[v] ?? 0) + 1;
+              passed.add(v < _natSpecs.length ? _natSpecs[v].name : '#$v');
             }
           }
         }
-        rows.add('${s.name}: پایه ${base != null ? '✅' : '❌'} • '
-            'جایگزین جواب داد: ${okNames.length} از $tried'
-            '${okNames.isEmpty ? '' : ' (مثال: ${okNames.take(2).join('، ')})'}');
+        natVar.remove(key);
+
+        if (passed.isNotEmpty) substServers++;
+        if (!baseTun && passed.isEmpty) brokenServers++;
+        rows.add('${s.name}: '
+            '${baseTun ? 'پایه ✅' : 'پایه ❌'}'
+            ' • جایگزین ترافیک‌دار: ${passed.length}'
+            '${passed.isEmpty ? '' : ' (${passed.take(2).join('، ')})'}');
       }
     }
+    wantVpn = false;
 
+    // گزارش هر حالت جایگزین
+    final perLine = <String>[];
+    final keys = perTry.keys.toList()..sort();
+    for (final v in keys) {
+      final tries = perTry[v] ?? 0;
+      final wins = perWin[v] ?? 0;
+      final nm = v < _natSpecs.length ? _natSpecs[v].name : '#$v';
+      perLine.add('$nm: ترافیک‌دار $wins از $tries');
+      if (tries >= 3 && wins == 0) {
+        _atAdd('SUBST-USELESS-$nm',
+            'حالت «$nm» روی $tries تلاش با اتصال واقعی ترافیک تونل نداد؛ از پروژه حذف شود');
+      }
+    }
     final mins = DateTime.now().difference(t0).inMinutes;
-    final dimTxt = dimTried.keys
-        .map((k) => '$k: حفظ ${keepOk[k] ?? 0} • زنده ${reviveOk[k] ?? 0} • نت جهانی ${globalOk[k] ?? 0} از ${dimTried[k]}')
-        .join(' • ');
     rows.insert(
         0,
-        'خلاصه: سالم ${healthy.length} • خراب ${dead.length} • '
-        'تست جایگزین $subTried • جواب داد $subOk • '
-        'سرور سالمی که با جایگزین کار ماند: $groupWorkedKeep • '
-        'سرور خرابی که با جایگزین زنده شد: $groupWorkedRevive • '
-        'به نت جهانی رسید (google): $globalReach • '
-        'زنجیره (relay سالم ← exit): $chainOk از $chainTried '
-        '(سالم: $chainKeep • خراب زنده: $chainRevive) • $mins دقیقه');
-    if (dimTxt.isNotEmpty) rows.insert(1, dimTxt);
+        'خلاصه: کل $total • پایه ترافیک‌دار $baseOk • '
+        'سرورهایی با جایگزین ترافیک‌دار $substServers • '
+        'بدون هیچ‌کدام $brokenServers • $mins دقیقه');
+    if (perLine.isNotEmpty) rows.insert(1, perLine.join(' • '));
     _itemResult[name] = rows.join('\n');
-
-    // USELESS: بخشی که روی ۵ تلاش یا بیشتر نه سرور سالمی را نگه داشت و نه سرور خرابی را زنده کرد، بی‌اثر است.
-    // سرور سالم اولویت دارد؛ زنده کردن سرور خراب هم به‌تنهایی کافی است که بخش نگه داشته شود.
-    for (final k in dimTried.keys) {
-      if ((dimTried[k] ?? 0) >= 5 &&
-          (keepOk[k] ?? 0) == 0 &&
-          (reviveOk[k] ?? 0) == 0) {
-        _atAdd('SUBST-USELESS-$k',
-            'بخش «$k» روی ${dimTried[k]} تلاش نه سرور سالمی را نگه داشت و نه سرور خرابی را زنده کرد؛ بی‌اثر است و می‌شود حذفش کرد');
-      }
-    }
-    if (chainTried >= 5 && chainOk == 0) {
-      _atAdd('SUBST-USELESS-زنجیره',
-          'زنجیره‌ی چند سرور روی $chainTried تلاش هیچ سروری را نه نگه داشت و نه زنده کرد؛ بی‌اثر است و می‌شود حذفش کرد');
-    }
-    if (subOk > 0 && globalReach == 0) {
-      _atAdd('SUBST-NOGLOBAL',
-          'جایگزین‌ها سرور را جواب دادند ولی هیچ‌کدام به سایت جهانی (google) از داخل تونل نرسیدند؛ دور زدن نت ملی تأیید نشد');
-    }
-    if (subTried > 0 && subOk == 0) {
-      _atAdd('SUBST-NONE',
-          'جایگزینی پورت/هاست/DNS روی هیچ‌کدام از $subTried تست جواب نداد');
-    }
     autoTestProgress.value = 1;
   }
 
