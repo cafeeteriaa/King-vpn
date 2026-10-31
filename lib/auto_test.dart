@@ -1681,7 +1681,7 @@ extension AutoTestEngine on _HomePageState {
     autoTestText.value = 'سنجش IP تمیز با تونل...';
     final ipWin = await _atIpSweep(healthy, const Duration(minutes: 120));
     if (ipWin.isNotEmpty) {
-      cleanIps = [for (final ip in ipWin) CleanIp(ip, 0)];
+      cleanIps = List<CleanIp>.of(ipWin);
       cleanIpsAt = DateTime.now();
       await _saveCleanIps();
     }
@@ -1745,6 +1745,8 @@ extension AutoTestEngine on _HomePageState {
           for (var k = 0; k < _atSubstPerServer && k < subVars.length; k++) {
             if (_abortRequested || _phase != _AtPhase.running || late()) break;
             final v = subVars[(offset + k) % subVars.length];
+            // DNSPRE: DoH باز نباشد، این حالت تست نمی‌شود
+            if (!await natDohUsable(v)) continue;
             perTry[v] = (perTry[v] ?? 0) + 1;
             natVar[key] = v; // _start() خواندن حالت را از natVarFor می‌گیرد
             var ok = false;
