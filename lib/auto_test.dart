@@ -1609,13 +1609,6 @@ extension AutoTestEngine on _HomePageState {
   static const int _atSubstPerServer = 12; // سقف حالت جایگزینی برای هر سرور (SUBSTFAST)
   static const Duration _atSubstTimeout = Duration(seconds: 5); // مهلت هر تست
 
-  bool _atIsSubst(int v) {
-    if (v <= 0 || v >= _natSpecs.length) return false;
-    final x = _natSpecs[v];
-    return x.port || x.clean || x.doh != null || x.sniHost ||
-        (x.mode?.startsWith('kcp:') ?? false);
-  }
-
   List<String> _atSubstDims(int v) {
     final x = _natSpecs[v];
     return [
@@ -1716,9 +1709,18 @@ extension AutoTestEngine on _HomePageState {
             (x.badAt != null || x.checkedAt != null))
         .take(_atSubstServers)
         .toList();
+    // IPSWEEP: IP‌ها اول با ترافیک تونل سنجیده می‌شوند؛ فقط IP‌های ترافیک‌دار در پروژه می‌مانند
+    autoTestText.value = 'سنجش IP تمیز با تونل...';
+    final ipWin = await _atIpSweep(healthy, const Duration(minutes: 120));
+    if (ipWin.isNotEmpty) {
+      cleanIps = [for (final ip in ipWin) CleanIp(ip, 0)];
+      cleanIpsAt = DateTime.now();
+      await _saveCleanIps();
+    }
+    dbg('IPSWEEP: ${ipWin.length} IP ترافیک‌دار');
     if (cleanIps.isEmpty) {
       _atAdd('SUBST-NOCLEAN',
-          'لیست IP تمیز خالی است؛ جایگزین IP امتحان نشد (فقط پورت/DNS/SNI)');
+          'لیست IP تمیز ساخته نشد؛ حالت‌های IP تمیز امتحان نشدند');
     }
     if (dead.isEmpty) {
       _atAdd('SUBST-NODEAD',
@@ -1739,7 +1741,7 @@ extension AutoTestEngine on _HomePageState {
     final rows = <String>[];
     var total = 0, baseOk = 0, substServers = 0, brokenServers = 0;
     final t0 = DateTime.now();
-    bool late() => DateTime.now().difference(t0) > const Duration(minutes: 40);
+    bool late() => DateTime.now().difference(t0) > const Duration(minutes: 240);
 
     wantVpn = true;
     for (final g in groups) {
