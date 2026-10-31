@@ -228,6 +228,9 @@ const List<_NatSpec> _natExtra = [
   _NatSpec('Keep-Alive 8s + fp=chrome', fp: 'chrome', keep: 8),
   // KCP-UDP: همان هسته‌ی فعلی (Xray) است؛ ترافیک روی UDP می‌رود. فقط وقتی سرور kcp را قبول کند جواب می‌دهد
   _NatSpec('mKCP (UDP)', mode: 'kcp:none'),
+  // NEWFP: اثرانگشت‌های TLS دیگری که Xray پشتیبانی می‌کند (فقط سمت کلاینت، بدون تغییر در سرور)
+  _NatSpec('fp=360', fp: '360'),
+  _NatSpec('fp=qq', fp: 'qq'),
 ];
 
 String _natSig(_NatSpec x) =>
