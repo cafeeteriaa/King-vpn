@@ -1675,6 +1675,30 @@ void _swl(String site, Object e) {
   }
 }
 
+// BLACKBOX: هر خط مهم وضعیت، همان لحظه و بی‌بافر در یک فایل ذخیره می‌شود.
+// اگر اپ کرش کند، این فایل آخرین مرحله‌ی قبل از کرش را نشان می‌دهد.
+// خط‌های پرتکرار (تست هسته و لاگ هسته) نوشته نمی‌شوند تا فایل سنگین نشود.
+const String kTrailPath = '/storage/emulated/0/King-VPN/crash_trail.txt';
+const String kTrailPrivPath = '/data/data/com.kingvpn.king_vpn/files/crash_trail.txt';
+void _trailWrite(String line) {
+  if (line.startsWith('CORE-TEST') ||
+      line.startsWith('CORE-LOG') ||
+      line.startsWith('CFG') ||
+      line.startsWith('CORE-PORT')) {
+    return;
+  }
+  final stamp = DateTime.now().toIso8601String();
+  for (final p in const [kTrailPath, kTrailPrivPath]) {
+    try {
+      final f = File(p);
+      if (!f.parent.existsSync()) f.parent.createSync(recursive: true);
+      if (f.existsSync() && f.lengthSync() > 2 * 1024 * 1024) f.deleteSync();
+      f.writeAsStringSync('$stamp $line\n', mode: FileMode.append, flush: true);
+      return;
+    } catch (_) {}
+  }
+}
+
 void dbg(String m) {
   try {
     if (!_dbgLoaded) {
@@ -1687,6 +1711,7 @@ void dbg(String m) {
     String two(int n) => n.toString().padLeft(2, '0');
     if (dbgLines.isNotEmpty && dbgLines.last.endsWith('  $msg')) return;
     dbgLines.add('${two(t.hour)}:${two(t.minute)}:${two(t.second)}  $msg');
+    _trailWrite(msg); // BLACKBOX
     dbgLastAt = t;
     if (dbgLines.length > 1500) {
       dbgLines.removeRange(0, dbgLines.length - 1500);
