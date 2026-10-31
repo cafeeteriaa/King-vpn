@@ -6761,6 +6761,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // NATLADDERONLY: نردبان حالت‌های نت ملی فقط در نت ملی؛ اتصال عادی سرور بعدی را امتحان می‌کند
     if (!nationalMode) return false;
     final first = natVarFor(s);
+    // IPSWEEP-PROJECT: اگر لیست IP تمیز خالی است، IPها با ترافیک تونل سنجیده می‌شوند
+    // و فقط IPهای ترافیک‌دار نگه داشته می‌شوند. اگر هیچ سرور پشت کلودفلر نبود، لیست ساده ساخته می‌شود.
+    if (socialGate != null && cleanIps.isEmpty) {
+      final w = await _atIpSweep(_usable(), const Duration(minutes: 20));
+      if (w.isNotEmpty) {
+        cleanIps = [for (final ip in w) CleanIp(ip, 0)];
+        cleanIpsAt = DateTime.now();
+        await _saveCleanIps();
+      } else {
+        await _doRefreshClean();
+      }
+    }
     try {
       final tried = <int>{first};
       final takeN = (nationalMode || indestructibleMode)
@@ -6768,6 +6780,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           : (ultraMode ? 8 : 4);
       final cand = _natOrder(s, full: true)
           .where((c) => c < _natCodeBase)
+          // با بررسی ترافیک تونل فقط حالت‌های جایگزین امتحان می‌شوند (همان مجموعه‌ی تست)
+          .where((c) => socialGate == null || _atIsSubst(c))
           .where((v) => tried.add(v))
           .take(takeN)
           .toList();
@@ -6782,18 +6796,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // SOCIALGATE: a variant whose ping works but whose Telegram does not
         // is not a good variant; the next one is tried instead (the old code
         // accepted it, then rejected the server, then tried it again)
-        if (p != null && socialGate != null && !await socialGate()) {
-          dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» ping داشت ولی تلگرام نه؛ حالت بعدی');
+        // GATE-DECIDES: اگر بررسی ترافیک (socialGate) داده شده، همان تصمیم است؛
+        // وگرنه ping از تونل ملاک است. (همان منطق تست جایگزین)
+        final accepted = socialGate != null ? await socialGate() : p != null;
+        if (!accepted) {
+          dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» ترافیک تونل نداد؛ حالت بعدی');
           await _stopV2();
           continue;
         }
-        if (p != null) {
-          natVarSet(s, v);
-          natWinCount[v] = (natWinCount[v] ?? 0) + 1; // NATCOUNT
-          dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» از تونل واقعی جواب داد');
-          return true;
-        }
-        await _stopV2();
+        natVarSet(s, v);
+        natWinCount[v] = (natWinCount[v] ?? 0) + 1; // NATCOUNT
+        dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» از تونل واقعی جواب داد');
+        return true;
       }
     } catch (e, stk) {
       logError(e, stk);
@@ -12789,4 +12803,103 @@ class _NatResItem {
   DateTime? checked;
   int miss = 0;
   _NatResItem(this.link, this.s, this.added);
+}
+
+// ===== NAT-PROJECT: منطق پروژه (نه فقط تست) =====
+// این توابع در اتصال واقعی (نردبان نت ملی و سنجش IP) استفاده می‌شوند.
+extension ProjectNatSweep on _HomePageState {
+  bool _atIsSubst(int v) {
+    if (v <= 0 || v >= _natSpecs.length) return false;
+    final x = _natSpecs[v];
+    return x.port || x.clean || x.doh != null || x.sniHost ||
+        (x.mode?.startsWith('kcp:') ?? false) ||
+        const {'360', 'qq'}.contains(x.fp); // NEWFP
+  }
+
+  // AUTORANGE: بلوک‌های /24 سرورهای IP دار برنامه، بدون دخالت کاربر
+  List<String> _atAutoRanges(List<Server> servers) {
+    final blocks = <String>{};
+    for (final x in servers) {
+      if (!x.isIp) continue;
+      final p = x.host.split('.');
+      if (p.length != 4) continue;
+      blocks.add('${p[0]}.${p[1]}.${p[2]}.0/24');
+      if (blocks.length >= 200) break;
+    }
+    return blocks.toList();
+  }
+
+  // IPSWEEP: هر IP تمیز را با اتصال واقعی روی یک سرور پشت کلودفلر امتحان می‌کند.
+  // فقط IP‌هایی که ترافیک تونل (google و youtube) بدهند نگه داشته می‌شوند (حداکثر ۱۰ تا).
+  Future<List<String>> _atIpSweep(List<Server> pool, Duration budget) async {
+    Server? server;
+    for (final x in pool) {
+      if (_natCdnNets.contains(x.net)) {
+        server = x;
+        break;
+      }
+    }
+    if (server == null) return <String>[];
+    final sv = server;
+    final vIdx = _natSpecs.indexWhere((x) => x.name == 'IP تمیز Cloudflare');
+    if (vIdx <= 0) return <String>[];
+    // SCANFIRST: اول در بازه‌های کلودفلر دنبال IP‌های باز (TCP:443) می‌گردیم، چون وقتی نت ملی
+    // IPها را فیلتر کرده، بیشتر آدرس‌ها جواب نمی‌دهند. بعد فقط IPهای باز با تونل سنجیده می‌شوند.
+    final pool = <String>[];
+    for (final r in _cfRanges) {
+      pool.addAll(natExpandCidr(r, maxPerBlock: 512));
+    }
+    // AUTORANGE: بازه‌های غیرکلودفلر خودکار از IP سرورهای خودِ برنامه ساخته می‌شوند
+    // (بلوک /24 هر سرور IP دار). کاربر لازم نیست بازه‌ای وارد کند.
+    for (final b in _atAutoRanges(good)) {
+      pool.addAll(natExpandCidr(b, maxPerBlock: 256));
+    }
+    pool.shuffle(Random());
+    final opened = await natScanIps(pool,
+        port: 443,
+        concurrency: 150,
+        want: 200,
+        budget: const Duration(minutes: 8),
+        cancelled: () => _abortRequested);
+    var cands = [for (final h in opened) h.ip];
+    dbg('IPSCAN: ${opened.length} IP باز از ${pool.length} آدرس');
+    if (cands.isEmpty) {
+      cands = await _cleanCandidates(); // اگر اسکن چیزی پیدا نکرد، فهرست قبلی
+    }
+    final winners = <String>[];
+    final saved = List<CleanIp>.of(cleanIps);
+    final key = _nk(sv);
+    final t0 = DateTime.now();
+    final prevWant = wantVpn;
+    try {
+      wantVpn = true;
+      for (var i = 0; i < cands.length; i++) {
+        if (_abortRequested || _phase != _AtPhase.running) break;
+        if (winners.length >= 10) break;
+        if (DateTime.now().difference(t0) > budget) break;
+        final ip = cands[i];
+        cleanIps = [CleanIp(ip, 0)];
+        natVar[key] = vIdx;
+        autoTestText.value = 'سنجش IP تمیز ${winners.length}/10 • ${i + 1}/${cands.length}';
+        var ok = false;
+        try {
+          if (await _start(sv)) {
+            await Future.delayed(const Duration(seconds: 2));
+            ok = await _tunnelTrafficOk();
+          }
+        } catch (e, stk) {
+          logError(e, stk);
+        } finally {
+          await _stopV2();
+        }
+        if (ok) winners.add(ip);
+      }
+    } finally {
+      wantVpn = prevWant;
+      natVar.remove(key);
+      cleanIps = saved;
+    }
+    return winners;
+  }
+
 }
