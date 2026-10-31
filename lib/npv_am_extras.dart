@@ -473,7 +473,8 @@ String? _npvOutboundLink(dynamic o, String remark) {
 class CleanIp {
   final String ip;
   final int ms;
-  CleanIp(this.ip, this.ms);
+  final int port; // IPPORT: پورت CDN که این IP روی آن باز بود
+  CleanIp(this.ip, this.ms, [this.port = 443]);
 }
 
 List<CleanIp> cleanIps = [];
@@ -665,7 +666,7 @@ Future<void> _saveCleanIps() async {
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString(
-        'cip_list_$natOpKey', jsonEncode(cleanIps.map((e) => [e.ip, e.ms]).toList()));
+        'cip_list_$natOpKey', jsonEncode(cleanIps.map((e) => [e.ip, e.ms, e.port]).toList()));
     await p.setInt('cip_at_$natOpKey', DateTime.now().millisecondsSinceEpoch);
   } catch (e, stk) {
     logError(e, stk);
@@ -679,7 +680,8 @@ Future<void> _loadCleanIps() async {
     if (s == null) return;
     cleanIps = (jsonDecode(s) as List).map<CleanIp>((e) {
       final x = e as List;
-      return CleanIp(x[0].toString(), (x[1] as num).toInt());
+      return CleanIp(x[0].toString(), (x[1] as num).toInt(),
+          x.length > 2 ? (x[2] as num).toInt() : 443);
     }).toList();
     final at = p.getInt('cip_at_$natOpKey');
     if (at != null) cleanIpsAt = DateTime.fromMillisecondsSinceEpoch(at);
