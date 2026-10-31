@@ -6775,6 +6775,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (abort || !wantVpn) break;
         _set('اتصال به ${s.name} با حالت «${_natSpecs[v].name}»...');
         natVar[_nk(s)] = v; // _start() reads the variant through natVarFor
+        natTryCount[v] = (natTryCount[v] ?? 0) + 1; // NATCOUNT
         if (!await _start(s)) continue;
         final p = await pingAny(
             total: Duration(seconds: nationalMode ? 12 : 9), direct: true);
@@ -6788,6 +6789,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
         if (p != null) {
           natVarSet(s, v);
+          natWinCount[v] = (natWinCount[v] ?? 0) + 1; // NATCOUNT
           dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» از تونل واقعی جواب داد');
           return true;
         }
@@ -6839,6 +6841,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       } catch (e, stk) { logError(e, stk); }
       return null;
     }
+  }
+
+  // TUNCHK: ترافیک واقعی از داخل تونل (VPN) باید هم به google و هم به youtube برسد.
+  // در حالت پروکسی تونلی وجود ندارد، پس بررسی انجام نمی‌شود.
+  Future<bool> _tunnelTrafficOk() async {
+    if (proxyMode) return true;
+    await Future.delayed(const Duration(seconds: 2));
+    final g = await _siteOpens('https://www.google.com/generate_204', viaCore: false)
+        .timeout(const Duration(seconds: 12), onTimeout: () => false);
+    if (!g) return false;
+    return _siteOpens('https://www.youtube.com/', viaCore: false)
+        .timeout(const Duration(seconds: 12), onTimeout: () => false);
   }
 
   // [trust] = the server was already tested: skip the extra verification.
@@ -7011,6 +7025,37 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           continue;
         }
       }
+      // TUNCHK: همه‌ی مسیرها: اگر ترافیک واقعی از تونل رد شد، سرور رد می‌شود
+      var tunChecked = false;
+      if (!abort && wantVpn) {
+        final tunOk = await _tunnelTrafficOk();
+        if (abort) return false;
+        if (!tunOk) {
+          // NATTUN: در نت ملی، همان حالت‌های جایگزین را روی همین سرور با اتصال واقعی امتحان می‌کنیم.
+          // هر حالتی که ترافیک تونل را رد کند، ذخیره می‌شود؛ وگرنه سرور رد می‌شود.
+          var ladderOk = false;
+          if (nationalMode) {
+            await _stopV2();
+            ladderOk = await _natLadder(s, socialGate: _tunnelTrafficOk);
+            if (abort) return false;
+          }
+          if (ladderOk) {
+            tunChecked = true;
+            dbg('اتصال: ${s.name} با جایگزین ترافیک تونل OK (google + youtube)');
+          } else {
+            siteSkips++;
+            s.svc = 0;
+            s.badAt = DateTime.now();
+            await _stopV2();
+            dbg('اتصال: ${s.name} رد شد — ترافیک تونل (google/youtube) رد نشد • سرور بعدی');
+            errorLog.value = '${s.name}: ترافیک تونل رد شد — سرور بعدی…';
+            continue;
+          }
+        } else {
+          tunChecked = true;
+          dbg('اتصال: ${s.name} ترافیک تونل OK (google + youtube)');
+        }
+      }
       // STRICT: Telegram / YouTube / Instagram must open through the tunnel.
       // Also runs under national mode (softer retries + ladder before reject).
       if (!trust && !pin) {
@@ -7109,7 +7154,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // فقط تلگرام باید از تونل باز شود
           // IPTEST: in national mode the server is accepted when YouTube or
           // Instagram opens through the tunnel (Telegram was too strict for IPs)
-          final accept2 = nationalMode ? (yt || ig) : tg;
+          final accept2 = tunChecked ? true : (nationalMode ? (yt || ig) : tg);
 
           if (!accept2) {
             siteSkips++;
