@@ -7068,6 +7068,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         } else {
           tunChecked = true;
           dbg('اتصال: ${s.name} ترافیک تونل OK (google + youtube)');
+          // SUBSTPROJ: در نت ملی، پایه‌ی سالم هم یک بار جایگزین‌ها را با تونل می‌سنجد.
+          // اگر جایگزینی ترافیک بدهد، برای همین سرور ذخیره و اعمال می‌شود؛ وگرنه پایه می‌ماند.
+          if (nationalMode && natVar[_nk(s)] == null && !natSubstSearched.contains(s.key)) {
+            natSubstSearched.add(s.key);
+            await _stopV2();
+            final sub = await _natLadder(s, socialGate: _tunnelTrafficOk);
+            if (abort) return false;
+            if (!sub) {
+              // جایگزینی نبود: پایه‌ی قبلاً سالم را دوباره بالا می‌آوریم
+              if (!await _start(s)) {
+                siteSkips++;
+                s.svc = 0;
+                s.badAt = DateTime.now();
+                continue;
+              }
+            } else {
+              dbg('اتصال: ${s.name} با جایگزین ذخیره‌شده ترافیک تونل OK');
+            }
+          }
         }
       }
       // STRICT: Telegram / YouTube / Instagram must open through the tunnel.
@@ -12903,3 +12922,6 @@ extension ProjectNatSweep on _HomePageState {
   }
 
 }
+
+// SUBSTPROJ: سرورهایی که جایگزین‌هایشان یک بار در این اجرا سنجیده شده‌اند
+final Set<String> natSubstSearched = <String>{};
