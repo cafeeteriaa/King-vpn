@@ -1651,8 +1651,14 @@ extension AutoTestEngine on _HomePageState {
     // اگر خالی بود، همان جستجوی نت ملی برنامه اجرا می‌شود تا سرور سالم پیدا شود.
     var healthy = _usable().take(_atSubstServers).toList();
     if (healthy.isEmpty && !_abortRequested) {
-      _set('پوشه‌ی سرورهای سالم خالی است؛ جستجو برای پر کردنش...');
+      _set('پوشه‌ی سرورهای سالم خالی است؛ جستجو از پوشه‌ی منابع تازه...');
       try {
+        // FRESHFIRST: اول پوشه‌ی منابع تازه (اگر نیست یا قدیمی است) به‌روز می‌شود، بعد جستجو
+        if (!natHotReady()) {
+          await natHotEnsure(force: true).timeout(const Duration(minutes: 5));
+        } else {
+          await natHotEnsure().timeout(const Duration(minutes: 5));
+        }
         await _findGood(3).timeout(const Duration(minutes: 8));
       } catch (e, stk) {
         logError(e, stk);
