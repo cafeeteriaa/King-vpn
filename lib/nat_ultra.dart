@@ -1017,11 +1017,38 @@ String _natLinkFor(Server s, int v, {bool reuse = false}) {
     link = _natSetHost(s.link, ip, s.host);
     // the fingerprint / alpn / sni / mode changes above must survive the swap
     link = _natApplyTweaks(link, x, s);
+    // IPPORT: همان پورتی که IP روی آن باز بود (اگر پورت ثابت نباشد)
+    var ipPort = 443;
+    for (final c in cleanIps) {
+      if (c.ip == ip) {
+        ipPort = c.port;
+        break;
+      }
+    }
     if (x.port) {
       link = _natSetPort(link, int.tryParse(portPick('p2')) ?? 2053);
+    } else if (ipPort != 443) {
+      link = _natSetPort(link, ipPort);
     }
   }
   return link;
+}
+
+// DNSPRE: آدرس DoH این حالت از گوشی باز است؟ (فقط یک بار سنجیده می‌شود)
+final Map<int, bool> dohPreOk = {};
+Future<bool> natDohUsable(int v) async {
+  if (v < 0 || v >= _natSpecs.length) return false;
+  final doh = _natSpecs[v].doh;
+  if (doh == null) return true;
+  final cached = dohPreOk[v];
+  if (cached != null) return cached;
+  var host = doh;
+  final u = Uri.tryParse(doh);
+  if (u != null && u.hasAuthority) host = u.host;
+  final ms = await natTcpProbe(host, 443, const Duration(seconds: 4));
+  final ok = ms != null;
+  dohPreOk[v] = ok;
+  return ok;
 }
 
 // link-level tweaks (fingerprint, ALPN, transport mode, SNI, early data)
