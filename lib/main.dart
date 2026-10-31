@@ -6766,7 +6766,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (socialGate != null && cleanIps.isEmpty) {
       final w = await _atIpSweep(_usable(), const Duration(minutes: 20));
       if (w.isNotEmpty) {
-        cleanIps = [for (final ip in w) CleanIp(ip, 0)];
+        cleanIps = List<CleanIp>.of(w);
         cleanIpsAt = DateTime.now();
         await _saveCleanIps();
       } else {
@@ -6788,6 +6788,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       for (final v in cand) {
         if (abort || !wantVpn) break;
         _set('اتصال به ${s.name} با حالت «${_natSpecs[v].name}»...');
+        // DNSPRE: اگر آدرس DoH این حالت از گوشی باز نیست، امتحانش نمی‌کنیم
+        if (!await natDohUsable(v)) {
+          dbg('نردبان: DNS حالت «${_natSpecs[v].name}» از گوشی باز نیست؛ رد شد');
+          continue;
+        }
         natVar[_nk(s)] = v; // _start() reads the variant through natVarFor
         natTryCount[v] = (natTryCount[v] ?? 0) + 1; // NATCOUNT
         if (!await _start(s)) continue;
@@ -12850,7 +12855,9 @@ extension ProjectNatSweep on _HomePageState {
 
   // IPSWEEP: هر IP تمیز را با اتصال واقعی روی یک سرور پشت کلودفلر امتحان می‌کند.
   // فقط IP‌هایی که ترافیک تونل (google و youtube) بدهند نگه داشته می‌شوند (حداکثر ۱۰ تا).
-  Future<List<String>> _atIpSweep(List<Server> pool, Duration budget) async {
+  // IPSWEEP: IP‌های باز را روی همه‌ی پورت‌های CDN (_natCfPorts) پیدا می‌کند، سپس هر جفت IP:پورت
+  // را با اتصال واقعی و بررسی تونل (google و youtube) می‌سنجد. فقط جفت‌های ترافیک‌دار نگه داشته می‌شوند.
+  Future<List<CleanIp>> _atIpSweep(List<Server> pool, Duration budget) async {
     Server? server;
     for (final x in pool) {
       if (_natCdnNets.contains(x.net)) {
@@ -12858,34 +12865,40 @@ extension ProjectNatSweep on _HomePageState {
         break;
       }
     }
-    if (server == null) return <String>[];
+    if (server == null) return <CleanIp>[];
     final sv = server;
     final vIdx = _natSpecs.indexWhere((x) => x.name == 'IP تمیز Cloudflare');
-    if (vIdx <= 0) return <String>[];
-    // SCANFIRST: اول در بازه‌های کلودفلر دنبال IP‌های باز (TCP:443) می‌گردیم، چون وقتی نت ملی
-    // IPها را فیلتر کرده، بیشتر آدرس‌ها جواب نمی‌دهند. بعد فقط IPهای باز با تونل سنجیده می‌شوند.
-    final pool = <String>[];
-    for (final r in _cfRanges) {
-      pool.addAll(natExpandCidr(r, maxPerBlock: 512));
+    if (vIdx <= 0) return <CleanIp>[];
+
+    // بازه‌ها: کلودفلر + بلوک‌های /24 سرورهای خود برنامه
+    final ranges = <String>[..._cfRanges, ..._atAutoRanges(good)];
+    final pool2 = <String>[];
+    for (final r in ranges) {
+      pool2.addAll(natExpandCidr(r, maxPerBlock: 512));
     }
-    // AUTORANGE: بازه‌های غیرکلودفلر خودکار از IP سرورهای خودِ برنامه ساخته می‌شوند
-    // (بلوک /24 هر سرور IP دار). کاربر لازم نیست بازه‌ای وارد کند.
-    for (final b in _atAutoRanges(good)) {
-      pool.addAll(natExpandCidr(b, maxPerBlock: 256));
+    pool2.shuffle(Random());
+
+    // اسکن همه‌ی پورت‌های CDN؛ هر IP باز همراه پورتش ذخیره می‌شود
+    final opened = <CleanIp>[];
+    for (final port in _natCfPorts) {
+      if (_abortRequested) break;
+      final hits = await natScanIps(pool2,
+          port: port,
+          concurrency: 150,
+          want: 60,
+          budget: const Duration(minutes: 2),
+          cancelled: () => _abortRequested);
+      for (final h in hits) {
+        opened.add(CleanIp(h.ip, h.ms, port));
+      }
     }
-    pool.shuffle(Random());
-    final opened = await natScanIps(pool,
-        port: 443,
-        concurrency: 150,
-        want: 200,
-        budget: const Duration(minutes: 8),
-        cancelled: () => _abortRequested);
-    var cands = [for (final h in opened) h.ip];
-    dbg('IPSCAN: ${opened.length} IP باز از ${pool.length} آدرس');
+    dbg('IPSCAN: ${opened.length} جفت IP:پورت باز');
+    var cands = opened;
     if (cands.isEmpty) {
-      cands = await _cleanCandidates(); // اگر اسکن چیزی پیدا نکرد، فهرست قبلی
+      cands = [for (final ip in await _cleanCandidates()) CleanIp(ip, 0, 443)];
     }
-    final winners = <String>[];
+
+    final winners = <CleanIp>[];
     final saved = List<CleanIp>.of(cleanIps);
     final key = _nk(sv);
     final t0 = DateTime.now();
@@ -12896,8 +12909,8 @@ extension ProjectNatSweep on _HomePageState {
         if (_abortRequested || _phase != _AtPhase.running) break;
         if (winners.length >= 10) break;
         if (DateTime.now().difference(t0) > budget) break;
-        final ip = cands[i];
-        cleanIps = [CleanIp(ip, 0)];
+        final c = cands[i];
+        cleanIps = [c];
         natVar[key] = vIdx;
         autoTestText.value = 'سنجش IP تمیز ${winners.length}/10 • ${i + 1}/${cands.length}';
         var ok = false;
@@ -12911,7 +12924,7 @@ extension ProjectNatSweep on _HomePageState {
         } finally {
           await _stopV2();
         }
-        if (ok) winners.add(ip);
+        if (ok) winners.add(c);
       }
     } finally {
       wantVpn = prevWant;
@@ -12920,7 +12933,6 @@ extension ProjectNatSweep on _HomePageState {
     }
     return winners;
   }
-
 }
 
 // SUBSTPROJ: سرورهایی که جایگزین‌هایشان یک بار در این اجرا سنجیده شده‌اند
