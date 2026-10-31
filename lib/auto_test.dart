@@ -1647,15 +1647,22 @@ extension AutoTestEngine on _HomePageState {
     offlineOnly = false;
     await ultimateSave();
 
+    // HEALTHYFIRST: تا پوشه‌ی سرورهای سالم پر نشده، تست شروع نمی‌شود.
+    // اگر خالی بود، همان جستجوی نت ملی برنامه اجرا می‌شود تا سرور سالم پیدا شود.
     var healthy = _usable().take(_atSubstServers).toList();
-    for (var w = 0; healthy.isEmpty && w < 30 && !_abortRequested; w++) {
-      await Future<void>.delayed(const Duration(seconds: 1));
+    if (healthy.isEmpty && !_abortRequested) {
+      _set('پوشه‌ی سرورهای سالم خالی است؛ جستجو برای پر کردنش...');
+      try {
+        await _findGood(3).timeout(const Duration(minutes: 8));
+      } catch (e, stk) {
+        logError(e, stk);
+      }
       healthy = _usable().take(_atSubstServers).toList();
     }
     if (healthy.isEmpty) {
       _atAdd('SUBST-NOHEALTHY',
-          'پوشه‌ی سرورهای سالم خالی است؛ اول یک بار جستجو کن تا سرور سالم پیدا شود');
-      _itemResult[name] = 'اجرا نشد: سرور سالمی نبود';
+          'تست شروع نشد: پوشه‌ی سرورهای سالم خالی ماند و جستجو هم سرور سالمی پیدا نکرد');
+      _itemResult[name] = 'اجرا نشد: سرور سالمی پیدا نشد';
       return;
     }
     final healthySet = _usable().toSet();
