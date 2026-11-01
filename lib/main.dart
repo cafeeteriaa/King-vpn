@@ -5013,6 +5013,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return ok;
   }
 
+  // ADAFTER: بعد از اتصالی که کاربر خودش زده، تبلیغ نشان داده می‌شود.
+  // اتصال قطع نمی‌شود و اگر تبلیغ کامل دیده نشود، فقط جلسه‌ی ۴ ساعته شروع نمی‌شود.
+  // خلبان، تست خودکار، خودترمیمی و تعویض خودکار سرور هرگز تبلیغ نمی‌گیرند.
+  Future<void> _adAfterUserConnect() async {
+    if (_automationRunning) return;
+    if (!requireRewardedAd || (_sessionValid && !_adEveryConnect)) return;
+    if (!mounted || !connected) return;
+    unawaited(adsRemoteLoad());
+    final ok = await showAdPage(context);
+    if (ok) await _startSession();
+  }
+
   void _adAfterConnect() {
     // AdMob test interstitial removed
   }
@@ -8594,13 +8606,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> connectRow(String gid) => _doConnect(row: gid);
 
   Future<void> _doConnect({Server? only, String? row}) async {
-    // AD FIRST: the ad page opens right when the user taps connect
+    // ADAFTER: اتصال فوری انجام می‌شود؛ تبلیغ بعد از وصل شدن نشان داده می‌شود (در بخش «if (ok)» پایین)
     // خلبان فقط با دکمه «خلبان» روشن می‌شود — اتصال عادی مستقل است
-    unawaited(_prepNow()); // network detection runs while the ad is shown
-    if (!await _ensureSession()) {
-      _set('برای اتصال باید تبلیغ را کامل ببینید');
-      return;
-    }
+    unawaited(_prepNow());
     // DNS خودکار: سریع‌ترین ارائه‌دهنده (کش ۱۰ دقیقه؛ موازی با مجوز VPN)
     if (secureDns && dnsProv == 'auto') {
       try {
@@ -8770,7 +8778,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (ok) {
           _startWatch();
           unawaited(_saveCache().catchError((e) => logError(e)));
-          _adAfterConnect();
+          unawaited(_adAfterUserConnect()); // ADAFTER: تبلیغ بعد از وصل شدن
         } else {
           // the personal server did not connect: tell the user why
           if (only?.personal == true && !abort) _checkPersonal(force: true);
