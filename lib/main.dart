@@ -1234,7 +1234,17 @@ List<String> _dbgHelpOf(String m) {
         'رویداد توربو سرعت بعد از اتصال (فعال‌سازی Mux / حذف Fragment).',
         'اگر پیام «توربو سرعت فعال • Mux» آمد یعنی موفق بوده. اگر بعدش قطع شد، به E-CORE-DROP نگاه کن نه توربو.');
   }
-  if (has('خودترمیمی') || has('یتیم') || has('ORPHAN') || has('orphan')) {
+  if (has('خودترمیمی✓')) {
+    return h('E-HEAL-OK', 'app_main/king_heal.dart → _healAct',
+        'خودترمیمی یک اقدام را اجرا کرد و موفق بود. اطلاعاتی است، خطا نیست.',
+        'نیازی به کار نیست.');
+  }
+  if (has('ناشناخته کنار گذاشته شد')) {
+    return h('E-NAT-UNTRUSTED-IP', 'app_main/main.dart → _testBatchFast (فیلتر IP در نت ملی)',
+        'در نت ملی IPهای سرور که قبلاً جواب نداده یا از اسکن نیامده‌اند، عمداً تست نمی‌شوند (چون احتمالاً فیلترند). این طراحی است و خطا نیست؛ ولی اگر همه‌ی IPها کنار گذاشته شوند، جستجو سرور سالم پیدا نمی‌کند.',
+        'اسکن IP (nat scan) یا منبع‌های تازه کمک می‌کند؛ اگر همه‌ی سرورها دامنه‌ای هستند این پیام طبیعی است. کد تغییری لازم ندارد.');
+  }
+  if (has('یتیم') || has('ORPHAN') || has('orphan')) {
     return h('E-ORPHAN',
         'app_main/main.dart → _startWatch / dropTimer',
         'میخواهم وصل باشم ولی چند ثانیه هیچ کار اتصال/تعویضی در جریان نبود؛ واچ‌داگ failover کرد.',
@@ -6992,7 +7002,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // National: more retries + longer waits — tunnel/DNS can be slow to settle
         final pingTries = nationalMode || indestructibleMode ? 5 : 2;
         final pingSec = nationalMode || indestructibleMode ? 14 : 7;
+        var pingUsed = 0;
         for (var i = 0; i < pingTries && p == null && !abort; i++) {
+          pingUsed++;
           p = await pingAny(
               total: Duration(seconds: pingSec), direct: true);
           if (p == null) {
@@ -7005,7 +7017,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 '(${DateTime.now().difference(pingT0).inSeconds}s) • خطا: '
                 '${_short(lastPingErr, 90)} • tun: $tunNames • برنامه‌های '
                 'ردشده از VPN: ${bypassApps.length} • ایران مستقیم: $iranRoute'
-            : 'پینگ از تونل ${p}ms (${DateTime.now().difference(pingT0).inSeconds}s) '
+            : 'پینگ از تونل ${p}ms (${DateTime.now().difference(pingT0).inSeconds}s) • تلاش $pingUsed/$pingTries '
                 '• ${s.name} • tun: $tunNames');
         if (p == null) {
           await _stopV2();
@@ -10131,6 +10143,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return 1;
   }
 
+  // PROMOSS: ss configs whose name is a channel promo ("Telegram = t.me/...") failed every core test
+  // in the logs. They are not removed, only tested after all other servers.
+  bool _promoSs(Server s) =>
+      s.link.toLowerCase().startsWith('ss://') && s.name.toLowerCase().contains('t.me/');
+
   int _cmpPending(Server a, Server b) {
     if (nationalMode) {
       final nx = _natRank(b) - _natRank(a); // NATIONALPATCH
@@ -10152,6 +10169,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final y = (b.ping != null ? 1 : 0) - (a.ping != null ? 1 : 0);
       if (y != 0) return y;
     }
+    final pr = (_promoSs(a) ? 1 : 0) - (_promoSs(b) ? 1 : 0);
+    if (pr != 0) return pr;
     final t = _tier(b) - _tier(a);
     if (t != 0) return t;
     final r = (_rate(b) * 10).round() - (_rate(a) * 10).round();
@@ -10352,7 +10371,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
       }
       dbg('♥ متصل ${up}s • ${current?.name ?? '-'} • پینگ ${current?.ping ?? '-'}'
-          ' • سرعت ${current?.speed ?? '-'} • سالم ${good.length}'
+          ' • سرعت ${current?.speed == null ? '-' : current!.speed!.toStringAsFixed(2)} • سالم ${good.length}'
           ' (آماده ${_ready()}) • صف ${pending.length}'
           ' • سیاه ${failed.length} • جستجو ${b(searching)}');
     }
