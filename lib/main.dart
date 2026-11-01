@@ -2382,7 +2382,7 @@ void dbgXrayErr(String name) {
   try {
     final f = File(kXrayErrPath);
     if (!f.existsSync()) {
-      dbg('XRAY-ERR $name: فایل خطای هسته ساخته نشد (هسته قبل از خواندن کانفیگ متوقف شد)');
+      dbg('XRAY-ERR $name: هسته خطایی در فایل خطا ننوشت (همیشه نشانه‌ی شکست نیست؛ علت را در E-CONFIG-FAIL یا CORE-REASON ببین)');
       dbgCoreLogcat(name);
       return;
     }
@@ -4135,7 +4135,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         dbg('V2RAY-STATE ${st.state}');
       }
       // DROP-REASON: مشخص کن قطع از کدام طرف بود (کد ما یا هسته/اندروید)
-      if (st.state == 'DISCONNECTED' && lastState == 'CONNECTED' && wantVpn) {
+      if (st.state == 'DISCONNECTED' && lastState == 'CONNECTED' && wantVpn &&
+          !busy && !switching) {
         dbg('DROP-REASON: قطع از سمت هسته/اندروید • busy=$busy switching=$switching '
             'بعد از آخرین تعویض=${DateTime.now().difference(lastSwitch).inSeconds}s');
       }
@@ -6867,10 +6868,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<bool> _tunnelTrafficOk() async {
     if (proxyMode) return true;
     await Future.delayed(const Duration(seconds: 2));
-    final g = await _siteOpens('https://www.google.com/generate_204', viaCore: false)
+    // TUNFIX: viaCore true = the core proxy (real outbound). DIRECT from this app bypasses the VPN
+    // because the app is excluded from its own tunnel, so every server was wrongly rejected.
+    final g = await _siteOpens('https://www.google.com/generate_204', viaCore: true)
         .timeout(const Duration(seconds: 12), onTimeout: () => false);
     if (!g) return false;
-    return _siteOpens('https://www.youtube.com/', viaCore: false)
+    return _siteOpens('https://www.youtube.com/', viaCore: true)
         .timeout(const Duration(seconds: 12), onTimeout: () => false);
   }
 
