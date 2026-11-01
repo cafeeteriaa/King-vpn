@@ -2830,6 +2830,8 @@ const int kDelayConcurrency = 4; // کف تست همزمان
 // NATCONC12: نت ملی هم مثل بقیه‌ی مسیرها با DELAY_THREADS (Java = 12) تست می‌شود.
 // اگر در نت ملی خطاهای زیاد -1 یا WATCHDOG آمد، این عدد را به 8 یا 4 برگردان.
 const int kNatDelayConcurrency = 12;
+// SLOWSWITCH: سرعت پایین پشت‌سرهم به این مدت که رسید، سرور عوض می‌شود (نه یک‌باره، نه یک ساعت).
+const Duration kSlowSwitchAfter = Duration(minutes: 5);
 
 class _DelayGate {
   _DelayGate(this.max);
@@ -3882,6 +3884,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // STANDBYBEAT: ضربان هر بار که _standbyRun صدا زده می‌شود (حتی وقتی گارد برمی‌گرداند)
   DateTime lastStandbyTry = DateTime.fromMillisecondsSinceEpoch(0);
   int fails = 0, slowCount = 0, speedTick = 0, lowSpeed = 0, badPingRun = 0;
+  DateTime? _lowSince; // SLOWHOUR: زمان اولین اندازه‌گیری سرعت پایین (پشت‌سرهم)
+  bool _slowHourPassed() =>
+      _lowSince != null &&
+      DateTime.now().difference(_lowSince!) >= kSlowSwitchAfter;
   int stallRun = 0; // SPEEDSWITCHPATCH: checks in a row under 100 KB/s
   int siteFail = 0; // checks in a row where no real site opened
   bool siteSeen = false; // a real site opened on THIS connection
@@ -6631,6 +6637,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     fails = 0;
     slowCount = 0;
     lowSpeed = 0;
+    _lowSince = null; // SLOWHOUR reset for the new server
     badPingRun = 0;
     noData = 0;
     stallRun = 0;
@@ -8832,6 +8839,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     current = null;
     upServer = null;
+    // SCREENCLEAR: قطع اتصال فقط لیست صفحه را خالی می‌کند تا جستجوی بعدی سرور تازه پیدا کند.
+    // پوشه‌ی سرورهای سالم (_resMap) دست‌نخورده می‌ماند و چیزی از آن حذف نمی‌شود.
+    good.clear();
+    warmKeys.clear();
     tunWarn = false;
     abort = false;
     if (mounted) setState(() => connected = false);
@@ -10034,6 +10045,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               } else {
                 lowSpeed = 0;
               }
+              // SLOWHOUR: سرعت پایین باید بی‌وقفه به مدت kSlowSwitchAfter ادامه داشته باشد تا تعویض شود
+              if (sp * 1024 < 40 || (minSpeedKB > 0 && sp * 1024 < minSpeedKB)) {
+                _lowSince ??= DateTime.now();
+              } else {
+                _lowSince = null;
+              }
             }
             // CRITICAL FIX: detect dead traffic faster (was 5 → ~2.5 min, now 3)
             if (noData >= 3) {
@@ -10044,6 +10061,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             }
             // قطع جریان: حداقل ۳ بار زیر ۴۰ KB/s + فاصله زمانی کمتر
             if (stallRun >= 3 &&
+                _slowHourPassed() &&
                 _ready() > 0 &&
                 DateTime.now().difference(lastSwitch) >
                     const Duration(seconds: 35)) {
@@ -10092,7 +10110,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               return;
             }
             // سرعت پایین: فقط بعد از مدت طولانی‌تر و با آستانه بالاتر
-            if (lowSpeed >= 6 &&
+            if (_slowHourPassed() &&
                 _ready() > 0 &&
                 DateTime.now().difference(lastSwitch) >
                     const Duration(seconds: 90)) {
