@@ -2827,6 +2827,9 @@ Future<int?> probe(Server s) async {
 // The Go core gets at most this many native delay calls at once. Bigger values
 // make the pipes close; smaller values make the test crawl one by one.
 const int kDelayConcurrency = 4; // کف تست همزمان
+// NATCONC12: نت ملی هم مثل بقیه‌ی مسیرها با DELAY_THREADS (Java = 12) تست می‌شود.
+// اگر در نت ملی خطاهای زیاد -1 یا WATCHDOG آمد، این عدد را به 8 یا 4 برگردان.
+const int kNatDelayConcurrency = 12;
 
 class _DelayGate {
   _DelayGate(this.max);
@@ -4705,7 +4708,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // WORKERS12 v1: fastWorkers and bgWorkers default to 12 for every search path
       if (p.getBool('workers12_v2') != true) {
         // SPEEDBACK2: تعداد تست همزمان دیگر به ۱۲ قفل نمی‌شود
-        natWorkers = 4;
+        natWorkers = kNatDelayConcurrency;
         await p.setBool('workers12_v2', true);
         await _saveSettings();
       }
@@ -4713,7 +4716,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // concurrent test while connected = 1 everywhere. Applied once; later changes are kept.
       if (p.getBool('contsearch_v1') != true) {
         // SPEEDBACK2: تست همزمان دیگر به ۱ قفل نمی‌شود
-        natWorkers = 4;
+        natWorkers = kNatDelayConcurrency;
         await p.setBool('contsearch_v1', true);
         await saveNumPrefs();
         await _saveSettings();
@@ -5649,8 +5652,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         alive.add(s);
       }
     });
-    if (ipList.isNotEmpty) {
-      natLiveBox('IP تست TCP: ${ipList.length} آدرس • باز $ipOpen • بقیه حذف شد');
+    // PRECHECK: فقط نت جهانی. سرورهای دامنه‌ای قبل از تست هسته با یک اتصال TCP سبک سنجیده می‌شوند
+    // (بدون هسته و موازی). سرورهایی که پورتشان باز نیست فقط در این دسته کنار می‌روند.
+    // نت ملی دست‌نخورده است چون DNS آن مطمئن نیست.
+    if (!nationalMode && alive.isNotEmpty) {
+      final domains = alive.where((s) => !s.isIp).toList();
+      final passed = <Server>{};
+      await pool<Server>(domains, max(60, fastWorkers), (s) async {
+        if (abort || stale()) return;
+        final pg = await probe(s);
+        if (pg != null) {
+          s.ping ??= pg;
+          passed.add(s);
+        }
+      });
+      alive.removeWhere((s) => !s.isIp && !passed.contains(s));
+      dbg('پیش‌سنجش TCP: ${passed.length} از ${domains.length} دامنه پورتشان باز بود');
     }
     alive.sort(_cmpAlive);
     dTcp += alive.length;
@@ -5670,7 +5687,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // NATGATE4: نت ملی همیشه ۴ تست هم‌زمان (تنظیم «جستجوی اول» فقط برای بقیه‌ی مسیرها)
     // تست سریع/خلبان: عدد «تست همزمان» کاربر (پیش‌فرض ۱۲) اعمال می‌شود؛ نت ملی جدا (۴) است
     final gateMax = nationalMode
-        ? kDelayConcurrency
+        ? kNatDelayConcurrency
         : fastWorkers.clamp(kDelayConcurrency, 60);
     _delayGate.max = gateMax;
     dbg('تست سریع: $gateMax تست هم‌زمان • دسته ${alive.length}');
@@ -8299,7 +8316,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (natFloor >= 10) natLevel = 10;
       tcpTimeout = Duration(seconds: round >= 8 ? 10 : (round >= 4 ? 8 : 6));
       delayTimeout = Duration(seconds: max(delayTimeout.inSeconds, round >= 8 ? 18 : 14));
-      natWorkers = 4; // NATGATE4: national matrix tests always 4
+      natWorkers = kNatDelayConcurrency; // NATGATE4: national matrix tests always 4
       // grow the variant matrix so later rounds cover more combinations
       try {
         natGrow(round >= 8 ? 400 : (round >= 4 ? 200 : 80));
@@ -8652,7 +8669,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // از حالت‌های مداد/پروفایل) سرورهای سالم ولی با پینگ بالاتر حذف می‌شدند
         badPingMs = max(badPingMs, 6000);
         if (natLevel < 2) natLevel = 2;
-        natWorkers = 4; // NATGATE4: national matrix tests always 4
+        natWorkers = kNatDelayConcurrency; // NATGATE4: national matrix tests always 4
         delayTimeout = Duration(
             seconds: max(delayTimeout.inSeconds, 16));
         tcpTimeout = Duration(
@@ -8665,7 +8682,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // NORMAL: start light (level 1) so many servers get a quick ping first;
         // bestEffort in _acquire escalates 2→4 only if needed. No folder inject.
         if (natLevel < 1) natLevel = 1;
-        natWorkers = 4; // NATGATE4: national matrix tests always 4
+        natWorkers = kNatDelayConcurrency; // NATGATE4: national matrix tests always 4
         delayTimeout = Duration(
             seconds: max(delayTimeout.inSeconds, 12));
         tcpTimeout = Duration(
@@ -12839,7 +12856,7 @@ bool natForce = false; // the national-network button was tapped
 bool natAll = false; // button session: search ALL sources, skip none
 
 // NATWORKERSPATCH
-int natWorkers = 4; // locked parallel tests in national mode
+int natWorkers = kNatDelayConcurrency; // locked parallel tests in national mode
 
 // NATRESPATCH
 class _NatResItem {
