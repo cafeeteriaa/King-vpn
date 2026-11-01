@@ -5670,23 +5670,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         alive.add(s);
       }
     });
-    // PRECHECK: فقط نت جهانی. سرورهای دامنه‌ای قبل از تست هسته با یک اتصال TCP سبک سنجیده می‌شوند
-    // (بدون هسته و موازی). سرورهایی که پورتشان باز نیست فقط در این دسته کنار می‌روند.
-    // نت ملی دست‌نخورده است چون DNS آن مطمئن نیست.
-    if (!nationalMode && alive.isNotEmpty) {
-      final domains = alive.where((s) => !s.isIp).toList();
-      final passed = <Server>{};
-      await pool<Server>(domains, max(60, fastWorkers), (s) async {
-        if (abort || stale()) return;
-        final pg = await probe(s);
-        if (pg != null) {
-          s.ping ??= pg;
-          passed.add(s);
-        }
-      });
-      alive.removeWhere((s) => !s.isIp && !passed.contains(s));
-      dbg('پیش‌سنجش TCP: ${passed.length} از ${domains.length} دامنه پورتشان باز بود');
-    }
     alive.sort(_cmpAlive);
     dTcp += alive.length;
     realTested = 0;
