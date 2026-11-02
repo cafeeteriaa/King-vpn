@@ -792,6 +792,68 @@ String _dbgWhere() {
 List<String> _dbgHelpOf(String m) {
   List<String> h(String c, String w, String a, String f) => [c, w, a, f];
   bool has(String k) => m.contains(k);
+  // KINGDIAG / CRASHGUARD: خطوط علت کرش؛ قبل از بقیه‌ی الگوها می‌آیند تا کلماتی مثل Activity یا
+  // Exception داخل استک آن‌ها را اشتباه طبقه‌بندی نکند
+  if (has('CRASHGUARD')) {
+    return h('E-CRASHGUARD',
+        'app_main/main.dart → _crashGuardInit (نشانه‌ی king_inflight.txt) و _start',
+        'برنامه وسط شروع اتصال به یک سرور ناگهان بسته شد (کرش یا کشته‌شدن توسط سیستم؛ همان پیام «king_vpn بسته شد زیرا این برنامه دارای اشکال است» سامسونگ). آن سرور موقتاً رد می‌شود تا چرخه‌ی «کرش ← باز شدن ← همان سرور ← کرش» ادامه پیدا نکند، و تا ۲۴ ساعت کانفیگ اختصاصی REALITY هم خاموش است.',
+        'نیازی به کار نیست. اگر با چند سرور مختلف تکرار شد، علت در خود هسته یا سرویس VPN است: خطوط PROC-EXIT و CRASH-JAVA همین گزارش را برای بررسی بفرست.');
+  }
+  if (has('CRASH-JAVA')) {
+    return h('E-CRASH-JAVA',
+        'android_src/KingDiag.java (ثبت استثنای کنترل‌نشده) — خود استک در همین خط است',
+        'یک استثنای Java کنترل‌نشده (در برنامه، پلاگین flutter_v2ray_client یا سرویس VPN) پردازه را کشت. نام استثنا و محل دقیق آن در همین خط و خطوط CRASH-JAVA بعدی است.',
+        'خطوط CRASH-JAVA را کامل برای بررسی بفرست؛ محل دقیق خطا مشخص است و اصلاح کوچکی دارد.');
+  }
+  if (has('PROC-EXIT')) {
+    var pc = 'E-PROC-EXIT';
+    var pw = 'android_src/KingDiag.java (ApplicationExitInfo سیستم‌عامل)';
+    var pcause = 'علت پایان یافتن پردازه‌ی قبلی برنامه از دید خود اندروید؛ نوع آن (reason) اول همین خط است.';
+    var pfix = 'خط کامل را برای بررسی بفرست.';
+    if (has('-NATIVE')) {
+      pc = 'E-PROC-EXIT-NATIVE';
+      pw = 'لایه‌ی native (هسته‌ی Xray/Go یا کتابخانه‌ی tun)';
+      pcause = 'نام کتابخانه یا تابعی که هنگام کرش native در حافظه بود (از گزارش سقوط اندروید).';
+      pfix = 'این خطوط را همراه خط CRASH_NATIVE برای بررسی بفرست؛ نشان می‌دهد کرش در کدام کتابخانه بوده.';
+    } else if (has('-ANR')) {
+      pc = 'E-PROC-EXIT-ANR';
+      pw = 'ترد اصلی اندروید (استک لحظه‌ی ANR)';
+      pcause = 'خط‌های استک ترد اصلی در لحظه‌ای که برنامه جواب نمی‌داد.';
+      pfix = 'این خطوط نشان می‌دهند ترد اصلی روی چه کاری قفل بود؛ برای رفع دقیق بفرست.';
+    } else if (has('CRASH_NATIVE')) {
+      pc = 'E-PROC-EXIT-CRASH-NATIVE';
+      pw = 'لایه‌ی native (هسته‌ی Xray/Go یا کتابخانه‌ی tun)';
+      pcause = 'پردازه با کرش native (SIGSEGV/SIGABRT) تمام شد؛ معمولاً panic هسته‌ی Go هنگام راه‌اندازی تونل با یک کانفیگ خاص. همین دیالوگ «king_vpn بسته شد» را می‌سازد.';
+      pfix = 'خط CRASHGUARD سرور مقصر را نشان می‌دهد و آن سرور رد می‌شود. خطوط -NATIVE بعدی نام کتابخانه را می‌دهند؛ برای رفع دقیق بفرست.';
+    } else if (has('ANR')) {
+      pc = 'E-PROC-EXIT-ANR';
+      pw = 'ترد اصلی اندروید';
+      pcause = 'برنامه جواب نداد (ANR) و سیستم آن را بست؛ معمولاً قفل شدن ترد اصلی هنگام شروع سرویس VPN.';
+      pfix = 'خطوط -ANR (در صورت وجود) محل قفل شدن را نشان می‌دهند.';
+    } else if (has('CRASH')) {
+      pc = 'E-PROC-EXIT-CRASH';
+      pw = 'Java: برنامه، پلاگین یا سرویس VPN';
+      pcause = 'پردازه به‌خاطر استثنای Java کنترل‌نشده تمام شد؛ استک آن در خطوط CRASH-JAVA همین گزارش است.';
+      pfix = 'خطوط CRASH-JAVA را برای بررسی بفرست.';
+    } else if (has('LOW_MEMORY')) {
+      pc = 'E-PROC-EXIT-MEMORY';
+      pw = 'مصرف حافظه (تست‌های همزمان، هسته‌ها، سرویس تونل)';
+      pcause = 'سیستم به‌خاطر کمبود حافظه برنامه را بست.';
+      pfix = 'تست پس‌زمینه را کم کن؛ اگر تکرار شد خط کامل را بفرست.';
+    } else if (has('SIGNALED')) {
+      pc = 'E-PROC-EXIT-SIGNAL';
+      pw = 'سیگنال سیستم‌عامل (status = شماره‌ی سیگنال؛ 9 = کشته شدن توسط سیستم)';
+      pcause = 'پردازه با یک سیگنال کشته شد؛ 9 معمولاً سیستم یا مدیریت باتری سامسونگ است، 6 یا 11 کرش native.';
+      pfix = 'بهینه‌سازی باتری را برای برنامه خاموش کن؛ اگر status برابر 6 یا 11 بود خط را بفرست.';
+    } else if (has('EXCESSIVE_RESOURCE')) {
+      pc = 'E-PROC-EXIT-RESOURCE';
+      pw = 'مصرف منابع (CPU / حافظه / شبکه)';
+      pcause = 'سیستم برنامه را به‌خاطر مصرف بیش از حد منابع بست.';
+      pfix = 'تست پس‌زمینه و تعداد هسته‌های همزمان را کم کن.';
+    }
+    return h(pc, pw, pcause, pfix);
+  }
   final extra = extraDiagOf(m);
   if (extra != null) return extra;
   if (has('Activity')) {
@@ -1709,6 +1771,167 @@ void _trailWrite(String line) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// CRASHGUARD + KINGDIAG
+// علامت گزارش کاربر: وقت اتصال، اپ ناگهان بسته می‌شد و سامسونگ پیام «king_vpn بسته شد زیرا این
+// برنامه دارای اشکال است / حافظه پنهان پاک شود؟» نشان می‌داد؛ بعد از بازشدن دوباره، همان سرور
+// انتخاب می‌شد و چرخه‌ی کرش تکرار می‌شد.
+//  1) قبل از شروع واقعی هسته یک فایل کوچک (king_inflight.txt) هم‌زمان و بی‌بافر نوشته می‌شود و
+//     وقتی شروع تمام شد (یا اتصال ۲۵ ثانیه پایدار ماند) پاک می‌شود. اگر موقع باز شدن بعدی هنوز
+//     هست یعنی برنامه وسط شروع آن سرور مرده است: آن سرور موقتاً رد می‌شود (۲۰ دقیقه، بعد ۳ و ۱۲
+//     ساعت) و تا ۲۴ ساعت «حالت امن» روشن می‌ماند (کانفیگ اختصاصی REALITY خاموش).
+//  2) سمت اندروید (KingDiag.java) علت مرگ پردازه‌ی قبلی (استک کرش Java، کرش native، ANR، کمبود
+//     حافظه…) را می‌دهد و اینجا با خطوط PROC-EXIT / CRASH-JAVA در گزارش ثبت می‌شود.
+// ---------------------------------------------------------------------------
+const MethodChannel _diagChannel = MethodChannel('king/diag');
+const String _kGuardDir = '/data/data/com.kingvpn.king_vpn/files';
+// host:port -> [پایان رد شدن (ms)، تعداد ضربه، زمان آخرین ضربه (ms)]
+final Map<String, List<int>> _crashBan = <String, List<int>>{};
+Timer? _inflightT;
+String _inflightKey = '';
+
+File _guardFile(String name) {
+  try {
+    final d = Directory(_kGuardDir);
+    if (!d.existsSync()) d.createSync(recursive: true);
+    return File('$_kGuardDir/$name');
+  } catch (e) {
+    errJournalAdd(e, kind: 'GUARD-DIR');
+    return File('${Directory.systemTemp.path}/$name');
+  }
+}
+
+bool _crashBanned(String key) {
+  final v = _crashBan[key];
+  return v != null && DateTime.now().millisecondsSinceEpoch < v[0];
+}
+
+// بعد از هر کرش تا ۲۴ ساعت: کانفیگ اختصاصی (آزمایشی) خاموش می‌ماند
+bool _crashSafeMode() {
+  final now = DateTime.now().millisecondsSinceEpoch;
+  for (final v in _crashBan.values) {
+    if (v[1] > 0 && now - v[2] < 24 * 3600 * 1000) return true;
+  }
+  return false;
+}
+
+void _crashGuardSave() {
+  try {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final b = StringBuffer();
+    _crashBan.forEach((k, v) {
+      if (now - v[2] <= 24 * 3600 * 1000) b.writeln('$k|${v[0]}|${v[1]}|${v[2]}');
+    });
+    _guardFile('king_crashban.txt').writeAsStringSync(b.toString(), flush: true);
+  } catch (e) {
+    errJournalAdd(e, kind: 'GUARD-SAVE');
+  }
+}
+
+// شروع یک سرور در جریان است: نشانه تا پایان شروع روی دیسک می‌ماند
+void _inflightBegin(Server s) {
+  try {
+    _inflightT?.cancel();
+    _inflightKey = s.key;
+    final nm = s.name.replaceAll(RegExp(r'[\r\n|]'), ' ');
+    _guardFile('king_inflight.txt').writeAsStringSync(
+        '${DateTime.now().millisecondsSinceEpoch}|${s.key}|$nm',
+        flush: true);
+  } catch (e) {
+    errJournalAdd(e, kind: 'GUARD-BEGIN');
+  }
+}
+
+// شروع تمام شد. شکست عادی = کرش نبوده، پس نشانه فوری پاک می‌شود؛ موفقیت = ۲۵ ثانیه‌ی دیگر نگه
+// داشته می‌شود چون کرش ممکن است همان لحظه‌ی عبور ترافیک از تونل بیاید.
+void _inflightEnd(String key, bool ok) {
+  try {
+    if (_inflightKey != key) return; // شروع جدیدتری صاحب نشانه شده است
+    _inflightT?.cancel();
+    void clear() {
+      if (_inflightKey != key) return;
+      _inflightKey = '';
+      try {
+        final f = _guardFile('king_inflight.txt');
+        if (f.existsSync()) f.deleteSync();
+      } catch (e) {
+        errJournalAdd(e, kind: 'GUARD-CLEAR');
+      }
+    }
+
+    if (ok) {
+      _inflightT = Timer(const Duration(seconds: 25), clear);
+    } else {
+      clear();
+    }
+  } catch (e) {
+    errJournalAdd(e, kind: 'GUARD-END');
+  }
+}
+
+// هنگام باز شدن برنامه: آیا اجرای قبلی وسط شروع یک سرور مرده است؟
+void _crashGuardInit() {
+  try {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final bf = _guardFile('king_crashban.txt');
+    if (bf.existsSync()) {
+      for (final ln in bf.readAsLinesSync()) {
+        final p = ln.split('|');
+        if (p.length < 4) continue;
+        final until = int.tryParse(p[1]) ?? 0;
+        final strikes = int.tryParse(p[2]) ?? 0;
+        final last = int.tryParse(p[3]) ?? 0;
+        if (strikes <= 0 || now - last > 24 * 3600 * 1000) continue;
+        _crashBan[p[0]] = <int>[until, strikes, last];
+      }
+    }
+    final mf = _guardFile('king_inflight.txt');
+    if (mf.existsSync()) {
+      final raw = mf.readAsStringSync().trim();
+      try {
+        mf.deleteSync();
+      } catch (e) {
+        errJournalAdd(e, kind: 'GUARD-DEL');
+      }
+      final p = raw.split('|');
+      final at = p.isNotEmpty ? (int.tryParse(p[0]) ?? 0) : 0;
+      if (p.length >= 2 && at > 0 && now - at < 20 * 60 * 1000) {
+        final key = p[1];
+        final name = p.length >= 3 ? p.sublist(2).join('|') : key;
+        final old = _crashBan[key];
+        final strikes = (old == null ? 0 : old[1]) + 1;
+        final mins = strikes == 1 ? 20 : (strikes == 2 ? 180 : 720);
+        _crashBan[key] = <int>[now + mins * 60 * 1000, strikes, now];
+        _crashGuardSave();
+        dbg('⚠ CRASHGUARD: برنامه هنگام شروع اتصال به «$name» ($key) ناگهان بسته شد • '
+            'ضربه $strikes • این سرور $mins دقیقه رد می‌شود و تا ۲۴ ساعت حالت امن روشن است');
+      }
+    }
+  } catch (e) {
+    errJournalAdd(e, kind: 'GUARD-INIT');
+  }
+}
+
+// علت مرگ پردازه‌ی قبلی را از اندروید می‌گیرد و در گزارش می‌نویسد
+Future<void> _logLastExit() async {
+  for (final m in const ['lastCrash', 'lastExit']) {
+    try {
+      final r = await _diagChannel
+          .invokeMethod<String>(m)
+          .timeout(const Duration(seconds: 6));
+      final lines =
+          (r ?? '').split('\n').where((l) => l.trim().isNotEmpty).toList();
+      for (var i = 0; i < lines.length && i < 24; i++) {
+        dbg('⚠ ${lines[i]}');
+      }
+    } on MissingPluginException {
+      return; // نسخه‌ی قدیمی بخش اندروید
+    } catch (e) {
+      errJournalAdd(e, kind: 'DIAG-$m');
+    }
+  }
+}
+
 void dbg(String m) {
   try {
     if (!_dbgLoaded) {
@@ -2454,28 +2677,46 @@ String diagnoseCoreLines(List<String> lines) {
   return 'خطای ثبت‌شده هست ولی الگوی شناخته‌شده نیست؛ خطوط CORE-LOG را بفرست';
 }
 
+// LOGCATASYNC: قبلاً Process.runSync روی ترد UI و بدون مهلت اجرا می‌شد؛ اگر logcat کند یا گیر می‌کرد
+// کل UI (دکمه‌ی «اتصال») قفل می‌شد. حالا ناهمگام است، حداکثر ۴ ثانیه صبر می‌کند و هم‌زمان فقط یکی اجرا می‌شود.
+bool _logcatBusy = false;
+
 void dbgCoreLogcat(String name) {
-  try {
-    final r = Process.runSync('logcat', ['-d', '-v', 'brief', '-t', '400', '--pid=$pid'])
-        .stdout
-        .toString();
-    final lines = r
-        .split('\n')
-        .where((l) => l.trim().isNotEmpty)
-        .where((l) {
-          final low = l.toLowerCase();
-          return _coreKeywords.any((k) => low.contains(k));
-        })
-        .map((l) => l.length > 220 ? l.substring(0, 220) : l)
-        .toList();
-    final tail = lines.length > 8 ? lines.sublist(lines.length - 8) : lines;
-    dbg('CORE-REASON $name: ${diagnoseCoreLines(tail)}');
-    for (var i = 0; i < tail.length; i++) {
-      dbg('CORE-LOG${i + 1} $name: ${tail[i]}');
+  if (_logcatBusy) return;
+  _logcatBusy = true;
+  unawaited(() async {
+    try {
+      final res = await Process.run(
+              'logcat', ['-d', '-v', 'brief', '-t', '400', '--pid=$pid'])
+          .timeout(const Duration(seconds: 4));
+      final r = res.stdout.toString();
+      final lines = r
+          .split('\n')
+          .where((l) => l.trim().isNotEmpty)
+          .where((l) {
+            final low = l.toLowerCase();
+            // نویز رابط کاربری اندروید (نه هسته)؛ مثل VRI[MainActivity] که به‌اشتباه E-NO-ACTIVITY ثبت می‌شد
+            if (low.contains('vri[') ||
+                low.contains('setframeratecategory') ||
+                low.contains('viewrootimpl')) {
+              return false;
+            }
+            return _coreKeywords.any((k) => low.contains(k));
+          })
+          .map((l) => l.length > 220 ? l.substring(0, 220) : l)
+          .toList();
+      final tail = lines.length > 8 ? lines.sublist(lines.length - 8) : lines;
+      dbg('CORE-REASON $name: ${diagnoseCoreLines(tail)}');
+      for (var i = 0; i < tail.length; i++) {
+        dbg('CORE-LOG${i + 1} $name: ${tail[i]}');
+      }
+    } catch (e, jstk) {
+      errJournalAdd(e, st: jstk);
+      dbg('CORE-REASON $name: logcat در دسترس نیست ($e)');
+    } finally {
+      _logcatBusy = false;
     }
-  } catch (e, jstk) { errJournalAdd(e, st: jstk);
-    dbg('CORE-REASON $name: logcat در دسترس نیست ($e)');
-  }
+  }());
 }
 
 // Experiment switch: the own VLESS+REALITY config made the app crash natively
@@ -2838,6 +3079,12 @@ class _DelayGate {
   int max; // FASTGATE: قابل تنظیم؛ تست سریع/آفلاین/عادی با تنظیم «تست همزمان» هم‌اندازه می‌شود
   int _running = 0;
   final List<Completer<void>> _queue = <Completer<void>>[];
+  // QUIETSTART: تعداد تست‌های هسته که همین الان واقعاً داخل f() هستند، و شمارنده‌ی مکث.
+  // وقتی هسته‌ی واقعی VPN در حال بالا آمدن/تست تونل است، تست‌های هسته‌ی جدید شروع نمی‌شوند
+  // (چند نمونه‌ی Xray همزمان با شروع/توقف سرویس VPN باعث گیر کردن و کرش می‌شد).
+  int _active = 0;
+  int _pauseDepth = 0;
+  final Stopwatch _pauseWatch = Stopwatch();
 
   Future<T> run<T>(Future<T> Function() f) async {
     if (_running < max) {
@@ -2848,7 +3095,16 @@ class _DelayGate {
       await c.future; // slot handed over to us; _running is unchanged
     }
     try {
-      return await f();
+      // مکث تا ۹۰ ثانیه؛ اگر کسی فراموش کرد resume کند، تست‌ها برای همیشه قفل نمی‌مانند
+      while (_pauseDepth > 0 && _pauseWatch.elapsed < const Duration(seconds: 90)) {
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+      }
+      _active++;
+      try {
+        return await f();
+      } finally {
+        _active--;
+      }
     } finally {
       if (_queue.isNotEmpty) {
         _queue.removeAt(0).complete();
@@ -2856,6 +3112,25 @@ class _DelayGate {
         _running--;
       }
     }
+  }
+
+  // تست‌های تازه را نگه می‌دارد و حداکثر [maxWait] صبر می‌کند تا تست‌های در حال اجرا تمام شوند
+  Future<void> pauseAndDrain(Duration maxWait) async {
+    if (_pauseDepth == 0) {
+      _pauseWatch
+        ..reset()
+        ..start();
+    }
+    _pauseDepth++;
+    final sw = Stopwatch()..start();
+    while (_active > 0 && sw.elapsed < maxWait) {
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+    }
+  }
+
+  void resume() {
+    if (_pauseDepth > 0) _pauseDepth--;
+    if (_pauseDepth == 0) _pauseWatch.stop();
   }
 }
 
@@ -3966,7 +4241,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       Duration(seconds: max(delayTimeout.inSeconds + 2, bgTimeoutSecs));
 
   bool _bad(Server s) =>
-      s.badAt != null && DateTime.now().difference(s.badAt!) < badFor;
+      (s.badAt != null && DateTime.now().difference(s.badAt!) < badFor) ||
+      _crashBanned(s.key); // CRASHGUARD: سروری که اپ را وسط شروع کرش داد موقتاً رد می‌شود
 
   bool _protoOk(Server s) =>
       (protoSel.isEmpty ||
@@ -4101,10 +4377,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // the last session count), servers without a speed are ordered by ping.
   List<Server> _pickList() {
     // OFFLINE-SRC: حالت آفلاین فقط از پوشه‌ی منابع تازه است؛ پوشه‌ی سرورهای سالم کنار گذاشته می‌شود
+    // OFFLINEPICKFIX: فقط سرورهای «از پوشه آمده و در این نشست تست‌نشده» (checkedAt == null) کنار
+    // گذاشته می‌شوند. قبلاً در حالت آفلاین «هر» سرور داخل _resMap حذف می‌شد، ولی _record هر سرور
+    // سالم را همان لحظه وارد _resMap می‌کند؛ پس لیست انتخاب همیشه خالی بود و اپ به‌جای سرورهای سالم
+    // به FALLBACK-VERIFY می‌رفت و روی سرورهای تست‌نشده اتصال واقعی می‌زد (قفل ۱+ دقیقه‌ای روی «اتصال»).
     final u = _usable()
         .where((s) => !identical(s, current) &&
             !(_resMap.containsKey(s.key) &&
-                (offlineOnly || (!nationalMode && s.checkedAt == null))))
+                s.checkedAt == null &&
+                (offlineOnly || !nationalMode)))
         .toList()
       ..sort((a, b) {
         final sv = _svcRank(b) - _svcRank(a); // MULTICHK + TGPREFER
@@ -4125,6 +4406,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    _crashGuardInit(); // CRASHGUARD: آیا اجرای قبلی وسط شروع یک سرور مرده است؟
+    Future.delayed(const Duration(seconds: 4), () => unawaited(_logLastExit())); // KINGDIAG
     _favsRef = favs;
     natSrcRates = srcRate; // نرخ منابع برای مرتب‌سازی پوشه‌ی منابع تازه
     natExtraSource = () => [...fetchedAll, ...good]; // کانفیگ‌های آنلاین داخل برنامه برای پوشه
@@ -6273,6 +6556,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // proxyMode (setting) = the REAL connection is also only a local proxy:
   // no VPN permission, no tunnel, no key icon.
   Future<bool> _start(Server s, {bool proxyOnly = false}) async {
+    // QUIETSTART: برای اتصال واقعی VPN، تا پایان شروع هسته و بررسی تونل هیچ تست هسته‌ی
+    // جدیدی (Xray اضافه داخل همین پروسه) شروع نمی‌شود و تست‌های در حال اجرا تا ۴ ثانیه
+    // فرصت پایان دارند. تست‌های بی‌صدا (proxyOnly) و حالت پروکسی بدون تغییر می‌مانند.
+    final realVpn = !proxyOnly && !proxyMode && wantVpn;
+    var ok = false;
+    try {
+      if (realVpn) await _delayGate.pauseAndDrain(const Duration(seconds: 4));
+      _inflightBegin(s); // CRASHGUARD: اگر برنامه همین‌جا بمیرد، دفعه‌ی بعد معلوم است کدام سرور بوده
+      ok = await _startImpl(s, proxyOnly: proxyOnly);
+      return ok;
+    } finally {
+      if (realVpn) _delayGate.resume();
+      _inflightEnd(s.key, ok);
+    }
+  }
+
+  Future<bool> _startImpl(Server s, {bool proxyOnly = false}) async {
     lastStartNoTunnel = false;
     lastFail = '';
     // GUARD: a real VPN tunnel is started only when the user asked for it
@@ -6374,11 +6674,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       bool? t;
       var ready = false;
-      // National / slow networks: give the core and the OEM VPN service more time
-      // CRITICAL FIX: normal mode also needs a bit more patience on weak devices
-      final connWait = (nationalMode || indestructibleMode)
-          ? const Duration(seconds: 30)
-          : const Duration(seconds: 12); // a good server reports CONNECTED in a few seconds
+      var coreHung = false; // HANGSKIP: هسته تا آخر مهلت در CONNECTING ماند
+      // CONNWAIT2: «CONNECTED» فقط یعنی هسته‌ی محلی بالا آمده و به کندی شبکه ربطی ندارد. سرور سالم
+      // در ۱ تا ۴ ثانیه گزارش می‌دهد (لاگ گزارش)؛ مهلت قبلی (۳۰ + ۱۵ ثانیه، برای هر کانفیگ، دو کانفیگ)
+      // هر سرور خراب را تا ~۱۱۰ ثانیه روی «اتصال» نگه می‌داشت.
+      final connWait = nationalMode
+          ? const Duration(seconds: 18)
+          : const Duration(seconds: 14);
       final tunWait1 = (nationalMode || indestructibleMode) ? 1600 : 1100;
       final tunWait2 = (nationalMode || indestructibleMode) ? 2000 : 1400;
       // FALLBACK: first the config King VPN builds (DNS/routing changed), then,
@@ -6386,7 +6688,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // manual V2Ray test ran it. Nothing changes when the first one works.
       // Our own v2rayNG-shaped config goes FIRST for vless+reality links, then the
       // config King VPN builds, then the plain package config.
-      final ownCfg = useOwnVlessCfg ? vlessRealityOwnCfg(s.link) : null;
+      // CRASHGUARD: بعد از یک کرش، تا ۲۴ ساعت کانفیگ اختصاصی (آزمایشی) استفاده نمی‌شود
+      final ownCfg = (useOwnVlessCfg && !_crashSafeMode()) ? vlessRealityOwnCfg(s.link) : null;
       // MULTIHOP-REAL: فقط در نت ملی و آخرین تلاش؛ اگر مسیر مستقیم شکست بخورد،
       // از پشت یک سرور سالم دیگر (relay) وصل می‌شود. اگر مستقیم وصل شود، تغییری نمی‌کند.
       String? chainCfg;
@@ -6461,14 +6764,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
         // the core must report CONNECTED (it can hang in CONNECTING)
         final waitSig = connSig!;
-        // CONNWAIT: هسته در مهلت اصلی هنوز CONNECTING بود (TLS کند / گوشی شلوغ)،
-        // ۱۵ ثانیه‌ی دیگر صبر می‌کنیم؛ اگر CONNECTED برسد همین completer آن را می‌گیرد.
+        // CONNWAIT: هسته در مهلت اصلی هنوز CONNECTING بود (گوشی شلوغ)،
+        // ۸ ثانیه‌ی دیگر صبر می‌کنیم؛ اگر CONNECTED برسد همین completer آن را می‌گیرد.
         ready = await waitSig.future.timeout(connWait, onTimeout: () => false);
         if (!ready && myGen == _connGen && lastState == 'CONNECTING' &&
             !waitSig.isCompleted) {
-          dbg('هسته هنوز CONNECTING است؛ ۱۵ ثانیه مهلت اضافه');
+          dbg('هسته هنوز CONNECTING است؛ ۸ ثانیه مهلت اضافه');
           ready = await waitSig.future
-              .timeout(const Duration(seconds: 15), onTimeout: () => false);
+              .timeout(const Duration(seconds: 8), onTimeout: () => false);
+          // HANGSKIP: بعد از مهلت اضافه هم در CONNECTING ماند = هسته/سرویس گیر کرده، نه کانفیگ رد شده
+          if (!ready && myGen == _connGen && lastState == 'CONNECTING') {
+            coreHung = true;
+          }
         }
         if (!waitSig.isCompleted) waitSig.complete(false);
         if (myGen != _connGen) ready = false; // superseded
@@ -6529,6 +6836,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!ready) dbgXrayErr(s.name);
       // the core reported CONNECTED with this config: no fallback needed
       if (ready) break;
+      // HANGSKIP: هسته تا آخر مهلت در CONNECTING گیر کرده بود. کانفیگ ساده‌ی بعدی هم همین‌طور گیر می‌کند
+      // (گزارش: IR|87.107.83.105 دو بار × ~۵۰ ثانیه، هر دو در CONNECTING)؛ فقط وقت هدر می‌رفت. سرور رد می‌شود.
+      if (coreHung) {
+        dbg('HANGSKIP: هسته در CONNECTING گیر کرد؛ کانفیگ ساده امتحان نمی‌شود • ${s.name}');
+        break;
+      }
       }
       if (usedFallback && ready) {
         dbg('اتصال با کانفیگ ساده (بدون تغییر DNS) برقرار شد: ${s.name}');
@@ -6549,23 +6862,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // Many free configs report CONNECTED while no real traffic passes.
       // Give Android a moment to settle routing, then probe real traffic.
       await Future.delayed(const Duration(milliseconds: 600));
+      // EARLYPING2: سه فرصت با ۲/۲/۱ آدرس؛ سرور مرده به‌جای ~۵۰ ثانیه حداکثر ~۳۰ ثانیه وقت می‌گیرد
+      // (گزارش: ES-79.132.133.38 از ۱۸:۵۷:۰۰ تا ۱۸:۵۷:۵۱) و با لغو کاربر فوراً تمام می‌شود.
       var earlyPing = await pingAny(
           total: const Duration(seconds: 5),
           direct: true,
-          tries: 3);
+          tries: 2);
       // one more chance: some OEMs need a second for the tunnel route
-      if (earlyPing == null) {
+      if (earlyPing == null && !abort && wantVpn) {
         await Future.delayed(const Duration(milliseconds: 900));
         earlyPing = await pingAny(
-            total: const Duration(seconds: 6),
+            total: const Duration(seconds: 5),
             direct: true,
-            tries: 3);
+            tries: 2);
       }
-      if (earlyPing == null) {
+      if (earlyPing == null && !abort && wantVpn) {
         // TUNFIX2: a short pause and a third probe before giving up on a server
         await Future.delayed(const Duration(milliseconds: 2500));
         earlyPing = await pingAny(
-            total: const Duration(seconds: 6), direct: true, tries: 2);
+            total: const Duration(seconds: 6), direct: true, tries: 1);
       }
       if (earlyPing == null) {
         // SERIOUS BUG FIX: this is a DEAD SERVER (fake CONNECTED), not an
@@ -7019,13 +7334,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         int? p;
         final pingT0 = DateTime.now(); // PINGLOGPATCH
         // National: more retries + longer waits — tunnel/DNS can be slow to settle
-        final pingTries = nationalMode || indestructibleMode ? 5 : 2;
-        final pingSec = nationalMode || indestructibleMode ? 14 : 7;
+        // PINGCAP: pingAny خودش تا ۵ آدرس را پشت‌سر‌هم امتحان می‌کند (هر کدام تا pingSec)؛ ۵ دور × ۵ آدرس × ۱۴ ثانیه
+        // در بدترین حالت ~۶ دقیقه قفل می‌کرد. حالا هر دور ۲ آدرس و حداکثر ۳ دور.
+        final pingTries = nationalMode || indestructibleMode ? 3 : 2;
+        final pingSec = nationalMode || indestructibleMode ? 10 : 7;
         var pingUsed = 0;
         for (var i = 0; i < pingTries && p == null && !abort; i++) {
           pingUsed++;
           p = await pingAny(
-              total: Duration(seconds: pingSec), direct: true);
+              total: Duration(seconds: pingSec), direct: true, tries: 2);
           if (p == null) {
             await Future.delayed(Duration(
                 milliseconds: nationalMode ? 600 : 300));
@@ -7065,7 +7382,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // warms up (9346 ms seen in the logs); measure once more before judging
         if (p != null && p > badPingMs && !abort) {
           await Future.delayed(const Duration(seconds: 3));
-          final p2 = await pingAny(total: Duration(seconds: pingSec), direct: true);
+          final p2 = await pingAny(total: Duration(seconds: pingSec), direct: true, tries: 2);
           if (p2 != null && p2 < p) p = p2;
         }
         // BADPINGLOOP: connected but the ping through the tunnel is bad
