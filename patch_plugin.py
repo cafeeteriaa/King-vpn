@@ -60,15 +60,19 @@ def patch_regex(path, pattern, repl, label, critical, keyword_hint=''):
 
 
 # 1) The core's shutdown callback must NOT clear the service reference.
-#    Otherwise, when the old core finishes stopping after a new service started,
-#    the new service loses its reference -> NullPointerException in startCore.
-#    Matches "stopService(); ... v2rayServicesListener = null;" with any spacing,
-#    as long as the null assignment comes shortly after stopService().
+#    The 3.5.0 plugin may already contain this fix. If the "= null" line is
+#    gone (or the fix comment is present), nothing needs to change.
 shutdown_pattern = r'(stopService\(\)\s*;[\s\S]{0,300}?)v2rayServicesListener\s*=\s*null\s*;'
 shutdown_repl = r'\1/* VPNRACE: keep the reference */'
-patch_regex(core, shutdown_pattern, shutdown_repl,
-            'shutdown keeps listener', critical=True,
-            keyword_hint='stopService')
+src_core = open(core, encoding='utf-8').read()
+if re.search(r'VPNRACE|keep the reference', src_core):
+    print('OK: shutdown keeps listener (already fixed in plugin)')
+elif not re.search(r'stopService\(\)\s*;[\s\S]{0,300}?v2rayServicesListener\s*=\s*null', src_core):
+    print('OK: shutdown keeps listener (no reference clearing found, nothing to patch)')
+else:
+    patch_regex(core, shutdown_pattern, shutdown_repl,
+                'shutdown keeps listener', critical=True,
+                keyword_hint='stopService')
 
 # 2) Re-register the current service right before the native core starts.
 #    Try a few anchors, because the comment text may differ.
