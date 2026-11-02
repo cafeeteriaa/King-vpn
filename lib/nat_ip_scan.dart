@@ -60,7 +60,7 @@ Future<int?> natTcpProbe(String ip, int port, Duration timeout) async {
 Future<List<NatIpHit>> natScanIps(
   List<String> ips, {
   int port = 443,
-  int concurrency = 150,
+  int concurrency = 16,
   int want = 20,
   Duration budget = const Duration(seconds: 90),
   Duration timeout = const Duration(milliseconds: 1500),
@@ -82,7 +82,7 @@ Future<List<NatIpHit>> natScanIps(
     }
   }
 
-  final n = min(concurrency, max(ips.length, 1));
+  final n = min(concurrency.clamp(1, 16), max(ips.length, 1));
   await Future.wait(List.generate(n, (_) => worker()));
   hits.sort((a, b) => a.ms.compareTo(b.ms));
   return hits;
