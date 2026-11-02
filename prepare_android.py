@@ -48,13 +48,14 @@ import shutil
 ja = os.path.join(APP, 'android/app/src/main/java/com/kingvpn/king_vpn')
 os.makedirs(ja, exist_ok=True)
 shutil.copy('android_src/KingVpnService.java', ja)
+shutil.copy('android_src/KingDiag.java', ja)  # KINGDIAG: crash / process-exit recorder
 old_java_main = os.path.join(ja, 'MainActivity.java')
 if os.path.exists(old_java_main):
     os.remove(old_java_main)
 ka = os.path.join(APP, 'android/app/src/main/kotlin/com/kingvpn/king_vpn')
 os.makedirs(ka, exist_ok=True)
 shutil.copy('android_src/MainActivity.kt', os.path.join(ka, 'MainActivity.kt'))
-print('OK: KingVpnService.java and MainActivity.kt copied')
+print('OK: KingVpnService.java, KingDiag.java and MainActivity.kt copied')
 print('OK: manifest permissions')
 
 # ---- 2) Gradle: minSdk 24, compileSdk 37 (permission_handler_android needs 37) -
