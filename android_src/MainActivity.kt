@@ -2,6 +2,7 @@ package com.kingvpn.king_vpn
 
 import android.content.Intent
 import android.os.Bundle
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -47,6 +48,23 @@ class MainActivity : FlutterActivity() {
                     "back" -> {
                         moveTaskToBack(true)
                         result.success(true)
+                    }
+                    "vpnSettings" -> {
+                        try {
+                            startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
+                            result.success(true)
+                        } catch (e: Exception) {
+                            try {
+                                startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS))
+                                result.success(true)
+                            } catch (fallback: Exception) {
+                                result.error(
+                                    "VPN_SETTINGS_UNAVAILABLE",
+                                    "Android VPN settings could not be opened",
+                                    null
+                                )
+                            }
+                        }
                     }
                     else -> result.notImplemented()
                 }
