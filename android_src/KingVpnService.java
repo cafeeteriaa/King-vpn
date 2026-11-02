@@ -33,6 +33,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     private ParcelFileDescriptor tun = null;
     private boolean stopping = false;
+    // TEST-FIX: true only while onStartCommand restarts the core. The core's own
+    // stopService() callback fired by that restart must not kill the new service.
+    private boolean starting = false;
 
     @Override
     public void onCreate() {
@@ -72,30 +75,39 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
         startForegroundSafe(cfg.REMARK);
 
-        // مهم: قبل از شروع هسته، همین نمونه‌ی سرویس را معرفی کن
-        V2rayCoreManager core = V2rayCoreManager.getInstance();
-        core.setUpListener(this);
-        if (core.isV2rayCoreRunning()) {
-            core.stopCore();
-        }
-
-        tun = establish(cfg);
-        if (tun == null) {
-            Log.e(TAG, "VPN interface not established (permission missing?)");
-            stopEverything();
-            return START_NOT_STICKY;
-        }
-
-        boolean ok;
+        starting = true;
         try {
-            ok = core.startCore(cfg, tun.getFd());
-        } catch (Exception e) {
-            Log.e(TAG, "startCore threw", e);
-            ok = false;
-        }
-        if (!ok) {
-            Log.e(TAG, "core failed to start");
-            stopEverything();
+            // مهم: قبل از شروع هسته، همین نمونه‌ی سرویس را معرفی کن
+            V2rayCoreManager core = V2rayCoreManager.getInstance();
+            core.setUpListener(this);
+            if (core.isV2rayCoreRunning()) {
+                core.stopCore();
+            }
+
+            // TEST-FIX: a previous TUN must be closed before a new one is opened
+            closeTun();
+            tun = establish(cfg);
+            if (tun == null) {
+                Log.e(TAG, "VPN interface not established (permission missing?)");
+                starting = false;
+                stopEverything();
+                return START_NOT_STICKY;
+            }
+
+            boolean ok;
+            try {
+                ok = core.startCore(cfg, tun.getFd());
+            } catch (Exception e) {
+                Log.e(TAG, "startCore threw", e);
+                ok = false;
+            }
+            if (!ok) {
+                Log.e(TAG, "core failed to start");
+                starting = false;
+                stopEverything();
+            }
+        } finally {
+            starting = false;
         }
         return START_NOT_STICKY;
     }
@@ -211,6 +223,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     @Override
     public void stopService() {
+        // TEST-FIX: ignore the stop callback caused by our own core restart
+        if (starting) return;
         stopEverything();
     }
 }
