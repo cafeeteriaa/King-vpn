@@ -17,8 +17,12 @@ def patch(path, old, new, label):
     s = open(path, encoding='utf-8').read()
     n = s.count(old)
     if n != 1:
-        # PLUGINSKIP: کد پلاگین با این الگو نمی‌خواند؛ بیلد متوقف نمی‌شود و این یک اصلاح کوچک جا می‌ماند
-        print(f'WARN: {label}: found {n} times (expected 1). Skipped, build continues.')
+        # Never publish a release if the critical VPN service-race patch was not applied.
+        critical = label in ('shutdown keeps listener', 're-register listener before start')
+        level = 'ERROR' if critical else 'WARN'
+        print(f'{level}: {label}: found {n} times (expected 1).')
+        if critical:
+            sys.exit(1)
         return
     open(path, 'w', encoding='utf-8').write(s.replace(old, new, 1))
     print(f'OK: {label}')
@@ -42,7 +46,7 @@ patch(vpn,
 # 3) DELAYPOOL: پلاگین یک صف مخصوص تست تأخیر دارد: DELAY_THREADS = 2 (خط ۴۵۵)
 #    که با Executors.newFixedThreadPool(DELAY_THREADS, ...) ساخته می‌شود.
 #    این عدد سقف واقعی تست همزمان است؛ آن را به ۱۶ می‌بریم.
-DELAY_THREADS_NEW = 12
+DELAY_THREADS_NEW = 3
 try:
     src = open(core, encoding='utf-8').read()
     pat = re.compile(r'(private\s+static\s+final\s+int\s+DELAY_THREADS\s*=\s*)(\d+)(\s*;)')
