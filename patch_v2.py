@@ -112,7 +112,7 @@ Future<int?> nipTcpProbe(String ip, int port, Duration timeout) async {
 Future<List<NipHit>> nipScan(
   List<String> ips, {
   int port = 443,
-  int concurrency = 150,
+  int concurrency = 16,
   int want = 12,
   Duration budget = const Duration(minutes: 2),
   Duration timeout = const Duration(milliseconds: 1500),
@@ -134,7 +134,7 @@ Future<List<NipHit>> nipScan(
     }
   }
 
-  final n = min(concurrency, max(ips.length, 1));
+  final n = min(concurrency.clamp(1, 16), max(ips.length, 1));
   await Future.wait(List.generate(n, (_) => worker()));
   hits.sort((a, b) => a.ms.compareTo(b.ms));
   return hits;
