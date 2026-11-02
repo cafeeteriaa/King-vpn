@@ -1,12 +1,19 @@
 package com.kingvpn.king_vpn
 
 import android.content.Intent
+import android.os.Bundle
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 // KINGVPN: کانال ارتباطی Flutter با سرویس VPN خودمان (کانال: king/vpn)
 class MainActivity : FlutterActivity() {
+    // KINGDIAG: ثبت‌کننده‌ی کرش Java؛ قبل از super.onCreate نصب می‌شود تا کرش‌های شروع هم ثبت شوند
+    override fun onCreate(savedInstanceState: Bundle?) {
+        KingDiag.install(applicationContext)
+        super.onCreate(savedInstanceState)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "king/vpn")
@@ -40,6 +47,26 @@ class MainActivity : FlutterActivity() {
                     "back" -> {
                         moveTaskToBack(true)
                         result.success(true)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        // KINGDIAG: Dart می‌پرسد پردازه‌ی قبلی چرا مرد؛ جواب از KingDiag.java می‌آید.
+        // خواندن گزارش سیستم در یک ترد جدا انجام می‌شود تا ترد اصلی گیر نکند.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "king/diag")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "lastCrash", "lastExit" -> {
+                        val wantCrash = call.method == "lastCrash"
+                        Thread {
+                            val text = try {
+                                if (wantCrash) KingDiag.takeLastCrash(applicationContext)
+                                else KingDiag.lastExits(applicationContext)
+                            } catch (t: Throwable) {
+                                ""
+                            }
+                            runOnUiThread { result.success(text) }
+                        }.start()
                     }
                     else -> result.notImplemented()
                 }
