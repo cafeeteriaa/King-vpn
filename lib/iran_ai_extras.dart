@@ -950,9 +950,9 @@ extension HomeExtras on _HomePageState {
         '(3) likely reasons for drops or slowness. Do not invent data.\n'
         'At the very end add ONE last line exactly in this format (only the '
         'keys you want to change, integers only, no markdown):\n'
-        'SETTINGS: {"fastWorkers":4,"bgWorkers":4,"timeout":8,"batch":200,'
+        'SETTINGS: {"fastWorkers":3,"bgWorkers":1,"timeout":8,"batch":200,'
         '"minSpeedKB":200,"badPingMs":3000,"speedTopN":3}\n'
-        'Allowed keys and ranges: fastWorkers 1-1000, bgWorkers 1-1000, timeout 1-1000, '
+        'Allowed keys and ranges: fastWorkers 1-3, bgWorkers 1-3, timeout 1-30, '
         'batch 1-1000, minSpeedKB 0-1000, badPingMs 70-7000, speedTopN 1-1000.\n'
         'Every numeric option can also be set with key num_<id> (integer inside the range shown in the stats). Change one or two at a time.\n'
         'Also allowed, 1 = on and 0 = off: proto_vless, proto_vmess, '
@@ -1682,9 +1682,9 @@ extension HomeExtras on _HomePageState {
     _aiApplyAt = nowA;
     int g(String k, int d, int lo, int hi) =>
         (m.containsKey(k) ? m[k]!.clamp(lo, hi).toInt() : d);
-    // PILOTCLAMP: سقف‌های امن؛ ۱۰۰۰ تست هم‌زمان هسته را از کار می‌اندازد و اپ را قفل می‌کند
-    fastWorkers = g('fastWorkers', fastWorkers, 1, 60);
-    bgWorkers = g('bgWorkers', bgWorkers, 1, 20);
+    // PILOTCLAMP: سقف امن ۳ تست هم‌زمان برای جلوگیری از اشباع CPU/RAM
+    fastWorkers = g('fastWorkers', fastWorkers, 1, 3);
+    bgWorkers = g('bgWorkers', bgWorkers, 1, 3);
     delayTimeout =
         Duration(seconds: g('timeout', delayTimeout.inSeconds, 3, 30));
     batchSize = g('batch', batchSize, 1, 1000);
@@ -2355,7 +2355,7 @@ extension HomeExtras on _HomePageState {
     _localLastAction = d.action;
 
     if (d.settings.containsKey('fastWorkers')) {
-      fastWorkers = d.settings['fastWorkers']!.clamp(1, 200);
+      fastWorkers = d.settings['fastWorkers']!.clamp(1, 3);
     }
     if (d.settings.containsKey('timeout')) {
       delayTimeout = Duration(seconds: d.settings['timeout']!.clamp(2, 30));

@@ -945,10 +945,12 @@ List<Widget> npvAmSettingsItems(
         title: const Text('Kill switch (قطع نت اگر VPN افتاد)'),
         subtitle: const Text(
             'تنظیمات VPN اندروید باز می‌شود؛ برای این اپ «Always-on VPN» و «Block connections without VPN» را روشن کن'),
-        onTap: () {
+        onTap: () async {
           try {
-            bgChannel.invokeMethod('vpnSettings');
-          } catch (e, stk) { logError(e, stk); }
+            await bgChannel.invokeMethod<void>('vpnSettings');
+          } catch (e, stk) {
+            logError(e, stk);
+          }
         },
       ),
     ];

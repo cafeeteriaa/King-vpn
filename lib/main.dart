@@ -65,7 +65,7 @@ const int kFgSearchTarget = 15;
 bool standbyPaused = false;
 // FAST SEARCH: parallel ping tests (core delay test, no VPN toggling) used
 // when looking for the first healthy server (settings 1..8).
-int fastWorkers = 12; // WORKERS12: همه مسیرهای غیر ملی ۱۲؛ نت ملی جدا (۴)
+int fastWorkers = 3; // WORKERSCAP: همه مسیرها حداکثر ۳ تست هم‌زمان
 // a healthy server not checked for this long is pinged again (occasional
 // re-check, the server stays in the list until it really fails)
 Duration recheckAfter = const Duration(minutes: 4);
@@ -285,7 +285,7 @@ const bgTimeoutSecs = 10;
 int firstBatchSize = 50; // BEST: پیدا کردن سریع‌تر اولین سالم
 int fetchWorkers = 6;
 Duration fetchDeadline = const Duration(seconds: 25);
-int tcpWorkers = 60;
+int tcpWorkers = 20;
 int maxPerSource = 120;
 Duration tcpTimeout = const Duration(milliseconds: 3500);
 // TLS handshakes in the prefilter leaked sockets (crash, instant failures)
@@ -3067,10 +3067,10 @@ Future<int?> probe(Server s) async {
 // DELAYFIX: must match DELAY_THREADS in the patched V2rayCoreManager.java.
 // The Go core gets at most this many native delay calls at once. Bigger values
 // make the pipes close; smaller values make the test crawl one by one.
-const int kDelayConcurrency = 4; // کف تست همزمان
-// NATCONC12: نت ملی هم مثل بقیه‌ی مسیرها با DELAY_THREADS (Java = 12) تست می‌شود.
+const int kDelayConcurrency = 1; // کف تست همزمان
+// NATCONC: نت ملی با سقف امن DELAY_THREADS (Java = 3) تست می‌شود.
 // اگر در نت ملی خطاهای زیاد -1 یا WATCHDOG آمد، این عدد را به 8 یا 4 برگردان.
-const int kNatDelayConcurrency = 12;
+const int kNatDelayConcurrency = 3;
 // SLOWSWITCH: سرعت پایین پشت‌سرهم به این مدت که رسید، سرور عوض می‌شود (نه یک‌باره، نه یک ساعت).
 const Duration kSlowSwitchAfter = Duration(minutes: 5);
 
@@ -4904,8 +4904,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           minPingMs = _ci(j['m2'], minPingMs, 0, 1000);
           autoUpgrade = j['u'] as bool? ?? autoUpgrade;
           fastDelay = j['fd'] as bool? ?? fastDelay;
-          fastWorkers = _ci(j['fw2'], fastWorkers, 1, 1000);
-          bgWorkers = _ci(j['bw2'], bgWorkers, 1, 1000);
+          fastWorkers = _ci(j['fw2'], fastWorkers, 1, 3);
+          bgWorkers = _ci(j['bw2'], bgWorkers, 1, 3);
           speedTopN = _ci(j['st'], speedTopN, 1, 1000);
           badPingSwitch = j['bps'] as bool? ?? badPingSwitch;
           badPingMs = _ci(j['bp'], badPingMs, 70, 7000);
@@ -5110,7 +5110,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // ALL healthy servers (no count limit), best speed first, kept on disk
   // A healthy server is only dropped after [missLimit] failed re-checks.
   Future<void> _saveCache() async {
-    _resSave(); // NATRESPATCH
+    await _resSave(); // NATRESPATCH: wait for verified-folder persistence
     try {
       final p = await SharedPreferences.getInstance();
       // dead servers are remembered too, so the next start does not waste
@@ -5831,12 +5831,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     s.checkedAt = DateTime.now();
     if (d != null) {
       s.ping = d;
-      s.badAt = null; softFailN.remove(s.key);
-      s.miss = 0;
-      failed.remove(s.key);
+      // A core-delay success is only a candidate check. It must not erase
+      // consecutive end-to-end connection failures; _onConnected() resets them.
+      if (s.miss == 0 && (softFailN[s.key] ?? 0) == 0) {
+        s.badAt = null;
+        failed.remove(s.key);
+      }
       totalOk++;
-      _resAdd(s); // NATRESPATCH
-      if (nationalMode) _natAdd(s); // NATIONALPATCH
+      // A core delay response is only a candidate, not proof that real tunnel
+      // traffic works. Add to the verified folder only from _onConnected(),
+      // after the end-to-end tunnel traffic check succeeds.
       if (!good.contains(s)) {
         good.add(s);
         _saveSoon(); // a new healthy server is kept on disk quickly
@@ -5962,17 +5966,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     var slowNow = 0; // BADPINGLOOP
     // NATPOOL: در نت ملی هر سرور ماتریس چندده حالته دارد و همه روی یک هسته اجرا می‌شوند.
     // ۵۰ تست همزمان روی یک هسته باعث می‌شد هیچ‌کدام تمام نشوند (گیر در «تست می‌شود»).
-    // FASTGATE: قبلاً همیشه ۴ تست هم‌زمان بود (حتی وقتی «تست همزمان» ۵۰ بود)، و هر تست
+    // FASTGATE: تست هم‌زمان محدود می‌شود تا حافظه و CPU اشباع نشوند (حتی وقتی «تست همزمان» ۵۰ بود)، و هر تست
     // شکست‌خورده ~۱۳ ثانیه طول می‌کشید؛ دسته‌ی ۱۲۰تایی چند دقیقه و بعد WATCHDOG2 می‌شد.
     // حالت عادی/آفلاین حالا با تنظیم «تست همزمان» اجرا می‌شود؛ نت ملی همان ۴ را نگه می‌دارد.
-    // NATSPEED: نت ملی ۸ تست هم‌زمان (قبلاً ۴)؛ حالت عادی بدون تغییر است
+    // NATSPEED: تست‌های نت ملی نیز با سقف محافظه‌کارانه ۳ اجرا می‌شوند
     // SPEEDBACK: تعداد تست همزمان همان عددی است که کاربر در «تست همزمان» تنظیم می‌کند
     // (سرعت قبلی). اگر لاگ -1 زیاد نشان داد، همان عدد را پایین بیاور.
-    // NATGATE4: نت ملی همیشه ۴ تست هم‌زمان (تنظیم «جستجوی اول» فقط برای بقیه‌ی مسیرها)
-    // تست سریع/خلبان: عدد «تست همزمان» کاربر (پیش‌فرض ۱۲) اعمال می‌شود؛ نت ملی جدا (۴) است
+    // NATGATE: نت ملی حداکثر ۳ تست هم‌زمان
+    // تست سریع/خلبان: عدد «تست همزمان» کاربر (پیش‌فرض ۳) اعمال می‌شود؛ نت ملی نیز ۳ است
     final gateMax = nationalMode
         ? kNatDelayConcurrency
-        : fastWorkers.clamp(kDelayConcurrency, 60);
+        : fastWorkers.clamp(1, 3);
     _delayGate.max = gateMax;
     dbg('تست سریع: $gateMax تست هم‌زمان • دسته ${alive.length}');
     // ASNPREFETCH: وقتی نت جهانی است، بلوک‌های هاست سرورها را ذخیره می‌کنیم تا در نت ملی
@@ -6402,9 +6406,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             failed[s.key] = DateTime.now();
           }
         } else {
-          s.miss = 0;
           s.ping = d;
-          s.badAt = null; softFailN.remove(s.key);
+          if (s.miss == 0 && (softFailN[s.key] ?? 0) == 0) {
+            s.badAt = null;
+          }
         }
       });
     } finally {
@@ -6709,6 +6714,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (chainCfg != null) chainCfg,
       ].map((c) => withErrLog(sanitizeCfg(c))).toList();
       var usedFallback = false;
+      var trafficFailure = false;
       for (var ci = 0; ci < cfgTries.length; ci++) {
         if (ci > 0) {
           usedFallback = true;
@@ -6813,17 +6819,61 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await _stopCore();
         }
       }
+      // A config is accepted only after CONNECTED, a confirmed Android TUN,
+      // and a successful outbound probe. CONNECTED alone is not proof of traffic.
+      if (ready && t == true) {
+        await Future.delayed(const Duration(milliseconds: 600));
+        var earlyPing = await pingAny(
+            total: const Duration(seconds: 5), direct: true, tries: 2);
+        if (earlyPing == null && !abort && wantVpn) {
+          await Future.delayed(const Duration(milliseconds: 900));
+          earlyPing = await pingAny(
+              total: const Duration(seconds: 5), direct: true, tries: 2);
+        }
+        if (earlyPing == null && !abort && wantVpn) {
+          await Future.delayed(const Duration(milliseconds: 2500));
+          earlyPing = await pingAny(
+              total: const Duration(seconds: 6), direct: true, tries: 1);
+        }
+        if (!wantVpn || abort) {
+          lastFail = 'لغو توسط کاربر';
+          await _stopCore();
+          return false;
+        }
+        if (earlyPing != null) {
+          trafficFailure = false;
+          break; // this config variant has real outbound traffic
+        }
+
+        trafficFailure = true;
+        lastFail = 'وصل شد ولی اینترنت رد نشد (ترافیک تونل صفر)';
+        lastStartNoTunnel = false;
+        dbg('ℹ ${s.name}: کانفیگ ${ci + 1}/${cfgTries.length} به CONNECTED رسید '
+            'اما ترافیک نداشت؛ کانفیگ جایگزین همین سرور امتحان می‌شود');
+        // Invalidate late state callbacks before stopping this variant.
+        _connGen++;
+        if (connSig != null && !connSig!.isCompleted) {
+          connSig!.complete(false);
+        }
+        connSig = null;
+        await _stopCore();
+        await Future.delayed(const Duration(milliseconds: 2500));
+        ready = false;
+        t = null;
+        continue; // try the next generated config for this same server
+      }
+
+      // If CONNECTED arrived but Android did not expose a confirmed TUN,
+      // this is a platform/tunnel failure, not evidence that the server is bad.
+      if (ready) break;
+
       // DIAG: the core never reported CONNECTED: log the exact config it got
       // (the start of it) so the report shows what was sent to the core
       if (!ready) {
-        // CORE-PORT: does a core inbound answer locally right now?
         final pSocks = await localPortOpen(10808);
         final pIn = await localPortOpen(10807);
         final pHttp = await localPortOpen(10809);
         dbg('CORE-PORT ${s.name}: socks10808=${pSocks ? 'باز' : 'بسته'} • in10807=${pIn ? 'باز' : 'بسته'} • http10809=${pHttp ? 'باز' : 'بسته'}');
-        // the log viewer cuts long lines, so the config goes out in short
-        // numbered chunks (one line each), newlines removed
-        // secrets (uuid/password/keys) are masked: reports get shared
         final dumpCfg = cfgTries[ci].replaceAll('\n', ' ').replaceAllMapped(
             RegExp(r'"(id|password|pass|uuid|publicKey|pbk|shortId|sid)"\s*:\s*"[^"]*"'),
             (mm) => '"${mm[1]}":"***"');
@@ -6833,76 +6883,43 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           dbg('CFG${i ~/ chunk} ${s.name}: ${dumpCfg.substring(i, end)}');
         }
       }
-      if (!ready) dbgXrayErr(s.name);
-      // the core reported CONNECTED with this config: no fallback needed
-      if (ready) break;
-      // HANGSKIP: هسته تا آخر مهلت در CONNECTING گیر کرده بود. کانفیگ ساده‌ی بعدی هم همین‌طور گیر می‌کند
-      // (گزارش: IR|87.107.83.105 دو بار × ~۵۰ ثانیه، هر دو در CONNECTING)؛ فقط وقت هدر می‌رفت. سرور رد می‌شود.
+      dbgXrayErr(s.name);
       if (coreHung) {
         dbg('HANGSKIP: هسته در CONNECTING گیر کرد؛ کانفیگ ساده امتحان نمی‌شود • ${s.name}');
         break;
       }
       }
-      if (usedFallback && ready) {
-        dbg('اتصال با کانفیگ ساده (بدون تغییر DNS) برقرار شد: ${s.name}');
+      if (trafficFailure && !ready) {
+        lastStartNoTunnel = false;
+        await _stopCore();
+        return false;
       }
-      tunWarn = !ready || t == false;
+      if (usedFallback && ready) {
+        dbg('اتصال با کانفیگ جایگزینِ دارای ترافیک واقعی برقرار شد: ${s.name}');
+      }
+      tunWarn = !ready || t != true;
       if (tunWarn) {
         // Android built no tunnel: a "direct" ping would still pass, so this
         // must count as a failed start, not as a working server
         lastFail = !ready
             ? 'هسته به حالت CONNECTED نرسید (کانفیگ را هسته نپذیرفت؟)'
-            : 'اندروید تونل VPN نساخت (tun پیدا نشد)';
+            : (t == false
+                ? 'اندروید تونل VPN نساخت (tun پیدا نشد)'
+                : 'وضعیت تونل اندروید قابل تأیید نبود');
         lastStartNoTunnel = true;
         await _stopCore();
         return false;
       }
 
-      // CRITICAL FIX: "CONNECTED + tun" is not enough.
-      // Many free configs report CONNECTED while no real traffic passes.
-      // Give Android a moment to settle routing, then probe real traffic.
-      await Future.delayed(const Duration(milliseconds: 600));
-      // EARLYPING2: سه فرصت با ۲/۲/۱ آدرس؛ سرور مرده به‌جای ~۵۰ ثانیه حداکثر ~۳۰ ثانیه وقت می‌گیرد
-      // (گزارش: ES-79.132.133.38 از ۱۸:۵۷:۰۰ تا ۱۸:۵۷:۵۱) و با لغو کاربر فوراً تمام می‌شود.
-      var earlyPing = await pingAny(
-          total: const Duration(seconds: 5),
-          direct: true,
-          tries: 2);
-      // one more chance: some OEMs need a second for the tunnel route
-      if (earlyPing == null && !abort && wantVpn) {
-        await Future.delayed(const Duration(milliseconds: 900));
-        earlyPing = await pingAny(
-            total: const Duration(seconds: 5),
-            direct: true,
-            tries: 2);
-      }
-      if (earlyPing == null && !abort && wantVpn) {
-        // TUNFIX2: a short pause and a third probe before giving up on a server
-        await Future.delayed(const Duration(milliseconds: 2500));
-        earlyPing = await pingAny(
-            total: const Duration(seconds: 6), direct: true, tries: 1);
-      }
-      if (earlyPing == null) {
-        // SERIOUS BUG FIX: this is a DEAD SERVER (fake CONNECTED), not an
-        // Android tunnel problem. Must NOT set lastStartNoTunnel or the
-        // server is never blacklisted and tunFailRun rises wrongly.
-        lastFail = 'وصل شد ولی اینترنت رد نشد (ترافیک تونل صفر)';
-        lastStartNoTunnel = false;
-        dbg('ℹ ${s.name}: اینترنت از تونل هنوز رد نشد (اطلاعاتی، خطا نیست)');
-        await _stopCore();
-        return false;
-      }
-
-      // user may have tapped disconnect while earlyPing was running
+      // The config variant already passed the outbound probe inside cfgTries.
       if (!wantVpn || abort) {
         lastFail = 'لغو توسط کاربر';
         await _stopCore();
         return false;
       }
-
       lastStartNoTunnel = false;
       return true;
-    } catch (e, jstk) { errJournalAdd(e, st: jstk);
+} catch (e, jstk) { errJournalAdd(e, st: jstk);
       if (_isNoActivity(e)) {
         // quiet: no red PlatformException on the home screen
         lastFail = 'Activity در دسترس نیست برای مجوز VPN';
@@ -6931,7 +6948,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (InternetAddress.tryParse(s.host) != null) {
       unawaited(natIpMemSave(s.host, s.port));
     }
-    s.miss = 0; // BADCFG: a working config starts healthy again
+    s.miss = 0; // BADCFG: only an end-to-end connection resets health
+    softFailN.remove(s.key);
+    failed.remove(s.key);
     badPingRounds = 0; // BADPINGLOOP
     current = s;
     plusHistAdd(s);
@@ -6941,6 +6960,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _aiLoop(aiGen);
     // the personal server has its own row, it never joins the healthy list
     if (!s.personal && !good.contains(s)) good.add(s);
+    if (nationalMode && !s.personal) unawaited(_natAdd(s));
     // پوشهٔ نت ملی: هر سرور سالم وصل‌شده (هر ۶ نوع VPN) ذخیره شود
     if (!s.personal) _resAdd(s);
     upServer = null;
@@ -7275,8 +7295,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             lastFail.contains('CONFIG') ||
             lastFail.contains('کانفیگ') ||
             lastFail.contains('پروتکل');
-        final nFails = (softFailN[s.key] ?? 0) + 1;
-        softFailN[s.key] = nFails;
+        // Platform/core/TUN failures must not increase a server's failure
+        // streak; only a started core with a failed outbound config does.
+        final nFails = (softFailN[s.key] ?? 0) +
+            ((lastStartNoTunnel || noAct) ? 0 : 1);
+        if (!lastStartNoTunnel && !noAct) {
+          softFailN[s.key] = nFails;
+          if (lastFail.contains('ترافیک تونل صفر')) {
+            failed[s.key] = DateTime.now();
+          }
+        }
         // SOFTRETRY: تایم‌اوت/پینگ کند ممکن است لحظه‌ای باشد؛ فقط بعد از دو شکست پیاپی کنار برو
         final penalise = cfgFault || nFails >= 2;
         if (!lastStartNoTunnel && !pin && !noAct && !systemic && penalise) {
@@ -7313,10 +7341,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             continue;
           }
           // success — fall through to post-start checks
+        } else if (lastStartNoTunnel) {
+          // CORE/TUN failure is systemic/platform-side until proven otherwise.
+          // Do not increase miss, blacklist, or delete this server.
+          errorLog.value =
+              'خطای هسته/تونل اندروید برای ${s.name}: ${lastFail} • سرور جریمه نشد';
+          dbg('رد موقت ${s.name}: خطای هسته/تونل؛ شمارنده سلامت سرور تغییر نکرد');
+          continue;
         } else {
-          // BADCFG: a config that fails to start twice in a row is not healthy;
-          // remove it from the healthy list (pinned servers are never removed)
+          // BADCFG: a config that fails end-to-end twice in a row is not healthy;
+          // remove it from the candidate list (pinned servers are never removed).
           if (!pin && !systemic && ++s.miss >= 2) good.remove(s);
+          _saveSoon(); // persist the end-to-end failure streak
           errorLog.value =
               '${s.name}: ${lastFail.isEmpty ? 'شروع نشد' : lastFail}';
           final ip0 = await resolveHostIp(s.host);
@@ -8016,7 +8052,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       logError(e, stk);
     } finally {
       _resBusy = false;
-      if (_resDirty) _resSave(); // partial progress is kept too
+      if (_resDirty) await _resSave(); // partial progress is kept too
       if (mounted) setState(() {});
     }
   }
@@ -8348,10 +8384,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         dead.add(s);
       } else {
         s.ping = d;
-        s.miss = 0;
-        s.badAt = null; softFailN.remove(s.key);
+        if (s.miss == 0 && (softFailN[s.key] ?? 0) == 0) {
+          s.badAt = null;
+        }
         found++;
-        if (forceSaved) await _natAdd(s);
       }
     });
     if (found > 0) {
@@ -8635,7 +8671,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (natFloor >= 10) natLevel = 10;
       tcpTimeout = Duration(seconds: round >= 8 ? 10 : (round >= 4 ? 8 : 6));
       delayTimeout = Duration(seconds: max(delayTimeout.inSeconds, round >= 8 ? 18 : 14));
-      natWorkers = kNatDelayConcurrency; // NATGATE4: national matrix tests always 4
+      natWorkers = kNatDelayConcurrency; // NATGATE: national matrix tests max 3
       // grow the variant matrix so later rounds cover more combinations
       try {
         natGrow(round >= 8 ? 400 : (round >= 4 ? 200 : 80));
@@ -8984,7 +9020,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // از حالت‌های مداد/پروفایل) سرورهای سالم ولی با پینگ بالاتر حذف می‌شدند
         badPingMs = max(badPingMs, 6000);
         if (natLevel < 2) natLevel = 2;
-        natWorkers = kNatDelayConcurrency; // NATGATE4: national matrix tests always 4
+        natWorkers = kNatDelayConcurrency; // NATGATE: national matrix tests max 3
         delayTimeout = Duration(
             seconds: max(delayTimeout.inSeconds, 16));
         tcpTimeout = Duration(
@@ -8997,7 +9033,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // NORMAL: start light (level 1) so many servers get a quick ping first;
         // bestEffort in _acquire escalates 2→4 only if needed. No folder inject.
         if (natLevel < 1) natLevel = 1;
-        natWorkers = kNatDelayConcurrency; // NATGATE4: national matrix tests always 4
+        natWorkers = kNatDelayConcurrency; // NATGATE: national matrix tests max 3
         delayTimeout = Duration(
             seconds: max(delayTimeout.inSeconds, 12));
         tcpTimeout = Duration(
@@ -9488,19 +9524,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _lastAutoAi = DateTime.now();
     await aiAnalyze(auto: true);
     if (!mounted) return;
-    // the assistant may raise the parallel-test counts but never lower them
-    final fw = fastWorkers, bw = bgWorkers;
-    applyAiSuggest();
-    var fix = false;
-    if (fastWorkers < fw) {
-      fastWorkers = fw;
-      fix = true;
-    }
-    if (bgWorkers < bw) {
-      bgWorkers = bw;
-      fix = true;
-    }
-    if (fix) unawaited(_saveSettings().catchError((e) => logError(e)));
+    // Apply bounded AI recommendations in both directions. In particular,
+    // the pilot must be able to reduce concurrency after CPU/RAM pressure.
+    // applyAiSuggest() persists accepted settings itself.
   }
 
   // 6 s after a connection, then every aiEveryMin minutes while connected
@@ -9919,7 +9945,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (++s.miss >= 2) good.remove(s);
       } else {
         s.ping = d;
-        s.miss = 0;
+        // A delay-only recheck cannot rehabilitate a config that failed
+        // end-to-end traffic; only _onConnected() clears its miss counter.
       }
       if (mounted) setState(() {});
     });
@@ -11295,10 +11322,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     this.resetNumButton(setS),
                     head('⚡ سرعت تست'),
                     row('تست همزمان (جستجوی اول)', '$fastWorkers',
-                        fastWorkers.toDouble(), 1, 100, 99,
+                        fastWorkers.toDouble(), 1, 3, 2,
                         (x) => fastWorkers = x.round()),
                     row('تست همزمان (وقتی وصل است)', '$bgWorkers',
-                        bgWorkers.toDouble(), 1, 100, 99,
+                        bgWorkers.toDouble(), 1, 3, 2,
                         (x) {
                           bgWorkers = x.round();
                         }),
