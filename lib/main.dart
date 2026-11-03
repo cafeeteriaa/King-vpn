@@ -61,11 +61,11 @@ const int kStandbyWorkers = 1;
 const int kStandbyPause = 20;
 const int kStandbyResume = 5;
 // FG-TARGET: جستجوی اصلی (غیر ملی) تا این تعداد سرور سالم تست می‌کند
-const int kFgSearchTarget = 15;
+const int kFgSearchTarget = 20;
 bool standbyPaused = false;
 // FAST SEARCH: parallel ping tests (core delay test, no VPN toggling) used
 // when looking for the first healthy server (settings 1..8).
-int fastWorkers = 3; // WORKERSCAP: همه مسیرها حداکثر ۳ تست هم‌زمان
+int fastWorkers = 20; // FAST100: بیست تست هم‌زمان برای غربال دسته ۱۰۰تایی
 // a healthy server not checked for this long is pinged again (occasional
 // re-check, the server stays in the list until it really fails)
 Duration recheckAfter = const Duration(minutes: 4);
@@ -227,7 +227,7 @@ int minSpeedKB = 200; // USER: تعویض سرور اگر سرعت کمتر از
 
 // ---- settings ---- BEST PROFILE (پایدار + سریع)
 // user-adjustable (saved in settings)
-int batchSize = 200; // USER: دسته‌ی تست سریع ۲۰۰ (دسته بزرگ‌تر = شانس بیشتر برای سرور خوب)
+int batchSize = 100; // FAST100: تمام مسیرهای غیر ملی دسته‌های ۱۰۰تایی
 int delayWorkers = 24; // (kept for settings compatibility)
 Duration delayTimeout = const Duration(seconds: 5); // USER: سرور مرده زودتر رد شود (اتصال سریع‌تر)
 int goodWant = 12; // حداقل سرور سالم هدف
@@ -282,7 +282,7 @@ const bgSearchOff = false; // RETRYPATCH // SPEEDSWITCHPATCH: no search while co
 // are re-checked inside the batch every 25 tests, so a big batch is safe.
 int standbyBatchSize = 40;
 const bgTimeoutSecs = 10;
-int firstBatchSize = 50; // BEST: پیدا کردن سریع‌تر اولین سالم
+int firstBatchSize = 100; // FAST100: دسته اول هم ۱۰۰تایی
 int fetchWorkers = 6;
 Duration fetchDeadline = const Duration(seconds: 25);
 int tcpWorkers = 20;
@@ -439,7 +439,7 @@ void _tuneApply(int lv) {
     // شبکه ضعیف / فیلتر: صبر بیشتر، تعویض کمتر حساس
     delayTimeout = const Duration(seconds: 12);
     batchSize = 100;
-    firstBatchSize = 40;
+    firstBatchSize = 100;
     minSpeedKB = 40;
     badPingMs = 4500;
     badPingLimit = 4;
@@ -451,8 +451,8 @@ void _tuneApply(int lv) {
   } else if (lv == 2) {
     // شبکه سریع: سخت‌گیرتر روی سرعت و پینگ
     delayTimeout = const Duration(seconds: 6);
-    batchSize = 140;
-    firstBatchSize = 60;
+    batchSize = 100;
+    firstBatchSize = 100;
     minSpeedKB = 120;
     badPingMs = 1800;
     badPingLimit = 2;
@@ -466,8 +466,8 @@ void _tuneApply(int lv) {
   } else {
     // معمولی = BEST پیش‌فرض اپ
     delayTimeout = const Duration(seconds: 8);
-    batchSize = 120;
-    firstBatchSize = 50;
+    batchSize = 100;
+    firstBatchSize = 100;
     minSpeedKB = 80;
     badPingMs = 2500;
     badPingLimit = 3;
@@ -3271,12 +3271,8 @@ Future<int> _sitesOpen() async {
     logError(e, stk);
     return -1;
   }
-  final r = await Future.wait([
-    _siteOpens('https://www.youtube.com/generate_204'),
-    _siteOpens('https://www.instagram.com/'),
-    _siteOpens('https://telegram.org/'),
-  ]);
-  return r.where((x) => x).length;
+  // سلامت مسیر فقط با تلگرام سنجیده می‌شود؛ سرویس‌های دیگر معیار اتصال نیستند.
+  return await _siteOpens('https://telegram.org/', viaCore: true) ? 1 : 0;
 }
 
 // CORE-PORT diagnostic: is anything listening on a local core port right now?
@@ -4339,12 +4335,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _siteOpens('https://telegram.org/'),
         ]);
         if (tg.any((x) => x)) return true;
-        // Telegram did not open: is the internet itself fine?
-        final other = await Future.wait([
-          _siteOpens('https://www.youtube.com/generate_204'),
-          _siteOpens('https://www.instagram.com/'),
-        ]);
-        return other.any((x) => x) ? false : null; // null = no internet
+        return null; // فقط تلگرام معیار است؛ خطای تلگرام را با سایت دیگر نسنج
       })()
           .then((bool? ok) {
         if (!mounted || !identical(current, cur) || busy || switching) return;
@@ -4904,7 +4895,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           minPingMs = _ci(j['m2'], minPingMs, 0, 1000);
           autoUpgrade = j['u'] as bool? ?? autoUpgrade;
           fastDelay = j['fd'] as bool? ?? fastDelay;
-          fastWorkers = _ci(j['fw2'], fastWorkers, 1, 3);
+          fastWorkers = _ci(j['fw2'], fastWorkers, 1, 20);
           bgWorkers = _ci(j['bw2'], bgWorkers, 1, 3);
           speedTopN = _ci(j['st'], speedTopN, 1, 1000);
           badPingSwitch = j['bps'] as bool? ?? badPingSwitch;
@@ -4966,7 +4957,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         maxPerSource = 100;
         fetchWorkers = 4;
         fetchDeadline = const Duration(seconds: 20);
-        firstBatchSize = 50;
+        firstBatchSize = 100;
         standbyBatchSize = 30;
         maxBatches = 5;
         watchFailLimit = 3;
@@ -5603,27 +5594,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // MIN3: همه‌ی مسیرها (عادی، خلبان، نت ملی) قبل از وصل شدن ۳ سرور سالم جمع می‌کنند
         // تا بعد از قطع، سرور جایگزین آماده باشد. بعد از ۳ دقیقه با هر تعدادی وصل می‌شود.
         if (!bg) {
-          if (ready >= 3) return true;
-          if ((searchSw?.elapsed ?? Duration.zero) < const Duration(minutes: 3)) {
-            return false;
-          }
+          if (ready >= kFgSearchTarget) return true;
+          // FAST100: تا ۲۰ سرور سالم یا پایان مهلت ۳۰ثانیه‌ای، دسته را غربال کن.
+          // اگر کمتر از ۲۰ سرور پیدا شد، بعد از ۳۰ ثانیه با بهترین‌های موجود ادامه بده.
+          final elapsed = searchSw?.elapsed ?? Duration.zero;
+          if (ready > 0 && elapsed >= const Duration(seconds: 30)) return true;
+          if (pending.isEmpty && ready > 0) return true;
         }
         // NATBG-ALWAYS: نت ملی در پس‌زمینه همیشه می‌گردد؛ با داشتن سرورهای ذخیره‌شده
         // دیگر بلافاصله (۰ ثانیه) خاتمه نمی‌یابد
         if (ready >= want && !(bg && nationalMode)) return true;
-        // اتصال سریع: با ۱ سرور سالم بعد از چند ثانیه برو وصل شو
-        // (جستجوی پس‌زمینه بعداً سرور بیشتر جمع می‌کند)
-        if (!bg && ready >= 1) {
-          final elapsed = searchSw?.elapsed ?? Duration.zero;
-          // حداقل ۱ سالم + ۲ثانیه → کافی برای اتصال فوری
-          if (elapsed > const Duration(seconds: 2)) return true;
-        }
-        if (!bg &&
-            ready >= 2 &&
-            (searchSw?.elapsed ?? Duration.zero) >
-                Duration(seconds: min(firstCapSec, 15))) {
-          return true;
-        }
         return false;
       }
 
@@ -5755,7 +5735,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // WATCHDOG2: a batch that hangs on any await is abandoned after 3 min
           await _testBatchFast(batch, enough, row: row).timeout(
               // NATWD: نت ملی ۵ دقیقه (بیشتر از WATCHDOG داخلی ۴ دقیقه) تا همان کنترل کند
-              Duration(minutes: nationalMode ? 5 : 3),
+              Duration(minutes: nationalMode ? 5 : 0, seconds: nationalMode ? 0 : 30),
               onTimeout: () {
                 batchGen++; // BATCHGEN-FIX: کارهای باقی‌مانده‌ی این دسته را متوقف کن
                 dbg('WATCHDOG2: دسته بیش از ۳ دقیقه طول کشید؛ دسته رها شد');
@@ -5976,7 +5956,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // تست سریع/خلبان: عدد «تست همزمان» کاربر (پیش‌فرض ۳) اعمال می‌شود؛ نت ملی نیز ۳ است
     final gateMax = nationalMode
         ? kNatDelayConcurrency
-        : fastWorkers.clamp(1, 3);
+        : fastWorkers.clamp(1, 20);
     _delayGate.max = gateMax;
     dbg('تست سریع: $gateMax تست هم‌زمان • دسته ${alive.length}');
     // ASNPREFETCH: وقتی نت جهانی است، بلوک‌های هاست سرورها را ذخیره می‌کنیم تا در نت ملی
@@ -6017,9 +5997,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _set('نت ملی: تست ${s.name} • ${realTested + 1}/${alive.length}');
       }
       final d0 = await _delayOf(s, t: _fgTimeout).timeout(
-          Duration(seconds: nationalMode ? 150 : 60), // VARCAP2 (60: queue margin)
+          Duration(seconds: nationalMode ? 150 : 5), // FAST100: هر سرور عادی حداکثر ۵ ثانیه
           onTimeout: () {
-            dbg('WATCHDOG: ${s.name} بیش از ${nationalMode ? 150 : 60} ثانیه طول کشید؛ رد شد');
+            dbg('WATCHDOG: ${s.name} بیش از ${nationalMode ? 150 : 5} ثانیه طول کشید؛ رد شد');
             s.badAt = DateTime.now();
             return null;
           });
@@ -6203,16 +6183,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // MULTICHK: does this server also reach Telegram/YouTube/Instagram/Pornhub?
   Future<int> _svcOf(Server s) async {
     var m = 0;
-    const urls = ['https://web.telegram.org/', 'https://www.youtube.com/generate_204', 'https://www.instagram.com/', 'https://www.pornhub.com/'];
+    const urls = ['https://telegram.org/']; // فقط تلگرام معیار سلامت است
     try {
       final cfg = buildCoreConfig(s.useLink);
       final rs = await Future.wait(urls.map((u) => _delayGate.run<dynamic>(() => v2ray
           .getServerDelay(config: _testCfg(cfg), url: u)
           .timeout(const Duration(seconds: 8), onTimeout: () => -1)
           .catchError((_) => -1))));
-      for (var i = 0; i < 4; i++) {
-        if (rs[i] > 0) m |= (1 << i);
-      }
+      if (rs.isNotEmpty && rs[0] > 0) m |= 1;
     } catch (e, stk) { logError(e, stk); }
     return m;
   }
@@ -7234,11 +7212,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     await Future.delayed(const Duration(seconds: 2));
     // TUNFIX: viaCore true = the core proxy (real outbound). DIRECT from this app bypasses the VPN
     // because the app is excluded from its own tunnel, so every server was wrongly rejected.
-    final g = await _siteOpens('https://www.google.com/generate_204', viaCore: true)
-        .timeout(const Duration(seconds: 12), onTimeout: () => false);
-    if (!g) return false;
-    return _siteOpens('https://www.youtube.com/', viaCore: true)
-        .timeout(const Duration(seconds: 12), onTimeout: () => false);
+    return _siteOpens('https://telegram.org/', viaCore: true)
+        .timeout(const Duration(seconds: 8), onTimeout: () => false);
   }
 
   // [trust] = the server was already tested: skip the extra verification.
@@ -7499,17 +7474,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
           Future<List<bool>> runSocial() async {
             try {
-              // SOCIALALL: تلگرام، یوتیوب، اینستاگرام، X و واتس‌اپ همه چک می‌شوند
-              final res = await Future.wait([
-                _siteOpens('https://telegram.org/', viaCore: true),
-                _siteOpens('https://web.telegram.org/', viaCore: true),
-                _siteOpens('https://www.youtube.com/', viaCore: true),
-                _siteOpens('https://www.instagram.com/', viaCore: true),
-                _siteOpens('https://x.com/', viaCore: true),
-                _siteOpens('https://web.whatsapp.com/', viaCore: true),
-              ]).timeout(const Duration(seconds: 15),
-                  onTimeout: () => List<bool>.filled(6, false));
-              return [res[0], res[1], res[2], res[3], res[4], res[5], false, false];
+              final tg = await _siteOpens('https://telegram.org/', viaCore: true)
+                  .timeout(const Duration(seconds: 8), onTimeout: () => false);
+              // فیلدهای قدیمی برای سازگاری حفظ شده‌اند؛ فقط تلگرام معیار است.
+              return [tg, tg, false, false, false, false, false, false];
             } catch (e, stk) {
               logError(e, stk);
               return List<bool>.filled(8, false);
@@ -7519,20 +7487,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           var r = await runSocial();
           if (abort) return false;
           bool tg = r[0] || r[1];
-          bool yt = r[2]; // SOCIALALL
-          bool ig = r[3];
-          bool socialOk = tg && yt && ig; // همه‌ی سایت‌های اصلی باید تیک بخورند
-          // National / slow: one more pass after short settle
-          if (!socialOk && (nationalMode || indestructibleMode)) {
-            await Future.delayed(const Duration(milliseconds: 800));
+          bool yt = false;
+          bool ig = false;
+          bool socialOk = tg;
+          // در نت ملی هم فقط یک بار تلگرام را با همان مسیر بررسی کن.
+          if (!socialOk && nationalMode) {
+            await Future.delayed(const Duration(milliseconds: 300));
             r = await runSocial();
             tg = r[0] || r[1];
-            yt = r[2];
-            ig = r[3];
-            socialOk = tg && yt && ig;
+            socialOk = tg;
           }
-          dbg('چک سایت‌ها ${s.name}: tg=$tg yt=$yt ig=$ig '
-              'cf=${r[6]} gs=${r[7]}');
+          dbg('چک سلامت فقط تلگرام ${s.name}: tg=$tg');
 
           if (!socialOk &&
               (nationalMode || ultraMode || indestructibleMode) &&
@@ -7541,16 +7506,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             // Same server, other matrix variants — often fixes social path
             await _stopV2();
             if (await _natLadder(s, socialGate: () async {
-                  // IPTEST: national IP variants are judged by YouTube/Instagram.
-                  // Only these two are checked, with a short timeout, because the
-                  // gate runs for every variant (the full 6-site check made each
-                  // variant take ~15 s and the national batches never finished).
-                  final rr = await Future.wait([
-                    _siteOpens('https://www.youtube.com/', viaCore: true),
-                    _siteOpens('https://www.instagram.com/', viaCore: true),
-                  ]).timeout(const Duration(seconds: 8),
-                      onTimeout: () => <bool>[false, false]);
-                  return rr[0] || rr[1];
+                  return await _siteOpens('https://telegram.org/', viaCore: true)
+                      .timeout(const Duration(seconds: 8), onTimeout: () => false);
                 })) {
               await waitProxyPort(
                   max: Duration(seconds: nationalMode ? 8 : 5));
@@ -7579,7 +7536,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // فقط تلگرام باید از تونل باز شود
           // IPTEST: in national mode the server is accepted when YouTube or
           // Instagram opens through the tunnel (Telegram was too strict for IPs)
-          final accept2 = tunChecked ? true : (nationalMode ? (yt || ig) : tg);
+          final accept2 = tunChecked ? true : tg;
 
           if (!accept2) {
             siteSkips++;
@@ -7655,11 +7612,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // tunnel -> the server works (only the speed file was blocked), keep it
     var sitesAlive = false;
     if (sp == null) {
-      final r = await Future.wait([
-        _siteOpens('https://telegram.org/', viaCore: true),
-        _siteOpens('https://www.instagram.com/', viaCore: true),
-      ]);
-      sitesAlive = r.any((x) => x);
+      sitesAlive = await _siteOpens('https://telegram.org/', viaCore: true);
       if (!connected || !identical(s, current)) return;
       if (sitesAlive) {
         dbg('سرعت ${s.name}: فایل تست نیامد ولی سایت‌ها از تونل باز شدند؛ سرور می‌ماند');
@@ -8893,7 +8846,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!speedDone && list.length > 1 && autoSpeed &&
           !nationalMode) {
         speedDone = true;
-        await _speedTest(speedTopN, from: list);
+        list.sort(_cmpAlive);
+        await _speedTest(5, from: list);
         if (abort) return false; // ABORT-STUCK: speed test was cut
         list = pickRow();
         if (list.isEmpty) continue;

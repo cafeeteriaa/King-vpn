@@ -2028,18 +2028,12 @@ extension HomeExtras on _HomePageState {
     }
     try {
       // PROBEUNKNOWN: a probe that timed out is "unknown" (null), not "blocked" (false)
-      final rs = await Future.wait([
-        _siteOpens('https://web.telegram.org/', viaCore: true),
-        _siteOpens('https://www.youtube.com/generate_204', viaCore: true),
-        _siteOpens('https://www.instagram.com/', viaCore: true),
-        _siteOpens('http://cp.cloudflare.com/generate_204', viaCore: true),
-      ]).timeout(const Duration(seconds: 10), onTimeout: () => <bool>[]);
-      if (rs.length == 4) {
-        out['tg'] = rs[0] == true;
-        out['yt'] = rs[1] == true;
-        out['ig'] = rs[2] == true;
-        out['net'] = rs[3] == true || out['tg'] == true || out['yt'] == true;
-      }
+      final tgOk = await _siteOpens('https://telegram.org/', viaCore: true)
+          .timeout(const Duration(seconds: 8), onTimeout: () => false);
+      out['tg'] = tgOk;
+      out['yt'] = null; // خارج از معیار سلامت
+      out['ig'] = null; // خارج از معیار سلامت
+      out['net'] = tgOk;
     } catch (e, stk) { logError(e, stk); }
     return out;
   }
