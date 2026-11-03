@@ -103,7 +103,7 @@ if not done:
 
 # 3) DELAYPOOL: the plugin's latency-test queue has DELAY_THREADS = 2.
 #    We raise it to 3 (this is the real limit for simultaneous tests).
-DELAY_THREADS_NEW = 3
+DELAY_THREADS_NEW = 8
 try:
     src = open(core, encoding='utf-8').read()
     pat = re.compile(r'(DELAY_THREADS\s*=\s*)(\d+)(\s*;)')
