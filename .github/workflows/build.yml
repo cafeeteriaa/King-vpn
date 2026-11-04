@@ -35,10 +35,16 @@ jobs:
             cp "lib/$f.dart" "build_app/lib/$f.dart"
           done
           # Turn the pre-connect ad back on (it was switched off in the test build)
-          grep -q 'bool requireRewardedAd = false;' build_app/lib/main.dart \
-            || { echo "ERROR: requireRewardedAd line not found in main.dart"; exit 1; }
-          sed -i 's/bool requireRewardedAd = false;/bool requireRewardedAd = true;/' build_app/lib/main.dart
-          echo "requireRewardedAd is now true"
+          if grep -q 'bool requireRewardedAd = false;' build_app/lib/main.dart; then
+            sed -i 's/bool requireRewardedAd = false;/bool requireRewardedAd = true;/' build_app/lib/main.dart
+            echo "requireRewardedAd switched from false to true"
+          elif grep -q 'bool requireRewardedAd = true;' build_app/lib/main.dart; then
+            echo "requireRewardedAd is already true"
+          else
+            echo "ERROR: requireRewardedAd line not found in main.dart"; exit 1
+          fi
+          grep -q 'bool requireRewardedAd = true;' build_app/lib/main.dart \
+            || { echo "ERROR: requireRewardedAd is not true after patch"; exit 1; }
           # Apply verified patches (test report + national IP hunt). Stops the build if anything does not match.
           python3 patch_v2.py build_app/lib
           python3 prepare_android.py
