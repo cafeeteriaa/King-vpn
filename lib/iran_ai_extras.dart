@@ -2848,7 +2848,7 @@ extension HomeExtras on _HomePageState {
       default:
         break;
     }
-    fastWorkers = workers.clamp(1, 3); // WORKERS50 (سقف ۳): هر مسیر با تنظیم خودش (۵۰) اعمال می‌شود
+    fastWorkers = fwUserSet ? fwUserValue : 3; // FWUSER: پیش‌فرض ۳، عدد دستی کاربر حفظ می‌شود
     badPingMs = pingMs;
     badPingLimit = 3;
     watchFailLimit = 3;
@@ -3000,7 +3000,7 @@ class NumOpt {
 
 final List<NumOpt> numOpts = [
   // BEST PROFILE defaults — هم‌تراز با پیش‌فرض main.dart
-  NumOpt('fastWorkers', 'تست همزمان (جستجوی اول)', 1, 1000, 20, 1000, false,
+  NumOpt('fastWorkers', 'تست همزمان (جستجوی اول)', 1, 1000, 3, 1000, false,
       () => fastWorkers.clamp(1, 1000), (v) => fastWorkers = v.clamp(1, 1000)),
   NumOpt('bgWorkers', 'تست همزمان (وقتی وصل است)', 1, 3, 3, 3, false,
       () => bgWorkers.clamp(1, 3), (v) => bgWorkers = v.clamp(1, 3)),
@@ -3036,9 +3036,9 @@ final List<NumOpt> numOpts = [
       (v) => tcpTimeout = Duration(milliseconds: v * 100)),
   NumOpt('maxPerSource', 'حداکثر سرور از هر منبع', 1, 500, 120, 500, true,
       () => maxPerSource, (v) => maxPerSource = v),
-  NumOpt('fetchWorkers', 'دانلود همزمان لیست‌ها', 1, 20, 6, 20, true,
+  NumOpt('fetchWorkers', 'دانلود همزمان لیست‌ها', 1, 20, 8, 20, true,
       () => fetchWorkers, (v) => fetchWorkers = v),
-  NumOpt('fetchDeadline', 'مهلت دانلود لیست‌ها (ثانیه)', 5, 120, 25, 120, true,
+  NumOpt('fetchDeadline', 'مهلت دانلود لیست‌ها (ثانیه)', 5, 120, 45, 120, true,
       () => fetchDeadline.inSeconds,
       (v) => fetchDeadline = Duration(seconds: v)),
   NumOpt('firstBatchSize', 'اندازه دسته‌ی اول', 1, 300, 50, 300, true,
@@ -3073,7 +3073,7 @@ Future<void> loadNumPrefs(SharedPreferences p) async {
   }
   // FWDEF27: پیش‌فرض جدید یک‌بار برای نصب‌های قدیمی: جستجوی اول ۲۰، وقتی وصل است ۳
   if (p.getBool('fwDefault27') != true) {
-    fastWorkers = 20;
+    fastWorkers = 7;
     bgWorkers = 3;
     await p.setBool('fwDefault27', true);
     saveNumPrefs();
@@ -3099,6 +3099,12 @@ Future<void> _loadNumPrefs0(SharedPreferences p) async {
       final v = j[o.id];
       if (v is num) o.set(v.toInt().clamp(o.lo, o.hi).toInt());
     }
+    final fu = j['fwUser']; // FWUSER
+    if (fu is num && fu.toInt() >= 1) {
+      fwUserValue = fu.toInt().clamp(1, 1000).toInt();
+      fwUserSet = true;
+      fastWorkers = fwUserValue;
+    }
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -3107,8 +3113,9 @@ Future<void> _loadNumPrefs0(SharedPreferences p) async {
 Future<void> saveNumPrefs() async {
   try {
     final p = await SharedPreferences.getInstance();
-    await p.setString(
-        'numx', jsonEncode({for (final o in numOpts) o.id: o.get()}));
+    final mp = <String, int>{for (final o in numOpts) o.id: o.get()};
+    mp['fwUser'] = fwUserSet ? fwUserValue : 0; // FWUSER
+    await p.setString('numx', jsonEncode(mp));
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -3165,6 +3172,7 @@ extension NumHomeExtras on _HomePageState {
   // برگرداندن کامل: همه‌ی عددها + همه‌ی کلیدهای روشن/خاموش به مقدار اولیه‌ی برنامه
   void resetAllToDefaults() {
     resetNumbers();
+    fwUserSet = false; // FWUSER: برگشت به پیش‌فرض ۳
     autoTune = false;
     proxyMode = false;
     onlyHealthySrc = true;
@@ -3531,6 +3539,16 @@ Future<String?> tunedSettings(SharedPreferences p) async {
 // هیچ کلید API لازم نیست. تا قطع دستی کاربر، کنترل کامل دارد.
 
 bool localPilotOn = false;
+
+// FWUSER: مقدار دستی کاربر برای «تست همزمان (جستجوی اول)». پیش‌فرض ۳؛
+// اگر کاربر خودش عدد گذاشته باشد، هر اتصال عادی همان عدد (تا ۱۰۰۰) را نگه می‌دارد.
+int fwUserValue = 3;
+bool fwUserSet = false;
+void setUserFastWorkers(int v) {
+  fwUserValue = v.clamp(1, 1000).toInt();
+  fwUserSet = true;
+  fastWorkers = fwUserValue;
+}
 bool healActive = false; // ADAUTO: خودترمیمی خودکار در حال کار است
 // انتخاب صریح کاربر: null = نامشخص (خودکار)، true = نت ملی، false = نت جهانی
 bool? userModeChoice;

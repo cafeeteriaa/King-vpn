@@ -370,8 +370,8 @@ const bgSearchOff = false; // RETRYPATCH // SPEEDSWITCHPATCH: no search while co
 int standbyBatchSize = 40;
 const bgTimeoutSecs = 10;
 int firstBatchSize = 100; // FAST100: دسته اول هم ۱۰۰تایی
-int fetchWorkers = 6;
-Duration fetchDeadline = const Duration(seconds: 25);
+int fetchWorkers = 8;
+Duration fetchDeadline = const Duration(seconds: 45);
 int tcpWorkers = 20;
 int maxPerSource = 120;
 Duration tcpTimeout = const Duration(milliseconds: 3500);
@@ -1244,7 +1244,7 @@ List<String> _dbgHelpOf(String m) {
     return h('E-APP-UP-CORE-DOWN',
         'lib/main.dart → شنونده‌ی FlutterV2ray(onStatusChanged:) در initState',
         'رویداد DISCONNECTED وقتی busy/switching روشن بود نادیده گرفته شد، پس connected=true مانده و dropTimer/_failover فعال نشد؛ یا اندروید سرویس VPN را بسته.',
-        'خودکار اصلاح می‌شود (_syncCore: بعد از دو بار دیدن پشت‌سرهم و حداقل ۸ ثانیه بعد از آخرین تعویض → connected=false و _failover). اگر مکرر است به خطوط «هسته:» و E-CORE-DROP نگاه کن (بستن سرویس VPN توسط اندروید / کم‌حافظه).');
+        'اصلاح شد: (۱) علت اصلی در لاگ‌ها سروری بود که tg=false داشت ولی قبول می‌شد و همان ثانیه هسته قطع می‌کرد؛ حالا فقط سروری که تلگرام از تونلش باز شود پذیرفته می‌شود (در نت ملی هنوز تونل سالم کافی است). (۲) _syncCore سریع‌تر شد: ۴ ثانیه بعد از تعویض و اگر قطع وسط اتصال دیده شده بود بدون انتظار دومین بار → connected=false و _failover. اگر مکرر است به خطوط «هسته:» و E-CORE-DROP نگاه کن (بستن سرویس VPN توسط اندروید / کم‌حافظه).');
   }
   if (has('جایگزین نیست')) {
     return h('E-NO-STANDBY',
@@ -1372,7 +1372,7 @@ List<String> _dbgHelpOf(String m) {
     return h('E-CORE-DROP',
         'lib/main.dart → شنونده‌ی هسته در initState (dropTimer ۲ ثانیه → _failover)',
         'هسته یا اندروید خودش اتصال را قطع کرد (بسته شدن سرویس VPN، قطع شبکه، کم‌حافظه).',
-        'بهینه‌سازی باتری برای اپ خاموش باشد. اگر مکرر است لاگ «هسته: ...» همین گزارش را ببین.');
+        'اصلاح شد: سرورهایی که tg=false داشتند و چند ثانیه بعد از اتصال قطع می‌شدند دیگر پذیرفته نمی‌شوند. باز هم تکرار شد: بهینه‌سازی باتری برای اپ خاموش باشد و لاگ «هسته: ...» را ببین.');
   }
 
   // ---- start / connect failures (lastFail, کد همین فایل) ----
@@ -4251,16 +4251,29 @@ class ProviderPage extends StatelessWidget {
   }
 }
 
+// وضعیت دانلود هر منبع در آخرین دریافت لیست‌ها (برای صفحه‌ی «وضعیت منابع»)
+// ok = دانلود شد • fail = جواب نداد/خالی • skip = مهلت دانلود تمام شد و نوبتش نرسید
+final Map<String, String> srcFetchState = {};
+final Map<String, int> srcFetchCount = {};
+
 Future<List<Server>> fetchServers({bool Function()? stop}) async {
+  srcFetchState.clear();
+  srcFetchCount.clear();
   final all = <String, Server>{};
   final sw = Stopwatch()..start();
   // لینک‌های اضافه‌ی کاربر اول دریافت می‌شوند
   await pool<String>([...userListUrls, ...listUrls], fetchWorkers, (u) async {
-    if ((stop?.call() ?? false) || sw.elapsed > fetchDeadline) return;
+    if ((stop?.call() ?? false) || sw.elapsed > fetchDeadline) {
+      srcFetchState[u] = 'skip';
+      return;
+    }
     try {
       final r =
           await getListMirror(u);
-      if (r.statusCode != 200) return;
+      if (r.statusCode != 200) {
+        srcFetchState[u] = 'fail';
+        return;
+      }
       var body = r.body.trim();
       if (body.contains('<html') || body.contains('<!DOCTYPE')) {
         body = _linkRe
@@ -4269,11 +4282,15 @@ Future<List<Server>> fetchServers({bool Function()? stop}) async {
             .join('\n');
       }
       if (!body.contains('://')) {
-        if (!RegExp(r'^[A-Za-z0-9+/=_\-\s]+$').hasMatch(body)) return; // CLEANERR
+        if (!RegExp(r'^[A-Za-z0-9+/=_\-\s]+$').hasMatch(body)) {
+          srcFetchState[u] = 'fail';
+          return; // CLEANERR
+        }
         try {
           body = utf8.decode(base64
               .decode(base64.normalize(body.replaceAll(RegExp(r'\s'), ''))));
         } catch (_swE) { _swl('build#1', _swE);
+          srcFetchState[u] = 'fail';
           return;
         }
       }
@@ -4284,10 +4301,12 @@ Future<List<Server>> fetchServers({bool Function()? stop}) async {
           .toList()
         ..shuffle();
       var pn = 0;
+      var okN = 0;
       for (final l in lines.take(maxPerSource)) {
         final s = Server.parse(l);
         if (s != null) {
           s.src = u;
+          okN++;
           all.putIfAbsent(s.key, () => s);
         }
         // FREEZEFIX: give the UI thread a frame every few parses
@@ -4295,7 +4314,10 @@ Future<List<Server>> fetchServers({bool Function()? stop}) async {
           await Future<void>.delayed(const Duration(milliseconds: 2));
         }
       }
+      srcFetchState[u] = okN > 0 ? 'ok' : 'fail';
+      srcFetchCount[u] = okN;
     } catch (_swE) { _swl('build#2', _swE);
+      srcFetchState[u] = 'fail';
       // a slow / dead list is normal: it is skipped silently
       // (this was the red "TimeoutException after 0:00:08" at the bottom)
     }
@@ -4826,6 +4848,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // DROPDEFER: DISCONNECTED وسط تعویض نادیده گرفته نمی‌شود؛ tick بعد از آزاد شدن بررسی می‌کند
       if (mounted && (busy || switching) && st.state == 'DISCONNECTED' && wantVpn && !_ownStopNow()) {
         _dropDeferred = true;
+        Future.delayed(const Duration(seconds: 5), () {
+          if (mounted) _syncCore();
+        });
       }
       if (!mounted || busy || switching) return;
       final on = st.state == 'CONNECTED';
@@ -5135,10 +5160,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // does not cause a new switch
       if (lastState == 'DISCONNECTED' && connected) {
         if (DateTime.now().difference(lastSwitch) <
-            const Duration(seconds: 8)) {
+            const Duration(seconds: 4)) {
           return false;
         }
-        if (++_syncBad < 2) return false;
+        // اگر رویداد قطع وسط اتصال دیده شده بود (_dropDeferred) نیازی به دومین بار نیست
+        if (++_syncBad < 2 && !_dropDeferred) return false;
         _syncBad = 0;
         _syncFixes++;
         dbg('همگام‌سازی خودکار: اپ وصل می‌دانست ولی هسته قطع بود؛ تعویض');
@@ -5392,6 +5418,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         autoUpgrade = true;
         bgWorkers = 1;
         await p.setBool('restore_speed_v1', true);
+        await _saveSettings();
+      }
+      // BEST-DEFAULTS v4 (یک‌بار): تست همزمان جستجوی اول = ۷، دانلود همزمان لیست‌ها = ۸،
+      // مهلت دانلود = ۴۵ ثانیه.
+      if (p.getBool('best_defaults_v4') != true) {
+        fastWorkers = 7;
+        fetchWorkers = 8;
+        fetchDeadline = const Duration(seconds: 45);
+        await p.setBool('best_defaults_v4', true);
+        await saveNumPrefs();
         await _saveSettings();
       }
       // WORKERS12 v1: fastWorkers and bgWorkers default to 12 for every search path
@@ -5826,11 +5862,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final fetched = fetchedAll;
     if (fetched.isNotEmpty) total = fetched.length;
     // TCP probes are meaningless while the tunnel is up.
-    // The source ranking waits at most 6 s: it keeps running in the background
-    // and the search starts right away (no long wait before the first test).
+    // اول منابع بررسی می‌شوند (حداکثر ۱۲ ثانیه صبر)، بعد تست سرورها شروع می‌شود؛
+    // بررسی منابع باقی‌مانده در پس‌زمینه ادامه می‌دهد و امتیازها زنده به‌روز می‌شوند.
     if (!connected) {
       try {
-        await _rankSources().timeout(const Duration(seconds: 6));
+        await _rankSources(force: !bg).timeout(const Duration(seconds: 12));
       } catch (_swE) { _swl('_loadPending#1', _swE);}
     }
     final rk = srcRate.entries.toList()
@@ -8032,7 +8068,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // فقط تلگرام باید از تونل باز شود
           // IPTEST: in national mode the server is accepted when YouTube or
           // Instagram opens through the tunnel (Telegram was too strict for IPs)
-          final accept2 = tunChecked ? true : tg;
+          // تلگرام باید از تونل باز شود؛ فقط در نت ملی تونل سالم کافی است.
+          // (قبلاً سرور با tg=false هم قبول می‌شد و چند ثانیه بعد هسته قطع می‌کرد)
+          final accept2 = tg || (nationalMode && tunChecked);
 
           if (!accept2) {
             siteSkips++;
@@ -11065,7 +11103,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   // quick health check of every list: TCP-probe a random sample of each
-  Future<void> _rankSources() async {
+  // force=true: با هر «اتصال» همه‌ی منابع دوباره (سریع) بررسی می‌شوند، قبل از شروع تست سرورها
+  Future<void> _rankSources({bool force = false}) async {
     final bySrc = <String, List<Server>>{};
     for (final s in fetchedAll) {
       final u = s.src;
@@ -11074,13 +11113,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final now = DateTime.now().millisecondsSinceEpoch;
     final todo = bySrc.keys.where((u) {
       final age = now - (srcAt[u] ?? 0);
+      if (force) return age > 2 * 60000; // حداقل ۲ دقیقه از بررسی قبلی
       return srcReal.contains(u) ? age > 6 * 3600000 : age > 30 * 60000;
     }).toList();
     if (todo.isEmpty) return;
-    _set('بررسی سلامت ${todo.length} منبع...');
-    await pool<String>(todo, 8, (u) async {
+    if (force) {
+      // اول منابعی که تند‌تند آپدیت می‌دهند (hotOwners) و هنوز امتیاز ندارند، بعد قدیمی‌ترین بررسی‌ها
+      bool isHot(String u) =>
+          u.startsWith(_gh) && hotOwners.contains(u.substring(_gh.length).split('/').first);
+      todo.sort((a, b) {
+        final ha = isHot(a) ? 0 : 1;
+        final hb = isHot(b) ? 0 : 1;
+        if (ha != hb) return ha - hb;
+        final ra = srcRate.containsKey(a) ? 1 : 0;
+        final rb = srcRate.containsKey(b) ? 1 : 0;
+        if (ra != rb) return ra - rb;
+        return (srcAt[a] ?? 0).compareTo(srcAt[b] ?? 0);
+      });
+    }
+    Future<void> rankOne(String u) async {
       if (abort) return;
-      final sample = (bySrc[u]!.toList()..shuffle()).take(14).toList();
+      final sample =
+          (bySrc[u]!.toList()..shuffle()).take(force ? 8 : 14).toList();
       var ok = 0;
       await pool<Server>(sample, 14, (s) async {
         final pg = await probe(s);
@@ -11091,7 +11145,30 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       srcReal.remove(u);
       srcTested.remove(u);
       srcOkN.remove(u);
-    });
+    }
+
+    if (force) {
+      // موقع اتصال فقط یک‌سوم منابع (تندآپدیت‌ها) بررسی می‌شوند؛ بقیه در پس‌زمینه
+      // و تا وقتی اتصال وصل نشده (TCP وقتی تونل بالاست نتیجه‌ی درست نمی‌دهد)
+      final nFirst = (todo.length / 3).ceil();
+      final first = todo.take(nFirst).toList();
+      final rest = todo.skip(nFirst).toList();
+      _set('بررسی سلامت ${first.length} منبع تندآپدیت...');
+      await pool<String>(first, 16, rankOne);
+      _saveSrc();
+      if (rest.isNotEmpty) {
+        unawaited(() async {
+          await pool<String>(rest, 8, (u) async {
+            if (connected) return; // بعد از اتصال متوقف؛ دفعه‌ی بعد ادامه پیدا می‌کند
+            await rankOne(u);
+          });
+          _saveSrc();
+        }());
+      }
+      return;
+    }
+    _set('بررسی سلامت ${todo.length} منبع...');
+    await pool<String>(todo, 8, rankOne);
     _saveSrc();
   }
 
@@ -11434,35 +11511,108 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
+  String _srcLabel(String u) {
+    if (u.startsWith(_gh)) {
+      final p = u.replaceFirst(_gh, '').split('/');
+      if (p.length <= 3) return p.join('/');
+      return '${p[0]}/${p[1]}/${p.last}';
+    }
+    try {
+      final x = Uri.parse(u);
+      if (x.host == 't.me' && x.pathSegments.length > 1) {
+        return 't.me/${x.pathSegments[1]}';
+      }
+      return x.host + (x.path.length > 1 ? x.path : '');
+    } catch (_) {
+      return u;
+    }
+  }
+
+  // «وضعیت منابع»: همه‌ی منبع‌های کد (نه فقط امتیازدارها) با وضعیت دانلود و امتیاز
   void _sourcesSheet() {
-    final l = srcRate.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
+    final all = <String>{...userListUrls, ...listUrls}.toList();
+    int grp(String u) {
+      if (srcRate.containsKey(u)) return 0;
+      final st = srcFetchState[u];
+      if (st == 'ok') return 1;
+      if (st == 'fail') return 2;
+      if (st == 'skip') return 3;
+      return 4;
+    }
+
+    all.sort((a, b) {
+      final g = grp(a) - grp(b);
+      if (g != 0) return g;
+      if (grp(a) == 0) return (srcRate[b] ?? 0).compareTo(srcRate[a] ?? 0);
+      return (srcFetchCount[b] ?? 0).compareTo(srcFetchCount[a] ?? 0);
+    });
+    final nOk = all.where((u) => srcFetchState[u] == 'ok').length;
+    final nFail = all.where((u) => srcFetchState[u] == 'fail').length;
+    final nSkip = all.where((u) => srcFetchState[u] == 'skip').length;
+    final nRated = all.where((u) => srcRate.containsKey(u)).length;
+    final nNone = all.length - nOk - nFail - nSkip;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       builder: (ctx) => Directionality(
         textDirection: TextDirection.rtl,
         child: SafeArea(
-          child: ListView(shrinkWrap: true, children: [
-            if (l.isEmpty)
-              const Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text('هنوز منبعی بررسی نشده')),
-            for (final e in l)
-              ListTile(
-                dense: true,
-                title: Text(
-                    e.key.replaceFirst(_gh, '').split('/').take(2).join('/'),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis),
-                subtitle:
-                    Text(srcReal.contains(e.key) ? 'تست واقعی' : 'تست TCP'),
-                trailing: Text('${(e.value * 100).round()}%',
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: e.value >= 0.25 ? Color(0xFF86E39A) : Color(0xFFFF8A80))),
+          child: SizedBox(
+            height: MediaQuery.of(ctx).size.height * 0.8,
+            child: Column(children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                child: Text(
+                    'کل منابع: ${all.length}\n'
+                    '✅ دانلود شد: $nOk • ❌ جواب نداد: $nFail\n'
+                    '⏱ مهلت تمام شد: $nSkip • ⚪ هنوز دانلود نشده: $nNone\n'
+                    '📊 امتیازدار: $nRated',
+                    style: const TextStyle(fontSize: 13, height: 1.5)),
               ),
-          ]),
+              const Divider(height: 1),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: all.length,
+                  itemBuilder: (_, i) {
+                    final u = all[i];
+                    final rate = srcRate[u];
+                    final st = srcFetchState[u];
+                    final cnt = srcFetchCount[u];
+                    final parts = <String>[
+                      if (st == 'ok') 'دانلود شد • ${cnt ?? 0} سرور',
+                      if (st == 'fail') 'جواب نداد / خالی بود',
+                      if (st == 'skip') 'مهلت دانلود تمام شد',
+                      if (st == null) 'هنوز دانلود نشده',
+                      if (rate != null)
+                        (srcReal.contains(u) ? 'تست واقعی' : 'تست TCP'),
+                    ];
+                    return ListTile(
+                      dense: true,
+                      title: Text(_srcLabel(u),
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      subtitle: Text(parts.join(' • ')),
+                      trailing: rate == null
+                          ? Text(
+                              st == 'ok'
+                                  ? '✅'
+                                  : st == 'fail'
+                                      ? '❌'
+                                      : st == 'skip'
+                                          ? '⏱'
+                                          : '⚪',
+                              style: const TextStyle(fontSize: 16))
+                          : Text('${(rate * 100).round()}%',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: rate >= 0.25
+                                      ? const Color(0xFF86E39A)
+                                      : const Color(0xFFFF8A80))),
+                    );
+                  },
+                ),
+              ),
+            ]),
+          ),
         ),
       ),
     );
@@ -11851,7 +12001,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     head('⚡ سرعت تست'),
                     row('تست همزمان (جستجوی اول)', '$fastWorkers',
                         fastWorkers.toDouble(), 1, 1000, 0,
-                        (x) => fastWorkers = x.round()),
+                        (x) => setUserFastWorkers(x.round())),
                     row('تست همزمان (وقتی وصل است)', '$bgWorkers',
                         bgWorkers.toDouble(), 1, 3, 2,
                         (x) {
