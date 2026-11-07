@@ -5524,6 +5524,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           profOk[k] = (v[1] as num).toInt();
         });
       }
+      // DEFSYNC v1: یک‌بار همه‌ی عددها و سوییچ‌ها دقیقاً مثل دکمه‌ی «برگرداندن به پیش‌فرض» می‌شوند.
+      // (نصب تازه قبلاً مهاجرت‌های قدیمی را اجرا می‌کرد و عددها را جای دیگری می‌برد.)
+      if (p.getBool('defsync_v1') != true) {
+        resetNumbers();
+        fwUserSet = false;
+        await p.setBool('defsync_v1', true);
+        await saveNumPrefs();
+        await _saveSettings();
+      }
       selCountry = p.getString('country');
       // 4 hour ad session survives app restarts
       final se = p.getInt('sessionEnd');
