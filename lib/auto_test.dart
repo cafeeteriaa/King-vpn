@@ -54,7 +54,7 @@ extension AutoTestEngine on _HomePageState {
   // ALLPATHS: تست کامل همه‌ی مسیرها؛ مدت مهم نیست، بخش‌ها همه اجرا می‌شوند
   // SIX-HOUR: تست کامل همه‌ی مسیرها ۶ ساعت است (وقت کافی برای همه‌ی بخش‌ها)
   // STEST60: کل تست ۶۰ دقیقه و فقط نت ملی است (جهانی، پوشه، آفلاین، آنلاین، پروتکل‌ها، کشور و خلبان هوش مصنوعی حذف شدند)
-  static const _testDuration = Duration(hours: 3); // STEST3H: همه‌ی سطوح و حالت‌های جایگزین جا شوند
+  static const _testDuration = Duration(hours: 4); // STEST4H: همه‌ی سطوح، IP تمیز و همه‌ی حالت‌های جایگزین جا شوند
   static const _sampleEvery = Duration(seconds: 3);
   // آستانه‌ها باید بیشتر از مهلت واقعی اتصال باشند (وگرنه اتصال عادی گزارش گیر می‌دهد)
   static const _busyStuckLimit = Duration(seconds: 120);
@@ -106,7 +106,7 @@ extension AutoTestEngine on _HomePageState {
   static const List<String> _atItemNames = [
     'اینترنت جهانی (عادی)',
     'پوشه‌ی منابع تازه (ساخت)',
-    'نت ملی: همه‌ی سطوح ماتریس (بدون اسکن IP)',
+    'نت ملی: همه‌ی سطوح ماتریس',
     'خلبان (بدون نت ملی)',
     'خلبان نت ملی',
     'اتصال آفلاین (فقط پوشه)',
@@ -189,7 +189,7 @@ extension AutoTestEngine on _HomePageState {
         textDirection: TextDirection.rtl,
         child: StatefulBuilder(
           builder: (ctx, setD) => AlertDialog(
-            title: const Text('تست نت ملی (۳ ساعت)'),
+            title: const Text('تست نت ملی (۴ ساعت)'),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -208,7 +208,7 @@ extension AutoTestEngine on _HomePageState {
                   const SizedBox(height: 8),
                   const SizedBox(height: 6),
                   const Text(
-                    'در این ۳ ساعت اپ را نبند و صفحه را قفل نکن.\n'
+                    'در این ۴ ساعت اپ را نبند و صفحه را قفل نکن.\n'
                     'می‌توانی وسط کار «توقف تست» را بزنی.',
                     style: TextStyle(fontSize: 12),
                   ),
@@ -272,8 +272,8 @@ extension AutoTestEngine on _HomePageState {
     autoTestRunning.value = true;
     autoTestProgress.value = 0;
     autoTestText.value = 'تست خودکار شروع شد (${_atSelected.length} VPN)…';
-    dbg('🧪 AUTOTEST نت ملی شروع شد (۳ ساعت • ${_atActiveNames.length} بخش)');
-    _dbgProb('🧪 تست نت ملی — ۳ ساعت');
+    dbg('🧪 AUTOTEST نت ملی شروع شد (۴ ساعت • ${_atActiveNames.length} بخش)');
+    _dbgProb('🧪 تست نت ملی — ۴ ساعت');
 
     _sampleT?.cancel();
     _sampleT = Timer.periodic(_sampleEvery, (_) => _atSample());
@@ -281,7 +281,7 @@ extension AutoTestEngine on _HomePageState {
     _endT?.cancel();
     _endT = Timer(_testDuration, () {
       if (_phase == _AtPhase.running) {
-        dbg('🧪 AUTOTEST زمان ۳ ساعت تمام شد');
+        dbg('🧪 AUTOTEST زمان ۴ ساعت تمام شد');
         _atFinish(reason: 'زمان تمام شد');
       }
     });
@@ -302,9 +302,9 @@ extension AutoTestEngine on _HomePageState {
       //  ۲) همه‌ی حالت‌های جایگزین روی سرورهای سالم (تا ۲۵ دقیقه، با ۱۴ دقیقه رزرو برای خلبان)
       //  ۳) خلبان نت ملی (تا ۱۲ دقیقه)
       final steps = <(String, Duration, Future<void> Function())>[
-        (_atItemNames[2], const Duration(minutes: 40), _atItemNational),
-        (_atSubstName, const Duration(minutes: 60), _atItemSubst),
-        (_atItemNames[4], const Duration(minutes: 15), () => _atItemPilot(national: true)),
+        (_atItemNames[2], const Duration(minutes: 50), _atItemNational),
+        (_atSubstName, const Duration(minutes: 150), _atItemSubst),
+        (_atItemNames[4], const Duration(minutes: 25), () => _atItemPilot(national: true)),
       ];
       for (final s in steps) {
         if (_abortRequested) return _atFinish(reason: 'توقف دستی');
@@ -351,7 +351,7 @@ extension AutoTestEngine on _HomePageState {
     }
     _atVerdict = _atNatDiagnosis(); // NATONLY
     final buf = StringBuffer();
-    buf.writeln('===== گزارش تست خودکار نت ملی (۳ ساعت) =====');
+    buf.writeln('===== گزارش تست خودکار نت ملی (۴ ساعت) =====');
     buf.writeln('مدت: ${min}m ${sec}s • دلیل پایان: $reason');
     buf.writeln('نمونه وضعیت: ${_samples.length}');
     buf.writeln('یافته‌ها: ${_findings.length}');
@@ -1766,7 +1766,7 @@ extension AutoTestEngine on _HomePageState {
     // IPSWEEP: IP‌ها اول با ترافیک تونل سنجیده می‌شوند؛ فقط IP‌های ترافیک‌دار در پروژه می‌مانند
     autoTestText.value = 'سنجش IP تمیز با تونل...';
     final ipWin = await _atIpSweep(
-        healthy, _atCap(const Duration(minutes: 30), reserve: const Duration(minutes: 100)));
+        healthy, _atCap(const Duration(minutes: 30), reserve: const Duration(minutes: 60)));
     if (ipWin.isNotEmpty) {
       cleanIps = List<CleanIp>.of(ipWin);
       cleanIpsAt = DateTime.now();
