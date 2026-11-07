@@ -103,7 +103,7 @@ if not done:
 
 # 3) DELAYPOOL: the plugin's latency-test queue has DELAY_THREADS = 2.
 #    We raise it to DELAY_THREADS_NEW (this is the real limit for simultaneous tests).
-DELAY_THREADS_NEW = 60  # سقف تست هم‌زمان هسته (همان سقف تنظیمات)
+DELAY_THREADS_NEW = 1000  # سقف تست هم‌زمان هسته (همان سقف تنظیمات)
 try:
     src = open(core, encoding='utf-8').read()
     pat = re.compile(r'(DELAY_THREADS\s*=\s*)(\d+)(\s*;)')
