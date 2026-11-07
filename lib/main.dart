@@ -74,7 +74,7 @@ const ownPkg = 'com.kingvpn.king_vpn';
 // the workflow file.
 const bgChannel = MethodChannel('vpn/bg');
 // parallel ping tests while connected (settings 1..6).
-int bgWorkers = 3; // تست همزمان (وقتی وصل است) — پیش‌فرض ۱
+int bgWorkers = 1; // تست همزمان (وقتی وصل است) — پیش‌فرض ۱
 // BGPAR: تعداد تست همزمان وقتی وصلیم = تنظیم «تست همزمان (وقتی وصل است)» (۱ تا ۳)
 // CPUGOV: وقتی CPU خود برنامه داغ است فقط ۱ تست همزمان؛ تنظیم کاربر (bgWorkers) هم رعایت می‌شود
 int _bgPar() =>
@@ -152,7 +152,7 @@ const int kFastBatchesPerSearch = 1;
 bool standbyPaused = false;
 // FAST SEARCH: parallel ping tests (core delay test, no VPN toggling) used
 // when looking for the first healthy server (settings 1..8).
-int fastWorkers = 3; // FAST100: بیست تست هم‌زمان برای غربال دسته ۱۰۰تایی
+int fastWorkers = 10; // FAST100: بیست تست هم‌زمان برای غربال دسته ۱۰۰تایی
 // a healthy server not checked for this long is pinged again (occasional
 // re-check, the server stays in the list until it really fails)
 Duration recheckAfter = const Duration(minutes: 4);
@@ -326,7 +326,7 @@ bool autoUpgrade = true; // BEST: حین اتصال دنبال سرور بهتر
 int minPingMs = 0;
 // connected server has a terrible ping -> jump at once to the best-ping server
 bool badPingSwitch = true; // BEST: پینگ افتضاح → تعویض
-int badPingMs = 2500;
+int badPingMs = 3000;
 // BADPINGLOOP: when every server a quick test finds has a bad ping (> badPingMs),
 // the next quick parallel test starts at once, and so on. After
 // [badPingMaxRounds] such rounds in a row the loop gives up being picky (so a
