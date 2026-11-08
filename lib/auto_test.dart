@@ -1756,7 +1756,7 @@ extension AutoTestEngine on _HomePageState {
     // IPSWEEP: IP‌ها اول با ترافیک تونل سنجیده می‌شوند؛ فقط IP‌های ترافیک‌دار در پروژه می‌مانند
     autoTestText.value = 'سنجش IP تمیز با تونل...';
     final ipWin = await _atIpSweep(
-        healthy, _atCap(const Duration(minutes: 30), reserve: const Duration(minutes: 60)));
+        healthy, _atCap(const Duration(minutes: 30))); // جدید: رزرو ۶۰ دقیقه‌ای مال خلبان بود و حذف شد
     if (ipWin.isNotEmpty) {
       cleanIps = List<CleanIp>.of(ipWin);
       cleanIpsAt = DateTime.now();
