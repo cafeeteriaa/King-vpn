@@ -8399,6 +8399,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     try {
       // FOLDER-SAVE: هر سرور سالمِ هر تستی وارد پوشه می‌شود؛ استفاده از پوشه فقط برای نت ملی است
       if (srv.personal) return;
+      goldNoteServer(srv); // GOLDSEARCH: سرور سالم هر جستجو وارد پوشه‌ی جهانی هم می‌شود
       final now = DateTime.now();
       final old = _resMap[srv.key];
       if (old != null) {
