@@ -643,24 +643,6 @@ patch('iran_ai_extras.dart',
       "      await _localApply(decision);\n"
       "      _localTuneToggles(); // TOGGLES")
 
-# 4k) NATKICK: خلبان وقتی نت ملی است همان «جستجوی سرور با نت ملی» را اجرا کند
-patch('iran_ai_extras.dart',
-      "  Future<void> localPilotTick({bool force = false}) async {",
-      "  // NATKICK: در حالت نت ملی، خلبان همان مسیر دکمه‌ی «جستجوی سرور با نت ملی» را اجرا می‌کند\n"
-      "  Future<void> _localNatConnect() async {\n"
-      "    if (nationalMode && !connected && !busy) natForce = true;\n"
-      "    await connect();\n"
-      "  }\n\n"
-      "  Future<void> localPilotTick({bool force = false}) async {")
-
-patch('iran_ai_extras.dart',
-      "          _applyTurboLevers();\n          await connect();",
-      "          _applyTurboLevers();\n          await _localNatConnect();")
-
-patch('iran_ai_extras.dart',
-      "        if (decision.action == 'none' || decision.action == 'connect') {\n          await connect();",
-      "        if (decision.action == 'none' || decision.action == 'connect') {\n          await _localNatConnect();")
-
 # 4l) FOLDERFIRST: پوشه‌ی سرورها فقط وقتی اول تست می‌شود که نت ملی باشد (نه با حالت شکست‌ناپذیر در نت جهانی)
 patch('main.dart',
       "    final forceSaved = nationalMode || natForce || indestructibleMode;",
