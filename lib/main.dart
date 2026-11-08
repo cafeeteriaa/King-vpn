@@ -152,7 +152,7 @@ const int kFastBatchesPerSearch = 1;
 bool standbyPaused = false;
 // FAST SEARCH: parallel ping tests (core delay test, no VPN toggling) used
 // when looking for the first healthy server (settings 1..8).
-int fastWorkers = 10; // FAST100: بیست تست هم‌زمان برای غربال دسته ۱۰۰تایی
+int fastWorkers = 5; // FAST100 (تست همزمان جستجوی اول = ۵): بیست تست هم‌زمان برای غربال دسته ۱۰۰تایی
 // a healthy server not checked for this long is pinged again (occasional
 // re-check, the server stays in the list until it really fails)
 Duration recheckAfter = const Duration(minutes: 4);
@@ -326,7 +326,7 @@ bool autoUpgrade = true; // BEST: حین اتصال دنبال سرور بهتر
 int minPingMs = 0;
 // connected server has a terrible ping -> jump at once to the best-ping server
 bool badPingSwitch = true; // BEST: پینگ افتضاح → تعویض
-int badPingMs = 3000;
+int badPingMs = 1700; // پینگ بد از ۱۷۰۰ms = تعویض
 // BADPINGLOOP: when every server a quick test finds has a bad ping (> badPingMs),
 // the next quick parallel test starts at once, and so on. After
 // [badPingMaxRounds] such rounds in a row the loop gives up being picky (so a
@@ -5434,10 +5434,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // BEST-DEFAULTS v4 (یک‌بار): تست همزمان جستجوی اول = ۷، دانلود همزمان لیست‌ها = ۸،
       // مهلت دانلود = ۴۵ ثانیه.
       if (p.getBool('best_defaults_v4') != true) {
-        fastWorkers = 7;
+        fastWorkers = 5;
         fetchWorkers = 8;
         fetchDeadline = const Duration(seconds: 45);
         await p.setBool('best_defaults_v4', true);
+        await saveNumPrefs();
+        await _saveSettings();
+      }
+      // FW5 v1: تست همزمان جستجوی اول = ۵ (یک‌بار؛ بعد از آن تنظیم کاربر می‌ماند)
+      if (p.getBool('fw5_v1') != true) {
+        fastWorkers = 5;
+        fwUserValue = 5;
+        fwUserSet = false;
+        await p.setBool('fw5_v1', true);
         await saveNumPrefs();
         await _saveSettings();
       }
@@ -5541,6 +5550,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         resetNumbers();
         fwUserSet = false;
         await p.setBool('defsync_v1', true);
+        await saveNumPrefs();
+        await _saveSettings();
+      }
+      // DEFSYNC v2: این بار بعد از همه‌ی مهاجرت‌های بالا (tuned_v1..v5, FW5, BEST-DEFAULTS...)
+      // یک‌بار دیگر دقیقاً مثل «برگرداندن همه‌ی تنظیمات» اعمال می‌شود تا بعد از نصب عددها درست باشند.
+      if (p.getBool('defsync_v2') != true) {
+        resetNumbers();
+        fwUserSet = false;
+        fwUserValue = 5;
+        fastWorkers = 5;
+        await p.setBool('defsync_v2', true);
+        await saveNumPrefs();
+        await _saveSettings();
+      }
+      // BADPING1700 v1: «پینگ بد از» = ۱۷۰۰ms (یک‌بار برای نصب‌های قبلی)
+      if (p.getBool('badping1700_v1') != true) {
+        badPingMs = 1700;
+        await p.setBool('badping1700_v1', true);
         await saveNumPrefs();
         await _saveSettings();
       }

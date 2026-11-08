@@ -2773,7 +2773,7 @@ extension HomeExtras on _HomePageState {
       default:
         break;
     }
-    fastWorkers = fwUserSet ? fwUserValue : 10; // FWUSER: پیش‌فرض ۳، عدد دستی کاربر حفظ می‌شود
+    fastWorkers = fwUserSet ? fwUserValue : 5; // FWUSER: پیش‌فرض ۵، عدد دستی کاربر حفظ می‌شود
     badPingMs = pingMs;
     badPingLimit = 3;
     watchFailLimit = 3;
@@ -2914,7 +2914,7 @@ class NumOpt {
 
 final List<NumOpt> numOpts = [
   // BEST PROFILE defaults — هم‌تراز با پیش‌فرض main.dart
-  NumOpt('fastWorkers', 'تست همزمان (جستجوی اول)', 1, 1000, 10, 1000, false,
+  NumOpt('fastWorkers', 'تست همزمان (جستجوی اول)', 1, 1000, 5, 1000, false,
       () => fastWorkers.clamp(1, 1000), (v) => fastWorkers = v.clamp(1, 1000)),
   NumOpt('bgWorkers', 'تست همزمان (وقتی وصل است)', 1, 3, 1, 3, false,
       () => bgWorkers.clamp(1, 3), (v) => bgWorkers = v.clamp(1, 3)),
@@ -2926,7 +2926,7 @@ final List<NumOpt> numOpts = [
       () => minPingMs, (v) => minPingMs = v),
   NumOpt('speedTopN', 'تعداد سرور برای تست سرعت', 1, 30, 5, 30, false,
       () => speedTopN, (v) => speedTopN = v),
-  NumOpt('badPingMs', 'پینگ بد از', 70, 7000, 3000, 7000, false,
+  NumOpt('badPingMs', 'پینگ بد از', 70, 7000, 1700, 7000, false,
       () => badPingMs, (v) => badPingMs = v),
   NumOpt('minSpeedKB', 'تعویض اگر سرعت کمتر از', 0, 1000, 80, 1000, false,
       () => minSpeedKB, (v) => minSpeedKB = v),
@@ -2987,7 +2987,7 @@ Future<void> loadNumPrefs(SharedPreferences p) async {
   }
   // FWDEF27: پیش‌فرض جدید یک‌بار برای نصب‌های قدیمی: جستجوی اول ۲۰، وقتی وصل است ۳
   if (p.getBool('fwDefault27') != true) {
-    fastWorkers = 10;
+    fastWorkers = 5;
     bgWorkers = 1;
     await p.setBool('fwDefault27', true);
     saveNumPrefs();
@@ -3456,7 +3456,7 @@ bool localPilotOn = false;
 
 // FWUSER: مقدار دستی کاربر برای «تست همزمان (جستجوی اول)». پیش‌فرض ۳؛
 // اگر کاربر خودش عدد گذاشته باشد، هر اتصال عادی همان عدد (تا ۱۰۰۰) را نگه می‌دارد.
-int fwUserValue = 10;
+int fwUserValue = 5;
 bool fwUserSet = false;
 void setUserFastWorkers(int v) {
   fwUserValue = v.clamp(1, 1000).toInt();
