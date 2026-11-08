@@ -95,6 +95,7 @@ extension UltimateExt on _HomePageState {
 
   void startNetWatch() {
     _netWatchTimer?.cancel();
+    startGoldLoop(this); // GOLD: پوشه‌ی IP و سرور سالم، وقتی وصلیم هر چند دقیقه به‌روز می‌شود
     if (!autoNetReconnect) return;
     _netWatchTimer = Timer.periodic(const Duration(seconds: 30), (_) async {
       if (!mounted || !wantVpn || busy || switching) return;

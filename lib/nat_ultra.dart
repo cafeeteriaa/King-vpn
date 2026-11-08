@@ -694,6 +694,7 @@ const List<int> _natGenCap = [0, 0, 20, 120, 600, 1500, 3000, 6000, 10000, 15000
 
 // ترتیب امتحان حالت‌ها برای یک سرور (کد ≥ _natCodeBase = همان حالت با آدرس تست دیگر)
 List<int> _natOrder(Server s, {bool full = false}) {
+  goldPrepareNational(); // GOLD: قبل از ساختن حالت‌ها، IPهای پوشه‌ی جهانی در نت ملی آماده شوند
   var lvl = full ? 3 : natLevel;
   if (lvl < 1) lvl = 1;
   if (lvl > 10) lvl = 10;
@@ -904,6 +905,7 @@ String _natSetHost(String link, String ip, String host) {
 }
 
 String _natLinkFor(Server s, int v, {bool reuse = false}) {
+  goldPrepareNational(); // GOLD: در نت ملی IPهای پوشه‌ی جهانی استفاده می‌شوند
   if (v < 0 || v >= _natSpecs.length) return s.useLink;
   final x = _natSpecs[v];
   var link = (x.other && s.ipLink != null) ? s.link : s.useLink;

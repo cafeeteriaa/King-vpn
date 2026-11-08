@@ -646,6 +646,7 @@ Future<void> _doRefreshClean() async {
     cleanIpsAt = DateTime.now();
     cleanIpStatus = '${cleanIps.length} IP سالم از ${c.length} تست';
     await _saveCleanIps();
+    await goldMergeIps(res); // GOLD: IPهای تمیز نت جهانی در پوشه‌ی ذخیره هم می‌مانند
   } catch (e, stk) {
     logError(e, stk);
     cleanIpStatus = 'خطا در دریافت IP';
@@ -702,6 +703,16 @@ Future<String?> pickCleanIp() async {
     }
     _cleanOp = natOpKey;
     await _loadCleanIps();
+  }
+  // GOLD: در نت ملی IPهای پوشه‌ی جهانی استفاده می‌شوند؛ جستجوی جدید در نت ملی فیلتر است
+  await goldLoad();
+  if (nationalMode) {
+    final g = goldIpList();
+    if (g.isNotEmpty) {
+      cleanIps = g;
+      final n = min(5, cleanIps.length);
+      return cleanIps[_cleanRot++ % n].ip;
+    }
   }
   final stale = cleanIpsAt == null ||
       DateTime.now().difference(cleanIpsAt!) > const Duration(hours: 6);
@@ -1133,4 +1144,322 @@ extension NpvAmExtras on _HomePageState {
       ),
     );
   }
+}
+
+// ======================= پوشه‌ی ذخیره‌ی جهانی (GOLD) =======================
+// IPهای تمیز و سرورهای سالم (همراه جایگزین IP) که در نت جهانی پیدا شده‌اند،
+// اینجا جدا از کد اپراتور ذخیره می‌شوند تا وقتی نت ملی روشن شد استفاده شوند.
+// - وقتی وصل هستیم، هر چند دقیقه IP تمیز تازه پیدا و ذخیره می‌شود (فقط در نت جهانی).
+// - هر ۲۴ ساعت همه‌ی IPها و سرورها دوباره تست می‌شوند؛ خرابی‌ها حذف می‌شوند.
+// - در نت ملی، IPهای همین پوشه استفاده می‌شوند؛ تست و جستجو در نت ملی انجام نمی‌شود
+//   (کلودفلر در نت ملی فیلتر است و تست آن خرابی‌ها را اشتباهاً حذف می‌کرد).
+
+const int kGoldIpCap = 100000; // سقف IP تمیز ذخیره‌شده
+const int kGoldSrvCap = 20000; // سقف سرور سالم و جایگزین
+const int kGoldDailyProbes = 250000; // سقف تست IP در روز (هر تست داده‌ی موبایل مصرف می‌کند)
+const int kGoldRetestBatch = 500; // تعداد تست دوباره در هر نوبت (تا همه‌ی IPها در ۲۴ ساعت برسند)
+const int kGoldEveryMin = 5; // هر چند دقیقه یک نوبت جستجو (وقتی وصل هستیم)
+const int kGoldRetestHours = 24; // هر چند ساعت یک بار تست دوباره
+
+class _GoldIp {
+  final String ip;
+  int ms, port, okAt, testAt; // زمان‌ها: میلی‌ثانیه از epoch
+  _GoldIp(this.ip, this.ms, this.port, this.okAt, this.testAt);
+}
+
+class _GoldSrv {
+  final String link;
+  int ping, okAt, testAt;
+  _GoldSrv(this.link, this.ping, this.okAt, this.testAt);
+}
+
+final Map<String, _GoldIp> _goldIps = {};
+final Map<String, _GoldSrv> _goldSrv = {};
+bool _goldRunning = false;
+Timer? _goldTimer;
+String _goldDay = '';
+int _goldCnt = 0;
+
+String _goldToday() {
+  final n = DateTime.now();
+  return '${n.year}-${n.month}-${n.day}';
+}
+
+// سهمیه‌ی تست امروز؛ با عوض شدن روز صفر می‌شود
+int _goldBudgetLeft() {
+  final d = _goldToday();
+  if (_goldDay != d) {
+    _goldDay = d;
+    _goldCnt = 0;
+  }
+  return kGoldDailyProbes - _goldCnt;
+}
+
+Future<void>? _goldLoadF;
+
+// هم‌زمان چند بار صدا زده شود، بارگذاری فقط یک بار و تا پایان انجام می‌شود
+Future<void> goldLoad() => _goldLoadF ??= _goldLoadOnce();
+
+Future<void> _goldLoadOnce() async {
+  try {
+    final p = await SharedPreferences.getInstance();
+    final s = p.getString('gold_v1');
+    if (s == null) return;
+    final m = jsonDecode(s) as Map;
+    for (final e in (m['ips'] as List? ?? const [])) {
+      final x = e as List;
+      final ip = x[0].toString();
+      _goldIps[ip] = _GoldIp(ip, (x[1] as num).toInt(), (x[2] as num).toInt(),
+          (x[3] as num).toInt(), (x[4] as num).toInt());
+    }
+    for (final e in (m['srv'] as List? ?? const [])) {
+      final x = e as List;
+      final link = x[0].toString();
+      _goldSrv[link] = _GoldSrv(link, (x[1] as num).toInt(),
+          (x[2] as num).toInt(), (x[3] as num).toInt());
+    }
+    _goldDay = (m['day'] ?? '').toString();
+    _goldCnt = (m['cnt'] as num? ?? 0).toInt();
+  } catch (e, stk) {
+    logError(e, stk);
+  }
+}
+
+Future<void> goldSave() async {
+  try {
+    final p = await SharedPreferences.getInstance();
+    await p.setString(
+        'gold_v1',
+        jsonEncode({
+          // مرتب از سریع به کند
+          'ips': [
+            for (final v in (_goldIps.values.toList()..sort((a, b) => a.ms.compareTo(b.ms))))
+              [v.ip, v.ms, v.port, v.okAt, v.testAt]
+          ],
+          'srv': [
+            for (final v in (_goldSrv.values.toList()..sort((a, b) => a.ping.compareTo(b.ping))))
+              [v.link, v.ping, v.okAt, v.testAt]
+          ],
+          'day': _goldDay,
+          'cnt': _goldCnt,
+        }));
+  } catch (e, stk) {
+    logError(e, stk);
+  }
+}
+
+// سقف‌ها: کندترین IPها حذف می‌شوند (سریع‌ترین‌ها می‌مانند)
+// مرتب‌سازی فقط وقتی سقف رد شده؛ تا ۵٪ زیر سقف کم می‌شود تا هر نوبت تکرار نشود
+void _goldTrimIps() {
+  if (_goldIps.length <= kGoldIpCap) return;
+  final keep = kGoldIpCap * 95 ~/ 100;
+  final l = _goldIps.values.toList()..sort((a, b) => a.ms.compareTo(b.ms));
+  for (final v in l.skip(keep)) {
+    _goldIps.remove(v.ip);
+  }
+}
+
+void _goldTrimSrv() {
+  if (_goldSrv.length <= kGoldSrvCap) return;
+  final l = _goldSrv.values.toList()..sort((a, b) => a.ping.compareTo(b.ping));
+  for (final v in l.skip(kGoldSrvCap)) {
+    _goldSrv.remove(v.link);
+  }
+}
+
+// IPهای پوشه برای استفاده (سریع‌ترین‌ها اول)
+// بدون مرتب‌سازی کل پوشه (ممکن است میلیون‌ها IP باشد): فقط ۲۰ سریع‌ترین نگه داشته می‌شوند
+List<CleanIp>? _goldTop;
+List<CleanIp> goldIpList() {
+  if (_goldTop != null) return _goldTop!;
+  final best = <_GoldIp>[];
+  for (final v in _goldIps.values) {
+    if (best.length < 20) {
+      best.add(v);
+      best.sort((a, b) => a.ms.compareTo(b.ms));
+    } else if (v.ms < best.last.ms) {
+      best.removeLast();
+      best.add(v);
+      best.sort((a, b) => a.ms.compareTo(b.ms));
+    }
+  }
+  return _goldTop = [for (final v in best) CleanIp(v.ip, v.ms, v.port)];
+}
+
+// نت ملی: IPهای پوشه‌ی جهانی جای IPهای تمیز را می‌گیرند (سریع‌ترین‌ها اول)
+void goldPrepareNational() {
+  if (!nationalMode) return;
+  final g = goldIpList();
+  if (g.isNotEmpty) cleanIps = g;
+}
+
+// وقتی لیست IP تمیز در نت جهانی ساخته می‌شود، در پوشه هم ذخیره می‌شود
+Future<void> goldMergeIps(List<CleanIp> res) async {
+  if (res.isEmpty) return;
+  await goldLoad();
+  final now = DateTime.now().millisecondsSinceEpoch;
+  for (final c in res) {
+    _goldIps[c.ip] = _GoldIp(c.ip, c.ms, c.port, now, now);
+  }
+  _goldTrimIps();
+  _goldTop = null;
+  await goldSave();
+}
+
+// تست گروهی IP با همان تست تمیز بودن برنامه
+Future<Map<String, int?>> _goldProbe(List<String> ips) async {
+  final out = <String, int?>{};
+  if (ips.isEmpty) return out;
+  await pool<String>(ips, 20, (ip) async {
+    out[ip] = await _cfProbeMs(ip, const Duration(milliseconds: 3500));
+    await Future.delayed(const Duration(milliseconds: 20));
+  }).timeout(const Duration(minutes: 2), onTimeout: () {});
+  return out;
+}
+
+// بخش IP: تست دوباره‌ی قدیمی‌ها و پیدا کردن IP تمیز تازه (فقط نت جهانی)
+Future<void> _goldIpStep() async {
+  if (nationalMode) return;
+  final nowMs = DateTime.now().millisecondsSinceEpoch;
+  var left = _goldBudgetLeft();
+  if (left <= 0) return;
+  final retestMs = kGoldRetestHours * 3600 * 1000;
+
+  // ۱) تست دوباره‌ی IPهایی که از ۲۴ ساعت پیش تست نشده‌اند (اولویت با این بخش)
+  final due = _goldIps.values
+      .where((v) => nowMs - v.testAt >= retestMs)
+      .take(left < kGoldRetestBatch ? left : kGoldRetestBatch)
+      .map((v) => v.ip)
+      .toList();
+  if (due.isNotEmpty) {
+    final r = await _goldProbe(due);
+    for (final ip in due) {
+      final v = _goldIps[ip];
+      if (v == null) continue;
+      final ms = r[ip];
+      if (ms == null) {
+        _goldIps.remove(ip);
+      } else {
+        v.ms = ms;
+        v.okAt = nowMs;
+        v.testAt = nowMs;
+      }
+    }
+    _goldCnt += due.length;
+    left -= due.length;
+    _goldTop = null;
+  }
+
+  // ۲) IP تمیز تازه‌ی جدید
+  if (left <= 0) return;
+  final cands = await _cleanCandidates();
+  final batch = cands
+      .where((ip) => !_goldIps.containsKey(ip))
+      .take(left < 240 ? left : 240)
+      .toList();
+  if (batch.isEmpty) return;
+  final r = await _goldProbe(batch);
+  var found = 0;
+  for (final ip in batch) {
+    final ms = r[ip];
+    if (ms != null) {
+      _goldIps[ip] = _GoldIp(ip, ms, 443, nowMs, nowMs);
+      found++;
+    }
+  }
+  _goldCnt += batch.length;
+  _goldTrimIps();
+  _goldTop = null;
+  dbg('گلد: IP تازه $found از ${batch.length} • پوشه ${_goldIps.length} • امروز $_goldCnt/$kGoldDailyProbes');
+}
+
+// پوشه‌ی سرور: سرورهای سالم (با جایگزین IP) ذخیره و هر ۲۴ ساعت تست می‌شوند
+Future<void> _goldSrvStep(_HomePageState h) async {
+  final nowMs = DateTime.now().millisecondsSinceEpoch;
+  var changed = false;
+
+  // ۱) سرورهای سالم فعلی (همان لینکی که کار کرده، یعنی جایگزین IP اگر باشد)
+  for (final s in h.good) {
+    final p = s.ping;
+    if (p == null || h._bad(s)) continue;
+    final link = s.useLink;
+    final ex = _goldSrv[link];
+    if (ex == null) {
+      _goldSrv[link] = _GoldSrv(link, p, nowMs, nowMs);
+    } else {
+      ex.ping = p;
+      ex.okAt = nowMs;
+      ex.testAt = nowMs;
+    }
+    changed = true;
+  }
+  _goldTrimSrv();
+
+  // ۲) تست دوباره‌ی سرورهای قدیمی‌تر از ۲۴ ساعت (فقط نت جهانی)
+  if (!nationalMode) {
+    final retestMs = kGoldRetestHours * 3600 * 1000;
+    final due = _goldSrv.values
+        .where((v) => nowMs - v.testAt >= retestMs)
+        .take(20)
+        .toList();
+    for (final v in due) {
+      if (!h.mounted || !h.connected || h.busy || h.switching) break;
+      final sv = Server.parse(v.link);
+      if (sv == null) {
+        _goldSrv.remove(v.link);
+        changed = true;
+        continue;
+      }
+      final ms = await h._delayOf(sv);
+      if (ms == null || ms <= 0) {
+        _goldSrv.remove(v.link);
+      } else {
+        v.ping = ms;
+        v.okAt = nowMs;
+        v.testAt = nowMs;
+      }
+      changed = true;
+    }
+  }
+
+  // ۳) سرورهای پوشه که در لیست سالم‌ها نیستند، به لیست برمی‌گردند
+  await _goldMergeGood(h);
+  if (changed) await goldSave();
+}
+
+// سرورهای ذخیره‌شده به لیست سرورهای سالم اضافه می‌شوند (برای نت ملی هم)
+Future<void> _goldMergeGood(_HomePageState h) async {
+  final keys = {for (final g in h.good) g.key};
+  for (final v in _goldSrv.values) {
+    if (v.ping <= 0) continue;
+    final sv = Server.parse(v.link);
+    if (sv == null || keys.contains(sv.key)) continue;
+    sv.ping = v.ping;
+    h.good.add(sv);
+    keys.add(sv.key);
+  }
+}
+
+Future<void> _goldTick(_HomePageState h) async {
+  if (_goldRunning || !h.mounted || !h.connected || h.busy || h.switching) return;
+  _goldRunning = true;
+  try {
+    await goldLoad();
+    await _goldIpStep();
+    await _goldSrvStep(h);
+    await goldSave();
+  } catch (e, stk) {
+    logError(e, stk);
+  } finally {
+    _goldRunning = false;
+  }
+}
+
+// با اولین اتصال روشن می‌شود و تا بسته شدن برنامه ادامه دارد
+void startGoldLoop(_HomePageState h) {
+  if (_goldTimer != null) return;
+  _goldTimer = Timer.periodic(
+      const Duration(minutes: kGoldEveryMin), (_) => _goldTick(h));
+  unawaited(goldLoad().then((_) => _goldMergeGood(h)));
+  unawaited(_goldTick(h));
 }

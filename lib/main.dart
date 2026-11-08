@@ -1377,7 +1377,14 @@ List<String> _dbgHelpOf(String m) {
         'یک سرور در تست (تلگرام / ترافیک تونل / پینگ) جواب نداد و برنامه سرور بعدی را امتحان کرد. اطلاعاتی است، خطا نیست.',
         'نیازی به کار نیست. فقط اگر «هیچ سروری وصل نشد» هم آمد، آن را ببین.');
   }
-  if (has('رد نشد')) {
+  // REPORTFIX: «وصل شد ولی ترافیک رد نشد» وقتی کانفیگ جایگزین امتحان می‌شود، مرحله‌ی میانی است؛ خطا نیست
+  if (has('ترافیک تونل صفر') || has('اطلاعاتی، خطا نیست')) {
+    return h('E-CONFIG-NOTRAFFIC', 'lib/main.dart → _start / _connectLoop (کانفیگ یا حالت بعدی امتحان شد)',
+        'هسته CONNECTED شد ولی ترافیک نداشت؛ برنامه کانفیگ یا حالت بعدی همان سرور را امتحان کرد. اطلاعاتی است، خطا نیست؛ نتیجه‌ی نهایی در E-NO-CONNECT یا E-SERVER-SKIP دیده می‌شود.',
+        'نیازی به کار نیست.');
+  }
+  // جدید: اگر کانفیگ جایگزین همان سرور جواب داد، «رد نشد» مرحله‌ی میانی است نه خطا
+  if (has('رد نشد') && !has('جایگزین')) {
     return h('E-PING-THROUGH',
         'lib/main.dart → _connectLoop (بعد از _start موفق)؛ این خط در همین فایل ثبت می‌شود',
         'هسته CONNECTED شد ولی ping از داخل تونل (۷ثانیه، دو بار) جواب نگرفت: سرور فیلتر، یا مسیر/DNS، یا برنامه‌های ردشده از VPN.',
@@ -6375,6 +6382,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ipList.removeWhere((s) => !trusted.contains(s.host));
       final dropped = before - ipList.length;
       if (dropped > 0) dbg('نت ملی: $dropped کانفیگ با IP ناشناخته کنار گذاشته شد');
+      // REPORTFIX: پوشه‌ی IP تمیز خالی باشد، نت ملی هیچ کانفیگی را نمی‌تواند تست کند؛ راهنمایی روشن
+      if (dropped > 0 && goldIpList().isEmpty) {
+        dbg('نت ملی: پوشه‌ی IP تمیز خالی است؛ یک بار در نت جهانی وصل شو تا IP ذخیره شود');
+      }
       natFun('ip_untrusted', dropped); // IPFUNNEL
     }
     var ipOpen = 0;
