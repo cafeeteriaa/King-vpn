@@ -1226,7 +1226,6 @@ Future<void> _goldLoadOnce() async {
 }
 
 Future<void> goldSave() async {
-  await goldLoad(); // اول بارگذاری، تا نوشتن چیزی را که هنوز خوانده نشده پاک نکند
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString(
@@ -1513,30 +1512,4 @@ Future<void> goldShowList(BuildContext context) async {
       ],
     ),
   );
-}
-
-Timer? _goldSaveT;
-
-// هر سرور سالمی که در هر جستجو (ملی یا جهانی) تست بگذرد، همان‌جا وارد پوشه‌ی جهانی می‌شود
-// (حتی اگر وصل نشده باشی؛ نیازی به اتصال نیست)
-void goldNoteServer(Server srv) {
-  unawaited(goldLoad());
-  final p = srv.ping;
-  if (p == null || p <= 0 || srv.personal) return;
-  final link = srv.useLink;
-  final now = DateTime.now().millisecondsSinceEpoch;
-  final ex = _goldSrv[link];
-  if (ex == null) {
-    _goldSrv[link] = _GoldSrv(link, p, now, now);
-  } else {
-    ex.ping = p;
-    ex.okAt = now;
-    ex.testAt = now;
-  }
-  _goldTrimSrv();
-  // ذخیره با تأخیر، تا در هر سرور یک بار کل پوشه نوشته نشود
-  _goldSaveT ??= Timer(const Duration(seconds: 20), () {
-    _goldSaveT = null;
-    unawaited(goldSave());
-  });
 }
