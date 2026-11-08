@@ -10214,14 +10214,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             s.ping! < below)
         .toList()
       ..sort(byPing);
+    if (l.isEmpty) return null;
+    // BESTPING2: همیشه کم‌پینگ‌ترین سرور آماده انتخاب می‌شود. قبلاً اگر سرور تازه‌تست‌شده
+    // وجود داشت، حتی با پینگ بالاتر، همان انتخاب می‌شد. حالا فقط بین سرورهایی که پینگشان
+    // تقریباً برابر است (±۱۰۰ms) تازگی تست را ملاک قرار می‌دهیم.
     final now = DateTime.now();
-    final fresh = l
-        .where((s) =>
-            s.checkedAt != null &&
-            now.difference(s.checkedAt!) < const Duration(minutes: 10))
-        .toList();
-    if (fresh.isNotEmpty) return fresh.first;
-    return l.isEmpty ? null : l.first;
+    final best = l.first.ping!;
+    bool isFresh(Server s) =>
+        s.checkedAt != null &&
+        now.difference(s.checkedAt!) < const Duration(minutes: 10);
+    final near = l.where((s) => s.ping! <= best + 100).toList();
+    near.sort((a, b) {
+      final fa = isFresh(a) ? 0 : 1, fb = isFresh(b) ? 0 : 1;
+      if (fa != fb) return fa.compareTo(fb);
+      return a.ping!.compareTo(b.ping!);
+    });
+    return near.first;
   }
 
   // fast switch to a chosen server (bad ping of the old one). If it does not
@@ -10993,9 +11001,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (badPingSwitch &&
               cpuHot == 0 &&
               badPingRun >= badPingLimit &&
-              DateTime.now().difference(lastSwitch) >
-                  const Duration(minutes: 3)) {
-            final t = _bestPingStandby(min(badPingMs, (p * 0.7).round()));
+              (DateTime.now().difference(lastSwitch) >
+                      const Duration(minutes: 3) ||
+                  p > badPingMs * 2)) { // BESTPING2: پینگ خیلی بالا، مهلت ۳ دقیقه را نادیده می‌گیرد
+            // BESTPING3: پینگ از «پینگ بد از» بالاتر رفت → به کم‌پینگ‌ترین سرور آماده می‌رویم
+            // (هر سروری که پینگش از پینگ فعلی کمتر باشد؛ نیازی به ۷۰٪ نیست).
+            final t = _bestPingStandby(p);
             if (t != null) {
               badPingRun = 0;
               lastWhy = 'پینگ بد (${p}ms)';
