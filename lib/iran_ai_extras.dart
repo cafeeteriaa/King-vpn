@@ -330,7 +330,7 @@ Future<String?> _grokTry(String route, String prompt) async {
           'role': 'system',
           'content':
               'You are Grok, the AI assistant inside King VPN (Iran). '
-              'Answer in Persian. Be practical about VPN, national net, speed, and settings.'
+              'Answer in Persian. Be practical about VPN, speed, and settings.'
         },
         {'role': 'user', 'content': prompt}
       ],
@@ -408,7 +408,7 @@ Future<String?> _openAiCompatTry({
           'role': 'system',
           'content':
               'You are the AI assistant inside King VPN (Iran). '
-              'Answer in Persian. Be practical about VPN, national net, speed, settings.'
+              'Answer in Persian. Be practical about VPN, speed, settings.'
         },
         {'role': 'user', 'content': prompt}
       ],
@@ -509,7 +509,7 @@ Future<String?> _claudeTry(String route, String prompt) async {
       'max_tokens': 2048,
       'system':
           'You are the AI assistant inside King VPN (Iran). '
-          'Answer in Persian. Be practical about VPN, national net, speed, settings.',
+          'Answer in Persian. Be practical about VPN, speed, settings.',
       'messages': [
         {'role': 'user', 'content': prompt}
       ],
@@ -659,7 +659,7 @@ void aiShow(String raw) {
         };
         const allowedActions = {
           'switch_best', 'refresh_lists', 'reset_blacklist', 'connect',
-          'enable_turbo', 'escalate', 'none'
+          'enable_turbo', 'none'
         };
         if (j['action'] is String &&
             allowedActions.contains(j['action'])) {
@@ -910,15 +910,13 @@ extension HomeExtras on _HomePageState {
     final sb = StringBuffer();
     final c = current;
     sb.writeln('Connected: $connected');
-    sb.writeln('NationalMode: $nationalMode ultra=$ultraMode turbo=$turboSpeed '
-        'indestructible=$indestructibleMode natLevel=$natLevel');
+    sb.writeln('Ultra=$ultraMode turbo=$turboSpeed '
+        'indestructible=$indestructibleMode');
     sb.writeln('Operator: $natOpKey provider=$aiProvider lastAi=$aiLastProvider');
     sb.writeln('Mux=$muxEnabled conc=$muxConc frag=$fragEnabled');
     if (c != null) {
-      final v = natVarFor(c);
-      final vn = (v >= 0 && v < _natVarNames.length) ? _natVarNames[v] : '$v';
       sb.writeln('Current kind: ${_profKey(c)} ping=${c.ping}ms '
-          'speed=${(c.speed ?? 0).toStringAsFixed(2)}MB/s variant=$vn');
+          'speed=${(c.speed ?? 0).toStringAsFixed(2)}MB/s');
     }
     sb.writeln(
         'Servers: list=$total queue=${pending.length} healthy=${_usable().length}');
@@ -986,11 +984,9 @@ extension HomeExtras on _HomePageState {
         '"reset_blacklist" (give failed servers another chance), '
         '"connect" (start full server search and connect), '
         '"enable_turbo" (max throughput levers), '
-        '"escalate" (widen search / raise natLevel), '
         'or "none".\n'
         'Be proactive: if not connected use connect; if speed is poor use '
-        'switch_best; if few healthy servers use refresh_lists; if national '
-        'mode is already active use escalate, otherwise use connect.\n'
+        'switch_best; if few healthy servers use refresh_lists; otherwise use connect.\n'
         'You have FULL freedom over every numeric setting in range and every '
         'toggle (1/0). Prefer higher throughput (Mux on, Fragment off) when '
         'the tunnel already works; prefer low data when searching lists.\n\n'
@@ -1113,7 +1109,6 @@ extension HomeExtras on _HomePageState {
   /// امتیاز و دلیل پیشنهاد هر موتور VPN (عدد بالاتر = قوی‌تر برای شرایط فعلی)
   List<({String id, String title, String sub, IconData icon, int score, String why})>
       _rankVpnEngines() {
-    final nat = nationalMode || natForce;
     // تعداد سرورهای سالم فعلی (تقریبی برای رتبه‌بندی)
     // Only V2Ray remains as an engine; every good server is a V2Ray server.
     final nV2 = good.length;
@@ -1125,10 +1120,8 @@ extension HomeExtras on _HomePageState {
         title: 'V2Ray',
         sub: 'VLESS / VMess / Trojan / SS',
         icon: Icons.flash_on,
-        score: 70 + (nV2 > 0 ? 15 : 0) + (nat ? -5 : 10),
-        why: nat
-            ? 'پروتکل اصلی؛ در نت ملی گاهی نیاز به Fragment دارد'
-            : 'بهترین گزینه عمومی — سرور زیاد و پایدار',
+        score: 70 + (nV2 > 0 ? 15 : 0) + 10,
+        why: 'بهترین گزینه عمومی — سرور زیاد و پایدار',
       ),
     ];
     items.sort((a, b) => b.score.compareTo(a.score));
@@ -1417,7 +1410,7 @@ extension HomeExtras on _HomePageState {
   }
 
   Future<bool> pickEngineThenStart(Future<void> Function() start,
-      {bool askMode = true, bool askNet = true, bool? forceNet}) async {
+      {bool askMode = true, bool askNet = false, bool? forceNet}) async { // جدید: اتصال‌های عادی شبکه نمی‌پرسند
     _pendingNet = null;
     if (askMode) {
       final ok = forceNet != null
@@ -1517,13 +1510,7 @@ extension HomeExtras on _HomePageState {
     // immediate bootstrap without waiting for first AI round-trip
     unawaited(() async {
       try {
-        await natDetectOperator();
-        await _natDetect();
         if (!connected && !busy) {
-          if (_kPilotNational && nationalMode) {
-            natForce = true;
-            _set('خلبان: نت ملی تشخیص داده شد — جستجوی گسترده...');
-          }
           await connect(); // was fire-and-forget — errors were lost
         }
       } catch (e, stk) {
@@ -1543,7 +1530,7 @@ extension HomeExtras on _HomePageState {
     aiSession = false;
     aiLoop?.cancel();
     aiLoop = null;
-    // Restore modes the pilot forced (do not touch nationalMode — network may still be cut)
+    // Restore modes the pilot forced
     if (_pilotForcedUltra) {
       ultraMode = false;
       _pilotForcedUltra = false;
@@ -1670,13 +1657,10 @@ extension HomeExtras on _HomePageState {
         _applyTurboLevers();
         await connect();
       }
-    } else if (a == 'search_national') {
-      // NATSOLO: خلبان نت ملی را روشن نمی‌کند
     } else if (a == 'enable_turbo') {
       turboSpeed = true;
       muxEnabled = true;
       muxConc = max(muxConc, 24);
-      if (!nationalMode) fragEnabled = false;
       _applyTurboLevers();
       _saveSettings();
       if (connected && current != null && !busy) {
@@ -1765,7 +1749,7 @@ extension HomeExtras on _HomePageState {
                               'خلبان AI خاموش شد — برای قطع کامل VPN دکمه قطع را بزن');
                         } else {
                           if (!await confirmHeavyFeature(context, 'خلبان کامل AI')) return;
-                          await pickEngineThenStart(startGrokPilot);
+                          await pickEngineThenStart(startGrokPilot, askNet: false); // جدید: خلبان شبکه را نمی‌پرسد
                         }
                       },
                 icon: Icon(aiSession ? Icons.flight_land : Icons.flight_takeoff,
@@ -1791,7 +1775,7 @@ extension HomeExtras on _HomePageState {
                           if (aiSession) stopGrokPilot();
                           await pickEngineThenStart(() async {
                             startLocalPilot();
-                          });
+                          }, askNet: false); // جدید: خلبان شبکه را نمی‌پرسد
                         }
                       },
                 icon: Icon(
@@ -1953,7 +1937,7 @@ extension HomeExtras on _HomePageState {
                       FilledButton.tonal(
                           onPressed: () async {
                             await save();
-                            if (!await pickNetworkThenOnlineOffline(ask: true)) return;
+                            if (!await _askOnlineOfflineMode()) return; // جدید: فقط آنلاین/آفلاین
                             aiAnalyze();
                           },
                           child: const Text('📊 تحلیل اتصال')),
@@ -1972,7 +1956,7 @@ extension HomeExtras on _HomePageState {
                           onPressed: () async {
                             await save();
                             if (ctx.mounted) Navigator.pop(ctx);
-                            await pickEngineThenStart(startGrokPilot);
+                            await pickEngineThenStart(startGrokPilot, askNet: false); // جدید: خلبان شبکه را نمی‌پرسد
                           },
                           child: const Text('🚀 خلبان کامل AI (کنترل خودکار VPN)')),
                     ]),
@@ -2117,10 +2101,6 @@ extension HomeExtras on _HomePageState {
       svc = current!.svc;
     }
 
-    final nat = nationalMode ||
-        natForce ||
-        (lastNetVerdict?.home == true && lastNetVerdict?.web == false);
-
     bool? tg, yt, ig, netOk;
     if (probe && connected) {
       final p = await _localProbeSites();
@@ -2151,9 +2131,8 @@ extension HomeExtras on _HomePageState {
 
     return _LocalNetSnap(
       connected: connected,
-      national: nat,
       wifi: false,
-      operatorKey: op.isNotEmpty ? op : (nat ? 'ملی/محدود' : 'نامشخص'),
+      operatorKey: op.isNotEmpty ? op : 'نامشخص',
       configProto: proto,
       configNet: net,
       configSec: sec,
@@ -2162,7 +2141,6 @@ extension HomeExtras on _HomePageState {
       goodCount: good.length,
       pendingCount: pending.length,
       failedCount: failed.length,
-      natLvl: natLevel,
       turbo: turboSpeed,
       frag: fragEnabled,
       mux: muxEnabled,
@@ -2218,15 +2196,6 @@ extension HomeExtras on _HomePageState {
         return _LocalDecision('switch_best', set,
             'تلگرام باز نشد ×۲ → سرور بعدی',
             confidence: 92);
-      }
-      // بین‌الملل قطع شده (تلگرام چند بار جواب نمی‌دهد) و تونل مرده است:
-      // نت ملی را روشن کن؛ قطع بعدی با همان تصمیم «جستجوی ملی» وصل می‌شود
-      if (_kPilotNational && deadTunnel && _localTgFail >= 2) {
-        natForce = true;
-        _localPhase = 'degraded';
-        return _LocalDecision('switch_best', set,
-            'بین‌الملل قطع ×$_localTgFail + تونل مرده → سوئیچ به نت ملی',
-            confidence: 90);
       }
 
       if (uptime < minHoldSec && !deadTunnel) {
@@ -2305,17 +2274,9 @@ extension HomeExtras on _HomePageState {
       }
     }
 
-    // NATLOCK: جستجوی ملی فقط وقتی کاربر خودش نت ملی را انتخاب کرده؛ تشخیص خودکار اپراتور قفل نمی‌کند
-    if (_kPilotNational && (s.national || _localPower >= 4)) {
-      act = 'search_national';
-      set['natLevel'] = max(s.natLvl, max(2, natLevel));
-      conf = 92;
-      why.writeln(
-          'قطع + ${s.national ? "نت ملی" : "قدرت $_localPower"} → جستجوی ملی سطح ${set['natLevel']}');
-    } else if (memoryBest != null &&
+    if (memoryBest != null &&
         memoryBestW >= 3 &&
-        (memoryBest == 'connect' ||
-            memoryBest == 'search_national')) {
+        memoryBest == 'connect') {
       act = memoryBest;
       conf = 94;
       why.writeln(
@@ -2377,9 +2338,6 @@ extension HomeExtras on _HomePageState {
     if (d.settings.containsKey('timeout')) {
       delayTimeout = Duration(seconds: d.settings['timeout']!.clamp(2, 30));
     }
-    if (d.settings.containsKey('natLevel')) {
-      natLevel = d.settings['natLevel']!.clamp(1, 4);
-    }
     if (d.settings.containsKey('muxConc')) {
       muxConc = d.settings['muxConc']!.clamp(4, 32);
     }
@@ -2400,24 +2358,12 @@ extension HomeExtras on _HomePageState {
         }
         break;
       case 'soft_recover':
-        // بازیابی نرم: توربو + ladder همان سرور قبل از تعویض کامل
+        // بازیابی نرم: فقط توربو همان سرور قبل از تعویض کامل (جدید: بدون نت ملی)
         if (connected && current != null && !busy && !switching) {
           turboSpeed = true;
           muxEnabled = true;
           muxConc = max(muxConc, 24);
           _applyTurboLevers();
-          try {
-            final ok = await _natLadder(current!);
-            if (ok) {
-              _localSlowStreak = 0;
-              _localConnectedSince = DateTime.now();
-              final op = _localLastOp;
-              if (op.isNotEmpty) {
-                _localOpWins['$op|soft_recover'] =
-                    (_localOpWins['$op|soft_recover'] ?? 0) + 1;
-              }
-            }
-          } catch (e, stk) { logError(e, stk); }
           try {
             unawaited(_measureCurrent(current!));
           } catch (e, stk) { logError(e, stk); }
@@ -2453,9 +2399,6 @@ extension HomeExtras on _HomePageState {
           g.miss = 0;
         }
         unawaited(_saveCache());
-        break;
-      case 'search_national':
-        // NATSOLO: خلبان نت ملی را روشن نمی‌کند
         break;
       case 'enable_turbo':
         // فقط فلگ — بدون ریستارت تونل
@@ -2502,7 +2445,7 @@ extension HomeExtras on _HomePageState {
     // مداد جادویی زنده: وقتی وصل نیستیم، با هر تیک خلبان سرعت/پینگ را دوباره می‌سنجد
     if (autoTune && !connected) unawaited(autoTuneNow());
     // STABLE-PILOT: a working tunnel that was switched less than 3 minutes ago
-    // is left alone (stops the repeated search_national switches)
+    // is left alone (stops the repeated switches)
     if (connected && lastState == 'CONNECTED' &&
         DateTime.now().difference(lastSwitch) < const Duration(minutes: 3)) {
       // PILOTNOTICK-FIX: یک تیک اجباری که کاری نکرد (تونل پایدار است) هم تیک حساب
@@ -2521,12 +2464,6 @@ extension HomeExtras on _HomePageState {
       localPilotText.value =
           '⏳ قدرت $_localPower ($_localPowerLabel): پروب + اینترنت + مکان...';
 
-      try {
-        await natDetectOperator();
-      } catch (e, stk) { logError(e, stk); }
-      try {
-        await _natDetect();
-      } catch (e, stk) { logError(e, stk); }
 
       // قدرت را هر تیک با شبکه هماهنگ کن (تمام‌اتوماتیک)
       final wantPower = _localAutoPickPower();
@@ -2541,11 +2478,6 @@ extension HomeExtras on _HomePageState {
       report.writeln(
           '👑 خلبان ∞  •  قدرت $_localPower ($_localPowerLabel)  •  قله $_localPeakPower  •  تیک #$_localTickN');
       report.writeln('────────────────────────');
-      if (nationalMode) {
-        report.writeln('🌐 نت ملی — IP اسکن $natIpScanned • باز $natIpFound • تست هسته $natIpTested • سالم $natIpOk');
-        report.writeln('🌍 دامنه‌های .ir: $natDomainHosts دامنه • $natDomainIps IP • باز $natDomainOpen');
-        report.writeln('💾 حافظه‌ی IP: ${natIpMem.length} • از حافظه به صف: $natMemQueued • تصادفی این دور: $natRandomLast');
-      }
       report.writeln(snap.toHuman());
       report.writeln('────────────────────────');
       report.writeln(
@@ -2556,7 +2488,7 @@ extension HomeExtras on _HomePageState {
       }
       report.writeln(
           '⚙️ اتو: workers=$fastWorkers timeout=${delayTimeout.inSeconds}s '
-          'natLvl=$natLevel mux=$muxEnabled turbo=$turboSpeed');
+          'mux=$muxEnabled turbo=$turboSpeed');
       localPilotText.value = report.toString().trim();
 
       await _localApply(decision);
@@ -2611,7 +2543,7 @@ extension HomeExtras on _HomePageState {
     if (_localPower <= 0) return 'آرام';
     if (_localPower <= 2) return 'عادی';
     if (_localPower <= 5) return 'قوی';
-    if (_localPower <= 10) return 'نت ملی / سخت';
+    if (_localPower <= 10) return 'سخت';
     if (_localPower <= 20) return 'اضطراری';
     return 'حداکثر بی‌نهایت';
   }
@@ -2631,7 +2563,7 @@ extension HomeExtras on _HomePageState {
     proxyMode = false;
     turboSpeed = true;
     muxEnabled = true;
-    autoSpeed = !nationalMode; // خلبان تست سرعت دارد؛ نت ملی هیچ‌وقت تست سرعت نمی‌زند
+    autoSpeed = true; // خلبان مستقل از نت ملی است؛ همیشه تست سرعت دارد (جدید)
     autoCycle = true;
     savedFirst = true;
     if (userOfflineChoice != true) offlineOnly = false;
@@ -2665,26 +2597,12 @@ extension HomeExtras on _HomePageState {
   int _localAutoPickPower() {
     var p = 1; // پایه روزمره
 
-    // --- اینترنت / تشخیص شبکه ---
-    final v = lastNetVerdict;
-    if (v != null) {
-      if (v.home == true && v.web == false) {
-        p += 5; // نت ملی کلاسیک
-      } else if (v.web == false) {
-        p += 3; // بین‌الملل بسته
-      } else if (v.tls == false || v.tcp == false) {
-        p += 2; // شبکه نیمه‌خراب
-      } else if (v.dnsPoison == true) {
-        p += 2;
-      }
-    }
     if (indestructibleMode) p += 2;
 
     // --- مکان / اپراتور ---
     final op = (_localLastOp.isNotEmpty ? _localLastOp : natOpKey).toLowerCase();
     if (op.contains('ایرانسل') || op.contains('irancell') || op.contains('mci') ||
-        op.contains('همراه') || op.contains('رایتل') || op.contains('rightel') ||
-        op.contains('ملی') || op.contains('national')) {
+        op.contains('همراه') || op.contains('رایتل') || op.contains('rightel')) {
       p += 2; // اپراتورهای ایران معمولاً فیلتر سنگین‌تر
     }
     if (op.isNotEmpty && op != 'نامشخص') {
@@ -2759,21 +2677,16 @@ extension HomeExtras on _HomePageState {
     // تشخیص اپراتور و شبکه فقط یک بار در startLocalPilot انجام می‌شود.
   }
 
-  void startLocalPilot({bool national = false}) {
-    _localNatBtn = national;
+  void startLocalPilot() {
     ensureLocalPilotRunning();
     final eng = _engineLabel(pilotEngine);
     localPilotText.value =
         '👑 خلبان فعال شد • موتور: $eng\n'
         '• قدرت خودکار از ۰ تا ∞\n'
-        '• اینترنت، مکان، جستجوی عادی و نت ملی را خودش تشخیص می‌دهد\n'
+        '• اینترنت، مکان و جستجوی عادی را خودش تشخیص می‌دهد\n'
         '• فقط روی موتور انتخاب‌شده کار می‌کند';
     unawaited(() async {
       try {
-        await natDetectOperator();
-        try {
-          await _natDetect();
-        } catch (e, stk) { logError(e, stk); }
         final want = _localAutoPickPower();
         _localApplyMaxPowerProfile(power: want);
         if (!connected && !busy) {
@@ -2799,7 +2712,7 @@ extension HomeExtras on _HomePageState {
   // می‌گذارد: دکمه‌ی ردیف (IP/CDN/Reality/WS)، بعد پروتکل تکی، بعد کشور، و در
   // آخر حالت عادی.
   void _applyPathPreset(String? row) {
-    if (nationalMode || indestructibleMode || localPilotOn || aiSession) return;
+    if (indestructibleMode || localPilotOn || aiSession) return;
     final String key;
     if (row != null && row.startsWith('r:')) {
       key = row;
@@ -2879,12 +2792,7 @@ extension HomeExtras on _HomePageState {
         'watchFailLimit': watchFailLimit,
         'speedTopN': speedTopN,
         'muxConc': muxConc,
-        'natWorkers': natWorkers,
-        'natLevel': natLevel,
-        'natAll': natAll,
         'ultraMode': ultraMode,
-        'nationalMode': nationalMode,
-        'natForce': natForce,
         'indestructibleMode': indestructibleMode,
         'fragEnabled': fragEnabled,
         'proxyMode': proxyMode,
@@ -2919,12 +2827,7 @@ extension HomeExtras on _HomePageState {
     watchFailLimit = s['watchFailLimit'] as int;
     speedTopN = s['speedTopN'] as int;
     muxConc = s['muxConc'] as int;
-    natWorkers = s['natWorkers'] as int;
-    natLevel = s['natLevel'] as int;
-    natAll = s['natAll'] as bool? ?? natAll;
     ultraMode = s['ultraMode'] as bool;
-    nationalMode = s['nationalMode'] as bool;
-    natForce = s['natForce'] as bool;
     indestructibleMode = s['indestructibleMode'] as bool;
     fragEnabled = s['fragEnabled'] as bool;
     proxyMode = s['proxyMode'] as bool;
@@ -2962,7 +2865,6 @@ extension HomeExtras on _HomePageState {
 
   void stopLocalPilot() {
     localPilotOn = false;
-    _localNatBtn = false;
     localPilotLoop?.cancel();
     localPilotLoop = null;
     _localPhase = 'boot';
@@ -3556,9 +3458,7 @@ int _localRetryN = 0; // تعداد تلاش‌های تیک خلبان که گ�
 // انتخاب صریح کاربر: null = نامشخص، true = آفلاین، false = آنلاین
 bool? userOfflineChoice;
 Map<String, Object?>? _pilotSnap; // PILOTREV: قبل از تغییر خلبان، تنظیمات کاربر (top-level چون extension نمی‌تونه فیلد داشته باشه)
-// NATSOLO: خلبان هیچ‌وقت خودش نت ملی را روشن نمی‌کند (نت ملی مستقل است)
-const bool _kPilotNational = false;
-bool _natAutoPilot = false; // NATAUTO: خلبان بعد از وصل شدن جستجوی نت ملی
+// خلبان با نت ملی کار ندارد: نه آن را روشن می‌کند، نه جستجویش را اجرا می‌کند (جدید)
 bool? _pendingNet; // NETCANCEL: انتخاب شبکه‌ی موقت تا انتخاب موتور
 bool _pendingOff = false;
 Timer? localPilotLoop;
@@ -3585,8 +3485,6 @@ DateTime? _localConnectedSince;
 int _localFailStreak = 0;
 int _localSlowStreak = 0;
 int _localGoodStreak = 0;
-// دکمه‌ی «جستجوی سرور با نت ملی» خلبان را با قدرت حداقل ۴ (نت ملی) روشن می‌کند
-bool _localNatBtn = false;
 int _localTickN = 0;
 int _localTgOk = 0; // consecutive telegram OK
 int _localSvcFail = 0; // SVCGATE: پشت‌سرهم یکی از تلگرام/یوتیوب/اینستا جواب نداد
@@ -3602,7 +3500,6 @@ String _localPhase = 'boot';
 
 class _LocalNetSnap {
   final bool connected;
-  final bool national;
   final bool wifi;
   final String operatorKey;
   final String configProto;
@@ -3613,7 +3510,6 @@ class _LocalNetSnap {
   final int goodCount;
   final int pendingCount;
   final int failedCount;
-  final int natLvl;
   final bool turbo;
   final bool frag;
   final bool mux;
@@ -3628,7 +3524,6 @@ class _LocalNetSnap {
 
   _LocalNetSnap({
     required this.connected,
-    required this.national,
     required this.wifi,
     required this.operatorKey,
     required this.configProto,
@@ -3639,7 +3534,6 @@ class _LocalNetSnap {
     required this.goodCount,
     required this.pendingCount,
     required this.failedCount,
-    required this.natLvl,
     required this.turbo,
     required this.frag,
     required this.mux,
@@ -3657,7 +3551,6 @@ class _LocalNetSnap {
     b.writeln(connected ? '🟢 متصل' : '🔴 قطع');
     b.writeln('🧠 فاز: $_localPhase  |  امتیاز: $score/100');
     if (operatorKey.isNotEmpty) b.writeln('📡 اپراتور: $operatorKey');
-    b.writeln(national ? '🇮🇷 نت ملی/محدود' : '🌍 اینترنت بین‌الملل');
     if (configProto != '-') {
       b.writeln('⚙️ $configProto / $configNet / $configSec');
     }
@@ -3666,7 +3559,7 @@ class _LocalNetSnap {
       b.writeln('🚀 سرعت: ${speedMBs!.toStringAsFixed(2)} MB/s');
     }
     b.writeln(
-        '📦 سالم:$goodCount  صف:$pendingCount  سیاه:$failedCount  nat:$natLvl');
+        '📦 سالم:$goodCount  صف:$pendingCount  سیاه:$failedCount');
     b.writeln(
         '🔧 turbo=${turbo ? "✓" : "✗"} mux=${mux ? "✓" : "✗"} frag=${frag ? "✓" : "✗"}');
     if (reason.isNotEmpty) b.writeln('📝 $reason');

@@ -912,11 +912,6 @@ List<String> _dbgHelpOf(String m) {
         'این حالت یا جایگزین در تست واقعی ترافیک تونل نداد. همه‌ی این موارد یک یافته‌اند و در یک ردیف جمع می‌شوند.',
         'اگر تست دوباره همین را گفت، آن حالت را از لیست حالت‌های پروژه حذف کن. کار دیگری لازم نیست.');
   }
-  if (has('بخش «خلبان نت ملی» رد شد')) {
-    return h('E-PILOT-SKIP', 'lib/auto_test.dart → بخش خلبان نت ملی',
-        'بخش خلبان به خاطر کمبود وقت تست نشد؛ خطا نیست.',
-        'اگر می‌خواهی کامل تست شود، مدت تست خودکار را بیشتر کن.');
-  }
   if (has('فایل خطا خالی است')) {
     return h('E-XRAY-EMPTY', 'هسته Xray (فایل خطای هسته)',
         'هسته خطایی در فایل خطا ننوشت؛ همیشه نشانه‌ی شکست نیست.',
@@ -4549,8 +4544,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void>? _prepFut;
   Future<void> _prepNow() => _prepFut ??= () async {
         try {
-          // NODETECT: تشخیص خودکار شبکه دیگر در مراحل اتصال اجرا نمی‌شود
-          await autoNetPrep();
+          // NODETECT: تشخیص خودکار شبکه دیگر در مراحل اتصال اجرا نمی‌شود (جدید: حذف شد)
         } catch (e, stk) {
           logError(e, stk);
         }
@@ -7456,7 +7450,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   void _onConnected(Server s) {
-    // NATAUTO: جستجوی نت ملی وصل شد؛ خلبان را خودکار روشن کن (یک بار)
     // IP کارا به حافظه (هم در نت جهانی و هم در نت ملی؛ دفعه‌ی بعد اول از همین‌ها استفاده می‌شود)
     if (InternetAddress.tryParse(s.host) != null) {
       unawaited(natIpMemSave(s.host, s.port));
@@ -8599,7 +8592,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 if (!await pickEngineThenStart(() async {
                   _resNext = true;
                   await connect();
-                }, askNet: true)) return;
+                }, forceNet: true)) return;
               },
             ),
             ListTile(
@@ -8616,7 +8609,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 if (!await pickEngineThenStart(() async {
                   _resNext = true;
                   await connect();
-                }, askNet: true)) return;
+                }, forceNet: false)) return;
               },
             ),
             ListTile(
@@ -8992,7 +8985,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             natIpFound++;
           }
         }
-        natLiveBox('IP تست TCP: ${i + chunk.length}/${targets.length} • باز ${ok.length}');
         if (ok.isNotEmpty) break; // اولین دسته‌ی باز را فوراً تست می‌کنیم
       }
       if (ok.isEmpty) {
@@ -12416,7 +12408,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               if (v == 'diagfull') exportFullDiag();
               if (v == 'panic') panicNow();
               if (v == 'offline') {
-                unawaited(pickNetworkThenOnlineOffline(ask: true).then((ok) {
+                unawaited(_askOnlineOfflineMode().then((ok) { // جدید: فقط آنلاین/آفلاین
                   if (ok) connectBestCached();
                 }));
               }
@@ -12482,8 +12474,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   !await confirmHeavyFeature(context, 'مداد جادویی')) {
                 return;
               }
-              // مداد جادویی هم اول می‌پرسد نت ملی/جهانی و آنلاین/آفلاین
-              if (!autoTune && !await pickNetworkThenOnlineOffline(ask: true)) {
+              // مداد جادویی فقط آنلاین/آفلاین می‌پرسد (جدید)
+              if (!autoTune && !await _askOnlineOfflineMode()) {
                 return;
               }
               if (!mounted) return;
@@ -12623,8 +12615,6 @@ UiHero(
                   ? null
                   : () async {
                       if (!await confirmHeavyFeature(context, 'جستجوی سرور با نت ملی')) return;
-                      // NATAUTO: اول جستجوی معمولی نت ملی؛ بعد از وصل شدن خلبان خودکار روشن می‌شود
-                      // NATSOLO: جستجوی نت ملی مستقل است؛ بعد از وصل شدن خلبان روشن نمی‌شود
                       await pickEngineThenStart(() async {
                         await connect();
                       }, forceNet: true);

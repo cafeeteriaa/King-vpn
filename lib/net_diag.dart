@@ -243,33 +243,6 @@ extension NetDiagExt on _HomePageState {
     return ch;
   }
 
-  // called before every connect: measures the network (at most once per 10
-  // minutes per operator) and sets the best modes by itself
-  Future<void> autoNetPrep() async {
-    if (!autoNetOn || connected) return;
-    final old = lastNetVerdict;
-    if (old != null &&
-        old.op == natOpKey &&
-        DateTime.now().difference(old.at) < const Duration(minutes: 10)) {
-      return;
-    }
-    _set('تشخیص خودکار شبکه...');
-    try {
-      await netDiagnose().timeout(const Duration(seconds: 20));
-    } catch (e, stk) {
-      logError(e, stk);
-      return;
-    }
-    final v = lastNetVerdict;
-    if (v == null) return;
-    final ch = autoNetApply(v);
-    if (ch.isNotEmpty) {
-      await _saveSettings();
-      // _set already triggers setState
-      _set('حالت شبکه خودکار: ${ch.join('، ')}');
-    }
-  }
-
   Future<void> netDiagDialog() async {
     if (!mounted) return;
     if (connected) {

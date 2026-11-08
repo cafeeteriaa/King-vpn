@@ -3,7 +3,7 @@ part of 'main.dart';
 // =============================================================================
 // AUTO TEST 60min — تست خودکار شش بخش واقعی + سناریوهای پایداری
 // بخش‌ها به ترتیب: اینترنت جهانی | نت ملی (IP اول، بعد تست کانفیگ، همه‌ی سطوح ماتریس)
-// | خلبان | خلبان نت ملی | پوشه‌ی منابع تازه | اتصال آفلاین | اتصال آنلاین
+// | خلبان | پوشه‌ی منابع تازه | اتصال آفلاین | اتصال آنلاین
 // بعد از آن‌ها قطع/وصل، قطع وسط اتصال، تعویض سرور و مانیتور طولانی با باقی‌مانده‌ی وقت اجرا می‌شوند.
 // هدف: پیدا کردن race، گیر کردن busy/switching، و اینکه هر حالت واقعاً کار می‌کند.
 // =============================================================================
@@ -102,13 +102,11 @@ extension AutoTestEngine on _HomePageState {
   // NATONLY2: فقط این دو بخش در تست و گزارش دیده می‌شوند
   // FIVE-HOUR: همه‌ی مسیرهای اتصال در گزارش دیده می‌شوند
   static List<String> get _atActiveNames =>
-      [_atItemNames[2], _atSubstName, _atItemNames[4]]; // STEST60: فقط نت ملی
+      [_atItemNames[2], _atSubstName]; // STEST60: فقط نت ملی
   static const List<String> _atItemNames = [
     'اینترنت جهانی (عادی)',
     'پوشه‌ی منابع تازه (ساخت)',
     'نت ملی: همه‌ی سطوح ماتریس',
-    'خلبان (بدون نت ملی)',
-    'خلبان نت ملی',
     'اتصال آفلاین (فقط پوشه)',
     'اتصال آنلاین (همه‌ی منابع)',
     'VMess (فقط vmess)',
@@ -291,20 +289,18 @@ extension AutoTestEngine on _HomePageState {
       if (!natHotReady()) unawaited(natHotEnsure(force: true));
 
       // بخش‌های اصلی: هر کدام فقط اگر وقت باقی‌مانده‌ی کافی داشته باشد اجرا می‌شود
-      // NATONLY: فقط نت ملی (جستجو) و خلبان نت ملی؛ بقیه‌ی بخش‌ها حذف شدند
-      // NATMODES: هر سطح ماتریس نت ملی (۰ تا ۱۰) جداگانه تست می‌شود، سپس خلبان نت ملی
+      // NATONLY: فقط نت ملی (جستجو)؛ بقیه‌ی بخش‌ها حذف شدند
+      // NATMODES: هر سطح ماتریس نت ملی (۰ تا ۱۰) جداگانه تست می‌شود
       // ALLPATHS: همه‌ی مسیرهای اصلی به ترتیب؛ هر بخش اگر وقت داشت اجرا می‌شود
       // SUBST-ONLY: فقط تست جایگزینی روی سرورهای سالم اجرا می‌شود
       // AUTOFULL: اول نت ملی (جستجو تا ۱۵ سرور سالم)، بعد جایگزینی روی همان سالم‌ها
       // FIVE-HOUR: همه‌ی مسیرها به ترتیب؛ هر بخش اگر وقت کافی داشته باشد اجرا می‌شود
-      // STEST60: فقط سه بخش نت ملی، در مجموع ۶۰ دقیقه:
+      // STEST60: فقط بخش‌های نت ملی، در مجموع ۶۰ دقیقه:
       //  ۱) همه‌ی سطوح ماتریس نت ملی (تا ۱۱ دقیقه)
-      //  ۲) همه‌ی حالت‌های جایگزین روی سرورهای سالم (تا ۲۵ دقیقه، با ۱۴ دقیقه رزرو برای خلبان)
-      //  ۳) خلبان نت ملی (تا ۱۲ دقیقه)
+      //  ۲) همه‌ی حالت‌های جایگزین روی سرورهای سالم (تا ۲۵ دقیقه)
       final steps = <(String, Duration, Future<void> Function())>[
         (_atItemNames[2], const Duration(minutes: 50), _atItemNational),
         (_atSubstName, const Duration(minutes: 150), _atItemSubst),
-        (_atItemNames[4], const Duration(minutes: 25), () => _atItemPilot(national: true)),
       ];
       for (final s in steps) {
         if (_abortRequested) return _atFinish(reason: 'توقف دستی');
@@ -909,12 +905,6 @@ extension AutoTestEngine on _HomePageState {
           'خلبان وصل شد ولی تیکی نزد',
           'اگر busy یا switching مانده، شرط شروع تیک را بررسی کن',
         ];
-      case 'PILOT-NOCOUNT':
-        return [
-          'lib/iran_ai_extras.dart → localPilotTick و lib/nat_ultra.dart → natLiveBox',
-          'کادر خلبان در نت ملی شمارنده‌ی IP را نشان نداد',
-          'کادر خلبان هنگام جستجو باید با natLiveBox زنده شود',
-        ];
       case 'HOT-NOTREADY':
         return [
           'lib/nat_ultra.dart → natHotEnsure',
@@ -1133,7 +1123,7 @@ extension AutoTestEngine on _HomePageState {
           'راه حل: همین گزارش را بفرست؛ این باگ کد است.';
     }
     return 'نت ملی کار کرد: $ok سرور سالم از $found IP باز پیدا شد. '
-        'اگر وصل نشدی، مشکل از خلبان است؛ بخش «خلبان نت ملی» را ببین.';
+        'اگر وصل نشدی، همین گزارش را بفرست.';
   }
 
   String _atRootCause() {
@@ -1800,9 +1790,8 @@ extension AutoTestEngine on _HomePageState {
     final rows = <String>[];
     var total = 0, baseOk = 0, substServers = 0, brokenServers = 0;
     final t0 = DateTime.now();
-    // STEST60: وقتی کمتر از ۱۵ دقیقه مانده، جایگزینی متوقف و وقت خلبان نت ملی حفظ می‌شود
-    bool stop() =>
-        _abortRequested || _phase != _AtPhase.running || _atLeft() < const Duration(minutes: 15);
+    // جایگزینی فقط با توقف دستی یا پایان وقت متوقف می‌شود (جدید)
+    bool stop() => _abortRequested || _phase != _AtPhase.running;
 
     Future<bool> tryVar(Server s, String key, int v) async {
       natVar[key] = v; // _start() خواندن حالت را از natVarFor می‌گیرد
@@ -2000,77 +1989,10 @@ extension AutoTestEngine on _HomePageState {
     }
   }
 
-  /// بخش ۴ و ۵: خلبان محلی؛ بدون نت ملی و با نت ملی (دکمه‌ی خلبان نت ملی)
-  Future<void> _atItemPilot({required bool national}) async {
-    _scenario = national ? 5 : 4;
-    final name = _atItemNames[national ? 4 : 3];
-    errTag = name;
-    await _atEnsureDisconnected();
-    if (localPilotOn) stopLocalPilot();
-    natForce = national;
-    if (!national) nationalMode = false;
-
-    final tick0 = _localTickN;
-    autoTestText.value = 'بخش «$name»: روشن کردن خلبان…';
-    dbg('🧪 بخش «$name» — روشن کردن خلبان');
-    // PILOTCHOICE: تست باید همان انتخاب کاربر را داشته باشد (بدون نت ملی = جهانی)،
-    // وگرنه خلبان خودش به نت ملی می‌رود و سناریو درست سنجیده نمی‌شود
-    userModeChoice = national;
-    startLocalPilot(national: national);
-    // PILOTWAIT: اتصال نت ملی با ماتریس کامل چند دقیقه طول می‌کشد؛ مهلت متناسب با آن
-    await _atWaitUntil(() => connected && !busy,
-        timeout: _atCap(Duration(minutes: national ? 15 : 8)), label: name);
-
-    if (!connected) {
-      _itemResult[name] = '❌ خلبان وصل نکرد • status="$status" • lastFail="$lastFail"';
-      _atAdd('ITEM-FAIL', '$name وصل نشد • status="$status" • lastFail="$lastFail"');
-      stopLocalPilot();
-      await _atEnsureDisconnected();
-      return;
-    }
-
-    // خلبان باید حداقل یک تیک بزند؛ کادر خلبان از همان تیک پر می‌شود
-    // PILOTFIX: تیک خلبان وقتی busy باشد برنمی‌گردد؛ اول صبر کن آزاد شود، بعد تیک را اجبار کن
-    final bEnd = DateTime.now().add(const Duration(seconds: 30));
-    while (busy && DateTime.now().isBefore(bEnd) && !_abortRequested) {
-      await Future<void>.delayed(const Duration(seconds: 1));
-    }
-    if (!_abortRequested && _localTickN <= tick0) {
-      unawaited(localPilotTick(force: true));
-    }
-    final tEnd = DateTime.now().add(const Duration(seconds: 240));
-    while (_localTickN <= tick0 &&
-        DateTime.now().isBefore(tEnd) &&
-        !_abortRequested) {
-      await Future<void>.delayed(const Duration(seconds: 2));
-    }
-    userModeChoice = null; // پایان بخش: خلبان دوباره خودکار (بدون قفل تست)
-    if (_localTickN <= tick0) {
-      _atAdd('PILOT-NOTICK', '$name وصل شد ولی خلبان تیکی نزد');
-    }
-
-    if (kNatIpScanOn && nationalMode && !localPilotText.value.contains('IP اسکن')) {
-      _atAdd('PILOT-NOCOUNT',
-          '$name در نت ملی بود ولی کادر خلبان شمارنده‌ی IP را نشان نداد');
-    }
-    if (natLevel > _atMaxNatLevel) _atMaxNatLevel = natLevel;
-
-    final detail = national
-        ? ' • IP اسکن کل $natIpScanned / باز $natIpFound / تست هسته $natIpTested / سالم $natIpOk'
-        : '';
-    final mode = nationalMode ? 'ملی' : 'جهانی';
-    _itemResult[name] =
-        '✅ خلبان وصل • حالت: $mode • تیک‌ها: ${_localTickN - tick0}$detail';
-
-    await _atWait(const Duration(seconds: 15), note: 'پایداری $name');
-    stopLocalPilot();
-    await _atEnsureDisconnected();
-  }
-
   /// بخش ۶: اتصال آفلاین؛ فقط از پوشه‌ی منابع تازه، بدون دانلود لیست
   Future<void> _atItemOffline() async {
     _scenario = 6;
-    final name = _atItemNames[5];
+    final name = _atItemNames[3];
     if (!natHotReady()) {
       _itemResult[name] = '❌ پوشه‌ی منابع تازه آماده نیست؛ تست نشد';
       return;
@@ -2087,7 +2009,7 @@ extension AutoTestEngine on _HomePageState {
   /// بخش ۷: اتصال آنلاین؛ از همه‌ی منابع
   Future<void> _atItemOnline() async {
     _scenario = 7;
-    final name = _atItemNames[6];
+    final name = _atItemNames[4];
     natForce = false;
     offlineOnly = false;
     await ultimateSave();

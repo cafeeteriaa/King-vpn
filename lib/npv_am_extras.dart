@@ -276,7 +276,9 @@ String? npvNormalizeLink(String line) {
     if (h >= 0) payload = payload.substring(0, h);
     try {
       payload = Uri.decodeComponent(payload);
-    } catch (e, stk) { logError(e, stk); }
+    } catch (_) {
+      // درصد نامعتبر در لینک خراب: همان متن خام ادامه پیدا می‌کند؛ خطای برنامه نیست (جدید)
+    }
   } else {
     payload = t;
   }

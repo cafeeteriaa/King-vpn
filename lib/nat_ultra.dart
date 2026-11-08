@@ -1581,17 +1581,6 @@ List<String> natExpandAny(String item) {
   return out;
 }
 
-// شمارنده‌های زنده‌ی نت ملی داخل کادر خلبان.
-// کادر خلبان فقط بین دو جستجو به‌روز می‌شود؛ وسط جستجو (busy) صفر یا متن قدیمی می‌ماند.
-// این تابع هر وقت شمارنده‌ها عوض شوند صدا زده می‌شود تا کادر همان لحظه را نشان دهد.
-void natLiveBox([String step = '']) {
-  if (!localPilotOn || !nationalMode) return;
-  localPilotText.value =
-      '🌐 نت ملی (زنده) — IP اسکن $natIpScanned • باز $natIpFound • '
-      'تست هسته $natIpTested • سالم $natIpOk'
-      '${step.isEmpty ? '' : '\n⏳ $step'}';
-}
-
 // یک مرحله‌ی اسکن. هر بار بلوک بعدی (تغییر خودکار) و پورت‌های کانفیگ بررسی می‌شوند.
 // خروجی: لیست «ip|port». بعد از هر مرحله ادامه از همان جای قبلی است.
 // DNSهای داخل ایران که برنامه از قبل دارد؛ داخل کشورند و در نت ملی باز می‌مانند
@@ -1664,7 +1653,6 @@ Future<List<String>> _natDomainFirst(List<Server> known,
     natDomainIps = ips.length;
     dbg('دامنه‌ها: ${hosts.length} دامنه • ${ips.length} IP یکتا');
     if (ips.isEmpty) return out;
-    natLiveBox('دامنه‌ها: ${hosts.length} دامنه • ${ips.length} IP برای همه‌ی پورت‌ها');
     final tw = Stopwatch()..start();
     // DOMAINCAP: پورت‌های پرکاربرد اول، سقف ۳ دقیقه
     final portOrder = <int>[
@@ -1740,7 +1728,7 @@ List<String> natSeedBlocks(List<String> hosts) {
   return out;
 }
 
-// شمارنده‌های نمایش در کادر خلبان
+// شمارنده‌های نمایش اسکن نت ملی
 int natMemQueued = 0; // چند IP از حافظه دوباره به صف اضافه شد
 int natRandomLast = 0; // چند IP تصادفی در آخرین دور اسکن بود
 // IPهایی که اسکن پیدا کرده (معتبر برای تست کانفیگ در نت ملی، همراه حافظه)
@@ -1800,7 +1788,6 @@ Future<List<String>> natRangeScanStep({
   natRangeCursor = from + slice.length;
   natRandomLast = 0;
   natIpScanned += slice.length;
-  natLiveBox('IP اسکن: ${slice.length} آدرس این دور (تصادفی + بلوک‌های داخلی)');
   final out = <String>[...domOut];
   final portList = natAutoPorts(seeds);
   // PORTSHARE: زمان دور بین همه‌ی پورت‌ها تقسیم می‌شود تا هیچ پورتی بی‌تست نماند
@@ -1820,7 +1807,6 @@ Future<List<String>> natRangeScanStep({
     for (final h in hits) {
       out.add('${h.ip}|$port');
     }
-    natLiveBox('بازه: پورت $port • باز ${hits.length}');
   }
   // No exhaustive 1..65535 port sweep: it is expensive and does not validate a VPN config.
 

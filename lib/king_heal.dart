@@ -460,7 +460,6 @@ extension KingHealEngine on _HomePageState {
           turboSpeed = true;
           muxEnabled = true;
           muxConc = max(12, min(muxConc, 16));
-          if (!nationalMode) fragEnabled = false;
           try {
             await _saveSettings();
           } catch (e, stk) { logError(e, stk); }
@@ -497,7 +496,6 @@ extension KingHealEngine on _HomePageState {
     final mem = _healMem.recent.reversed.take(5).join(' ');
     final st = _netStateNow(
       connected: connected,
-      national: nationalMode,
       tunBadNow: tunBad,
       pingRounds: badPingRounds,
     );
