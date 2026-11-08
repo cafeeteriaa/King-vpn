@@ -347,6 +347,13 @@ bool ultraMode = false;
 // INDESTRUCTIBLE: endless search — default ON (national search never stops).
 // Saved under key 'idm2' so older saved 'off' values do not override this.
 bool indestructibleMode = true;
+
+// SRCSPLIT switches
+const bool kSavedDirectTest = false; // پوشه‌ی سالم مستقیم تست نشود (فقط از صف)
+const bool kWarmFromFolder = false; // سرورهای پوشه به ابتدای صف نروند
+const bool kFolderInjectGood = false; // پوشه‌ی سالم به لیست سالم تزریق نشود
+const bool kNatMergeCache = false; // قدیمی: افزودن ثابت پوشه‌ها به صف نت ملی
+List<Server> folderQ = []; // صف پوشه‌ی سالم برای نیمه‌ی دوم دسته‌ها (نت ملی آفلاین)
 // TURBO: after a working tunnel is up, try the same server without Fragment/
 // Noise (the biggest speed killers) and with Mux, then keep it if traffic
 // still flows. Ping does not matter — throughput does.
@@ -1884,6 +1891,8 @@ String _dbgProbText() {
     'E-XRAY-STARTED', 'E-CFG-DUMP', 'E-TUN-NOISE', 'E-DIAL-NOISE',
     'E-XRAY-EMPTY', 'E-HEAL-PARTIAL', 'E-SEARCH-BUSY', 'E-PILOT-SKIP',
     'E-ABORT-SIDE',
+    // REPORT-INFO: خود پیام می‌گوید نیازی به اصلاح نیست (ضعف لحظه‌ای اینترنت / تست پورت هسته)
+    'E-PREFLIGHT-WEAK', 'E-SITE-CHECK',
     // SERVERSKIP: رد شدن عادی یک سرور و رفتن به سرور بعدی
     'E-SERVER-SKIP',
   };
@@ -4636,6 +4645,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // healthy servers, best first
   List<Server> _usable() => good
       .where((s) =>
+          (s.checkedAt != null || identical(s, current)) && // SRCSPLIT: پوشه‌ی سالم فقط از صف تست می‌شود
           !_bad(s) &&
           _protoOk(s) &&
           (identical(s, current) || (s.ping ?? 99999) >= minPingMs))
@@ -5839,6 +5849,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final hotOff = await natHotNext(300, fetch: false); // هر دور ۳۰۰ تا؛ اگر پیدا نشد دور بعد ادامه می‌دهد
       // OFFLINE-SRC: صف قبلی (آنلاین) کنار گذاشته می‌شود؛ فقط منابع تازه تست می‌شوند
       pending = [for (final s in hotOff) if (seenOff.add(s.link)) s];
+      if (_folderMix && folderQ.isEmpty) folderQ = _folderPool();
       return;
     }
     // حالت آنلاین: پوشه‌ی منابع تازه هم در پس‌زمینه بازسازی می‌شود (۴۸ ساعت)
@@ -5850,7 +5861,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         : Duration(minutes: listRefreshMin);
     final fresh = (nationalMode && !connected && fetchedAll.isNotEmpty && !natRefetch) || // NATIONALPATCH
         (age != null && fetchedAll.length > 200 && age < limit);
-    if (!fresh && now0.difference(lastFetchTry) > const Duration(seconds: 45)) {
+    // EMPTYQ-FIX: با لیست خالی (مثلاً بعد از «پاک کردن») محدودیت ۴۵ ثانیه‌ای دانلود کنار می‌رود
+    final throttled = fetchedAll.isNotEmpty &&
+        now0.difference(lastFetchTry) <= const Duration(seconds: 45);
+    if (!fresh && !throttled) {
       lastFetchTry = now0;
       natRefetch = false;
       if (!bg) _set('در حال دریافت لیست‌ها...');
@@ -5912,6 +5926,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         await Future<void>.delayed(const Duration(milliseconds: 2));
       }
     }
+    // EMPTYQ-FIX: اگر فقط فیلترهای نرم (منبع ضعیف / شکست اخیر) همه‌ی لیست را کنار زده‌اند،
+    // بدون آن فیلترها دوباره می‌سازیم تا صف خالی نماند و «صف خالی» بیخود نشان داده نشود
+    if (out.length == headLen && fetched.isNotEmpty) {
+      for (final s in fetched) {
+        if (_protoOk(s) && !_bad(s) && seen.add(s.key)) out.add(s);
+      }
+      dbg('صف: فیلترهای نرم همه‌ی سرورهای تازه را رد کرده بودند؛ بدون آن فیلترها ساخته شد');
+    }
     // PERF: sort only the servers that passed the filters, not the whole list
     final tail = out.sublist(headLen)..sort(_cmpPending);
     out.replaceRange(headLen, out.length, tail);
@@ -5967,7 +5989,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       await natMemLoad();
     }
     // WARMFIX: سرورهای روی صفحه‌ی دفعه‌ی قبل (کش) اول دوباره تست می‌شوند، قبل از جستجوی سرور جدید
-    if (!bg && !nationalMode && warmKeys.isNotEmpty) {
+    if (kWarmFromFolder && !bg && !nationalMode && warmKeys.isNotEmpty) {
       final warm = good
           .where((s) => warmKeys.contains(s.key) && !identical(s, current))
           .toList();
@@ -5982,6 +6004,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!bg) {
         if (autoTune && !connected) unawaited(autoTuneNow()); // AUTOTUNEPATCH
         searchSw = Stopwatch()..start();
+        folderQ = _folderMix ? _folderPool() : <Server>[]; // SRCSPLIT
         dTcp = 0;
         dFake = 0;
         totalTested = 0;
@@ -6071,11 +6094,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       natFun('loop_calls');
       if (enough()) natFun('loop_enough_at_start');
       natFun('loop_pending_ip', pending.where((s) => s.isIp).length);
-      if (pending.isEmpty) await _loadPending(bg: bg, exhausted: true);
+      if (pending.isEmpty && folderQ.isEmpty) await _loadPending(bg: bg, exhausted: true);
       // healthy servers not yet tested for Gemini are tested too
       if (!bg && row == 'r:ai') {
         pending.insertAll(
-            0, good.where((s) => s.ai == null && !identical(s, current)));
+            0,
+            good.where((s) =>
+                s.ai == null &&
+                s.checkedAt != null && // SRCSPLIT: پوشه‌ی سالم فقط از صف تست می‌شود
+                !identical(s, current)));
       }
       var batches = 0;
       var reloaded = false;
@@ -6091,7 +6118,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           !(bg && DateTime.now().difference(bgStart) > const Duration(minutes: 20)) &&
           batches < maxB) {
         // the whole list was tested: download a new one and go on (endless)
-        if (pending.isEmpty) {
+        if (pending.isEmpty && folderQ.isEmpty) {
           // منابع تازه تمام شد و هیچ سرور سالمی نیست: پوشه‌ی سرورهای سالم پشتیبان می‌شود
           if (!bg && !folderFallback && !offlineOnly && !nationalMode &&
               !indestructibleMode && _ready(row) == 0) {
@@ -6153,7 +6180,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
         }
         if (smartOrder) cand = _diversify(cand);
-        final batch = cand.take(size).toList();
+        final batch = _mixBatch(cand, size); // SRCSPLIT
         _set('ردیف ${row ?? 'همه'} • '
             '${fast ? 'تست موازی' : 'تست تکی'} • دسته ${batch.length}');
         if (batch.isEmpty) {
@@ -8444,10 +8471,60 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  // the folder servers join the healthy list (tested FIRST at the connect)
+  // SRCSPLIT: منابع بر اساس حالت انتخاب می‌شوند:
+  //  آنلاین (عادی یا نت ملی): فقط لیست تازه‌ی آنلاین؛ پوشه‌ی سالم استفاده نمی‌شود.
+  //  آفلاین عادی: فقط پوشه‌ی منابع تازه.
+  //  نت ملی آفلاین: نیمی از هر دسته از پوشه‌ی منابع تازه، نیمی از پوشه‌ی سرورهای سالم.
+  bool get _folderMix => nationalMode && offlineOnly;
+
+  // سرورهای پوشه‌ی سالم که در این نشست تست نشده‌اند (نیمه‌ی دوم دسته‌ها در نت ملی آفلاین)
+  List<Server> _folderPool() {
+    final seenF = <String>{for (final g in good) g.key};
+    final out = <Server>[];
+    for (final g in good) {
+      if (g.checkedAt == null && !identical(g, current) && !_bad(g) && _protoOk(g)) {
+        out.add(g);
+      }
+    }
+    for (final e in _resMap.values) {
+      if (seenF.contains(e.s.key)) continue;
+      final c = Server.parse(e.link);
+      if (c == null) continue;
+      c.ping = e.s.ping;
+      if (!_bad(c) && _protoOk(c) && seenF.add(c.key)) out.add(c);
+    }
+    out.shuffle();
+    return out;
+  }
+
+  // بیرون کشیدن تا n سرور از صف پوشه‌ی سالم (تست‌نشده و غیرخراب)
+  List<Server> _takeFolder(int n) {
+    final out = <Server>[];
+    while (out.length < n && folderQ.isNotEmpty) {
+      final s = folderQ.removeAt(0);
+      if (s.checkedAt != null || _bad(s)) continue;
+      out.add(s);
+    }
+    return out;
+  }
+
+  // ترکیب دسته: در نت ملی آفلاین نیمی منابع تازه و نیمی پوشه‌ی سالم؛ بقیه‌ی حالت‌ها همان قبلی
+  List<Server> _mixBatch(List<Server> cand, int size) {
+    if (!_folderMix || folderQ.isEmpty) return cand.take(size).toList();
+    final out = <Server>[...cand.take(size - size ~/ 2)];
+    out.addAll(_takeFolder(size - out.length));
+    // پوشه کم بود: بقیه‌ی دسته از منابع تازه پر می‌شود
+    for (final s in cand) {
+      if (out.length >= size) break;
+      if (!out.any((x) => identical(x, s))) out.add(s);
+    }
+    return out;
+  }
+
+  // the folder servers join the healthy list (tested FIRST at the connect) — disabled (SRCSPLIT)
   int _resInject() {
-    // FOLDER-NATONLY: پوشه‌ی سرورهای سالم فقط مال نت ملی است
-    if (!nationalMode) return 0;
+    // SRCSPLIT: پوشه‌ی سالم دیگر به لیست سالم تزریق نمی‌شود؛ در نت ملی آفلاین از صف (۵۰/۵۰) تست می‌شود
+    if (!kFolderInjectGood || !nationalMode) return 0;
     var n = 0;
     try {
       final keys = good.map((g) => g.key).toSet();
@@ -8812,6 +8889,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       } else if (home) {
         nationalMode = true;
       }
+      // PILOTNONAT: خلبان روشن باشد، شبکه ملی نمی‌شود (حتی اگر تشخیص یا دکمه بخواهد)
+      if (localPilotOn || aiSession) nationalMode = false;
       // نت ملی: جستجوی بی‌نهایت همیشه روشن است
       if (nationalMode) indestructibleMode = true;
       if (nationalMode != was && mounted) {
@@ -8837,6 +8916,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // "only new" for normal mode).
   DateTime? _checkSavedAt;
   Future<void> _checkSaved() async {
+    if (!kSavedDirectTest) return; // SRCSPLIT: پوشه‌ی سالم مستقیم تست نمی‌شود
     final forceSaved = nationalMode || natForce || indestructibleMode;
     if (!forceSaved) {
       // Normal mode: user request was "do NOT search from folder/saved —
@@ -8932,7 +9012,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // می‌آیند؛ بقیه حذف نمی‌شوند. اعتبار واقعی همچنان با تست اتصال از تونل است.
   // پوشه‌ی منابع تازه را (در صورت نیاز ۲۴ ساعته بازسازی) به صف جستجوی نت ملی اضافه می‌کند
   Future<void> _natMergeCache() async {
-    if (!nationalMode) return;
+    // SRCSPLIT: نت ملی آنلاین فقط از لیست آنلاین می‌گردد؛ نت ملی آفلاین را _findGood
+    // (منابع تازه + پوشه‌ی سالم ۵۰/۵۰ در هر دسته) انجام می‌دهد. این مسیر دیگر به صف اضافه نمی‌کند.
+    if (!nationalMode || !kNatMergeCache) return;
     // FOLDERS: سهم ثابت در هر دور. منابع تازه ۴۰۰ کانفیگ، سرورهای سالم ۳۰۰ تا
     // (با چرخش، تا همه‌ی پوشه نوبت بگیرد). سرورهایی که همین الان در صف یا در
     // لیست سالم هستند دوباره اضافه نمی‌شوند.
@@ -9171,6 +9253,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  // NATFIRSTFAST: آماده‌سازی سریع نت ملی برای دور اول (بدون اسکن سنگین IP و دامنه)
+  Future<void> _natQuickStart() async {
+    try {
+      await _natDetect();
+      if (!nationalMode && !indestructibleMode) return;
+      natAll = true;
+      autoCycle = true;
+      natLevel = max(2, natFloor);
+      if (natFloor >= 10) natLevel = 10;
+      tcpTimeout = const Duration(seconds: 6);
+      delayTimeout = Duration(seconds: max(delayTimeout.inSeconds, 14));
+      natWorkers = kNatDelayConcurrency;
+      _dohFail = 0;
+    } catch (e, stk) {
+      logError(e, stk);
+    }
+  }
+
   Future<void> _natEscalate(int round) async {
     try {
       await _natDetect(); // what does the network look like now?
@@ -9282,8 +9382,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // fresh lists, longer waits) and the network state is checked again
       // نت ملی: اسکن IP از همان دور اول شروع می‌شود و در هر دور ادامه دارد
       if (round == 0 && nationalMode) {
-        // NATQUICK: اگر سرور سالم آماده داریم، اسکن سنگین IP را معطل نکن؛ همان اول وصل می‌شود
-        if (_pickList().isEmpty) await _natEscalate(round);
+        // NATFIRSTFAST: دور اول فقط جستجوی سریع است؛ اولین سرور سالمی که پیدا شد وصل می‌شود.
+        // اسکن‌های سنگین IP/دامنه (چند دقیقه) در دورهای بعد و در پس‌زمینه‌ی اتصال اجرا می‌شوند.
+        if (_pickList().isEmpty) await _natQuickStart();
       } else if (round > 0 && round % 2 == 0) {
         await _natEscalate(round);
       } else if (nationalMode) {

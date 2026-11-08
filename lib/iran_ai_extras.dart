@@ -1390,6 +1390,8 @@ extension HomeExtras on _HomePageState {
   }
 
   Future<void> _applyNetPick(bool net, bool off) async {
+    // PILOTNONAT: خلبان (محلی یا ابری) هرگز روی نت ملی اجرا نمی‌شود، آنلاین یا آفلاین
+    if (localPilotOn || aiSession) net = false;
     userModeChoice = net;
     natForce = net;
     nationalMode = net;
@@ -1478,6 +1480,7 @@ extension HomeExtras on _HomePageState {
 
   // FULL PILOT: Grok takes over from search to keep-alive until user disconnects
   Future<void> startGrokPilot() async {
+    _pilotLeaveNational(); // PILOTNONAT
     if (!_selectedAiKeyAvailable) {
       _set('برای ارائه‌دهنده انتخاب‌شده ($aiProvider) کلید API معتبر وارد و ذخیره کن؛ یا Auto را انتخاب کن.');
       aiSheet();
@@ -2645,8 +2648,15 @@ extension HomeExtras on _HomePageState {
     return p.clamp(0, 1000000);
   }
 
+  /// PILOTNONAT: خلبان از حالت نت ملی خارج می‌شود (حالت آنلاین/آفلاین خود کاربر حفظ می‌شود)
+  void _pilotLeaveNational() {
+    nationalMode = false;
+    natForce = false;
+  }
+
   /// فعال‌سازی خلبان بدون حلقهٔ اتصال (برای وقتی کاربر فقط «اتصال» زده)
   void ensureLocalPilotRunning() {
+    _pilotLeaveNational(); // PILOTNONAT
     if (aiSession) stopGrokPilot();
     final wasOff = !localPilotOn;
     localPilotOn = true;
