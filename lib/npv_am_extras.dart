@@ -1463,3 +1463,53 @@ void startGoldLoop(_HomePageState h) {
   unawaited(goldLoad().then((_) => _goldMergeGood(h)));
   unawaited(_goldTick(h));
 }
+
+// نمایش پوشه‌ی جهانی داخل منوی «پوشه‌ی سرورهای سالم»
+String goldInfo() {
+  var lastMs = 0;
+  for (final v in _goldIps.values) {
+    if (v.testAt > lastMs) lastMs = v.testAt;
+  }
+  final when = lastMs == 0
+      ? 'هنوز تست نشده'
+      : 'آخرین تست: ${DateTime.fromMillisecondsSinceEpoch(lastMs).toString().substring(0, 16)}';
+  return 'IP تمیز: ${_goldIps.length} • سرور سالم: ${_goldSrv.length} • $when';
+}
+
+// فهرست پوشه: سرورها و IPها از سریع به کند (حداکثر ۲۰۰ مورد از هر کدام)
+Future<void> goldShowList(BuildContext context) async {
+  await goldLoad();
+  final ipL = _goldIps.values.toList()..sort((a, b) => a.ms.compareTo(b.ms));
+  final srvL = _goldSrv.values.toList()..sort((a, b) => a.ping.compareTo(b.ping));
+  await showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('پوشه‌ی جهانی'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            Text(goldInfo(), style: const TextStyle(fontSize: 12)),
+            const Divider(),
+            const Text('سرورهای سالم (سریع → کند):',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            for (final v in srvL.take(200))
+              Text('${v.ping} ms  •  ${Server.parse(v.link)?.name ?? v.link}',
+                  style: const TextStyle(fontSize: 12)),
+            const Divider(),
+            const Text('IP تمیز (سریع → کند):',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            for (final v in ipL.take(200))
+              Text('${v.ms} ms  •  ${v.ip}:${v.port}',
+                  style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(ctx), child: const Text('بستن')),
+      ],
+    ),
+  );
+}

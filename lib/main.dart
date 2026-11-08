@@ -8578,6 +8578,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _resMenu() async {
     if (!mounted) return;
+    await goldLoad(); // GOLDMENU: آمار پوشه‌ی جهانی قبل از باز شدن منو
+    if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
       builder: (ctx) => SafeArea(
@@ -8587,6 +8589,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               leading: const Icon(Icons.folder_special_outlined),
               title: Text('پوشه‌ی سرورهای سالم: ${_resMap.length} سرور'),
               subtitle: Text(_resInfo()),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.hub_outlined),
+              title: const Text('پوشه‌ی جهانی: IP تمیز و سرور سالم'),
+              subtitle: Text(goldInfo()),
+              onTap: () {
+                Navigator.pop(ctx);
+                goldShowList(context);
+              },
             ),
             const Divider(height: 1),
             ListTile(
