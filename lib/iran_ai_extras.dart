@@ -1410,14 +1410,16 @@ extension HomeExtras on _HomePageState {
   }
 
   Future<bool> pickEngineThenStart(Future<void> Function() start,
-      {bool askMode = true, bool askNet = false, bool? forceNet}) async { // جدید: اتصال‌های عادی شبکه نمی‌پرسند
+      {bool askMode = true, bool? forceNet, bool keepNet = false}) async {
+    // جدید: اتصال‌های عادی شبکه نمی‌پرسند ولی همیشه جهانی وصل می‌شوند (حالت ملی فقط از دکمه‌ی خودش)؛
+    // خلبان (keepNet) حالت شبکه را دست نمی‌زند
     _pendingNet = null;
     if (askMode) {
       final ok = forceNet != null
           ? await _askOnlineOfflineNet(forceNet)
-          : askNet
-              ? await pickNetworkThenOnlineOffline(ask: true, apply: false)
-              : await _askOnlineOfflineMode();
+          : keepNet
+              ? await _askOnlineOfflineMode()
+              : await _askOnlineOfflineNet(false);
       if (!ok) return false;
     }
     final e = await pickVpnEngineDialog();
@@ -1749,7 +1751,7 @@ extension HomeExtras on _HomePageState {
                               'خلبان AI خاموش شد — برای قطع کامل VPN دکمه قطع را بزن');
                         } else {
                           if (!await confirmHeavyFeature(context, 'خلبان کامل AI')) return;
-                          await pickEngineThenStart(startGrokPilot, askNet: false); // جدید: خلبان شبکه را نمی‌پرسد
+                          await pickEngineThenStart(startGrokPilot, keepNet: true); // جدید: خلبان حالت شبکه را دست نمی‌زند
                         }
                       },
                 icon: Icon(aiSession ? Icons.flight_land : Icons.flight_takeoff,
@@ -1775,7 +1777,7 @@ extension HomeExtras on _HomePageState {
                           if (aiSession) stopGrokPilot();
                           await pickEngineThenStart(() async {
                             startLocalPilot();
-                          }, askNet: false); // جدید: خلبان شبکه را نمی‌پرسد
+                          }, keepNet: true); // جدید: خلبان حالت شبکه را دست نمی‌زند
                         }
                       },
                 icon: Icon(
@@ -1956,7 +1958,7 @@ extension HomeExtras on _HomePageState {
                           onPressed: () async {
                             await save();
                             if (ctx.mounted) Navigator.pop(ctx);
-                            await pickEngineThenStart(startGrokPilot, askNet: false); // جدید: خلبان شبکه را نمی‌پرسد
+                            await pickEngineThenStart(startGrokPilot, keepNet: true); // جدید: خلبان حالت شبکه را دست نمی‌زند
                           },
                           child: const Text('🚀 خلبان کامل AI (کنترل خودکار VPN)')),
                     ]),
