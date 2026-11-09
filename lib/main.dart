@@ -1258,7 +1258,7 @@ List<String> _dbgHelpOf(String m) {
     return h('E-ORPHAN',
         'lib/main.dart → _startWatch (شاخه‌ی !connected) و dropTimer در شنونده‌ی هسته',
         'برنامه می‌خواهد وصل باشد ولی نه وصل است، نه تعویضی در جریان است، نه تایمر قطع فعال است. واچ‌داگ منتظر شرط lastSwitch>10s یا مسیری که فقط یک بار اجرا می‌شود.',
-        'خودترمیمی: اگر این حالت بیش از ۲۰ ثانیه ماند و watch فعال بود → _failover() صدا زده شود.');
+        'خودترمیمی: اگر این حالت بیش از ۴۵ ثانیه ماند و watch فعال بود → _failover() صدا زده شود.');
   }
   if (has('واچ') && has('خاموش است')) {
     return h('E-WATCH-OFF',
@@ -10107,6 +10107,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _failoverRetries = 0;
     // STOP-RACE: a switch must not undo a stop the user already asked for
     if (!wantVpn) return;
+    // FAILOVER-BREAKER: تعویض پشت‌سرهم (حلقه) → بعد از ۶ تعویض در ۵ دقیقه،
+    // تعویض خودکار ۳ دقیقه متوقف می‌شود تا حلقه‌ی بی‌پایان نشکند.
+    final nowFB = DateTime.now();
+    if (_failoverPauseUntil != null && nowFB.isBefore(_failoverPauseUntil!)) {
+      dbg('E-FAILOVER-LOOP: تعویض خودکار موقتاً متوقف است تا ${_failoverPauseUntil!.hour.toString().padLeft(2, '0')}:${_failoverPauseUntil!.minute.toString().padLeft(2, '0')}');
+      return;
+    }
+    _failoverTimes.removeWhere((t) => nowFB.difference(t).inMinutes >= 5);
+    if (_failoverTimes.length >= 6) {
+      _failoverPauseUntil = nowFB.add(const Duration(minutes: 3));
+      _failoverTimes.clear();
+      dbg('E-FAILOVER-LOOP: ۶ تعویض در ۵ دقیقه ثبت شد؛ حلقه‌ی تعویض قطع شد و ۳ دقیقه صبر می‌شود');
+      return;
+    }
+    _failoverTimes.add(nowFB);
     abort = false;
     await _runBusy(() async {
       switching = true;
@@ -11386,6 +11401,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int _insBgFreeze = 0;
   int _insOrphan = 0;
   DateTime? _lastOrphanHeal; // LOOPFIX
+  final List<DateTime> _failoverTimes = []; // FAILOVER-BREAKER
+  DateTime? _failoverPauseUntil; // FAILOVER-BREAKER
   final Map<String, int> _insPrevCnt = {};
 
   void _inspectStart() {
@@ -11574,7 +11591,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _insSince.remove('orph');
       _lastOrphanHeal = now;
       lastWhy = 'خودترمیمی: اتصال یتیم';
-      dbg('خودترمیمی: اتصال یتیم >20s؛ _failover()');
+      dbg('خودترمیمی: اتصال یتیم >45s؛ _failover()');
       if (inForeground) {
         unawaited(_failover());
       } else {
