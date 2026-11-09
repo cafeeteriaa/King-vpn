@@ -1577,7 +1577,7 @@ List<String> _dbgHelpOf(String m) {
         'هسته برای این کانفیگ به CONNECTED نرسید (کانفیگ بد یا بلاک).',
         'آن سرور رد می‌شود. اگر برای همه‌ی سرورهاست مجوز VPN و نسخه‌ی هسته را چک کن؛ وگرنه فقط آن کانفیگ خراب است.');
   }
-  if (has('کانفیگ ناموفق') || has('CONFIG-FAIL')) {
+  if ((has('کانفیگ ناموفق') || has('CONFIG-FAIL')) && !has('مجوز VPN')) {
     return h('E-CONFIG-FAIL',
         'lib/main.dart → _connectLoop / _start',
         'این کانفیگ مشخصاً وصل نشد (پروتکل/آدرس/پورت/transport).',
@@ -1689,6 +1689,11 @@ List<String> _dbgHelpOf(String m) {
     return h('E-FP-CURVE', 'کانفیگ → fingerprint',
         'اثر انگشت TLS مجموعه‌ی curve پشتیبانی‌نشده داشت.',
         'نسخه‌ی جدید random/randomized را به chrome تبدیل می‌کند. اگر ادامه داشت، همان fp را در لاگ ببین.');
+  }
+  if (has('WRONG_VERSION_NUMBER') || has('wrong version number')) {
+    return h('E-TLS-TEST', 'lib/main.dart → تست TLS سایت‌های سلامت',
+        'خطای نسخه‌ی TLS از سمت سایت تست (مثلاً telegram.org) است و به تنظیمات اپ ربطی ندارد.',
+        'نادیده بگیر؛ اگر تلگرام واقعاً وصل نیست، سرور دیگری را امتحان کن.');
   }
   if (has('Illegal percent encoding')) {
     return h('E-PARSE-PERCENT', 'conn_specs.dart → نام/لینک',
@@ -4502,6 +4507,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool inForeground = true, pendingFailover = false;
   // VPN permission was already granted once (stays valid in background)
   bool vpnPermOk = false;
+  // FIX-PERSIST: مجوز VPN اندروید پایدار است؛ ذخیره می‌شود تا بعد از باز شدن دوباره‌ی اپ
+  // تعویض سرور در پس‌زمینه با «Activity در دسترس نیست» شکست نخورد.
+  Future<void> _loadVpnPerm() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      if (p.getBool('vpnPermOk') == true) vpnPermOk = true;
+    } catch (e) { logError(e); }
+  }
+  Future<void> _saveVpnPerm() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setBool('vpnPermOk', true);
+    } catch (e) { logError(e); }
+  }
   bool watchBusy = false;
   int liveDown = 0, liveUp = 0, totalDown = 0, totalUp = 0; // LIVESTATS (bytes)
   bool rechecking = false; // a re-check of the healthy servers is running
@@ -4793,6 +4812,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     _crashGuardInit(); // CRASHGUARD: آیا اجرای قبلی وسط شروع یک سرور مرده است؟
+    unawaited(_loadVpnPerm()); // FIX-PERSIST
     Future.delayed(const Duration(seconds: 4), () => unawaited(_logLastExit())); // KINGDIAG
     _favsRef = favs;
     natSrcRates = srcRate; // نرخ منابع برای مرتب‌سازی پوشه‌ی منابع تازه
@@ -7223,6 +7243,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               return false;
             }
             vpnPermOk = true;
+            unawaited(_saveVpnPerm()); // FIX-PERSIST
           }
           // in background with permission already granted: no dialog needed
         } on PlatformException catch (e) {
@@ -9619,7 +9640,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           dbg('مجوز VPN: ۶۰ ثانیه جواب نیامد؛ شکست در نظر گرفته شد');
           return false;
         });
-        if (ok) vpnPermOk = true;
+        if (ok) {
+          vpnPermOk = true;
+          unawaited(_saveVpnPerm()); // FIX-PERSIST
+        }
         if (!ok) {
           _set('مجوز VPN داده نشد');
           errorLog.value = 'مجوز VPN را تأیید کنید و دوباره «اتصال» را بزنید';
