@@ -12,6 +12,7 @@ Future<bool> ownVpnStart({
   required String remark,
   String addr = '',
   String port = '',
+  String backups = '', // KINGFAILOVER: JSON list of backup servers
 }) async {
   try {
     final ok = await _kingVpnChannel.invokeMethod<bool>('start', {
@@ -19,6 +20,7 @@ Future<bool> ownVpnStart({
       'remark': remark,
       'addr': addr,
       'port': port,
+      'backups': backups,
     });
     return ok ?? false;
   } catch (e) {

@@ -418,7 +418,8 @@ const upgradeGain = 1.5; // باید حداقل ۵۰٪ سریع‌تر باشد 
 const manualSpeedMax = 1000; // no real limit: all healthy servers are tested
 const speedBatch = 1; // servers speed-tested per trial
 const speedFresh = Duration(minutes: 15); // older than this -> test again
-const delayTestUrl = 'https://www.gstatic.com/generate_204';
+// V2RAYNG: same test URL as v2rayNG's real ping (set back to gstatic if needed)
+const delayTestUrl = 'https://www.google.com/generate_204';
 // internet check through the tunnel.
 // اول URLهای بدون نیاز به DNS سخت (IP/cloudflare)، بعد gstatic/google.
 // خطای «Failed host lookup: www.gstatic.com» وقتی DNS تونل خراب است می‌آید.
@@ -3646,7 +3647,7 @@ Future<int> _sitesOpen() async {
     return -1;
   }
   // سلامت مسیر فقط با تلگرام سنجیده می‌شود؛ سرویس‌های دیگر معیار اتصال نیستند.
-  return await _siteOpens('https://telegram.org/', viaCore: true) ? 1 : 0;
+  return await _siteOpens(delayTestUrl, viaCore: true) ? 1 : 0;
 }
 
 // CORE-PORT diagnostic: is anything listening on a local core port right now?
@@ -4677,6 +4678,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return t != null && DateTime.now().difference(t) < failWindow;
   }
 
+  // KINGFAILOVER: healthy servers other than the active one, handed to the
+  // native VPN service so it can switch servers while this app is closed.
+  String _backupsJson(Server cur) {
+    final out = <Map<String, String>>[];
+    for (final x in _usable()) {
+      if (identical(x, cur) || out.length >= 8) continue;
+      try {
+        out.add({
+          'config': buildCoreConfig(x.useLink),
+          'remark': x.name,
+          'addr': x.host,
+          'port': '${x.port}',
+        });
+      } catch (e) {
+        logError(e);
+      }
+    }
+    return jsonEncode(out);
+  }
+
   // healthy servers, best first
   List<Server> _usable() => good
       .where((s) =>
@@ -4758,12 +4779,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _tgChkAt = now;
       _tgChkBusy = true;
       (() async {
-        final tg = await Future.wait([
-          _siteOpens('https://web.telegram.org/'),
-          _siteOpens('https://telegram.org/'),
-        ]);
-        if (tg.any((x) => x)) return true;
-        return null; // فقط تلگرام معیار است؛ خطای تلگرام را با سایت دیگر نسنج
+        // V2RAYNG: the tunnel is checked with the generate_204 URL, as v2rayNG does
+        if (await _siteOpens(delayTestUrl)) return true;
+        return null; // خطا را با یک تست دیگر تأیید نکن
       })()
           .then((bool? ok) {
         if (!mounted || !identical(current, cur) || busy || switching) return;
@@ -6782,7 +6800,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // MULTICHK: does this server also reach Telegram/YouTube/Instagram/Pornhub?
   Future<int> _svcOf(Server s) async {
     var m = 0;
-    const urls = ['https://telegram.org/']; // فقط تلگرام معیار سلامت است
+    const urls = [delayTestUrl]; // V2RAYNG: real ping through the outbound
     try {
       final cfg = buildCoreConfig(s.useLink);
       final rs = await Future.wait(urls.map((u) => _delayGate.run<dynamic>(() => v2ray
@@ -7402,7 +7420,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 config: sanitizeCfg(cfgTries[ci]),
                 remark: s.name,
                 addr: s.host,
-                port: '${s.port}');
+                port: '${s.port}',
+                backups: _backupsJson(s)); // KINGFAILOVER
           } else {
             // START-TIMEOUT: هسته‌ی گیرکرده نباید کل اتصال را قفل کند
             await v2ray.startV2Ray(
@@ -7863,7 +7882,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         return null;
       }
       // فقط تلگرام (طبق خواسته‌ی کاربر): اینستاگرام/یوتیوب چک نمی‌شوند
-      final tgOk = await _siteOpens('https://telegram.org/', viaCore: true);
+      final tgOk = await _siteOpens(delayTestUrl, viaCore: true);
       await _stopCore();
       // VPNCYCLE: the proxy core must be fully down (its shutdown callback can
       // clear the plugin's service reference) before the real VPN starts.
@@ -7887,7 +7906,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     await Future.delayed(const Duration(seconds: 2));
     // TUNFIX: viaCore true = the core proxy (real outbound). DIRECT from this app bypasses the VPN
     // because the app is excluded from its own tunnel, so every server was wrongly rejected.
-    return _siteOpens('https://telegram.org/', viaCore: true)
+    return _siteOpens(delayTestUrl, viaCore: true)
         .timeout(const Duration(seconds: 8), onTimeout: () => false);
   }
 
@@ -8151,7 +8170,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
           Future<List<bool>> runSocial() async {
             try {
-              final tg = await _siteOpens('https://telegram.org/', viaCore: true)
+              final tg = await _siteOpens(delayTestUrl, viaCore: true)
                   .timeout(const Duration(seconds: 8), onTimeout: () => false);
               // فیلدهای قدیمی برای سازگاری حفظ شده‌اند؛ فقط تلگرام معیار است.
               return [tg, tg, false, false, false, false, false, false];
@@ -8183,7 +8202,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             // Same server, other matrix variants — often fixes social path
             await _stopV2();
             if (await _natLadder(s, socialGate: () async {
-                  return await _siteOpens('https://telegram.org/', viaCore: true)
+                  return await _siteOpens(delayTestUrl, viaCore: true)
                       .timeout(const Duration(seconds: 8), onTimeout: () => false);
                 })) {
               await waitProxyPort(
@@ -8291,7 +8310,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // tunnel -> the server works (only the speed file was blocked), keep it
     var sitesAlive = false;
     if (sp == null) {
-      sitesAlive = await _siteOpens('https://telegram.org/', viaCore: true);
+      sitesAlive = await _siteOpens(delayTestUrl, viaCore: true);
       if (!connected || !identical(s, current)) return;
       if (sitesAlive) {
         dbg('سرعت ${s.name}: فایل تست نیامد ولی سایت‌ها از تونل باز شدند؛ سرور می‌ماند');
