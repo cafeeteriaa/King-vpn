@@ -3231,6 +3231,8 @@ class Server {
   }
   int score = 0;
   int miss = 0; // consecutive failed re-checks (missLimit in a row -> removed)
+  // RESTORE: سرور از حافظه‌ی دستگاه آمده (بعد از بستن و باز کردن برنامه) و هنوز در این نشست تست نشده
+  bool restored = false;
   bool tls = false;
   String sni = '', net = 'tcp';
   String? country;
@@ -4678,7 +4680,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // healthy servers, best first
   List<Server> _usable() => good
       .where((s) =>
-          (s.checkedAt != null || identical(s, current)) && // SRCSPLIT: پوشه‌ی سالم فقط از صف تست می‌شود
+          (s.checkedAt != null || s.restored || identical(s, current)) && // SRCSPLIT + RESTORE: سرورهای ذخیره‌شده هم شمرده می‌شوند
           !_bad(s) &&
           _protoOk(s) &&
           (identical(s, current) || (s.ping ?? 99999) >= minPingMs))
@@ -5521,6 +5523,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           s.speed = (j['s'] as num?)?.toDouble();
           s.ai = j['a'] as bool?;
           s.miss = (j['m'] as num?)?.toInt() ?? 0;
+          s.restored = true; // RESTORE: همان سرورهای سالم قبلی؛ حذف نمی‌شوند
           warmKeys.add(s.key);
           // checkedAt stays null: these are tested FIRST at the next connect
           if (!good.any((g) => g.key == s.key)) good.add(s);
@@ -9465,7 +9468,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // until a fresh test fills good again this session
       final folderKeys = _resMap.keys.toSet();
       if (folderKeys.isNotEmpty) {
-        good.removeWhere((s) => folderKeys.contains(s.key) && s.checkedAt == null);
+        good.removeWhere((s) =>
+            folderKeys.contains(s.key) && s.checkedAt == null && !s.restored);
       }
     }
     var speedDone = !speed;
