@@ -4842,6 +4842,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           !downSig!.isCompleted) {
         downSig!.complete(true);
       }
+      // LIVEQUIET جدید: تا ۹۰ ثانیه بعد از وصل شدن تونل، تست‌های هسته‌ی پس‌زمینه
+      // (getServerDelay، یک نمونه‌ی Xray دوم داخل همان پروسه) اجرا نمی‌شوند؛
+      // در لاگ، قطع‌های ۲ تا ۱۲ ثانیه‌ای دقیقاً همین‌جا رخ می‌داد.
+      if (st.state == 'CONNECTED' && wantVpn && !proxyMode) {
+        _liveQuietUntil = DateTime.now().add(const Duration(seconds: 90));
+      }
       if (st.state == 'CONNECTED' &&
           connSig != null &&
           !connSig!.isCompleted) {
@@ -6851,8 +6857,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // DEADSRV-FIX: true وقتی آخرین تست هسته به مهلت خورد (جواب نداد، نه خطای فوری)
   bool _lastDelayTimedOut = false;
 
+  // LIVEQUIET جدید: پنجره‌ی آرامش بعد از وصل شدن تونل (هیچ تست هسته‌ای داخلش اجرا نمی‌شود)
+  DateTime? _liveQuietUntil;
+
+  // LIVEQUIET جدید: تست هسته فقط بعد از پایان پنجره‌ی آرامش، و فقط وقتی تونل زنده است
+  Future<void> _waitLiveQuiet() async {
+    final until = _liveQuietUntil;
+    if (until == null || !connected || !wantVpn) return;
+    while (connected && wantVpn && DateTime.now().isBefore(until)) {
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+  }
+
   Future<int?> _delayOnce(Server s, int v, Duration tt, String? url) async {
     _lastDelayTimedOut = false;
+    await _waitLiveQuiet(); // LIVEQUIET جدید: تست نکن وقتی تونل تازه بالا آمده
     try {
       final cfg = natCfg(s, v);
       // TIMING: زمان کل (با صف) و زمان واقعی تماس هسته را جدا ثبت می‌کنیم
