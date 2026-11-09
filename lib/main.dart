@@ -5408,6 +5408,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           fragInt = j['fi'] as String? ?? fragInt;
           muxConc = (j['mc'] as num?)?.toInt() ?? muxConc;
           dnsProv = j['dp'] as String? ?? dnsProv;
+          customDnsAddr = j['cdns'] as String? ?? customDnsAddr; // CUSTOMDNS
           proxyMode = j['px'] as bool? ?? proxyMode;
         }
         failWindow = Duration(minutes: failMin);
@@ -5743,6 +5744,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             'fi': fragInt,
             'mc': muxConc,
             'dp': dnsProv,
+            'cdns': customDnsAddr, // CUSTOMDNS
             'px': proxyMode,
           }));
     } catch (e, stk) {
@@ -11907,27 +11909,50 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // every known country is listed (also the ones with no server yet)
     final keys = countryFa.keys.toList()
       ..sort((a, b) => (cnt[b] ?? 0).compareTo(cnt[a] ?? 0));
+    // COUNTRYSEARCH: جستجوی کشور یا شبکه در همین فهرست
+    var q = '';
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: SafeArea(
-          child: ListView(shrinkWrap: true, children: [
-            ListTile(
-                title: const Text('🌍 همه کشورها'),
-                selected: selCountry == null,
-                onTap: () => _pickCountry(null, ctx)),
-            for (final c in keys)
-              ListTile(
-                title: Text('${flagOf(c)} ${countryFa[c] ?? c}'),
-                trailing: Text('${cnt[c] ?? 0}'),
-                selected: selCountry == c,
-                onTap: () => _pickCountry(c, ctx),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setS) {
+        final shown = keys.where((c) {
+          if (q.isEmpty) return true;
+          return c.toLowerCase().contains(q) ||
+              (countryFa[c] ?? '').toLowerCase().contains(q);
+        }).toList();
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: SafeArea(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: TextField(
+                  decoration: const InputDecoration(
+                      hintText: 'جستجوی کشور / شبکه',
+                      prefixIcon: Icon(Icons.search)),
+                  onChanged: (v) => setS(() => q = v.trim().toLowerCase()),
+                ),
               ),
-          ]),
-        ),
-      ),
+              Flexible(
+                child: ListView(shrinkWrap: true, children: [
+                  if (q.isEmpty)
+                    ListTile(
+                        title: const Text('🌍 همه کشورها'),
+                        selected: selCountry == null,
+                        onTap: () => _pickCountry(null, ctx)),
+                  for (final c in shown)
+                    ListTile(
+                      title: Text('${flagOf(c)} ${countryFa[c] ?? c}'),
+                      trailing: Text('${cnt[c] ?? 0}'),
+                      selected: selCountry == c,
+                      onTap: () => _pickCountry(c, ctx),
+                    ),
+                ]),
+              ),
+            ]),
+          ),
+        );
+      }),
     );
   }
 

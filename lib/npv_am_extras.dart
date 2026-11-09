@@ -44,6 +44,7 @@ const _dnsOpts = <String>[
   'shecan',
   'electro',
   'radar',
+  'custom',
 ];
 const _dnsUrls = <String, List<String>>{
   'cloudflare': [
@@ -92,6 +93,18 @@ const _dnsUrls = <String, List<String>>{
 /// ارائه‌دهندهٔ واقعی برای ساخت کانفیگ (auto → برنده‌شده)
 String effectiveDnsProv() =>
     dnsProv == 'auto' ? dnsProvActive : dnsProv;
+
+/// CUSTOMDNS: DNS دلخواه کاربر؛ IP ساده (مثل 1.1.1.1) یا https://... (DoH)
+String customDnsAddr = '';
+
+/// اگر dnsProv=custom و آدرس معتبر باشد همان را برمی‌گرداند؛ وگرنه null
+List<String>? customDnsList() {
+  if (effectiveDnsProv() != 'custom') return null;
+  final a = customDnsAddr.trim();
+  final ipOk = RegExp(r'^\d{1,3}(\.\d{1,3}){3}$').hasMatch(a);
+  if (a.startsWith('https://') || ipOk) return [a];
+  return null;
+}
 
 /// تست DoH با HTTP
 Future<int?> _probeDoh(String url) async {
@@ -864,8 +877,9 @@ String withNpvAmCore(String cfg) {
       final d = j['dns'] is Map ? j['dns'] as Map : <String, dynamic>{};
       // Plain IP DNS FIRST (fast, reliable for apps), then DoH.
       // DoH-only often makes Telegram/apps hang when the tunnel is weak.
-      final first =
-          _dnsUrls[effectiveDnsProv()] ?? _dnsUrls['cloudflare']!;
+      final first = customDnsList() ??
+          _dnsUrls[effectiveDnsProv()] ??
+          _dnsUrls['cloudflare']!;
       final ips = <dynamic>[];
       final doh = <dynamic>[];
       for (final u in first) {
@@ -1014,6 +1028,18 @@ extension NpvAmExtras on _HomePageState {
                         (v) => muxConc = v),
                     row<String>('DNS امن (DoH)', dnsProv, _dnsOpts,
                         (v) => dnsProv = v),
+                    if (dnsProv == 'custom')
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: TextField(
+                          controller:
+                              TextEditingController(text: customDnsAddr),
+                          decoration: const InputDecoration(
+                              hintText: 'مثلاً 1.1.1.1 یا https://dns.example/dns-query',
+                              isDense: true),
+                          onChanged: (v) => customDnsAddr = v,
+                        ),
+                      ),
                     const SizedBox(height: 8),
                     const Text(
                         'این مقدارها فقط وقتی اثر دارند که سوئیچ مربوطه در تنظیمات روشن باشد.',
