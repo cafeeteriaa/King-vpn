@@ -3295,7 +3295,7 @@ class Server {
         b = b.padRight(b.length + (4 - b.length % 4) % 4, '=');
         dynamic j; // CLEANERR
         try {
-          j = jsonDecode(utf8.decode(base64.decode(b)));
+          j = jsonDecode(utf8.decode(base64.decode(b), allowMalformed: true));
         } on FormatException {
           return null;
         }
@@ -3494,6 +3494,19 @@ class _DelayGate {
 }
 
 final _DelayGate _delayGate = _DelayGate(kDelayConcurrency);
+
+// COREMUTEX: صف ساده‌ی یک‌به‌یک (هر کار بعد از کار قبلی شروع می‌شود)
+class _AsyncMutex {
+  Future<void> _tail = Future<void>.value();
+  Future<T> run<T>(Future<T> Function() f) {
+    final prev = _tail;
+    final done = Completer<void>();
+    _tail = done.future;
+    return prev.then((_) => f()).whenComplete(() => done.complete());
+  }
+}
+
+final _AsyncMutex _coreStartMutex = _AsyncMutex();
 
 Future<void> pool<T>(
     List<T> items, int workers, Future<void> Function(T) fn) async {
@@ -3784,7 +3797,7 @@ Future<bool> _geminiApiOk({bool direct = true}) async {
       final res = await req.close();
       final sb = StringBuffer();
       await for (final chunk
-          in res.transform(const Utf8Decoder(allowMalformed: true))) {
+          in res.transform(Utf8Decoder(allowMalformed: true))) {
         sb.write(chunk);
         if (sb.length > 20000) break;
       }
@@ -3830,7 +3843,7 @@ Future<bool> _geminiWebOk({bool direct = true}) async {
       }
       final sb = StringBuffer();
       await for (final chunk
-          in res.transform(const Utf8Decoder(allowMalformed: true))) {
+          in res.transform(Utf8Decoder(allowMalformed: true))) {
         sb.write(chunk);
         if (sb.length > 200000) break;
       }
@@ -4303,8 +4316,9 @@ Future<List<Server>> fetchServers({bool Function()? stop}) async {
           return; // CLEANERR
         }
         try {
-          body = utf8.decode(base64
-              .decode(base64.normalize(body.replaceAll(RegExp(r'\s'), ''))));
+          body = utf8.decode(
+              base64.decode(base64.normalize(body.replaceAll(RegExp(r'\s'), ''))),
+              allowMalformed: true); // UTF8FIX: bad bytes in a list must not abort the whole source
         } catch (_swE) { _swl('build#1', _swE);
           srcFetchState[u] = 'fail';
           return;
@@ -4424,7 +4438,7 @@ Future<String?> dohResolve(String name) async {
       req.headers.set('accept', 'application/dns-json');
       final res = await req.close().timeout(const Duration(seconds: 3));
       final body = await res
-          .transform(utf8.decoder)
+          .transform(Utf8Decoder(allowMalformed: true))
           .join()
           .timeout(const Duration(seconds: 3));
       for (final a in (jsonDecode(body)['Answer'] as List? ?? [])) {
@@ -4456,7 +4470,7 @@ Future<String?> ipLinkFor(Server s) async {
     if (l.toLowerCase().startsWith('vmess://')) {
       var b = l.substring(8);
       b = b.padRight(b.length + (4 - b.length % 4) % 4, '=');
-      final j = jsonDecode(utf8.decode(base64.decode(b)));
+      final j = jsonDecode(utf8.decode(base64.decode(b), allowMalformed: true));
       j['add'] = ip;
       if ((j['sni'] ?? '').toString().isEmpty) j['sni'] = s.host;
       if ((j['host'] ?? '').toString().isEmpty && j['net'] == 'ws') {
@@ -6570,8 +6584,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           : min(120,
               (_delayGate._queue.length / max(1, _delayGate.max)).ceil() *
                   (_fgTimeout.inSeconds + 2));
-      final wdSecs =
-          (nationalMode ? 150 : _fgTimeout.inSeconds + 8) + wdQueue;
+      // WDNATIVE: the native call itself is capped at timeout+5 s (see _delayOnce),
+      // and the live-quiet wait comes before it, so the watchdog must cover both.
+      // The old value (timeout+8 = 24 s) fired before those inner limits on slow
+      // servers and produced E-WATCHDOG on every working-but-slow server.
+      final wdSecs = (nationalMode
+              ? 150
+              : _fgTimeout.inSeconds + 5 + 12) +
+          wdQueue;
       final d0 = await _delayOf(s, t: _fgTimeout).timeout(
           Duration(seconds: wdSecs),
           onTimeout: () {
@@ -7177,7 +7197,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // proxyOnly = silent test core (used by the tests).
   // proxyMode (setting) = the REAL connection is also only a local proxy:
   // no VPN permission, no tunnel, no key icon.
-  Future<bool> _start(Server s, {bool proxyOnly = false}) async {
+  // COREMUTEX: هر شروع هسته یکی‌یکی انجام می‌شود. قبلاً دو تلاش اتصال هم‌زمان
+  // (مثلاً یک تعویض و یک تست پروکسی یا مسیر relay) هم‌دیگر را می‌کشتند:
+  // لاگ «V2RAY-START @V2raySaman» و «V2RAY-START BG» در یک ثانیه و قطع‌های ۲ ثانیه‌ای.
+  Future<bool> _start(Server s, {bool proxyOnly = false}) =>
+      _coreStartMutex.run(() => _startLocked(s, proxyOnly: proxyOnly));
+
+  Future<bool> _startLocked(Server s, {bool proxyOnly = false}) async {
     // QUIETSTART: برای اتصال واقعی VPN، تا پایان شروع هسته و بررسی تونل هیچ تست هسته‌ی
     // جدیدی (Xray اضافه داخل همین پروسه) شروع نمی‌شود و تست‌های در حال اجرا تا ۴ ثانیه
     // فرصت پایان دارند. تست‌های بی‌صدا (proxyOnly) و حالت پروکسی بدون تغییر می‌مانند.
@@ -7201,6 +7227,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // (wantVpn, set by connect / adopt). Background search or standby must
     // never bring the VPN key up by itself. Proxy-only tests are not affected.
     // NOCORE: a proxy-only test core uses the same ports as the live tunnel.
+    // COREGUARD: چون شروع‌ها صف‌بندی شده‌اند، این بررسی بعد از پایان شروع واقعی انجام می‌شود
     if (proxyOnly && connected) {
       lastFail = 'تونل زنده است؛ تست همزمان با اتصال ممنوع';
       return false;
@@ -10396,7 +10423,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       var body = '';
       try {
         body = await res
-            .transform(const Utf8Decoder(allowMalformed: true))
+            .transform(Utf8Decoder(allowMalformed: true))
             .join()
             .timeout(const Duration(seconds: 5));
       } catch (_swE) { _swl('_diagnosePersonal#2', _swE);}

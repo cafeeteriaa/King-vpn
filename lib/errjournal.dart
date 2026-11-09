@@ -97,6 +97,8 @@ String errCategory(ErrEntry e) {
     return 'شبکه / دامنه‌ی مرده (عادی)';
   }
   if (t.startsWith('SILENT-FILE')) return 'فایل موقت (بی‌اهمیت)';
+  // INFOFIX: پیام‌های اطلاعاتی (مثلاً سرور جایگزین خراب نبود) خطا نیستند؛ جدا از «سایر» شمرده شوند
+  if (t.startsWith('INFO-') || t.startsWith('SUBST-NODEAD')) return 'اطلاعات (نه خطا)';
   // ERRFIX2: ArgumentError روی نام کانفیگ همیشه داخل try گرفته و مدیریت می‌شود
   if (m.contains('ArgumentError')) return 'داده‌ی نامعتبر (مدیریت‌شده)';
   if (m.contains('Socket') || m.contains('Timeout') || m.contains('Handshake')) {
