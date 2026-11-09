@@ -1232,9 +1232,9 @@ List<String> _dbgHelpOf(String m) {
   }
   if (has('بازبینی')) {
     return h('E-RECHECK',
-        'lib/main.dart → _recheckStandby (rechecking=true؛ pool روی ۱۲ سرور با _delayOf)',
-        'بازبینی سرورهای سالم با شبکه‌ی کند از ۱۵۰ ثانیه بیشتر شد.',
-        'تعداد (list.take(12)) یا _bgTimeout را کم کن.');
+        'lib/main.dart → _recheckStandby (rechecking=true؛ pool روی ۶ سرور با _delayOf)',
+        'بازبینی سرورهای سالم بیش از حد طول کشید و سقف ۱۲۰ ثانیه‌ای آن را متوقف کرد.',
+        'نسخه‌ی جدید سقف دارد و خودش ادامه می‌دهد؛ اگر تکرار شد، _bgTimeout را کم کن.');
   }
   if (has('CONNECTED است')) {
     return h('E-CORE-UP-APP-DOWN',
@@ -6987,6 +6987,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           .toList()
         ..sort((a, b) => (a.checkedAt?.millisecondsSinceEpoch ?? 0)
             .compareTo(b.checkedAt?.millisecondsSinceEpoch ?? 0));
+      // FIX-RECHECK: یک سقف سخت برای کل بازبینی. قبلاً اگر یکی از تست‌ها گیر می‌کرد
+      // pool تمام نمی‌شد و rechecking=true برای همیشه می‌ماند (E-RECHECK).
       await pool<Server>(list.take(6).toList(), _bgPar(), (s) async {
         if (!connected || abort || !wantVpn) return;
         final d = await _delayOf(s, t: _bgTimeout);
@@ -7002,7 +7004,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             s.badAt = null;
           }
         }
+      }).timeout(const Duration(seconds: 120), onTimeout: () {
+        dbg('بازبینی سرورهای سالم: بیش از ۱۲۰ ثانیه طول کشید؛ متوقف شد (E-RECHECK)');
       });
+    } catch (e) {
+      logError(e);
     } finally {
       rechecking = false;
     }
