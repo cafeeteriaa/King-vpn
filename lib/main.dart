@@ -1577,7 +1577,7 @@ List<String> _dbgHelpOf(String m) {
         'هسته برای این کانفیگ به CONNECTED نرسید (کانفیگ بد یا بلاک).',
         'آن سرور رد می‌شود. اگر برای همه‌ی سرورهاست مجوز VPN و نسخه‌ی هسته را چک کن؛ وگرنه فقط آن کانفیگ خراب است.');
   }
-  if ((has('کانفیگ ناموفق') || has('CONFIG-FAIL')) && !has('مجوز VPN')) {
+  if (has('کانفیگ ناموفق') || has('CONFIG-FAIL')) {
     return h('E-CONFIG-FAIL',
         'lib/main.dart → _connectLoop / _start',
         'این کانفیگ مشخصاً وصل نشد (پروتکل/آدرس/پورت/transport).',
