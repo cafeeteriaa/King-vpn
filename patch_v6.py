@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# patch_v6.py (ULTIMATE MERGED: Fixes compile error + Smart Network Titles + Dialogs)
+# patch_v6.py (ULTIMATE BULLETPROOF: Fixes skipEngine + Smart Dialogs)
 import os
 import re
 import sys
@@ -8,40 +8,47 @@ LIB = sys.argv[1] if len(sys.argv) > 1 else 'build_app/lib'
 path = os.path.join(LIB, 'main.dart')
 
 if not os.path.exists(path):
+    print(f"⚠️ WARN: main.dart not found at {path}")
     sys.exit(1)
 
 with open(path, 'r', encoding='utf-8') as f:
     src = f.read()
 
-print("--- Starting ULTIMATE Patch v6 (Compile Fix + Dialogs) ---")
+print("--- Starting ULTIMATE Patch v6 ---")
 
-# 1. Fix the signature to include `skipEngine` (THE COMPILE ERROR)
-pattern = r'Future<bool>\s+pickEngineThenStart\(Future<void>\s+Function\(\)\s+start,\s*\{bool\s+askMode\s*=\s*true,\s*bool\?\s*forceNet,\s*bool\s+keepNet\s*=\s*false\}\)\s+async\s*\{'
-repl = 'Future<bool> pickEngineThenStart(Future<void> Function() start,\n      {bool askMode = true, bool? forceNet, bool keepNet = false, bool skipEngine = false}) async {'
-if re.search(pattern, src):
-    src = re.sub(pattern, repl, src, count=1)
-    print("✅ OK: Signature fixed (skipEngine added via Regex)")
-elif "bool skipEngine = false" in src:
-    print("✅ OK: Signature already had skipEngine")
+# 1. Fix the signature to include `skipEngine` using robust regex
+if "bool skipEngine = false" not in src:
+    # This regex matches the signature regardless of spaces or newlines
+    pattern = r'(\{bool\s+askMode\s*=\s*true,\s*bool\?\s*forceNet,\s*bool\s+keepNet\s*=\s*false)(\s*\}\)\s*async)'
+    match = re.search(pattern, src)
+    if match:
+        src = re.sub(pattern, r'\1, bool skipEngine = false\2', src, count=1)
+        print("✅ OK: Signature fixed (skipEngine added)")
+    else:
+        # Fallback for exact string
+        old_str = "bool keepNet = false}) async {"
+        new_str = "bool keepNet = false, bool skipEngine = false}) async {"
+        if old_str in src:
+            src = src.replace(old_str, new_str, 1)
+            print("✅ OK: Signature fixed via fallback")
+        else:
+            print("⚠️ WARN: Could not find signature to add skipEngine. Already added?")
 else:
-    print("⚠️ WARN: Could not find signature with regex.")
+    print("✅ OK: skipEngine already in signature.")
 
-# 2. Fix the logic to use `skipEngine`
+# 2. Ensure logic uses skipEngine
 pattern2 = r'final\s+e\s*=\s*await\s+pickVpnEngineDialog\(\);'
 repl2 = "final e = skipEngine ? 'v2ray' : await pickVpnEngineDialog();"
 if re.search(pattern2, src) and "skipEngine ?" not in src:
     src = re.sub(pattern2, repl2, src, count=1)
     print("✅ OK: Logic updated to use skipEngine")
 
-# 3. Fix the UI button to ask Online/Offline, but skip engine
-pattern3 = r'await\s+pickEngineThenStart\(\(\)\s*=>\s*connect\(\),\s*askMode:\s*false,\s*skipEngine:\s*true\);'
-repl3 = "await pickEngineThenStart(() => connect(), askMode: true, skipEngine: true);"
-if re.search(pattern3, src):
-    src = re.sub(pattern3, repl3, src, count=1)
+# 3. Ensure Main button asks Online/Offline but skips engine
+old3 = "askMode: false, skipEngine: true"
+new3 = "askMode: true, skipEngine: true"
+if old3 in src:
+    src = src.replace(old3, new3)
     print("✅ OK: Main button now asks online/offline")
-else:
-    # Fallback for exact string
-    src = src.replace("askMode: false, skipEngine: true", "askMode: true, skipEngine: true")
 
 # 4. Smart Dialog Titles (National vs Global)
 src = src.replace("Future<String?> _pickOnlineOffline() async {", "Future<String?> _pickOnlineOffline({bool isNational = false}) async {")
