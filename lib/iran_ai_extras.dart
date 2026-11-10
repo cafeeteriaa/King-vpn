@@ -1412,9 +1412,12 @@ extension HomeExtras on _HomePageState {
   }
 
   Future<bool> pickEngineThenStart(Future<void> Function() start,
-      {bool askMode = true, bool? forceNet, bool keepNet = false}) async {
-    // جدید: اتصال‌های عادی شبکه نمی‌پرسند ولی همیشه جهانی وصل می‌شوند (حالت ملی فقط از دکمه‌ی خودش)؛
-    // خلبان (keepNet) حالت شبکه را دست نمی‌زند
+      {bool askMode = true,
+      bool? forceNet,
+      bool keepNet = false,
+      bool skipEngine = false}) async {
+    // همه‌ی اتصال‌ها جهانی هستند؛ فقط دکمه‌ی نت ملی (forceNet: true) حالت ملی می‌دهد.
+    // خلبان (keepNet) حالت شبکه را دست نمی‌زند.
     _pendingNet = null;
     if (askMode) {
       final ok = forceNet != null
@@ -1423,9 +1426,18 @@ extension HomeExtras on _HomePageState {
               ? await _askOnlineOfflineMode()
               : await _askOnlineOfflineNet(false);
       if (!ok) return false;
+    } else if (forceNet == null && !keepNet) {
+      _pendingNet = false;
+      _pendingOff = offlineOnly;
     }
-    final e = await pickVpnEngineDialog();
-    if (e == null) return false;
+    // skipEngine: دیالوگ موتور نمایش داده نشود و مستقیم v2ray انتخاب شود
+    final String? e;
+    if (skipEngine) {
+      e = 'v2ray';
+    } else {
+      e = await pickVpnEngineDialog();
+      if (e == null) return false;
+    }
     applyPilotEngine(e);
     // PILOTSTOP: هر اتصالی که کاربر خودش بزند، خلبان‌ها را خاموش می‌کند.
     // این کار بعد از انتخاب موتور است تا لغو چیزی را عوض نکند.
@@ -2427,6 +2439,37 @@ extension HomeExtras on _HomePageState {
     });
   }
 
+  // TOGGLES: خلبان بر اساس نتیجه‌ی اتصال، Fragment / ماتریس / IP تمیز را خودش روشن و خاموش می‌کند
+  void _localTuneToggles() {
+    var changed = false;
+    if (connected) {
+      _localGoodTog++;
+      // وصل و پایدار: ماتریس سنگین است، خاموشش کن تا دیتا کم شود
+      if (_localGoodTog >= 3 && ultraMode) {
+        ultraMode = false;
+        changed = true;
+      }
+    } else if (wantVpn) {
+      _localGoodTog = 0;
+      if (_localFailStreak >= 2) {
+        // جستجو شکست می‌خورد: IP تمیز و Fragment (نت ملی) را روشن کن
+        if (!cleanIpMode) {
+          cleanIpMode = true;
+          changed = true;
+        }
+        if (nationalMode && !fragEnabled) {
+          fragEnabled = true;
+          changed = true;
+        }
+      }
+      if (_localFailStreak >= 3 && nationalMode && !ultraMode) {
+        ultraMode = true;
+        changed = true;
+      }
+    }
+    if (changed) unawaited(_saveSettings().catchError((e) => logError(e)));
+  }
+
   Future<void> localPilotTick({bool force = false}) async {
     if (!localPilotOn || !mounted) return;
     // PILOTRETRY: تیک خلبان وقتی کار دیگری در جریان است، قبلاً بی‌صدا گم می‌شد
@@ -2497,6 +2540,7 @@ extension HomeExtras on _HomePageState {
       localPilotText.value = report.toString().trim();
 
       await _localApply(decision);
+      _localTuneToggles(); // TOGGLES
       try {
         await kingSelfHeal(reason: 'pilot');
       } catch (e, stk) { logError(e, stk); }
@@ -2511,6 +2555,21 @@ extension HomeExtras on _HomePageState {
       }
 
       // بازه تطبیقی: پایدار = آهسته‌تر، قطع = سریع‌تر
+      // DOHAUTO: IP (DoH) را خلبان خودش روشن/خاموش می‌کند بر اساس نتیجه‌ی اتصال
+      if (connected) {
+        _localConnFail = 0;
+        if (!ipMode) {
+          ipMode = true;
+          await _saveSettings();
+        }
+      } else if (wantVpn) {
+        _localConnFail++;
+        if (_localConnFail >= 2 && ipMode) {
+          ipMode = false;
+          _localConnFail = 0;
+          await _saveSettings();
+        }
+      }
       _localReschedule();
     } catch (e, stk) {
       logError(e, stk);
@@ -3452,6 +3511,8 @@ Future<String?> tunedSettings(SharedPreferences p) async {
 // لایه‌ها: پروب واقعی سایت‌ها | امتیازدهی چندعاملی | حافظه اپراتور | ماشین‌حالت
 // هیچ کلید API لازم نیست. تا قطع دستی کاربر، کنترل کامل دارد.
 
+int _localConnFail = 0; // DOHAUTO: connect failures in a row
+int _localGoodTog = 0; // TOGGLES: connected ticks in a row
 bool localPilotOn = false;
 
 // FWUSER: مقدار دستی کاربر برای «تست همزمان (جستجوی اول)». پیش‌فرض ۳؛

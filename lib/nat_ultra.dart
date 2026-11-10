@@ -17,7 +17,7 @@ int natLevel = 1;
 // کف سطح: دکمه «جستجوی سرور با نت ملی» = ۴ (بالاترین). جستجو زیر این سطح نمی‌رود
 // VARCAP: حداکثر حالت (ماتریس) برای هر سرور در نت ملی
 // MATRIXCAP: سقف حالت‌ها برای هر سرور در هر دور (قبلاً ۱۰). سقف واقعی زمان همان natBudget است
-const int natMaxVariants = 200;
+const int natMaxVariants = 2000000;
 int natFloor = 0;
 // سرورهایی که IP/دامنه‌شان در اسکن TCP جواب نداد؛ فقط وقتی صف سالم‌ها تمام شد تست می‌شوند
 List<Server> natRestPending = []; // سطح ۱۰ = حالت نهایی با حلقه‌ی بی‌پایان (نت ملی)
@@ -691,7 +691,9 @@ Duration natBudget({bool full = false}) {
 
 // how many generated variants one pass may queue (by level 1..4)
 // سطح ۵ تا ۱۰: سهم بیشتری از ماتریس محدود و ازپیش‌تعریف‌شده در هر دور
-const List<int> _natGenCap = [0, 0, 20, 120, 600, 1500, 3000, 6000, 10000, 15000, 20000];
+const List<int> _natGenCap = [
+  0, 0, 200, 1200, 6000, 15000, 30000, 60000, 100000, 150000, 200000
+];
 
 // ترتیب امتحان حالت‌ها برای یک سرور (کد ≥ _natCodeBase = همان حالت با آدرس تست دیگر)
 List<int> _natOrder(Server s, {bool full = false}) {
@@ -1154,10 +1156,16 @@ String _natCfgRaw(Server s, int v, {bool reuse = false}) {
 // (قبلاً فقط nationalMode بود و ماتریس در اتصال عادی بی‌اثر می‌ماند).
 // NATONLYVAR: حالت‌های نت ملی (IP تمیز، پورت، DNS، SNI) فقط در نت ملی اعمال می‌شوند.
 // قبلاً شکست‌ناپذیر (که پیش‌فرض روشن است) هم آن‌ها را روی اتصال عادی می‌گذاشت.
+int natSafeVariant(int v) {
+  if (v < 0) return 0;
+  if (v >= _natSpecs.length) return 0;
+  return v;
+}
 int natVarFor(Server s) {
   if (!nationalMode) return 0;
-  final v = natVar[_nk(s)] ?? 0;
-  if (v <= 0 || v >= _natSpecs.length) return 0;
+  final rawV = natVar[_nk(s)] ?? 0;
+  final v = natSafeVariant(rawV);
+  if (v <= 0) return 0;
   final x = _natSpecs[v];
   // Ignore legacy saved variants that relied on mux/noise/transport rewriting.
   if (x.mux || x.noise || x.mode != null) return 0;
@@ -1747,7 +1755,7 @@ int natDomainOpen = 0; // چند IP:پورت باز از آن‌ها
 List<Server> natTemplateSeeds = [];
 
 // IPOFF: اسکن IP (بازه‌ها و IP سرورها) برای نت ملی خاموش است؛ IPها جواب نمی‌دهند
-const bool kNatIpScanOn = false;
+bool kNatIpScanOn = false;
 
 Future<List<String>> natRangeScanStep({
   required List<Server> known,

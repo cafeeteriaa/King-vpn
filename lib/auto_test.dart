@@ -1,4 +1,6 @@
 part of 'main.dart';
+// TESTNOAD: true only while the 20-minute test runs; the ad gate lets connects through
+bool autoTestAdFree = false;
 
 // =============================================================================
 // AUTO TEST 60min — تست خودکار شش بخش واقعی + سناریوهای پایداری
@@ -51,14 +53,34 @@ final ValueNotifier<bool> autoTestRunning = ValueNotifier<bool>(false);
 final ValueNotifier<double> autoTestProgress = ValueNotifier<double>(0);
 
 extension AutoTestEngine on _HomePageState {
+  /// LOGFIX: lines of the debug log written since this test started (HH:MM:SS sorted)
+  List<String> _atLogSince() {
+    final start = _startedAt == null ? '00:00:00' : _dbgHms(_startedAt!);
+    return dbgLines.where((l) => l.compareTo(start) >= 0).toList();
+  }
+
+  /// سناریو ۶: تشخیص شبکه (جهانی یا ملی) و ثبت آن در گزارش
+  Future<void> _atScenarioNational() async {
+    _scenario = 6;
+    autoTestText.value = 'سناریو ۶: تشخیص شبکه';
+    if (busy || switching || connected) return;
+    try {
+      await _natDetect();
+    } catch (e) {
+      _atAdd('NAT-DETECT', 'تشخیص شبکه خطا داد: $e');
+      return;
+    }
+    dbg('🧪 تشخیص شبکه: ${nationalMode ? 'نت ملی' : 'نت جهانی'}');
+  }
+
   // ALLPATHS: تست کامل همه‌ی مسیرها؛ مدت مهم نیست، بخش‌ها همه اجرا می‌شوند
   // SIX-HOUR: تست کامل همه‌ی مسیرها ۶ ساعت است (وقت کافی برای همه‌ی بخش‌ها)
   // STEST60: کل تست ۶۰ دقیقه و فقط نت ملی است (جهانی، پوشه، آفلاین، آنلاین، پروتکل‌ها، کشور و خلبان هوش مصنوعی حذف شدند)
   static const _testDuration = Duration(hours: 4); // STEST4H: همه‌ی سطوح، IP تمیز و همه‌ی حالت‌های جایگزین جا شوند
   static const _sampleEvery = Duration(seconds: 3);
   // آستانه‌ها باید بیشتر از مهلت واقعی اتصال باشند (وگرنه اتصال عادی گزارش گیر می‌دهد)
-  static const _busyStuckLimit = Duration(seconds: 120);
-  static const _switchingStuckLimit = Duration(seconds: 40);
+  static const _busyStuckLimit = Duration(seconds: 240); // TESTUPGRADE
+  static const _switchingStuckLimit = Duration(seconds: 90); // TESTUPGRADE
   static const _connectHangLimit = Duration(seconds: 110);
   // قابلیت‌های هسته‌ای که کانفیگ‌های ناموفق لازم داشتند
   static final List<String> _atCfgNotes = [];
@@ -74,6 +96,9 @@ extension AutoTestEngine on _HomePageState {
   static DateTime? _startedAt;
   static int _dbgStartIdx = 0; // KNOWN-ISSUES: only this run's debug lines
   static DateTime? _busySince;
+  // TESTFIX2: true only while _atConnectEngine is waiting for a connect
+  static bool _atConnecting = false;
+  static DateTime? _switchFlagSince;
   static String? _busyStatus; // PROGRESS: آخرین وضعیت وقتی busy بود
   static DateTime? _busyStatusAt; // PROGRESS: از کی وضعیت عوض نشده
   static DateTime? _noHealthySince; // NOHEALTHY: از کی بدون سرور سالم جستجو می‌کنیم
@@ -85,10 +110,18 @@ extension AutoTestEngine on _HomePageState {
   static final List<_AtFinding> _findings = [];
   static final List<_AtStateSample> _samples = [];
   static int _scenario = 0;
+  // PLUGIN-SWALLOW: where this run's log starts inside errorLog
+  static int _atLogStart = 0;
+  // PILOT-FLAP: how many times the pilot switched the server during this run
+  static int _atPilotSwitches = 0;
   // FLAG-MISMATCH is reported only when it lasts 3 samples in a row (about 9 s);
   // a state that changes during a normal disconnect is not a bug
   static int _atMismatchTicks = 0;
   static bool _abortRequested = false;
+static bool get autoTestAbortRequested => _abortRequested;
+  // CORE-DEAD: how many times in a row the core did not open its local port
+  static int _atCoreDeadStreak = 0;
+static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
   // EARLY-STOP: consecutive engine failures with the same cause end the test early
   static int _atFailStreak = 0;
   static String _atVerdict = ''; // one plain-language cause, printed first in the report
@@ -243,6 +276,7 @@ extension AutoTestEngine on _HomePageState {
 
   Future<void> _atRun() async {
     _phase = _AtPhase.running;
+    autoTestAdFree = true; // TESTNOAD
     _abortRequested = false;
     _findings.clear();
     _atNoTraffic = false;
@@ -256,6 +290,8 @@ extension AutoTestEngine on _HomePageState {
     _atFailStreak = 0;
     _atVerdict = '';
     _scenario = 0;
+    _atPilotSwitches = 0;
+    _atLogStart = errorLog.value.length;
     _busySince = null;
     _busyStatus = null;
     _busyStatusAt = null;
@@ -330,6 +366,17 @@ extension AutoTestEngine on _HomePageState {
 
     _atSample();
 
+    // PLUGIN-SWALLOW: platform errors the app caught silently during this run
+    final logWin = _atLogSince().join('\n'); // LOGFIX
+    final swallowed = RegExp('بلعیده|MissingPluginException').allMatches(logWin).length;
+    if (swallowed > 0) {
+      _atAdd('PLUGIN-SWALLOW', 'خطای بخش native اندروید $swallowed بار بلعیده شد (مثلاً کانال vpn/bg)');
+    }
+    // XRAY-NOLOG: the core starts without its error file, so its own errors are invisible
+    final noLog = RegExp('فایل خطای هسته ساخته نشد').allMatches(logWin).length;
+    if (noLog > 0) {
+      _atAdd('XRAY-NOLOG', 'هسته $noLog بار بدون فایل خطا شروع شد؛ این فقط یک نشانه است؛ اگر اتصال برقرار شده بی‌اهمیت است');
+    }
     final elapsed = _startedAt == null
         ? Duration.zero
         : DateTime.now().difference(_startedAt!);
@@ -350,7 +397,24 @@ extension AutoTestEngine on _HomePageState {
     buf.writeln('===== گزارش تست خودکار نت ملی (۴ ساعت) =====');
     buf.writeln('مدت: ${min}m ${sec}s • دلیل پایان: $reason');
     buf.writeln('نمونه وضعیت: ${_samples.length}');
+    // TOPACTIONS: the three most important findings first, each with its first action
+    const atPriority = ['ABORT-STUCK', 'TIMEOUT', 'SWITCH-FLAG-STUCK', 'SWITCH-STUCK', 'BG-BUSY',
+        'BUSY-STUCK', 'CONNECT-HANG', 'STABLE-NODATA', 'PLUGIN-SWALLOW', 'XRAY-NOLOG', 'PILOT-FLAP'];
+    int atRank(String c) {
+      final i = atPriority.indexOf(c);
+      return i < 0 ? 99 : i;
+    }
+    final ranked = [..._findings]..sort((a, b) => atRank(a.code).compareTo(atRank(b.code)));
+    if (ranked.isNotEmpty) {
+      buf.writeln('🎯 اول این‌ها را حل کن:');
+      for (final f in ranked.take(3)) {
+        buf.writeln('  • [${f.code}] ${_atHelpOf(f.code)[2]}');
+      }
+    }
+    buf.writeln('🧭 سناریوی رسیده‌شده: $_scenario از ۶ • تعویض‌های خلبان: $_atPilotSwitches');
     buf.writeln('یافته‌ها: ${_findings.length}');
+    buf.writeln('🌐 شبکه: ${nationalMode ? 'نت ملی' : 'نت جهانی'} • خلبان: ${localPilotOn ? 'روشن' : 'خاموش'}');
+    buf.writeln('⚙ تنظیمات: IP تمیز=${cleanIpMode ? 'روشن' : 'خاموش'} • DoH=${ipMode ? 'روشن' : 'خاموش'} • Fragment=${fragEnabled ? 'روشن' : 'خاموش'} • ماتریس=${ultraMode ? 'روشن' : 'خاموش'} • شکست‌ناپذیر=${indestructibleMode ? 'روشن' : 'خاموش'}');
     if (_atVerdict.isNotEmpty) {
       buf.writeln('🎯 علت اصلی و راه حل: $_atVerdict');
     }
@@ -378,7 +442,7 @@ extension AutoTestEngine on _HomePageState {
     }
     buf.writeln('');
 
-    if (_findings.isEmpty) {
+    if (_findings.isEmpty && !_abortRequested) {
       buf.writeln('✅ هیچ ناسازگاری جدی در این اجرا پیدا نشد.');
       autoTestText.value = 'تست تمام شد • مشکلی پیدا نشد';
     } else {
@@ -452,6 +516,7 @@ extension AutoTestEngine on _HomePageState {
     }
 
     _phase = _AtPhase.idle;
+    autoTestAdFree = false; // TESTNOAD
   }
 
   // ---------------------------------------------------------------------------
@@ -473,6 +538,16 @@ extension AutoTestEngine on _HomePageState {
       engine: _currentEngine,
     );
     _samples.add(s);
+    // PILOT-FLAP: a server change caused by the pilot, counted once per change
+    if (_samples.length >= 2) {
+      final prevWhy = _samples[_samples.length - 2].lastWhy;
+      if (lastWhy != prevWhy && lastWhy.contains('خلبان')) {
+        _atPilotSwitches++;
+      }
+      if (_atPilotSwitches == 6) {
+        _atAdd('PILOT-FLAP', 'خلبان ۶ بار سرور را عوض کرد؛ شاید بیش از حد تعویض می‌کند');
+      }
+    }
     if (_samples.length > 500) _samples.removeAt(0);
 
     if (_startedAt != null) {
@@ -481,6 +556,17 @@ extension AutoTestEngine on _HomePageState {
       autoTestProgress.value = p.clamp(0.0, 1.0);
     }
 
+    // SWITCH-FLAG-STUCK: switching stays true while connected and idle (blocks later actions)
+    if (switching && connected && !busy) {
+      _switchFlagSince ??= now;
+      if (now.difference(_switchFlagSince!) > const Duration(seconds: 40)) {
+        _atAdd('SWITCH-FLAG-STUCK', 'switching=true با اتصال برقرار و بدون کار، بیش از 40s • موتور=$_currentEngine');
+        switching = false; // release it so later actions are not blocked
+        _switchFlagSince = null;
+      }
+    } else {
+      _switchFlagSince = null;
+    }
     if (busy) {
       _busySince ??= now;
       // PROGRESS: جستجوی طولانی که وضعیتش هنوز عوض می‌شود گیر نیست
@@ -491,7 +577,7 @@ extension AutoTestEngine on _HomePageState {
       final quietFor = now.difference(_busyStatusAt ?? now);
       if (now.difference(_busySince!) > _busyLimitNow() &&
           quietFor > _busyQuietLimit) {
-        _atAdd('BUSY-STUCK',
+        _atAdd(connected ? 'BG-BUSY' : 'BUSY-STUCK',
             'busy بیش از ${_busyStuckLimit.inSeconds}s مانده • موتور=$_currentEngine • $status');
         _busySince = now;
       }
@@ -515,7 +601,7 @@ extension AutoTestEngine on _HomePageState {
 
     if (switching && !busy) {
       _switchingSince ??= now;
-      if (now.difference(_switchingSince!) > _switchingStuckLimit) {
+      if (!busy && now.difference(_switchingSince!) > _switchingStuckLimit) { // TESTUPGRADE
         _atAdd('SWITCH-STUCK',
             'switching بیش از ${_switchingStuckLimit.inSeconds}s • موتور=$_currentEngine');
         _switchingSince = now;
@@ -524,7 +610,7 @@ extension AutoTestEngine on _HomePageState {
       _switchingSince = null;
     }
 
-    if (busy && !connected) {
+    if (_atConnecting && busy && !connected) {
       _connectingSince ??= now;
       if (now.difference(_connectingSince!) > _connectHangNow()) {
         _atAdd('CONNECT-HANG',
@@ -910,6 +996,48 @@ extension AutoTestEngine on _HomePageState {
           'lib/nat_ultra.dart → natHotEnsure',
           'پوشه‌ی منابع تازه بعد از ۱۰ دقیقه ساخته نشد',
           'دسترسی به منابع را بررسی کن؛ بدون پوشه، اتصال آفلاین ممکن نیست',
+        ];
+      case 'PILOT-FLAP':
+        return [
+          'lib/iran_ai_extras.dart → localPilotTick / _localApply',
+          'خلبان بیش از حد سرور را عوض کرد',
+          'قانون مدت ماندن روی سرور در خلبان وجود ندارد؛ باید در تصمیم تعویض (localPilotTick / _localDecide) اضافه شود',
+        ];
+      case 'NAT-DETECT':
+        return [
+          'lib/main.dart → _natDetect',
+          'تشخیص شبکه (جهانی یا ملی) خطا داد',
+          'متن خطا را بفرست؛ معمولاً به دسترسی سایت‌های تست یا لغو زودهنگام مربوط است',
+        ];
+      case 'PLUGIN-SWALLOW':
+        return [
+          'lib/main.dart → _startWatch (کانال vpn/bg)',
+          'بخش native اندروید متد alive را ندارد؛ هر دقیقه خطا می‌دهد ولی اتصال قطع نمی‌شود',
+          'متد alive در کد اندروید پیاده‌سازی نشده (فقط در Dart تعریف شده). اپ کار می‌کند، ولی یا باید در MainActivity اضافه شود یا این فراخوانی حذف شود',
+        ];
+      case 'SWITCH-FLAG-STUCK':
+        return [
+          'lib/main.dart → _swapTo / _failover / _doConnect (هر جایی که switching=true می‌شود)',
+          'پرچم switching بعد از وصل شدن آزاد نشده؛ اپ را در حالت «تعویض» نگه می‌دارد و کارهای بعدی را مسدود می‌کند',
+          'در finally همان تابع switching = false بگذار؛ تست همین الان آن را آزاد می‌کند و کد آن را نشان می‌دهد',
+        ];
+      case 'BG-BUSY':
+        return [
+          'lib/main.dart → _runBusy (جستجوی پس‌زمینه / ردیف همه)',
+          'اتصال برقرار است ولی جستجوی پس‌زمینه پرچم busy را نگه داشته؛ کارهای دیگر (تعویض، قطع، تست) مسدود می‌شوند',
+          'وقتی connected=true است جستجوی پس‌زمینه را محدود کن (worker کمتر یا توقف) و قبل از هر کار دستی آن را متوقف کن',
+        ];
+      case 'XRAY-NOLOG':
+        return [
+          'lib/main.dart → _start (نوشتن کانفیگ هسته، کلید log.error)',
+          'هسته قبل از ساختن فایل خطا بسته شد؛ دلیل واقعی فقط در logcat اندروید است و این در تقریباً همه‌ی شکست‌ها تکرار شد',
+          'logcat را هنگام اتصال بگیر (فیلتر: xray یا V2RAY) و خطای اولین خط هسته را بفرست',
+        ];
+      case 'ABORT-CONTEXT':
+        return [
+          'lib/main.dart → همان مرحله‌ای که در «status» نوشته شده (مثلاً _start یا _preSocialCheck)',
+          'این مرحله وقتی توقف رسید هنوز در حال انتظار بود',
+          'در همان تابع بعد از هر await یک if (abort) return بگذار؛ اسم تابع را از status بگیر و برای من بفرست',
         ];
       case 'CRASH':
         return [
@@ -2058,12 +2186,14 @@ extension AutoTestEngine on _HomePageState {
     final fut = connect().catchError((e) { logError(e); });
     await _atWait(const Duration(seconds: 2), note: 'صبر بعد از شروع اتصال');
 
+    // ABORTCTX: snapshot what the app was doing at the moment of the stop
+    dbg('🧪 توقف وسط اتصال (اطلاعات، نه خطا): status="$status" • آخرین رویداد: $lastState • lastWhy="$lastWhy"');
     abort = true;
     try {
       await disconnect();
     } catch (e, stk) { logError(e, stk); }
     await _atWaitUntil(() => !busy && !switching,
-        timeout: const Duration(seconds: 30), label: 'آزاد شدن بعد از abort');
+        timeout: const Duration(seconds: 100), label: 'آزاد شدن بعد از abort'); // TIMEOUTFIX: app waits up to 90s
 
     try {
       await fut.timeout(const Duration(seconds: 5));

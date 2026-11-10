@@ -22,11 +22,13 @@ import 'tg_proxy.dart' show tgProxyRow; // فقط پروکسی تلگرام
 import 'nat_ip_scan.dart'; // اسکن TCP آدرس IP و دامنه
 import 'help_page.dart';
 import 'conn_specs.dart';
+import 'king_extras2.dart'; // KINGEXTRAS: share sheet / UUID / check-host.net
 part 'iran_ai_extras.dart';
 part 'npv_am_extras.dart';
 part 'nat_ultra.dart';
 part 'net_diag.dart';
 part 'extras_plus.dart';
+part 'nip_scan.dart';
 part 'donate.dart';
 part 'ads_remote.dart';
 part 'king_heal.dart';
@@ -73,6 +75,8 @@ const ownPkg = 'com.kingvpn.king_vpn';
 // (so the standby search keeps running). Needs the MainActivity patch from
 // the workflow file.
 const bgChannel = MethodChannel('vpn/bg');
+bool _bgAliveUnsupported = false;
+bool poolStop = false; // ABORTPOOL: stop taking new items in parallel tests // ALIVEONCE: native side has no 'alive' handler
 // parallel ping tests while connected (settings 1..6).
 int bgWorkers = 1; // تست همزمان (وقتی وصل است) — پیش‌فرض ۱
 // BGPAR: تعداد تست همزمان وقتی وصلیم = تنظیم «تست همزمان (وقتی وصل است)» (۱ تا ۳)
@@ -1577,6 +1581,33 @@ List<String> _dbgHelpOf(String m) {
         'lib/main.dart → _start (timeout وضعیت CONNECTED)',
         'هسته برای این کانفیگ به CONNECTED نرسید (کانفیگ بد یا بلاک).',
         'آن سرور رد می‌شود. اگر برای همه‌ی سرورهاست مجوز VPN و نسخه‌ی هسته را چک کن؛ وگرنه فقط آن کانفیگ خراب است.');
+  }
+  // NEWRULES: lines that used to be generic or wrongly counted as a config failure
+  if (has('اتصال توسط کاربر خواسته نشده بود')) {
+    return h('E-ABORT-SIDE',
+        'app_main/main.dart → _connectLoop / _start (توقف یا قطع اتصال)',
+        'اتصال وسط راه لغو شد. این شکست سرور یا کانفیگ نیست.',
+        'نادیده بگیر. اگر بدون تست و بدون قطع دستی هم دیده شد، یک کار دیگر (تست، خلبان یا دکمه) اتصال را لغو کرده است.');
+  }
+  if (m.startsWith('CFG') && m.length > 3 && '0123456789'.contains(m[3])) {
+    return h('E-CFG-DUMP', 'لاگ عیب‌یابی هسته',
+        'یک خط از متن کانفیگ هسته است؛ خودش خطا نیست.',
+        'نادیده بگیر؛ علت واقعی را در خط XRAY-ERR یا E-CONFIG-FAIL ببین.');
+  }
+  if (has('فایل خطای هسته ساخته نشد')) {
+    return h('E-XRAY-NOLOG', 'لاگ هسته (XRAY-ERR)',
+        'هسته قبل از ساختن فایل خطا بسته شد، پس دلیل شکست در فایل خطا نیست و فقط در logcat اندروید دیده می‌شود. این خطا در تقریباً همه‌ی شکست‌ها تکرار شد، پس علت اصلی است.',
+        'logcat را هنگام اتصال بگیر (فیلتر: xray یا V2RAY) و خطای اولین خط هسته را بفرست. کانفیگ را هم قبل از اجرا با jsonDecode بررسی کن تا خطای دقیق ثبت شود.');
+  }
+  if (has('V2RAY-STATE') || has('هسته: CONNECTED') || has('هسته: DISCONNECTED')) {
+    return h('E-CORE-EVENT', 'app_main/main.dart → listener onStatusChanged',
+        'رویداد عادی هسته (وصل/قطع). فقط تعداد زیاد آن در مدت کوتاه مشکل است.',
+        'اگر بیش از ۱۰ بار در ۲۰ دقیقه پرش داشتی، E-CORE-DROP را در همین گزارش ببین.');
+  }
+  if (has('جستجوی') && has('busy')) {
+    return h('E-BG-BUSY', 'app_main/main.dart → جستجوی پس‌زمینه (پرچم busy)',
+        'جستجوی پس‌زمینه پرچم busy را نگه داشته؛ کارهای دیگر را مسدود و دیتا مصرف می‌کند.',
+        'وقتی وصل هستی جستجوی پس‌زمینه را خاموش یا محدود کن (نسخه‌ی جدید هر ۱۰ دقیقه یک بار).');
   }
   if (has('کانفیگ ناموفق') || has('CONFIG-FAIL')) {
     return h('E-CONFIG-FAIL',
@@ -3424,6 +3455,14 @@ Future<int?> probe(Server s) async {
 const int kDelayConcurrency = 1; // کف تست همزمان
 // NATCONC: نت ملی با سقف امن DELAY_THREADS (Java = 3) تست می‌شود.
 // اگر در نت ملی خطاهای زیاد -1 یا WATCHDOG آمد، این عدد را به 8 یا 4 برگردان.
+int natAdaptiveWorkers() {
+  try {
+    final cores = Platform.numberOfProcessors;
+    return (cores * 2).clamp(4, 32).toInt();
+  } catch (_) {
+    return 8;
+  }
+}
 const int kNatDelayConcurrency = 4;
 // GATEFIX: سقف امن تست همزمان روی یک هسته (با DELAY_THREADS = 3 هم‌خوان)
 const int kSafeDelayConcurrency = 8;
@@ -3527,7 +3566,7 @@ Future<void> pool<T>(
     var n = 0;
     while (true) {
       final i = next++;
-      if (i >= items.length) break;
+      if (i >= items.length || poolStop) break; // ABORTPOOL
       try {
         await fn(items[i]);
       } catch (e, stk) {
@@ -4923,6 +4962,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (mounted) _syncCore();
         });
       }
+      if (st.state == 'CONNECTED' && wantVpn && mounted && !busy && switching) {
+        _unlockLater(); // SWITCHRELEASE: core is up and the app is idle, the flag is stale
+      }
       if (!mounted || busy || switching) return;
       final on = st.state == 'CONNECTED';
       if (on && !wantVpn) {
@@ -5129,6 +5171,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _runBusy(Future<void> Function() f) async {
     if (busy) return;
+    poolStop = false; // ABORTPOOL2: a new run starts clean
     setState(() => busy = true);
     // The timeout below only stops WAITING; the work itself keeps running.
     // Releasing the lock while the work still runs let a second connect flow
@@ -5142,8 +5185,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // lines. It is cut only when it has been silent for a while, or when it
       // runs past the hard limit. (A fixed 20-min cut killed working searches.)
       final startedAt = DateTime.now();
-      final hardLimit = Duration(minutes: nationalMode ? 60 : 10);
-      final idleLimit = Duration(minutes: nationalMode ? 5 : 3);
+      final hardLimit = Duration(minutes: nationalMode ? 20 : 8);
+      final idleLimit = Duration(minutes: nationalMode ? 3 : 2);
       var done = false;
       work.whenComplete(() => done = true);
       while (!done) {
@@ -5158,6 +5201,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
     } on TimeoutException {
       abort = true;
+      poolStop = true; // ABORTPOOL
       // STUCK-WHERE: the status text shows which step was waiting when it hung
       final quietMin = DateTime.now().difference(dbgLastAt).inMinutes;
       dbg('کار متوقف شد (بی‌فعالیتی ~$quietMin دقیقه یا سقف زمان) • گیر در: «$status»');
@@ -5174,6 +5218,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     } catch (e, stk) {
       logError(e, stk);
     } finally {
+      poolStop = false; // ABORTPOOL
       if (mounted) setState(() => busy = false);
       // ABORT-STUCK fix: busy is gone; if switching was left true, schedule its unlock
       if (switching) _unlockLater();
@@ -5205,6 +5250,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // SELFHEALPATCH: the core and the app must agree. Runs 3 s after every
   // switch and on every watchdog tick. Returns true when it changed something.
   int _syncBad = 0, _syncFixes = 0;
+  String _syncLastState = '';
   DateTime _wbSince = DateTime.now();
   DateTime? _swSince; // SWITCH-STUCK watchdog: when switching=true was first seen
   bool _syncCore() {
@@ -5215,6 +5261,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         return false;
       }
       // core is up but the app does not know (E-CORE-UP-APP-DOWN)
+      if (_syncLastState != lastState) {
+        _syncLastState = lastState;
+        _syncBad = 0;
+      }
       if (lastState == 'CONNECTED' && !connected) {
         _syncBad = 0;
         _syncFixes++;
@@ -5289,6 +5339,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // search/connect keep running and ignore the user's tap.
     if (busy || searching) {
       unawaited(_clearAbortWhenIdle());
+      Future.delayed(const Duration(seconds: 8), () {
+        if (mounted && (busy || searching)) return;
+        if (!mounted) return;
+        if (abort) abort = false;
+      });
     } else {
       abort = false;
     }
@@ -5514,7 +5569,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // WORKERS12 v1: fastWorkers and bgWorkers default to 12 for every search path
       if (p.getBool('workers12_v2') != true) {
         // SPEEDBACK2: تعداد تست همزمان دیگر به ۱۲ قفل نمی‌شود
-        natWorkers = kNatDelayConcurrency;
+        natWorkers = natAdaptiveWorkers();
         await p.setBool('workers12_v2', true);
         await _saveSettings();
       }
@@ -5522,9 +5577,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // concurrent test while connected = 1 everywhere. Applied once; later changes are kept.
       if (p.getBool('contsearch_v1') != true) {
         // SPEEDBACK2: تست همزمان دیگر به ۱ قفل نمی‌شود
-        natWorkers = kNatDelayConcurrency;
+        natWorkers = natAdaptiveWorkers();
         await p.setBool('contsearch_v1', true);
         await saveNumPrefs();
+        await _saveSettings();
+      }
+      // CIPDEFAULT: IP تمیز روشن پیش‌فرض (یک بار برای همه)
+      if (p.getBool('cip_v2') != true) {
+        cleanIpMode = true;
+        await p.setBool('cip_v2', true);
+        await _saveSettings();
+      }
+      // IDMDEFAULT: حالت شکست‌ناپذیر همیشه روشن (یک بار)
+      if (p.getBool('idm_v2') != true) {
+        indestructibleMode = true;
+        await p.setBool('idm_v2', true);
+        await _saveSettings();
+      }
+      // NATDEFAULTS: فرگمنت و اتصال با IP (DoH) روشن (یک بار)
+      if (p.getBool('nat_v2') != true) {
+        fragEnabled = true;
+        ipMode = true;
+        await p.setBool('nat_v2', true);
         await _saveSettings();
       }
       // FOLDERONLY: healthy servers are kept only in the folder
@@ -5647,14 +5721,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   // save a little later (not on every single result)
+  DateTime _lastSaveAt = DateTime.fromMillisecondsSinceEpoch(0);
   void _saveSoon() {
     if (saveT?.isActive == true) return;
+    if (DateTime.now().difference(_lastSaveAt) < const Duration(seconds: 1)) {
+      return;
+    }
     saveT = Timer(const Duration(seconds: 20), _saveCache);
   }
 
   // ALL healthy servers (no count limit), best speed first, kept on disk
   // A healthy server is only dropped after [missLimit] failed re-checks.
   Future<void> _saveCache() async {
+    _lastSaveAt = DateTime.now();
     await _resSave(); // NATRESPATCH: wait for verified-folder persistence
     try {
       final p = await SharedPreferences.getInstance();
@@ -5830,6 +5909,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<bool> _ensureSession() async {
     // جدید: تست خودکار ۶۰ دقیقه‌ای و خودترمیمی معاف‌اند؛ خلبان قبل از اتصال تبلیغ دارد
     if (isAutoTesting || healActive) return true;
+    if (autoTestAdFree) return true; // TESTNOAD: no ad during the 20-minute test
     if (!requireRewardedAd || (_sessionValid && !_adEveryConnect)) return true;
     if (!mounted) return false;
     unawaited(adsRemoteLoad());
@@ -7159,6 +7239,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       return;
     }
     if (!wantVpn || abort || upBusy || appGone) return;
+    // DATASAVE: while connected, background re-checks run at most every 10 minutes
+    if (connected && DateTime.now().difference(lastStandby) < const Duration(minutes: 10)) return;
     // let the new connection settle before any background test runs
     if (DateTime.now().difference(lastSwitch) < const Duration(seconds: 25)) {
       return;
@@ -7260,6 +7342,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final po = proxyOnly || proxyMode;
     // FIX: بعد از توقف هسته قبلی، کمی صبر کن تا پورت آزاد شود (رفع XRAY-ERR)
     await Future.delayed(const Duration(milliseconds: 1500));
+    if (abort) return false; // ABORTWAIT
     try {
       final nv = natVarFor(s); // NATULTRA: same variant that passed the test
       // the package config uses domainStrategy "UseIp" (not a valid Xray value);
@@ -7335,7 +7418,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     'هسته در ۳۰ ثانیه بالا نیامد (حالت پروکسی)'));
         if (proxyOnly) return true;
         // proxy mode as the real connection: the local proxy port must open
-        if (!await waitProxyPort(max: const Duration(seconds: 8))) {
+        if (abort || !await waitProxyPort(max: const Duration(seconds: 8))) { // ABORTWAIT
           lastFail = 'پورت پروکسی باز نشد (هسته بالا نیامد)';
           await _stopCore();
           return false;
@@ -7442,6 +7525,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final waitSig = sig;
         // CONNWAIT: هسته در مهلت اصلی هنوز CONNECTING بود (گوشی شلوغ)،
         // ۸ ثانیه‌ی دیگر صبر می‌کنیم؛ اگر CONNECTED برسد همین completer آن را می‌گیرد.
+        // ABORTWAIT: a stop request completes the wait at once instead of after connWait
+        final abortPoll = Timer.periodic(const Duration(milliseconds: 300), (tm) {
+          if ((abort || myGen != _connGen) && !waitSig.isCompleted) {
+            waitSig.complete(false);
+            tm.cancel();
+          }
+        });
         ready = await waitSig.future.timeout(connWait, onTimeout: () => false);
         if (!ready && myGen == _connGen && lastState == 'CONNECTING' &&
             !waitSig.isCompleted) {
@@ -7454,6 +7544,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
         }
         if (!waitSig.isCompleted) waitSig.complete(false);
+        abortPoll.cancel(); // ABORTWAIT
         if (myGen != _connGen) ready = false; // superseded
         // TUNRESET: شمارش شکست‌های شروع هسته
         if (ready) {
@@ -7868,7 +7959,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<bool?> _preSocialCheck(Server s) async {
     try {
       if (proxyMode) return null;
+      if (abort) return null; // ABORTFAST
       if (!await _start(s, proxyOnly: true)) return null;
+      if (abort) {
+        await _stopCore(); // ABORTFAST
+        return null;
+      }
       if (abort) {
         await _stopCore();
         return null;
@@ -8793,6 +8889,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               subtitle: Text(_resInfo()),
             ),
             const Divider(height: 1),
+            ListTile( // KINGEXTRAS row
+              leading: const Icon(Icons.auto_awesome_outlined),
+              title: const Text('امکانات تکمیلی (اشتراک‌گذاری نزدیک، UUID، تست بیرونی)'),
+              onTap: () {
+                Navigator.pop(ctx);
+                Navigator.of(context).push(MaterialPageRoute<void>(
+                    builder: (_) => const KingExtrasPage()));
+              },
+            ),
+            const Divider(height: 1),
             ListTile(
               leading: const Icon(Icons.hub_outlined),
               title: const Text('پوشه‌ی جهانی: IP تمیز و سرور سالم'),
@@ -8803,6 +8909,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               },
             ),
             const Divider(height: 1),
+            ListTile( // HOTFOLDER row
+              leading: const Icon(Icons.cloud_download_outlined),
+              title: const Text('پوشه منابع تازه (کانفیگ ها)'),
+              subtitle: Text(hotFolderInfo()),
+              onTap: () {
+                Navigator.pop(ctx);
+                unawaited(hotFolderRebuild());
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.public_off),
               title: const Text('اتصال با سرورهای پوشه (نت ملی)'),
@@ -8910,7 +9025,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               final ips = await natRangeScanStep(
                   known: [...pending, ...natRestPending],
                   maxAddrs: 100000, // LEVELADDR: هر سطح ۱۰۰ هزار آدرس
-                  conc: 4);
+                  conc: natAdaptiveWorkers());
               await _natRangeAdd(ips);
             }());
           }
@@ -9003,16 +9118,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
       }
       final was = nationalMode;
-      if (userModeChoice != null) {
-        // کاربر خودش انتخاب کرده: همان حالت را نگه می‌داریم، تشخیص خودکار تغییرش نمی‌دهد
-        nationalMode = userModeChoice == true;
-      } else if (natForce) {
-        nationalMode = true; // NATBTNPATCH: forced by the button
-      } else if (world) {
-        nationalMode = false;
-      } else if (home) {
-        nationalMode = true;
-      }
+      // همه‌ی اتصال‌ها جهانی‌اند؛ فقط انتخاب صریح دکمه‌ی نت ملی حالت ملی می‌دهد
+      nationalMode = userModeChoice == true || natForce;
       // PILOTNONAT: خلبان روشن باشد، شبکه ملی نمی‌شود (حتی اگر تشخیص یا دکمه بخواهد)
       if (localPilotOn || aiSession) nationalMode = false;
       // نت ملی: جستجوی بی‌نهایت همیشه روشن است
@@ -9041,7 +9148,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   DateTime? _checkSavedAt;
   Future<void> _checkSaved() async {
     if (!kSavedDirectTest) return; // SRCSPLIT: پوشه‌ی سالم مستقیم تست نمی‌شود
-    final forceSaved = nationalMode || natForce || indestructibleMode;
+    final forceSaved = nationalMode || natForce; // FOLDERFIRST: folder only in national mode
     if (!forceSaved) {
       // Normal mode: user request was "do NOT search from folder/saved —
       // only new ones". Keep that behaviour outside national mode.
@@ -9368,7 +9475,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final ips = await natRangeScanStep(
           known: [...pending, ...natRestPending],
           maxAddrs: 100000, // هر دور تا ۱۰۰ هزار آدرس
-          conc: 4,
+          conc: natAdaptiveWorkers(),
           stop: () => abort,
           budget: const Duration(minutes: 12));
       await _natRangeAdd(ips);
@@ -9387,8 +9494,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       natLevel = max(2, natFloor);
       if (natFloor >= 10) natLevel = 10;
       tcpTimeout = const Duration(seconds: 6);
-      delayTimeout = Duration(seconds: max(delayTimeout.inSeconds, 14));
-      natWorkers = kNatDelayConcurrency;
+      delayTimeout = Duration(seconds: max(delayTimeout.inSeconds, 8).clamp(8, 12));
+      natWorkers = natAdaptiveWorkers();
       _dohFail = 0;
     } catch (e, stk) {
       logError(e, stk);
@@ -9406,7 +9513,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (natFloor >= 10) natLevel = 10;
       tcpTimeout = Duration(seconds: round >= 8 ? 10 : (round >= 4 ? 8 : 6));
       delayTimeout = Duration(seconds: max(delayTimeout.inSeconds, round >= 8 ? 18 : 14));
-      natWorkers = kNatDelayConcurrency; // NATGATE: national matrix tests max 3
+      natWorkers = natAdaptiveWorkers(); // NATGATE: national matrix tests max 3
       _dohFail = 0;
       // NATSCAN: IP و دامنه‌ی سرورها قبل از تست سنگین بررسی می‌شوند
       if (nationalMode) await _natMergeCache();
@@ -9418,16 +9525,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final ipWaiting = [...pending, ...natRestPending]
           .any((s) => natFreshHosts.contains(s.host));
       // DOMAINALWAYS2: دامنه‌های .ir در هر دور اجرا می‌شوند (سقف ۳ دقیقه)
-      if (nationalMode && !abort) {
+      if (nationalMode && !abort && (round % 2 == 0)) {
         final domHits = await _natDomainFirst(
-            [...pending, ...natRestPending], conc: 4, stop: () => abort);
+            [...pending, ...natRestPending], conc: natAdaptiveWorkers(), stop: () => abort);
         await _natRangeAdd(domHits);
       }
       if (nationalMode && !abort && !ipWaiting) {
         final ips = await natRangeScanStep(
             known: [...pending, ...natRestPending],
             maxAddrs: 100000, // هر دور تا ۱۰۰ هزار آدرس
-            conc: 4,
+            conc: natAdaptiveWorkers(),
             stop: () => abort,
             budget: const Duration(minutes: 12));
         await _natRangeAdd(ips);
@@ -9567,6 +9674,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // search then ended after 0 s again and again for ever. After a few
           // empty rounds we stop and tell the user; the watchdog / the user
           // can try again. INDESTRUCTIBLE overrides this for national crusade.
+          if (nationalMode && await _natIpHunt()) return true; // NIPHUNT
           emptyRounds++;
           if (strictRow && row != null && emptyRounds >= 6 && !neverStop) {
             break;
@@ -9643,6 +9751,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // trust:false = one quick ping through the tunnel before accepting.
       if (abort) return false;
       if (await _connectLoop(list, trust: false)) return true;
+      if (nationalMode && await _natIpHunt()) return true; // NIPHUNT
       if (abort) return false;
     }
     return false;
@@ -9732,6 +9841,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       natFloor = (natForce || nationalMode) ? 10 : 0;
       natLevel = natFloor;
       natAll = natForce; // NATBTNPATCH: full search of ALL sources
+      final bool natBtnUltra = natForce; // NATULTRA: the national button turns Ultra on for this connect
       natForce = false;
       // Force PLAIN connect: no matrix, no ultra, no folder race
       if (!nationalMode && !indestructibleMode) {
@@ -9751,13 +9861,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         turboSpeed = true;
         speedTopN = max(speedTopN, 3);
       }
+      if (natBtnUltra) ultraMode = true; // NATULTRA: Ultra/matrix only for the national button
       if (nationalMode || indestructibleMode) {
         autoCycle = true; // endless list cycling
         // NATPING: سقف پینگ «کند» برای نت ملی بالا می‌رود؛ با سقف جهانی (۱۸۰۰ تا ۳۵۰۰ ms
         // از حالت‌های مداد/پروفایل) سرورهای سالم ولی با پینگ بالاتر حذف می‌شدند
         badPingMs = max(badPingMs, 6000);
         if (natLevel < 2) natLevel = 2;
-        natWorkers = kNatDelayConcurrency; // NATGATE: national matrix tests max 3
+        natWorkers = natAdaptiveWorkers(); // NATGATE: national matrix tests max 3
         delayTimeout = Duration(
             seconds: max(delayTimeout.inSeconds, 16));
         tcpTimeout = Duration(
@@ -9767,7 +9878,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // NORMAL: start light (level 1) so many servers get a quick ping first;
         // bestEffort in _acquire escalates 2→4 only if needed. No folder inject.
         if (natLevel < 1) natLevel = 1;
-        natWorkers = kNatDelayConcurrency; // NATGATE: national matrix tests max 3
+        natWorkers = natAdaptiveWorkers(); // NATGATE: national matrix tests max 3
         delayTimeout = Duration(
             seconds: max(delayTimeout.inSeconds, 12));
         tcpTimeout = Duration(
@@ -9895,6 +10006,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     abort = true; // جستجوی در جریان را هم قطع کن
     wantVpn = false;
+    _connGen++; // DISCONNECTFIX: cancel any connect still in flight
     pendingFailover = false;
     switching = true;
     watch?.cancel();
@@ -11025,7 +11137,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // strong check: ask the native activity if it still exists. If it is
       // gone (swiped from recents) every background test is stopped.
       try {
-        final alive = await bgChannel.invokeMethod<bool>('alive');
+        final alive = _bgAliveUnsupported
+            ? null
+            : await bgChannel.invokeMethod<bool>('alive').catchError((e) {
+                _bgAliveUnsupported = true; // ALIVEONCE
+                return null;
+              });
         if (alive == false && !appGone && !(wantVpn || connected)) {
           appGone = true;
           abort = true;
@@ -12854,7 +12971,7 @@ UiHero(
                     ? () => disconnect()
                     : () async {
                           aiSession = false;
-                          await pickEngineThenStart(() => connect(), askMode: true);
+                          await pickEngineThenStart(() => connect(), askMode: true, skipEngine: true);
                         },
           ),
           if (busy)
@@ -14189,7 +14306,7 @@ bool natForce = false; // the national-network button was tapped
 bool natAll = false; // button session: search ALL sources, skip none
 
 // NATWORKERSPATCH
-int natWorkers = kNatDelayConcurrency; // locked parallel tests in national mode
+int natWorkers = natAdaptiveWorkers(); // locked parallel tests in national mode
 
 // NATRESPATCH
 class _NatResItem {
