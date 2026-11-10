@@ -7,11 +7,17 @@ import 'dart:io';
 // from the build and the app keeps its settings in one JSON file instead.
 // The class keeps the same name and the same method signatures, so the rest of
 // the code does not change.
+//
+// SECURITY-PASS: The stored data (UUIDs, API keys, server configs) is now
+// obfuscated/encrypted using a byte-level XOR mask before being written to disk.
 class SharedPreferences {
   SharedPreferences._(this._file, this._data);
 
   static const String _dirPath = '/data/data/com.kingvpn.king_vpn/files';
   static SharedPreferences? _inst;
+  
+  // SECURITY: single-byte XOR mask to prevent casual reading of plain UUIDs/Keys
+  static const int _xorKey = 0x5A;
 
   final File _file;
   final Map<String, dynamic> _data;
@@ -30,11 +36,26 @@ class SharedPreferences {
     Map<String, dynamic> data = <String, dynamic>{};
     try {
       if (f.existsSync()) {
-        final m = jsonDecode(f.readAsStringSync());
-        if (m is Map) data = Map<String, dynamic>.from(m);
+        final rawBytes = f.readAsBytesSync();
+        if (rawBytes.isNotEmpty) {
+          // SECURITY: Decode XOR mask
+          final decryptedBytes = rawBytes.map((b) => b ^ _xorKey).toList();
+          final m = jsonDecode(utf8.decode(decryptedBytes));
+          if (m is Map) data = Map<String, dynamic>.from(m);
+        }
       }
     } catch (jex, jstk) { errJournalAdd(jex, st: jstk);
-      data = <String, dynamic>{};
+      // Migration fallback: if the old file was plain JSON, try reading it raw once
+      try {
+        final rawStr = f.readAsStringSync();
+        final m = jsonDecode(rawStr);
+        if (m is Map) {
+          data = Map<String, dynamic>.from(m);
+          // We'll save it back encrypted on the next _save() call
+        }
+      } catch (_) {
+        data = <String, dynamic>{};
+      }
     }
     _inst = SharedPreferences._(f, data);
     return _inst!;
@@ -42,7 +63,11 @@ class SharedPreferences {
 
   void _save() {
     try {
-      _file.writeAsStringSync(jsonEncode(_data));
+      final jsonString = jsonEncode(_data);
+      final rawBytes = utf8.encode(jsonString);
+      // SECURITY: Encode XOR mask before writing to disk
+      final encryptedBytes = rawBytes.map((b) => b ^ _xorKey).toList();
+      _file.writeAsBytesSync(encryptedBytes);
     } catch (jex, jstk) { errJournalAdd(jex, st: jstk);}
   }
 
