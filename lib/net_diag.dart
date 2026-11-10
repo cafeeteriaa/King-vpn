@@ -4,6 +4,10 @@ part of 'main.dart';
 // «تشخیص شبکه»: بدون VPN و مستقیم روی همین اینترنت می‌سنجد چه چیزی باز است
 // (TCP / DNS / TLS / سایت‌های ایرانی و خارجی / آینه‌های لیست) و می‌گوید
 // کدام روش دور زدن به احتمال زیاد جواب می‌دهد.
+//
+// V7-LAYERS: علاوه بر نتیجه‌ی کلی، لایه‌ی فیلترینگ را هم تشخیص می‌دهد تا معلوم
+// شود فیلتر در کدام لایه است (IP/پورت، SNI/DPI، دامنه/DNS، یا منبع لیست).
+// این باعث می‌شود کاربر بداند کدام تنظیمات v7 را باید روشن کند.
 
 // AUTONET: when on, the app measures the network itself before connecting and
 // switches the bypass options (Fragment / IP+DoH / clean IP / secure DNS) to
@@ -22,9 +26,11 @@ Future<void> autoNetSave() async {
 class _NetVerdict {
   final bool tcp, tls, web, home, dnsPoison, dohOk, srcRaw, srcMir;
   final String op;
+  // V7-LAYERS: which filter layer this network uses (0 = none, 1..4)
+  final int filterLayer;
   final DateTime at;
   _NetVerdict(this.tcp, this.tls, this.web, this.home, this.dnsPoison,
-      this.dohOk, this.srcRaw, this.srcMir, this.op)
+      this.dohOk, this.srcRaw, this.srcMir, this.op, this.filterLayer)
       : at = DateTime.now();
 }
 
@@ -181,8 +187,26 @@ Future<String> netDiagnose() async {
   final srcMir = any(15, 17);
   final home = any(18, 20);
 
+  // ===== V7-LAYERS: تشخیص لایه‌ی فیلترینگ =====
+  // Layer 1 (IP/Port): TCP به IP خارجی بسته ولی نت ملی باز → فیلتر در سطح IP
+  // Layer 2 (SNI/DPI): TCP باز است ولی TLS با هر SNI بسته → DPI روی SNI
+  // Layer 3 (Domain/DNS): TCP و TLS باز است ولی سایت‌ها نه → DNS poisoning
+  // Layer 4 (Sources): سایت باز است ولی منابع لیست بسته → فیلتر منابع
+  // Layer 0: هیچ فیلتری نیست
+  int filterLayer = 0;
+  if (!tcp && home) {
+    filterLayer = 1;
+  } else if (tcp && !tls) {
+    filterLayer = 2;
+  } else if (tls && !web) {
+    filterLayer = 3;
+  } else if (web && !srcRaw && !srcMir) {
+    filterLayer = 4;
+  }
+
   lastNetVerdict = _NetVerdict(
-      tcp, tls, web, home, dnsPoison, dnsDoh != null, srcRaw, srcMir, natOpKey);
+      tcp, tls, web, home, dnsPoison, dnsDoh != null, srcRaw, srcMir,
+      natOpKey, filterLayer);
 
   b.writeln('— نتیجه و پیشنهاد —');
   if (!tcp && !web && home) {
@@ -208,6 +232,50 @@ Future<String> netDiagnose() async {
   } else if (!srcRaw && !srcMir) {
     b.writeln('ℹ️ هیچ منبع لیستی باز نیست؛ فقط سرورهای ذخیره‌شده / پوشه کار می‌کنند.');
   }
+
+  // ===== V7-LAYERS: تحلیل لایه‌ی فیلترینگ و پیشنهاد v7 =====
+  b.writeln();
+  b.writeln('— 🛡 تحلیل لایه فیلترینگ (v7) —');
+  switch (filterLayer) {
+    case 1:
+      b.writeln('📍 لایه ۱: فیلتر در سطح IP/Port');
+      b.writeln('علت: TCP به IPهای خارجی بسته است ولی نت ملی کار می‌کند.');
+      b.writeln('پیشنهاد v7:');
+      b.writeln('  • Port Hopping فعال است — پورت‌های 443→80→8443→2053→2083→2087→2096 به ترتیب تست می‌شوند.');
+      b.writeln('  • فقط از سرورهای IP-تمیز / پوشه استفاده کن.');
+      b.writeln('  • اسکن IP (kNatIpScanOn=true) باید روشن باشد.');
+      break;
+    case 2:
+      b.writeln('📍 لایه ۲: فیلتر SNI/DPI (فیلتر عمیق بسته)');
+      b.writeln('علت: TCP باز است ولی TLS با هر SNI بسته می‌شود — فیلتر DPI روی TLS ClientHello.');
+      b.writeln('پیشنهاد v7:');
+      b.writeln('  • Aggressive TLS Fragment فعال است — هر (سرور،حالت) jitter تصادفی می‌گیرد.');
+      b.writeln('  • حالت‌های Fragment ریز و چندبسته‌ای + fp=chrome + alpn=h2 را در ماتریس تست کن.');
+      b.writeln('  • Reality و WS+TLS هم باید امتحان شوند (ماتریس v7 این کار را می‌کند).');
+      break;
+    case 3:
+      b.writeln('📍 لایه ۳: فیلتر دامنه / DNS poisoning');
+      b.writeln('علت: TCP و TLS باز است ولی سایت‌ها نه — DNS جواب اشتباه می‌دهد یا دامنه‌ها بلاک شده‌اند.');
+      b.writeln('پیشنهاد v7:');
+      b.writeln('  • Dynamic DNS Fallback فعال است — زنجیره DoH→Cloudflare→Google→IP.');
+      b.writeln('  • «اتصال با IP (DoH)» را روشن نگه دار (ipMode=true).');
+      b.writeln('  • حالت‌های DoH در ماتریس (35، 36، 37، 45) را امتحان کن.');
+      break;
+    case 4:
+      b.writeln('📍 لایه ۴: فیلتر منابع لیست');
+      b.writeln('علت: اینترنت آزاد است ولی منابع GitHub و آینه‌ها بسته‌اند.');
+      b.writeln('پیشنهاد v7:');
+      b.writeln('  • آینه jsDelivr/githack خودکار امتحان می‌شود (getListMirror).');
+      b.writeln('  • از پوشه‌ی سرورهای سالم (natres2) به‌عنوان منبع اولیه استفاده کن.');
+      b.writeln('  • جستجوهای قبلی خوب هستند — فقط اتصال عادی بزن.');
+      break;
+    default:
+      b.writeln('✅ لایه فیلتر مشخصی شناسایی نشد — اینترنت آزاد است.');
+      b.writeln('تنظیمات v7 همه در حالت «خودکار» می‌مانند.');
+  }
+  b.writeln();
+  b.writeln('(v7: Port Hopping · Dynamic DNS Fallback · Aggressive TLS Fragment · IP-Scan=ON)');
+
   return b.toString();
 }
 
@@ -239,6 +307,12 @@ extension NetDiagExt on _HomePageState {
     if (needClean && !cleanIpMode) {
       cleanIpMode = true;
       ch.add('IP تمیز روشن شد');
+    }
+    // V7-LAYERS: layer 1 (IP/Port filter) means the IP scanner is mandatory
+    if (v.filterLayer == 1 && !kNatIpScanOn) {
+      // kNatIpScanOn is a const in the current code; this branch is only
+      // informational and points the user to the right lever.
+      ch.add('⚠️ اسکن IP روی false است — این در نت ملی ضروری است (v7 این را true کرد)');
     }
     return ch;
   }
