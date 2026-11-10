@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# patch_v3.py (v3.3 — FINAL: robust anchors, correct file targets)
+# patch_v3.py (v3.4 — FINAL: perfectly mapped file targets)
 #
 # Applies verified fixes to build_app/lib (the CI copy).
 # Every patch must match EXACTLY ONCE. Any mismatch STOPS the build with a
@@ -78,19 +78,6 @@ patch('nat_ultra.dart',
     'P1 enable IP scanning')
 
 patch('nat_ultra.dart',
-    "const int kNatDelayConcurrency = 4;",
-    "int natAdaptiveWorkers() {\n"
-    "  try {\n"
-    "    final cores = Platform.numberOfProcessors;\n"
-    "    return (cores * 2).clamp(4, 32).toInt();\n"
-    "  } catch (_) {\n"
-    "    return 8;\n"
-    "  }\n"
-    "}\n"
-    "const int kNatDelayConcurrency = 4;",
-    'P2 adaptive workers function')
-
-patch('nat_ultra.dart',
     "const int natMaxVariants = 200;",
     "const int natMaxVariants = 2000000;",
     'P3 remove matrix variant cap')
@@ -100,10 +87,9 @@ patch('nat_ultra.dart',
     "const List<int> _natGenCap = [0, 0, 200, 1200, 6000, 15000, 30000, 60000, 100000, 150000, 200000];",
     'P4 expand matrix generation per pass')
 
-# P5: FIXED — no semicolon in anchor (handles trailing comments/spaces)
 patch('nat_ultra.dart',
-    "int natWorkers = kNatDelayConcurrency",
-    "int natWorkers = natAdaptiveWorkers()",
+    "int natWorkers = kNatDelayConcurrency;",
+    "int natWorkers = natAdaptiveWorkers();",
     'P5 adaptive default natWorkers')
 
 patch('nat_ultra.dart',
@@ -127,18 +113,29 @@ patch('nat_ultra.dart',
 # main.dart
 # ═══════════════════════════════════════════════════════════════════════════
 
-# P8-9: update all natWorkers assignments
+# P2: kNatDelayConcurrency is in main.dart. Insert natAdaptiveWorkers() before it.
+patch('main.dart',
+    "const int kNatDelayConcurrency = 4;",
+    "int natAdaptiveWorkers() {\n"
+    "  try {\n"
+    "    final cores = Platform.numberOfProcessors;\n"
+    "    return (cores * 2).clamp(4, 32).toInt();\n"
+    "  } catch (_) {\n"
+    "    return 8;\n"
+    "  }\n"
+    "}\n"
+    "const int kNatDelayConcurrency = 4;",
+    'P2 adaptive workers function')
+
+# P8-9: update all natWorkers assignments in main.dart
 patch_all('main.dart',
     "natWorkers = kNatDelayConcurrency;",
     "natWorkers = natAdaptiveWorkers();",
     'P8-9 adaptive natWorkers assignment')
 
 patch('main.dart',
-    "  Future<bool> pickEngineThenStart(Future<void> Function() start,\n"
-    "      {bool askMode = true, bool? forceNet, bool keepNet = false}) async {",
-    "  Future<bool> pickEngineThenStart(Future<void> Function() start,\n"
-    "      {bool askMode = true, bool? forceNet, bool keepNet = false,\n"
-    "      bool skipEngine = false}) async {",
+    "{bool askMode = true, bool? forceNet, bool keepNet = false}) async {",
+    "{bool askMode = true, bool? forceNet, bool keepNet = false, bool skipEngine = false}) async {",
     'P10 skipEngine param')
 
 patch('main.dart',
@@ -328,11 +325,12 @@ with open(os.path.join(LIB, 'nat_ultra.dart'), encoding='utf-8') as f:
     nat = f.read()
 assert 'bool kNatIpScanOn = true;' in nat, 'kNatIpScanOn not true'
 assert 'natMaxVariants = 2000000' in nat, 'natMaxVariants not raised'
-assert 'int natAdaptiveWorkers()' in nat, 'natAdaptiveWorkers missing'
+assert 'int natWorkers = natAdaptiveWorkers();' in nat, 'natWorkers assignment failed'
 
 with open(os.path.join(LIB, 'main.dart'), encoding='utf-8') as f:
     mn = f.read()
-assert 'skipEngine: true' in mn, 'skipEngine usage missing'
+assert 'int natAdaptiveWorkers()' in mn, 'natAdaptiveWorkers missing in main.dart'
+assert 'skipEngine: true' in mn, 'skipEngine usage missing in main.dart'
 
 print('')
 print('=' * 72)
