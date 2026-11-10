@@ -17,6 +17,8 @@ part of 'main.dart';
 
 // ---------------------------- تنظیمات (ذخیره در settings) ----------------------------
 bool npvParse = true; // خواندن کانفیگ‌های غیراستاندارد
+// RELAY: لینک سرور داخلی/واسط برای دور زدن نت ملی (Multi-hop)
+String relayServerUrl = '';
 bool cleanIpMode = true; // IP تمیز برای سرورهای Cloudflare
 bool fragEnabled = false; // OFF by default = much higher post-connect speed
 bool muxEnabled = true; // ON: توربو سرعت بعد از اتصال — Mux فعال
@@ -942,6 +944,22 @@ List<Widget> npvAmSettingsItems(
           (v) => npvParse = v,
           sub:
               'لینک‌های اسکیپ‌شده، npv://، base64 خالی و JSON کامل v2ray در «افزودن کانفیگ» و لیست‌ها خوانده می‌شوند'),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: TextFormField(
+          initialValue: relayServerUrl,
+          decoration: const InputDecoration(
+            labelText: 'لینک سرور واسط (برای دور زدن نت ملی)',
+            hintText: 'vless://... یا vmess://...',
+            border: OutlineInputBorder(),
+            helperText: 'اگر اینترنت بین‌الملل قطع شود، اتصال از پشت این سرور رد می‌شود.',
+            helperMaxLines: 2,
+          ),
+          onChanged: (v) {
+            relayServerUrl = v.trim();
+          },
+        ),
+      ),
       sw('ترافیک داخلی بیشتر مستقیم (سایت‌های ایرانی غیر .ir)', iranMore,
           (v) => iranMore = v,
           sub:
