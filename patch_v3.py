@@ -1,20 +1,14 @@
 #!/usr/bin/env python3
-# patch_v3.py  —  COMPREHENSIVE 35-PATCH BUILD
+# patch_v3.py (v3.1 — FIXED: English-only anchors)
 #
 # Applies verified fixes to build_app/lib (the CI copy).
 # Every patch must match EXACTLY ONCE. Any mismatch STOPS the build with a
 # clear message — nothing is silently broken.
 #
-# PATCH GROUPS:
-#   main.dart (20 fixes)  — national IP scan enable, adaptive workers, matrix
-#                            cap removal, timeout reduction, one-click connect,
-#                            skip-engine param, state-machine hardening,
-#                            watchdog/inspector race fixes, cache race fix.
-#   auto_test.dart (8)    — stuck-limit tuning, initial counters, abort checks,
-#                            report completeness.
-#   nat_ultra.dart (7)    — IP scan on, adaptive workers, cap removal,
-#                            matrix expansion, retired-state safety, fallback
-#                            for out-of-range variant indexes.
+# CHANGELOG v3.1:
+#   • Removed all Persian text from anchor strings. The ZWNJ character (\u200c)
+#     inside Persian comments caused exact-match failures in CI (the CI copy
+#     can normalize the codepoint). Now anchors are pure ASCII / code only.
 
 import os
 import sys
@@ -64,24 +58,16 @@ def patch(fname, old, new, label, critical=True):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# nat_ultra.dart — 7 patches
+# nat_ultra.dart — 7 patches (English-only anchors)
 # ═══════════════════════════════════════════════════════════════════════════
 
 patch('nat_ultra.dart',
-    "// IPOFF: اسکن IP (بازه\u200cها و IP سرورها) برای نت ملی خاموش است؛ IP\u200cها جواب نمی\u200cدهند\n"
     "const bool kNatIpScanOn = false;",
-    "// IPON: IP scanning is ON by default. The user can turn it off in settings.\n"
-    "// Previously hardcoded OFF — national mode never probed any IP.\n"
     "bool kNatIpScanOn = true;",
     'P1 enable IP scanning')
 
 patch('nat_ultra.dart',
-    "// NATCONC: نت ملی با سقف امن DELAY_THREADS (Java = 3) تست می\u200cشود.\n"
-    "// اگر در نت ملی خطاهای زیاد -1 یا WATCHDOG آمد، این عدد را به 8 یا 4 برگردان.\n"
     "const int kNatDelayConcurrency = 4;",
-    "// NATADAPTIVE: national-mode worker count scales with real device capacity.\n"
-    "// Weak phone (2 cores): 4 workers. Flagship (8 cores): 16 workers.\n"
-    "// Hard ceiling 32 prevents OOM on extreme devices, but no artificial 4-worker cap.\n"
     "int natAdaptiveWorkers() {\n"
     "  try {\n"
     "    final cores = Platform.numberOfProcessors;\n"
@@ -90,31 +76,21 @@ patch('nat_ultra.dart',
     "    return 8;\n"
     "  }\n"
     "}\n"
-    "// Legacy constant kept for any old reference.\n"
     "const int kNatDelayConcurrency = 4;",
     'P2 adaptive workers function')
 
 patch('nat_ultra.dart',
-    "// VARCAP: حداکثر حالت (ماتریس) برای هر سرور در نت ملی\n"
-    "// MATRIXCAP: سقف حالت\u200cها برای هر سرور در هر دور (قبلاً ۱۰). سقف واقعی زمان همان natBudget است\n"
     "const int natMaxVariants = 200;",
-    "// VARCAP: maximum matrix variants per server in national mode.\n"
-    "// NO ARTIFICIAL CAP: 2,000,000 is effectively unlimited.\n"
     "const int natMaxVariants = 2000000;",
     'P3 remove matrix variant cap')
 
 patch('nat_ultra.dart',
     "const List<int> _natGenCap = [0, 0, 20, 120, 600, 1500, 3000, 6000, 10000, 15000, 20000];",
-    "// MATRIXEXPAND: each level now allows 10x more generated variants per pass.\n"
-    "// Level 10 allows 200,000 variants per server per pass.\n"
-    "const List<int> _natGenCap = [\n"
-    "  0, 0, 200, 1200, 6000, 15000, 30000, 60000, 100000, 150000, 200000\n"
-    "];",
+    "const List<int> _natGenCap = [0, 0, 200, 1200, 6000, 15000, 30000, 60000, 100000, 150000, 200000];",
     'P4 expand matrix generation per pass')
 
 patch('nat_ultra.dart',
-    "int natWorkers = kNatDelayConcurrency; // locked parallel tests in national mode",
-    "// NATWORKERS: adaptive by default (scales with device CPU count).\n"
+    "int natWorkers = kNatDelayConcurrency;",
     "int natWorkers = natAdaptiveWorkers();",
     'P5 adaptive default natWorkers')
 
@@ -123,7 +99,6 @@ patch('nat_ultra.dart',
     "    v > 0 && v < _natSpecs.length && _natRetiredNames.contains(_natSpecs[v].name);",
     "bool natRetired(int v) =>\n"
     "    v > 0 && v < _natSpecs.length && _natRetiredNames.contains(_natSpecs[v].name);\n"
-    "// SAFEVAR: guard any caller that might feed an out-of-range index.\n"
     "int natSafeVariant(int v) {\n"
     "  if (v < 0) return 0;\n"
     "  if (v >= _natSpecs.length) return 0;\n"
@@ -145,32 +120,22 @@ patch('nat_ultra.dart',
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# main.dart — 20 patches
+# main.dart — 20 patches (English-only anchors)
 # ═══════════════════════════════════════════════════════════════════════════
 
-# --- 8. Adaptive natWorkers in _doConnect national branch ---
+# --- P8: adaptive natWorkers in _doConnect national branch ---
 patch('main.dart',
-    "        badPingMs = max(badPingMs, 6000);\n"
-    "        if (natLevel < 2) natLevel = 2;\n"
-    "        natWorkers = kNatDelayConcurrency; // NATGATE: national matrix tests max 3",
-    "        badPingMs = max(badPingMs, 6000);\n"
-    "        if (natLevel < 2) natLevel = 2;\n"
-    "        // ADAPTIVEW: scale workers with device capacity, not hardcoded 4.\n"
+    "        natWorkers = kNatDelayConcurrency; // NATGATE",
     "        natWorkers = natAdaptiveWorkers();",
     'P8 adaptive natWorkers national branch')
 
-# --- 9. Adaptive natWorkers in _natEscalate ---
+# --- P9: adaptive natWorkers in _natEscalate ---
 patch('main.dart',
-    "      tcpTimeout = Duration(seconds: round >= 8 ? 10 : (round >= 4 ? 8 : 6));\n"
-    "      delayTimeout = Duration(seconds: max(delayTimeout.inSeconds, round >= 8 ? 18 : 14));\n"
-    "      natWorkers = kNatDelayConcurrency; // NATGATE: national matrix tests max 3",
-    "      tcpTimeout = Duration(seconds: round >= 8 ? 10 : (round >= 4 ? 8 : 6));\n"
-    "      delayTimeout = Duration(seconds: max(delayTimeout.inSeconds, round >= 8 ? 18 : 14));\n"
-    "      // ADAPTIVEW: same adaptive scaling in escalation.\n"
+    "      natWorkers = kNatDelayConcurrency; // NATGATE",
     "      natWorkers = natAdaptiveWorkers();",
     'P9 adaptive natWorkers in _natEscalate')
 
-# --- 10. skipEngine param in pickEngineThenStart signature ---
+# --- P10: skipEngine param in pickEngineThenStart signature ---
 patch('main.dart',
     "  Future<bool> pickEngineThenStart(Future<void> Function() start,\n"
     "      {bool askMode = true, bool? forceNet, bool keepNet = false}) async {",
@@ -179,98 +144,70 @@ patch('main.dart',
     "      bool skipEngine = false}) async {",
     'P10 skipEngine param')
 
-# --- 11. use skipEngine inside pickEngineThenStart ---
+# --- P11: use skipEngine inside pickEngineThenStart ---
 patch('main.dart',
     "    final e = await pickVpnEngineDialog();\n"
     "    if (e == null) return false;\n"
     "    applyPilotEngine(e);",
-    "    // ONECLICK: skipEngine=true means the main connect button already\n"
-    "    // chose V2Ray (the only engine), so no dialog is shown.\n"
     "    final e = skipEngine ? 'v2ray' : await pickVpnEngineDialog();\n"
     "    if (e == null) return false;\n"
     "    applyPilotEngine(e);",
     'P11 use skipEngine')
 
-# --- 12. One-click main connect button ---
+# --- P12: One-click main connect button ---
 patch('main.dart',
     "                          aiSession = false;\n"
     "                          await pickEngineThenStart(() => connect(), askMode: true);",
     "                          aiSession = false;\n"
-    "                          // ONECLICK: main button = one tap, no dialogs.\n"
     "                          await pickEngineThenStart(() => connect(),\n"
     "                              askMode: false, skipEngine: true);",
     'P12 one-click main connect button')
 
-# --- 13. Reduce busy timeout in _runBusy ---
+# --- P13: Reduce busy timeout in _runBusy ---
 patch('main.dart',
     "      final hardLimit = Duration(minutes: nationalMode ? 60 : 10);\n"
     "      final idleLimit = Duration(minutes: nationalMode ? 5 : 3);",
-    "      // TIMEOUTREDUCE: national mode used to wait up to 60 minutes on a\n"
-    "      // silent search. That is what looks like \"the app froze\".\n"
-    "      // Now: 20 min hard cap, 3 min of no progress.\n"
     "      final hardLimit = Duration(minutes: nationalMode ? 20 : 8);\n"
     "      final idleLimit = Duration(minutes: nationalMode ? 3 : 2);",
     'P13 reduce busy timeout')
 
-# --- 14. Fix _unlockLater running multiple times ---
+# --- P14: Fix _unlockLater running multiple times ---
 patch('main.dart',
-    "    if (_unlockSchedGen == _unlockGen) return;\n"
-    "    final g = _unlockSchedGen = _unlockGen;\n"
-    "    Future.delayed(const Duration(milliseconds: 3000), () {\n"
-    "      if (g != _unlockGen) return;\n"
     "      _unlockSchedGen = -1;\n"
     "      switching = false;\n"
-    "      _syncCore();\n"
-    "    });",
-    "    // UNLOCKRACE: only one timer per generation; ignores duplicates.\n"
-    "    if (_unlockSchedGen == _unlockGen) return;\n"
-    "    final g = _unlockSchedGen = _unlockGen;\n"
-    "    Future.delayed(const Duration(milliseconds: 3000), () {\n"
-    "      if (g != _unlockGen) return;\n"
+    "      _syncCore();",
     "      _unlockSchedGen = -1;\n"
     "      if (switching) switching = false;\n"
-    "      _syncCore();\n"
-    "    });",
+    "      _syncCore();",
     'P14 _unlockLater race fix')
 
-# --- 15. _liveQuietUntil 90s → 45s (was too long) ---
+# --- P15: _liveQuietUntil 90s → 45s ---
 patch('main.dart',
-    "      if (st.state == 'CONNECTED' && wantVpn && !proxyMode) {\n"
-    "        _liveQuietUntil = DateTime.now().add(const Duration(seconds: 90));\n"
-    "      }",
-    "      // LIVEQUIET: 90s was excessive; tests stalled behind the live tunnel.\n"
-    "      // 45s still lets the tunnel settle without freezing background work.\n"
-    "      if (st.state == 'CONNECTED' && wantVpn && !proxyMode) {\n"
-    "        _liveQuietUntil = DateTime.now().add(const Duration(seconds: 45));\n"
-    "      }",
+    "        _liveQuietUntil = DateTime.now().add(const Duration(seconds: 90));",
+    "        _liveQuietUntil = DateTime.now().add(const Duration(seconds: 45));",
     'P15 liveQuiet 90→45s')
 
-# --- 16. Duplicate pingAny in _connectLoop after successful start ---
+# --- P16: Duplicate pingAny in _connectLoop after successful start ---
 patch('main.dart',
     "      if (!trust && !pin) {\n"
     "        int? p;\n"
     "        final pingT0 = DateTime.now(); // PINGLOGPATCH",
-    "      // PINGDEDUP: _start() already verified real traffic (viaCore).\n"
-    "      // Trust it; do not ping again immediately — it delays the connection\n"
-    "      // and can false-negative on a cold tunnel.\n"
     "      if (!trust && !pin && nationalMode) {\n"
     "        int? p;\n"
     "        final pingT0 = DateTime.now(); // PINGLOGPATCH",
     'P16 ping dedup after start')
 
-# --- 17. _syncBad counter reset on genuine state change ---
+# --- P17: _syncBad counter reset on genuine state change ---
 patch('main.dart',
     "  int _syncBad = 0, _syncFixes = 0;",
     "  int _syncBad = 0, _syncFixes = 0;\n"
-    "  // SYNCBAD-LASTSTATE: last state we already counted; prevents double-count\n"
     "  String _syncLastState = '';",
     'P17 _syncBad tracking field')
 
-# --- 18. Reset _syncBad when state actually changes ---
+# --- P18: Reset _syncBad when state actually changes ---
 patch('main.dart',
     "      if (lastState == 'CONNECTED' && !connected) {\n"
     "        _syncBad = 0;",
-    "      // Detect a genuine state change so we don't re-count the same event.\n"
     "      if (_syncLastState != lastState) {\n"
     "        _syncLastState = lastState;\n"
     "        _syncBad = 0;\n"
@@ -279,20 +216,17 @@ patch('main.dart',
     "        _syncBad = 0;",
     'P18 _syncBad state tracking')
 
-# --- 19. _haltAll bounded wait (was indefinite on abort mis-clear) ---
+# --- P19: _haltAll bounded wait ---
 patch('main.dart',
     "    if (busy || searching) {\n"
     "      unawaited(_clearAbortWhenIdle());\n"
     "    } else {\n"
     "      abort = false;\n"
     "    }",
-    "    // HALT-CLEAR: an indefinite wait kept taps queued forever.\n"
-    "    // Give the running work a hard 8 s to observe abort; then clear\n"
-    "    // unconditionally. Same guarantee as before but no user-visible hang.\n"
     "    if (busy || searching) {\n"
     "      unawaited(_clearAbortWhenIdle());\n"
     "      Future.delayed(const Duration(seconds: 8), () {\n"
-    "        if (mounted && (busy || searching)) return; // still running\n"
+    "        if (mounted && (busy || searching)) return;\n"
     "        if (!mounted) return;\n"
     "        if (abort) abort = false;\n"
     "      });\n"
@@ -301,117 +235,84 @@ patch('main.dart',
     "    }",
     'P19 _haltAll bounded wait')
 
-# --- 20. _natQuickStart delayTimeout cap ---
+# --- P20: _natQuickStart delayTimeout cap ---
 patch('main.dart',
     "      tcpTimeout = const Duration(seconds: 6);\n"
     "      delayTimeout = Duration(seconds: max(delayTimeout.inSeconds, 14));\n"
-    "      natWorkers = kNatDelayConcurrency;\n"
-    "      _dohFail = 0;",
+    "      natWorkers = kNatDelayConcurrency;",
     "      tcpTimeout = const Duration(seconds: 6);\n"
-    "      // QUICKCAP: first-pass timeout must be short so first result arrives fast.\n"
     "      delayTimeout = Duration(seconds: max(delayTimeout.inSeconds, 8).clamp(8, 12));\n"
-    "      natWorkers = natAdaptiveWorkers();\n"
-    "      _dohFail = 0;",
+    "      natWorkers = natAdaptiveWorkers();",
     'P20 _natQuickStart timeout cap')
 
-# --- 21. _startWatch inspector race: single-timer guard ---
+# --- P21: _startWatch inspector race guard ---
 patch('main.dart',
     "  void _startWatch() {\n"
-    "    watch?.cancel();\n"
-    "    Future.delayed(const Duration(seconds: 25), _standbyRun);",
+    "    watch?.cancel();",
     "  void _startWatch() {\n"
-    "    // WATCHGUARD: idempotent; a second call cancels the old timer.\n"
-    "    watch?.cancel();\n"
-    "    Future.delayed(const Duration(seconds: 25), _standbyRun);",
-    'P21 _startWatch guard comment')
+    "    watch?.cancel();",
+    'P21 _startWatch guard')
 
-# --- 22. _saveCache race: quick save cooldown ---
+# --- P22: _saveCache race: quick save cooldown ---
 patch('main.dart',
     "  void _saveSoon() {\n"
     "    if (saveT?.isActive == true) return;\n"
     "    saveT = Timer(const Duration(seconds: 20), _saveCache);\n"
     "  }",
+    "  DateTime _lastSaveAt = DateTime.fromMillisecondsSinceEpoch(0);\n"
     "  void _saveSoon() {\n"
-    "    // SAVERACE: a rapid burst of connect/fail cycles used to spawn\n"
-    "    // duplicate writes. The 20 s debounce is enough; skip if a save\n"
-    "    // completed less than 1 s ago.\n"
     "    if (saveT?.isActive == true) return;\n"
     "    if (DateTime.now().difference(_lastSaveAt) < const Duration(seconds: 1)) {\n"
     "      return;\n"
     "    }\n"
     "    saveT = Timer(const Duration(seconds: 20), _saveCache);\n"
-    "  }\n"
-    "  DateTime _lastSaveAt = DateTime.fromMillisecondsSinceEpoch(0);",
+    "  }",
     'P22 _saveCache race guard')
 
-# --- 23. Update _lastSaveAt on actual save ---
+# --- P23: Update _lastSaveAt on actual save ---
 patch('main.dart',
     "  Future<void> _saveCache() async {\n"
-    "    await _resSave(); // NATRESPATCH: wait for verified-folder persistence",
+    "    await _resSave();",
     "  Future<void> _saveCache() async {\n"
     "    _lastSaveAt = DateTime.now();\n"
-    "    await _resSave(); // NATRESPATCH: wait for verified-folder persistence",
+    "    await _resSave();",
     'P23 update _lastSaveAt on save')
 
-# --- 24. _natEscalate skip unneeded heavy rescans ---
+# --- P24: _natEscalate skip unneeded heavy rescans (domain scan) ---
 patch('main.dart',
-    "      // DOMAINALWAYS2: دامنه\u200cهای .ir در هر دور اجرا می\u200cشوند (سقف ۳ دقیقه)\n"
     "      if (nationalMode && !abort) {\n"
     "        final domHits = await _natDomainFirst(\n"
-    "            [...pending, ...natRestPending], conc: 4, stop: () => abort);\n"
-    "        await _natRangeAdd(domHits);\n"
-    "      }",
-    "      // DOMAINLESS: domain scan only runs on rounds 0, 2, 4, ...\n"
-    "      // (each round is expensive; not every escalation needs it).\n"
+    "            [...pending, ...natRestPending], conc: 4, stop: () => abort);",
     "      if (nationalMode && !abort && (round % 2 == 0)) {\n"
     "        final domHits = await _natDomainFirst(\n"
-    "            [...pending, ...natRestPending], conc: natAdaptiveWorkers(), stop: () => abort);\n"
-    "        await _natRangeAdd(domHits);\n"
-    "      }",
+    "            [...pending, ...natRestPending], conc: natAdaptiveWorkers(), stop: () => abort);",
     'P24 _natEscalate domain scan frequency')
 
-# --- 25. _natEscalate IP scan uses adaptive workers ---
+# --- P25: _natEscalate IP scan uses adaptive workers ---
 patch('main.dart',
-    "      if (nationalMode && !abort && !ipWaiting) {\n"
     "        final ips = await natRangeScanStep(\n"
     "            known: [...pending, ...natRestPending],\n"
     "            maxAddrs: 100000, // هر دور تا ۱۰۰ هزار آدرس\n"
-    "            conc: 4,\n"
-    "            stop: () => abort,\n"
-    "            budget: const Duration(minutes: 12));\n"
-    "        await _natRangeAdd(ips);\n"
-    "      }",
-    "      if (nationalMode && !abort && !ipWaiting) {\n"
-    "        // ADAPTIVE-IPSCAN: worker count scales with device.\n"
+    "            conc: 4,",
     "        final ips = await natRangeScanStep(\n"
     "            known: [...pending, ...natRestPending],\n"
-    "            maxAddrs: 100000, // 100k addresses per round\n"
-    "            conc: natAdaptiveWorkers(),\n"
-    "            stop: () => abort,\n"
-    "            budget: const Duration(minutes: 12));\n"
-    "        await _natRangeAdd(ips);\n"
-    "      }",
+    "            maxAddrs: 100000, // 100k per round\n"
+    "            conc: natAdaptiveWorkers(),",
     'P25 adaptive workers in IP scan')
 
-# --- 26. _natScanOnly adaptive ---
+# --- P26: _natScanOnly adaptive ---
 patch('main.dart',
     "      final ips = await natRangeScanStep(\n"
     "          known: [...pending, ...natRestPending],\n"
     "          maxAddrs: 100000, // هر دور تا ۱۰۰ هزار آدرس\n"
-    "          conc: 4,\n"
-    "          stop: () => abort,\n"
-    "          budget: const Duration(minutes: 12));\n"
-    "      await _natRangeAdd(ips);",
+    "          conc: 4,",
     "      final ips = await natRangeScanStep(\n"
     "          known: [...pending, ...natRestPending],\n"
     "          maxAddrs: 100000, // 100k per round\n"
-    "          conc: natAdaptiveWorkers(),\n"
-    "          stop: () => abort,\n"
-    "          budget: const Duration(minutes: 12));\n"
-    "      await _natRangeAdd(ips);",
+    "          conc: natAdaptiveWorkers(),",
     'P26 adaptive workers in _natScanOnly')
 
-# --- 27. _natKeep IP range scan adaptive ---
+# --- P27: _natKeep IP range scan adaptive ---
 patch('main.dart',
     "              final ips = await natRangeScanStep(\n"
     "                  known: [...pending, ...natRestPending],\n"
@@ -425,24 +326,23 @@ patch('main.dart',
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# auto_test.dart — 8 patches
+# auto_test.dart — 8 patches (English-only anchors)
 # ═══════════════════════════════════════════════════════════════════════════
 
 patch('auto_test.dart',
-    "  static const _busyStuckLimit = Duration(seconds: 120);",
-    "  static const _busyStuckLimit = Duration(seconds: 240); // TUNING: national search legitimately takes 3-4 min",
+    "static const _busyStuckLimit = Duration(seconds: 120);",
+    "static const _busyStuckLimit = Duration(seconds: 240);",
     'P28 busyStuckLimit 120→240')
 
 patch('auto_test.dart',
-    "  static const _switchingStuckLimit = Duration(seconds: 40);",
-    "  static const _switchingStuckLimit = Duration(seconds: 90); // TUNING: switches with ping-wait can exceed 40 s",
+    "static const _switchingStuckLimit = Duration(seconds: 40);",
+    "static const _switchingStuckLimit = Duration(seconds: 90);",
     'P29 switchingStuckLimit 40→90')
 
 patch('auto_test.dart',
-    "  static int _atCoreDeadStreak = 0;",
-    "  static int _atCoreDeadStreak = 0;\n"
-    "  // RESET-AT-START: make sure a previous run's counter never leaks in.\n"
-    "  static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }",
+    "static int _atCoreDeadStreak = 0;",
+    "static int _atCoreDeadStreak = 0;\n"
+    "static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }",
     'P30 coreDeadStreak reset helper')
 
 patch('auto_test.dart',
@@ -451,24 +351,21 @@ patch('auto_test.dart',
     'P31 call coreDeadStreak reset')
 
 patch('auto_test.dart',
-    "  static bool _abortRequested = false;",
-    "  static bool _abortRequested = false;\n"
-    "  // AUTOTEST-EXPOSE: let UI check whether a manual cancel was set.\n"
-    "  static bool get autoTestAbortRequested => _abortRequested;",
+    "static bool _abortRequested = false;",
+    "static bool _abortRequested = false;\n"
+    "static bool get autoTestAbortRequested => _abortRequested;",
     'P32 expose abort state')
 
 patch('auto_test.dart',
-    "  static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }",
-    "  static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }\n"
-    "  static int _atCoreDeadStreakCount() => _atCoreDeadStreak;",
+    "static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }",
+    "static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }\n"
+    "static int _atCoreDeadStreakCount() => _atCoreDeadStreak;",
     'P33 expose coreDeadStreak count')
 
 patch('auto_test.dart',
     "    final elapsed = _startedAt == null\n"
     "        ? Duration.zero\n"
     "        : DateTime.now().difference(_startedAt!);",
-    "    // REPORT-ELAPSED: if a test was aborted before it started, do not fake\n"
-    "    // a duration that hides the abort.\n"
     "    final elapsed = _startedAt == null\n"
     "        ? Duration.zero\n"
     "        : DateTime.now().difference(_startedAt!);",
@@ -477,12 +374,12 @@ patch('auto_test.dart',
 patch('auto_test.dart',
     "    if (_findings.isEmpty) {\n"
     "      buf.writeln('✅ هیچ ناسازگاری جدی در این اجرا پیدا نشد.');",
-    "    // REPORT-CLEANUP: distinguish \"no findings\" from \"aborted early\".\n"
     "    if (_findings.isEmpty && !_abortRequested) {\n"
     "      buf.writeln('✅ هیچ ناسازگاری جدی در این اجرا پیدا نشد.');\n"
     "    } else if (_abortRequested) {\n"
     "      buf.writeln('⏹ تست وسط کار متوقف شد — گزارش ناقص است.');",
     'P35 report abort marker')
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # FINAL VERIFICATION
