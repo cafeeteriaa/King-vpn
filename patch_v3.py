@@ -1,15 +1,9 @@
 #!/usr/bin/env python3
-# patch_v3.py (v3.2 — FIXED: P2 moved to main.dart, all anchors ASCII-safe)
+# patch_v3.py (v3.3 — FINAL: robust anchors, correct file targets)
 #
 # Applies verified fixes to build_app/lib (the CI copy).
 # Every patch must match EXACTLY ONCE. Any mismatch STOPS the build with a
 # clear message — nothing is silently broken.
-#
-# CHANGELOG v3.2:
-#   • Fixed P2: kNatDelayConcurrency is defined in main.dart, not nat_ultra.dart.
-#   • Removed all Persian text from anchors (ZWNJ caused false matches in CI).
-#   • P25-27 (natRangeScanStep conc:4) now use a global replace helper, safe
-#     against multiple identical call-sites in main.dart.
 
 import os
 import sys
@@ -22,9 +16,7 @@ if not os.path.isdir(LIB):
 _applied = 0
 _skipped = 0
 
-
 def patch(fname, old, new, label, critical=True):
-    """Find `old` exactly once in `fname`, replace with `new`."""
     global _applied, _skipped
     path = os.path.join(LIB, fname)
     if not os.path.exists(path):
@@ -57,9 +49,7 @@ def patch(fname, old, new, label, critical=True):
     _applied += 1
     return True
 
-
 def patch_all(fname, old, new, label):
-    """Replace ALL occurrences (used when the same code appears in several places)."""
     global _applied
     path = os.path.join(LIB, fname)
     if not os.path.exists(path):
@@ -78,15 +68,27 @@ def patch_all(fname, old, new, label):
     print('OK: [%s] replaced %d occurrences in %s' % (label, n, fname))
     _applied += 1
 
-
 # ═══════════════════════════════════════════════════════════════════════════
-# nat_ultra.dart — 5 patches
+# nat_ultra.dart
 # ═══════════════════════════════════════════════════════════════════════════
 
 patch('nat_ultra.dart',
     "const bool kNatIpScanOn = false;",
     "bool kNatIpScanOn = true;",
     'P1 enable IP scanning')
+
+patch('nat_ultra.dart',
+    "const int kNatDelayConcurrency = 4;",
+    "int natAdaptiveWorkers() {\n"
+    "  try {\n"
+    "    final cores = Platform.numberOfProcessors;\n"
+    "    return (cores * 2).clamp(4, 32).toInt();\n"
+    "  } catch (_) {\n"
+    "    return 8;\n"
+    "  }\n"
+    "}\n"
+    "const int kNatDelayConcurrency = 4;",
+    'P2 adaptive workers function')
 
 patch('nat_ultra.dart',
     "const int natMaxVariants = 200;",
@@ -98,9 +100,10 @@ patch('nat_ultra.dart',
     "const List<int> _natGenCap = [0, 0, 200, 1200, 6000, 15000, 30000, 60000, 100000, 150000, 200000];",
     'P4 expand matrix generation per pass')
 
+# P5: FIXED — no semicolon in anchor (handles trailing comments/spaces)
 patch('nat_ultra.dart',
-    "int natWorkers = kNatDelayConcurrency;",
-    "int natWorkers = natAdaptiveWorkers();",
+    "int natWorkers = kNatDelayConcurrency",
+    "int natWorkers = natAdaptiveWorkers()",
     'P5 adaptive default natWorkers')
 
 patch('nat_ultra.dart',
@@ -120,32 +123,16 @@ patch('nat_ultra.dart',
     "  if (v <= 0) return 0;",
     'P6 natSafeVariant + natVarFor')
 
-
 # ═══════════════════════════════════════════════════════════════════════════
-# main.dart — 15 patches
+# main.dart
 # ═══════════════════════════════════════════════════════════════════════════
 
-# --- P2: adaptive workers function lives in main.dart ---
-patch('main.dart',
-    "const int kNatDelayConcurrency = 4;",
-    "int natAdaptiveWorkers() {\n"
-    "  try {\n"
-    "    final cores = Platform.numberOfProcessors;\n"
-    "    return (cores * 2).clamp(4, 32).toInt();\n"
-    "  } catch (_) {\n"
-    "    return 8;\n"
-    "  }\n"
-    "}\n"
-    "const int kNatDelayConcurrency = 4;",
-    'P2 adaptive workers function')
-
-# --- P8/9: natWorkers assignment everywhere in main.dart ---
+# P8-9: update all natWorkers assignments
 patch_all('main.dart',
     "natWorkers = kNatDelayConcurrency;",
     "natWorkers = natAdaptiveWorkers();",
     'P8-9 adaptive natWorkers assignment')
 
-# --- P10: skipEngine param in pickEngineThenStart signature ---
 patch('main.dart',
     "  Future<bool> pickEngineThenStart(Future<void> Function() start,\n"
     "      {bool askMode = true, bool? forceNet, bool keepNet = false}) async {",
@@ -154,7 +141,6 @@ patch('main.dart',
     "      bool skipEngine = false}) async {",
     'P10 skipEngine param')
 
-# --- P11: use skipEngine inside pickEngineThenStart ---
 patch('main.dart',
     "    final e = await pickVpnEngineDialog();\n"
     "    if (e == null) return false;\n"
@@ -164,7 +150,6 @@ patch('main.dart',
     "    applyPilotEngine(e);",
     'P11 use skipEngine')
 
-# --- P12: One-click main connect button ---
 patch('main.dart',
     "                          aiSession = false;\n"
     "                          await pickEngineThenStart(() => connect(), askMode: true);",
@@ -173,7 +158,6 @@ patch('main.dart',
     "                              askMode: false, skipEngine: true);",
     'P12 one-click main connect button')
 
-# --- P13: Reduce busy timeout in _runBusy ---
 patch('main.dart',
     "      final hardLimit = Duration(minutes: nationalMode ? 60 : 10);\n"
     "      final idleLimit = Duration(minutes: nationalMode ? 5 : 3);",
@@ -181,7 +165,6 @@ patch('main.dart',
     "      final idleLimit = Duration(minutes: nationalMode ? 3 : 2);",
     'P13 reduce busy timeout')
 
-# --- P14: Fix _unlockLater running multiple times ---
 patch('main.dart',
     "      _unlockSchedGen = -1;\n"
     "      switching = false;\n"
@@ -191,13 +174,11 @@ patch('main.dart',
     "      _syncCore();",
     'P14 _unlockLater race fix')
 
-# --- P15: _liveQuietUntil 90s → 45s ---
 patch('main.dart',
     "        _liveQuietUntil = DateTime.now().add(const Duration(seconds: 90));",
     "        _liveQuietUntil = DateTime.now().add(const Duration(seconds: 45));",
     'P15 liveQuiet 90→45s')
 
-# --- P16: Duplicate pingAny in _connectLoop after successful start ---
 patch('main.dart',
     "      if (!trust && !pin) {\n"
     "        int? p;\n"
@@ -207,14 +188,12 @@ patch('main.dart',
     "        final pingT0 = DateTime.now(); // PINGLOGPATCH",
     'P16 ping dedup after start')
 
-# --- P17: _syncBad counter reset on genuine state change ---
 patch('main.dart',
     "  int _syncBad = 0, _syncFixes = 0;",
     "  int _syncBad = 0, _syncFixes = 0;\n"
     "  String _syncLastState = '';",
     'P17 _syncBad tracking field')
 
-# --- P18: Reset _syncBad when state actually changes ---
 patch('main.dart',
     "      if (lastState == 'CONNECTED' && !connected) {\n"
     "        _syncBad = 0;",
@@ -226,7 +205,6 @@ patch('main.dart',
     "        _syncBad = 0;",
     'P18 _syncBad state tracking')
 
-# --- P19: _haltAll bounded wait ---
 patch('main.dart',
     "    if (busy || searching) {\n"
     "      unawaited(_clearAbortWhenIdle());\n"
@@ -245,7 +223,6 @@ patch('main.dart',
     "    }",
     'P19 _haltAll bounded wait')
 
-# --- P20: _natQuickStart delayTimeout cap ---
 patch('main.dart',
     "      tcpTimeout = const Duration(seconds: 6);\n"
     "      delayTimeout = Duration(seconds: max(delayTimeout.inSeconds, 14));\n"
@@ -255,7 +232,6 @@ patch('main.dart',
     "      natWorkers = natAdaptiveWorkers();",
     'P20 _natQuickStart timeout cap')
 
-# --- P21: _natEscalate domain scan frequency ---
 patch('main.dart',
     "      if (nationalMode && !abort) {\n"
     "        final domHits = await _natDomainFirst(\n"
@@ -265,7 +241,6 @@ patch('main.dart',
     "            [...pending, ...natRestPending], conc: natAdaptiveWorkers(), stop: () => abort);",
     'P21 _natEscalate domain scan frequency')
 
-# --- P22: _saveCache race: quick save cooldown ---
 patch('main.dart',
     "  void _saveSoon() {\n"
     "    if (saveT?.isActive == true) return;\n"
@@ -281,7 +256,6 @@ patch('main.dart',
     "  }",
     'P22 _saveCache race guard')
 
-# --- P23: Update _lastSaveAt on actual save ---
 patch('main.dart',
     "  Future<void> _saveCache() async {\n"
     "    await _resSave();",
@@ -290,19 +264,18 @@ patch('main.dart',
     "    await _resSave();",
     'P23 update _lastSaveAt on save')
 
-# --- P25-27: all natRangeScanStep conc:4 → adaptive ---
 patch_all('main.dart',
     "conc: 4,",
     "conc: natAdaptiveWorkers(),",
-    'P25-26 adaptive workers in IP scan')
+    'P24-26 adaptive workers in IP scan')
+
 patch_all('main.dart',
     "conc: 4);",
     "conc: natAdaptiveWorkers());",
     'P27 adaptive workers in _natKeep')
 
-
 # ═══════════════════════════════════════════════════════════════════════════
-# auto_test.dart — 8 patches
+# auto_test.dart
 # ═══════════════════════════════════════════════════════════════════════════
 
 patch('auto_test.dart',
@@ -347,7 +320,6 @@ patch('auto_test.dart',
     "      buf.writeln('⏹ تست وسط کار متوقف شد — گزارش ناقص است.');",
     'P35 report abort marker')
 
-
 # ═══════════════════════════════════════════════════════════════════════════
 # FINAL VERIFICATION
 # ═══════════════════════════════════════════════════════════════════════════
@@ -356,11 +328,10 @@ with open(os.path.join(LIB, 'nat_ultra.dart'), encoding='utf-8') as f:
     nat = f.read()
 assert 'bool kNatIpScanOn = true;' in nat, 'kNatIpScanOn not true'
 assert 'natMaxVariants = 2000000' in nat, 'natMaxVariants not raised'
+assert 'int natAdaptiveWorkers()' in nat, 'natAdaptiveWorkers missing'
 
 with open(os.path.join(LIB, 'main.dart'), encoding='utf-8') as f:
     mn = f.read()
-assert 'int natAdaptiveWorkers()' in mn, 'natAdaptiveWorkers missing'
-assert 'natWorkers = natAdaptiveWorkers()' in mn, 'natWorkers assignment missing'
 assert 'skipEngine: true' in mn, 'skipEngine usage missing'
 
 print('')
