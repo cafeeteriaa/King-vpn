@@ -6,33 +6,21 @@ part of 'main.dart';
 // IP تمیز، Mux، DNS-over-HTTPS، Noise، TCP FastOpen ...) پشت‌سرهم امتحان می‌شوند.
 // حالتی که جواب داد برای اتصال واقعی هم همان استفاده می‌شود.
 //
-// natLevel 1 = حالت‌های سبک (عادی، آدرس دیگر، Fragment ریز)
-// natLevel 2 = همه‌ی حالت‌ها + چند آدرس تست (دکمه‌ی «جستجوی سرور با نت ملی»)
-// natLevel 3 = هر حالت + هر آدرس تست (مرحله‌های آخر جستجوی گسترده و پوشه)
-// natLevel 4 = حالت نهایی: ۵۰ حالت پایه + چند صد حالت ترکیبی از فضای چندهزارحالتی
-//              (Fragment / fingerprint / ALPN / DNS / پورت / IP تمیز / Mux / Noise ...)
-//              که بر اساس یادگیری همین اپراتور مرتب شده‌اند و هر دور از ادامه‌ی دور قبل
-//              شروع می‌شوند (cursor)، پس در چند دور همه‌ی فضا پوشش داده می‌شود.
+// V7: Port Hopping · Dynamic DNS Fallback · Aggressive TLS Fragment · IP-Scan=ON
+// =============================================================================
+
 int natLevel = 1;
-// کف سطح: دکمه «جستجوی سرور با نت ملی» = ۴ (بالاترین). جستجو زیر این سطح نمی‌رود
-// VARCAP: حداکثر حالت (ماتریس) برای هر سرور در نت ملی
-// MATRIXCAP: سقف حالت‌ها برای هر سرور در هر دور (قبلاً ۱۰). سقف واقعی زمان همان natBudget است
 const int natMaxVariants = 2000000;
 int natFloor = 0;
-// سرورهایی که IP/دامنه‌شان در اسکن TCP جواب نداد؛ فقط وقتی صف سالم‌ها تمام شد تست می‌شوند
-List<Server> natRestPending = []; // سطح ۱۰ = حالت نهایی با حلقه‌ی بی‌پایان (نت ملی)
+List<Server> natRestPending = [];
 
-// کد حالت = شماره‌ی آدرس تست * _natCodeBase + شماره‌ی حالت
 const int _natCodeBase = 100000;
-// ۵۰ حالت دست‌نویس اول (شماره‌هایشان ثابت است تا ذخیره‌شده‌های قدیمی خراب نشوند)
 const int _natBaseCount = 50;
-// اگر ترتیب / ساختار حالت‌های تولیدی عوض شد این عدد را زیاد کن
 // V7: bumped to 3 because the meaning of the port-hopping index changed
 // (port 80 added to the CF port list), so old saved generated variants
 // no longer point at the same meaning.
 const int _natGenVer = 3;
 
-// کلید سرور -> شماره‌ی حالتی که جواب داد
 final Map<String, int> natVar = {};
 
 // ---------------------------------------------------------------------------
@@ -49,8 +37,6 @@ const List<List<String>> _natFragBase = [
   ['30-60', '10-20', '1-2'], // 8
 ];
 
-// همه‌ی پروفایل‌های Fragment = ۹ ردیف پایه + چند صد ترکیب تولیدی
-// (طول بسته × فاصله × تعداد بسته‌ها)، بدون تکرار
 final List<List<String>> _natFrags = _natBuildFrags();
 
 List<List<String>> _natBuildFrags() {
@@ -74,7 +60,6 @@ List<List<String>> _natBuildFrags() {
   return out;
 }
 
-// پروفایل‌های Noise: [packet, delay]
 const List<List<String>> _natNoises = [
   ['10-20', '10-16'],
   ['5-10', '5-10'],
@@ -83,10 +68,7 @@ const List<List<String>> _natNoises = [
   ['1-5', '1-5'],
 ];
 
-// DNS هایی که هسته با آن‌ها آدرس سرور را پیدا می‌کند (DoH یا IP ساده)
-// اولویت با DNSهای ایرانی و محلی که روی نت ملی معمولاً باز می‌مانند.
 const List<String> _natDnsList = [
-  // Iranian / national-friendly first
   '178.22.122.100',
   '185.51.200.2',
   '78.157.42.100',
@@ -94,7 +76,6 @@ const List<String> _natDnsList = [
   '10.202.10.10',
   '10.202.10.11',
   '10.202.10.202',
-  // global DoH
   'https+local://1.1.1.1/dns-query',
   'https+local://8.8.8.8/dns-query',
   'https+local://9.9.9.9/dns-query',
@@ -104,7 +85,6 @@ const List<String> _natDnsList = [
   'https+local://94.140.14.14/dns-query',
   'https+local://208.67.222.222/dns-query',
   'https+local://208.67.220.220/dns-query',
-  // plain IPs as fallback
   '1.1.1.1',
   '8.8.8.8',
   '9.9.9.9',
@@ -112,24 +92,22 @@ const List<String> _natDnsList = [
   '208.67.222.222',
 ];
 
-// مشخصات یک حالت. null / false = دست نمی‌زند.
 class _NatSpec {
   final String name;
-  final bool other; // the other address (domain <-> resolved IP)
+  final bool other;
   final String? fp, alpn;
-  final int? frag; // index in _natFrags
+  final int? frag;
   final bool port, clean, mux, sniHost, v4, tfo, ed, noise;
-  final String? doh; // DNS server used by the core (DoH url or plain IP)
-  // extras used by the generated variants (defaults = old behaviour)
-  final int muxN; // 0 = default (8)
-  final int noiseK; // index in _natNoises
+  final String? doh;
+  final int muxN;
+  final int noiseK;
   final bool nodelay;
-  final String? mode; // 'xhttp:<mode>' | 'grpc:<mode>'
-  final int? edN; // early-data size
-  final int? portIdx; // fixed index in _natCfPorts (null = rotate)
-  final int? cleanIdx; // fixed index in cleanIps (null = rotate)
-  final int? keep; // tcp keep-alive interval (seconds)
-  final int? mss; // TCP MSS (≈ MTU - 40) for the adaptive MTU tuner
+  final String? mode;
+  final int? edN;
+  final int? portIdx;
+  final int? cleanIdx;
+  final int? keep;
+  final int? mss;
   const _NatSpec(this.name,
       {this.other = false,
       this.fp,
@@ -155,65 +133,59 @@ class _NatSpec {
       this.mss});
 }
 
-// شماره‌ی 0..12 همان معنی قبلی را دارند (ذخیره‌شده‌های قدیمی خراب نمی‌شوند)
 const List<_NatSpec> _natBase = [
-  _NatSpec('عادی'), // 0
-  _NatSpec('آدرس دیگر', other: true), // 1
-  _NatSpec('Fragment ریز', frag: 0), // 2
-  _NatSpec('Fragment متوسط', frag: 1), // 3
-  _NatSpec('fp=firefox', fp: 'firefox'), // 4
-  _NatSpec('fp=randomized + Fragment', fp: 'randomized', frag: 2), // 5
-  _NatSpec('fp=ios', fp: 'ios'), // 6
-  _NatSpec('alpn=http/1.1', alpn: 'http/1.1'), // 7
-  _NatSpec('Fragment خیلی ریز', frag: 3), // 8
-  _NatSpec('Fragment چندبسته‌ای', frag: 4), // 9
-  _NatSpec('پورت دیگر CDN', port: true), // 10
-  _NatSpec('IP تمیز Cloudflare', clean: true), // 11
-  _NatSpec('Mux', mux: true), // 12
-  _NatSpec('fp=chrome', fp: 'chrome'), // 13
-  _NatSpec('fp=safari', fp: 'safari'), // 14
-  _NatSpec('fp=edge', fp: 'edge'), // 15
-  _NatSpec('fp=android', fp: 'android'), // 16
-  _NatSpec('fp=random', fp: 'random'), // 17
-  _NatSpec('fp=qq', fp: 'qq'), // 18
-  _NatSpec('fp=360', fp: '360'), // 19
-  _NatSpec('alpn=h2', alpn: 'h2'), // 20
-  _NatSpec('alpn=h2,http/1.1', alpn: 'h2,http/1.1'), // 21
-  _NatSpec('Fragment 20-50', frag: 5), // 22
-  _NatSpec('Fragment ریز و کند', frag: 6), // 23
-  _NatSpec('Fragment درشت', frag: 7), // 24
-  _NatSpec('Fragment ۱-۲ بسته', frag: 8), // 25
-  _NatSpec('fp=chrome + Fragment', fp: 'chrome', frag: 0), // 26
-  _NatSpec('fp=firefox + Fragment خیلی ریز', fp: 'firefox', frag: 3), // 27
-  _NatSpec('fp=randomized + Fragment متوسط', fp: 'randomized', frag: 1), // 28
-  _NatSpec('fp=ios + Fragment', fp: 'ios', frag: 2), // 29
-  _NatSpec('Fragment + Mux', frag: 0, mux: true), // 30
-  _NatSpec('Fragment + IP تمیز', frag: 0, clean: true), // 31
-  _NatSpec('Fragment + پورت دیگر', frag: 0, port: true), // 32
-  _NatSpec('SNI = Host', sniHost: true), // 33
-  _NatSpec('SNI = Host + Fragment', sniHost: true, frag: 0), // 34
-  _NatSpec('DoH کلودفلر', doh: 'https+local://1.1.1.1/dns-query'), // 35
-  _NatSpec('DoH گوگل', doh: 'https+local://8.8.8.8/dns-query'), // 36
-  _NatSpec('DoH Quad9', doh: 'https+local://9.9.9.9/dns-query'), // 37
-  _NatSpec('فقط IPv4', v4: true), // 38
-  _NatSpec('Fragment + Noise', frag: 0, noise: true), // 39
-  _NatSpec('TCP FastOpen', tfo: true), // 40
-  _NatSpec('Fragment + TCP FastOpen', frag: 0, tfo: true), // 41
-  _NatSpec('WebSocket early-data', ed: true), // 42
-  _NatSpec('alpn=h2 + Fragment', alpn: 'h2', frag: 0), // 43
-  _NatSpec('fp=chrome + alpn=h2,http/1.1', fp: 'chrome', alpn: 'h2,http/1.1'), // 44
-  _NatSpec('DoH + Fragment', doh: 'https+local://1.1.1.1/dns-query', frag: 0), // 45
-  _NatSpec('WebSocket early-data + Fragment', ed: true, frag: 0), // 46
-  _NatSpec('آدرس دیگر + Fragment', other: true, frag: 0), // 47
-  _NatSpec('آدرس دیگر + fp=chrome', other: true, fp: 'chrome'), // 48
-  _NatSpec('آدرس دیگر + Fragment خیلی ریز', other: true, frag: 3), // 49
+  _NatSpec('عادی'),
+  _NatSpec('آدرس دیگر', other: true),
+  _NatSpec('Fragment ریز', frag: 0),
+  _NatSpec('Fragment متوسط', frag: 1),
+  _NatSpec('fp=firefox', fp: 'firefox'),
+  _NatSpec('fp=randomized + Fragment', fp: 'randomized', frag: 2),
+  _NatSpec('fp=ios', fp: 'ios'),
+  _NatSpec('alpn=http/1.1', alpn: 'http/1.1'),
+  _NatSpec('Fragment خیلی ریز', frag: 3),
+  _NatSpec('Fragment چندبسته‌ای', frag: 4),
+  _NatSpec('پورت دیگر CDN', port: true),
+  _NatSpec('IP تمیز Cloudflare', clean: true),
+  _NatSpec('Mux', mux: true),
+  _NatSpec('fp=chrome', fp: 'chrome'),
+  _NatSpec('fp=safari', fp: 'safari'),
+  _NatSpec('fp=edge', fp: 'edge'),
+  _NatSpec('fp=android', fp: 'android'),
+  _NatSpec('fp=random', fp: 'random'),
+  _NatSpec('fp=qq', fp: 'qq'),
+  _NatSpec('fp=360', fp: '360'),
+  _NatSpec('alpn=h2', alpn: 'h2'),
+  _NatSpec('alpn=h2,http/1.1', alpn: 'h2,http/1.1'),
+  _NatSpec('Fragment 20-50', frag: 5),
+  _NatSpec('Fragment ریز و کند', frag: 6),
+  _NatSpec('Fragment درشت', frag: 7),
+  _NatSpec('Fragment ۱-۲ بسته', frag: 8),
+  _NatSpec('fp=chrome + Fragment', fp: 'chrome', frag: 0),
+  _NatSpec('fp=firefox + Fragment خیلی ریز', fp: 'firefox', frag: 3),
+  _NatSpec('fp=randomized + Fragment متوسط', fp: 'randomized', frag: 1),
+  _NatSpec('fp=ios + Fragment', fp: 'ios', frag: 2),
+  _NatSpec('Fragment + Mux', frag: 0, mux: true),
+  _NatSpec('Fragment + IP تمیز', frag: 0, clean: true),
+  _NatSpec('Fragment + پورت دیگر', frag: 0, port: true),
+  _NatSpec('SNI = Host', sniHost: true),
+  _NatSpec('SNI = Host + Fragment', sniHost: true, frag: 0),
+  _NatSpec('DoH کلودفلر', doh: 'https+local://1.1.1.1/dns-query'),
+  _NatSpec('DoH گوگل', doh: 'https+local://8.8.8.8/dns-query'),
+  _NatSpec('DoH Quad9', doh: 'https+local://9.9.9.9/dns-query'),
+  _NatSpec('فقط IPv4', v4: true),
+  _NatSpec('Fragment + Noise', frag: 0, noise: true),
+  _NatSpec('TCP FastOpen', tfo: true),
+  _NatSpec('Fragment + TCP FastOpen', frag: 0, tfo: true),
+  _NatSpec('WebSocket early-data', ed: true),
+  _NatSpec('alpn=h2 + Fragment', alpn: 'h2', frag: 0),
+  _NatSpec('fp=chrome + alpn=h2,http/1.1', fp: 'chrome', alpn: 'h2,http/1.1'),
+  _NatSpec('DoH + Fragment', doh: 'https+local://1.1.1.1/dns-query', frag: 0),
+  _NatSpec('WebSocket early-data + Fragment', ed: true, frag: 0),
+  _NatSpec('آدرس دیگر + Fragment', other: true, frag: 0),
+  _NatSpec('آدرس دیگر + fp=chrome', other: true, fp: 'chrome'),
+  _NatSpec('آدرس دیگر + Fragment خیلی ریز', other: true, frag: 3),
 ];
 
-// ===================== فضای حالت‌های تولیدی (چند هزار حالت) =====================
-// ترتیب تولید = اولویت پیش‌فرض (ساده و پرکاربرد اول). شماره‌ی حالت‌ها همیشه
-// از ۵۰ شروع می‌شود و با _natGenVer نسخه‌بندی می‌شود.
-// حالت‌های تازه (MTU تطبیقی و Keep-Alive) در انتها اضافه می‌شوند تا شماره‌ی
-// حالت‌های قبلی و یادگیری‌های ذخیره‌شده جابه‌جا نشوند.
 final List<_NatSpec> _natSpecs = [..._natBase, ..._natGenerate(), ..._natExtra];
 
 const List<_NatSpec> _natExtra = [
@@ -229,9 +201,7 @@ const List<_NatSpec> _natExtra = [
   _NatSpec('MSS 1320 + Mux', mux: true, mss: 1320),
   _NatSpec('Keep-Alive 5s + Fragment', frag: 0, keep: 5),
   _NatSpec('Keep-Alive 8s + fp=chrome', fp: 'chrome', keep: 8),
-  // KCP-UDP: همان هسته‌ی فعلی (Xray) است؛ ترافیک روی UDP می‌رود. فقط وقتی سرور kcp را قبول کند جواب می‌دهد
   _NatSpec('mKCP (UDP)', mode: 'kcp:none'),
-  // NEWFP: اثرانگشت‌های TLS دیگری که Xray پشتیبانی می‌کند (فقط سمت کلاینت، بدون تغییر در سرور)
   _NatSpec('fp=360', fp: '360'),
   _NatSpec('fp=qq', fp: 'qq'),
 ];
@@ -330,7 +300,6 @@ List<_NatSpec> _natGenerate() {
   ];
   const alpns = ['h2', 'http/1.1', 'h2,http/1.1'];
 
-  // popular Fragment profiles: the base rows + tlshello with 3 intervals
   final top = <int>[for (var i = 0; i < _natFragBase.length; i++) i];
   for (var i = _natFragBase.length; i < _natFrags.length; i++) {
     final f = _natFrags[i];
@@ -345,7 +314,6 @@ List<_NatSpec> _natGenerate() {
       if (!topSet.contains(i)) i
   ];
 
-  // tier 1: one feature
   for (final p in fps) {
     add(_natMk(fp: p));
   }
@@ -355,8 +323,6 @@ List<_NatSpec> _natGenerate() {
   for (final g in top) {
     add(_natMk(frag: g));
   }
-
-  // tier 2: two features
   for (final g in top) {
     for (final p in fps.take(7)) {
       add(_natMk(frag: g, fp: p));
@@ -372,8 +338,6 @@ List<_NatSpec> _natGenerate() {
       add(_natMk(fp: p, alpn: a));
     }
   }
-
-  // tier 3: network / socket / DNS / address modifiers x (nothing, Fragment, fp)
   final mods = <_NatSpec Function(int?, String?)>[];
   mods.add((f, p) => _natMk(frag: f, fp: p, v4: true));
   mods.add((f, p) => _natMk(frag: f, fp: p, tfo: true));
@@ -413,8 +377,6 @@ List<_NatSpec> _natGenerate() {
       }
     }
   }
-
-  // tier 4: Fragment x fp x ALPN
   for (final g in top.take(20)) {
     for (final p in fps.take(5)) {
       for (final a in alpns) {
@@ -422,8 +384,6 @@ List<_NatSpec> _natGenerate() {
       }
     }
   }
-
-  // tier 5: every remaining Fragment profile (alone, then with a fingerprint)
   for (final g in rest) {
     add(_natMk(frag: g));
   }
@@ -436,47 +396,37 @@ List<_NatSpec> _natGenerate() {
   return out;
 }
 
-// NATINF ======= فضای بی‌پایان حالت‌ها =======
-// وقتی همه‌ی حالت‌های ثابت برای یک سرور امتحان شد (cursor به انتها رسید)، حالت‌های
-// تازه‌ی تصادفی ساخته می‌شوند و به انتهای جدول اضافه می‌شوند؛ پس هیچ‌وقت حالتی
-// برای امتحان تمام نمی‌شود. مولد با seed ثابت است: شماره‌ی حالت‌ها بعد از بستن
-// برنامه همان می‌ماند و ذخیره‌شده‌ها (natVar / natWins) خراب نمی‌شوند.
-// NATFINITE: no random/infinite variant generation. The curated matrix above
-// is finite, reproducible, and each variant has a defined protocol meaning.
 int natGrow(int n) => 0;
 
-// برای نمایش (main.dart از این استفاده می‌کند)
 List<String>? _natNamesC;
 List<String> get _natVarNames =>
     _natNamesC ??= [for (final x in _natSpecs) x.name];
 
-// ---------------------------------------------------------------------------
-// آدرس‌های تست. کد = شماره‌ی آدرس * _natCodeBase + شماره‌ی حالت (0 = آدرس پیش‌فرض)
 const List<String> _natTestUrls = [
-  'http://cp.cloudflare.com/generate_204', // 1  (قبلاً آدرس دوم)
-  'http://www.msftconnecttest.com/connecttest.txt', // 2
-  'http://connectivitycheck.gstatic.com/generate_204', // 3
-  'http://clients3.google.com/generate_204', // 4
-  'http://www.google.com/generate_204', // 5
-  'http://detectportal.firefox.com/success.txt', // 6
-  'http://captive.apple.com/hotspot-detect.html', // 7
-  'http://www.apple.com/library/test/success.html', // 8
-  'http://edge-http.microsoft.com/captiveportal/generate_204', // 9
-  'http://play.googleapis.com/generate_204', // 10
-  'http://www.gstatic.com/generate_204', // 11
-  'http://nmcheck.gnome.org/check_network_status.txt', // 12
-  'http://connectivity-check.ubuntu.com/', // 13
-  'http://www.cloudflare.com/cdn-cgi/trace', // 14
-  'http://neverssl.com/', // 15
-  'http://example.com/', // 16
-  'https://cp.cloudflare.com/generate_204', // 17
-  'https://www.google.com/generate_204', // 18
-  'https://www.youtube.com/generate_204', // 19
-  'https://one.one.one.one/', // 20
-  'https://dns.google/', // 21
-  'https://www.bing.com/', // 22
-  'https://www.wikipedia.org/', // 23
-  'https://www.cloudflare.com/cdn-cgi/trace', // 24
+  'http://cp.cloudflare.com/generate_204',
+  'http://www.msftconnecttest.com/connecttest.txt',
+  'http://connectivitycheck.gstatic.com/generate_204',
+  'http://clients3.google.com/generate_204',
+  'http://www.google.com/generate_204',
+  'http://detectportal.firefox.com/success.txt',
+  'http://captive.apple.com/hotspot-detect.html',
+  'http://www.apple.com/library/test/success.html',
+  'http://edge-http.microsoft.com/captiveportal/generate_204',
+  'http://play.googleapis.com/generate_204',
+  'http://www.gstatic.com/generate_204',
+  'http://nmcheck.gnome.org/check_network_status.txt',
+  'http://connectivity-check.ubuntu.com/',
+  'http://www.cloudflare.com/cdn-cgi/trace',
+  'http://neverssl.com/',
+  'http://example.com/',
+  'https://cp.cloudflare.com/generate_204',
+  'https://www.google.com/generate_204',
+  'https://www.youtube.com/generate_204',
+  'https://one.one.one.one/',
+  'https://dns.google/',
+  'https://www.bing.com/',
+  'https://www.wikipedia.org/',
+  'https://www.cloudflare.com/cdn-cgi/trace',
 ];
 
 String? _natUrlFor(int code, String? url) {
@@ -487,15 +437,12 @@ String? _natUrlFor(int code, String? url) {
 // V7-PORT: priority-ordered list for port hopping, tuned for Iranian operators.
 // 443 (default HTTPS), 80 (plain HTTP often passes when 443 is throttled),
 // then alternate CDN ports that Cloudflare accepts (8443, 2053, 2083, 2087, 2096).
-// Used both for variant generation and for _natNextPort's priority walk.
 const List<int> _natCfPorts = [443, 80, 8443, 2053, 2083, 2087, 2096];
 const Set<String> _natCdnNets = {
   'ws', 'grpc', 'httpupgrade', 'xhttp', 'splithttp', 'h2'
 };
 int _natRot = 0;
 
-// the port / clean IP that was chosen for (server, variant) in the last test:
-// the real connection reuses exactly the same values (reuse = true)
 final Map<String, String> _natPick = {};
 
 String _natPickOf(String k, bool reuse, String Function() gen) {
@@ -512,9 +459,7 @@ String _natPickOf(String k, bool reuse, String Function() gen) {
 int _natNextPort(Server s) {
   // V7-PORT: strict priority walk over _natCfPorts. Starting from the port
   // right after the server's current port, walk the list once and return
-  // the first port that is different. This produces the order 443→80→8443
-  // →2053→2083→2087→2096 (and wraps around). If every port somehow equals
-  // the current one, fall back to 443.
+  // the first port that is different.
   final idx = _natCfPorts.indexOf(s.port);
   final start = idx < 0 ? 0 : (idx + 1) % _natCfPorts.length;
   for (var k = 0; k < _natCfPorts.length; k++) {
@@ -530,7 +475,6 @@ bool _natIsSecure(Server s) {
   return s.tls || s.reality || l.contains('security=tls') || l.contains('"tls":"tls"');
 }
 
-// facts about a server, computed once per _natOrder call (not once per variant)
 class _NatFacts {
   final bool sec,
       ss,
@@ -563,10 +507,9 @@ class _NatFacts {
         port = s.port;
 }
 
-// RETIRED: حالت‌هایی که تست واقعی ترافیک نداده‌اند؛ دیگر در ماتریس و تست خودکار استفاده نمی‌شوند
 const Set<String> _natRetiredNames = {
-  'Fragment ریز و کند', // روی ۵ تلاش با اتصال واقعی ترافیک نداد
-  'fp=android', // جدید: روی ۳ تلاش با اتصال واقعی ترافیک نداد (گزارش تست نت ملی)
+  'Fragment ریز و کند',
+  'fp=android',
 };
 
 bool natRetired(int v) =>
@@ -588,33 +531,24 @@ bool _natAppliesF(_NatFacts f, int v) {
   if (x.port && !(f.sec && !f.reality && f.cdnNet && f.cfPort)) return false;
   final pi = x.portIdx;
   if (x.port && pi != null && _natCfPorts[pi % _natCfPorts.length] == f.port) {
-    return false; // same port as now: no change
+    return false;
   }
   if (x.clean && !(f.sec && !f.reality && f.hasClean && f.cdnLike)) {
     return false;
   }
-  // Mux is a throughput/concurrency feature, not a reachability workaround;
-  // it can make fragile links less stable. Do not use it in the national matrix.
   if (x.mux) return false;
-  // Noise packets are not a reliable DPI bypass and can trigger rate limits.
   if (x.noise) return false;
-  // A client cannot convert a server's transport by rewriting the URI. XHTTP,
-  // gRPC and KCP modes must match the server-side listener, so never mutate them.
   if (x.mode != null) return false;
   if (x.doh != null && f.isIp) return false;
   return true;
 }
 
-// does this variant change WHERE the core connects (address / port / DNS)?
-// (when the plain TCP port is closed, only those can still help)
 bool _natChangesAddr(int v) {
   if (v <= 0 || v >= _natSpecs.length) return false;
   final x = _natSpecs[v];
   return x.other || x.port || x.clean || x.doh != null;
 }
 
-// ----------------------- یادگیری: ویژگی‌های برنده‌ی هر اپراتور -----------------------
-// '<op>#<ویژگی>' -> تعداد موفقیت (fp=chrome, fl=10-30, dns=..., mux ...)
 final Map<String, int> natDimWins = {};
 int _natLearnVer = 0;
 
@@ -645,7 +579,6 @@ List<String> _natDims(_NatSpec x) {
   return d;
 }
 
-// all generated variants, best first for THIS operator (cached until learning changes)
 List<int> _natGenRank = [];
 String _natGenRankKey = '';
 
@@ -670,7 +603,6 @@ List<int> _natGenRanked() {
   return idx;
 }
 
-// the variants that already worked most on this operator
 List<int> _natTopWinners(int n) {
   final pre = '$natOpKey#';
   final rows = <MapEntry<int, int>>[];
@@ -683,8 +615,6 @@ List<int> _natTopWinners(int n) {
   return [for (final r in rows.take(n)) r.key];
 }
 
-// per server: how far through its (ranked) generated variants the search got.
-// The next round continues from there, so many rounds cover the whole space.
 final Map<String, int> _natCursor = {};
 String _natCk(Server s) => '$natOpKey#${s.key}';
 
@@ -695,7 +625,6 @@ void natCursorAdvance(Server s, int n) {
   _natCursor[k] = (_natCursor[k] ?? 0) + n;
 }
 
-// time one server may use for its variants in one pass
 Duration natBudget({bool full = false}) {
   final l = full ? 3 : natLevel;
   if (l <= 1) return const Duration(seconds: 40);
@@ -704,39 +633,32 @@ Duration natBudget({bool full = false}) {
   return const Duration(seconds: 260);
 }
 
-// how many generated variants one pass may queue (by level 1..4)
-// سطح ۵ تا ۱۰: سهم بیشتری از ماتریس محدود و ازپیش‌تعریف‌شده در هر دور
 const List<int> _natGenCap = [
   0, 0, 200, 1200, 6000, 15000, 30000, 60000, 100000, 150000, 200000
 ];
 
-// ترتیب امتحان حالت‌ها برای یک سرور (کد ≥ _natCodeBase = همان حالت با آدرس تست دیگر)
 List<int> _natOrder(Server s, {bool full = false}) {
-  goldPrepareNational(); // GOLD: قبل از ساختن حالت‌ها، IPهای پوشه‌ی جهانی در نت ملی آماده شوند
+  goldPrepareNational();
   var lvl = full ? 3 : natLevel;
   if (lvl < 1) lvl = 1;
   if (lvl > 10) lvl = 10;
   final f = _NatFacts(s);
   final known = natVar[_nk(s)];
   final cursor = _natCursor[_natCk(s)] ?? 0;
-  final again = cursor > 0 && lvl >= 2; // a repeat pass: skip what failed before
+  final again = cursor > 0 && lvl >= 2;
   final out = <int>[];
   final used = <int>{};
   void put(int c) {
     if (used.add(c)) out.add(c);
   }
 
-  // NORMAL: never use Fragment/Noise variants (they kill post-connect speed).
-  // National mode may still try heavy variants when the filter is hard.
   final preferLight = !nationalMode;
   final skipHeavy = !nationalMode;
 
   final knownOk = known != null && _natAppliesF(f, known);
-  // known light winner first; skip known heavy on normal
   if (knownOk && (!skipHeavy || !natIsHeavy(known!))) put(known!);
 
   if (preferLight) {
-    // dedicated light speed candidates before anything heavy
     final lightFirst = <int>[0, 1, 4, 13, 7, 20, 12, 33, 38, 40, 44];
     for (final w in _natTopWinners(8)) {
       if (!natIsHeavy(w) && !lightFirst.contains(w)) lightFirst.add(w);
@@ -746,7 +668,6 @@ List<int> _natOrder(Server s, {bool full = false}) {
     }
   }
 
-  // variants that worked on OTHER servers of this operator come first
   if (lvl >= 2) {
     for (final w in _natTopWinners(6)) {
       if (skipHeavy && natIsHeavy(w)) continue;
@@ -754,7 +675,6 @@ List<int> _natOrder(Server s, {bool full = false}) {
     }
   }
 
-  // the 50 base variants, the ones that won most on this operator first
   final cand = (lvl >= 2
       ? <int>[for (var i = 0; i < _natBaseCount; i++) i]
       : <int>[0, 1, 2, 8])
@@ -762,7 +682,7 @@ List<int> _natOrder(Server s, {bool full = false}) {
       if (preferLight) {
         final ha = natIsHeavy(a) ? 1 : 0;
         final hb = natIsHeavy(b) ? 1 : 0;
-        if (ha != hb) return ha - hb; // light first
+        if (ha != hb) return ha - hb;
       }
       final d = (natWins['$natOpKey#$b'] ?? 0) - (natWins['$natOpKey#$a'] ?? 0);
       return d != 0 ? d : a - b;
@@ -773,12 +693,10 @@ List<int> _natOrder(Server s, {bool full = false}) {
         if (skipHeavy && natIsHeavy(v)) continue;
         if (_natAppliesF(f, v)) {
           put(v);
-          break; // the first (best ranked) variant, then the early URLs
+          break;
         }
       }
     }
-    // if the default test address is blocked every server looks dead,
-    // so a few other addresses are tried early
     if (lvl >= 2) {
       for (final i in const <int>[1, 2, 3]) {
         put(i * _natCodeBase);
@@ -792,7 +710,6 @@ List<int> _natOrder(Server s, {bool full = false}) {
     put(0);
   }
 
-  // generated variants (ranked by what works on this operator; resumes at cursor)
   final gens = <int>[];
   final cap = _natGenCap[lvl];
   if (cap > 0) {
@@ -800,8 +717,6 @@ List<int> _natOrder(Server s, {bool full = false}) {
     for (final v in _natGenRanked()) {
       if (_natAppliesF(f, v)) app.add(v);
     }
-    // Continue from the next untested curated item; never wrap and repeat
-    // failed combinations forever, and never manufacture random variants.
     if (app.isNotEmpty && cursor < app.length) {
       final end = min(app.length, cursor + cap);
       for (var k = cursor; k < end; k++) {
@@ -829,7 +744,6 @@ List<int> _natOrder(Server s, {bool full = false}) {
     put(gens[k]);
   }
   if (lvl >= 3 && !again) {
-    // best variants of this network x every test address
     for (var i = 1; i <= _natTestUrls.length; i++) {
       for (final v in const [2, 8, 13]) {
         if (_natAppliesF(f, v)) put(i * _natCodeBase + v);
@@ -865,7 +779,6 @@ String _natSetParam(String link, String key, String val) {
   }
 }
 
-// reads one parameter of a link ('' when absent)
 String _natGetParam(String link, String key) {
   try {
     if (link.toLowerCase().startsWith('vmess://')) {
@@ -897,7 +810,6 @@ String _natSetPort(String link, int port) {
   }
 }
 
-// same config on another address; SNI / Host keep the real domain
 String _natSetHost(String link, String ip, String host) {
   try {
     if (link.toLowerCase().startsWith('vmess://')) {
@@ -923,7 +835,7 @@ String _natSetHost(String link, String ip, String host) {
 }
 
 String _natLinkFor(Server s, int v, {bool reuse = false}) {
-  goldPrepareNational(); // GOLD: در نت ملی IPهای پوشه‌ی جهانی استفاده می‌شوند
+  goldPrepareNational();
   if (v < 0 || v >= _natSpecs.length) return s.useLink;
   final x = _natSpecs[v];
   var link = (x.other && s.ipLink != null) ? s.link : s.useLink;
@@ -943,9 +855,7 @@ String _natLinkFor(Server s, int v, {bool reuse = false}) {
           : cleanIps[_natRot++ % cleanIps.length].ip;
     });
     link = _natSetHost(s.link, ip, s.host);
-    // the fingerprint / alpn / sni / mode changes above must survive the swap
     link = _natApplyTweaks(link, x, s);
-    // IPPORT: همان پورتی که IP روی آن باز بود (اگر پورت ثابت نباشد)
     var ipPort = 443;
     for (final c in cleanIps) {
       if (c.ip == ip) {
@@ -962,7 +872,6 @@ String _natLinkFor(Server s, int v, {bool reuse = false}) {
   return link;
 }
 
-// DNSPRE: آدرس DoH این حالت از گوشی باز است؟ (فقط یک بار سنجیده می‌شود)
 final Map<int, bool> dohPreOk = {};
 Future<bool> natDohUsable(int v) async {
   if (v < 0 || v >= _natSpecs.length) return false;
@@ -979,7 +888,6 @@ Future<bool> natDohUsable(int v) async {
   return ok;
 }
 
-// link-level tweaks (fingerprint, ALPN, transport mode, SNI, early data)
 String _natApplyTweaks(String link, _NatSpec x, Server s) {
   if (x.fp != null) link = _natSetParam(link, 'fp', x.fp!);
   if (x.alpn != null) link = _natSetParam(link, 'alpn', x.alpn!);
@@ -1005,9 +913,6 @@ String _natApplyTweaks(String link, _NatSpec x, Server s) {
   return link;
 }
 
-// MULTIHOP: سرور exit (خراب یا ضعیف) از پشت سرور relay (سالم) رد می‌شود.
-// هر دو با همان هسته‌ی Xray: outbound سرور relay به‌عنوان hop اضافه می‌شود و
-// sockopt.dialerProxy خروجی سرور exit به آن اشاره می‌کند. اگر ساخت نشود null می‌دهد.
 String? natChainCfg(String exitCfg, String relayCfg, {bool keepInbounds = false}) {
   try {
     final ej = jsonDecode(exitCfg);
@@ -1033,14 +938,13 @@ String? natChainCfg(String exitCfg, String relayCfg, {bool keepInbounds = false}
     final outs = List<dynamic>.from((ej['outbounds'] as List?) ?? <dynamic>[]);
     outs.add(hop);
     ej['outbounds'] = outs;
-    if (!keepInbounds) ej.remove('inbounds'); // تست: ورودی لازم نیست؛ اتصال واقعی ورودی‌ها (tun/socks) را نگه می‌دارد
+    if (!keepInbounds) ej.remove('inbounds');
     return jsonEncode(ej);
   } catch (_) {
     return null;
   }
 }
 
-// the first real proxy outbound of a core config (or null)
 Map? _natProxyOut(Map<String, dynamic> j) {
   for (final o in (j['outbounds'] as List?) ?? <dynamic>[]) {
     if (o is Map &&
@@ -1052,22 +956,14 @@ Map? _natProxyOut(Map<String, dynamic> j) {
   return null;
 }
 
-// V7-FRAG: Fragment on the TLS Hello (and the first packets) with the sizes of
-// table row [fi], PLUS a deterministic jitter seeded by (server key, variant).
-// The DPI of Iranian operators can pattern-match a fixed TLS hello fragment
-// signature (e.g. "always 120 bytes then 85 bytes"). With this jitter, each
-// (server, variant) pair gets a slightly different length/interval within the
-// same profile, so the pattern changes from server to server — but the SAME
-// pair always gets the SAME jitter, so the test and the real connection use
-// identical byte counts (the test that succeeded is the connection that runs).
+// V7-FRAG: Fragment on the TLS Hello with deterministic jitter seeded by
+// (server key, variant). Same (server, variant) pair always gets the SAME
+// jitter, so the test and the real connection use identical byte counts.
 String _natFrag(String cfg, int fi,
     {bool noise = false, int noiseK = 0, int seed = 0}) {
   if (fi < 0 || fi >= _natFrags.length) return cfg;
   final p = _natFrags[fi];
 
-  // V7-FRAG: seeded jitter. Small shifts (±6 bytes for length, ±3 ms for
-  // interval) keep the profile within a safe range while still randomizing
-  // the exact fragment boundaries the DPI sees.
   final rnd = Random(seed ^ (fi << 8) ^ (noiseK << 16));
   String jitter(String range, int maxShift) {
     final dash = range.indexOf('-');
@@ -1102,7 +998,6 @@ String _natFrag(String cfg, int fi,
         'interval': intervalRange,
       }
     };
-    // random junk packets before the handshake (cores without support ignore it)
     if (noise) {
       final nz = _natNoises[noiseK % _natNoises.length];
       set['noises'] = [
@@ -1121,14 +1016,13 @@ String _natFrag(String cfg, int fi,
   }
 }
 
-// Mux: many requests share one connection (survives per-connection throttling)
 String _natMux(String cfg, [int n = 0]) {
   try {
     final j = jsonDecode(cfg);
     if (j is! Map<String, dynamic>) return cfg;
     final o = _natProxyOut(j);
     if (o == null) return cfg;
-    if (RegExp(r'"flow"\s*:\s*"xtls').hasMatch(cfg)) return cfg; // vision can't use mux
+    if (RegExp(r'"flow"\s*:\s*"xtls').hasMatch(cfg)) return cfg;
     o['mux'] = {'enabled': true, 'concurrency': n > 0 ? n : 8};
     return jsonEncode(j);
   } catch (e, stk) {
@@ -1149,18 +1043,12 @@ String _natDns(String cfg, String doh) {
     void add(String s) {
       if (s.isNotEmpty && !servers.contains(s)) servers.add(s);
     }
-
-    // 1) primary DoH (chosen by the caller)
     add(doh);
-    // 2) dynamic fallback: Cloudflare, then Google
     add('https+local://1.1.1.1/dns-query');
     add('https+local://8.8.8.8/dns-query');
-    // 3) plain-IP DNS as a last resort (works even when all DoH are blocked)
     add('1.1.1.1');
     add('8.8.8.8');
-    // 4) local resolver — lets the OS/network handle anything else
     add('localhost');
-
     d['servers'] = servers;
     j['dns'] = d;
     return jsonEncode(j);
@@ -1170,7 +1058,6 @@ String _natDns(String cfg, String doh) {
   }
 }
 
-// socket options of the proxy outbound (TCP FastOpen / IPv4 only / NoDelay / KeepAlive)
 String _natSock(String cfg,
     {bool v4 = false, bool tfo = false, bool nodelay = false, int? keep, int? mss}) {
   try {
@@ -1194,9 +1081,6 @@ String _natSock(String cfg,
   }
 }
 
-// کانفیگ نهایی یک سرور با حالت v (v=0 دقیقاً مثل قبل است)
-// DIALERFIX: the final pass always drops a dialerProxy whose outbound is gone,
-// because fragment/mux/dns/sockopt edits below can leave one behind.
 String natCfg(Server s, int v, {bool reuse = false}) =>
     sanitizeCfg(_natCfgRaw(s, v, reuse: reuse));
 
@@ -1205,10 +1089,7 @@ String _natCfgRaw(Server s, int v, {bool reuse = false}) {
   if (v <= 0 || v >= _natSpecs.length) return cfg;
   final x = _natSpecs[v];
   if (x.frag != null) {
-    // V7-FRAG: seed = server key hash XOR variant number. Same (server, variant)
-    // pair always gets the same jitter → test and connection use identical
-    // fragment sizes. Different servers/variants get different sizes → DPI
-    // cannot pattern-match one fixed signature across the fleet.
+    // V7-FRAG: seed = server key hash XOR variant number.
     cfg = _natFrag(cfg, x.frag!,
         noise: x.noise, noiseK: x.noiseK, seed: s.key.hashCode ^ v);
   }
@@ -1221,11 +1102,6 @@ String _natCfgRaw(Server s, int v, {bool reuse = false}) {
   return cfg;
 }
 
-// حالتی که برای اتصال واقعی استفاده می‌شود.
-// ULTRA: وقتی ultraMode روشن است هم حالت یادگرفته‌شده اعمال می‌شود
-// (قبلاً فقط nationalMode بود و ماتریس در اتصال عادی بی‌اثر می‌ماند).
-// NATONLYVAR: حالت‌های نت ملی (IP تمیز، پورت، DNS، SNI) فقط در نت ملی اعمال می‌شوند.
-// قبلاً شکست‌ناپذیر (که پیش‌فرض روشن است) هم آن‌ها را روی اتصال عادی می‌گذاشت.
 int natSafeVariant(int v) {
   if (v < 0) return 0;
   if (v >= _natSpecs.length) return 0;
@@ -1237,12 +1113,10 @@ int natVarFor(Server s) {
   final v = natSafeVariant(rawV);
   if (v <= 0) return 0;
   final x = _natSpecs[v];
-  // Ignore legacy saved variants that relied on mux/noise/transport rewriting.
   if (x.mux || x.noise || x.mode != null) return 0;
   return v;
 }
 
-// TURBO: is this variant a speed-killer (Fragment / Noise)?
 bool natIsHeavy(int v) {
   final base = v % _natCodeBase;
   if (base <= 0 || base >= _natSpecs.length) return false;
@@ -1250,8 +1124,6 @@ bool natIsHeavy(int v) {
   return x.frag != null || x.noise;
 }
 
-// TURBO: pick a light (no Fragment/Noise) variant that still fits this server.
-// Prefers: known light winner > base 0 > other non-heavy ranked variants.
 int? natSpeedVariant(Server s, {int prefer = 0}) {
   final f = _NatFacts(s);
   final known = natVar[_nk(s)];
@@ -1260,7 +1132,6 @@ int? natSpeedVariant(Server s, {int prefer = 0}) {
       _natAppliesF(f, known % _natCodeBase)) {
     return known % _natCodeBase;
   }
-  // candidates that keep address tricks (other/port/clean/doh) but drop frag/noise
   final cand = <int>[0, 1, 4, 13, 7, 20, 12, 33, 38, 40];
   for (final w in _natTopWinners(8)) {
     if (!cand.contains(w)) cand.add(w);
@@ -1270,7 +1141,6 @@ int? natSpeedVariant(Server s, {int prefer = 0}) {
     if (natIsHeavy(v)) continue;
     if (_natAppliesF(f, v)) return v;
   }
-  // any non-heavy base that applies
   for (var i = 0; i < _natBaseCount; i++) {
     if (i == prefer) continue;
     if (!natIsHeavy(i) && _natAppliesF(f, i)) return i;
@@ -1278,7 +1148,6 @@ int? natSpeedVariant(Server s, {int prefer = 0}) {
   return null;
 }
 
-// DoH با چند آدرس (اگر 1.1.1.1 بسته بود بقیه امتحان می‌شوند)
 const List<String> _dohEps = [
   'https://1.1.1.1/dns-query?name=%N&type=A',
   'https://8.8.8.8/resolve?name=%N&type=A',
@@ -1286,9 +1155,6 @@ const List<String> _dohEps = [
   'https://9.9.9.9:5053/dns-query?name=%N&type=A',
 ];
 
-// ====================== یادگیری هر اپراتور / شبکه ======================
-// کلید شبکه: نوع اتصال (mob/wifi) + شماره‌ی ASN اپراتور. آمار پروتکل‌ها،
-// حالت‌های موفق و IP های تمیز برای هر اپراتور جدا ذخیره و یاد گرفته می‌شود.
 String natOpKey = 'x';
 final Map<String, String> _natAsnByType = {};
 final Map<String, DateTime> _natAsnTry = {};
@@ -1327,7 +1193,7 @@ Future<String?> _natAsnFrom(String url, String field) async {
     final body =
         await res.transform(utf8.decoder).join().timeout(const Duration(seconds: 3));
     final t = body.trimLeft();
-    if (!t.startsWith('{')) return null; // HTML page from a portal/filter
+    if (!t.startsWith('{')) return null;
     final j = jsonDecode(t);
     if (j is! Map) return null;
     final raw = '${j[field] ?? ''}';
@@ -1341,7 +1207,6 @@ Future<String?> _natAsnFrom(String url, String field) async {
   }
 }
 
-// فقط وقتی VPN وصل نیست صدا زده شود (وگرنه ASN خروجی VPN برمی‌گردد)
 Future<void> natDetectOperator() async {
   try {
     final type = await _natNetType();
@@ -1372,11 +1237,9 @@ Future<void> natDetectOperator() async {
   } catch (e, stk) { logError(e, stk); }
 }
 
-// ====================== حافظه‌ی حالت‌های موفق ======================
-final Map<String, int> natWins = {}; // '<op>#<variant>' -> تعداد موفقیت
+final Map<String, int> natWins = {};
 Timer? _natSaveT;
 
-// NATCOUNT: هر حالت جایگزین چند بار با اتصال واقعی امتحان شده و چند بار سرور را نجات داده
 final Map<int, int> natTryCount = {};
 final Map<int, int> natWinCount = {};
 
@@ -1388,8 +1251,6 @@ void natVarSet(Server s, int v) {
   final wk = '$natOpKey#$v';
   natWins[wk] = (natWins[wk] ?? 0) + 1;
   if (v > 0 && v < _natSpecs.length) {
-    // learn WHICH features worked on this operator: every untested combination
-    // that shares them moves up the queue for all the other servers
     for (final d in _natDims(_natSpecs[v])) {
       final dk = '$natOpKey#$d';
       natDimWins[dk] = (natDimWins[dk] ?? 0) + 1;
@@ -1420,7 +1281,7 @@ Future<void> natSavePersisted() async {
 Future<void> natLoadPersisted() async {
   await plusLoad();
   await natIpMemLoad();
-  await natDomMemLoad(); // NATDOM
+  await natDomMemLoad();
   await userListsLoad();
   try {
     final p = await SharedPreferences.getInstance();
@@ -1434,7 +1295,6 @@ Future<void> natLoadPersisted() async {
       d.forEach((k, v) => natDimWins['$k'] = (v as num).toInt());
     }
     if (((j['g'] ?? 0) as num).toInt() != _natGenVer) {
-      // the generated table changed: its saved numbers no longer match
       natVar.removeWhere((k, v) => v >= _natBaseCount);
       natWins.removeWhere((k, v) {
         final n = int.tryParse(k.substring(k.lastIndexOf('#') + 1));
@@ -1447,15 +1307,11 @@ Future<void> natLoadPersisted() async {
   }
 }
 
-// ===== حافظه‌ی IPهای کارا + اسکن بازه‌های IP (نت ملی) =========================
-// IPهایی که با کانفیگ واقعاً اینترنت جهانی را رد کرده‌اند ذخیره می‌شوند و
-// دفعه‌ی بعد اول تست می‌شوند. بازه‌ها (CIDR) را خود کاربر وارد می‌کند.
 const String _ipMemKey = 'natIpMem';
 const String _rangeKey = 'natRanges';
 const int _ipMemMax = 200;
 
 final List<Map<String, dynamic>> natIpMem = [];
-// DEADRUN: IP|port that failed every variant in this app run (not re-queued)
 final Set<String> natIpDeadRun = {};
 List<String> natRanges = [];
 int natRangeCursor = 0;
@@ -1471,7 +1327,6 @@ Future<void> natIpMemLoad() async {
       natIpMem
         ..clear()
         ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
-      // IPهای خیلی قدیمی ممکن است دیگر فیلتر نباشند یا عوض شده باشند؛ بیشتر از ۱۴ روز نگه داشته نمی‌شوند
       final cutoff = DateTime.now()
           .subtract(const Duration(days: 14))
           .millisecondsSinceEpoch;
@@ -1486,10 +1341,8 @@ Future<void> natIpMemLoad() async {
   }
 }
 
-// NATDOM: حافظه‌ی موفقیت دامنه‌ها در نت ملی (کلید host:port)
 const String _domMemKey = 'natDomMem';
 const int _domMemMax = 200;
-// مهلت تست کانفیگ در نت ملی (ثانیه)؛ حداقل این مقدار اعمال می‌شود
 const int natDelaySecs = 14;
 final List<Map<String, dynamic>> natDomMem = [];
 
@@ -1555,9 +1408,6 @@ Future<void> natRangesSave(String text) async {
   }
 }
 
-// پورت‌ها از خود کانفیگ‌های برنامه گرفته می‌شوند (حداکثر ۵۰ تا). اگر کانفیگ‌ها
-// پورت کمتری داشته باشند، همان کمتر اسکن می‌شود. اگر هیچ کانفیگی نبود، ۴۴۳ استفاده می‌شود.
-// NATPORTS: پورت‌های پرکاربرد TLS/CDN (اسکن همه‌ی ۶۵ هزار پورت برای هر IP ممکن نیست)
 const List<int> natCommonPorts = [
   443, 2053, 2083, 2087, 2096, 8443, 80, 8080, 8880, 2052, 2082, 2086, 2095,
   8444, 9443, 4443, 5443, 6443, 7443, 10443, 2222, 8000, 8008, 8888, 3128, 1080,
@@ -1568,7 +1418,6 @@ List<int> natAutoPorts(List<Server> known) {
   for (final s in known) {
     if (s.port > 0 && s.port < 65536) cnt[s.port] = (cnt[s.port] ?? 0) + 1;
   }
-  // پورتی که قبلاً IP باز داشته، وزن بیشتری می‌گیرد
   for (final e in natIpMem) {
     final p = (e['port'] as num?)?.toInt() ?? 0;
     if (p > 0 && p < 65536) cnt[p] = (cnt[p] ?? 0) + 5;
@@ -1582,18 +1431,12 @@ List<int> natAutoPorts(List<Server> known) {
   return out;
 }
 
-// [a, b, c] از IPv4 یا null
 List<int>? _ipTriple(String host) {
   final p = host.split('.');
   if (p.length != 4 || InternetAddress.tryParse(host) == null) return null;
   return [for (final x in p.take(3)) int.parse(x)];
 }
 
-// ترتیب بلوک‌ها (هر کدام /24):
-// ۱) بلوک‌هایی که قبلاً IP باز داشته‌اند
-// ۲) همسایه‌ی آن‌ها (یک بلوک قبل و بعد) چون سرورها معمولاً کنار هم هستند
-// ۳) بلوک‌های IP سرورهای کانفیگ‌ها
-// بلوک‌هایی که در بازه‌ی دستی کاربر هستند، این مرحله را ندارند.
 List<String> natAutoBlocks(List<Server> known) {
   String blk(int a, int b, int c) => '$a.$b.$c.0/24';
   final hitBlocks = <String>[];
@@ -1627,8 +1470,6 @@ List<String> natAutoBlocks(List<Server> known) {
   return [...hitBlocks, ...near, ...rest];
 }
 
-// بازه می‌تواند CIDR باشد (5.160.0.0/16) یا از-تا (5.160.0.0-5.160.3.255).
-// هر بازه حداکثر ۶۵ هزار آدرس می‌دهد.
 int _ipToInt(String ip) {
   final p = ip.split('.').map(int.parse).toList();
   return (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
@@ -1662,16 +1503,11 @@ List<String> natExpandAny(String item) {
   return out;
 }
 
-// یک مرحله‌ی اسکن. هر بار بلوک بعدی (تغییر خودکار) و پورت‌های کانفیگ بررسی می‌شوند.
-// خروجی: لیست «ip|port». بعد از هر مرحله ادامه از همان جای قبلی است.
-// DNSهای داخل ایران که برنامه از قبل دارد؛ داخل کشورند و در نت ملی باز می‌مانند
 const List<String> natIranDnsHosts = [
   '178.22.122.100', '185.51.200.2', '78.157.42.100', '78.157.42.101',
   '10.202.10.10', '10.202.10.11',
 ];
 
-// IRDOMAINS: فهرست دامنه‌های .ir برای تست IP و پورت‌ها.
-// فهرست کامل همه‌ی .ir در دسترس عمومی نیست؛ این فهرست را می‌توان با دامنه‌های بیشتر پر کرد.
 const List<String> natIrDomains = [
   'irna.ir', 'isna.ir', 'irib.ir', 'snapp.ir', 'divar.ir', 'iran.ir',
   'gov.ir', 'mci.ir', 'ut.ac.ir', 'bmi.ir', 'tci.ir', 'ict.gov.ir',
@@ -1707,19 +1543,16 @@ const List<String> natIrDomains = [
   'imna.ir',
 ];
 
-// DOMAINFIRST: دامنه‌ها → IP → همه‌ی پورت‌ها (هر پورت باز = یک کانفیگ آن IP)
 Future<List<String>> _natDomainFirst(List<Server> known,
     {required int conc, bool Function()? stop}) async {
   final out = <String>[];
-  if (!kNatIpScanOn) return out; // IPOFF2: بدون IP و پورت؛ جستجوی نت ملی فقط از کانفیگ‌ها و پوشه
+  if (!kNatIpScanOn) return out;
   try {
-    // IRDOMAINS: دامنه‌های .ir (فهرست داخلی + دامنه‌های کانفیگ) با DNS حل می‌شوند
     final hosts = <String>{
       for (final s in known) if (!s.isIp && s.host.isNotEmpty) s.host,
       ...natIrDomains,
     }.take(3000).toList();
     final ips = <String>{};
-    // حل موازی با ۵۰ درخواست همزمان تا سریع باشد
     for (var i = 0; i < hosts.length; i += 50) {
       if (stop != null && stop()) break;
       final chunk = hosts.skip(i).take(50);
@@ -1735,7 +1568,6 @@ Future<List<String>> _natDomainFirst(List<Server> known,
     dbg('دامنه‌ها: ${hosts.length} دامنه • ${ips.length} IP یکتا');
     if (ips.isEmpty) return out;
     final tw = Stopwatch()..start();
-    // DOMAINCAP: پورت‌های پرکاربرد اول، سقف ۳ دقیقه
     final portOrder = <int>[
       ...natCommonPorts,
       for (var p = 1; p < 65536; p++) if (!natCommonPorts.contains(p)) p,
@@ -1763,9 +1595,6 @@ Future<List<String>> _natDomainFirst(List<Server> known,
   return out;
 }
 
-// IPv4 عمومی تصادفی (بدون آدرس خصوصی، لوپ‌بک، CGNAT، چندپخشی و رزرو)
-
-// IP عمومی IPv4 خود گوشی (وقتی اپراتور آدرس عمومی بدهد)
 Future<List<String>> natDeviceHosts() async {
   final out = <String>[];
   try {
@@ -1791,7 +1620,6 @@ Future<List<String>> natDeviceHosts() async {
   return out;
 }
 
-// از هر IP، بلوک /24 خودش و دو همسایه‌ی کناری را می‌سازد (حافظه اول)
 List<String> natSeedBlocks(List<String> hosts) {
   final out = <String>[];
   void add(String b) {
@@ -1809,23 +1637,17 @@ List<String> natSeedBlocks(List<String> hosts) {
   return out;
 }
 
-// شمارنده‌های نمایش اسکن نت ملی
-int natMemQueued = 0; // چند IP از حافظه دوباره به صف اضافه شد
-int natRandomLast = 0; // چند IP تصادفی در آخرین دور اسکن بود
-// IPهایی که اسکن پیدا کرده (معتبر برای تست کانفیگ در نت ملی، همراه حافظه)
+int natMemQueued = 0;
+int natRandomLast = 0;
 final Set<String> natScanHits = {};
-// IPFIX: IP هایی که همین prescan تازه پیدا کرده (تا وقتی تست نشوند اسکن بزرگ صبر می‌کند)
 Set<String> natFreshHosts = {};
-// DOMAINCOUNT: شمارنده‌های مرحله‌ی دامنه‌های .ir برای نمایش در کادر
-int natDomainHosts = 0; // چند دامنه حل شد
-int natDomainIps = 0; // چند IP یکتا از آن‌ها
-int natDomainOpen = 0; // چند IP:پورت باز از آن‌ها
+int natDomainHosts = 0;
+int natDomainIps = 0;
+int natDomainOpen = 0;
 
-// سرورهای الگو برای ساختن کانفیگ IP جدید (وقتی صف خالی است هم کار می‌کند)
 List<Server> natTemplateSeeds = [];
 
 // V7: IP scanning is required by v7 (Layer 1 filter = IP/Port). Set to true.
-// (was false in the previous build; the national-network mode now needs it).
 bool kNatIpScanOn = true;
 
 Future<List<String>> natRangeScanStep({
@@ -1836,13 +1658,7 @@ Future<List<String>> natRangeScanStep({
   Duration budget = const Duration(minutes: 2),
 }) async {
   if (!kNatIpScanOn) return <String>[];
-  // DOMAINFIRST: دامنه‌های کانفیگ اول تست می‌شوند؛ IP هر دامنه روی همه‌ی پورت‌ها
-  final domOut = <String>[]; // DOMAINALWAYS: مرحله‌ی دامنه‌ها از جای دیگری (قبل از همه) صدا زده می‌شود
-  // IPهای کانفیگ‌ها در نت ملی فیلتر می‌شوند، پس بلوک‌ها از IPهای داخلی ساخته می‌شوند:
-  // ۱) IPهایی که قبلاً واقعاً در نت ملی جواب دادند (حافظه)
-  // ۲) IP عمومی خود گوشی (اپراتور داخلی)
-  // ۳) DNSهای ایرانی که برنامه خودش دارد (داخل کشور و در نت ملی باز هستند)
-  // سرورهای کانفیگ فقط به عنوان قالب ساخت کانفیگ استفاده می‌شوند، نه برای اسکن IP.
+  final domOut = <String>[];
   var seeds = known;
   if (seeds.length < 50) {
     try {
@@ -1862,8 +1678,6 @@ Future<List<String>> natRangeScanStep({
   for (final r in blocks) {
     addrs.addAll(natExpandAny(r));
   }
-  // Only user-supplied or previously verified ranges are eligible. Never
-  // scan arbitrary public IPv4 addresses: they are unrelated to VPN endpoints.
   if (addrs.isEmpty) return const <String>[];
   final from = natRangeCursor % addrs.length;
   final slice = addrs.skip(from).take(maxAddrs).toList();
@@ -1872,7 +1686,6 @@ Future<List<String>> natRangeScanStep({
   natIpScanned += slice.length;
   final out = <String>[...domOut];
   final portList = natAutoPorts(seeds);
-  // PORTSHARE: زمان دور بین همه‌ی پورت‌ها تقسیم می‌شود تا هیچ پورتی بی‌تست نماند
   final perPort = Duration(
       milliseconds: max(20000, budget.inMilliseconds ~/ max(1, portList.length)));
   for (final port in portList) {
@@ -1890,14 +1703,9 @@ Future<List<String>> natRangeScanStep({
       out.add('${h.ip}|$port');
     }
   }
-  // No exhaustive 1..65535 port sweep: it is expensive and does not validate a VPN config.
-
   return out;
 }
 
-// ===== لیست‌های کانفیگ اضافه‌ی کاربر (لینک اشتراک مستقیم) ======================
-// کاربر لینک‌های اشتراک (txt یا base64) از کانال‌ها و منابع مورد اعتمادش را وارد می‌کند.
-// این لینک‌ها اول دریافت می‌شوند، قبل از لیست‌های عمومی.
 List<String> userListUrls = [];
 
 Future<void> userListsLoad() async {
@@ -1925,29 +1733,20 @@ Future<void> userListsSave(String text) async {
   }
 }
 
-// ===== پوشه‌ی منابع تازه (نت ملی و حالت آفلاین) ================================
-// همه‌ی منابع (منابع خود برنامه + لینک‌های آنلاین + لینک‌های شخصی) دانلود می‌شوند.
-// هر منبع تا natHotPerSource کانفیگ و کل پوشه تا natHotMax (۲ میلیون).
-// منبع‌ها بر اساس نرخ موفقیت قبلی‌شان مرتب می‌شوند: بهترین‌ها اول در فایل می‌آیند.
-// فایل به صورت جریانی ساخته می‌شود (نه همه‌ی متن در حافظه) و جستجو فقط تکه‌ی لازم
-// را می‌خواند، تا حافظه‌ی گوشی پر نشود و اتصال خراب نشود.
-// هر ۴۸ ساعت از نو ساخته می‌شود. ساخت در پس‌زمینه است و اتصال هیچ‌وقت منتظرش نمی‌ماند.
-const int natHotPerSource = 2000000; // بدون سقف جدا برای هر منبع؛ فقط سقف کل اعمال می‌شود
-const int natHotMin = 30000; // فقط برای هشدار: کمتر از این یعنی منابع کم بوده
-const int natHotMax = 2000000; // سقف کل پوشه: ۲ میلیون (کانفیگ یکتا)
-// کانفیگ‌های آنلاین که الان در برنامه‌اند (دریافت‌شده و سالم) وارد پوشه می‌شوند؛ توسط main.dart تنظیم می‌شود
+const int natHotPerSource = 2000000;
+const int natHotMin = 30000;
+const int natHotMax = 2000000;
 List<Server> Function()? natExtraSource;
-const Duration natHotTtl = Duration(hours: 72); // FOLDERS: منابع تازه هر ۷۲ ساعت
+const Duration natHotTtl = Duration(hours: 72);
 const Duration natHotFetchDeadline = Duration(seconds: 900);
 bool _hotBusy = false;
-DateTime? _hotFailAt; // آخرین ساخت ناموفق؛ تا ۳۰ دقیقه دوباره تلاش نمی‌شود (مگر force)
+DateTime? _hotFailAt;
 int _hotCursor = 0;
-// نرخ موفقیت منابع (همان srcRate برنامه) برای مرتب‌سازی؛ در initState به آن وصل می‌شود
 Map<String, double> natSrcRates = {};
 
 class _HotIdx {
   final String file;
-  final List<int> offs; // شروع هر خط در فایل؛ آخرین عضو = اندازه‌ی فایل
+  final List<int> offs;
   _HotIdx(this.file, this.offs);
 }
 
@@ -1964,7 +1763,6 @@ String _hotPath() {
   }
 }
 
-// همه‌ی منبع‌ها: اول لینک‌های شخصی کاربر، بعد همه‌ی منابع برنامه (بدون تکرار)
 List<String> natHotUrls() {
   final seen = <String>{};
   return [
@@ -1973,7 +1771,6 @@ List<String> natHotUrls() {
   ];
 }
 
-// دریافت یک منبع؛ خطوط «منبع\tکانفیگ» برمی‌گرداند (حداکثر natHotPerSource)
 Future<List<String>> _hotFetchOne(String u) async {
   final out = <String>[];
   try {
@@ -1989,7 +1786,6 @@ Future<List<String>> _hotFetchOne(String u) async {
     if (!body.contains('://')) {
       if (!RegExp(r'^[A-Za-z0-9+/=_\-\s]+$').hasMatch(body)) return out;
       try {
-        // UTF8-FIX: allowMalformed تا یک بایت خراب کل منبع را از بین نبرد
         body = utf8.decode(
             base64.decode(base64.normalize(body.replaceAll(RegExp(r'\s'), ''))),
             allowMalformed: true);
@@ -2011,8 +1807,6 @@ Future<List<String>> _hotFetchOne(String u) async {
   return out;
 }
 
-// اگر ۴۸ ساعت گذشته یا force باشد، پوشه از نو ساخته می‌شود.
-// اگر دریافت تازه هیچ کانفیگی نداشت، فایل قبلی سر جایش می‌ماند.
 Future<void> natHotEnsure({bool force = false}) async {
   if (_hotBusy) return;
   final f = File(_hotPath());
@@ -2026,7 +1820,7 @@ Future<void> natHotEnsure({bool force = false}) async {
         DateTime.now().difference(_hotFailAt!) < const Duration(minutes: 30)) return;
     _hotBusy = true;
     final urls = natHotUrls();
-    final dir = '/data/data/com.kingvpn.king_vpn/files'; // PARTSPRIV: never the shared Download folder
+    final dir = '/data/data/com.kingvpn.king_vpn/files';
     final parts = [for (var i = 0; i < urls.length; i++) '$dir/hot_part_$i.txt'];
     final extraPath = '$dir/hot_part_extra.txt';
     final sw = Stopwatch()..start();
@@ -2038,7 +1832,6 @@ Future<void> natHotEnsure({bool force = false}) async {
         if (lines.isEmpty) return;
         await File(parts[i]).writeAsString(lines.join('\n'), flush: true);
       });
-      // کانفیگ‌های آنلاینِ داخل برنامه هم اضافه می‌شوند (تا وقتی نت ملی است داشته باشی)
       final extraSrc = natExtraSource?.call() ?? const <Server>[];
       if (extraSrc.isNotEmpty) {
         final ex = [
@@ -2047,7 +1840,6 @@ Future<void> natHotEnsure({bool force = false}) async {
         ];
         await File(extraPath).writeAsString(ex.join('\n'), flush: true);
       }
-      // بهترین منبع‌ها (نرخ موفقیت بالاتر) اول در فایل قرار می‌گیرند
       final order = [for (var i = 0; i < urls.length; i++) i]
         ..sort((a, b) => (natSrcRates[urls[b]] ?? 0.3)
             .compareTo(natSrcRates[urls[a]] ?? 0.3));
@@ -2057,7 +1849,7 @@ Future<void> natHotEnsure({bool force = false}) async {
       final sink = File(newPath).openWrite();
       try {
         var full = false;
-        final seenKeys = <int>{}; // حذف تکراری: هر کانفیگ فقط یک بار (بدون توجه به منبع)
+        final seenKeys = <int>{};
         final mergeFrom = <String>[
           if (File(extraPath).existsSync()) extraPath,
           for (final i in order) parts[i],
@@ -2067,3 +1859,163 @@ Future<void> natHotEnsure({bool force = false}) async {
           final pf = File(pth);
           if (!pf.existsSync()) continue;
           await for (final line in pf
+              .openRead()
+              .transform(utf8.decoder)
+              .transform(const LineSplitter())) {
+            if (line.isEmpty) continue;
+            final tab = line.indexOf('\t');
+            final cfg = tab >= 0 ? line.substring(tab + 1) : line;
+            if (!seenKeys.add(cfg.hashCode)) continue;
+            final b = utf8.encode(line);
+            sink.add(b);
+            sink.add(const [10]);
+            pos += b.length + 1;
+            offs.add(pos);
+            if (offs.length - 1 >= natHotMax) {
+              full = true;
+              break;
+            }
+          }
+        }
+      } finally {
+        await sink.close();
+      }
+      final total = offs.length - 1;
+      final oldIdx = await _hotLoad();
+      final oldTotal = oldIdx == null ? 0 : oldIdx.offs.length - 1;
+      if (total > 0 && oldTotal > 0 && total < oldTotal ~/ 2) {
+        dbg('پوشه‌ی منابع تازه: ساخت جدید فقط $total کانفیگ داشت (قبلی $oldTotal)؛ پوشه‌ی قبلی نگه داشته شد');
+        _hotFailAt = DateTime.now();
+        try {
+          await File(newPath).delete();
+        } catch (e) { errJournalAdd(e, kind: 'SILENT-FILE'); }
+      } else if (total > 0) {
+        _hotFailAt = null;
+        await File(newPath).rename(_hotPath());
+        _hot = _HotIdx(_hotPath(), offs);
+        _hotCursor = 0;
+        if (total < natHotMin) {
+          dbg('پوشه‌ی منابع تازه: $total کانفیگ (کمتر از $natHotMin)');
+        }
+      } else {
+        _hotFailAt = DateTime.now();
+        try {
+          await File(newPath).delete();
+        } catch (e) { errJournalAdd(e, kind: 'SILENT-FILE'); }
+      }
+    } finally {
+      for (final p in [...parts, extraPath]) {
+        try {
+          await File(p).delete();
+        } catch (e) { errJournalAdd(e, kind: 'SILENT-FILE'); }
+      }
+    }
+  } catch (e) {
+    _hotFailAt = DateTime.now();
+    logError(e);
+  } finally {
+    _hotBusy = false;
+  }
+}
+
+bool natHotReady() {
+  try {
+    final f = File(_hotPath());
+    return f.existsSync() && f.lengthSync() > 0;
+  } catch (jex, jstk) { errJournalAdd(jex, st: jstk);
+    return false;
+  }
+}
+
+Future<_HotIdx?> _hotLoad() async {
+  final cur = _hot;
+  if (cur != null) return cur;
+  final f = File(_hotPath());
+  try {
+    if (!f.existsSync() || f.lengthSync() == 0) return null;
+    final offs = <int>[0];
+    var pos = 0;
+    await for (final chunk in f.openRead()) {
+      for (var i = 0; i < chunk.length; i++) {
+        if (chunk[i] == 10) offs.add(pos + i + 1);
+      }
+      pos += chunk.length;
+    }
+    if (offs.last != pos) offs.add(pos);
+    _hot = _HotIdx(f.path, offs);
+    _hotCursor = 0;
+    return _hot;
+  } catch (e, stk) {
+    logError(e, stk);
+    return null;
+  }
+}
+
+Future<List<Server>> natHotNext(int n, {bool fetch = true}) async {
+  try {
+    if (fetch) unawaited(natHotEnsure());
+    final h = await _hotLoad();
+    if (h == null) return const [];
+    final lines = h.offs.length - 1;
+    if (lines <= 0) return const [];
+    final out = <Server>[];
+    final raf = await File(h.file).open();
+    try {
+      var read = 0;
+      while (out.length < n && read < lines) {
+        var start = _hotCursor;
+        if (start >= lines) start = 0;
+        final take = min(min(n - out.length, lines - start), lines - read);
+        final from = h.offs[start];
+        final to = h.offs[start + take];
+        await raf.setPosition(from);
+        final bytes = await raf.read(to - from);
+        final text = utf8.decode(bytes, allowMalformed: true);
+        for (final e in text.split('\n')) {
+          final i = e.indexOf('\t');
+          if (i < 0) continue;
+          final s = Server.parse(e.substring(i + 1));
+          if (s != null) {
+            s.src = e.substring(0, i);
+            out.add(s);
+          }
+        }
+        read += take;
+        _hotCursor = (start + take) % lines;
+      }
+    } finally {
+      await raf.close();
+    }
+    return out;
+  } catch (e, stk) {
+    logError(e, stk);
+    return const [];
+  }
+}
+
+const String kNatMemKey = 'nat_last_success';
+
+Future<void> natRememberSuccess(Server s) async {
+  try {
+    final p = await SharedPreferences.getInstance();
+    await p.setString(
+        kNatMemKey,
+        jsonEncode({
+          'link': s.link,
+          'natLevel': natLevel,
+          'offlineOnly': offlineOnly,
+          'indestructibleMode': indestructibleMode,
+        }));
+  } catch (_) {}
+}
+
+Future<void> natMemLoad() async {
+  try {
+    final p = await SharedPreferences.getInstance();
+    final raw = p.getString(kNatMemKey);
+    if (raw == null) return null;
+    final m = jsonDecode(raw) as Map<String, dynamic>;
+    natLevel = (m['natLevel'] as int?) ?? natLevel;
+    offlineOnly = (m['offlineOnly'] as bool?) ?? offlineOnly;
+  } catch (_) {}
+}
