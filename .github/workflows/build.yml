@@ -34,7 +34,6 @@ jobs:
             [ -f "lib/$f.dart" ] || { echo "ERROR: lib/$f.dart missing"; exit 1; }
             cp "lib/$f.dart" "build_app/lib/$f.dart"
           done
-          # Turn the pre-connect ad back on (it was switched off in the test build)
           if grep -q 'bool requireRewardedAd = false;' build_app/lib/main.dart; then
             sed -i 's/bool requireRewardedAd = false;/bool requireRewardedAd = true;/' build_app/lib/main.dart
             echo "requireRewardedAd switched from false to true"
@@ -45,7 +44,6 @@ jobs:
           fi
           grep -q 'bool requireRewardedAd = true;' build_app/lib/main.dart \
             || { echo "ERROR: requireRewardedAd is not true after patch"; exit 1; }
-          # Apply verified patches (test report + national IP hunt). Stops the build if anything does not match.
           python3 patch_v2.py build_app/lib
           python3 prepare_android.py
           python3 patch_v3.py build_app/lib
@@ -91,8 +89,6 @@ jobs:
           KS_ALIAS: ${{ secrets.KS_ALIAS }}
         run: |
           printf '\norg.gradle.vfs.watch=false\norg.gradle.daemon=false\norg.gradle.jvmargs=-Xmx3g\n' >> android/gradle.properties
-          # Gradle plugin repos sometimes answer HTTP 429 (Too Many Requests) to
-          # shared CI runners. That is temporary: wait and try again, up to 3 times.
           for attempt in 1 2 3; do
             if flutter build apk --release --target-platform android-arm64 --build-number=${{ github.run_number }}; then
               exit 0
@@ -103,7 +99,6 @@ jobs:
           echo "Build failed after 3 attempts"
           exit 1
 
-      # ARTIFACT-FALLBACK: keep the APK in the run even if the Release step fails
       - name: Keep APK as run artifact
         if: always()
         uses: actions/upload-artifact@v4
