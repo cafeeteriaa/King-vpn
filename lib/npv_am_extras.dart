@@ -2,35 +2,21 @@ part of 'main.dart';
 
 // NPVAMPATCH ===============================================================
 // بخش‌های مشترک V2Ray برای King-vpn: خواندن لینک، IP تمیز، Fragment / Mux / DNS
-//
-// 1) خواندن «کانفیگ‌های غیراستاندارد» (سازگار با NPV): لینک‌های دارای کاراکتر
-//    نامرئی / اسکیپ‌شده / درصدی، لینک‌های بسته‌بندی‌شده با یک اسکیم ناشناخته
-//    (npv://، npvt:// ...) که داخلشان base64 یک لینک استاندارد است، متن base64
-//    خالی، و کانفیگ JSON کامل v2ray/xray (vmess/vless/trojan/ss) -> لینک استاندارد.
-//    پورت و بقیه‌ی پارامترها هرگز دست نمی‌خورند.
-// 2) IP تمیز: فهرست IP ها از چند منبع + نمونه از رنج‌های Cloudflare،
-//    تست TCP روی 443، نگه‌داشتن سریع‌ترین‌ها؛ برای سرورهای پشت Cloudflare
-//    به‌جای آدرس دامنه از این IP ها استفاده می‌شود (SNI/Host همان دامنه می‌ماند).
-// 3) Fragment / Mux / DNS امن: تغییر واقعی روی JSON هسته (فقط اتصال واقعی،
-//    تست‌ها دست‌نخورده می‌مانند).
 // ===========================================================================
 
-// ---------------------------- تنظیمات (ذخیره در settings) ----------------------------
-bool npvParse = true; // خواندن کانفیگ‌های غیراستاندارد
-// RELAY: لینک سرور داخلی/واسط برای دور زدن نت ملی (Multi-hop)
-String relayServerUrl = '';
-bool cleanIpMode = true; // IP تمیز برای سرورهای Cloudflare
-bool fragEnabled = false; // OFF by default = much higher post-connect speed
-bool muxEnabled = true; // ON: توربو سرعت بعد از اتصال — Mux فعال
-bool secureDns = true; // DNS از طریق DoH + IP fallback
-bool blockQuic = true; // مسدود کردن QUIC (UDP 443) تا مرورگرها به TCP/TLS برگردند
-bool lanDirect = true; // شبکه‌ی محلی (LAN) از تونل رد نشود
-bool routeOnly = false; // دامنه‌ی sniff شده فقط برای مسیریابی، مقصد IP دست‌نخورده
-String fragLen = '100-200'; // طول تکه‌های Fragment
-String fragInt = '10-20'; // فاصله‌ی تکه‌ها (میلی‌ثانیه)
-int muxConc = 32; // concurrency بالا برای سرعت بیشتر
-String dnsProv = 'auto'; // auto | cloudflare | google | quad9 | opendns | adguard | shecan | electro | radar
-/// آخرین ارائه‌دهندهٔ برنده‌شده وقتی dnsProv=auto است
+bool npvParse = true;
+String relayServerUrl = ''; // RELAY: لینک سرور واسط (Multi-hop)
+bool cleanIpMode = true;
+bool fragEnabled = false;
+bool muxEnabled = true;
+bool secureDns = true;
+bool blockQuic = true;
+bool lanDirect = true;
+bool routeOnly = false;
+String fragLen = '100-200';
+String fragInt = '10-20';
+int muxConc = 32;
+String dnsProv = 'auto';
 String dnsProvActive = 'cloudflare';
 DateTime? _dnsPickAt;
 const _fragLenOpts = <String>['100-200', '50-100', '10-30'];
@@ -92,14 +78,11 @@ const _dnsUrls = <String, List<String>>{
   ],
 };
 
-/// ارائه‌دهندهٔ واقعی برای ساخت کانفیگ (auto → برنده‌شده)
 String effectiveDnsProv() =>
     dnsProv == 'auto' ? dnsProvActive : dnsProv;
 
-/// CUSTOMDNS: DNS دلخواه کاربر؛ IP ساده (مثل 1.1.1.1) یا https://... (DoH)
 String customDnsAddr = '';
 
-/// اگر dnsProv=custom و آدرس معتبر باشد همان را برمی‌گرداند؛ وگرنه null
 List<String>? customDnsList() {
   if (effectiveDnsProv() != 'custom') return null;
   final a = customDnsAddr.trim();
@@ -108,7 +91,6 @@ List<String>? customDnsList() {
   return null;
 }
 
-/// تست DoH با HTTP
 Future<int?> _probeDoh(String url) async {
   final sw = Stopwatch()..start();
   final cl = HttpClient()..connectionTimeout = const Duration(seconds: 2);
@@ -129,7 +111,6 @@ Future<int?> _probeDoh(String url) async {
   return null;
 }
 
-/// تست DNS فقط با IP (پورت ۵۳)
 Future<int?> _probeDnsIp(String ip) async {
   final sw = Stopwatch()..start();
   try {
@@ -145,8 +126,6 @@ Future<int?> _probeDnsIp(String ip) async {
   }
 }
 
-/// تست همهٔ ارائه‌دهنده‌ها و انتخاب کم‌تأخیرترین.
-/// نتیجه حدود ۱۰ دقیقه کش می‌شود.
 Future<String> pickBestDns({bool force = false}) async {
   if (dnsProv != 'auto') {
     dnsProvActive = dnsProv;
@@ -158,7 +137,6 @@ Future<String> pickBestDns({bool force = false}) async {
     return dnsProvActive;
   }
 
-  // DoH-capable providers
   const dohProbes = <String, String>{
     'cloudflare': 'https://1.1.1.1/dns-query?name=google.com&type=A',
     'google': 'https://8.8.8.8/resolve?name=google.com&type=A',
@@ -166,7 +144,6 @@ Future<String> pickBestDns({bool force = false}) async {
     'adguard':
         'https://94.140.14.14/dns-query?name=google.com&type=A',
   };
-  // Plain-IP providers (TCP :53)
   const ipProbes = <String, String>{
     'opendns': '208.67.222.222',
     'shecan': '178.22.122.100',
@@ -198,7 +175,7 @@ Future<String> pickBestDns({bool force = false}) async {
   _dnsPickAt = DateTime.now();
   return best;
 }
-// رنج‌های خصوصی؛ بدون نیاز به فایل geoip
+
 const _lanCidrs = <String>[
   '10.0.0.0/8',
   '172.16.0.0/12',
@@ -206,20 +183,15 @@ const _lanCidrs = <String>[
   '127.0.0.0/8',
   '169.254.0.0/16',
 ];
-bool iranMore = true; // دامنه‌های ایرانیِ غیر .ir هم مستقیم بروند (به‌جز iranRoute)
+bool iranMore = true;
 
-// منابع اضافه‌ی لیست. فایل vless_configs.txt در تست زنده باز شد (لینک خام، سطر به سطر؛
-// پر از &amp; و userinfo درصدی که پارسر NPV درستشان می‌کند). مسیر vmess/trojan از README خود ریپو.
-// لینک مرده خودکار رد می‌شود.
 final List<String> _npvUrls = [
-  // ebrasha — updated every ~15 min, includes escaped/messy links NPV parser handles
   'https://raw.githubusercontent.com/ebrasha/free-v2ray-public-list/refs/heads/main/vless_configs.txt',
   'https://raw.githubusercontent.com/ebrasha/free-v2ray-public-list/refs/heads/main/vmess_configs.txt',
   'https://raw.githubusercontent.com/ebrasha/free-v2ray-public-list/refs/heads/main/trojan_configs.txt',
   'https://raw.githubusercontent.com/ebrasha/free-v2ray-public-list/refs/heads/main/ss_configs.txt',
   'https://raw.githubusercontent.com/ebrasha/free-v2ray-public-list/refs/heads/main/all_extracted_configs.txt',
   'https://raw.githubusercontent.com/ebrasha/free-v2ray-public-list/refs/heads/main/V2Ray-Config-By-EbraSha-All-Type.txt',
-  // frequent updaters (good for npv:// / percent-encoded / messy lines)
   'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/verified/configs.txt',
   'https://raw.githubusercontent.com/0xRadikal/Free-v2ray-Configs/main/all/configs.txt',
   'https://raw.githubusercontent.com/Alirewa/V2ray-Configs/main/config.txt',
@@ -234,7 +206,6 @@ final List<String> _npvUrls = [
   'https://raw.githubusercontent.com/youfoundamin/V2rayCollector/main/mixed_iran.txt',
   'https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/protocols/vless',
   'https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/protocols/vmess',
-  // verified live 2026-10-16
   'https://raw.githubusercontent.com/3inker/v2ray-subscription/main/subs/all_not_ru.txt',
   'https://raw.githubusercontent.com/3inker/v2ray-subscription/main/subs/all_ru.txt',
   'https://raw.githubusercontent.com/free-nodes/v2rayfree/main/sub',
@@ -242,7 +213,6 @@ final List<String> _npvUrls = [
   'https://raw.githubusercontent.com/Au1rxx/free-vpn-subscriptions/main/output/v2ray-base64.txt',
 ];
 
-// =========================== 1) پارسر سازگار با NPV ===========================
 final RegExp _zeroWidth =
     RegExp('[\u200B-\u200F\u202A-\u202E\u2060\uFEFF]');
 final RegExp _pctScheme =
@@ -250,7 +220,6 @@ final RegExp _pctScheme =
 final RegExp _anyScheme = RegExp(r'^([a-zA-Z][a-zA-Z0-9+.\-]{1,12})://(.+)$');
 final RegExp _b64Body = RegExp(r'^[A-Za-z0-9+/_\-=\s]+$');
 
-// پاک‌سازی سبک یک خط (روی هر Server.parse اجرا می‌شود، پس باید ارزان باشد)
 String npvClean(String s) {
   if (!npvParse) return s;
   var t = s.replaceAll(_zeroWidth, '').trim();
@@ -260,7 +229,6 @@ String npvClean(String s) {
     final m = _pctScheme.firstMatch(t);
     if (m != null) t = '${m.group(1)}://${t.substring(m.end)}';
   }
-  // ویرگول / نقطه‌ویرگول / کوتیشن انتهای خط (از CSV و JSON)
   while (t.isNotEmpty && (t.endsWith(',') || t.endsWith(';') || t.endsWith("'"))) {
     t = t.substring(0, t.length - 1);
   }
@@ -278,8 +246,6 @@ String? _b64Text(String raw) {
   }
 }
 
-// خطی که اسکیم استاندارد ندارد: npv://<base64>، یا هر اسکیم ناشناخته که
-// داخلش یک لینک استاندارد (یا JSON) پنهان است. اگر چیزی پیدا نشد null.
 String? npvNormalizeLink(String line) {
   if (!npvParse) return null;
   final t = npvClean(line);
@@ -292,7 +258,6 @@ String? npvNormalizeLink(String line) {
     try {
       payload = Uri.decodeComponent(payload);
     } catch (_) {
-      // درصد نامعتبر در لینک خراب: همان متن خام ادامه پیدا می‌کند؛ خطای برنامه نیست (جدید)
     }
   } else {
     payload = t;
@@ -312,26 +277,22 @@ String? npvNormalizeLink(String line) {
   return null;
 }
 
-// یک متن چندخطی (فایل، لینک اشتراک، متن چسبانده‌شده) -> فهرست لینک‌های تک‌خطی
 List<String> npvSplit(String text) {
   final plain = text.split(RegExp(r'[\r\n]+'));
   if (!npvParse) return plain;
   final out = <String>[];
   final t = text.replaceAll(_zeroWidth, '').trim();
   if (t.isEmpty) return out;
-  // 1) JSON کامل
   if (t.startsWith('{') || t.startsWith('[')) {
     try {
       out.addAll(npvJsonToLinks(jsonDecode(t)));
       if (out.isNotEmpty) return out;
     } catch (e, stk) { logError(e, stk); }
   }
-  // 2) کل متن یک بلوک base64 است
   if (!t.contains('://') && _b64Body.hasMatch(t)) {
     final d = _b64Text(t);
     if (d != null && d.contains('://')) return npvSplit(d);
   }
-  // 3) خط به خط؛ چند لینک در یک خط هم جدا می‌شود
   for (final raw in plain) {
     final line = npvClean(raw);
     if (line.isEmpty) continue;
@@ -348,7 +309,6 @@ List<String> npvSplit(String text) {
   return out;
 }
 
-// ---- JSON کامل v2ray/xray -> لینک ----
 List<String> npvJsonToLinks(dynamic j, {int depth = 0}) {
   final out = <String>[];
   if (depth > 3) return out;
@@ -475,7 +435,6 @@ String? _npvOutboundLink(dynamic o, String remark) {
               fragment: name)
           .toString();
     }
-    // shadowsocks (SIP002)
     final ui = base64
         .encode(utf8.encode('${sv['method']}:${sv['password']}'))
         .replaceAll('=', '');
@@ -486,11 +445,10 @@ String? _npvOutboundLink(dynamic o, String remark) {
   }
 }
 
-// =========================== 2) IP تمیز ===========================
 class CleanIp {
   final String ip;
   final int ms;
-  final int port; // IPPORT: پورت CDN که این IP روی آن باز بود
+  final int port;
   CleanIp(this.ip, this.ms, [this.port = 443]);
 }
 
@@ -502,8 +460,6 @@ bool _cleanLoaded = false;
 String _cleanOp = '';
 int _cleanRot = 0;
 
-// رنج‌های IPv4 منتشرشده‌ی Cloudflare. لیست‌های ثابتِ «IP تمیز» زود کهنه می‌شوند و
-// ابزارهای معروف (مثل cfray) هم به‌جای دانلود لیست، همین رنج‌ها را اسکن می‌کنند.
 const _cfRanges = <String>[
   '104.16.0.0/13',
   '172.64.0.0/13',
@@ -554,9 +510,7 @@ List<String> _cidrSample(String cidr, int n, Random r) {
 Future<List<String>> _cleanCandidates() async {
   final r = Random();
   final set = <String>{};
-  // built-in Cloudflare ranges
   var ranges = List<String>.of(_cfRanges);
-  // try official live list (updated by Cloudflare) — if it fails we keep fallback
   try {
     final res = await http
         .get(Uri.parse('https://www.cloudflare.com/ips-v4'))
@@ -577,11 +531,6 @@ Future<List<String>> _cleanCandidates() async {
   return l.take(240).toList();
 }
 
-// CLEANIPFIX: the old probe connected with SecureSocket.connect(ip) which sends
-// NO SNI, and Cloudflare drops such handshakes -> every IP failed (0 of 100).
-// Now: TCP connect to the IP, TLS with SNI cloudflare.com, then
-// /cdn-cgi/trace. If TLS fails the plain HTTP (port 80) answer of Cloudflare is
-// used as a second chance.
 Future<String> _cfRead(Socket k, Duration t) async {
   final data = <int>[];
   try {
@@ -616,7 +565,6 @@ Future<int?> _cfProbeMs(String ip, Duration t) async {
     k?.destroy();
     raw?.destroy();
   }
-  // second chance: plain HTTP on port 80
   Socket? h;
   try {
     final sw2 = Stopwatch()..start();
@@ -644,7 +592,6 @@ Future<void> _doRefreshClean() async {
     final c = await _cleanCandidates();
     final res = <CleanIp>[];
     var done = 0;
-    // ANR-safe: async sockets only, a short pause after each probe
     await pool<String>(c, 20, (ip) async {
       if (res.length >= 20) return;
       final ms = await _cfProbeMs(ip, const Duration(milliseconds: 3500));
@@ -661,7 +608,7 @@ Future<void> _doRefreshClean() async {
     cleanIpsAt = DateTime.now();
     cleanIpStatus = '${cleanIps.length} IP سالم از ${c.length} تست';
     await _saveCleanIps();
-    await goldMergeIps(res); // GOLD: IPهای تمیز نت جهانی در پوشه‌ی ذخیره هم می‌مانند
+    await goldMergeIps(res);
   } catch (e, stk) {
     logError(e, stk);
     cleanIpStatus = 'خطا در دریافت IP';
@@ -708,7 +655,6 @@ Future<void> _loadCleanIps() async {
   }
 }
 
-// یک IP تمیز برای یک سرور Cloudflare (بین ۵ تای سریع می‌چرخد)
 Future<String?> pickCleanIp() async {
   if (!_cleanLoaded || _cleanOp != natOpKey) {
     _cleanLoaded = true;
@@ -719,7 +665,6 @@ Future<String?> pickCleanIp() async {
     _cleanOp = natOpKey;
     await _loadCleanIps();
   }
-  // GOLD: در نت ملی IPهای پوشه‌ی جهانی استفاده می‌شوند؛ جستجوی جدید در نت ملی فیلتر است
   await goldLoad();
   if (nationalMode) {
     final g = goldIpList();
@@ -734,15 +679,13 @@ Future<String?> pickCleanIp() async {
   if (cleanIps.isEmpty) {
     await refreshCleanIps();
   } else if (stale) {
-    refreshCleanIps(); // در پس‌زمینه
+    refreshCleanIps();
   }
   if (cleanIps.isEmpty) return null;
   final n = min(5, cleanIps.length);
   return cleanIps[_cleanRot++ % n].ip;
 }
 
-// سایت‌های ایرانی با دامنه‌ی غیر .ir (دامنه‌های .ir و چند سایت بزرگ از قبل در iranDomains هستند).
-// این‌ها با IP خارجی یا باز نمی‌شوند یا ترافیک نیم‌بها نمی‌گیرند، پس مستقیم می‌روند.
 const _iranMoreDomains = <String>[
   'domain:sheypoor.com',
   'domain:ninisite.com',
@@ -753,8 +696,6 @@ const _iranMoreDomains = <String>[
   'domain:tgju.org',
 ];
 
-// =========================== 3) Fragment / Mux / DNS ===========================
-// فقط روی اتصال واقعی (بعد از withIranRouting). تست‌ها بدون این تغییرات می‌مانند.
 String withNpvAmCore(String cfg) {
   final moreIr = iranRoute && iranMore;
   if (!fragEnabled &&
@@ -771,7 +712,6 @@ String withNpvAmCore(String cfg) {
     if (j is! Map<String, dynamic>) return cfg;
     final outs = (j['outbounds'] as List?) ?? <dynamic>[];
 
-    // خروجی freedom (مستقیم) موجود را پیدا می‌کند؛ اگر نبود می‌سازد
     String directTag() {
       for (final o in outs) {
         if (o is Map &&
@@ -795,7 +735,6 @@ String withNpvAmCore(String cfg) {
       return 'npv-block';
     }
 
-    // قوانین مسیریابی جدید؛ همه‌شان در ابتدای لیست قوانین قرار می‌گیرند
     final pre = <dynamic>[];
     if (blockQuic) {
       pre.add({
@@ -868,7 +807,6 @@ String withNpvAmCore(String cfg) {
                   ?.toString() ??
               '';
         } catch (e, stk) { logError(e, stk); }
-        // Mux با flow (xtls-rprx-vision) کار نمی‌کند
         if (flow.isEmpty) {
           proxy['mux'] = {'enabled': true, 'concurrency': muxConc};
         }
@@ -877,8 +815,6 @@ String withNpvAmCore(String cfg) {
     j['outbounds'] = outs;
     if (secureDns) {
       final d = j['dns'] is Map ? j['dns'] as Map : <String, dynamic>{};
-      // Plain IP DNS FIRST (fast, reliable for apps), then DoH.
-      // DoH-only often makes Telegram/apps hang when the tunnel is weak.
       final first = customDnsList() ??
           _dnsUrls[effectiveDnsProv()] ??
           _dnsUrls['cloudflare']!;
@@ -900,7 +836,6 @@ String withNpvAmCore(String cfg) {
           }
         }
       }
-      // Always include common public + Iranian DNS as fallback chain
       for (final ip in [
         '1.1.1.1',
         '8.8.8.8',
@@ -917,10 +852,8 @@ String withNpvAmCore(String cfg) {
         if (!ips.contains(ip)) ips.add(ip);
       }
       d['servers'] = [...ips, ...doh];
-      // UseIP = هم IPv4 و هم IPv6
       d['queryStrategy'] = 'UseIP';
       j['dns'] = d;
-      // Help domain-based routing resolve correctly for apps
       final rt = j['routing'] is Map ? j['routing'] as Map : <String, dynamic>{};
       rt['domainStrategy'] = rt['domainStrategy'] ?? 'AsIs';
       j['routing'] = rt;
@@ -932,7 +865,6 @@ String withNpvAmCore(String cfg) {
   }
 }
 
-// =========================== رابط: بخش تنظیمات + دیالوگ ===========================
 List<Widget> npvAmSettingsItems(
   Widget Function(String) head,
   Widget Function(String, bool, void Function(bool), {String? sub}) sw,
@@ -944,22 +876,6 @@ List<Widget> npvAmSettingsItems(
           (v) => npvParse = v,
           sub:
               'لینک‌های اسکیپ‌شده، npv://، base64 خالی و JSON کامل v2ray در «افزودن کانفیگ» و لیست‌ها خوانده می‌شوند'),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: TextFormField(
-          initialValue: relayServerUrl,
-          decoration: const InputDecoration(
-            labelText: 'لینک سرور واسط (برای دور زدن نت ملی)',
-            hintText: 'vless://... یا vmess://...',
-            border: OutlineInputBorder(),
-            helperText: 'اگر اینترنت بین‌الملل قطع شود، اتصال از پشت این سرور رد می‌شود.',
-            helperMaxLines: 2,
-          ),
-          onChanged: (v) {
-            relayServerUrl = v.trim();
-          },
-        ),
-      ),
       sw('ترافیک داخلی بیشتر مستقیم (سایت‌های ایرانی غیر .ir)', iranMore,
           (v) => iranMore = v,
           sub:
@@ -974,7 +890,7 @@ List<Widget> npvAmSettingsItems(
               'دامنه‌ی تشخیص‌داده‌شده فقط برای مسیریابی است و مقصد IP تغییر نمی‌کند؛ اگر برنامه‌ای خراب شد خاموشش کن'),
       sw('IP تمیز برای سرورهای Cloudflare', cleanIpMode, (v) {
         cleanIpMode = v;
-        if (v) forceIpMode(); // به «اتصال با IP» وابسته است
+        if (v) forceIpMode();
       },
           sub:
               'اپ خودش رنج‌های Cloudflare را اسکن می‌کند (TLS واقعی) و برای سرورهای پشت Cloudflare سریع‌ترین IP را به‌جای دامنه می‌گذارد (اتصال با IP خودکار روشن می‌شود). منوی ⋮ ← IP تمیز'),
@@ -1001,7 +917,6 @@ List<Widget> npvAmSettingsItems(
     ];
 
 extension NpvAmExtras on _HomePageState {
-  // مقدارهای Fragment / Mux / DNS
   void npvAdvDialog() {
     showDialog(
       context: context,
@@ -1077,9 +992,47 @@ extension NpvAmExtras on _HomePageState {
     ).then((_) => _saveSettings());
   }
 
+  // RELAY: UI dialog for the relay server (Multi-hop)
+  void showRelayDialog(BuildContext context) {
+    final c = TextEditingController(text: relayServerUrl);
+    showDialog(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('🔗 سرور واسط (دور زدن نت ملی)'),
+          content: TextField(
+            controller: c,
+            maxLines: 4,
+            minLines: 1,
+            textDirection: TextDirection.ltr,
+            decoration: const InputDecoration(
+              hintText: 'vless://... یا vmess://...',
+              helperText: 'اگر نت ملی فعال باشد، اتصال از پشت این سرور رد می‌شود.',
+              helperMaxLines: 2,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('انصراف'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                relayServerUrl = c.text.trim();
+                await _saveSettings();
+                if (mounted) Navigator.pop(ctx);
+                _set(relayServerUrl.isEmpty ? 'سرور واسط پاک شد' : 'سرور واسط ذخیره شد');
+              },
+              child: const Text('ذخیره'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void cleanIpDialog() {
-    // CLEANIPFIX: the scan starts by itself when the window opens and the
-    // window updates live (it used to show a frozen "collecting..." text)
     if (_cleanBusy == null &&
         (cleanIps.isEmpty ||
             cleanIpsAt == null ||
@@ -1190,24 +1143,16 @@ extension NpvAmExtras on _HomePageState {
   }
 }
 
-// ======================= پوشه‌ی ذخیره‌ی جهانی (GOLD) =======================
-// IPهای تمیز و سرورهای سالم (همراه جایگزین IP) که در نت جهانی پیدا شده‌اند،
-// اینجا جدا از کد اپراتور ذخیره می‌شوند تا وقتی نت ملی روشن شد استفاده شوند.
-// - وقتی وصل هستیم، هر چند دقیقه IP تمیز تازه پیدا و ذخیره می‌شود (فقط در نت جهانی).
-// - هر ۲۴ ساعت همه‌ی IPها و سرورها دوباره تست می‌شوند؛ خرابی‌ها حذف می‌شوند.
-// - در نت ملی، IPهای همین پوشه استفاده می‌شوند؛ تست و جستجو در نت ملی انجام نمی‌شود
-//   (کلودفلر در نت ملی فیلتر است و تست آن خرابی‌ها را اشتباهاً حذف می‌کرد).
-
-const int kGoldIpCap = 100000; // سقف IP تمیز ذخیره‌شده
-const int kGoldSrvCap = 20000; // سقف سرور سالم و جایگزین
-const int kGoldDailyProbes = 250000; // سقف تست IP در روز (هر تست داده‌ی موبایل مصرف می‌کند)
-const int kGoldRetestBatch = 500; // تعداد تست دوباره در هر نوبت (تا همه‌ی IPها در ۲۴ ساعت برسند)
-const int kGoldEveryMin = 5; // هر چند دقیقه یک نوبت جستجو (وقتی وصل هستیم)
-const int kGoldRetestHours = 24; // هر چند ساعت یک بار تست دوباره
+const int kGoldIpCap = 100000;
+const int kGoldSrvCap = 20000;
+const int kGoldDailyProbes = 250000;
+const int kGoldRetestBatch = 500;
+const int kGoldEveryMin = 5;
+const int kGoldRetestHours = 24;
 
 class _GoldIp {
   final String ip;
-  int ms, port, okAt, testAt; // زمان‌ها: میلی‌ثانیه از epoch
+  int ms, port, okAt, testAt;
   _GoldIp(this.ip, this.ms, this.port, this.okAt, this.testAt);
 }
 
@@ -1229,7 +1174,6 @@ String _goldToday() {
   return '${n.year}-${n.month}-${n.day}';
 }
 
-// سهمیه‌ی تست امروز؛ با عوض شدن روز صفر می‌شود
 int _goldBudgetLeft() {
   final d = _goldToday();
   if (_goldDay != d) {
@@ -1241,7 +1185,6 @@ int _goldBudgetLeft() {
 
 Future<void>? _goldLoadF;
 
-// هم‌زمان چند بار صدا زده شود، بارگذاری فقط یک بار و تا پایان انجام می‌شود
 Future<void> goldLoad() => _goldLoadF ??= _goldLoadOnce();
 
 Future<void> _goldLoadOnce() async {
@@ -1270,13 +1213,12 @@ Future<void> _goldLoadOnce() async {
 }
 
 Future<void> goldSave() async {
-  await goldLoad(); // اول بارگذاری، تا نوشتن چیزی را که هنوز خوانده نشده پاک نکند
+  await goldLoad();
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString(
         'gold_v1',
         jsonEncode({
-          // مرتب از سریع به کند
           'ips': [
             for (final v in (_goldIps.values.toList()..sort((a, b) => a.ms.compareTo(b.ms))))
               [v.ip, v.ms, v.port, v.okAt, v.testAt]
@@ -1293,8 +1235,6 @@ Future<void> goldSave() async {
   }
 }
 
-// سقف‌ها: کندترین IPها حذف می‌شوند (سریع‌ترین‌ها می‌مانند)
-// مرتب‌سازی فقط وقتی سقف رد شده؛ تا ۵٪ زیر سقف کم می‌شود تا هر نوبت تکرار نشود
 void _goldTrimIps() {
   if (_goldIps.length <= kGoldIpCap) return;
   final keep = kGoldIpCap * 95 ~/ 100;
@@ -1312,8 +1252,6 @@ void _goldTrimSrv() {
   }
 }
 
-// IPهای پوشه برای استفاده (سریع‌ترین‌ها اول)
-// بدون مرتب‌سازی کل پوشه (ممکن است میلیون‌ها IP باشد): فقط ۲۰ سریع‌ترین نگه داشته می‌شوند
 List<CleanIp>? _goldTop;
 List<CleanIp> goldIpList() {
   if (_goldTop != null) return _goldTop!;
@@ -1331,14 +1269,12 @@ List<CleanIp> goldIpList() {
   return _goldTop = [for (final v in best) CleanIp(v.ip, v.ms, v.port)];
 }
 
-// نت ملی: IPهای پوشه‌ی جهانی جای IPهای تمیز را می‌گیرند (سریع‌ترین‌ها اول)
 void goldPrepareNational() {
   if (!nationalMode) return;
   final g = goldIpList();
   if (g.isNotEmpty) cleanIps = g;
 }
 
-// وقتی لیست IP تمیز در نت جهانی ساخته می‌شود، در پوشه هم ذخیره می‌شود
 Future<void> goldMergeIps(List<CleanIp> res) async {
   if (res.isEmpty) return;
   await goldLoad();
@@ -1351,7 +1287,6 @@ Future<void> goldMergeIps(List<CleanIp> res) async {
   await goldSave();
 }
 
-// تست گروهی IP با همان تست تمیز بودن برنامه
 Future<Map<String, int?>> _goldProbe(List<String> ips) async {
   final out = <String, int?>{};
   if (ips.isEmpty) return out;
@@ -1362,7 +1297,6 @@ Future<Map<String, int?>> _goldProbe(List<String> ips) async {
   return out;
 }
 
-// بخش IP: تست دوباره‌ی قدیمی‌ها و پیدا کردن IP تمیز تازه (فقط نت جهانی)
 Future<void> _goldIpStep() async {
   if (nationalMode) return;
   final nowMs = DateTime.now().millisecondsSinceEpoch;
@@ -1370,7 +1304,6 @@ Future<void> _goldIpStep() async {
   if (left <= 0) return;
   final retestMs = kGoldRetestHours * 3600 * 1000;
 
-  // ۱) تست دوباره‌ی IPهایی که از ۲۴ ساعت پیش تست نشده‌اند (اولویت با این بخش)
   final due = _goldIps.values
       .where((v) => nowMs - v.testAt >= retestMs)
       .take(left < kGoldRetestBatch ? left : kGoldRetestBatch)
@@ -1395,7 +1328,6 @@ Future<void> _goldIpStep() async {
     _goldTop = null;
   }
 
-  // ۲) IP تمیز تازه‌ی جدید
   if (left <= 0) return;
   final cands = await _cleanCandidates();
   final batch = cands
@@ -1418,12 +1350,10 @@ Future<void> _goldIpStep() async {
   dbg('گلد: IP تازه $found از ${batch.length} • پوشه ${_goldIps.length} • امروز $_goldCnt/$kGoldDailyProbes');
 }
 
-// پوشه‌ی سرور: سرورهای سالم (با جایگزین IP) ذخیره و هر ۲۴ ساعت تست می‌شوند
 Future<void> _goldSrvStep(_HomePageState h) async {
   final nowMs = DateTime.now().millisecondsSinceEpoch;
   var changed = false;
 
-  // ۱) سرورهای سالم فعلی (همان لینکی که کار کرده، یعنی جایگزین IP اگر باشد)
   for (final s in h.good) {
     final p = s.ping;
     if (p == null || h._bad(s)) continue;
@@ -1440,7 +1370,6 @@ Future<void> _goldSrvStep(_HomePageState h) async {
   }
   _goldTrimSrv();
 
-  // ۲) تست دوباره‌ی سرورهای قدیمی‌تر از ۲۴ ساعت (فقط نت جهانی)
   if (!nationalMode) {
     final retestMs = kGoldRetestHours * 3600 * 1000;
     final due = _goldSrv.values
@@ -1467,12 +1396,10 @@ Future<void> _goldSrvStep(_HomePageState h) async {
     }
   }
 
-  // ۳) سرورهای پوشه که در لیست سالم‌ها نیستند، به لیست برمی‌گردند
   await _goldMergeGood(h);
   if (changed) await goldSave();
 }
 
-// سرورهای ذخیره‌شده به لیست سرورهای سالم اضافه می‌شوند (برای نت ملی هم)
 Future<void> _goldMergeGood(_HomePageState h) async {
   final keys = {for (final g in h.good) g.key};
   for (final v in _goldSrv.values) {
@@ -1500,7 +1427,6 @@ Future<void> _goldTick(_HomePageState h) async {
   }
 }
 
-// با اولین اتصال روشن می‌شود و تا بسته شدن برنامه ادامه دارد
 void startGoldLoop(_HomePageState h) {
   if (_goldTimer != null) return;
   _goldTimer = Timer.periodic(
@@ -1509,7 +1435,6 @@ void startGoldLoop(_HomePageState h) {
   unawaited(_goldTick(h));
 }
 
-// نمایش پوشه‌ی جهانی داخل منوی «پوشه‌ی سرورهای سالم»
 String goldInfo() {
   var lastMs = 0;
   for (final v in _goldIps.values) {
@@ -1521,7 +1446,6 @@ String goldInfo() {
   return 'IP تمیز: ${_goldIps.length} • سرور سالم: ${_goldSrv.length} • $when';
 }
 
-// فهرست پوشه: سرورها و IPها از سریع به کند (حداکثر ۲۰۰ مورد از هر کدام)
 Future<void> goldShowList(BuildContext context) async {
   await goldLoad();
   final ipL = _goldIps.values.toList()..sort((a, b) => a.ms.compareTo(b.ms));
@@ -1561,8 +1485,6 @@ Future<void> goldShowList(BuildContext context) async {
 
 Timer? _goldSaveT;
 
-// هر سرور سالمی که در هر جستجو (ملی یا جهانی) تست بگذرد، همان‌جا وارد پوشه‌ی جهانی می‌شود
-// (حتی اگر وصل نشده باشی؛ نیازی به اتصال نیست)
 void goldNoteServer(Server srv) {
   unawaited(goldLoad());
   final p = srv.ping;
@@ -1578,7 +1500,6 @@ void goldNoteServer(Server srv) {
     ex.testAt = now;
   }
   _goldTrimSrv();
-  // ذخیره با تأخیر، تا در هر سرور یک بار کل پوشه نوشته نشود
   _goldSaveT ??= Timer(const Duration(seconds: 20), () {
     _goldSaveT = null;
     unawaited(goldSave());
