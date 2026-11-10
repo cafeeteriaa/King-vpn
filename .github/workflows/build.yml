@@ -48,6 +48,7 @@ jobs:
           # Apply verified patches (test report + national IP hunt). Stops the build if anything does not match.
           python3 patch_v2.py build_app/lib
           python3 prepare_android.py
+          python3 patch_v3.py build_app/lib
 
       - name: Add packages
         working-directory: build_app
