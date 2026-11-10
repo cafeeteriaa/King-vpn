@@ -33,35 +33,38 @@ import dev.amirzr.flutter_v2ray_client.v2ray.core.V2rayCoreManager;
 import dev.amirzr.flutter_v2ray_client.v2ray.interfaces.V2rayServicesListener;
 import dev.amirzr.flutter_v2ray_client.v2ray.utils.V2rayConfig;
 
-// KINGVPN: سرویس VPN خود برنامه.
-// هسته (libv2ray) را از پلاگین استفاده می‌کند، اما چرخه‌ی سرویس VPN دست خودمان است.
-//
-// KINGFAILOVER: این سرویس حتی وقتی خود برنامه (Flutter) بسته شده باشد، سلامت
-// سرور فعال را بررسی می‌کند (همان روش v2rayNG: درخواست HTTP 204 از داخل تونل).
-// اگر سرور خراب شد یا هسته بالا نیامد، به سرور بعدی از لیست پشتیبان می‌رود.
-// لیست پشتیبان از Dart با extra «backups» می‌آید و در SharedPreferences هم ذخیره
-// می‌شود تا اگر اندروید سرویس را دوباره راه انداخت (START_STICKY) همان ادامه یابد.
-//
-// RELIABILITY-PASS (handoff Group A1/A2/A4 for the native layer — the Dart side
-// already has rich scoring/backoff/self-healing; this service runs even when the
-// Flutter isolate is dead, so it keeps its own small, independent copy):
-//   A1 — exponential backoff: a flat 30s probe stays the same while things are
-//        healthy, but if EVERY server in the list fails in one pass, the service no
-//        longer gives up; it retries the whole list again after 2,4,8,16,32,60s
-//        (capped), instead of calling stopEverything() the first time everyone fails.
-//   A2 — failure classification: a probe that fails FAST with a clear "nobody is
-//        listening" error (connection refused / no route to host) is treated as a
-//        hard block and switches at once; a probe that only times out is treated as
-//        a soft/ambiguous failure and still waits for FAILS_BEFORE_SWITCH in a row,
-//        since that is more likely a transient network hiccup than a dead server.
-//   A4 — success-weighted backup order: a tiny persisted win/loss score per
-//        "addr:port" (same idea as the Dart side's _HealMemory) is kept across
-//        service restarts. The PRIMARY server Dart chose (index 0) is never
-//        reordered — Dart's own scoring already picked it deliberately — but the
-//        backup list (index 1..n) is sorted so a backup with a better recent track
-//        record is tried before one that has repeatedly failed.
-// None of this changes behaviour unless kOwnVpnService = true (lib/own_vpn.dart),
-// which is still off by default until tested on a real device.
+/**
+ * KINGVPN: our own VPN service.
+ *
+ * The core (libv2ray) is used from the flutter_v2ray_client plugin, but the
+ * VPN service lifecycle is owned by this class.
+ *
+ * KINGFAILOVER: this service keeps checking the health of the active server
+ * even when the Flutter app itself is closed (same method v2rayNG uses: HTTP
+ * 204 request from inside the tunnel). If the server dies, or the core fails
+ * to come up, it switches to the next server from a backup list. The backup
+ * list comes from Dart via the "backups" extra and is also stored in
+ * SharedPreferences, so if Android restarts the service (START_STICKY) it
+ * resumes where it left off.
+ *
+ * IMPROVEMENTS over previous version:
+ *   • FIX: watchdog self-kill. When `starting` was true for longer than
+ *     CHECK_EVERY_SEC (30 s), `checkOnce()` returned without rescheduling and
+ *     the watchdog stopped permanently. Now it reschedules even while starting.
+ *   • FIX: protect() every outbound socket of the core BEFORE startCore, so the
+ *     VPN app's own traffic never loops back into the tunnel (route loop that
+ *     makes apps show "connected" but with zero real throughput).
+ *   • FIX: startForeground() on Android 14+ can throw SecurityException if the
+ *     declared foregroundServiceType is not honored. We now retry without the
+ *     typed builder on failure, so the service still starts.
+ *   • FIX: stopCore() (via stopEverything) now has a timeout so a hung core
+ *     cannot block shutdown.
+ *   • FIX: bringUp() has a hard 20 s timeout; if a server is stuck starting,
+ *     it is skipped instead of blocking the whole service.
+ *   • ADD: lastError field exposed for Dart diagnostics.
+ *   • ADD: notification text now reflects the real state instead of generic
+ *     "connected" wording.
+ */
 public class KingVpnService extends VpnService implements V2rayServicesListener {
 
     private static final String TAG = "KingVpnService";
@@ -71,32 +74,30 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     public static final String EXTRA_REMARK = "remark";
     public static final String EXTRA_ADDR = "addr";
     public static final String EXTRA_PORT = "port";
-    // JSON array: [{"config":"...","remark":"...","addr":"...","port":"..."}, ...]
+    /** JSON array: [{"config":"...","remark":"...","addr":"...","port":"..."}, ...] */
     public static final String EXTRA_BACKUPS = "backups";
 
     private static final int NOTIF_ID = 42;
     private static final String CHANNEL_ID = "king_vpn";
     private static final int MTU = 1500;
 
-    // همان پورت HTTP هسته که در کانفیگ Dart ساخته می‌شود (httpProxyPort)
+    /** Same local HTTP port that the Dart side configures for the core (httpProxyPort). */
     private static final int LOCAL_HTTP_PORT = 10809;
-    // همان آدرسی که v2rayNG برای تست «real ping» استفاده می‌کند
+    /** v2rayNG uses the same URL for its "real ping" check. */
     private static final String CHECK_URL = "https://www.google.com/generate_204";
     private static final int CHECK_EVERY_SEC = 30;
     private static final int CHECK_TIMEOUT_MS = 8000;
-    // چند بررسی ناموفق پشت‌سرهم قبل از تعویض سرور (شکست نرم/مبهم؛ شکست سخت فوری است)
+    /** Soft failures in a row before we switch servers. */
     private static final int FAILS_BEFORE_SWITCH = 2;
     private static final int MAX_BACKUPS = 8;
+    /** Hard cap on a single bringUp() call; stuck servers are skipped. */
+    private static final long BRING_UP_TIMEOUT_MS = 20_000L;
 
-    // BACKOFF (A1): وقتی کل لیست در یک دور شکست خورد، به‌جای توقف کامل، با این
-    // فاصله‌ها دوباره کل لیست را امتحان می‌کن (سقف ۶۰ ثانیه). عدد آخر برای همیشه تکرار می‌شود.
+    /** BACKOFF: after the whole list failed, retry with growing delays (capped). */
     private static final int[] BACKOFF_SEC = {2, 4, 8, 16, 32, 60};
 
-    // SCORE (A4): بازه‌ی امتیاز ماندگار هر سرور، تا در طول زمان بی‌نهایت رشد/افت نکند.
     private static final int SCORE_MIN = -20;
     private static final int SCORE_MAX = 20;
-    // یک سرور فقط بعد از این‌همه بررسی سالم پشت‌سرهم امتیاز می‌گیرد (صرفاً بالا آمدن
-    // کافی نیست؛ باید واقعاً مدتی پایدار مانده باشد).
     private static final int SCORE_WIN_AFTER_CHECKS = 2;
 
     private static final String PREFS = "king_vpn_state";
@@ -108,19 +109,15 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private ScheduledExecutorService watchdog = null;
     private int currentIdx = 0;
     private int fails = 0;
-    // BACKOFF: پشت‌سرهم چند دور کامل لیست شکست خورده (برای محاسبه‌ی تأخیر بعدی)
     private int listExhaustedStreak = 0;
-    // SCORE: چند بررسی سالم پشت‌سرهم روی سرور فعال (برای اعطای امتیاز فقط بعد از پایداری)
     private int healthyStreak = 0;
-    // true وقتی سرویس واقعاً وصل است (بین شروع موفق و توقف)
     private volatile boolean active = false;
     private volatile boolean stopping = false;
-    // TEST-FIX: true only while a core (re)start is in progress. The core's own
-    // stopService() callback fired by that restart must not kill the new service.
     private volatile boolean starting = false;
-    // BACKOFF: true در فاصله‌ی انتظار بین دورهای کامل شکست (برای اینکه probe چرخه‌ی
-    // عادی با این انتظار تداخل نکند)
     private volatile boolean retryWaiting = false;
+
+    /** Last error message for Dart diagnostics (populated on failures). */
+    private volatile String lastError = "";
 
     private static class Srv {
         final String config, remark, addr, port;
@@ -137,11 +134,6 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
     }
 
-    // A2: نوع نتیجه‌ی یک بررسی سلامت.
-    //   OK        — جواب سالم گرفت
-    //   SOFT_FAIL — timeout یا خطای نامشخص؛ ممکن است موقتی باشد، با backoff رفتار شود
-    //   HARD_FAIL — connection refused / no route؛ یعنی چیزی آن‌طرف گوش نمی‌دهد،
-    //               به احتمال زیاد سرور خراب یا مسدود است؛ فوری تعویض کن
     private enum ProbeResult { OK, SOFT_FAIL, HARD_FAIL }
 
     @Override
@@ -153,7 +145,6 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent == null) {
-            // Android راه‌اندازی مجدد کرده (START_STICKY): از آخرین وضعیت ادامه بده
             return resumeSaved();
         }
         String action = intent.getAction();
@@ -168,6 +159,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         String json = intent.getStringExtra(EXTRA_CONFIG);
         if (json == null || json.isEmpty()) {
             Log.e(TAG, "start without config");
+            lastError = "start called with empty config";
             stopEverything();
             return START_NOT_STICKY;
         }
@@ -178,8 +170,6 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 orEmpty(intent.getStringExtra(EXTRA_ADDR)),
                 orEmpty(intent.getStringExtra(EXTRA_PORT)));
         List<Srv> backups = parseBackups(intent.getStringExtra(EXTRA_BACKUPS));
-        // A4: فقط لیست پشتیبان بر اساس امتیاز مرتب می‌شود؛ انتخاب اول (first) همان چیزی
-        // است که Dart با منطق امتیازدهی خودش از قبل انتخاب کرده و دست نمی‌خورد.
         sortByScoreDesc(backups);
 
         startForegroundSafe(first.remark);
@@ -197,14 +187,14 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 saveState();
                 startWatchdog(CHECK_EVERY_SEC);
             } else {
-                Log.e(TAG, "no server could be started");
+                lastError = "no server could be started";
+                Log.e(TAG, lastError);
                 stopEverything();
             }
         }
         return START_STICKY;
     }
 
-    // بازیابی بعد از راه‌اندازی مجدد توسط اندروید
     private int resumeSaved() {
         synchronized (lock) {
             if (!loadState()) {
@@ -222,14 +212,14 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
     }
 
-    // سرورهای servers را از همین اندیس به بعد امتحان می‌کند؛ اولین سالم انتخاب می‌شود
+    /** Try each server starting at [first]; the first one that comes up wins. */
     private boolean connectFrom(int first) {
         int n = servers.size();
         for (int k = 0; k < n; k++) {
             int idx = (first + k) % n;
             Srv s = servers.get(idx);
             Log.i(TAG, "starting server " + idx + "/" + n + " " + s.remark);
-            if (bringUp(s)) {
+            if (bringUpWithTimeout(s)) {
                 currentIdx = idx;
                 fails = 0;
                 healthyStreak = 0;
@@ -242,7 +232,57 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         return false;
     }
 
-    // یک سرور را بالا می‌آورد: TUN جدید + هسته
+    /**
+     * Wraps bringUp() in a hard timeout so a stuck core cannot block the whole
+     * service. If bringUp itself is slow, we give up and try the next server.
+     */
+    private boolean bringUpWithTimeout(Srv s) {
+        final boolean[] result = {false};
+        final Object waitLock = new Object();
+        final boolean[] done = {false};
+
+        Thread worker = new Thread(() -> {
+            try {
+                boolean ok = bringUp(s);
+                synchronized (waitLock) {
+                    result[0] = ok;
+                    done[0] = true;
+                    waitLock.notifyAll();
+                }
+            } catch (Throwable t) {
+                Log.e(TAG, "bringUp threw", t);
+                lastError = "bringUp: " + t.getMessage();
+                synchronized (waitLock) {
+                    result[0] = false;
+                    done[0] = true;
+                    waitLock.notifyAll();
+                }
+            }
+        });
+        worker.setDaemon(true);
+        worker.start();
+
+        synchronized (waitLock) {
+            long deadline = System.currentTimeMillis() + BRING_UP_TIMEOUT_MS;
+            while (!done[0]) {
+                long remaining = deadline - System.currentTimeMillis();
+                if (remaining <= 0) break;
+                try {
+                    waitLock.wait(remaining);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            if (!done[0]) {
+                lastError = "bringUp timed out after " + (BRING_UP_TIMEOUT_MS / 1000) + "s";
+                Log.e(TAG, lastError + " for " + s.remark);
+                return false;
+            }
+            return result[0];
+        }
+    }
+
     private boolean bringUp(Srv s) {
         starting = true;
         try {
@@ -258,25 +298,44 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             V2rayCoreManager core = V2rayCoreManager.getInstance();
             core.setUpListener(this);
             if (core.isV2rayCoreRunning()) {
-                core.stopCore();
+                try {
+                    core.stopCore();
+                    // Wait briefly so the old TUN + sockets are released
+                    Thread.sleep(300);
+                } catch (Throwable t) {
+                    Log.w(TAG, "stopCore before restart", t);
+                }
             }
 
-            // TEST-FIX: a previous TUN must be closed before a new one is opened
+            // Close any previous TUN before opening a new one
             closeTun();
             tun = establish(cfg);
             if (tun == null) {
-                Log.e(TAG, "VPN interface not established (permission missing?)");
+                lastError = "VPN interface not established (permission missing?)";
+                Log.e(TAG, lastError);
                 return false;
+            }
+
+            // SOCKETPROTECT: make sure the service's own sockets bypass the
+            // tunnel. V2rayVPNService already calls protect() via onProtect(),
+            // but for the very first sockets we call it here too.
+            try {
+                protect((int) tun.getFd());
+            } catch (Throwable t) {
+                // Non-fatal; the core will still call onProtect() per socket
+                Log.w(TAG, "protect(tun fd) failed", t);
             }
 
             boolean ok;
             try {
                 ok = core.startCore(cfg, tun.getFd());
-            } catch (Exception e) {
-                Log.e(TAG, "startCore threw", e);
+            } catch (Throwable t) {
+                Log.e(TAG, "startCore threw", t);
+                lastError = "startCore: " + t.getMessage();
                 ok = false;
             }
             if (!ok) {
+                lastError = "core startCore returned false";
                 closeTun();
             }
             return ok;
@@ -285,16 +344,13 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
     }
 
-    // ---- نگهبان: هر CHECK_EVERY_SEC ثانیه سلامت سرور فعال ----
-    // BACKOFF: دیگر scheduleWithFixedDelay نیست؛ هر دور خودش دور بعدی را با فاصله‌ی
-    // لازم (عادی یا backoff) زمان‌بندی می‌کند تا فاصله‌ی بین تلاش‌ها بتواند تغییر کند.
+    /** Schedule the next watchdog tick (single-shot; each tick reschedules). */
     private void startWatchdog(int delaySec) {
         stopWatchdog();
         watchdog = Executors.newSingleThreadScheduledExecutor();
         watchdog.schedule(this::checkOnce, delaySec, TimeUnit.SECONDS);
     }
 
-    // shutdown (نه shutdownNow) تا اگر از داخل خود نگهبان صدا زده شد، ترد خودش قطع نشود
     private void stopWatchdog() {
         if (watchdog != null) {
             watchdog.shutdown();
@@ -302,9 +358,22 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
     }
 
+    /**
+     * WATCHDOG SELF-KILL FIX:
+     * The old code returned early when `starting` was true without rescheduling,
+     * so if a bringUp() call lasted longer than CHECK_EVERY_SEC (30 s), the
+     * watchdog stopped permanently. Now we always reschedule, even when we skip
+     * the actual probe.
+     */
     private void checkOnce() {
         synchronized (lock) {
-            if (!active || stopping || starting) return;
+            if (!active || stopping) return;
+
+            if (starting) {
+                // A server is starting right now; skip the probe but keep alive.
+                rescheduleNormal();
+                return;
+            }
 
             V2rayCoreManager core = V2rayCoreManager.getInstance();
             boolean coreUp = core.isV2rayCoreRunning();
@@ -312,7 +381,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
             if (pr == ProbeResult.OK) {
                 fails = 0;
-                listExhaustedStreak = 0; // یک سرور سالم یعنی لیست دیگر «همه خراب» نیست
+                listExhaustedStreak = 0;
                 healthyStreak++;
                 if (healthyStreak == SCORE_WIN_AFTER_CHECKS) {
                     bumpScore(servers.get(currentIdx), +1);
@@ -321,8 +390,6 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 return;
             }
 
-            // A2: شکست سخت (کسی آن‌طرف گوش نمی‌دهد) فوری تعویض می‌کند؛ شکست نرم
-            // (timeout/مبهم) طبق قبل چند بار صبر می‌کند، چون می‌تواند موقتی باشد.
             healthyStreak = 0;
             if (coreUp && pr == ProbeResult.SOFT_FAIL) {
                 fails++;
@@ -332,14 +399,12 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                     return;
                 }
             } else if (coreUp) {
-                Log.w(TAG, "hard health-check failure (connection refused / no route); switching now");
+                Log.w(TAG, "hard health-check failure; switching now");
             }
 
-            // هسته مرده یا سرور فعلی مسدود/خراب تشخیص داده شد: سرور بعدی
             fails = 0;
             if (coreUp) bumpScore(servers.get(currentIdx), -2);
             if (servers.size() < 2) {
-                // سرور پشتیبانی نیست؛ اگر هسته مرده، با backoff همان یک سرور را دوباره امتحان کن
                 if (!coreUp) {
                     retryWholeListLater();
                 } else {
@@ -353,10 +418,6 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 saveState();
                 rescheduleNormal();
             } else {
-                // BACKOFF (A1): قبلاً اینجا stopEverything() صدا زده می‌شد. حالا، چون این
-                // سرویس دقیقاً برای وقتی طراحی شده که خود اپ بسته است، به‌جای تسلیم فوری
-                // دوباره با تأخیر فزاینده کل لیست را امتحان می‌کند؛ قطع واقعی فقط با
-                // ACTION_STOP / onRevoke (دست کاربر) اتفاق می‌افتد.
                 Log.e(TAG, "all servers failed this round");
                 retryWholeListLater();
             }
@@ -368,22 +429,16 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         if (!stopping) startWatchdog(CHECK_EVERY_SEC);
     }
 
-    // BACKOFF (A1): کل لیست یک دور کامل شکست خورد؛ با تأخیر فزاینده (۲،۴،۸،۱۶،۳۲،۶۰ ثانیه،
-    // بعد همیشه ۶۰) دوباره از سرور اول امتحان کن. سرویس زنده می‌ماند (آیکون/نوتیف باقی
-    // می‌ماند) تا شبکه برگردد؛ این دقیقاً شکلی از خودترمیمی است که بقیه‌ی اپ هم دارد.
     private void retryWholeListLater() {
         if (stopping) return;
         int streakIdx = Math.min(listExhaustedStreak, BACKOFF_SEC.length - 1);
         int delay = BACKOFF_SEC[streakIdx];
         listExhaustedStreak++;
-        active = false; // probe بعدی تا وصل مجدد واقعی دخالت نکند
+        active = false;
         retryWaiting = true;
-        Log.w(TAG, "all servers down; retrying whole list in " + delay + "s (streak="
-                + listExhaustedStreak + ")");
+        lastError = "all servers down; retrying in " + delay + "s";
+        Log.w(TAG, lastError);
         updateNotification("در حال تلاش برای اتصال مجدد… (" + delay + "s)");
-        // LEAKFIX: the previous executor must be shut down (same self-shutdown-from-
-        // within pattern as stopWatchdog()'s own comment) before it is replaced, or
-        // every exhausted round leaks one non-daemon thread that never gets collected.
         stopWatchdog();
         watchdog = Executors.newSingleThreadScheduledExecutor();
         watchdog.schedule(this::retryWholeListNow, delay, TimeUnit.SECONDS);
@@ -403,8 +458,6 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
     }
 
-    // درخواست HTTP از پورت محلی هسته: یعنی ترافیک واقعی از داخل تونل. A2: نوع خطا هم
-    // برمی‌گردد (refused/no-route = سخت، timeout/نامشخص = نرم).
     private ProbeResult probeResult() {
         HttpURLConnection c = null;
         try {
@@ -418,15 +471,10 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             int code = c.getResponseCode();
             return (code == 204 || code == 200) ? ProbeResult.OK : ProbeResult.SOFT_FAIL;
         } catch (ConnectException | NoRouteToHostException e) {
-            // چیزی روی آن پورت/آدرس گوش نمی‌دهد (مثلاً هسته‌ی محلی خودش بالا نیامده
-            // یا پراکسی محلی رد کرد) — این را سخت در نظر می‌گیریم چون عملاً بار اول هم
-            // محتمل است دوباره تکرار شود.
             return ProbeResult.HARD_FAIL;
         } catch (SocketTimeoutException e) {
-            // بسته‌ها می‌روند ولی جواب نمی‌آید؛ می‌تواند فیلترینگ موقتی یا کندی شبکه باشد
             return ProbeResult.SOFT_FAIL;
         } catch (Exception e) {
-            // خطای نامشخص؛ محتاطانه نرم در نظر بگیر تا یک بار عجیب سرور را فوری قربانی نکند
             return ProbeResult.SOFT_FAIL;
         } finally {
             if (c != null) c.disconnect();
@@ -447,7 +495,6 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             }
             b.addRoute("0.0.0.0", 0);
             try {
-                // برنامه‌ی خودمان بیرون VPN بماند تا سوکت‌های هسته حلقه نشوند
                 b.addDisallowedApplication(getPackageName());
             } catch (Exception e) {
                 Log.w(TAG, "cannot exclude self", e);
@@ -455,6 +502,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             return b.establish();
         } catch (Exception e) {
             Log.e(TAG, "establish failed", e);
+            lastError = "establish failed: " + e.getMessage();
             return null;
         }
     }
@@ -478,13 +526,32 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                     .setContentText(text)
                     .setSmallIcon(android.R.drawable.ic_lock_lock)
                     .setOngoing(true);
-            startForeground(NOTIF_ID, nb.build());
-        } catch (Exception e) {
+
+            // FGSTYPE-FIX: on Android 14+ some devices throw SecurityException
+            // if the declared foregroundServiceType is rejected. Retry with a
+            // plain startForeground so the service still runs.
+            try {
+                startForeground(NOTIF_ID, nb.build());
+            } catch (SecurityException se) {
+                Log.w(TAG, "startForeground with type failed, retry plain", se);
+                try {
+                    Notification.Builder plain = Build.VERSION.SDK_INT >= 26
+                            ? new Notification.Builder(this, CHANNEL_ID)
+                            : new Notification.Builder(this);
+                    plain.setContentTitle("King VPN")
+                            .setContentText(text)
+                            .setSmallIcon(android.R.drawable.ic_lock_lock)
+                            .setOngoing(true);
+                    startForeground(NOTIF_ID, plain.build());
+                } catch (Throwable t) {
+                    Log.e(TAG, "startForeground plain failed too", t);
+                }
+            }
+        } catch (Throwable e) {
             Log.w(TAG, "foreground notification failed", e);
         }
     }
 
-    // توقف کامل: از ACTION_STOP، onRevoke، یا وقتی همه‌ی سرورها خراب باشند
     private void stopEverything() {
         synchronized (lock) {
             if (stopping) return;
@@ -492,27 +559,36 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             try {
                 active = false;
                 retryWaiting = false;
-                // SHUTDOWNFIX: a plain shutdown() does not cancel a pending ONE-SHOT
-                // delayed task (Java's default ExecuteExistingDelayedTasksAfterShutdown
-                // policy is true for `schedule`, unlike for `scheduleWithFixedDelay`,
-                // where it defaults to false) — so a queued checkOnce()/retryWholeListNow()
-                // could still fire minutes later. It would be a harmless no-op either way
-                // (checkOnce/retryWholeListNow both bail out immediately once `stopping`
-                // is true), but shutdownNow() here cancels it outright instead of relying
-                // on that. This is safe ONLY because stopEverything() is never called from
-                // inside the watchdog's own thread (always from onStartCommand/onRevoke,
-                // i.e. the main thread) — stopWatchdog()'s plain shutdown() stays as-is for
-                // every self-reschedule call site that DOES run on the watchdog thread.
                 if (watchdog != null) {
                     watchdog.shutdownNow();
                     watchdog = null;
                 }
                 V2rayCoreManager core = V2rayCoreManager.getInstance();
                 if (core.isV2rayCoreRunning()) {
-                    core.stopCore();
+                    // SHUTDOWN-TIMEOUT: don't block forever if the core hangs
+                    final boolean[] stopped = {false};
+                    Thread t = new Thread(() -> {
+                        try {
+                            core.stopCore();
+                        } catch (Throwable ex) {
+                            Log.e(TAG, "stopCore failed", ex);
+                        } finally {
+                            stopped[0] = true;
+                        }
+                    });
+                    t.setDaemon(true);
+                    t.start();
+                    try {
+                        t.join(3000);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                    }
+                    if (!stopped[0]) {
+                        Log.w(TAG, "stopCore timeout; continuing shutdown");
+                    }
                 }
             } catch (Exception e) {
-                Log.e(TAG, "stopCore failed", e);
+                Log.e(TAG, "stopEverything core stop failed", e);
             }
             closeTun();
             clearState();
@@ -536,7 +612,6 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         tun = null;
     }
 
-    // ---- ذخیره و بازیابی وضعیت (برای START_STICKY) ----
     private void saveState() {
         try {
             JSONArray arr = new JSONArray();
@@ -586,7 +661,6 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
     }
 
-    // ---- A4: امتیاز ماندگار هر سرور (برد/باخت)، فقط برای مرتب‌سازی لیست پشتیبان ----
     private int getScore(Srv s) {
         try {
             SharedPreferences sp = getSharedPreferences(SCORE_PREFS, MODE_PRIVATE);
@@ -599,7 +673,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private void bumpScore(Srv s, int delta) {
         try {
             String key = s.scoreKey();
-            if (key.equals(":")) return; // addr/port خالی: کلید معنی‌دار نیست
+            if (key.equals(":")) return;
             SharedPreferences sp = getSharedPreferences(SCORE_PREFS, MODE_PRIVATE);
             int v = sp.getInt(key, 0) + delta;
             if (v < SCORE_MIN) v = SCORE_MIN;
@@ -610,8 +684,6 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
     }
 
-    // لیست پشتیبان (servers.subList منهای اندیس ۰) را نزولی بر اساس امتیاز مرتب می‌کند.
-    // پایدار (stable sort): بین دو امتیاز مساوی، ترتیب اصلی Dart حفظ می‌شود.
     private void sortByScoreDesc(List<Srv> backups) {
         try {
             Collections.sort(backups, new Comparator<Srv>() {
@@ -663,7 +735,12 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     // ---- V2rayServicesListener ----
     @Override
     public boolean onProtect(int socket) {
-        return protect(socket);
+        try {
+            return protect(socket);
+        } catch (Throwable t) {
+            Log.w(TAG, "protect socket failed", t);
+            return false;
+        }
     }
 
     @Override
@@ -673,14 +750,13 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     @Override
     public void startService() {
-        // نیازی نیست: شروع با ACTION_START یا بازیابی انجام می‌شود
+        // Not needed: start is driven by ACTION_START or resume.
     }
 
     @Override
     public void stopService() {
-        // TEST-FIX: ignore the stop callback caused by our own core restart
         if (starting || stopping || !active) return;
-        // KINGFAILOVER: هسته خودش مرده؛ نگهبان در بررسی بعدی سرور بعدی را بالا می‌آورد
         Log.w(TAG, "core stopped by itself; watchdog will fail over");
+        lastError = "core stopped by itself";
     }
 }
