@@ -44,9 +44,11 @@ jobs:
           fi
           grep -q 'bool requireRewardedAd = true;' build_app/lib/main.dart \
             || { echo "ERROR: requireRewardedAd is not true after patch"; exit 1; }
+          
           python3 patch_v2.py build_app/lib
           python3 prepare_android.py
           python3 patch_v3.py build_app/lib
+          python3 patch_v4.py build_app/lib
 
       - name: Add packages
         working-directory: build_app
