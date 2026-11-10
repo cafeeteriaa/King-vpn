@@ -27,6 +27,12 @@ class MainActivity : FlutterActivity() {
                         i.putExtra(KingVpnService.EXTRA_REMARK, call.argument<String>("remark") ?: "")
                         i.putExtra(KingVpnService.EXTRA_ADDR, call.argument<String>("addr") ?: "")
                         i.putExtra(KingVpnService.EXTRA_PORT, call.argument<String>("port") ?: "")
+                        // BACKUPFIX: lib/own_vpn.dart's ownVpnStart() already sends "backups"
+                        // (KINGFAILOVER) and KingVpnService already reads EXTRA_BACKUPS, but
+                        // this bridge never forwarded it — so the whole backup/failover list,
+                        // this file's own A4 success-weighted ordering included, was silently
+                        // empty no matter what Dart sent. One line was missing.
+                        i.putExtra(KingVpnService.EXTRA_BACKUPS, call.argument<String>("backups") ?: "")
                         startForegroundService(i)
                         result.success(true)
                     }
@@ -64,6 +70,39 @@ class MainActivity : FlutterActivity() {
                                     null
                                 )
                             }
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        // KINGSHARE (Group D — آفلاین/نزدیک): به‌جای پیاده‌سازی دستی بلوتوث/Wi-Fi
+        // Direct/SMS که بدون دستگاه واقعی قابل تست نیست، از شیت اشتراک‌گذاری خود
+        // اندروید استفاده می‌کند؛ کاربر در همان شیت بین بلوتوث، پیامک، Nearby Share،
+        // تلگرام، ایمیل و هر اپ دیگری که متن می‌پذیرد انتخاب می‌کند. پایدارترین راه
+        // برای «نزدیک یا بی‌اینترنت» چون از قابلیت‌های خود سیستم‌عامل استفاده می‌کند.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "king/share")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "shareText" -> {
+                        try {
+                            val text = call.argument<String>("text") ?: ""
+                            val subject = call.argument<String>("subject") ?: ""
+                            if (text.isEmpty()) {
+                                result.error("SHARE_EMPTY", "nothing to share", null)
+                                return@setMethodCallHandler
+                            }
+                            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, text)
+                                if (subject.isNotEmpty()) {
+                                    putExtra(Intent.EXTRA_SUBJECT, subject)
+                                }
+                            }
+                            val chooserTitle = subject.ifEmpty { "اشتراک‌گذاری" }
+                            startActivity(Intent.createChooser(sendIntent, chooserTitle))
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("SHARE_FAILED", e.message, null)
                         }
                     }
                     else -> result.notImplemented()
