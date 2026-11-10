@@ -71,6 +71,47 @@ for name in ('build.gradle', 'build.gradle.kts'):
         g = re.sub(r'compileSdk\s*=\s*\d+', 'compileSdk = 37', g)
         open(gp, 'w', encoding='utf-8').write(g)
 
+# ---- 2b) ABI: drop x86/x86_64 universal slices -------------------------------
+# A plain `flutter build apk` (no --target-platform) bundles all four ABIs by
+# default, which is most of the size handoff section 3 asked to cut. The CI
+# release step below already passes --target-platform android-arm64, so this
+# mainly matters for the debug build / local `flutter build apk` runs the
+# handoff's "Stage 0" asks for, and for anyone who later builds a universal
+# release. (It also means an x86 emulator can no longer install the app —
+# expected, called out in the handoff's own section 3.)
+# No `patch_once` here: build.gradle(.kts) is generated fresh by `flutter
+# create` above and its exact text (Groovy vs Kotlin DSL, line wrapping) isn't
+# something this repo controls, so an exact-string anchor would be brittle.
+# Anchoring on `defaultConfig {`, which every Flutter-generated gradle file
+# has, is the robust choice; this still fails safely (prints a warning,
+# doesn't stop the build) if that ever stops being true.
+for name in ('build.gradle', 'build.gradle.kts'):
+    gp = os.path.join(APP, 'android/app', name)
+    if not os.path.exists(gp):
+        continue
+    g = open(gp, encoding='utf-8').read()
+    if 'abiFilters' in g:
+        print('OK: %s already has abiFilters' % name)
+        continue
+    is_kts = name.endswith('.kts')
+    ndk_block = (
+        '\n        ndk {\n'
+        '            abiFilters += listOf("arm64-v8a", "armeabi-v7a")\n'
+        '        }\n'
+        if is_kts else
+        '\n        ndk {\n'
+        '            abiFilters "arm64-v8a", "armeabi-v7a"\n'
+        '        }\n'
+    )
+    dc = re.search(r'defaultConfig\s*\{', g)
+    if dc:
+        g = g[:dc.end()] + ndk_block + g[dc.end():]
+        open(gp, 'w', encoding='utf-8').write(g)
+        print('OK: %s abiFilters added (arm64-v8a, armeabi-v7a only)' % name)
+    else:
+        print('WARN: %s has no defaultConfig block; abiFilters NOT added '
+              '(edit android/app/%s by hand)' % (name, name))
+
 # ---- 3) Fresh-sources folder and automatic start -----------------------------
 NAT = os.path.join(APP, 'lib/nat_ultra.dart')
 MAIN = os.path.join(APP, 'lib/main.dart')

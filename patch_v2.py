@@ -1090,6 +1090,38 @@ extension HotFolderUi on _HomePageState {
 '''
 
 
+# ---------------------------------------------------------------------------
+# KINGEXTRAS: wires lib/king_extras2.dart (share sheet for D1/D2/D3, A18 secure
+# UUID, check-host.net second opinion) into main.dart. king_extras2.dart is a
+# normal standalone `import`-ed library (not `part of`), so this only needs an
+# import line plus one menu row to open its page — nothing else in main.dart
+# changes. Anchored on the SAME proven insert-before-a-Divider+ListTile shape
+# as the HOTFOLDER patch above, but on the sibling anchor one row earlier
+# (Icons.hub_outlined) so the two patches cannot collide with each other.
+# ---------------------------------------------------------------------------
+patch('main.dart',
+      "import 'conn_specs.dart';\n",
+      "import 'conn_specs.dart';\n"
+      "import 'king_extras2.dart'; // KINGEXTRAS: share sheet / UUID / check-host.net\n")
+
+patch('main.dart',
+      "            const Divider(height: 1),\n"
+      "            ListTile(\n"
+      "              leading: const Icon(Icons.hub_outlined),\n",
+      "            const Divider(height: 1),\n"
+      "            ListTile( // KINGEXTRAS row\n"
+      "              leading: const Icon(Icons.auto_awesome_outlined),\n"
+      "              title: const Text('امکانات تکمیلی (اشتراک‌گذاری نزدیک، UUID، تست بیرونی)'),\n"
+      "              onTap: () {\n"
+      "                Navigator.pop(ctx);\n"
+      "                Navigator.of(context).push(MaterialPageRoute<void>(\n"
+      "                    builder: (_) => const KingExtrasPage()));\n"
+      "              },\n"
+      "            ),\n"
+      "            const Divider(height: 1),\n"
+      "            ListTile(\n"
+      "              leading: const Icon(Icons.hub_outlined),\n")
+
 # 5) write the new part file
 with open(os.path.join(LIB, 'nip_scan.dart'), 'w', encoding='utf-8') as f:
     f.write(NIP_FILE)
