@@ -49,7 +49,7 @@ jobs:
           python3 prepare_android.py
           python3 patch_v3.py build_app/lib
           python3 patch_v4.py build_app/lib
-          python3 patch_v5.py build_app/lib
+          python3 patch_v6.py build_app/lib
 
       - name: Add packages
         working-directory: build_app
