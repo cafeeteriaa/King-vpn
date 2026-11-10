@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# patch_v6.py (ULTIMATE BULLETPROOF: Fixes skipEngine compile error)
+# patch_v6.py (ULTIMATE COMPILE FIX 2.0)
 import os
 import re
 import sys
@@ -14,26 +14,18 @@ if not os.path.exists(path):
 with open(path, 'r', encoding='utf-8') as f:
     src = f.read()
 
-print("--- Starting ULTIMATE Patch v6.2 ---")
+print("--- Starting ULTIMATE Patch v6.3 ---")
 
-# 1. Fix the signature using a robust Regex that ignores spacing/newlines.
-# It looks for 'bool keepNet = false}) async {' and adds skipEngine before the closing brace.
-pattern = r'(bool\s+keepNet\s*=\s*false)(\s*\}\)\s*async\s*\{)'
+# 1. Replace the ENTIRE function signature to guarantee skipEngine is added
+# This ignores all spacing, newlines, and comments.
+pattern = r'Future<bool>\s+pickEngineThenStart\([\s\S]*?\)\s*async\s*\{'
+replacement = "Future<bool> pickEngineThenStart(Future<void> Function() start,\n      {bool askMode = true, bool? forceNet, bool keepNet = false, bool skipEngine = false}) async {"
+
 if re.search(pattern, src):
-    if "bool skipEngine = false" not in src:
-        src = re.sub(pattern, r'\1, bool skipEngine = false\2', src, count=1)
-        print("✅ OK: Signature fixed via robust Regex")
-    else:
-        print("✅ OK: skipEngine already in signature")
+    src = re.sub(pattern, replacement, src, count=1)
+    print("✅ OK: Signature completely replaced (guaranteed)")
 else:
-    # Fallback to exact string if regex fails
-    old_str = "bool keepNet = false}) async {"
-    new_str = "bool keepNet = false, bool skipEngine = false}) async {"
-    if old_str in src:
-        src = src.replace(old_str, new_str, 1)
-        print("✅ OK: Signature fixed via exact match")
-    else:
-        print("⚠️ WARN: Could not find signature anchor.")
+    print("⚠️ WARN: Could not find pickEngineThenStart signature!")
 
 # 2. Ensure logic uses skipEngine
 pattern2 = r'final\s+e\s*=\s*await\s+pickVpnEngineDialog\(\);'
@@ -43,11 +35,8 @@ if re.search(pattern2, src) and "skipEngine ?" not in src:
     print("✅ OK: Logic updated to use skipEngine")
 
 # 3. Ensure Main button asks Online/Offline but skips engine
-old3 = "askMode: false, skipEngine: true"
-new3 = "askMode: true, skipEngine: true"
-if old3 in src:
-    src = src.replace(old3, new3)
-    print("✅ OK: Main button now asks online/offline")
+src = src.replace("askMode: false, skipEngine: true", "askMode: true, skipEngine: true")
+print("✅ OK: Main button now asks online/offline")
 
 # 4. Smart Dialog Titles (National vs Global)
 src = src.replace("Future<String?> _pickOnlineOffline() async {", "Future<String?> _pickOnlineOffline({bool isNational = false}) async {")
@@ -65,4 +54,4 @@ print("✅ OK: Pilots forced to ask Global")
 with open(path, 'w', encoding='utf-8') as f:
     f.write(src)
 
-print("--- ULTIMATE Patch v6.2 complete ---")
+print("--- ULTIMATE Patch v6.3 complete ---")
