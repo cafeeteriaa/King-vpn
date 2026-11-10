@@ -16,24 +16,24 @@ with open(path, 'r', encoding='utf-8') as f:
 
 print("--- Starting ULTIMATE Patch v6.2 ---")
 
-# 1. Fix the signature (The cause of the build failure)
-if "bool skipEngine = false" not in src:
-    # Method 1: Exact string replace
+# 1. Fix the signature using a robust Regex that ignores spacing/newlines.
+# It looks for 'bool keepNet = false}) async {' and adds skipEngine before the closing brace.
+pattern = r'(bool\s+keepNet\s*=\s*false)(\s*\}\)\s*async\s*\{)'
+if re.search(pattern, src):
+    if "bool skipEngine = false" not in src:
+        src = re.sub(pattern, r'\1, bool skipEngine = false\2', src, count=1)
+        print("✅ OK: Signature fixed via robust Regex")
+    else:
+        print("✅ OK: skipEngine already in signature")
+else:
+    # Fallback to exact string if regex fails
     old_str = "bool keepNet = false}) async {"
     new_str = "bool keepNet = false, bool skipEngine = false}) async {"
     if old_str in src:
         src = src.replace(old_str, new_str, 1)
         print("✅ OK: Signature fixed via exact match")
     else:
-        # Method 2: Loose Regex (matches even if there are line breaks or weird spaces)
-        pattern = r'(Future<bool>\s+pickEngineThenStart\(.*?bool\s+keepNet\s*=\s*false)'
-        if re.search(pattern, src, re.DOTALL):
-            src = re.sub(pattern, r'\1, bool skipEngine = false', src, count=1, flags=re.DOTALL)
-            print("✅ OK: Signature fixed via loose regex")
-        else:
-            print("⚠️ WARN: Could not find signature.")
-else:
-    print("✅ OK: skipEngine already in signature")
+        print("⚠️ WARN: Could not find signature anchor.")
 
 # 2. Ensure logic uses skipEngine
 pattern2 = r'final\s+e\s*=\s*await\s+pickVpnEngineDialog\(\);'
