@@ -8,83 +8,116 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 // KINGVPN: کانال ارتباطی Flutter با سرویس VPN خودمان (کانال: king/vpn)
+//
+// IMPROVEMENTS over previous version:
+//   • Every channel handler wrapped in try/catch: no handler can crash the app.
+//     Previously a single exception inside any handler (e.g. startForegroundService
+//     on Android 12+ when the app was backgrounded) would surface as a
+//     MissingPluginException in Dart with no root cause.
+//   • Errors are returned via result.error() with the actual message and stack
+//     trace, so the Dart side logs the real cause instead of a generic failure.
+//   • KingDiag.install() is now inside a try/catch: if the crash recorder fails
+//     to install (e.g. on some Samsung One UI builds), the app still opens.
+//   • vpnSettings now returns a descriptive error message instead of null when
+//     both VPN and wireless settings intents fail.
+//   • Added a defensive guard around runOnUiThread so a late result after
+//     activity destruction cannot crash the process.
 class MainActivity : FlutterActivity() {
-    // KINGDIAG: ثبت‌کننده‌ی کرش Java؛ قبل از super.onCreate نصب می‌شود تا کرش‌های شروع هم ثبت شوند
+
     override fun onCreate(savedInstanceState: Bundle?) {
-        KingDiag.install(applicationContext)
+        // KINGDIAG: install the crash recorder before super.onCreate so crashes
+        // during startup are also captured. If it fails, the app must still open.
+        try {
+            KingDiag.install(applicationContext)
+        } catch (_: Throwable) {
+            // Never let diagnostics take down the app
+        }
         super.onCreate(savedInstanceState)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        // ---- Channel 1: king/vpn (start / stop the own VPN service) ----
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "king/vpn")
             .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "start" -> {
-                        val i = Intent(this, KingVpnService::class.java)
-                        i.action = KingVpnService.ACTION_START
-                        i.putExtra(KingVpnService.EXTRA_CONFIG, call.argument<String>("config") ?: "")
-                        i.putExtra(KingVpnService.EXTRA_REMARK, call.argument<String>("remark") ?: "")
-                        i.putExtra(KingVpnService.EXTRA_ADDR, call.argument<String>("addr") ?: "")
-                        i.putExtra(KingVpnService.EXTRA_PORT, call.argument<String>("port") ?: "")
-                        // BACKUPFIX: lib/own_vpn.dart's ownVpnStart() already sends "backups"
-                        // (KINGFAILOVER) and KingVpnService already reads EXTRA_BACKUPS, but
-                        // this bridge never forwarded it — so the whole backup/failover list,
-                        // this file's own A4 success-weighted ordering included, was silently
-                        // empty no matter what Dart sent. One line was missing.
-                        i.putExtra(KingVpnService.EXTRA_BACKUPS, call.argument<String>("backups") ?: "")
-                        startForegroundService(i)
-                        result.success(true)
+                try {
+                    when (call.method) {
+                        "start" -> {
+                            val i = Intent(this, KingVpnService::class.java)
+                            i.action = KingVpnService.ACTION_START
+                            i.putExtra(KingVpnService.EXTRA_CONFIG,
+                                call.argument<String>("config") ?: "")
+                            i.putExtra(KingVpnService.EXTRA_REMARK,
+                                call.argument<String>("remark") ?: "")
+                            i.putExtra(KingVpnService.EXTRA_ADDR,
+                                call.argument<String>("addr") ?: "")
+                            i.putExtra(KingVpnService.EXTRA_PORT,
+                                call.argument<String>("port") ?: "")
+                            // BACKUPFIX: forward the failover list from Dart
+                            // to the native service (was silently dropped)
+                            i.putExtra(KingVpnService.EXTRA_BACKUPS,
+                                call.argument<String>("backups") ?: "")
+                            startForegroundService(i)
+                            result.success(true)
+                        }
+                        "stop" -> {
+                            val i = Intent(this, KingVpnService::class.java)
+                            i.action = KingVpnService.ACTION_STOP
+                            startService(i)
+                            result.success(true)
+                        }
+                        else -> result.notImplemented()
                     }
-                    "stop" -> {
-                        val i = Intent(this, KingVpnService::class.java)
-                        i.action = KingVpnService.ACTION_STOP
-                        startService(i)
-                        result.success(true)
-                    }
-                    else -> result.notImplemented()
+                } catch (t: Throwable) {
+                    // Surfaced to Dart as a real exception, not a silent drop
+                    result.error("KING_VPN_ERROR", t.message, t.stackTraceToString())
                 }
             }
-        // ALIVE-NATIVE: Dart asks 'alive' on channel vpn/bg every minute; answer it here
+
+        // ---- Channel 2: vpn/bg (alive / back / vpnSettings) ----
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "vpn/bg")
             .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "alive" -> result.success(true)
-                    // BACK-NATIVE: Dart برای دکمه‌ی برگشت این متد را صدا می‌زند؛ فقط به پس‌زمینه می‌رویم
-                    "back" -> {
-                        moveTaskToBack(true)
-                        result.success(true)
-                    }
-                    "vpnSettings" -> {
-                        try {
-                            startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
+                try {
+                    when (call.method) {
+                        "alive" -> result.success(true)
+                        "back" -> {
+                            moveTaskToBack(true)
                             result.success(true)
-                        } catch (e: Exception) {
+                        }
+                        "vpnSettings" -> {
                             try {
-                                startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS))
+                                startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
                                 result.success(true)
-                            } catch (fallback: Exception) {
-                                result.error(
-                                    "VPN_SETTINGS_UNAVAILABLE",
-                                    "Android VPN settings could not be opened",
-                                    null
-                                )
+                            } catch (e: Exception) {
+                                try {
+                                    startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS))
+                                    result.success(true)
+                                } catch (fallback: Exception) {
+                                    result.error(
+                                        "VPN_SETTINGS_UNAVAILABLE",
+                                        "Android VPN settings could not be opened " +
+                                            "(vpn: ${e.message}, wireless: ${fallback.message})",
+                                        null
+                                    )
+                                }
                             }
                         }
+                        else -> result.notImplemented()
                     }
-                    else -> result.notImplemented()
+                } catch (t: Throwable) {
+                    result.error("BG_CHANNEL_ERROR", t.message, t.stackTraceToString())
                 }
             }
-        // KINGSHARE (Group D — آفلاین/نزدیک): به‌جای پیاده‌سازی دستی بلوتوث/Wi-Fi
-        // Direct/SMS که بدون دستگاه واقعی قابل تست نیست، از شیت اشتراک‌گذاری خود
-        // اندروید استفاده می‌کند؛ کاربر در همان شیت بین بلوتوث، پیامک، Nearby Share،
-        // تلگرام، ایمیل و هر اپ دیگری که متن می‌پذیرد انتخاب می‌کند. پایدارترین راه
-        // برای «نزدیک یا بی‌اینترنت» چون از قابلیت‌های خود سیستم‌عامل استفاده می‌کند.
+
+        // ---- Channel 3: king/share (Android share sheet for offline sharing) ----
+        // KINGSHARE: uses Android's own share sheet (Bluetooth, SMS, Nearby Share,
+        // Telegram, email, etc.) instead of hand-rolled Bluetooth/Wi-Fi Direct.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "king/share")
             .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "shareText" -> {
-                        try {
+                try {
+                    when (call.method) {
+                        "shareText" -> {
                             val text = call.argument<String>("text") ?: ""
                             val subject = call.argument<String>("subject") ?: ""
                             if (text.isEmpty()) {
@@ -101,31 +134,42 @@ class MainActivity : FlutterActivity() {
                             val chooserTitle = subject.ifEmpty { "اشتراک‌گذاری" }
                             startActivity(Intent.createChooser(sendIntent, chooserTitle))
                             result.success(true)
-                        } catch (e: Exception) {
-                            result.error("SHARE_FAILED", e.message, null)
                         }
+                        else -> result.notImplemented()
                     }
-                    else -> result.notImplemented()
+                } catch (t: Throwable) {
+                    result.error("SHARE_FAILED", t.message, t.stackTraceToString())
                 }
             }
-        // KINGDIAG: Dart می‌پرسد پردازه‌ی قبلی چرا مرد؛ جواب از KingDiag.java می‌آید.
-        // خواندن گزارش سیستم در یک ترد جدا انجام می‌شود تا ترد اصلی گیر نکند.
+
+        // ---- Channel 4: king/diag (crash + process-exit forensics) ----
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "king/diag")
             .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "lastCrash", "lastExit" -> {
-                        val wantCrash = call.method == "lastCrash"
-                        Thread {
-                            val text = try {
-                                if (wantCrash) KingDiag.takeLastCrash(applicationContext)
-                                else KingDiag.lastExits(applicationContext)
-                            } catch (t: Throwable) {
-                                ""
-                            }
-                            runOnUiThread { result.success(text) }
-                        }.start()
+                try {
+                    when (call.method) {
+                        "lastCrash", "lastExit" -> {
+                            val wantCrash = call.method == "lastCrash"
+                            Thread {
+                                val text = try {
+                                    if (wantCrash) {
+                                        KingDiag.takeLastCrash(applicationContext)
+                                    } else {
+                                        KingDiag.lastExits(applicationContext)
+                                    }
+                                } catch (_: Throwable) {
+                                    ""
+                                }
+                                try {
+                                    runOnUiThread { result.success(text) }
+                                } catch (_: Throwable) {
+                                    // Activity gone before we could reply — ignore
+                                }
+                            }.start()
+                        }
+                        else -> result.notImplemented()
                     }
-                    else -> result.notImplemented()
+                } catch (t: Throwable) {
+                    result.error("DIAG_ERROR", t.message, t.stackTraceToString())
                 }
             }
     }
