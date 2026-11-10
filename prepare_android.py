@@ -243,3 +243,65 @@ else:
         'main()')
     open(MAIN, 'w', encoding='utf-8').write(mn)
     print('OK: automatic start hooked into main()')
+
+
+# ---- 4) Relay Server (Multi-hop) Integration ----
+print('Applying Relay Server patches...')
+
+mn = open(MAIN, encoding='utf-8').read()
+
+# 1. Patch _startImpl to prioritize the user-defined relay
+old_chain = """          String? chainCfg;
+          if (nationalMode && !proxyOnly) {
+            final relays = _usable().where((x) => !identical(x, s)).take(1).toList();
+            if (relays.isNotEmpty) {
+              chainCfg = natChainCfg(cfg, natCfg(relays.first, 0), keepInbounds: true);
+              if (chainCfg != null) {
+                dbg('MULTIHOP: آخرین تلاش از پشت ${relays.first.name} (relay) برای ${s.name}');
+              }
+            }
+          }"""
+new_chain = """          String? chainCfg;
+          if (nationalMode && !proxyOnly) {
+            if (relayServerUrl.isNotEmpty) {
+              final relaySrv = Server.parse(relayServerUrl);
+              if (relaySrv != null) {
+                chainCfg = natChainCfg(cfg, natCfg(relaySrv, 0), keepInbounds: true);
+                if (chainCfg != null) dbg('MULTIHOP: استفاده از سرور واسط دستی برای ${s.name}');
+              }
+            }
+            if (chainCfg == null) {
+              final relays = _usable().where((x) => !identical(x, s)).take(1).toList();
+              if (relays.isNotEmpty) {
+                chainCfg = natChainCfg(cfg, natCfg(relays.first, 0), keepInbounds: true);
+                if (chainCfg != null) {
+                  dbg('MULTIHOP: آخرین تلاش از پشت ${relays.first.name} (relay) برای ${s.name}');
+                }
+              }
+            }
+          }"""
+if old_chain in mn:
+    mn = mn.replace(old_chain, new_chain)
+    print('OK: Multi-hop relay logic patched into _startImpl')
+else:
+    print('WARN: old_chain not found in main.dart (maybe already patched)')
+
+# 2. Patch _loadCache
+old_load = "npvParse = j['npv'] as bool? ?? npvParse;"
+new_load = "npvParse = j['npv'] as bool? ?? npvParse;\n          relayServerUrl = j['relay_url'] as String? ?? '';"
+if old_load in mn:
+    mn = mn.replace(old_load, new_load, 1)
+    print('OK: Relay URL load patched')
+else:
+    print('WARN: old_load not found (load)')
+
+# 3. Patch _saveSettings
+old_save = "'npv': npvParse,"
+new_save = "'npv': npvParse,\n            'relay_url': relayServerUrl,"
+if old_save in mn:
+    mn = mn.replace(old_save, new_save, 1)
+    print('OK: Relay URL save patched')
+else:
+    print('WARN: old_save not found (save)')
+
+open(MAIN, 'w', encoding='utf-8').write(mn)
