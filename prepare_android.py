@@ -454,4 +454,8 @@ for name in ('build.gradle', 'build.gradle.kts'):
         print(f'OK: libbox.aar dependency added to {name}')
         break
     else:
-        raise SystemExit(f'ERROR: dependencies {{ }} block not found in {name}')
+        # flutter create does not always emit a dependencies block: append one
+        g = open(gp, encoding='utf-8').read().rstrip() + '\n\ndependencies {\n' + dep_line + '}\n'
+        open(gp, 'w', encoding='utf-8').write(g)
+        print(f'OK: dependencies block created with libbox.aar in {name}')
+        break
