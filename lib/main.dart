@@ -7014,6 +7014,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<int?> _delayOf(Server s, {Duration? t, String? url}) async {
     final tt = t ?? delayTimeout;
+    // SINGBOX-CAND: xray delay API cannot test hy2/tuic. Accept as a candidate; the real
+    // connect (_startSingbox: TUN + ping) verifies it.
+    if (s.isSingbox) return 1000;
     // NORMAL: only plain config (variant 0). Matrix only if nationalMode.
     // ultraMode alone no longer enables matrix during ordinary connect tests.
     final useMatrix = nationalMode;
