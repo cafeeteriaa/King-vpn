@@ -122,7 +122,7 @@ class SingboxVpnService : VpnService() {
                 } catch (t: Throwable) {
                     Log.w(TAG, "libbox setup", t)
                 }
-                val svc = Libbox.newService(cfg, SingboxPlatform(this))
+                val svc = Libbox.newService(cfg, makeSingboxPlatform(this))
                 svc.start()
                 box = svc
                 state = STATE_RUNNING
@@ -235,27 +235,41 @@ class SingboxVpnService : VpnService() {
 }
 
 // پیاده‌سازی PlatformInterface برای libbox.
-private class SingboxPlatform(private val svc: SingboxVpnService) : PlatformInterface {
-
-    override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
-
-    override fun autoDetectInterfaceControl(fd: Int) {
-        if (!svc.protect(fd)) throw IllegalStateException("protect($fd) failed")
+// با Proxy ساخته می‌شود تا کامپایل به لیست کامل متدهای رابط وابسته نباشد:
+// متدهای شناخته‌شده رفتار واقعی دارند و بقیه مقدار پیش‌فرض امن برمی‌گردانند.
+private fun makeSingboxPlatform(svc: SingboxVpnService): PlatformInterface {
+    val handler = java.lang.reflect.InvocationHandler { _, method, args ->
+        when (method.name) {
+            "usePlatformAutoDetectInterfaceControl" -> true
+            "autoDetectInterfaceControl" -> {
+                val fd = args!![0] as Int
+                if (!svc.protect(fd)) throw IllegalStateException("protect($fd) failed")
+                null
+            }
+            "openTun" -> svc.buildTun(args!![0] as TunOptions)
+            "tailscaleHostname" -> ""
+            "usePlatformBridge", "usePlatformShell",
+            "underNetworkExtension", "includeAllNetworks" -> false
+            "clearDNSCache" -> null
+            else -> defaultReturnFor(method.returnType)
+        }
     }
+    return java.lang.reflect.Proxy.newProxyInstance(
+        PlatformInterface::class.java.classLoader,
+        arrayOf(PlatformInterface::class.java),
+        handler
+    ) as PlatformInterface
+}
 
-    override fun openTun(options: TunOptions): Int = svc.buildTun(options)
-
-    // متدهای الزامی رابط PlatformInterface در libbox (نسخه ۱.۱۴)
-    override fun tailscaleHostname(): String = ""
-
-    override fun usePlatformBridge(): Boolean = false
-
-    override fun usePlatformShell(): Boolean = false
-
-    override fun underNetworkExtension(): Boolean = false
-
-    override fun includeAllNetworks(): Boolean = false
-
-    override fun clearDNSCache() {
-    }
+private fun defaultReturnFor(t: Class<*>): Any? = when (t) {
+    java.lang.Boolean.TYPE -> false
+    java.lang.Integer.TYPE -> 0
+    java.lang.Long.TYPE -> 0L
+    java.lang.Short.TYPE -> 0.toShort()
+    java.lang.Byte.TYPE -> 0.toByte()
+    java.lang.Float.TYPE -> 0f
+    java.lang.Double.TYPE -> 0.0
+    java.lang.Character.TYPE -> 0.toChar()
+    java.lang.String::class.java -> ""
+    else -> null
 }
