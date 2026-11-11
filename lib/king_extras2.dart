@@ -1,36 +1,4 @@
 // king_extras2.dart
-//
-// RELIABILITY-PASS additions that are safe to ship as a fully standalone file:
-//   • kingShareText()   — D1/D2/D3 (Bluetooth / SMS / nearby sharing of a config
-//                          or server list) via Android's own share sheet, instead
-//                          of hand-rolled Bluetooth/Wi-Fi Direct/SMS code that has
-//                          no way to be tested without a real device.
-//   • kingSecureUuidV4() — A18: a strong random UUID for someone setting up their
-//                          own personal Xray/V2Ray server.
-//   • checkHostTcp()     — an extra "is this IP:port reachable from OUTSIDE this
-//                          network" signal using the public check-host.net API,
-//                          to complement the app's own on-device IP/CDN scanning
-//                          (nip_scan / nat_ultra), which can only see what this
-//                          one phone, on this one network, can reach.
-//
-// WHY THIS IS A SEPARATE `import`-ed FILE, NOT `part of 'main.dart'`:
-// main.dart is ~14,000 lines with a long, hard-won history of very specific
-// timing/ordering fixes around VPN connection and core startup (see the
-// VPNRACE / CRASHGUARD / HANGSKIP / ABORTWAIT comments throughout it). None of
-// that is touched here. Keeping this file as its own library means it cannot
-// collide with any of main.dart's internal (underscore-prefixed) state, and it
-// can be reviewed, and even deleted, without touching main.dart at all.
-//
-// HOW TO WIRE IT IN (not done automatically, on purpose — see the handoff
-// report for why): add one import line near the top of lib/main.dart, next to
-// the other `import` lines (NOT the `part` lines):
-//     import 'king_extras2.dart';
-// then open the page from anywhere you like, e.g. from a menu row:
-//     onTap: () => Navigator.of(context).push(
-//         MaterialPageRoute<void>(builder: (_) => const KingExtrasPage())),
-// This file must also be listed in .github/workflows/build.yml's file-copy
-// loop (already added) so CI actually ships it.
-
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
@@ -46,11 +14,6 @@ import 'package:http/http.dart' as http;
 
 const MethodChannel _kingShareChannel = MethodChannel('king/share');
 
-/// Opens Android's native "share" chooser with [text] (e.g. one or more
-/// vmess://, vless://, trojan:// or ss:// links). Returns false if the native
-/// side could not even open the chooser (e.g. no MainActivity.kt build of this
-/// patch yet) — it does NOT mean the user cancelled the sheet, which Android
-/// does not reliably report back.
 Future<bool> kingShareText(String text, {String subject = ''}) async {
   try {
     final ok = await _kingShareChannel
@@ -63,7 +26,6 @@ Future<bool> kingShareText(String text, {String subject = ''}) async {
 
 // =============================================================================
 // A18 — strong random UUID (RFC 4122 v4) for a self-hosted Xray/V2Ray server.
-// Uses Random.secure() (CSPRNG), no extra package needed.
 // =============================================================================
 
 String kingSecureUuidV4() {
@@ -77,16 +39,7 @@ String kingSecureUuidV4() {
 }
 
 // =============================================================================
-// check-host.net — "is IP:port reachable from several vantage points outside
-// this network", as a second opinion next to the app's own on-device scanning.
-// Public API, no key needed: submit a check, then poll for results.
-// NOTE: the exact shape of a check-host.net result (per-node fields) is parsed
-// defensively here because it could not be exercised against a live response
-// from this session (no outbound network access). The submit → poll → "any
-// key still null means still pending" contract is the stable, documented part
-// of the API and is what this code relies on; per-node success detection just
-// looks for a non-empty, non-error-shaped result and degrades to "unknown"
-// rather than throwing if check-host ever changes its exact field names.
+// check-host.net — external reachability check
 // =============================================================================
 
 class CheckHostResult {
@@ -106,10 +59,6 @@ class CheckHostResult {
       : '$okNodes از $totalNodes گره در دسترس بود';
 }
 
-/// Asks check-host.net to open a TCP connection to [host]:[port] from several
-/// of its own vantage points (outside this phone's network) and reports how
-/// many of them succeeded. Returns null on any network/parse failure — this is
-/// an optional extra signal, never required for the app's own connect logic.
 Future<CheckHostResult?> checkHostTcp(
   String host,
   int port, {
@@ -141,7 +90,7 @@ Future<CheckHostResult?> checkHostTcp(
             .get(resUri, headers: const {'Accept': 'application/json'})
             .timeout(const Duration(seconds: 10));
       } catch (_) {
-        continue; // one bad poll shouldn't abort the whole check
+        continue;
       }
       if (r.statusCode != 200) continue;
       final data = jsonDecode(r.body);
@@ -166,10 +115,6 @@ Future<CheckHostResult?> checkHostTcp(
   }
 }
 
-/// Best-effort read of one node's result entry. check-host wraps a successful
-/// TCP check as a list containing a map WITHOUT an "error" key (commonly with
-/// a "time" field); a failure includes an "error" string. Any shape that does
-/// not clearly say "error" is treated as a non-reach rather than guessed at.
 bool _checkHostNodeReached(dynamic value) {
   if (value is! List || value.isEmpty) return false;
   final first = value.first;
@@ -181,22 +126,17 @@ bool _checkHostNodeReached(dynamic value) {
 }
 
 // =============================================================================
-// A small, self-contained page that ties the three features above together.
-// Uses plain Material theming (not the app's private _uiGold/_uiBg constants,
-// which live inside main.dart's library and are not reachable from here) so it
-// renders correctly regardless of how/where it gets opened from.
+// صفحه اصلی امکانات تکمیلی (دریافت اطلاعات از main.dart)
 // =============================================================================
 
 class KingExtrasPage extends StatefulWidget {
-  /// Optional: pre-fill the share/UUID box with e.g. the currently selected
-  /// server's link(s), so the caller does not have to know this widget's
-  /// internals — just pass the text you already have.
+  // این سه متغیر جدید هستند تا اطلاعات را از main.dart دریافت کنند
   final String initialShareText;
   final String initialHost;
   final String initialPort;
-  
+
   const KingExtrasPage({
-    super.key, 
+    super.key,
     this.initialShareText = '',
     this.initialHost = '',
     this.initialPort = '443',
@@ -207,10 +147,10 @@ class KingExtrasPage extends StatefulWidget {
 }
 
 class _KingExtrasPageState extends State<KingExtrasPage> {
-  late final TextEditingController _shareCtrl =
-      TextEditingController(text: widget.initialShareText);
-  final TextEditingController _hostCtrl = TextEditingController();
-  final TextEditingController _portCtrl = TextEditingController(text: '443');
+  late final TextEditingController _shareCtrl;
+  late final TextEditingController _hostCtrl;
+  late final TextEditingController _portCtrl;
+  
   String? _uuid;
   bool _checking = false;
   CheckHostResult? _chResult;
@@ -219,14 +159,13 @@ class _KingExtrasPageState extends State<KingExtrasPage> {
   @override
   void initState() {
     super.initState();
-    // جدید: اگر از صفحه اصلی IP و پورت داده شده باشد، خودکار پر می‌شود
-    if (widget.initialHost.isNotEmpty) {
-      _hostCtrl.text = widget.initialHost;
-    }
-    if (widget.initialPort.isNotEmpty) {
-      _portCtrl.text = widget.initialPort;
-    }
-    // جدید: تولید خودکار UUID به محض باز شدن صفحه
+    
+    // پر کردن خودکار باکس‌ها با اطلاعاتی که از main.dart آمده است
+    _shareCtrl = TextEditingController(text: widget.initialShareText);
+    _hostCtrl = TextEditingController(text: widget.initialHost);
+    _portCtrl = TextEditingController(text: widget.initialPort);
+
+    // تولید خودکار UUID به محض باز شدن صفحه
     _genUuid();
   }
 
