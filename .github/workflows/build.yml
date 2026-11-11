@@ -42,71 +42,16 @@ jobs:
         with:
           go-version: '1.25.5'
 
-      - name: Restore libbox.aar cache
-        id: libbox-cache
-        uses: actions/cache@v4
-        with:
-          path: libbox.aar
-          key: libbox-aar-1.14.4-naive-off-v1
-
-      - name: Build libbox.aar (sing-box core)
-        if: steps.libbox-cache.outputs.cache-hit != 'true'
-        env:
-          GOTOOLCHAIN: local
-        run: |
-          echo "Cloning sing-box v1.14.4..."
-          git clone --depth 1 --branch v1.14.4 https://github.com/SagerNet/sing-box.git sing-box-src
-          cd sing-box-src
-
-          echo "Go version in use:"
-          go version
-
-          echo "Removing with_naive_outbound tag (cronet link fails with NDK 27; not needed)..."
-          echo "Matches before:"
-          grep -rn 'with_naive_outbound' cmd/ --include='*.go' || true
-          grep -rl 'with_naive_outbound' cmd/ --include='*.go' | xargs -r sed -i \
-            -e '/^\/\/go:build/!{s/"with_naive_outbound",[[:space:]]*//g' \
-            -e '/^\/\/go:build/!s/,[[:space:]]*"with_naive_outbound"//g' \
-            -e '/^\/\/go:build/!s/,with_naive_outbound//g' \
-            -e '/^\/\/go:build/!s/with_naive_outbound,//g' \
-            -e '/^\/\/go:build/!s/"with_naive_outbound"//g' \
-            -e '/^\/\/go:build/!s/with_naive_outbound//g}'
-          echo "Matches after (should be only //go:build lines, if any):"
-          grep -rn 'with_naive_outbound' cmd/ --include='*.go' || true
-
-          echo "Installing SagerNet gomobile (official sing-box method)..."
-          make lib_install
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-          export PATH="$PATH:$(go env GOPATH)/bin"
-          ls -la "$(go env GOPATH)/bin"
-
-          echo "Building libbox.aar for Android..."
-          go run ./cmd/internal/build_libbox -target android
-
-          echo "Locating libbox.aar..."
-          aar=$(find . -maxdepth 2 -name 'libbox.aar' -type f | head -n 1)
-          [ -n "$aar" ] || { echo "ERROR: libbox.aar not produced"; exit 1; }
-          cp "$aar" ../libbox.aar
-          cd ..
-
-          echo "Verifying libbox.aar..."
-          ls -la libbox.aar
-          size=$(stat -c%s libbox.aar)
-          [ "$size" -gt 1000000 ] || { echo "ERROR: libbox.aar too small ($size bytes)"; exit 1; }
-          echo "OK: libbox.aar built successfully ($size bytes)"
-
       - name: Create project
         run: |
           flutter create --project-name king_vpn --org com.kingvpn --platforms=android build_app
           rm -rf build_app/test
           [ -f lib/main.dart ] || { echo "ERROR: lib/main.dart missing"; exit 1; }
           mkdir -p build_app/android/app/libs
-          cp -f libbox.aar build_app/android/app/libs/libbox.aar
           cp -r lib/. build_app/lib/
           grep -q 'bool requireRewardedAd = true;' build_app/lib/main.dart \
             || { echo "ERROR: requireRewardedAd is not true"; exit 1; }
           python3 prepare_android.py
-          python3 patch_singbox_native.py
 
       - name: Add packages
         working-directory: build_app
