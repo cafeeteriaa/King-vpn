@@ -1,5 +1,7 @@
 import os
 import re
+import shutil
+import random
 
 APP = 'build_app'
 
@@ -34,7 +36,6 @@ if 'com.kingvpn.king_vpn.KingVpnService' not in m and '</application>' in m:
     m = m.replace('</application>', KSVC + '</application>', 1)
 open(mp, 'w', encoding='utf-8').write(m)
 
-import shutil
 ja = os.path.join(APP, 'android/app/src/main/java/com/kingvpn/king_vpn')
 os.makedirs(ja, exist_ok=True)
 shutil.copy('android_src/KingVpnService.java', ja)
@@ -181,7 +182,6 @@ if 'hotAutoStart()' not in mn:
     open(MAIN, 'w', encoding='utf-8').write(mn)
 
 # ---- 4) Relay Server & IP Range buttons ----
-mn = open(MAIN, encoding='utf-8').read()
 old_chain = """          String? chainCfg;
           if (nationalMode && !proxyOnly) {
             final relays = _usable().where((x) => !identical(x, s)).take(1).toList();
@@ -230,166 +230,35 @@ else:
     new_tool = "UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),\n            UiTool(Icons.router, 'بازه‌های IP نت ملی', () => _natRangesDialog(context)),\n            UiTool(Icons.add_home_outlined, 'ساخت سرور شخصی', () => connectPersonalAsk()),"
     if old_tool in mn: mn = mn.replace(old_tool, new_tool, 1)
 
-# ---- 5) 80/20 IP MIX (80% Cloudflare + 20% User/Auto) ----
-old_blocks = """final blocks = natRanges.isNotEmpty ? natRanges : (natSeedBlocks(hosts).isNotEmpty ? natSeedBlocks(hosts) : _cfRanges.take(5).toList());"""
-new_blocks = """final otherSource = (natRanges.isNotEmpty ? natRanges : natSeedBlocks(hosts)).toSet().toList()..shuffle();
-  final cfSource = _cfRanges.toList()..shuffle();
-  
-  // V7 80/20 MIX: 80% Cloudflare (works in National) + 20% Other IPs (Relay, User, Arvan, etc.)
-  final blocks = <String>[];
-  for (var i = 0; i < 80; i++) {
-    blocks.add(cfSource[i % cfSource.length]);
-  }
-  if (otherSource.isNotEmpty) {
-    for (var i = 0; i < 20; i++) {
-      blocks.add(otherSource[i % otherSource.length]);
-    }
-  }
-  blocks.shuffle();"""
-if old_blocks in n:
-    n = n.replace(old_blocks, new_blocks, 1)
-    open(NAT, 'w', encoding='utf-8').write(n)
-    print('OK: 80/20 Mix (80% CF + 20% Others) enabled in nat_ultra.dart')
-
-# ---- 6) FIX DIALER-PROXY & VLESS ----
+# ---- 5) DIALER-PROXY fix (indentation matches real source: 6/8/10) ----
 old_proxy = """      if (so is Map) {
-          final dp = so['dialerProxy']?.toString();
-          if (dp != null && !tags.contains(dp)) {
-            so.remove('dialerProxy');
-            changed = true;
-          }
-        }"""
+        final dp = so['dialerProxy']?.toString();
+        if (dp != null && !tags.contains(dp)) {
+          so.remove('dialerProxy');
+          changed = true;
+        }
+      }"""
 new_proxy = """      if (so is Map) {
-          final dp = so['dialerProxy']?.toString();
-          if (dp != null && !tags.contains(dp)) {
-            so.remove('dialerProxy');
-            changed = true;
-          }
-          final ps = so['proxySettings']?.toString();
-          if (ps != null && !tags.contains(ps)) {
-            so.remove('proxySettings');
-            changed = true;
-          }
-        }"""
-if old_proxy in mn: mn = mn.replace(old_proxy, new_proxy, 1)
+        final dp = so['dialerProxy']?.toString();
+        if (dp != null && !tags.contains(dp)) {
+          so.remove('dialerProxy');
+          changed = true;
+        }
+        final ps = so['proxySettings']?.toString();
+        if (ps != null && !tags.contains(ps)) {
+          so.remove('proxySettings');
+          changed = true;
+        }
+      }"""
+if old_proxy in mn:
+    mn = mn.replace(old_proxy, new_proxy, 1)
+    print('OK: proxySettings removed in sanitizeCfg')
+else:
+    print('WARN: proxySettings pattern not found')
 
-old_vless = """  if (security != 'tls' && security != 'reality') {
-    final ipv4 = RegExp(r'^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$').hasMatch(uri.host);
-    if (ipv4 && !_isPrivateIpv4(uri.host)) {
-      return 'VLESS بدون TLS روی IP عمومی';
-    }
-  }"""
-new_vless = """  if (security != 'tls' && security != 'reality') {
-    final ipv4 = RegExp(r'^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$').hasMatch(uri.host);
-    final isPrivate = ipv4 && _isPrivateIpv4(uri.host);
-    if (!isPrivate) {
-      return 'VLESS بدون TLS (هسته Xray این را ممنوع کرده)';
-    }
-  }"""
-if old_vless in mn: mn = mn.replace(old_vless, new_vless, 1)
 open(MAIN, 'w', encoding='utf-8').write(mn)
 
-
-# ---- 7) RESTORE MASSIVE MATRIX & INFINITE GROWTH ----
-print('Applying Infinite Matrix patch...')
-
-n = open(NAT, encoding='utf-8').read()
-
-# 7a) Generate 100k variants
-old_gen = """  for (final g in rest) {
-    add(_natMk(frag: g, fp: 'firefox'));
-  }
-  return out;
-}"""
-new_gen = """  for (final g in rest) {
-    add(_natMk(frag: g, fp: 'firefox'));
-  }
-  
-  // V7-MASSIVE-MATRIX: Generate hundreds of thousands of variants to reach the 2M goal.
-  for (final g in _natFrags.take(40)) {
-    final fi = _natFrags.indexOf(g);
-    for (final p in fps) {
-      for (final a in alpns) {
-        for (final portIdx in [0, 1, 2, 3, 4, 5]) {
-          for (final d in _natDnsList.take(5)) {
-            add(_natMk(frag: fi, fp: p, alpn: a, port: true, portIdx: portIdx, doh: d));
-          }
-        }
-      }
-    }
-  }
-  for (final g in _natFrags.take(20)) {
-    final fi = _natFrags.indexOf(g);
-    for (final p in ['chrome', 'firefox', 'randomized']) {
-      for (final d in _natDnsList.take(10)) {
-        for (final clIdx in [0, 1, 2, 3, 4]) {
-          add(_natMk(frag: fi, fp: p, clean: true, cleanIdx: clIdx, doh: d));
-        }
-      }
-    }
-  }
-  return out;
-}"""
-
-if old_gen in n:
-    n = n.replace(old_gen, new_gen, 1)
-
-# 7b) Replace the disabled natGrow with an infinite generator using ALL building blocks
-old_grow = "int natGrow(int n) => 0;"
-new_grow = """
-int _natSeedCounter = 0;
-int natGrow(int n) {
-  // V7-INFINITE: Generates `n` new random variants and adds them to _natSpecs.
-  // Uses every possible building block (ports, DNS, Frag, FP, ALPN, Clean IP, SNI, Mux, etc.)
-  if (_natSpecs.length > 5000000) _natSpecs.removeRange(100, 2000000); // Memory safety cap
-  final rnd = Random(DateTime.now().millisecondsSinceEpoch + _natSeedCounter++);
-  final existingSigs = {for (final x in _natSpecs) _natSig(x)};
-  var added = 0;
-  const fps = ['chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge', 'random', 'qq', '360'];
-  const alpns = [null, 'h2', 'http/1.1', 'h2,http/1.1'];
-  for (var i = 0; i < n; i++) {
-    final fp = fps[rnd.nextInt(fps.length)];
-    final alpn = alpns[rnd.nextInt(alpns.length)];
-    final frag = rnd.nextInt(_natFrags.length);
-    final port = rnd.nextBool();
-    final portIdx = port ? rnd.nextInt(_natCfPorts.length) : null;
-    final clean = rnd.nextBool();
-    final cleanIdx = clean ? rnd.nextInt(10) : null;
-    final doh = rnd.nextBool() ? _natDnsList.elementAt(rnd.nextInt(_natDnsList.length)) : null;
-    final other = rnd.nextBool();
-    final sniHost = rnd.nextBool();
-    final v4 = rnd.nextBool();
-    final tfo = rnd.nextBool();
-    final nodelay = rnd.nextBool();
-    final keep = rnd.nextBool() ? rnd.nextInt(30) + 1 : null;
-    final mss = rnd.nextBool() ? [1240, 1280, 1320, 1360].elementAt(rnd.nextInt(4)) : null;
-    final ed = rnd.nextBool();
-    final edN = ed ? [512, 1024, 2048, 4096].elementAt(rnd.nextInt(4)) : null;
-    
-    final newSpec = _NatSpec('Dynamic ${_natSpecs.length + 1}',
-      other: other, fp: fp, alpn: alpn, frag: frag, port: port, portIdx: portIdx,
-      clean: clean, cleanIdx: cleanIdx, sniHost: sniHost, v4: v4, tfo: tfo,
-      nodelay: nodelay, doh: doh, keep: keep, mss: mss, ed: ed, edN: edN);
-    
-    final sig = _natSig(newSpec);
-    if (existingSigs.add(sig)) {
-      _natSpecs.add(newSpec);
-      added++;
-    }
-  }
-  if (added > 0) {
-    _natNamesC = null; // Invalidate name cache
-    _natGenRankKey = ''; // Force re-ranking
-    // ignore: avoid_print
-    print('NATGROW: Generated \\$added new dynamic variants. Total: \\${_natSpecs.length}');
-  }
-  return added;
-}
-"""
-if old_grow in n:
-    n = n.replace(old_grow, new_grow, 1)
-
-# 7c) Patch _natOrder to call natGrow when exhausted
+# ---- 6) natGrow call in _natOrder (real indent: 4, not 8) ----
 old_order = """        if (app.isNotEmpty && cursor < app.length) {
           final end = min(app.length, cursor + cap);
           for (var k = cursor; k < end; k++) {
@@ -399,7 +268,7 @@ old_order = """        if (app.isNotEmpty && cursor < app.length) {
           }
         }"""
 new_order = """        if (cursor >= app.length && lvl >= 2) {
-          natGrow(1000); // Generate 1000 more variants!
+          natGrow(1000);
           app.clear();
           for (final v in _natGenRanked()) {
             if (_natAppliesF(f, v)) app.add(v);
@@ -415,8 +284,17 @@ new_order = """        if (cursor >= app.length && lvl >= 2) {
         }"""
 if old_order in n:
     n = n.replace(old_order, new_order, 1)
+    print('OK: natGrow(1000) wired into _natOrder')
+else:
+    print('WARN: natGrow pattern not found')
 
-# 7d) Set natMaxVariants to infinite (32-bit max)
-n = n.replace("const int natMaxVariants = 2000000;", "const int natMaxVariants = 0x7FFFFFFF; // V7: Infinite")
+# ---- 7) natMaxVariants (real source has "const int natMaxVariants = 2000000;") ----
+if 'const int natMaxVariants = 2000000;' in n:
+    n = n.replace('const int natMaxVariants = 2000000;',
+                  'const int natMaxVariants = 0x7FFFFFFF; // V8: no cap (safe int)', 1)
+    print('OK: natMaxVariants bumped to 32-bit safe')
+else:
+    print('WARN: natMaxVariants line not found')
 
 open(NAT, 'w', encoding='utf-8').write(n)
+print('All prepare_android.py patches done.')
