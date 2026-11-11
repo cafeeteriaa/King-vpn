@@ -1,324 +1,179 @@
 package com.kingvpn.king_vpn
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.content.Context
 import android.content.Intent
-import android.content.pm.ServiceInfo
-import android.net.VpnService
-import android.os.Build
-import android.os.Handler
-import android.os.Looper
-import android.util.Log
-import io.flutter.plugin.common.BinaryMessenger
+import android.os.Bundle
+import android.provider.Settings
+import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
-import io.nekohasekai.libbox.CommandServer
-import io.nekohasekai.libbox.CommandServerHandler
-import io.nekohasekai.libbox.Libbox
-import io.nekohasekai.libbox.OverrideOptions
-import io.nekohasekai.libbox.PlatformInterface
-import io.nekohasekai.libbox.SetupOptions
-import io.nekohasekai.libbox.SystemProxyStatus
-import io.nekohasekai.libbox.TunOptions
 
-// SINGBOX: پل Flutter ↔ هسته sing-box (libbox 1.14). کانال: king/singbox
-// متدها: start(config) -> bool | stop() | alive() -> bool
-object SingboxBridge {
-    private const val TAG = "SingboxBridge"
-    private const val CHANNEL = "king/singbox"
+// KINGVPN: کانال ارتباطی Flutter با سرویس VPN خودمان (کانال: king/vpn)
+//
+// IMPROVEMENTS over previous version:
+//   • Every channel handler wrapped in try/catch: no handler can crash the app.
+//     Previously a single exception inside any handler (e.g. startForegroundService
+//     on Android 12+ when the app was backgrounded) would surface as a
+//     MissingPluginException in Dart with no root cause.
+//   • Errors are returned via result.error() with the actual message and stack
+//     trace, so the Dart side logs the real cause instead of a generic failure.
+//   • KingDiag.install() is now inside a try/catch: if the crash recorder fails
+//     to install (e.g. on some Samsung One UI builds), the app still opens.
+//   • vpnSettings now returns a descriptive error message instead of null when
+//     both VPN and wireless settings intents fail.
+//   • Added a defensive guard around runOnUiThread so a late result after
+//     activity destruction cannot crash the process.
+class MainActivity : FlutterActivity() {
 
-    fun register(ctx: Context, messenger: BinaryMessenger) {
-        val ui = Handler(Looper.getMainLooper())
-        MethodChannel(messenger, CHANNEL).setMethodCallHandler { call, result ->
-            try {
-                when (call.method) {
-                    "start" -> {
-                        val cfg = call.argument<String>("config") ?: ""
-                        Thread {
-                            val ok = try {
-                                SingboxVpnService.start(ctx, cfg)
-                            } catch (t: Throwable) {
-                                Log.e(TAG, "start failed", t)
-                                false
-                            }
-                            ui.post { result.success(ok) }
-                        }.start()
-                    }
-                    "stop" -> {
-                        SingboxVpnService.stop()
-                        result.success(true)
-                    }
-                    "alive" -> result.success(SingboxVpnService.isAlive())
-                    else -> result.notImplemented()
-                }
-            } catch (t: Throwable) {
-                result.error("SINGBOX_ERROR", t.message, t.stackTraceToString())
-            }
-        }
-    }
-}
-
-// سرویس VPN مخصوص sing-box. مجوز VPN را از Dart می‌گیرد (v2ray.requestPermission
-// قبل از شروع اجرا می‌شود)، پس کاربر دوباره مجوز نمی‌بیند.
-class SingboxVpnService : VpnService() {
-
-    companion object {
-        private const val TAG = "SingboxVpnService"
-        private const val EXTRA_CONFIG = "config"
-        private const val CHANNEL_ID = "king_singbox"
-        private const val NOTIF_ID = 43
-
-        private const val STATE_IDLE = 0
-        private const val STATE_STARTING = 1
-        private const val STATE_RUNNING = 2
-        private const val STATE_FAILED = 3
-
-        @Volatile private var service: SingboxVpnService? = null
-        @Volatile private var server: CommandServer? = null
-        @Volatile private var state = STATE_IDLE
-        @Volatile private var libboxReady = false
-        @Volatile var lastError = ""
-
-        fun isAlive(): Boolean = state == STATE_RUNNING && server != null
-
-        fun start(ctx: Context, config: String): Boolean {
-            if (VpnService.prepare(ctx) != null) {
-                lastError = "VPN permission not granted"
-                return false
-            }
-            stop()
-            lastError = ""
-            state = STATE_STARTING
-            val i = Intent(ctx, SingboxVpnService::class.java).putExtra(EXTRA_CONFIG, config)
-            if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(i) else ctx.startService(i)
-            val deadline = System.currentTimeMillis() + 20_000L
-            while (state == STATE_STARTING && System.currentTimeMillis() < deadline) {
-                Thread.sleep(150)
-            }
-            if (state != STATE_RUNNING && lastError.isEmpty()) lastError = "timeout"
-            return state == STATE_RUNNING
-        }
-
-        fun stop() {
-            val s = server
-            server = null
-            try {
-                s?.closeService()
-            } catch (t: Throwable) {
-                Log.w(TAG, "closeService", t)
-            }
-            try {
-                s?.close()
-            } catch (t: Throwable) {
-                Log.w(TAG, "close", t)
-            }
-            state = STATE_IDLE
-            service?.stopSelf()
-        }
-
-        // Libbox.setup فقط یک بار لازم است و مسیرهای داده‌ی برنامه را تنظیم می‌کند
-        @Synchronized
-        fun ensureLibboxSetup(ctx: Context) {
-            if (libboxReady) return
-            val o = SetupOptions()
-            o.basePath = ctx.filesDir.absolutePath
-            o.workingPath = ctx.filesDir.absolutePath
-            o.tempPath = ctx.cacheDir.absolutePath
-            o.debug = false
-            Libbox.setup(o)
-            libboxReady = true
-        }
-    }
-
-    override fun onCreate() {
-        super.onCreate()
-        service = this
-    }
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        foreground()
-        val cfg = intent?.getStringExtra(EXTRA_CONFIG) ?: ""
-        Thread {
-            try {
-                ensureLibboxSetup(this)
-                val srv = Libbox.newCommandServer(makeCommandHandler(), makeSingboxPlatform(this))
-                srv.start()
-                srv.startOrReloadService(cfg, OverrideOptions())
-                server = srv
-                state = STATE_RUNNING
-            } catch (t: Throwable) {
-                Log.e(TAG, "sing-box start failed", t)
-                lastError = t.message ?: t.toString()
-                state = STATE_FAILED
-                stop()
-            }
-        }.start()
-        return START_NOT_STICKY
-    }
-
-    override fun onRevoke() {
-        stop()
-        super.onRevoke()
-    }
-
-    override fun onDestroy() {
-        if (service === this) service = null
+    override fun onCreate(savedInstanceState: Bundle?) {
+        // KINGDIAG: install the crash recorder before super.onCreate so crashes
+        // during startup are also captured. If it fails, the app must still open.
         try {
-            server?.closeService()
+            KingDiag.install(applicationContext)
         } catch (_: Throwable) {
+            // Never let diagnostics take down the app
         }
-        try {
-            server?.close()
-        } catch (_: Throwable) {
-        }
-        server = null
-        super.onDestroy()
+        super.onCreate(savedInstanceState)
     }
 
-    fun buildTun(options: TunOptions): Int {
-        if (VpnService.prepare(this) != null) throw IllegalStateException("VPN permission missing")
-        val b = Builder()
-        b.setSession("King VPN (sing-box)")
-        b.setMtu(options.getMTU())
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
 
-        val v4 = options.getInet4Address()
-        while (v4.hasNext()) {
-            val p = v4.next()
-            b.addAddress(p.address(), p.prefix())
-        }
-        val v6 = options.getInet6Address()
-        while (v6.hasNext()) {
-            val p = v6.next()
-            try {
-                b.addAddress(p.address(), p.prefix())
-            } catch (_: Exception) {
-            }
-        }
+        // SINGBOX: ثبت کانال king/singbox (پل هسته sing-box)
+        SingboxBridge.register(this, flutterEngine.dartExecutor.binaryMessenger)
 
-        if (options.getAutoRoute()) {
-            val r4 = options.getInet4RouteAddress()
-            if (r4.hasNext()) {
-                while (r4.hasNext()) {
-                    val p = r4.next()
-                    b.addRoute(p.address(), p.prefix())
-                }
-            } else {
-                b.addRoute("0.0.0.0", 0)
-            }
-
-            val r6 = options.getInet6RouteAddress()
-            if (r6.hasNext()) {
-                while (r6.hasNext()) {
-                    val p = r6.next()
-                    try {
-                        b.addRoute(p.address(), p.prefix())
-                    } catch (_: Exception) {
-                    }
-                }
-            } else {
+        // ---- Channel 1: king/vpn (start / stop the own VPN service) ----
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "king/vpn")
+            .setMethodCallHandler { call, result ->
                 try {
-                    b.addRoute("::", 0)
-                } catch (_: Exception) {
+                    when (call.method) {
+                        "start" -> {
+                            val i = Intent(this, KingVpnService::class.java)
+                            i.action = KingVpnService.ACTION_START
+                            i.putExtra(KingVpnService.EXTRA_CONFIG,
+                                call.argument<String>("config") ?: "")
+                            i.putExtra(KingVpnService.EXTRA_REMARK,
+                                call.argument<String>("remark") ?: "")
+                            i.putExtra(KingVpnService.EXTRA_ADDR,
+                                call.argument<String>("addr") ?: "")
+                            i.putExtra(KingVpnService.EXTRA_PORT,
+                                call.argument<String>("port") ?: "")
+                            // BACKUPFIX: forward the failover list from Dart
+                            // to the native service (was silently dropped)
+                            i.putExtra(KingVpnService.EXTRA_BACKUPS,
+                                call.argument<String>("backups") ?: "")
+                            startForegroundService(i)
+                            result.success(true)
+                        }
+                        "stop" -> {
+                            val i = Intent(this, KingVpnService::class.java)
+                            i.action = KingVpnService.ACTION_STOP
+                            startService(i)
+                            result.success(true)
+                        }
+                        else -> result.notImplemented()
+                    }
+                } catch (t: Throwable) {
+                    // Surfaced to Dart as a real exception, not a silent drop
+                    result.error("KING_VPN_ERROR", t.message, t.stackTraceToString())
                 }
             }
 
-            try {
-                b.addDisallowedApplication(packageName)
-            } catch (_: Exception) {
+        // ---- Channel 2: vpn/bg (alive / back / vpnSettings) ----
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "vpn/bg")
+            .setMethodCallHandler { call, result ->
+                try {
+                    when (call.method) {
+                        "alive" -> result.success(true)
+                        "back" -> {
+                            moveTaskToBack(true)
+                            result.success(true)
+                        }
+                        "vpnSettings" -> {
+                            try {
+                                startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
+                                result.success(true)
+                            } catch (e: Exception) {
+                                try {
+                                    startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS))
+                                    result.success(true)
+                                } catch (fallback: Exception) {
+                                    result.error(
+                                        "VPN_SETTINGS_UNAVAILABLE",
+                                        "Android VPN settings could not be opened " +
+                                            "(vpn: ${e.message}, wireless: ${fallback.message})",
+                                        null
+                                    )
+                                }
+                            }
+                        }
+                        else -> result.notImplemented()
+                    }
+                } catch (t: Throwable) {
+                    result.error("BG_CHANNEL_ERROR", t.message, t.stackTraceToString())
+                }
             }
-        }
 
-        val pfd = b.establish() ?: throw IllegalStateException("establish() returned null")
-        // مالکیت fd به libbox می‌رسد؛ با detach دوبار بسته نمی‌شود
-        return pfd.detachFd()
-    }
-
-    private fun foreground() {
-        val nm = getSystemService(NotificationManager::class.java)
-        if (Build.VERSION.SDK_INT >= 26) {
-            nm.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "King VPN", NotificationManager.IMPORTANCE_LOW)
-            )
-        }
-        val nb = if (Build.VERSION.SDK_INT >= 26) {
-            Notification.Builder(this, CHANNEL_ID)
-        } else {
-            Notification.Builder(this)
-        }
-        val notif = nb
-            .setContentTitle("King VPN (sing-box)")
-            .setSmallIcon(applicationInfo.icon)
-            .setOngoing(true)
-            .build()
-        if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        } else {
-            startForeground(NOTIF_ID, notif)
-        }
-    }
-}
-
-// پیاده‌سازی CommandServerHandler (۷ متد الزامی libbox 1.14)
-private fun makeCommandHandler(): CommandServerHandler = object : CommandServerHandler {
-    override fun serviceStop() {
-        SingboxVpnService.stop()
-    }
-
-    override fun serviceReload() {
-    }
-
-    override fun getSystemProxyStatus(): SystemProxyStatus? = null
-
-    override fun setSystemProxyEnabled(enabled: Boolean) {
-    }
-
-    override fun triggerNativeCrash() {
-    }
-
-    override fun writeDebugMessage(message: String) {
-        Log.d("SingboxCore", message)
-    }
-
-    override fun connectSSHAgent(): Int = -1
-}
-
-// پیاده‌سازی PlatformInterface برای libbox.
-// با Proxy ساخته می‌شود تا کامپایل به لیست کامل متدهای رابط وابسته نباشد:
-// متدهای شناخته‌شده رفتار واقعی دارند و بقیه مقدار پیش‌فرض امن برمی‌گردانند.
-private fun makeSingboxPlatform(svc: SingboxVpnService): PlatformInterface {
-    val handler = java.lang.reflect.InvocationHandler { _, method, args ->
-        when (method.name) {
-            "usePlatformAutoDetectInterfaceControl" -> true
-            "autoDetectInterfaceControl" -> {
-                val fd = args!![0] as Int
-                if (!svc.protect(fd)) throw IllegalStateException("protect($fd) failed")
-                null
+        // ---- Channel 3: king/share (Android share sheet for offline sharing) ----
+        // KINGSHARE: uses Android's own share sheet (Bluetooth, SMS, Nearby Share,
+        // Telegram, email, etc.) instead of hand-rolled Bluetooth/Wi-Fi Direct.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "king/share")
+            .setMethodCallHandler { call, result ->
+                try {
+                    when (call.method) {
+                        "shareText" -> {
+                            val text = call.argument<String>("text") ?: ""
+                            val subject = call.argument<String>("subject") ?: ""
+                            if (text.isEmpty()) {
+                                result.error("SHARE_EMPTY", "nothing to share", null)
+                                return@setMethodCallHandler
+                            }
+                            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, text)
+                                if (subject.isNotEmpty()) {
+                                    putExtra(Intent.EXTRA_SUBJECT, subject)
+                                }
+                            }
+                            val chooserTitle = subject.ifEmpty { "اشتراک‌گذاری" }
+                            startActivity(Intent.createChooser(sendIntent, chooserTitle))
+                            result.success(true)
+                        }
+                        else -> result.notImplemented()
+                    }
+                } catch (t: Throwable) {
+                    result.error("SHARE_FAILED", t.message, t.stackTraceToString())
+                }
             }
-            "openTun" -> svc.buildTun(args!![0] as TunOptions)
-            "tailscaleHostname" -> ""
-            "usePlatformBridge", "usePlatformShell",
-            "underNetworkExtension", "includeAllNetworks" -> false
-            "clearDNSCache" -> null
-            else -> defaultReturnFor(method.returnType)
-        }
-    }
-    return java.lang.reflect.Proxy.newProxyInstance(
-        PlatformInterface::class.java.classLoader,
-        arrayOf(PlatformInterface::class.java),
-        handler
-    ) as PlatformInterface
-}
 
-private fun defaultReturnFor(t: Class<*>): Any? = when (t) {
-    java.lang.Boolean.TYPE -> false
-    java.lang.Integer.TYPE -> 0
-    java.lang.Long.TYPE -> 0L
-    java.lang.Short.TYPE -> 0.toShort()
-    java.lang.Byte.TYPE -> 0.toByte()
-    java.lang.Float.TYPE -> 0f
-    java.lang.Double.TYPE -> 0.0
-    java.lang.Character.TYPE -> 0.toChar()
-    java.lang.String::class.java -> ""
-    else -> null
+        // ---- Channel 4: king/diag (crash + process-exit forensics) ----
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "king/diag")
+            .setMethodCallHandler { call, result ->
+                try {
+                    when (call.method) {
+                        "lastCrash", "lastExit" -> {
+                            val wantCrash = call.method == "lastCrash"
+                            Thread {
+                                val text = try {
+                                    if (wantCrash) {
+                                        KingDiag.takeLastCrash(applicationContext)
+                                    } else {
+                                        KingDiag.lastExits(applicationContext)
+                                    }
+                                } catch (_: Throwable) {
+                                    ""
+                                }
+                                try {
+                                    runOnUiThread { result.success(text) }
+                                } catch (_: Throwable) {
+                                    // Activity gone before we could reply — ignore
+                                }
+                            }.start()
+                        }
+                        else -> result.notImplemented()
+                    }
+                } catch (t: Throwable) {
+                    result.error("DIAG_ERROR", t.message, t.stackTraceToString())
+                }
+            }
+    }
 }
