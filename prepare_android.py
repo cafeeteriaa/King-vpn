@@ -165,7 +165,7 @@ for fn in os.listdir(LIB):
     if fn.endswith('.dart'):
         with open(os.path.join(LIB, fn), encoding='utf-8') as f:
             content = f.read().replace('\r\n', '\n')
-        files[fn[:-5]] = content  # strip .dart
+        files[fn[:-5]] = content
 print('Loaded %d dart files' % len(files))
 
 # =====================================================================
@@ -210,7 +210,6 @@ patch_hard('nat_ultra',
 "  if (force) await hotStorageAllow();\n  if (_hotBusy) return;\n  final f = File(_hotPath());\n",
 'hotEnsure force allow')
 
-# Append helpers at end of nat_ultra.dart
 if 'hotAutoStart()' not in files['nat_ultra']:
     files['nat_ultra'] += """
 
@@ -257,39 +256,39 @@ patch_hard('main',
 'main hotAutoStart')
 
 # =====================================================================
-# ---- 6) Relay chain in _startImpl ----
+# ---- 6) Relay chain (FIXED indent: 6 spaces, not 10) ----
 # =====================================================================
 print('\n[6] Relay chain')
 patch_hard('main',
-"""          String? chainCfg;
-          if (nationalMode && !proxyOnly) {
-            final relays = _usable().where((x) => !identical(x, s)).take(1).toList();
-            if (relays.isNotEmpty) {
-              chainCfg = natChainCfg(cfg, natCfg(relays.first, 0), keepInbounds: true);
-              if (chainCfg != null) {
-                dbg('MULTIHOP: آخرین تلاش از پشت ${relays.first.name} (relay) برای ${s.name}');
-              }
+"""      String? chainCfg;
+      if (nationalMode && !proxyOnly) {
+        final relays = _usable().where((x) => !identical(x, s)).take(1).toList();
+        if (relays.isNotEmpty) {
+          chainCfg = natChainCfg(cfg, natCfg(relays.first, 0), keepInbounds: true);
+          if (chainCfg != null) {
+            dbg('MULTIHOP: آخرین تلاش از پشت ${relays.first.name} (relay) برای ${s.name}');
+          }
+        }
+      }""",
+"""      String? chainCfg;
+      if (nationalMode && !proxyOnly) {
+        if (relayServerUrl.isNotEmpty) {
+          final relaySrv = Server.parse(relayServerUrl);
+          if (relaySrv != null) {
+            chainCfg = natChainCfg(cfg, natCfg(relaySrv, 0), keepInbounds: true);
+            if (chainCfg != null) dbg('MULTIHOP: manual relay for ${s.name}');
+          }
+        }
+        if (chainCfg == null) {
+          final relays = _usable().where((x) => !identical(x, s)).take(1).toList();
+          if (relays.isNotEmpty) {
+            chainCfg = natChainCfg(cfg, natCfg(relays.first, 0), keepInbounds: true);
+            if (chainCfg != null) {
+              dbg('MULTIHOP: آخرین تلاش از پشت ${relays.first.name} (relay) برای ${s.name}');
             }
-          }""",
-"""          String? chainCfg;
-          if (nationalMode && !proxyOnly) {
-            if (relayServerUrl.isNotEmpty) {
-              final relaySrv = Server.parse(relayServerUrl);
-              if (relaySrv != null) {
-                chainCfg = natChainCfg(cfg, natCfg(relaySrv, 0), keepInbounds: true);
-                if (chainCfg != null) dbg('MULTIHOP: manual relay for ${s.name}');
-              }
-            }
-            if (chainCfg == null) {
-              final relays = _usable().where((x) => !identical(x, s)).take(1).toList();
-              if (relays.isNotEmpty) {
-                chainCfg = natChainCfg(cfg, natCfg(relays.first, 0), keepInbounds: true);
-                if (chainCfg != null) {
-                  dbg('MULTIHOP: relay ${relays.first.name} for ${s.name}');
-                }
-              }
-            }
-          }""", 'relay chain')
+          }
+        }
+      }""", 'relay chain')
 
 # =====================================================================
 # ---- 7) npvParse + relayServerUrl load/save ----
@@ -789,7 +788,6 @@ patch_hard('nat_ultra',
   addrs.addAll(_getCfIps());""",
 'blocks → include CF mix')
 
-# Insert _getCfIps function
 insert_before('nat_ultra', 'Future<List<String>> natRangeScanStep({',
 """List<String>? _cfIpCache;
 List<String> _getCfIps() {
@@ -862,21 +860,18 @@ for fn, content in files.items():
         f.write(content)
 
 print('\n' + '='*60)
-print('=== ALL V8 PATCHES APPLIED (HARD-FAIL MODE) ===')
+print('=== ALL V8 PATCHES APPLIED ===')
 print('='*60)
-print('Summary of what was applied:')
-print('  ✅ DPI / Fragment / _natFrag — UNTOUCHED')
-print('  ✅ _natLadder — UNTOUCHED')
-print('  ✅ 80-block CF mix (safe on 6GB)')
-print('  ✅ natGrow real + wired')
-print('  ✅ kNatMergeCache / kFolderInjectGood → true')
-print('  ✅ _natIpHunt pool fix')
-print('  ✅ _natRangeAdd safe + template fallback')
-print('  ✅ _doConnect national pre-load (gold + prescan)')
-print('  ✅ 3-server target')
-print('  ✅ sing-box fully removed')
-print('  ✅ Fresh install = reset defaults')
-print('  ✅ Skip requestPermission if granted')
-print('  ✅ Telegram pre-check removed (v2rayNG-style)')
+print('✅ DPI / Fragment / _natFrag — UNTOUCHED')
+print('✅ _natLadder — UNTOUCHED')
+print('✅ 80-block CF mix')
+print('✅ natGrow real + wired')
+print('✅ kNatMergeCache / kFolderInjectGood → true')
+print('✅ _natIpHunt pool fix')
+print('✅ _natRangeAdd safe + template + good')
+print('✅ _doConnect national pre-load')
+print('✅ 3-server target')
+print('✅ sing-box fully removed')
+print('✅ Fresh install = reset defaults')
 print('')
-print('=== BUILD SHOULD NOW PROCEED ===')
+print('=== BUILD SHOULD PROCEED ===')
