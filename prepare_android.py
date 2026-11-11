@@ -291,15 +291,21 @@ if old_save in mn:
 else:
     print('WARN: old_save not found (save)')
 
-# 4d) Add Relay Server button to the middle of the main page (UiTools)
-old_tool = "UiTool(Icons.add_home_outlined, 'ساخت سرور شخصی', () => connectPersonalAsk()),"
-new_tool = "UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),\n            UiTool(Icons.add_home_outlined, 'ساخت سرور شخصی', () => connectPersonalAsk()),"
-if old_tool in mn:
-    mn = mn.replace(old_tool, new_tool, 1)
-    print('OK: Relay Server button added to the main page UI')
+# 4d) Add Relay Server button and IP ranges button to the main page (UiTools) - ROBUST PATCH
+old_ui = "UiTools(items: ["
+new_ui = "UiTools(items: [\n            UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),\n            UiTool(Icons.router, 'بازه‌های IP نت ملی', () => _natRangesDialog(context)),"
+if old_ui in mn:
+    mn = mn.replace(old_ui, new_ui, 1)
+    print('OK: Relay and IP Range buttons injected at the top of UiTools')
 else:
-    print('WARN: old_tool not found (UI button)')
-
+    print('WARN: UiTools(items: [ not found, trying old method...')
+    old_tool = "UiTool(Icons.add_home_outlined, 'ساخت سرور شخصی', () => connectPersonalAsk()),"
+    new_tool = "UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),\n            UiTool(Icons.router, 'بازه‌های IP نت ملی', () => _natRangesDialog(context)),\n            UiTool(Icons.add_home_outlined, 'ساخت سرور شخصی', () => connectPersonalAsk()),"
+    if old_tool in mn:
+        mn = mn.replace(old_tool, new_tool, 1)
+        print('OK: Relay and IP Range buttons added before Personal Server')
+    else:
+        print('WARN: old_tool not found (UI button)')
 
 # ---- 5) FIX IP RANGES (NAT-NOIP BUG) ----
 # Fallback to Cloudflare ranges if the user hasn't provided any
