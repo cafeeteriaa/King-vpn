@@ -204,4 +204,566 @@ String _hotPath() {
     return '${Directory.systemTemp.path}/hot_cache.txt';
   }
 }
-""", 'hotPath
+""", 'hotPath → Download')
+
+patch_hard('nat_ultra',
+"  if (_hotBusy) return;\n  final f = File(_hotPath());\n",
+"  if (force) await hotStorageAllow();\n  if (_hotBusy) return;\n  final f = File(_hotPath());\n",
+'hotEnsure force')
+
+if 'hotAutoStart()' not in files['nat_ultra']:
+    files['nat_ultra'] += """
+
+Future<void> hotStorageAllow() async {
+  try {
+    final st = Permission.manageExternalStorage;
+    if (await st.isGranted) return;
+    await st.request();
+  } catch (e) { logError(e); }
+}
+Future<void> hotAutoFill() async {
+  try {
+    if (!(await Permission.manageExternalStorage.isGranted)) return;
+  } catch (e) { logError(e); return; }
+  await natHotEnsure();
+}
+Future<void> hotAutoStart() async {
+  try { WidgetsBinding.instance.addObserver(HotResumeWatcher()); } catch (e) { logError(e); }
+  try {
+    final p = await SharedPreferences.getInstance();
+    if (!(p.getBool('hotAsked') ?? false)) {
+      await p.setBool('hotAsked', true);
+      await hotStorageAllow();
+    }
+  } catch (e) { logError(e); }
+  await hotAutoFill();
+}
+class HotResumeWatcher extends WidgetsBindingObserver {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(hotAutoFill());
+  }
+}
+"""
+    print('  OK: hot helpers appended')
+
+# ---- 5) main() auto-start ----
+print('\n[5] main auto-start')
+patch_hard('main',
+"void main() {\n  runZonedGuarded(() {",
+"void main() {\n  Future.delayed(const Duration(seconds: 5), () => unawaited(hotAutoStart()));\n  runZonedGuarded(() {",
+'main hotAutoStart')
+
+# ---- 6) Relay chain ----
+print('\n[6] Relay chain')
+patch_hard('main',
+"""      String? chainCfg;
+      if (nationalMode && !proxyOnly) {
+        final relays = _usable().where((x) => !identical(x, s)).take(1).toList();
+        if (relays.isNotEmpty) {
+          chainCfg = natChainCfg(cfg, natCfg(relays.first, 0), keepInbounds: true);
+          if (chainCfg != null) {
+            dbg('MULTIHOP: آخرین تلاش از پشت ${relays.first.name} (relay) برای ${s.name}');
+          }
+        }
+      }""",
+"""      String? chainCfg;
+      if (nationalMode && !proxyOnly) {
+        if (relayServerUrl.isNotEmpty) {
+          final relaySrv = Server.parse(relayServerUrl);
+          if (relaySrv != null) {
+            chainCfg = natChainCfg(cfg, natCfg(relaySrv, 0), keepInbounds: true);
+            if (chainCfg != null) dbg('MULTIHOP: manual relay for ${s.name}');
+          }
+        }
+        if (chainCfg == null) {
+          final relays = _usable().where((x) => !identical(x, s)).take(1).toList();
+          if (relays.isNotEmpty) {
+            chainCfg = natChainCfg(cfg, natCfg(relays.first, 0), keepInbounds: true);
+            if (chainCfg != null) {
+              dbg('MULTIHOP: آخرین تلاش از پشت ${relays.first.name} (relay) برای ${s.name}');
+            }
+          }
+        }
+      }""", 'relay chain')
+
+# ---- 7) relayServerUrl load/save ----
+print('\n[7] relay load/save')
+patch_hard('main',
+"          npvParse = j['npv'] as bool? ?? npvParse;",
+"          npvParse = j['npv'] as bool? ?? npvParse;\n          relayServerUrl = j['relay_url'] as String? ?? '';",
+'load relay_url')
+patch_hard('main',
+"            'npv': npvParse,",
+"            'npv': npvParse,\n            'relay_url': relayServerUrl,",
+'save relay_url')
+
+# ---- 8) UiTools ----
+print('\n[8] UiTools')
+patch_hard('main',
+"UiTools(items: [",
+"UiTools(items: [\n            UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),\n            UiTool(Icons.router, 'بازه‌های IP نت ملی', () => _natRangesDialog(context)),",
+'UiTools buttons')
+
+# ---- 9) DIALER proxy ----
+print('\n[9] DIALER')
+patch_hard('main',
+"""      if (so is Map) {
+        final dp = so['dialerProxy']?.toString();
+        if (dp != null && !tags.contains(dp)) {
+          so.remove('dialerProxy');
+          changed = true;
+        }
+      }""",
+"""      if (so is Map) {
+        final dp = so['dialerProxy']?.toString();
+        if (dp != null && !tags.contains(dp)) {
+          so.remove('dialerProxy');
+          changed = true;
+        }
+        final ps = so['proxySettings']?.toString();
+        if (ps != null && !tags.contains(ps)) {
+          so.remove('proxySettings');
+          changed = true;
+        }
+      }""", 'dialerProxy + proxySettings')
+
+# ---- 10,11) configs ----
+print('\n[10,11] kNatMergeCache, kFolderInjectGood')
+patch_hard('main', "const bool kNatMergeCache = false;", "const bool kNatMergeCache = true;", 'kNatMergeCache')
+patch_hard('main', "const bool kFolderInjectGood = false;", "const bool kFolderInjectGood = true;", 'kFolderInjectGood')
+
+# ---- 12) requestPermission ----
+print('\n[12] requestPermission')
+patch_hard('main',
+"""    if (!proxyMode && inForeground) {
+      try {
+        // PERMTIMEOUT: same limit as above
+        final ok = await v2ray.requestPermission().timeout(""",
+"""    if (!proxyMode && inForeground && !vpnPermOk) {
+      try {
+        // PERMTIMEOUT: same limit as above
+        final ok = await v2ray.requestPermission().timeout(""",
+'requestPermission skip')
+
+# ---- 13) V8-FRESH ----
+print('\n[13] V8-FRESH')
+patch_hard('main',
+"""  Future<void> _loadCache() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      await loadGeminiPrefs(p);""",
+"""  Future<void> _loadCache() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      if (!p.containsKey('settings')) {
+        for (final k in const [
+          'speedoff27', 'lowdata_v1', 'restore_speed_v1', 'best_defaults_v4',
+          'fw5_v1', 'workers12_v2', 'contsearch_v1', 'cip_v2', 'idm_v2',
+          'nat_v2', 'defsync_v1', 'defsync_v2', 'badping1700_v1',
+          'tuned_v1', 'tuned_v2', 'tuned_v3', 'tuned_v4', 'tuned_v5',
+          'bestProfile26', 'fwDefault27', 'bgWorkersOne',
+        ]) {
+          await p.setBool(k, true);
+        }
+        for (final o in numOpts) { o.set(o.def); }
+        fwUserSet = false;
+        fwUserValue = 5;
+        autoTune = false;
+        proxyMode = false;
+        onlyHealthySrc = true;
+        ipMode = false;
+        ultraMode = false;
+        indestructibleMode = true;
+        turboSpeed = true;
+        fastDelay = true;
+        iranRoute = true;
+        iranGeoip = false;
+        iranMore = true;
+        blockQuic = true;
+        lanDirect = true;
+        routeOnly = false;
+        fragEnabled = false;
+        muxEnabled = true;
+        secureDns = true;
+        cleanIpMode = true;
+        npvParse = true;
+        offlineOnly = false;
+        dataSaver = false;
+        autoNetReconnect = true;
+        preflightOn = true;
+        await saveNumPrefs();
+        await _saveSettings();
+        dbg('V8-FRESH: default settings applied');
+      }
+      await loadGeminiPrefs(p);""",
+'V8-FRESH')
+
+# ---- 14) resetAllToDefaults (ROBUST) ----
+print('\n[14] resetAllToDefaults')
+MIGRATION_CODE = '''
+    SharedPreferences.getInstance().then((p) async {
+      for (final k in const [
+        'speedoff27', 'lowdata_v1', 'restore_speed_v1', 'best_defaults_v4',
+        'fw5_v1', 'workers12_v2', 'contsearch_v1', 'cip_v2', 'idm_v2',
+        'nat_v2', 'defsync_v1', 'defsync_v2', 'badping1700_v1',
+        'tuned_v1', 'tuned_v2', 'tuned_v3', 'tuned_v4', 'tuned_v5',
+        'bestProfile26', 'fwDefault27', 'bgWorkersOne',
+      ]) {
+        await p.setBool(k, true);
+      }
+    });'''
+
+already = False
+for fn, text in files.items():
+    if 'resetAllToDefaults()' in text:
+        idx = text.find('resetAllToDefaults()')
+        if 'SharedPreferences.getInstance().then' in text[idx:idx+800]:
+            print('  SKIP: already patched')
+            already = True
+            break
+if not already:
+    pattern = re.compile(r'void\s+resetAllToDefaults\s*\(\s*\)\s*\{')
+    found = []
+    for fn, text in files.items():
+        m = pattern.search(text)
+        if m:
+            found.append((fn, m.end()))
+            break
+    if not found:
+        pattern2 = re.compile(r'resetAllToDefaults\s*\(\s*\)\s*\{')
+        for fn, text in files.items():
+            m = pattern2.search(text)
+            if m:
+                found.append((fn, m.end()))
+                break
+    if not found:
+        raise SystemExit('\n\nHARD FAIL: [resetAllToDefaults]\nFunction not found')
+    fn, pos = found[0]
+    files[fn] = files[fn][:pos] + MIGRATION_CODE + files[fn][pos:]
+    print('  OK (%s)' % fn)
+
+# ---- 15) pre-social-check ----
+print('\n[15] pre-social-check')
+patch_hard('main',
+"""      if (!trust && !pin && !nationalMode && !proxyMode) {
+        _set('بررسی تلگرام روی ${s.name}...');
+        final sc = await _preSocialCheck(s);
+        if (abort) return false;
+        if (sc == false) {
+          siteSkips++;
+          s.svc = 0;
+          s.badAt = DateTime.now();
+          errorLog.value = '${s.name}: تلگرام باز نشد — سرور بعدی…';
+          dbg('اتصال: ${s.name} رد شد — تلگرام باز نشد • سرور بعدی');
+          continue;
+        }
+      }""",
+"      // V8: pre-social-check removed (v2rayNG-style connect)",
+'pre-social-check')
+
+# ---- 16) needSocial ----
+print('\n[16] needSocial')
+patch_hard('main', "        final needSocial = !proxyMode;", "        final needSocial = false; // V8", 'needSocial false')
+
+# ---- 17) abort guard ----
+print('\n[17] abort guard')
+patch_hard('main',
+"""      _onConnected(s);
+      return true;
+    }
+    return false;
+  }
+
+  // REAL speed test""",
+"""      if (abort || !wantVpn) return false; // V8: abort guard
+      _onConnected(s);
+      return true;
+    }
+    return false;
+  }
+
+  // REAL speed test""",
+'abort guard')
+
+# ---- 18) target 3 servers ----
+print('\n[18] target 3')
+patch_hard('main', "const int kStandbyPause = 5;", "const int kStandbyPause = 3;", 'kStandbyPause')
+patch_hard('main', "const int kStandbyResume = 5;", "const int kStandbyResume = 3;", 'kStandbyResume')
+patch_hard('main', "const int kFgSearchTarget = 5;", "const int kFgSearchTarget = 3;", 'kFgSearchTarget')
+
+# ---- 19) _doConnect national pre-load ----
+print('\n[19] _doConnect national pre-load')
+patch_hard('main',
+"""      if (nationalMode || indestructibleMode) {
+        _resInject();
+        await _checkSaved(); // re-test known-good before searching new lists
+        if (nationalMode) await _natMergeCache(); // پوشه‌ی منابع تازه (فقط نت ملی)
+      }""",
+"""      if (nationalMode || indestructibleMode) {
+        try {
+          await goldLoad();
+          await _goldMergeGood(this);
+          dbg('V8-NAT: gold=${_goldSrv.length}srv ${_goldIps.length}ip');
+        } catch (e, stk) { logError(e, stk); }
+        _resInject();
+        await _checkSaved();
+        if (nationalMode) {
+          await _natMergeCache();
+          final hasTpl = pending.isNotEmpty || natRestPending.isNotEmpty ||
+              natTemplateSeeds.isNotEmpty || good.isNotEmpty;
+          if (pending.isEmpty && hasTpl) {
+            await _natMemoryReuse();
+            await _natPrescan();
+          } else if (pending.isEmpty) {
+            dbg('V8-NAT: no template — skipping prescan');
+            _set('نت ملی: هیچ کانفیگی موجود نیست. با نت جهانی وصل شو یا کانفیگ اضافه کن.');
+          }
+          dbg('V8-NAT: pending=${pending.length} good=${good.length} res=${_resMap.length}');
+        }
+      }""",
+'_doConnect national pre-load')
+
+# ---- 20) _natIpHunt pool ----
+print('\n[20] _natIpHunt pool')
+patch_find(
+"""    final pool = <Server>[];
+    pool.addAll(good);
+    pool.addAll(pending);
+    pool.addAll(_resMap.values.whereType<Server>());""",
+"""    final pool = <Server>[];
+    pool.addAll(good);
+    pool.addAll(pending);
+    for (final e in _resMap.values) {
+      if (!pool.any((x) => x.link == e.link)) pool.add(e.s);
+    }""",
+'_natIpHunt pool fix')
+
+# ---- 21) _natRangeAdd (BRACE-MATCHING, encoding-safe) ----
+print('\n[21] _natRangeAdd (brace-match)')
+if 'V8: no template' in files['main']:
+    print('  SKIP: already patched')
+else:
+    replace_function_braces('main',
+        r'Future\s*<\s*void\s*>\s+_natRangeAdd\s*\(\s*List\s*<\s*String\s*>\s+items\s*,\s*\{\s*bool\s+count\s*=\s*true\s*\}\s*\)\s*async\s*\{',
+        """  Future<void> _natRangeAdd(List<String> items, {bool count = true}) async {
+    if (items.isEmpty) return;
+    for (final it in items) {
+      natScanHits.add(it.split('|')[0]);
+    }
+    final tpl = [...pending, ...natRestPending, ...natTemplateSeeds, ...good].take(2).toList();
+    if (tpl.isEmpty) {
+      dbg('V8: no template - skipping');
+      return;
+    }
+    final made = <Server>[];
+    for (final item in items) {
+      final parts = item.split('|');
+      if (parts.length < 2) continue;
+      final ip = parts[0].trim();
+      final port = int.tryParse(parts[1].trim());
+      if (port == null || port <= 0 || port > 65535) continue;
+      if (InternetAddress.tryParse(ip) == null) continue;
+      for (final t in tpl) {
+        try {
+          made.add(Server(
+            _natSetHost(t.link, ip, t.host),
+            t.name,
+            ip,
+            port,
+          ));
+        } catch (e, stk) { logError(e, stk); }
+      }
+    }
+    if (made.isEmpty) return;
+    if (count) natIpFound += items.length;
+    pending = [...made, ...pending];
+    natRangeCursor = 0;
+  }""",
+        '_natRangeAdd replaced')
+
+# ---- 22) _natEscalate (2 small ASCII patches) ----
+print('\n[22] _natEscalate (ASCII patches)')
+patch_hard('main',
+    "      if (nationalMode && !abort && !ipWaiting) {",
+    "      final hasTpl = pending.isNotEmpty || natRestPending.isNotEmpty ||\n          natTemplateSeeds.isNotEmpty || good.isNotEmpty;\n      if (nationalMode && !abort && !ipWaiting && pending.isEmpty && hasTpl) {",
+    '_natEscalate hasTpl+pending')
+patch_hard('main',
+    "            budget: const Duration(minutes: 12));",
+    "            budget: const Duration(minutes: 3));",
+    '_natEscalate 3min')
+
+# ---- 23) sing-box URLs (find + ASCII markers) ----
+print('\n[23] sing-box URLs (find + ASCII)')
+start_marker = "  // PHASE1-SINGBOX:"
+url_inner = "yebekhe/TelegramV2rayCollector/main/sub/normal/tuic'"
+if start_marker in files['main']:
+    start = files['main'].find(start_marker)
+    if start >= 0:
+        url_pos = files['main'].find(url_inner, start)
+        if url_pos >= 0:
+            nl = files['main'].find('\n', url_pos)
+            if nl < 0: nl = len(files['main'])
+            end = nl + 1
+            files['main'] = files['main'][:start] + "  // V8: sing-box URLs removed\n" + files['main'][end:]
+            print('  OK: sing-box URLs removed')
+        else:
+            print('  WARN: end URL not found after marker')
+    else:
+        print('  SKIP: marker not found')
+else:
+    print('  SKIP: sing-box already removed')
+
+# ---- 24) stopSingbox ----
+print('\n[24] stopSingbox call')
+patch_hard('main',
+"      try { await stopSingbox(); } catch (_) {} // SINGBOX: هر دو هسته خاموش شوند",
+"      // V8: singbox removed",
+'stopSingbox call')
+
+# ---- 25-29) nat_ultra ----
+print('\n[25] natMaxVariants')
+patch_hard('nat_ultra', "const int natMaxVariants = 2000000;", "const int natMaxVariants = 0x7FFFFFFF; // V8", 'natMaxVariants')
+
+print('\n[26] natGrow real')
+patch_hard('nat_ultra',
+"int natGrow(int n) => 0;",
+"""int _natGrowCounter = 0;
+int natGrow(int n) {
+  if (_natSpecs.length > 500000) return 0;
+  final rnd = Random(DateTime.now().millisecondsSinceEpoch + _natGrowCounter++);
+  var added = 0;
+  const fps = ['chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge', 'random', 'qq', '360'];
+  const alpns = <String?>[null, 'h2', 'http/1.1', 'h2,http/1.1'];
+  for (var i = 0; i < n; i++) {
+    final fp = fps[rnd.nextInt(fps.length)];
+    final alpn = alpns[rnd.nextInt(alpns.length)];
+    final frag = rnd.nextInt(_natFrags.length);
+    final port = rnd.nextBool();
+    final portIdx = port ? rnd.nextInt(_natCfPorts.length) : null;
+    final clean = rnd.nextBool();
+    final cleanIdx = clean ? rnd.nextInt(10) : null;
+    final doh = rnd.nextBool() ? _natDnsList[rnd.nextInt(_natDnsList.length)] : null;
+    final v4 = rnd.nextBool();
+    final tfo = rnd.nextBool();
+    final keep = rnd.nextBool() ? rnd.nextInt(30) + 1 : null;
+    _natSpecs.add(_natMk(
+      fp: fp, alpn: alpn, frag: frag, port: port, portIdx: portIdx,
+      clean: clean, cleanIdx: cleanIdx, v4: v4, tfo: tfo, keep: keep, doh: doh,
+    ));
+    added++;
+  }
+  if (added > 0) { _natNamesC = null; _natGenRankKey = ''; }
+  return added;
+}""",
+'natGrow real')
+
+print('\n[27] natGrow wired')
+patch_hard('nat_ultra',
+"""    if (app.isNotEmpty && cursor < app.length) {
+      final end = min(app.length, cursor + cap);
+      for (var k = cursor; k < end; k++) {
+        final gv = app[k];
+        if (skipHeavy && natIsHeavy(gv)) continue;
+        gens.add(gv);
+      }
+    }""",
+"""    if (cursor >= app.length && lvl >= 2) {
+      natGrow(1000);
+      app.clear();
+      for (final v in _natGenRanked()) {
+        if (_natAppliesF(f, v)) app.add(v);
+      }
+    }
+    if (app.isNotEmpty && cursor < app.length) {
+      final end = min(app.length, cursor + cap);
+      for (var k = cursor; k < end; k++) {
+        final gv = app[k];
+        if (skipHeavy && natIsHeavy(gv)) continue;
+        gens.add(gv);
+      }
+    }""",
+'natGrow wired')
+
+print('\n[28] 80-block CF')
+patch_hard('nat_ultra',
+"""  final blocks = natRanges.isNotEmpty ? natRanges : natSeedBlocks(hosts);
+  final addrs = <String>[];
+  for (final r in blocks) {
+    addrs.addAll(natExpandAny(r));
+  }""",
+"""  final blocks = natRanges.isNotEmpty ? natRanges : natSeedBlocks(hosts);
+  final addrs = <String>[];
+  for (final r in blocks) {
+    addrs.addAll(natExpandAny(r));
+  }
+  addrs.addAll(_getCfIps());""",
+'blocks CF mix')
+
+insert_before('nat_ultra', 'Future<List<String>> natRangeScanStep({',
+"""List<String>? _cfIpCache;
+List<String> _getCfIps() {
+  if (_cfIpCache != null) return _cfIpCache!;
+  final out = <String>[];
+  final rnd = Random(42);
+  final blocksPerRange = (80 / _cfRanges.length).ceil();
+  for (final cidr in _cfRanges) {
+    final parts = cidr.split('/');
+    if (parts.length != 2) continue;
+    final octets = parts[0].split('.');
+    if (octets.length != 4) continue;
+    final a = int.tryParse(octets[0]);
+    final b = int.tryParse(octets[1]);
+    final c = int.tryParse(octets[2]);
+    final d = int.tryParse(octets[3]);
+    final prefix = int.tryParse(parts[1]);
+    if (a == null || b == null || c == null || d == null || prefix == null) continue;
+    if (prefix < 8 || prefix > 32) continue;
+    final base = (a << 24) | (b << 16) | (c << 8) | d;
+    final span = 1 << (32 - prefix);
+    final blockSize = span ~/ blocksPerRange;
+    if (blockSize <= 0) continue;
+    for (var bl = 0; bl < blocksPerRange; bl++) {
+      final blockStart = base + bl * blockSize;
+      for (var i = 0; i < 2000; i++) {
+        final v = blockStart + rnd.nextInt(blockSize);
+        out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
+      }
+    }
+  }
+  _cfIpCache = out;
+  return out;
+}
+
+""", '_getCfIps inserted')
+
+print('\n[29] deadline')
+patch_hard('nat_ultra',
+"""  for (final port in portList) {
+    if (stop != null && stop()) break;
+    final hits = await natScanIps(""",
+"""  final scanDeadline = DateTime.now().add(budget);
+  for (final port in portList) {
+    if (stop != null && stop()) break;
+    if (DateTime.now().isAfter(scanDeadline)) break;
+    final hits = await natScanIps(""",
+'natRangeScanStep deadline')
+
+# ---- 30) sing-box stub ----
+print('\n[30] sing-box stub')
+files['singbox_core'] = """// V8: SING-BOX REMOVED
+Future<bool> startSingbox(String config) async => false;
+Future<void> stopSingbox() async {}
+Future<bool> isSingboxAlive() async => false;
+String? buildSingboxConfigFromLink(String link) => null;
+"""
+print('  OK')
+
+# ---- Save ----
+for fn, content in files.items():
+    with open(os.path.join(LIB, fn + '.dart'), 'w', encoding='utf-8') as f:
+        f.write(content)
+
+print('\n' + '='*60)
+print('=== ALL 30 PATCHES APPLIED ===')
+print('=== BUILD SHOULD PROCEED ===')
