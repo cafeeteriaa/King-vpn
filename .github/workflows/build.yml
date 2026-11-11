@@ -42,7 +42,15 @@ jobs:
         with:
           go-version: '1.25.5'
 
+      - name: Restore libbox.aar cache
+        id: libbox-cache
+        uses: actions/cache@v4
+        with:
+          path: libbox.aar
+          key: libbox-aar-1.14.4-naive-off-v1
+
       - name: Build libbox.aar (sing-box core)
+        if: steps.libbox-cache.outputs.cache-hit != 'true'
         env:
           GOTOOLCHAIN: local
         run: |
