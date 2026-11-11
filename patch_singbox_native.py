@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 # patch_singbox_native.py
 # اجرا در ریشه‌ی ریپو، بعد از prepare_android.py (داخل CI)
-# کار: کپی SingboxBridge.kt، ثبت سرویس در Manifest، افزودن libbox.aar به Gradle،
-#      و ثبت کانال king/singbox در MainActivity.
 import os
 import re
 import shutil
 
 APP = 'build_app'
 KDIR = os.path.join(APP, 'android/app/src/main/kotlin/com/kingvpn/king_vpn')
+MARK = '// SINGBOX-DUP: go.Seq shared by libbox and libv2ray'
 
 # 1) کپی فایل Kotlin
 os.makedirs(KDIR, exist_ok=True)
@@ -34,23 +33,58 @@ if 'SingboxVpnService' not in m:
     open(mp, 'w', encoding='utf-8').write(m)
     print('OK: manifest service added')
 
-# 3) Gradle: افزودن libbox.aar
+# 3) Gradle: libbox.aar + رفع تکراری go.Seq
 for name in ('build.gradle', 'build.gradle.kts'):
     gp = os.path.join(APP, 'android/app', name)
     if not os.path.exists(gp):
         continue
+    is_kts = name.endswith('.kts')
     g = open(gp, encoding='utf-8').read()
-    if 'libbox.aar' in g:
-        print('OK: libbox already in', name)
-        continue
-    if name.endswith('.kts'):
-        line = 'implementation(files("libs/libbox.aar"))'
-    else:
-        line = "implementation files('libs/libbox.aar')"
-    g, n = re.subn(r'dependencies\s*\{', 'dependencies {\n    ' + line, g, count=1)
-    assert n == 1, name + ': dependencies block not found'
-    open(gp, 'w', encoding='utf-8').write(g)
-    print('OK: libbox dependency added to', name)
+    changed = False
+
+    if 'libbox.aar' not in g:
+        line = 'implementation(files("libs/libbox.aar"))' if is_kts else "implementation files('libs/libbox.aar')"
+        g2, n = re.subn(r'dependencies\s*\{', 'dependencies {\n    ' + line, g, count=1)
+        if n == 1:
+            g = g2
+        else:
+            g = g.rstrip() + '\n\ndependencies {\n    ' + line + '\n}\n'
+        changed = True
+        print('OK: libbox dependency added to', name)
+
+    if MARK not in g:
+        if is_kts:
+            block = (
+                f'\n{MARK}\n'
+                'android {\n'
+                '    packaging {\n'
+                '        jniLibs {\n'
+                '            pickFirsts += setOf("**/libgojni.so")\n'
+                '        }\n'
+                '    }\n'
+                '}\n'
+                'tasks.matching { it.name == "checkReleaseDuplicateClasses" }.configureEach {\n'
+                '    enabled = false\n'
+                '}\n'
+            )
+        else:
+            block = (
+                f'\n{MARK}\n'
+                'android {\n'
+                '    packagingOptions {\n'
+                "        pickFirst '**/libgojni.so'\n"
+                '    }\n'
+                '}\n'
+                "tasks.matching { it.name == 'checkReleaseDuplicateClasses' }.configureEach {\n"
+                '    enabled = false\n'
+                '}\n'
+            )
+        g = g.rstrip() + '\n' + block
+        changed = True
+        print('OK: duplicate go.Seq handling added to', name)
+
+    if changed:
+        open(gp, 'w', encoding='utf-8').write(g)
 
 # 4) MainActivity: ثبت کانال king/singbox
 ma = os.path.join(KDIR, 'MainActivity.kt')
