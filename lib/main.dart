@@ -451,9 +451,11 @@ set lastFail(String v) {
 
 // links pasted with extra text around them ("@channel vless://...") are
 // cleaned: the first vmess/vless/trojan/ss link inside the text is used
-final _schemeRe =
-    RegExp(r'^(vmess|vless|trojan|ss)://', caseSensitive: false);
-final _linkRe = RegExp(r'(vmess|vless|trojan|ss)://[^\s<>"]+',
+final _schemeRe = RegExp(
+    r'^(vmess|vless|trojan|ss|hysteria2|hy2|tuic)://',
+    caseSensitive: false);
+final _linkRe = RegExp(
+    r'(vmess|vless|trojan|ss|hysteria2|hy2|tuic)://[^\s<>"]+',
     caseSensitive: false);
 
 // fast search state: if the parallel delay test never finds anything on this
@@ -3106,6 +3108,10 @@ void dbgCoreLogcat(String name) {
 // on connect ("King VPN متوقف شد"). Keep false until that is solved.
 const bool useOwnVlessCfg = true;
 
+// PHASE1-SINGBOX: core سینگ‌باکس هنوز نصب نشده. سرورهای HY2/TUIC پارس و
+// شمرده می‌شن ولی تست نمی‌شن. تو فاز ۲ که libbox.aar اضافه شد، true کن.
+const bool kSingboxEnabled = false;
+
 // Own VLESS+REALITY config builder: same shape as the config v2rayNG builds
 // from the same link (which is known to work). Returns null for any link that
 // is not vless + reality + tcp, so other protocols keep the old path.
@@ -3275,6 +3281,15 @@ class Server {
   String get useLink => ipLink ?? link;
   bool get isIp => InternetAddress.tryParse(host) != null;
   bool get reality => link.contains('security=reality');
+
+  // PHASE1-SINGBOX: پروتکل‌های Sing-box (Hysteria2 / TUIC)
+  bool get isHysteria2 {
+    final l = link.toLowerCase();
+    return l.startsWith('hysteria2://') || l.startsWith('hy2://');
+  }
+  bool get isTuic => link.toLowerCase().startsWith('tuic://');
+  bool get isSingbox => isHysteria2 || isTuic;
+
   bool get cdn {
     final h = host.toLowerCase();
     if (h.endsWith('workers.dev') ||
@@ -3322,7 +3337,10 @@ class Server {
       if (!(l.startsWith('vmess://') ||
           l.startsWith('vless://') ||
           l.startsWith('trojan://') ||
-          l.startsWith('ss://'))) {
+          l.startsWith('ss://') ||
+          l.startsWith('hysteria2://') ||
+          l.startsWith('hy2://') ||
+          l.startsWith('tuic://'))) {
         return null;
       }
       if (l.startsWith('vmess://')) {
@@ -3348,6 +3366,35 @@ class Server {
         if (sv.tls) sv.score += 2;
         if (!sv.tls && sv.net == 'tcp') sv.score -= 4;
         return sv;
+      }
+      // PHASE1-SINGBOX: پارس HY2 / TUIC
+      //   hysteria2://password@host:port?insecure=1&sni=x&obfs=...&obfs-password=x#name
+      //   tuic://uuid:password@host:port?congestion_control=bbr&alpn=h3&sni=x#name
+      if (l.startsWith('hysteria2://') ||
+          l.startsWith('hy2://') ||
+          l.startsWith('tuic://')) {
+        Uri uri2;
+        try {
+          uri2 = Uri.parse(link);
+        } on FormatException {
+          return null;
+        }
+        if (uri2.host.isEmpty || !_validHost(uri2.host)) return null;
+        if (!uri2.hasPort || uri2.port <= 0 || uri2.port > 65535) return null;
+        if (uri2.userInfo.isEmpty) return null;
+        final sv2 = Server(
+          link,
+          uri2.fragment.isNotEmpty
+              ? _safeDecodeComp(uri2.fragment)
+              : uri2.host,
+          uri2.host,
+          uri2.port,
+        );
+        sv2.tls = true;
+        sv2.net = l.startsWith('tuic://') ? 'quic' : 'hysteria2';
+        sv2.sni = uri2.queryParameters['sni'] ?? '';
+        sv2.score += 4;
+        return sv2;
       }
       Uri? u0;
       try {
@@ -6019,7 +6066,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       final hotOff = await natHotNext(300, fetch: false); // هر دور ۳۰۰ تا؛ اگر پیدا نشد دور بعد ادامه می‌دهد
       // OFFLINE-SRC: صف قبلی (آنلاین) کنار گذاشته می‌شود؛ فقط منابع تازه تست می‌شوند
-      pending = [for (final s in hotOff) if (seenOff.add(s.link)) s];
+      // PHASE1-SINGBOX: HY2/TUIC تا core نصب نیست، وارد صف آفلاین نشن
+      pending = [
+        for (final s in hotOff)
+          if (!(!kSingboxEnabled && s.isSingbox) && seenOff.add(s.link)) s,
+      ];
       if (_folderMix && folderQ.isEmpty) folderQ = _folderPool();
       return;
     }
@@ -6070,6 +6121,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final seen = <String>{for (final g in good) g.key};
     final out = <Server>[];
     void add(Server s) {
+      // PHASE1-SINGBOX: HY2/TUIC تا وقتی core نصب نیست وارد صف تست نشن
+      if (!kSingboxEnabled && s.isSingbox) return;
       if (_protoOk(s) &&
           _srcOk(s) &&
           !_recentFail(s) &&
@@ -7327,6 +7380,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<bool> _startImpl(Server s, {bool proxyOnly = false}) async {
     lastStartNoTunnel = false;
     lastFail = '';
+    // PHASE1-SINGBOX: اگه سرور HY2/TUIC ولی core نصب نیست، واضح رد کن
+    if (s.isSingbox && !kSingboxEnabled) {
+      lastFail = 'sing-box core هنوز نصب نشده (فاز ۱)';
+      return false;
+    }
     // GUARD: a real VPN tunnel is started only when the user asked for it
     // (wantVpn, set by connect / adopt). Background search or standby must
     // never bring the VPN key up by itself. Proxy-only tests are not affected.
@@ -8016,6 +8074,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     var coreDownCount = 0, coreUpCount = 0; // CORE-SYSTEMIC: core up/down per run
     for (final s in list) {
       if (abort) return false;
+      // PHASE1-SINGBOX: هنوز core نصب نیست، سرور HY2/TUIC از این حلقه رد کن
+      if (!kSingboxEnabled && s.isSingbox) continue;
       final pin = favs.containsKey(s.key);
       final badCfg = coreUnsupportedReason(s.link);
       if (badCfg != null) {
@@ -11874,6 +11934,10 @@ ListTile( // KINGEXTRAS row
         'جستجوی سریع: ${yn(fastDelay)} • تست همزمان: $fastWorkers • تایم‌اوت: ${delayTimeout.inSeconds}s\n'
         'تست سریع: $fastOk/$fastTested موفق • کل: $totalOk/$totalTested\n'
         'سالم: ${good.length} • در صف: ${pending.length} • لیست سیاه: ${failed.length}\n'
+        'سینگ‌باکس (HY2/TUIC): لیست ${fetchedAll.where((s) => s.isSingbox).length}'
+        ' • صف ${pending.where((s) => s.isSingbox).length}'
+        ' • سالم ${good.where((s) => s.isSingbox).length}'
+        ' • فعال=${kSingboxEnabled ? 'بله' : 'نه'}\n'
         'مصرف CPU برنامه: ${cpuPct.toStringAsFixed(0)}% (حالت $cpuHot • ۰=عادی ۱=کندتر ۲=متوقف)\n'
         'وضعیت هسته: ${lastState.isEmpty ? '-' : lastState}\n'
         'آخرین خطای شروع: ${lastFail.isEmpty ? '-' : lastFail}\n'
@@ -12245,7 +12309,10 @@ ListTile( // KINGEXTRAS row
                 final added = <Server>[];
                 for (final l in npvSplit(c.text)) {
                   final s = Server.parse(l);
-                  if (s != null) added.add(s);
+                  if (s == null) continue;
+                  // PHASE1-SINGBOX: تا core نصب نیست، HY2/TUIC وارد لیست نشن
+                  if (!kSingboxEnabled && s.isSingbox) continue;
+                  added.add(s);
                 }
                 for (final s in added) {
                   // the cleaned link is saved
@@ -13839,6 +13906,11 @@ final List<String> _morePaths = [
   'morpheusadam/v2ray-config/main/subs/bundles/best.txt',
   'Delta-Kronecker/V2ray-Config/main/config/protocols/trojan.txt',
   'Delta-Kronecker/V2ray-Config/main/config/protocols/ss.txt',
+  // ---- PHASE1-SINGBOX: منابع explicit HY2 / TUIC ----
+  'soroushmirzaei/telegram-configs-collector/main/protocols/hysteria2',
+  'soroushmirzaei/telegram-configs-collector/main/protocols/tuic',
+  'Surfboardv2ray/TGParse/main/splitted/hysteria2',
+  'Surfboardv2ray/TGParse/main/splitted/tuic',
 ];
 
 final List<String> _extraUrls = [
