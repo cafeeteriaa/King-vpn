@@ -22,7 +22,6 @@ SVC = ('<service android:name="dev.amirzr.flutter_v2ray_client.v2ray.services.V2
        '        </service>\n    ')
 if 'foregroundServiceType' not in m and '</application>' in m:
     m = m.replace('</application>', SVC + '</application>', 1)
-    print('OK: foreground service type declared in manifest')
 KSVC = ('<service android:name="com.kingvpn.king_vpn.KingVpnService"\n'
         '            android:permission="android.permission.BIND_VPN_SERVICE"\n'
         '            android:exported="false"\n'
@@ -33,7 +32,6 @@ KSVC = ('<service android:name="com.kingvpn.king_vpn.KingVpnService"\n'
         '        </service>\n    ')
 if 'com.kingvpn.king_vpn.KingVpnService' not in m and '</application>' in m:
     m = m.replace('</application>', KSVC + '</application>', 1)
-    print('OK: own VPN service declared in manifest')
 open(mp, 'w', encoding='utf-8').write(m)
 
 import shutil
@@ -47,7 +45,7 @@ if os.path.exists(old_java_main):
 ka = os.path.join(APP, 'android/app/src/main/kotlin/com/kingvpn/king_vpn')
 os.makedirs(ka, exist_ok=True)
 shutil.copy('android_src/MainActivity.kt', os.path.join(ka, 'MainActivity.kt'))
-print('OK: KingVpnService.java, KingDiag.java and MainActivity.kt copied')
+print('OK: Native files copied')
 
 # ---- 2) Gradle: minSdk 24, compileSdk 37 ----
 for name in ('build.gradle', 'build.gradle.kts'):
@@ -61,7 +59,6 @@ for name in ('build.gradle', 'build.gradle.kts'):
         g = re.sub(r'compileSdk\s*=\s*\d+', 'compileSdk = 37', g)
         open(gp, 'w', encoding='utf-8').write(g)
 
-# ---- 2b) ABI ----
 for name in ('build.gradle', 'build.gradle.kts'):
     gp = os.path.join(APP, 'android/app', name)
     if not os.path.exists(gp): continue
@@ -242,7 +239,6 @@ new_blocks = """final autoBlocks = natSeedBlocks(hosts);
   } else {
     mixBlocks.addAll(autoBlocks);
   }
-  // MIX 50/50: Always mix in Cloudflare ranges
   mixBlocks.addAll(_cfRanges);
   final blocks = mixBlocks.toList()..shuffle();"""
 if old_blocks in n:
@@ -334,20 +330,22 @@ if old_gen in n:
 else:
     print('WARN: _natGenerate target not found (already patched?)')
 
-# 7b) Replace the disabled natGrow with an infinite generator
+# 7b) Replace the disabled natGrow with an infinite generator using ALL building blocks
 old_grow = "int natGrow(int n) => 0;"
 new_grow = """
 int _natSeedCounter = 0;
 int natGrow(int n) {
   // V7-INFINITE: Generates `n` new random variants and adds them to _natSpecs.
-  // This ensures the app NEVER runs out of combinations to test.
-  if (_natSpecs.length > 1000000) _natSpecs.removeRange(100, 500000); // Memory safety cap
+  // Uses every possible building block (ports, DNS, Frag, FP, ALPN, Clean IP, SNI, Mux, etc.)
+  if (_natSpecs.length > 5000000) _natSpecs.removeRange(100, 2000000); // Memory safety cap
   final rnd = Random(DateTime.now().millisecondsSinceEpoch + _natSeedCounter++);
   final existingSigs = {for (final x in _natSpecs) _natSig(x)};
   var added = 0;
+  const fps = ['chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge', 'random', 'qq', '360'];
+  const alpns = [null, 'h2', 'http/1.1', 'h2,http/1.1'];
   for (var i = 0; i < n; i++) {
-    final fp = ['chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge', 'random', 'qq', '360'].elementAt(rnd.nextInt(10));
-    final alpn = [null, 'h2', 'http/1.1', 'h2,http/1.1'].elementAt(rnd.nextInt(4));
+    final fp = fps[rnd.nextInt(fps.length)];
+    final alpn = alpns[rnd.nextInt(alpns.length)];
     final frag = rnd.nextInt(_natFrags.length);
     final port = rnd.nextBool();
     final portIdx = port ? rnd.nextInt(_natCfPorts.length) : null;
@@ -361,11 +359,13 @@ int natGrow(int n) {
     final nodelay = rnd.nextBool();
     final keep = rnd.nextBool() ? rnd.nextInt(30) + 1 : null;
     final mss = rnd.nextBool() ? [1240, 1280, 1320, 1360].elementAt(rnd.nextInt(4)) : null;
+    final ed = rnd.nextBool();
+    final edN = ed ? [512, 1024, 2048, 4096].elementAt(rnd.nextInt(4)) : null;
     
     final newSpec = _NatSpec('Dynamic ${_natSpecs.length + 1}',
       other: other, fp: fp, alpn: alpn, frag: frag, port: port, portIdx: portIdx,
       clean: clean, cleanIdx: cleanIdx, sniHost: sniHost, v4: v4, tfo: tfo,
-      nodelay: nodelay, doh: doh, keep: keep, mss: mss);
+      nodelay: nodelay, doh: doh, keep: keep, mss: mss, ed: ed, edN: edN);
     
     final sig = _natSig(newSpec);
     if (existingSigs.add(sig)) {
