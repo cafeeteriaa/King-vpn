@@ -40,8 +40,6 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          # GO 1.22.10: last version before checklinkname strictness broke
-          # gomobile bind for Xray/sing-box native libs.
           go-version: '1.22.10'
 
       - name: Create project
@@ -71,11 +69,9 @@ jobs:
           find "$HOME/.pub-cache" -type f \( -name "build.gradle" -o -name "build.gradle.kts" \) \
             \( -path "*/flutter_v2ray*" \) \
             2>/dev/null | while read -r file; do
-              echo "Patching: $file"
               sed -i -E 's/compileSdk(Version)?[[:space:]]*=?[[:space:]]*[0-9]+/compileSdk = 35/g' "$file" || true
               sed -i -E 's/compileSdkVersion[[:space:]]+[0-9]+/compileSdkVersion 35/g' "$file" || true
             done
-          echo "=== Done ==="
 
       - name: Analyze (errors only, fails early with a readable message)
         working-directory: build_app
@@ -97,8 +93,6 @@ jobs:
           CGO_LDFLAGS: "-Wl,-z,max-page-size=16384"
         run: |
           printf '\norg.gradle.vfs.watch=false\norg.gradle.daemon=false\norg.gradle.jvmargs=-Xmx3g\n' >> android/gradle.properties
-          # GO-LINKNAME FIX: -checklinkname=0 is required on Go 1.22+ to stop
-          # gomobile from refusing os.checkPidfdOnce at link time.
           for attempt in 1 2 3; do
             if flutter build apk --release --target-platform android-arm64 \
                  --build-number=${{ github.run_number }} \
