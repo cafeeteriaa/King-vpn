@@ -48,7 +48,7 @@ os.makedirs(ka, exist_ok=True)
 shutil.copy('android_src/MainActivity.kt', os.path.join(ka, 'MainActivity.kt'))
 print('OK: Native files copied')
 
-# ---- 2) Gradle: minSdk 24, compileSdk 37 ----
+# ---- 2) Gradle ----
 for name in ('build.gradle', 'build.gradle.kts'):
     gp = os.path.join(APP, 'android/app', name)
     if os.path.exists(gp):
@@ -80,7 +80,7 @@ for name in ('build.gradle', 'build.gradle.kts'):
         g = g[:dc.end()] + ndk_block + g[dc.end():]
         open(gp, 'w', encoding='utf-8').write(g)
 
-# ---- 3) Fresh-sources folder and automatic start ----
+# ---- 3) Fresh-sources folder ----
 NAT = os.path.join(APP, 'lib/nat_ultra.dart')
 MAIN = os.path.join(APP, 'lib/main.dart')
 
@@ -230,7 +230,7 @@ else:
     new_tool = "UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),\n            UiTool(Icons.router, 'بازه‌های IP نت ملی', () => _natRangesDialog(context)),\n            UiTool(Icons.add_home_outlined, 'ساخت سرور شخصی', () => connectPersonalAsk()),"
     if old_tool in mn: mn = mn.replace(old_tool, new_tool, 1)
 
-# ---- 5) DIALER-PROXY fix (indentation matches real source: 6/8/10) ----
+# ---- 5) DIALER-PROXY fix (indent 6/8/10 matches source) ----
 old_proxy = """      if (so is Map) {
         final dp = so['dialerProxy']?.toString();
         if (dp != null && !tags.contains(dp)) {
@@ -253,48 +253,128 @@ new_proxy = """      if (so is Map) {
 if old_proxy in mn:
     mn = mn.replace(old_proxy, new_proxy, 1)
     print('OK: proxySettings removed in sanitizeCfg')
-else:
-    print('WARN: proxySettings pattern not found')
 
 open(MAIN, 'w', encoding='utf-8').write(mn)
 
-# ---- 6) natGrow call in _natOrder (real indent: 4, not 8) ----
-old_order = """        if (app.isNotEmpty && cursor < app.length) {
-          final end = min(app.length, cursor + cap);
-          for (var k = cursor; k < end; k++) {
-            final gv = app[k];
-            if (skipHeavy && natIsHeavy(gv)) continue;
-            gens.add(gv);
-          }
-        }"""
-new_order = """        if (cursor >= app.length && lvl >= 2) {
-          natGrow(1000);
-          app.clear();
-          for (final v in _natGenRanked()) {
-            if (_natAppliesF(f, v)) app.add(v);
-          }
-        }
-        if (app.isNotEmpty && cursor < app.length) {
-          final end = min(app.length, cursor + cap);
-          for (var k = cursor; k < end; k++) {
-            final gv = app[k];
-            if (skipHeavy && natIsHeavy(gv)) continue;
-            gens.add(gv);
-          }
-        }"""
+# =====================================================================
+# ---- 6) NAT_ULTRA patches (V8: 4 patches applied safely) ----
+# =====================================================================
+print('Applying nat_ultra.dart patches...')
+n = open(NAT, encoding='utf-8').read()
+
+# 6a) natMaxVariants: 2,000,000 → 0x7FFFFFFF (no cap)
+if 'const int natMaxVariants = 2000000;' in n:
+    n = n.replace('const int natMaxVariants = 2000000;',
+                  'const int natMaxVariants = 0x7FFFFFFF; // V8: no cap', 1)
+    print('OK: natMaxVariants bumped')
+
+# 6b) natGrow: stub → real implementation
+old_grow = "int natGrow(int n) => 0;"
+new_grow = """int _natGrowCounter = 0;
+int natGrow(int n) {
+  if (_natSpecs.length > 500000) return 0;
+  final rnd = Random(DateTime.now().millisecondsSinceEpoch + _natGrowCounter++);
+  var added = 0;
+  const fps = ['chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge', 'random', 'qq', '360'];
+  const alpns = <String?>[null, 'h2', 'http/1.1', 'h2,http/1.1'];
+  for (var i = 0; i < n; i++) {
+    final fp = fps[rnd.nextInt(fps.length)];
+    final alpn = alpns[rnd.nextInt(alpns.length)];
+    final frag = rnd.nextInt(_natFrags.length);
+    final port = rnd.nextBool();
+    final portIdx = port ? rnd.nextInt(_natCfPorts.length) : null;
+    final clean = rnd.nextBool();
+    final cleanIdx = clean ? rnd.nextInt(10) : null;
+    final doh = rnd.nextBool() ? _natDnsList[rnd.nextInt(_natDnsList.length)] : null;
+    final v4 = rnd.nextBool();
+    final tfo = rnd.nextBool();
+    final keep = rnd.nextBool() ? rnd.nextInt(30) + 1 : null;
+    _natSpecs.add(_natMk(
+      fp: fp, alpn: alpn, frag: frag,
+      port: port, portIdx: portIdx,
+      clean: clean, cleanIdx: cleanIdx,
+      v4: v4, tfo: tfo, keep: keep, doh: doh,
+    ));
+    added++;
+  }
+  if (added > 0) {
+    _natNamesC = null;
+    _natGenRankKey = '';
+  }
+  return added;
+}"""
+if old_grow in n:
+    n = n.replace(old_grow, new_grow, 1)
+    print('OK: natGrow implemented')
+
+# 6c) _natOrder: call natGrow when cursor exhausted (4-space indent matches source)
+old_order = """    if (app.isNotEmpty && cursor < app.length) {
+      final end = min(app.length, cursor + cap);
+      for (var k = cursor; k < end; k++) {
+        final gv = app[k];
+        if (skipHeavy && natIsHeavy(gv)) continue;
+        gens.add(gv);
+      }
+    }"""
+new_order = """    if (cursor >= app.length && lvl >= 2) {
+      natGrow(1000);
+      app.clear();
+      for (final v in _natGenRanked()) {
+        if (_natAppliesF(f, v)) app.add(v);
+      }
+    }
+    if (app.isNotEmpty && cursor < app.length) {
+      final end = min(app.length, cursor + cap);
+      for (var k = cursor; k < end; k++) {
+        final gv = app[k];
+        if (skipHeavy && natIsHeavy(gv)) continue;
+        gens.add(gv);
+      }
+    }"""
 if old_order in n:
     n = n.replace(old_order, new_order, 1)
     print('OK: natGrow(1000) wired into _natOrder')
 else:
-    print('WARN: natGrow pattern not found')
+    print('WARN: _natOrder pattern not found; check nat_ultra.dart indentation')
 
-# ---- 7) natMaxVariants (real source has "const int natMaxVariants = 2000000;") ----
-if 'const int natMaxVariants = 2000000;' in n:
-    n = n.replace('const int natMaxVariants = 2000000;',
-                  'const int natMaxVariants = 0x7FFFFFFF; // V8: no cap (safe int)', 1)
-    print('OK: natMaxVariants bumped to 32-bit safe')
+# 6d) 80/20 mix: 80 CF blocks × 2000 IPs (safe on 6GB, ~160k strings total)
+old_blocks = """  final blocks = natRanges.isNotEmpty ? natRanges : natSeedBlocks(hosts);
+  final addrs = <String>[];
+  for (final r in blocks) {
+    addrs.addAll(natExpandAny(r));
+  }"""
+new_blocks = """  final blocks = natRanges.isNotEmpty ? natRanges : natSeedBlocks(hosts);
+  final addrs = <String>[];
+  for (final r in blocks) {
+    addrs.addAll(natExpandAny(r));
+  }
+  // V8-MIX-80: 80 Cloudflare blocks × 2000 random IPs = 160k total
+  // (safe on 6GB RAM; full /13 expansion would be 5.2M = OOM)
+  final rndMix = Random(42);
+  for (final cidr in _cfRanges.take(80)) {
+    final parts = cidr.split('/');
+    if (parts.length != 2) continue;
+    final octets = parts[0].split('.');
+    if (octets.length != 4) continue;
+    final a = int.tryParse(octets[0]);
+    final b = int.tryParse(octets[1]);
+    final c = int.tryParse(octets[2]);
+    final d = int.tryParse(octets[3]);
+    final prefix = int.tryParse(parts[1]);
+    if (a == null || b == null || c == null || d == null || prefix == null) continue;
+    if (prefix < 8 || prefix > 32) continue;
+    final base = (a << 24) | (b << 16) | (c << 8) | d;
+    final span = 1 << (32 - prefix);
+    for (var i = 0; i < 2000; i++) {
+      final v = base + rndMix.nextInt(span);
+      addrs.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
+    }
+  }"""
+if old_blocks in n:
+    n = n.replace(old_blocks, new_blocks, 1)
+    print('OK: 80/20 mix applied (80 CF blocks × 2000 IPs)')
 else:
-    print('WARN: natMaxVariants line not found')
+    print('WARN: natRangeScanStep blocks pattern not found')
 
 open(NAT, 'w', encoding='utf-8').write(n)
-print('All prepare_android.py patches done.')
+print('All nat_ultra.dart patches done.')
