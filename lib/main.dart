@@ -8889,13 +8889,48 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               subtitle: Text(_resInfo()),
             ),
             const Divider(height: 1),
-            ListTile( // KINGEXTRAS row
+ListTile( // KINGEXTRAS row
               leading: const Icon(Icons.auto_awesome_outlined),
               title: const Text('امکانات تکمیلی (اشتراک‌گذاری نزدیک، UUID، تست بیرونی)'),
-              onTap: () {
+              onTap: () async {
                 Navigator.pop(ctx);
+                final activeServer = current ?? (_usable().isNotEmpty ? _usable().first : null);
+
+                String shareLink = activeServer?.link ?? '';
+                String host = activeServer?.host ?? '';
+                String port = activeServer?.port.toString() ?? '443';
+
+                if (shareLink.isEmpty) {
+                  try {
+                    final p = await SharedPreferences.getInstance();
+                    final lastLink = p.getString('last_conn');
+                    if (lastLink != null && lastLink.isNotEmpty) {
+                      shareLink = lastLink;
+                      if (lastLink.startsWith('vless://') || lastLink.startsWith('trojan://')) {
+                        final uri = Uri.tryParse(lastLink);
+                        if (uri != null) {
+                          host = uri.host;
+                          port = uri.hasPort ? uri.port.toString() : '443';
+                        }
+                      } else if (lastLink.startsWith('vmess://')) {
+                        final b64 = lastLink.substring(8);
+                        final jsonStr = utf8.decode(base64.decode(base64.normalize(b64)));
+                        final j = jsonDecode(jsonStr);
+                        if (j is Map) {
+                          host = j['add']?.toString() ?? '';
+                          port = j['port']?.toString() ?? '443';
+                        }
+                      }
+                    }
+                  } catch (_) {}
+                }
+
                 Navigator.of(context).push(MaterialPageRoute<void>(
-                    builder: (_) => const KingExtrasPage()));
+                    builder: (_) => KingExtrasPage(
+                      initialShareText: shareLink,
+                      initialHost: host,
+                      initialPort: port,
+                    )));
               },
             ),
             const Divider(height: 1),
