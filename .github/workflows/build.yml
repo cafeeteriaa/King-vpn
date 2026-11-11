@@ -53,6 +53,9 @@ jobs:
           echo "Go version in use:"
           go version
 
+          echo "Removing with_naive_outbound tag (cronet link fails with NDK 27; not needed)..."
+          grep -rl 'with_naive_outbound' --include='*.go' . | xargs -r sed -i 's/with_naive_outbound//g'
+
           echo "Installing SagerNet gomobile (official sing-box method)..."
           make lib_install
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
