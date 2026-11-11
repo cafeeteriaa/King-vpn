@@ -5,9 +5,6 @@ import shutil
 APP = 'build_app'
 LIB = os.path.join(APP, 'lib')
 
-# =====================================================================
-# Helpers — hard-fail on any miss
-# =====================================================================
 def patch_hard(file_key, old, new, label):
     text = files[file_key]
     if new in text:
@@ -15,16 +12,9 @@ def patch_hard(file_key, old, new, label):
         return
     count = text.count(old)
     if count == 0:
-        raise SystemExit(
-            '\n\nHARD FAIL: [%s]\n'
-            'Pattern NOT FOUND in %s.dart\n'
-            'Searched for:\n---\n%s\n---\n'
-            % (label, file_key, old[:300]))
+        raise SystemExit('\n\nHARD FAIL: [%s]\nPattern NOT FOUND in %s.dart\nSearched for:\n---\n%s\n---\n' % (label, file_key, old[:300]))
     if count > 1:
-        raise SystemExit(
-            '\n\nHARD FAIL: [%s]\n'
-            'Pattern matched %d times in %s.dart (must be 1)\n'
-            % (label, count, file_key))
+        raise SystemExit('\n\nHARD FAIL: [%s]\nPattern matched %d times in %s.dart (must be 1)\n' % (label, count, file_key))
     files[file_key] = text.replace(old, new, 1)
     print('  OK: ' + label)
 
@@ -40,22 +30,12 @@ def patch_find(old, new, label):
         if c > 0:
             matches.append((fn, c))
     if not matches:
-        raise SystemExit(
-            '\n\nHARD FAIL: [%s]\n'
-            'Pattern NOT FOUND in any .dart file\n'
-            'Searched for:\n---\n%s\n---\n'
-            % (label, old[:300]))
+        raise SystemExit('\n\nHARD FAIL: [%s]\nPattern NOT FOUND in any .dart file\nSearched for:\n---\n%s\n---\n' % (label, old[:300]))
     if len(matches) > 1:
-        raise SystemExit(
-            '\n\nHARD FAIL: [%s]\n'
-            'Pattern found in multiple files: %s\n'
-            % (label, matches))
+        raise SystemExit('\n\nHARD FAIL: [%s]\nPattern found in multiple files: %s\n' % (label, matches))
     fn, c = matches[0]
     if c > 1:
-        raise SystemExit(
-            '\n\nHARD FAIL: [%s]\n'
-            'Pattern matched %d times in %s.dart (must be 1)\n'
-            % (label, c, fn))
+        raise SystemExit('\n\nHARD FAIL: [%s]\nPattern matched %d times in %s.dart (must be 1)\n' % (label, c, fn))
     files[fn] = files[fn].replace(old, new, 1)
     print('  OK (%s): %s' % (fn, label))
 
@@ -66,16 +46,12 @@ def insert_before(file_key, anchor, content, label):
         print('  SKIP (already inserted): ' + label)
         return
     if anchor not in text:
-        raise SystemExit(
-            '\n\nHARD FAIL: [%s]\n'
-            'Anchor NOT FOUND in %s.dart\n' % (label, file_key))
+        raise SystemExit('\n\nHARD FAIL: [%s]\nAnchor NOT FOUND in %s.dart\n' % (label, file_key))
     files[file_key] = text.replace(anchor, content + anchor, 1)
     print('  OK: ' + label)
 
 
-# =====================================================================
 # ---- 1) AndroidManifest + native files ----
-# =====================================================================
 mp = os.path.join(APP, 'android/app/src/main/AndroidManifest.xml')
 m = open(mp, encoding='utf-8').read()
 perms = ('<uses-permission android:name="android.permission.INTERNET"/>\n'
@@ -119,9 +95,7 @@ os.makedirs(ka, exist_ok=True)
 shutil.copy('android_src/MainActivity.kt', os.path.join(ka, 'MainActivity.kt'))
 print('OK: Native files copied')
 
-# =====================================================================
 # ---- 2) Gradle ----
-# =====================================================================
 for name in ('build.gradle', 'build.gradle.kts'):
     gp = os.path.join(APP, 'android/app', name)
     if os.path.exists(gp):
@@ -139,24 +113,15 @@ for name in ('build.gradle', 'build.gradle.kts'):
     g = open(gp, encoding='utf-8').read()
     if 'abiFilters' in g: continue
     is_kts = name.endswith('.kts')
-    ndk_block = (
-        '\n        ndk {\n'
-        '            abiFilters += listOf("arm64-v8a", "armeabi-v7a")\n'
-        '        }\n'
-        if is_kts else
-        '\n        ndk {\n'
-        '            abiFilters "arm64-v8a", "armeabi-v7a"\n'
-        '        }\n'
-    )
+    ndk_block = ('\n        ndk {\n            abiFilters += listOf("arm64-v8a", "armeabi-v7a")\n        }\n' if is_kts
+                 else '\n        ndk {\n            abiFilters "arm64-v8a", "armeabi-v7a"\n        }\n')
     dc = re.search(r'defaultConfig\s*\{', g)
     if dc:
         g = g[:dc.end()] + ndk_block + g[dc.end():]
         open(gp, 'w', encoding='utf-8').write(g)
 print('OK: Gradle')
 
-# =====================================================================
 # ---- 3) Load all .dart files ----
-# =====================================================================
 files = {}
 for fn in os.listdir(LIB):
     if fn.endswith('.dart'):
@@ -165,10 +130,8 @@ for fn in os.listdir(LIB):
         files[fn[:-5]] = content
 print('Loaded %d dart files' % len(files))
 
-# =====================================================================
 # ---- 4) HOT PATH ----
-# =====================================================================
-print('\n[4] hotPath / hotEnsure')
+print('\n[4] hotPath')
 patch_hard('nat_ultra',
 """String _hotPath() {
   const dir = '/data/data/com.kingvpn.king_vpn/files';
@@ -205,7 +168,7 @@ String _hotPath() {
 patch_hard('nat_ultra',
 "  if (_hotBusy) return;\n  final f = File(_hotPath());\n",
 "  if (force) await hotStorageAllow();\n  if (_hotBusy) return;\n  final f = File(_hotPath());\n",
-'hotEnsure force allow')
+'hotEnsure force')
 
 if 'hotAutoStart()' not in files['nat_ultra']:
     files['nat_ultra'] += """
@@ -243,18 +206,14 @@ class HotResumeWatcher extends WidgetsBindingObserver {
 """
     print('  OK: hot helpers appended')
 
-# =====================================================================
 # ---- 5) main() auto-start ----
-# =====================================================================
-print('\n[5] main() auto-start')
+print('\n[5] main auto-start')
 patch_hard('main',
 "void main() {\n  runZonedGuarded(() {",
 "void main() {\n  Future.delayed(const Duration(seconds: 5), () => unawaited(hotAutoStart()));\n  runZonedGuarded(() {",
 'main hotAutoStart')
 
-# =====================================================================
-# ---- 6) Relay chain (6-space indent) ----
-# =====================================================================
+# ---- 6) Relay chain ----
 print('\n[6] Relay chain')
 patch_hard('main',
 """      String? chainCfg;
@@ -287,33 +246,26 @@ patch_hard('main',
         }
       }""", 'relay chain')
 
-# =====================================================================
 # ---- 7) relayServerUrl load/save ----
-# =====================================================================
-print('\n[7] relayServerUrl load/save')
+print('\n[7] relay load/save')
 patch_hard('main',
 "          npvParse = j['npv'] as bool? ?? npvParse;",
 "          npvParse = j['npv'] as bool? ?? npvParse;\n          relayServerUrl = j['relay_url'] as String? ?? '';",
 'load relay_url')
-
 patch_hard('main',
 "            'npv': npvParse,",
 "            'npv': npvParse,\n            'relay_url': relayServerUrl,",
 'save relay_url')
 
-# =====================================================================
-# ---- 8) UiTools buttons ----
-# =====================================================================
-print('\n[8] UiTools buttons')
+# ---- 8) UiTools ----
+print('\n[8] UiTools')
 patch_hard('main',
 "UiTools(items: [",
 "UiTools(items: [\n            UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),\n            UiTool(Icons.router, 'بازه‌های IP نت ملی', () => _natRangesDialog(context)),",
-'UiTools relay/range buttons')
+'UiTools buttons')
 
-# =====================================================================
 # ---- 9) DIALER proxy ----
-# =====================================================================
-print('\n[9] DIALER proxy')
+print('\n[9] DIALER')
 patch_hard('main',
 """      if (so is Map) {
         final dp = so['dialerProxy']?.toString();
@@ -335,28 +287,13 @@ patch_hard('main',
         }
       }""", 'dialerProxy + proxySettings')
 
-# =====================================================================
-# ---- 10) kNatMergeCache ----
-# =====================================================================
-print('\n[10] kNatMergeCache')
-patch_hard('main',
-"const bool kNatMergeCache = false;",
-"const bool kNatMergeCache = true;",
-'kNatMergeCache = true')
+# ---- 10,11) configs ----
+print('\n[10,11] kNatMergeCache, kFolderInjectGood')
+patch_hard('main', "const bool kNatMergeCache = false;", "const bool kNatMergeCache = true;", 'kNatMergeCache')
+patch_hard('main', "const bool kFolderInjectGood = false;", "const bool kFolderInjectGood = true;", 'kFolderInjectGood')
 
-# =====================================================================
-# ---- 11) kFolderInjectGood ----
-# =====================================================================
-print('\n[11] kFolderInjectGood')
-patch_hard('main',
-"const bool kFolderInjectGood = false;",
-"const bool kFolderInjectGood = true;",
-'kFolderInjectGood = true')
-
-# =====================================================================
-# ---- 12) requestPermission guard ----
-# =====================================================================
-print('\n[12] requestPermission guard')
+# ---- 12) requestPermission ----
+print('\n[12] requestPermission')
 patch_hard('main',
 """    if (!proxyMode && inForeground) {
       try {
@@ -366,11 +303,9 @@ patch_hard('main',
       try {
         // PERMTIMEOUT: same limit as above
         final ok = await v2ray.requestPermission().timeout(""",
-'requestPermission skip when granted')
+'requestPermission skip')
 
-# =====================================================================
 # ---- 13) V8-FRESH ----
-# =====================================================================
 print('\n[13] V8-FRESH')
 patch_hard('main',
 """  Future<void> _loadCache() async {
@@ -421,13 +356,11 @@ patch_hard('main',
         dbg('V8-FRESH: default settings applied');
       }
       await loadGeminiPrefs(p);""",
-'V8-FRESH defaults')
+'V8-FRESH')
 
-# =====================================================================
-# ---- 14) ★ ROBUST: resetAllToDefaults (regex anchor) ----
-# =====================================================================
-print('\n[14] resetAllToDefaults flags (ROBUST)')
-MIGRATION_FLAGS_CODE = '''
+# ---- 14) resetAllToDefaults ROBUST ----
+print('\n[14] resetAllToDefaults')
+MIGRATION_CODE = '''
     SharedPreferences.getInstance().then((p) async {
       for (final k in const [
         'speedoff27', 'lowdata_v1', 'restore_speed_v1', 'best_defaults_v4',
@@ -440,54 +373,38 @@ MIGRATION_FLAGS_CODE = '''
       }
     });'''
 
-# Check if already applied
 already = False
 for fn, text in files.items():
     if 'resetAllToDefaults()' in text:
         idx = text.find('resetAllToDefaults()')
-        chunk = text[idx:idx+800]
-        if 'SharedPreferences.getInstance().then' in chunk:
-            print('  SKIP: resetAllToDefaults already patched')
+        if 'SharedPreferences.getInstance().then' in text[idx:idx+800]:
+            print('  SKIP: already patched')
             already = True
             break
 
 if not already:
-    # Find the function definition using regex (flexible whitespace)
     pattern = re.compile(r'void\s+resetAllToDefaults\s*\(\s*\)\s*\{')
     found = []
     for fn, text in files.items():
-        for m in pattern.finditer(text):
-            found.append((fn, m.end(), text))
-            break  # only first in each file
-    
+        m = pattern.search(text)
+        if m:
+            found.append((fn, m.end()))
+            break
     if not found:
-        # Fallback: try without "void" (maybe different return type)
         pattern2 = re.compile(r'resetAllToDefaults\s*\(\s*\)\s*\{')
         for fn, text in files.items():
             m = pattern2.search(text)
             if m:
-                found.append((fn, m.end(), text))
+                found.append((fn, m.end()))
                 break
-    
     if not found:
-        raise SystemExit(
-            '\n\nHARD FAIL: [resetAllToDefaults set flags]\n'
-            'Could not find "void resetAllToDefaults() {" in any .dart file.\n'
-            'Checked %d files.' % len(files))
-    
-    if len(found) > 1:
-        raise SystemExit(
-            '\n\nHARD FAIL: [resetAllToDefaults set flags]\n'
-            'Found in MULTIPLE files: %s\n' % [f[0] for f in found])
-    
-    fn, insert_pos, _ = found[0]
-    files[fn] = files[fn][:insert_pos] + MIGRATION_FLAGS_CODE + files[fn][insert_pos:]
-    print('  OK (%s): migration flags inserted after function brace' % fn)
+        raise SystemExit('\n\nHARD FAIL: [resetAllToDefaults]\nFunction not found')
+    fn, pos = found[0]
+    files[fn] = files[fn][:pos] + MIGRATION_CODE + files[fn][pos:]
+    print('  OK (%s)' % fn)
 
-# =====================================================================
-# ---- 15) pre-social-check removal ----
-# =====================================================================
-print('\n[15] pre-social-check removal')
+# ---- 15) pre-social-check ----
+print('\n[15] pre-social-check')
 patch_hard('main',
 """      if (!trust && !pin && !nationalMode && !proxyMode) {
         _set('بررسی تلگرام روی ${s.name}...');
@@ -505,18 +422,11 @@ patch_hard('main',
 "      // V8: pre-social-check removed (v2rayNG-style connect)",
 'pre-social-check')
 
-# =====================================================================
-# ---- 16) needSocial = false ----
-# =====================================================================
-print('\n[16] needSocial false')
-patch_hard('main',
-"        final needSocial = !proxyMode;",
-"        final needSocial = false; // V8",
-'needSocial false')
+# ---- 16) needSocial ----
+print('\n[16] needSocial')
+patch_hard('main', "        final needSocial = !proxyMode;", "        final needSocial = false; // V8", 'needSocial false')
 
-# =====================================================================
 # ---- 17) _onConnected abort guard ----
-# =====================================================================
 print('\n[17] _onConnected abort guard')
 patch_hard('main',
 """      _onConnected(s);
@@ -534,25 +444,15 @@ patch_hard('main',
   }
 
   // REAL speed test""",
-'abort guard before final _onConnected')
+'abort guard')
 
-# =====================================================================
 # ---- 18) target 3 servers ----
-# =====================================================================
-print('\n[18] target 3 servers')
-patch_hard('main',
-"const int kStandbyPause = 5;",
-"const int kStandbyPause = 3;", 'kStandbyPause 3')
-patch_hard('main',
-"const int kStandbyResume = 5;",
-"const int kStandbyResume = 3;", 'kStandbyResume 3')
-patch_hard('main',
-"const int kFgSearchTarget = 5;",
-"const int kFgSearchTarget = 3;", 'kFgSearchTarget 3')
+print('\n[18] target 3')
+patch_hard('main', "const int kStandbyPause = 5;", "const int kStandbyPause = 3;", 'kStandbyPause')
+patch_hard('main', "const int kStandbyResume = 5;", "const int kStandbyResume = 3;", 'kStandbyResume')
+patch_hard('main', "const int kFgSearchTarget = 5;", "const int kFgSearchTarget = 3;", 'kFgSearchTarget')
 
-# =====================================================================
 # ---- 19) _doConnect national pre-load ----
-# =====================================================================
 print('\n[19] _doConnect national pre-load')
 patch_hard('main',
 """      if (nationalMode || indestructibleMode) {
@@ -584,10 +484,8 @@ patch_hard('main',
       }""",
 '_doConnect national pre-load')
 
-# =====================================================================
-# ---- 20) _natIpHunt pool bug ----
-# =====================================================================
-print('\n[20] _natIpHunt pool bug')
+# ---- 20) _natIpHunt pool ----
+print('\n[20] _natIpHunt pool')
 patch_find(
 """    final pool = <Server>[];
     pool.addAll(good);
@@ -601,76 +499,72 @@ patch_find(
     }""",
 '_natIpHunt pool fix')
 
-# =====================================================================
-# ---- 21) _natRangeAdd safe ----
-# =====================================================================
-print('\n[21] _natRangeAdd safe')
+# ---- 21) ★ _natRangeAdd safe (FIXED: 2-space indent) ----
+print('\n[21] _natRangeAdd safe (2-space indent)')
 patch_find(
-"""Future<void> _natRangeAdd(List<String> items, {bool count = true}) async {
-  if (items.isEmpty) return;
-  for (final it in items) {
-    natScanHits.add(it.split('|')[0]);
-  }
-  final tpl = [...pending, ...natRestPending, ...natTemplateSeeds].take(2).toList();
-  if (tpl.isEmpty) return;
-  final made = <Server>[
-    for (final item in items)
-      for (final t in tpl)
-        Server(
-          _natSetHost(t.link, item.split('|')[0], t.host),
-          t.name,
-          item.split('|')[0],
-          int.parse(item.split('|')[1]),
-        ),
-  ];
-  if (count) natIpFound += items.length;
-  dbg('اسکن IP: باز پیداشده ${items.length} • جمع $natIpFound • اسکن‌شده $natIpScanned');
-  pending = [...made, ...pending];
-  natRangeCursor = 0;
-  _set('نت ملی: ${items.length} آدرس باز (IP و پورت) در بازه‌ها پیدا شد');
-}""",
-"""Future<void> _natRangeAdd(List<String> items, {bool count = true}) async {
-  if (items.isEmpty) return;
-  for (final it in items) {
-    natScanHits.add(it.split('|')[0]);
-  }
-  final tpl = [...pending, ...natRestPending, ...natTemplateSeeds, ...good].take(2).toList();
-  if (tpl.isEmpty) {
-    dbg('V8: no template — skipping scanned IPs');
-    return;
-  }
-  final made = <Server>[];
-  for (final item in items) {
-    final parts = item.split('|');
-    if (parts.length < 2) continue;
-    final ip = parts[0].trim();
-    final port = int.tryParse(parts[1].trim());
-    if (port == null || port <= 0 || port > 65535) continue;
-    if (InternetAddress.tryParse(ip) == null) continue;
-    for (final t in tpl) {
-      try {
-        made.add(Server(
-          _natSetHost(t.link, ip, t.host),
-          t.name,
-          ip,
-          port,
-        ));
-      } catch (e, stk) { logError(e, stk); }
+"""  Future<void> _natRangeAdd(List<String> items, {bool count = true}) async {
+    if (items.isEmpty) return;
+    for (final it in items) {
+      natScanHits.add(it.split('|')[0]);
     }
-  }
-  if (made.isEmpty) return;
-  if (count) natIpFound += items.length;
-  dbg('اسکن IP: ${items.length} open, ${made.length} configs');
-  pending = [...made, ...pending];
-  natRangeCursor = 0;
-  _set('نت ملی: ${items.length} آدرس باز پیدا شد');
-}""",
+    final tpl = [...pending, ...natRestPending, ...natTemplateSeeds].take(2).toList();
+    if (tpl.isEmpty) return;
+    final made = <Server>[
+      for (final item in items)
+        for (final t in tpl)
+          Server(
+            _natSetHost(t.link, item.split('|')[0], t.host),
+            t.name,
+            item.split('|')[0],
+            int.parse(item.split('|')[1]),
+          ),
+    ];
+    if (count) natIpFound += items.length;
+    dbg('اسکن IP: باز پیداشده ${items.length} • جمع $natIpFound • اسکن‌شده $natIpScanned');
+    pending = [...made, ...pending];
+    natRangeCursor = 0;
+    _set('نت ملی: ${items.length} آدرس باز (IP و پورت) در بازه‌ها پیدا شد');
+  }""",
+"""  Future<void> _natRangeAdd(List<String> items, {bool count = true}) async {
+    if (items.isEmpty) return;
+    for (final it in items) {
+      natScanHits.add(it.split('|')[0]);
+    }
+    final tpl = [...pending, ...natRestPending, ...natTemplateSeeds, ...good].take(2).toList();
+    if (tpl.isEmpty) {
+      dbg('V8: no template — skipping scanned IPs');
+      return;
+    }
+    final made = <Server>[];
+    for (final item in items) {
+      final parts = item.split('|');
+      if (parts.length < 2) continue;
+      final ip = parts[0].trim();
+      final port = int.tryParse(parts[1].trim());
+      if (port == null || port <= 0 || port > 65535) continue;
+      if (InternetAddress.tryParse(ip) == null) continue;
+      for (final t in tpl) {
+        try {
+          made.add(Server(
+            _natSetHost(t.link, ip, t.host),
+            t.name,
+            ip,
+            port,
+          ));
+        } catch (e, stk) { logError(e, stk); }
+      }
+    }
+    if (made.isEmpty) return;
+    if (count) natIpFound += items.length;
+    dbg('اسکن IP: ${items.length} open, ${made.length} configs');
+    pending = [...made, ...pending];
+    natRangeCursor = 0;
+    _set('نت ملی: ${items.length} آدرس باز پیدا شد');
+  }""",
 '_natRangeAdd safe+template+good')
 
-# =====================================================================
-# ---- 22) _natEscalate shorter scan ----
-# =====================================================================
-print('\n[22] _natEscalate shorter scan')
+# ---- 22) _natEscalate shorter ----
+print('\n[22] _natEscalate')
 patch_hard('main',
 """      if (nationalMode && !abort && !ipWaiting) {
         final ips = await natRangeScanStep(
@@ -694,11 +588,9 @@ patch_hard('main',
       } else if (nationalMode && !hasTpl && !ipWaiting) {
         dbg('V8-NAT: no template — skipping range scan');
       }""",
-'_natEscalate shorter scan + skip')
+'_natEscalate shorter')
 
-# =====================================================================
 # ---- 23) sing-box URLs ----
-# =====================================================================
 print('\n[23] sing-box URLs')
 patch_hard('main',
 """  // PHASE1-SINGBOX: منابع HY2/TUIC اول لیست (مهلت دانلود تمام نشود)
@@ -722,27 +614,17 @@ patch_hard('main',
 "  // V8: sing-box URLs removed\n",
 'sing-box URLs')
 
-# =====================================================================
-# ---- 24) stopSingbox call ----
-# =====================================================================
+# ---- 24) stopSingbox ----
 print('\n[24] stopSingbox call')
 patch_hard('main',
 "      try { await stopSingbox(); } catch (_) {} // SINGBOX: هر دو هسته خاموش شوند",
 "      // V8: singbox removed",
 'stopSingbox call')
 
-# =====================================================================
-# ---- 25) natMaxVariants ----
-# =====================================================================
+# ---- 25-29) nat_ultra ----
 print('\n[25] natMaxVariants')
-patch_hard('nat_ultra',
-"const int natMaxVariants = 2000000;",
-"const int natMaxVariants = 0x7FFFFFFF; // V8",
-'natMaxVariants')
+patch_hard('nat_ultra', "const int natMaxVariants = 2000000;", "const int natMaxVariants = 0x7FFFFFFF; // V8", 'natMaxVariants')
 
-# =====================================================================
-# ---- 26) natGrow real ----
-# =====================================================================
 print('\n[26] natGrow real')
 patch_hard('nat_ultra',
 "int natGrow(int n) => 0;",
@@ -776,9 +658,6 @@ int natGrow(int n) {
 }""",
 'natGrow real')
 
-# =====================================================================
-# ---- 27) natGrow wired ----
-# =====================================================================
 print('\n[27] natGrow wired')
 patch_hard('nat_ultra',
 """    if (app.isNotEmpty && cursor < app.length) {
@@ -804,12 +683,9 @@ patch_hard('nat_ultra',
         gens.add(gv);
       }
     }""",
-'natGrow wired in _natOrder')
+'natGrow wired')
 
-# =====================================================================
-# ---- 28) 80-block CF mix ----
-# =====================================================================
-print('\n[28] 80-block CF mix')
+print('\n[28] 80-block CF')
 patch_hard('nat_ultra',
 """  final blocks = natRanges.isNotEmpty ? natRanges : natSeedBlocks(hosts);
   final addrs = <String>[];
@@ -822,7 +698,7 @@ patch_hard('nat_ultra',
     addrs.addAll(natExpandAny(r));
   }
   addrs.addAll(_getCfIps());""",
-'blocks → include CF mix')
+'blocks CF mix')
 
 insert_before('nat_ultra', 'Future<List<String>> natRangeScanStep({',
 """List<String>? _cfIpCache;
@@ -859,12 +735,9 @@ List<String> _getCfIps() {
   return out;
 }
 
-""", '_getCfIps function inserted')
+""", '_getCfIps inserted')
 
-# =====================================================================
-# ---- 29) natRangeScanStep deadline ----
-# =====================================================================
-print('\n[29] natRangeScanStep deadline')
+print('\n[29] deadline')
 patch_hard('nat_ultra',
 """  for (final port in portList) {
     if (stop != null && stop()) break;
@@ -876,9 +749,7 @@ patch_hard('nat_ultra',
     final hits = await natScanIps(""",
 'natRangeScanStep deadline')
 
-# =====================================================================
 # ---- 30) sing-box stub ----
-# =====================================================================
 print('\n[30] sing-box stub')
 files['singbox_core'] = """// V8: SING-BOX REMOVED
 Future<bool> startSingbox(String config) async => false;
@@ -886,19 +757,13 @@ Future<void> stopSingbox() async {}
 Future<bool> isSingboxAlive() async => false;
 String? buildSingboxConfigFromLink(String link) => null;
 """
-print('  OK: singbox_core.dart → stub')
+print('  OK')
 
-# =====================================================================
-# ---- SAVE ALL ----
-# =====================================================================
+# ---- Save ----
 for fn, content in files.items():
     with open(os.path.join(LIB, fn + '.dart'), 'w', encoding='utf-8') as f:
         f.write(content)
 
 print('\n' + '='*60)
-print('=== ALL V8 PATCHES APPLIED ===')
-print('='*60)
-print('✅ All 30 patches processed')
-print('✅ DPI / Fragment / _natFrag — UNTOUCHED')
-print('✅ _natLadder — UNTOUCHED')
+print('=== ALL 30 PATCHES APPLIED ===')
 print('=== BUILD SHOULD PROCEED ===')
