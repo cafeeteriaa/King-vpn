@@ -130,7 +130,6 @@ bool _checkHostNodeReached(dynamic value) {
 // =============================================================================
 
 class KingExtrasPage extends StatefulWidget {
-  // این سه متغیر جدید هستند تا اطلاعات را از main.dart دریافت کنند
   final String initialShareText;
   final String initialHost;
   final String initialPort;
@@ -160,12 +159,12 @@ class _KingExtrasPageState extends State<KingExtrasPage> {
   void initState() {
     super.initState();
     
-    // پر کردن خودکار باکس‌ها با اطلاعاتی که از main.dart آمده است
+    // پر کردن خودکار باکس‌ها
     _shareCtrl = TextEditingController(text: widget.initialShareText);
     _hostCtrl = TextEditingController(text: widget.initialHost);
     _portCtrl = TextEditingController(text: widget.initialPort);
 
-    // تولید خودکار UUID به محض باز شدن صفحه
+    // تولید خودکار UUID
     _genUuid();
   }
 
@@ -337,6 +336,40 @@ class _KingExtrasPageState extends State<KingExtrasPage> {
               Text(_chResult!.nodeNotes.join(' • '),
                   style: const TextStyle(fontSize: 11, color: Colors.grey)),
             ],
+
+            const Divider(height: 40),
+
+            // ---- راهنمای ساده (بخش جدید) ----
+            const Text('💡 راهنمای ساده این صفحه',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.amber)),
+            const SizedBox(height: 12),
+            
+            // راهنمای بخش ۱
+            const Text('۱. اشتراک‌گذاری نزدیک (آفلاین):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+            const SizedBox(height: 4),
+            const Text(
+              'اگر یک سرور خوب پیدا کردی و می‌خواهی به دوستت بدهی، لینک آن در باکس بالا قرار دارد. با زدن دکمه «اشتراک‌گذاری»، می‌توانی آن را از طریق بلوتوث، تلگرام یا پیامک برای دوستت بفرستی؛ حتی بدون اینترنت!',
+              style: TextStyle(fontSize: 13, color: Colors.grey, height: 1.5),
+            ),
+            const SizedBox(height: 16),
+
+            // راهنمای بخش ۲
+            const Text('۲. UUID برای سرور شخصی:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+            const SizedBox(height: 4),
+            const Text(
+              'اگر می‌خواهی با Cloudflare سرور شخصی خودت را بسازی، به یک رمز عبور بسیار قوی (UUID) نیاز داری. این کد به صورت خودکار ساخته شده است. آن را کپی کن و در تنظیمات سرور شخصی‌ات قرار بده تا فقط تو اجازه اتصال داشته باشی.',
+              style: TextStyle(fontSize: 13, color: Colors.grey, height: 1.5),
+            ),
+            const SizedBox(height: 16),
+
+            // راهنمای بخش ۳
+            const Text('۳. آزمایش دسترسی از بیرون:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+            const SizedBox(height: 4),
+            const Text(
+              'گاهی اپ می‌گوید سرور خراب است، ولی شاید اینترنت خودت مشکل داشته باشد. با زدن دکمه «بررسی»، این بخش از ۵ نقطه مختلف دنیا (مثل آلمان و آمریکا) سرور را تست می‌کند. اگر نتیجه سبز بود (۵ از ۵)، یعنی سرور کاملاً سالم است و مشکل از گوشی یا اینترنت توست. اگر قرمز بود، یعنی سرور واقعاً فیلتر یا خاموش شده است.',
+              style: TextStyle(fontSize: 13, color: Colors.grey, height: 1.5),
+            ),
+            const SizedBox(height: 24),
           ],
         ),
       ),
