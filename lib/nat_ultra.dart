@@ -1857,6 +1857,19 @@ Future<void> natHotEnsure({bool force = false}) async {
       final order = [for (var i = 0; i < urls.length; i++) i]
         ..sort((a, b) => (natSrcRates[urls[b]] ?? 0.3)
             .compareTo(natSrcRates[urls[a]] ?? 0.3));
+      // PHASE1-SINGBOX: منابع HY2/TUIC و بقیه رو قاطی کن (۵۰/۵۰) تا فایل تازه هر دو نوع رو داشته باشه
+      bool isSbSrc(String u) {
+        final l = u.toLowerCase();
+        return l.contains('hysteria2') || l.contains('tuic');
+      }
+      final sbOrder = order.where((i) => isSbSrc(urls[i])).toList();
+      final xrOrder = order.where((i) => !isSbSrc(urls[i])).toList();
+      final mixed = <int>[];
+      var mi = 0, mj = 0;
+      while (mi < xrOrder.length || mj < sbOrder.length) {
+        if (mi < xrOrder.length) mixed.add(xrOrder[mi++]);
+        if (mj < sbOrder.length) mixed.add(sbOrder[mj++]);
+      }
       final newPath = '${_hotPath()}.new';
       final offs = <int>[0];
       var pos = 0;
@@ -1866,7 +1879,7 @@ Future<void> natHotEnsure({bool force = false}) async {
         final seenKeys = <int>{};
         final mergeFrom = <String>[
           if (File(extraPath).existsSync()) extraPath,
-          for (final i in order) parts[i],
+          for (final i in mixed) parts[i],
         ];
         for (final pth in mergeFrom) {
           if (full) break;

@@ -169,6 +169,23 @@ const _gh = 'https://raw.githubusercontent.com/';
 // Only lists that are refreshed often. HOT ones come first and are tested
 // first; dead links are skipped automatically and ranked by health at runtime.
 final List<String> _paths = [
+  // PHASE1-SINGBOX: منابع HY2/TUIC اول لیست (مهلت دانلود تمام نشود)
+  // verified via search results (paths confirmed in upstream READMEs)
+  'soroushmirzaei/telegram-configs-collector/main/protocols/tuic',
+  'soroushmirzaei/telegram-configs-collector/main/protocols/hysteria',
+  'soroushmirzaei/telegram-configs-collector/main/channels/protocols/tuic',
+  'soroushmirzaei/telegram-configs-collector/main/channels/protocols/hysteria',
+  'barry-far/V2ray-Configs/main/Splitted-By-Protocol/hysteria2.txt',
+  'barry-far/V2ray-Configs/main/Splitted-By-Protocol/tuic.txt',
+  '0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+  '0xRadikal/Free-v2ray-Configs/main/protocols/tuic.txt',
+  'wiki/gfpcom/free-proxy-list/lists/hy2.txt',
+  'wiki/gfpcom/free-proxy-list/lists/tuic.txt',
+  'nyeinkokoaung404/V2ray-Configs/main/Splitted-By-Protocol/tuic.txt',
+  'nyeinkokoaung404/V2ray-Configs/main/Splitted-By-Protocol/hysteria2.txt',
+  'R-the-coder/V2ray-configs/main/hysteria2.txt',
+  'yebekhe/TelegramV2rayCollector/main/sub/normal/hysteria2',
+  'yebekhe/TelegramV2rayCollector/main/sub/normal/tuic',
   // ---- HOT: updated every few minutes / hours
   for (var i = 1; i <= 10; i++)
     'V2RAYCONFIGSPOOL/V2RAY_SUB/main/v2ray_configs_no$i.txt',
@@ -381,8 +398,8 @@ const bgSearchOff = false; // RETRYPATCH // SPEEDSWITCHPATCH: no search while co
 int standbyBatchSize = 40;
 const bgTimeoutSecs = 10;
 int firstBatchSize = 100; // FAST100: دسته اول هم ۱۰۰تایی
-int fetchWorkers = 8;
-Duration fetchDeadline = const Duration(seconds: 45);
+int fetchWorkers = 16;
+Duration fetchDeadline = const Duration(seconds: 60);
 int tcpWorkers = 20;
 int maxPerSource = 120;
 Duration tcpTimeout = const Duration(milliseconds: 3500);
@@ -6050,6 +6067,29 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return out;
   }
 
+  // PHASE1-SINGBOX: قاطی‌کردن ۵۰/۵۰ بین Xray و Sing-box. ترتیب داخلی حفظ می‌شه
+  // (بهترین‌ها از هر گروه اول میان)، پس هر دو گروه به نسبت مساوی شانس تست دارن.
+  List<Server> _engineMix(List<Server> items) {
+    if (items.length < 2) return items;
+    final sb = <Server>[];
+    final xr = <Server>[];
+    for (final s in items) {
+      if (s.isSingbox) {
+        sb.add(s);
+      } else {
+        xr.add(s);
+      }
+    }
+    if (sb.isEmpty || xr.isEmpty) return items;
+    final out = <Server>[];
+    var i = 0, j = 0;
+    while (i < xr.length || j < sb.length) {
+      if (i < xr.length) out.add(xr[i++]);
+      if (j < sb.length) out.add(sb[j++]);
+    }
+    return out;
+  }
+
   // ---------- discovery ----------
   // builds the queue: favourites, then everything else (hot GitHub sources
   // are sorted to the front by _cmpPending). The saved healthy servers are
@@ -6404,6 +6444,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
         }
         if (smartOrder) cand = _diversify(cand);
+        cand = _engineMix(cand); // PHASE1-SINGBOX: ۵۰/۵۰ از هر دو هسته
         final batch = _mixBatch(cand, size); // SRCSPLIT
         _set('ردیف ${row ?? 'همه'} • '
             '${fast ? 'تست موازی' : 'تست تکی'} • دسته ${batch.length}');
@@ -13906,11 +13947,51 @@ final List<String> _morePaths = [
   'morpheusadam/v2ray-config/main/subs/bundles/best.txt',
   'Delta-Kronecker/V2ray-Config/main/config/protocols/trojan.txt',
   'Delta-Kronecker/V2ray-Config/main/config/protocols/ss.txt',
-  // ---- PHASE1-SINGBOX: منابع explicit HY2 / TUIC ----
-  'soroushmirzaei/telegram-configs-collector/main/protocols/hysteria2',
-  'soroushmirzaei/telegram-configs-collector/main/protocols/tuic',
-  'Surfboardv2ray/TGParse/main/splitted/hysteria2',
-  'Surfboardv2ray/TGParse/main/splitted/tuic',
+  // ---- PHASE1-SINGBOX: منابع تأییدشده از جستجو (مخلوط) ----
+  'nyeinkokoaung404/V2ray-Configs/main/Sub1.txt',
+  'nyeinkokoaung404/V2ray-Configs/main/Sub2.txt',
+  'nyeinkokoaung404/V2ray-Configs/main/configs/proxy_configs.txt',
+  'nyeinkokoaung404/V2ray-Configs/main/Splitted-By-Protocol/vmess.txt',
+  'nyeinkokoaung404/V2ray-Configs/main/Splitted-By-Protocol/vless.txt',
+  'nyeinkokoaung404/V2ray-Configs/main/Splitted-By-Protocol/trojan.txt',
+  'nyeinkokoaung404/V2ray-Configs/main/Splitted-By-Protocol/ss.txt',
+  'R-the-coder/V2ray-configs/main/config.txt',
+  'R-the-coder/V2ray-configs/main/vless.txt',
+  'R-the-coder/V2ray-configs/main/vmess.txt',
+  'R-the-coder/V2ray-configs/main/trojan.txt',
+  'R-the-coder/V2ray-configs/main/ss.txt',
+  'soroushmirzaei/telegram-configs-collector/main/protocols/shadowsocks',
+  'soroushmirzaei/telegram-configs-collector/main/channels/protocols/reality',
+  'iboxz/free-v2ray-collector/main/main/vless',
+  'iboxz/free-v2ray-collector/main/main/trojan',
+  'iboxz/free-v2ray-collector/main/main/shadowsocks',
+  'iboxz/free-v2ray-collector/main/main/reality',
+  'Epodonios/v2ray-configs/main/Splitted-By-Protocol/ss.txt',
+  'barry-far/V2ray-Configs/main/Splitted-By-Protocol/vmess.txt',
+  'barry-far/V2ray-Configs/main/Splitted-By-Protocol/vless.txt',
+  'barry-far/V2ray-Configs/main/Splitted-By-Protocol/trojan.txt',
+  'barry-far/V2ray-Configs/main/Splitted-By-Protocol/ss.txt',
+  'barry-far/V2ray-Configs/main/Splitted-By-Protocol/ssr.txt',
+  'barry-far/V2ray-Configs/main/Sub1.txt',
+  'barry-far/V2ray-Configs/main/Sub2.txt',
+  'barry-far/V2ray-Configs/main/Sub3.txt',
+  'barry-far/V2ray-Configs/main/Sub10.txt',
+  '0xRadikal/Free-v2ray-Configs/main/heavy/configs.txt',
+  '0xRadikal/Free-v2ray-Configs/main/protocols/vless.txt',
+  '0xRadikal/Free-v2ray-Configs/main/protocols/vmess.txt',
+  '0xRadikal/Free-v2ray-Configs/main/protocols/trojan.txt',
+  'ebrasha/free-v2ray-public-list/main/all_extracted_configs.txt',
+  'ebrasha/free-v2ray-public-list/main/V2Ray-Config-By-EbraSha-All-Type.txt',
+  'ebrasha/free-v2ray-public-list/main/vless_configs.txt',
+  'ebrasha/free-v2ray-public-list/main/vmess_configs.txt',
+  'ebrasha/free-v2ray-public-list/main/trojan_configs.txt',
+  'ebrasha/free-v2ray-public-list/main/ss_configs.txt',
+  'snakem982/proxypool/main/source/v2ray.txt',
+  'snakem982/proxypool/main/source/v2ray-2.txt',
+  'rtwo2/FastNodes/main/sub/everything.txt',
+  'coldwater-10/V2ray-Configs/main/Sub1.txt',
+  'coldwater-10/V2ray-Configs/main/Sub2.txt',
+  'coldwater-10/V2ray-Configs/main/Sub3.txt',
 ];
 
 final List<String> _extraUrls = [
