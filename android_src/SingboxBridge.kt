@@ -245,9 +245,13 @@ private class SingboxPlatform(private val svc: SingboxVpnService) : PlatformInte
 
     override fun openTun(options: TunOptions): Int = svc.buildTun(options)
 
-    
-    
-    
+    // متدهای الزامی رابط PlatformInterface در libbox (نسخه ۱.۱۴)
+    override fun tailscaleHostname(): String = ""
+
+    override fun usePlatformBridge(): Boolean = false
+
+    override fun usePlatformShell(): Boolean = false
+
     override fun underNetworkExtension(): Boolean = false
 
     override fun includeAllNetworks(): Boolean = false
