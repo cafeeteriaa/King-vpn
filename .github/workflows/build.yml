@@ -33,14 +33,16 @@ jobs:
             ~/go/pkg/mod
             ~/.cache/go-build
             ~/go/bin
-          key: go-${{ runner.os }}-1.25.5-${{ hashFiles('**/go.sum') }}
+          key: go-${{ runner.os }}-1.22.10-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            go-${{ runner.os }}-1.25.5-
+            go-${{ runner.os }}-1.22.10-
 
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.5'
+          # GO 1.22.10: last version before checklinkname strictness broke
+          # gomobile bind for Xray/sing-box native libs.
+          go-version: '1.22.10'
 
       - name: Create project
         run: |
@@ -92,10 +94,15 @@ jobs:
         env:
           KS_PASS: ${{ secrets.KS_PASS }}
           KS_ALIAS: ${{ secrets.KS_ALIAS }}
+          CGO_LDFLAGS: "-Wl,-z,max-page-size=16384"
         run: |
           printf '\norg.gradle.vfs.watch=false\norg.gradle.daemon=false\norg.gradle.jvmargs=-Xmx3g\n' >> android/gradle.properties
+          # GO-LINKNAME FIX: -checklinkname=0 is required on Go 1.22+ to stop
+          # gomobile from refusing os.checkPidfdOnce at link time.
           for attempt in 1 2 3; do
-            if flutter build apk --release --target-platform android-arm64 --build-number=${{ github.run_number }}; then
+            if flutter build apk --release --target-platform android-arm64 \
+                 --build-number=${{ github.run_number }} \
+                 --dart-define=GO_LDFLAGS="-checklinkname=0"; then
               exit 0
             fi
             echo "Build attempt $attempt failed; waiting before retry..."
