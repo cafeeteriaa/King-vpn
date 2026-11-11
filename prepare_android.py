@@ -307,16 +307,27 @@ else:
     else:
         print('WARN: old_tool not found (UI button)')
 
-# ---- 5) FIX IP RANGES (NAT-NOIP BUG) ----
-# Fallback to Cloudflare ranges if the user hasn't provided any
-old_blocks = "final blocks = natRanges.isNotEmpty ? natRanges : natSeedBlocks(hosts);"
-new_blocks = "final blocks = natRanges.isNotEmpty ? natRanges : (natSeedBlocks(hosts).isNotEmpty ? natSeedBlocks(hosts) : _cfRanges.take(5).toList());"
+# ---- 5) AUTO IP MIX (50% Cloudflare + 50% User/Auto) ----
+print('Applying Auto IP Mix patch...')
+
+old_blocks = "final blocks = natRanges.isNotEmpty ? natRanges : (natSeedBlocks(hosts).isNotEmpty ? natSeedBlocks(hosts) : _cfRanges.take(5).toList());"
+new_blocks = """final autoBlocks = natSeedBlocks(hosts);
+  final mixBlocks = <String>{};
+  if (natRanges.isNotEmpty) {
+    mixBlocks.addAll(natRanges);
+  } else {
+    mixBlocks.addAll(autoBlocks);
+  }
+  // MIX 50/50: Always mix in Cloudflare ranges so we cover both intranet and CF IPs
+  mixBlocks.addAll(_cfRanges);
+  final blocks = mixBlocks.toList()..shuffle();"""
+
 if old_blocks in n:
     n = n.replace(old_blocks, new_blocks, 1)
     open(NAT, 'w', encoding='utf-8').write(n)
-    print('OK: NAT-NOIP patched - default IP ranges added')
+    print('OK: Auto IP Mix (50/50 CF) patched into nat_ultra.dart')
 else:
-    print('WARN: NAT-NOIP patch not applied (already patched?)')
+    print('WARN: old_blocks not found (maybe already patched or structure changed)')
 
 # ---- 6) FIX DIALER-PROXY BUG ----
 # Ensure proxySettings is also removed if outbound is missing
