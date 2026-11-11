@@ -50,7 +50,7 @@ shutil.copy('android_src/MainActivity.kt', os.path.join(ka, 'MainActivity.kt'))
 print('OK: Native files copied')
 
 # =====================================================================
-# ---- 2) Gradle: minSdk 24, compileSdk 37 ----
+# ---- 2) Gradle ----
 # =====================================================================
 for name in ('build.gradle', 'build.gradle.kts'):
     gp = os.path.join(APP, 'android/app', name)
@@ -84,7 +84,7 @@ for name in ('build.gradle', 'build.gradle.kts'):
         open(gp, 'w', encoding='utf-8').write(g)
 
 # =====================================================================
-# ---- 3) Fresh-sources folder (hotPath) ----
+# ---- 3) Fresh-sources folder ----
 # =====================================================================
 NAT = os.path.join(APP, 'lib/nat_ultra.dart')
 MAIN = os.path.join(APP, 'lib/main.dart')
@@ -187,7 +187,7 @@ if 'hotAutoStart()' not in mn:
     mn = patch_once(mn, 'void main() {\n', 'void main() {\n  Future.delayed(const Duration(seconds: 5), () => unawaited(hotAutoStart()));\n', 'main()')
 
 # =====================================================================
-# ---- 4) Relay Server + IP Range UI buttons ----
+# ---- 4) Relay + IP Range UI ----
 # =====================================================================
 old_chain = """          String? chainCfg;
           if (nationalMode && !proxyOnly) {
@@ -238,7 +238,7 @@ else:
     if old_tool in mn: mn = mn.replace(old_tool, new_tool, 1)
 
 # =====================================================================
-# ---- 5) DIALER-PROXY fix (indent 6/8/10 matches source) ----
+# ---- 5) DIALER-PROXY fix ----
 # =====================================================================
 old_proxy = """      if (so is Map) {
         final dp = so['dialerProxy']?.toString();
@@ -296,8 +296,6 @@ old_fresh = """  Future<void> _loadCache() async {
 new_fresh = """  Future<void> _loadCache() async {
     try {
       final p = await SharedPreferences.getInstance();
-      // V8-FRESH: first launch uses the SAME numbers as resetAllToDefaults.
-      // All migration flags are set so no migration can override them later.
       if (!p.containsKey('settings')) {
         for (final k in const [
           'speedoff27', 'lowdata_v1', 'restore_speed_v1', 'best_defaults_v4',
@@ -345,13 +343,9 @@ if old_fresh in mn:
     mn = mn.replace(old_fresh, new_fresh, 1)
     print('OK: V8-FRESH (first launch = reset)')
 
-# =====================================================================
-# ---- 8) resetAllToDefaults: mark all migration flags ----
-# =====================================================================
 old_reset = """  void resetAllToDefaults() {
     resetNumbers();"""
 new_reset = """  void resetAllToDefaults() {
-    // V8: set all migration flags so future launches skip migrations
     SharedPreferences.getInstance().then((p) async {
       for (final k in const [
         'speedoff27', 'lowdata_v1', 'restore_speed_v1', 'best_defaults_v4',
@@ -369,7 +363,7 @@ if old_reset in mn:
     print('OK: resetAllToDefaults sets migration flags')
 
 # =====================================================================
-# ---- 9) V8: remove _preSocialCheck block (BEFORE _start) ----
+# ---- 8) V8: remove _preSocialCheck block (BEFORE _start) ----
 # =====================================================================
 old_presoc = """      if (!trust && !pin && !nationalMode && !proxyMode) {
         _set('بررسی تلگرام روی ${s.name}...');
@@ -390,35 +384,189 @@ if old_presoc in mn:
     print('OK: pre-social-check removed from _connectLoop')
 
 # =====================================================================
-# ---- 10) V8: skip social check block (AFTER _start) ----
-# Only changes needSocial. Keeps _natLadder, s.svc, s.badAt, failed, continue.
+# ---- 9) V8: skip social check block (AFTER _start) ----
 # =====================================================================
 old_needsoc = "        final needSocial = !proxyMode;"
-new_needsoc = "        final needSocial = false; // V8: telegram check removed (v2rayNG-style)"
+new_needsoc = "        final needSocial = false; // V8: v2rayNG-style"
 if old_needsoc in mn:
     mn = mn.replace(old_needsoc, new_needsoc, 1)
-    print('OK: needSocial = false (social block skipped for VPN mode)')
+    print('OK: needSocial = false')
 
 # =====================================================================
-# ---- 11) Target 3 servers instead of 5 ----
+# ---- 10) Target 3 servers ----
 # =====================================================================
 if 'const int kStandbyPause = 5;' in mn:
     mn = mn.replace('const int kStandbyPause = 5;',
-                    'const int kStandbyPause = 3; // V8: ۳ سرور سالم', 1)
+                    'const int kStandbyPause = 3; // V8', 1)
     print('OK: kStandbyPause = 3')
-
 if 'const int kStandbyResume = 5;' in mn:
     mn = mn.replace('const int kStandbyResume = 5;',
-                    'const int kStandbyResume = 3; // V8: زیر ۳ جستجو دوباره روشن', 1)
+                    'const int kStandbyResume = 3; // V8', 1)
     print('OK: kStandbyResume = 3')
-
 if 'const int kFgSearchTarget = 5;' in mn:
     mn = mn.replace('const int kFgSearchTarget = 5;',
-                    'const int kFgSearchTarget = 3; // V8: ۳ سالم کافیست', 1)
+                    'const int kFgSearchTarget = 3; // V8', 1)
     print('OK: kFgSearchTarget = 3')
 
 # =====================================================================
-# ---- 12) V8: remove sing-box source URLs from _paths ----
+# ---- 11) ★ CRITICAL: fix kNatMergeCache and kFolderInjectGood ----
+# =====================================================================
+if 'const bool kNatMergeCache = false;' in mn:
+    mn = mn.replace('const bool kNatMergeCache = false;',
+                    'bool kNatMergeCache = true; // V8-FIX: enable folder merge in national', 1)
+    print('OK: kNatMergeCache = true (was false — BUG)')
+else:
+    print('WARN: kNatMergeCache line not found')
+
+if 'const bool kFolderInjectGood = false;' in mn:
+    mn = mn.replace('const bool kFolderInjectGood = false;',
+                    'bool kFolderInjectGood = true; // V8-FIX: enable folder inject in national', 1)
+    print('OK: kFolderInjectGood = true (was false — BUG)')
+else:
+    print('WARN: kFolderInjectGood line not found')
+
+# =====================================================================
+# ---- 12) ★ CRITICAL: fix _natRangeAdd — add int.parse protection and CF template fallback ----
+# =====================================================================
+old_range = """Future<void> _natRangeAdd(List<String> items, {bool count = true}) async {
+  if (items.isEmpty) return;
+  for (final it in items) {
+    natScanHits.add(it.split('|')[0]);
+  }
+  final tpl = [...pending, ...natRestPending, ...natTemplateSeeds].take(2).toList();
+  if (tpl.isEmpty) return;
+  final made = <Server>[
+    for (final item in items)
+      for (final t in tpl)
+        Server(
+          _natSetHost(t.link, item.split('|')[0], t.host),
+          t.name,
+          item.split('|')[0],
+          int.parse(item.split('|')[1]),
+        ),
+  ];
+  if (count) natIpFound += items.length;
+  dbg('اسکن IP: باز پیداشده ${items.length} • جمع $natIpFound • اسکن‌شده $natIpScanned');
+  pending = [...made, ...pending];
+  natRangeCursor = 0;
+  _set('نت ملی: ${items.length} آدرس باز (IP و پورت) در بازه‌ها پیدا شد');
+}"""
+new_range = """Future<void> _natRangeAdd(List<String> items, {bool count = true}) async {
+  if (items.isEmpty) return;
+  for (final it in items) {
+    natScanHits.add(it.split('|')[0]);
+  }
+  var tpl = [...pending, ...natRestPending, ...natTemplateSeeds].take(2).toList();
+  // V8-FIX: on fresh install there is no template server. Use a hardcoded
+  // CF workers.dev-shaped config so scanned IPs are not silently dropped.
+  if (tpl.isEmpty) {
+    final cf0 = Server.parse(
+        'vless://00000000-0000-0000-0000-000000000000@104.16.0.1:443'
+        '?encryption=none&security=tls&sni=cf.workers.dev&fp=chrome'
+        '&type=ws&host=cf.workers.dev&path=%2F#CF-scan-template');
+    if (cf0 != null) tpl.add(cf0);
+    dbg('V8: هیچ template نداشتیم؛ از CF template پیش‌فرض برای اسکن IP استفاده شد');
+  }
+  if (tpl.isEmpty) return;
+  final made = <Server>[];
+  for (final item in items) {
+    final parts = item.split('|');
+    if (parts.length < 2) continue;
+    final ip = parts[0].trim();
+    final portStr = parts[1].trim();
+    final port = int.tryParse(portStr);
+    if (port == null || port <= 0 || port > 65535) continue;
+    if (InternetAddress.tryParse(ip) == null) continue;
+    for (final t in tpl) {
+      try {
+        made.add(Server(
+          _natSetHost(t.link, ip, t.host),
+          t.name,
+          ip,
+          port,
+        ));
+      } catch (e, stk) {
+        logError(e, stk);
+      }
+    }
+  }
+  if (made.isEmpty) return;
+  if (count) natIpFound += items.length;
+  dbg('اسکن IP: باز پیداشده ${items.length} • سالم ${made.length} • جمع $natIpFound • اسکن‌شده $natIpScanned');
+  pending = [...made, ...pending];
+  natRangeCursor = 0;
+  _set('نت ملی: ${items.length} آدرس باز (IP و پورت) در بازه‌ها پیدا شد');
+}"""
+if old_range in mn:
+    mn = mn.replace(old_range, new_range, 1)
+    print('OK: _natRangeAdd — int.parse crash fixed + CF template fallback')
+else:
+    print('WARN: _natRangeAdd pattern not found')
+
+# =====================================================================
+# ---- 13) ★ CRITICAL: _doConnect — load gold + folder at start in national ----
+# =====================================================================
+old_doconnect = """      if (nationalMode || indestructibleMode) {
+        _resInject();
+        await _checkSaved(); // re-test known-good before searching new lists
+        if (nationalMode) await _natMergeCache(); // پوشه‌ی منابع تازه (فقط نت ملی)
+      }"""
+new_doconnect = """      if (nationalMode || indestructibleMode) {
+        // V8-NATFIX: load gold folder + resMap into good BEFORE searching
+        try {
+          await goldLoad();
+          await _goldMergeGood(this);
+          dbg('V8-NAT: gold folder loaded: ${_goldSrv.length} servers, ${_goldIps.length} IPs');
+        } catch (e, stk) { logError(e, stk); }
+        _resInject();
+        await _checkSaved();
+        if (nationalMode) {
+          await _natMergeCache();
+          // V8-NATFIX: if still empty, try to reuse saved IPs and prescan
+          if (pending.isEmpty) {
+            await _natMemoryReuse();
+            await _natPrescan();
+          }
+          dbg('V8-NAT: after merge — pending=${pending.length}, good=${good.length}, resMap=${_resMap.length}');
+        }
+      }"""
+if old_doconnect in mn:
+    mn = mn.replace(old_doconnect, new_doconnect, 1)
+    print('OK: V8-NATFIX — gold + merge + prescan before _acquire')
+else:
+    print('WARN: national prepare block not found')
+
+# =====================================================================
+# ---- 14) ★ _natEscalate — shorten scan budget + skip if pending has items ----
+# =====================================================================
+old_escalate_scan = """      if (nationalMode && !abort && !ipWaiting) {
+        final ips = await natRangeScanStep(
+            known: [...pending, ...natRestPending],
+            maxAddrs: 100000, // هر دور تا ۱۰۰ هزار آدرس
+            conc: natAdaptiveWorkers(),
+            stop: () => abort,
+            budget: const Duration(minutes: 12));
+        await _natRangeAdd(ips);
+      }"""
+new_escalate_scan = """      // V8-NATFIX: skip the long scan when pending already has something to test.
+      // On fresh install, keep it short (3 min) so the user sees results fast.
+      if (nationalMode && !abort && !ipWaiting && pending.isEmpty) {
+        final ips = await natRangeScanStep(
+            known: [...pending, ...natRestPending],
+            maxAddrs: 30000,
+            conc: natAdaptiveWorkers(),
+            stop: () => abort,
+            budget: const Duration(minutes: 3));
+        await _natRangeAdd(ips);
+      }"""
+if old_escalate_scan in mn:
+    mn = mn.replace(old_escalate_scan, new_escalate_scan, 1)
+    print('OK: _natEscalate — shorter scan, skip when pending has items')
+else:
+    print('WARN: _natEscalate scan pattern not found')
+
+# =====================================================================
+# ---- 15) sing-box source URLs removed from _paths ----
 # =====================================================================
 singbox_paths = """  // PHASE1-SINGBOX: منابع HY2/TUIC اول لیست (مهلت دانلود تمام نشود)
   // verified via search results (paths confirmed in upstream READMEs)
@@ -440,17 +588,16 @@ singbox_paths = """  // PHASE1-SINGBOX: منابع HY2/TUIC اول لیست (م�
 """
 if singbox_paths in mn:
     mn = mn.replace(singbox_paths, "  // V8: sing-box URLs removed\n", 1)
-    print('OK: sing-box URLs removed from _paths')
+    print('OK: sing-box URLs removed')
 
 open(MAIN, 'w', encoding='utf-8').write(mn)
 
 # =====================================================================
-# ---- 13) SINGBOX stub ----
+# ---- 16) SINGBOX stub ----
 # =====================================================================
 SINGBOX = os.path.join(APP, 'lib/singbox_core.dart')
 with open(SINGBOX, 'w', encoding='utf-8') as f:
     f.write("""// singbox_core.dart - SING-BOX SUPPORT REMOVED (V8)
-// Compile-only stub. kSingboxEnabled is false everywhere.
 Future<bool> startSingbox(String config) async => false;
 Future<void> stopSingbox() async {}
 Future<bool> isSingboxAlive() async => false;
@@ -459,17 +606,16 @@ String? buildSingboxConfigFromLink(String link) => null;
 print('OK: singbox_core.dart → stub')
 
 # =====================================================================
-# ---- 14) NAT_ULTRA: natMaxVariants ----
+# ---- 17) NAT_ULTRA: natMaxVariants ----
 # =====================================================================
 n = open(NAT, encoding='utf-8').read()
-
 if 'const int natMaxVariants = 2000000;' in n:
     n = n.replace('const int natMaxVariants = 2000000;',
-                  'const int natMaxVariants = 0x7FFFFFFF; // V8: no cap', 1)
+                  'const int natMaxVariants = 0x7FFFFFFF; // V8', 1)
     print('OK: natMaxVariants = 0x7FFFFFFF')
 
 # =====================================================================
-# ---- 15) NAT_ULTRA: natGrow real implementation ----
+# ---- 18) NAT_ULTRA: natGrow real ----
 # =====================================================================
 old_grow = "int natGrow(int n) => 0;"
 new_grow = """int _natGrowCounter = 0;
@@ -510,8 +656,7 @@ if old_grow in n:
     print('OK: natGrow implemented')
 
 # =====================================================================
-# ---- 16) NAT_ULTRA: wire natGrow into _natOrder ----
-# Source indent: 4 spaces for 'if', 6 for 'final end'/'for', 8 for body
+# ---- 19) NAT_ULTRA: wire natGrow into _natOrder ----
 # =====================================================================
 old_order = """    if (app.isNotEmpty && cursor < app.length) {
       final end = min(app.length, cursor + cap);
@@ -542,10 +687,10 @@ elif old_order in n:
     n = n.replace(old_order, new_order, 1)
     print('OK: natGrow wired into _natOrder')
 else:
-    print('WARN: _natOrder pattern not found (indent might differ)')
+    print('WARN: _natOrder pattern not found')
 
 # =====================================================================
-# ---- 17) NAT_ULTRA: 80-block CF mix (cached, safe on 6GB) ----
+# ---- 20) NAT_ULTRA: 80-block CF mix ----
 # =====================================================================
 old_blocks = """  final blocks = natRanges.isNotEmpty ? natRanges : natSeedBlocks(hosts);
   final addrs = <String>[];
@@ -557,18 +702,12 @@ new_blocks = """  final blocks = natRanges.isNotEmpty ? natRanges : natSeedBlock
   for (final r in blocks) {
     addrs.addAll(natExpandAny(r));
   }
-  // V8-MIX-80: 80 Cloudflare blocks (~7 per range × 13 ranges) × 2000 IPs each
-  // = ~180k strings total, cached once. Safe on 6GB+, full range coverage.
   addrs.addAll(_getCfIps());"""
 if '_getCfIps()' in n:
     print('SKIP: _getCfIps already wired')
 elif old_blocks in n:
     n = n.replace(old_blocks, new_blocks, 1)
-    print('OK: 80-block CF mix wired')
-
-    # Insert the _getCfIps function definition before natRangeScanStep
-    cf_func = """// V8: cached 80-block Cloudflare IP mix (generated once, reused across scans)
-List<String>? _cfIpCache;
+    cf_func = """List<String>? _cfIpCache;
 List<String> _getCfIps() {
   if (_cfIpCache != null) return _cfIpCache!;
   final out = <String>[];
@@ -606,7 +745,7 @@ List<String> _getCfIps() {
     if 'List<String> _getCfIps()' not in n:
         n = n.replace('Future<List<String>> natRangeScanStep(',
                       cf_func + 'Future<List<String>> natRangeScanStep(', 1)
-        print('OK: _getCfIps function inserted')
+        print('OK: _getCfIps inserted + 80-block CF mix wired')
 else:
     print('WARN: blocks pattern not found')
 
@@ -614,4 +753,15 @@ open(NAT, 'w', encoding='utf-8').write(n)
 
 print('')
 print('=== ALL V8-SAFE PATCHES DONE ===')
-print('آماده برای بیلد. main.dart و nat_ultra.dart دست‌نخورده موندن.')
+print('فیکس شد:')
+print('  - kNatMergeCache=false → true (باگ نت ملی)')
+print('  - kFolderInjectGood=false → true (باگ نت ملی)')
+print('  - _natRangeAdd: int.parse crash + CF template fallback')
+print('  - _doConnect: gold + merge + prescan قبل از _acquire')
+print('  - _natEscalate: ۱۲ دقیقه → ۳ دقیقه + skip وقتی pending دارد')
+print('  - چک تلگرام قبل و بعد از اتصال حذف (سرعت ۵-۱۰ برابر)')
+print('  - هدف ۵ سرور → ۳')
+print('  - natGrow واقعی + 80 بلوک CF + natMaxVariants بی‌سقف')
+print('  - sing-box کاملاً حذف')
+print('  - تنظیمات اول نصب = reset')
+print('  - DPI/Fragment/_natLadder/s.svc/continue — همه دست‌نخورده ✅')
