@@ -151,42 +151,8 @@ class SingboxVpnService : VpnService() {
         super.onDestroy()
     }
 
-    private fun foreground() {
-        val nm = getSystemService(NotificationManager::class.java)
-        if (Build.VERSION.SDK_INT >= 26) {
-            nm.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "King VPN", NotificationManager.IMPORTANCE_LOW)
-            )
-        }
-        val nb = if (Build.VERSION.SDK_INT >= 26) {
-            Notification.Builder(this, CHANNEL_ID)
-        } else {
-            Notification.Builder(this)
-        }
-        val notif = nb
-            .setContentTitle("King VPN (sing-box)")
-            .setSmallIcon(applicationInfo.icon)
-            .setOngoing(true)
-            .build()
-        if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        } else {
-            startForeground(NOTIF_ID, notif)
-        }
-    }
-}
-
-// پیاده‌سازی PlatformInterface برای libbox.
-private class SingboxPlatform(private val svc: SingboxVpnService) : PlatformInterface {
-
-    override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
-
-    override fun autoDetectInterfaceControl(fd: Int) {
-        if (!svc.protect(fd)) throw IllegalStateException("protect($fd) failed")
-    }
-
-    override fun openTun(options: TunOptions): Int {
-        if (VpnService.prepare(svc) != null) throw IllegalStateException("VPN permission missing")
+    fun buildTun(options: TunOptions): Int {
+        if (VpnService.prepare(this) != null) throw IllegalStateException("VPN permission missing")
         val b = VpnService.Builder()
         b.setSession("King VPN (sing-box)")
         b.setMtu(options.getMTU())
@@ -233,7 +199,7 @@ private class SingboxPlatform(private val svc: SingboxVpnService) : PlatformInte
             }
 
             try {
-                b.addDisallowedApplication(svc.packageName)
+                b.addDisallowedApplication(packageName)
             } catch (_: Exception) {
             }
         }
@@ -243,14 +209,45 @@ private class SingboxPlatform(private val svc: SingboxVpnService) : PlatformInte
         return pfd.detachFd()
     }
 
-    override fun useProcFS(): Boolean = false
+    private fun foreground() {
+        val nm = getSystemService(NotificationManager::class.java)
+        if (Build.VERSION.SDK_INT >= 26) {
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "King VPN", NotificationManager.IMPORTANCE_LOW)
+            )
+        }
+        val nb = if (Build.VERSION.SDK_INT >= 26) {
+            Notification.Builder(this, CHANNEL_ID)
+        } else {
+            Notification.Builder(this)
+        }
+        val notif = nb
+            .setContentTitle("King VPN (sing-box)")
+            .setSmallIcon(applicationInfo.icon)
+            .setOngoing(true)
+            .build()
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(NOTIF_ID, notif)
+        }
+    }
+}
 
-    override fun writeLog(message: String) {
-        Log.i("sing-box", message)
+// پیاده‌سازی PlatformInterface برای libbox.
+private class SingboxPlatform(private val svc: SingboxVpnService) : PlatformInterface {
+
+    override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
+
+    override fun autoDetectInterfaceControl(fd: Int) {
+        if (!svc.protect(fd)) throw IllegalStateException("protect($fd) failed")
     }
 
-    override fun usePlatformDefaultInterfaceMonitor(): Boolean = false
+    override fun openTun(options: TunOptions): Int = svc.buildTun(options)
 
+    
+    
+    
     override fun underNetworkExtension(): Boolean = false
 
     override fun includeAllNetworks(): Boolean = false
