@@ -6,7 +6,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import 'prefs_store.dart';
 
 // =============================================================================
 // D1/D2/D3 — share via Android's own share sheet (Bluetooth, SMS, Nearby Share,

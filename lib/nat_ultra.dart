@@ -538,7 +538,7 @@ bool _natAppliesF(_NatFacts f, int v) {
   }
   if (x.mux) return false;
   if (x.noise) return false;
-  if (x.mode != null) return false;
+  if (x.mode != null && (!x.mode!.startsWith('kcp:') || f.reality)) return false;
   if (x.doh != null && f.isIp) return false;
   return true;
 }
@@ -666,6 +666,13 @@ List<int> _natOrder(Server s, {bool full = false}) {
     for (final v in lightFirst) {
       if (_natAppliesF(f, v)) put(v);
     }
+  }
+
+  // KCP is registered after _natGenerate(), so it has no rank on fresh installs.
+  // Test it early at level >= 2, only in national mode (where heavy variants run).
+  if (lvl >= 2 && nationalMode) {
+    final kcpIdx = _natSpecs.indexWhere((x) => x.mode == 'kcp:none');
+    if (kcpIdx > 0 && _natAppliesF(f, kcpIdx)) put(kcpIdx);
   }
 
   if (lvl >= 2) {
@@ -893,8 +900,14 @@ String _natApplyTweaks(String link, _NatSpec x, Server s) {
   if (x.alpn != null) link = _natSetParam(link, 'alpn', x.alpn!);
   final md = x.mode;
   if (md != null && md.startsWith('kcp:')) {
-    link = _natSetParam(link, 'type', 'kcp');
-    link = _natSetParam(link, 'headerType', md.substring(4));
+    if (link.toLowerCase().startsWith('vmess://')) {
+      // VMess JSON: transport = net, header type = type
+      link = _natSetParam(link, 'net', 'kcp');
+      link = _natSetParam(link, 'type', md.substring(4));
+    } else {
+      link = _natSetParam(link, 'type', 'kcp');
+      link = _natSetParam(link, 'headerType', md.substring(4));
+    }
   } else if (md != null) {
     link = _natSetParam(link, 'mode', md.substring(md.indexOf(':') + 1));
   }
@@ -1113,7 +1126,8 @@ int natVarFor(Server s) {
   final v = natSafeVariant(rawV);
   if (v <= 0) return 0;
   final x = _natSpecs[v];
-  if (x.mux || x.noise || x.mode != null) return 0;
+  if (x.mux || x.noise) return 0;
+  if (x.mode != null && !x.mode!.startsWith('kcp:')) return 0;
   return v;
 }
 
@@ -1121,7 +1135,7 @@ bool natIsHeavy(int v) {
   final base = v % _natCodeBase;
   if (base <= 0 || base >= _natSpecs.length) return false;
   final x = _natSpecs[base];
-  return x.frag != null || x.noise;
+  return x.frag != null || x.noise || (x.mode != null && x.mode!.startsWith('kcp:'));
 }
 
 int? natSpeedVariant(Server s, {int prefer = 0}) {

@@ -3130,7 +3130,8 @@ String? coreUnsupportedReason(String link) {
   final q = uri.queryParameters;
   final security = (q['security'] ?? '').toLowerCase();
   final type = (q['type'] ?? '').toLowerCase();
-  if (security != 'tls' && security != 'reality') {
+  final isKcp = type == 'kcp' || type == 'mkcp';
+  if (security != 'tls' && security != 'reality' && !isKcp) {
     final ipv4 = RegExp(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$').hasMatch(uri.host);
     if (ipv4 && !_isPrivateIpv4(uri.host)) {
       return 'VLESS بدون TLS روی IP عمومی';
