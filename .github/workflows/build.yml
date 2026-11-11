@@ -12,7 +12,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
 
@@ -25,6 +25,17 @@ jobs:
         with:
           channel: stable
           cache: true
+
+      - name: Cache Go modules and gomobile
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/go/bin
+          key: go-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            go-${{ runner.os }}-
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -42,11 +53,10 @@ jobs:
           go install golang.org/x/mobile/cmd/gobind@latest
           export PATH=$PATH:$(go env GOPATH)/bin
           
-          echo "Initializing gomobile (this downloads NDK, may take a minute)..."
+          echo "Initializing gomobile (this downloads NDK if missing, may take a few minutes)..."
           gomobile init
           
           echo "Building libbox.aar for arm64 and arm..."
-          # -androidapi 24 matches minSdk 24 in the app
           gomobile bind -target=android/arm64,android/arm -androidapi 24 -o ../libbox.aar ./experimental/libbox
           cd ..
           
@@ -60,8 +70,6 @@ jobs:
         run: |
           flutter create --project-name king_vpn --org com.kingvpn --platforms=android build_app
           rm -rf build_app/test
-          # All Dart sources are final in lib/ (patch scripts were baked in, no
-          # more anchor-based patching at build time). Copy the whole folder.
           [ -f lib/main.dart ] || { echo "ERROR: lib/main.dart missing"; exit 1; }
           cp -r lib/. build_app/lib/
           grep -q 'bool requireRewardedAd = true;' build_app/lib/main.dart \
