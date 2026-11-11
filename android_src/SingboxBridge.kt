@@ -177,8 +177,6 @@ class SingboxVpnService : VpnService() {
 }
 
 // پیاده‌سازی PlatformInterface برای libbox.
-// نکته: امضاها مطابق libbox نسخه‌ی v1.14 نوشته شده‌اند. اگر کامپایل خطا داد،
-// پیام خطا دقیقاً می‌گوید کدام متد کم است یا امضایش فرق دارد؛ همان را اصلاح کنید.
 private class SingboxPlatform(private val svc: SingboxVpnService) : PlatformInterface {
 
     override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
