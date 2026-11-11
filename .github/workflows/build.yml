@@ -40,30 +40,37 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 'stable'
+          go-version: '1.22.5'
 
       - name: Build libbox.aar (sing-box core)
+        env:
+          GOTOOLCHAIN: local
         run: |
           echo "Cloning sing-box v1.14.4..."
           git clone --depth 1 --branch v1.14.4 https://github.com/SagerNet/sing-box.git sing-box-src
           cd sing-box-src
-          
+
+          echo "Go version in use:"
+          go version
+          echo "sing-box go.mod requires:"
+          grep '^go ' go.mod || true
+
           echo "Installing gomobile..."
           go install golang.org/x/mobile/cmd/gomobile@latest
           go install golang.org/x/mobile/cmd/gobind@latest
           export PATH=$PATH:$(go env GOPATH)/bin
-          
-          echo "Adding gomobile dependency to sing-box module..."
-          go get -tool golang.org/x/mobile/cmd/gobind
+
+          echo "Adding gomobile bind package to sing-box module..."
+          go get golang.org/x/mobile/bind
           go mod tidy
-          
+
           echo "Initializing gomobile (this downloads NDK if missing, may take a few minutes)..."
           gomobile init
-          
+
           echo "Building libbox.aar for arm64 and arm..."
           gomobile bind -target=android/arm64,android/arm -androidapi 24 -o ../libbox.aar ./experimental/libbox
           cd ..
-          
+
           echo "Verifying libbox.aar..."
           ls -la libbox.aar
           size=$(stat -c%s libbox.aar)
@@ -75,10 +82,13 @@ jobs:
           flutter create --project-name king_vpn --org com.kingvpn --platforms=android build_app
           rm -rf build_app/test
           [ -f lib/main.dart ] || { echo "ERROR: lib/main.dart missing"; exit 1; }
+          mkdir -p build_app/android/app/libs
+          cp -f libbox.aar build_app/android/app/libs/libbox.aar
           cp -r lib/. build_app/lib/
           grep -q 'bool requireRewardedAd = true;' build_app/lib/main.dart \
             || { echo "ERROR: requireRewardedAd is not true"; exit 1; }
           python3 prepare_android.py
+          python3 patch_singbox_native.py
 
       - name: Add packages
         working-directory: build_app
