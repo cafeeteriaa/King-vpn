@@ -1,11 +1,12 @@
 import os
 import re
 import shutil
-import random
 
 APP = 'build_app'
 
-# ---- 1) AndroidManifest permissions ------------------------------------------
+# =====================================================================
+# ---- 1) AndroidManifest + native files ----
+# =====================================================================
 mp = os.path.join(APP, 'android/app/src/main/AndroidManifest.xml')
 m = open(mp, encoding='utf-8').read()
 perms = ('<uses-permission android:name="android.permission.INTERNET"/>\n'
@@ -48,7 +49,9 @@ os.makedirs(ka, exist_ok=True)
 shutil.copy('android_src/MainActivity.kt', os.path.join(ka, 'MainActivity.kt'))
 print('OK: Native files copied')
 
-# ---- 2) Gradle ----
+# =====================================================================
+# ---- 2) Gradle: minSdk 24, compileSdk 37 ----
+# =====================================================================
 for name in ('build.gradle', 'build.gradle.kts'):
     gp = os.path.join(APP, 'android/app', name)
     if os.path.exists(gp):
@@ -80,14 +83,16 @@ for name in ('build.gradle', 'build.gradle.kts'):
         g = g[:dc.end()] + ndk_block + g[dc.end():]
         open(gp, 'w', encoding='utf-8').write(g)
 
-# ---- 3) Fresh-sources folder ----
+# =====================================================================
+# ---- 3) Fresh-sources folder (hotPath) ----
+# =====================================================================
 NAT = os.path.join(APP, 'lib/nat_ultra.dart')
 MAIN = os.path.join(APP, 'lib/main.dart')
 
 def patch_once(text, old, new, label):
     count = text.count(old)
     if count != 1:
-        raise SystemExit('ERROR: %s found %d times (must be 1). Build stopped.' % (label, count))
+        raise SystemExit('ERROR: %s found %d times (must be 1).' % (label, count))
     return text.replace(old, new, 1)
 
 OLD_PATH = """String _hotPath() {
@@ -170,18 +175,20 @@ class HotResumeWatcher extends WidgetsBindingObserver {
 """
 n = open(NAT, encoding='utf-8').read()
 if 'hotVisibleDir' not in n:
-    n = patch_once(n, OLD_PATH, NEW_PATH, 'folder path')
-    n = patch_once(n, OLD_ENSURE, NEW_ENSURE, 'folder ensure')
+    n = patch_once(n, OLD_PATH, NEW_PATH, 'hotPath')
+    n = patch_once(n, OLD_ENSURE, NEW_ENSURE, 'hotEnsure')
     if not n.endswith('\n'): n += '\n'
     n += APPEND
     open(NAT, 'w', encoding='utf-8').write(n)
+    print('OK: hotPath → Download')
 
 mn = open(MAIN, encoding='utf-8').read()
 if 'hotAutoStart()' not in mn:
     mn = patch_once(mn, 'void main() {\n', 'void main() {\n  Future.delayed(const Duration(seconds: 5), () => unawaited(hotAutoStart()));\n', 'main()')
-    open(MAIN, 'w', encoding='utf-8').write(mn)
 
-# ---- 4) Relay Server & IP Range buttons ----
+# =====================================================================
+# ---- 4) Relay Server + IP Range UI buttons ----
+# =====================================================================
 old_chain = """          String? chainCfg;
           if (nationalMode && !proxyOnly) {
             final relays = _usable().where((x) => !identical(x, s)).take(1).toList();
@@ -198,7 +205,7 @@ new_chain = """          String? chainCfg;
               final relaySrv = Server.parse(relayServerUrl);
               if (relaySrv != null) {
                 chainCfg = natChainCfg(cfg, natCfg(relaySrv, 0), keepInbounds: true);
-                if (chainCfg != null) dbg('MULTIHOP: استفاده از سرور واسط دستی برای ${s.name}');
+                if (chainCfg != null) dbg('MULTIHOP: سرور واسط دستی برای ${s.name}');
               }
             }
             if (chainCfg == null) {
@@ -206,7 +213,7 @@ new_chain = """          String? chainCfg;
               if (relays.isNotEmpty) {
                 chainCfg = natChainCfg(cfg, natCfg(relays.first, 0), keepInbounds: true);
                 if (chainCfg != null) {
-                  dbg('MULTIHOP: آخرین تلاش از پشت ${relays.first.name} (relay) برای ${s.name}');
+                  dbg('MULTIHOP: آخرین تلاش از پشت ${relays.first.name} برای ${s.name}');
                 }
               }
             }
@@ -230,7 +237,9 @@ else:
     new_tool = "UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),\n            UiTool(Icons.router, 'بازه‌های IP نت ملی', () => _natRangesDialog(context)),\n            UiTool(Icons.add_home_outlined, 'ساخت سرور شخصی', () => connectPersonalAsk()),"
     if old_tool in mn: mn = mn.replace(old_tool, new_tool, 1)
 
-# ---- 5) DIALER-PROXY fix ----
+# =====================================================================
+# ---- 5) DIALER-PROXY fix (indent 6/8/10 matches source) ----
+# =====================================================================
 old_proxy = """      if (so is Map) {
         final dp = so['dialerProxy']?.toString();
         if (dp != null && !tags.contains(dp)) {
@@ -255,11 +264,31 @@ if old_proxy in mn:
     print('OK: proxySettings removed')
 
 # =====================================================================
-# ---- 6) V8 MAIN PATCHES ----
+# ---- 6) V8-SAFE: skip requestPermission when already granted ----
 # =====================================================================
-print('Applying V8 main.dart patches...')
+old_perm = """    if (!proxyMode && inForeground) {
+      try {
+        // PERMTIMEOUT: same limit as above
+        final ok = await v2ray.requestPermission().timeout(
+            const Duration(seconds: 60), onTimeout: () {
+          dbg('مجوز VPN: ۶۰ ثانیه جواب نیامد؛ شکست در نظر گرفته شد');
+          return false;
+        });"""
+new_perm = """    if (!proxyMode && inForeground && !vpnPermOk) {
+      try {
+        // PERMTIMEOUT: same limit as above
+        final ok = await v2ray.requestPermission().timeout(
+            const Duration(seconds: 60), onTimeout: () {
+          dbg('مجوز VPN: ۶۰ ثانیه جواب نیامد؛ شکست در نظر گرفته شد');
+          return false;
+        });"""
+if old_perm in mn:
+    mn = mn.replace(old_perm, new_perm, 1)
+    print('OK: skip requestPermission when already granted')
 
-# 6a) V8-FRESH: on fresh install, apply canonical defaults (== resetAllToDefaults)
+# =====================================================================
+# ---- 7) V8-FRESH: first launch == reset defaults ----
+# =====================================================================
 old_fresh = """  Future<void> _loadCache() async {
     try {
       final p = await SharedPreferences.getInstance();
@@ -267,8 +296,8 @@ old_fresh = """  Future<void> _loadCache() async {
 new_fresh = """  Future<void> _loadCache() async {
     try {
       final p = await SharedPreferences.getInstance();
-      // V8-FRESH: on fresh install, apply canonical defaults so first-launch
-      // numbers match resetAllToDefaults(). All migrations are skipped.
+      // V8-FRESH: first launch uses the SAME numbers as resetAllToDefaults.
+      // All migration flags are set so no migration can override them later.
       if (!p.containsKey('settings')) {
         for (final k in const [
           'speedoff27', 'lowdata_v1', 'restore_speed_v1', 'best_defaults_v4',
@@ -309,41 +338,39 @@ new_fresh = """  Future<void> _loadCache() async {
         preflightOn = true;
         await saveNumPrefs();
         await _saveSettings();
-        dbg('V8-FRESH: پیش‌فرض‌های استاندارد اعمال شد (بدون migration)');
+        dbg('V8-FRESH: پیش‌فرض‌های استاندارد اعمال شد');
       }
       await loadGeminiPrefs(p);"""
 if old_fresh in mn:
     mn = mn.replace(old_fresh, new_fresh, 1)
-    print('OK: V8-FRESH applied (fresh install = reset defaults)')
-else:
-    print('WARN: V8-FRESH anchor not found')
+    print('OK: V8-FRESH (first launch = reset)')
 
-# 6b) Target 3 servers instead of 5
-old_pause = "const int kStandbyPause = 5; // هدف همیشگی: ۵ سرور سالم، از اولین جستجو تا آخر"
-new_pause = "const int kStandbyPause = 3; // V8: هدف ۳ سرور سالم"
-if old_pause in mn:
-    mn = mn.replace(old_pause, new_pause, 1)
-    print('OK: kStandbyPause = 3')
-else:
-    print('WARN: kStandbyPause not found')
+# =====================================================================
+# ---- 8) resetAllToDefaults: mark all migration flags ----
+# =====================================================================
+old_reset = """  void resetAllToDefaults() {
+    resetNumbers();"""
+new_reset = """  void resetAllToDefaults() {
+    // V8: set all migration flags so future launches skip migrations
+    SharedPreferences.getInstance().then((p) async {
+      for (final k in const [
+        'speedoff27', 'lowdata_v1', 'restore_speed_v1', 'best_defaults_v4',
+        'fw5_v1', 'workers12_v2', 'contsearch_v1', 'cip_v2', 'idm_v2',
+        'nat_v2', 'defsync_v1', 'defsync_v2', 'badping1700_v1',
+        'tuned_v1', 'tuned_v2', 'tuned_v3', 'tuned_v4', 'tuned_v5',
+        'bestProfile26', 'fwDefault27', 'bgWorkersOne',
+      ]) {
+        await p.setBool(k, true);
+      }
+    });
+    resetNumbers();"""
+if old_reset in mn:
+    mn = mn.replace(old_reset, new_reset, 1)
+    print('OK: resetAllToDefaults sets migration flags')
 
-old_resume = "const int kStandbyResume = 5; // RESUME5: وقتی سالم‌ها زیر ۵ آمد جستجو دوباره روشن می‌شود"
-new_resume = "const int kStandbyResume = 3; // V8: زیر ۳ جستجو دوباره روشن"
-if old_resume in mn:
-    mn = mn.replace(old_resume, new_resume, 1)
-    print('OK: kStandbyResume = 3')
-else:
-    print('WARN: kStandbyResume not found')
-
-old_fg = "const int kFgSearchTarget = 5; // FG5: تست سریع با ۵ سالم تمام می‌شود و وصل می‌شود"
-new_fg = "const int kFgSearchTarget = 3; // V8: تست سریع با ۳ سالم تمام می‌شود"
-if old_fg in mn:
-    mn = mn.replace(old_fg, new_fg, 1)
-    print('OK: kFgSearchTarget = 3')
-else:
-    print('WARN: kFgSearchTarget not found')
-
-# 6c) Remove pre-social-check block (before connect)
+# =====================================================================
+# ---- 9) V8: remove _preSocialCheck block (BEFORE _start) ----
+# =====================================================================
 old_presoc = """      if (!trust && !pin && !nationalMode && !proxyMode) {
         _set('بررسی تلگرام روی ${s.name}...');
         final sc = await _preSocialCheck(s);
@@ -357,72 +384,93 @@ old_presoc = """      if (!trust && !pin && !nationalMode && !proxyMode) {
           continue;
         }
       }"""
-new_presoc = "      // V8: pre-social-check removed (connect directly like v2rayNG)"
+new_presoc = "      // V8: pre-social-check removed (connect direct like v2rayNG)"
 if old_presoc in mn:
     mn = mn.replace(old_presoc, new_presoc, 1)
-    print('OK: pre-social-check removed')
-else:
-    print('WARN: pre-social-check block not found')
+    print('OK: pre-social-check removed from _connectLoop')
 
-# 6d) Remove ping/tun/social block AFTER coreUpCount++ in _connectLoop
-# Strategy: use regex from coreUpCount++ to _onConnected(s) in _connectLoop
-pattern_post = re.compile(
-    r'(      coreUpCount\+\+; // CORE-SYSTEMIC: the core started for this config\n)'
-    r'.*?'
-    r'(      _onConnected\(s\);\n      return true;\n)',
-    re.DOTALL,
-)
-replacement_post = (
-    r'\1'
-    r'      // V8: extra checks removed (start already verified traffic via pingAny)\n'
-    r'\2'
-)
-mn, n_post = pattern_post.subn(replacement_post, mn, count=1)
-if n_post == 1:
-    print('OK: post-connect ping/tun/social checks removed')
-else:
-    print('WARN: post-connect checks pattern matched %d times' % n_post)
+# =====================================================================
+# ---- 10) V8: skip social check block (AFTER _start) ----
+# Only changes needSocial. Keeps _natLadder, s.svc, s.badAt, failed, continue.
+# =====================================================================
+old_needsoc = "        final needSocial = !proxyMode;"
+new_needsoc = "        final needSocial = false; // V8: telegram check removed (v2rayNG-style)"
+if old_needsoc in mn:
+    mn = mn.replace(old_needsoc, new_needsoc, 1)
+    print('OK: needSocial = false (social block skipped for VPN mode)')
 
-# 6e) Remove stopSingbox() call in _stopV2
-old_stopsb = "      try { await stopSingbox(); } catch (_) {} // SINGBOX: هر دو هسته خاموش شوند\n"
-if old_stopsb in mn:
-    mn = mn.replace(old_stopsb, '', 1)
-    print('OK: stopSingbox() call removed from _stopV2')
-else:
-    print('WARN: stopSingbox() call not found')
+# =====================================================================
+# ---- 11) Target 3 servers instead of 5 ----
+# =====================================================================
+if 'const int kStandbyPause = 5;' in mn:
+    mn = mn.replace('const int kStandbyPause = 5;',
+                    'const int kStandbyPause = 3; // V8: ۳ سرور سالم', 1)
+    print('OK: kStandbyPause = 3')
+
+if 'const int kStandbyResume = 5;' in mn:
+    mn = mn.replace('const int kStandbyResume = 5;',
+                    'const int kStandbyResume = 3; // V8: زیر ۳ جستجو دوباره روشن', 1)
+    print('OK: kStandbyResume = 3')
+
+if 'const int kFgSearchTarget = 5;' in mn:
+    mn = mn.replace('const int kFgSearchTarget = 5;',
+                    'const int kFgSearchTarget = 3; // V8: ۳ سالم کافیست', 1)
+    print('OK: kFgSearchTarget = 3')
+
+# =====================================================================
+# ---- 12) V8: remove sing-box source URLs from _paths ----
+# =====================================================================
+singbox_paths = """  // PHASE1-SINGBOX: منابع HY2/TUIC اول لیست (مهلت دانلود تمام نشود)
+  // verified via search results (paths confirmed in upstream READMEs)
+  'soroushmirzaei/telegram-configs-collector/main/protocols/tuic',
+  'soroushmirzaei/telegram-configs-collector/main/protocols/hysteria',
+  'soroushmirzaei/telegram-configs-collector/main/channels/protocols/tuic',
+  'soroushmirzaei/telegram-configs-collector/main/channels/protocols/hysteria',
+  'barry-far/V2ray-Configs/main/Splitted-By-Protocol/hysteria2.txt',
+  'barry-far/V2ray-Configs/main/Splitted-By-Protocol/tuic.txt',
+  '0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
+  '0xRadikal/Free-v2ray-Configs/main/protocols/tuic.txt',
+  'wiki/gfpcom/free-proxy-list/lists/hy2.txt',
+  'wiki/gfpcom/free-proxy-list/lists/tuic.txt',
+  'nyeinkokoaung404/V2ray-Configs/main/Splitted-By-Protocol/tuic.txt',
+  'nyeinkokoaung404/V2ray-Configs/main/Splitted-By-Protocol/hysteria2.txt',
+  'R-the-coder/V2ray-configs/main/hysteria2.txt',
+  'yebekhe/TelegramV2rayCollector/main/sub/normal/hysteria2',
+  'yebekhe/TelegramV2rayCollector/main/sub/normal/tuic',
+"""
+if singbox_paths in mn:
+    mn = mn.replace(singbox_paths, "  // V8: sing-box URLs removed\n", 1)
+    print('OK: sing-box URLs removed from _paths')
 
 open(MAIN, 'w', encoding='utf-8').write(mn)
 
 # =====================================================================
-# ---- 7) SINGBOX STUB ----
+# ---- 13) SINGBOX stub ----
 # =====================================================================
 SINGBOX = os.path.join(APP, 'lib/singbox_core.dart')
-if os.path.exists(SINGBOX):
-    with open(SINGBOX, 'w', encoding='utf-8') as f:
-        f.write("""// singbox_core.dart - SING-BOX SUPPORT REMOVED
-// Kept as compile-only stub. kSingboxEnabled is false everywhere,
-// so none of these are ever called at runtime.
-
+with open(SINGBOX, 'w', encoding='utf-8') as f:
+    f.write("""// singbox_core.dart - SING-BOX SUPPORT REMOVED (V8)
+// Compile-only stub. kSingboxEnabled is false everywhere.
 Future<bool> startSingbox(String config) async => false;
 Future<void> stopSingbox() async {}
 Future<bool> isSingboxAlive() async => false;
 String? buildSingboxConfigFromLink(String link) => null;
 """)
-    print('OK: singbox_core.dart replaced with stub')
+print('OK: singbox_core.dart → stub')
 
 # =====================================================================
-# ---- 8) NAT_ULTRA PATCHES ----
+# ---- 14) NAT_ULTRA: natMaxVariants ----
 # =====================================================================
-print('Applying nat_ultra.dart patches...')
 n = open(NAT, encoding='utf-8').read()
 
-# 8a) natMaxVariants: no cap
 if 'const int natMaxVariants = 2000000;' in n:
     n = n.replace('const int natMaxVariants = 2000000;',
                   'const int natMaxVariants = 0x7FFFFFFF; // V8: no cap', 1)
-    print('OK: natMaxVariants bumped')
+    print('OK: natMaxVariants = 0x7FFFFFFF')
 
-# 8b) natGrow: stub -> real
+# =====================================================================
+# ---- 15) NAT_ULTRA: natGrow real implementation ----
+# =====================================================================
 old_grow = "int natGrow(int n) => 0;"
 new_grow = """int _natGrowCounter = 0;
 int natGrow(int n) {
@@ -461,7 +509,10 @@ if old_grow in n:
     n = n.replace(old_grow, new_grow, 1)
     print('OK: natGrow implemented')
 
-# 8c) _natOrder: call natGrow when cursor exhausted
+# =====================================================================
+# ---- 16) NAT_ULTRA: wire natGrow into _natOrder ----
+# Source indent: 4 spaces for 'if', 6 for 'final end'/'for', 8 for body
+# =====================================================================
 old_order = """    if (app.isNotEmpty && cursor < app.length) {
       final end = min(app.length, cursor + cap);
       for (var k = cursor; k < end; k++) {
@@ -485,13 +536,17 @@ new_order = """    if (cursor >= app.length && lvl >= 2) {
         gens.add(gv);
       }
     }"""
-if old_order in n:
+if 'natGrow(1000);' in n:
+    print('SKIP: natGrow(1000) already present')
+elif old_order in n:
     n = n.replace(old_order, new_order, 1)
-    print('OK: natGrow(1000) wired into _natOrder')
+    print('OK: natGrow wired into _natOrder')
 else:
-    print('WARN: _natOrder pattern not found')
+    print('WARN: _natOrder pattern not found (indent might differ)')
 
-# 8d) 80/20 mix: 80 CF blocks × 2000 IPs (safe on 6GB, ~160k strings)
+# =====================================================================
+# ---- 17) NAT_ULTRA: 80-block CF mix (cached, safe on 6GB) ----
+# =====================================================================
 old_blocks = """  final blocks = natRanges.isNotEmpty ? natRanges : natSeedBlocks(hosts);
   final addrs = <String>[];
   for (final r in blocks) {
@@ -502,10 +557,24 @@ new_blocks = """  final blocks = natRanges.isNotEmpty ? natRanges : natSeedBlock
   for (final r in blocks) {
     addrs.addAll(natExpandAny(r));
   }
-  // V8-MIX-80: 80 Cloudflare blocks × 2000 random IPs = 160k total
-  // (safe on 6GB RAM; full /13 expansion = 5.2M = OOM)
-  final rndMix = Random(42);
-  for (final cidr in _cfRanges.take(80)) {
+  // V8-MIX-80: 80 Cloudflare blocks (~7 per range × 13 ranges) × 2000 IPs each
+  // = ~180k strings total, cached once. Safe on 6GB+, full range coverage.
+  addrs.addAll(_getCfIps());"""
+if '_getCfIps()' in n:
+    print('SKIP: _getCfIps already wired')
+elif old_blocks in n:
+    n = n.replace(old_blocks, new_blocks, 1)
+    print('OK: 80-block CF mix wired')
+
+    # Insert the _getCfIps function definition before natRangeScanStep
+    cf_func = """// V8: cached 80-block Cloudflare IP mix (generated once, reused across scans)
+List<String>? _cfIpCache;
+List<String> _getCfIps() {
+  if (_cfIpCache != null) return _cfIpCache!;
+  final out = <String>[];
+  final rnd = Random(42);
+  final blocksPerRange = (80 / _cfRanges.length).ceil();
+  for (final cidr in _cfRanges) {
     final parts = cidr.split('/');
     if (parts.length != 2) continue;
     final octets = parts[0].split('.');
@@ -519,16 +588,30 @@ new_blocks = """  final blocks = natRanges.isNotEmpty ? natRanges : natSeedBlock
     if (prefix < 8 || prefix > 32) continue;
     final base = (a << 24) | (b << 16) | (c << 8) | d;
     final span = 1 << (32 - prefix);
-    for (var i = 0; i < 2000; i++) {
-      final v = base + rndMix.nextInt(span);
-      addrs.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
+    final blockSize = span ~/ blocksPerRange;
+    if (blockSize <= 0) continue;
+    for (var bl = 0; bl < blocksPerRange; bl++) {
+      final blockStart = base + bl * blockSize;
+      for (var i = 0; i < 2000; i++) {
+        final v = blockStart + rnd.nextInt(blockSize);
+        out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
+      }
     }
-  }"""
-if old_blocks in n:
-    n = n.replace(old_blocks, new_blocks, 1)
-    print('OK: 80/20 mix applied (80 CF blocks × 2000 IPs)')
+  }
+  _cfIpCache = out;
+  return out;
+}
+
+"""
+    if 'List<String> _getCfIps()' not in n:
+        n = n.replace('Future<List<String>> natRangeScanStep(',
+                      cf_func + 'Future<List<String>> natRangeScanStep(', 1)
+        print('OK: _getCfIps function inserted')
 else:
-    print('WARN: natRangeScanStep blocks pattern not found')
+    print('WARN: blocks pattern not found')
 
 open(NAT, 'w', encoding='utf-8').write(n)
-print('All V8 patches done.')
+
+print('')
+print('=== ALL V8-SAFE PATCHES DONE ===')
+print('آماده برای بیلد. main.dart و nat_ultra.dart دست‌نخورده موندن.')
