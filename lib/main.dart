@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'singbox_core.dart';
 import 'errjournal.dart';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart' show compute;
@@ -3127,7 +3128,7 @@ const bool useOwnVlessCfg = true;
 
 // PHASE1-SINGBOX: core سینگ‌باکس هنوز نصب نشده. سرورهای HY2/TUIC پارس و
 // شمرده می‌شن ولی تست نمی‌شن. تو فاز ۲ که libbox.aar اضافه شد، true کن.
-const bool kSingboxEnabled = false;
+const bool kSingboxEnabled = true;
 
 // Own VLESS+REALITY config builder: same shape as the config v2rayNG builds
 // from the same link (which is known to work). Returns null for any link that
@@ -5437,6 +5438,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _lastOwnStop = DateTime.now();
     _dropDeferred = false;
     try {
+      try { await stopSingbox(); } catch (_) {} // SINGBOX: هر دو هسته خاموش شوند
       if (kOwnVpnService) await ownVpnStop(); // KINGVPN
       await v2ray.stopV2Ray().timeout(const Duration(seconds: 8), onTimeout: () {});
     } catch (_swE) { _swl('_stopV2#1', _swE);}
@@ -6107,10 +6109,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final hotOff = await natHotNext(300, fetch: false); // هر دور ۳۰۰ تا؛ اگر پیدا نشد دور بعد ادامه می‌دهد
       // OFFLINE-SRC: صف قبلی (آنلاین) کنار گذاشته می‌شود؛ فقط منابع تازه تست می‌شوند
       // PHASE1-SINGBOX: HY2/TUIC تا core نصب نیست، وارد صف آفلاین نشن
-      pending = [
+      pending = _engineMix([
         for (final s in hotOff)
           if (!(!kSingboxEnabled && s.isSingbox) && seenOff.add(s.link)) s,
-      ];
+      ]);
       if (_folderMix && folderQ.isEmpty) folderQ = _folderPool();
       return;
     }
@@ -7418,13 +7420,61 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  // SINGBOX: هسته sing-box (Hysteria2 / TUIC) با TUN خودش؛ کانفیگ از همان لینک ساخته می‌شود
+  Future<bool> _startSingbox(Server s) async {
+    if (!wantVpn || abort) {
+      lastFail = 'اتصال توسط کاربر خواسته نشده بود';
+      return false;
+    }
+    final cfg = buildSingboxConfigFromLink(s.link);
+    if (cfg == null) {
+      lastFail = 'لینک sing-box قابل تبدیل به کانفیگ نیست';
+      return false;
+    }
+    try {
+      await _stopV2(); // هسته‌ی قبلی (هر کدام) خاموش شود تا تونل دوم نسازد
+      await Future.delayed(const Duration(milliseconds: 1500));
+      if (!await startSingbox(cfg)) {
+        lastFail = 'هسته‌ی sing-box بالا نیامد (مجوز VPN یا کانفیگ؟)';
+        await _stopV2();
+        return false;
+      }
+      lastState = 'CONNECTED'; // رویداد وضعیت از هسته‌ی sing-box نداریم؛ خودمان ثبت می‌کنیم
+      await Future.delayed(const Duration(milliseconds: 800));
+      final tunOk = await tunUp();
+      final ping = await pingAny(
+          total: const Duration(seconds: 6), direct: true, tries: 2, viaCore: false);
+      if (tunOk != true || ping == null || !wantVpn || abort) {
+        lastFail = ping == null
+            ? 'sing-box وصل شد ولی ترافیک نداد'
+            : 'تونل sing-box تأیید نشد';
+        lastStartNoTunnel = tunOk != true;
+        lastState = 'DISCONNECTED';
+        await _stopV2();
+        return false;
+      }
+      lastStartNoTunnel = false;
+      return true;
+    } catch (e, st) {
+      errJournalAdd(e, st: st);
+      lastFail = 'خطای sing-box: $e';
+      lastState = 'DISCONNECTED';
+      await _stopV2().catchError((_) {});
+      return false;
+    }
+  }
+
   Future<bool> _startImpl(Server s, {bool proxyOnly = false}) async {
     lastStartNoTunnel = false;
     lastFail = '';
     // PHASE1-SINGBOX: اگه سرور HY2/TUIC ولی core نصب نیست، واضح رد کن
-    if (s.isSingbox && !kSingboxEnabled) {
-      lastFail = 'sing-box core هنوز نصب نشده (فاز ۱)';
-      return false;
+    // SINGBOX: HY2/TUIC فقط در اتصال واقعی VPN؛ تست بی‌صدا ندارند
+    if (s.isSingbox) {
+      if (proxyOnly || proxyMode) {
+        lastFail = 'سرور sing-box فقط در اتصال واقعی VPN پذیرفته می‌شود';
+        return false;
+      }
+      return _startSingbox(s);
     }
     // GUARD: a real VPN tunnel is started only when the user asked for it
     // (wantVpn, set by connect / adopt). Background search or standby must
