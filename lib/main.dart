@@ -3128,7 +3128,7 @@ const bool useOwnVlessCfg = true;
 
 // PHASE1-SINGBOX: core سینگ‌باکس هنوز نصب نشده. سرورهای HY2/TUIC پارس و
 // شمرده می‌شن ولی تست نمی‌شن. تو فاز ۲ که libbox.aar اضافه شد، true کن.
-const bool kSingboxEnabled = true;
+const bool kSingboxEnabled = false; // sing-box حذف شد: فقط Xray
 
 // Own VLESS+REALITY config builder: same shape as the config v2rayNG builds
 // from the same link (which is known to work). Returns null for any link that
@@ -6071,7 +6071,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   // PHASE1-SINGBOX: قاطی‌کردن ۵۰/۵۰ بین Xray و Sing-box. ترتیب داخلی حفظ می‌شه
   // (بهترین‌ها از هر گروه اول میان)، پس هر دو گروه به نسبت مساوی شانس تست دارن.
-  List<Server> _engineMix(List<Server> items) {
+  List<Server> _engineMix(List<Server> items0) {
+    final items = kSingboxEnabled ? items0 : items0.where((s) => !s.isSingbox).toList();
     if (items.length < 2) return items;
     final sb = <Server>[];
     final xr = <Server>[];
