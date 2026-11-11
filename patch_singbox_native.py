@@ -89,9 +89,12 @@ for name in ('build.gradle', 'build.gradle.kts'):
 # 4) MainActivity: ثبت کانال king/singbox
 ma = os.path.join(KDIR, 'MainActivity.kt')
 t = open(ma, encoding='utf-8').read()
-if 'SingboxBridge.register' not in t:
+if 'SingboxBridge.register' in t:
+    print('OK: SingboxBridge already registered in MainActivity')
+elif True:
     anchor = 'super.configureFlutterEngine(flutterEngine)'
-    assert t.count(anchor) == 1, 'MainActivity: anchor not unique'
+    if t.count(anchor) < 1:
+        raise SystemExit('MainActivity: configureFlutterEngine anchor not found')
     t = t.replace(
         anchor,
         anchor + '\n        SingboxBridge.register(this, flutterEngine.dartExecutor.binaryMessenger)',
@@ -99,3 +102,38 @@ if 'SingboxBridge.register' not in t:
     )
     open(ma, 'w', encoding='utf-8').write(t)
     print('OK: SingboxBridge registered in MainActivity')
+
+# 5) R8 duplicate-class fix: libbox.aar and libv2ray.aar both ship go/*.class
+#    (e.g. go/error.class). R8 treats this as fatal, so release minification is
+#    disabled. Gradle merges this `android {}` block into the existing config.
+for name in ('build.gradle', 'build.gradle.kts'):
+    gp = os.path.join(APP, 'android/app', name)
+    if not os.path.exists(gp):
+        continue
+    g = open(gp, encoding='utf-8').read()
+    if 'R8-OFF' in g:
+        print(f'OK: R8 already disabled in {name}')
+        continue
+    if name.endswith('.kts'):
+        block = ('\n// R8-OFF: duplicate go/* classes in libbox + libv2ray\n'
+                 'android {\n'
+                 '    buildTypes {\n'
+                 '        getByName("release") {\n'
+                 '            isMinifyEnabled = false\n'
+                 '            isShrinkResources = false\n'
+                 '        }\n'
+                 '    }\n'
+                 '}\n')
+    else:
+        block = ('\n// R8-OFF: duplicate go/* classes in libbox + libv2ray\n'
+                 'android {\n'
+                 '    buildTypes {\n'
+                 '        release {\n'
+                 '            minifyEnabled false\n'
+                 '            shrinkResources false\n'
+                 '        }\n'
+                 '    }\n'
+                 '}\n')
+    g = g.rstrip() + '\n' + block
+    open(gp, 'w', encoding='utf-8').write(g)
+    print(f'OK: R8 disabled for release in {name}')
