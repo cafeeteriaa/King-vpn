@@ -38,9 +38,6 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        // SINGBOX: ثبت کانال king/singbox (پل هسته sing-box)
-        SingboxBridge.register(this, flutterEngine.dartExecutor.binaryMessenger)
-
         // ---- Channel 1: king/vpn (start / stop the own VPN service) ----
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "king/vpn")
             .setMethodCallHandler { call, result ->
