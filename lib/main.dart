@@ -13108,6 +13108,7 @@ UiHero(
                       : 'حالت شبکه خودکار خاموش شد؛ تنظیمات دستی می‌مانند');
                 }),
             UiTool(Icons.add_home_outlined, 'ساخت سرور شخصی', () => connectPersonalAsk()),
+            UiTool(Icons.cloud_upload_outlined, 'ساخت خودکار سرور (کلودفلر)', () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CloudflareAutoDeployPage()))),
             UiTool(Icons.shopping_cart_outlined, 'خرید سرور شخصی', () => serverShopOpen(context)),
             UiTool(Icons.campaign_outlined, 'کانال‌های تلگرامی', () => telegramChannelsOpen(context)),
             UiTool(Icons.cleaning_services_outlined, 'IP تمیز', () => cleanIpDialog()),

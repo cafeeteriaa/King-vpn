@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 // =============================================================================
 // D1/D2/D3 — share via Android's own share sheet (Bluetooth, SMS, Nearby Share,
@@ -369,6 +370,430 @@ class _KingExtrasPageState extends State<KingExtrasPage> {
               'گاهی اپ می‌گوید سرور خراب است، ولی شاید اینترنت خودت مشکل داشته باشد. با زدن دکمه «بررسی»، این بخش از ۵ نقطه مختلف دنیا (مثل آلمان و آمریکا) سرور را تست می‌کند. اگر نتیجه سبز بود (۵ از ۵)، یعنی سرور کاملاً سالم است و مشکل از گوشی یا اینترنت توست. اگر قرمز بود، یعنی سرور واقعاً فیلتر یا خاموش شده است.',
               style: TextStyle(fontSize: 13, color: Colors.grey, height: 1.5),
             ),
+            const SizedBox(height: 24),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// Cloudflare auto-deploy: builds a personal VLESS/WebSocket Worker in the user's
+// own Cloudflare account, using only an API Token the user pastes once.
+// =============================================================================
+
+const String _kCfCompatDate = '2024-09-23';
+
+// Worker source. Placeholder YOUR_UUID_HEX is replaced at deploy time.
+const String _kCfWorkerTemplate = r'''
+import { connect } from 'cloudflare:sockets';
+
+const UUID_HEX = 'YOUR_UUID_HEX';
+
+export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname === '/') return new Response('King VPN Auto Server', { status: 200 });
+    if (request.headers.get('Upgrade') !== 'websocket') return new Response('Expected websocket', { status: 426 });
+
+    const pair = new WebSocketPair();
+    const client = pair[0];
+    const server = pair[1];
+    server.accept();
+
+    let remote = null;
+    let writer = null;
+
+    server.addEventListener('close', () => {
+      try { if (remote) remote.close(); } catch (_) {}
+    });
+
+    server.addEventListener('message', async (event) => {
+      try {
+        const chunk = new Uint8Array(event.data);
+
+        if (remote) {
+          await writer.write(chunk);
+          return;
+        }
+
+        if (chunk.length < 24) { server.close(1003, 'Invalid data'); return; }
+
+        const version = chunk[0];
+        const uuid = Array.from(chunk.slice(1, 17)).map(b => b.toString(16).padStart(2, '0')).join('');
+        if (uuid !== UUID_HEX) { server.close(1008, 'Invalid UUID'); return; }
+
+        const optLen = chunk[17];
+        const cmd = chunk[18 + optLen];
+        if (cmd !== 1) { server.close(1003, 'Only TCP is supported'); return; }
+
+        const port = (chunk[19 + optLen] << 8) | chunk[20 + optLen];
+        const addrType = chunk[21 + optLen];
+        let p = 22 + optLen;
+        let host = '';
+
+        if (addrType === 1) {
+          host = Array.from(chunk.slice(p, p + 4)).join('.');
+          p += 4;
+        } else if (addrType === 2) {
+          const len = chunk[p];
+          host = new TextDecoder().decode(chunk.slice(p + 1, p + 1 + len));
+          p += 1 + len;
+        } else if (addrType === 3) {
+          const parts = [];
+          for (let i = 0; i < 8; i++) {
+            parts.push(((chunk[p + i * 2] << 8) | chunk[p + i * 2 + 1]).toString(16));
+          }
+          host = parts.join(':');
+          p += 16;
+        } else {
+          server.close(1003, 'Bad address type');
+          return;
+        }
+
+        remote = connect({ hostname: host, port: port });
+        writer = remote.writable.getWriter();
+
+        // VLESS response header, then the first payload that came with the request.
+        server.send(new Uint8Array([version, 0]));
+        const payload = chunk.slice(p);
+        if (payload.length) await writer.write(payload);
+
+        remote.readable.pipeTo(new WritableStream({
+          write(data) { server.send(data); },
+        })).catch(() => {}).finally(() => {
+          try { server.close(1000, 'done'); } catch (_) {}
+        });
+      } catch (e) {
+        try { server.close(1011, 'Connection failed'); } catch (_) {}
+      }
+    });
+
+    return new Response(null, { status: 101, webSocket: client });
+  },
+};
+''';
+
+class CfDeployResult {
+  final String link;
+  final String workerName;
+  const CfDeployResult(this.link, this.workerName);
+}
+
+String _cfErrText(http.Response r) {
+  try {
+    final j = jsonDecode(r.body);
+    final errs = j is Map ? j['errors'] : null;
+    if (errs is List && errs.isNotEmpty) {
+      final msgs = errs
+          .map((e) => e is Map ? (e['message'] ?? e.toString()) : e.toString())
+          .join(' | ');
+      return 'HTTP ${r.statusCode}: $msgs';
+    }
+  } catch (_) {}
+  return 'HTTP ${r.statusCode}';
+}
+
+/// Creates a Worker in the user's Cloudflare account and returns a vless:// link.
+/// Throws an Exception with a readable message on failure.
+Future<CfDeployResult> cloudflareAutoDeploy(String token) async {
+  final auth = {'Authorization': 'Bearer $token'};
+  const timeout = Duration(seconds: 30);
+
+  // Step 1: account id
+  final accRes = await http
+      .get(Uri.parse('https://api.cloudflare.com/client/v4/accounts'), headers: auth)
+      .timeout(timeout);
+  if (accRes.statusCode != 200) {
+    throw Exception('گرفتن Account ID ناموفق بود (${_cfErrText(accRes)}). توکن و دسترسی Account Settings (Read) را بررسی کن.');
+  }
+  final accJson = jsonDecode(accRes.body) as Map;
+  final accounts = (accJson['result'] as List?) ?? const [];
+  if (accounts.isEmpty) {
+    throw Exception('هیچ حسابی برای این توکن پیدا نشد.');
+  }
+  final accountId = (accounts.first as Map)['id'] as String;
+
+  // Step 2: upload the Worker as an ES module (multipart is required for `import`)
+  final uuid = kingSecureUuidV4().replaceAll('-', '');
+  final workerName = 'king-vpn-${Random.secure().nextInt(9999)}';
+  final script = _kCfWorkerTemplate.replaceAll('YOUR_UUID_HEX', uuid);
+  final boundary = 'kingcf${DateTime.now().microsecondsSinceEpoch}';
+  final metadata = jsonEncode({
+    'main_module': 'worker.js',
+    'compatibility_date': _kCfCompatDate,
+    'bindings': [],
+  });
+  final body = '--$boundary\r\n'
+      'Content-Disposition: form-data; name="metadata"\r\n'
+      'Content-Type: application/json\r\n\r\n'
+      '$metadata\r\n'
+      '--$boundary\r\n'
+      'Content-Disposition: form-data; name="worker.js"; filename="worker.js"\r\n'
+      'Content-Type: application/javascript+module\r\n\r\n'
+      '$script\r\n'
+      '--$boundary--\r\n';
+
+  final scriptUrl =
+      'https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/$workerName';
+  final putRes = await http
+      .put(
+        Uri.parse(scriptUrl),
+        headers: {...auth, 'Content-Type': 'multipart/form-data; boundary=$boundary'},
+        body: body,
+      )
+      .timeout(timeout);
+  if (putRes.statusCode != 200) {
+    throw Exception('ساخت سرور ناموفق بود (${_cfErrText(putRes)}).');
+  }
+
+  // Step 3: enable the workers.dev route
+  final subRes = await http
+      .post(
+        Uri.parse('$scriptUrl/subdomain'),
+        headers: {...auth, 'Content-Type': 'application/json'},
+        body: jsonEncode({'enabled': true}),
+      )
+      .timeout(timeout);
+  if (subRes.statusCode != 200) {
+    throw Exception('فعال‌سازی دامنه workers.dev ناموفق بود (${_cfErrText(subRes)}).');
+  }
+
+  // Step 4: build the link
+  final host = '$workerName.workers.dev';
+  final link = 'vless://$uuid@$host:443?encryption=none&security=tls'
+      '&sni=$host&fp=chrome&type=ws&host=$host&path=%2F%3Fed%3D2048#$workerName';
+  return CfDeployResult(link, workerName);
+}
+
+class CloudflareAutoDeployPage extends StatefulWidget {
+  const CloudflareAutoDeployPage({super.key});
+
+  @override
+  State<CloudflareAutoDeployPage> createState() => _CloudflareAutoDeployPageState();
+}
+
+class _CloudflareAutoDeployPageState extends State<CloudflareAutoDeployPage> {
+  static const _gold = Color(0xFFFFC107);
+  static const _bg = Color(0xFF0E0E12);
+  static const _card = Color(0xFF1A1A22);
+
+  final _tokenCtrl = TextEditingController();
+  bool _deploying = false;
+  bool _saved = false;
+  String? _link;
+  String? _error;
+
+  @override
+  void dispose() {
+    _tokenCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _deploy() async {
+    final token = _tokenCtrl.text.trim();
+    if (token.isEmpty) {
+      setState(() => _error = 'اول API Token را وارد کن.');
+      return;
+    }
+    setState(() {
+      _deploying = true;
+      _error = null;
+      _link = null;
+      _saved = false;
+    });
+    try {
+      final r = await cloudflareAutoDeploy(token);
+      if (!mounted) return;
+      setState(() => _link = r.link);
+    } on TimeoutException {
+      if (mounted) setState(() => _error = 'اتصال به Cloudflare زمان‌بر شد. دوباره تلاش کن.');
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _deploying = false);
+    }
+  }
+
+  Future<void> _copyLink() async {
+    final l = _link;
+    if (l == null) return;
+    await Clipboard.setData(ClipboardData(text: l));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('لینک کپی شد')));
+  }
+
+  Future<void> _saveToConfigs() async {
+    final l = _link;
+    if (l == null) return;
+    final p = await SharedPreferences.getInstance();
+    await p.setString('personal_link', l);
+    await p.remove('personal_exp');
+    if (!mounted) return;
+    setState(() => _saved = true);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('در «کانفیگ‌های من» ذخیره شد. برای نمایش، برنامه را یک بار ببند و باز کن.')));
+  }
+
+  Widget _step(int n, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 26,
+            height: 26,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: _gold),
+            ),
+            child: Text('$n', style: const TextStyle(color: _gold, fontWeight: FontWeight.bold, fontSize: 12)),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(text, style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.6)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _bg,
+      appBar: AppBar(
+        backgroundColor: _bg,
+        foregroundColor: _gold,
+        title: const Text('🚀 ساخت خودکار سرور کلودفلر (رایگان)'),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(color: _card, borderRadius: BorderRadius.circular(16)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('راهنمای گرفتن API Token',
+                      style: TextStyle(color: _gold, fontWeight: FontWeight.bold, fontSize: 15)),
+                  const SizedBox(height: 12),
+                  _step(1, 'به سایت dash.cloudflare.com بروید.'),
+                  _step(2, 'روی پروفایل خود کلیک کنید و My Profile را بزنید.'),
+                  _step(3, 'از منوی سمت چپ API Tokens را انتخاب کنید.'),
+                  _step(4, 'روی Create Token بزنید و پایین صفحه قالب Custom Token را انتخاب کنید.'),
+                  _step(5, 'در بخش Permissions، گزینه‌های Account Settings (Read) و Workers Scripts (Edit) را انتخاب کنید.'),
+                  _step(6, 'روی Continue و سپس Create Token بزنید. کد ساخته شده را کپی کنید.'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _tokenCtrl,
+              obscureText: true,
+              enabled: !_deploying,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                labelText: 'API Token',
+                labelStyle: const TextStyle(color: _gold),
+                filled: true,
+                fillColor: _card,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Colors.white24),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: _gold),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _deploying ? null : _deploy,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _gold,
+                foregroundColor: Colors.black,
+                disabledBackgroundColor: _gold.withOpacity(0.4),
+                minimumSize: const Size.fromHeight(54),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+              child: _deploying
+                  ? const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.black),
+                        ),
+                        SizedBox(width: 12),
+                        Text('در حال ساخت سرور...', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ],
+                    )
+                  : const Text('همین حالا سرور من را بساز',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 16),
+              Text(_error!, style: const TextStyle(color: Colors.redAccent, height: 1.6)),
+            ],
+            if (_link != null) ...[
+              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: _card,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: _gold.withOpacity(0.5)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('سرور شما ساخته شد ✅',
+                        style: TextStyle(color: _gold, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 10),
+                    SelectableText(
+                      _link!,
+                      style: const TextStyle(color: Colors.white, fontSize: 12, height: 1.5),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _copyLink,
+                            icon: const Icon(Icons.copy, size: 18),
+                            label: const Text('کپی لینک'),
+                            style: OutlinedButton.styleFrom(foregroundColor: _gold),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: _saved ? null : _saveToConfigs,
+                            icon: Icon(_saved ? Icons.check : Icons.bookmark_add_outlined, size: 18),
+                            label: Text(_saved ? 'ذخیره شد' : 'ذخیره در کانفیگ‌های من'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _gold,
+                              foregroundColor: Colors.black,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 24),
           ],
         ),
