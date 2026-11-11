@@ -9,7 +9,6 @@ LIB = os.path.join(APP, 'lib')
 # Helpers — hard-fail on any miss
 # =====================================================================
 def patch_hard(file_key, old, new, label):
-    """Patch in a specific file. Hard-fail if pattern not found."""
     text = files[file_key]
     if new in text:
         print('  SKIP (already applied): ' + label)
@@ -31,7 +30,6 @@ def patch_hard(file_key, old, new, label):
 
 
 def patch_find(old, new, label):
-    """Patch wherever the pattern is found across all files."""
     for fn, text in files.items():
         if new in text:
             print('  SKIP (already in %s): %s' % (fn, label))
@@ -63,7 +61,6 @@ def patch_find(old, new, label):
 
 
 def insert_before(file_key, anchor, content, label):
-    """Insert content before an anchor."""
     text = files[file_key]
     if content.strip() in text:
         print('  SKIP (already inserted): ' + label)
@@ -169,7 +166,7 @@ for fn in os.listdir(LIB):
 print('Loaded %d dart files' % len(files))
 
 # =====================================================================
-# ---- 4) HOT PATH (nat_ultra.dart) ----
+# ---- 4) HOT PATH ----
 # =====================================================================
 print('\n[4] hotPath / hotEnsure')
 patch_hard('nat_ultra',
@@ -256,7 +253,7 @@ patch_hard('main',
 'main hotAutoStart')
 
 # =====================================================================
-# ---- 6) Relay chain (FIXED indent: 6 spaces, not 10) ----
+# ---- 6) Relay chain (6-space indent) ----
 # =====================================================================
 print('\n[6] Relay chain')
 patch_hard('main',
@@ -291,7 +288,7 @@ patch_hard('main',
       }""", 'relay chain')
 
 # =====================================================================
-# ---- 7) npvParse + relayServerUrl load/save ----
+# ---- 7) relayServerUrl load/save ----
 # =====================================================================
 print('\n[7] relayServerUrl load/save')
 patch_hard('main',
@@ -305,7 +302,7 @@ patch_hard('main',
 'save relay_url')
 
 # =====================================================================
-# ---- 8) UiTools — add relay/range buttons ----
+# ---- 8) UiTools buttons ----
 # =====================================================================
 print('\n[8] UiTools buttons')
 patch_hard('main',
@@ -314,7 +311,7 @@ patch_hard('main',
 'UiTools relay/range buttons')
 
 # =====================================================================
-# ---- 9) DIALER proxy fix ----
+# ---- 9) DIALER proxy ----
 # =====================================================================
 print('\n[9] DIALER proxy')
 patch_hard('main',
@@ -339,25 +336,25 @@ patch_hard('main',
       }""", 'dialerProxy + proxySettings')
 
 # =====================================================================
-# ---- 10) ★ kNatMergeCache true ----
+# ---- 10) kNatMergeCache ----
 # =====================================================================
-print('\n[10] ★ kNatMergeCache')
+print('\n[10] kNatMergeCache')
 patch_hard('main',
 "const bool kNatMergeCache = false;",
 "const bool kNatMergeCache = true;",
 'kNatMergeCache = true')
 
 # =====================================================================
-# ---- 11) ★ kFolderInjectGood true ----
+# ---- 11) kFolderInjectGood ----
 # =====================================================================
-print('\n[11] ★ kFolderInjectGood')
+print('\n[11] kFolderInjectGood')
 patch_hard('main',
 "const bool kFolderInjectGood = false;",
 "const bool kFolderInjectGood = true;",
 'kFolderInjectGood = true')
 
 # =====================================================================
-# ---- 12) Skip requestPermission if granted ----
+# ---- 12) requestPermission guard ----
 # =====================================================================
 print('\n[12] requestPermission guard')
 patch_hard('main',
@@ -372,7 +369,7 @@ patch_hard('main',
 'requestPermission skip when granted')
 
 # =====================================================================
-# ---- 13) V8-FRESH _loadCache ----
+# ---- 13) V8-FRESH ----
 # =====================================================================
 print('\n[13] V8-FRESH')
 patch_hard('main',
@@ -427,13 +424,10 @@ patch_hard('main',
 'V8-FRESH defaults')
 
 # =====================================================================
-# ---- 14) resetAllToDefaults sets flags ----
+# ---- 14) ★ ROBUST: resetAllToDefaults (regex anchor) ----
 # =====================================================================
-print('\n[14] resetAllToDefaults flags')
-patch_hard('main',
-"""  void resetAllToDefaults() {
-    resetNumbers();""",
-"""  void resetAllToDefaults() {
+print('\n[14] resetAllToDefaults flags (ROBUST)')
+MIGRATION_FLAGS_CODE = '''
     SharedPreferences.getInstance().then((p) async {
       for (final k in const [
         'speedoff27', 'lowdata_v1', 'restore_speed_v1', 'best_defaults_v4',
@@ -444,12 +438,54 @@ patch_hard('main',
       ]) {
         await p.setBool(k, true);
       }
-    });
-    resetNumbers();""",
-'resetAllToDefaults set flags')
+    });'''
+
+# Check if already applied
+already = False
+for fn, text in files.items():
+    if 'resetAllToDefaults()' in text:
+        idx = text.find('resetAllToDefaults()')
+        chunk = text[idx:idx+800]
+        if 'SharedPreferences.getInstance().then' in chunk:
+            print('  SKIP: resetAllToDefaults already patched')
+            already = True
+            break
+
+if not already:
+    # Find the function definition using regex (flexible whitespace)
+    pattern = re.compile(r'void\s+resetAllToDefaults\s*\(\s*\)\s*\{')
+    found = []
+    for fn, text in files.items():
+        for m in pattern.finditer(text):
+            found.append((fn, m.end(), text))
+            break  # only first in each file
+    
+    if not found:
+        # Fallback: try without "void" (maybe different return type)
+        pattern2 = re.compile(r'resetAllToDefaults\s*\(\s*\)\s*\{')
+        for fn, text in files.items():
+            m = pattern2.search(text)
+            if m:
+                found.append((fn, m.end(), text))
+                break
+    
+    if not found:
+        raise SystemExit(
+            '\n\nHARD FAIL: [resetAllToDefaults set flags]\n'
+            'Could not find "void resetAllToDefaults() {" in any .dart file.\n'
+            'Checked %d files.' % len(files))
+    
+    if len(found) > 1:
+        raise SystemExit(
+            '\n\nHARD FAIL: [resetAllToDefaults set flags]\n'
+            'Found in MULTIPLE files: %s\n' % [f[0] for f in found])
+    
+    fn, insert_pos, _ = found[0]
+    files[fn] = files[fn][:insert_pos] + MIGRATION_FLAGS_CODE + files[fn][insert_pos:]
+    print('  OK (%s): migration flags inserted after function brace' % fn)
 
 # =====================================================================
-# ---- 15) Remove pre-social-check ----
+# ---- 15) pre-social-check removal ----
 # =====================================================================
 print('\n[15] pre-social-check removal')
 patch_hard('main',
@@ -501,7 +537,7 @@ patch_hard('main',
 'abort guard before final _onConnected')
 
 # =====================================================================
-# ---- 18) kStandbyPause / kStandbyResume / kFgSearchTarget = 3 ----
+# ---- 18) target 3 servers ----
 # =====================================================================
 print('\n[18] target 3 servers')
 patch_hard('main',
@@ -515,9 +551,9 @@ patch_hard('main',
 "const int kFgSearchTarget = 3;", 'kFgSearchTarget 3')
 
 # =====================================================================
-# ---- 19) ★ _doConnect national pre-load ----
+# ---- 19) _doConnect national pre-load ----
 # =====================================================================
-print('\n[19] ★ _doConnect national pre-load')
+print('\n[19] _doConnect national pre-load')
 patch_hard('main',
 """      if (nationalMode || indestructibleMode) {
         _resInject();
@@ -549,9 +585,9 @@ patch_hard('main',
 '_doConnect national pre-load')
 
 # =====================================================================
-# ---- 20) ★ _natIpHunt pool bug ----
+# ---- 20) _natIpHunt pool bug ----
 # =====================================================================
-print('\n[20] ★ _natIpHunt pool bug')
+print('\n[20] _natIpHunt pool bug')
 patch_find(
 """    final pool = <Server>[];
     pool.addAll(good);
@@ -566,9 +602,9 @@ patch_find(
 '_natIpHunt pool fix')
 
 # =====================================================================
-# ---- 21) ★ _natRangeAdd safe ----
+# ---- 21) _natRangeAdd safe ----
 # =====================================================================
-print('\n[21] ★ _natRangeAdd safe')
+print('\n[21] _natRangeAdd safe')
 patch_find(
 """Future<void> _natRangeAdd(List<String> items, {bool count = true}) async {
   if (items.isEmpty) return;
@@ -632,9 +668,9 @@ patch_find(
 '_natRangeAdd safe+template+good')
 
 # =====================================================================
-# ---- 22) ★ _natEscalate shorter scan + skip ----
+# ---- 22) _natEscalate shorter scan ----
 # =====================================================================
-print('\n[22] ★ _natEscalate shorter scan')
+print('\n[22] _natEscalate shorter scan')
 patch_hard('main',
 """      if (nationalMode && !abort && !ipWaiting) {
         final ips = await natRangeScanStep(
@@ -661,7 +697,7 @@ patch_hard('main',
 '_natEscalate shorter scan + skip')
 
 # =====================================================================
-# ---- 23) sing-box URLs removed ----
+# ---- 23) sing-box URLs ----
 # =====================================================================
 print('\n[23] sing-box URLs')
 patch_hard('main',
@@ -687,7 +723,7 @@ patch_hard('main',
 'sing-box URLs')
 
 # =====================================================================
-# ---- 24) stopSingbox call removed ----
+# ---- 24) stopSingbox call ----
 # =====================================================================
 print('\n[24] stopSingbox call')
 patch_hard('main',
@@ -741,7 +777,7 @@ int natGrow(int n) {
 'natGrow real')
 
 # =====================================================================
-# ---- 27) natGrow wired in _natOrder ----
+# ---- 27) natGrow wired ----
 # =====================================================================
 print('\n[27] natGrow wired')
 patch_hard('nat_ultra',
@@ -826,7 +862,7 @@ List<String> _getCfIps() {
 """, '_getCfIps function inserted')
 
 # =====================================================================
-# ---- 29) natRangeScanStep deadline check ----
+# ---- 29) natRangeScanStep deadline ----
 # =====================================================================
 print('\n[29] natRangeScanStep deadline')
 patch_hard('nat_ultra',
@@ -862,16 +898,7 @@ for fn, content in files.items():
 print('\n' + '='*60)
 print('=== ALL V8 PATCHES APPLIED ===')
 print('='*60)
+print('✅ All 30 patches processed')
 print('✅ DPI / Fragment / _natFrag — UNTOUCHED')
 print('✅ _natLadder — UNTOUCHED')
-print('✅ 80-block CF mix')
-print('✅ natGrow real + wired')
-print('✅ kNatMergeCache / kFolderInjectGood → true')
-print('✅ _natIpHunt pool fix')
-print('✅ _natRangeAdd safe + template + good')
-print('✅ _doConnect national pre-load')
-print('✅ 3-server target')
-print('✅ sing-box fully removed')
-print('✅ Fresh install = reset defaults')
-print('')
 print('=== BUILD SHOULD PROCEED ===')
