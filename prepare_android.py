@@ -72,19 +72,6 @@ for name in ('build.gradle', 'build.gradle.kts'):
         open(gp, 'w', encoding='utf-8').write(g)
 
 # ---- 2b) ABI: drop x86/x86_64 universal slices -------------------------------
-# A plain `flutter build apk` (no --target-platform) bundles all four ABIs by
-# default, which is most of the size handoff section 3 asked to cut. The CI
-# release step below already passes --target-platform android-arm64, so this
-# mainly matters for the debug build / local `flutter build apk` runs the
-# handoff's "Stage 0" asks for, and for anyone who later builds a universal
-# release. (It also means an x86 emulator can no longer install the app —
-# expected, called out in the handoff's own section 3.)
-# No `patch_once` here: build.gradle(.kts) is generated fresh by `flutter
-# create` above and its exact text (Groovy vs Kotlin DSL, line wrapping) isn't
-# something this repo controls, so an exact-string anchor would be brittle.
-# Anchoring on `defaultConfig {`, which every Flutter-generated gradle file
-# has, is the robust choice; this still fails safely (prints a warning,
-# doesn't stop the build) if that ever stops being true.
 for name in ('build.gradle', 'build.gradle.kts'):
     gp = os.path.join(APP, 'android/app', name)
     if not os.path.exists(gp):
@@ -250,7 +237,7 @@ print('Applying Relay Server patches...')
 
 mn = open(MAIN, encoding='utf-8').read()
 
-# 1. Patch _startImpl to prioritize the user-defined relay
+# 4a) Patch _startImpl to prioritize the user-defined relay
 old_chain = """          String? chainCfg;
           if (nationalMode && !proxyOnly) {
             final relays = _usable().where((x) => !identical(x, s)).take(1).toList();
@@ -286,7 +273,7 @@ if old_chain in mn:
 else:
     print('WARN: old_chain not found in main.dart (maybe already patched)')
 
-# 2. Patch _loadCache
+# 4b) Patch _loadCache
 old_load = "npvParse = j['npv'] as bool? ?? npvParse;"
 new_load = "npvParse = j['npv'] as bool? ?? npvParse;\n          relayServerUrl = j['relay_url'] as String? ?? '';"
 if old_load in mn:
@@ -295,7 +282,7 @@ if old_load in mn:
 else:
     print('WARN: old_load not found (load)')
 
-# 3. Patch _saveSettings
+# 4c) Patch _saveSettings
 old_save = "'npv': npvParse,"
 new_save = "'npv': npvParse,\n            'relay_url': relayServerUrl,"
 if old_save in mn:
@@ -303,5 +290,74 @@ if old_save in mn:
     print('OK: Relay URL save patched')
 else:
     print('WARN: old_save not found (save)')
+
+# 4d) Add Relay Server button to the middle of the main page (UiTools)
+old_tool = "UiTool(Icons.add_home_outlined, 'ساخت سرور شخصی', () => connectPersonalAsk()),"
+new_tool = "UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),\n            UiTool(Icons.add_home_outlined, 'ساخت سرور شخصی', () => connectPersonalAsk()),"
+if old_tool in mn:
+    mn = mn.replace(old_tool, new_tool, 1)
+    print('OK: Relay Server button added to the main page UI')
+else:
+    print('WARN: old_tool not found (UI button)')
+
+
+# ---- 5) FIX IP RANGES (NAT-NOIP BUG) ----
+# Fallback to Cloudflare ranges if the user hasn't provided any
+old_blocks = "final blocks = natRanges.isNotEmpty ? natRanges : natSeedBlocks(hosts);"
+new_blocks = "final blocks = natRanges.isNotEmpty ? natRanges : (natSeedBlocks(hosts).isNotEmpty ? natSeedBlocks(hosts) : _cfRanges.take(5).toList());"
+if old_blocks in n:
+    n = n.replace(old_blocks, new_blocks, 1)
+    open(NAT, 'w', encoding='utf-8').write(n)
+    print('OK: NAT-NOIP patched - default IP ranges added')
+else:
+    print('WARN: NAT-NOIP patch not applied (already patched?)')
+
+# ---- 6) FIX DIALER-PROXY BUG ----
+# Ensure proxySettings is also removed if outbound is missing
+old_proxy = """      if (so is Map) {
+          final dp = so['dialerProxy']?.toString();
+          if (dp != null && !tags.contains(dp)) {
+            so.remove('dialerProxy');
+            changed = true;
+          }
+        }"""
+new_proxy = """      if (so is Map) {
+          final dp = so['dialerProxy']?.toString();
+          if (dp != null && !tags.contains(dp)) {
+            so.remove('dialerProxy');
+            changed = true;
+          }
+          final ps = so['proxySettings']?.toString();
+          if (ps != null && !tags.contains(ps)) {
+            so.remove('proxySettings');
+            changed = true;
+          }
+        }"""
+if old_proxy in mn:
+    mn = mn.replace(old_proxy, new_proxy, 1)
+    print('OK: dialerProxy/proxySettings bug patched')
+else:
+    print('WARN: old_proxy not found (already patched?)')
+
+# ---- 7) FIX VLESS WITHOUT TLS BUG ----
+# Xray core prohibits any VLESS without TLS/reality on public networks.
+old_vless = """  if (security != 'tls' && security != 'reality') {
+    final ipv4 = RegExp(r'^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$').hasMatch(uri.host);
+    if (ipv4 && !_isPrivateIpv4(uri.host)) {
+      return 'VLESS بدون TLS روی IP عمومی';
+    }
+  }"""
+new_vless = """  if (security != 'tls' && security != 'reality') {
+    final ipv4 = RegExp(r'^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$').hasMatch(uri.host);
+    final isPrivate = ipv4 && _isPrivateIpv4(uri.host);
+    if (!isPrivate) {
+      return 'VLESS بدون TLS (هسته Xray این را ممنوع کرده)';
+    }
+  }"""
+if old_vless in mn:
+    mn = mn.replace(old_vless, new_vless, 1)
+    print('OK: VLESS without TLS bug patched')
+else:
+    print('WARN: old_vless not found (already patched?)')
 
 open(MAIN, 'w', encoding='utf-8').write(mn)
