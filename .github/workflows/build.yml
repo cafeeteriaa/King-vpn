@@ -54,10 +54,17 @@ jobs:
           go version
 
           echo "Removing with_naive_outbound tag (cronet link fails with NDK 27; not needed)..."
-          grep -rl 'with_naive_outbound' cmd/ --include='*.go' | xargs -r sed -i -e '/^\/\/go:build/!s/,with_naive_outbound//g' -e '/^\/\/go:build/!s/with_naive_outbound,//g'
-          if grep -rn 'with_naive_outbound' cmd/ --include='*.go' | grep -v '//go:build' ; then
-            echo "WARN: tag still referenced in cmd/ (see above)"
-          fi
+          echo "Matches before:"
+          grep -rn 'with_naive_outbound' cmd/ --include='*.go' || true
+          grep -rl 'with_naive_outbound' cmd/ --include='*.go' | xargs -r sed -i \
+            -e '/^\/\/go:build/!{s/"with_naive_outbound",[[:space:]]*//g' \
+            -e '/^\/\/go:build/!s/,[[:space:]]*"with_naive_outbound"//g' \
+            -e '/^\/\/go:build/!s/,with_naive_outbound//g' \
+            -e '/^\/\/go:build/!s/with_naive_outbound,//g' \
+            -e '/^\/\/go:build/!s/"with_naive_outbound"//g' \
+            -e '/^\/\/go:build/!s/with_naive_outbound//g}'
+          echo "Matches after (should be only //go:build lines, if any):"
+          grep -rn 'with_naive_outbound' cmd/ --include='*.go' || true
 
           echo "Installing SagerNet gomobile (official sing-box method)..."
           make lib_install
