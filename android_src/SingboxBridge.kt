@@ -13,12 +13,16 @@ import android.os.Looper
 import android.util.Log
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
-import io.nekohasekai.libbox.BoxService
+import io.nekohasekai.libbox.CommandServer
+import io.nekohasekai.libbox.CommandServerHandler
 import io.nekohasekai.libbox.Libbox
+import io.nekohasekai.libbox.OverrideOptions
 import io.nekohasekai.libbox.PlatformInterface
+import io.nekohasekai.libbox.SetupOptions
+import io.nekohasekai.libbox.SystemProxyStatus
 import io.nekohasekai.libbox.TunOptions
 
-// SINGBOX: پل Flutter ↔ هسته sing-box (libbox). کانال: king/singbox
+// SINGBOX: پل Flutter ↔ هسته sing-box (libbox 1.14). کانال: king/singbox
 // متدها: start(config) -> bool | stop() | alive() -> bool
 object SingboxBridge {
     private const val TAG = "SingboxBridge"
@@ -71,11 +75,12 @@ class SingboxVpnService : VpnService() {
         private const val STATE_FAILED = 3
 
         @Volatile private var service: SingboxVpnService? = null
-        @Volatile private var box: BoxService? = null
+        @Volatile private var server: CommandServer? = null
         @Volatile private var state = STATE_IDLE
+        @Volatile private var libboxReady = false
         @Volatile var lastError = ""
 
-        fun isAlive(): Boolean = state == STATE_RUNNING && box != null
+        fun isAlive(): Boolean = state == STATE_RUNNING && server != null
 
         fun start(ctx: Context, config: String): Boolean {
             if (VpnService.prepare(ctx) != null) {
@@ -96,14 +101,33 @@ class SingboxVpnService : VpnService() {
         }
 
         fun stop() {
+            val s = server
+            server = null
             try {
-                box?.close()
+                s?.closeService()
             } catch (t: Throwable) {
-                Log.w(TAG, "box close", t)
+                Log.w(TAG, "closeService", t)
             }
-            box = null
+            try {
+                s?.close()
+            } catch (t: Throwable) {
+                Log.w(TAG, "close", t)
+            }
             state = STATE_IDLE
             service?.stopSelf()
+        }
+
+        // Libbox.setup فقط یک بار لازم است و مسیرهای داده‌ی برنامه را تنظیم می‌کند
+        @Synchronized
+        fun ensureLibboxSetup(ctx: Context) {
+            if (libboxReady) return
+            val o = SetupOptions()
+            o.basePath = ctx.filesDir.absolutePath
+            o.workingPath = ctx.filesDir.absolutePath
+            o.tempPath = ctx.cacheDir.absolutePath
+            o.debug = false
+            Libbox.setup(o)
+            libboxReady = true
         }
     }
 
@@ -117,14 +141,11 @@ class SingboxVpnService : VpnService() {
         val cfg = intent?.getStringExtra(EXTRA_CONFIG) ?: ""
         Thread {
             try {
-                try {
-                    Libbox.setup(filesDir.absolutePath, cacheDir.absolutePath, cacheDir.absolutePath, false)
-                } catch (t: Throwable) {
-                    Log.w(TAG, "libbox setup", t)
-                }
-                val svc = Libbox.newService(cfg, makeSingboxPlatform(this))
-                svc.start()
-                box = svc
+                ensureLibboxSetup(this)
+                val srv = Libbox.newCommandServer(makeCommandHandler(), makeSingboxPlatform(this))
+                srv.start()
+                srv.startOrReloadService(cfg, OverrideOptions())
+                server = srv
                 state = STATE_RUNNING
             } catch (t: Throwable) {
                 Log.e(TAG, "sing-box start failed", t)
@@ -144,16 +165,20 @@ class SingboxVpnService : VpnService() {
     override fun onDestroy() {
         if (service === this) service = null
         try {
-            box?.close()
+            server?.closeService()
         } catch (_: Throwable) {
         }
-        box = null
+        try {
+            server?.close()
+        } catch (_: Throwable) {
+        }
+        server = null
         super.onDestroy()
     }
 
     fun buildTun(options: TunOptions): Int {
         if (VpnService.prepare(this) != null) throw IllegalStateException("VPN permission missing")
-        val b = VpnService.Builder()
+        val b = Builder()
         b.setSession("King VPN (sing-box)")
         b.setMtu(options.getMTU())
 
@@ -232,6 +257,30 @@ class SingboxVpnService : VpnService() {
             startForeground(NOTIF_ID, notif)
         }
     }
+}
+
+// پیاده‌سازی CommandServerHandler (۷ متد الزامی libbox 1.14)
+private fun makeCommandHandler(): CommandServerHandler = object : CommandServerHandler {
+    override fun serviceStop() {
+        SingboxVpnService.stop()
+    }
+
+    override fun serviceReload() {
+    }
+
+    override fun getSystemProxyStatus(): SystemProxyStatus? = null
+
+    override fun setSystemProxyEnabled(enabled: Boolean) {
+    }
+
+    override fun triggerNativeCrash() {
+    }
+
+    override fun writeDebugMessage(message: String) {
+        Log.d("SingboxCore", message)
+    }
+
+    override fun connectSSHAgent(): Int = -1
 }
 
 // پیاده‌سازی PlatformInterface برای libbox.
