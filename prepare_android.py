@@ -230,20 +230,26 @@ else:
     new_tool = "UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),\n            UiTool(Icons.router, 'بازه‌های IP نت ملی', () => _natRangesDialog(context)),\n            UiTool(Icons.add_home_outlined, 'ساخت سرور شخصی', () => connectPersonalAsk()),"
     if old_tool in mn: mn = mn.replace(old_tool, new_tool, 1)
 
-# ---- 5) AUTO IP MIX (50% Cloudflare + 50% User/Auto) ----
-old_blocks = "final blocks = natRanges.isNotEmpty ? natRanges : (natSeedBlocks(hosts).isNotEmpty ? natSeedBlocks(hosts) : _cfRanges.take(5).toList());"
-new_blocks = """final autoBlocks = natSeedBlocks(hosts);
-  final mixBlocks = <String>{};
-  if (natRanges.isNotEmpty) {
-    mixBlocks.addAll(natRanges);
-  } else {
-    mixBlocks.addAll(autoBlocks);
+# ---- 5) 80/20 IP MIX (80% Cloudflare + 20% User/Auto) ----
+old_blocks = """final blocks = natRanges.isNotEmpty ? natRanges : (natSeedBlocks(hosts).isNotEmpty ? natSeedBlocks(hosts) : _cfRanges.take(5).toList());"""
+new_blocks = """final otherSource = (natRanges.isNotEmpty ? natRanges : natSeedBlocks(hosts)).toSet().toList()..shuffle();
+  final cfSource = _cfRanges.toList()..shuffle();
+  
+  // V7 80/20 MIX: 80% Cloudflare (works in National) + 20% Other IPs (Relay, User, Arvan, etc.)
+  final blocks = <String>[];
+  for (var i = 0; i < 80; i++) {
+    blocks.add(cfSource[i % cfSource.length]);
   }
-  mixBlocks.addAll(_cfRanges);
-  final blocks = mixBlocks.toList()..shuffle();"""
+  if (otherSource.isNotEmpty) {
+    for (var i = 0; i < 20; i++) {
+      blocks.add(otherSource[i % otherSource.length]);
+    }
+  }
+  blocks.shuffle();"""
 if old_blocks in n:
     n = n.replace(old_blocks, new_blocks, 1)
     open(NAT, 'w', encoding='utf-8').write(n)
+    print('OK: 80/20 Mix (80% CF + 20% Others) enabled in nat_ultra.dart')
 
 # ---- 6) FIX DIALER-PROXY & VLESS ----
 old_proxy = """      if (so is Map) {
@@ -327,8 +333,6 @@ new_gen = """  for (final g in rest) {
 
 if old_gen in n:
     n = n.replace(old_gen, new_gen, 1)
-else:
-    print('WARN: _natGenerate target not found (already patched?)')
 
 # 7b) Replace the disabled natGrow with an infinite generator using ALL building blocks
 old_grow = "int natGrow(int n) => 0;"
@@ -384,8 +388,6 @@ int natGrow(int n) {
 """
 if old_grow in n:
     n = n.replace(old_grow, new_grow, 1)
-else:
-    print('WARN: natGrow target not found (already patched?)')
 
 # 7c) Patch _natOrder to call natGrow when exhausted
 old_order = """        if (app.isNotEmpty && cursor < app.length) {
@@ -413,8 +415,6 @@ new_order = """        if (cursor >= app.length && lvl >= 2) {
         }"""
 if old_order in n:
     n = n.replace(old_order, new_order, 1)
-else:
-    print('WARN: _natOrder target not found (already patched?)')
 
 # 7d) Set natMaxVariants to infinite (32-bit max)
 n = n.replace("const int natMaxVariants = 2000000;", "const int natMaxVariants = 0x7FFFFFFF; // V7: Infinite")
