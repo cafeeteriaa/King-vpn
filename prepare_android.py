@@ -1,10 +1,6 @@
 import os
 import re
 
-# Android setup for build_app (manifest permissions, gradle versions) and the
-# Dart changes that make the fresh-sources folder visible on the phone
-# (Download/King-VPN) and filled automatically when the app opens.
-# Every edit must match exactly once, otherwise the build stops with a message.
 APP = 'build_app'
 
 # ---- 1) AndroidManifest permissions ------------------------------------------
@@ -19,8 +15,6 @@ perms = ('<uses-permission android:name="android.permission.INTERNET"/>\n'
          '    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>\n    ')
 if 'QUERY_ALL_PACKAGES' not in m:
     m = m.replace('<application', perms + '<application', 1)
-# FGSTYPE: Android 14+ (targetSDK 36) needs a foreground service type. The plugin starts its
-# proxy service without one ("Starting FGS without a type"), so the type is declared here.
 SVC = ('<service android:name="dev.amirzr.flutter_v2ray_client.v2ray.services.V2rayProxyOnlyService"\n'
        '             android:foregroundServiceType="specialUse">\n'
        '            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"\n'
@@ -29,7 +23,6 @@ SVC = ('<service android:name="dev.amirzr.flutter_v2ray_client.v2ray.services.V2
 if 'foregroundServiceType' not in m and '</application>' in m:
     m = m.replace('</application>', SVC + '</application>', 1)
     print('OK: foreground service type declared in manifest')
-# KINGVPN: our own VPN service (android_src/KingVpnService.java) — declared in the manifest
 KSVC = ('<service android:name="com.kingvpn.king_vpn.KingVpnService"\n'
         '            android:permission="android.permission.BIND_VPN_SERVICE"\n'
         '            android:exported="false"\n'
@@ -43,12 +36,11 @@ if 'com.kingvpn.king_vpn.KingVpnService' not in m and '</application>' in m:
     print('OK: own VPN service declared in manifest')
 open(mp, 'w', encoding='utf-8').write(m)
 
-# KINGVPN: copy our Java service and MainActivity (channel king/vpn) into the project
 import shutil
 ja = os.path.join(APP, 'android/app/src/main/java/com/kingvpn/king_vpn')
 os.makedirs(ja, exist_ok=True)
 shutil.copy('android_src/KingVpnService.java', ja)
-shutil.copy('android_src/KingDiag.java', ja)  # KINGDIAG: crash / process-exit recorder
+shutil.copy('android_src/KingDiag.java', ja)
 old_java_main = os.path.join(ja, 'MainActivity.java')
 if os.path.exists(old_java_main):
     os.remove(old_java_main)
@@ -56,9 +48,8 @@ ka = os.path.join(APP, 'android/app/src/main/kotlin/com/kingvpn/king_vpn')
 os.makedirs(ka, exist_ok=True)
 shutil.copy('android_src/MainActivity.kt', os.path.join(ka, 'MainActivity.kt'))
 print('OK: KingVpnService.java, KingDiag.java and MainActivity.kt copied')
-print('OK: manifest permissions')
 
-# ---- 2) Gradle: minSdk 24, compileSdk 37 (permission_handler_android needs 37) -
+# ---- 2) Gradle: minSdk 24, compileSdk 37 ----
 for name in ('build.gradle', 'build.gradle.kts'):
     gp = os.path.join(APP, 'android/app', name)
     if os.path.exists(gp):
@@ -66,20 +57,16 @@ for name in ('build.gradle', 'build.gradle.kts'):
         g = g.replace('minSdk = flutter.minSdkVersion', 'minSdk = 24')
         g = g.replace('minSdkVersion flutter.minSdkVersion', 'minSdkVersion 24')
         g = g.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 37')
-        g = g.replace('compileSdkVersion flutter.compileSdkVersion',
-                      'compileSdkVersion 37')
+        g = g.replace('compileSdkVersion flutter.compileSdkVersion', 'compileSdkVersion 37')
         g = re.sub(r'compileSdk\s*=\s*\d+', 'compileSdk = 37', g)
         open(gp, 'w', encoding='utf-8').write(g)
 
-# ---- 2b) ABI: drop x86/x86_64 universal slices -------------------------------
+# ---- 2b) ABI ----
 for name in ('build.gradle', 'build.gradle.kts'):
     gp = os.path.join(APP, 'android/app', name)
-    if not os.path.exists(gp):
-        continue
+    if not os.path.exists(gp): continue
     g = open(gp, encoding='utf-8').read()
-    if 'abiFilters' in g:
-        print('OK: %s already has abiFilters' % name)
-        continue
+    if 'abiFilters' in g: continue
     is_kts = name.endswith('.kts')
     ndk_block = (
         '\n        ndk {\n'
@@ -94,22 +81,16 @@ for name in ('build.gradle', 'build.gradle.kts'):
     if dc:
         g = g[:dc.end()] + ndk_block + g[dc.end():]
         open(gp, 'w', encoding='utf-8').write(g)
-        print('OK: %s abiFilters added (arm64-v8a, armeabi-v7a only)' % name)
-    else:
-        print('WARN: %s has no defaultConfig block; abiFilters NOT added '
-              '(edit android/app/%s by hand)' % (name, name))
 
-# ---- 3) Fresh-sources folder and automatic start -----------------------------
+# ---- 3) Fresh-sources folder and automatic start ----
 NAT = os.path.join(APP, 'lib/nat_ultra.dart')
 MAIN = os.path.join(APP, 'lib/main.dart')
-
 
 def patch_once(text, old, new, label):
     count = text.count(old)
     if count != 1:
         raise SystemExit('ERROR: %s found %d times (must be 1). Build stopped.' % (label, count))
     return text.replace(old, new, 1)
-
 
 OLD_PATH = """String _hotPath() {
   const dir = '/data/data/com.kingvpn.king_vpn/files';
@@ -122,16 +103,11 @@ OLD_PATH = """String _hotPath() {
   }
 }
 """
-
-NEW_PATH = """// HOTVISIBLE: the fresh-sources folder is Download/King-VPN, so it can be seen in
-// the phone's file manager. It needs the "All files access" permission; without it
-// the app keeps using the old private file.
-const String hotVisibleDir = '/storage/emulated/0/Download/King-VPN';
+NEW_PATH = """const String hotVisibleDir = '/storage/emulated/0/Download/King-VPN';
 String _hotPath() {
   try {
     final v = Directory(hotVisibleDir);
     if (!v.existsSync()) v.createSync(recursive: true);
-    // PERMFIX: the folder can exist without write access (errno 13); probe it first.
     final probe = File('$hotVisibleDir/.kv_probe');
     probe.writeAsStringSync('ok', flush: true);
     probe.deleteSync();
@@ -147,15 +123,11 @@ String _hotPath() {
   }
 }
 """
-
 OLD_ENSURE = "  if (_hotBusy) return;\n  final f = File(_hotPath());\n"
-
-NEW_ENSURE = ("  if (force) await hotStorageAllow(); // HOTVISIBLE: asks when the user taps the row\n"
-              "  if (_hotBusy) return; // HOTRACE: no await between this check and _hotBusy = true\n"
+NEW_ENSURE = ("  if (force) await hotStorageAllow();\n"
+              "  if (_hotBusy) return;\n"
               "  final f = File(_hotPath());\n")
-
 APPEND = """
-// HOTVISIBLE: asks the phone for "All files access" (used once at first start, and when the user taps the folder row)
 Future<void> hotStorageAllow() async {
   try {
     final st = Permission.manageExternalStorage;
@@ -165,9 +137,6 @@ Future<void> hotStorageAllow() async {
     logError(e);
   }
 }
-
-// HOTAUTO: fills the folder only when the visible-folder permission is granted.
-// Downloads only if the folder is missing or older than 24 hours.
 Future<void> hotAutoFill() async {
   try {
     if (!(await Permission.manageExternalStorage.isGranted)) return;
@@ -177,8 +146,6 @@ Future<void> hotAutoFill() async {
   }
   await natHotEnsure();
 }
-
-// HOTAUTO: runs once when the app starts. Asks for file access on the first start only.
 Future<void> hotAutoStart() async {
   try {
     WidgetsBinding.instance.addObserver(HotResumeWatcher());
@@ -196,8 +163,6 @@ Future<void> hotAutoStart() async {
   }
   await hotAutoFill();
 }
-
-// HOTAUTO: every time the app comes back to the front, apply the 24-hour rule again
 class HotResumeWatcher extends WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -205,39 +170,21 @@ class HotResumeWatcher extends WidgetsBindingObserver {
   }
 }
 """
-
 n = open(NAT, encoding='utf-8').read()
-if 'hotVisibleDir' in n:
-    print('OK: folder patch already applied')
-else:
+if 'hotVisibleDir' not in n:
     n = patch_once(n, OLD_PATH, NEW_PATH, 'folder path')
     n = patch_once(n, OLD_ENSURE, NEW_ENSURE, 'folder ensure')
-    if not n.endswith('\n'):
-        n += '\n'
+    if not n.endswith('\n'): n += '\n'
     n += APPEND
     open(NAT, 'w', encoding='utf-8').write(n)
-    print('OK: visible folder and automatic start added to nat_ultra.dart')
 
 mn = open(MAIN, encoding='utf-8').read()
-if 'hotAutoStart()' in mn:
-    print('OK: automatic start already hooked into main()')
-else:
-    mn = patch_once(
-        mn,
-        'void main() {\n',
-        'void main() {\n'
-        '  Future.delayed(const Duration(seconds: 5), () => unawaited(hotAutoStart())); // HOTAUTO\n',
-        'main()')
+if 'hotAutoStart()' not in mn:
+    mn = patch_once(mn, 'void main() {\n', 'void main() {\n  Future.delayed(const Duration(seconds: 5), () => unawaited(hotAutoStart()));\n', 'main()')
     open(MAIN, 'w', encoding='utf-8').write(mn)
-    print('OK: automatic start hooked into main()')
 
-
-# ---- 4) Relay Server (Multi-hop) Integration ----
-print('Applying Relay Server patches...')
-
+# ---- 4) Relay Server & IP Range buttons ----
 mn = open(MAIN, encoding='utf-8').read()
-
-# 4a) Patch _startImpl to prioritize the user-defined relay
 old_chain = """          String? chainCfg;
           if (nationalMode && !proxyOnly) {
             final relays = _usable().where((x) => !identical(x, s)).take(1).toList();
@@ -267,49 +214,26 @@ new_chain = """          String? chainCfg;
               }
             }
           }"""
-if old_chain in mn:
-    mn = mn.replace(old_chain, new_chain)
-    print('OK: Multi-hop relay logic patched into _startImpl')
-else:
-    print('WARN: old_chain not found in main.dart (maybe already patched)')
+if old_chain in mn: mn = mn.replace(old_chain, new_chain)
 
-# 4b) Patch _loadCache
 old_load = "npvParse = j['npv'] as bool? ?? npvParse;"
 new_load = "npvParse = j['npv'] as bool? ?? npvParse;\n          relayServerUrl = j['relay_url'] as String? ?? '';"
-if old_load in mn:
-    mn = mn.replace(old_load, new_load, 1)
-    print('OK: Relay URL load patched')
-else:
-    print('WARN: old_load not found (load)')
+if old_load in mn: mn = mn.replace(old_load, new_load, 1)
 
-# 4c) Patch _saveSettings
 old_save = "'npv': npvParse,"
 new_save = "'npv': npvParse,\n            'relay_url': relayServerUrl,"
-if old_save in mn:
-    mn = mn.replace(old_save, new_save, 1)
-    print('OK: Relay URL save patched')
-else:
-    print('WARN: old_save not found (save)')
+if old_save in mn: mn = mn.replace(old_save, new_save, 1)
 
-# 4d) Add Relay Server button and IP ranges button to the main page (UiTools) - ROBUST PATCH
 old_ui = "UiTools(items: ["
 new_ui = "UiTools(items: [\n            UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),\n            UiTool(Icons.router, 'بازه‌های IP نت ملی', () => _natRangesDialog(context)),"
 if old_ui in mn:
     mn = mn.replace(old_ui, new_ui, 1)
-    print('OK: Relay and IP Range buttons injected at the top of UiTools')
 else:
-    print('WARN: UiTools(items: [ not found, trying old method...')
     old_tool = "UiTool(Icons.add_home_outlined, 'ساخت سرور شخصی', () => connectPersonalAsk()),"
     new_tool = "UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),\n            UiTool(Icons.router, 'بازه‌های IP نت ملی', () => _natRangesDialog(context)),\n            UiTool(Icons.add_home_outlined, 'ساخت سرور شخصی', () => connectPersonalAsk()),"
-    if old_tool in mn:
-        mn = mn.replace(old_tool, new_tool, 1)
-        print('OK: Relay and IP Range buttons added before Personal Server')
-    else:
-        print('WARN: old_tool not found (UI button)')
+    if old_tool in mn: mn = mn.replace(old_tool, new_tool, 1)
 
 # ---- 5) AUTO IP MIX (50% Cloudflare + 50% User/Auto) ----
-print('Applying Auto IP Mix patch...')
-
 old_blocks = "final blocks = natRanges.isNotEmpty ? natRanges : (natSeedBlocks(hosts).isNotEmpty ? natSeedBlocks(hosts) : _cfRanges.take(5).toList());"
 new_blocks = """final autoBlocks = natSeedBlocks(hosts);
   final mixBlocks = <String>{};
@@ -318,19 +242,14 @@ new_blocks = """final autoBlocks = natSeedBlocks(hosts);
   } else {
     mixBlocks.addAll(autoBlocks);
   }
-  // MIX 50/50: Always mix in Cloudflare ranges so we cover both intranet and CF IPs
+  // MIX 50/50: Always mix in Cloudflare ranges
   mixBlocks.addAll(_cfRanges);
   final blocks = mixBlocks.toList()..shuffle();"""
-
 if old_blocks in n:
     n = n.replace(old_blocks, new_blocks, 1)
     open(NAT, 'w', encoding='utf-8').write(n)
-    print('OK: Auto IP Mix (50/50 CF) patched into nat_ultra.dart')
-else:
-    print('WARN: old_blocks not found (maybe already patched or structure changed)')
 
-# ---- 6) FIX DIALER-PROXY BUG ----
-# Ensure proxySettings is also removed if outbound is missing
+# ---- 6) FIX DIALER-PROXY & VLESS ----
 old_proxy = """      if (so is Map) {
           final dp = so['dialerProxy']?.toString();
           if (dp != null && !tags.contains(dp)) {
@@ -350,14 +269,8 @@ new_proxy = """      if (so is Map) {
             changed = true;
           }
         }"""
-if old_proxy in mn:
-    mn = mn.replace(old_proxy, new_proxy, 1)
-    print('OK: dialerProxy/proxySettings bug patched')
-else:
-    print('WARN: old_proxy not found (already patched?)')
+if old_proxy in mn: mn = mn.replace(old_proxy, new_proxy, 1)
 
-# ---- 7) FIX VLESS WITHOUT TLS BUG ----
-# Xray core prohibits any VLESS without TLS/reality on public networks.
 old_vless = """  if (security != 'tls' && security != 'reality') {
     final ipv4 = RegExp(r'^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$').hasMatch(uri.host);
     if (ipv4 && !_isPrivateIpv4(uri.host)) {
@@ -371,10 +284,139 @@ new_vless = """  if (security != 'tls' && security != 'reality') {
       return 'VLESS بدون TLS (هسته Xray این را ممنوع کرده)';
     }
   }"""
-if old_vless in mn:
-    mn = mn.replace(old_vless, new_vless, 1)
-    print('OK: VLESS without TLS bug patched')
-else:
-    print('WARN: old_vless not found (already patched?)')
-
+if old_vless in mn: mn = mn.replace(old_vless, new_vless, 1)
 open(MAIN, 'w', encoding='utf-8').write(mn)
+
+
+# ---- 7) RESTORE MASSIVE MATRIX & INFINITE GROWTH ----
+print('Applying Infinite Matrix patch...')
+
+n = open(NAT, encoding='utf-8').read()
+
+# 7a) Generate 100k variants
+old_gen = """  for (final g in rest) {
+    add(_natMk(frag: g, fp: 'firefox'));
+  }
+  return out;
+}"""
+new_gen = """  for (final g in rest) {
+    add(_natMk(frag: g, fp: 'firefox'));
+  }
+  
+  // V7-MASSIVE-MATRIX: Generate hundreds of thousands of variants to reach the 2M goal.
+  for (final g in _natFrags.take(40)) {
+    final fi = _natFrags.indexOf(g);
+    for (final p in fps) {
+      for (final a in alpns) {
+        for (final portIdx in [0, 1, 2, 3, 4, 5]) {
+          for (final d in _natDnsList.take(5)) {
+            add(_natMk(frag: fi, fp: p, alpn: a, port: true, portIdx: portIdx, doh: d));
+          }
+        }
+      }
+    }
+  }
+  for (final g in _natFrags.take(20)) {
+    final fi = _natFrags.indexOf(g);
+    for (final p in ['chrome', 'firefox', 'randomized']) {
+      for (final d in _natDnsList.take(10)) {
+        for (final clIdx in [0, 1, 2, 3, 4]) {
+          add(_natMk(frag: fi, fp: p, clean: true, cleanIdx: clIdx, doh: d));
+        }
+      }
+    }
+  }
+  return out;
+}"""
+
+if old_gen in n:
+    n = n.replace(old_gen, new_gen, 1)
+else:
+    print('WARN: _natGenerate target not found (already patched?)')
+
+# 7b) Replace the disabled natGrow with an infinite generator
+old_grow = "int natGrow(int n) => 0;"
+new_grow = """
+int _natSeedCounter = 0;
+int natGrow(int n) {
+  // V7-INFINITE: Generates `n` new random variants and adds them to _natSpecs.
+  // This ensures the app NEVER runs out of combinations to test.
+  if (_natSpecs.length > 1000000) _natSpecs.removeRange(100, 500000); // Memory safety cap
+  final rnd = Random(DateTime.now().millisecondsSinceEpoch + _natSeedCounter++);
+  final existingSigs = {for (final x in _natSpecs) _natSig(x)};
+  var added = 0;
+  for (var i = 0; i < n; i++) {
+    final fp = ['chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge', 'random', 'qq', '360'].elementAt(rnd.nextInt(10));
+    final alpn = [null, 'h2', 'http/1.1', 'h2,http/1.1'].elementAt(rnd.nextInt(4));
+    final frag = rnd.nextInt(_natFrags.length);
+    final port = rnd.nextBool();
+    final portIdx = port ? rnd.nextInt(_natCfPorts.length) : null;
+    final clean = rnd.nextBool();
+    final cleanIdx = clean ? rnd.nextInt(10) : null;
+    final doh = rnd.nextBool() ? _natDnsList.elementAt(rnd.nextInt(_natDnsList.length)) : null;
+    final other = rnd.nextBool();
+    final sniHost = rnd.nextBool();
+    final v4 = rnd.nextBool();
+    final tfo = rnd.nextBool();
+    final nodelay = rnd.nextBool();
+    final keep = rnd.nextBool() ? rnd.nextInt(30) + 1 : null;
+    final mss = rnd.nextBool() ? [1240, 1280, 1320, 1360].elementAt(rnd.nextInt(4)) : null;
+    
+    final newSpec = _NatSpec('Dynamic ${_natSpecs.length + 1}',
+      other: other, fp: fp, alpn: alpn, frag: frag, port: port, portIdx: portIdx,
+      clean: clean, cleanIdx: cleanIdx, sniHost: sniHost, v4: v4, tfo: tfo,
+      nodelay: nodelay, doh: doh, keep: keep, mss: mss);
+    
+    final sig = _natSig(newSpec);
+    if (existingSigs.add(sig)) {
+      _natSpecs.add(newSpec);
+      added++;
+    }
+  }
+  if (added > 0) {
+    _natNamesC = null; // Invalidate name cache
+    _natGenRankKey = ''; // Force re-ranking
+    // ignore: avoid_print
+    print('NATGROW: Generated \\$added new dynamic variants. Total: \\${_natSpecs.length}');
+  }
+  return added;
+}
+"""
+if old_grow in n:
+    n = n.replace(old_grow, new_grow, 1)
+else:
+    print('WARN: natGrow target not found (already patched?)')
+
+# 7c) Patch _natOrder to call natGrow when exhausted
+old_order = """        if (app.isNotEmpty && cursor < app.length) {
+          final end = min(app.length, cursor + cap);
+          for (var k = cursor; k < end; k++) {
+            final gv = app[k];
+            if (skipHeavy && natIsHeavy(gv)) continue;
+            gens.add(gv);
+          }
+        }"""
+new_order = """        if (cursor >= app.length && lvl >= 2) {
+          natGrow(1000); // Generate 1000 more variants!
+          app.clear();
+          for (final v in _natGenRanked()) {
+            if (_natAppliesF(f, v)) app.add(v);
+          }
+        }
+        if (app.isNotEmpty && cursor < app.length) {
+          final end = min(app.length, cursor + cap);
+          for (var k = cursor; k < end; k++) {
+            final gv = app[k];
+            if (skipHeavy && natIsHeavy(gv)) continue;
+            gens.add(gv);
+          }
+        }"""
+if old_order in n:
+    n = n.replace(old_order, new_order, 1)
+else:
+    print('WARN: _natOrder target not found (already patched?)')
+
+# 7d) Set natMaxVariants to infinite (32-bit max)
+n = n.replace("const int natMaxVariants = 2000000;", "const int natMaxVariants = 0x7FFFFFFF; // V7: Infinite")
+
+open(NAT, 'w', encoding='utf-8').write(n)
