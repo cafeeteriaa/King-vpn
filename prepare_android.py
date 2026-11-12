@@ -6,6 +6,37 @@ APP = 'build_app'
 LIB = os.path.join(APP, 'lib')
 
 # =====================================================================
+# ---- 0) ★ AGP 9.4.0 + Gradle 9.6.0 (fixes List.removeLast bug) ----
+# =====================================================================
+print('[0] Upgrading AGP to 9.4.0 + Gradle 9.6.0')
+
+sett = os.path.join(APP, 'android/settings.gradle.kts')
+if not os.path.exists(sett):
+    sett = os.path.join(APP, 'android/settings.gradle')
+if os.path.exists(sett):
+    with open(sett, encoding='utf-8') as f:
+        s = f.read()
+    s = re.sub(r'(id\("com\.android\.(?:application|library)"\)\s+version\s+")[^"]+(")',
+               r'\g<1>9.4.0\g<2>', s)
+    with open(sett, 'w', encoding='utf-8') as f:
+        f.write(s)
+    print('  OK: settings.gradle AGP → 9.4.0')
+else:
+    print('  WARN: settings.gradle not found (will fail at lint stage)')
+
+gw = os.path.join(APP, 'android/gradle/wrapper/gradle-wrapper.properties')
+if os.path.exists(gw):
+    with open(gw, encoding='utf-8') as f:
+        g = f.read()
+    g = re.sub(r'gradle-[0-9.]+-(bin|all)\.zip',
+               r'gradle-9.6.0-\1.zip', g)
+    with open(gw, 'w', encoding='utf-8') as f:
+        f.write(g)
+    print('  OK: gradle-wrapper → 9.6.0')
+else:
+    print('  WARN: gradle-wrapper.properties not found')
+
+# =====================================================================
 # Helpers
 # =====================================================================
 def patch_hard(file_key, old, new, label):
@@ -55,8 +86,6 @@ def insert_before(file_key, anchor, content, label):
 
 
 def replace_function_braces(file_key, sig_regex, new_func, label):
-    """Find function by signature, replace entire function body via brace matching.
-    This is encoding-safe: only matches ASCII signature, then counts braces."""
     text = files[file_key]
     m = re.search(sig_regex, text)
     if not m:
@@ -136,7 +165,7 @@ os.makedirs(ka, exist_ok=True)
 shutil.copy('android_src/MainActivity.kt', os.path.join(ka, 'MainActivity.kt'))
 print('OK: Native files copied')
 
-# ---- 2) Gradle ----
+# ---- 2) Gradle: minSdk 24, compileSdk 37, abiFilters ----
 for name in ('build.gradle', 'build.gradle.kts'):
     gp = os.path.join(APP, 'android/app', name)
     if os.path.exists(gp):
@@ -160,7 +189,7 @@ for name in ('build.gradle', 'build.gradle.kts'):
     if dc:
         g = g[:dc.end()] + ndk_block + g[dc.end():]
         open(gp, 'w', encoding='utf-8').write(g)
-print('OK: Gradle')
+print('OK: Gradle minSdk/compileSdk/abiFilters')
 
 # ---- 3) Load all .dart files ----
 files = {}
@@ -539,7 +568,7 @@ patch_find(
     }""",
 '_natIpHunt pool fix')
 
-# ---- 21) _natRangeAdd (BRACE-MATCHING, encoding-safe) ----
+# ---- 21) _natRangeAdd (BRACE-MATCHING) ----
 print('\n[21] _natRangeAdd (brace-match)')
 if 'V8: no template' in files['main']:
     print('  SKIP: already patched')
@@ -582,8 +611,8 @@ else:
   }""",
         '_natRangeAdd replaced')
 
-# ---- 22) _natEscalate (2 small ASCII patches) ----
-print('\n[22] _natEscalate (ASCII patches)')
+# ---- 22) _natEscalate ----
+print('\n[22] _natEscalate')
 patch_hard('main',
     "      if (nationalMode && !abort && !ipWaiting) {",
     "      final hasTpl = pending.isNotEmpty || natRestPending.isNotEmpty ||\n          natTemplateSeeds.isNotEmpty || good.isNotEmpty;\n      if (nationalMode && !abort && !ipWaiting && pending.isEmpty && hasTpl) {",
@@ -593,8 +622,8 @@ patch_hard('main',
     "            budget: const Duration(minutes: 3));",
     '_natEscalate 3min')
 
-# ---- 23) sing-box URLs (find + ASCII markers) ----
-print('\n[23] sing-box URLs (find + ASCII)')
+# ---- 23) sing-box URLs ----
+print('\n[23] sing-box URLs')
 start_marker = "  // PHASE1-SINGBOX:"
 url_inner = "yebekhe/TelegramV2rayCollector/main/sub/normal/tuic'"
 if start_marker in files['main']:
@@ -608,11 +637,11 @@ if start_marker in files['main']:
             files['main'] = files['main'][:start] + "  // V8: sing-box URLs removed\n" + files['main'][end:]
             print('  OK: sing-box URLs removed')
         else:
-            print('  WARN: end URL not found after marker')
+            print('  WARN: end URL not found')
     else:
         print('  SKIP: marker not found')
 else:
-    print('  SKIP: sing-box already removed')
+    print('  SKIP: already removed')
 
 # ---- 24) stopSingbox ----
 print('\n[24] stopSingbox call')
@@ -765,5 +794,6 @@ for fn, content in files.items():
         f.write(content)
 
 print('\n' + '='*60)
-print('=== ALL 30 PATCHES APPLIED ===')
+print('=== ALL PATCHES APPLIED ===')
+print('=== AGP 9.4.0 + Gradle 9.6.0 + 30 dart patches ===')
 print('=== BUILD SHOULD PROCEED ===')
