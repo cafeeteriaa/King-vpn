@@ -443,8 +443,8 @@ patch_hard('main',
       await loadGeminiPrefs(p);""",
 'V8-FRESH')
 
-# ---- 14) resetAllToDefaults (ROBUST) ----
-print('\n[14] resetAllToDefaults (ROBUST)')
+# ---- 14) resetAllToDefaults ----
+print('\n[14] resetAllToDefaults')
 MIGRATION_CODE = '''
     SharedPreferences.getInstance().then((p) async {
       for (final k in const [
@@ -992,27 +992,21 @@ if 'iran_ai_extras' in files:
         files['iran_ai_extras'] = files['iran_ai_extras'].replace("1700, 7000", "2000, 7000")
         print('  OK: numOpts badPingMs -> 2000')
 
-# 3. Migration block
-patch_hard('main',
-"""      if (p.getBool('badping1700_v1') != true) {
-                badPingMs = 1700;
-                await p.setBool('badping1700_v1', true);
-                await saveNumPrefs();
-                await _saveSettings();
-              }""",
-"""      if (p.getBool('badping2000_v1') != true) {
-                badPingMs = 2000;
-                await p.setBool('badping2000_v1', true);
-                await saveNumPrefs();
-                await _saveSettings();
-              }""",
-'badping migration 2000')
+# 3. Migration block (robust string replace)
+if "'badping1700_v1'" in files['main']:
+    files['main'] = files['main'].replace("'badping1700_v1'", "'badping2000_v1'")
+    print('  OK: migration key badping1700_v1 -> badping2000_v1')
+if "badPingMs = 1700;" in files['main']:
+    files['main'] = files['main'].replace("badPingMs = 1700;", "badPingMs = 2000;")
+    print('  OK: badPingMs = 1700 -> 2000')
 
 # 4. Tuned settings
 for fn in files:
     txt = files[fn]
     txt = txt.replace("'bp': 2500,", "'bp': 2000,")
     txt = txt.replace("'badPingMs': 2500,", "'badPingMs': 2000,")
+    txt = txt.replace("'bp': 1700,", "'bp': 2000,")
+    txt = txt.replace("'badPingMs': 1700,", "'badPingMs': 2000,")
     files[fn] = txt
 print('  OK: tuned settings badPingMs -> 2000')
 
