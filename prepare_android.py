@@ -195,7 +195,7 @@ for fn in os.listdir(LIB):
         files[fn[:-5]] = content
 print('Loaded %d dart files' % len(files))
 
-# ---- 4) HOT PATH (V9: app-private, kills PathAccessException) ----
+# ---- 4) HOT PATH (V9: app-private) ----
 print('\n[4] hotPath V9 app-private')
 patch_hard('nat_ultra',
 """String _hotPath() {
@@ -801,7 +801,7 @@ String? buildSingboxConfigFromLink(String link) => null;
 """
 print('  OK')
 
-# ---- 31) V9: tunUp fix ----
+# ---- 31) V9: tunUp fix (lastState removed) ----
 print('\n[31] V9: tunUp fix')
 patch_hard('main',
 """Future<bool?> tunUp() async {
@@ -853,30 +853,26 @@ patch_hard('main',
           n.contains('v2ray');
     });
     if (hasTunnel) return true;
-    // If core says CONNECTED, list() can be flaky: retry once; if still
-    // missing, TRUST the core (kills spurious _restartTunnel loop).
-    if (lastState == 'CONNECTED') {
-      await Future.delayed(const Duration(milliseconds: 400));
-      try {
-        final l2 = await NetworkInterface.list(includeLoopback: false);
-        final ok2 = l2.any((i) {
-          final n = i.name.toLowerCase();
-          return n.startsWith('tun') ||
-              n.startsWith('ppp') ||
-              n.startsWith('vpn') ||
-              n.startsWith('utun');
-        });
-        if (ok2) return true;
-      } catch (_) {}
-      return true; // trust core
-    }
+    // V9: list() can be flaky during transient states. Retry once.
+    await Future.delayed(const Duration(milliseconds: 400));
+    try {
+      final l2 = await NetworkInterface.list(includeLoopback: false);
+      final ok2 = l2.any((i) {
+        final n = i.name.toLowerCase();
+        return n.startsWith('tun') ||
+            n.startsWith('ppp') ||
+            n.startsWith('vpn') ||
+            n.startsWith('utun');
+      });
+      if (ok2) return true;
+    } catch (_) {}
     return false;
   } catch (_swE) {
     _swl('tunUp#1', _swE);
     return null;
   }
 }""",
-'V9: tunUp trust core CONNECTED')
+'V9: tunUp retry')
 
 # ---- 32) V9: E-NO-TUN split ----
 print('\n[32] V9: E-NO-TUN split')
