@@ -402,13 +402,15 @@ patch_hard('main',
         for (final k in const [
           'speedoff27', 'lowdata_v1', 'restore_speed_v1', 'best_defaults_v4',
           'fw5_v1', 'workers12_v2', 'contsearch_v1', 'cip_v2', 'idm_v2',
-          'nat_v2', 'defsync_v1', 'defsync_v2', 'badping1700_v1',
+          'nat_v2', 'defsync_v1', 'defsync_v2', 'badping2000_v1',
           'tuned_v1', 'tuned_v2', 'tuned_v3', 'tuned_v4', 'tuned_v5',
           'bestProfile26', 'fwDefault27', 'bgWorkersOne',
         ]) {
           await p.setBool(k, true);
         }
+        await p.setBool('autotune_on2', false);
         for (final o in numOpts) { o.set(o.def); }
+        badPingMs = 2000;
         fwUserSet = false;
         fwUserValue = 5;
         autoTune = false;
@@ -443,47 +445,29 @@ patch_hard('main',
 
 # ---- 14) resetAllToDefaults ----
 print('\n[14] resetAllToDefaults')
-MIGRATION_CODE = '''
+patch_hard('main',
+"""  void resetAllToDefaults() {
+    resetNumbers();
+    fwUserSet = false; // FWUSER: برگشت به پیش‌فرض ۳
+    autoTune = false;""",
+"""  void resetAllToDefaults() {
     SharedPreferences.getInstance().then((p) async {
       for (final k in const [
         'speedoff27', 'lowdata_v1', 'restore_speed_v1', 'best_defaults_v4',
         'fw5_v1', 'workers12_v2', 'contsearch_v1', 'cip_v2', 'idm_v2',
-        'nat_v2', 'defsync_v1', 'defsync_v2', 'badping1700_v1',
+        'nat_v2', 'defsync_v1', 'defsync_v2', 'badping2000_v1',
         'tuned_v1', 'tuned_v2', 'tuned_v3', 'tuned_v4', 'tuned_v5',
         'bestProfile26', 'fwDefault27', 'bgWorkersOne',
       ]) {
         await p.setBool(k, true);
       }
-    });'''
-
-already = False
-for fn, text in files.items():
-    if 'resetAllToDefaults()' in text:
-        idx = text.find('resetAllToDefaults()')
-        if 'SharedPreferences.getInstance().then' in text[idx:idx+800]:
-            print('  SKIP: already patched')
-            already = True
-            break
-if not already:
-    pattern = re.compile(r'void\s+resetAllToDefaults\s*\(\s*\)\s*\{')
-    found = []
-    for fn, text in files.items():
-        m = pattern.search(text)
-        if m:
-            found.append((fn, m.end()))
-            break
-    if not found:
-        pattern2 = re.compile(r'resetAllToDefaults\s*\(\s*\)\s*\{')
-        for fn, text in files.items():
-            m = pattern2.search(text)
-            if m:
-                found.append((fn, m.end()))
-                break
-    if not found:
-        raise SystemExit('\n\nHARD FAIL: [resetAllToDefaults]\nFunction not found')
-    fn, pos = found[0]
-    files[fn] = files[fn][:pos] + MIGRATION_CODE + files[fn][pos:]
-    print('  OK (%s)' % fn)
+      await p.setBool('autotune_on2', false);
+    });
+    resetNumbers();
+    badPingMs = 2000;
+    fwUserSet = false; // FWUSER: برگشت به پیش‌فرض ۳
+    autoTune = false;""",
+'resetAllToDefaults set flags')
 
 # ---- 15) pre-social-check ----
 print('\n[15] pre-social-check')
@@ -801,7 +785,7 @@ String? buildSingboxConfigFromLink(String link) => null;
 """
 print('  OK')
 
-# ---- 31) V9: tunUp fix (lastState removed) ----
+# ---- 31) V9: tunUp fix ----
 print('\n[31] V9: tunUp fix')
 patch_hard('main',
 """Future<bool?> tunUp() async {
@@ -972,6 +956,43 @@ patch_hard('nip_scan',
   'challenge-platform.cloudflare.com',
 ];""",
 'V9: expanded natFrontSnis')
+
+# ---- 35) V9: badPingMs = 2000 everywhere + autoTune off ----
+print('\n[35] V9: badPingMs = 2000 + autoTune off')
+patch_hard('main',
+"int badPingMs = 1700; // پینگ بد از ۱۷۰۰ms = تعویض",
+"int badPingMs = 2000; // V9: default 2000",
+'badPingMs global 2000')
+
+patch_hard('iran_ai_extras',
+"  NumOpt('badPingMs', 'پینگ بد از', 70, 7000, 1700, 7000, false,\n      () => badPingMs, (v) => badPingMs = v),",
+"  NumOpt('badPingMs', 'پینگ بد از', 70, 7000, 2000, 7000, false,\n      () => badPingMs, (v) => badPingMs = v),",
+'numOpts badPingMs 2000')
+
+patch_hard('main',
+"""      // BADPING1700 v1: «پینگ بد از» = ۱۷۰۰ms (یک‌بار برای نصب‌های قبلی)
+      if (p.getBool('badping1700_v1') != true) {
+        badPingMs = 1700;
+        await p.setBool('badping1700_v1', true);
+        await saveNumPrefs();
+        await _saveSettings();
+      }""",
+"""      // V9: badPingMs = 2000 (once for older installs)
+      if (p.getBool('badping2000_v1') != true) {
+        badPingMs = 2000;
+        await p.setBool('badping2000_v1', true);
+        await saveNumPrefs();
+        await _saveSettings();
+      }""",
+'badping migration 2000')
+
+# Update all tuned settings 'bp' and 'badPingMs' to 2000
+for fn in files:
+    txt = files[fn]
+    txt = txt.replace("'bp': 2500,", "'bp': 2000,")
+    txt = txt.replace("'badPingMs': 2500,", "'badPingMs': 2000,")
+    files[fn] = txt
+print('  OK: tuned settings badPingMs -> 2000')
 
 # =====================================================================
 # Save
