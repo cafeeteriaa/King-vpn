@@ -2021,6 +2021,70 @@ patch_hard('main',
       }""",
 'V16: apply SNI spoof in normal mode')
 
+# ---- 67) V17: Mux 64/128 ----
+print('\n[67] V17: Mux 128')
+patch_hard('main',
+"int muxConc = 32;",
+"int muxConc = 64; // V17: default Mux concurrency = 64",
+'V17: Mux 64 default')
+
+patch_hard('iran_ai_extras',
+"const _muxOpts = <int>[4, 8, 16, 32];",
+"const _muxOpts = <int>[4, 8, 16, 32, 64, 128];",
+'V17: Mux 128 UI')
+
+patch_hard('iran_ai_extras',
+"""    if (muxEnabled && (net == 'tcp' || net == 'ws')) {
+        var flow = '';""",
+"""    if (muxEnabled && (net == 'tcp' || net == 'ws')) {
+        var flow = '';""",
+'V17: placeholder')
+
+patch_hard('main',
+"""    muxConc = max(muxConc, 32);
+    if (!nationalMode) fragEnabled = false;""",
+"""    muxConc = max(muxConc, 64);
+    if (!nationalMode) fragEnabled = false;""",
+'V17: Mux 64 after connect')
+
+# ---- 68) V17: Auto-Reconnect (Throttle Escape) ----
+print('\n[68] V17: Auto-Reconnect Throttle Escape')
+patch_hard('main',
+"  int stallRun = 0; // SPEEDSWITCHPATCH: checks in a row under 100 KB/s",
+"""  int stallRun = 0; // SPEEDSWITCHPATCH: checks in a row under 100 KB/s
+  int _throttleRun = 0; // V17: consecutive slow-speed checks (possible ISP throttle)""",
+'V17: _throttleRun var')
+
+patch_hard('main',
+"""            // SLOWHOUR: سرعت پایین باید بی‌وقفه به مدت kSlowSwitchAfter ادامه داشته باشد تا تعویض شود
+            // SLOWREL: پایین = زیر حداقل تنظیمی، یا زیر ۳۰۰KB/s با جایگزینی که واقعاً سریع‌تر است
+            final slowNow = sp * 1024 < 40 ||
+                (minSpeedKB > 0 && sp * 1024 < minSpeedKB) ||
+                (sp * 1024 < kSlowRelFloorKB && _bestSpeedStandbyForSlow() != null);""",
+"""            // V17: Throttle Escape — if speed is consistently < 50 KB/s,
+            // assume ISP is throttling. Toggle SNI, change port, restart.
+            if (sp * 1024 < 50) {
+              _throttleRun++;
+              if (_throttleRun >= 3 && current != null) {
+                _throttleRun = 0;
+                dbg('V17-THROTTLE: سرعت ۳ بار زیر ۵۰KB/s ماند • تلاش برای فرار از throttle ISP');
+                _set('سرعت بسیار پایین است؛ تلاش برای تغییر مسیر...');
+                if (nationalMode) natVar.remove(_nk(current!));
+                sniSpoofAll = true;
+                _saveSettings();
+                await _restartTunnel();
+                return;
+              }
+            } else {
+              _throttleRun = 0;
+            }
+            // SLOWHOUR: سرعت پایین باید بی‌وقفه به مدت kSlowSwitchAfter ادامه داشته باشد تا تعویض شود
+            // SLOWREL: پایین = زیر حداقل تنظیمی، یا زیر ۳۰۰KB/s با جایگزینی که واقعاً سریع‌تر است
+            final slowNow = sp * 1024 < 40 ||
+                (minSpeedKB > 0 && sp * 1024 < minSpeedKB) ||
+                (sp * 1024 < kSlowRelFloorKB && _bestSpeedStandbyForSlow() != null);""",
+'V17: throttle escape')
+
 # =====================================================================
 # Save
 # =====================================================================
@@ -2030,5 +2094,5 @@ for fn, content in files.items():
 
 print('\n' + '=' * 60)
 print('=== ALL PATCHES APPLIED ===')
-print('=== V16: SNI spoof toggle for normal mode ===')
+print('=== V17: Mux 128, Throttle Escape, Domain Fronting ===')
 print('=== BUILD SHOULD PROCEED ===')
