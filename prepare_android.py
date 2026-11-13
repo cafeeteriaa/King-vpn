@@ -747,8 +747,9 @@ patch_hard('nat_ultra',
   addrs.addAll(_getCfIps());""",
 'blocks CF mix')
 
-insert_before('nat_ultra', 'Future<List<String>> natRangeScanStep({',
-"""final Map<String, int> _cfRangeCursors = {};
+if 'List<String> _getCfIps(' not in files['nat_ultra']:
+    insert_before('nat_ultra', 'Future<List<String>> natRangeScanStep({',
+    """final Map<String, int> _cfRangeCursors = {};
 List<String> _getCfIps({int batchSize = 160000}) {
   final out = <String>[];
   final ranges = _cfRanges;
@@ -1174,76 +1175,8 @@ patch_hard('main',
 "    final tail = out.sublist(headLen);\n    if (!nationalMode) tail.sort(_cmpPending);",
 'V11: no sort tail')
 
-# ---- 46) V11: sequential CF IPs ----
-print('\n[46] V11: sequential CF IPs')
-old_getcf = """List<String>? _cfIpCache;
-List<String> _getCfIps() {
-  if (_cfIpCache != null) return _cfIpCache!;
-  final out = <String>[];
-  final rnd = Random(42);
-  final blocksPerRange = (80 / _cfRanges.length).ceil();
-  for (final cidr in _cfRanges) {
-    final parts = cidr.split('/');
-    if (parts.length != 2) continue;
-    final octets = parts[0].split('.');
-    if (octets.length != 4) continue;
-    final a = int.tryParse(octets[0]);
-    final b = int.tryParse(octets[1]);
-    final c = int.tryParse(octets[2]);
-    final d = int.tryParse(octets[3]);
-    final prefix = int.tryParse(parts[1]);
-    if (a == null || b == null || c == null || d == null || prefix == null) continue;
-    if (prefix < 8 || prefix > 32) continue;
-    final base = (a << 24) | (b << 16) | (c << 8) | d;
-    final span = 1 << (32 - prefix);
-    final blockSize = span ~/ blocksPerRange;
-    if (blockSize <= 0) continue;
-    for (var bl = 0; bl < blocksPerRange; bl++) {
-      final blockStart = base + bl * blockSize;
-      for (var i = 0; i < 2000; i++) {
-        final v = blockStart + rnd.nextInt(blockSize);
-        out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
-      }
-    }
-  }
-  _cfIpCache = out;
-  return out;
-}"""
-new_getcf = """final Map<String, int> _cfRangeCursors = {};
-List<String> _getCfIps({int batchSize = 160000}) {
-  final out = <String>[];
-  final ranges = _cfRanges;
-  final perRange = (batchSize / ranges.length).ceil();
-  for (final cidr in ranges) {
-    final parts = cidr.split('/');
-    if (parts.length != 2) continue;
-    final octets = parts[0].split('.');
-    if (octets.length != 4) continue;
-    final a = int.tryParse(octets[0]);
-    final b = int.tryParse(octets[1]);
-    final c = int.tryParse(octets[2]);
-    final d = int.tryParse(octets[3]);
-    final prefix = int.tryParse(parts[1]);
-    if (a == null || b == null || c == null || d == null || prefix == null) continue;
-    if (prefix < 8 || prefix > 32) continue;
-    final base = (a << 24) | (b << 16) | (c << 8) | d;
-    final span = 1 << (32 - prefix);
-    var cursor = _cfRangeCursors[cidr] ?? 0;
-    for (var i = 0; i < perRange; i++) {
-      final offset = (cursor + i) % span;
-      final v = base + offset;
-      out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
-    }
-    _cfRangeCursors[cidr] = (cursor + perRange) % span;
-  }
-  return out;
-}"""
-if old_getcf in files['nat_ultra']:
-    files['nat_ultra'] = files['nat_ultra'].replace(old_getcf, new_getcf, 1)
-    print('  OK: sequential CF IPs')
-
-# ---- 47) V11: natRangeScanStep - CF first in national ----
-print('\n[47] V11: CF first in national')
+# ---- 46) V11: natRangeScanStep - CF first in national ----
+print('\n[46] V11: CF first in national')
 patch_hard('nat_ultra',
 """  final blocks = natRanges.isNotEmpty ? natRanges : natSeedBlocks(hosts);
   final addrs = <String>[];
@@ -1274,8 +1207,8 @@ patch_hard('nat_ultra',
   if (!nationalMode) natRangeCursor = from + slice.length;""",
 'V11: CF first in national')
 
-# ---- 48) V11: standby exhaustive in national ----
-print('\n[48] V11: standby exhaustive in national')
+# ---- 47) V11: standby exhaustive in national ----
+print('\n[47] V11: standby exhaustive in national')
 patch_hard('main',
 """      if (standbyPaused && connected && !nationalMode) {
         lastStandby = DateTime.now();
@@ -1290,8 +1223,8 @@ patch_hard('main',
       }""",
 'V11: standby exhaustive')
 
-# ---- 49) V11: skip pause-setting in national ----
-print('\n[49] V11: skip pause-setting in national')
+# ---- 48) V11: skip pause-setting in national ----
+print('\n[48] V11: skip pause-setting in national')
 patch_hard('main',
 """      if (!nationalMode) {
         if (healthyNow >= kStandbyPause) standbyFilled = true;
@@ -1315,15 +1248,15 @@ patch_hard('main',
       }""",
 'V11: exhaustive pending')
 
-# ---- 50) V12: natRound global state ----
-print('\n[50] V12: natRound global')
+# ---- 49) V12: natRound global state ----
+print('\n[49] V12: natRound global')
 patch_hard('nat_ultra',
 "int natLevel = 1;",
 "int natLevel = 1;\nint natRound = 1; // V12: 1 = pass 1 (skip failed), 2 = pass 2 (retry all)",
 'V12: natRound global')
 
-# ---- 51) V12: reset natRound at connect start ----
-print('\n[51] V12: reset natRound in _doConnect')
+# ---- 50) V12: reset natRound at connect start ----
+print('\n[50] V12: reset natRound in _doConnect')
 patch_hard('main',
 """      natFloor = (natForce || nationalMode) ? 10 : 0;
       natLevel = natFloor;""",
@@ -1334,8 +1267,8 @@ patch_hard('main',
       natRound = 1;""",
 'V12: reset natRound at connect')
 
-# ---- 52) V12: _findGood two-pass national ----
-print('\n[52] V12: two-pass national in _findGood')
+# ---- 51) V12: _findGood two-pass national ----
+print('\n[51] V12: two-pass national in _findGood')
 patch_hard('main',
 """        if (pending.isEmpty && folderQ.isEmpty) {
           // منابع تازه تمام شد و هیچ سرور سالمی نیست: پوشه‌ی سرورهای سالم پشتیبان می‌شود
@@ -1391,8 +1324,8 @@ patch_hard('main',
         }""",
 'V12: two-pass national')
 
-# ---- 53) V12: natBudget = 900s for lvl 10 ----
-print('\n[53] V12: natBudget 900s for lvl 10')
+# ---- 52) V12: natBudget = 900s for lvl 10 ----
+print('\n[52] V12: natBudget 900s for lvl 10')
 patch_hard('nat_ultra',
 """Duration natBudget({bool full = false}) {
   final l = full ? 3 : natLevel;
@@ -1414,21 +1347,21 @@ patch_hard('nat_ultra',
 }""",
 'V12: natBudget 900s for lvl 10')
 
-# ---- 54) V12: force natLevel 10 in round 2 ----
-print('\n[54] V12: force natLevel 10 in round 2')
+# ---- 53) V12: force natLevel 10 in round 2 (FIXED) ----
+print('\n[53] V12: force natLevel 10 in round 2')
 patch_hard('main',
-"""      if (nationalMode && !searching && !busy && !switching && !upBusy) {
-        await _standbyRun();
-      }""",
-"""      if (nationalMode && !searching && !busy && !switching && !upBusy) {
-        // V12: round 2 forces natLevel=10 to guarantee full DPI matrix.
-        if (natRound >= 2 && natLevel < 10) natLevel = 10;
-        await _standbyRun();
-      }""",
+"""                if (!searching && !busy && !switching && !upBusy) {
+                  await _standbyRun();
+                }""",
+"""                if (!searching && !busy && !switching && !upBusy) {
+                  // V12: round 2 forces natLevel=10 to guarantee full DPI matrix.
+                  if (natRound >= 2 && natLevel < 10) natLevel = 10;
+                  await _standbyRun();
+                }""",
 'V12: force natLevel 10 in round 2')
 
-# ---- 55) V12: don't drop pending items in round 2 ----
-print('\n[55] V12: keep pending items in round 2')
+# ---- 54) V12: don't drop pending items in round 2 ----
+print('\n[54] V12: keep pending items in round 2')
 patch_hard('main',
 """    if (nationalMode && ipList.isNotEmpty) {
       final trusted = natIpMemHosts()..addAll(natScanHits);
@@ -1465,8 +1398,8 @@ patch_hard('main',
     }""",
 'V12: keep pending in round 2')
 
-# ---- 56a) V13: _NatSpec sniSwap field ----
-print('\n[56a] V13: _NatSpec sniSwap')
+# ---- 55a) V13: _NatSpec sniSwap field ----
+print('\n[55a] V13: _NatSpec sniSwap')
 patch_hard('nat_ultra',
 """class _NatSpec {
   final String name;
@@ -1550,10 +1483,10 @@ patch_hard('nat_ultra',
       this.mss,
       this.sniSwap});
 }""",
-'P56a: _NatSpec sniSwap')
+'P55a: _NatSpec sniSwap')
 
-# ---- 56b) V13: _natMk sniSwap param ----
-print('\n[56b] V13: _natMk sniSwap param')
+# ---- 55b) V13: _natMk sniSwap param ----
+print('\n[55b] V13: _natMk sniSwap param')
 patch_hard('nat_ultra',
 """    String? doh,
     String? mode,
@@ -1562,17 +1495,17 @@ patch_hard('nat_ultra',
     String? mode,
     int? keep,
     int? sniSwap}) {""",
-'P56b: _natMk sniSwap')
+'P55b: _natMk sniSwap')
 
-# ---- 56c) V13: _natMk return sniSwap ----
-print('\n[56c] V13: _natMk return sniSwap')
+# ---- 55c) V13: _natMk return sniSwap ----
+print('\n[55c] V13: _natMk return sniSwap')
 patch_hard('nat_ultra',
 """  if (mode != null) n.add(mode);
   return _NatSpec(n.isEmpty ? 'عادی+' : n.join(' + '),""",
 """  if (mode != null) n.add(mode);
   if (sniSwap != null) n.add('SNI>CF#${sniSwap + 1}');
   return _NatSpec(n.isEmpty ? 'عادی+' : n.join(' + '),""",
-'P56c: _natMk name sniSwap')
+'P55c: _natMk name sniSwap')
 
 patch_hard('nat_ultra',
 """      mode: mode,
@@ -1582,17 +1515,17 @@ patch_hard('nat_ultra',
       keep: keep,
       sniSwap: sniSwap);
 }""",
-'P56c2: _natMk return sniSwap')
+'P55c2: _natMk return sniSwap')
 
-# ---- 56d) V13: _natSig sniSwap ----
-print('\n[56d] V13: _natSig')
+# ---- 55d) V13: _natSig sniSwap ----
+print('\n[55d] V13: _natSig')
 patch_hard('nat_ultra',
 """    '${x.edN}|${x.noise}|${x.noiseK}|${x.nodelay}|${x.doh}|${x.mode}|${x.keep}';""",
 """    '${x.edN}|${x.noise}|${x.noiseK}|${x.nodelay}|${x.doh}|${x.mode}|${x.keep}|${x.sniSwap}';""",
-'P56d: _natSig sniSwap')
+'P55d: _natSig sniSwap')
 
-# ---- 56e) V13: _natDims sniSwap ----
-print('\n[56e] V13: _natDims')
+# ---- 55e) V13: _natDims sniSwap ----
+print('\n[55e] V13: _natDims')
 patch_hard('nat_ultra',
 """  if (x.keep != null) d.add('ka=${x.keep}');
   return d;
@@ -1601,10 +1534,10 @@ patch_hard('nat_ultra',
   if (x.sniSwap != null) d.add('sni=${x.sniSwap}');
   return d;
 }""",
-'P56e: _natDims sniSwap')
+'P55e: _natDims sniSwap')
 
-# ---- 56f) V13: _natAppliesF sniSwap ----
-print('\n[56f] V13: _natAppliesF')
+# ---- 55f) V13: _natAppliesF sniSwap ----
+print('\n[55f] V13: _natAppliesF')
 patch_hard('nat_ultra',
 """  if (x.doh != null && f.isIp) return false;
   return true;
@@ -1614,10 +1547,10 @@ patch_hard('nat_ultra',
   if (x.sniSwap != null && !(f.sec && f.cdnLike && !f.reality)) return false;
   return true;
 }""",
-'P56f: _natAppliesF sniSwap')
+'P55f: _natAppliesF sniSwap')
 
-# ---- 56g) V13: _natApplySniSwap helper ----
-print('\n[56g] V13: _natApplySniSwap')
+# ---- 55g) V13: _natApplySniSwap helper ----
+print('\n[55g] V13: _natApplySniSwap')
 insert_before('nat_ultra', 'String _natFrag(String cfg, int fi,',
 """String _natApplySniSwap(String cfg, int sniIdx) {
   try {
@@ -1642,10 +1575,10 @@ insert_before('nat_ultra', 'String _natFrag(String cfg, int fi,',
   }
 }
 
-""", 'P56g: _natApplySniSwap helper')
+""", 'P55g: _natApplySniSwap helper')
 
-# ---- 56h) V13: _natCfgRaw apply sniSwap ----
-print('\n[56h] V13: _natCfgRaw sniSwap')
+# ---- 55h) V13: _natCfgRaw apply sniSwap ----
+print('\n[55h] V13: _natCfgRaw sniSwap')
 patch_hard('nat_ultra',
 """  if (x.v4 || x.tfo || x.nodelay || x.keep != null || x.mss != null) {
     cfg = _natSock(cfg,
@@ -1660,10 +1593,10 @@ patch_hard('nat_ultra',
   if (x.sniSwap != null) cfg = _natApplySniSwap(cfg, x.sniSwap!);
   return cfg;
 }""",
-'P56h: _natCfgRaw sniSwap')
+'P55h: _natCfgRaw sniSwap')
 
-# ---- 56i) V13: 4 SNI swap base variants ----
-print('\n[56i] V13: SNI swap base variants')
+# ---- 55i) V13: 4 SNI swap base variants ----
+print('\n[55i] V13: SNI swap base variants')
 patch_hard('nat_ultra',
 """  _NatSpec('آدرس دیگر + Fragment خیلی ریز', other: true, frag: 3),
 ];""",
@@ -1674,17 +1607,17 @@ patch_hard('nat_ultra',
   _NatSpec('SNI>speed', sniSwap: 3),
   _NatSpec('SNI>1.1.1.1', sniSwap: 10),
 ];""",
-'P56i: SNI swap base')
+'P55i: SNI swap base')
 
-# ---- 56j) V13: _natBaseCount 50->54 ----
-print('\n[56j] V13: _natBaseCount 50->54')
+# ---- 55j) V13: _natBaseCount 50->54 ----
+print('\n[55j] V13: _natBaseCount 50->54')
 patch_hard('nat_ultra',
 "const int _natBaseCount = 50;",
 "const int _natBaseCount = 54; // V13: +4 SNI swap",
-'P56j: _natBaseCount 54')
+'P55j: _natBaseCount 54')
 
-# ---- 56k) V13: SNI swap + frag combos ----
-print('\n[56k] V13: SNI swap + frag combos')
+# ---- 55k) V13: SNI swap + frag combos ----
+print('\n[55k] V13: SNI swap + frag combos')
 patch_hard('nat_ultra',
 """  final topSet = top.toSet();
   final rest = <int>[
@@ -1712,10 +1645,10 @@ patch_hard('nat_ultra',
   for (final p in fps) {
     add(_natMk(fp: p));
   }""",
-'P56k: SNI swap+frag combos')
+'P55k: SNI swap+frag combos')
 
-# ---- 57a) V13: Time-of-day in natVarSet ----
-print('\n[57a] V13: time-of-day natVarSet')
+# ---- 56a) V13: Time-of-day in natVarSet ----
+print('\n[56a] V13: time-of-day natVarSet')
 patch_hard('nat_ultra',
 """  if (v > 0 && v < _natSpecs.length) {
     for (final d in _natDims(_natSpecs[v])) {
@@ -1734,10 +1667,10 @@ patch_hard('nat_ultra',
     }
     _natLearnVer++;
   }""",
-'P57a: time-of-day')
+'P56a: time-of-day')
 
-# ---- 57b) V13: Time-of-day in _natGenRanked ----
-print('\n[57b] V13: time-of-day _natGenRanked')
+# ---- 56b) V13: Time-of-day in _natGenRanked ----
+print('\n[56b] V13: time-of-day _natGenRanked')
 patch_hard('nat_ultra',
 """List<int> _natGenRanked() {
   final key = '$natOpKey|$_natLearnVer|${_natSpecs.length}';
@@ -1765,10 +1698,10 @@ patch_hard('nat_ultra',
     }
     sc[i] = s;
   }""",
-'P57b: time-of-day ranked')
+'P56b: time-of-day ranked')
 
-# ---- 58) V13: uTLS fingerprints 10 -> 22 ----
-print('\n[58] V13: uTLS fingerprints')
+# ---- 57) V13: uTLS fingerprints 10 -> 22 ----
+print('\n[57] V13: uTLS fingerprints')
 patch_hard('nat_ultra',
 """  const fps = [
     'chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge',
@@ -1781,10 +1714,10 @@ patch_hard('nat_ultra',
     'helloandroid', 'helloedge', 'hello360', 'helloqq', 'hellorandomized',
     'hellorandomizedalpn', 'hellorandomizednoalpn',
   ];""",
-'P58: expanded uTLS')
+'P57: expanded uTLS')
 
-# ---- 59) V13: sniSwap priority in _natOrder (CDN first) ----
-print('\n[59] V13: sniSwap priority in _natOrder')
+# ---- 58) V13: sniSwap priority in _natOrder (CDN first) ----
+print('\n[58] V13: sniSwap priority in _natOrder')
 patch_hard('nat_ultra',
 """    final lightFirst = <int>[0, 1, 4, 13, 7, 20, 12, 33, 38, 40, 44];""",
 """    // V13: try SNI-swap variants first on CDN configs (bypasses SNI DPI).
@@ -1793,10 +1726,10 @@ patch_hard('nat_ultra',
       if (f.cdnLike && f.sec && !f.reality) ...[50, 51, 52, 53],
       0, 1, 4, 13, 7, 20, 12, 33, 38, 40, 44,
     ];""",
-'P59: sniSwap priority')
+'P58: sniSwap priority')
 
-# ---- 60) V13: add more tiny fragment variants ----
-print('\n[60] V13: tiny fragment variants')
+# ---- 59) V13: add more tiny fragment variants ----
+print('\n[59] V13: tiny fragment variants')
 patch_hard('nat_ultra',
 """  const lens = [
     '1-3', '2-8', '5-15', '10-30', '20-50', '30-60', '50-100', '100-200',
@@ -1806,10 +1739,10 @@ patch_hard('nat_ultra',
     '1-2', '1-3', '2-5', '2-8', '5-15', '10-30', '20-50', '30-60', '50-100',
     '100-200', '200-400', '400-800'
   ];""",
-'P60: tiny fragments')
+'P59: tiny fragments')
 
-# ---- 61) V13: smart SNI for workers.dev ----
-print('\n[61] V13: smart SNI')
+# ---- 60) V13: smart SNI for workers.dev ----
+print('\n[60] V13: smart SNI')
 patch_hard('nat_ultra',
 """  if (x.sniSwap != null) cfg = _natApplySniSwap(cfg, x.sniSwap!);
   return cfg;
@@ -1848,7 +1781,7 @@ String _natSmartSni(String cfg, Server s, {bool forceAll = false}) {
     return jsonEncode(j);
   } catch (_) { return cfg; }
 }""",
-'P61: smart SNI helper')
+'P60: smart SNI helper')
 
 patch_hard('nat_ultra',
 """String _natCfgRaw(Server s, int v, {bool reuse = false}) {
@@ -1861,17 +1794,17 @@ patch_hard('nat_ultra',
     return _natSmartSni(cfg, s, forceAll: sniSpoofAll);
   }
   final x = _natSpecs[v];""",
-'P61b: apply smart SNI')
+'P60b: apply smart SNI')
 
-# ---- 62) V14: auto_test 5 hours duration ----
-print('\n[62] V14: auto_test 5h')
+# ---- 61) V14: auto_test 5 hours duration ----
+print('\n[61] V14: auto_test 5h')
 patch_hard('auto_test',
 "static const _testDuration = Duration(hours: 4); // STEST4H: همه‌ی سطوح، IP تمیز و همه‌ی حالت‌های جایگزین جا شوند",
 "static const _testDuration = Duration(hours: 5); // V14: 5-hour national test",
 'V14: auto_test 5h')
 
-# ---- 63) V14: only run national test in auto_test ----
-print('\n[63] V14: only national test')
+# ---- 62) V14: only run national test in auto_test ----
+print('\n[62] V14: only national test')
 patch_hard('auto_test',
 """      final steps = <(String, Duration, Future<void> Function())>[
         (_atItemNames[2], const Duration(minutes: 50), _atItemNational),
@@ -1883,8 +1816,8 @@ patch_hard('auto_test',
       ];""",
 'V14: only national test')
 
-# ---- 64) V14: _atItemNational monitors V13 engine (ROBUST) ----
-print('\n[64] V14: national monitor')
+# ---- 63) V14: _atItemNational monitors V13 engine (ROBUST) ----
+print('\n[63] V14: national monitor')
 if "Future<void> _atItemNational() async {" in files['auto_test']:
     replace_function_braces('auto_test',
         r'Future<void> _atItemNational\(\) async \{',
@@ -1938,8 +1871,8 @@ if "Future<void> _atItemNational() async {" in files['auto_test']:
   }""",
         'V14: national monitor')
 
-# ---- 65) V14: save report to multiple public dirs ----
-print('\n[65] V14: save report dirs')
+# ---- 64) V14: save report to multiple public dirs ----
+print('\n[64] V14: save report dirs')
 patch_hard('auto_test',
 """  const privDir = '/data/data/com.kingvpn.king_vpn/files/reports';
   // REPORTDIR: پوشه‌ی گزارش در ریشه‌ی فضای داخلی، کنار DCIM و Download
@@ -1955,8 +1888,8 @@ patch_hard('auto_test',
   for (final d in const [privDir, pubDir1, pubDir2, pubDir3]) {""",
 'V14: save report dirs')
 
-# ---- 66) V16: sniSpoofAll setting + normal-mode SNI spoof ----
-print('\n[66] V16: sniSpoofAll setting + normal-mode spoof')
+# ---- 65) V16: sniSpoofAll setting + normal-mode SNI spoof ----
+print('\n[65] V16: sniSpoofAll setting + normal-mode spoof')
 # Define the global variable
 patch_hard('main',
 "bool onlyHealthySrc = true;",
@@ -1979,8 +1912,8 @@ patch_hard('main',
       }""",
 'V16: apply SNI spoof in normal mode')
 
-# ---- 67) V17: Mux 64/128 ----
-print('\n[67] V17: Mux 128')
+# ---- 66) V17: Mux 64/128 ----
+print('\n[66] V17: Mux 128')
 patch_hard('main',
 "int muxConc = 32;",
 "int muxConc = 128; // V17: default Mux concurrency = 128",
@@ -1998,8 +1931,8 @@ patch_hard('main',
     if (!nationalMode) fragEnabled = false;""",
 'V17: Mux 128 after connect')
 
-# ---- 68) V17: Auto-Reconnect (Throttle Escape) ----
-print('\n[68] V17: Auto-Reconnect Throttle Escape')
+# ---- 67) V17: Auto-Reconnect (Throttle Escape) ----
+print('\n[67] V17: Auto-Reconnect Throttle Escape')
 patch_hard('main',
 "  int stallRun = 0; // SPEEDSWITCHPATCH: checks in a row under 100 KB/s",
 """  int stallRun = 0; // SPEEDSWITCHPATCH: checks in a row under 100 KB/s
@@ -2026,8 +1959,8 @@ patch_hard('main',
             final slowNow = sp * 1024 < 40 ||""",
 'V17: throttle escape')
 
-# ---- 69) V19: Apply Best Settings per Mode ----
-print('\n[69] V19: _applyModePreset')
+# ---- 68) V19: Apply Best Settings per Mode ----
+print('\n[68] V19: _applyModePreset')
 # Add the function before _doConnect
 insert_before('main', '  Future<void> _doConnect({Server? only, String? row}) async {',
 """  /// V19: reset settings to the best default for the selected mode.
