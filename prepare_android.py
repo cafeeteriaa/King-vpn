@@ -333,18 +333,18 @@ patch_hard('main',
 print('\n[7] relay load/save')
 patch_hard('main',
 "          npvParse = j['npv'] as bool? ?? npvParse;",
-"          npvParse = j['npv'] as bool? ?? npvParse;\n          relayServerUrl = j['relay_url'] as String? ?? '';",
-'load relay_url')
+"          npvParse = j['npv'] as bool? ?? npvParse;\n          relayServerUrl = j['relay_url'] as String? ?? '';\n          sniSpoofAll = j['sni_all'] as bool? ?? false;",
+'load relay_url + sni_all')
 patch_hard('main',
 "            'npv': npvParse,",
-"            'npv': npvParse,\n            'relay_url': relayServerUrl,",
-'save relay_url')
+"            'npv': npvParse,\n            'relay_url': relayServerUrl,\n            'sni_all': sniSpoofAll,",
+'save relay_url + sni_all')
 
 # ---- 8) UiTools ----
 print('\n[8] UiTools')
 patch_hard('main',
 "UiTools(items: [",
-"UiTools(items: [\n            UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),\n            UiTool(Icons.router, 'بازه‌های IP نت ملی', () => _natRangesDialog(context)),",
+"UiTools(items: [\n            UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),\n            UiTool(Icons.router, 'بازه‌های IP نت ملی', () => _natRangesDialog(context)),\n            UiTool(sniSpoofAll ? Icons.security : Icons.security_outlined, sniSpoofAll ? 'جعل SNI: روشن ✓' : 'جعل SNI: خاموش', () { setState(() => sniSpoofAll = !sniSpoofAll); _saveSettings(); _set(sniSpoofAll ? 'جعل SNI روشن شد: DPI فکر می‌کند سایت ایرانی هست' : 'جعل SNI خاموش شد'); }),",
 'UiTools buttons')
 
 # ---- 9) DIALER proxy ----
@@ -436,6 +436,7 @@ patch_hard('main',
         dataSaver = false;
         autoNetReconnect = true;
         preflightOn = true;
+        sniSpoofAll = false;
         await saveNumPrefs();
         await _saveSettings();
         dbg('V8-FRESH: default settings applied');
@@ -485,7 +486,7 @@ if not already:
     if not found:
         raise SystemExit('\n\nHARD FAIL: [resetAllToDefaults]\nFunction not found')
     fn, pos = found[0]
-    files[fn] = files[fn][:pos] + '\n' + MIGRATION_CODE + '\n    badPingMs = 2000;\n    natRound = 1;' + files[fn][pos:]
+    files[fn] = files[fn][:pos] + '\n' + MIGRATION_CODE + '\n    badPingMs = 2000;\n    natRound = 1;\n    sniSpoofAll = false;' + files[fn][pos:]
     print('  OK (%s): resetAllToDefaults patched' % fn)
 
 # ---- 15) pre-social-check ----
@@ -1810,11 +1811,14 @@ patch_hard('nat_ultra',
   return cfg;
 }
 
-// V13: automatically apply SNI swap if the host looks like a CF Worker.
-String _natSmartSni(String cfg, Server s) {
+// V13/V16: automatically apply SNI swap if the host is workers.dev
+// (always), or any CDN host when sniSpoofAll is on (V16).
+String _natSmartSni(String cfg, Server s, {bool forceAll = false}) {
   try {
     final h = s.host.toLowerCase();
-    if (!h.endsWith('workers.dev') && !h.endsWith('pages.dev')) return cfg;
+    final isWorker = h.endsWith('workers.dev') || h.endsWith('pages.dev');
+    final isCdn = isWorker || s.cdn;
+    if (!isWorker && !(forceAll && isCdn)) return cfg;
     final j = jsonDecode(cfg);
     if (j is! Map<String, dynamic>) return cfg;
     final outs = (j['outbounds'] as List?) ?? <dynamic>[];
@@ -1825,10 +1829,13 @@ String _natSmartSni(String cfg, Server s) {
       final tls = st['tlsSettings'];
       if (tls is! Map) continue;
       final current = (tls['serverName'] ?? '').toString().toLowerCase();
-      if (!current.endsWith('workers.dev') && !current.endsWith('pages.dev')) {
+      if (!isWorker &&
+          !current.endsWith('workers.dev') &&
+          !current.endsWith('pages.dev') &&
+          !current.isEmpty) {
         continue;
       }
-      tls['serverName'] = natFrontSnis[0]; // cdnjs.cloudflare.com
+      tls['serverName'] = natFrontSnis[0]; // cdnjs.cloudflare.com (or first Iran)
       tls['allowInsecure'] = true;
     }
     return jsonEncode(j);
@@ -1844,7 +1851,7 @@ patch_hard('nat_ultra',
 """String _natCfgRaw(Server s, int v, {bool reuse = false}) {
   var cfg = buildCoreConfig(_natLinkFor(s, v, reuse: reuse));
   if (v <= 0 || v >= _natSpecs.length) {
-    return _natSmartSni(cfg, s);
+    return _natSmartSni(cfg, s, forceAll: sniSpoofAll);
   }
   final x = _natSpecs[v];""",
 'P61b: apply smart SNI')
@@ -1990,6 +1997,30 @@ patch_hard('auto_test',
   for (final d in const [privDir, pubDir1, pubDir2, pubDir3]) {""",
 'V14: save report dirs')
 
+# ---- 66) V16: sniSpoofAll setting + normal-mode SNI spoof ----
+print('\n[66] V16: sniSpoofAll setting + normal-mode spoof')
+# Define the global variable
+patch_hard('main',
+"bool onlyHealthySrc = true;",
+"bool onlyHealthySrc = true;\nbool sniSpoofAll = false; // V16: apply SNI spoof to all CDN configs (normal mode too)",
+'V16: sniSpoofAll global')
+
+# In _startImpl, apply SNI spoof to normal-mode CDN configs
+patch_hard('main',
+"""      final cfg = proxyOnly
+          ? base
+          : _reliableVpnCfg(base);""",
+"""      var cfg = proxyOnly
+          ? base
+          : _reliableVpnCfg(base);
+      // V16: apply SNI spoof in normal mode when user enabled it.
+      // Only for CDN configs with TLS; safe for workers.dev always (handled
+      // inside _natSmartSni), other CDN only when sniSpoofAll is true.
+      if (!nationalMode && s.cdn && s.tls) {
+        cfg = _natApplySniSwap(cfg, 0); // cdnjs.cloudflare.com (first in list)
+      }""",
+'V16: apply SNI spoof in normal mode')
+
 # =====================================================================
 # Save
 # =====================================================================
@@ -1999,5 +2030,5 @@ for fn, content in files.items():
 
 print('\n' + '=' * 60)
 print('=== ALL PATCHES APPLIED ===')
-print('=== V15: SNI Spoofing with Iranian domains ===')
+print('=== V16: SNI spoof toggle for normal mode ===')
 print('=== BUILD SHOULD PROCEED ===')
