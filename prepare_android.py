@@ -195,8 +195,12 @@ for fn in os.listdir(LIB):
         files[fn[:-5]] = content
 print('Loaded %d dart files' % len(files))
 
+# =====================================================================
+# APPLY ALL PATCHES (V1..V19 consolidated)
+# =====================================================================
+
 # ---- 4) HOT PATH ----
-print('\n[4] hotPath V9 app-private')
+print('\n[4] hotPath')
 patch_hard('nat_ultra',
 """String _hotPath() {
   const dir = '/data/data/com.kingvpn.king_vpn/files';
@@ -418,7 +422,7 @@ patch_hard('main',
         onlyHealthySrc = true;
         ipMode = false;
         ultraMode = false;
-        indestructibleMode = true;
+        indestructibleMode = false;
         turboSpeed = true;
         fastDelay = true;
         iranRoute = true;
@@ -429,6 +433,7 @@ patch_hard('main',
         routeOnly = false;
         fragEnabled = false;
         muxEnabled = true;
+        muxConc = 128;
         secureDns = true;
         cleanIpMode = true;
         npvParse = true;
@@ -486,7 +491,7 @@ if not already:
     if not found:
         raise SystemExit('\n\nHARD FAIL: [resetAllToDefaults]\nFunction not found')
     fn, pos = found[0]
-    files[fn] = files[fn][:pos] + '\n' + MIGRATION_CODE + '\n    badPingMs = 2000;\n    natRound = 1;\n    sniSpoofAll = false;' + files[fn][pos:]
+    files[fn] = files[fn][:pos] + '\n' + MIGRATION_CODE + '\n    badPingMs = 2000;\n    natRound = 1;\n    sniSpoofAll = false;\n    muxConc = 128;' + files[fn][pos:]
     print('  OK (%s): resetAllToDefaults patched' % fn)
 
 # ---- 15) pre-social-check ----
@@ -1802,7 +1807,7 @@ patch_hard('nat_ultra',
 'P60: tiny fragments')
 
 # ---- 61) V13: smart SNI for workers.dev ----
-print('\n[61] V13: smart SNI for workers.dev')
+print('\n[61] V13: smart SNI')
 patch_hard('nat_ultra',
 """  if (x.sniSwap != null) cfg = _natApplySniSwap(cfg, x.sniSwap!);
   return cfg;
@@ -2025,27 +2030,20 @@ patch_hard('main',
 print('\n[67] V17: Mux 128')
 patch_hard('main',
 "int muxConc = 32;",
-"int muxConc = 64; // V17: default Mux concurrency = 64",
-'V17: Mux 64 default')
+"int muxConc = 128; // V17: default Mux concurrency = 128",
+'V17: Mux 128 default')
 
 patch_hard('iran_ai_extras',
 "const _muxOpts = <int>[4, 8, 16, 32];",
 "const _muxOpts = <int>[4, 8, 16, 32, 64, 128];",
 'V17: Mux 128 UI')
 
-patch_hard('iran_ai_extras',
-"""    if (muxEnabled && (net == 'tcp' || net == 'ws')) {
-        var flow = '';""",
-"""    if (muxEnabled && (net == 'tcp' || net == 'ws')) {
-        var flow = '';""",
-'V17: placeholder')
-
 patch_hard('main',
 """    muxConc = max(muxConc, 32);
     if (!nationalMode) fragEnabled = false;""",
-"""    muxConc = max(muxConc, 64);
+"""    muxConc = max(muxConc, 128);
     if (!nationalMode) fragEnabled = false;""",
-'V17: Mux 64 after connect')
+'V17: Mux 128 after connect')
 
 # ---- 68) V17: Auto-Reconnect (Throttle Escape) ----
 print('\n[68] V17: Auto-Reconnect Throttle Escape')
@@ -2085,6 +2083,73 @@ patch_hard('main',
                 (sp * 1024 < kSlowRelFloorKB && _bestSpeedStandbyForSlow() != null);""",
 'V17: throttle escape')
 
+# ---- 69) V19: Apply Best Settings per Mode ----
+print('\n[69] V19: _applyModePreset')
+# Add the function before _doConnect
+insert_before('main', '  Future<void> _doConnect({Server? only, String? row}) async {',
+"""  /// V19: reset settings to the best default for the selected mode.
+  void _applyModePreset(bool nat, bool offline, bool pilot) {
+    if (nat) {
+      // Best settings for National Network (Heavy bypass)
+      fragEnabled = true;
+      sniSpoofAll = true;
+      ultraMode = true;
+      indestructibleMode = true;
+      muxEnabled = true;
+      muxConc = 128;
+      badPingSwitch = true;
+      badPingMs = 2000;
+    } else if (pilot) {
+      // Best settings for Pilot (Auto)
+      fragEnabled = false;
+      sniSpoofAll = false;
+      ultraMode = true;
+      indestructibleMode = false;
+      muxEnabled = true;
+      muxConc = 128;
+      badPingSwitch = true;
+      badPingMs = 2000;
+    } else {
+      // Best settings for Normal Connect (Speed)
+      fragEnabled = false;
+      sniSpoofAll = false;
+      ultraMode = false;
+      indestructibleMode = false;
+      muxEnabled = true;
+      muxConc = 128;
+      badPingSwitch = true;
+      badPingMs = 2000;
+    }
+    _saveSettings();
+  }
+
+""", 'V19: _applyModePreset helper')
+
+# Apply the preset in _doConnect
+patch_hard('main',
+"""      natFloor = (natForce || nationalMode) ? 10 : 0;
+      natLevel = natFloor;
+      // V12: every user-initiated connect starts at round 1 (skip failed).
+      // Round 2 is only entered inside _findGood when pending is exhausted.
+      natRound = 1;""",
+"""      natFloor = (natForce || nationalMode) ? 10 : 0;
+      natLevel = natFloor;
+      // V12: every user-initiated connect starts at round 1 (skip failed).
+      // Round 2 is only entered inside _findGood when pending is exhausted.
+      natRound = 1;
+      // V19: apply the best preset for this specific connect mode.
+      _applyModePreset(nationalMode, offlineOnly, false);""",
+'V19: apply preset in _doConnect')
+
+# Apply preset in local pilot start
+patch_hard('main',
+"""  void startLocalPilot() {
+    ensureLocalPilotRunning();""",
+"""  void startLocalPilot() {
+    _applyModePreset(false, false, true); // V19: best settings for pilot
+    ensureLocalPilotRunning();""",
+'V19: apply preset in pilot')
+
 # =====================================================================
 # Save
 # =====================================================================
@@ -2094,5 +2159,5 @@ for fn, content in files.items():
 
 print('\n' + '=' * 60)
 print('=== ALL PATCHES APPLIED ===')
-print('=== V17: Mux 128, Throttle Escape, Domain Fronting ===')
+print('=== V19: Mode-specific presets, Mux 128, Throttle Escape ===')
 print('=== BUILD SHOULD PROCEED ===')
