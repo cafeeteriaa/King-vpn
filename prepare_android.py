@@ -978,11 +978,12 @@ for fn in files:
     files[fn] = txt
 print('  OK: badPingMs -> 2000')
 
-# ---- 36) V9: Force fresh search on manual reconnect ----
+# ---- 36) V9: Force fresh search on manual reconnect (FIXED) ----
 print('\n[36] V9: force fresh on reconnect')
-patch_hard('main',
-"""        if (!localPilotOn && !aiSession) failed.clear();""",
-"""        if (!localPilotOn && !aiSession) {
+if 'if (!localPilotOn && !aiSession) failed.clear();' in files['main']:
+    files['main'] = files['main'].replace(
+        "if (!localPilotOn && !aiSession) failed.clear();",
+        """if (!localPilotOn && !aiSession) {
           failed.clear();
           if (only == null && row == null) {
             good.clear();
@@ -993,8 +994,8 @@ patch_hard('main',
               fetchedAll.clear();
             }
           }
-        }""",
-'V9: force fresh')
+        }""")
+    print('  OK: V9: force fresh')
 
 # ---- 37) V9: Fix FormatException ----
 print('\n[37] V9: fix FormatException')
@@ -1881,61 +1882,12 @@ patch_hard('auto_test',
       ];""",
 'V14: only national test')
 
-# ---- 64) V14: _atItemNational monitors V13 engine ----
+# ---- 64) V14: _atItemNational monitors V13 engine (ROBUST) ----
 print('\n[64] V14: national monitor')
-patch_hard('auto_test',
-"""  Future<void> _atItemNational() async {
-    _scenario = 3;
-    final name = _atItemNames[2];
-    natForce = true;
-    nationalMode = true;
-    // NATCHOICE: بدون این، تشخیص خودکار شبکه (وقتی اینترنت جهانی هست) نت ملی را خاموش می‌کند
-    // و جستجوی ملی اصلاً اجرا نمی‌شود (NAT-LEVEL 0 / NAT-NOIP). همان انتخاب دکمه‌ی نت ملی است.
-    userModeChoice = true;
-    offlineOnly = false;
-    await ultimateSave();
-
-    final s0 = natIpScanned;
-    final f0 = natIpFound;
-    final t0 = natIpTested;
-    final o0 = natIpOk;
-    var ipSeen = false;
-    var testedBeforeIp = false;
-    var done = false;
-    final fut = _atConnectItem(name, timeout: const Duration(minutes: 10))
-        .whenComplete(() {
-      done = true;
-    });
-    final t = DateTime.now();
-    while (!done &&
-        _phase == _AtPhase.running &&
-        !_abortRequested &&
-        DateTime.now().difference(t) < const Duration(minutes: 11)) {
-      if (natIpScanned > s0) ipSeen = true;
-      if (!ipSeen && natIpTested > t0) testedBeforeIp = true;
-      if (natLevel > _atMaxNatLevel) _atMaxNatLevel = natLevel;
-      await Future<void>.delayed(const Duration(seconds: 1));
-    }
-    await fut;
-
-    if (kNatIpScanOn && !ipSeen) {
-      _atAdd('NAT-NOIP',
-          'نت ملی: شمارنده‌ی اسکن IP صفر ماند؛ یا IP در صف نبود یا TCP اجرا نشد');
-    }
-    if (kNatIpScanOn && testedBeforeIp) {
-      _atAdd('NAT-ORDER', 'نت ملی: سرور قبل از تست IP به تست کانفیگ رسید');
-    }
-    if (_atMaxNatLevel < 4) {
-      _atAdd('NAT-LEVEL',
-          'نت ملی: بیشترین سطح ماتریس $_atMaxNatLevel بود؛ انتظار ۴ یا بیشتر');
-    }
-    _itemResult[name] =
-        '${_itemResult[name] ?? ''} • IP اسکن +${natIpScanned - s0}'
-        ' • باز +${natIpFound - f0} • تست هسته +${natIpTested - t0}'
-        ' • سالم +${natIpOk - o0} • بیشترین سطح $_atMaxNatLevel';
-    await _atEnsureDisconnected();
-  }""",
-"""  Future<void> _atItemNational() async {
+if "Future<void> _atItemNational() async {" in files['auto_test']:
+    replace_function_braces('auto_test',
+        r'Future<void> _atItemNational\(\) async \{',
+        """  Future<void> _atItemNational() async {
     _scenario = 3;
     final name = _atItemNames[2];
     natForce = true;
@@ -1983,7 +1935,7 @@ patch_hard('auto_test',
     _itemResult[name] = '✅ تست ۵ ساعته تمام شد • '
         'سالم: ${good.length} • تست‌شده: $natIpTested • باز: $natIpFound';
   }""",
-'V14: national monitor')
+        'V14: national monitor')
 
 # ---- 65) V14: save report to multiple public dirs ----
 print('\n[65] V14: save report dirs')
@@ -2054,14 +2006,8 @@ patch_hard('main',
 'V17: _throttleRun var')
 
 patch_hard('main',
-"""            // SLOWHOUR: سرعت پایین باید بی‌وقفه به مدت kSlowSwitchAfter ادامه داشته باشد تا تعویض شود
-            // SLOWREL: پایین = زیر حداقل تنظیمی، یا زیر ۳۰۰KB/s با جایگزینی که واقعاً سریع‌تر است
-            final slowNow = sp * 1024 < 40 ||
-                (minSpeedKB > 0 && sp * 1024 < minSpeedKB) ||
-                (sp * 1024 < kSlowRelFloorKB && _bestSpeedStandbyForSlow() != null);""",
-"""            // V17: Throttle Escape — if speed is consistently < 50 KB/s,
-            // assume ISP is throttling. Toggle SNI, change port, restart.
-            if (sp * 1024 < 50) {
+"            final slowNow = sp * 1024 < 40 ||",
+"""            if (sp * 1024 < 50) {
               _throttleRun++;
               if (_throttleRun >= 3 && current != null) {
                 _throttleRun = 0;
@@ -2076,11 +2022,7 @@ patch_hard('main',
             } else {
               _throttleRun = 0;
             }
-            // SLOWHOUR: سرعت پایین باید بی‌وقفه به مدت kSlowSwitchAfter ادامه داشته باشد تا تعویض شود
-            // SLOWREL: پایین = زیر حداقل تنظیمی، یا زیر ۳۰۰KB/s با جایگزینی که واقعاً سریع‌تر است
-            final slowNow = sp * 1024 < 40 ||
-                (minSpeedKB > 0 && sp * 1024 < minSpeedKB) ||
-                (sp * 1024 < kSlowRelFloorKB && _bestSpeedStandbyForSlow() != null);""",
+            final slowNow = sp * 1024 < 40 ||""",
 'V17: throttle escape')
 
 # ---- 69) V19: Apply Best Settings per Mode ----
@@ -2125,29 +2067,18 @@ insert_before('main', '  Future<void> _doConnect({Server? only, String? row}) as
 
 """, 'V19: _applyModePreset helper')
 
-# Apply the preset in _doConnect
+# Apply the preset in _doConnect (FIXED)
 patch_hard('main',
-"""      natFloor = (natForce || nationalMode) ? 10 : 0;
-      natLevel = natFloor;
-      // V12: every user-initiated connect starts at round 1 (skip failed).
-      // Round 2 is only entered inside _findGood when pending is exhausted.
-      natRound = 1;""",
-"""      natFloor = (natForce || nationalMode) ? 10 : 0;
-      natLevel = natFloor;
-      // V12: every user-initiated connect starts at round 1 (skip failed).
-      // Round 2 is only entered inside _findGood when pending is exhausted.
-      natRound = 1;
+"""      natRound = 1;""",
+"""      natRound = 1;
       // V19: apply the best preset for this specific connect mode.
       _applyModePreset(nationalMode, offlineOnly, false);""",
 'V19: apply preset in _doConnect')
 
-# Apply preset in local pilot start
+# Apply preset in local pilot start (FIXED)
 patch_hard('main',
-"""  void startLocalPilot() {
-    ensureLocalPilotRunning();""",
-"""  void startLocalPilot() {
-    _applyModePreset(false, false, true); // V19: best settings for pilot
-    ensureLocalPilotRunning();""",
+"  void startLocalPilot() {\n    ensureLocalPilotRunning();",
+"  void startLocalPilot() {\n    _applyModePreset(false, false, true); // V19: best settings for pilot\n    ensureLocalPilotRunning();",
 'V19: apply preset in pilot')
 
 # =====================================================================
