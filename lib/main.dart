@@ -80,11 +80,10 @@ const bgChannel = MethodChannel('vpn/bg');
 bool _bgAliveUnsupported = false;
 bool poolStop = false; // ABORTPOOL: stop taking new items in parallel tests // ALIVEONCE: native side has no 'alive' handler
 // parallel ping tests while connected (settings 1..6).
-int bgWorkers = 1; // تست همزمان (وقتی وصل است) — پیش‌فرض ۱
+int bgWorkers = 3; // تست همزمان (وقتی وصل است) — پیش‌فرض ۳
 // BGPAR: تعداد تست همزمان وقتی وصلیم = تنظیم «تست همزمان (وقتی وصل است)» (۱ تا ۳)
 // CPUGOV: وقتی CPU خود برنامه داغ است فقط ۱ تست همزمان؛ تنظیم کاربر (bgWorkers) هم رعایت می‌شود
-int _bgPar() =>
-    min(bgWorkers < 1 ? 1 : bgWorkers, cpuHot >= 1 ? 1 : (_appFg ? 3 : 2));
+int _bgPar() => min(bgWorkers < 1 ? 1 : bgWorkers, _appFg ? 3 : 2);
 
 // CPUGOV: مصرف CPU خود برنامه (همه‌ی ترد‌ها، از جمله هسته‌ی Xray داخل همین پردازه) از
 // /proc/self/stat. اندروید پردازه‌ای را که میانگین CPU آن در ۵ دقیقه از ~۲۵٪ بالاتر برود
@@ -150,13 +149,13 @@ Future<void> _cpuTick() async {
 const int kStandbyWorkers = 1;
 // STANDBY20: وقتی وصلیم، جستجوی یکی‌یکی تا ۲۰ سرور سالم ادامه دارد؛ به ۲۰ که رسید خاموش
 // می‌شود و وقتی سالم‌ها زیر ۵ آمد دوباره خودکار روشن می‌شود
-const int kStandbyPause = 3; // هدف همیشگی: ۵ سرور سالم، از اولین جستجو تا آخر
+const int kStandbyPause = 5; // هدف همیشگی: ۵ سرور سالم، از اولین جستجو تا آخر
 // STATE: بعد از اولین پرشدن، با هر بار زیر ۵ آمدن فقط تا ۵ سالم جستجو می‌شود و بعد می‌ایستد
 bool standbyFilled = false;
 int standbyGoal() => kStandbyPause; // ۵ سالم، همیشه
 // STANDBY-FIX: the search resumes as soon as the healthy count drops below 20 (it used
 // to wait until the count fell to 5, so with 7-8 healthy servers it never searched again)
-const int kStandbyResume = 3; // RESUME5: وقتی سالم‌ها زیر ۵ آمد جستجو دوباره روشن می‌شود
+const int kStandbyResume = 5; // RESUME5: وقتی سالم‌ها زیر ۵ آمد جستجو دوباره روشن می‌شود
 // FG-TARGET: جستجوی اصلی (غیر ملی) تا این تعداد سرور سالم تست می‌کند
 const int kFgSearchTarget = 1; // V13: connect immediately on first healthy // FG5: تست سریع با ۵ سالم تمام می‌شود و وصل می‌شود
 // FASTONE: تست سریع (جستجوی اصلی) فقط یک دسته را کامل تست می‌کند. اگر آن دسته
@@ -166,7 +165,7 @@ const int kFastBatchesPerSearch = 1;
 bool standbyPaused = false;
 // FAST SEARCH: parallel ping tests (core delay test, no VPN toggling) used
 // when looking for the first healthy server (settings 1..8).
-int fastWorkers = 5; // FAST100 (تست همزمان جستجوی اول = ۵): بیست تست هم‌زمان برای غربال دسته ۱۰۰تایی
+int fastWorkers = 3; // FAST100 (تست همزمان جستجوی اول = ۳)
 // a healthy server not checked for this long is pinged again (occasional
 // re-check, the server stays in the list until it really fails)
 Duration recheckAfter = const Duration(minutes: 4);
@@ -341,7 +340,7 @@ bool autoUpgrade = true; // BEST: حین اتصال دنبال سرور بهتر
 int minPingMs = 0;
 // connected server has a terrible ping -> jump at once to the best-ping server
 bool badPingSwitch = true; // BEST: پینگ افتضاح → تعویض
-int badPingMs = 2000; // V9 // پینگ بد از ۱۷۰۰ms = تعویض
+int badPingMs = 3000; // V9 // پینگ بد از ۳۰۰۰ms = تعویض
 // BADPINGLOOP: when every server a quick test finds has a bad ping (> badPingMs),
 // the next quick parallel test starts at once, and so on. After
 // [badPingMaxRounds] such rounds in a row the loop gives up being picky (so a
@@ -1963,6 +1962,8 @@ String _dbgProbText() {
     'E-PREFLIGHT-WEAK', 'E-SITE-CHECK',
     // SERVERSKIP: رد شدن عادی یک سرور و رفتن به سرور بعدی
     'E-SERVER-SKIP',
+    // SHORTCONN: اتصال کوتاه (زیر ۶۰ ثانیه) فقط اطلاعاتی است
+    'E-SHORT-CONN',
   };
   final allP = dbgProbs.values.toList();
   var infoN = 0;
@@ -2517,6 +2518,23 @@ String sanitizeCfg(String cfg) {
         tls['serverName'] = host3;
         changed = true;
       }
+    }
+    // PERF: TFO + NoDelay + KeepAlive + MSS برای همه‌ی کانفیگ‌ها
+    // (قبلاً فقط در ماتریس نت ملی اعمال می‌شد؛ حالا پایه‌ی همه)
+    for (final o in outs) {
+      if (o is! Map) continue;
+      final st = o['streamSettings'];
+      if (st is! Map) continue;
+      final so = st['sockopt'] is Map
+          ? st['sockopt'] as Map
+          : <String, dynamic>{};
+      // فقط اگر خود کانفیگ مقدار متفاوتی نداده
+      so['tcpFastOpen'] = so['tcpFastOpen'] ?? true;
+      so['tcpNoDelay'] = so['tcpNoDelay'] ?? true;
+      so['tcpKeepAliveInterval'] = so['tcpKeepAliveInterval'] ?? 15;
+      so['tcpMaxSeg'] = so['tcpMaxSeg'] ?? 1400;
+      st['sockopt'] = so;
+      changed = true; // وگرنه تغییرات بالا در خروجی نمی‌آمد
     }
     return changed ? jsonEncode(j) : cfg;
   } catch (_) {
@@ -3596,7 +3614,7 @@ int natAdaptiveWorkers() {
     return 8;
   }
 }
-const int kNatDelayConcurrency = 4;
+const int kNatDelayConcurrency = 3;
 // فیکس ۵: سقف تست همزمان در حالت عادی (نت جهانی)
 const int kFastGateCeil = 16;
 // GATEFIX: سقف امن تست همزمان روی یک هسته (با DELAY_THREADS = 3 هم‌خوان)
@@ -3864,7 +3882,7 @@ String kVpnLastStateTop = ''; // TUNSTATE-FIX: آینه‌ی سراسری lastSt
 String tunNames = ''; // interface names seen by the last tunUp() (diagnostics)
 Future<bool?> tunUp() async {
   try {
-    for (var attempt = 0; attempt < 3; attempt++) {
+    for (var attempt = 0; attempt < 5; attempt++) {
       final l = await NetworkInterface.list(includeLoopback: false);
       tunNames = l.map((i) => i.name).join(',');
       final hasTunnel = l.any((i) {
@@ -3877,8 +3895,9 @@ Future<bool?> tunUp() async {
             n.contains('v2ray');
       });
       if (hasTunnel) return true;
-      if (attempt < 2) await Future.delayed(const Duration(milliseconds: 800));
+      if (attempt < 4) await Future.delayed(const Duration(milliseconds: 800));
     }
+    // kVpnLastStateTop آینه‌ی lastState است (tunUp سراسری است و به فیلد کلاس دسترسی ندارد)
     if (kVpnLastStateTop == 'CONNECTED') return true;
     return false;
   } catch (_swE) {
@@ -4664,7 +4683,7 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-bool sniSpoofAll = false; // V16: apply SNI spoof to all CDN configs (normal mode too)
+bool sniSpoofAll = true; // V16: apply SNI spoof to all CDN configs (normal mode too)
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   late final V2ray v2ray;
@@ -4728,6 +4747,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool appGone = false;
   DateTime lastSwitch = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime lastStandby = DateTime.fromMillisecondsSinceEpoch(0);
+  int _ladderUsedThisConnect = 0; // سقف نردبان در هر اتصال
   DateTime lastUpgrade = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime lastFetchTry = DateTime.fromMillisecondsSinceEpoch(0);
   Timer? watch, tick, dropTimer, saveT;
@@ -5591,35 +5611,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await p.setBool(k, true);
         }
         await p.setBool('autotune_on2', false);
-        for (final o in numOpts) { o.set(o.def); }
-        badPingMs = 2000;
+        resetNumbers();
         fwUserSet = false;
-        fwUserValue = 5;
-        autoTune = false;
-        proxyMode = false;
-        onlyHealthySrc = true;
-        ipMode = false;
-        ultraMode = false;
-        indestructibleMode = false;
+        fwUserValue = 3;
+        indestructibleMode = true;
+        muxConc = 128;
+        fragEnabled = false;
+        muxEnabled = true;
+        cleanIpMode = true;
+        npvParse = true;
         turboSpeed = true;
         fastDelay = true;
         iranRoute = true;
-        iranGeoip = false;
-        iranMore = true;
         blockQuic = true;
         lanDirect = true;
-        routeOnly = false;
-        fragEnabled = false;
-        muxEnabled = true;
-        muxConc = 128;
         secureDns = true;
-        cleanIpMode = true;
-        npvParse = true;
-        offlineOnly = false;
-        dataSaver = false;
         autoNetReconnect = true;
         preflightOn = true;
-        sniSpoofAll = false;
+        sniSpoofAll = true;
         await saveNumPrefs();
         await _saveSettings();
         dbg('V8-FRESH: default settings applied');
@@ -5679,7 +5688,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           iranGeoip = j['ig'] as bool? ?? iranGeoip;
           npvParse = j['npv'] as bool? ?? npvParse;
           relayServerUrl = j['relay_url'] as String? ?? '';
-          sniSpoofAll = j['sni_all'] as bool? ?? false;
+          sniSpoofAll = j['sni_all'] as bool? ?? true;
           cleanIpMode = j['cip'] as bool? ?? cleanIpMode;
           fragEnabled = j['frg'] as bool? ?? fragEnabled;
           // Mux برای توربو سرعت بعد از اتصال روشن می‌ماند
@@ -5740,14 +5749,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // once, so the app keeps finding servers that are as fast as before.
       if (p.getBool('restore_speed_v1') != true) {
         autoUpgrade = true;
-        bgWorkers = 1;
+        bgWorkers = 3;
         await p.setBool('restore_speed_v1', true);
         await _saveSettings();
       }
       // BEST-DEFAULTS v4 (یک‌بار): تست همزمان جستجوی اول = ۷، دانلود همزمان لیست‌ها = ۸،
       // مهلت دانلود = ۴۵ ثانیه.
       if (p.getBool('best_defaults_v4') != true) {
-        fastWorkers = 5;
+        fastWorkers = 3;
         fetchWorkers = 8;
         fetchDeadline = const Duration(seconds: 45);
         await p.setBool('best_defaults_v4', true);
@@ -5756,8 +5765,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       // FW5 v1: تست همزمان جستجوی اول = ۵ (یک‌بار؛ بعد از آن تنظیم کاربر می‌ماند)
       if (p.getBool('fw5_v1') != true) {
-        fastWorkers = 5;
-        fwUserValue = 5;
+        fastWorkers = 3;
+        fwUserValue = 3;
         fwUserSet = false;
         await p.setBool('fw5_v1', true);
         await saveNumPrefs();
@@ -5894,15 +5903,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (p.getBool('defsync_v2') != true) {
         resetNumbers();
         fwUserSet = false;
-        fwUserValue = 5;
-        fastWorkers = 5;
+        fwUserValue = 3;
+        fastWorkers = 3;
         await p.setBool('defsync_v2', true);
         await saveNumPrefs();
         await _saveSettings();
       }
       // BADPING1700 v1: «پینگ بد از» = ۱۷۰۰ms (یک‌بار برای نصب‌های قبلی)
       if (p.getBool('badping2000_v1') != true) {
-        badPingMs = 2000;
+        badPingMs = 3000;
         await p.setBool('badping2000_v1', true);
         await saveNumPrefs();
         await _saveSettings();
@@ -6581,7 +6590,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // BATCHFIT: national tests run one server at a time through the single
         // core, so a big batch cannot finish inside the 4-minute watchdog.
         // BATCH100: همه‌ی مسیرها به‌جز نت ملی دسته‌ی ۱۰۰تایی دارند (اولی، عادی و پس‌زمینه)
-        final size = nationalMode ? min(size0, 15) : 100;
+        final size = nationalMode ? min(size0, 8) : 100;
         // PERF: sorting the whole queue on every batch froze the UI (E-LOOP-FREEZE)
         if (batches == 1 || batches % 8 == 0) {
           await Future<void>.delayed(Duration.zero); // LOOPFREEZE: let the UI breathe
@@ -6931,9 +6940,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (nationalMode) {
       gateMax = kNatDelayConcurrency;
     } else if (cpuHot >= 2) {
-      gateMax = 1;
-    } else if (cpuHot >= 1) {
-      gateMax = 3;
+      gateMax = max(1, fastWorkers.clamp(1, kFastGateCeil) ~/ 2);
     } else {
       gateMax = fastWorkers.clamp(1, kFastGateCeil);
     }
@@ -7003,10 +7010,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // and the live-quiet wait comes before it, so the watchdog must cover both.
       // The old value (timeout+8 = 24 s) fired before those inner limits on slow
       // servers and produced E-WATCHDOG on every working-but-slow server.
-      final wdSecs = (nationalMode
-              ? 150
-              : _fgTimeout.inSeconds + 5 + 12) +
-          wdQueue;
+      final liveQuietWait =
+          (connected && wantVpn && _liveQuietUntil != null) ? 95 : 0;
+      final wdSecs = (nationalMode ? 150 : _fgTimeout.inSeconds + 5 + 12) +
+          wdQueue +
+          liveQuietWait;
       final d0 = await _delayOf(s, t: _fgTimeout).timeout(
           Duration(seconds: wdSecs),
           onTimeout: () {
@@ -7557,7 +7565,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     if (!wantVpn || abort || upBusy || appGone) return;
     // DATASAVE: while connected, background re-checks run at most every 10 minutes
-    if (connected && DateTime.now().difference(lastStandby) < const Duration(minutes: 10)) return;
+    if (connected && DateTime.now().difference(lastStandby) < const Duration(seconds: 20)) return;
     // let the new connection settle before any background test runs
     if (DateTime.now().difference(lastSwitch) < const Duration(seconds: 25)) {
       return;
@@ -7743,12 +7751,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       var cfg = proxyOnly
           ? base
           : _reliableVpnCfg(base);
-      // V16: apply SNI spoof in normal mode when user enabled it.
-      // Only for CDN configs with TLS; safe for workers.dev always (handled
-      // inside _natSmartSni), other CDN only when sniSpoofAll is true.
-      if (!nationalMode && s.cdn && s.tls) {
-        cfg = _natApplySniSwap(cfg, 0); // cdnjs.cloudflare.com (first in list)
-      }
       // NO_ACTIVITY: requestPermission needs a live Activity. Skip/catch when
       // the app is in background so parallel starts do not spam PlatformException.
       if (!po) {
@@ -7962,6 +7964,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             t = await tunUp();
           }
         }
+        if (ready && t == false && lastState != 'CONNECTED') {
+          lastFail = 'هسته بعد از اتصال قطع شد (کرش/بستن سرویس)';
+        }
         if (ready && t != false) break;
         // no core / no VPN tunnel: restart the VPN once
         if (attempt == 0) {
@@ -8067,7 +8072,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         lastFail = !ready
             ? 'هسته به حالت CONNECTED نرسید (کانفیگ را هسته نپذیرفت؟)'
             : (t == false
-                ? 'اندروید تونل VPN نساخت (tun پیدا نشد)'
+                ? (lastState != 'CONNECTED'
+                    ? 'هسته بعد از اتصال قطع شد (کرش/بستن سرویس)'
+                    : 'اندروید تونل VPN نساخت (tun پیدا نشد)')
                 : 'وضعیت تونل اندروید قابل تأیید نبود');
         lastStartNoTunnel = true;
         await _stopCore();
@@ -8279,13 +8286,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // tunnel. Expanded for ultraMode: tries many more ranked variants so a
   // server that almost works is not discarded after one failed traffic check.
   Future<bool> _natLadder(Server s,
-      {Future<bool> Function()? socialGate}) async {
-    // NATLADDERONLY: نردبان حالت‌های نت ملی فقط در نت ملی؛ اتصال عادی سرور بعدی را امتحان می‌کند
-    if (!nationalMode) return false;
+      {Future<bool> Function()? socialGate, int? maxTries}) async {
     final first = natVarFor(s);
-    // IPSWEEP-PROJECT: اگر لیست IP تمیز خالی است، IPها با ترافیک تونل سنجیده می‌شوند
-    // و فقط IPهای ترافیک‌دار نگه داشته می‌شوند. اگر هیچ سرور پشت کلودفلر نبود، لیست ساده ساخته می‌شود.
-    if (socialGate != null && cleanIps.isEmpty) {
+    // IPSWEEP-PROJECT: فقط در نت ملی
+    if (nationalMode && socialGate != null && cleanIps.isEmpty) {
       final w = await _atIpSweep(_usable(), const Duration(minutes: 20));
       if (w.isNotEmpty) {
         cleanIps = List<CleanIp>.of(w);
@@ -8297,50 +8301,42 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     try {
       final tried = <int>{first};
-      // NATSKIP: نت ملی ۶ حالت؛ سروری که با ۶ حالت ترافیک نداد زودتر کنار می‌رود
-      final takeN = nationalMode
-          ? 6
-          : (indestructibleMode ? 12 : (ultraMode ? 8 : 4));
+      final takeN = maxTries ??
+          (nationalMode ? 6 : (ultraMode ? 6 : 3));
       final cand = _natOrder(s, full: true)
           .where((c) => c < _natCodeBase)
-          // با بررسی ترافیک تونل فقط حالت‌های جایگزین امتحان می‌شوند (همان مجموعه‌ی تست)
-          .where((c) => socialGate == null || _atIsSubst(c))
+          .where((c) =>
+              !nationalMode || socialGate == null || _atIsSubst(c))
           .where((v) => tried.add(v))
           .take(takeN)
           .toList();
       for (final v in cand) {
         if (abort || !wantVpn) break;
         _set('اتصال به ${s.name} با حالت «${_natSpecs[v].name}»...');
-        // DNSPRE: اگر آدرس DoH این حالت از گوشی باز نیست، امتحانش نمی‌کنیم
         if (!await natDohUsable(v)) {
           dbg('نردبان: DNS حالت «${_natSpecs[v].name}» از گوشی باز نیست؛ رد شد');
           continue;
         }
-        natVar[_nk(s)] = v; // _start() reads the variant through natVarFor
-        natTryCount[v] = (natTryCount[v] ?? 0) + 1; // NATCOUNT
+        natVar[_nk(s)] = v;
+        natTryCount[v] = (natTryCount[v] ?? 0) + 1;
         if (!await _start(s)) continue;
         final p = await pingAny(
             total: Duration(seconds: nationalMode ? 12 : 9), direct: true);
-        // SOCIALGATE: a variant whose ping works but whose Telegram does not
-        // is not a good variant; the next one is tried instead (the old code
-        // accepted it, then rejected the server, then tried it again)
-        // GATE-DECIDES: اگر بررسی ترافیک (socialGate) داده شده، همان تصمیم است؛
-        // وگرنه ping از تونل ملاک است. (همان منطق تست جایگزین)
-        final accepted = socialGate != null ? await socialGate() : p != null;
+        final accepted =
+            socialGate != null ? await socialGate() : p != null;
         if (!accepted) {
           dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» ترافیک تونل نداد؛ حالت بعدی');
           await _stopV2();
           continue;
         }
         natVarSet(s, v);
-        natWinCount[v] = (natWinCount[v] ?? 0) + 1; // NATCOUNT
+        natWinCount[v] = (natWinCount[v] ?? 0) + 1;
         dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» از تونل واقعی جواب داد');
         return true;
       }
     } catch (e, stk) {
       logError(e, stk);
     }
-    // nothing worked: forget the variant that only passed the core test
     natVar.remove(_nk(s));
     return false;
   }
@@ -8545,12 +8541,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await _stopV2();
           // NATLADDER: the variant that passed the core test carried no real
           // traffic: try the next ranked variants of the SAME server first
-          if ((nationalMode || ultraMode || indestructibleMode) &&
-              !abort &&
-              wantVpn &&
-              await _natLadder(s)) {
-            _onConnected(s);
-            return true;
+          if (!abort && wantVpn && _ladderUsedThisConnect < 2) {
+            _ladderUsedThisConnect++;
+            if (await _natLadder(s,
+                socialGate: _tunnelTrafficOk, maxTries: 3)) {
+              _onConnected(s);
+              return true;
+            }
           }
           final ip1 = await resolveHostIp(s.host);
           dbg(configFailMsg(
@@ -8591,9 +8588,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // NATTUN: در نت ملی، همان حالت‌های جایگزین را روی همین سرور با اتصال واقعی امتحان می‌کنیم.
           // هر حالتی که ترافیک تونل را رد کند، ذخیره می‌شود؛ وگرنه سرور رد می‌شود.
           var ladderOk = false;
-          if (nationalMode) {
+          if (!abort && wantVpn && _ladderUsedThisConnect < 2) {
+            _ladderUsedThisConnect++;
             await _stopV2();
-            ladderOk = await _natLadder(s, socialGate: _tunnelTrafficOk);
+            ladderOk = await _natLadder(s,
+                socialGate: _tunnelTrafficOk, maxTries: 3);
             if (abort) return false;
           }
           if (ladderOk) {
@@ -10013,6 +10012,7 @@ ListTile( // KINGEXTRAS row
   // SPEEDDEFAULT: هر مسیر اتصال عادی (غیر ملی) تست سرعت برتر را اجرا کند، نه فقط دکمه‌ی اتصال
   Future<bool> _acquire({bool strictRow = false, bool? speed}) async {
     _acquiring = true;
+    _ladderUsedThisConnect = 0;
     try {
       return await _acquireInner(strictRow: strictRow, speed: speed ?? (autoSpeed && !nationalMode));
     } finally {
@@ -10083,7 +10083,7 @@ ListTile( // KINGEXTRAS row
         }
       } else if (round > 0 && round % 2 == 0) {
         await _natEscalate(round);
-      } else if (nationalMode) {
+      } else if (nationalMode && pending.isEmpty) {
         await _natScanOnly();
       }
       if (abort) return false;
@@ -10214,6 +10214,11 @@ ListTile( // KINGEXTRAS row
       // Always verify tunnel ping so apps (Telegram, …) really work.
       // trust:false = one quick ping through the tunnel before accepting.
       if (abort) return false;
+      // نت ملی: تازه‌ترین سرور سالم اول وصل شود
+      if (nationalMode) {
+        list.sort((a, b) => (b.checkedAt?.millisecondsSinceEpoch ?? 0)
+            .compareTo(a.checkedAt?.millisecondsSinceEpoch ?? 0));
+      }
       if (await _connectLoop(list, trust: false)) return true;
       if (nationalMode && await _natIpHunt()) return true; // NIPHUNT
       if (abort) return false;
@@ -10227,10 +10232,16 @@ ListTile( // KINGEXTRAS row
   Future<bool> _ensureBattery() async {
     try {
       if (!Platform.isAndroid) return true;
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool('battery_ok') == true) return true;
       final st = Permission.ignoreBatteryOptimizations;
-      if (await st.isGranted) return true;
+      if (await st.isGranted) {
+        await prefs.setBool('battery_ok', true);
+        return true;
+      }
       _set('لطفاً در پنجره‌ی باز شده روی «اجازه» بزن...');
       final r = await st.request();
+      if (r.isGranted) await prefs.setBool('battery_ok', true);
       return r.isGranted;
     } catch (e, stk) {
       logError(e, stk);
@@ -10255,27 +10266,22 @@ ListTile( // KINGEXTRAS row
       muxEnabled = true;
       muxConc = 128;
       badPingSwitch = true;
-      badPingMs = 2000;
     } else if (pilot) {
       // Best settings for Pilot (Auto)
       fragEnabled = false;
-      sniSpoofAll = false;
       ultraMode = true;
       indestructibleMode = false;
       muxEnabled = true;
       muxConc = 128;
       badPingSwitch = true;
-      badPingMs = 2000;
     } else {
       // Best settings for Normal Connect (Speed)
       fragEnabled = false;
-      sniSpoofAll = false;
       ultraMode = false;
       indestructibleMode = false;
       muxEnabled = true;
       muxConc = 128;
       badPingSwitch = true;
-      badPingMs = 2000;
     }
     _saveSettings();
   }
@@ -10284,6 +10290,7 @@ ListTile( // KINGEXTRAS row
     // ADFIRST (جدید): اول تبلیغ، بعد اتصال. اگر تبلیغ کامل دیده نشود، اتصالی ساخته نمی‌شود
     if (!await _ensureSession()) {
       _set('تبلیغ کامل دیده نشد؛ اتصال انجام نشد');
+      if (_automationRunning) wantVpn = false;
       return;
     }
     _uiJoinShown = false; // جدید: پیام عضویت بعد از هر اتصال
@@ -10423,7 +10430,7 @@ ListTile( // KINGEXTRAS row
         _resInject();
         await _checkSaved();
         if (nationalMode) {
-          await _natMergeCache();
+          if (pending.isEmpty) await _natMergeCache();
           final hasTpl = pending.isNotEmpty || natRestPending.isNotEmpty ||
               natTemplateSeeds.isNotEmpty || good.isNotEmpty;
           if (pending.isEmpty && hasTpl) {
@@ -12001,10 +12008,8 @@ ListTile( // KINGEXTRAS row
       s.link.toLowerCase().startsWith('ss://') && s.name.toLowerCase().contains('t.me/');
 
   int _cmpPending(Server a, Server b) {
-    if (nationalMode) {
-      final nx = _natRank(b) - _natRank(a); // NATIONALPATCH
-      if (nx != 0) return nx;
-    }
+    final nx = _natRank(b) - _natRank(a);
+    if (nx != 0) return nx;
     if (selCountry != null) {
       final x = (b.country == selCountry ? 1 : 0) -
           (a.country == selCountry ? 1 : 0);
@@ -12238,9 +12243,8 @@ ListTile( // KINGEXTRAS row
       dbg('اتصال ≈${d}s دوام داشت • علت تعویض: '
           '${lastWhy.isEmpty ? '-' : lastWhy} • آخرین خطای شروع: '
           '${lastFail.isEmpty ? '-' : lastFail}');
-      if (d < 300 && wantVpn && !switching) {
-        dbg('⚠ اتصال زود قطع شد: ${d}s • علت: '
-            '${lastWhy.isEmpty ? '-' : lastWhy}');
+      if (d < 60 && wantVpn && !switching && lastWhy.isNotEmpty && !_ownStopNow()) {
+        dbg('اتصال زود قطع شد: ${d}s • علت: $lastWhy');
       }
     }
 
@@ -12327,16 +12331,23 @@ ListTile( // KINGEXTRAS row
     final orphaned = wantVpn && !connected && !busy && !switching &&
         !(dropTimer?.isActive ?? false) && !_acquiring && !searching &&
         lastState != 'CONNECTED';
-    _insWarn('orph', orphaned, 45,
+    // E-ORPHAN: فقط وقتی اپ در پیش‌زمینه است و تبلیغ/دیالوگ در حال نمایش نیست هشدار بده
+    _insWarn('orph', orphaned && inForeground && _uiJoinDone == null, 45,
         'اتصال خواسته شده ولی هیچ کاری برای آن در حال انجام نیست');
     // E-ORPHAN self-heal: after ~45s still wanting VPN with nothing running → failover
     // LOOPFIX: the self-heal used to fire again every ~50 s, and each failover
     // restarted (and cancelled) the national search, so it never finished.
     // Now it fires at most once per 3 minutes.
-    if (orphaned && now.difference(_insSince['orph'] ?? now).inSeconds >= 45 &&
+    // ردیاب جدا برای خودترمیمی (هشدار بالا فقط در پیش‌زمینه است؛ خودترمیمی مستقل می‌ماند)
+    if (orphaned) {
+      _insSince.putIfAbsent('orphHeal', () => now);
+    } else {
+      _insSince.remove('orphHeal');
+    }
+    if (orphaned && now.difference(_insSince['orphHeal'] ?? now).inSeconds >= 45 &&
         (_lastOrphanHeal == null ||
             now.difference(_lastOrphanHeal!).inSeconds >= 180)) {
-      _insSince.remove('orph');
+      _insSince.remove('orphHeal');
       _lastOrphanHeal = now;
       lastWhy = 'خودترمیمی: اتصال یتیم';
       dbg('خودترمیمی: اتصال یتیم >45s؛ _failover()');
@@ -13527,7 +13538,7 @@ UiHero(
                     ? () => disconnect()
                     : () async {
                           aiSession = false;
-                          await pickEngineThenStart(() => connect(), askMode: true, skipEngine: true);
+                          await pickEngineThenStart(() => connect(), askMode: false, skipEngine: true);
                         },
           ),
           if (busy)
@@ -13616,7 +13627,7 @@ UiHero(
           UiTools(items: [
             UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),
             UiTool(Icons.router, 'بازه‌های IP نت ملی', () => _natRangesDialog(context)),
-            UiTool(sniSpoofAll ? Icons.security : Icons.security_outlined, sniSpoofAll ? 'جعل SNI: روشن ✓' : 'جعل SNI: خاموش', () { setState(() => sniSpoofAll = !sniSpoofAll); _saveSettings(); _set(sniSpoofAll ? 'جعل SNI روشن شد: DPI فکر می‌کند سایت ایرانی هست' : 'جعل SNI خاموش شد'); }),
+            UiTool(sniSpoofAll ? Icons.security : Icons.security_outlined, sniSpoofAll ? 'جعل SNI: روشن ✓' : 'جعل SNI: خاموش', () { setState(() => sniSpoofAll = !sniSpoofAll); _saveSettings(); _set(sniSpoofAll ? 'جعل SNI روشن شد: جعل SNI برای کانفیگ‌های CDN+TLS (پیشنهادی برای ایران)' : 'جعل SNI خاموش شد'); }),
             UiTool(Icons.support_agent, 'ارتباط با ادمین', () => _uiOpenAdmin(context)),
             UiTool(Icons.link, 'لینک‌های اشتراک کانفیگ', () => _userListsDialog(context)),
             UiTool(Icons.tune, 'پروفایل‌ها', () => _profilesSheet()),

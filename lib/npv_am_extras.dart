@@ -15,7 +15,7 @@ bool lanDirect = true;
 bool routeOnly = false;
 String fragLen = '100-200';
 String fragInt = '10-20';
-int muxConc = 128; // V17: default Mux concurrency = 128
+int muxConc = 32; // default Mux concurrency = 32 (۱۲۸ باعث HOL blocking می‌شد)
 String dnsProv = 'auto';
 String dnsProvActive = 'cloudflare';
 DateTime? _dnsPickAt;

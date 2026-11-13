@@ -699,6 +699,14 @@ const List<int> _natGenCap = [
   0, 0, 100, 500, 1500, 4000, 8000, 15000, 20000, 30000, 40000
 ];
 
+// فقط mKCP (UDP) «سنگین و کند» حساب می‌شود؛ Fragment و بقیه در اتصال عادی مجازند
+bool _natIsSlowHeavy(int v) {
+  final base = v % _natCodeBase;
+  if (base <= 0 || base >= _natSpecs.length) return false;
+  final x = _natSpecs[base];
+  return x.mode != null && x.mode!.startsWith('kcp:');
+}
+
 List<int> _natOrder(Server s, {bool full = false}) {
   goldPrepareNational();
   var lvl = full ? 3 : natLevel;
@@ -718,7 +726,7 @@ List<int> _natOrder(Server s, {bool full = false}) {
   final skipHeavy = !nationalMode;
 
   final knownOk = known != null && _natAppliesF(f, known);
-  if (knownOk && (!skipHeavy || !natIsHeavy(known!))) put(known!);
+  if (knownOk && (!skipHeavy || !_natIsSlowHeavy(known!))) put(known!);
 
   if (preferLight) {
     // V13: try SNI-swap variants first on CDN configs (bypasses SNI DPI).
@@ -744,7 +752,7 @@ List<int> _natOrder(Server s, {bool full = false}) {
 
   if (lvl >= 2) {
     for (final w in _natTopWinners(6)) {
-      if (skipHeavy && natIsHeavy(w)) continue;
+      if (skipHeavy && _natIsSlowHeavy(w)) continue;
       if (_natAppliesF(f, w)) put(w);
     }
   }
@@ -753,18 +761,14 @@ List<int> _natOrder(Server s, {bool full = false}) {
       ? <int>[for (var i = 0; i < _natBaseCount; i++) i]
       : <int>[0, 1, 2, 8])
     ..sort((a, b) {
-      if (preferLight) {
-        final ha = natIsHeavy(a) ? 1 : 0;
-        final hb = natIsHeavy(b) ? 1 : 0;
-        if (ha != hb) return ha - hb;
-      }
-      final d = (natWins['$natOpKey#$b'] ?? 0) - (natWins['$natOpKey#$a'] ?? 0);
+      final d = (natWins['$natOpKey#$b'] ?? 0) -
+          (natWins['$natOpKey#$a'] ?? 0);
       return d != 0 ? d : a - b;
     });
   if (!again) {
-    if (!knownOk || (preferLight && knownOk && natIsHeavy(known!))) {
+    if (!knownOk || (preferLight && knownOk && _natIsSlowHeavy(known!))) {
       for (final v in cand) {
-        if (skipHeavy && natIsHeavy(v)) continue;
+        if (skipHeavy && _natIsSlowHeavy(v)) continue;
         if (_natAppliesF(f, v)) {
           put(v);
           break;
@@ -777,7 +781,7 @@ List<int> _natOrder(Server s, {bool full = false}) {
       }
     }
     for (final v in cand) {
-      if (skipHeavy && natIsHeavy(v)) continue;
+      if (skipHeavy && _natIsSlowHeavy(v)) continue;
       if (v != known && _natAppliesF(f, v)) put(v);
     }
   } else if (_natAppliesF(f, 0)) {
@@ -802,7 +806,7 @@ List<int> _natOrder(Server s, {bool full = false}) {
       final end = min(app.length, cursor + cap);
       for (var k = cursor; k < end; k++) {
         final gv = app[k];
-        if (skipHeavy && natIsHeavy(gv)) continue;
+        if (skipHeavy && _natIsSlowHeavy(gv)) continue;
         gens.add(gv);
       }
     }
@@ -1134,7 +1138,7 @@ String _natMux(String cfg, [int n = 0]) {
     final o = _natProxyOut(j);
     if (o == null) return cfg;
     if (RegExp(r'"flow"\s*:\s*"xtls').hasMatch(cfg)) return cfg;
-    o['mux'] = {'enabled': true, 'concurrency': n > 0 ? n : 8};
+    o['mux'] = {'enabled': true, 'concurrency': n > 0 ? n : 16};
     return jsonEncode(j);
   } catch (e, stk) {
     logError(e, stk);
@@ -1223,7 +1227,9 @@ String _natSmartSni(String cfg, Server s, {bool forceAll = false}) {
     final h = s.host.toLowerCase();
     final isWorker = h.endsWith('workers.dev') || h.endsWith('pages.dev');
     final isCdn = isWorker || s.cdn;
-    if (!isWorker && !(forceAll && isCdn)) return cfg;
+    if (!s.tls && !s.reality) return cfg;
+    if (!isCdn) return cfg;
+    if (!isWorker && !forceAll) return cfg;
     final j = jsonDecode(cfg);
     if (j is! Map<String, dynamic>) return cfg;
     final outs = (j['outbounds'] as List?) ?? <dynamic>[];
@@ -1233,15 +1239,8 @@ String _natSmartSni(String cfg, Server s, {bool forceAll = false}) {
       if (st is! Map || st['security'] != 'tls') continue;
       final tls = st['tlsSettings'];
       if (tls is! Map) continue;
-      if (tlsHasEch(tls)) continue; // ECH: SNI را عوض نکن
-      final current = (tls['serverName'] ?? '').toString().toLowerCase();
-      if (!isWorker &&
-          !current.endsWith('workers.dev') &&
-          !current.endsWith('pages.dev') &&
-          !current.isEmpty) {
-        continue;
-      }
-      tls['serverName'] = natFrontSnis[0]; // cdnjs.cloudflare.com (or first Iran)
+      if (tlsHasEch(tls)) continue;
+      tls['serverName'] = 'cdnjs.cloudflare.com';
       tls['allowInsecure'] = true;
     }
     return jsonEncode(j);

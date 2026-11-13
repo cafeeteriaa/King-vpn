@@ -103,6 +103,8 @@ List<Widget> iranSettingsItems(
           sub: 'دامنه‌های .ir و چند سایت پرکاربرد بدون VPN باز می‌شوند'),
       sw('قانون IP ایران (geoip، تجربی)', iranGeoip, (v) => iranGeoip = v,
           sub: 'اگر با روشن کردنش اتصال برقرار نشد، خاموشش کن'),
+      sw('جعل SNI', sniSpoofAll, (v) => sniSpoofAll = v,
+          sub: 'فقط روی کانفیگ‌های CDN+TLS؛ برای سرورهای مستقیم بی‌اثر است'),
     ];
 
 // ======================= Multi-AI =======================
@@ -2846,7 +2848,7 @@ extension HomeExtras on _HomePageState {
   // می‌گذارد: دکمه‌ی ردیف (IP/CDN/Reality/WS)، بعد پروتکل تکی، بعد کشور، و در
   // آخر حالت عادی.
   void _applyPathPreset(String? row) {
-    if (indestructibleMode || localPilotOn || aiSession) return;
+    if (nationalMode || localPilotOn || aiSession) return;
     final String key;
     if (row != null && row.startsWith('r:')) {
       key = row;
@@ -2858,7 +2860,7 @@ extension HomeExtras on _HomePageState {
       key = 'normal';
     }
     var workers = 12; // WORKERS12: همه مسیرهای غیر ملی ۱۲ (نت ملی جدا)
-    var bg = 1;
+    var bg = 3;
     var batch = 200;
     var speedN = 5; // SPEED5: ۵ سرور با کمترین پینگ سرعت‌سنجی شوند. تست سرعت ۴ سرور برتر (نت ملی و خلبان خودشان تعیین می‌کنند)
     var tcpMs = 3500;
@@ -2878,7 +2880,7 @@ extension HomeExtras on _HomePageState {
         workers = 12; delaySec = 7; tcpMs = 4000; pingMs = 4000;
         break;
       case 'country':
-        bg = 1; batch = 300; speedN = 5;
+        bg = 3; batch = 300; speedN = 5;
         break;
       case 'r:ip':
         tcpMs = 4000; pingMs = 4000;
@@ -2911,7 +2913,10 @@ extension HomeExtras on _HomePageState {
     fragEnabled = false;
     savedFirst = true;
     autoCycle = true;
+    fastWorkers = 3;
+    fwUserSet = false;
     dbg('PATHPRESET: $key');
+    _saveSettings();
   }
 
   // PILOTREV: خلبان (محلی و Grok) تنظیمات را موقتاً عوض می‌کند. قبل از اولین تغییر
@@ -3036,9 +3041,9 @@ class NumOpt {
 
 final List<NumOpt> numOpts = [
   // BEST PROFILE defaults — هم‌تراز با پیش‌فرض main.dart
-  NumOpt('fastWorkers', 'تست همزمان (جستجوی اول)', 1, 1000, 5, 1000, false,
+  NumOpt('fastWorkers', 'تست همزمان (جستجوی اول)', 1, 1000, 3, 1000, false,
       () => fastWorkers.clamp(1, 1000), (v) => fastWorkers = v.clamp(1, 1000)),
-  NumOpt('bgWorkers', 'تست همزمان (وقتی وصل است)', 1, 3, 1, 3, false,
+  NumOpt('bgWorkers', 'تست همزمان (وقتی وصل است)', 1, 3, 3, 3, false,
       () => bgWorkers.clamp(1, 3), (v) => bgWorkers = v.clamp(1, 3)),
   NumOpt('timeout', 'تایم‌اوت هر تست (ثانیه)', 3, 45, 8, 45, false,
       () => delayTimeout.inSeconds, (v) => delayTimeout = Duration(seconds: v)),
@@ -3048,7 +3053,7 @@ final List<NumOpt> numOpts = [
       () => minPingMs, (v) => minPingMs = v),
   NumOpt('speedTopN', 'تعداد سرور برای تست سرعت', 1, 30, 5, 30, false,
       () => speedTopN, (v) => speedTopN = v),
-  NumOpt('badPingMs', 'پینگ بد از', 70, 7000, 2000, 7000, false,
+  NumOpt('badPingMs', 'پینگ بد از', 70, 7000, 3000, 7000, false,
       () => badPingMs, (v) => badPingMs = v),
   NumOpt('minSpeedKB', 'تعویض اگر سرعت کمتر از', 0, 1000, 80, 1000, false,
       () => minSpeedKB, (v) => minSpeedKB = v),
@@ -3109,13 +3114,13 @@ Future<void> loadNumPrefs(SharedPreferences p) async {
   }
   // FWDEF27: پیش‌فرض جدید یک‌بار برای نصب‌های قدیمی: جستجوی اول ۲۰، وقتی وصل است ۳
   if (p.getBool('fwDefault27') != true) {
-    fastWorkers = 5;
-    bgWorkers = 1;
+    fastWorkers = 3;
+    bgWorkers = 3;
     await p.setBool('fwDefault27', true);
     saveNumPrefs();
   }
   if (p.getBool('bgWorkersOne') != true) {
-    bgWorkers = 1; // تست همزمان (وقتی وصل است) → ۱۲
+    bgWorkers = 3; // تست همزمان (وقتی وصل است) → ۳
     await p.setBool('bgWorkersOne', true);
     saveNumPrefs();
   }
@@ -3220,12 +3225,12 @@ extension NumHomeExtras on _HomePageState {
       }
       await p.setBool('autotune_on2', false);
     });
-    badPingMs = 2000;
     natRound = 1;
-    sniSpoofAll = false;
+    sniSpoofAll = true;
     muxConc = 128;
     resetNumbers();
     fwUserSet = false; // FWUSER: برگشت به پیش‌فرض ۳
+    fwUserValue = 3;
     autoTune = false;
     proxyMode = false;
     onlyHealthySrc = true;
@@ -3308,9 +3313,9 @@ extension NumHomeExtras on _HomePageState {
 // TUNEDPATCH ===================== مقدارهای بهینه BEST (یکدست با numOpts) =====================
 const Map<String, dynamic> _tunedSettings = {
   't': 8, // delayTimeout sec
-  'bw2': 1, // bgWorkers
+  'bw2': 3, // bgWorkers
   'st': 5, // speedTopN
-  'bp': 2000, // badPingMs
+  'bp': 3000, // badPingMs
   'ms': 80, // minSpeedKB
   'lr': 180, // listRefreshMin
   'fm': 90, // failMin
@@ -3338,16 +3343,16 @@ const Map<String, dynamic> _tunedSettings = {
   'um': false, // ultraMode — پیش‌فرض خاموش (جستجو سریع‌تر)
   'idm': true, // indestructibleMode
   'tb': true, // turboSpeed
-  'fw2': 12, // fastWorkers
+  'fw2': 3, // fastWorkers
 };
 // BEST PROFILE — هم‌تراز numOpts.def
 const Map<String, int> _tunedNums = {
-  'fastWorkers': 12,
-  'bgWorkers': 1,
+  'fastWorkers': 3,
+  'bgWorkers': 3,
   'timeout': 8,
   'batch': 120,
   'speedTopN': 5,
-  'badPingMs': 2000,
+  'badPingMs': 3000,
   'minSpeedKB': 80,
   'listRefreshMin': 180,
   'failMin': 90,
@@ -3370,9 +3375,9 @@ const Map<String, int> _tunedNums = {
 // v2/v3/v4: همان BEST تا نسخه‌های قدیمی هم یکدست شوند
 const Map<String, dynamic> _tunedSettings2 = {
   't': 8,
-  'bw2': 1,
+  'bw2': 3,
   'st': 5,
-  'bp': 2000,
+  'bp': 3000,
   'ms': 80,
   'lr': 180,
   'fm': 90,
@@ -3389,15 +3394,15 @@ const Map<String, dynamic> _tunedSettings2 = {
   'so': true,
   'bps': true,
   'sdns': true,
-  'fw2': 12,
+  'fw2': 3,
 };
 const Map<String, int> _tunedNums2 = {
-  'fastWorkers': 12,
-  'bgWorkers': 1,
+  'fastWorkers': 3,
+  'bgWorkers': 3,
   'timeout': 8,
   'batch': 120,
   'speedTopN': 5,
-  'badPingMs': 2000,
+  'badPingMs': 3000,
   'minSpeedKB': 80,
   'listRefreshMin': 180,
   'failMin': 90,
@@ -3417,9 +3422,9 @@ const Map<String, int> _tunedNums2 = {
 
 const Map<String, dynamic> _tunedSettings3 = {
   't': 8,
-  'bw2': 1,
+  'bw2': 3,
   'st': 5,
-  'bp': 2000,
+  'bp': 3000,
   'ms': 80,
   'lr': 180,
   'fm': 90,
@@ -3436,15 +3441,15 @@ const Map<String, dynamic> _tunedSettings3 = {
   'so': true,
   'bps': true,
   'sdns': true,
-  'fw2': 12,
+  'fw2': 3,
 };
 const Map<String, int> _tunedNums3 = {
-  'fastWorkers': 12,
-  'bgWorkers': 1,
+  'fastWorkers': 3,
+  'bgWorkers': 3,
   'timeout': 8,
   'batch': 120,
   'speedTopN': 5,
-  'badPingMs': 2000,
+  'badPingMs': 3000,
   'minSpeedKB': 80,
   'listRefreshMin': 180,
   'failMin': 90,
@@ -3492,7 +3497,7 @@ Future<String?> tunedSettings(SharedPreferences p) async {
         if (j is Map) {
           final m = Map<String, dynamic>.from(j);
           _tunedSettings2.forEach((k, v) => m[k] = v);
-          m['fw2'] = 12;
+          m['fw2'] = 3;
           await p.setString('settings', jsonEncode(m));
         }
       }
@@ -3502,7 +3507,7 @@ Future<String?> tunedSettings(SharedPreferences p) async {
         if (j is Map) {
           final m = Map<String, dynamic>.from(j);
           _tunedNums2.forEach((k, v) => m[k] = v);
-          m['fastWorkers'] = 12;
+          m['fastWorkers'] = 3;
           await p.setString('numx', jsonEncode(m));
         }
       }
@@ -3520,7 +3525,7 @@ Future<String?> tunedSettings(SharedPreferences p) async {
         if (j is Map) {
           final m = Map<String, dynamic>.from(j);
           _tunedSettings3.forEach((k, v) => m[k] = v);
-          m['fw2'] = 12;
+          m['fw2'] = 3;
           await p.setString('settings', jsonEncode(m));
         }
       } else {
@@ -3529,7 +3534,7 @@ Future<String?> tunedSettings(SharedPreferences p) async {
             jsonEncode({
               'ver': 6,
               ..._tunedSettings3,
-              'fw2': 12,
+              'fw2': 3,
             }));
       }
       final nx = p.getString('numx');
@@ -3538,7 +3543,7 @@ Future<String?> tunedSettings(SharedPreferences p) async {
         if (j is Map) {
           final m = Map<String, dynamic>.from(j);
           _tunedNums3.forEach((k, v) => m[k] = v);
-          m['fastWorkers'] = 12;
+          m['fastWorkers'] = 3;
           await p.setString('numx', jsonEncode(m));
         }
       }
@@ -3552,10 +3557,10 @@ Future<String?> tunedSettings(SharedPreferences p) async {
         if (j is Map) {
           final m = Map<String, dynamic>.from(j);
           _tunedSettings.forEach((k, v) => m[k] = v);
-          m['fw2'] = 12;
+          m['fw2'] = 3;
           m['st'] = 5;
-          m['bw2'] = 1;
-          m['bp'] = 2500;
+          m['bw2'] = 3;
+          m['bp'] = 3000;
           m['ms'] = 80;
           m['a2'] = true;
           m['ac'] = true;
@@ -3571,7 +3576,7 @@ Future<String?> tunedSettings(SharedPreferences p) async {
         if (j is Map) {
           final m = Map<String, dynamic>.from(j);
           _tunedNums.forEach((k, v) => m[k] = v);
-          m['fastWorkers'] = 12;
+          m['fastWorkers'] = 3;
           await p.setString('numx', jsonEncode(m));
         }
       } else {
@@ -3597,7 +3602,7 @@ bool localPilotOn = false;
 
 // FWUSER: مقدار دستی کاربر برای «تست همزمان (جستجوی اول)». پیش‌فرض ۳؛
 // اگر کاربر خودش عدد گذاشته باشد، هر اتصال عادی همان عدد (تا ۱۰۰۰) را نگه می‌دارد.
-int fwUserValue = 5;
+int fwUserValue = 3;
 bool fwUserSet = false;
 void setUserFastWorkers(int v) {
   fwUserValue = v.clamp(1, 1000).toInt();

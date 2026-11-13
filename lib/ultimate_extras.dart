@@ -12,6 +12,7 @@ int reconnectCount = 0;
 DateTime? pilotSessionStart;
 String _lastNetFp = '';
 Timer? _netWatchTimer;
+DateTime? _preflightOkAt; // کش ۲ دقیقه‌ای پیش‌پرواز
 
 // snapshot of numbers when data-saver is toggled on (to restore later)
 int? _dsFw, _dsBw, _dsSt;
@@ -113,7 +114,7 @@ extension UltimateExt on _HomePageState {
             reconnectCount++;
             lastWhy = 'تغییر شبکه';
             _set('شبکه عوض شد — وصل مجدد...');
-            await connect();
+            await _failover();
           } else if (connected) {
             // اجازه بده واچ‌داگ اصلی یک‌بار چک فوری کند
             // NETSTABLE: connected tunnels are not switched on a network change;
@@ -134,6 +135,12 @@ extension UltimateExt on _HomePageState {
 
   Future<bool> runPreflight() async {
     if (!preflightOn) return true;
+    // کش ۲ دقیقه‌ای: اگر آخرین پیش‌پرواز موفق کمتر از ۲ دقیقه پیش بوده، دوباره اجرا نشود
+    final lastOk = _preflightOkAt;
+    if (lastOk != null &&
+        DateTime.now().difference(lastOk) < const Duration(minutes: 2)) {
+      return true;
+    }
     _set('پیش‌پرواز: بررسی DNS و دسترسی شبکه...');
     var dnsOk = false;
     try {
@@ -159,6 +166,7 @@ extension UltimateExt on _HomePageState {
       _set('پیش‌پرواز: شبکه خیلی ضعیف است — باز هم تلاش می‌کنم');
       return true;
     }
+    _preflightOkAt = DateTime.now();
     _set('پیش‌پرواز OK • DNS:${dnsOk ? '✓' : '✗'} HTTP:${httpOk ? '✓' : '✗'}');
     return true;
   }

@@ -200,7 +200,10 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
 // لیست کاندید؛ هر کدام که TLS روی IP باز کامل شد نگه داشته می‌شود.
 // خودت می‌توانی دامنه‌های بیشتری به این لیست اضافه کنی.
 const natFrontSnis = <String>[
-  // V15: Iranian domains first. DPI sees these and lets traffic through.
+  'cdnjs.cloudflare.com',
+  'www.cloudflare.com',
+  'cloudflare.com',
+  'speed.cloudflare.com',
   'www.aparat.com',
   'www.digikala.com',
   'divar.ir',
@@ -211,11 +214,6 @@ const natFrontSnis = <String>[
   'www.iranserver.com',
   'www.shatel.ir',
   'www.mci.ir',
-  // Cloudflare domains after.
-  'cdnjs.cloudflare.com',
-  'www.cloudflare.com',
-  'cloudflare.com',
-  'speed.cloudflare.com',
   'workers.dev',
   'dash.cloudflare.com',
   'one.one.one.one',
