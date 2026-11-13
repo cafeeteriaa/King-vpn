@@ -34,6 +34,8 @@ extension UpdateCheck on _HomePageState {
       final minB = (map['min'] as num?)?.toInt() ?? 0;
       var url = (map['url'] as String?)?.trim() ?? '';
       final apk = (map['apk'] as String?)?.trim() ?? '';
+      // فیکس ۱: هش مورد انتظار APK (اگر Gist قدیمی بود خالی می‌ماند و رفتار قبلی حفظ می‌شود)
+      final sha256Expected = (map['sha256'] as String?)?.trim().toLowerCase() ?? '';
       if (url.isEmpty) url = 'https://t.me/kingvpnn57';
       final msg = (map['message'] as String?)?.trim() ?? '';
       final force = appBuild < minB;
@@ -66,7 +68,7 @@ extension UpdateCheck on _HomePageState {
                   FilledButton(
                     onPressed: () async {
                       Navigator.pop(ctx);
-                      await _downloadAndInstallApk(apk);
+                      await _downloadAndInstallApk(apk, sha256Expected);
                     },
                     child: const Text('دانلود و نصب'),
                   ),
@@ -95,7 +97,7 @@ extension UpdateCheck on _HomePageState {
     }
   }
 
-  Future<void> _downloadAndInstallApk(String apkUrl) async {
+  Future<void> _downloadAndInstallApk(String apkUrl, String sha256Expected) async {
     try {
       _set('⬇ در حال دانلود نسخه‌ی جدید...');
       kingHealText.value = 'دانلود آپدیت...';
@@ -111,6 +113,19 @@ extension UpdateCheck on _HomePageState {
       final dir = await Directory.systemTemp.createTemp('king_upd_');
       final file = File('${dir.path}/king-vpn-update.apk');
       await file.writeAsBytes(r.bodyBytes, flush: true);
+      // فیکس ۱: اگر هش در Gist بود و تطابق نداشت، نصب لغو می‌شود
+      if (sha256Expected.isNotEmpty) {
+        try {
+          final bytes = await file.readAsBytes();
+          final hash = sha256.convert(bytes).toString().toLowerCase();
+          if (hash != sha256Expected) {
+            _set('❌ فایل آپدیت معتبر نیست (hash mismatch)؛ نصب لغو شد');
+            kingHealText.value = '❌ APK دستکاری شده';
+            try { await file.delete(); } catch (_) {}
+            return;
+          }
+        } catch (e) { logError(e); }
+      }
       _set('✅ دانلود شد — نصب را تأیید کن');
       kingHealText.value = 'APK آماده — تأیید نصب اندروید';
       final ok = await launchUrl(

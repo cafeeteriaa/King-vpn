@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'prefs_store.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 // =============================================================================
 // D1/D2/D3 — share via Android's own share sheet (Bluetooth, SMS, Nearby Share,
@@ -631,6 +632,15 @@ class _CloudflareAutoDeployPageState extends State<CloudflareAutoDeployPage> {
     final p = await SharedPreferences.getInstance();
     await p.setString('personal_link', l);
     await p.remove('personal_exp');
+    // همگام‌سازی کپی secure (همان مسیر خواندن _loadCache)
+    try {
+      const sec = FlutterSecureStorage(
+          aOptions: AndroidOptions(encryptedSharedPreferences: true));
+      await sec.write(key: 'personal_link', value: l)
+          .timeout(const Duration(seconds: 3));
+      await sec.delete(key: 'personal_exp')
+          .timeout(const Duration(seconds: 3));
+    } catch (_) {}
     if (!mounted) return;
     setState(() => _saved = true);
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(

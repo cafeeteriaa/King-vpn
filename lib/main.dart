@@ -17,6 +17,8 @@ import 'package:permission_handler/permission_handler.dart';
 import 'prefs_store.dart';
 import 'own_vpn.dart'; // KINGVPN: سرویس VPN خودمان (پیش‌فرض خاموش)
 import 'package:workmanager/workmanager.dart';
+import 'package:crypto/crypto.dart'; // فیکس ۱: sha256 برای APK آپدیت
+import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // فیکس ۲: کلیدهای AI
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'tg_proxy.dart' show tgProxyRow; // فقط پروکسی تلگرام
@@ -34,7 +36,6 @@ part 'donate.dart';
 part 'ads_remote.dart';
 part 'king_heal.dart';
 part 'update_check.dart';
-part 'online.dart';
 part 'server_shop.dart';
 part 'telegram_channels.dart';
 part 'ultimate_extras.dart';
@@ -2171,7 +2172,7 @@ void _trailWrite(String line) {
     if (_trailBuf.isEmpty) return;
     final chunk = _trailBuf.toString();
     _trailBuf.clear();
-    for (final p in const [kTrailPath, kTrailPrivPath]) {
+    for (final p in const [kTrailPrivPath]) {
       try {
         final f = File(p);
         if (!f.parent.existsSync()) f.parent.createSync(recursive: true);
@@ -2191,7 +2192,7 @@ void _flushTrail() {
   final buf = _trailBuf.toString();
   _trailBuf.clear();
   if (buf.isEmpty) return;
-  for (final p in const [kTrailPath, kTrailPrivPath]) {
+  for (final p in const [kTrailPrivPath]) {
     try {
       final f = File(p);
       if (!f.parent.existsSync()) f.parent.createSync(recursive: true);
@@ -3065,7 +3066,16 @@ void dbgXrayErr(String name) {
       dbgCoreLogcat(name);
       return;
     }
-    final txt = f.readAsStringSync().replaceAll('\n', ' | ');
+    var txt = f.readAsStringSync().replaceAll('\n', ' | ');
+    // فیکس ۵: ماسک کردن شناسه/کلید قبل از ثبت در لاگ
+    txt = txt.replaceAllMapped(
+      RegExp(r'"(id|password|pass|uuid|publicKey|pbk|shortId|sid)"\s*:\s*"[^"]*"'),
+      (m) => '"${m[1]}":"***"',
+    );
+    txt = txt.replaceAllMapped(
+      RegExp(r'(vless://|trojan://)([^@\s]{6,})@'),
+      (m) => '${m[1]}***@',
+    );
     final tail = txt.length > 1400 ? txt.substring(txt.length - 1400) : txt;
     if (tail.trim().isEmpty) {
       dbg('XRAY-ERR $name: فایل خطا خالی است');
@@ -5264,7 +5274,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     await adFreeLoad();
     unawaited(adsRemoteLoad());
     unawaited(checkForUpdate());
-    onlineStart();
     await _loadCache();
     await _resLoad(); // NATRESPATCH
     await autoTuneLoad(); // AUTOTUNEPATCH
@@ -5303,7 +5312,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _insT?.cancel(); // the 3 s inspector timer was never stopped
     aiLoop?.cancel();
     localPilotLoop?.cancel();
-    _onlineTimer?.cancel();
     _netWatchTimer?.cancel();
     _dbgSaveT?.cancel();
     _dbgProbT?.cancel();
@@ -5820,9 +5828,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         });
       }
       bypassApps = p.getStringList('bypass') ?? [];
-      final pl = p.getString('personal_link');
+      // SECURE-READ: اول secure، اگر خالی یا شکست بود prefs (fallback)
+      final sec = await _secReadMany(const ['personal_link', 'personal_exp']);
+      final pl = _nz(sec['personal_link']) ?? p.getString('personal_link');
       if (pl != null) personal = Server.parse(pl)?..personal = true;
-      final pe = p.getInt('personal_exp');
+      final peStr = _nz(sec['personal_exp']);
+      final pe = (peStr != null ? int.tryParse(peStr) : null) ?? p.getInt('personal_exp');
       if (pe != null) personalExpiry = DateTime.fromMillisecondsSinceEpoch(pe);
       final String? b = null; // FOLDERONLY
       if (b != null) {
@@ -5985,6 +5996,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (personal == null) {
         await p.remove('personal_link');
         await p.remove('personal_exp');
+        // فیکس ۲/پچ: حذف کامل کپی secure تا لینک شخصی حذف‌شده برنگردد
+        await _secApply({'personal_link': null, 'personal_exp': null});
       } else {
         await p.setString('personal_link', personal!.link);
         if (personalExpiry == null) {
@@ -5993,6 +6006,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await p.setInt(
               'personal_exp', personalExpiry!.millisecondsSinceEpoch);
         }
+        // فیکس ۲/پچ: همگام‌سازی کپی secure
+        await _secApply({
+          'personal_link': personal!.link,
+          'personal_exp': personalExpiry?.millisecondsSinceEpoch.toString(),
+        });
       }
     } catch (e, stk) {
       logError(e, stk);
@@ -13564,7 +13582,6 @@ UiHero(
               );
             },
           ),
-          const OnlineBadge(),
           _speedPanel(u),
           aiBar(),
           Padding( // NATBTNPATCH

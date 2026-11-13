@@ -1291,7 +1291,8 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
   /// logcat اندروید: خط‌های هسته (GoLog/xray/V2Ray) که خود برنامه ثبت کرده
   Future<String> _atLogcatTail() async {
     try {
-      final r = await Process.run('logcat', ['-d', '-t', '800', '-v', 'brief']);
+      final r = await Process.run(
+          'logcat', ['-d', '-t', '800', '-v', 'brief', '--pid=$pid']);
       final all = (r.stdout as String).split('\n');
       final lines = all.where((l) {
         final low = l.toLowerCase();
@@ -2338,7 +2339,8 @@ Future<String> atSaveReport(String report) async {
   try {
     final src = File(kXrayErrPath);
     if (src.existsSync()) {
-      final txt = await src.readAsString();
+      // فیکس ۳: ماسک UUID قبل از ذخیره در Download
+      final txt = _maskUuidsForExport(await src.readAsString());
       // XRAYCOPY-FIX: pubDir فقط داخل حلقه‌ی بالا تعریف شده بود؛ همان مسیرها را این‌جا امتحان می‌کنیم
       for (final d in const [privDir, pubDir1, pubDir2, pubDir3]) {
         try {

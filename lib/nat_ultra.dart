@@ -2003,6 +2003,38 @@ String _hotPath() {
     return '${Directory.systemTemp.path}/hot_cache.txt';
   }
 }
+// فیکس ۳: ماسک UUID/رمز در نسخه‌ای که به Download export می‌شود (فایل اصلی دست‌نخورده)
+String _maskUuidsForExport(String txt) {
+  var out = txt;
+  out = out.replaceAllMapped(
+    RegExp(r'(vless://)([0-9a-fA-F\-]{20,})@'),
+    (m) => '${m[1]}***@',
+  );
+  out = out.replaceAllMapped(
+    RegExp(r'(trojan://)([^@\s]{6,})@'),
+    (m) => '${m[1]}***@',
+  );
+  out = out.replaceAllMapped(
+    RegExp(r'(ss://)([A-Za-z0-9+/=_\-]{8,})@'),
+    (m) => '${m[1]}***@',
+  );
+  out = out.replaceAllMapped(RegExp(r'vmess://([A-Za-z0-9+/=_\-]+)'), (m) {
+    try {
+      final b64 = m[1]!;
+      final norm = base64.normalize(b64);
+      final j = jsonDecode(utf8.decode(base64.decode(norm)));
+      if (j is Map && j['id'] is String) {
+        j['id'] = '***';
+        return 'vmess://${base64.encode(utf8.encode(jsonEncode(j)))}';
+      }
+      return m[0]!;
+    } catch (_) {
+      return m[0]!;
+    }
+  });
+  return out;
+}
+
 Future<void> hotExportToDownload() async {
   try {
     final src = File(_hotPath());
@@ -2011,7 +2043,15 @@ Future<void> hotExportToDownload() async {
     if (!v.existsSync()) v.createSync(recursive: true);
     final ts = DateTime.now().millisecondsSinceEpoch;
     final dst = File('$hotVisibleDir/hot_configs_$ts.txt');
-    await src.copy(dst.path);
+    try {
+      final raw = await src.readAsString();
+      final masked = _maskUuidsForExport(raw);
+      await dst.writeAsString(masked, flush: true);
+    } catch (e) {
+      // فیکس ۳: اگر ماسک شکست خورد، نسخه‌ی بدون ماسک نوشته نمی‌شود (نشت UUID ممنوع)
+      dbg('hotExport: ماسک ناموفق؛ خروجی نوشته نشد: $e');
+      return;
+    }
     try {
       final all = v.listSync()
           .whereType<File>()

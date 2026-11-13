@@ -77,65 +77,6 @@ Future<String> _plusIpInfo() async {
   }
 }
 
-Future<String> _plusBackupText() async {
-  final p = await SharedPreferences.getInstance();
-  final out = <String, dynamic>{};
-  for (final k in p.getKeys()) {
-    final v = p.get(k);
-    Map<String, dynamic>? e;
-    if (v is String) {
-      e = {'t': 's', 'v': v};
-    } else if (v is int) {
-      e = {'t': 'i', 'v': v};
-    } else if (v is double) {
-      e = {'t': 'd', 'v': v};
-    } else if (v is bool) {
-      e = {'t': 'b', 'v': v};
-    } else if (v is List) {
-      e = {'t': 'l', 'v': v.map((x) => '$x').toList()};
-    }
-    if (e == null) continue;
-    if (jsonEncode(e).length > 150000) continue; // big caches are skipped
-    out[k] = e;
-  }
-  return 'KINGVPN-BACKUP\n${base64.encode(utf8.encode(jsonEncode(out)))}';
-}
-
-Future<int> _plusRestoreText(String t) async {
-  final lines = t.trim().split(RegExp(r'\s+'));
-  if (lines.length < 2 || lines.first != 'KINGVPN-BACKUP') return -1;
-  final j = jsonDecode(utf8.decode(base64.decode(base64.normalize(lines[1]))));
-  if (j is! Map) return -1;
-  final p = await SharedPreferences.getInstance();
-  var n = 0;
-  for (final k in j.keys) {
-    final e = j[k];
-    if (e is! Map) continue;
-    final v = e['v'];
-    switch (e['t']) {
-      case 's':
-        await p.setString('$k', '$v');
-        break;
-      case 'i':
-        await p.setInt('$k', (v as num).toInt());
-        break;
-      case 'd':
-        await p.setDouble('$k', (v as num).toDouble());
-        break;
-      case 'b':
-        await p.setBool('$k', v == true);
-        break;
-      case 'l':
-        await p.setStringList('$k', (v as List).map((x) => '$x').toList());
-        break;
-      default:
-        continue;
-    }
-    n++;
-  }
-  return n;
-}
-
 extension PlusExt on _HomePageState {
   Future<void> _plusText(String title, String text) async {
     if (!mounted) return;
@@ -473,20 +414,6 @@ extension PlusExt on _HomePageState {
                 }),
                 tile(Icons.history, 'تاریخچه‌ی اتصال',
                     () => _plusText('تاریخچه‌ی اتصال', _plusHistText())),
-                tile(Icons.backup, 'پشتیبان‌گیری از تنظیمات و سرورها (کپی)',
-                    () async {
-                  final t = await _plusBackupText();
-                  await Clipboard.setData(ClipboardData(text: t));
-                  _set('پشتیبان کپی شد؛ جایی مثل «پیام‌های ذخیره‌شده» نگهش دار');
-                }),
-                tile(Icons.restore, 'بازگردانی از پشتیبان (کلیپ‌بورد)',
-                    () async {
-                  final d = await Clipboard.getData('text/plain');
-                  final n = await _plusRestoreText(d?.text ?? '');
-                  _set(n < 0
-                      ? 'متن پشتیبان داخل کلیپ‌بورد نیست'
-                      : '$n مورد بازگردانی شد • برنامه را کامل ببند و دوباره باز کن');
-                }),
                 tile(Icons.delete_sweep, 'پاک کردن یادگیری نت ملی', () async {
                   natVar.clear();
                   natWins.clear();

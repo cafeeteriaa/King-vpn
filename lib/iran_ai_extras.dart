@@ -121,6 +121,36 @@ String deepseekModel = 'deepseek-chat';
 // auto | grok | claude | openai | deepseek | gemini
 String aiProvider = 'auto';
 String aiLastProvider = '';
+// فیکس ۲: کلیدهای AI در Android Keystore (prefs هم برای fallback نگه داشته می‌شود)
+const _secure = FlutterSecureStorage(
+  aOptions: AndroidOptions(encryptedSharedPreferences: true),
+);
+// مهلت ۳ ثانیه‌ای کل عملیات secure؛ اگر Keystore کند یا گیر کرد، مسیر اپ معطل نمی‌شود
+String? _nz(String? v) => (v == null || v.isEmpty) ? null : v;
+
+Future<Map<String, String?>> _secReadMany(List<String> keys) async {
+  final out = <String, String?>{};
+  try {
+    await Future.wait(keys.map((k) async {
+      out[k] = await _secure.read(key: k);
+    })).timeout(const Duration(seconds: 3));
+  } catch (e) {
+    errJournalAdd(e, kind: 'SILENT-FILE');
+  }
+  return out;
+}
+
+// مقدار null یعنی حذف از secure
+Future<void> _secApply(Map<String, String?> m) async {
+  try {
+    await Future.wait(m.entries.map((e) => e.value == null
+        ? _secure.delete(key: e.key)
+        : _secure.write(key: e.key, value: e.value!)))
+        .timeout(const Duration(seconds: 3));
+  } catch (e) {
+    errJournalAdd(e, kind: 'SILENT-FILE');
+  }
+}
 
 class GeminiLocationError implements Exception {
   @override
@@ -165,6 +195,7 @@ bool get _selectedAiKeyAvailable {
 }
 
 Future<void> loadGeminiPrefs(SharedPreferences p) async {
+  // 1) ابتدا از prefs (رفتار قبلی — برای سازگاری)
   geminiKey = p.getString('gem_key') ?? '';
   geminiModel = p.getString('gem_model') ?? geminiModel;
   grokKey = p.getString('grok_key') ?? '';
@@ -176,11 +207,33 @@ Future<void> loadGeminiPrefs(SharedPreferences p) async {
   deepseekKey = p.getString('deepseek_key') ?? '';
   deepseekModel = p.getString('deepseek_model') ?? deepseekModel;
   aiProvider = p.getString('ai_prov') ?? aiProvider;
+
+  // 2) secure storage override (اگر موجود و غیرخالی بود)
+  final sec = await _secReadMany(const [
+    'gem_key', 'grok_key', 'claude_key', 'openai_key', 'deepseek_key', 'ai_prov',
+  ]);
+  geminiKey = _nz(sec['gem_key']) ?? geminiKey;
+  grokKey = _nz(sec['grok_key']) ?? grokKey;
+  claudeKey = _nz(sec['claude_key']) ?? claudeKey;
+  openaiKey = _nz(sec['openai_key']) ?? openaiKey;
+  deepseekKey = _nz(sec['deepseek_key']) ?? deepseekKey;
+  aiProvider = _nz(sec['ai_prov']) ?? aiProvider;
+
+  // 3) مهاجرت به secure (کلیدهای غیرخالی موجود در prefs)
+  await _secApply({
+    if (geminiKey.isNotEmpty) 'gem_key': geminiKey,
+    if (grokKey.isNotEmpty) 'grok_key': grokKey,
+    if (claudeKey.isNotEmpty) 'claude_key': claudeKey,
+    if (openaiKey.isNotEmpty) 'openai_key': openaiKey,
+    if (deepseekKey.isNotEmpty) 'deepseek_key': deepseekKey,
+    if (aiProvider.isNotEmpty) 'ai_prov': aiProvider,
+  });
 }
 
 Future<void> saveGeminiPrefs() async {
   try {
     final p = await SharedPreferences.getInstance();
+    // prefs (fallback)
     await p.setString('gem_key', geminiKey);
     await p.setString('gem_model', geminiModel);
     await p.setString('grok_key', grokKey);
@@ -192,6 +245,15 @@ Future<void> saveGeminiPrefs() async {
     await p.setString('deepseek_key', deepseekKey);
     await p.setString('deepseek_model', deepseekModel);
     await p.setString('ai_prov', aiProvider);
+    // secure (primary)
+    await _secApply({
+      'gem_key': geminiKey,
+      'grok_key': grokKey,
+      'claude_key': claudeKey,
+      'openai_key': openaiKey,
+      'deepseek_key': deepseekKey,
+      'ai_prov': aiProvider,
+    });
   } catch (e, stk) {
     logError(e, stk);
   }
