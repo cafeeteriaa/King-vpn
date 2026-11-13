@@ -1175,7 +1175,7 @@ patch_hard('main',
 "    final tail = out.sublist(headLen);\n    if (!nationalMode) tail.sort(_cmpPending);",
 'V11: no sort tail')
 
-# ---- 46) V11: natRangeScanStep - CF first in national ----
+# ---- 46) V11: CF first in national ----
 print('\n[46] V11: CF first in national')
 patch_hard('nat_ultra',
 """  final blocks = natRanges.isNotEmpty ? natRanges : natSeedBlocks(hosts);
@@ -1347,17 +1347,17 @@ patch_hard('nat_ultra',
 }""",
 'V12: natBudget 900s for lvl 10')
 
-# ---- 53) V12: force natLevel 10 in round 2 (FIXED) ----
+# ---- 53) V12: force natLevel 10 in round 2 (FIXED INDENTATION) ----
 print('\n[53] V12: force natLevel 10 in round 2')
 patch_hard('main',
-"""                if (!searching && !busy && !switching && !upBusy) {
-                  await _standbyRun();
-                }""",
-"""                if (!searching && !busy && !switching && !upBusy) {
-                  // V12: round 2 forces natLevel=10 to guarantee full DPI matrix.
-                  if (natRound >= 2 && natLevel < 10) natLevel = 10;
-                  await _standbyRun();
-                }""",
+"""                  if (!searching && !busy && !switching && !upBusy) {
+                    await _standbyRun();
+                  }""",
+"""                  if (!searching && !busy && !switching && !upBusy) {
+                    // V12: round 2 forces natLevel=10 to guarantee full DPI matrix.
+                    if (natRound >= 2 && natLevel < 10) natLevel = 10;
+                    await _standbyRun();
+                  }""",
 'V12: force natLevel 10 in round 2')
 
 # ---- 54) V12: don't drop pending items in round 2 ----
