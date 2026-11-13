@@ -921,8 +921,8 @@ patch_hard('main',
       }""",
 'V9-NATGOLD inject gold IPs')
 
-# ---- 34) V9-SNI: expand natFrontSnis ----
-print('\n[34] V9: expand natFrontSnis')
+# ---- 34) V15: Iranian SNI Spoofing ----
+print('\n[34] V15: Iranian SNI Spoofing')
 patch_hard('nip_scan',
 """const natFrontSnis = <String>[
   'cdnjs.cloudflare.com',
@@ -931,24 +931,29 @@ patch_hard('nip_scan',
   'speed.cloudflare.com',
 ];""",
 """const natFrontSnis = <String>[
+  // V15: Iranian domains first. DPI sees these and lets traffic through.
+  'www.aparat.com',
+  'www.digikala.com',
+  'divar.ir',
+  'www.snapp.ir',
+  'www.bale.ai',
+  'eitaa.com',
+  'www.zarinpal.com',
+  'www.iranserver.com',
+  'www.shatel.ir',
+  'www.mci.ir',
+  // Cloudflare domains after.
   'cdnjs.cloudflare.com',
   'www.cloudflare.com',
   'cloudflare.com',
   'speed.cloudflare.com',
   'workers.dev',
   'dash.cloudflare.com',
-  'developers.cloudflare.com',
-  'community.cloudflare.com',
-  'support.cloudflare.com',
-  'blog.cloudflare.com',
   'one.one.one.one',
   '1.1.1.1',
   'cloudflare-dns.com',
-  'cloudflareaccess.com',
-  'static.cloudflareinsights.com',
-  'challenge-platform.cloudflare.com',
 ];""",
-'V9: expanded natFrontSnis')
+'V15: Iranian SNI Spoofing')
 
 # ---- 35) V9: badPingMs = 2000 ----
 print('\n[35] V9: badPingMs = 2000')
@@ -1994,5 +1999,5 @@ for fn, content in files.items():
 
 print('\n' + '=' * 60)
 print('=== ALL PATCHES APPLIED ===')
-print('=== V14: 5-hour national test + save to Documents/Download ===')
+print('=== V15: SNI Spoofing with Iranian domains ===')
 print('=== BUILD SHOULD PROCEED ===')
