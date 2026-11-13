@@ -531,7 +531,7 @@ patch_hard('main',
   // REAL speed test""",
 'abort guard')
 
-# ---- 18) target 3 servers (V13: connect at 1, search up to 3) ----
+# ---- 18) target 3 servers (V13: connect at 1) ----
 print('\n[18] target 3')
 patch_hard('main', "const int kStandbyPause = 5;", "const int kStandbyPause = 3;", 'kStandbyPause')
 patch_hard('main', "const int kStandbyResume = 5;", "const int kStandbyResume = 3;", 'kStandbyResume')
@@ -742,7 +742,7 @@ patch_hard('nat_ultra',
 'blocks CF mix')
 
 insert_before('nat_ultra', 'Future<List<String>> natRangeScanStep({',
-"""List<String>? _cfIpCache;
+"""final Map<String, int> _cfRangeCursors = {};
 List<String> _getCfIps({int batchSize = 160000}) {
   final out = <String>[];
   final ranges = _cfRanges;
@@ -1196,10 +1196,7 @@ List<String> _getCfIps() {
   _cfIpCache = out;
   return out;
 }"""
-new_getcf = """// V11: sequential per-range cursor. Each call returns the NEXT batchSize IPs
-// across all ranges evenly. Over many calls every IP in every range is tested
-// in order, then wraps around. Nothing skipped, nothing random.
-final Map<String, int> _cfRangeCursors = {};
+new_getcf = """final Map<String, int> _cfRangeCursors = {};
 List<String> _getCfIps({int batchSize = 160000}) {
   final out = <String>[];
   final ranges = _cfRanges;
@@ -1271,9 +1268,7 @@ patch_hard('main',
         lastStandby = DateTime.now();
         return;
       }""",
-"""      // V11/V12: in national mode, keep testing until pending is empty
-      // (unless we hit round 2 and user cancelled).
-      if (nationalMode) {
+"""      if (nationalMode) {
         standbyPaused = pending.isEmpty;
       }
       if (standbyPaused && connected && !nationalMode) {
@@ -1811,8 +1806,6 @@ patch_hard('nat_ultra',
 }
 
 // V13: automatically apply SNI swap if the host looks like a CF Worker.
-// workers.dev is blocked in Iran; swapping SNI to a CF domain while keeping
-// Host: *.workers.dev makes DPI think we're visiting the CF domain.
 String _natSmartSni(String cfg, Server s) {
   try {
     final h = s.host.toLowerCase();
@@ -1838,7 +1831,6 @@ String _natSmartSni(String cfg, Server s) {
 }""",
 'P61: smart SNI helper')
 
-# Apply _natSmartSni in _natCfgRaw
 patch_hard('nat_ultra',
 """String _natCfgRaw(Server s, int v, {bool reuse = false}) {
   var cfg = buildCoreConfig(_natLinkFor(s, v, reuse: reuse));
@@ -1847,11 +1839,151 @@ patch_hard('nat_ultra',
 """String _natCfgRaw(Server s, int v, {bool reuse = false}) {
   var cfg = buildCoreConfig(_natLinkFor(s, v, reuse: reuse));
   if (v <= 0 || v >= _natSpecs.length) {
-    // V13: even at base variant 0, apply smart SNI for CF workers.
     return _natSmartSni(cfg, s);
   }
   final x = _natSpecs[v];""",
 'P61b: apply smart SNI')
+
+# ---- 62) V14: auto_test 5 hours duration ----
+print('\n[62] V14: auto_test 5h')
+patch_hard('auto_test',
+"static const _testDuration = Duration(hours: 4); // STEST4H: همه‌ی سطوح، IP تمیز و همه‌ی حالت‌های جایگزین جا شوند",
+"static const _testDuration = Duration(hours: 5); // V14: 5-hour national test",
+'V14: auto_test 5h')
+
+# ---- 63) V14: only run national test in auto_test ----
+print('\n[63] V14: only national test')
+patch_hard('auto_test',
+"""      final steps = <(String, Duration, Future<void> Function())>[
+        (_atItemNames[2], const Duration(minutes: 50), _atItemNational),
+        (_atSubstName, const Duration(minutes: 150), _atItemSubst),
+      ];""",
+"""      // V14: only run the national test for the full 5 hours.
+      final steps = <(String, Duration, Future<void> Function())>[
+        (_atItemNames[2], const Duration(hours: 5), _atItemNational),
+      ];""",
+'V14: only national test')
+
+# ---- 64) V14: _atItemNational monitors V13 engine ----
+print('\n[64] V14: national monitor')
+patch_hard('auto_test',
+"""  Future<void> _atItemNational() async {
+    _scenario = 3;
+    final name = _atItemNames[2];
+    natForce = true;
+    nationalMode = true;
+    // NATCHOICE: بدون این، تشخیص خودکار شبکه (وقتی اینترنت جهانی هست) نت ملی را خاموش می‌کند
+    // و جستجوی ملی اصلاً اجرا نمی‌شود (NAT-LEVEL 0 / NAT-NOIP). همان انتخاب دکمه‌ی نت ملی است.
+    userModeChoice = true;
+    offlineOnly = false;
+    await ultimateSave();
+
+    final s0 = natIpScanned;
+    final f0 = natIpFound;
+    final t0 = natIpTested;
+    final o0 = natIpOk;
+    var ipSeen = false;
+    var testedBeforeIp = false;
+    var done = false;
+    final fut = _atConnectItem(name, timeout: const Duration(minutes: 10))
+        .whenComplete(() {
+      done = true;
+    });
+    final t = DateTime.now();
+    while (!done &&
+        _phase == _AtPhase.running &&
+        !_abortRequested &&
+        DateTime.now().difference(t) < const Duration(minutes: 11)) {
+      if (natIpScanned > s0) ipSeen = true;
+      if (!ipSeen && natIpTested > t0) testedBeforeIp = true;
+      if (natLevel > _atMaxNatLevel) _atMaxNatLevel = natLevel;
+      await Future<void>.delayed(const Duration(seconds: 1));
+    }
+    await fut;
+
+    if (kNatIpScanOn && !ipSeen) {
+      _atAdd('NAT-NOIP',
+          'نت ملی: شمارنده‌ی اسکن IP صفر ماند؛ یا IP در صف نبود یا TCP اجرا نشد');
+    }
+    if (kNatIpScanOn && testedBeforeIp) {
+      _atAdd('NAT-ORDER', 'نت ملی: سرور قبل از تست IP به تست کانفیگ رسید');
+    }
+    if (_atMaxNatLevel < 4) {
+      _atAdd('NAT-LEVEL',
+          'نت ملی: بیشترین سطح ماتریس $_atMaxNatLevel بود؛ انتظار ۴ یا بیشتر');
+    }
+    _itemResult[name] =
+        '${_itemResult[name] ?? ''} • IP اسکن +${natIpScanned - s0}'
+        ' • باز +${natIpFound - f0} • تست هسته +${natIpTested - t0}'
+        ' • سالم +${natIpOk - o0} • بیشترین سطح $_atMaxNatLevel';
+    await _atEnsureDisconnected();
+  }""",
+"""  Future<void> _atItemNational() async {
+    _scenario = 3;
+    final name = _atItemNames[2];
+    natForce = true;
+    nationalMode = true;
+    userModeChoice = true;
+    offlineOnly = false;
+    natRound = 1; // V14: force pass 1
+    await ultimateSave();
+
+    _set('نت ملی: پاک‌سازی صف برای تست کامل ۵ ساعته');
+    good.clear();
+    pending.clear();
+    failed.clear();
+    fetchedAll.clear();
+    listTime = null;
+
+    _set('نت ملی: شروع اتصال اولیه...');
+    await connect(); // Triggers V13 logic, returns on first server
+
+    final tStart = DateTime.now();
+    final testDuration = const Duration(hours: 5);
+
+    while (_phase == _AtPhase.running && !_abortRequested) {
+      final elapsed = DateTime.now().difference(tStart);
+      if (elapsed > testDuration) break;
+
+      final progress = elapsed.inSeconds / testDuration.inSeconds;
+      autoTestProgress.value = progress.clamp(0.0, 1.0);
+      autoTestText.value = 'نت ملی ۵ ساعته • ${elapsed.inHours}h ${elapsed.inMinutes % 60}m • '
+          'دور: $natRound • سالم: ${good.length} • صف: ${pending.length} • '
+          'IP تست‌شده: $natIpTested • IP باز: $natIpFound';
+
+      if (natRound >= 2 && pending.isEmpty && !searching && !busy) {
+        _atAdd('NAT-EXHAUSTED', 'کل صف در هر دو دور تست شد و صف خالی است.');
+        break;
+      }
+
+      if (!searching && !busy && connected && pending.isNotEmpty) {
+        unawaited(_standbyRun());
+      }
+
+      await Future<void>.delayed(const Duration(seconds: 3));
+    }
+
+    _itemResult[name] = '✅ تست ۵ ساعته تمام شد • '
+        'سالم: ${good.length} • تست‌شده: $natIpTested • باز: $natIpFound';
+  }""",
+'V14: national monitor')
+
+# ---- 65) V14: save report to multiple public dirs ----
+print('\n[65] V14: save report dirs')
+patch_hard('auto_test',
+"""  const privDir = '/data/data/com.kingvpn.king_vpn/files/reports';
+  // REPORTDIR: پوشه‌ی گزارش در ریشه‌ی فضای داخلی، کنار DCIM و Download
+  const pubDir = '/storage/emulated/0/King-VPN';
+  String saved = '';
+  for (final d in const [privDir, pubDir]) {""",
+"""  const privDir = '/data/data/com.kingvpn.king_vpn/files/reports';
+  // V14: save to multiple public directories
+  const pubDir1 = '/storage/emulated/0/King-VPN';
+  const pubDir2 = '/storage/emulated/0/Documents/KingVPN';
+  const pubDir3 = '/storage/emulated/0/Download/KingVPN';
+  String saved = '';
+  for (final d in const [privDir, pubDir1, pubDir2, pubDir3]) {""",
+'V14: save report dirs')
 
 # =====================================================================
 # Save
@@ -1862,5 +1994,5 @@ for fn, content in files.items():
 
 print('\n' + '=' * 60)
 print('=== ALL PATCHES APPLIED ===')
-print('=== V13: SNI Swap, 22 uTLS, Time-of-day, Smart SNI, Target=1 ===')
+print('=== V14: 5-hour national test + save to Documents/Download ===')
 print('=== BUILD SHOULD PROCEED ===')
