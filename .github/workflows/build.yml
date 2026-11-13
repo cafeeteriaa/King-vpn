@@ -27,7 +27,7 @@ jobs:
           cache: true
 
       - name: Cache Go modules and gomobile
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/go/pkg/mod
@@ -38,9 +38,12 @@ jobs:
             go-${{ runner.os }}-1.22.10-
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.22.10'
+          # NODEFIX: built-in cache looks for go.mod/go.sum, which this Flutter project
+          # does not have -> warning. The explicit cache step above is kept as-is.
+          cache: false
 
       - name: Create project
         run: |
@@ -107,7 +110,7 @@ jobs:
 
       - name: Keep APK as run artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: king-vpn-apk-${{ github.run_number }}
           path: build_app/build/app/outputs/flutter-apk/*.apk
