@@ -1046,7 +1046,7 @@ patch_hard('main',
         : (cpuHot >= 2 ? 1 : (cpuHot >= 1 ? 3 : fastWorkers.clamp(1, 1000)));""",
 'V9: throttle fastWorkers')
 
-# ---- 39) V10: 50/50 IP mix ----
+# ---- 39) V10: 50/50 IP mix (FIXED) ----
 print('\n[39] V10: 50/50 IP mix')
 patch_hard('main',
 """    if (nationalMode && ipList.isNotEmpty) {
@@ -1055,10 +1055,11 @@ patch_hard('main',
       ipList.removeWhere((s) => !trusted.contains(s.host));
       final dropped = before - ipList.length;
       if (dropped > 0) dbg('نت ملی: $dropped کانفیگ با IP ناشناخته کنار گذاشته شد');
+      // REPORTFIX: پوشه‌ی IP تمیز خالی باشد، نت ملی هیچ کانفیگی را نمی‌تواند تست کند؛ راهنمایی روشن
       if (dropped > 0 && goldIpList().isEmpty) {
         dbg('نت ملی: پوشه‌ی IP تمیز خالی است؛ یک بار در نت جهانی وصل شو تا IP ذخیره شود');
       }
-      natFun('ip_untrusted', dropped);
+      natFun('ip_untrusted', dropped); // IPFUNNEL
     }""",
 """    if (nationalMode && ipList.isNotEmpty) {
       final trusted = natIpMemHosts()..addAll(natScanHits);
@@ -2069,8 +2070,16 @@ insert_before('main', '  Future<void> _doConnect({Server? only, String? row}) as
 
 # Apply the preset in _doConnect (FIXED)
 patch_hard('main',
-"""      natRound = 1;""",
-"""      natRound = 1;
+"""      natFloor = (natForce || nationalMode) ? 10 : 0;
+      natLevel = natFloor;
+      // V12: every user-initiated connect starts at round 1 (skip failed).
+      // Round 2 is only entered inside _findGood when pending is exhausted.
+      natRound = 1;""",
+"""      natFloor = (natForce || nationalMode) ? 10 : 0;
+      natLevel = natFloor;
+      // V12: every user-initiated connect starts at round 1 (skip failed).
+      // Round 2 is only entered inside _findGood when pending is exhausted.
+      natRound = 1;
       // V19: apply the best preset for this specific connect mode.
       _applyModePreset(nationalMode, offlineOnly, false);""",
 'V19: apply preset in _doConnect')
