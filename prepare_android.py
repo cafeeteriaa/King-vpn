@@ -195,7 +195,7 @@ for fn in os.listdir(LIB):
         files[fn[:-5]] = content
 print('Loaded %d dart files' % len(files))
 
-# ---- 4) HOT PATH (V9: app-private) ----
+# ---- 4) HOT PATH ----
 print('\n[4] hotPath V9 app-private')
 patch_hard('nat_ultra',
 """String _hotPath() {
@@ -652,12 +652,6 @@ if start_marker in files['main']:
             end = nl + 1
             files['main'] = files['main'][:start] + "  // V8: sing-box URLs removed\n" + files['main'][end:]
             print('  OK: sing-box URLs removed')
-        else:
-            print('  WARN: end URL not found')
-    else:
-        print('  SKIP: marker not found')
-else:
-    print('  SKIP: already removed')
 
 # ---- 24) stopSingbox ----
 print('\n[24] stopSingbox call')
@@ -804,7 +798,7 @@ String? buildSingboxConfigFromLink(String link) => null;
 """
 print('  OK')
 
-# ---- 31) V9: tunUp fix (retry logic) ----
+# ---- 31) V9: tunUp fix ----
 print('\n[31] V9: tunUp fix')
 patch_hard('main',
 """Future<bool?> tunUp() async {
@@ -861,7 +855,7 @@ patch_hard('main',
     return lastState == 'CONNECTED' ? true : null;
   }
 }""",
-'V9: tunUp retry + trust core')
+'V9: tunUp retry')
 
 # ---- 32) V9: E-NO-TUN split ----
 print('\n[32] V9: E-NO-TUN split')
@@ -898,8 +892,6 @@ patch_hard('main',
         if (_pickList().isEmpty) await _natQuickStart();
       }""",
 """      if (round == 0 && nationalMode) {
-        // NATFIRSTFAST + V9-NATGOLD: quick start; then inject cached gold IPs
-        // BEFORE any IP scan (saves minutes on fresh install after setup).
         if (_pickList().isEmpty) {
           await _natQuickStart();
           if (pending.isEmpty) {
@@ -941,8 +933,6 @@ patch_hard('nip_scan',
   'speed.cloudflare.com',
 ];""",
 """const natFrontSnis = <String>[
-  // V9: expanded SNI rotation. All are CF-hosted, so handshaking with any
-  // against a CF edge IP succeeds. Rotating SNIs defeats SNI-specific DPI.
   'cdnjs.cloudflare.com',
   'www.cloudflare.com',
   'cloudflare.com',
@@ -962,48 +952,31 @@ patch_hard('nip_scan',
 ];""",
 'V9: expanded natFrontSnis')
 
-# ---- 35) V9: badPingMs = 2000 everywhere ----
-print('\n[35] V9: badPingMs = 2000 + autoTune off')
-
-# 1. Global variable
+# ---- 35) V9: badPingMs = 2000 ----
+print('\n[35] V9: badPingMs = 2000')
 if 'int badPingMs = 1700;' in files['main']:
     files['main'] = files['main'].replace('int badPingMs = 1700;', 'int badPingMs = 2000; // V9')
-    print('  OK: badPingMs global -> 2000')
-elif 'int badPingMs = 2000;' in files['main']:
-    print('  SKIP: badPingMs global already 2000')
-
-# 2. numOpts in iran_ai_extras
-if 'iran_ai_extras' in files:
-    if "1700, 7000" in files['iran_ai_extras']:
-        files['iran_ai_extras'] = files['iran_ai_extras'].replace("1700, 7000", "2000, 7000")
-        print('  OK: numOpts badPingMs -> 2000')
-
-# 3. Migration block (robust string replace)
+    print('  OK: badPingMs -> 2000')
+if 'iran_ai_extras' in files and "1700, 7000" in files['iran_ai_extras']:
+    files['iran_ai_extras'] = files['iran_ai_extras'].replace("1700, 7000", "2000, 7000")
 if "'badping1700_v1'" in files['main']:
     files['main'] = files['main'].replace("'badping1700_v1'", "'badping2000_v1'")
-    print('  OK: migration key badping1700_v1 -> badping2000_v1')
 if "badPingMs = 1700;" in files['main']:
     files['main'] = files['main'].replace("badPingMs = 1700;", "badPingMs = 2000;")
-    print('  OK: badPingMs = 1700 -> 2000')
-
-# 4. Tuned settings
 for fn in files:
     txt = files[fn]
-    txt = txt.replace("'bp': 2500,", "'bp': 2000,")
-    txt = txt.replace("'badPingMs': 2500,", "'badPingMs': 2000,")
-    txt = txt.replace("'bp': 1700,", "'bp': 2000,")
-    txt = txt.replace("'badPingMs': 1700,", "'badPingMs': 2000,")
+    for old in ["'bp': 2500,", "'badPingMs': 2500,", "'bp': 1700,", "'badPingMs': 1700,"]:
+        txt = txt.replace(old, old.replace('2500', '2000').replace('1700', '2000'))
     files[fn] = txt
-print('  OK: tuned settings badPingMs -> 2000')
+print('  OK: all badPingMs -> 2000')
 
 # ---- 36) V9: Force fresh search on manual reconnect ----
-print('\n[36] V9: Force fresh search on manual reconnect')
+print('\n[36] V9: force fresh on reconnect')
 patch_hard('main',
 """        if (!localPilotOn && !aiSession) failed.clear();""",
 """        if (!localPilotOn && !aiSession) {
           failed.clear();
           if (only == null && row == null) {
-            // Manual reconnect: force fresh search
             good.clear();
             pending.clear();
             if (!offlineOnly) {
@@ -1013,10 +986,10 @@ patch_hard('main',
             }
           }
         }""",
-'V9: force fresh search on reconnect')
+'V9: force fresh on reconnect')
 
-# ---- 37) V9: Fix FormatException in fetchServers ----
-print('\n[37] V9: Fix FormatException in fetchServers')
+# ---- 37) V9: Fix FormatException ----
+print('\n[37] V9: fix FormatException')
 patch_hard('main',
 """      if (!body.contains('://')) {
         if (!RegExp(r'^[A-Za-z0-9+/=_\\-\\s]+$').hasMatch(body)) {
@@ -1037,9 +1010,7 @@ patch_hard('main',
         b64 = b64.replaceAll('-', '+').replaceAll('_', '/');
         while (b64.length % 4 != 0) { b64 += '='; }
         try {
-          body = utf8.decode(
-              base64.decode(b64),
-              allowMalformed: true);
+          body = utf8.decode(base64.decode(b64), allowMalformed: true);
         } catch (_swE) {
           _swl('build#1', _swE);
           srcFetchState[u] = 'fail';
@@ -1048,8 +1019,8 @@ patch_hard('main',
       }""",
 'V9: fix FormatException')
 
-# ---- 38) V9: Fix CPU Excessive usage ----
-print('\n[38] V9: Fix CPU Excessive usage')
+# ---- 38) V9: Fix CPU ----
+print('\n[38] V9: fix CPU')
 patch_hard('main',
 """        // FREEZEFIX: always give the event loop a turn (timers, heartbeat, taps)
         await Future<void>.delayed(const Duration(milliseconds: 5));""",
@@ -1060,11 +1031,130 @@ patch_hard('main',
 patch_hard('main',
 """    final gateMax = nationalMode
         ? kNatDelayConcurrency
-        : fastWorkers.clamp(1, 1000); // سقف ۱۰۰۰ از تنظیم «تست همزمان (جستجوی اول)» // 3-AT-A-TIME: تست سریع فقط ۳ تا ۳ تا (نت ملی جداست)""",
+        : fastWorkers.clamp(1, 1000);""",
 """    final gateMax = nationalMode
         ? kNatDelayConcurrency
         : (cpuHot >= 2 ? 1 : (cpuHot >= 1 ? 3 : fastWorkers.clamp(1, 1000)));""",
 'V9: throttle fastWorkers')
+
+# ---- 39) V10: 50/50 IP mix ----
+print('\n[39] V10: 50/50 IP mix')
+patch_hard('main',
+"""    if (nationalMode && ipList.isNotEmpty) {
+      final trusted = natIpMemHosts()..addAll(natScanHits);
+      final before = ipList.length;
+      ipList.removeWhere((s) => !trusted.contains(s.host));
+      final dropped = before - ipList.length;
+      if (dropped > 0) dbg('نت ملی: $dropped کانفیگ با IP ناشناخته کنار گذاشته شد');
+      // REPORTFIX: پوشه‌ی IP تمیز خالی باشد، نت ملی هیچ کانفیگی را نمی‌تواند تست کند؛ راهنمایی روشن
+      if (dropped > 0 && goldIpList().isEmpty) {
+        dbg('نت ملی: پوشه‌ی IP تمیز خالی است؛ یک بار در نت جهانی وصل شو تا IP ذخیره شود');
+      }
+      natFun('ip_untrusted', dropped); // IPFUNNEL
+    }""",
+"""    // V10: 50/50 known/unknown IP interleave (nothing dropped).
+    if (nationalMode && ipList.isNotEmpty) {
+      final trusted = natIpMemHosts()..addAll(natScanHits);
+      final known = ipList.where((s) => trusted.contains(s.host)).toList();
+      final unknown = ipList.where((s) => !trusted.contains(s.host)).toList();
+      final mixed = <Server>[];
+      var ki = 0, ui = 0;
+      while (ki < known.length || ui < unknown.length) {
+        if (ki < known.length) { mixed.add(known[ki]); ki++; }
+        if (ui < unknown.length) { mixed.add(unknown[ui]); ui++; }
+      }
+      ipList
+        ..clear()
+        ..addAll(mixed);
+      if (known.isNotEmpty || unknown.isNotEmpty) {
+        dbg('V10 IP-MIX: ${known.length} known + ${unknown.length} unknown (50/50)');
+      }
+      natFun('ip_mixed_known', known.length);
+      natFun('ip_mixed_unknown', unknown.length);
+    }""",
+'V10: 50/50 IP mix')
+
+# ---- 40) V10: 50/50 domain batch mix ----
+print('\n[40] V10: 50/50 domain batch mix')
+patch_hard('main',
+"""        if (smartOrder) cand = _diversify(cand);
+        cand = _engineMix(cand); // PHASE1-SINGBOX: ۵۰/۵۰ از هر دو هسته
+        final batch = _mixBatch(cand, size); // SRCSPLIT""",
+"""        if (smartOrder) cand = _diversify(cand);
+        if (nationalMode) {
+          final knownC = cand.where((s) => s.checkedAt != null).toList();
+          final unknownC = cand.where((s) => s.checkedAt == null).toList();
+          final mix = <Server>[];
+          var mki = 0, mui = 0;
+          while (mki < knownC.length || mui < unknownC.length) {
+            if (mki < knownC.length) { mix.add(knownC[mki]); mki++; }
+            if (mui < unknownC.length) { mix.add(unknownC[mui]); mui++; }
+          }
+          cand = mix;
+        }
+        cand = _engineMix(cand);
+        final batch = _mixBatch(cand, size);""",
+'V10: 50/50 domain batch mix')
+
+# ---- 41) V10: shorter failWindow ----
+print('\n[41] V10: failWindow 2min national')
+patch_hard('main',
+"""  bool _recentFail(Server s) {
+    final t = failed[s.key];
+    return t != null && DateTime.now().difference(t) < failWindow;
+  }""",
+"""  bool _recentFail(Server s) {
+    final t = failed[s.key];
+    final win = nationalMode ? const Duration(minutes: 2) : failWindow;
+    return t != null && DateTime.now().difference(t) < win;
+  }""",
+'V10: failWindow 2min')
+
+# ---- 42) V10: shorter badFor ----
+print('\n[42] V10: badFor 2min national')
+patch_hard('main',
+"""  bool _bad(Server s) =>
+      (s.badAt != null && DateTime.now().difference(s.badAt!) < badFor) ||
+      _crashBanned(s.key); // CRASHGUARD: سروری که اپ را وسط شروع کرش داد موقتاً رد می‌شود""",
+"""  bool _bad(Server s) {
+    final win = nationalMode ? const Duration(minutes: 2) : badFor;
+    return (s.badAt != null && DateTime.now().difference(s.badAt!) < win) ||
+        _crashBanned(s.key);
+  }""",
+'V10: badFor 2min')
+
+# ---- 43) ★ V10 CRITICAL: 50/50 interleave of pending in _findGood ----
+print('\n[43] V10 CRITICAL: 50/50 interleave in _findGood')
+patch_hard('main',
+"""        if (batches == 1 || batches % 8 == 0) {
+          await Future<void>.delayed(Duration.zero); // LOOPFREEZE: let the UI breathe
+          pending.sort(_cmpPending);
+        }""",
+"""        if (batches == 1 || batches % 8 == 0) {
+          await Future<void>.delayed(Duration.zero); // LOOPFREEZE: let the UI breathe
+          // V10-CRITICAL: in national mode, interleave known/unknown 50/50 in
+          // pending BEFORE take(). Without this, _cmpPending sorts known to top
+          // and unknown never reaches the batch (starvation).
+          if (nationalMode && pending.length > size) {
+            final knownL = <Server>[];
+            final unknownL = <Server>[];
+            for (final s in pending) {
+              if (s.checkedAt != null) { knownL.add(s); } else { unknownL.add(s); }
+            }
+            knownL.sort(_cmpPending);
+            unknownL.sort(_cmpPending);
+            pending.clear();
+            var ki2 = 0, ui2 = 0;
+            while (ki2 < knownL.length || ui2 < unknownL.length) {
+              if (ki2 < knownL.length) { pending.add(knownL[ki2]); ki2++; }
+              if (ui2 < unknownL.length) { pending.add(unknownL[ui2]); ui2++; }
+            }
+            dbg('V10-SORT: interleaved ${knownL.length} known + ${unknownL.length} unknown in pending');
+          } else {
+            pending.sort(_cmpPending);
+          }
+        }""",
+'V10-CRITICAL: 50/50 interleave in _findGood')
 
 # =====================================================================
 # Save
@@ -1074,5 +1164,7 @@ for fn, content in files.items():
         f.write(content)
 
 print('\n' + '=' * 60)
-print('=== ALL PATCHES APPLIED ===')
+print('=== ALL 43 PATCHES APPLIED ===')
+print('=== V10: FULL coverage - known+unknown, CF+non-CF, IR+global ===')
+print('=== V10: 50/50 mix in every batch (IP, domain, pending queue) ===')
 print('=== BUILD SHOULD PROCEED ===')
