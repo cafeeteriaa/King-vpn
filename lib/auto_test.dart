@@ -2339,9 +2339,14 @@ Future<String> atSaveReport(String report) async {
     final src = File(kXrayErrPath);
     if (src.existsSync()) {
       final txt = await src.readAsString();
-      final d = Directory(pubDir);
-      if (!d.existsSync()) d.createSync(recursive: true);
-      await File('$pubDir/xray_err_last.log').writeAsString(txt, flush: true);
+      // XRAYCOPY-FIX: pubDir فقط داخل حلقه‌ی بالا تعریف شده بود؛ همان مسیرها را این‌جا امتحان می‌کنیم
+      for (final d in const [privDir, pubDir1, pubDir2, pubDir3]) {
+        try {
+          final dir = Directory(d);
+          if (!dir.existsSync()) dir.createSync(recursive: true);
+          await File('${dir.path}/xray_err_last.log').writeAsString(txt, flush: true);
+        } catch (_) {}
+      }
     }
   } catch (_) {}
   return saved;

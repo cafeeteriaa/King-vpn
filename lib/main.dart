@@ -3790,6 +3790,7 @@ Future<bool> waitProxyPort(
 // normally), so without this check the app can say "connected" while the
 // phone has no VPN key and other apps get nothing.
 bool lastStartNoTunnel = false; // last _start failed because Android built no tunnel
+String kVpnLastStateTop = ''; // TUNSTATE-FIX: آینه‌ی سراسری lastState برای tunUp()
 String tunNames = ''; // interface names seen by the last tunUp() (diagnostics)
 Future<bool?> tunUp() async {
   try {
@@ -3808,11 +3809,11 @@ Future<bool?> tunUp() async {
       if (hasTunnel) return true;
       if (attempt < 2) await Future.delayed(const Duration(milliseconds: 800));
     }
-    if (lastState == 'CONNECTED') return true;
+    if (kVpnLastStateTop == 'CONNECTED') return true;
     return false;
   } catch (_swE) {
     _swl('tunUp#1', _swE);
-    return lastState == 'CONNECTED' ? true : null;
+    return kVpnLastStateTop == 'CONNECTED' ? true : null;
   }
 }
 
@@ -4593,6 +4594,8 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
+bool sniSpoofAll = false; // V16: apply SNI spoof to all CDN configs (normal mode too)
+
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   late final V2ray v2ray;
   // ALL healthy servers (no count limit). Servers saved from the last session
@@ -4728,7 +4731,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final Map<String, int> profTested = {}, profOk = {};
   Set<String> topSrc = {};
   bool onlyHealthySrc = true;
-bool sniSpoofAll = false; // V16: apply SNI spoof to all CDN configs (normal mode too)
   bool ipMode = false; // LOWDATA // resolve domains to IP (DoH) and connect by IP
   String groupMode = 'type'; // 'type' rows, 'country' rows or 'source' rows
   String? connRow; // row the current connection was picked from
@@ -4990,6 +4992,7 @@ bool sniSpoofAll = false; // V16: apply SNI spoof to all CDN configs (normal mod
             'بعد از آخرین تعویض=${DateTime.now().difference(lastSwitch).inSeconds}s');
       }
       lastState = st.state;
+      kVpnLastStateTop = st.state; // mirror for top-level tunUp()
       try {
         final d = st as dynamic; // LIVESTATS
         liveDown = (d.downloadSpeed as num?)?.toInt() ?? liveDown;
