@@ -10,12 +10,13 @@ part of 'main.dart';
 // =============================================================================
 
 int natLevel = 1;
-const int natMaxVariants = 2000000;
+int natRound = 1; // V12: 1 = pass 1 (skip failed), 2 = pass 2 (retry all)
+const int natMaxVariants = 0x7FFFFFFF; // V8
 int natFloor = 0;
 List<Server> natRestPending = [];
 
 const int _natCodeBase = 100000;
-const int _natBaseCount = 50;
+const int _natBaseCount = 54; // V13: +4 SNI swap
 // V7: bumped to 3 because the meaning of the port-hopping index changed
 // (port 80 added to the CF port list), so old saved generated variants
 // no longer point at the same meaning.
@@ -45,8 +46,8 @@ List<List<String>> _natBuildFrags() {
     for (final f in _natFragBase) '${f[0]}|${f[1]}|${f[2]}'
   };
   const lens = [
-    '1-3', '2-8', '5-15', '10-30', '20-50', '30-60', '50-100', '100-200',
-    '200-400', '400-800'
+    '1-2', '1-3', '2-5', '2-8', '5-15', '10-30', '20-50', '30-60', '50-100',
+    '100-200', '200-400', '400-800'
   ];
   const ints = ['1-1', '1-2', '2-5', '5-10', '10-20', '20-40', '40-80'];
   const pks = ['tlshello', '1-1', '1-2', '1-3', '1-5'];
@@ -108,6 +109,7 @@ class _NatSpec {
   final int? cleanIdx;
   final int? keep;
   final int? mss;
+  final int? sniSwap; // V13: swap SNI to natFrontSnis[idx] (CDN-only)
   const _NatSpec(this.name,
       {this.other = false,
       this.fp,
@@ -130,7 +132,8 @@ class _NatSpec {
       this.portIdx,
       this.cleanIdx,
       this.keep,
-      this.mss});
+      this.mss,
+      this.sniSwap});
 }
 
 const List<_NatSpec> _natBase = [
@@ -184,6 +187,11 @@ const List<_NatSpec> _natBase = [
   _NatSpec('آدرس دیگر + Fragment', other: true, frag: 0),
   _NatSpec('آدرس دیگر + fp=chrome', other: true, fp: 'chrome'),
   _NatSpec('آدرس دیگر + Fragment خیلی ریز', other: true, frag: 3),
+  // V13: SNI swap variants (CDN bypass by masking SNI, keeping Host header).
+  _NatSpec('SNI>cdnjs', sniSwap: 0),
+  _NatSpec('SNI>cloudflare', sniSwap: 2),
+  _NatSpec('SNI>speed', sniSwap: 3),
+  _NatSpec('SNI>1.1.1.1', sniSwap: 10),
 ];
 
 final List<_NatSpec> _natSpecs = [..._natBase, ..._natGenerate(), ..._natExtra];
@@ -209,7 +217,7 @@ const List<_NatSpec> _natExtra = [
 String _natSig(_NatSpec x) =>
     '${x.fp}|${x.alpn}|${x.frag}|${x.other}|${x.port}|${x.portIdx}|${x.clean}|'
     '${x.cleanIdx}|${x.mux}|${x.muxN}|${x.sniHost}|${x.v4}|${x.tfo}|${x.ed}|'
-    '${x.edN}|${x.noise}|${x.noiseK}|${x.nodelay}|${x.doh}|${x.mode}|${x.keep}';
+    '${x.edN}|${x.noise}|${x.noiseK}|${x.nodelay}|${x.doh}|${x.mode}|${x.keep}|${x.sniSwap}';
 
 _NatSpec _natMk(
     {String? fp,
@@ -232,7 +240,8 @@ _NatSpec _natMk(
     bool nodelay = false,
     String? doh,
     String? mode,
-    int? keep}) {
+    int? keep,
+    int? sniSwap}) {
   final n = <String>[];
   if (other) n.add('آدرس دیگر');
   if (fp != null) n.add('fp=$fp');
@@ -263,6 +272,7 @@ _NatSpec _natMk(
     n.add('DNS $dn');
   }
   if (mode != null) n.add(mode);
+  if (sniSwap != null) n.add('SNI>CF#${sniSwap + 1}');
   return _NatSpec(n.isEmpty ? 'عادی+' : n.join(' + '),
       other: other,
       fp: fp,
@@ -284,7 +294,8 @@ _NatSpec _natMk(
       nodelay: nodelay,
       doh: doh,
       mode: mode,
-      keep: keep);
+      keep: keep,
+      sniSwap: sniSwap);
 }
 
 List<_NatSpec> _natGenerate() {
@@ -296,7 +307,10 @@ List<_NatSpec> _natGenerate() {
 
   const fps = [
     'chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge',
-    'random', 'qq', '360'
+    'random', 'qq', '360',
+    'hellogolang', 'hellochrome', 'hellofirefox', 'hellosafari', 'helloios',
+    'helloandroid', 'helloedge', 'hello360', 'helloqq', 'hellorandomized',
+    'hellorandomizedalpn', 'hellorandomizednoalpn',
   ];
   const alpns = ['h2', 'http/1.1', 'h2,http/1.1'];
 
@@ -313,6 +327,14 @@ List<_NatSpec> _natGenerate() {
     for (var i = _natFragBase.length; i < _natFrags.length; i++)
       if (!topSet.contains(i)) i
   ];
+
+  // V13: SNI-swap x fragment combos (bypass SNI + DPI in one shot).
+  for (var sniIdx = 0; sniIdx < 4; sniIdx++) {
+    final realIdx = const [0, 2, 3, 10][sniIdx];
+    for (var fi = 0; fi < _natFragBase.length; fi++) {
+      add(_natMk(frag: fi, sniSwap: realIdx));
+    }
+  }
 
   for (final p in fps) {
     add(_natMk(fp: p));
@@ -396,7 +418,36 @@ List<_NatSpec> _natGenerate() {
   return out;
 }
 
-int natGrow(int n) => 0;
+int _natGrowCounter = 0;
+int natGrow(int n) {
+  if (_natSpecs.length > 500000) return 0;
+  final rnd = Random(DateTime.now().millisecondsSinceEpoch + _natGrowCounter++);
+  var added = 0;
+  const fps = ['chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge', 'random', 'qq', '360', 'hellogolang', 'hellochrome', 'hellofirefox', 'hellosafari', 'helloios', 'helloandroid', 'helloedge', 'hello360', 'helloqq', 'hellorandomized', 'hellorandomizedalpn', 'hellorandomizednoalpn'];
+  const alpns = <String?>[null, 'h2', 'http/1.1', 'h2,http/1.1'];
+  for (var i = 0; i < n; i++) {
+    final fp = fps[rnd.nextInt(fps.length)];
+    final alpn = alpns[rnd.nextInt(alpns.length)];
+    final frag = rnd.nextInt(_natFrags.length);
+    final port = rnd.nextBool();
+    final portIdx = port ? rnd.nextInt(_natCfPorts.length) : null;
+    final clean = rnd.nextBool();
+    final cleanIdx = clean ? rnd.nextInt(10) : null;
+    final doh = rnd.nextBool() ? _natDnsList[rnd.nextInt(_natDnsList.length)] : null;
+    final v4 = rnd.nextBool();
+    final tfo = rnd.nextBool();
+    final keep = rnd.nextBool() ? rnd.nextInt(30) + 1 : null;
+    final sniSwap = rnd.nextBool() ? rnd.nextInt(15) : null;
+    _natSpecs.add(_natMk(
+      fp: fp, alpn: alpn, frag: frag, port: port, portIdx: portIdx,
+      clean: clean, cleanIdx: cleanIdx, v4: v4, tfo: tfo, keep: keep, doh: doh,
+      sniSwap: sniSwap,
+    ));
+    added++;
+  }
+  if (added > 0) { _natNamesC = null; _natGenRankKey = ''; }
+  return added;
+}
 
 List<String>? _natNamesC;
 List<String> get _natVarNames =>
@@ -540,6 +591,8 @@ bool _natAppliesF(_NatFacts f, int v) {
   if (x.noise) return false;
   if (x.mode != null && (!x.mode!.startsWith('kcp:') || f.reality)) return false;
   if (x.doh != null && f.isIp) return false;
+  // V13: SNI swap only makes sense for CDN configs with TLS (not reality).
+  if (x.sniSwap != null && !(f.sec && f.cdnLike && !f.reality)) return false;
   return true;
 }
 
@@ -576,6 +629,7 @@ List<String> _natDims(_NatSpec x) {
   if (x.mode != null) d.add('mode=${x.mode}');
   if (x.mss != null) d.add('mss=${x.mss}');
   if (x.keep != null) d.add('ka=${x.keep}');
+  if (x.sniSwap != null) d.add('sni=${x.sniSwap}');
   return d;
 }
 
@@ -583,7 +637,8 @@ List<int> _natGenRank = [];
 String _natGenRankKey = '';
 
 List<int> _natGenRanked() {
-  final key = '$natOpKey|$_natLearnVer|${_natSpecs.length}';
+  final hb = DateTime.now().hour ~/ 3; // V13: 3-hour bucket
+  final key = '$natOpKey|$_natLearnVer|${_natSpecs.length}|h$hb';
   if (key == _natGenRankKey) return _natGenRank;
   final idx = <int>[for (var i = _natBaseCount; i < _natSpecs.length; i++) i];
   final sc = <int, int>{};
@@ -591,6 +646,7 @@ List<int> _natGenRanked() {
     var s = 0;
     for (final d in _natDims(_natSpecs[i])) {
       s += natDimWins['$natOpKey#$d'] ?? 0;
+      s += (natDimWins['$natOpKey#h$hb#$d'] ?? 0) * 2;
     }
     sc[i] = s;
   }
@@ -627,10 +683,14 @@ void natCursorAdvance(Server s, int n) {
 
 Duration natBudget({bool full = false}) {
   final l = full ? 3 : natLevel;
-  if (l <= 1) return const Duration(seconds: 40);
-  if (l == 2) return const Duration(seconds: 75);
-  if (l == 3) return const Duration(seconds: 150);
-  return const Duration(seconds: 260);
+  // V12: at lvl 10 (national default) give a generous budget so the FULL
+  // matrix (Fragment, DNS, port, FP, ALPN, clean IP, host, SNI...) is tested
+  // against every server. No variant is skipped due to short budget.
+  if (l <= 1) return const Duration(seconds: 60);
+  if (l == 2) return const Duration(seconds: 120);
+  if (l == 3) return const Duration(seconds: 240);
+  if (l >= 9) return const Duration(seconds: 900);
+  return const Duration(seconds: 480);
 }
 
 const List<int> _natGenCap = [
@@ -659,7 +719,12 @@ List<int> _natOrder(Server s, {bool full = false}) {
   if (knownOk && (!skipHeavy || !natIsHeavy(known!))) put(known!);
 
   if (preferLight) {
-    final lightFirst = <int>[0, 1, 4, 13, 7, 20, 12, 33, 38, 40, 44];
+    // V13: try SNI-swap variants first on CDN configs (bypasses SNI DPI).
+    // If the config is CDN, base index 50..53 are the SNI swaps.
+    final lightFirst = <int>[
+      if (f.cdnLike && f.sec && !f.reality) ...[50, 51, 52, 53],
+      0, 1, 4, 13, 7, 20, 12, 33, 38, 40, 44,
+    ];
     for (final w in _natTopWinners(8)) {
       if (!natIsHeavy(w) && !lightFirst.contains(w)) lightFirst.add(w);
     }
@@ -723,6 +788,13 @@ List<int> _natOrder(Server s, {bool full = false}) {
     final app = <int>[];
     for (final v in _natGenRanked()) {
       if (_natAppliesF(f, v)) app.add(v);
+    }
+    if (cursor >= app.length && lvl >= 2) {
+      natGrow(1000);
+      app.clear();
+      for (final v in _natGenRanked()) {
+        if (_natAppliesF(f, v)) app.add(v);
+      }
     }
     if (app.isNotEmpty && cursor < app.length) {
       final end = min(app.length, cursor + cap);
@@ -972,6 +1044,29 @@ Map? _natProxyOut(Map<String, dynamic> j) {
 // V7-FRAG: Fragment on the TLS Hello with deterministic jitter seeded by
 // (server key, variant). Same (server, variant) pair always gets the SAME
 // jitter, so the test and the real connection use identical byte counts.
+String _natApplySniSwap(String cfg, int sniIdx) {
+  try {
+    if (sniIdx < 0 || sniIdx >= natFrontSnis.length) return cfg;
+    final sni = natFrontSnis[sniIdx];
+    final j = jsonDecode(cfg);
+    if (j is! Map<String, dynamic>) return cfg;
+    final outs = (j['outbounds'] as List?) ?? <dynamic>[];
+    for (final o in outs) {
+      if (o is! Map) continue;
+      final st = o['streamSettings'];
+      if (st is! Map) continue;
+      if (st['security'] != 'tls') continue;
+      final tls = st['tlsSettings'];
+      if (tls is! Map) continue;
+      tls['serverName'] = sni;
+      tls['allowInsecure'] = true;
+    }
+    return jsonEncode(j);
+  } catch (_) {
+    return cfg;
+  }
+}
+
 String _natFrag(String cfg, int fi,
     {bool noise = false, int noiseK = 0, int seed = 0}) {
   if (fi < 0 || fi >= _natFrags.length) return cfg;
@@ -1099,7 +1194,9 @@ String natCfg(Server s, int v, {bool reuse = false}) =>
 
 String _natCfgRaw(Server s, int v, {bool reuse = false}) {
   var cfg = buildCoreConfig(_natLinkFor(s, v, reuse: reuse));
-  if (v <= 0 || v >= _natSpecs.length) return cfg;
+  if (v <= 0 || v >= _natSpecs.length) {
+    return _natSmartSni(cfg, s, forceAll: sniSpoofAll);
+  }
   final x = _natSpecs[v];
   if (x.frag != null) {
     // V7-FRAG: seed = server key hash XOR variant number.
@@ -1112,7 +1209,39 @@ String _natCfgRaw(Server s, int v, {bool reuse = false}) {
     cfg = _natSock(cfg,
         v4: x.v4, tfo: x.tfo, nodelay: x.nodelay, keep: x.keep, mss: x.mss);
   }
+  if (x.sniSwap != null) cfg = _natApplySniSwap(cfg, x.sniSwap!);
   return cfg;
+}
+
+// V13/V16: automatically apply SNI swap if the host is workers.dev
+// (always), or any CDN host when sniSpoofAll is on (V16).
+String _natSmartSni(String cfg, Server s, {bool forceAll = false}) {
+  try {
+    final h = s.host.toLowerCase();
+    final isWorker = h.endsWith('workers.dev') || h.endsWith('pages.dev');
+    final isCdn = isWorker || s.cdn;
+    if (!isWorker && !(forceAll && isCdn)) return cfg;
+    final j = jsonDecode(cfg);
+    if (j is! Map<String, dynamic>) return cfg;
+    final outs = (j['outbounds'] as List?) ?? <dynamic>[];
+    for (final o in outs) {
+      if (o is! Map) continue;
+      final st = o['streamSettings'];
+      if (st is! Map || st['security'] != 'tls') continue;
+      final tls = st['tlsSettings'];
+      if (tls is! Map) continue;
+      final current = (tls['serverName'] ?? '').toString().toLowerCase();
+      if (!isWorker &&
+          !current.endsWith('workers.dev') &&
+          !current.endsWith('pages.dev') &&
+          !current.isEmpty) {
+        continue;
+      }
+      tls['serverName'] = natFrontSnis[0]; // cdnjs.cloudflare.com (or first Iran)
+      tls['allowInsecure'] = true;
+    }
+    return jsonEncode(j);
+  } catch (_) { return cfg; }
 }
 
 int natSafeVariant(int v) {
@@ -1265,9 +1394,12 @@ void natVarSet(Server s, int v) {
   final wk = '$natOpKey#$v';
   natWins[wk] = (natWins[wk] ?? 0) + 1;
   if (v > 0 && v < _natSpecs.length) {
+    final hb = DateTime.now().hour ~/ 3; // V13: 3-hour bucket (0-7)
     for (final d in _natDims(_natSpecs[v])) {
       final dk = '$natOpKey#$d';
       natDimWins[dk] = (natDimWins[dk] ?? 0) + 1;
+      final hk = '$natOpKey#h$hb#$d';
+      natDimWins[hk] = (natDimWins[hk] ?? 0) + 1;
     }
     _natLearnVer++;
   }
@@ -1664,6 +1796,36 @@ List<Server> natTemplateSeeds = [];
 // V7: IP scanning is required by v7 (Layer 1 filter = IP/Port). Set to true.
 bool kNatIpScanOn = true;
 
+final Map<String, int> _cfRangeCursors = {};
+List<String> _getCfIps({int batchSize = 160000}) {
+  final out = <String>[];
+  final ranges = _cfRanges;
+  final perRange = (batchSize / ranges.length).ceil();
+  for (final cidr in ranges) {
+    final parts = cidr.split('/');
+    if (parts.length != 2) continue;
+    final octets = parts[0].split('.');
+    if (octets.length != 4) continue;
+    final a = int.tryParse(octets[0]);
+    final b = int.tryParse(octets[1]);
+    final c = int.tryParse(octets[2]);
+    final d = int.tryParse(octets[3]);
+    final prefix = int.tryParse(parts[1]);
+    if (a == null || b == null || c == null || d == null || prefix == null) continue;
+    if (prefix < 8 || prefix > 32) continue;
+    final base = (a << 24) | (b << 16) | (c << 8) | d;
+    final span = 1 << (32 - prefix);
+    var cursor = _cfRangeCursors[cidr] ?? 0;
+    for (var i = 0; i < perRange; i++) {
+      final offset = (cursor + i) % span;
+      final v = base + offset;
+      out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
+    }
+    _cfRangeCursors[cidr] = (cursor + perRange) % span;
+  }
+  return out;
+}
+
 Future<List<String>> natRangeScanStep({
   required List<Server> known,
   int maxAddrs = 256,
@@ -1689,21 +1851,31 @@ Future<List<String>> natRangeScanStep({
   ];
   final blocks = natRanges.isNotEmpty ? natRanges : natSeedBlocks(hosts);
   final addrs = <String>[];
-  for (final r in blocks) {
-    addrs.addAll(natExpandAny(r));
+  if (nationalMode) {
+    addrs.addAll(_getCfIps(batchSize: maxAddrs));
+    for (final r in blocks) {
+      addrs.addAll(natExpandAny(r));
+    }
+  } else {
+    for (final r in blocks) {
+      addrs.addAll(natExpandAny(r));
+    }
+    addrs.addAll(_getCfIps());
   }
   if (addrs.isEmpty) return const <String>[];
-  final from = natRangeCursor % addrs.length;
+  final from = nationalMode ? 0 : (natRangeCursor % addrs.length);
   final slice = addrs.skip(from).take(maxAddrs).toList();
-  natRangeCursor = from + slice.length;
+  if (!nationalMode) natRangeCursor = from + slice.length;
   natRandomLast = 0;
   natIpScanned += slice.length;
   final out = <String>[...domOut];
   final portList = natAutoPorts(seeds);
   final perPort = Duration(
       milliseconds: max(20000, budget.inMilliseconds ~/ max(1, portList.length)));
+  final scanDeadline = DateTime.now().add(budget);
   for (final port in portList) {
     if (stop != null && stop()) break;
+    if (DateTime.now().isAfter(scanDeadline)) break;
     final hits = await natScanIps(
       slice,
       port: port,
@@ -1766,14 +1938,41 @@ class _HotIdx {
 
 _HotIdx? _hot;
 
+const String hotVisibleDir = '/storage/emulated/0/Download/King-VPN';
 String _hotPath() {
   const dir = '/data/data/com.kingvpn.king_vpn/files';
   try {
     final d = Directory(dir);
     if (!d.existsSync()) d.createSync(recursive: true);
     return '$dir/hot_cache.txt';
-  } catch (jex, jstk) { errJournalAdd(jex, st: jstk);
+  } catch (_) {
     return '${Directory.systemTemp.path}/hot_cache.txt';
+  }
+}
+Future<void> hotExportToDownload() async {
+  try {
+    final src = File(_hotPath());
+    if (!src.existsSync()) return;
+    final v = Directory(hotVisibleDir);
+    if (!v.existsSync()) v.createSync(recursive: true);
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    final dst = File('$hotVisibleDir/hot_configs_$ts.txt');
+    await src.copy(dst.path);
+    try {
+      final all = v.listSync()
+          .whereType<File>()
+          .where((f) => f.path.contains('hot_configs_'))
+          .toList()
+        ..sort((a, b) {
+          try { return b.statSync().modified.compareTo(a.statSync().modified); }
+          catch (_) { return 0; }
+        });
+      for (var i = 3; i < all.length; i++) {
+        try { all[i].deleteSync(); } catch (_) {}
+      }
+    } catch (_) {}
+  } catch (e) {
+    dbg('hotExport ignored: $e');
   }
 }
 
@@ -1822,6 +2021,7 @@ Future<List<String>> _hotFetchOne(String u) async {
 }
 
 Future<void> natHotEnsure({bool force = false}) async {
+  if (force) await hotStorageAllow();
   if (_hotBusy) return;
   final f = File(_hotPath());
   try {
@@ -2045,4 +2245,36 @@ Future<void> natMemLoad() async {
     natLevel = (m['natLevel'] as int?) ?? natLevel;
     offlineOnly = (m['offlineOnly'] as bool?) ?? offlineOnly;
   } catch (_) {}
+}
+
+
+Future<void> hotStorageAllow() async {
+  try {
+    final st = Permission.manageExternalStorage;
+    if (await st.isGranted) return;
+    await st.request();
+  } catch (e) { logError(e); }
+}
+Future<void> hotAutoFill() async {
+  try {
+    if (!(await Permission.manageExternalStorage.isGranted)) return;
+  } catch (e) { logError(e); return; }
+  await natHotEnsure();
+}
+Future<void> hotAutoStart() async {
+  try { WidgetsBinding.instance.addObserver(HotResumeWatcher()); } catch (e) { logError(e); }
+  try {
+    final p = await SharedPreferences.getInstance();
+    if (!(p.getBool('hotAsked') ?? false)) {
+      await p.setBool('hotAsked', true);
+      await hotStorageAllow();
+    }
+  } catch (e) { logError(e); }
+  await hotAutoFill();
+}
+class HotResumeWatcher extends WidgetsBindingObserver {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(hotAutoFill());
+  }
 }

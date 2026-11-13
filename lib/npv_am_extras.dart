@@ -15,13 +15,13 @@ bool lanDirect = true;
 bool routeOnly = false;
 String fragLen = '100-200';
 String fragInt = '10-20';
-int muxConc = 32;
+int muxConc = 128; // V17: default Mux concurrency = 128
 String dnsProv = 'auto';
 String dnsProvActive = 'cloudflare';
 DateTime? _dnsPickAt;
 const _fragLenOpts = <String>['100-200', '50-100', '10-30'];
 const _fragIntOpts = <String>['10-20', '1-5', '20-40'];
-const _muxOpts = <int>[4, 8, 16, 32];
+const _muxOpts = <int>[4, 8, 16, 32, 64, 128];
 const _dnsOpts = <String>[
   'auto',
   'cloudflare',

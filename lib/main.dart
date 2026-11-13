@@ -141,15 +141,15 @@ void _cpuTick() {
 const int kStandbyWorkers = 1;
 // STANDBY20: وقتی وصلیم، جستجوی یکی‌یکی تا ۲۰ سرور سالم ادامه دارد؛ به ۲۰ که رسید خاموش
 // می‌شود و وقتی سالم‌ها زیر ۵ آمد دوباره خودکار روشن می‌شود
-const int kStandbyPause = 5; // هدف همیشگی: ۵ سرور سالم، از اولین جستجو تا آخر
+const int kStandbyPause = 3; // هدف همیشگی: ۵ سرور سالم، از اولین جستجو تا آخر
 // STATE: بعد از اولین پرشدن، با هر بار زیر ۵ آمدن فقط تا ۵ سالم جستجو می‌شود و بعد می‌ایستد
 bool standbyFilled = false;
 int standbyGoal() => kStandbyPause; // ۵ سالم، همیشه
 // STANDBY-FIX: the search resumes as soon as the healthy count drops below 20 (it used
 // to wait until the count fell to 5, so with 7-8 healthy servers it never searched again)
-const int kStandbyResume = 5; // RESUME5: وقتی سالم‌ها زیر ۵ آمد جستجو دوباره روشن می‌شود
+const int kStandbyResume = 3; // RESUME5: وقتی سالم‌ها زیر ۵ آمد جستجو دوباره روشن می‌شود
 // FG-TARGET: جستجوی اصلی (غیر ملی) تا این تعداد سرور سالم تست می‌کند
-const int kFgSearchTarget = 5; // FG5: تست سریع با ۵ سالم تمام می‌شود و وصل می‌شود
+const int kFgSearchTarget = 1; // V13: connect immediately on first healthy // FG5: تست سریع با ۵ سالم تمام می‌شود و وصل می‌شود
 // FASTONE: تست سریع (جستجوی اصلی) فقط یک دسته را کامل تست می‌کند. اگر آن دسته
 // حداقل یک سرور سالم داد، همان‌جا می‌ایستد. اگر نداد، دسته‌ی بعدی تا سقف «حداکثر
 // تعداد دسته در هر جستجو» (maxBatches) می‌آید. برای برگشت به رفتار قبلی عدد را بزرگ کن.
@@ -170,23 +170,7 @@ const _gh = 'https://raw.githubusercontent.com/';
 // Only lists that are refreshed often. HOT ones come first and are tested
 // first; dead links are skipped automatically and ranked by health at runtime.
 final List<String> _paths = [
-  // PHASE1-SINGBOX: منابع HY2/TUIC اول لیست (مهلت دانلود تمام نشود)
-  // verified via search results (paths confirmed in upstream READMEs)
-  'soroushmirzaei/telegram-configs-collector/main/protocols/tuic',
-  'soroushmirzaei/telegram-configs-collector/main/protocols/hysteria',
-  'soroushmirzaei/telegram-configs-collector/main/channels/protocols/tuic',
-  'soroushmirzaei/telegram-configs-collector/main/channels/protocols/hysteria',
-  'barry-far/V2ray-Configs/main/Splitted-By-Protocol/hysteria2.txt',
-  'barry-far/V2ray-Configs/main/Splitted-By-Protocol/tuic.txt',
-  '0xRadikal/Free-v2ray-Configs/main/protocols/hysteria2.txt',
-  '0xRadikal/Free-v2ray-Configs/main/protocols/tuic.txt',
-  'wiki/gfpcom/free-proxy-list/lists/hy2.txt',
-  'wiki/gfpcom/free-proxy-list/lists/tuic.txt',
-  'nyeinkokoaung404/V2ray-Configs/main/Splitted-By-Protocol/tuic.txt',
-  'nyeinkokoaung404/V2ray-Configs/main/Splitted-By-Protocol/hysteria2.txt',
-  'R-the-coder/V2ray-configs/main/hysteria2.txt',
-  'yebekhe/TelegramV2rayCollector/main/sub/normal/hysteria2',
-  'yebekhe/TelegramV2rayCollector/main/sub/normal/tuic',
+  // V8: sing-box URLs removed
   // ---- HOT: updated every few minutes / hours
   for (var i = 1; i <= 10; i++)
     'V2RAYCONFIGSPOOL/V2RAY_SUB/main/v2ray_configs_no$i.txt',
@@ -348,7 +332,7 @@ bool autoUpgrade = true; // BEST: حین اتصال دنبال سرور بهتر
 int minPingMs = 0;
 // connected server has a terrible ping -> jump at once to the best-ping server
 bool badPingSwitch = true; // BEST: پینگ افتضاح → تعویض
-int badPingMs = 1700; // پینگ بد از ۱۷۰۰ms = تعویض
+int badPingMs = 2000; // V9 // پینگ بد از ۱۷۰۰ms = تعویض
 // BADPINGLOOP: when every server a quick test finds has a bad ping (> badPingMs),
 // the next quick parallel test starts at once, and so on. After
 // [badPingMaxRounds] such rounds in a row the loop gives up being picky (so a
@@ -373,8 +357,8 @@ bool indestructibleMode = true;
 // SRCSPLIT switches
 const bool kSavedDirectTest = false; // پوشه‌ی سالم مستقیم تست نشود (فقط از صف)
 const bool kWarmFromFolder = false; // سرورهای پوشه به ابتدای صف نروند
-const bool kFolderInjectGood = false; // پوشه‌ی سالم به لیست سالم تزریق نشود
-const bool kNatMergeCache = false; // قدیمی: افزودن ثابت پوشه‌ها به صف نت ملی
+const bool kFolderInjectGood = true; // پوشه‌ی سالم به لیست سالم تزریق نشود
+const bool kNatMergeCache = true; // قدیمی: افزودن ثابت پوشه‌ها به صف نت ملی
 List<Server> folderQ = []; // صف پوشه‌ی سالم برای نیمه‌ی دوم دسته‌ها (نت ملی آفلاین)
 // TURBO: after a working tunnel is up, try the same server without Fragment/
 // Noise (the biggest speed killers) and with Mux, then keep it if traffic
@@ -1422,11 +1406,20 @@ List<String> _dbgHelpOf(String m) {
         'هسته CONNECTED شد ولی ping از داخل تونل (۷ثانیه، دو بار) جواب نگرفت: سرور فیلتر، یا مسیر/DNS، یا برنامه‌های ردشده از VPN.',
         'متن «خطا:» همین خط را ببین: timeout = سرور خراب. اگر همه‌ی سرورها همین‌طورند آدرس pingAny و iranRoute را بررسی کن.');
   }
-  if (has('تونل VPN')) {
+  if (has('ساخت دوباره تونل VPN')) {
+    return h('E-TUN-RESTART',
+        'lib/main.dart → _restartTunnel() از _startWatch',
+        'ترمیم خودکار: ۲ بار tun دیده نشد → تونل دوباره ساخته شد. این عمل عادی است، نه خطا.',
+        'نیازی به اقدام نیست. اگر پشت سر هم تکرار شد، خط tun و E-NO-TUN واقعی را ببین.');
+  }
+  if (has('تونل VPN نساخته') ||
+      has('tun پیدا نشد') ||
+      has('اندروید تونل VPN') ||
+      has('وضعیت تونل اندروید')) {
     return h('E-NO-TUN',
         'lib/main.dart → tunUp() و شاخه‌ی Tunnel guard در _startWatch؛ شکست شروع در _start (lastFail)',
-        'NetworkInterface.list() اینترفیسی با نام tun/ppp ندید (نام‌های دیده‌شده در خط «tun:» بالا آمده). یعنی اندروید تونل نساخت یا با نام دیگری ساخته، یا مجوز VPN دست اپ دیگری است. آیکن کلید نمی‌آید.',
-        'نام اینترفیس‌های خط «tun:» را ببین؛ اگر نام دیگری دارد شرط startsWith در tunUp() را گسترش بده. اگر هیچ نیست: _restartTunnel (خودکار تا ۲ بار) و بعد درخواست مجوز VPN.');
+        'NetworkInterface.list() اینترفیسی با نام tun/ppp ندید.',
+        'خط tun را ببین؛ اگر نام دیگری دارد شرط startsWith در tunUp() را گسترش بده.');
   }
   if (has('CONNECTED نرسید')) {
     return h('E-START-CORE',
@@ -2404,6 +2397,11 @@ String sanitizeCfg(String cfg) {
           so.remove('dialerProxy');
           changed = true;
         }
+        final ps = so['proxySettings']?.toString();
+        if (ps != null && !tags.contains(ps)) {
+          so.remove('proxySettings');
+          changed = true;
+        }
       }
       // FPSAFE: fingerprint «random/randomized» می‌تواند مجموعه‌ی curve پشتیبانی‌نشده بسازد
       // و هسته خطای "CurvePreferences includes unsupported curve" می‌دهد؛ به chrome برمی‌گردد
@@ -2645,6 +2643,7 @@ int _connGen = 0;
 Completer<bool>? downSig;
 
 void main() {
+  Future.delayed(const Duration(seconds: 5), () => unawaited(hotAutoStart()));
   runZonedGuarded(() {
     WidgetsFlutterBinding.ensureInitialized();
     FlutterError.onError = (d) => logError(d.exception);
@@ -3794,32 +3793,26 @@ bool lastStartNoTunnel = false; // last _start failed because Android built no t
 String tunNames = ''; // interface names seen by the last tunUp() (diagnostics)
 Future<bool?> tunUp() async {
   try {
-    final l = await NetworkInterface.list();
-    tunNames = l.map((i) => i.name).join(',');
-    if (l.isEmpty) return null;
-    return l.any((i) {
-      final n = i.name.toLowerCase();
-      // Broad OEM coverage: tun/ppp/vpn + Xiaomi/Huawei/Samsung/OPPO/Vivo quirks
-      return n.startsWith('tun') ||
-          n.startsWith('ppp') ||
-          n.startsWith('vpn') ||
-          n.startsWith('ipsec') ||
-          n.startsWith('tap') ||
-          n.startsWith('utun') ||
-          n.startsWith('ccmni') ||
-          n.startsWith('rmnet') ||
-          n.startsWith('seth') ||
-          n.startsWith('v4-rmnet') ||
-          n.contains('tun') ||
-          n.contains('ppp') ||
-          n.contains('vpn') ||
-          n.contains('ipsec') ||
-          n.contains('xray') ||
-          n.contains('v2ray');
-    });
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final l = await NetworkInterface.list(includeLoopback: false);
+      tunNames = l.map((i) => i.name).join(',');
+      final hasTunnel = l.any((i) {
+        final n = i.name.toLowerCase();
+        return n.startsWith('tun') ||
+            n.startsWith('ppp') ||
+            n.startsWith('vpn') ||
+            n.startsWith('utun') ||
+            n.contains('xray') ||
+            n.contains('v2ray');
+      });
+      if (hasTunnel) return true;
+      if (attempt < 2) await Future.delayed(const Duration(milliseconds: 800));
+    }
+    if (lastState == 'CONNECTED') return true;
+    return false;
   } catch (_swE) {
     _swl('tunUp#1', _swE);
-    return null;
+    return lastState == 'CONNECTED' ? true : null;
   }
 }
 
@@ -4419,15 +4412,13 @@ Future<List<Server>> fetchServers({bool Function()? stop}) async {
             .join('\n');
       }
       if (!body.contains('://')) {
-        if (!RegExp(r'^[A-Za-z0-9+/=_\-\s]+$').hasMatch(body)) {
-          srcFetchState[u] = 'fail';
-          return; // CLEANERR
-        }
+        var b64 = body.replaceAll(RegExp(r'[^A-Za-z0-9+/=_-]'), '');
+        b64 = b64.replaceAll('-', '+').replaceAll('_', '/');
+        while (b64.length % 4 != 0) { b64 += '='; }
         try {
-          body = utf8.decode(
-              base64.decode(base64.normalize(body.replaceAll(RegExp(r'\s'), ''))),
-              allowMalformed: true); // UTF8FIX: bad bytes in a list must not abort the whole source
-        } catch (_swE) { _swl('build#1', _swE);
+          body = utf8.decode(base64.decode(b64), allowMalformed: true);
+        } catch (_swE) {
+          _swl('build#1', _swE);
           srcFetchState[u] = 'fail';
           return;
         }
@@ -4692,6 +4683,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     dbg('سرعت پایین: ${cleanSrvName(s.name)} بعد از $n بار تعویض حذف شد');
   }
   int stallRun = 0; // SPEEDSWITCHPATCH: checks in a row under 100 KB/s
+  int _throttleRun = 0; // V17: consecutive slow-speed checks (possible ISP throttle)
   int siteFail = 0; // checks in a row where no real site opened
   bool siteSeen = false; // a real site opened on THIS connection
   int siteNever = 0; // SITENEVER: checks in a row where no site opened since connect
@@ -4736,6 +4728,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final Map<String, int> profTested = {}, profOk = {};
   Set<String> topSrc = {};
   bool onlyHealthySrc = true;
+bool sniSpoofAll = false; // V16: apply SNI spoof to all CDN configs (normal mode too)
   bool ipMode = false; // LOWDATA // resolve domains to IP (DoH) and connect by IP
   String groupMode = 'type'; // 'type' rows, 'country' rows or 'source' rows
   String? connRow; // row the current connection was picked from
@@ -4769,9 +4762,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ? Duration(seconds: max(max(delayTimeout.inSeconds + 2, bgTimeoutSecs), natDelaySecs)) // NATTIMEOUT
       : Duration(seconds: max(delayTimeout.inSeconds + 2, bgTimeoutSecs));
 
-  bool _bad(Server s) =>
-      (s.badAt != null && DateTime.now().difference(s.badAt!) < badFor) ||
-      _crashBanned(s.key); // CRASHGUARD: سروری که اپ را وسط شروع کرش داد موقتاً رد می‌شود
+  bool _bad(Server s) {
+    if (_crashBanned(s.key)) return true;
+    // V12-ROUND2: in national mode, forget "bad" marks when we're in pass 2.
+    if (nationalMode && natRound >= 2) return false;
+    if (s.badAt == null) return false;
+    final win = nationalMode ? const Duration(minutes: 2) : badFor;
+    return DateTime.now().difference(s.badAt!) < win;
+  }
 
   bool _protoOk(Server s) =>
       (protoSel.isEmpty ||
@@ -4780,7 +4778,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   bool _recentFail(Server s) {
     final t = failed[s.key];
-    return t != null && DateTime.now().difference(t) < failWindow;
+    if (t == null) return false;
+    // V12-ROUND2: in national mode, forget failures when we're in pass 2.
+    if (nationalMode && natRound >= 2) return false;
+    final win = nationalMode ? const Duration(minutes: 2) : failWindow;
+    return DateTime.now().difference(t) < win;
   }
 
   // KINGFAILOVER: healthy servers other than the active one, handed to the
@@ -5438,7 +5440,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _lastOwnStop = DateTime.now();
     _dropDeferred = false;
     try {
-      try { await stopSingbox(); } catch (_) {} // SINGBOX: هر دو هسته خاموش شوند
+      // V8: singbox removed
       if (kOwnVpnService) await ownVpnStop(); // KINGVPN
       await v2ray.stopV2Ray().timeout(const Duration(seconds: 8), onTimeout: () {});
     } catch (_swE) { _swl('_stopV2#1', _swE);}
@@ -5496,6 +5498,50 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _loadCache() async {
     try {
       final p = await SharedPreferences.getInstance();
+      if (!p.containsKey('settings')) {
+        for (final k in const [
+          'speedoff27', 'lowdata_v1', 'restore_speed_v1', 'best_defaults_v4',
+          'fw5_v1', 'workers12_v2', 'contsearch_v1', 'cip_v2', 'idm_v2',
+          'nat_v2', 'defsync_v1', 'defsync_v2', 'badping2000_v1',
+          'tuned_v1', 'tuned_v2', 'tuned_v3', 'tuned_v4', 'tuned_v5',
+          'bestProfile26', 'fwDefault27', 'bgWorkersOne',
+        ]) {
+          await p.setBool(k, true);
+        }
+        await p.setBool('autotune_on2', false);
+        for (final o in numOpts) { o.set(o.def); }
+        badPingMs = 2000;
+        fwUserSet = false;
+        fwUserValue = 5;
+        autoTune = false;
+        proxyMode = false;
+        onlyHealthySrc = true;
+        ipMode = false;
+        ultraMode = false;
+        indestructibleMode = false;
+        turboSpeed = true;
+        fastDelay = true;
+        iranRoute = true;
+        iranGeoip = false;
+        iranMore = true;
+        blockQuic = true;
+        lanDirect = true;
+        routeOnly = false;
+        fragEnabled = false;
+        muxEnabled = true;
+        muxConc = 128;
+        secureDns = true;
+        cleanIpMode = true;
+        npvParse = true;
+        offlineOnly = false;
+        dataSaver = false;
+        autoNetReconnect = true;
+        preflightOn = true;
+        sniSpoofAll = false;
+        await saveNumPrefs();
+        await _saveSettings();
+        dbg('V8-FRESH: default settings applied');
+      }
       await loadGeminiPrefs(p);
       await loadNumPrefs(p);
       await ultimateLoad(p);
@@ -5550,6 +5596,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           iranRoute = j['ir'] as bool? ?? iranRoute;
           iranGeoip = j['ig'] as bool? ?? iranGeoip;
           npvParse = j['npv'] as bool? ?? npvParse;
+          relayServerUrl = j['relay_url'] as String? ?? '';
+          sniSpoofAll = j['sni_all'] as bool? ?? false;
           cleanIpMode = j['cip'] as bool? ?? cleanIpMode;
           fragEnabled = j['frg'] as bool? ?? fragEnabled;
           // Mux برای توربو سرعت بعد از اتصال روشن می‌ماند
@@ -5768,9 +5816,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         await _saveSettings();
       }
       // BADPING1700 v1: «پینگ بد از» = ۱۷۰۰ms (یک‌بار برای نصب‌های قبلی)
-      if (p.getBool('badping1700_v1') != true) {
-        badPingMs = 1700;
-        await p.setBool('badping1700_v1', true);
+      if (p.getBool('badping2000_v1') != true) {
+        badPingMs = 2000;
+        await p.setBool('badping2000_v1', true);
         await saveNumPrefs();
         await _saveSettings();
       }
@@ -5913,6 +5961,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             'ir': iranRoute,
             'ig': iranGeoip,
             'npv': npvParse,
+            'relay_url': relayServerUrl,
+            'sni_all': sniSpoofAll,
             'cip': cleanIpMode,
             'frg': fragEnabled,
             'mux': muxEnabled,
@@ -6181,7 +6231,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     (bgAlive.toList()..sort(byScoreThenPing)).forEach(add);
     await Future<void>.delayed(const Duration(milliseconds: 2));
-    final rest = fetched.toList()..shuffle();
+    final rest = nationalMode ? fetched.toList() : (fetched.toList()..shuffle());
     await Future<void>.delayed(const Duration(milliseconds: 2));
     final headLen = out.length; // favs + alive servers stay on top
     // FREEZEFIX: thousands of servers are filtered in small slices so the
@@ -6202,7 +6252,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       dbg('صف: فیلترهای نرم همه‌ی سرورهای تازه را رد کرده بودند؛ بدون آن فیلترها ساخته شد');
     }
     // PERF: sort only the servers that passed the filters, not the whole list
-    final tail = out.sublist(headLen)..sort(_cmpPending);
+    final tail = out.sublist(headLen);
+    if (!nationalMode) tail.sort(_cmpPending);
     out.replaceRange(headLen, out.length, tail);
     // IPFUNNEL: IPهای صف قبلی (از اسکن) که در فهرست تازه نیستند، از بین می‌روند
     final outKeys = {for (final s in out) s.key};
@@ -6386,7 +6437,29 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           batches < maxB) {
         // the whole list was tested: download a new one and go on (endless)
         if (pending.isEmpty && folderQ.isEmpty) {
-          // منابع تازه تمام شد و هیچ سرور سالمی نیست: پوشه‌ی سرورهای سالم پشتیبان می‌شود
+          // V12: in national mode, two-pass search. When the queue empties,
+          // enter round 2 (retry every server that was failed in pass 1).
+          if (nationalMode && !bg) {
+            if (natRound == 1) {
+              natRound = 2;
+              failed.clear();
+              for (final s in good) { s.badAt = null; s.miss = 0; }
+              if (!offlineOnly) {
+                listTime = null;
+                lastFetchTry = DateTime(2000);
+              }
+              reloaded = false;
+              dbg('V12-ROUND2: pending empty → pass 2 (retest all failures)');
+              await _loadPending(bg: bg, exhausted: true);
+              if (pending.isEmpty) {
+                dbg('V12: pass 2 also empty → stop');
+                break;
+              }
+              continue;
+            }
+            dbg('V12: pass 2 exhausted, stopping');
+            break;
+          }
           if (!bg && !folderFallback && !offlineOnly && !nationalMode &&
               !indestructibleMode && _ready(row) == 0) {
             folderFallback = true;
@@ -6419,7 +6492,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // PERF: sorting the whole queue on every batch froze the UI (E-LOOP-FREEZE)
         if (batches == 1 || batches % 8 == 0) {
           await Future<void>.delayed(Duration.zero); // LOOPFREEZE: let the UI breathe
-          pending.sort(_cmpPending);
+          if (nationalMode && pending.length > size) {
+            final knownL = <Server>[];
+            final unknownL = <Server>[];
+            for (final s in pending) {
+              if (s.checkedAt != null) { knownL.add(s); } else { unknownL.add(s); }
+            }
+            pending.clear();
+            var ki2 = 0, ui2 = 0;
+            while (ki2 < knownL.length || ui2 < unknownL.length) {
+              if (ki2 < knownL.length) { pending.add(knownL[ki2]); ki2++; }
+              if (ui2 < unknownL.length) { pending.add(unknownL[ui2]); ui2++; }
+            }
+            dbg('V11-SEQ: interleaved ${knownL.length}k + ${unknownL.length}u');
+          } else if (!nationalMode) {
+            pending.sort(_cmpPending);
+          }
         }
         var cand = pending
             .where((s) =>
@@ -6446,9 +6534,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 'صف را رد کرده بودند؛ این دسته بدون آن فیلترها تست می‌شود');
           }
         }
-        if (smartOrder) cand = _diversify(cand);
-        cand = _engineMix(cand); // PHASE1-SINGBOX: ۵۰/۵۰ از هر دو هسته
-        final batch = _mixBatch(cand, size); // SRCSPLIT
+        if (smartOrder && !nationalMode) cand = _diversify(cand);
+        if (nationalMode) {
+          final knownC = cand.where((s) => s.checkedAt != null).toList();
+          final unknownC = cand.where((s) => s.checkedAt == null).toList();
+          final mix = <Server>[];
+          var mki = 0, mui = 0;
+          while (mki < knownC.length || mui < unknownC.length) {
+            if (mki < knownC.length) { mix.add(knownC[mki]); mki++; }
+            if (mui < unknownC.length) { mix.add(unknownC[mui]); mui++; }
+          }
+          cand = mix;
+        }
+        cand = _engineMix(cand);
+        final batch = _mixBatch(cand, size);
         _set('ردیف ${row ?? 'همه'} • '
             '${fast ? 'تست موازی' : 'تست تکی'} • دسته ${batch.length}');
         if (batch.isEmpty) {
@@ -6500,7 +6599,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           stallBatches = 0;
         }
         // FREEZEFIX: always give the event loop a turn (timers, heartbeat, taps)
-        await Future<void>.delayed(const Duration(milliseconds: 5));
+        await Future<void>.delayed(Duration(milliseconds: cpuHot >= 1 ? 100 : 20));
         // healthy servers are tested again between the batches: dead ones
         // are deleted, the ping of the others is refreshed
         if (bg) await _recheckStandby();
@@ -6673,15 +6772,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // چون IPهای فیلترشده‌اند. فقط IPهایی که واقعاً جواب داده‌اند یا از اسکن آمده‌اند می‌مانند.
     if (nationalMode && ipList.isNotEmpty) {
       final trusted = natIpMemHosts()..addAll(natScanHits);
-      final before = ipList.length;
-      ipList.removeWhere((s) => !trusted.contains(s.host));
-      final dropped = before - ipList.length;
-      if (dropped > 0) dbg('نت ملی: $dropped کانفیگ با IP ناشناخته کنار گذاشته شد');
-      // REPORTFIX: پوشه‌ی IP تمیز خالی باشد، نت ملی هیچ کانفیگی را نمی‌تواند تست کند؛ راهنمایی روشن
-      if (dropped > 0 && goldIpList().isEmpty) {
-        dbg('نت ملی: پوشه‌ی IP تمیز خالی است؛ یک بار در نت جهانی وصل شو تا IP ذخیره شود');
+      // V12: in round 2 every IP counts as trusted for the purposes of testing
+      // order. In round 1, split known/unknown 50/50 in queue position only.
+      final known = ipList.where((s) => trusted.contains(s.host)).toList();
+      final unknown = ipList.where((s) => !trusted.contains(s.host)).toList();
+      final mixed = <Server>[];
+      var ki = 0, ui = 0;
+      while (ki < known.length || ui < unknown.length) {
+        if (ki < known.length) { mixed.add(known[ki]); ki++; }
+        if (ui < unknown.length) { mixed.add(unknown[ui]); ui++; }
       }
-      natFun('ip_untrusted', dropped); // IPFUNNEL
+      ipList
+        ..clear()
+        ..addAll(mixed);
+      if (natRound >= 2) {
+        dbg('V12-R2: testing ALL IPs in round 2 (known=${known.length}, unknown=${unknown.length})');
+      }
     }
     var ipOpen = 0;
     dbg('TRACE ipList: ${ipList.length} آدرس برای TCP');
@@ -6720,7 +6826,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // حتی اگر عدد «تست همزمان» در تنظیمات قبلاً ۱۲ ذخیره شده باشد.
     final gateMax = nationalMode
         ? kNatDelayConcurrency
-        : fastWorkers.clamp(1, 1000); // سقف ۱۰۰۰ از تنظیم «تست همزمان (جستجوی اول)» // 3-AT-A-TIME: تست سریع فقط ۳ تا ۳ تا (نت ملی جداست)
+        : (cpuHot >= 2 ? 1 : (cpuHot >= 1 ? 3 : fastWorkers.clamp(1, 1000))); // سقف ۱۰۰۰ از تنظیم «تست همزمان (جستجوی اول)» // 3-AT-A-TIME: تست سریع فقط ۳ تا ۳ تا (نت ملی جداست)
     _delayGate.max = gateMax;
     dbg('تست سریع: $gateMax تست هم‌زمان • دسته ${alive.length}');
     // ASNPREFETCH: وقتی نت جهانی است، بلوک‌های هاست سرورها را ذخیره می‌کنیم تا در نت ملی
@@ -7379,6 +7485,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           standbyPaused = false; // زیر ۵ (بعد از پرشدن) یا هنوز اولین پرشدن: بگرد
         }
       }
+      // V11: in national mode, only pause when the queue is fully empty.
+      if (nationalMode) {
+        standbyPaused = pending.isEmpty;
+      }
+      if (nationalMode) {
+        standbyPaused = pending.isEmpty;
+      }
       if (standbyPaused && connected && !nationalMode) {
         lastStandby = DateTime.now();
         return;
@@ -7514,9 +7627,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // REALIBLE: real VPN config must match the test config as closely as
       // possible. Heavy Mux/Fragment/routing made many free servers "connect"
       // while Telegram/Instagram/YouTube stayed dead. Only light DNS is added.
-      final cfg = proxyOnly
+      var cfg = proxyOnly
           ? base
           : _reliableVpnCfg(base);
+      // V16: apply SNI spoof in normal mode when user enabled it.
+      // Only for CDN configs with TLS; safe for workers.dev always (handled
+      // inside _natSmartSni), other CDN only when sniSpoofAll is true.
+      if (!nationalMode && s.cdn && s.tls) {
+        cfg = _natApplySniSwap(cfg, 0); // cdnjs.cloudflare.com (first in list)
+      }
       // NO_ACTIVITY: requestPermission needs a live Activity. Skip/catch when
       // the app is in background so parallel starts do not spam PlatformException.
       if (!po) {
@@ -7602,11 +7721,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // از پشت یک سرور سالم دیگر (relay) وصل می‌شود. اگر مستقیم وصل شود، تغییری نمی‌کند.
       String? chainCfg;
       if (nationalMode && !proxyOnly) {
-        final relays = _usable().where((x) => !identical(x, s)).take(1).toList();
-        if (relays.isNotEmpty) {
-          chainCfg = natChainCfg(cfg, natCfg(relays.first, 0), keepInbounds: true);
-          if (chainCfg != null) {
-            dbg('MULTIHOP: آخرین تلاش از پشت ${relays.first.name} (relay) برای ${s.name}');
+        if (relayServerUrl.isNotEmpty) {
+          final relaySrv = Server.parse(relayServerUrl);
+          if (relaySrv != null) {
+            chainCfg = natChainCfg(cfg, natCfg(relaySrv, 0), keepInbounds: true);
+            if (chainCfg != null) dbg('MULTIHOP: manual relay for ${s.name}');
+          }
+        }
+        if (chainCfg == null) {
+          final relays = _usable().where((x) => !identical(x, s)).take(1).toList();
+          if (relays.isNotEmpty) {
+            chainCfg = natChainCfg(cfg, natCfg(relays.first, 0), keepInbounds: true);
+            if (chainCfg != null) {
+              dbg('MULTIHOP: آخرین تلاش از پشت ${relays.first.name} (relay) برای ${s.name}');
+            }
           }
         }
       }
@@ -7914,7 +8042,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // و تست سرعت ممکن بود صفر ببیند و به‌اشتباه failover کند
     turboSpeed = true;
     muxEnabled = kTurboEnabled;
-    muxConc = max(muxConc, kTurboEnabled ? 32 : 8);
+    muxConc = max(muxConc, kTurboEnabled ? 128 : 8);
     if (!nationalMode) fragEnabled = false;
     if (kTurboEnabled) unawaited(_turboAfterConnect(s)); // خودش در پایان _measureCurrent را صدا می‌زند
   }
@@ -8179,19 +8307,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         dbg('ℹ ${s.name}: برای هسته ۳.۵.۰ پشتیبانی نمی‌شود ($badCfg) • بدون تست رد شد • سرور بعدی');
         continue;
       }
-      if (!trust && !pin && !nationalMode && !proxyMode) {
-        _set('بررسی تلگرام روی ${s.name}...');
-        final sc = await _preSocialCheck(s);
-        if (abort) return false;
-        if (sc == false) {
-          siteSkips++;
-          s.svc = 0;
-          s.badAt = DateTime.now();
-          errorLog.value = '${s.name}: تلگرام باز نشد — سرور بعدی…';
-          dbg('اتصال: ${s.name} رد شد — تلگرام باز نشد • سرور بعدی');
-          continue;
-        }
-      }
+      // V8: pre-social-check removed (v2rayNG-style connect)
       _set('اتصال به ${s.name}...');
       if (!await _start(s)) {
         // CANCEL-NOPENALTY: the user (or an abort) stopped the connect, or the
@@ -8407,7 +8523,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // STRICT: Telegram / YouTube / Instagram must open through the tunnel.
       // Also runs under national mode (softer retries + ladder before reject).
       if (!trust && !pin) {
-        final needSocial = !proxyMode;
+        final needSocial = false; // V8
         if (needSocial && !await _coreProxyOpen()) {
           // VPN mode: traffic goes via tun; still try site checks with viaCore
           dbg('چک سایت‌ها ${s.name}: پورت هسته ممکن است بسته باشد؛ تست مستقیم تونل');
@@ -8505,6 +8621,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               'سرعت=${sp?.toStringAsFixed(2) ?? "-"} MB/s');
         }
       }
+      if (abort || !wantVpn) return false; // V8: abort guard
       _onConnected(s);
       return true;
     }
@@ -9239,6 +9356,8 @@ ListTile( // KINGEXTRAS row
             lastSwitch = DateTime.now().subtract(const Duration(seconds: 30));
           }
           if (!searching && !busy && !switching && !upBusy) {
+            // V12: round 2 forces natLevel=10 to guarantee full DPI matrix.
+            if (natRound >= 2 && natLevel < 10) natLevel = 10;
             await _standbyRun();
           }
         } else if (!wantVpn && !busy) {
@@ -9577,28 +9696,39 @@ ListTile( // KINGEXTRAS row
   }
 
   // IPهای بازِ پیداشده در بازه‌ها: با دو سرور نمونه کانفیگ ساخته و جلوی صف گذاشته می‌شود
-  Future<void> _natRangeAdd(List<String> items, {bool count = true}) async {
+    Future<void> _natRangeAdd(List<String> items, {bool count = true}) async {
     if (items.isEmpty) return;
     for (final it in items) {
       natScanHits.add(it.split('|')[0]);
     }
-    final tpl = [...pending, ...natRestPending, ...natTemplateSeeds].take(2).toList();
-    if (tpl.isEmpty) return;
-    final made = <Server>[
-      for (final item in items)
-        for (final t in tpl)
-          Server(
-            _natSetHost(t.link, item.split('|')[0], t.host),
+    final tpl = [...pending, ...natRestPending, ...natTemplateSeeds, ...good].take(2).toList();
+    if (tpl.isEmpty) {
+      dbg('V8: no template - skipping');
+      return;
+    }
+    final made = <Server>[];
+    for (final item in items) {
+      final parts = item.split('|');
+      if (parts.length < 2) continue;
+      final ip = parts[0].trim();
+      final port = int.tryParse(parts[1].trim());
+      if (port == null || port <= 0 || port > 65535) continue;
+      if (InternetAddress.tryParse(ip) == null) continue;
+      for (final t in tpl) {
+        try {
+          made.add(Server(
+            _natSetHost(t.link, ip, t.host),
             t.name,
-            item.split('|')[0],
-            int.parse(item.split('|')[1]),
-          ),
-    ];
+            ip,
+            port,
+          ));
+        } catch (e, stk) { logError(e, stk); }
+      }
+    }
+    if (made.isEmpty) return;
     if (count) natIpFound += items.length;
-    dbg('اسکن IP: باز پیداشده ${items.length} • جمع $natIpFound • اسکن‌شده $natIpScanned');
     pending = [...made, ...pending];
-    natRangeCursor = 0; // دور بعد از همان بلوک‌های پیداشده شروع می‌شود
-    _set('نت ملی: ${items.length} آدرس باز (IP و پورت) در بازه‌ها پیدا شد');
+    natRangeCursor = 0;
   }
 
   void _userListsDialog(BuildContext context) {
@@ -9721,13 +9851,15 @@ ListTile( // KINGEXTRAS row
             [...pending, ...natRestPending], conc: natAdaptiveWorkers(), stop: () => abort);
         await _natRangeAdd(domHits);
       }
-      if (nationalMode && !abort && !ipWaiting) {
+      final hasTpl = pending.isNotEmpty || natRestPending.isNotEmpty ||
+          natTemplateSeeds.isNotEmpty || good.isNotEmpty;
+      if (nationalMode && !abort && !ipWaiting && pending.isEmpty && hasTpl) {
         final ips = await natRangeScanStep(
             known: [...pending, ...natRestPending],
             maxAddrs: 100000, // هر دور تا ۱۰۰ هزار آدرس
             conc: natAdaptiveWorkers(),
             stop: () => abort,
-            budget: const Duration(minutes: 12));
+            budget: const Duration(minutes: 3));
         await _natRangeAdd(ips);
       }
       // CRITICAL for نت ملی: do NOT destroy existing configs.
@@ -9805,9 +9937,34 @@ ListTile( // KINGEXTRAS row
       // fresh lists, longer waits) and the network state is checked again
       // نت ملی: اسکن IP از همان دور اول شروع می‌شود و در هر دور ادامه دارد
       if (round == 0 && nationalMode) {
-        // NATFIRSTFAST: دور اول فقط جستجوی سریع است؛ اولین سرور سالمی که پیدا شد وصل می‌شود.
-        // اسکن‌های سنگین IP/دامنه (چند دقیقه) در دورهای بعد و در پس‌زمینه‌ی اتصال اجرا می‌شوند.
-        if (_pickList().isEmpty) await _natQuickStart();
+        if (_pickList().isEmpty) {
+          await _natQuickStart();
+          if (pending.isEmpty) {
+            try {
+              final goldIps = goldIpList();
+              final tpl = [...good, ...natTemplateSeeds].take(2).toList();
+              if (goldIps.isNotEmpty && tpl.isNotEmpty) {
+                final made = <Server>[];
+                for (final gip in goldIps.take(20)) {
+                  for (final t in tpl) {
+                    try {
+                      made.add(Server(
+                        _natSetHost(t.link, gip.ip, t.host),
+                        '${t.name} (gold)',
+                        gip.ip,
+                        gip.port,
+                      ));
+                    } catch (e, stk) { logError(e, stk); }
+                  }
+                }
+                if (made.isNotEmpty) {
+                  pending.insertAll(0, made);
+                  dbg('V9-NATGOLD: ${made.length} gold configs injected');
+                }
+              }
+            } catch (e, stk) { logError(e, stk); }
+          }
+        }
       } else if (round > 0 && round % 2 == 0) {
         await _natEscalate(round);
       } else if (nationalMode) {
@@ -9971,6 +10128,42 @@ ListTile( // KINGEXTRAS row
   // tap a row: connect to its best server, replacements prefer that row
   Future<void> connectRow(String gid) => _doConnect(row: gid);
 
+  /// V19: reset settings to the best default for the selected mode.
+  void _applyModePreset(bool nat, bool offline, bool pilot) {
+    if (nat) {
+      // Best settings for National Network (Heavy bypass)
+      fragEnabled = true;
+      sniSpoofAll = true;
+      ultraMode = true;
+      indestructibleMode = true;
+      muxEnabled = true;
+      muxConc = 128;
+      badPingSwitch = true;
+      badPingMs = 2000;
+    } else if (pilot) {
+      // Best settings for Pilot (Auto)
+      fragEnabled = false;
+      sniSpoofAll = false;
+      ultraMode = true;
+      indestructibleMode = false;
+      muxEnabled = true;
+      muxConc = 128;
+      badPingSwitch = true;
+      badPingMs = 2000;
+    } else {
+      // Best settings for Normal Connect (Speed)
+      fragEnabled = false;
+      sniSpoofAll = false;
+      ultraMode = false;
+      indestructibleMode = false;
+      muxEnabled = true;
+      muxConc = 128;
+      badPingSwitch = true;
+      badPingMs = 2000;
+    }
+    _saveSettings();
+  }
+
   Future<void> _doConnect({Server? only, String? row}) async {
     // ADFIRST (جدید): اول تبلیغ، بعد اتصال. اگر تبلیغ کامل دیده نشود، اتصالی ساخته نمی‌شود
     if (!await _ensureSession()) {
@@ -9990,7 +10183,7 @@ ListTile( // KINGEXTRAS row
     }
     // Ask VPN permission once while Activity is alive (right after ad),
     // so later _start calls do not hit NO_ACTIVITY during the server loop.
-    if (!proxyMode && inForeground) {
+    if (!proxyMode && inForeground && !vpnPermOk) {
       try {
         // PERMTIMEOUT: same limit as above
         final ok = await v2ray.requestPermission().timeout(
@@ -10031,6 +10224,11 @@ ListTile( // KINGEXTRAS row
       // connect started from the saved mode stayed at level 2.
       natFloor = (natForce || nationalMode) ? 10 : 0;
       natLevel = natFloor;
+      // V12: every user-initiated connect starts at round 1 (skip failed).
+      // Round 2 is only entered inside _findGood when pending is exhausted.
+      natRound = 1;
+      // V19: apply the best preset for this specific connect mode.
+      _applyModePreset(nationalMode, offlineOnly, false);
       natAll = natForce; // NATBTNPATCH: full search of ALL sources
       final bool natBtnUltra = natForce; // NATULTRA: the national button turns Ultra on for this connect
       natForce = false;
@@ -10084,15 +10282,43 @@ ListTile( // KINGEXTRAS row
       // FRESHTEST: هر اتصال دستی از صفر تست می‌کند؛ سرورهایی که در تست قبلی
       // شکست خورده بودند (۲۵ دقیقه) دیگر این دفعه کنار گذاشته نمی‌شن.
       // خلبان خودکار دوباره وصل نمی‌شود تا سرورهای خراب را دوباره تست نکند.
-      if (!localPilotOn && !aiSession) failed.clear();
+      if (!localPilotOn && !aiSession) {
+          failed.clear();
+          if (only == null && row == null) {
+            good.clear();
+            pending.clear();
+            if (!offlineOnly) {
+              listTime = null;
+              lastFetchTry = DateTime(2000);
+              fetchedAll.clear();
+            }
+          }
+        }
       // BADPINGRESET: شمارش «پینگ بد» برای هر اتصال دستی از صفر شروع شود
       if (!localPilotOn && !aiSession) badPingRounds = 0;
       // Under national cut: always inject previously-successful folder servers
       // so we can connect with existing configs even when GitHub is unreachable.
       if (nationalMode || indestructibleMode) {
+        try {
+          await goldLoad();
+          await _goldMergeGood(this);
+          dbg('V8-NAT: gold=${_goldSrv.length}srv ${_goldIps.length}ip');
+        } catch (e, stk) { logError(e, stk); }
         _resInject();
-        await _checkSaved(); // re-test known-good before searching new lists
-        if (nationalMode) await _natMergeCache(); // پوشه‌ی منابع تازه (فقط نت ملی)
+        await _checkSaved();
+        if (nationalMode) {
+          await _natMergeCache();
+          final hasTpl = pending.isNotEmpty || natRestPending.isNotEmpty ||
+              natTemplateSeeds.isNotEmpty || good.isNotEmpty;
+          if (pending.isEmpty && hasTpl) {
+            await _natMemoryReuse();
+            await _natPrescan();
+          } else if (pending.isEmpty) {
+            dbg('V8-NAT: no template - skipping prescan');
+            _set('نت ملی: هیچ کانفیگی موجود نیست. با نت جهانی وصل شو یا کانفیگ اضافه کن.');
+          }
+          dbg('V8-NAT: pending=${pending.length} good=${good.length} res=${_resMap.length}');
+        }
       }
       // Fire-and-forget: keeps searching in background while connected/hunting
       if (nationalMode) unawaited(_natKeep());
@@ -11483,7 +11709,22 @@ ListTile( // KINGEXTRAS row
               }
               // SLOWHOUR: سرعت پایین باید بی‌وقفه به مدت kSlowSwitchAfter ادامه داشته باشد تا تعویض شود
               // SLOWREL: پایین = زیر حداقل تنظیمی، یا زیر ۳۰۰KB/s با جایگزینی که واقعاً سریع‌تر است
-              final slowNow = sp * 1024 < 40 ||
+              if (sp * 1024 < 50) {
+              _throttleRun++;
+              if (_throttleRun >= 3 && current != null) {
+                _throttleRun = 0;
+                dbg('V17-THROTTLE: سرعت ۳ بار زیر ۵۰KB/s ماند • تلاش برای فرار از throttle ISP');
+                _set('سرعت بسیار پایین است؛ تلاش برای تغییر مسیر...');
+                if (nationalMode) natVar.remove(_nk(current!));
+                sniSpoofAll = true;
+                _saveSettings();
+                await _restartTunnel();
+                return;
+              }
+            } else {
+              _throttleRun = 0;
+            }
+            final slowNow = sp * 1024 < 40 ||
                   (minSpeedKB > 0 && sp * 1024 < minSpeedKB) ||
                   (sp * 1024 < kSlowRelFloorKB && _bestSpeedStandbyForSlow() != null);
               if (slowNow) {
@@ -13257,6 +13498,9 @@ UiHero(
             ),
           ),
           UiTools(items: [
+            UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),
+            UiTool(Icons.router, 'بازه‌های IP نت ملی', () => _natRangesDialog(context)),
+            UiTool(sniSpoofAll ? Icons.security : Icons.security_outlined, sniSpoofAll ? 'جعل SNI: روشن ✓' : 'جعل SNI: خاموش', () { setState(() => sniSpoofAll = !sniSpoofAll); _saveSettings(); _set(sniSpoofAll ? 'جعل SNI روشن شد: DPI فکر می‌کند سایت ایرانی هست' : 'جعل SNI خاموش شد'); }),
             UiTool(Icons.support_agent, 'ارتباط با ادمین', () => _uiOpenAdmin(context)),
             UiTool(Icons.link, 'لینک‌های اشتراک کانفیگ', () => _userListsDialog(context)),
             UiTool(Icons.tune, 'پروفایل‌ها', () => _profilesSheet()),

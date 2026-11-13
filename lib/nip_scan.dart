@@ -200,10 +200,27 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
 // لیست کاندید؛ هر کدام که TLS روی IP باز کامل شد نگه داشته می‌شود.
 // خودت می‌توانی دامنه‌های بیشتری به این لیست اضافه کنی.
 const natFrontSnis = <String>[
+  // V15: Iranian domains first. DPI sees these and lets traffic through.
+  'www.aparat.com',
+  'www.digikala.com',
+  'divar.ir',
+  'www.snapp.ir',
+  'www.bale.ai',
+  'eitaa.com',
+  'www.zarinpal.com',
+  'www.iranserver.com',
+  'www.shatel.ir',
+  'www.mci.ir',
+  // Cloudflare domains after.
   'cdnjs.cloudflare.com',
   'www.cloudflare.com',
   'cloudflare.com',
   'speed.cloudflare.com',
+  'workers.dev',
+  'dash.cloudflare.com',
+  'one.one.one.one',
+  '1.1.1.1',
+  'cloudflare-dns.com',
 ];
 
 /// روی IP:port یک TLS با SNI داده‌شده کامل شود؟ برمی‌گرداند همان SNI یا null.
@@ -278,7 +295,9 @@ extension NipHunt on _HomePageState {
     final pool = <Server>[];
     pool.addAll(good);
     pool.addAll(pending);
-    pool.addAll(_resMap.values.whereType<Server>());
+    for (final e in _resMap.values) {
+      if (!pool.any((x) => x.link == e.link)) pool.add(e.s);
+    }
     for (final s in pool) {
       if (s.link.toLowerCase().startsWith('ss://')) continue;
       if (!seen.add(s.host)) continue;

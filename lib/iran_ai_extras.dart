@@ -2749,6 +2749,7 @@ extension HomeExtras on _HomePageState {
   }
 
   void startLocalPilot() {
+    _applyModePreset(false, false, true); // V19: best settings for pilot
     ensureLocalPilotRunning();
     final eng = _engineLabel(pilotEngine);
     localPilotText.value =
@@ -2985,7 +2986,7 @@ final List<NumOpt> numOpts = [
       () => minPingMs, (v) => minPingMs = v),
   NumOpt('speedTopN', 'تعداد سرور برای تست سرعت', 1, 30, 5, 30, false,
       () => speedTopN, (v) => speedTopN = v),
-  NumOpt('badPingMs', 'پینگ بد از', 70, 7000, 1700, 7000, false,
+  NumOpt('badPingMs', 'پینگ بد از', 70, 7000, 2000, 7000, false,
       () => badPingMs, (v) => badPingMs = v),
   NumOpt('minSpeedKB', 'تعویض اگر سرعت کمتر از', 0, 1000, 80, 1000, false,
       () => minSpeedKB, (v) => minSpeedKB = v),
@@ -3144,6 +3145,23 @@ extension NumHomeExtras on _HomePageState {
 
   // برگرداندن کامل: همه‌ی عددها + همه‌ی کلیدهای روشن/خاموش به مقدار اولیه‌ی برنامه
   void resetAllToDefaults() {
+
+    SharedPreferences.getInstance().then((p) async {
+      for (final k in const [
+        'speedoff27', 'lowdata_v1', 'restore_speed_v1', 'best_defaults_v4',
+        'fw5_v1', 'workers12_v2', 'contsearch_v1', 'cip_v2', 'idm_v2',
+        'nat_v2', 'defsync_v1', 'defsync_v2', 'badping2000_v1',
+        'tuned_v1', 'tuned_v2', 'tuned_v3', 'tuned_v4', 'tuned_v5',
+        'bestProfile26', 'fwDefault27', 'bgWorkersOne',
+      ]) {
+        await p.setBool(k, true);
+      }
+      await p.setBool('autotune_on2', false);
+    });
+    badPingMs = 2000;
+    natRound = 1;
+    sniSpoofAll = false;
+    muxConc = 128;
     resetNumbers();
     fwUserSet = false; // FWUSER: برگشت به پیش‌فرض ۳
     autoTune = false;
@@ -3230,7 +3248,7 @@ const Map<String, dynamic> _tunedSettings = {
   't': 8, // delayTimeout sec
   'bw2': 1, // bgWorkers
   'st': 5, // speedTopN
-  'bp': 2500, // badPingMs
+  'bp': 2000, // badPingMs
   'ms': 80, // minSpeedKB
   'lr': 180, // listRefreshMin
   'fm': 90, // failMin
@@ -3267,7 +3285,7 @@ const Map<String, int> _tunedNums = {
   'timeout': 8,
   'batch': 120,
   'speedTopN': 5,
-  'badPingMs': 2500,
+  'badPingMs': 2000,
   'minSpeedKB': 80,
   'listRefreshMin': 180,
   'failMin': 90,
@@ -3292,7 +3310,7 @@ const Map<String, dynamic> _tunedSettings2 = {
   't': 8,
   'bw2': 1,
   'st': 5,
-  'bp': 2500,
+  'bp': 2000,
   'ms': 80,
   'lr': 180,
   'fm': 90,
@@ -3317,7 +3335,7 @@ const Map<String, int> _tunedNums2 = {
   'timeout': 8,
   'batch': 120,
   'speedTopN': 5,
-  'badPingMs': 2500,
+  'badPingMs': 2000,
   'minSpeedKB': 80,
   'listRefreshMin': 180,
   'failMin': 90,
@@ -3339,7 +3357,7 @@ const Map<String, dynamic> _tunedSettings3 = {
   't': 8,
   'bw2': 1,
   'st': 5,
-  'bp': 2500,
+  'bp': 2000,
   'ms': 80,
   'lr': 180,
   'fm': 90,
@@ -3364,7 +3382,7 @@ const Map<String, int> _tunedNums3 = {
   'timeout': 8,
   'batch': 120,
   'speedTopN': 5,
-  'badPingMs': 2500,
+  'badPingMs': 2000,
   'minSpeedKB': 80,
   'listRefreshMin': 180,
   'failMin': 90,

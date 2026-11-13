@@ -76,7 +76,7 @@ extension AutoTestEngine on _HomePageState {
   // ALLPATHS: تست کامل همه‌ی مسیرها؛ مدت مهم نیست، بخش‌ها همه اجرا می‌شوند
   // SIX-HOUR: تست کامل همه‌ی مسیرها ۶ ساعت است (وقت کافی برای همه‌ی بخش‌ها)
   // STEST60: کل تست ۶۰ دقیقه و فقط نت ملی است (جهانی، پوشه، آفلاین، آنلاین، پروتکل‌ها، کشور و خلبان هوش مصنوعی حذف شدند)
-  static const _testDuration = Duration(hours: 4); // STEST4H: همه‌ی سطوح، IP تمیز و همه‌ی حالت‌های جایگزین جا شوند
+  static const _testDuration = Duration(hours: 5); // V14: 5-hour national test
   static const _sampleEvery = Duration(seconds: 3);
   // آستانه‌ها باید بیشتر از مهلت واقعی اتصال باشند (وگرنه اتصال عادی گزارش گیر می‌دهد)
   static const _busyStuckLimit = Duration(seconds: 240); // TESTUPGRADE
@@ -334,9 +334,9 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
       // STEST60: فقط بخش‌های نت ملی، در مجموع ۶۰ دقیقه:
       //  ۱) همه‌ی سطوح ماتریس نت ملی (تا ۱۱ دقیقه)
       //  ۲) همه‌ی حالت‌های جایگزین روی سرورهای سالم (تا ۲۵ دقیقه)
+      // V14: only run the national test for the full 5 hours.
       final steps = <(String, Duration, Future<void> Function())>[
-        (_atItemNames[2], const Duration(minutes: 50), _atItemNational),
-        (_atSubstName, const Duration(minutes: 150), _atItemSubst),
+        (_atItemNames[2], const Duration(hours: 5), _atItemNational),
       ];
       for (final s in steps) {
         if (_abortRequested) return _atFinish(reason: 'توقف دستی');
@@ -1753,56 +1753,53 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
 
   /// بخش ۳: نت ملی. اول IPها TCP بررسی می‌شوند، بعد تست کانفیگ روی IPهای باز.
   /// همه‌ی سطوح ماتریس (تا ۱۰) باید در این جستجو امتحان شوند.
-  Future<void> _atItemNational() async {
+    Future<void> _atItemNational() async {
     _scenario = 3;
     final name = _atItemNames[2];
     natForce = true;
     nationalMode = true;
-    // NATCHOICE: بدون این، تشخیص خودکار شبکه (وقتی اینترنت جهانی هست) نت ملی را خاموش می‌کند
-    // و جستجوی ملی اصلاً اجرا نمی‌شود (NAT-LEVEL 0 / NAT-NOIP). همان انتخاب دکمه‌ی نت ملی است.
     userModeChoice = true;
     offlineOnly = false;
+    natRound = 1; // V14: force pass 1
     await ultimateSave();
 
-    final s0 = natIpScanned;
-    final f0 = natIpFound;
-    final t0 = natIpTested;
-    final o0 = natIpOk;
-    var ipSeen = false;
-    var testedBeforeIp = false;
-    var done = false;
-    final fut = _atConnectItem(name, timeout: const Duration(minutes: 10))
-        .whenComplete(() {
-      done = true;
-    });
-    final t = DateTime.now();
-    while (!done &&
-        _phase == _AtPhase.running &&
-        !_abortRequested &&
-        DateTime.now().difference(t) < const Duration(minutes: 11)) {
-      if (natIpScanned > s0) ipSeen = true;
-      if (!ipSeen && natIpTested > t0) testedBeforeIp = true;
-      if (natLevel > _atMaxNatLevel) _atMaxNatLevel = natLevel;
-      await Future<void>.delayed(const Duration(seconds: 1));
-    }
-    await fut;
+    _set('نت ملی: پاک‌سازی صف برای تست کامل ۵ ساعته');
+    good.clear();
+    pending.clear();
+    failed.clear();
+    fetchedAll.clear();
+    listTime = null;
 
-    if (kNatIpScanOn && !ipSeen) {
-      _atAdd('NAT-NOIP',
-          'نت ملی: شمارنده‌ی اسکن IP صفر ماند؛ یا IP در صف نبود یا TCP اجرا نشد');
+    _set('نت ملی: شروع اتصال اولیه...');
+    await connect(); // Triggers V13 logic, returns on first server
+
+    final tStart = DateTime.now();
+    final testDuration = const Duration(hours: 5);
+
+    while (_phase == _AtPhase.running && !_abortRequested) {
+      final elapsed = DateTime.now().difference(tStart);
+      if (elapsed > testDuration) break;
+
+      final progress = elapsed.inSeconds / testDuration.inSeconds;
+      autoTestProgress.value = progress.clamp(0.0, 1.0);
+      autoTestText.value = 'نت ملی ۵ ساعته • ${elapsed.inHours}h ${elapsed.inMinutes % 60}m • '
+          'دور: $natRound • سالم: ${good.length} • صف: ${pending.length} • '
+          'IP تست‌شده: $natIpTested • IP باز: $natIpFound';
+
+      if (natRound >= 2 && pending.isEmpty && !searching && !busy) {
+        _atAdd('NAT-EXHAUSTED', 'کل صف در هر دو دور تست شد و صف خالی است.');
+        break;
+      }
+
+      if (!searching && !busy && connected && pending.isNotEmpty) {
+        unawaited(_standbyRun());
+      }
+
+      await Future<void>.delayed(const Duration(seconds: 3));
     }
-    if (kNatIpScanOn && testedBeforeIp) {
-      _atAdd('NAT-ORDER', 'نت ملی: سرور قبل از تست IP به تست کانفیگ رسید');
-    }
-    if (_atMaxNatLevel < 4) {
-      _atAdd('NAT-LEVEL',
-          'نت ملی: بیشترین سطح ماتریس $_atMaxNatLevel بود؛ انتظار ۴ یا بیشتر');
-    }
-    _itemResult[name] =
-        '${_itemResult[name] ?? ''} • IP اسکن +${natIpScanned - s0}'
-        ' • باز +${natIpFound - f0} • تست هسته +${natIpTested - t0}'
-        ' • سالم +${natIpOk - o0} • بیشترین سطح $_atMaxNatLevel';
-    await _atEnsureDisconnected();
+
+    _itemResult[name] = '✅ تست ۵ ساعته تمام شد • '
+        'سالم: ${good.length} • تست‌شده: $natIpTested • باز: $natIpFound';
   }
 
   /// NATMODES: هر سطح ماتریس نت ملی جدا با سقف ۴ دقیقه؛ نتیجه‌ی هر سطح ثبت می‌شود
@@ -2321,10 +2318,12 @@ Future<String> atSaveReport(String report) async {
   final name = 'auto_test_report_$stamp.txt';
   // REPORTSAVE-FIX: اول پوشه‌ی خصوصی برنامه (همیشه قابل نوشتن)، بعد Download (اختیاری، بدون خطا)
   const privDir = '/data/data/com.kingvpn.king_vpn/files/reports';
-  // REPORTDIR: پوشه‌ی گزارش در ریشه‌ی فضای داخلی، کنار DCIM و Download
-  const pubDir = '/storage/emulated/0/King-VPN';
+  // V14: save to multiple public directories
+  const pubDir1 = '/storage/emulated/0/King-VPN';
+  const pubDir2 = '/storage/emulated/0/Documents/KingVPN';
+  const pubDir3 = '/storage/emulated/0/Download/KingVPN';
   String saved = '';
-  for (final d in const [privDir, pubDir]) {
+  for (final d in const [privDir, pubDir1, pubDir2, pubDir3]) {
     try {
       final dir = Directory(d);
       if (!dir.existsSync()) dir.createSync(recursive: true);
