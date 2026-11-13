@@ -476,6 +476,211 @@ const _cfRanges = <String>[
   '131.0.72.0/22',
 ];
 
+// CDNDIV: Fastly's published anycast ranges — a second CDN pool so a
+// block of Cloudflare's ranges doesn't take out all CDN-fronted servers.
+const _fastlyRanges = <String>[
+  '151.101.0.0/16',
+  '199.232.0.0/16',
+  '23.235.32.0/20',
+  '43.249.72.0/22',
+  '103.244.50.0/24',
+  '104.156.80.0/20',
+  '140.248.64.0/18',
+  '146.75.0.0/17',
+];
+
+// CDNDIV: Amazon CloudFront's published edge ranges (subset of
+// ip-ranges.amazonaws.com filtered to the CLOUDFRONT service).
+const _awsCfRanges = <String>[
+  '13.32.0.0/15',
+  '13.224.0.0/14',
+  '52.84.0.0/15',
+  '54.182.0.0/16',
+  '54.192.0.0/16',
+  '54.230.0.0/16',
+  '54.239.128.0/18',
+  '204.246.164.0/22',
+  '205.251.192.0/19',
+];
+
+// CDNDIV: Google's published edge/anycast ranges used by Google Cloud
+// CDN / Google Front (subset of goog.json).
+const _gcpCdnRanges = <String>[
+  '34.96.0.0/20',
+  '34.104.0.0/20',
+  '142.250.0.0/15',
+  '172.217.0.0/16',
+  '172.253.0.0/16',
+  '108.177.0.0/17',
+];
+
+// CDNDIV: static multi-CDN pool used as the safe fallback (and initial
+// value) whenever the live range fetch below has not run yet or fails.
+const _allCdnRanges = <String>[
+  ..._cfRanges,
+  ..._fastlyRanges,
+  ..._awsCfRanges,
+  ..._gcpCdnRanges,
+];
+
+// CDNDIV: the pool actually used for national-mode CDN-IP scanning.
+// Starts as the static multi-CDN list above; refreshCdnRanges() below
+// swaps it for a live-fetched version when one succeeds, so a change on
+// any single CDN's side never has to wait for an app update.
+List<String> _liveCdnRanges = List<String>.of(_allCdnRanges);
+DateTime? _cdnRangesFetchedAt;
+DateTime? _cdnRangesTriedAt;
+bool _cdnRangesBusy = false;
+
+// CDNDIV: pulls each CDN's own published range list and merges whatever
+// succeeds into _liveCdnRanges. Safe to call repeatedly (it no-ops while
+// already running, and keeps the previous working list on any failure).
+Future<void> refreshCdnRanges() async {
+  if (_cdnRangesBusy) return;
+  final last = _cdnRangesFetchedAt;
+  if (last != null && DateTime.now().difference(last) < const Duration(hours: 6)) return;
+  // اگر آخرین تلاش ناموفق بود، تا ۱۰ دقیقه دوباره تلاش نکن (نت ملی = endpoint ها بسته)
+  final tried = _cdnRangesTriedAt;
+  if (tried != null && DateTime.now().difference(tried) < const Duration(minutes: 10)) return;
+  _cdnRangesTriedAt = DateTime.now();
+  _cdnRangesBusy = true;
+  try {
+    final merged = <String>{};
+    var liveOk = 0;
+    // هر CDN جدا: اگر دریافتش شکست خورد، لیست استاتیک خودش جایگزین می‌شود
+    // (قبلاً فقط CDNهای موفق می‌ماندند و بقیه از استخر حذف می‌شدند).
+    Future<void> pull(String label, List<String> fallback, int cap,
+        Future<List<String>> Function() fetch) async {
+      var got = const <String>[];
+      try {
+        got = await fetch().timeout(const Duration(seconds: 8));
+      } catch (e, stk) {
+        logError(e, stk);
+      }
+      if (got.length < 3) {
+        merged.addAll(fallback);
+        return;
+      }
+      // رنج‌های استاتیک همیشه می‌مانند؛ رنج‌های زنده تا سقف cap اضافه می‌شوند
+      merged.addAll(fallback);
+      merged.addAll(got.take(cap));
+      liveOk++;
+    }
+
+    await pull('cloudflare', _cfRanges, 64, () async {
+      final res = await http.get(Uri.parse('https://www.cloudflare.com/ips-v4'));
+      if (res.statusCode != 200) return const <String>[];
+      return res.body
+          .split(RegExp(r'[\r\n]+'))
+          .map((e) => e.trim())
+          .where((e) => e.contains('/'))
+          .toList();
+    });
+
+    await pull('fastly', _fastlyRanges, 48, () async {
+      final res = await http.get(Uri.parse('https://api.fastly.com/public-ip-list'));
+      if (res.statusCode != 200) return const <String>[];
+      final j = jsonDecode(res.body);
+      final addrs = j is Map ? j['addresses'] : null;
+      if (addrs is! List) return const <String>[];
+      return addrs.whereType<String>().toList();
+    });
+
+    await pull('aws-cloudfront', _awsCfRanges, 96, () async {
+      final res = await http.get(Uri.parse('https://ip-ranges.amazonaws.com/ip-ranges.json'));
+      if (res.statusCode != 200) return const <String>[];
+      final j = jsonDecode(res.body);
+      final list = j is Map ? j['prefixes'] : null;
+      if (list is! List) return const <String>[];
+      return list
+          .whereType<Map>()
+          .where((p) => p['service'] == 'CLOUDFRONT')
+          .map((p) => (p['ip_prefix'] ?? '').toString())
+          .where((s) => s.contains('/'))
+          .toList();
+    });
+
+    await pull('google', _gcpCdnRanges, 48, () async {
+      final res = await http.get(Uri.parse('https://www.gstatic.com/ipranges/goog.json'));
+      if (res.statusCode != 200) return const <String>[];
+      final j = jsonDecode(res.body);
+      final list = j is Map ? j['prefixes'] : null;
+      if (list is! List) return const <String>[];
+      return list
+          .whereType<Map>()
+          .map((p) => (p['ipv4Prefix'] ?? '').toString())
+          .where((s) => s.contains('/'))
+          .toList();
+    });
+
+    if (merged.length >= 10) {
+      _liveCdnRanges = merged.toList();
+      if (liveOk > 0) _cdnRangesFetchedAt = DateTime.now();
+      dbg('CDNDIV: live CDN ranges refreshed (${_liveCdnRanges.length} blocks)');
+    }
+  } catch (e, stk) {
+    logError(e, stk);
+  } finally {
+    _cdnRangesBusy = false;
+  }
+}
+
+// ECH: Encrypted Client Hello (اختیاری). فقط وقتی لینک پارامتر `ech=` داشته باشد
+// (و security=tls باشد، نه reality) به tlsSettings همان outbound اضافه می‌شود:
+//   ech=<ECHConfigList بیس۶۴>  یا  ech=example.com+udp://1.1.1.1  (جستجوی DNS)
+// بدون پارامتر ech، کانفیگ دقیقاً همان قبلی برمی‌گردد. هر خطایی => کانفیگ بدون تغییر.
+String echFromLink(String link) {
+  try {
+    final low = link.trim().toLowerCase();
+    if (low.startsWith('vless://') ||
+        low.startsWith('trojan://') ||
+        low.startsWith('ss://')) {
+      final u = Uri.tryParse(link.trim());
+      return (u?.queryParameters['ech'] ?? '').replaceAll(' ', '+').trim();
+    } else if (low.startsWith('vmess://')) {
+      var b = link.trim().substring(8).split('#').first;
+      b = b.replaceAll('-', '+').replaceAll('_', '/');
+      while (b.length % 4 != 0) {
+        b += '=';
+      }
+      final m = jsonDecode(utf8.decode(base64.decode(b)));
+      if (m is Map) return (m['ech'] ?? '').toString().trim();
+    }
+  } catch (_) {}
+  return '';
+}
+
+// ECH فعال است ⇒ serverName داخلی (SNI واقعی) است و نباید توسط سوییچ‌های
+// SNI نت ملی (cdnjs و ...) عوض شود، وگرنه هندشیک ECH خراب می‌شود.
+bool tlsHasEch(Map tls) => (tls['echConfigList'] ?? '').toString().isNotEmpty;
+
+String echApply(String link, String cfg) {
+  try {
+    final ech = echFromLink(link);
+    if (ech.isEmpty) return cfg;
+    final j = jsonDecode(cfg);
+    if (j is! Map) return cfg;
+    final outs = j['outbounds'] ?? j['outbound'];
+    if (outs is! List) return cfg;
+    var changed = false;
+    for (final o in outs) {
+      if (o is! Map) continue;
+      final st = o['streamSettings'];
+      if (st is! Map || st['security'] != 'tls') continue;
+      final tls = st['tlsSettings'];
+      if (tls is! Map) continue;
+      tls['echConfigList'] = ech;
+      changed = true;
+      break; // فقط outbound اصلی پروکسی (اولین outbound با TLS)
+    }
+    if (changed) dbg('ECH: echConfigList روی کانفیگ اعمال شد');
+    return changed ? jsonEncode(j) : cfg;
+  } catch (e, stk) {
+    logError(e, stk);
+    return cfg;
+  }
+}
+
 bool _cleanOk(String ip) {
   final a = InternetAddress.tryParse(ip);
   return a != null && a.type == InternetAddressType.IPv4 && !_privateIp(a);

@@ -253,6 +253,7 @@ String? nipSwapSni(Server t, String ip, String sni) {
   final l = t.link;
   final lower = l.toLowerCase();
   if (lower.startsWith('ss://')) return null;
+  if (echFromLink(l).isNotEmpty) return null; // ECH: SNI جایگزین ممنوع
   try {
     if (lower.startsWith('vmess://')) {
       var b = l.substring(8);
@@ -311,15 +312,25 @@ extension NipHunt on _HomePageState {
     final cdnT = templates.where((s) => s.cdn).toList();
     final direct = templates.where((s) => !s.cdn).toList();
 
-    // مرحله ۱: کانفیگ‌های CDN (SNI/Host) ← لبه‌های باز Cloudflare
+    // مرحله ۱: کانفیگ‌های CDN (SNI/Host) ← لبه‌های باز چند CDN
+    // CDNDIV: Cloudflare + Fastly + AWS CloudFront + Google، نه فقط Cloudflare
     if (cdnT.isNotEmpty) {
-      final ips = <String>[];
-      for (final c in _cfRanges) {
-        ips.addAll(nipExpandCidr(c, maxPerBlock: 512));
+      final cfSet = _cfRanges.toSet();
+      final cfIps = <String>[];
+      final otherIps = <String>[];
+      for (final c in _liveCdnRanges) {
+        (cfSet.contains(c) ? cfIps : otherIps)
+            .addAll(nipExpandCidr(c, maxPerBlock: 512));
       }
-      ips.shuffle(Random());
+      // Cloudflare اصلی می‌ماند؛ بقیه‌ی CDNها حداکثر هم‌اندازه‌ی آن (سقف کل
+      // هم می‌گذاریم تا لیست میلیونی نشود).
+      final rnd = Random();
+      otherIps.shuffle(rnd);
+      final cap = cfIps.isEmpty ? 20000 : cfIps.length;
+      final ips = <String>[...cfIps, ...otherIps.take(cap)];
+      ips.shuffle(rnd);
       if (await _natTryScan(cdnT, ips,
-          port: cdnT.first.port, label: 'لبه‌ی Cloudflare', front: true)) {
+          port: cdnT.first.port, label: 'لبه‌ی CDN', front: true)) {
         return true;
       }
       if (abort) return false;

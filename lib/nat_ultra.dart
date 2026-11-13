@@ -983,7 +983,7 @@ String _natApplyTweaks(String link, _NatSpec x, Server s) {
   } else if (md != null) {
     link = _natSetParam(link, 'mode', md.substring(md.indexOf(':') + 1));
   }
-  if (x.sniHost) {
+  if (x.sniHost && echFromLink(link).isEmpty) {
     final h = _natGetParam(link, 'host');
     link = _natSetParam(link, 'sni', h.isEmpty ? s.host : h);
   }
@@ -1058,6 +1058,7 @@ String _natApplySniSwap(String cfg, int sniIdx) {
       if (st['security'] != 'tls') continue;
       final tls = st['tlsSettings'];
       if (tls is! Map) continue;
+      if (tlsHasEch(tls)) continue; // ECH: SNI را عوض نکن
       tls['serverName'] = sni;
       tls['allowInsecure'] = true;
     }
@@ -1230,6 +1231,7 @@ String _natSmartSni(String cfg, Server s, {bool forceAll = false}) {
       if (st is! Map || st['security'] != 'tls') continue;
       final tls = st['tlsSettings'];
       if (tls is! Map) continue;
+      if (tlsHasEch(tls)) continue; // ECH: SNI را عوض نکن
       final current = (tls['serverName'] ?? '').toString().toLowerCase();
       if (!isWorker &&
           !current.endsWith('workers.dev') &&
@@ -1798,10 +1800,22 @@ bool kNatIpScanOn = true;
 
 final Map<String, int> _cfRangeCursors = {};
 List<String> _getCfIps({int batchSize = 160000}) {
+  // CDNDIV: fire-and-forget; uses the cached/static list below until this
+  // (rate-limited, 6h cache) refresh lands, never blocks the scan.
+  unawaited(refreshCdnRanges());
   final out = <String>[];
-  final ranges = _cfRanges;
-  final perRange = (batchSize / ranges.length).ceil();
+  final ranges = _liveCdnRanges;
+  // Cloudflare همچنان اصلی‌ترین استخر است (کانفیگ‌های CDN-fronted معمولاً روی
+  // Cloudflare هستند): نیمی از بودجه برای آن، نیم دیگر بین بقیه‌ی CDNها.
+  final cfSet = _cfRanges.toSet();
+  final cfN = ranges.where(cfSet.contains).length;
+  final otherN = ranges.length - cfN;
+  final cfShare = (cfN == 0 || otherN == 0) ? 1.0 : 0.5;
+  final perCf = cfN == 0 ? 0 : (batchSize * cfShare / cfN).ceil();
+  final perOther =
+      otherN == 0 ? 0 : (batchSize * (1.0 - (cfN == 0 ? 0.0 : cfShare)) / otherN).ceil();
   for (final cidr in ranges) {
+    final perRange = cfSet.contains(cidr) ? perCf : perOther;
     final parts = cidr.split('/');
     if (parts.length != 2) continue;
     final octets = parts[0].split('.');

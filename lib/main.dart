@@ -2471,8 +2471,8 @@ String sanitizeCfg(String cfg) {
 }
 
 // CFGBUILD: همه‌ی ساخت کانفیگ هسته از این تابع می‌گذرد (قبلاً بعضی مسیرها sanitize نمی‌شدند)
-String buildCoreConfig(String link) =>
-    sanitizeCfg(V2ray.parseFromURL(link).getFullConfiguration());
+String buildCoreConfig(String link) => echApply(
+    link, sanitizeCfg(V2ray.parseFromURL(link).getFullConfiguration()));
 
 // NAMEFIX: نام سرورهای بی‌نام در لاگ «undefined» نشان داده می‌شد
 String cleanSrvName(String n) => n.replaceAll(RegExp(r'\bundefined\b'), '').trim();
