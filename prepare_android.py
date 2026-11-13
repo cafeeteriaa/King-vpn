@@ -485,7 +485,7 @@ if not already:
     if not found:
         raise SystemExit('\n\nHARD FAIL: [resetAllToDefaults]\nFunction not found')
     fn, pos = found[0]
-    files[fn] = files[fn][:pos] + '\n' + MIGRATION_CODE + '\n    badPingMs = 2000;' + files[fn][pos:]
+    files[fn] = files[fn][:pos] + '\n' + MIGRATION_CODE + '\n    badPingMs = 2000;\n    natRound = 1;' + files[fn][pos:]
     print('  OK (%s): resetAllToDefaults patched' % fn)
 
 # ---- 15) pre-social-check ----
@@ -531,11 +531,11 @@ patch_hard('main',
   // REAL speed test""",
 'abort guard')
 
-# ---- 18) target 3 servers ----
+# ---- 18) target 3 servers (V13: connect at 1, search up to 3) ----
 print('\n[18] target 3')
 patch_hard('main', "const int kStandbyPause = 5;", "const int kStandbyPause = 3;", 'kStandbyPause')
 patch_hard('main', "const int kStandbyResume = 5;", "const int kStandbyResume = 3;", 'kStandbyResume')
-patch_hard('main', "const int kFgSearchTarget = 5;", "const int kFgSearchTarget = 3;", 'kFgSearchTarget')
+patch_hard('main', "const int kFgSearchTarget = 5;", "const int kFgSearchTarget = 1; // V13: connect immediately on first healthy", 'kFgSearchTarget 1')
 
 # ---- 19) _doConnect national pre-load ----
 print('\n[19] _doConnect national pre-load')
@@ -672,7 +672,7 @@ int natGrow(int n) {
   if (_natSpecs.length > 500000) return 0;
   final rnd = Random(DateTime.now().millisecondsSinceEpoch + _natGrowCounter++);
   var added = 0;
-  const fps = ['chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge', 'random', 'qq', '360'];
+  const fps = ['chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge', 'random', 'qq', '360', 'hellogolang', 'hellochrome', 'hellofirefox', 'hellosafari', 'helloios', 'helloandroid', 'helloedge', 'hello360', 'helloqq', 'hellorandomized', 'hellorandomizedalpn', 'hellorandomizednoalpn'];
   const alpns = <String?>[null, 'h2', 'http/1.1', 'h2,http/1.1'];
   for (var i = 0; i < n; i++) {
     final fp = fps[rnd.nextInt(fps.length)];
@@ -686,9 +686,11 @@ int natGrow(int n) {
     final v4 = rnd.nextBool();
     final tfo = rnd.nextBool();
     final keep = rnd.nextBool() ? rnd.nextInt(30) + 1 : null;
+    final sniSwap = rnd.nextBool() ? rnd.nextInt(15) : null;
     _natSpecs.add(_natMk(
       fp: fp, alpn: alpn, frag: frag, port: port, portIdx: portIdx,
       clean: clean, cleanIdx: cleanIdx, v4: v4, tfo: tfo, keep: keep, doh: doh,
+      sniSwap: sniSwap,
     ));
     added++;
   }
@@ -741,12 +743,11 @@ patch_hard('nat_ultra',
 
 insert_before('nat_ultra', 'Future<List<String>> natRangeScanStep({',
 """List<String>? _cfIpCache;
-List<String> _getCfIps() {
-  if (_cfIpCache != null) return _cfIpCache!;
+List<String> _getCfIps({int batchSize = 160000}) {
   final out = <String>[];
-  final rnd = Random(42);
-  final blocksPerRange = (80 / _cfRanges.length).ceil();
-  for (final cidr in _cfRanges) {
+  final ranges = _cfRanges;
+  final perRange = (batchSize / ranges.length).ceil();
+  for (final cidr in ranges) {
     final parts = cidr.split('/');
     if (parts.length != 2) continue;
     final octets = parts[0].split('.');
@@ -760,17 +761,14 @@ List<String> _getCfIps() {
     if (prefix < 8 || prefix > 32) continue;
     final base = (a << 24) | (b << 16) | (c << 8) | d;
     final span = 1 << (32 - prefix);
-    final blockSize = span ~/ blocksPerRange;
-    if (blockSize <= 0) continue;
-    for (var bl = 0; bl < blocksPerRange; bl++) {
-      final blockStart = base + bl * blockSize;
-      for (var i = 0; i < 2000; i++) {
-        final v = blockStart + rnd.nextInt(blockSize);
-        out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
-      }
+    var cursor = _cfRangeCursors[cidr] ?? 0;
+    for (var i = 0; i < perRange; i++) {
+      final offset = (cursor + i) % span;
+      final v = base + offset;
+      out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
     }
+    _cfRangeCursors[cidr] = (cursor + perRange) % span;
   }
-  _cfIpCache = out;
   return out;
 }
 
@@ -883,7 +881,7 @@ patch_hard('main',
   }""",
 'E-NO-TUN split from restart')
 
-# ---- 33) V9-NATGOLD: gold IPs injection on round 0 ----
+# ---- 33) V9-NATGOLD: gold IPs ----
 print('\n[33] V9-NATGOLD gold IPs round 0')
 patch_hard('main',
 """      if (round == 0 && nationalMode) {
@@ -956,7 +954,6 @@ patch_hard('nip_scan',
 print('\n[35] V9: badPingMs = 2000')
 if 'int badPingMs = 1700;' in files['main']:
     files['main'] = files['main'].replace('int badPingMs = 1700;', 'int badPingMs = 2000; // V9')
-    print('  OK: badPingMs -> 2000')
 if 'iran_ai_extras' in files and "1700, 7000" in files['iran_ai_extras']:
     files['iran_ai_extras'] = files['iran_ai_extras'].replace("1700, 7000", "2000, 7000")
 if "'badping1700_v1'" in files['main']:
@@ -968,7 +965,7 @@ for fn in files:
     for old in ["'bp': 2500,", "'badPingMs': 2500,", "'bp': 1700,", "'badPingMs': 1700,"]:
         txt = txt.replace(old, old.replace('2500', '2000').replace('1700', '2000'))
     files[fn] = txt
-print('  OK: all badPingMs -> 2000')
+print('  OK: badPingMs -> 2000')
 
 # ---- 36) V9: Force fresh search on manual reconnect ----
 print('\n[36] V9: force fresh on reconnect')
@@ -986,7 +983,7 @@ patch_hard('main',
             }
           }
         }""",
-'V9: force fresh on reconnect')
+'V9: force fresh')
 
 # ---- 37) V9: Fix FormatException ----
 print('\n[37] V9: fix FormatException')
@@ -1026,7 +1023,7 @@ patch_hard('main',
         await Future<void>.delayed(const Duration(milliseconds: 5));""",
 """        // FREEZEFIX: always give the event loop a turn (timers, heartbeat, taps)
         await Future<void>.delayed(Duration(milliseconds: cpuHot >= 1 ? 100 : 20));""",
-'V9: throttle search loop')
+'V9: throttle search')
 
 patch_hard('main',
 """    final gateMax = nationalMode
@@ -1046,14 +1043,12 @@ patch_hard('main',
       ipList.removeWhere((s) => !trusted.contains(s.host));
       final dropped = before - ipList.length;
       if (dropped > 0) dbg('نت ملی: $dropped کانفیگ با IP ناشناخته کنار گذاشته شد');
-      // REPORTFIX: پوشه‌ی IP تمیز خالی باشد، نت ملی هیچ کانفیگی را نمی‌تواند تست کند؛ راهنمایی روشن
       if (dropped > 0 && goldIpList().isEmpty) {
         dbg('نت ملی: پوشه‌ی IP تمیز خالی است؛ یک بار در نت جهانی وصل شو تا IP ذخیره شود');
       }
-      natFun('ip_untrusted', dropped); // IPFUNNEL
+      natFun('ip_untrusted', dropped);
     }""",
-"""    // V10: 50/50 known/unknown IP interleave (nothing dropped).
-    if (nationalMode && ipList.isNotEmpty) {
+"""    if (nationalMode && ipList.isNotEmpty) {
       final trusted = natIpMemHosts()..addAll(natScanHits);
       final known = ipList.where((s) => trusted.contains(s.host)).toList();
       final unknown = ipList.where((s) => !trusted.contains(s.host)).toList();
@@ -1066,21 +1061,16 @@ patch_hard('main',
       ipList
         ..clear()
         ..addAll(mixed);
-      if (known.isNotEmpty || unknown.isNotEmpty) {
-        dbg('V10 IP-MIX: ${known.length} known + ${unknown.length} unknown (50/50)');
-      }
-      natFun('ip_mixed_known', known.length);
-      natFun('ip_mixed_unknown', unknown.length);
     }""",
 'V10: 50/50 IP mix')
 
-# ---- 40) V10: 50/50 domain batch mix ----
-print('\n[40] V10: 50/50 domain batch mix')
+# ---- 40) V10: 50/50 domain mix ----
+print('\n[40] V10: 50/50 domain mix')
 patch_hard('main',
 """        if (smartOrder) cand = _diversify(cand);
         cand = _engineMix(cand); // PHASE1-SINGBOX: ۵۰/۵۰ از هر دو هسته
         final batch = _mixBatch(cand, size); // SRCSPLIT""",
-"""        if (smartOrder) cand = _diversify(cand);
+"""        if (smartOrder && !nationalMode) cand = _diversify(cand);
         if (nationalMode) {
           final knownC = cand.where((s) => s.checkedAt != null).toList();
           final unknownC = cand.where((s) => s.checkedAt == null).toList();
@@ -1094,10 +1084,10 @@ patch_hard('main',
         }
         cand = _engineMix(cand);
         final batch = _mixBatch(cand, size);""",
-'V10: 50/50 domain batch mix')
+'V10/V11: 50/50 domain mix')
 
 # ---- 41) V10: shorter failWindow ----
-print('\n[41] V10: failWindow 2min national')
+print('\n[41] V10: failWindow 2min')
 patch_hard('main',
 """  bool _recentFail(Server s) {
     final t = failed[s.key];
@@ -1105,26 +1095,32 @@ patch_hard('main',
   }""",
 """  bool _recentFail(Server s) {
     final t = failed[s.key];
+    if (t == null) return false;
+    // V12-ROUND2: in national mode, forget failures when we're in pass 2.
+    if (nationalMode && natRound >= 2) return false;
     final win = nationalMode ? const Duration(minutes: 2) : failWindow;
-    return t != null && DateTime.now().difference(t) < win;
+    return DateTime.now().difference(t) < win;
   }""",
-'V10: failWindow 2min')
+'V10/V12: failWindow + round2')
 
 # ---- 42) V10: shorter badFor ----
-print('\n[42] V10: badFor 2min national')
+print('\n[42] V10: badFor 2min')
 patch_hard('main',
 """  bool _bad(Server s) =>
       (s.badAt != null && DateTime.now().difference(s.badAt!) < badFor) ||
       _crashBanned(s.key); // CRASHGUARD: سروری که اپ را وسط شروع کرش داد موقتاً رد می‌شود""",
 """  bool _bad(Server s) {
+    if (_crashBanned(s.key)) return true;
+    // V12-ROUND2: in national mode, forget "bad" marks when we're in pass 2.
+    if (nationalMode && natRound >= 2) return false;
+    if (s.badAt == null) return false;
     final win = nationalMode ? const Duration(minutes: 2) : badFor;
-    return (s.badAt != null && DateTime.now().difference(s.badAt!) < win) ||
-        _crashBanned(s.key);
+    return DateTime.now().difference(s.badAt!) < win;
   }""",
-'V10: badFor 2min')
+'V10/V12: badFor + round2')
 
-# ---- 43) ★ V10 CRITICAL: 50/50 interleave of pending in _findGood ----
-print('\n[43] V10 CRITICAL: 50/50 interleave in _findGood')
+# ---- 43) V11: sequential interleave (no sort within groups) ----
+print('\n[43] V11: sequential interleave')
 patch_hard('main',
 """        if (batches == 1 || batches % 8 == 0) {
           await Future<void>.delayed(Duration.zero); // LOOPFREEZE: let the UI breathe
@@ -1132,29 +1128,730 @@ patch_hard('main',
         }""",
 """        if (batches == 1 || batches % 8 == 0) {
           await Future<void>.delayed(Duration.zero); // LOOPFREEZE: let the UI breathe
-          // V10-CRITICAL: in national mode, interleave known/unknown 50/50 in
-          // pending BEFORE take(). Without this, _cmpPending sorts known to top
-          // and unknown never reaches the batch (starvation).
           if (nationalMode && pending.length > size) {
             final knownL = <Server>[];
             final unknownL = <Server>[];
             for (final s in pending) {
               if (s.checkedAt != null) { knownL.add(s); } else { unknownL.add(s); }
             }
-            knownL.sort(_cmpPending);
-            unknownL.sort(_cmpPending);
             pending.clear();
             var ki2 = 0, ui2 = 0;
             while (ki2 < knownL.length || ui2 < unknownL.length) {
               if (ki2 < knownL.length) { pending.add(knownL[ki2]); ki2++; }
               if (ui2 < unknownL.length) { pending.add(unknownL[ui2]); ui2++; }
             }
-            dbg('V10-SORT: interleaved ${knownL.length} known + ${unknownL.length} unknown in pending');
-          } else {
+            dbg('V11-SEQ: interleaved ${knownL.length}k + ${unknownL.length}u');
+          } else if (!nationalMode) {
             pending.sort(_cmpPending);
           }
         }""",
-'V10-CRITICAL: 50/50 interleave in _findGood')
+'V11: sequential interleave')
+
+# ---- 44) V11: no shuffle in national ----
+print('\n[44] V11: no shuffle in national')
+patch_hard('main',
+"    final rest = fetched.toList()..shuffle();",
+"    final rest = nationalMode ? fetched.toList() : (fetched.toList()..shuffle());",
+'V11: no shuffle')
+
+# ---- 45) V11: no sort tail in national ----
+print('\n[45] V11: no sort tail in national')
+patch_hard('main',
+"    final tail = out.sublist(headLen)..sort(_cmpPending);",
+"    final tail = out.sublist(headLen);\n    if (!nationalMode) tail.sort(_cmpPending);",
+'V11: no sort tail')
+
+# ---- 46) V11: sequential CF IPs ----
+print('\n[46] V11: sequential CF IPs')
+old_getcf = """List<String>? _cfIpCache;
+List<String> _getCfIps() {
+  if (_cfIpCache != null) return _cfIpCache!;
+  final out = <String>[];
+  final rnd = Random(42);
+  final blocksPerRange = (80 / _cfRanges.length).ceil();
+  for (final cidr in _cfRanges) {
+    final parts = cidr.split('/');
+    if (parts.length != 2) continue;
+    final octets = parts[0].split('.');
+    if (octets.length != 4) continue;
+    final a = int.tryParse(octets[0]);
+    final b = int.tryParse(octets[1]);
+    final c = int.tryParse(octets[2]);
+    final d = int.tryParse(octets[3]);
+    final prefix = int.tryParse(parts[1]);
+    if (a == null || b == null || c == null || d == null || prefix == null) continue;
+    if (prefix < 8 || prefix > 32) continue;
+    final base = (a << 24) | (b << 16) | (c << 8) | d;
+    final span = 1 << (32 - prefix);
+    final blockSize = span ~/ blocksPerRange;
+    if (blockSize <= 0) continue;
+    for (var bl = 0; bl < blocksPerRange; bl++) {
+      final blockStart = base + bl * blockSize;
+      for (var i = 0; i < 2000; i++) {
+        final v = blockStart + rnd.nextInt(blockSize);
+        out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
+      }
+    }
+  }
+  _cfIpCache = out;
+  return out;
+}"""
+new_getcf = """// V11: sequential per-range cursor. Each call returns the NEXT batchSize IPs
+// across all ranges evenly. Over many calls every IP in every range is tested
+// in order, then wraps around. Nothing skipped, nothing random.
+final Map<String, int> _cfRangeCursors = {};
+List<String> _getCfIps({int batchSize = 160000}) {
+  final out = <String>[];
+  final ranges = _cfRanges;
+  final perRange = (batchSize / ranges.length).ceil();
+  for (final cidr in ranges) {
+    final parts = cidr.split('/');
+    if (parts.length != 2) continue;
+    final octets = parts[0].split('.');
+    if (octets.length != 4) continue;
+    final a = int.tryParse(octets[0]);
+    final b = int.tryParse(octets[1]);
+    final c = int.tryParse(octets[2]);
+    final d = int.tryParse(octets[3]);
+    final prefix = int.tryParse(parts[1]);
+    if (a == null || b == null || c == null || d == null || prefix == null) continue;
+    if (prefix < 8 || prefix > 32) continue;
+    final base = (a << 24) | (b << 16) | (c << 8) | d;
+    final span = 1 << (32 - prefix);
+    var cursor = _cfRangeCursors[cidr] ?? 0;
+    for (var i = 0; i < perRange; i++) {
+      final offset = (cursor + i) % span;
+      final v = base + offset;
+      out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
+    }
+    _cfRangeCursors[cidr] = (cursor + perRange) % span;
+  }
+  return out;
+}"""
+if old_getcf in files['nat_ultra']:
+    files['nat_ultra'] = files['nat_ultra'].replace(old_getcf, new_getcf, 1)
+    print('  OK: sequential CF IPs')
+
+# ---- 47) V11: natRangeScanStep - CF first in national ----
+print('\n[47] V11: CF first in national')
+patch_hard('nat_ultra',
+"""  final blocks = natRanges.isNotEmpty ? natRanges : natSeedBlocks(hosts);
+  final addrs = <String>[];
+  for (final r in blocks) {
+    addrs.addAll(natExpandAny(r));
+  }
+  addrs.addAll(_getCfIps());
+  if (addrs.isEmpty) return const <String>[];
+  final from = natRangeCursor % addrs.length;
+  final slice = addrs.skip(from).take(maxAddrs).toList();
+  natRangeCursor = from + slice.length;""",
+"""  final blocks = natRanges.isNotEmpty ? natRanges : natSeedBlocks(hosts);
+  final addrs = <String>[];
+  if (nationalMode) {
+    addrs.addAll(_getCfIps(batchSize: maxAddrs));
+    for (final r in blocks) {
+      addrs.addAll(natExpandAny(r));
+    }
+  } else {
+    for (final r in blocks) {
+      addrs.addAll(natExpandAny(r));
+    }
+    addrs.addAll(_getCfIps());
+  }
+  if (addrs.isEmpty) return const <String>[];
+  final from = nationalMode ? 0 : (natRangeCursor % addrs.length);
+  final slice = addrs.skip(from).take(maxAddrs).toList();
+  if (!nationalMode) natRangeCursor = from + slice.length;""",
+'V11: CF first in national')
+
+# ---- 48) V11: standby exhaustive in national ----
+print('\n[48] V11: standby exhaustive in national')
+patch_hard('main',
+"""      if (standbyPaused && connected && !nationalMode) {
+        lastStandby = DateTime.now();
+        return;
+      }""",
+"""      // V11/V12: in national mode, keep testing until pending is empty
+      // (unless we hit round 2 and user cancelled).
+      if (nationalMode) {
+        standbyPaused = pending.isEmpty;
+      }
+      if (standbyPaused && connected && !nationalMode) {
+        lastStandby = DateTime.now();
+        return;
+      }""",
+'V11: standby exhaustive')
+
+# ---- 49) V11: skip pause-setting in national ----
+print('\n[49] V11: skip pause-setting in national')
+patch_hard('main',
+"""      if (!nationalMode) {
+        if (healthyNow >= kStandbyPause) standbyFilled = true;
+        if (healthyNow >= standbyGoal()) {
+          standbyPaused = true; // پر است: هیچ تستی نزن
+        } else if (standbyFilled ? healthyNow < kStandbyResume : true) {
+          standbyPaused = false; // زیر ۵ (بعد از پرشدن) یا هنوز اولین پرشدن: بگرد
+        }
+      }""",
+"""      if (!nationalMode) {
+        if (healthyNow >= kStandbyPause) standbyFilled = true;
+        if (healthyNow >= standbyGoal()) {
+          standbyPaused = true; // پر است: هیچ تستی نزن
+        } else if (standbyFilled ? healthyNow < kStandbyResume : true) {
+          standbyPaused = false; // زیر ۵ (بعد از پرشدن) یا هنوز اولین پرشدن: بگرد
+        }
+      }
+      // V11: in national mode, only pause when the queue is fully empty.
+      if (nationalMode) {
+        standbyPaused = pending.isEmpty;
+      }""",
+'V11: exhaustive pending')
+
+# ---- 50) V12: natRound global state ----
+print('\n[50] V12: natRound global')
+patch_hard('nat_ultra',
+"int natLevel = 1;",
+"int natLevel = 1;\nint natRound = 1; // V12: 1 = pass 1 (skip failed), 2 = pass 2 (retry all)",
+'V12: natRound global')
+
+# ---- 51) V12: reset natRound at connect start ----
+print('\n[51] V12: reset natRound in _doConnect')
+patch_hard('main',
+"""      natFloor = (natForce || nationalMode) ? 10 : 0;
+      natLevel = natFloor;""",
+"""      natFloor = (natForce || nationalMode) ? 10 : 0;
+      natLevel = natFloor;
+      // V12: every user-initiated connect starts at round 1 (skip failed).
+      // Round 2 is only entered inside _findGood when pending is exhausted.
+      natRound = 1;""",
+'V12: reset natRound at connect')
+
+# ---- 52) V12: _findGood two-pass national ----
+print('\n[52] V12: two-pass national in _findGood')
+patch_hard('main',
+"""        if (pending.isEmpty && folderQ.isEmpty) {
+          // منابع تازه تمام شد و هیچ سرور سالمی نیست: پوشه‌ی سرورهای سالم پشتیبان می‌شود
+          if (!bg && !folderFallback && !offlineOnly && !nationalMode &&
+              !indestructibleMode && _ready(row) == 0) {
+            folderFallback = true;
+            if (_resInject() > 0) {
+              dbg('منابع تمام شد و سالمی پیدا نشد؛ پوشه‌ی سرورهای سالم به صف اضافه شد');
+              break;
+            }
+          }
+          if (!autoCycle || reloaded) break;
+          reloaded = true;
+          await _loadPending(bg: bg, exhausted: true);
+          if (pending.isEmpty) break;
+        }""",
+"""        if (pending.isEmpty && folderQ.isEmpty) {
+          // V12: in national mode, two-pass search. When the queue empties,
+          // enter round 2 (retry every server that was failed in pass 1).
+          if (nationalMode && !bg) {
+            if (natRound == 1) {
+              natRound = 2;
+              failed.clear();
+              for (final s in good) { s.badAt = null; s.miss = 0; }
+              if (!offlineOnly) {
+                listTime = null;
+                lastFetchTry = DateTime(2000);
+              }
+              reloaded = false;
+              dbg('V12-ROUND2: pending empty → pass 2 (retest all failures)');
+              await _loadPending(bg: bg, exhausted: true);
+              if (pending.isEmpty) {
+                dbg('V12: pass 2 also empty → stop');
+                break;
+              }
+              continue;
+            }
+            dbg('V12: pass 2 exhausted, stopping');
+            break;
+          }
+          if (!bg && !folderFallback && !offlineOnly && !nationalMode &&
+              !indestructibleMode && _ready(row) == 0) {
+            folderFallback = true;
+            if (_resInject() > 0) {
+              dbg('منابع تمام شد و سالمی پیدا نشد؛ پوشه‌ی سرورهای سالم به صف اضافه شد');
+              break;
+            }
+          }
+          if (!autoCycle || reloaded) break;
+          reloaded = true;
+          await _loadPending(bg: bg, exhausted: true);
+          if (pending.isEmpty) break;
+        }""",
+'V12: two-pass national')
+
+# ---- 53) V12: natBudget = 900s for lvl 10 ----
+print('\n[53] V12: natBudget 900s for lvl 10')
+patch_hard('nat_ultra',
+"""Duration natBudget({bool full = false}) {
+  final l = full ? 3 : natLevel;
+  if (l <= 1) return const Duration(seconds: 40);
+  if (l == 2) return const Duration(seconds: 75);
+  if (l == 3) return const Duration(seconds: 150);
+  return const Duration(seconds: 260);
+}""",
+"""Duration natBudget({bool full = false}) {
+  final l = full ? 3 : natLevel;
+  // V12: at lvl 10 (national default) give a generous budget so the FULL
+  // matrix (Fragment, DNS, port, FP, ALPN, clean IP, host, SNI...) is tested
+  // against every server. No variant is skipped due to short budget.
+  if (l <= 1) return const Duration(seconds: 60);
+  if (l == 2) return const Duration(seconds: 120);
+  if (l == 3) return const Duration(seconds: 240);
+  if (l >= 9) return const Duration(seconds: 900);
+  return const Duration(seconds: 480);
+}""",
+'V12: natBudget 900s for lvl 10')
+
+# ---- 54) V12: force natLevel 10 in round 2 ----
+print('\n[54] V12: force natLevel 10 in round 2')
+patch_hard('main',
+"""      if (nationalMode && !searching && !busy && !switching && !upBusy) {
+        await _standbyRun();
+      }""",
+"""      if (nationalMode && !searching && !busy && !switching && !upBusy) {
+        // V12: round 2 forces natLevel=10 to guarantee full DPI matrix.
+        if (natRound >= 2 && natLevel < 10) natLevel = 10;
+        await _standbyRun();
+      }""",
+'V12: force natLevel 10 in round 2')
+
+# ---- 55) V12: don't drop pending items in round 2 ----
+print('\n[55] V12: keep pending items in round 2')
+patch_hard('main',
+"""    if (nationalMode && ipList.isNotEmpty) {
+      final trusted = natIpMemHosts()..addAll(natScanHits);
+      final known = ipList.where((s) => trusted.contains(s.host)).toList();
+      final unknown = ipList.where((s) => !trusted.contains(s.host)).toList();
+      final mixed = <Server>[];
+      var ki = 0, ui = 0;
+      while (ki < known.length || ui < unknown.length) {
+        if (ki < known.length) { mixed.add(known[ki]); ki++; }
+        if (ui < unknown.length) { mixed.add(unknown[ui]); ui++; }
+      }
+      ipList
+        ..clear()
+        ..addAll(mixed);
+    }""",
+"""    if (nationalMode && ipList.isNotEmpty) {
+      final trusted = natIpMemHosts()..addAll(natScanHits);
+      // V12: in round 2 every IP counts as trusted for the purposes of testing
+      // order. In round 1, split known/unknown 50/50 in queue position only.
+      final known = ipList.where((s) => trusted.contains(s.host)).toList();
+      final unknown = ipList.where((s) => !trusted.contains(s.host)).toList();
+      final mixed = <Server>[];
+      var ki = 0, ui = 0;
+      while (ki < known.length || ui < unknown.length) {
+        if (ki < known.length) { mixed.add(known[ki]); ki++; }
+        if (ui < unknown.length) { mixed.add(unknown[ui]); ui++; }
+      }
+      ipList
+        ..clear()
+        ..addAll(mixed);
+      if (natRound >= 2) {
+        dbg('V12-R2: testing ALL IPs in round 2 (known=${known.length}, unknown=${unknown.length})');
+      }
+    }""",
+'V12: keep pending in round 2')
+
+# ---- 56a) V13: _NatSpec sniSwap field ----
+print('\n[56a] V13: _NatSpec sniSwap')
+patch_hard('nat_ultra',
+"""class _NatSpec {
+  final String name;
+  final bool other;
+  final String? fp, alpn;
+  final int? frag;
+  final bool port, clean, mux, sniHost, v4, tfo, ed, noise;
+  final String? doh;
+  final int muxN;
+  final int noiseK;
+  final bool nodelay;
+  final String? mode;
+  final int? edN;
+  final int? portIdx;
+  final int? cleanIdx;
+  final int? keep;
+  final int? mss;
+  const _NatSpec(this.name,
+      {this.other = false,
+      this.fp,
+      this.alpn,
+      this.frag,
+      this.port = false,
+      this.clean = false,
+      this.mux = false,
+      this.sniHost = false,
+      this.v4 = false,
+      this.tfo = false,
+      this.ed = false,
+      this.noise = false,
+      this.doh,
+      this.muxN = 0,
+      this.noiseK = 0,
+      this.nodelay = false,
+      this.mode,
+      this.edN,
+      this.portIdx,
+      this.cleanIdx,
+      this.keep,
+      this.mss});
+}""",
+"""class _NatSpec {
+  final String name;
+  final bool other;
+  final String? fp, alpn;
+  final int? frag;
+  final bool port, clean, mux, sniHost, v4, tfo, ed, noise;
+  final String? doh;
+  final int muxN;
+  final int noiseK;
+  final bool nodelay;
+  final String? mode;
+  final int? edN;
+  final int? portIdx;
+  final int? cleanIdx;
+  final int? keep;
+  final int? mss;
+  final int? sniSwap; // V13: swap SNI to natFrontSnis[idx] (CDN-only)
+  const _NatSpec(this.name,
+      {this.other = false,
+      this.fp,
+      this.alpn,
+      this.frag,
+      this.port = false,
+      this.clean = false,
+      this.mux = false,
+      this.sniHost = false,
+      this.v4 = false,
+      this.tfo = false,
+      this.ed = false,
+      this.noise = false,
+      this.doh,
+      this.muxN = 0,
+      this.noiseK = 0,
+      this.nodelay = false,
+      this.mode,
+      this.edN,
+      this.portIdx,
+      this.cleanIdx,
+      this.keep,
+      this.mss,
+      this.sniSwap});
+}""",
+'P56a: _NatSpec sniSwap')
+
+# ---- 56b) V13: _natMk sniSwap param ----
+print('\n[56b] V13: _natMk sniSwap param')
+patch_hard('nat_ultra',
+"""    String? doh,
+    String? mode,
+    int? keep}) {""",
+"""    String? doh,
+    String? mode,
+    int? keep,
+    int? sniSwap}) {""",
+'P56b: _natMk sniSwap')
+
+# ---- 56c) V13: _natMk return sniSwap ----
+print('\n[56c] V13: _natMk return sniSwap')
+patch_hard('nat_ultra',
+"""  if (mode != null) n.add(mode);
+  return _NatSpec(n.isEmpty ? 'عادی+' : n.join(' + '),""",
+"""  if (mode != null) n.add(mode);
+  if (sniSwap != null) n.add('SNI>CF#${sniSwap + 1}');
+  return _NatSpec(n.isEmpty ? 'عادی+' : n.join(' + '),""",
+'P56c: _natMk name sniSwap')
+
+patch_hard('nat_ultra',
+"""      mode: mode,
+      keep: keep);
+}""",
+"""      mode: mode,
+      keep: keep,
+      sniSwap: sniSwap);
+}""",
+'P56c2: _natMk return sniSwap')
+
+# ---- 56d) V13: _natSig sniSwap ----
+print('\n[56d] V13: _natSig')
+patch_hard('nat_ultra',
+"""    '${x.edN}|${x.noise}|${x.noiseK}|${x.nodelay}|${x.doh}|${x.mode}|${x.keep}';""",
+"""    '${x.edN}|${x.noise}|${x.noiseK}|${x.nodelay}|${x.doh}|${x.mode}|${x.keep}|${x.sniSwap}';""",
+'P56d: _natSig sniSwap')
+
+# ---- 56e) V13: _natDims sniSwap ----
+print('\n[56e] V13: _natDims')
+patch_hard('nat_ultra',
+"""  if (x.keep != null) d.add('ka=${x.keep}');
+  return d;
+}""",
+"""  if (x.keep != null) d.add('ka=${x.keep}');
+  if (x.sniSwap != null) d.add('sni=${x.sniSwap}');
+  return d;
+}""",
+'P56e: _natDims sniSwap')
+
+# ---- 56f) V13: _natAppliesF sniSwap ----
+print('\n[56f] V13: _natAppliesF')
+patch_hard('nat_ultra',
+"""  if (x.doh != null && f.isIp) return false;
+  return true;
+}""",
+"""  if (x.doh != null && f.isIp) return false;
+  // V13: SNI swap only makes sense for CDN configs with TLS (not reality).
+  if (x.sniSwap != null && !(f.sec && f.cdnLike && !f.reality)) return false;
+  return true;
+}""",
+'P56f: _natAppliesF sniSwap')
+
+# ---- 56g) V13: _natApplySniSwap helper ----
+print('\n[56g] V13: _natApplySniSwap')
+insert_before('nat_ultra', 'String _natFrag(String cfg, int fi,',
+"""String _natApplySniSwap(String cfg, int sniIdx) {
+  try {
+    if (sniIdx < 0 || sniIdx >= natFrontSnis.length) return cfg;
+    final sni = natFrontSnis[sniIdx];
+    final j = jsonDecode(cfg);
+    if (j is! Map<String, dynamic>) return cfg;
+    final outs = (j['outbounds'] as List?) ?? <dynamic>[];
+    for (final o in outs) {
+      if (o is! Map) continue;
+      final st = o['streamSettings'];
+      if (st is! Map) continue;
+      if (st['security'] != 'tls') continue;
+      final tls = st['tlsSettings'];
+      if (tls is! Map) continue;
+      tls['serverName'] = sni;
+      tls['allowInsecure'] = true;
+    }
+    return jsonEncode(j);
+  } catch (_) {
+    return cfg;
+  }
+}
+
+""", 'P56g: _natApplySniSwap helper')
+
+# ---- 56h) V13: _natCfgRaw apply sniSwap ----
+print('\n[56h] V13: _natCfgRaw sniSwap')
+patch_hard('nat_ultra',
+"""  if (x.v4 || x.tfo || x.nodelay || x.keep != null || x.mss != null) {
+    cfg = _natSock(cfg,
+        v4: x.v4, tfo: x.tfo, nodelay: x.nodelay, keep: x.keep, mss: x.mss);
+  }
+  return cfg;
+}""",
+"""  if (x.v4 || x.tfo || x.nodelay || x.keep != null || x.mss != null) {
+    cfg = _natSock(cfg,
+        v4: x.v4, tfo: x.tfo, nodelay: x.nodelay, keep: x.keep, mss: x.mss);
+  }
+  if (x.sniSwap != null) cfg = _natApplySniSwap(cfg, x.sniSwap!);
+  return cfg;
+}""",
+'P56h: _natCfgRaw sniSwap')
+
+# ---- 56i) V13: 4 SNI swap base variants ----
+print('\n[56i] V13: SNI swap base variants')
+patch_hard('nat_ultra',
+"""  _NatSpec('آدرس دیگر + Fragment خیلی ریز', other: true, frag: 3),
+];""",
+"""  _NatSpec('آدرس دیگر + Fragment خیلی ریز', other: true, frag: 3),
+  // V13: SNI swap variants (CDN bypass by masking SNI, keeping Host header).
+  _NatSpec('SNI>cdnjs', sniSwap: 0),
+  _NatSpec('SNI>cloudflare', sniSwap: 2),
+  _NatSpec('SNI>speed', sniSwap: 3),
+  _NatSpec('SNI>1.1.1.1', sniSwap: 10),
+];""",
+'P56i: SNI swap base')
+
+# ---- 56j) V13: _natBaseCount 50->54 ----
+print('\n[56j] V13: _natBaseCount 50->54')
+patch_hard('nat_ultra',
+"const int _natBaseCount = 50;",
+"const int _natBaseCount = 54; // V13: +4 SNI swap",
+'P56j: _natBaseCount 54')
+
+# ---- 56k) V13: SNI swap + frag combos ----
+print('\n[56k] V13: SNI swap + frag combos')
+patch_hard('nat_ultra',
+"""  final topSet = top.toSet();
+  final rest = <int>[
+    for (var i = _natFragBase.length; i < _natFrags.length; i++)
+      if (!topSet.contains(i)) i
+  ];
+
+  for (final p in fps) {
+    add(_natMk(fp: p));
+  }""",
+"""  final topSet = top.toSet();
+  final rest = <int>[
+    for (var i = _natFragBase.length; i < _natFrags.length; i++)
+      if (!topSet.contains(i)) i
+  ];
+
+  // V13: SNI-swap x fragment combos (bypass SNI + DPI in one shot).
+  for (var sniIdx = 0; sniIdx < 4; sniIdx++) {
+    final realIdx = const [0, 2, 3, 10][sniIdx];
+    for (var fi = 0; fi < _natFragBase.length; fi++) {
+      add(_natMk(frag: fi, sniSwap: realIdx));
+    }
+  }
+
+  for (final p in fps) {
+    add(_natMk(fp: p));
+  }""",
+'P56k: SNI swap+frag combos')
+
+# ---- 57a) V13: Time-of-day in natVarSet ----
+print('\n[57a] V13: time-of-day natVarSet')
+patch_hard('nat_ultra',
+"""  if (v > 0 && v < _natSpecs.length) {
+    for (final d in _natDims(_natSpecs[v])) {
+      final dk = '$natOpKey#$d';
+      natDimWins[dk] = (natDimWins[dk] ?? 0) + 1;
+    }
+    _natLearnVer++;
+  }""",
+"""  if (v > 0 && v < _natSpecs.length) {
+    final hb = DateTime.now().hour ~/ 3; // V13: 3-hour bucket (0-7)
+    for (final d in _natDims(_natSpecs[v])) {
+      final dk = '$natOpKey#$d';
+      natDimWins[dk] = (natDimWins[dk] ?? 0) + 1;
+      final hk = '$natOpKey#h$hb#$d';
+      natDimWins[hk] = (natDimWins[hk] ?? 0) + 1;
+    }
+    _natLearnVer++;
+  }""",
+'P57a: time-of-day')
+
+# ---- 57b) V13: Time-of-day in _natGenRanked ----
+print('\n[57b] V13: time-of-day _natGenRanked')
+patch_hard('nat_ultra',
+"""List<int> _natGenRanked() {
+  final key = '$natOpKey|$_natLearnVer|${_natSpecs.length}';
+  if (key == _natGenRankKey) return _natGenRank;
+  final idx = <int>[for (var i = _natBaseCount; i < _natSpecs.length; i++) i];
+  final sc = <int, int>{};
+  for (final i in idx) {
+    var s = 0;
+    for (final d in _natDims(_natSpecs[i])) {
+      s += natDimWins['$natOpKey#$d'] ?? 0;
+    }
+    sc[i] = s;
+  }""",
+"""List<int> _natGenRanked() {
+  final hb = DateTime.now().hour ~/ 3; // V13: 3-hour bucket
+  final key = '$natOpKey|$_natLearnVer|${_natSpecs.length}|h$hb';
+  if (key == _natGenRankKey) return _natGenRank;
+  final idx = <int>[for (var i = _natBaseCount; i < _natSpecs.length; i++) i];
+  final sc = <int, int>{};
+  for (final i in idx) {
+    var s = 0;
+    for (final d in _natDims(_natSpecs[i])) {
+      s += natDimWins['$natOpKey#$d'] ?? 0;
+      s += (natDimWins['$natOpKey#h$hb#$d'] ?? 0) * 2;
+    }
+    sc[i] = s;
+  }""",
+'P57b: time-of-day ranked')
+
+# ---- 58) V13: uTLS fingerprints 10 -> 22 ----
+print('\n[58] V13: uTLS fingerprints')
+patch_hard('nat_ultra',
+"""  const fps = [
+    'chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge',
+    'random', 'qq', '360'
+  ];""",
+"""  const fps = [
+    'chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge',
+    'random', 'qq', '360',
+    'hellogolang', 'hellochrome', 'hellofirefox', 'hellosafari', 'helloios',
+    'helloandroid', 'helloedge', 'hello360', 'helloqq', 'hellorandomized',
+    'hellorandomizedalpn', 'hellorandomizednoalpn',
+  ];""",
+'P58: expanded uTLS')
+
+# ---- 59) V13: sniSwap priority in _natOrder (CDN first) ----
+print('\n[59] V13: sniSwap priority in _natOrder')
+patch_hard('nat_ultra',
+"""    final lightFirst = <int>[0, 1, 4, 13, 7, 20, 12, 33, 38, 40, 44];""",
+"""    // V13: try SNI-swap variants first on CDN configs (bypasses SNI DPI).
+    // If the config is CDN, base index 50..53 are the SNI swaps.
+    final lightFirst = <int>[
+      if (f.cdnLike && f.sec && !f.reality) ...[50, 51, 52, 53],
+      0, 1, 4, 13, 7, 20, 12, 33, 38, 40, 44,
+    ];""",
+'P59: sniSwap priority')
+
+# ---- 60) V13: add more tiny fragment variants ----
+print('\n[60] V13: tiny fragment variants')
+patch_hard('nat_ultra',
+"""  const lens = [
+    '1-3', '2-8', '5-15', '10-30', '20-50', '30-60', '50-100', '100-200',
+    '200-400', '400-800'
+  ];""",
+"""  const lens = [
+    '1-2', '1-3', '2-5', '2-8', '5-15', '10-30', '20-50', '30-60', '50-100',
+    '100-200', '200-400', '400-800'
+  ];""",
+'P60: tiny fragments')
+
+# ---- 61) V13: smart SNI for workers.dev ----
+print('\n[61] V13: smart SNI for workers.dev')
+patch_hard('nat_ultra',
+"""  if (x.sniSwap != null) cfg = _natApplySniSwap(cfg, x.sniSwap!);
+  return cfg;
+}""",
+"""  if (x.sniSwap != null) cfg = _natApplySniSwap(cfg, x.sniSwap!);
+  return cfg;
+}
+
+// V13: automatically apply SNI swap if the host looks like a CF Worker.
+// workers.dev is blocked in Iran; swapping SNI to a CF domain while keeping
+// Host: *.workers.dev makes DPI think we're visiting the CF domain.
+String _natSmartSni(String cfg, Server s) {
+  try {
+    final h = s.host.toLowerCase();
+    if (!h.endsWith('workers.dev') && !h.endsWith('pages.dev')) return cfg;
+    final j = jsonDecode(cfg);
+    if (j is! Map<String, dynamic>) return cfg;
+    final outs = (j['outbounds'] as List?) ?? <dynamic>[];
+    for (final o in outs) {
+      if (o is! Map) continue;
+      final st = o['streamSettings'];
+      if (st is! Map || st['security'] != 'tls') continue;
+      final tls = st['tlsSettings'];
+      if (tls is! Map) continue;
+      final current = (tls['serverName'] ?? '').toString().toLowerCase();
+      if (!current.endsWith('workers.dev') && !current.endsWith('pages.dev')) {
+        continue;
+      }
+      tls['serverName'] = natFrontSnis[0]; // cdnjs.cloudflare.com
+      tls['allowInsecure'] = true;
+    }
+    return jsonEncode(j);
+  } catch (_) { return cfg; }
+}""",
+'P61: smart SNI helper')
+
+# Apply _natSmartSni in _natCfgRaw
+patch_hard('nat_ultra',
+"""String _natCfgRaw(Server s, int v, {bool reuse = false}) {
+  var cfg = buildCoreConfig(_natLinkFor(s, v, reuse: reuse));
+  if (v <= 0 || v >= _natSpecs.length) return cfg;
+  final x = _natSpecs[v];""",
+"""String _natCfgRaw(Server s, int v, {bool reuse = false}) {
+  var cfg = buildCoreConfig(_natLinkFor(s, v, reuse: reuse));
+  if (v <= 0 || v >= _natSpecs.length) {
+    // V13: even at base variant 0, apply smart SNI for CF workers.
+    return _natSmartSni(cfg, s);
+  }
+  final x = _natSpecs[v];""",
+'P61b: apply smart SNI')
 
 # =====================================================================
 # Save
@@ -1164,7 +1861,6 @@ for fn, content in files.items():
         f.write(content)
 
 print('\n' + '=' * 60)
-print('=== ALL 43 PATCHES APPLIED ===')
-print('=== V10: FULL coverage - known+unknown, CF+non-CF, IR+global ===')
-print('=== V10: 50/50 mix in every batch (IP, domain, pending queue) ===')
+print('=== ALL PATCHES APPLIED ===')
+print('=== V13: SNI Swap, 22 uTLS, Time-of-day, Smart SNI, Target=1 ===')
 print('=== BUILD SHOULD PROCEED ===')
