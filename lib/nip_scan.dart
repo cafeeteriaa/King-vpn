@@ -319,15 +319,21 @@ extension NipHunt on _HomePageState {
       final cfIps = <String>[];
       final otherIps = <String>[];
       for (final c in _liveCdnRanges) {
-        (cfSet.contains(c) ? cfIps : otherIps)
-            .addAll(nipExpandCidr(c, maxPerBlock: 512));
+        if (cfSet.contains(c)) cfIps.addAll(nipExpandCidr(c, maxPerBlock: 512));
       }
-      // Cloudflare اصلی می‌ماند؛ بقیه‌ی CDNها حداکثر هم‌اندازه‌ی آن (سقف کل
-      // هم می‌گذاریم تا لیست میلیونی نشود).
+      // PERFFIX: بقیه‌ی CDNها را فقط تا سقف هم‌اندازه‌ی Cloudflare بساز. قبلاً
+      // همه‌ی بلوک‌های زنده (صدها بلوک × ۵۱۲) روی UI ساخته و بعد کوتاه می‌شد
+      // که باعث قفل شدن اپ می‌شد.
+      final cap = cfIps.isEmpty ? 6000 : cfIps.length;
       final rnd = Random();
-      otherIps.shuffle(rnd);
-      final cap = cfIps.isEmpty ? 20000 : cfIps.length;
-      final ips = <String>[...cfIps, ...otherIps.take(cap)];
+      final others = _liveCdnRanges.where((c) => !cfSet.contains(c)).toList()
+        ..shuffle(rnd);
+      for (final c in others) {
+        if (otherIps.length >= cap) break;
+        otherIps.addAll(nipExpandCidr(c, maxPerBlock: 32));
+      }
+      if (otherIps.length > cap) otherIps.removeRange(cap, otherIps.length);
+      final ips = <String>[...cfIps, ...otherIps];
       ips.shuffle(rnd);
       if (await _natTryScan(cdnT, ips,
           port: cdnT.first.port, label: 'لبه‌ی CDN', front: true)) {

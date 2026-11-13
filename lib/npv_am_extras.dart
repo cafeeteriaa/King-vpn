@@ -532,6 +532,10 @@ DateTime? _cdnRangesFetchedAt;
 DateTime? _cdnRangesTriedAt;
 bool _cdnRangesBusy = false;
 
+// PERFFIX: decoding the multi-MB AWS/Google JSON on the UI isolate froze the app.
+// این تابع سراسری است تا compute() بتواند آن را در isolate پس‌زمینه اجرا کند.
+dynamic cdnJsonDecodeBg(String body) => jsonDecode(body);
+
 // CDNDIV: pulls each CDN's own published range list and merges whatever
 // succeeds into _liveCdnRanges. Safe to call repeatedly (it no-ops while
 // already running, and keeps the previous working list on any failure).
@@ -580,7 +584,7 @@ Future<void> refreshCdnRanges() async {
     await pull('fastly', _fastlyRanges, 48, () async {
       final res = await http.get(Uri.parse('https://api.fastly.com/public-ip-list'));
       if (res.statusCode != 200) return const <String>[];
-      final j = jsonDecode(res.body);
+      final j = await compute(cdnJsonDecodeBg, res.body);
       final addrs = j is Map ? j['addresses'] : null;
       if (addrs is! List) return const <String>[];
       return addrs.whereType<String>().toList();
@@ -589,7 +593,7 @@ Future<void> refreshCdnRanges() async {
     await pull('aws-cloudfront', _awsCfRanges, 96, () async {
       final res = await http.get(Uri.parse('https://ip-ranges.amazonaws.com/ip-ranges.json'));
       if (res.statusCode != 200) return const <String>[];
-      final j = jsonDecode(res.body);
+      final j = await compute(cdnJsonDecodeBg, res.body);
       final list = j is Map ? j['prefixes'] : null;
       if (list is! List) return const <String>[];
       return list
@@ -603,7 +607,7 @@ Future<void> refreshCdnRanges() async {
     await pull('google', _gcpCdnRanges, 48, () async {
       final res = await http.get(Uri.parse('https://www.gstatic.com/ipranges/goog.json'));
       if (res.statusCode != 200) return const <String>[];
-      final j = jsonDecode(res.body);
+      final j = await compute(cdnJsonDecodeBg, res.body);
       final list = j is Map ? j['prefixes'] : null;
       if (list is! List) return const <String>[];
       return list
