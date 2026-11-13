@@ -804,7 +804,7 @@ String? buildSingboxConfigFromLink(String link) => null;
 """
 print('  OK')
 
-# ---- 31) V9: tunUp fix ----
+# ---- 31) V9: tunUp fix (retry logic) ----
 print('\n[31] V9: tunUp fix')
 patch_hard('main',
 """Future<bool?> tunUp() async {
@@ -839,43 +839,29 @@ patch_hard('main',
 }""",
 """Future<bool?> tunUp() async {
   try {
-    final l = await NetworkInterface.list(includeLoopback: false);
-    tunNames = l.map((i) => i.name).join(',');
-    if (l.isEmpty) return null;
-    // V9: only real tunnel-like names count. ccmni/rmnet/seth are CELLULAR
-    // interfaces, not VPN. Treating them as tunnel gave false positives.
-    final hasTunnel = l.any((i) {
-      final n = i.name.toLowerCase();
-      return n.startsWith('tun') ||
-          n.startsWith('ppp') ||
-          n.startsWith('vpn') ||
-          n.startsWith('ipsec') ||
-          n.startsWith('tap') ||
-          n.startsWith('utun') ||
-          n.contains('xray') ||
-          n.contains('v2ray');
-    });
-    if (hasTunnel) return true;
-    // V9: list() can be flaky during transient states. Retry once.
-    await Future.delayed(const Duration(milliseconds: 400));
-    try {
-      final l2 = await NetworkInterface.list(includeLoopback: false);
-      final ok2 = l2.any((i) {
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final l = await NetworkInterface.list(includeLoopback: false);
+      tunNames = l.map((i) => i.name).join(',');
+      final hasTunnel = l.any((i) {
         final n = i.name.toLowerCase();
         return n.startsWith('tun') ||
             n.startsWith('ppp') ||
             n.startsWith('vpn') ||
-            n.startsWith('utun');
+            n.startsWith('utun') ||
+            n.contains('xray') ||
+            n.contains('v2ray');
       });
-      if (ok2) return true;
-    } catch (_) {}
+      if (hasTunnel) return true;
+      if (attempt < 2) await Future.delayed(const Duration(milliseconds: 800));
+    }
+    if (lastState == 'CONNECTED') return true;
     return false;
   } catch (_swE) {
     _swl('tunUp#1', _swE);
-    return null;
+    return lastState == 'CONNECTED' ? true : null;
   }
 }""",
-'V9: tunUp retry')
+'V9: tunUp retry + trust core')
 
 # ---- 32) V9: E-NO-TUN split ----
 print('\n[32] V9: E-NO-TUN split')
@@ -1010,6 +996,76 @@ for fn in files:
     files[fn] = txt
 print('  OK: tuned settings badPingMs -> 2000')
 
+# ---- 36) V9: Force fresh search on manual reconnect ----
+print('\n[36] V9: Force fresh search on manual reconnect')
+patch_hard('main',
+"""        if (!localPilotOn && !aiSession) failed.clear();""",
+"""        if (!localPilotOn && !aiSession) {
+          failed.clear();
+          if (only == null && row == null) {
+            // Manual reconnect: force fresh search
+            good.clear();
+            pending.clear();
+            if (!offlineOnly) {
+              listTime = null;
+              lastFetchTry = DateTime(2000);
+              fetchedAll.clear();
+            }
+          }
+        }""",
+'V9: force fresh search on reconnect')
+
+# ---- 37) V9: Fix FormatException in fetchServers ----
+print('\n[37] V9: Fix FormatException in fetchServers')
+patch_hard('main',
+"""      if (!body.contains('://')) {
+        if (!RegExp(r'^[A-Za-z0-9+/=_\\-\\s]+$').hasMatch(body)) {
+          srcFetchState[u] = 'fail';
+          return; // CLEANERR
+        }
+        try {
+          body = utf8.decode(
+              base64.decode(base64.normalize(body.replaceAll(RegExp(r'\\s'), ''))),
+              allowMalformed: true); // UTF8FIX: bad bytes in a list must not abort the whole source
+        } catch (_swE) { _swl('build#1', _swE);
+          srcFetchState[u] = 'fail';
+          return;
+        }
+      }""",
+"""      if (!body.contains('://')) {
+        var b64 = body.replaceAll(RegExp(r'[^A-Za-z0-9+/=_-]'), '');
+        b64 = b64.replaceAll('-', '+').replaceAll('_', '/');
+        while (b64.length % 4 != 0) { b64 += '='; }
+        try {
+          body = utf8.decode(
+              base64.decode(b64),
+              allowMalformed: true);
+        } catch (_swE) {
+          _swl('build#1', _swE);
+          srcFetchState[u] = 'fail';
+          return;
+        }
+      }""",
+'V9: fix FormatException')
+
+# ---- 38) V9: Fix CPU Excessive usage ----
+print('\n[38] V9: Fix CPU Excessive usage')
+patch_hard('main',
+"""        // FREEZEFIX: always give the event loop a turn (timers, heartbeat, taps)
+        await Future<void>.delayed(const Duration(milliseconds: 5));""",
+"""        // FREEZEFIX: always give the event loop a turn (timers, heartbeat, taps)
+        await Future<void>.delayed(Duration(milliseconds: cpuHot >= 1 ? 100 : 20));""",
+'V9: throttle search loop')
+
+patch_hard('main',
+"""    final gateMax = nationalMode
+        ? kNatDelayConcurrency
+        : fastWorkers.clamp(1, 1000); // سقف ۱۰۰۰ از تنظیم «تست همزمان (جستجوی اول)» // 3-AT-A-TIME: تست سریع فقط ۳ تا ۳ تا (نت ملی جداست)""",
+"""    final gateMax = nationalMode
+        ? kNatDelayConcurrency
+        : (cpuHot >= 2 ? 1 : (cpuHot >= 1 ? 3 : fastWorkers.clamp(1, 1000)));""",
+'V9: throttle fastWorkers')
+
 # =====================================================================
 # Save
 # =====================================================================
@@ -1018,6 +1074,5 @@ for fn, content in files.items():
         f.write(content)
 
 print('\n' + '=' * 60)
-print('=== ALL 35 PATCHES APPLIED ===')
-print('=== AGP 9.4.0 + Gradle 9.6.0 ===')
+print('=== ALL PATCHES APPLIED ===')
 print('=== BUILD SHOULD PROCEED ===')
