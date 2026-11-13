@@ -97,12 +97,20 @@ int _cpuPrevTicks = -1;
 DateTime _cpuPrevAt = DateTime.fromMillisecondsSinceEpoch(0);
 final List<double> _cpuWin = <double>[];
 
-void _cpuTick() {
+// فیکس ۸ و ۱۵: RegExpهای مسیر داغ یک‌بار ساخته می‌شوند (به‌جای هر ۳ ثانیه / هر dbg)
+final RegExp _insCntRe = RegExp(r'([^\s=]+)=(-?\d+)');
+final RegExp _digitsRe = RegExp(r'\d+');
+final RegExp _cfgLineRe = RegExp(r'^(CFG\d|XRAY0 |CORE-PORT )');
+// فیکس ۷: خواندن /proc/self/stat غیرهمگام شد (readAsString) تا ترد UI را نبندد.
+// نکته (هم‌خوان با فیکس ۸): تایمر _inspect از ۳ به ۸ ثانیه رفت؛ با آستانه‌ی قبلی ۹۰۰۰ms
+// نمونه‌گیری عملاً هر ۱۶ ثانیه می‌شد. آستانه به ۷۵۰۰ کاهش یافت تا فاصله‌ی نمونه‌ها ≈۸ ثانیه
+// (نزدیک به ۹ ثانیه‌ی قبلی) بماند و گاورنر CPU کندتر نشود.
+Future<void> _cpuTick() async {
   try {
     final now = DateTime.now();
     final dt = now.difference(_cpuPrevAt).inMilliseconds;
-    if (dt < 9000) return;
-    final raw = File('/proc/self/stat').readAsStringSync();
+    if (dt < 7500) return;
+    final raw = await File('/proc/self/stat').readAsString();
     final f = raw.substring(raw.lastIndexOf(')') + 2).split(' ');
     // فیلد ۱۴ و ۱۵ مستند proc: utime و stime (هر tick = ۱۰ms)؛ بعد از «)» از فیلد ۳ شروع می‌شود
     final ticks = (int.tryParse(f[11]) ?? 0) + (int.tryParse(f[12]) ?? 0);
@@ -669,6 +677,8 @@ DateTime? _lastNoHealthyLog; // harmless network errors (counted, not listed)
 bool _dbgLoaded = false;
 String _dbgLastSt = '';
 Timer? _dbgSaveT;
+bool _dbgDirty = false; // فیکس ۱۴: ذخیره‌ی لاگ throttle می‌شود نه cancel/ساخت‌ِ مجدد تایمر در هر dbg
+bool _dbgProbDirty = false; // فیکس ۱۴: همان الگو برای _dbgProbT
 
 Future<void> _dbgLoadPrev() async {
   try {
@@ -722,7 +732,7 @@ bool _dbgMicro(String m) {
 
 String _dbgLineKey(String x) {
   final i = x.indexOf(' • اولین');
-  return (i < 0 ? x : x.substring(0, i)).replaceAll(RegExp(r'\d+'), '#');
+  return (i < 0 ? x : x.substring(0, i)).replaceAll(_digitsRe, '#'); // فیکس ۱۵
 }
 
 String _dbgProbLine(DbgProb p) =>
@@ -734,7 +744,7 @@ void _dbgProb(String msg) {
     if (msg.startsWith('=====') ||
         msg.startsWith('== ') ||
         msg.contains('گزارش تست خودکار') ||
-        RegExp(r'^(CFG\d|XRAY0 |CORE-PORT )').hasMatch(msg)) {
+        _cfgLineRe.hasMatch(msg)) { // فیکس ۱۵
       return;
     }
     if (msg.startsWith('شمارنده:') ||
@@ -772,12 +782,19 @@ void _dbgProb(String msg) {
       old.last = now;
       old.n++;
     }
-    _dbgProbT?.cancel();
-    _dbgProbT = Timer(const Duration(seconds: 3), () async {
-      try {
-        await _dbgProbSave();
-      } catch (e, stk) { logError(e, stk); }
-    });
+    // فیکس ۱۴: به‌جای cancel + Timer جدید در هر خط، flag می‌زنیم و فقط اگر تایمری فعال
+    // نیست یکی می‌سازیم (تایمر کنسل‌شده در dispose/پاک‌کردن هم دوباره ساخته می‌شود).
+    _dbgProbDirty = true;
+    if (_dbgProbT == null || !_dbgProbT!.isActive) {
+      _dbgProbT = Timer(const Duration(seconds: 3), () async {
+        _dbgProbT = null;
+        if (!_dbgProbDirty) return;
+        _dbgProbDirty = false;
+        try {
+          await _dbgProbSave();
+        } catch (e, stk) { logError(e, stk); }
+      });
+    }
   } catch (e, stk) { logError(e, stk); }
 }
 
@@ -824,7 +841,7 @@ String _dbgKeyOf(String msg) {
   } else if (k.startsWith('اتصال:') && k.contains('رد شد')) {
     k = 'اتصال: <server> رد شد';
   }
-  return k.replaceAll(RegExp(r'\d+'), '#');
+  return k.replaceAll(_digitsRe, '#'); // فیکس ۱۵
 }
 
 // merge the problems saved by the earlier runs into the current map
@@ -2136,6 +2153,10 @@ void _swl(String site, Object e) {
 // خط‌های پرتکرار (تست هسته و لاگ هسته) نوشته نمی‌شوند تا فایل سنگین نشود.
 const String kTrailPath = '/storage/emulated/0/King-VPN/crash_trail.txt';
 const String kTrailPrivPath = '/data/data/com.kingvpn.king_vpn/files/crash_trail.txt';
+// فیکس ۱ (پرفورمنس): خطوط همگام و ارزان در بافر جمع می‌شوند و هر ۲ ثانیه یک‌بار
+// (به‌جای fsync برای هر خط) روی فایل نوشته می‌شوند. امضای تابع و منطق مسیر/حجم ۲MB همان است.
+final StringBuffer _trailBuf = StringBuffer();
+Timer? _trailTimer;
 void _trailWrite(String line) {
   if (line.startsWith('CORE-TEST') ||
       line.startsWith('CORE-LOG') ||
@@ -2144,12 +2165,38 @@ void _trailWrite(String line) {
     return;
   }
   final stamp = DateTime.now().toIso8601String();
+  _trailBuf.write('$stamp $line\n');
+  _trailTimer ??= Timer(const Duration(seconds: 2), () async {
+    _trailTimer = null;
+    if (_trailBuf.isEmpty) return;
+    final chunk = _trailBuf.toString();
+    _trailBuf.clear();
+    for (final p in const [kTrailPath, kTrailPrivPath]) {
+      try {
+        final f = File(p);
+        if (!f.parent.existsSync()) f.parent.createSync(recursive: true);
+        if (f.existsSync() && f.lengthSync() > 2 * 1024 * 1024) f.deleteSync();
+        await f.writeAsString(chunk, mode: FileMode.append, flush: true);
+        return;
+      } catch (_) {}
+    }
+  });
+}
+
+// بافر BLACKBOX را همین لحظه و همگام روی دیسک می‌نویسد (هنگام paused/detached و قبل از شروع هسته)
+// تا ۲ ثانیه‌ی آخر لاگ قبل از کرش/بسته‌شدن از دست نرود.
+void _flushTrail() {
+  _trailTimer?.cancel();
+  _trailTimer = null;
+  final buf = _trailBuf.toString();
+  _trailBuf.clear();
+  if (buf.isEmpty) return;
   for (final p in const [kTrailPath, kTrailPrivPath]) {
     try {
       final f = File(p);
       if (!f.parent.existsSync()) f.parent.createSync(recursive: true);
       if (f.existsSync() && f.lengthSync() > 2 * 1024 * 1024) f.deleteSync();
-      f.writeAsStringSync('$stamp $line\n', mode: FileMode.append, flush: true);
+      f.writeAsStringSync(buf, mode: FileMode.append, flush: true);
       return;
     } catch (_) {}
   }
@@ -2333,16 +2380,22 @@ void dbg(String m) {
     if (dbgLines.length > 1500) {
       dbgLines.removeRange(0, dbgLines.length - 1500);
     }
-    _dbgSaveT?.cancel();
-    _dbgSaveT = Timer(const Duration(seconds: 2), () async {
-      try {
-        final p = await SharedPreferences.getInstance();
-        final keep = dbgLines.length > 400
-            ? dbgLines.sublist(dbgLines.length - 400)
-            : List<String>.of(dbgLines);
-        await p.setStringList('dbgLines', keep);
-      } catch (e, stk) { logError(e, stk); }
-    });
+    // فیکس ۱۴: flag + یک تایمر ۲ثانیه‌ای (بدون cancel در هر dbg)
+    _dbgDirty = true;
+    if (_dbgSaveT == null || !_dbgSaveT!.isActive) {
+      _dbgSaveT = Timer(const Duration(seconds: 2), () async {
+        _dbgSaveT = null;
+        if (!_dbgDirty) return;
+        _dbgDirty = false;
+        try {
+          final p = await SharedPreferences.getInstance();
+          final keep = dbgLines.length > 400
+              ? dbgLines.sublist(dbgLines.length - 400)
+              : List<String>.of(dbgLines);
+          await p.setStringList('dbgLines', keep);
+        } catch (e, stk) { logError(e, stk); }
+      });
+    }
   } catch (e, stk) { logError(e, stk); }
 }
 
@@ -3330,6 +3383,11 @@ class Server {
   bool personal = false; // the user's own Cloudflare server
   bool? ai; // true = Gemini opens through this server, false = it does not
   DateTime? checkedAt; // last real test (standby re-check)
+  // فیکس ۹: کش رتبه‌ی نت ملی (خصوصی). فقط وقتی معتبر است که src و country همان‌هایی
+  // باشند که رتبه برایشان محاسبه شده؛ natGood همیشه زنده چک می‌شود (در _natRank).
+  int? _natRankCache;
+  String? _natRankSrcAt;
+  String? _natRankCountryAt;
   Server(this.link, this.name, this.host, this.port) {
     country = detectCountry(name);
   }
@@ -3529,6 +3587,8 @@ int natAdaptiveWorkers() {
   }
 }
 const int kNatDelayConcurrency = 4;
+// فیکس ۵: سقف تست همزمان در حالت عادی (نت جهانی)
+const int kFastGateCeil = 16;
 // GATEFIX: سقف امن تست همزمان روی یک هسته (با DELAY_THREADS = 3 هم‌خوان)
 const int kSafeDelayConcurrency = 8;
 // SLOWSWITCH: سرعت پایین پشت‌سرهم به این مدت که رسید، سرور عوض می‌شود (نه یک‌باره، نه یک ساعت).
@@ -5096,7 +5156,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     // healthy servers are kept on disk, so the next start tests them first
     if (s == AppLifecycleState.paused || s == AppLifecycleState.detached) {
-      unawaited(_saveCache().catchError((e) => logError(e)));
+      _flushTrail();
+      // flush باید بعد از تمام شدن _saveCache اجرا شود (setStringهای async آن در _data بنشینند)
+      unawaited(() async {
+        try {
+          await _saveCache();
+          final p = await SharedPreferences.getInstance();
+          await p.flush();
+        } catch (e) {
+          logError(e);
+        }
+      }());
     }
     if (s == AppLifecycleState.detached) {
       // BGKEEP: screen closed. With a VPN up the engine stays alive and the
@@ -5256,6 +5326,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // lines. It is cut only when it has been silent for a while, or when it
       // runs past the hard limit. (A fixed 20-min cut killed working searches.)
       final startedAt = DateTime.now();
+      // فیکس ۱۳ (برگشت): مقادیر اصلی بازگردانده شد چون حلقه‌ی سریالی safeLookup در _natPrescan می‌تواند دقیقه‌ها بی‌لاگ بماند (hard: ۲۰/۸ • idle: ۳/۲ دقیقه برای ملی/غیرملی)
       final hardLimit = Duration(minutes: nationalMode ? 20 : 8);
       final idleLimit = Duration(minutes: nationalMode ? 3 : 2);
       var done = false;
@@ -6171,7 +6242,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       return;
     }
     // حالت آنلاین: پوشه‌ی منابع تازه هم در پس‌زمینه بازسازی می‌شود (۴۸ ساعت)
-    unawaited(natHotEnsure());
+    // فیکس ۱۲: فقط اگر فایل پوشه وجود ندارد/خالی است؛ بازسازی دوره‌ای (TTL) را تایمر ساعتی در initState انجام می‌دهد
+    if (!natHotReady()) unawaited(natHotEnsure());
     final now0 = DateTime.now();
     final age = listTime == null ? null : now0.difference(listTime!);
     final limit = (exhausted && autoCycle)
@@ -6621,6 +6693,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     } finally {
       searching = false;
       _searchIsBg = false;
+      // فیکس ۹: کش رتبه‌ی نت ملی در پایان جستجو پاک می‌شود (احتیاط؛ کش خودش هم اعتبارسنجی دارد)
+      for (final s in good) {
+        s._natRankCache = null;
+      }
+      for (final s in pending) {
+        s._natRankCache = null;
+      }
       if (!bg) searchSw?.stop();
       dbg('پایان جستجو (${bg ? 'پس‌زمینه' : 'اصلی'}): '
           '${searchSw?.elapsed.inSeconds ?? 0}s • تست سریع $fastOk/$fastTested'
@@ -6827,9 +6906,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // GATEFIX: هسته‌ی تست بیش از ۳ درخواست هم‌زمان را تحمل نمی‌کند؛ با ۱۲ تایی
     // تقریباً همه‌ی تست‌ها در ۱۲ ثانیه -1 برمی‌گشتند. سقف امن ۳ اعمال می‌شود،
     // حتی اگر عدد «تست همزمان» در تنظیمات قبلاً ۱۲ ذخیره شده باشد.
-    final gateMax = nationalMode
-        ? kNatDelayConcurrency
-        : (cpuHot >= 2 ? 1 : (cpuHot >= 1 ? 3 : fastWorkers.clamp(1, 1000))); // سقف ۱۰۰۰ از تنظیم «تست همزمان (جستجوی اول)» // 3-AT-A-TIME: تست سریع فقط ۳ تا ۳ تا (نت ملی جداست)
+    // فیکس ۵: سقف تست همزمان ۱۶ (قبلاً ۱۰۰۰ از تنظیم «تست همزمان (جستجوی اول)»)؛ هسته‌ی Xray بیش از چند درخواست همزمان را تحمل نمی‌کند.
+    // (قبلاً: سقف ۱۰۰۰ از تنظیم «تست همزمان (جستجوی اول)»)
+    // 3-AT-A-TIME: تست سریع فقط ۳ تا ۳ تا (نت ملی جداست)
+    final int gateMax;
+    if (nationalMode) {
+      gateMax = kNatDelayConcurrency;
+    } else if (cpuHot >= 2) {
+      gateMax = 1;
+    } else if (cpuHot >= 1) {
+      gateMax = 3;
+    } else {
+      gateMax = fastWorkers.clamp(1, kFastGateCeil);
+    }
     _delayGate.max = gateMax;
     dbg('تست سریع: $gateMax تست هم‌زمان • دسته ${alive.length}');
     // ASNPREFETCH: وقتی نت جهانی است، بلوک‌های هاست سرورها را ذخیره می‌کنیم تا در نت ملی
@@ -7530,7 +7619,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final realVpn = !proxyOnly && !proxyMode && wantVpn;
     var ok = false;
     try {
-      if (realVpn) await _delayGate.pauseAndDrain(const Duration(seconds: 4));
+      if (realVpn) {
+        await _delayGate.pauseAndDrain(const Duration(seconds: 4));
+        _flushTrail(); // فقط برای اتصال واقعی، نه تست‌های proxyOnly
+      }
       _inflightBegin(s); // CRASHGUARD: اگر برنامه همین‌جا بمیرد، دفعه‌ی بعد معلوم است کدام سرور بوده
       ok = await _startImpl(s, proxyOnly: proxyOnly);
       return ok;
@@ -9583,8 +9675,11 @@ ListTile( // KINGEXTRAS row
     if (c.isEmpty) return;
     final add = [for (final s in c) if (queued.add(s.link)) s];
     if (add.isEmpty) return;
-    pending = [...add, ...pending];
-    if (pending.length > 1200) pending = pending.sublist(0, 1200);
+    // فیکس ۱۶: درج درجا و حذف انتهای لیست (بدون ساخت دو لیست تازه)
+    pending.insertAll(0, add);
+    if (pending.length > 1200) {
+      pending.removeRange(1200, pending.length); // بدون allocation
+    }
     _set('نت ملی: ${add.length} کانفیگ از پوشه‌ها به صف اضافه شد');
   }
 
@@ -9605,7 +9700,7 @@ ListTile( // KINGEXTRAS row
           (memHosts.contains(a.host) ? 0 : 1) -
           (memHosts.contains(b.host) ? 0 : 1));
       // سقف بررسی در هر دور: بقیه برای دور بعد نگه داشته می‌شوند
-      const checkCap = 3000;
+      const checkCap = 400; // فیکس ۱۹: قبلاً ۳۰۰۰؛ بقیه در overflow می‌روند و دور بعد بررسی می‌شوند
       final overflow = cands.length > checkCap ? cands.sublist(checkCap) : <Server>[];
       if (cands.length > checkCap) cands.removeRange(checkCap, cands.length);
       final ipOf = <String, String>{};
@@ -12042,7 +12137,7 @@ ListTile( // KINGEXTRAS row
   void _inspectStart() {
     _insT?.cancel();
     _insPrev = DateTime.now();
-    _insT = Timer.periodic(const Duration(seconds: 3), (_) {
+    _insT = Timer.periodic(const Duration(seconds: 8), (_) { // فیکس ۸: قبلاً ۳ ثانیه
       try {
         _inspect();
       } catch (e, jstk) { errJournalAdd(e, st: jstk);
@@ -12075,11 +12170,12 @@ ListTile( // KINGEXTRAS row
     String b(bool v) => v ? '1' : '0';
 
     // the app loop itself was frozen (this timer fires every 3 s)
-    _cpuTick(); // CPUGOV
+    unawaited(_cpuTick()); // CPUGOV
     final gap = now.difference(_insPrev).inSeconds;
     _insPrev = now;
     if (!inForeground) _insBgAt = now;
-    if (gap >= 8) {
+    // فیکس ۸: تایمر حالا هر ۸ ثانیه است؛ آستانه‌ی «فریز» از ۸ به ۲۰ رفت وگرنه هر تیک فریز حساب می‌شد
+    if (gap >= 20) {
       // background (or just resumed): Android slows the timers, NOT a code
       // error -> only counted, not listed as a problem
       if (!inForeground || now.difference(_insBgAt).inSeconds < 15) {
@@ -12106,7 +12202,7 @@ ListTile( // KINGEXTRAS row
       dbg('شمارنده: $cnt');
     }
     // every counter that went UP is a (tiny) problem of its own
-    for (final m in RegExp(r'([^\s=]+)=(-?\d+)').allMatches(cnt)) {
+    for (final m in _insCntRe.allMatches(cnt)) { // فیکس ۸: RegExp یک‌بار ساخته می‌شود
       final k = m.group(1)!;
       final v = int.tryParse(m.group(2)!) ?? 0;
       final o = _insPrevCnt[k] ?? 0;
@@ -14778,7 +14874,25 @@ bool _natSrc(Server s) {
 }
 
 // رتبه نت ملی: برندگان قبلی > منبع ایران‌محور > Reality > IR > CDN
+// فیکس ۹: نتیجه روی خود Server کش می‌شود تا در sort هزاران سرور، toLowerCase + چندین contains
+// دوباره و دوباره اجرا نشود. natGood مدام تغییر می‌کند پس همیشه زنده چک می‌شود؛ بقیه‌ی منطق
+// (همان بدنه‌ی قبلی) در _natRankCompute است.
 int _natRank(Server s) {
+  if (natGood.contains(s.key)) return 5;
+  final c = s._natRankCache;
+  if (c != null &&
+      identical(s._natRankSrcAt, s.src) &&
+      s._natRankCountryAt == s.country) {
+    return c;
+  }
+  final r = _natRankCompute(s);
+  s._natRankCache = r;
+  s._natRankSrcAt = s.src;
+  s._natRankCountryAt = s.country;
+  return r;
+}
+
+int _natRankCompute(Server s) {
   if (natGood.contains(s.key)) return 5;
   if (_natSrc(s)) return 4;
   if (s.reality) return 3;

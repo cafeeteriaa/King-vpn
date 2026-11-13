@@ -11,7 +11,7 @@ part of 'main.dart';
 
 int natLevel = 1;
 int natRound = 1; // V12: 1 = pass 1 (skip failed), 2 = pass 2 (retry all)
-const int natMaxVariants = 0x7FFFFFFF; // V8
+const int natMaxVariants = 5000; // V8 • فیکس ۱۷: قبلاً 0x7FFFFFFF
 int natFloor = 0;
 List<Server> natRestPending = [];
 
@@ -686,15 +686,17 @@ Duration natBudget({bool full = false}) {
   // V12: at lvl 10 (national default) give a generous budget so the FULL
   // matrix (Fragment, DNS, port, FP, ALPN, clean IP, host, SNI...) is tested
   // against every server. No variant is skipped due to short budget.
-  if (l <= 1) return const Duration(seconds: 60);
-  if (l == 2) return const Duration(seconds: 120);
-  if (l == 3) return const Duration(seconds: 240);
-  if (l >= 9) return const Duration(seconds: 900);
-  return const Duration(seconds: 480);
+  // فیکس ۶: بودجه‌ها کاهش یافتند (قبلاً 60/120/240/900/480) تا یک سرور خراب دقیقه‌ها گیر نکند.
+  if (l <= 1) return const Duration(seconds: 30);
+  if (l == 2) return const Duration(seconds: 60);
+  if (l == 3) return const Duration(seconds: 120);
+  if (l >= 9) return const Duration(seconds: 300);
+  return const Duration(seconds: 240);
 }
 
+// فیکس ۱۷: سقف‌ها کاهش یافت (قبلاً: 0, 0, 200, 1200, 6000, 15000, 30000, 60000, 100000, 150000, 200000)
 const List<int> _natGenCap = [
-  0, 0, 200, 1200, 6000, 15000, 30000, 60000, 100000, 150000, 200000
+  0, 0, 100, 500, 1500, 4000, 8000, 15000, 20000, 30000, 40000
 ];
 
 List<int> _natOrder(Server s, {bool full = false}) {
@@ -1563,7 +1565,7 @@ const List<int> natCommonPorts = [
 
 List<int> natAutoPorts(List<Server> known) {
   final cnt = <int, int>{};
-  for (final s in known) {
+  for (final s in known.take(100)) { // فیکس ۱۸: قبلاً کل known (تا ۳۰۰۰ سرور)
     if (s.port > 0 && s.port < 65536) cnt[s.port] = (cnt[s.port] ?? 0) + 1;
   }
   for (final e in natIpMem) {
@@ -1799,12 +1801,19 @@ List<Server> natTemplateSeeds = [];
 bool kNatIpScanOn = true;
 
 final Map<String, int> _cfRangeCursors = {};
-List<String> _getCfIps({int batchSize = 160000}) {
+List<String> _getCfIps({
+  int batchSize = 160000,
+  // فیکس ۳: داخل isolate مقدار سراسری‌ها (بازه‌های زنده و cursorها) وجود ندارد؛ از
+  // این دو پارامتر پاس داده می‌شوند. در حالت عادی (null) رفتار قبلی دقیقاً حفظ است.
+  List<String>? liveRanges,
+  Map<String, int>? cursors,
+}) {
   // CDNDIV: fire-and-forget; uses the cached/static list below until this
   // (rate-limited, 6h cache) refresh lands, never blocks the scan.
-  unawaited(refreshCdnRanges());
+  if (cursors == null) unawaited(refreshCdnRanges());
   final out = <String>[];
-  final ranges = _liveCdnRanges;
+  final ranges = liveRanges ?? _liveCdnRanges;
+  final curMap = cursors ?? _cfRangeCursors;
   // Cloudflare همچنان اصلی‌ترین استخر است (کانفیگ‌های CDN-fronted معمولاً روی
   // Cloudflare هستند): نیمی از بودجه برای آن، نیم دیگر بین بقیه‌ی CDNها.
   final cfSet = _cfRanges.toSet();
@@ -1829,15 +1838,41 @@ List<String> _getCfIps({int batchSize = 160000}) {
     if (prefix < 8 || prefix > 32) continue;
     final base = (a << 24) | (b << 16) | (c << 8) | d;
     final span = 1 << (32 - prefix);
-    var cursor = _cfRangeCursors[cidr] ?? 0;
+    var cursor = curMap[cidr] ?? 0;
     for (var i = 0; i < perRange; i++) {
       final offset = (cursor + i) % span;
       final v = base + offset;
       out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
     }
-    _cfRangeCursors[cidr] = (cursor + perRange) % span;
+    curMap[cidr] = (cursor + perRange) % span;
   }
   return out;
+}
+
+// فیکس ۳: ساخت رشته‌های IP (صدها هزار تا چند میلیون) از ترد UI به isolate منتقل شد.
+// args: {cfIpsBatch:int, blocks:List<String>, nationalMode:bool,
+//        liveRanges:List<String>, cursors:Map<String,int>}
+// خروجی: {'addrs': List<String>, 'cursors': Map<String,int>} — cursor به‌روزشده باید
+// به ترد اصلی برگردد چون isolate نسخه‌ی کپی را تغییر می‌دهد (بدون آن اسکن هر دور از اول شروع می‌شد).
+Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
+  final int cfIpsBatch = args['cfIpsBatch'] as int;
+  final List<String> blocks = List<String>.from(args['blocks'] as List);
+  final bool nationalMode = args['nationalMode'] as bool;
+  final List<String> liveRanges = List<String>.from(args['liveRanges'] as List);
+  final Map<String, int> cursors = Map<String, int>.from(args['cursors'] as Map);
+  final addrs = <String>[];
+  if (nationalMode) {
+    addrs.addAll(_getCfIps(batchSize: cfIpsBatch, liveRanges: liveRanges, cursors: cursors));
+    for (final r in blocks) {
+      addrs.addAll(natExpandAny(r));
+    }
+  } else {
+    for (final r in blocks) {
+      addrs.addAll(natExpandAny(r));
+    }
+    addrs.addAll(_getCfIps(batchSize: cfIpsBatch, liveRanges: liveRanges, cursors: cursors));
+  }
+  return {'addrs': addrs, 'cursors': cursors};
 }
 
 Future<List<String>> natRangeScanStep({
@@ -1864,18 +1899,23 @@ Future<List<String>> natRangeScanStep({
     ...natIranDnsHosts,
   ];
   final blocks = natRanges.isNotEmpty ? natRanges : natSeedBlocks(hosts);
-  final addrs = <String>[];
-  if (nationalMode) {
-    addrs.addAll(_getCfIps(batchSize: maxAddrs));
-    for (final r in blocks) {
-      addrs.addAll(natExpandAny(r));
-    }
-  } else {
-    for (final r in blocks) {
-      addrs.addAll(natExpandAny(r));
-    }
-    addrs.addAll(_getCfIps());
-  }
+  // فیکس ۳: refresh بازه‌های CDN همان‌طور که قبلاً داخل _getCfIps بود، اینجا (ترد اصلی)
+  // fire-and-forget می‌ماند؛ isolate به شبکه/prefs دسترسی ندارد.
+  unawaited(refreshCdnRanges());
+  final blocksList = blocks; // List<String> موجود
+  final args = <String, dynamic>{
+    // حالت غیرملی قبلاً _getCfIps() با پیش‌فرض ۱۶۰۰۰۰ صدا می‌زد؛ همان حفظ شد
+    'cfIpsBatch': nationalMode ? maxAddrs : 160000,
+    'blocks': blocksList,
+    'nationalMode': nationalMode,
+    'liveRanges': List<String>.of(_liveCdnRanges),
+    'cursors': Map<String, int>.of(_cfRangeCursors),
+  };
+  final gen = await compute(_genAddrsIso, args);
+  final addrs = gen['addrs'] as List<String>;
+  _cfRangeCursors
+    ..clear()
+    ..addAll(Map<String, int>.from(gen['cursors'] as Map));
   if (addrs.isEmpty) return const <String>[];
   final from = nationalMode ? 0 : (natRangeCursor % addrs.length);
   final slice = addrs.skip(from).take(maxAddrs).toList();
@@ -1998,6 +2038,9 @@ List<String> natHotUrls() {
   ];
 }
 
+// فیکس ۱۱: split خط‌ها برای بدنه‌ی بزرگ لیست (top-level تا با compute کار کند)
+List<String> _hotSplitIso(String body) => body.split(RegExp(r'[\r\n]+'));
+
 Future<List<String>> _hotFetchOne(String u) async {
   final out = <String>[];
   try {
@@ -2020,7 +2063,9 @@ Future<List<String>> _hotFetchOne(String u) async {
         return out;
       }
     }
-    for (final l in body.split(RegExp(r'[\r\n]+'))) {
+    // فیکس ۱۱: split روی رشته‌ی چند مگابایتی در isolate انجام می‌شود
+    final lines = await compute(_hotSplitIso, body);
+    for (final l in lines) {
       if (out.length >= natHotPerSource) break;
       final t = l.trim();
       if (!t.contains('://') || t.contains('[email') || t.contains('protected]')) {
@@ -2168,21 +2213,44 @@ bool natHotReady() {
   }
 }
 
+// فیکس ۴: ساخت جدول offset خط‌ها برای فایل‌های بزرگ (> 512KB) در isolate انجام می‌شود
+// تا حلقه‌ی بایت‌به‌بایت روی چند مگابایت ترد UI را نگیرد. منطق offs عیناً همان است.
+Future<List<int>> _hotBuildOffsets(String path) =>
+    compute(_hotOffsetsIso, path);
+
+Future<List<int>> _hotOffsetsIso(String path) async {
+  final offs = <int>[0];
+  var pos = 0;
+  await for (final chunk in File(path).openRead()) {
+    for (var i = 0; i < chunk.length; i++) {
+      if (chunk[i] == 10) offs.add(pos + i + 1);
+    }
+    pos += chunk.length;
+  }
+  if (offs.last != pos) offs.add(pos);
+  return offs;
+}
+
 Future<_HotIdx?> _hotLoad() async {
   final cur = _hot;
   if (cur != null) return cur;
   final f = File(_hotPath());
   try {
     if (!f.existsSync() || f.lengthSync() == 0) return null;
-    final offs = <int>[0];
-    var pos = 0;
-    await for (final chunk in f.openRead()) {
-      for (var i = 0; i < chunk.length; i++) {
-        if (chunk[i] == 10) offs.add(pos + i + 1);
+    List<int> offs;
+    if (f.lengthSync() > 512 * 1024) {
+      offs = await _hotBuildOffsets(f.path);
+    } else {
+      offs = <int>[0];
+      var pos = 0;
+      await for (final chunk in f.openRead()) {
+        for (var i = 0; i < chunk.length; i++) {
+          if (chunk[i] == 10) offs.add(pos + i + 1);
+        }
+        pos += chunk.length;
       }
-      pos += chunk.length;
+      if (offs.last != pos) offs.add(pos);
     }
-    if (offs.last != pos) offs.add(pos);
     _hot = _HotIdx(f.path, offs);
     _hotCursor = 0;
     return _hot;

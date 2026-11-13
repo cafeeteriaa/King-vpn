@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'errjournal.dart';
 import 'dart:io';
 
@@ -21,6 +23,18 @@ class SharedPreferences {
 
   final File _file;
   final Map<String, dynamic> _data;
+
+  // فیکس ۲ (پرفورمنس): نوشتن روی دیسک debounce می‌شود (۲ ثانیه) و کلیدهای حجیم در
+  // فایل‌های جانبی جدا نگه داشته می‌شوند؛ در حافظه همه‌چیز همان یک Map است.
+  bool _dirty = false;
+  Timer? _saveT;
+  static const int _splitMinBytes = 256 * 1024;
+  static const Map<String, List<String>> _sideFiles = {
+    'prefs_cache.json': ['cache', 'list_cache'],
+    'prefs_logs.json': ['dbgLines', 'dbgProbs3'],
+    'prefs_nat.json': ['natvar2'],
+  };
+  final Map<String, String> _lastWritten = <String, String>{};
 
   static Future<SharedPreferences> getInstance() async {
     final cached = _inst;
@@ -57,18 +71,105 @@ class SharedPreferences {
         data = <String, dynamic>{};
       }
     }
+    // فیکس ۲: لود فایل‌های جانبی و merge در همان Map (جانبی‌ها بر کلید قدیمی در فایل اصلی غلبه دارند)
+    bool needSplit = false;
+    try {
+      final dirPath = f.parent.path;
+      for (final e in _sideFiles.entries) {
+        final sf = File('$dirPath/${e.key}');
+        if (!sf.existsSync()) continue;
+        try {
+          final b = sf.readAsBytesSync();
+          if (b.isEmpty) continue;
+          final m = jsonDecode(utf8.decode(b.map((x) => x ^ _xorKey).toList()));
+          if (m is Map) {
+            for (final k in e.value) {
+              if (m.containsKey(k)) data[k] = m[k];
+            }
+          }
+        } catch (jex, jstk) { errJournalAdd(jex, st: jstk); }
+      }
+      // فایل اصلی بزرگ (>= 256KB) و هنوز تقسیم‌نشده: در اولین ذخیره‌ی debounce شده تقسیم می‌شود
+      if (f.existsSync() && f.lengthSync() >= _splitMinBytes) needSplit = true;
+    } catch (jex, jstk) { errJournalAdd(jex, st: jstk); }
     _inst = SharedPreferences._(f, data);
+    if (needSplit) _inst!._save();
     return _inst!;
   }
 
+  // فیکس ۲: همگام و ارزان؛ فقط علامت می‌گذارد و debounce را آماده می‌کند
   void _save() {
+    _dirty = true;
+    _saveSoon();
+  }
+
+  void _saveSoon() {
+    _saveT ??= Timer(const Duration(seconds: 2), () {
+      _saveT = null;
+      if (!_dirty) return;
+      _dirty = false;
+      _writeAll();
+    });
+  }
+
+  // منطق نوشتن (همان بدنه‌ی قبلی callback دیبانس) تا هم تایمر و هم flush() از آن استفاده کنند
+  void _writeAll() {
     try {
-      final jsonString = jsonEncode(_data);
-      final rawBytes = utf8.encode(jsonString);
-      // SECURITY: Encode XOR mask before writing to disk
-      final encryptedBytes = rawBytes.map((b) => b ^ _xorKey).toList();
-      _file.writeAsBytesSync(encryptedBytes);
+      // کلیدها به چهار دسته تقسیم می‌شوند: فایل اصلی + سه فایل جانبی
+      final Map<String, Map<String, dynamic>> parts = {
+        for (final n in _sideFiles.keys) n: <String, dynamic>{},
+      };
+      final Map<String, dynamic> main = <String, dynamic>{};
+      final Map<String, String> owner = {
+        for (final e in _sideFiles.entries)
+          for (final k in e.value) k: e.key,
+      };
+      _data.forEach((k, v) {
+        final o = owner[k];
+        if (o == null) {
+          main[k] = v;
+        } else {
+          parts[o]![k] = v;
+        }
+      });
+      final dirPath = _file.parent.path;
+      final Map<String, Map<String, dynamic>> jobs = {
+        _file.path: main,
+        for (final e in parts.entries) '$dirPath/${e.key}': e.value,
+      };
+      jobs.forEach((path, map) {
+        try {
+          final jsonString = jsonEncode(map);
+          // فایل جانبی بدون تغییر (و خالی) دوباره نوشته نمی‌شود
+          if (_lastWritten[path] == jsonString) return;
+          final rawBytes = utf8.encode(jsonString);
+          // SECURITY: Encode XOR mask before writing to disk
+          final enc = Uint8List(rawBytes.length);
+          for (var i = 0; i < rawBytes.length; i++) {
+            enc[i] = rawBytes[i] ^ _xorKey;
+          }
+          // اتمیک: اول فایل موقت با flush، بعد rename (فایل اصلی هیچ‌وقت نیمه‌نوشته نمی‌ماند)
+          final tmp = File('$path.tmp');
+          tmp.writeAsBytesSync(enc, flush: true);
+          tmp.renameSync(path);
+          _lastWritten[path] = jsonString;
+        } catch (jex, jstk) { errJournalAdd(jex, st: jstk); }
+      });
     } catch (jex, jstk) { errJournalAdd(jex, st: jstk);}
+  }
+
+  // همگام‌سازی فوری روی دیسک (مثلاً هنگام paused/detached) تا ۲ ثانیه‌ی debounce داده از دست ندهد.
+  // همان منطق debounce را (شامل فایل‌های جانبی، XOR و rename اتمیک) صدا می‌زند.
+  Future<void> flush() async {
+    _saveT?.cancel();
+    _saveT = null;
+    if (!_dirty) return;
+    _dirty = false;
+    try {
+      _writeAll();
+    } catch (e) {
+      errJournalAdd(e, kind: 'SILENT-FILE');
+    }
   }
 
   bool containsKey(String key) => _data.containsKey(key);
