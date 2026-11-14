@@ -13383,7 +13383,7 @@ ListTile( // KINGEXTRAS row
             InkWell(
               onTap: (connected && identical(s, current))
                   ? null
-                  : () => pickEngineThenStart(() => connect(s)),
+                  : () => pickEngineThenStart(() => connect(s), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */,
               child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               child: Row(children: [
@@ -13497,7 +13497,7 @@ ListTile( // KINGEXTRAS row
           child: Text(t, style: const TextStyle(fontWeight: FontWeight.bold)),
         );
     Widget rowHeader(String gid, String t) => InkWell(
-          onTap: () => pickEngineThenStart(() => connectRow(gid)),
+          onTap: () => pickEngineThenStart(() => connectRow(gid), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */,
           child: Container(
             width: double.infinity,
             color: Color(0xFF2A2D33),
@@ -13898,14 +13898,14 @@ UiHero(
                 isScrollControlled: true,
                 builder: (_) => SafeArea(
                     child: SingleChildScrollView(child: tgProxyRow(context))))),
-            UiTool(Icons.push_pin_outlined, 'کانفیگ‌های من', () => pickEngineThenStart(() => connectRow('f:mine'))),
+            UiTool(Icons.push_pin_outlined, 'کانفیگ‌های من', () => pickEngineThenStart(() => connectRow('f:mine'), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
             UiTool(Icons.auto_awesome, 'سرورهای AI', () async {
               await pickEngineThenStart(() => connectRow('r:ai'));
             }),
-            UiTool(Icons.pin_outlined, 'اتصال با IP', () => pickEngineThenStart(() => connectRow('r:ip'))),
-            UiTool(Icons.cloud_outlined, 'CDN / کلودفلر', () => pickEngineThenStart(() => connectRow('r:cdn'))),
-            UiTool(Icons.shield_outlined, 'Reality', () => pickEngineThenStart(() => connectRow('r:reality'))),
-            UiTool(Icons.power_outlined, 'WebSocket', () => pickEngineThenStart(() => connectRow('r:ws'))),
+            UiTool(Icons.pin_outlined, 'اتصال با IP', () => pickEngineThenStart(() => connectRow('r:ip'), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
+            UiTool(Icons.cloud_outlined, 'CDN / کلودفلر', () => pickEngineThenStart(() => connectRow('r:cdn'), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
+            UiTool(Icons.shield_outlined, 'Reality', () => pickEngineThenStart(() => connectRow('r:reality'), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
+            UiTool(Icons.power_outlined, 'WebSocket', () => pickEngineThenStart(() => connectRow('r:ws'), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
             UiTool(Icons.favorite_border, 'حمایت از ما', () => donateSheet(context)),
             UiTool(Icons.bug_report_outlined, 'تست کامل خودکار (همه‌ی مسیرها)', () {
               if (isAutoTesting) {
@@ -14032,7 +14032,7 @@ UiHero(
                       ? null
                       : (s.personal
                           ? () => connectPersonalAsk()
-                          : () => pickEngineThenStart(() => connect(s, gid))),
+                          : () => pickEngineThenStart(() => connect(s, gid), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
                   onLongPress: () => _toggleFav(s),
                 ));
               },

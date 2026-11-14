@@ -395,8 +395,12 @@ const UUID_HEX = 'YOUR_UUID_HEX';
 export default {
   async fetch(request) {
     const url = new URL(request.url);
-    if (url.pathname === '/') return new Response('King VPN Auto Server', { status: 200 });
-    if (request.headers.get('Upgrade') !== 'websocket') return new Response('Expected websocket', { status: 426 });
+    // CFWSFIX: اتصال واقعی VPN روی مسیر «/?ed=2048» است، پس اول باید Upgrade به WebSocket را بررسی کنیم.
+    // قبلاً «/» زودتر جواب متنی 200 می‌داد و هیچ‌وقت WebSocket باز نمی‌شد.
+    if (request.headers.get('Upgrade') !== 'websocket') {
+      if (url.pathname === '/') return new Response('King VPN Auto Server', { status: 200 });
+      return new Response('Expected websocket', { status: 426 });
+    }
 
     const pair = new WebSocketPair();
     const client = pair[0];
