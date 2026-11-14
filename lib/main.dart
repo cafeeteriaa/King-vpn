@@ -5865,7 +5865,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           iranGeoip = j['ig'] as bool? ?? iranGeoip;
           npvParse = j['npv'] as bool? ?? npvParse;
           relayServerUrl = j['relay_url'] as String? ?? '';
-          sniSpoofAll = j['sni_all'] as bool? ?? true;
+          sniSpoofAll = true; // SNIALL: همیشه روشن؛ مقدار ذخیره‌شده‌ی قدیمی نادیده گرفته می‌شود
           cleanIpMode = j['cip'] as bool? ?? cleanIpMode;
           fragEnabled = j['frg'] as bool? ?? fragEnabled;
           // Mux برای توربو سرعت بعد از اتصال روشن می‌ماند
@@ -7568,7 +7568,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (d != null) bgOk++;
       // CPUGOV: بین تست‌ها وقفه تا هسته‌ی تست پشت‌سرهم CPU را اشغال نکند
       if (cpuHot >= 1 && mounted) {
-        await Future<void>.delayed(Duration(milliseconds: cpuHot >= 2 ? 1500 : 600));
+        await Future<void>.delayed(Duration(milliseconds: cpuHot >= 2 ? 400 : 150)); // CPUGAP: کوتاه تا ۳ تست واقعاً هم‌زمان بمانند
       }
       _record(s, d);
       realTested++;
@@ -10372,6 +10372,14 @@ ListTile( // KINGEXTRAS row
     }
   }
 
+  // IPNATONLY: قبل از هر اتصال، IP تمیز و جایگزینی IP فقط در نت ملی روشن می‌ماند
+  void _ipNatOnly() {
+    if (!nationalMode) {
+      ipMode = false;
+      cleanIpMode = false;
+    }
+  }
+
   Future<void> connect([Server? only, String? gid]) =>
       _doConnect(only: only, row: gid);
 
@@ -10418,14 +10426,14 @@ ListTile( // KINGEXTRAS row
       turboSpeed = false;
     } else if (pilot) {
       fragEnabled = false;
-      sniSpoofAll = false;
+      sniSpoofAll = true; // SNIALL: جعل SNI برای همه‌ی اتصال‌ها روشن است
       ultraMode = true;
       indestructibleMode = false;
       muxEnabled = true;
       muxConc = 32;
       badPingSwitch = true;
-      cleanIpMode = true;
-      ipMode = true;
+      cleanIpMode = false; // NATONLY: IP تمیز/جایگزینی IP فقط نت ملی
+      ipMode = false;
       secureDns = true;
       autoCycle = true;
       autoUpgrade = true;
@@ -10446,14 +10454,14 @@ ListTile( // KINGEXTRAS row
       turboSpeed = true;
     } else {
       fragEnabled = false;
-      sniSpoofAll = false;
+      sniSpoofAll = true; // SNIALL: جعل SNI برای همه‌ی اتصال‌ها روشن است
       ultraMode = false;
       indestructibleMode = false;
       muxEnabled = true;
       muxConc = 32;
       badPingSwitch = true;
-      cleanIpMode = true;
-      ipMode = true;
+      cleanIpMode = false; // NATONLY: IP تمیز/جایگزینی IP فقط نت ملی
+      ipMode = false;
       secureDns = true;
       autoCycle = true;
       autoUpgrade = true;
@@ -10486,6 +10494,11 @@ ListTile( // KINGEXTRAS row
   }
 
   Future<void> _doConnect({Server? only, String? row}) async {
+    _ipNatOnly(); // IPNATONLY: IP تمیز و جایگزینی IP فقط برای نت ملی است؛ در اتصال عادی و خلبان خاموش می‌ماند
+    if (!nationalMode) {
+      ipMode = false;
+      cleanIpMode = false;
+    }
     // ADFIRST (جدید): اول تبلیغ، بعد اتصال. اگر تبلیغ کامل دیده نشود، اتصالی ساخته نمی‌شود
     if (!await _ensureSession()) {
       _set('تبلیغ کامل دیده نشد؛ اتصال انجام نشد');
@@ -13861,7 +13874,7 @@ UiHero(
           UiTools(items: [
             UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),
             UiTool(Icons.router, 'بازه‌های IP نت ملی', () => _natRangesDialog(context)),
-            UiTool(sniSpoofAll ? Icons.security : Icons.security_outlined, sniSpoofAll ? 'جعل SNI: روشن ✓' : 'جعل SNI: خاموش', () { setState(() => sniSpoofAll = !sniSpoofAll); _saveSettings(); _set(sniSpoofAll ? 'جعل SNI روشن شد: جعل SNI برای کانفیگ‌های CDN+TLS (پیشنهادی برای ایران)' : 'جعل SNI خاموش شد'); }),
+            UiTool(Icons.security, 'جعل SNI: روشن ✓ (همیشه)', () { setState(() => sniSpoofAll = true); _saveSettings(); _set('جعل SNI برای همه‌ی اتصال‌ها روشن است'); }),
             UiTool(Icons.support_agent, 'ارتباط با ادمین', () => _uiOpenAdmin(context)),
             UiTool(Icons.link, 'لینک‌های اشتراک کانفیگ', () => _userListsDialog(context)),
             UiTool(Icons.tune, 'پروفایل‌ها', () => _profilesSheet()),

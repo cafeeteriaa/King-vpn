@@ -103,7 +103,7 @@ List<Widget> iranSettingsItems(
           sub: 'دامنه‌های .ir و چند سایت پرکاربرد بدون VPN باز می‌شوند'),
       sw('قانون IP ایران (geoip، تجربی)', iranGeoip, (v) => iranGeoip = v,
           sub: 'اگر با روشن کردنش اتصال برقرار نشد، خاموشش کن'),
-      sw('جعل SNI', sniSpoofAll, (v) => sniSpoofAll = v,
+      sw('جعل SNI (همیشه روشن)', true, (v) {}, // SNIALL
           sub: 'فقط روی کانفیگ‌های CDN+TLS؛ برای سرورهای مستقیم بی‌اثر است'),
     ];
 
