@@ -581,6 +581,33 @@ class _CloudflareAutoDeployPageState extends State<CloudflareAutoDeployPage> {
   static const _card = Color(0xFF1A1A22);
 
   final _tokenCtrl = TextEditingController();
+  // CFTOKSAVE: توکن در حافظه‌ی رمزشده ذخیره می‌شود تا دفعه‌ی بعد لازم نباشد دوباره الصاق شود
+  static const _cfTokenKey = 'cf_api_token';
+  static const _cfSec = FlutterSecureStorage(
+      aOptions: AndroidOptions(encryptedSharedPreferences: true));
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedToken();
+  }
+
+  Future<void> _loadSavedToken() async {
+    try {
+      final t = await _cfSec.read(key: _cfTokenKey)
+          .timeout(const Duration(seconds: 3));
+      if (!mounted || t == null || t.isEmpty) return;
+      if (_tokenCtrl.text.isEmpty) _tokenCtrl.text = t;
+    } catch (_) {}
+  }
+
+  Future<void> _saveToken(String t) async {
+    try {
+      await _cfSec.write(key: _cfTokenKey, value: t)
+          .timeout(const Duration(seconds: 3));
+    } catch (_) {}
+  }
+
   bool _deploying = false;
   bool _saved = false;
   String? _link;
@@ -598,6 +625,7 @@ class _CloudflareAutoDeployPageState extends State<CloudflareAutoDeployPage> {
       setState(() => _error = 'اول API Token را وارد کن.');
       return;
     }
+    await _saveToken(token); // CFTOKSAVE: حتی اگر ساخت ناموفق بود، توکن نگه داشته می‌شود
     setState(() {
       _deploying = true;
       _error = null;
