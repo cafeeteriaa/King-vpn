@@ -99,7 +99,7 @@ List<Widget> iranSettingsItems(
 ) =>
     [
       head('🇮🇷 مسیریابی هوشمند ایران'),
-      sw('سایت‌های ایرانی مستقیم بروند', iranRoute, (v) => iranRoute = v,
+      sw('سایت‌های ایرانی مستقیم بروند', iranRoute, (v) { _markUserTouched(const ['iranRoute']); iranRoute = v; },
           sub: 'دامنه‌های .ir و چند سایت پرکاربرد بدون VPN باز می‌شوند'),
       sw('قانون IP ایران (geoip، تجربی)', iranGeoip, (v) => iranGeoip = v,
           sub: 'اگر با روشن کردنش اتصال برقرار نشد، خاموشش کن'),
@@ -197,7 +197,7 @@ bool get _selectedAiKeyAvailable {
 }
 
 Future<void> loadGeminiPrefs(SharedPreferences p) async {
-  // 1) ابتدا از prefs (رفتار قبلی — برای سازگاری)
+  // 1) prefs read (migration from old builds)
   geminiKey = p.getString('gem_key') ?? '';
   geminiModel = p.getString('gem_model') ?? geminiModel;
   grokKey = p.getString('grok_key') ?? '';
@@ -210,7 +210,7 @@ Future<void> loadGeminiPrefs(SharedPreferences p) async {
   deepseekModel = p.getString('deepseek_model') ?? deepseekModel;
   aiProvider = p.getString('ai_prov') ?? aiProvider;
 
-  // 2) secure storage override (اگر موجود و غیرخالی بود)
+  // 2) secure override
   final sec = await _secReadMany(const [
     'gem_key', 'grok_key', 'claude_key', 'openai_key', 'deepseek_key', 'ai_prov',
   ]);
@@ -221,41 +221,64 @@ Future<void> loadGeminiPrefs(SharedPreferences p) async {
   deepseekKey = _nz(sec['deepseek_key']) ?? deepseekKey;
   aiProvider = _nz(sec['ai_prov']) ?? aiProvider;
 
-  // 3) مهاجرت به secure (کلیدهای غیرخالی موجود در prefs)
+  // 3) migrate prefs -> secure only where secure is still empty
   await _secApply({
-    if (geminiKey.isNotEmpty) 'gem_key': geminiKey,
-    if (grokKey.isNotEmpty) 'grok_key': grokKey,
-    if (claudeKey.isNotEmpty) 'claude_key': claudeKey,
-    if (openaiKey.isNotEmpty) 'openai_key': openaiKey,
-    if (deepseekKey.isNotEmpty) 'deepseek_key': deepseekKey,
-    if (aiProvider.isNotEmpty) 'ai_prov': aiProvider,
+    if (geminiKey.isNotEmpty && sec['gem_key'] == null) 'gem_key': geminiKey,
+    if (grokKey.isNotEmpty && sec['grok_key'] == null) 'grok_key': grokKey,
+    if (claudeKey.isNotEmpty && sec['claude_key'] == null) 'claude_key': claudeKey,
+    if (openaiKey.isNotEmpty && sec['openai_key'] == null) 'openai_key': openaiKey,
+    if (deepseekKey.isNotEmpty && sec['deepseek_key'] == null) 'deepseek_key': deepseekKey,
+    if (aiProvider.isNotEmpty && sec['ai_prov'] == null) 'ai_prov': aiProvider,
   });
+
+  // 4) purge legacy prefs copies ONLY where secure now holds a value
+  final verify = await _secReadMany(const [
+    'gem_key', 'grok_key', 'claude_key', 'openai_key', 'deepseek_key', 'ai_prov',
+  ]);
+  for (final k in const [
+    'gem_key', 'grok_key', 'claude_key', 'openai_key', 'deepseek_key', 'ai_prov',
+  ]) {
+    if (verify[k] != null) {
+      try { await p.remove(k); } catch (_) {}
+    }
+  }
 }
 
 Future<void> saveGeminiPrefs() async {
   try {
     final p = await SharedPreferences.getInstance();
-    // prefs (fallback)
-    await p.setString('gem_key', geminiKey);
+    // D1-FIX: models are non-sensitive and stay in prefs
     await p.setString('gem_model', geminiModel);
-    await p.setString('grok_key', grokKey);
     await p.setString('grok_model', grokModel);
-    await p.setString('claude_key', claudeKey);
     await p.setString('claude_model', claudeModel);
-    await p.setString('openai_key', openaiKey);
     await p.setString('openai_model', openaiModel);
-    await p.setString('deepseek_key', deepseekKey);
     await p.setString('deepseek_model', deepseekModel);
-    await p.setString('ai_prov', aiProvider);
-    // secure (primary)
-    await _secApply({
+
+    final keys = <String, String>{
       'gem_key': geminiKey,
       'grok_key': grokKey,
       'claude_key': claudeKey,
       'openai_key': openaiKey,
       'deepseek_key': deepseekKey,
       'ai_prov': aiProvider,
-    });
+    };
+    // secure FIRST (_secApply swallows errors, so verify below)
+    await _secApply(keys);
+
+    // verify read-back before touching legacy prefs
+    bool allVerified = true;
+    for (final e in keys.entries) {
+      try {
+        final read = await _secure.read(key: e.key)
+            .timeout(const Duration(seconds: 3));
+        if ((read ?? '') != e.value) { allVerified = false; break; }
+      } catch (_) { allVerified = false; break; }
+    }
+    if (allVerified) {
+      for (final k in keys.keys) {
+        try { await p.remove(k); } catch (_) {}
+      }
+    }
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -792,11 +815,6 @@ List<String> _mirrorsOf(String u) {
     'https://raw.gitmirror.com/${p[0]}/${p[1]}/${rest.first}/$path',
     for (final h in _mirrorProxies) '$h$u',
   ];
-}
-
-String? _mirrorOf(String u) {
-  final l = _mirrorsOf(u);
-  return l.isEmpty ? null : l.first;
 }
 
 int _mirrorBest = 0; // index of the mirror host that worked last
@@ -1462,6 +1480,16 @@ extension HomeExtras on _HomePageState {
     indestructibleMode = true; // ABADIAT: هر دو حالت ابدی هستند؛ با لیست صفر جستجو تموم نمی‌شه
     offlineOnly = off;
     userOfflineChoice = off;
+    if (offlineOnly) { // OFFLINE-DERIVED
+      autoCycle = false;
+      autoUpgrade = false;
+    } else {
+      autoCycle = true;
+      autoUpgrade = !nationalMode;
+    }
+    if (!net && _pilotSnap != null && !localPilotOn && !aiSession && !isAutoTesting) { // MODESNAP
+      _restorePilotSnap();
+    }
     await ultimateSave();
   }
 
@@ -1548,8 +1576,18 @@ extension HomeExtras on _HomePageState {
       }
       return false; // اتصال آفلاین بعد از ساخته شدن پوشه
     }
+    _markUserTouched(const ['offlineOnly']);
     offlineOnly = mode == 'offline';
     userOfflineChoice = offlineOnly;
+    if (offlineOnly) { // OFFLINE-DERIVED
+      autoCycle = false;
+      autoUpgrade = false;
+    } else {
+      autoCycle = true;
+      autoUpgrade = !nationalMode;
+    }
+    // MODESNAP: restore snapshot در _applyNetPick انجام می‌شود (وقتی nationalMode عوض شود).
+    // این تابع فقط offlineOnly را تغییر می‌دهد و snapshot را دست نمی‌زند.
     await ultimateSave();
     return true;
   }
@@ -1566,9 +1604,10 @@ extension HomeExtras on _HomePageState {
     if (localPilotOn) stopLocalPilot();
     if (aiSession) stopGrokPilot();
     // ثبت تنظیمات کاربر قبل از هر تغییر خلبان؛ در stop دقیقاً همین‌ها برمی‌گردند
-    _pilotSnap ??= _takePilotSnap();
+    _pilotSnap ??= _beginPilotSnap();
     _pilotForcedUltra = false;
     _pilotForcedIndestructible = false;
+    _applyModePreset(false, false, true); // PILOTDEF: تنظیمات پایه‌ی خلبان
     // ارائه‌دهنده‌ای که کاربر انتخاب کرده حفظ می‌شود؛ Auto خودش fallback می‌کند.
     aiSession = true;
     wantVpn = true;
@@ -1744,9 +1783,6 @@ extension HomeExtras on _HomePageState {
       muxConc = max(muxConc, 24);
       _applyTurboLevers();
       _saveSettings();
-      if (connected && current != null && !busy) {
-        unawaited(_turboAfterConnect(current!));
-      }
     }
   }
 
@@ -1754,7 +1790,7 @@ extension HomeExtras on _HomePageState {
     final m = aiSuggest.value;
     if (m.isEmpty) return;
     if (aiSession || localPilotOn) {
-      _pilotSnap ??= _takePilotSnap(); // PILOTREV
+      _pilotSnap ??= _beginPilotSnap(); // PILOTREV
     }
     // PILOTRATE: هر ۵ دقیقه حداکثر یک بار تنظیمات را عوض کند (جلوگیری از نوسان و تغییر مداوم)
     final nowA = DateTime.now();
@@ -1766,8 +1802,8 @@ extension HomeExtras on _HomePageState {
     int g(String k, int d, int lo, int hi) =>
         (m.containsKey(k) ? m[k]!.clamp(lo, hi).toInt() : d);
     // PILOTCLAMP: سقف‌های محافظ برای جلوگیری از اشباع CPU/RAM و مصرف بی‌رویه دیتا.
-    fastWorkers = g('fastWorkers', fastWorkers, 1, 1000);
-    bgWorkers = g('bgWorkers', bgWorkers, 1, 3);
+    fastWorkers = g('fastWorkers', fastWorkers, 1, 32);
+    bgWorkers = g('bgWorkers', bgWorkers, 1, 32);
     delayTimeout =
         Duration(seconds: g('timeout', delayTimeout.inSeconds, 3, 45));
     batchSize = g('batch', batchSize, 1, 300);
@@ -2414,7 +2450,7 @@ extension HomeExtras on _HomePageState {
     _localLastAction = d.action;
 
     if (d.settings.containsKey('fastWorkers')) {
-      fastWorkers = d.settings['fastWorkers']!.clamp(1, 1000);
+      fastWorkers = d.settings['fastWorkers']!.clamp(1, 32);
     }
     if (d.settings.containsKey('timeout')) {
       delayTimeout = Duration(seconds: d.settings['timeout']!.clamp(2, 30));
@@ -2485,7 +2521,7 @@ extension HomeExtras on _HomePageState {
         // فقط فلگ — بدون ریستارت تونل
         turboSpeed = true;
         muxEnabled = true;
-        muxConc = max(muxConc, 16);
+        muxConc = max(muxConc, 32);
         _saveSettings();
         break;
       default:
@@ -2678,7 +2714,7 @@ extension HomeExtras on _HomePageState {
 
   /// اعمال پروفایل از روی قدرت (۰…∞) — همه عددها فرمولی، بدون سقف قدرت
   void _localApplyMaxPowerProfile({int? power}) {
-    _pilotSnap ??= _takePilotSnap(); // PILOTREV
+    _pilotSnap ??= _beginPilotSnap(); // PILOTREV
     // PILOTCAP: در حالت عادی قدرت تا ۱۰ است؛ در نت ملی سقف قدرت بالاتر است
     // (سقف workers/batch جداگانه و ثابت است و هسته را حفاظت می‌کند)
     // POWERCAP: عادی = ۱۲؛ نت ملی = بی‌نهایت
@@ -2696,22 +2732,29 @@ extension HomeExtras on _HomePageState {
     savedFirst = true;
     if (userOfflineChoice != true) offlineOnly = false;
     minSpeedKB = 0;
+    // NORMALPARITY: مثل اتصال عادی، ۳ تست هم‌زمان (نه مقدار تصادفی از قبل)
+    fastWorkers = 3; // خلبان ۳تا۳تا (fwUserSet دست‌نخورده؛ با snapshot برمی‌گردد)
+    bgWorkers = 3;
 
     // فرمول‌های پیوسته نسبت به قدرت (هرچه بالاتر = تهاجمی‌تر)
     // workers: 35 → رشد آرام تا سقف عملی سخت‌افزار
     // سقف ۶۰ هم‌زمان (هم‌اندازه‌ی گیت تست هسته)
-    // تست همزمان (جستجوی اول / وقتی وصل است) دیگر توسط خلبان بازنویسی نمی‌شود؛
-    // مقدار خود کاربر (۱ تا ۳) اعمال می‌شود
+    // NORMALPARITY: خلبان باید مثل اتصال عادی رفتار کنه (طبق درخواست کاربر).
+    // پس fastWorkers=3 و bgWorkers=3 رو ست می‌کنیم. بعد از توقف خلبان،
+    // _restorePilotSnap مقدار اصلی کاربر رو برمی‌گردونه. پس این override
+    // موقتی است و به تنظیمات کاربر آسیب نمی‌زنه.
     // timeout ثانیه: 9 + قدرت p
     delayTimeout =
         Duration(seconds: (9 + p * 0.7).clamp(8, 45).round());
     tcpTimeout = Duration(
         milliseconds: (3500 + p * 250).clamp(3000, 15000).round());
     batchSize = (180 + p * 10).clamp(100, 300).toInt();
-    badPingMs = (2500 + p * 80).clamp(2000, 8000).toInt();
+    // NORMALPARITY: پایه‌ی پینگ بد مثل حالت عادی (سخت‌گیرتر با sniSpoofAll)
+    final basePing = sniSpoofAll ? 5000 : 3000;
+    badPingMs = max(basePing, (2500 + p * 80).clamp(2000, 8000).toInt());
     watchFailLimit = (3 + (p / 4).floor()).clamp(2, 12).toInt();
     speedTopN = (2 + (p / 5).floor()).clamp(1, 10).toInt();
-    muxConc = (16 + p * 2).clamp(8, 32).toInt();
+    muxConc = (8 + p * 2).clamp(8, 32).toInt();
 
     // سوییچ‌های وابسته به قدرت / مکان / نوع جستجو
     if (p >= 2) ultraMode = true;
@@ -2843,85 +2886,11 @@ extension HomeExtras on _HomePageState {
     }());
   }
 
-  // PATHPRESET: تنظیمات پیشنهادی هر مسیر اتصال. نت ملی و خلبان خودشان تنظیم
-  // می‌کنند و اینجا دست نمی‌خورند. هر اتصال عادی، برای مسیرش این پیشفرض‌ها را
-  // می‌گذارد: دکمه‌ی ردیف (IP/CDN/Reality/WS)، بعد پروتکل تکی، بعد کشور، و در
-  // آخر حالت عادی.
-  void _applyPathPreset(String? row) {
-    if (nationalMode || localPilotOn || aiSession) return;
-    final String key;
-    if (row != null && row.startsWith('r:')) {
-      key = row;
-    } else if (protoSel.length == 1) {
-      key = 'proto:${protoSel.first}';
-    } else if (selCountry != null) {
-      key = 'country';
-    } else {
-      key = 'normal';
-    }
-    var workers = 12; // WORKERS12: همه مسیرهای غیر ملی ۱۲ (نت ملی جدا)
-    var bg = 3;
-    var batch = 200;
-    var speedN = 5; // SPEED5: ۵ سرور با کمترین پینگ سرعت‌سنجی شوند. تست سرعت ۴ سرور برتر (نت ملی و خلبان خودشان تعیین می‌کنند)
-    var tcpMs = 3500;
-    var pingMs = 3500; // NORMALPING: پینگ «کند» واقع‌بینانه‌تر برای سرورهای دور
-    var delaySec = 6;
-    switch (key) {
-      case 'proto:vmess':
-        workers = 12; delaySec = 8; tcpMs = 4500; pingMs = 4000;
-        break;
-      case 'proto:vless':
-        delaySec = 6; tcpMs = 3500;
-        break;
-      case 'proto:trojan':
-        workers = 12; delaySec = 7; tcpMs = 4000; pingMs = 4000;
-        break;
-      case 'proto:ss':
-        workers = 12; delaySec = 7; tcpMs = 4000; pingMs = 4000;
-        break;
-      case 'country':
-        bg = 3; batch = 300; speedN = 5;
-        break;
-      case 'r:ip':
-        tcpMs = 4000; pingMs = 4000;
-        break;
-      case 'r:cdn':
-        workers = 12; delaySec = 9; tcpMs = 5000; pingMs = 4500;
-        break;
-      case 'r:reality':
-        workers = 12; delaySec = 7; tcpMs = 4000;
-        break;
-      case 'r:ws':
-        workers = 12; delaySec = 8; tcpMs = 4500; pingMs = 4000;
-        break;
-      default:
-        break;
-    }
-    fastWorkers = fwUserSet ? fwUserValue : 5; // FWUSER: پیش‌فرض ۵، عدد دستی کاربر حفظ می‌شود
-    badPingMs = pingMs;
-    badPingLimit = 3;
-    watchFailLimit = 3;
-    bgWorkers = bg;
-    batchSize = batch;
-    speedTopN = speedN;
-    tcpTimeout = Duration(milliseconds: tcpMs);
-    delayTimeout = Duration(seconds: delaySec);
-    // Mux با VLESS/Reality (xtls-vision) و Shadowsocks سازگار نیست
-    if (key == 'proto:vless' || key == 'r:reality' || key == 'proto:ss') {
-      muxEnabled = false;
-    }
-    fragEnabled = false;
-    savedFirst = true;
-    autoCycle = true;
-    fastWorkers = 3;
-    fwUserSet = false;
-    dbg('PATHPRESET: $key');
-    _saveSettings();
-  }
-
   // PILOTREV: خلبان (محلی و Grok) تنظیمات را موقتاً عوض می‌کند. قبل از اولین تغییر
   // مقدارهای کاربر ذخیره می‌شود و با توقف خلبان یا با اتصال عادی بعدی برمی‌گردد.
   Map<String, Object?> _takePilotSnap() => {
+        'fwUserSet': fwUserSet,
+        'fwUserValue': fwUserValue,
         'fastWorkers': fastWorkers,
         'bgWorkers': bgWorkers,
         'delayTimeout': delayTimeout,
@@ -2949,43 +2918,55 @@ extension HomeExtras on _HomePageState {
         'autoUpgrade': autoUpgrade,
         'fastDelay': fastDelay,
         'badPingSwitch': badPingSwitch,
+        'cleanIpMode': cleanIpMode,
+        'smartOrder': smartOrder,
         'protoSel': List<String>.from(protoSel),
         'numValues': <String, int>{for (final o in numOpts) o.id: o.get()},
       };
+
+  // USERTOUCH: شروع خلبان؛ فقط وقتی snapshot تازه ساخته می‌شود مجموعه پاک می‌شود
+  Map<String, Object?> _beginPilotSnap() {
+    _pilotUserTouched.clear();
+    return _takePilotSnap();
+  }
 
   void _restorePilotSnap() {
     final s = _pilotSnap;
     if (s == null || localPilotOn || aiSession) return;
     _pilotSnap = null;
-    fastWorkers = s['fastWorkers'] as int;
-    bgWorkers = s['bgWorkers'] as int;
-    delayTimeout = s['delayTimeout'] as Duration;
-    tcpTimeout = s['tcpTimeout'] as Duration;
-    batchSize = s['batchSize'] as int;
-    badPingMs = s['badPingMs'] as int;
-    watchFailLimit = s['watchFailLimit'] as int;
-    speedTopN = s['speedTopN'] as int;
-    muxConc = s['muxConc'] as int;
-    ultraMode = s['ultraMode'] as bool;
-    indestructibleMode = s['indestructibleMode'] as bool;
-    fragEnabled = s['fragEnabled'] as bool;
-    proxyMode = s['proxyMode'] as bool;
-    turboSpeed = s['turboSpeed'] as bool;
-    muxEnabled = s['muxEnabled'] as bool;
-    autoSpeed = s['autoSpeed'] as bool;
-    autoCycle = s['autoCycle'] as bool;
-    savedFirst = s['savedFirst'] as bool;
-    offlineOnly = s['offlineOnly'] as bool;
-    minSpeedKB = s['minSpeedKB'] as int;
-    firstBatchSize = s['firstBatchSize'] as int? ?? firstBatchSize;
-    maxBatches = s['maxBatches'] as int? ?? maxBatches;
-    ipMode = s['ipMode'] as bool? ?? ipMode;
-    iranRoute = s['iranRoute'] as bool? ?? iranRoute;
-    autoUpgrade = s['autoUpgrade'] as bool? ?? autoUpgrade;
-    fastDelay = s['fastDelay'] as bool? ?? fastDelay;
-    badPingSwitch = s['badPingSwitch'] as bool? ?? badPingSwitch;
+    if (!_pilotUserTouched.contains('fwUserSet')) fwUserSet = s['fwUserSet'] as bool? ?? fwUserSet;
+    if (!_pilotUserTouched.contains('fwUserValue')) fwUserValue = s['fwUserValue'] as int? ?? fwUserValue;
+    if (!_pilotUserTouched.contains('fastWorkers')) fastWorkers = s['fastWorkers'] as int;
+    if (!_pilotUserTouched.contains('bgWorkers')) bgWorkers = s['bgWorkers'] as int;
+    if (!_pilotUserTouched.contains('delayTimeout')) delayTimeout = s['delayTimeout'] as Duration;
+    if (!_pilotUserTouched.contains('tcpTimeout')) tcpTimeout = s['tcpTimeout'] as Duration;
+    if (!_pilotUserTouched.contains('batchSize')) batchSize = s['batchSize'] as int;
+    if (!_pilotUserTouched.contains('badPingMs')) badPingMs = s['badPingMs'] as int;
+    if (!_pilotUserTouched.contains('watchFailLimit')) watchFailLimit = s['watchFailLimit'] as int;
+    if (!_pilotUserTouched.contains('speedTopN')) speedTopN = s['speedTopN'] as int;
+    if (!_pilotUserTouched.contains('muxConc')) muxConc = s['muxConc'] as int;
+    if (!_pilotUserTouched.contains('ultraMode')) ultraMode = s['ultraMode'] as bool;
+    if (!_pilotUserTouched.contains('indestructibleMode')) indestructibleMode = s['indestructibleMode'] as bool;
+    if (!_pilotUserTouched.contains('fragEnabled')) fragEnabled = s['fragEnabled'] as bool;
+    if (!_pilotUserTouched.contains('proxyMode')) proxyMode = s['proxyMode'] as bool;
+    if (!_pilotUserTouched.contains('turboSpeed')) turboSpeed = s['turboSpeed'] as bool;
+    if (!_pilotUserTouched.contains('muxEnabled')) muxEnabled = s['muxEnabled'] as bool;
+    if (!_pilotUserTouched.contains('autoSpeed')) autoSpeed = s['autoSpeed'] as bool;
+    if (!_pilotUserTouched.contains('autoCycle')) autoCycle = s['autoCycle'] as bool;
+    if (!_pilotUserTouched.contains('savedFirst')) savedFirst = s['savedFirst'] as bool;
+    if (!_pilotUserTouched.contains('offlineOnly')) offlineOnly = s['offlineOnly'] as bool;
+    if (!_pilotUserTouched.contains('minSpeedKB')) minSpeedKB = s['minSpeedKB'] as int;
+    if (!_pilotUserTouched.contains('firstBatchSize')) firstBatchSize = s['firstBatchSize'] as int? ?? firstBatchSize;
+    if (!_pilotUserTouched.contains('maxBatches')) maxBatches = s['maxBatches'] as int? ?? maxBatches;
+    if (!_pilotUserTouched.contains('ipMode')) ipMode = s['ipMode'] as bool? ?? ipMode;
+    if (!_pilotUserTouched.contains('iranRoute')) iranRoute = s['iranRoute'] as bool? ?? iranRoute;
+    if (!_pilotUserTouched.contains('autoUpgrade')) autoUpgrade = s['autoUpgrade'] as bool? ?? autoUpgrade;
+    if (!_pilotUserTouched.contains('fastDelay')) fastDelay = s['fastDelay'] as bool? ?? fastDelay;
+    if (!_pilotUserTouched.contains('badPingSwitch')) badPingSwitch = s['badPingSwitch'] as bool? ?? badPingSwitch;
+    if (!_pilotUserTouched.contains('cleanIpMode')) cleanIpMode = s['cleanIpMode'] as bool? ?? cleanIpMode;
+    if (!_pilotUserTouched.contains('smartOrder')) smartOrder = s['smartOrder'] as bool? ?? smartOrder;
     final savedProto = s['protoSel'];
-    if (savedProto is List) {
+    if (savedProto is List && !_pilotUserTouched.contains('protoSel')) {
       protoSel
         ..clear()
         ..addAll(savedProto.whereType<String>());
@@ -2994,10 +2975,13 @@ extension HomeExtras on _HomePageState {
     if (savedNums is Map) {
       for (final o in numOpts) {
         final value = savedNums[o.id];
-        if (value is int) o.set(value.clamp(o.lo, o.hi).toInt());
+        if (value is int && !_pilotUserTouched.contains(_numVarName(o.id))) {
+          o.set(value.clamp(o.lo, o.hi).toInt());
+        }
       }
       saveNumPrefs();
     }
+    _pilotUserTouched.clear(); // USERTOUCH
     _localPower = 1;
     unawaited(_saveSettings());
   }
@@ -3041,10 +3025,10 @@ class NumOpt {
 
 final List<NumOpt> numOpts = [
   // BEST PROFILE defaults — هم‌تراز با پیش‌فرض main.dart
-  NumOpt('fastWorkers', 'تست همزمان (جستجوی اول)', 1, 1000, 3, 1000, false,
-      () => fastWorkers.clamp(1, 1000), (v) => fastWorkers = v.clamp(1, 1000)),
-  NumOpt('bgWorkers', 'تست همزمان (وقتی وصل است)', 1, 3, 3, 3, false,
-      () => bgWorkers.clamp(1, 3), (v) => bgWorkers = v.clamp(1, 3)),
+  NumOpt('fastWorkers', 'تست همزمان (جستجوی اول)', 1, 32, 3, 32, false,
+      () => fastWorkers.clamp(1, 32), (v) => fastWorkers = v.clamp(1, 32)),
+  NumOpt('bgWorkers', 'تست همزمان (وقتی وصل است)', 1, 32, 3, 32, false,
+      () => bgWorkers.clamp(1, 32), (v) => bgWorkers = v.clamp(1, 32)),
   NumOpt('timeout', 'تایم‌اوت هر تست (ثانیه)', 3, 45, 8, 45, false,
       () => delayTimeout.inSeconds, (v) => delayTimeout = Duration(seconds: v)),
   NumOpt('batch', 'اندازه دسته', 1, 300, 120, 300, false,
@@ -3055,7 +3039,7 @@ final List<NumOpt> numOpts = [
       () => speedTopN, (v) => speedTopN = v),
   NumOpt('badPingMs', 'پینگ بد از', 70, 7000, 3000, 7000, false,
       () => badPingMs, (v) => badPingMs = v),
-  NumOpt('minSpeedKB', 'تعویض اگر سرعت کمتر از', 0, 1000, 80, 1000, false,
+  NumOpt('minSpeedKB', 'تعویض اگر سرعت کمتر از', 0, 1000, 0, 1000, false,
       () => minSpeedKB, (v) => minSpeedKB = v),
   NumOpt('listRefreshMin', 'هر چند دقیقه لیست جدید', 1, 1440, 180, 1440, false,
       () => listRefreshMin, (v) => listRefreshMin = v),
@@ -3142,7 +3126,7 @@ Future<void> _loadNumPrefs0(SharedPreferences p) async {
     }
     final fu = j['fwUser']; // FWUSER
     if (fu is num && fu.toInt() >= 1) {
-      fwUserValue = fu.toInt().clamp(1, 1000).toInt();
+      fwUserValue = fu.toInt().clamp(1, 32).toInt();
       fwUserSet = true;
       fastWorkers = fwUserValue;
     }
@@ -3155,6 +3139,17 @@ Future<void> saveNumPrefs() async {
   try {
     final p = await SharedPreferences.getInstance();
     final mp = <String, int>{for (final o in numOpts) o.id: o.get()};
+    // NUMPREF: همه‌ی کلیدهای numOpts پوشش داده می‌شوند؛ اگر snapshot فعال
+    // است، مقدار snapshot بر مقدار زنده اولویت دارد.
+    final sv = _pilotSnap?['numValues'];
+    if (sv is Map) {
+      for (final o in numOpts) {
+        final v = sv[o.id];
+        if (v is int && !_pilotUserTouched.contains(_numVarName(o.id))) {
+          mp[o.id] = v;
+        }
+      }
+    }
     mp['fwUser'] = fwUserSet ? fwUserValue : 0; // FWUSER
     await p.setString('numx', jsonEncode(mp));
   } catch (e, stk) {
@@ -3178,11 +3173,20 @@ List<Widget> numSettingsItems(
             o.lo.toDouble(),
             o.hi.toDouble(),
             0,
-            (x) => o.set(x.round())),
+            (x) {
+              _markUserTouched([_numVarName(o.id)]);
+              o.set(x.round());
+            }),
     ];
 
 extension NumHomeExtras on _HomePageState {
   void resetNumbers() {
+    if (localPilotOn) stopLocalPilot(); // RESETSNAP
+    if (aiSession) stopGrokPilot(); // RESETSNAP
+    _pilotSnap = null; // RESETSNAP
+    _pilotUserTouched.clear(); // RESETSNAP
+    _markUserTouched(_allTouchKeys());
+    _applyModePreset(false, false, false); // BESTDEF
     for (final o in numOpts) {
       o.set(o.def);
     }
@@ -3199,7 +3203,7 @@ extension NumHomeExtras on _HomePageState {
     secureDns = true;
     dnsProv = 'auto';
     muxEnabled = true;
-    if (muxConc < 16) muxConc = 16;
+    muxConc = 32;
     fragEnabled = false;
     cleanIpMode = true;
     npvParse = true;
@@ -3212,6 +3216,12 @@ extension NumHomeExtras on _HomePageState {
 
   // برگرداندن کامل: همه‌ی عددها + همه‌ی کلیدهای روشن/خاموش به مقدار اولیه‌ی برنامه
   void resetAllToDefaults() {
+    if (localPilotOn) stopLocalPilot(); // RESETSNAP
+    if (aiSession) stopGrokPilot(); // RESETSNAP
+    _pilotSnap = null; // RESETSNAP
+    _pilotUserTouched.clear(); // RESETSNAP
+    _markUserTouched(_allTouchKeys());
+    _applyModePreset(false, false, false); // BESTDEF
 
     SharedPreferences.getInstance().then((p) async {
       for (final k in const [
@@ -3227,7 +3237,7 @@ extension NumHomeExtras on _HomePageState {
     });
     natRound = 1;
     sniSpoofAll = true;
-    muxConc = 128;
+    muxConc = 32;
     resetNumbers();
     fwUserSet = false; // FWUSER: برگشت به پیش‌فرض ۳
     fwUserValue = 3;
@@ -3316,7 +3326,7 @@ const Map<String, dynamic> _tunedSettings = {
   'bw2': 3, // bgWorkers
   'st': 5, // speedTopN
   'bp': 3000, // badPingMs
-  'ms': 80, // minSpeedKB
+  'ms': 0, // minSpeedKB
   'lr': 180, // listRefreshMin
   'fm': 90, // failMin
   'rm': 20, // recheckMin
@@ -3353,7 +3363,7 @@ const Map<String, int> _tunedNums = {
   'batch': 120,
   'speedTopN': 5,
   'badPingMs': 3000,
-  'minSpeedKB': 80,
+  'minSpeedKB': 0,
   'listRefreshMin': 180,
   'failMin': 90,
   'recheckMin': 20,
@@ -3378,7 +3388,7 @@ const Map<String, dynamic> _tunedSettings2 = {
   'bw2': 3,
   'st': 5,
   'bp': 3000,
-  'ms': 80,
+  'ms': 0,
   'lr': 180,
   'fm': 90,
   'rm': 20,
@@ -3403,7 +3413,7 @@ const Map<String, int> _tunedNums2 = {
   'batch': 120,
   'speedTopN': 5,
   'badPingMs': 3000,
-  'minSpeedKB': 80,
+  'minSpeedKB': 0,
   'listRefreshMin': 180,
   'failMin': 90,
   'recheckMin': 20,
@@ -3425,7 +3435,7 @@ const Map<String, dynamic> _tunedSettings3 = {
   'bw2': 3,
   'st': 5,
   'bp': 3000,
-  'ms': 80,
+  'ms': 0,
   'lr': 180,
   'fm': 90,
   'rm': 20,
@@ -3450,7 +3460,7 @@ const Map<String, int> _tunedNums3 = {
   'batch': 120,
   'speedTopN': 5,
   'badPingMs': 3000,
-  'minSpeedKB': 80,
+  'minSpeedKB': 0,
   'listRefreshMin': 180,
   'failMin': 90,
   'recheckMin': 20,
@@ -3561,7 +3571,7 @@ Future<String?> tunedSettings(SharedPreferences p) async {
           m['st'] = 5;
           m['bw2'] = 3;
           m['bp'] = 3000;
-          m['ms'] = 80;
+          m['ms'] = 0;
           m['a2'] = true;
           m['ac'] = true;
           m['tb'] = true;
@@ -3601,11 +3611,12 @@ int _localGoodTog = 0; // TOGGLES: connected ticks in a row
 bool localPilotOn = false;
 
 // FWUSER: مقدار دستی کاربر برای «تست همزمان (جستجوی اول)». پیش‌فرض ۳؛
-// اگر کاربر خودش عدد گذاشته باشد، هر اتصال عادی همان عدد (تا ۱۰۰۰) را نگه می‌دارد.
+// اگر کاربر خودش عدد گذاشته باشد، هر اتصال عادی همان عدد (تا ۳۲) را نگه می‌دارد.
 int fwUserValue = 3;
 bool fwUserSet = false;
 void setUserFastWorkers(int v) {
-  fwUserValue = v.clamp(1, 1000).toInt();
+  _markUserTouched(const ['fastWorkers', 'fwUserSet', 'fwUserValue']);
+  fwUserValue = v.clamp(1, 32).toInt();
   fwUserSet = true;
   fastWorkers = fwUserValue;
 }
@@ -3616,6 +3627,59 @@ int _localRetryN = 0; // تعداد تلاش‌های تیک خلبان که گ�
 // انتخاب صریح کاربر: null = نامشخص، true = آفلاین، false = آنلاین
 bool? userOfflineChoice;
 Map<String, Object?>? _pilotSnap; // PILOTREV: قبل از تغییر خلبان، تنظیمات کاربر (top-level چون extension نمی‌تونه فیلد داشته باشه)
+
+// SNAPHELPER: مقدار مؤثر یک کلید تنظیمات. اگر خلبان فعال است و snapshot
+// مقداری دارد، آن برمی‌گردد؛ وگرنه مقدار زنده. saveNumPrefs و _saveSettings
+// فقط از این هلپرها می‌خوانند تا مقدار موقت خلبان روی دیسک ننشیند.
+Object? _eff(Map<String, Object?>? snap, String topKey, Object? live) {
+  if (_pilotUserTouched.contains(topKey)) return live;
+  final v = snap?[topKey];
+  return v ?? live;
+}
+
+// SNAPHELPER: Duration از snapshot به ثانیه (int) تبدیل می‌شود؛ jsonEncode روی Duration خطا می‌دهد.
+int _effSec(Map<String, Object?>? snap, String topKey, Duration live) {
+  if (_pilotUserTouched.contains(topKey)) return live.inSeconds;
+  final v = snap?[topKey];
+  return v is Duration ? v.inSeconds : live.inSeconds;
+}
+
+// SNAPHELPER: مقدار عددی numOpts از snapshot.numValues (همه‌ی numOpts آن‌جا هستند).
+int _effNum(Map<String, Object?>? snap, String numId, int live) {
+  if (_pilotUserTouched.contains(_numVarName(numId))) return live;
+  final nv = snap?['numValues'];
+  if (nv is Map && nv[numId] is int) return nv[numId] as int;
+  return live;
+}
+
+// USERTOUCH: نام متغیرهای snapshot که کاربر در حین خلبان صریحاً عوض کرده.
+// فقط وقتی خلبان فعال است (snapshot هست) پر می‌شود. restore برای این کلیدها
+// مقدار زنده را نگه می‌دارد، و saveNumPrefs/_saveSettings هم همین مقدار را
+// می‌نویسند تا دیسک با حالت بعد از restore یکی بماند.
+final Set<String> _pilotUserTouched = <String>{};
+
+void _markUserTouched(Iterable<String> keys) {
+  if (_pilotSnap != null) _pilotUserTouched.addAll(keys);
+}
+
+// USERTOUCH: id عددی numOpts → نام متغیر در snapshot
+String _numVarName(String id) => id == 'batch'
+    ? 'batchSize'
+    : id == 'timeout'
+        ? 'delayTimeout'
+        : id;
+
+// USERTOUCH: همه‌ی کلیدهایی که reset کاربر ممکن است عوض کند
+Iterable<String> _allTouchKeys() => <String>[
+      'fwUserSet', 'fwUserValue', 'fastWorkers', 'bgWorkers', 'delayTimeout',
+      'tcpTimeout', 'batchSize', 'badPingMs', 'watchFailLimit', 'speedTopN',
+      'muxConc', 'ultraMode', 'indestructibleMode', 'fragEnabled', 'proxyMode',
+      'turboSpeed', 'muxEnabled', 'autoSpeed', 'autoCycle', 'savedFirst',
+      'offlineOnly', 'minSpeedKB', 'firstBatchSize', 'maxBatches', 'ipMode',
+      'iranRoute', 'autoUpgrade', 'fastDelay', 'badPingSwitch', 'cleanIpMode',
+      'smartOrder', 'protoSel', 'numValues',
+      ...numOpts.map((o) => _numVarName(o.id)),
+    ];
 // خلبان با نت ملی کار ندارد: نه آن را روشن می‌کند، نه جستجویش را اجرا می‌کند (جدید)
 bool? _pendingNet; // NETCANCEL: انتخاب شبکه‌ی موقت تا انتخاب موتور
 bool _pendingOff = false;

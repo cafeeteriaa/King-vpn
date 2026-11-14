@@ -381,7 +381,7 @@ extension KingHealEngine on _HomePageState {
           wantVpn = true;
           turboSpeed = true;
           muxEnabled = true;
-          muxConc = max(muxConc, 28);
+          muxConc = max(muxConc, 32);
           if (!busy && !switching) await connect();
           return connected || busy;
 
@@ -450,8 +450,9 @@ extension KingHealEngine on _HomePageState {
           return true;
 
         case 'force_turbo':
-          // STABLE2: قبلاً هر بار mux را روی ۳۲ می‌گذاشت و CPU گوشی را تا ۱۳۰٪ بالا
-          // می‌برد (و پینگ را خراب). حالا سقف ۱۶ و حداکثر یک بار در ۵ دقیقه.
+          // STABLE2: force_turbo قبلاً mux را هر بار روی ۳۲ می‌گذاشت و CPU گوشی
+          // را بالا می‌برد. الان فقط اگر muxConc پایین‌تر از ۳۲ بود بالا می‌بره
+          // (هرگز پایین نمی‌کشه). حداکثر یک بار در ۵ دقیقه اجرا می‌شود.
           if (DateTime.now().difference(_kingTurboAt) <
               const Duration(minutes: 5)) {
             return false;
@@ -459,7 +460,10 @@ extension KingHealEngine on _HomePageState {
           _kingTurboAt = DateTime.now();
           turboSpeed = true;
           muxEnabled = true;
-          muxConc = max(12, min(muxConc, 16));
+          // HEALMUX: بالا ببر تا ۳۲، هرگز پایین نکش (هدف کاربر ۳۲ است).
+          // کامنت قدیمی از ۳۲ به‌عنوان "CPU spike" یاد کرده بود؛ حالا
+          // Fragment خاموش و SNI جعل اضافه شده، پس ۳۲ قابل تحمل‌تر است.
+          if (muxConc < 32) muxConc = 32;
           try {
             await _saveSettings();
           } catch (e, stk) { logError(e, stk); }

@@ -6,6 +6,11 @@ part of 'main.dart';
 
 bool offlineOnly = false; // فقط سرورهای سالم ذخیره‌شده — بدون دانلود لیست
 bool dataSaver = false; // workers کمتر، بدون تست سرعت سنگین
+// DSGETTER: مقادیر مؤثر — تنظیمات اصلی کاربر دست‌نخورده می‌ماند
+int get effFastWorkers => dataSaver ? min(fastWorkers, 3) : fastWorkers;
+int get effBgWorkers => dataSaver ? 1 : bgWorkers;
+int get effSpeedTopN => dataSaver ? min(speedTopN, 1) : speedTopN;
+bool get effAutoSpeed => dataSaver ? false : autoSpeed;
 bool autoNetReconnect = true; // بعد از تغییر شبکه دوباره وصل شو
 bool preflightOn = true; // قبل از وصل یک چک سبک DNS/HTTP
 int reconnectCount = 0;
@@ -14,30 +19,11 @@ String _lastNetFp = '';
 Timer? _netWatchTimer;
 DateTime? _preflightOkAt; // کش ۲ دقیقه‌ای پیش‌پرواز
 
-// snapshot of numbers when data-saver is toggled on (to restore later)
-int? _dsFw, _dsBw, _dsSt;
-bool? _dsAs;
-
+// DSGETTER: تنظیمات اصلی کاربر دست‌نخورده می‌ماند. فقط فلگ dataSaver عوض
+// می‌شود؛ getterهای eff* در خواندن، مقدار مؤثر را برمی‌گردانند. این جلوی
+// باگ «saveNumPrefs مقدار موقت ۳ را روی دیسک می‌نویسد» را می‌گیرد.
 void applyDataSaver(bool on) {
-  if (on) {
-    _dsFw ??= fastWorkers;
-    _dsBw ??= bgWorkers;
-    _dsSt ??= speedTopN;
-    _dsAs ??= autoSpeed;
-    fastWorkers = 3; // سقف واقعی ۳
-    bgWorkers = 1;
-    speedTopN = min(speedTopN, 1);
-    autoSpeed = false;
-    dataSaver = true;
-  } else {
-    if (_dsFw != null) fastWorkers = _dsFw!;
-    if (_dsBw != null) bgWorkers = _dsBw!;
-    if (_dsSt != null) speedTopN = _dsSt!;
-    if (_dsAs != null) autoSpeed = _dsAs!;
-    _dsFw = _dsBw = _dsSt = null;
-    _dsAs = null;
-    dataSaver = false;
-  }
+  dataSaver = on;
 }
 
 Future<void> ultimateLoad(SharedPreferences p) async {
@@ -45,7 +31,8 @@ Future<void> ultimateLoad(SharedPreferences p) async {
   dataSaver = p.getBool('ult_ds') ?? dataSaver;
   autoNetReconnect = p.getBool('ult_anr') ?? autoNetReconnect;
   preflightOn = p.getBool('ult_pf') ?? preflightOn;
-  if (dataSaver) applyDataSaver(true);
+  // DSGETTER: dataSaver از prefs می‌آید و getterها مقدار مؤثر را می‌سازند؛
+  // دیگر نیازی به applyDataSaver(true) نیست (no-op شده).
 }
 
 Future<void> ultimateSave() async {

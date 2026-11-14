@@ -137,7 +137,26 @@ String? nipSwapLink(Server t, String ip) {
 // CHAINHUNT: کمک‌های جستجوی IP (پشت هم، هرکدام جواب داد همان استفاده می‌شود)
 // آدرس واسط (relay) که خودت اضافه می‌کنی: IP سرور داخلی/واسط با همان پورت سرور.
 // مثال: const natRelayHosts = <String>['1.2.3.4'];
-const natRelayHosts = <String>[];
+List<String> natRelayHosts = <String>[];
+
+// RELAYHOSTS: واسط‌های IP که کاربر اضافه می‌کند
+Future<void> natRelayHostsLoad() async {
+  try {
+    final p = await SharedPreferences.getInstance();
+    natRelayHosts = p.getStringList('nat_relay_hosts') ?? <String>[];
+  } catch (_) {}
+}
+
+Future<void> natRelayHostsSave(String text) async {
+  natRelayHosts = text
+      .split(RegExp(r'[\r\n\s]+'))
+      .where((x) => InternetAddress.tryParse(x) != null)
+      .toList();
+  try {
+    final p = await SharedPreferences.getInstance();
+    await p.setStringList('nat_relay_hosts', natRelayHosts);
+  } catch (_) {}
+}
 
 Future<String?> nipResolve(String host) async {
   // DNSDOH: اول DoH (در نت ملی DNS معمولی جواب بسته می‌دهد)
@@ -199,26 +218,16 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
 // روی همان Cloudflare تغییر می‌دهیم و Host را همان سرور نگه می‌داریم.
 // لیست کاندید؛ هر کدام که TLS روی IP باز کامل شد نگه داشته می‌شود.
 // خودت می‌توانی دامنه‌های بیشتری به این لیست اضافه کنی.
+// FRONTSNI: کاهش از ۱۹ به ۸ دامنه برای سرعت بیشتر nipFindFrontSni
 const natFrontSnis = <String>[
-  'cdnjs.cloudflare.com',
-  'www.cloudflare.com',
-  'cloudflare.com',
-  'speed.cloudflare.com',
-  'www.aparat.com',
-  'www.digikala.com',
-  'divar.ir',
-  'www.snapp.ir',
-  'www.bale.ai',
-  'eitaa.com',
-  'www.zarinpal.com',
-  'www.iranserver.com',
-  'www.shatel.ir',
-  'www.mci.ir',
-  'workers.dev',
-  'dash.cloudflare.com',
-  'one.one.one.one',
-  '1.1.1.1',
-  'cloudflare-dns.com',
+  'cdnjs.cloudflare.com',    // 0
+  'www.cloudflare.com',      // 1
+  'speed.cloudflare.com',    // 2  ← قبلاً 3 بود، حالا 2
+  'one.one.one.one',         // 3  ← قبلاً 16 بود
+  '1.1.1.1',                 // 4  ← قبلاً 17 بود
+  'www.aparat.com',          // 5
+  'www.digikala.com',        // 6
+  'divar.ir',                // 7
 ];
 
 /// روی IP:port یک TLS با SNI داده‌شده کامل شود؟ برمی‌گرداند همان SNI یا null.
@@ -404,10 +413,16 @@ extension NipHunt on _HomePageState {
       _set('نت ملی: هیچ $label بازی پیدا نشد');
       return false;
     }
-    final top = hits.take(12).toList();
-    final snis = front
-        ? await Future.wait(top.map((h) => nipFindFrontSni(h.ip, port)))
-        : <String?>[];
+    final top = hits.take(8).toList(); // CHOP: قبلاً ۱۲ بود ولی فقط ۸ تا استفاده می‌شد
+    // BATCHSNI: ۴ تا ۴ تا (نه همه با هم که SYN flood می‌کند، نه تک‌تک)
+    final snis = <String?>[];
+    if (front) {
+      for (var i = 0; i < top.length; i += 4) {
+        final batch = top.skip(i).take(4).toList();
+        snis.addAll(await Future.wait(
+            batch.map((h) => nipFindFrontSni(h.ip, port))));
+      }
+    }
     final cands = <Server>[];
     for (var i = 0; i < top.length && cands.length < 8; i++) {
       final t = tpls[i % tpls.length];

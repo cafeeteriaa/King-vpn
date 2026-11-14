@@ -23,6 +23,10 @@ const int _natBaseCount = 54; // V13: +4 SNI swap
 const int _natGenVer = 3;
 
 final Map<String, int> natVar = {};
+// NORMALCACHE: variant موفق در حالت عادی (جدا از natVar نت ملی).
+// بعد از موفقیت ladder، اینجا ذخیره می‌شود تا اتصال بعدی
+// مستقیم با همان variant شروع شود و ۱۵ ثانیه هدر نرود.
+final Map<String, int> natVarNormal = {};
 
 // ---------------------------------------------------------------------------
 // جدول Fragment: [length, interval, packets]
@@ -566,10 +570,42 @@ const Set<String> _natRetiredNames = {
 bool natRetired(int v) =>
     v > 0 && v < _natSpecs.length && _natRetiredNames.contains(_natSpecs[v].name);
 
+// VARCB: circuit breaker برای variantها (فقط نت ملی)
+// هر variant بعد از ۲۰ شکست پشت‌سرهم، یک ساعت غیرفعال می‌شود
+const int _varcbLimit = 20;
+const Duration _varcbCooldown = Duration(hours: 1);
+final Map<int, int> _variantFailStreak = {};
+final Map<int, DateTime> _variantCooldown = {};
+
+void natVariantResult(int v, bool ok) {
+  if (v <= 0) return;
+  final cd = _variantCooldown[v];
+  if (cd != null && DateTime.now().isBefore(cd)) return;
+  if (ok) {
+    _variantFailStreak.remove(v);
+    _variantCooldown.remove(v);
+    return;
+  }
+  final n = (_variantFailStreak[v] ?? 0) + 1;
+  if (n >= _varcbLimit) {
+    _variantFailStreak.remove(v);
+    _variantCooldown[v] = DateTime.now().add(_varcbCooldown);
+    dbg('VARCB: حالت #$v بعد از $n شکست پیاپی، یک ساعت غیرفعال شد');
+  } else {
+    _variantFailStreak[v] = n;
+  }
+}
+
+bool natVariantCooling(int v) {
+  final cd = _variantCooldown[v];
+  return cd != null && DateTime.now().isBefore(cd);
+}
+
 bool _natAppliesF(_NatFacts f, int v) {
   if (v < 0 || v >= _natSpecs.length) return false;
   if (v == 0) return true;
   if (natDisabled.contains(v)) return false;
+  if (natVariantCooling(v)) return false; // VARCB
   if (natRetired(v)) return false;
   final x = _natSpecs[v];
   if (x.other && !f.hasOther) return false;
@@ -635,11 +671,24 @@ List<String> _natDims(_NatSpec x) {
 
 List<int> _natGenRank = [];
 String _natGenRankKey = '';
+DateTime? _natGenLastSortAt; // GENTHROTTLE
 
 List<int> _natGenRanked() {
   final hb = DateTime.now().hour ~/ 3; // V13: 3-hour bucket
   final key = '$natOpKey|$_natLearnVer|${_natSpecs.length}|h$hb';
   if (key == _natGenRankKey) return _natGenRank;
+  // GENTHROTTLE: اگر کمتر از ۳۰ ثانیه از sort قبلی گذشته و تعداد specها
+  // تغییر نکرده، cache را برگردان (natVarSet پشت‌سرهم می‌آید)
+  final now = DateTime.now();
+  final parts = _natGenRankKey.split('|');
+  if (_natGenRank.isNotEmpty &&
+      _natGenLastSortAt != null &&
+      now.difference(_natGenLastSortAt!) < const Duration(seconds: 30) &&
+      parts.length > 2 &&
+      parts[2] == '${_natSpecs.length}') {
+    _natGenRankKey = key;
+    return _natGenRank;
+  }
   final idx = <int>[for (var i = _natBaseCount; i < _natSpecs.length; i++) i];
   final sc = <int, int>{};
   for (final i in idx) {
@@ -656,19 +705,30 @@ List<int> _natGenRanked() {
   });
   _natGenRank = idx;
   _natGenRankKey = key;
+  _natGenLastSortAt = now; // GENTHROTTLE
   return idx;
 }
 
+// TOPWIN: کش برترین‌ها؛ با تغییر natWins، natOpKey یا تعداد specها باطل می‌شود
+int _natWinsVer = 0;
+List<int>? _topWinCache;
+String _topWinKey = '';
+
 List<int> _natTopWinners(int n) {
-  final pre = '$natOpKey#';
-  final rows = <MapEntry<int, int>>[];
-  natWins.forEach((k, c) {
-    if (!k.startsWith(pre)) return;
-    final v = int.tryParse(k.substring(pre.length));
-    if (v != null && v > 0 && v < _natSpecs.length) rows.add(MapEntry(v, c));
-  });
-  rows.sort((a, b) => b.value.compareTo(a.value));
-  return [for (final r in rows.take(n)) r.key];
+  final key = '$natOpKey|$_natWinsVer|${_natSpecs.length}';
+  if (_topWinCache == null || _topWinKey != key) {
+    final pre = '$natOpKey#';
+    final rows = <MapEntry<int, int>>[];
+    natWins.forEach((k, c) {
+      if (!k.startsWith(pre)) return;
+      final v = int.tryParse(k.substring(pre.length));
+      if (v != null && v > 0 && v < _natSpecs.length) rows.add(MapEntry(v, c));
+    });
+    rows.sort((a, b) => b.value.compareTo(a.value));
+    _topWinCache = [for (final r in rows.take(30)) r.key];
+    _topWinKey = key;
+  }
+  return _topWinCache!.take(n).toList();
 }
 
 final Map<String, int> _natCursor = {};
@@ -729,14 +789,26 @@ List<int> _natOrder(Server s, {bool full = false}) {
   if (knownOk && (!skipHeavy || !_natIsSlowHeavy(known!))) put(known!);
 
   if (preferLight) {
-    // V13: try SNI-swap variants first on CDN configs (bypasses SNI DPI).
-    // If the config is CDN, base index 50..53 are the SNI swaps.
+    // FRAGLADDER: Fragment variants در رأس لیست تا ladder حالت عادی
+    // واقعاً DPI را دور بزند. ترتیب: fp سریع، بعد Fragment، بعد بقیه.
     final lightFirst = <int>[
       if (f.cdnLike && f.sec && !f.reality) ...[50, 51, 52, 53],
-      0, 1, 4, 13, 7, 20, 12, 33, 38, 40, 44,
+      0,     // normal (already tried, filtered by tried-set)
+      4,     // firefox (cheap)
+      2,     // Fragment ریز (DPI bypass) — index 2 = 'Fragment ریز'
+      13,    // chrome
+      8,     // Fragment خیلی ریز (DPI bypass aggressive)
+      22,    // Fragment 20-50
+      1,     // آدرس دیگر
+      7,     // alpn http/1.1
+      20,    // alpn h2
+      33,    // SNI=Host
+      38,    // IPv4
+      40,    // TFO
+      44,    // fp=chrome+alpn
     ];
     for (final w in _natTopWinners(8)) {
-      if (!natIsHeavy(w) && !lightFirst.contains(w)) lightFirst.add(w);
+      if (!_natIsSlowHeavy(w) && !lightFirst.contains(w)) lightFirst.add(w);
     }
     for (final v in lightFirst) {
       if (_natAppliesF(f, v)) put(v);
@@ -958,18 +1030,25 @@ String _natLinkFor(Server s, int v, {bool reuse = false}) {
 }
 
 final Map<int, bool> dohPreOk = {};
+final Map<int, DateTime> _dohPreAt = {};
 Future<bool> natDohUsable(int v) async {
   if (v < 0 || v >= _natSpecs.length) return false;
   final doh = _natSpecs[v].doh;
   if (doh == null) return true;
   final cached = dohPreOk[v];
-  if (cached != null) return cached;
+  final at = _dohPreAt[v];
+  if (cached != null &&
+      at != null &&
+      DateTime.now().difference(at) < const Duration(minutes: 10)) {
+    return cached;
+  }
   var host = doh;
   final u = Uri.tryParse(doh);
   if (u != null && u.hasAuthority) host = u.host;
   final ms = await natTcpProbe(host, 443, const Duration(seconds: 4));
   final ok = ms != null;
   dohPreOk[v] = ok;
+  _dohPreAt[v] = DateTime.now();
   return ok;
 }
 
@@ -1253,7 +1332,17 @@ int natSafeVariant(int v) {
   return v;
 }
 int natVarFor(Server s) {
-  if (!nationalMode) return 0;
+  if (!nationalMode) {
+    // NORMALCACHE: variant که قبلاً در حالت عادی جواب داد (keyed by s.key)
+    final cached = natVarNormal[s.key] ?? 0;
+    if (cached > 0 && cached < _natSpecs.length) {
+      final x = _natSpecs[cached];
+      if (x.mux || x.noise) return 0;
+      if (x.mode != null && !x.mode!.startsWith('kcp:')) return 0;
+      return cached;
+    }
+    return 0;
+  }
   final rawV = natVar[_nk(s)] ?? 0;
   final v = natSafeVariant(rawV);
   if (v <= 0) return 0;
@@ -1356,24 +1445,30 @@ Future<String?> _natAsnFrom(String url, String field) async {
 Future<void> natDetectOperator() async {
   try {
     final type = await _natNetType();
-    var asn = _natAsnByType[type] ?? '';
     final tried = _natAsnTry[type];
-    if (asn.isEmpty &&
-        (tried == null ||
-            DateTime.now().difference(tried) > const Duration(minutes: 10))) {
+    final stale = tried == null ||
+        DateTime.now().difference(tried) > const Duration(minutes: 10);
+    var asn = stale ? '' : (_natAsnByType[type] ?? '');
+    if (stale) {
       _natAsnTry[type] = DateTime.now();
       final r = await Future.wait([
         _natAsnFrom('http://ip-api.com/json/?fields=as', 'as'),
         _natAsnFrom('https://ipinfo.io/json', 'org'),
         _natAsnFrom('https://api.ip.sb/geoip', 'asn'),
       ]);
+      var fresh = '';
       for (final x in r) {
         if (x != null && x.isNotEmpty) {
-          asn = x;
+          fresh = x;
           break;
         }
       }
-      if (asn.isNotEmpty) _natAsnByType[type] = asn;
+      if (fresh.isNotEmpty) {
+        asn = fresh;
+        _natAsnByType[type] = asn;
+      } else {
+        asn = _natAsnByType[type] ?? '';
+      }
     }
     final k = asn.isEmpty ? type : '$type|AS$asn';
     if (k != natOpKey) {
@@ -1396,6 +1491,7 @@ void natVarSet(Server s, int v) {
   natVar[_nk(s)] = v;
   final wk = '$natOpKey#$v';
   natWins[wk] = (natWins[wk] ?? 0) + 1;
+  _natWinsVer++; // TOPWIN: کش برترین‌ها را باطل کن
   if (v > 0 && v < _natSpecs.length) {
     final hb = DateTime.now().hour ~/ 3; // V13: 3-hour bucket (0-7)
     for (final d in _natDims(_natSpecs[v])) {
@@ -1417,17 +1513,37 @@ void natVarSet(Server s, int v) {
   });
 }
 
+// NORMALCACHE: زمان‌بندی ذخیره‌ی debounced از بیرون هم قابل صداست
+void natSaveSoon() {
+  _natSaveT ??= Timer(const Duration(seconds: 5), () {
+    _natSaveT = null;
+    natSavePersisted();
+  });
+}
+
 Future<void> natSavePersisted() async {
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString('natvar2',
-        jsonEncode({'v': natVar, 'w': natWins, 'd': natDimWins, 'g': _natGenVer}));
+        jsonEncode({
+          'v': natVar,
+          'w': natWins,
+          'd': natDimWins,
+          'g': _natGenVer,
+          'n': natVarNormal, // NORMALCACHE: پایدار بین session‌ها
+        }));
   } catch (e, stk) {
     logError(e, stk);
   }
 }
 
+// NATLOADED-ONCE: natLoadPersisted runs from _loadCache and again from _natDetect;
+// only the first run is needed.
+bool _natPersistedLoaded = false;
+
 Future<void> natLoadPersisted() async {
+  if (_natPersistedLoaded) return;
+  _natPersistedLoaded = true; // NATLOADED-ONCE: set before any await
   await plusLoad();
   await natIpMemLoad();
   await natDomMemLoad();
@@ -1439,12 +1555,34 @@ Future<void> natLoadPersisted() async {
     final j = jsonDecode(s);
     (j['v'] as Map).forEach((k, v) => natVar['$k'] = (v as num).toInt());
     (j['w'] as Map).forEach((k, v) => natWins['$k'] = (v as num).toInt());
+    _natWinsVer++; // TOPWIN
     final d = j['d'];
     if (d is Map) {
       d.forEach((k, v) => natDimWins['$k'] = (v as num).toInt());
     }
+    // NORMALCACHE: بازیابی variant موفق حالت عادی
+    final nMap = j['n'];
+    if (nMap is Map) {
+      natVarNormal.clear();
+      nMap.forEach((k, v) {
+        if (v is num) {
+          final val = v.toInt();
+          if (val > 0 && val < _natSpecs.length) {
+            // NORMALKEY-MIGRATION: old keys were 'operator#host:port'; drop the prefix.
+            var key = '$k';
+            final hash = key.indexOf('#');
+            if (hash >= 0) key = key.substring(hash + 1);
+            natVarNormal[key] = val;
+          }
+        }
+      });
+      while (natVarNormal.length > 3000) {
+        natVarNormal.remove(natVarNormal.keys.first);
+      }
+    }
     if (((j['g'] ?? 0) as num).toInt() != _natGenVer) {
       natVar.removeWhere((k, v) => v >= _natBaseCount);
+      _natWinsVer++; // TOPWIN
       natWins.removeWhere((k, v) {
         final n = int.tryParse(k.substring(k.lastIndexOf('#') + 1));
         return n != null && n >= _natBaseCount;
@@ -1874,7 +2012,27 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   return {'addrs': addrs, 'cursors': cursors};
 }
 
+// RANGEGUARD: یک اسکن بازه در هر لحظه؛ _natKeep و _natEscalate روی cursors مشترک نمی‌نویسند
+bool _natRangeScanBusy = false;
+
 Future<List<String>> natRangeScanStep({
+  required List<Server> known,
+  int maxAddrs = 256,
+  int conc = 4,
+  bool Function()? stop,
+  Duration budget = const Duration(minutes: 2),
+}) async {
+  if (_natRangeScanBusy) return const <String>[];
+  _natRangeScanBusy = true;
+  try {
+    return await _natRangeScanStepBody(
+        known: known, maxAddrs: maxAddrs, conc: conc, stop: stop, budget: budget);
+  } finally {
+    _natRangeScanBusy = false;
+  }
+}
+
+Future<List<String>> _natRangeScanStepBody({
   required List<Server> known,
   int maxAddrs = 256,
   int conc = 4,
@@ -1972,9 +2130,10 @@ Future<void> userListsSave(String text) async {
   }
 }
 
-const int natHotPerSource = 2000000;
+// HOTCAP: کاهش از ۲ میلیون برای جلوگیری از OOM روی گوشی ضعیف
+const int natHotPerSource = 80000;
 const int natHotMin = 30000;
-const int natHotMax = 2000000;
+const int natHotMax = 400000;
 List<Server> Function()? natExtraSource;
 const Duration natHotTtl = Duration(hours: 72);
 const Duration natHotFetchDeadline = Duration(seconds: 900);
@@ -2155,19 +2314,7 @@ Future<void> natHotEnsure({bool force = false}) async {
       final order = [for (var i = 0; i < urls.length; i++) i]
         ..sort((a, b) => (natSrcRates[urls[b]] ?? 0.3)
             .compareTo(natSrcRates[urls[a]] ?? 0.3));
-      // PHASE1-SINGBOX: منابع HY2/TUIC و بقیه رو قاطی کن (۵۰/۵۰) تا فایل تازه هر دو نوع رو داشته باشه
-      bool isSbSrc(String u) {
-        final l = u.toLowerCase();
-        return l.contains('hysteria2') || l.contains('tuic');
-      }
-      final sbOrder = order.where((i) => isSbSrc(urls[i])).toList();
-      final xrOrder = order.where((i) => !isSbSrc(urls[i])).toList();
-      final mixed = <int>[];
-      var mi = 0, mj = 0;
-      while (mi < xrOrder.length || mj < sbOrder.length) {
-        if (mi < xrOrder.length) mixed.add(xrOrder[mi++]);
-        if (mj < sbOrder.length) mixed.add(sbOrder[mj++]);
-      }
+      final mixed = order;
       final newPath = '${_hotPath()}.new';
       final offs = <int>[0];
       var pos = 0;
@@ -2299,7 +2446,8 @@ Future<_HotIdx?> _hotLoad() async {
   }
 }
 
-Future<List<Server>> natHotNext(int n, {bool fetch = true}) async {
+Future<List<Server>> natHotNext(int n,
+    {bool fetch = true, bool retried = false}) async {
   try {
     if (fetch) unawaited(natHotEnsure());
     final h = await _hotLoad();
@@ -2309,6 +2457,13 @@ Future<List<Server>> natHotNext(int n, {bool fetch = true}) async {
     final out = <Server>[];
     final raf = await File(h.file).open();
     try {
+      // HOTSTALE: طول handle باز را با ایندکس بسنج؛ handle به inode ثابت است، پس
+      // اگر فایل وسط rename عوض شده باشد، این مقایسه ناهم‌خوانی را می‌گیرد
+      if (await raf.length() != h.offs.last) {
+        _hot = null; // ایندکس قدیمی را دور بریز
+        if (retried) return const [];
+        return natHotNext(n, fetch: false, retried: true);
+      }
       var read = 0;
       while (out.length < n && read < lines) {
         var start = _hotCursor;

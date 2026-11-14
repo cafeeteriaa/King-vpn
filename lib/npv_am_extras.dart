@@ -1092,21 +1092,22 @@ List<Widget> npvAmSettingsItems(
       sw('مسدود کردن QUIC (UDP 443)', blockQuic, (v) => blockQuic = v,
           sub:
               'مرورگرها و برنامه‌ها به TCP/TLS برمی‌گردند و روی VPN پایدارترند'),
-      sw('شبکه‌ی محلی (LAN) مستقیم', lanDirect, (v) => lanDirect = v,
+      sw('شبکه‌ی محلی (LAN) مستقیم', lanDirect, (v) { _markUserTouched(const ['lanDirect']); lanDirect = v; },
           sub: 'آدرس‌های ۱۰.x و ۱۷۲.۱۶.x و ۱۹۲.۱۶۸.x از تونل رد نمی‌شوند'),
-      sw('RouteOnly برای تشخیص دامنه', routeOnly, (v) => routeOnly = v,
+      sw('RouteOnly برای تشخیص دامنه', routeOnly, (v) { _markUserTouched(const ['routeOnly']); routeOnly = v; },
           sub:
               'دامنه‌ی تشخیص‌داده‌شده فقط برای مسیریابی است و مقصد IP تغییر نمی‌کند؛ اگر برنامه‌ای خراب شد خاموشش کن'),
       sw('IP تمیز برای سرورهای Cloudflare', cleanIpMode, (v) {
+        _markUserTouched(const ['cleanIpMode']);
         cleanIpMode = v;
         if (v) forceIpMode();
       },
           sub:
               'اپ خودش رنج‌های Cloudflare را اسکن می‌کند (TLS واقعی) و برای سرورهای پشت Cloudflare سریع‌ترین IP را به‌جای دامنه می‌گذارد (اتصال با IP خودکار روشن می‌شود). منوی ⋮ ← IP تمیز'),
-      sw('Fragment (تکه‌کردن TLS Hello)', fragEnabled, (v) => fragEnabled = v,
+      sw('Fragment (تکه‌کردن TLS Hello)', fragEnabled, (v) { _markUserTouched(const ['fragEnabled']); fragEnabled = v; },
           sub:
               'برای عبور از DPI؛ فقط روی اتصال واقعی و فقط سرورهای TLS/Reality. اگر اتصال برقرار نشد خاموشش کن'),
-      sw('Mux (چند اتصال روی یک کانال)', muxEnabled, (v) => muxEnabled = v,
+      sw('Mux (چند اتصال روی یک کانال)', muxEnabled, (v) { _markUserTouched(const ['muxEnabled']); muxEnabled = v; },
           sub: 'روی سرورهای tcp/ws بدون flow؛ گاهی ثبات را بهتر و گاهی بدتر می‌کند'),
       sw('DNS امن (DoH)', secureDns, (v) => secureDns = v,
           sub: 'پرسش DNS از طریق https://1.1.1.1 و 8.8.8.8 انجام می‌شود'),
@@ -1418,6 +1419,8 @@ Future<void> _goldLoadOnce() async {
     _goldCnt = (m['cnt'] as num? ?? 0).toInt();
   } catch (e, stk) {
     logError(e, stk);
+    // GOLDRETRY: cache را پاک کن تا فراخوانی بعدی دوباره تلاش کند
+    _goldLoadF = null;
   }
 }
 
@@ -1585,6 +1588,9 @@ Future<void> _goldSrvStep(_HomePageState h) async {
         .where((v) => nowMs - v.testAt >= retestMs)
         .take(20)
         .toList();
+    // GATEMAX: سقف گیت تست قبل از حلقه‌ی due
+    // DSGETTER: از مقدار مؤثر
+    _delayGate.max = nationalMode ? kNatDelayConcurrency : max(effFastWorkers, 8);
     for (final v in due) {
       if (!h.mounted || !h.connected || h.busy || h.switching) break;
       final sv = Server.parse(v.link);

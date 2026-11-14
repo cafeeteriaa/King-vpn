@@ -630,7 +630,8 @@ class _CloudflareAutoDeployPageState extends State<CloudflareAutoDeployPage> {
     final l = _link;
     if (l == null) return;
     final p = await SharedPreferences.getInstance();
-    await p.setString('personal_link', l);
+    // D2: plaintext prefs copy removed; link lives only in secure storage
+    await p.remove('personal_link');
     await p.remove('personal_exp');
     // همگام‌سازی کپی secure (همان مسیر خواندن _loadCache)
     try {

@@ -417,6 +417,7 @@ extension PlusExt on _HomePageState {
                 tile(Icons.delete_sweep, 'پاک کردن یادگیری نت ملی', () async {
                   natVar.clear();
                   natWins.clear();
+                  _natWinsVer++; // TOPWIN
                   natDimWins.clear();
                   _natPick.clear();
                   await natSavePersisted();

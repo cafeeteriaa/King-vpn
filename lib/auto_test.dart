@@ -278,6 +278,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     _phase = _AtPhase.running;
     autoTestAdFree = true; // TESTNOAD
     _abortRequested = false;
+    _applyModePreset(true, offlineOnly, false); // BESTDEF: تست ۴ ساعته = تنظیمات نت ملی
     _findings.clear();
     _atNoTraffic = false;
     _samples.clear();
@@ -517,6 +518,9 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
 
     _phase = _AtPhase.idle;
     autoTestAdFree = false; // TESTNOAD
+    if (_pilotSnap != null && !localPilotOn && !aiSession) { // MODESNAP
+      _restorePilotSnap();
+    }
   }
 
   // ---------------------------------------------------------------------------
