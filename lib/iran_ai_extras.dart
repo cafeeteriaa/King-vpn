@@ -1511,6 +1511,8 @@ extension HomeExtras on _HomePageState {
     // همه‌ی اتصال‌ها جهانی هستند؛ فقط دکمه‌ی نت ملی (forceNet: true) حالت ملی می‌دهد.
     // خلبان (keepNet) حالت شبکه را دست نمی‌زند.
     _pendingNet = null;
+    zeroTrafficRun.clear(); // LOOPCAP: هر بار دکمه‌ی اتصال شمارنده‌ها از نو
+    realStartsRun = 0;
     if (askMode) {
       final ok = forceNet != null
           ? await _askOnlineOfflineNet(forceNet)

@@ -1238,6 +1238,13 @@ List<String> _dbgHelpOf(String m) {
         'این فقط پیام پیشرفت جستجوست؛ مشکل نیست و به‌خاطر کلمه‌ی «ردیف» اشتباهی در لیست مشکل‌ها آمده بود.',
         'اصلاح شد: دیگر ثبت نمی‌شود. با «پاک کردن» از لیست برود.');
   }
+  // ERRLOC2: قطع هسته بعد از CONNECTED قبلاً E-GENERIC می‌شد
+  if (has('هسته بعد از اتصال قطع شد')) {
+    return h('E-CORE-AFTER-CONNECT',
+        'lib/main.dart → _start / _connectLoop (بعد از CONNECTED و قبل از tunUp)',
+        'هسته بعد از CONNECTED سریع قطع شد. معمولاً بستن سرویس VPN توسط اندروید (بهینه‌سازی باتری / کم‌حافظه) یا کرش هسته.',
+        'بهینه‌سازی باتری را برای برنامه روی «بدون محدودیت» بگذار و دوباره وصل شو. اگر تکرار شد خط‌های «هسته:» و E-PROC-EXIT همین گزارش را بفرست.');
+  }
   if (has('پیش‌پرواز: شبکه خیلی ضعیف')) {
     return h('E-PREFLIGHT-WEAK',
         'lib/main.dart → پیش‌پرواز قبل از جستجو (DNS و HTTP)',
@@ -1287,8 +1294,11 @@ List<String> _dbgHelpOf(String m) {
       cause = 'باگ کد: مقدار null، اندیس بیرون از لیست یا نوع اشتباه، و try/catch آن را پنهان کرده بود.';
       fix = 'تابع:خط را برای Claude بفرست تا شرط null/اندیس همان‌جا درست شود.';
     }
+    // ERRLOC: محل واقعی (تابع:خط) از خود پیام خوانده می‌شود، نه متن نمونه
+    final locM = RegExp(r'بلعیده‌شده در (\S+)').firstMatch(m);
+    final locTxt = locM != null ? locM.group(1)! : 'در این پیام ثبت نشده';
     return h(code,
-        'محل: تابع:شماره‌ی خط بعد از «در» همین پیام (main.dart پیوست همین Release)',
+        'محل: $locTxt (فایل main.dart همین Release)',
         cause, fix);
   }
 
@@ -3827,6 +3837,12 @@ class _AsyncMutex {
 }
 
 final _AsyncMutex _coreStartMutex = _AsyncMutex();
+// LOOPCAP: شمارنده‌ی هر بار دکمه‌ی اتصال. سروری که دو بار بدون ترافیک شد کنار می‌رود و
+// سقف کل تلاش‌های هسته برای هر بار اتصال دیده می‌شود (جلوی حلقه‌ی بی‌پایان را می‌گیرد).
+final Map<String, int> zeroTrafficRun = {};
+int realStartsRun = 0;
+const int kMaxRealStartsPerTap = 40;
+const int kMaxZeroTrafficPerServer = 2;
 
 Future<void> pool<T>(
     List<T> items, int workers, Future<void> Function(T) fn) async {
@@ -4632,6 +4648,8 @@ Future<List<Server>> fetchServers({bool Function()? stop}) async {
       if (!body.contains('://')) {
         var b64 = body.replaceAll(RegExp(r'[^A-Za-z0-9+/=_-]'), '');
         b64 = b64.replaceAll('-', '+').replaceAll('_', '/');
+        // ERRB64: طول 4k+1 هیچ‌وقت base64 معتبر نیست؛ کاراکتر اضافه‌ی آخر کنار گذاشته می‌شود
+        if (b64.length % 4 == 1) b64 = b64.substring(0, b64.length - 1);
         while (b64.length % 4 != 0) { b64 += '='; }
         try {
           body = utf8.decode(base64.decode(b64), allowMalformed: true);
@@ -7794,6 +7812,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<bool> _startLocked(Server s,
       {bool proxyOnly = false, int? variant}) async {
+    final realGate = !proxyOnly && !proxyMode && wantVpn;
+    if (realGate) {
+      if ((zeroTrafficRun[s.key] ?? 0) >= kMaxZeroTrafficPerServer) {
+        lastFail = 'این سرور دو بار بدون ترافیک شد؛ رد شد';
+        lastStartNoTunnel = false;
+        return false;
+      }
+      if (realStartsRun >= kMaxRealStartsPerTap) {
+        lastFail = 'توقف امن: تلاش‌های این اتصال به سقف رسید';
+        lastStartNoTunnel = false;
+        wantVpn = false;
+        return false;
+      }
+      realStartsRun++;
+    }
     // QUIETSTART: برای اتصال واقعی VPN، تا پایان شروع هسته و بررسی تونل هیچ تست هسته‌ی
     // جدیدی (Xray اضافه داخل همین پروسه) شروع نمی‌شود و تست‌های در حال اجرا تا ۴ ثانیه
     // فرصت پایان دارند. تست‌های بی‌صدا (proxyOnly) و حالت پروکسی بدون تغییر می‌مانند.
@@ -7809,6 +7842,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       return ok;
     } finally {
       if (realVpn) _delayGate.resume();
+      if (realVpn && !ok && lastFail.contains('ترافیک تونل صفر')) {
+        zeroTrafficRun[s.key] = (zeroTrafficRun[s.key] ?? 0) + 1;
+      }
       _inflightEnd(s.key, ok);
     }
   }
@@ -13735,7 +13771,8 @@ UiHero(
                     ? () => disconnect()
                     : () async {
                           aiSession = false;
-                          await pickEngineThenStart(() => connect(), askMode: false, skipEngine: true);
+                          // ONLINEFIX: دکمه‌ی اتصال اصلی باید اول «آنلاین/آفلاین» بپرسد
+                          await pickEngineThenStart(() => connect(), askMode: true, skipEngine: true);
                         },
           ),
           if (busy)
