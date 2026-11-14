@@ -115,6 +115,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private volatile boolean stopping = false;
     private volatile boolean starting = false;
     private volatile boolean retryWaiting = false;
+    // CANCELBRINGUP: توکن لغو per-attempt؛ stop فقط تلاش فعلی را لغو می‌کند
+    private volatile java.util.concurrent.atomic.AtomicBoolean bringUpCancel = new java.util.concurrent.atomic.AtomicBoolean(false);
 
     /** Last error message for Dart diagnostics (populated on failures). */
     private volatile String lastError = "";
@@ -241,9 +243,12 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         final Object waitLock = new Object();
         final boolean[] done = {false};
 
+        // CANCELBRINGUP: هر تلاش توکن خودش را دارد؛ orphan قبلی با توکن خودش لغو می‌شود
+        final java.util.concurrent.atomic.AtomicBoolean cancel = new java.util.concurrent.atomic.AtomicBoolean(false);
+        bringUpCancel = cancel;
         Thread worker = new Thread(() -> {
             try {
-                boolean ok = bringUp(s);
+                boolean ok = bringUp(s, cancel);
                 synchronized (waitLock) {
                     result[0] = ok;
                     done[0] = true;
@@ -275,17 +280,24 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 }
             }
             if (!done[0]) {
+                // CANCELBRINGUP: worker یتیم پس از timeout متوقف می‌شود
+                cancel.set(true);
                 lastError = "bringUp timed out after " + (BRING_UP_TIMEOUT_MS / 1000) + "s";
                 Log.e(TAG, lastError + " for " + s.remark);
-                return false;
+            } else {
+                return result[0];
             }
-            return result[0];
         }
+        // JOINOUTSIDELOCK: join باید بیرون از waitLock باشد؛ worker برای done=true به همان قفل نیاز دارد
+        try { worker.join(2000); } catch (InterruptedException ignored) {}
+        return false;
     }
 
-    private boolean bringUp(Srv s) {
+    private boolean bringUp(Srv s, java.util.concurrent.atomic.AtomicBoolean cancel) {
         starting = true;
         try {
+            // CANCELBRINGUP: اگر لغو شده یا STOP آمده، اصلاً شروع نکن
+            if (cancel.get() || stopping) return false;
             V2rayConfig cfg = new V2rayConfig();
             cfg.V2RAY_FULL_JSON_CONFIG = s.config;
             cfg.REMARK = s.remark;
@@ -315,6 +327,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 Log.e(TAG, lastError);
                 return false;
             }
+            // CANCELBRINGUP: بعد از ساخت TUN، اگر لغو شده، TUN را ببند
+            if (cancel.get() || stopping) { closeTun(); return false; }
 
             // SOCKETPROTECT: make sure the service's own sockets bypass the
             // tunnel. V2rayVPNService already calls protect() via onProtect(),
@@ -334,6 +348,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 lastError = "startCore: " + t.getMessage();
                 ok = false;
             }
+            // CANCELBRINGUP: بعد از startCore، اگر لغو شده، TUN را ببند
+            if (cancel.get() || stopping) { closeTun(); return false; }
             if (!ok) {
                 lastError = "core startCore returned false";
                 closeTun();
@@ -559,6 +575,16 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             try {
                 active = false;
                 retryWaiting = false;
+                // STOPMIDBRINGUP: اگر bringUp یتیم هنوز در جریان است، لغوش کن و تا پایانش صبر کن
+                if (starting) {
+                    bringUpCancel.set(true);
+                    long until = System.currentTimeMillis() + 2000;
+                    while (starting && System.currentTimeMillis() < until) {
+                        try { Thread.sleep(50); } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt(); break;
+                        }
+                    }
+                }
                 if (watchdog != null) {
                     watchdog.shutdownNow();
                     watchdog = null;
