@@ -189,7 +189,7 @@ print('OK: Gradle')
 # =====================================================================
 # Dart source patches (V1..V19) have all been applied permanently to the
 # files under lib/ (main.dart, iran_ai_extras.dart, npv_am_extras.dart,
-# nat_ultra.dart, nip_scan.dart, auto_test.dart, singbox_core.dart).
+# nat_ultra.dart, nip_scan.dart, auto_test.dart).
 # This script now only fixes up the generated Android project
 # (AGP/Gradle versions, AndroidManifest permissions/services, native
 # source files, compileSdk) and no longer rewrites any .dart file.
