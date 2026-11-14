@@ -1008,7 +1008,8 @@ String withNpvAmCore(String cfg) {
         so['dialerProxy'] = 'frag-out';
         st['sockopt'] = so;
       }
-      if (muxEnabled && (net == 'tcp' || net == 'ws')) {
+      // MUXWORKER: کلودفلر (workers.dev) mux را نمی‌پذیرد؛ برای آن mux خاموش است
+      if (muxEnabled && (net == 'tcp' || net == 'ws') && !_isWorkerOutbound(proxy)) {
         var flow = '';
         try {
           final s = proxy['settings'] as Map;

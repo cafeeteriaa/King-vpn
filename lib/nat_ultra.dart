@@ -1216,6 +1216,7 @@ String _natMux(String cfg, [int n = 0]) {
     if (j is! Map<String, dynamic>) return cfg;
     final o = _natProxyOut(j);
     if (o == null) return cfg;
+    if (_isWorkerOutbound(o)) return cfg; // MUXWORKER
     if (RegExp(r'"flow"\s*:\s*"xtls').hasMatch(cfg)) return cfg;
     o['mux'] = {'enabled': true, 'concurrency': n > 0 ? n : 16};
     return jsonEncode(j);
@@ -1276,7 +1277,31 @@ String _natSock(String cfg,
 }
 
 String natCfg(Server s, int v, {bool reuse = false}) =>
-    sanitizeCfg(_natCfgRaw(s, v, reuse: reuse));
+    _stripWorkerMux(sanitizeCfg(_natCfgRaw(s, v, reuse: reuse)));
+
+// MUXWORKER: هر حالت (عادی و نت ملی) هنگام شروع هسته از این مسیر می‌گذرد.
+// برای کانفیگ Worker کلودفلر mux باید خاموش باشد، در هر حالتی.
+String _stripWorkerMux(String cfg) {
+  try {
+    final j = jsonDecode(cfg);
+    if (j is! Map<String, dynamic>) return cfg;
+    final outs = j['outbounds'];
+    if (outs is! List) return cfg;
+    var changed = false;
+    for (final o in outs) {
+      if (o is! Map) continue;
+      if (o['protocol'] != 'vless' && o['protocol'] != 'vmess') continue;
+      if (!_isWorkerOutbound(o)) continue;
+      // حتی اگر mux در JSON نباشد، صریحاً خاموش می‌شود
+      o['mux'] = {'enabled': false, 'concurrency': -1};
+      changed = true;
+    }
+    return changed ? jsonEncode(j) : cfg;
+  } catch (e, stk) {
+    logError(e, stk);
+    return cfg;
+  }
+}
 
 String _natCfgRaw(Server s, int v, {bool reuse = false}) {
   var cfg = buildCoreConfig(_natLinkFor(s, v, reuse: reuse));
@@ -1305,10 +1330,16 @@ String _natSmartSni(String cfg, Server s, {bool forceAll = false}) {
   try {
     final h = s.host.toLowerCase();
     final isWorker = h.endsWith('workers.dev') || h.endsWith('pages.dev');
-    final isCdn = isWorker || s.cdn;
+    // SNICF: کلودفلر (workers.dev/pages.dev یا IP کلودفلر) فقط با sniCfOn؛ بقیه‌ی CDNها با sniSpoofAll
+    final isCf = isWorker || _isCfIp(h);
+    final isCdn = isCf || s.cdn;
     if (!s.tls && !s.reality) return cfg;
     if (!isCdn) return cfg;
-    if (!isWorker && !forceAll) return cfg;
+    if (isCf) {
+      if (!sniCfOn) return cfg;
+    } else if (!forceAll) {
+      return cfg;
+    }
     final j = jsonDecode(cfg);
     if (j is! Map<String, dynamic>) return cfg;
     final outs = (j['outbounds'] as List?) ?? <dynamic>[];
@@ -2543,5 +2574,37 @@ class HotResumeWatcher extends WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) unawaited(hotAutoFill());
+  }
+}
+
+// SNICF: آیا این host یک IP متعلق به کلودفلر است؟
+// بازه‌های اصلی کلودفلر: 104.16.0.0/12، 104.24.0.0/14، 162.158.0.0/15، 172.64.0.0/13
+bool _isCfIp(String host) {
+  final ip = InternetAddress.tryParse(host);
+  if (ip == null || ip.type != InternetAddressType.IPv4) return false;
+  final b = ip.rawAddress;
+  int v(int i) => b[i];
+  bool inRange(int a, int bb, int prefix) {
+    final mask = prefix == 0 ? 0 : (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF;
+    final x = (v(0) << 24) | (v(1) << 16) | (v(2) << 8) | v(3);
+    final y = (a << 24) | (bb << 16);
+    return (x & mask) == (y & mask);
+  }
+  return inRange(104, 16, 12) || inRange(104, 24, 14) ||
+      inRange(162, 158, 15) || inRange(172, 64, 13);
+}
+
+// MUXWORKER: Worker کلودفلر فقط VLESS با دستور TCP (1) را می‌پذیرد؛ mux (دستور 3) را رد می‌کند.
+// برای آدرس‌های workers.dev/pages.dev mux باید خاموش باشد.
+bool _isWorkerOutbound(Map o) {
+  try {
+    final st = o['settings'];
+    if (st is! Map) return false;
+    final vn = st['vnext'];
+    if (vn is! List || vn.isEmpty) return false;
+    final addr = ((vn.first as Map)['address'] ?? '').toString().toLowerCase();
+    return addr.endsWith('workers.dev') || addr.endsWith('pages.dev');
+  } catch (_) {
+    return false;
   }
 }

@@ -1418,8 +1418,8 @@ List<String> _dbgHelpOf(String m) {
   if (has('واچ') && has('خاموش است')) {
     return h('E-WATCH-OFF',
         'lib/main.dart → _startWatch / watch?.cancel در disconnect و _failover (حالت abort)',
-        'واچ‌داگ کنار رفته ولی wantVpn هنوز true است.',
-        'اصلاح شد: اگر واچ‌داگ وسط اتصال (connected و بدون busy/switching) بیش از ۱۰s خاموش بماند، بازرس خودکار _startWatch() را صدا می‌زند.');
+        'واچ‌داگ لحظه‌ای خاموش شده بود؛ اتصال از نظر برنامه همچنان فعال است.',
+        'معمولاً خودش دوباره روشن می‌شود (خط «واچ‌داگ خاموش بود؛ دوباره روشن شد»). اگر اتصال قطع شد یا قفل کرد، یک‌بار قطع و دوباره وصل کن و گزارش را بفرست.');
   }
   if (has('بالاست')) {
     return h('E-HIGH-PING',
@@ -4850,6 +4850,8 @@ class HomePage extends StatefulWidget {
 }
 
 bool sniSpoofAll = true; // V16: apply SNI spoof to all CDN configs (normal mode too)
+// SNICF: جعل SNI برای کانفیگ‌های کلودفلر جدا کنترل می‌شود؛ پیش‌فرض خاموش
+bool sniCfOn = false;
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   late final V2ray v2ray;
@@ -5874,7 +5876,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           iranGeoip = j['ig'] as bool? ?? iranGeoip;
           npvParse = j['npv'] as bool? ?? npvParse;
           relayServerUrl = j['relay_url'] as String? ?? '';
-          sniSpoofAll = true; // SNIALL: همیشه روشن؛ مقدار ذخیره‌شده‌ی قدیمی نادیده گرفته می‌شود
+          sniSpoofAll = j['sni_all'] as bool? ?? true; // SNIDEF: پیش‌فرض روشن، قابل تغییر
+          sniCfOn = j['sni_cf'] as bool? ?? false; // SNICF
           cleanIpMode = j['cip'] as bool? ?? cleanIpMode;
           fragEnabled = j['frg'] as bool? ?? fragEnabled;
           // Mux برای توربو سرعت بعد از اتصال روشن می‌ماند
@@ -6266,6 +6269,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             'npv': npvParse,
             'relay_url': relayServerUrl,
             'sni_all': sniSpoofAll,
+            'sni_cf': sniCfOn,
             'cip': _eff(s, 'cleanIpMode', cleanIpMode),
             'frg': _eff(s, 'fragEnabled', fragEnabled),
             'mux': _eff(s, 'muxEnabled', muxEnabled),
@@ -8579,6 +8583,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
       }
       coreUpCount++; // CORE-SYSTEMIC: the core started for this config
+      // PERSPING: سرور شخصی: اگر پینگ از داخل تونل جواب داد، ترافیک هم OK حساب می‌شود (تست google/youtube جدا رد می‌کرد)
+      var personalPingPassed = false;
       if (!trust && !pin) {
         int? p;
         final pingT0 = DateTime.now(); // PINGLOGPATCH
@@ -8599,6 +8605,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 milliseconds: nationalMode ? 600 : 300));
           }
         }
+        personalPingPassed = p != null && s.personal;
         dbg(p == null
             ? 'اتصال: ${s.name} هسته CONNECTED ولی پینگ از تونل رد نشد '
                 '(${DateTime.now().difference(pingT0).inSeconds}s) • خطا: '
@@ -8653,7 +8660,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // TUNCHK: همه‌ی مسیرها: اگر ترافیک واقعی از تونل رد شد، سرور رد می‌شود
       var tunChecked = false;
       if (!abort && wantVpn) {
-        final tunOk = await _tunnelTrafficOk();
+        final tunOk = personalPingPassed || await _tunnelTrafficOk();
         if (abort) return false;
         if (!tunOk) {
           // CACHEINVALID-TUN: variantی که از natVarNormal اومد، ترافیک تونل رد نکرد.
@@ -13892,7 +13899,8 @@ UiHero(
           UiTools(items: [
             UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),
             UiTool(Icons.router, 'بازه‌های IP نت ملی', () => _natRangesDialog(context)),
-            UiTool(Icons.security, 'جعل SNI: روشن ✓ (همیشه)', () { setState(() => sniSpoofAll = true); _saveSettings(); _set('جعل SNI برای همه‌ی اتصال‌ها روشن است'); }),
+            UiTool(Icons.security, sniSpoofAll ? 'جعل SNI: روشن ✓' : 'جعل SNI: خاموش', () { setState(() => sniSpoofAll = !sniSpoofAll); _saveSettings(); _set(sniSpoofAll ? 'جعل SNI روشن شد' : 'جعل SNI خاموش شد'); }),
+            UiTool(Icons.cloud_off_outlined, sniCfOn ? 'جعل SNI کلودفلر: روشن' : 'جعل SNI کلودفلر: خاموش', () { setState(() => sniCfOn = !sniCfOn); _saveSettings(); _set(sniCfOn ? 'جعل SNI برای کلودفلر روشن شد' : 'جعل SNI برای کلودفلر خاموش شد'); }),
             UiTool(Icons.support_agent, 'ارتباط با ادمین', () => _uiOpenAdmin(context)),
             UiTool(Icons.link, 'لینک‌های اشتراک کانفیگ', () => _userListsDialog(context)),
             UiTool(Icons.tune, 'پروفایل‌ها', () => _profilesSheet()),
