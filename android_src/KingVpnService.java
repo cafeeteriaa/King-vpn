@@ -121,6 +121,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     /** Last error message for Dart diagnostics (populated on failures). */
     private volatile String lastError = "";
 
+    /** Diagnostic accessor for the last failure message. */
+    public String getLastError() { return lastError; }
+
     private static class Srv {
         final String config, remark, addr, port;
 
@@ -448,7 +451,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private void retryWholeListLater() {
         if (stopping) return;
         int streakIdx = Math.min(listExhaustedStreak, BACKOFF_SEC.length - 1);
-        int delay = BACKOFF_SEC[streakIdx];
+        int base = BACKOFF_SEC[streakIdx];
+        // ±10% jitter so many devices do not retry at the same moment
+        int delay = Math.max(1, base + (int) Math.round(base * 0.1 * (Math.random() * 2 - 1)));
         listExhaustedStreak++;
         active = false;
         retryWaiting = true;
