@@ -14,6 +14,7 @@ import 'package:installed_apps/app_info.dart';
 import 'package:installed_apps/installed_apps.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'prefs_store.dart';
+import 'nnie_core.dart'; // NNIE: کد خالص و قابل تست
 import 'own_vpn.dart'; // KINGVPN: سرویس VPN خودمان (پیش‌فرض خاموش)
 import 'package:workmanager/workmanager.dart';
 import 'package:crypto/crypto.dart'; // فیکس ۱: sha256 برای APK آپدیت
@@ -38,9 +39,13 @@ part 'king_heal.dart';
 part 'update_check.dart';
 part 'server_shop.dart';
 part 'telegram_channels.dart';
+part 'backup_restore.dart'; // BKPRESTORE
+part 'dns_scanner.dart'; // DNSSCAN
+part 'sub_groups.dart'; // SUBGROUP
 part 'ultimate_extras.dart';
 part 'auto_test.dart';
 part 'net_state.dart';
+part 'national_engine.dart'; // NNIE: هوشمندسازی حالت موجود نت ملی، بدون دکمه جدید
 
 // One rewarded ad = one 4 hour session. When the 4 hours end the VPN is cut
 // and the next connect shows the ad again. Automatic server switches (bad
@@ -5318,6 +5323,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    unawaited(NationalNetworkIntelligence.load()); // NNIE: حافظه‌ی شبکه، بدون تأخیر در UI
     _crashGuardInit(); // CRASHGUARD: آیا اجرای قبلی وسط شروع یک سرور مرده است؟
     unawaited(_loadVpnPerm()); // FIX-PERSIST
     Future.delayed(const Duration(seconds: 4), () => unawaited(_logLastExit())); // KINGDIAG
@@ -6277,6 +6283,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   /// true وقتی در این اجرای برنامه لیست شخصی روی صفحه ذخیره شده و هنوز پاک نشده است
   bool _screenWasOn = false;
+  DateTime? _nnieTapAt; // شروع واقعی اتصال (بعد از تبلیغ و مجوز) برای زمان‌سنجی NNIE
   /// PERSKEEP: لیست سرورهای شخصی روی صفحه بعد از بستن و باز کردن برنامه می‌ماند
   /// و فقط با قطع اتصال پاک می‌شود. سرورهای سالم دیگر روی صفحه بازیابی نمی‌شوند.
   Future<void> _persistScreenLists() async {
@@ -6307,7 +6314,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ps.add(x);
         }
       }
-      if (ps.isNotEmpty && _personalShown.isEmpty) _personalShown = ps;
+      if (ps.isNotEmpty) {
+        _screenWasOn = true; // PERSKEEP-FIX: وضعیت ذخیره‌شده پس از restart هم باید قابل پاک‌شدن باشد
+        if (_personalShown.isEmpty) _personalShown = ps;
+      }
     } catch (e, stk) {
       logError(e, stk);
     }
@@ -6988,7 +6998,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             if (mki < knownC.length) { mix.add(knownC[mki]); mki++; }
             if (mui < unknownC.length) { mix.add(unknownC[mui]); mui++; }
           }
-          cand = mix;
+          // NNIE: سابقه‌ی واقعی همین endpoint فقط اولویت را تغییر می‌دهد؛ هیچ کانفیگ ناشناخته‌ای حذف نمی‌شود.
+          int nnieCompare(Server a, Server b) {
+            final ak = NationalNetworkIntelligence.keyOfServer(a);
+            final bk = NationalNetworkIntelligence.keyOfServer(b);
+            return NationalNetworkIntelligence.scoreFor(bk)
+                .compareTo(NationalNetworkIntelligence.scoreFor(ak));
+          }
+          final knownPart = mix.where((x) => x.checkedAt != null).toList()..sort(nnieCompare);
+          final unknownPart = mix.where((x) => x.checkedAt == null).toList()..sort(nnieCompare);
+          cand = <Server>[];
+          var ki = 0, ui = 0;
+          while (ki < knownPart.length || ui < unknownPart.length) {
+            if (ki < knownPart.length) cand.add(knownPart[ki++]);
+            if (ui < unknownPart.length) cand.add(unknownPart[ui++]);
+          }
         }
         final batch = _mixBatch(cand, size);
         _set('ردیف ${row ?? 'همه'} • '
@@ -7223,26 +7247,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       alive.addAll(ipList); // ULTRA عادی: مستقیم به تست واقعی هسته
       ipList.clear();
     }
-    // نت ملی: کانفیگ‌های IP ناشناخته (نه از حافظه، نه از اسکن) اصلاً تست نمی‌شوند،
-    // چون IPهای فیلترشده‌اند. فقط IPهایی که واقعاً جواب داده‌اند یا از اسکن آمده‌اند می‌مانند.
+    // NNIE / NATIONAL-IP-FIX:
+    // در نت ملی، شکست TCP مستقیم از گوشی دلیل رد کانفیگ نیست؛ ممکن است مسیر واقعی
+    // فقط از طریق core/transport قابل استفاده باشد. IPهای شناخته‌شده را جلوتر می‌آوریم
+    // اما تمام IPها (شناخته و ناشناخته) را برای تست واقعی هسته نگه می‌داریم.
     if (nationalMode && ipList.isNotEmpty) {
       final trusted = natIpMemHosts()..addAll(natScanHits);
-      // V12: in round 2 every IP counts as trusted for the purposes of testing
-      // order. In round 1, split known/unknown 50/50 in queue position only.
       final known = ipList.where((s) => trusted.contains(s.host)).toList();
       final unknown = ipList.where((s) => !trusted.contains(s.host)).toList();
       final mixed = <Server>[];
       var ki = 0, ui = 0;
       while (ki < known.length || ui < unknown.length) {
-        if (ki < known.length) { mixed.add(known[ki]); ki++; }
-        if (ui < unknown.length) { mixed.add(unknown[ui]); ui++; }
+        if (ki < known.length) mixed.add(known[ki++]);
+        if (ui < unknown.length) mixed.add(unknown[ui++]);
       }
-      ipList
-        ..clear()
-        ..addAll(mixed);
-      if (natRound >= 2) {
-        dbg('V12-R2: testing ALL IPs in round 2 (known=${known.length}, unknown=${unknown.length})');
-      }
+      alive.addAll(mixed);
+      ipList.clear(); // در حالت ملی هیچ TCP مستقیمِ hard-filter اجرا نمی‌شود.
+      dbg('NNIE-IP: direct TCP bypass; ${mixed.length} IP candidates passed to core test');
     }
     var ipOpen = 0;
     dbg('TRACE ipList: ${ipList.length} آدرس برای TCP');
@@ -8477,6 +8498,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   void _onConnected(Server s) {
+    // NNIE: هر اتصال، شروع خودش را دارد؛ شروع قدیمی هرگز برای اتصال بعدی استفاده نشود
+    final nnieTap = _nnieTapAt;
+    _nnieTapAt = null;
     if (_listPartial) unawaited(_fetchFullListBg());
     // IP کارا به حافظه (هم در نت جهانی و هم در نت ملی؛ دفعه‌ی بعد اول از همین‌ها استفاده می‌شود)
     if (InternetAddress.tryParse(s.host) != null) {
@@ -8524,7 +8548,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // remembered so the app can pick the tunnel up again after being closed
     SharedPreferences.getInstance()
         .then((p) => p.setString('last_conn', s.link));
-    if (nationalMode) unawaited(natRememberSuccess(s)); // NATMEM
+    if (nationalMode) {
+      unawaited(natRememberSuccess(s)); // NATMEM
+      // NNIE: فقط این مسیر پس از تأیید end-to-end موفقیت سرور را ثبت می‌کند.
+      final nnieKey = NationalNetworkIntelligence.keyOfServer(s);
+      // زمان واقعی از شروع اتصال تا CONNECTED (شامل همه‌ی سرورهای امتحان‌شده).
+      // اگر شروع ثبت نشده یا خیلی قدیمی است (اتصال خودکار)، به RTT قبلی برمی‌گردیم.
+      final tapOk = nnieTap != null &&
+          DateTime.now().difference(nnieTap) < const Duration(minutes: 10);
+      final realMs = tapOk ? DateTime.now().difference(nnieTap).inMilliseconds : -1;
+      unawaited(NationalNetworkIntelligence.record(
+        endpointKey: nnieKey,
+        success: true,
+        elapsedMs: realMs >= 0 ? realMs : max(0, s.ping ?? 0),
+        stableForFiveMinutes: false,
+      ));
+      NationalNetworkIntelligence.armStable(nnieKey, () => connected && identical(current, s));
+    }
     if (mounted) setState(() {});
     if (mounted) uiJoinPrompt(context);
     _set(_connStatus());
@@ -8600,6 +8640,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             socialGate != null ? await socialGate() : p != null;
         if (!accepted) {
           dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» ترافیک تونل نداد؛ حالت بعدی');
+          // NNIE: فقط شکستی که به سرور/حالت مربوط است ثبت می‌شود (نه permission و نه DNS)
+          unawaited(NationalNetworkIntelligence.record(
+            endpointKey: NationalNetworkIntelligence.keyOfServer(s),
+            success: false,
+            elapsedMs: 0,
+            stableForFiveMinutes: false,
+          ));
           await _stopV2();
           continue;
         }
@@ -9651,6 +9698,23 @@ ListTile( // KINGEXTRAS row
               },
             ),
             const Divider(height: 1),
+            ListTile( // BKPRESTORE row
+              leading: const Icon(Icons.backup_outlined),
+              title: const Text('پشتیبان‌گیری و بازیابی'),
+              onTap: () {
+                Navigator.pop(ctx);
+                bkpSheet(context);
+              },
+            ),
+            ListTile( // SUBGROUP row
+              leading: const Icon(Icons.folder_copy_outlined),
+              title: const Text('تنظیمات گروهی اشتراک'),
+              onTap: () {
+                Navigator.pop(ctx);
+                unawaited(sgrpSheet(context));
+              },
+            ),
+            const Divider(height: 1),
             ListTile( // HOTFOLDER row
               leading: const Icon(Icons.cloud_download_outlined),
               title: const Text('پوشه منابع تازه (کانفیگ ها)'),
@@ -9874,6 +9938,7 @@ ListTile( // KINGEXTRAS row
       nationalMode = userModeChoice == true || natForce;
       // PILOTNONAT: خلبان روشن باشد، شبکه ملی نمی‌شود (حتی اگر تشخیص یا دکمه بخواهد)
       if (localPilotOn || aiSession) nationalMode = false;
+    if (nationalMode && !busy) unawaited(dnsxAutoPick()); // DNSAUTO: وقتی برنامه مشغول اتصال نیست
       // نت ملی: جستجوی بی‌نهایت همیشه روشن است
       if (nationalMode) indestructibleMode = true;
       if (nationalMode != was && mounted) {
@@ -10827,7 +10892,7 @@ ListTile( // KINGEXTRAS row
   Timer? _personalPingT;
 
   Future<void>? _personalPrep;
-  /// PERSLIVE: ردیف‌های زنده‌ی لیست تست پینگ (ping: null=در حال تست، -1=جواب نداد)
+  /// PERSLIVE: ردیف‌های لیست شخصی؛ در مسیر فعلی ping=-2 یعنی عمداً بدون تست مستقیم
   /// PERSPAGE: تا ۵۰ سرور پوشه‌ی شخصی که روی صفحه‌ی اصلی (ردیف «سرور شخصی») با پینگ نشان داده می‌شوند
   List<Server> _personalShown = <Server>[];
   final ValueNotifier<List<_PRow>> _personalRows = ValueNotifier<List<_PRow>>(<_PRow>[]);
@@ -11165,6 +11230,8 @@ ListTile( // KINGEXTRAS row
     // set AFTER _haltAll: stopping the search sets abort, and the background
     // watcher then resets wantVpn when abort is set in manual mode
     wantVpn = true;
+    _nnieTapAt = DateTime.now();
+    if (nationalMode && !connected) unawaited(NatNetworkDiagnosis.refresh());
     await _runBusy(() async {
       if (natForce || _resNext) _resInject(); // NATRESPATCH
       _resNext = false;
@@ -11318,7 +11385,7 @@ ListTile( // KINGEXTRAS row
             : (row == 'f:mine')
                 // "my configs" row: they are connected directly, no search
                 ? await _connectLoop(_mineList())
-                // پوشه‌ی «سرورهای شخصی»: ۵۰ سرور اول پینگ و به بهترین وصل می‌شود
+                // پوشه‌ی «سرورهای شخصی»: حداکثر ۵۰ سرور، با ترتیب پوشه و آخرین سرور موفق در اولویت
                 : (row == 'f:pfolder')
                     ? await _connectLoop(personalFolderServers())
                 // DSGETTER: از مقدار مؤثر
@@ -14547,6 +14614,7 @@ UiHero(
           UiTools(items: [
             UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),
             UiTool(Icons.router, 'بازه‌های IP نت ملی', () => _natRangesDialog(context)),
+            UiTool(Icons.travel_explore_outlined, 'اسکنر DNS', () => dnsxSheet(context)), // DNSSCAN
             UiTool(Icons.security, sniSpoofAll ? 'جعل SNI: روشن ✓' : 'جعل SNI: خاموش', () { setState(() => sniSpoofAll = !sniSpoofAll); _saveSettings(); _set(sniSpoofAll ? 'جعل SNI روشن شد' : 'جعل SNI خاموش شد'); }),
             UiTool(Icons.cloud_off_outlined, sniCfOn ? 'جعل SNI کلودفلر: روشن' : 'جعل SNI کلودفلر: خاموش', () { setState(() => sniCfOn = !sniCfOn); _saveSettings(); _set(sniCfOn ? 'جعل SNI برای کلودفلر روشن شد' : 'جعل SNI برای کلودفلر خاموش شد'); }),
             UiTool(Icons.support_agent, 'ارتباط با ادمین', () => _uiOpenAdmin(context)),

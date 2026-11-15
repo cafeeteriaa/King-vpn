@@ -437,11 +437,14 @@ int natGrow(int n) {
     final portIdx = port ? rnd.nextInt(_natCfPorts.length) : null;
     final clean = rnd.nextBool();
     final cleanIdx = clean ? rnd.nextInt(10) : null;
-    final doh = rnd.nextBool() ? _natDnsList[rnd.nextInt(_natDnsList.length)] : null;
+    // DNSNAT: جایگزین‌ها از DNSهای سالم اسکن (اگر هست) انتخاب می‌شوند
+    // نیمی از انتخاب‌ها از DNSهای اسکن‌شده و نیمی از لیست ثابت، تا تنوع حفظ شود
+    final dnsPool = (dnsxBestCache.isNotEmpty && rnd.nextBool()) ? dnsxBestCache : _natDnsList;
+    final doh = rnd.nextBool() ? dnsPool[rnd.nextInt(dnsPool.length)] : null;
     final v4 = rnd.nextBool();
     final tfo = rnd.nextBool();
     final keep = rnd.nextBool() ? rnd.nextInt(30) + 1 : null;
-    final sniSwap = rnd.nextBool() ? rnd.nextInt(15) : null;
+    final sniSwap = rnd.nextBool() ? rnd.nextInt(natFrontSnis.length) : null;
     _natSpecs.add(_natMk(
       fp: fp, alpn: alpn, frag: frag, port: port, portIdx: portIdx,
       clean: clean, cleanIdx: cleanIdx, v4: v4, tfo: tfo, keep: keep, doh: doh,
@@ -816,12 +819,10 @@ List<int> _natOrder(Server s, {bool full = false}) {
     }
   }
 
-  // KCP is registered after _natGenerate(), so it has no rank on fresh installs.
-  // Test it early at level >= 2, only in national mode (where heavy variants run).
-  if (lvl >= 2 && nationalMode) {
-    final kcpIdx = _natSpecs.indexWhere((x) => x.mode == 'kcp:none');
-    if (kcpIdx > 0 && _natAppliesF(f, kcpIdx)) put(kcpIdx);
-  }
+  // NNIE: KCP is expensive and UDP may be filtered. Do not put it ahead of
+  // cheap compatible variants on every fresh network. A previously learned
+  // winner can still be tried first through knownOk above; otherwise KCP stays
+  // in the later generated matrix rather than being an unconditional first pick.
 
   if (lvl >= 2) {
     for (final w in _natTopWinners(6)) {
@@ -868,6 +869,23 @@ List<int> _natOrder(Server s, {bool full = false}) {
     for (final v in _natGenRanked()) {
       if (_natAppliesF(f, v)) app.add(v);
     }
+    // NNIE staged scheduler: retain every compatible variant, but try cheap
+    // options before expensive KCP unless a real winner was learned earlier.
+    app.sort((a, b) {
+      final sa = NationalNetworkIntelligence.stageFor(
+        variantIndex: a % _natCodeBase,
+        isKcp: _natIsSlowHeavy(a),
+        isKnownWinner: knownOk && a == known,
+        isCdnCompatible: f.cdnLike,
+      ).index;
+      final sb = NationalNetworkIntelligence.stageFor(
+        variantIndex: b % _natCodeBase,
+        isKcp: _natIsSlowHeavy(b),
+        isKnownWinner: knownOk && b == known,
+        isCdnCompatible: f.cdnLike,
+      ).index;
+      return sa.compareTo(sb);
+    });
     if (cursor >= app.length && lvl >= 2) {
       natGrow(1000);
       app.clear();
@@ -1238,6 +1256,14 @@ String _natDns(String cfg, String doh) {
     final servers = <String>[];
     void add(String s) {
       if (s.isNotEmpty && !servers.contains(s)) servers.add(s);
+    }
+    // DNSNAT: بهترین DNSهای داخلی که اسکن خودکار پیدا کرده اول می‌آیند
+    for (final x in dnsxBestCache) {
+      add(x);
+    }
+    // DNSNAT: DNSهای داخلی ثابت پروژه قبل از DNSهای خارجی (که در نت ملی جواب نمی‌دهند)
+    for (final x in _natDnsList) {
+      if (!x.startsWith('https')) add(x);
     }
     add(doh);
     add('https+local://1.1.1.1/dns-query');

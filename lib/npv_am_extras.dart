@@ -86,7 +86,8 @@ String customDnsAddr = '';
 List<String>? customDnsList() {
   if (effectiveDnsProv() != 'custom') return null;
   final a = customDnsAddr.trim();
-  final ipOk = RegExp(r'^\d{1,3}(\.\d{1,3}){3}$').hasMatch(a);
+  final parsedIp = InternetAddress.tryParse(a);
+  final ipOk = parsedIp != null && parsedIp.type == InternetAddressType.IPv4;
   if (a.startsWith('https://') || ipOk) return [a];
   return null;
 }
@@ -95,35 +96,47 @@ Future<int?> _probeDoh(String url) async {
   final sw = Stopwatch()..start();
   final cl = HttpClient()..connectionTimeout = const Duration(seconds: 2);
   try {
-    final req =
-        await cl.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 2));
+    final req = await cl.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 2));
     req.headers.set('accept', 'application/dns-json');
     final res = await req.close().timeout(const Duration(seconds: 2));
-    await res.drain().timeout(const Duration(seconds: 2));
-    if (res.statusCode >= 200 && res.statusCode < 400) {
-      return sw.elapsedMilliseconds;
+    if (res.statusCode != 200) {
+      await res.drain().timeout(const Duration(seconds: 2));
+      return null;
     }
-  } catch (e, stk) {
-    logError(e, stk);
-  } finally {
-    cl.close(force: true);
-  }
-  return null;
-}
-
-Future<int?> _probeDnsIp(String ip) async {
-  final sw = Stopwatch()..start();
-  try {
-    final s = await Socket.connect(ip, 53,
-            timeout: const Duration(seconds: 2))
-        .timeout(const Duration(seconds: 2));
-    final ms = sw.elapsedMilliseconds;
-    s.destroy();
-    return ms;
+    final body = await utf8.decoder.bind(res).join().timeout(const Duration(seconds: 2));
+    final decoded = jsonDecode(body);
+    if (decoded is! Map || (decoded['Status'] as num?)?.toInt() != 0) return null;
+    final question = decoded['Question'];
+    if (question is! List || !question.any((q) => q is Map &&
+        (q['name']?.toString().toLowerCase() == 'google.com' ||
+         q['name']?.toString().toLowerCase() == 'google.com.') &&
+        (q['type'] as num?)?.toInt() == 1)) return null;
+    final answers = decoded['Answer'];
+    if (answers is! List) return null;
+    final valid = answers.any((a) {
+      if (a is! Map || (a['type'] as num?)?.toInt() != 1) return false;
+      final ip = InternetAddress.tryParse(a['data']?.toString() ?? '');
+      if (ip == null || ip.type != InternetAddressType.IPv4) return false;
+      final octets = ip.rawAddress;
+      return NatDnsWireProbe.publicV4(octets, 0);
+    });
+    return valid ? sw.elapsedMilliseconds : null;
   } catch (e, stk) {
     logError(e, stk);
     return null;
+  } finally {
+    cl.close(force: true);
   }
+}
+
+Future<int?> _probeDnsIp(String ip) async {
+  final domain = nationalMode ? 'nic.ir' : 'google.com';
+  final result = await NatDnsWireProbe.probe(
+    ip,
+    domain,
+    timeout: const Duration(seconds: 2),
+  );
+  return result.ok ? result.elapsedMs : null;
 }
 
 Future<String> pickBestDns({bool force = false}) async {
@@ -151,29 +164,45 @@ Future<String> pickBestDns({bool force = false}) async {
     'radar': '10.202.10.10',
   };
 
-  String best = 'cloudflare';
+  String best = dnsProvActive.isNotEmpty ? dnsProvActive : 'cloudflare';
   var bestMs = 1 << 30;
+  var foundValidResolver = false;
+  // During a domestic-only outage do not spend the first DNS-selection window
+  // on global DoH endpoints. Probe only domestic resolvers with a real .ir query.
+  final selectedDohProbes = nationalMode
+      ? const <String, String>{}
+      : dohProbes;
+  final selectedIpProbes = nationalMode
+      ? const <String, String>{
+          'shecan': '178.22.122.100',
+          'electro': '78.157.42.100',
+          'radar': '10.202.10.10',
+        }
+      : ipProbes;
 
   await Future.wait([
-    ...dohProbes.entries.map((e) async {
+    ...selectedDohProbes.entries.map((e) async {
       final ms = await _probeDoh(e.value);
       if (ms != null && ms < bestMs) {
         bestMs = ms;
         best = e.key;
+        foundValidResolver = true;
       }
     }),
-    ...ipProbes.entries.map((e) async {
+    ...selectedIpProbes.entries.map((e) async {
       final ms = await _probeDnsIp(e.value);
       if (ms != null && ms < bestMs) {
         bestMs = ms;
         best = e.key;
+        foundValidResolver = true;
       }
     }),
   ]);
 
-  dnsProvActive = best;
+  if (foundValidResolver) dnsProvActive = best;
+  else dbg('DNS auto: no resolver returned a validated answer; keeping previous provider=$dnsProvActive');
   _dnsPickAt = DateTime.now();
-  return best;
+  return dnsProvActive;
 }
 
 const _lanCidrs = <String>[

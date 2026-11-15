@@ -1,0 +1,204 @@
+// Unit tests for the pure NNIE core. Run from the generated Flutter project:
+//   flutter test test/nnie_core_test.dart
+// These cover logic only; they do not test real networks, VPN, or Android.
+import 'package:flutter_test/flutter_test.dart';
+import 'package:king_vpn/nnie_core.dart';
+
+List<int> _u16(int v) => [(v >> 8) & 255, v & 255];
+
+/// Builds a DNS response: header, question for [qname], one answer with [rdata].
+List<int> _response({
+  required int id,
+  int flags = 0x8180, // QR=1, RD=1, RA=1, RCODE=0
+  String qname = 'google.com',
+  required List<int> rdata,
+  int an = 1,
+}) {
+  final out = <int>[
+    ..._u16(id), ..._u16(flags), ..._u16(1), ..._u16(an), ..._u16(0), ..._u16(0),
+  ];
+  for (final label in qname.split('.')) {
+    out..add(label.length)..addAll(label.codeUnits);
+  }
+  out.addAll([0, 0, 1, 0, 1]); // root, QTYPE=A, QCLASS=IN
+  if (an > 0) {
+    out.addAll([
+      0xc0, 0x0c, // name: pointer to the question name
+      ..._u16(1), ..._u16(1), // TYPE=A, CLASS=IN
+      0, 0, 0, 60, // TTL
+      ..._u16(rdata.length), ...rdata,
+    ]);
+  }
+  return out;
+}
+
+void main() {
+  group('NatProbeEvidence.classify', () {
+    test('a single failed sample is never proof of a national network', () {
+      const ev = NatProbeEvidence(
+        domesticDnsOk: false, domesticTcpOk: true,
+        globalDnsOk: false, globalTcpOk: false, sampleCount: 1,
+      );
+      expect(ev.classify(), NatNetworkClass.unknown);
+    });
+
+    test('domestic reachable, global not reachable -> domesticOnlyLikely', () {
+      const ev = NatProbeEvidence(
+        domesticDnsOk: false, domesticTcpOk: true,
+        globalDnsOk: false, globalTcpOk: false, sampleCount: 4,
+      );
+      expect(ev.classify(), NatNetworkClass.domesticOnlyLikely);
+    });
+
+    test('everything reachable -> globalReachable', () {
+      const ev = NatProbeEvidence(
+        domesticDnsOk: true, domesticTcpOk: true,
+        globalDnsOk: true, globalTcpOk: true, sampleCount: 4,
+      );
+      expect(ev.classify(), NatNetworkClass.globalReachable);
+    });
+
+    test('suspected DNS poisoning -> dnsDegraded', () {
+      const ev = NatProbeEvidence(
+        domesticDnsOk: true, domesticTcpOk: true,
+        globalDnsOk: false, globalTcpOk: false,
+        dnsPoisonSuspected: true, sampleCount: 4,
+      );
+      expect(ev.classify(), NatNetworkClass.dnsDegraded);
+    });
+
+    test('DNS answers but TCP is blocked -> transportRestricted', () {
+      const ev = NatProbeEvidence(
+        domesticDnsOk: true, domesticTcpOk: false,
+        globalDnsOk: true, globalTcpOk: false, sampleCount: 4,
+      );
+      expect(ev.classify(), NatNetworkClass.transportRestricted);
+    });
+
+    test('nothing reachable -> unknown, not domesticOnlyLikely', () {
+      const ev = NatProbeEvidence(
+        domesticDnsOk: false, domesticTcpOk: false,
+        globalDnsOk: false, globalTcpOk: false, sampleCount: 4,
+      );
+      expect(ev.classify(), NatNetworkClass.unknown);
+    });
+  });
+
+  group('NatDnsWireProbe', () {
+    test('buildQuery encodes the name as length-prefixed labels', () {
+      final q = NatDnsWireProbe.buildQuery('google.com', 0x1234);
+      expect(q.sublist(0, 2), [0x12, 0x34]); // transaction ID
+      expect(q[12], 6); // "google"
+      expect(q.length, 12 + 7 + 4 + 1 + 4); // header + labels + root + type/class
+    });
+
+    test('accepts a valid public A answer', () {
+      final bytes = _response(id: 0x1234, rdata: [8, 8, 8, 8]);
+      expect(NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'), ['8.8.8.8']);
+    });
+
+    test('rejects a mismatched transaction ID', () {
+      final bytes = _response(id: 0x0001, rdata: [8, 8, 8, 8]);
+      expect(() => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
+          throwsA(isA<FormatException>()));
+    });
+
+    test('rejects a response without the QR bit', () {
+      final bytes = _response(id: 0x1234, flags: 0x0180, rdata: [8, 8, 8, 8]);
+      expect(() => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
+          throwsA(isA<FormatException>()));
+    });
+
+    test('rejects a non-zero RCODE (e.g. NXDOMAIN)', () {
+      final bytes = _response(id: 0x1234, flags: 0x8183, rdata: [8, 8, 8, 8]);
+      expect(() => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
+          throwsA(isA<FormatException>()));
+    });
+
+    test('rejects a block-page answer in private space', () {
+      final bytes = _response(id: 0x1234, rdata: [10, 10, 34, 34]);
+      expect(() => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
+          throwsA(isA<FormatException>()));
+    });
+
+    test('rejects a question for a different name', () {
+      final bytes = _response(id: 0x1234, qname: 'example.com', rdata: [8, 8, 8, 8]);
+      expect(() => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
+          throwsA(isA<FormatException>()));
+    });
+
+    test('rejects a truncated packet instead of crashing', () {
+      expect(() => NatDnsWireProbe.parseResponse([0, 1, 2], 1, 'google.com'),
+          throwsA(isA<FormatException>()));
+    });
+
+    test('publicV4 rejects special-use ranges and accepts public addresses', () {
+      expect(NatDnsWireProbe.publicV4([100, 64, 1, 1], 0), isFalse); // CGNAT
+      expect(NatDnsWireProbe.publicV4([192, 168, 1, 1], 0), isFalse);
+      expect(NatDnsWireProbe.publicV4([198, 18, 0, 1], 0), isFalse); // benchmarking
+      expect(NatDnsWireProbe.publicV4([8, 8, 8, 8], 0), isTrue);
+    });
+  });
+
+  group('NatEndpointMemory', () {
+    test('corrupted or wrongly typed JSON never throws', () {
+      expect(() => NatEndpointMemory.fromJson(null), returnsNormally);
+      expect(() => NatEndpointMemory.fromJson('garbage'), returnsNormally);
+      expect(() => NatEndpointMemory.fromJson({'a': 'x', 's': [1], 'e': double.nan}),
+          returnsNormally);
+      final m = NatEndpointMemory.fromJson({'a': 'x', 's': -5, 'e': double.nan});
+      expect(m.attempts, 0);
+      expect(m.successes, 0);
+      expect(m.ewmaConnectMs, 0);
+    });
+
+    test('toJson and fromJson round-trip', () {
+      const m = NatEndpointMemory(
+        attempts: 7, successes: 5, failStreak: 1,
+        ewmaConnectMs: 1234.5, lastSuccessMs: 1700000000000, stableSuccesses: 3,
+      );
+      final back = NatEndpointMemory.fromJson(m.toJson());
+      expect(back.attempts, 7);
+      expect(back.successes, 5);
+      expect(back.failStreak, 1);
+      expect(back.ewmaConnectMs, 1234.5);
+      expect(back.lastSuccessMs, 1700000000000);
+      expect(back.stableSuccesses, 3);
+    });
+
+    test('a failure streak lowers the score', () {
+      const healthy = NatEndpointMemory(
+        attempts: 10, successes: 9, failStreak: 0,
+        ewmaConnectMs: 2000, lastSuccessMs: 0, stableSuccesses: 2,
+      );
+      const failing = NatEndpointMemory(
+        attempts: 10, successes: 9, failStreak: 5,
+        ewmaConnectMs: 2000, lastSuccessMs: 0, stableSuccesses: 2,
+      );
+      expect(healthy.score, greaterThan(failing.score));
+    });
+  });
+
+  group('natStageFor', () {
+    NatAttemptStage stage({int v = 20, bool kcp = false, bool winner = false, bool cdn = false}) =>
+        natStageFor(variantIndex: v, isKcp: kcp, isKnownWinner: winner, isCdnCompatible: cdn);
+
+    test('variant 0 and a learned winner are quick', () {
+      expect(stage(v: 0), NatAttemptStage.quick);
+      expect(stage(v: 40, kcp: true, winner: true), NatAttemptStage.quick);
+    });
+
+    test('KCP without a learned winner is deferred to expensive', () {
+      expect(stage(v: 5, kcp: true), NatAttemptStage.expensive);
+    });
+
+    test('mid-range variants are alternate, high indices are expensive', () {
+      expect(stage(v: 20), NatAttemptStage.alternate);
+      expect(stage(v: 40), NatAttemptStage.expensive);
+    });
+
+    test('CDN-compatible low indices are quick', () {
+      expect(stage(v: 5, cdn: true), NatAttemptStage.quick);
+    });
+  });
+}

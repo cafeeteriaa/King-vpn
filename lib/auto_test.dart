@@ -335,9 +335,11 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
       // STEST60: فقط بخش‌های نت ملی، در مجموع ۶۰ دقیقه:
       //  ۱) همه‌ی سطوح ماتریس نت ملی (تا ۱۱ دقیقه)
       //  ۲) همه‌ی حالت‌های جایگزین روی سرورهای سالم (تا ۲۵ دقیقه)
-      // V14: only run the national test for the full 5 hours.
+      // V14: only run the national test for the full budget. The gate must not
+      // ask for more than _testDuration (it used to ask for 5h, so it never ran);
+      // a 10-minute margin covers the setup time already spent when this runs.
       final steps = <(String, Duration, Future<void> Function())>[
-        (_atItemNames[2], const Duration(hours: 5), _atItemNational),
+        (_atItemNames[2], _testDuration - const Duration(minutes: 10), _atItemNational),
       ];
       for (final s in steps) {
         if (_abortRequested) return _atFinish(reason: 'توقف دستی');
@@ -1768,7 +1770,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     natRound = 1; // V14: force pass 1
     await ultimateSave();
 
-    _set('نت ملی: پاک‌سازی صف برای تست کامل ۵ ساعته');
+    _set('نت ملی: پاک‌سازی صف برای تست کامل ۴ ساعته');
     good.clear();
     pending.clear();
     failed.clear();
@@ -1779,7 +1781,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     await connect(); // Triggers V13 logic, returns on first server
 
     final tStart = DateTime.now();
-    final testDuration = const Duration(hours: 5);
+    final testDuration = _testDuration;
 
     while (_phase == _AtPhase.running && !_abortRequested) {
       final elapsed = DateTime.now().difference(tStart);
@@ -1787,7 +1789,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
 
       final progress = elapsed.inSeconds / testDuration.inSeconds;
       autoTestProgress.value = progress.clamp(0.0, 1.0);
-      autoTestText.value = 'نت ملی ۵ ساعته • ${elapsed.inHours}h ${elapsed.inMinutes % 60}m • '
+      autoTestText.value = 'نت ملی ۴ ساعته • ${elapsed.inHours}h ${elapsed.inMinutes % 60}m • '
           'دور: $natRound • سالم: ${good.length} • صف: ${pending.length} • '
           'IP تست‌شده: $natIpTested • IP باز: $natIpFound';
 
@@ -1803,7 +1805,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
       await Future<void>.delayed(const Duration(seconds: 3));
     }
 
-    _itemResult[name] = '✅ تست ۵ ساعته تمام شد • '
+    _itemResult[name] = '✅ تست ۴ ساعته تمام شد • '
         'سالم: ${good.length} • تست‌شده: $natIpTested • باز: $natIpFound';
   }
 

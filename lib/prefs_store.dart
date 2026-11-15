@@ -10,8 +10,8 @@ import 'dart:io';
 // The class keeps the same name and the same method signatures, so the rest of
 // the code does not change.
 //
-// SECURITY-PASS: The stored data (UUIDs, API keys, server configs) is now
-// obfuscated/encrypted using a byte-level XOR mask before being written to disk.
+// NOTE: The stored data is obfuscated (NOT encrypted) with a single-byte XOR mask
+// before being written to disk. This only prevents casual reading; it is not security.
 class SharedPreferences {
   SharedPreferences._(this._file, this._data);
 
