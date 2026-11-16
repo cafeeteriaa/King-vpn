@@ -213,6 +213,7 @@ Future<DnsxHit?> dnsxProbe(String server,
     bool Function()? stop}) async {
   final list = domains ?? dnsxAutoDomains();
   final times = <int>[];
+  var tested = 0; // تعداد دامنه‌هایی که واقعاً سنجیده شدند (اگر توقف زده شود، کمتر از کل است)
   const chunk = 8; // دامنه‌ها در هر بسته‌ی همزمان
   for (var i = 0; i < list.length; i += chunk) {
     if (stop != null && stop()) break;
@@ -226,13 +227,15 @@ Future<DnsxHit?> dnsxProbe(String server,
           d,
           timeout: timeout,
         )));
+    tested += part.length;
     for (final r in res) {
       if (r.ok) times.add(r.elapsedMs!);
     }
   }
-  if (times.isEmpty || times.length * 4 < list.length) return null;
+  // ملاک: حداقل ۲۵٪ از دامنه‌هایی که واقعاً سنجیده شدند باید جواب بدهند
+  if (tested == 0 || times.isEmpty || times.length * 4 < tested) return null;
   final avg = times.reduce((a, b) => a + b) ~/ times.length;
-  return DnsxHit(server, avg, times.length, list.length);
+  return DnsxHit(server, avg, times.length, tested);
 }
 
 /// اسکن گروهی (۱۲ تا ۱۲ تا). خروجی: DNSهای سالم؛ اول آن‌که بیشترین دامنه را جواب داده،
