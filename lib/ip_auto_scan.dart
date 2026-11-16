@@ -11,6 +11,7 @@ part of 'main.dart';
 const String _ipAutoKeyNat = 'ipauto_nat_v1';
 const String _ipAutoKeyGlob = 'ipauto_glob_v1';
 const String _ipAutoCursorKey = 'ipauto_cursor_v1';
+const String _ipAutoPosKey = 'ipauto_pos_v1'; // جای فعلی در فهرست آدرس‌ها
 const int _ipAutoBatch = 6000; // آدرس در هر اجرا
 const int _ipAutoMaxHits = 1000; // سقف نتایج ذخیره‌شده
 const int _ipAutoPorts = 5; // بیشترین پورت برای TCP
@@ -23,6 +24,7 @@ bool ipAutoStopFlag = false;
 String ipAutoStatus = '';
 final List<String> ipAutoHits = []; // به شکل «ip|port»
 final Map<String, int> ipAutoCursors = {};
+int ipAutoPos = 0;
 
 String _ipAutoKeyNow() => nationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
 String _ipAutoModeName() => nationalMode ? 'نت ملی' : 'جهانی';
@@ -34,6 +36,7 @@ Future<void> ipAutoLoad() async {
     ipAutoHits
       ..clear()
       ..addAll(s.split('\n').where((x) => x.contains('|')));
+    ipAutoPos = int.tryParse(p.getString(_ipAutoPosKey) ?? '') ?? 0;
     final c = p.getString(_ipAutoCursorKey);
     if (c != null && c.isNotEmpty) {
       final m = jsonDecode(c) as Map;
@@ -51,6 +54,7 @@ Future<void> _ipAutoSave() async {
     final p = await SharedPreferences.getInstance();
     await p.setString(_ipAutoKeyNow(), ipAutoHits.join('\n'));
     await p.setString(_ipAutoCursorKey, jsonEncode(ipAutoCursors));
+    await p.setString(_ipAutoPosKey, ipAutoPos.toString());
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -69,11 +73,16 @@ Future<List<String>> _ipAutoNextAddrs() async {
     'cursors': Map<String, int>.of(ipAutoCursors),
   };
   final gen = await compute(_genAddrsIso, args);
-  final addrs = (gen['addrs'] as List).cast<String>();
+  final all = (gen['addrs'] as List).cast<String>();
   ipAutoCursors
     ..clear()
     ..addAll(Map<String, int>.from(gen['cursors'] as Map));
-  return addrs;
+  if (all.isEmpty) return const <String>[];
+  // فقط یک تکه‌ی _ipAutoBatch تایی در هر اجرا؛ جای فعلی ذخیره می‌شود تا اجرای بعدی ادامه دهد
+  final start = ipAutoPos % all.length;
+  final slice = all.skip(start).take(_ipAutoBatch).toList();
+  ipAutoPos = start + slice.length;
+  return slice;
 }
 
 extension IpAutoExt on _HomePageState {
