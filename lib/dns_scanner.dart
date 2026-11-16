@@ -25,19 +25,103 @@ const List<String> kDnsxNationalDefaults = [
   '10.202.10.10',
 ];
 
-/// دامنه‌ی تست: در نت ملی یک دامنه‌ی داخلی (.ir) و در حالت عادی google.com
+/// دامنه‌های تست در نت ملی: دامنه‌های داخلی (.ir) و سایت‌های داخلی که خود برنامه
+/// برای تشخیص شبکه استفاده می‌کند. هر DNS روی همه‌ی این دامنه‌ها سنجیده می‌شود،
+/// تا نتیجه‌ی DNSهای مختلف با هم قابل مقایسه باشد.
 const List<String> kDnsxNationalProbeDomains = <String>[
   'nic.ir',
   'iran.ir',
   'ac.ir',
+  'www.aparat.com',
+  'www.digikala.com',
 ];
-int _dnsxDomainCursor = 0;
-String dnsxProbeDomain() {
-  if (!nationalMode) return 'google.com';
-  final domain = kDnsxNationalProbeDomains[_dnsxDomainCursor % kDnsxNationalProbeDomains.length];
-  _dnsxDomainCursor++;
-  return domain;
+
+/// دامنه‌های اسکن خودکار پس‌زمینه (کوچک، تا نت ملی بی‌جهت بار نشود)
+List<String> dnsxAutoDomains() =>
+    nationalMode ? kDnsxNationalProbeDomains : const ['google.com'];
+
+/// تبدیل فهرست‌های پروژه (مثل `domain:divar.ir`) به نام میزبان ساده
+List<String> _dnsxHostsFrom(Iterable<String> src) {
+  final out = <String>[];
+  final okChars = RegExp(r'^[a-z0-9.-]+$');
+  for (var s in src) {
+    s = s.trim().toLowerCase();
+    if (s.startsWith('domain:')) s = s.substring(7);
+    if (s.startsWith('full:')) s = s.substring(5);
+    // فقط نام دامنه‌ی واقعی؛ TLD تنها (مثل ir) و قانون‌های geoip و کلمه‌ی کلیدی کنار گذاشته می‌شوند
+    if (!s.contains('.') || !okChars.hasMatch(s)) continue;
+    out.add(s);
+  }
+  return out;
 }
+
+/// سایت‌های خارجی پرکاربرد برای سنجیدن اینکه DNS بین‌المللی را درست جواب می‌دهد یا نه
+/// فهرست گسترده‌ی سایت‌های خارجی پرکاربرد، دسته‌بندی‌شده (جستجو، شبکه‌های اجتماعی، پیام‌رسان،
+/// ویدیو، خبر، مرجع، فنی و ابری، هوش مصنوعی، خرید و مالی، سفر، بازی).
+/// یادآوری: مجموعه‌ی «همه‌ی دامنه‌های خارجی» وجود ندارد؛ این فهرست محبوب‌ترین‌ها را پوشش می‌دهد.
+const List<String> kDnsxGlobalDomains = <String>[
+  // جستجو و پورتال
+  'google.com', 'www.google.com', 'bing.com', 'duckduckgo.com', 'yahoo.com',
+  'yandex.ru', 'ecosia.org', 'startpage.com', 'brave.com', 'aol.com',
+  // شبکه‌های اجتماعی
+  'facebook.com', 'instagram.com', 'twitter.com', 'x.com', 'linkedin.com',
+  'reddit.com', 'pinterest.com', 'tumblr.com', 'snapchat.com', 'threads.net',
+  'quora.com', 'medium.com', 'vk.com', 'tiktok.com', 'messenger.com',
+  // پیام‌رسان
+  'telegram.org', 't.me', 'whatsapp.com', 'signal.org', 'discord.com',
+  'slack.com', 'line.me', 'viber.com',
+  // ویدیو و موسیقی
+  'youtube.com', 'youtu.be', 'twitch.tv', 'vimeo.com', 'dailymotion.com',
+  'netflix.com', 'hulu.com', 'disneyplus.com', 'primevideo.com', 'spotify.com',
+  'soundcloud.com', 'imdb.com', 'rottentomatoes.com',
+  // خبر
+  'bbc.com', 'bbc.co.uk', 'cnn.com', 'nytimes.com', 'theguardian.com',
+  'reuters.com', 'aljazeera.com', 'dw.com', 'france24.com', 'voanews.com',
+  'bloomberg.com', 'washingtonpost.com', 'wsj.com', 'economist.com',
+  'forbes.com', 'time.com',
+  // مرجع و توسعه‌دهندگان
+  'wikipedia.org', 'wikimedia.org', 'archive.org', 'britannica.com',
+  'stackoverflow.com', 'github.com', 'gitlab.com', 'bitbucket.org', 'npmjs.com',
+  'pypi.org', 'python.org', 'mozilla.org', 'ubuntu.com', 'debian.org',
+  'kernel.org',
+  // فناوری و ابری
+  'cloudflare.com', 'microsoft.com', 'office.com', 'live.com', 'outlook.com',
+  'apple.com', 'icloud.com', 'android.com', 'gstatic.com', 'googleapis.com',
+  'googleusercontent.com', 'gmail.com', 'protonmail.com', 'proton.me',
+  'adobe.com', 'oracle.com', 'ibm.com', 'amazonaws.com', 'dropbox.com',
+  'box.com', 'notion.so', 'zoom.us', 'trello.com', 'atlassian.com', 'figma.com',
+  'canva.com', 'speedtest.net', 'docker.com', 'vercel.com',
+  // هوش مصنوعی
+  'openai.com', 'chatgpt.com', 'anthropic.com', 'claude.ai', 'perplexity.ai',
+  'huggingface.co', 'deepseek.com', 'gemini.google.com', 'mistral.ai',
+  'midjourney.com',
+  // خرید، پرداخت و مالی
+  'amazon.com', 'ebay.com', 'aliexpress.com', 'etsy.com', 'shopify.com',
+  'paypal.com', 'stripe.com', 'wise.com', 'visa.com', 'mastercard.com',
+  'binance.com', 'coinbase.com', 'kraken.com', 'blockchain.com',
+  // سفر و نقشه
+  'booking.com', 'airbnb.com', 'tripadvisor.com', 'expedia.com',
+  'openstreetmap.org', 'waze.com', 'uber.com', 'skyscanner.com',
+  // بازی
+  'steampowered.com', 'epicgames.com', 'roblox.com', 'ea.com', 'ubisoft.com',
+  'riotgames.com', 'blizzard.com', 'playstation.com', 'xbox.com',
+  'nintendo.com', 'minecraft.net', 'chess.com',
+];
+
+/// همه‌ی دامنه‌های موجود در پروژه برای اسکن دستی (بدون تکرار): ایرانی و خارجی
+List<String> dnsxFullDomains() {
+  final all = <String>{
+    ...kDnsxNationalProbeDomains,
+    ...kDnsxGlobalDomains,
+    ...natIrDomains,
+    ..._dnsxHostsFrom(iranDomains),
+    ..._dnsxHostsFrom(_iranMoreDomains),
+  };
+  return all.toList();
+}
+
+/// متن نمایشی دامنه‌ها در شیت
+String dnsxProbeDomain() => '${dnsxFullDomains().length} دامنه (ایرانی و جهانی)';
 
 /// بسته‌ی پرس‌وجوی DNS برای نوع A (RD=1)
 List<int> dnsxQuery(String name, int id) {
@@ -111,45 +195,84 @@ bool dnsxAnswerOk(List<int> d, int id) {
   return goodA;
 }
 
-/// زمان پاسخ (ms) یا null اگر جواب معتبر نیامد
-Future<int?> dnsxProbe(String server,
-    {Duration timeout = const Duration(seconds: 3)}) async {
-  // NNIE: strict response validation includes transaction ID, QR/opcode,
-  // question/type/class, source IP/port, RCODE and usable A answer.
-  final result = await NatDnsWireProbe.probe(
-    server,
-    dnsxProbeDomain(),
-    timeout: timeout,
-  );
-  return result.ok ? result.elapsedMs : null;
+/// نتیجه‌ی یک DNS: چند دامنه جواب داد و میانگین زمان آن‌ها
+class DnsxHit {
+  DnsxHit(this.ip, this.avgMs, this.okCount, this.total);
+  final String ip;
+  final int avgMs;
+  final int okCount;
+  final int total;
 }
 
-/// اسکن گروهی (۸ تا ۸ تا). خروجی: فهرست (IP، ms) مرتب شده از سریع به کند
-Future<List<MapEntry<String, int>>> dnsxScan(List<String> list,
-    {void Function(int done, int total)? onProgress, bool Function()? stop}) async {
-  final results = <MapEntry<String, int>>[];
-  var done = 0;
-  for (var i = 0; i < list.length; i += 8) {
+/// سنجش یک DNS روی فهرست دامنه‌ها. برای جلوگیری از سیل پرس‌وجو، بسته‌به‌بسته (۸ تا ۸ تا) می‌رود.
+/// ملاک: حداقل ۲۵٪ دامنه‌ها باید پاسخ معتبر بدهند.
+Future<DnsxHit?> dnsxProbe(String server,
+    {List<String>? domains,
+    Duration timeout = const Duration(seconds: 3),
+    Duration gap = Duration.zero,
+    bool Function()? stop}) async {
+  final list = domains ?? dnsxAutoDomains();
+  final times = <int>[];
+  const chunk = 8; // دامنه‌ها در هر بسته‌ی همزمان
+  for (var i = 0; i < list.length; i += chunk) {
     if (stop != null && stop()) break;
-    final batch = list.sublist(i, min(i + 8, list.length));
+    // فاصله بین بسته‌ها: اسکن پس‌زمینه بار ناگهانی روی اتصال نمی‌گذارد
+    if (i > 0 && gap > Duration.zero) await Future.delayed(gap);
+    final part = list.sublist(i, min(i + chunk, list.length));
+    // NNIE: strict response validation includes transaction ID, QR/opcode,
+    // question/type/class, source IP/port, RCODE and usable A answer.
+    final res = await Future.wait(part.map((d) => NatDnsWireProbe.probe(
+          server,
+          d,
+          timeout: timeout,
+        )));
+    for (final r in res) {
+      if (r.ok) times.add(r.elapsedMs!);
+    }
+  }
+  if (times.isEmpty || times.length * 4 < list.length) return null;
+  final avg = times.reduce((a, b) => a + b) ~/ times.length;
+  return DnsxHit(server, avg, times.length, list.length);
+}
+
+/// اسکن گروهی (۱۲ تا ۱۲ تا). خروجی: DNSهای سالم؛ اول آن‌که بیشترین دامنه را جواب داده،
+/// و در برابر تساوی، آن‌که سریع‌تر است.
+Future<List<DnsxHit>> dnsxScan(List<String> list,
+    {List<String>? domains,
+    Duration gap = Duration.zero,
+    void Function(int done, int total)? onProgress,
+    bool Function()? stop}) async {
+  final results = <DnsxHit>[];
+  var done = 0;
+  const dnsBatch = 12; // DNS در هر دسته‌ی همزمان
+  for (var i = 0; i < list.length; i += dnsBatch) {
+    if (stop != null && stop()) break;
+    final batch = list.sublist(i, min(i + dnsBatch, list.length));
     await Future.wait(batch.map((server) async {
-      final ms = await dnsxProbe(server);
+      final hit =
+          await dnsxProbe(server, domains: domains, gap: gap, stop: stop);
       done++;
-      if (ms != null) results.add(MapEntry(server, ms));
+      if (hit != null) results.add(hit);
       onProgress?.call(done, list.length);
     }));
   }
-  results.sort((a, b) => a.value.compareTo(b.value));
+  results.sort((a, b) {
+    final c = b.okCount.compareTo(a.okCount);
+    return c != 0 ? c : a.avgMs.compareTo(b.avgMs);
+  });
   return results;
 }
 
 /// بهترین DNSهای پیداشده که در نت ملی اول استفاده می‌شوند (در حافظه)
 List<String> dnsxBestCache = [];
 bool _dnsxAutoBusy = false;
+/// اسکن دستی در حال اجراست؛ تا تمام نشده، اسکن خودکار شروع نمی‌شود
+bool dnsxManualBusy = false;
 
-/// اسکن خودکار: در نت ملی اجرا می‌شود. هر ۶ ساعت یک بار، یا وقتی نتیجه‌ای نداریم.
-Future<void> dnsxAutoPick() async {
-  if (_dnsxAutoBusy) return;
+/// اسکن خودکار: فقط در نت ملی و وقتی VPN قطع است. هر ۲۴ ساعت (یا ۶ ساعت اگر DNS سالمی نبود)، با همه‌ی دامنه‌های پروژه.
+/// اگر وسط کار اتصال برقرار شود (stop=true)، اسکن نیمه‌کاره ذخیره نمی‌شود.
+Future<void> dnsxAutoPick({bool Function()? stop}) async {
+  if (_dnsxAutoBusy || dnsxManualBusy) return;
   _dnsxAutoBusy = true;
   try {
     final p = await SharedPreferences.getInstance();
@@ -160,11 +283,21 @@ Future<void> dnsxAutoPick() async {
     final at = p.get('dnsx_at_v1');
     final last = at is int ? at : 0;
     final now = DateTime.now().millisecondsSinceEpoch;
-    // فاصله‌ی ۶ ساعته همیشه رعایت شود، حتی وقتی نتیجه‌ای نبود (جلوگیری از اسکن تکراری)
-    if (now - last < 6 * 3600 * 1000) return;
+    // فاصله‌ی ۲۴ ساعته همیشه رعایت شود، حتی وقتی نتیجه‌ای نبود (جلوگیری از اسکن تکراری)
+    // اگر DNS سالمی نداریم، زودتر دوباره اسکن می‌شود (۶ ساعت)؛ وگرنه هر ۲۴ ساعت
+    final gapMs = dnsxBestCache.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
+    if (now - last < gapMs) return;
     final list = nationalMode ? kDnsxNationalDefaults : kDnsxDefaults;
-    final r = await dnsxScan(list);
-    dnsxBestCache = [for (final e in r.take(4)) e.key];
+    // کامل: همه‌ی دامنه‌های پروژه، با فاصله‌ی ۱۵۰ میلی‌ثانیه بین بسته‌ها
+    final r = await dnsxScan(
+      list,
+      domains: dnsxFullDomains(),
+      gap: const Duration(milliseconds: 150),
+      stop: stop,
+    );
+    // اگر وسط کار اتصال برقرار شد، نتیجه‌ی ناقص ذخیره نمی‌شود و اسکن بعدی دوباره انجام می‌شود
+    if (stop != null && stop()) return;
+    dnsxBestCache = [for (final e in r.take(4)) e.ip];
     await p.setStringList('dnsx_best_v1', dnsxBestCache);
     await p.setInt('dnsx_at_v1', now);
     dbg('DNSX خودکار: ${dnsxBestCache.length} DNS سالم (${nationalMode ? 'نت ملی' : 'عادی'})');
@@ -181,7 +314,7 @@ extension DnsxExt on _HomePageState {
     var stopFlag = false;
     var done = 0;
     var total = 0;
-    var results = <MapEntry<String, int>>[];
+    var results = <DnsxHit>[];
     final extraC = TextEditingController();
 
     showModalBottomSheet(
@@ -197,6 +330,19 @@ extension DnsxExt on _HomePageState {
           }
 
           Future<void> start() async {
+            // نت ملی: اسکن دستی DNS کاملاً جداست و در این حالت اجرا نمی‌شود تا اتصال و
+            // اسکن خودکار مختل نشوند. اسکن دستی را در حالت عادی اجرا کنید.
+            if (nationalMode) {
+              ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(const SnackBar(
+                  content: Text(
+                      'اسکن دستی DNS در نت ملی غیرفعال است؛ برای اسکن دستی به حالت عادی بروید.')));
+              return;
+            }
+            if (connected) {
+              ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(const SnackBar(
+                  content: Text('اول VPN را قطع کنید، بعد اسکن دستی را اجرا کنید.')));
+              return;
+            }
             final extra = extraC.text
                 .split(RegExp(r'[\s,]+'))
                 .map((s) => s.trim())
@@ -214,14 +360,24 @@ extension DnsxExt on _HomePageState {
               total = list.length;
               results = [];
             });
-            final r = await dnsxScan(
-              list,
-              stop: () => stopFlag,
-              onProgress: (d, t) => upd(() {
-                done = d;
-                total = t;
-              }),
-            );
+            dnsxManualBusy = true;
+            List<DnsxHit> r = const <DnsxHit>[];
+            try {
+              r = await dnsxScan(
+                list,
+                domains: dnsxFullDomains(),
+                stop: () => stopFlag,
+                onProgress: (d, t) => upd(() {
+                  done = d;
+                  total = t;
+                }),
+              );
+            } catch (e, stk) {
+              logError(e, stk);
+            } finally {
+              // حتی اگر خطایی بیاید، قفل آزاد می‌شود تا اسکن خودکار بی‌دلیل قفل نماند
+              dnsxManualBusy = false;
+            }
             upd(() {
               running = false;
               results = r;
@@ -275,15 +431,26 @@ extension DnsxExt on _HomePageState {
                   const Divider(height: 20),
                   if (!running && total > 0 && results.isEmpty)
                     const Text('هیچ DNS ای جواب معتبر نداد.'),
+                  if (results.isNotEmpty)
+                    OutlinedButton(
+                      onPressed: () async {
+                        await Clipboard.setData(ClipboardData(
+                            text: results.map((r) => r.ip).join('\n')));
+                        ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(SnackBar(
+                            content: Text('${results.length} DNS کپی شد')));
+                      },
+                      child: Text('کپی همه‌ی ${results.length} DNS'),
+                    ),
                   for (final r in results)
                     ListTile(
                       dense: true,
-                      title: Text(r.key),
-                      trailing: Text('${r.value} ms'),
+                      title: Text(r.ip),
+                      subtitle: Text('جواب‌داده: ${r.okCount} از ${r.total} دامنه'),
+                      trailing: Text('${r.avgMs} ms'),
                       onTap: () async {
-                        await Clipboard.setData(ClipboardData(text: r.key));
+                        await Clipboard.setData(ClipboardData(text: r.ip));
                         ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(
-                            SnackBar(content: Text('${r.key} کپی شد')));
+                            SnackBar(content: Text('${r.ip} کپی شد')));
                       },
                     ),
                 ],

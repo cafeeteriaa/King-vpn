@@ -1,0 +1,336 @@
+part of 'main.dart';
+
+// IPAUTO: اسکن خودکار IP با هسته‌ی VPN، کاملاً جدا از نت ملی.
+// - فقط وقتی VPN قطع است و جستجوی نت ملی یا اسکن DNS در حال اجرا نیست، شروع می‌شود.
+// - هیچ صف، حافظه یا بازه‌ی نت ملی را تغییر نمی‌دهد (natRanges، natIpMem، pending، good).
+//   فقط برای خواندن، سرور نمونه و پورت‌های پرتکرار را از آن‌ها می‌گیرد.
+// - هر IP اول با TCP سنجیده می‌شود؛ فقط پورت‌های باز با هسته‌ی VPN دو بار تست می‌شوند.
+// - نتیجه بر اساس حالت فعلی (ملی یا جهانی) در فهرست جدا ذخیره می‌شود و کپی‌پذیر است.
+// - هر اجرا بخش بعدیِ آدرس‌ها را برمی‌دارد (کرسر خودش)، پس با اجراهای متوالی بلوک‌ها پوشش داده می‌شوند.
+
+const String _ipAutoKeyNat = 'ipauto_nat_v1';
+const String _ipAutoKeyGlob = 'ipauto_glob_v1';
+const String _ipAutoCursorKey = 'ipauto_cursor_v1';
+const int _ipAutoBatch = 6000; // آدرس در هر اجرا
+const int _ipAutoMaxHits = 1000; // سقف نتایج ذخیره‌شده
+const int _ipAutoPorts = 5; // بیشترین پورت برای TCP
+const String _ipAutoAtKey = 'ipauto_at_v1'; // زمان آخرین اسکن خودکار نت ملی
+const int _ipAutoConc = 48; // اتصال TCP همزمان
+const int _ipAutoCoreMax = 200; // سقف تست هسته در هر اجرا
+
+bool ipAutoBusy = false;
+bool ipAutoStopFlag = false;
+String ipAutoStatus = '';
+final List<String> ipAutoHits = []; // به شکل «ip|port»
+final Map<String, int> ipAutoCursors = {};
+
+String _ipAutoKeyNow() => nationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
+String _ipAutoModeName() => nationalMode ? 'نت ملی' : 'جهانی';
+
+Future<void> ipAutoLoad() async {
+  try {
+    final p = await SharedPreferences.getInstance();
+    final s = p.getString(_ipAutoKeyNow()) ?? '';
+    ipAutoHits
+      ..clear()
+      ..addAll(s.split('\n').where((x) => x.contains('|')));
+    final c = p.getString(_ipAutoCursorKey);
+    if (c != null && c.isNotEmpty) {
+      final m = jsonDecode(c) as Map;
+      ipAutoCursors
+        ..clear()
+        ..addAll({for (final e in m.entries) '${e.key}': (e.value as num).toInt()});
+    }
+  } catch (e, stk) {
+    logError(e, stk);
+  }
+}
+
+Future<void> _ipAutoSave() async {
+  try {
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_ipAutoKeyNow(), ipAutoHits.join('\n'));
+    await p.setString(_ipAutoCursorKey, jsonEncode(ipAutoCursors));
+  } catch (e, stk) {
+    logError(e, stk);
+  }
+}
+
+/// بلوک‌های اسکن: بازه‌های ISP/دیتاسنتر ایرانی (kIrIspRanges). بازه‌های CDN جدا از طریق
+/// liveRanges در _ipAutoNextAddrs اضافه می‌شوند. کرسر باعث می‌شود اجراها جلو بروند.
+List<String> _ipAutoBlocks() => kIrIspRanges;
+
+Future<List<String>> _ipAutoNextAddrs() async {
+  final args = <String, dynamic>{
+    'cfIpsBatch': _ipAutoBatch,
+    'blocks': _ipAutoBlocks(),
+    'nationalMode': nationalMode,
+    'liveRanges': List<String>.of(_liveCdnRanges),
+    'cursors': Map<String, int>.of(ipAutoCursors),
+  };
+  final gen = await compute(_genAddrsIso, args);
+  final addrs = (gen['addrs'] as List).cast<String>();
+  ipAutoCursors
+    ..clear()
+    ..addAll(Map<String, int>.from(gen['cursors'] as Map));
+  return addrs;
+}
+
+extension IpAutoExt on _HomePageState {
+  /// آیا اسکن باید همین الان متوقف شود (VPN وصل شد، یا برنامه مشغول اتصال است، یا کاربر توقف زد)
+  bool _ipAutoHalt() => ipAutoStopFlag || connected || busy;
+
+  /// نت ملی: اسکن IP خودکار بدون دکمه (هر ۲۴ ساعت، یا ۶ ساعت اگر نتیجه نداشت)، فقط وقتی VPN قطع است.
+  /// نتایج در فهرست نت ملی ذخیره می‌شوند و هیچ صف یا بازه‌ی دیگری را تغییر نمی‌دهد.
+  Future<void> ipAutoBackground() async {
+    try {
+      if (!nationalMode) return;
+      if (ipAutoBusy || dnsxManualBusy || _natRangeScanBusy || _dnsxAutoBusy) return;
+      if (connected || busy) return;
+      await ipAutoLoad();
+      final p = await SharedPreferences.getInstance();
+      final last = int.tryParse(p.getString(_ipAutoAtKey) ?? '') ?? 0;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      // اگر هنوز IP سالمی پیدا نشده، زودتر دوباره امتحان می‌شود (۶ ساعت)؛ وگرنه هر ۲۴ ساعت
+      final gapMs = ipAutoHits.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
+      if (now - last < gapMs) return;
+      ipAutoBusy = true;
+      dnsxManualBusy = true;
+      ipAutoStopFlag = false;
+      try {
+        await _ipAutoRunOnce((s) => ipAutoStatus = s);
+        // فقط اسکن کامل ذخیره می‌شود؛ اگر وسط کار متوقف شد، دفعه‌ی بعد دوباره امتحان می‌شود
+        if (!_ipAutoHalt()) {
+          await p.setString(_ipAutoAtKey, now.toString());
+        }
+      } catch (e, stk) {
+        logError(e, stk);
+      } finally {
+        ipAutoBusy = false;
+        dnsxManualBusy = false;
+        await _ipAutoSave();
+      }
+    } catch (e, stk) {
+      logError(e, stk);
+    }
+  }
+
+  /// دلیل رد شدن شروع اسکن؛ null یعنی می‌شود شروع کرد
+  String? _ipAutoRefusal() {
+    // نت ملی کاملاً خودکار است؛ دکمه‌ی دستی فقط برای حالت عادی است
+    if (nationalMode) {
+      return 'در نت ملی اسکن IP خودکار است و خودش هر ۲۴ ساعت (یا ۶ ساعت اگر نتیجه نداشت) اجرا می‌شود. نتایج را همین‌جا ببینید و کپی کنید.';
+    }
+    if (ipAutoBusy) return 'اسکن در حال اجراست.';
+    if (connected || busy) return 'اول VPN را قطع کنید، بعد اسکن خودکار IP را اجرا کنید.';
+    if (nationalMode && _natRangeScanBusy) {
+      return 'جستجوی نت ملی در حال اجراست؛ کمی صبر کنید.';
+    }
+    if (nationalMode && _dnsxAutoBusy) {
+      return 'اسکن DNS پس‌زمینه در حال اجراست؛ کمی صبر کنید.';
+    }
+    return null;
+  }
+
+  /// یک تست کامل هسته برای یک سرور (با IP جایگزین)؛ همان مسیر تست‌های موجود، با همان گیت
+  Future<bool> _ipAutoCoreOk(Server s, String url) async {
+    try {
+      final rr = await _delayGate.run<dynamic>(() async {
+        return await v2ray
+            .getServerDelay(config: _testCfg(natCfg(s, 0)), url: url)
+            .timeout(const Duration(seconds: 8), onTimeout: () => -1);
+      });
+      final r = rr is int ? rr : (int.tryParse('$rr') ?? -1);
+      return r > 0;
+    } catch (e, stk) {
+      logError(e, stk);
+      return false;
+    }
+  }
+
+  Future<void> _ipAutoRunOnce(void Function(String) say) async {
+    final tpl = good.isNotEmpty
+        ? good.take(2).toList()
+        : natTemplateSeeds.take(2).toList();
+    if (tpl.isEmpty) {
+      say('هنوز سرور نمونه‌ای نیست. یک بار جستجوی سرور را اجرا کنید تا سرور سالم پیدا شود.');
+      return;
+    }
+    say('ساخت آدرس‌ها...');
+    final addrs = await _ipAutoNextAddrs();
+    if (addrs.isEmpty) {
+      say('آدرسی برای اسکن پیدا نشد.');
+      return;
+    }
+    final ports = natAutoPorts(good).take(_ipAutoPorts).toList();
+    if (ports.isEmpty) ports.add(443);
+
+    // مرحله‌ی ۱: TCP روی همه‌ی آدرس‌ها
+    final candidates = <String>[];
+    for (final port in ports) {
+      if (_ipAutoHalt()) break;
+      say('بررسی TCP روی پورت $port (${addrs.length} آدرس)...');
+      final hits = await natScanIps(
+        addrs,
+        port: port,
+        concurrency: _ipAutoConc,
+        want: 300,
+        budget: const Duration(minutes: 5),
+        timeout: const Duration(milliseconds: 1500),
+        cancelled: () => _ipAutoHalt(),
+      );
+      for (final h in hits) {
+        candidates.add('${h.ip}|$port');
+      }
+    }
+
+    // مرحله‌ی ۲: تست واقعی با هسته‌ی VPN، دو بار پشت سر هم
+    final url = nationalMode ? _natTestUrls.first : delayTestUrl;
+    final seen = ipAutoHits.toSet();
+    final tplSrv = tpl.first;
+    var found = 0;
+    var checked = 0;
+    // سقف تست هسته در هر اجرا، تا زمان اجرا از حد نگذرد (بقیه در اجرای بعدی از آدرس‌های تازه می‌آیند)
+    final toTest = candidates.take(_ipAutoCoreMax).toList();
+    say('${candidates.length} پورت باز (تست ${toTest.length} تای اول)؛ تست با هسته‌ی VPN...');
+    for (final c in toTest) {
+      if (_ipAutoHalt()) break;
+      checked++;
+      if (seen.contains(c)) continue;
+      final parts = c.split('|');
+      final ip = parts[0];
+      final port = int.tryParse(parts[1]) ?? 443;
+      final s = Server(_natSetHost(tplSrv.link, ip, tplSrv.host), tplSrv.name, ip, port);
+      if (!await _ipAutoCoreOk(s, url)) {
+        say('تست $checked/${toTest.length} • جواب‌داده: $found');
+        continue;
+      }
+      if (!await _ipAutoCoreOk(s, url)) {
+        say('تست $checked/${toTest.length} • جواب‌داده: $found');
+        continue;
+      }
+      ipAutoHits.insert(0, c);
+      seen.add(c);
+      found++;
+      if (ipAutoHits.length > _ipAutoMaxHits) {
+        ipAutoHits.removeRange(_ipAutoMaxHits, ipAutoHits.length);
+      }
+      say('تست $checked/${toTest.length} • جواب‌داده: $found');
+    }
+    say(ipAutoStopFlag
+        ? 'متوقف شد. $found IP جدید در حالت ${_ipAutoModeName()}.'
+        : 'تمام شد: $found IP جدید در حالت ${_ipAutoModeName()}.');
+  }
+
+  Future<void> ipAutoSheet(BuildContext ctx0) async {
+    await ipAutoLoad();
+    ipAutoStopFlag = false;
+    if (!ctx0.mounted) return;
+    showModalBottomSheet(
+      context: ctx0,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) {
+          void upd(VoidCallback f) {
+            try {
+              setS(f);
+            } catch (_) {}
+          }
+
+          Future<void> start() async {
+            final why = _ipAutoRefusal();
+            if (why != null) {
+              ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(SnackBar(content: Text(why)));
+              return;
+            }
+            ipAutoBusy = true;
+            // تا این اسکن تمام نشده، اسکن DNS پس‌زمینه هم شروع نمی‌شود (جدا و بدون تداخل)
+            dnsxManualBusy = true;
+            ipAutoStopFlag = false;
+            upd(() => ipAutoStatus = 'شروع...');
+            try {
+              await _ipAutoRunOnce((s) => upd(() => ipAutoStatus = s));
+            } catch (e, stk) {
+              logError(e, stk);
+              upd(() => ipAutoStatus = 'خطا: $e');
+            } finally {
+              ipAutoBusy = false;
+              dnsxManualBusy = false;
+              await _ipAutoSave();
+              upd(() {});
+            }
+          }
+
+          final running = ipAutoBusy;
+          return SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('اسکن خودکار IP',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const SizedBox(height: 6),
+                  Text('حالت فعلی: ${_ipAutoModeName()}  •  نتایج این حالت جدا ذخیره می‌شوند.'),
+                  const SizedBox(height: 4),
+                  const Text(
+                      'اسکن خودکار است: لازم نیست بازه‌ای وارد کنید. فقط وقتی VPN قطع باشد اجرا می‌شود. '
+                      'هر IP که با هسته‌ی VPN جواب بدهد در فهرست می‌آید.'),
+                  const SizedBox(height: 8),
+                  Text(ipAutoStatus.isEmpty ? 'آماده' : ipAutoStatus),
+                  const SizedBox(height: 6),
+                  Row(children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: running ? null : () => start(),
+                        child: const Text('شروع اسکن خودکار'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: running
+                            ? () => upd(() {
+                                  ipAutoStopFlag = true;
+                                })
+                            : null,
+                        child: const Text('توقف'),
+                      ),
+                    ),
+                  ]),
+                  const Divider(height: 20),
+                  if (ipAutoHits.isNotEmpty)
+                    OutlinedButton(
+                      onPressed: () async {
+                        final txt = ipAutoHits.map((x) => x.replaceAll('|', ':')).join('\n');
+                        await Clipboard.setData(ClipboardData(text: txt));
+                        ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(SnackBar(
+                            content: Text('${ipAutoHits.length} IP کپی شد')));
+                      },
+                      child: Text('کپی همه‌ی ${ipAutoHits.length} IP (${_ipAutoModeName()})'),
+                    ),
+                  if (ipAutoHits.isEmpty)
+                    Text('هنوز IP سالمی برای حالت ${_ipAutoModeName()} پیدا نشده است.'),
+                  for (final h in ipAutoHits)
+                    ListTile(
+                      dense: true,
+                      title: Text(h.replaceAll('|', ':')),
+                      onTap: () async {
+                        await Clipboard.setData(ClipboardData(text: h.replaceAll('|', ':')));
+                        ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(SnackBar(
+                            content: Text('${h.replaceAll('|', ':')} کپی شد')));
+                      },
+                    ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    ).then((_) {
+      // بستن شیت فقط اسکن دستی (حالت عادی) را متوقف می‌کند؛ اسکن خودکار نت ملی دست‌نخورده می‌ماند
+      if (!nationalMode) ipAutoStopFlag = true;
+    });
+  }
+}

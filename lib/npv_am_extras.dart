@@ -1248,7 +1248,8 @@ extension NpvAmExtras on _HomePageState {
             textDirection: TextDirection.ltr,
             decoration: const InputDecoration(
               hintText: 'vless://... یا vmess://...',
-              helperText: 'اگر نت ملی فعال باشد، اتصال از پشت این سرور رد می‌شود.',
+              helperText: 'خالی بگذارید تا واسط به‌صورت خودکار از سرورهای سالم شما انتخاب شود. '
+                  'اگر لینک بگذارید، در نت ملی اتصال از پشت همین سرور رد می‌شود.',
               helperMaxLines: 2,
             ),
           ),

@@ -41,6 +41,8 @@ part 'server_shop.dart';
 part 'telegram_channels.dart';
 part 'backup_restore.dart'; // BKPRESTORE
 part 'dns_scanner.dart'; // DNSSCAN
+part 'ip_auto_scan.dart'; // IPAUTO: اسکن خودکار IP با هسته، جدا از نت ملی
+part 'ip_isp_ranges.dart'; // IPAUTO-ISP: بازه‌های ISP/دیتاسنتر ایرانی (از داده‌ی ASN)
 part 'sub_groups.dart'; // SUBGROUP
 part 'ultimate_extras.dart';
 part 'auto_test.dart';
@@ -9999,7 +10001,11 @@ ListTile( // KINGEXTRAS row
       nationalMode = userModeChoice == true || natForce;
       // PILOTNONAT: خلبان روشن باشد، شبکه ملی نمی‌شود (حتی اگر تشخیص یا دکمه بخواهد)
       if (localPilotOn || aiSession) nationalMode = false;
-    if (nationalMode && !busy) unawaited(dnsxAutoPick()); // DNSAUTO: وقتی برنامه مشغول اتصال نیست
+    // DNSAUTO: وقتی برنامه مشغول اتصال نیست و VPN قطع است. اگر وسط کار وصل شود، اسکن متوقف می‌شود.
+    if (nationalMode && !busy && !connected) {
+      unawaited(dnsxAutoPick(stop: () => connected || busy));
+      unawaited(ipAutoBackground()); // IPAUTO: اسکن IP خودکار نت ملی، هر ۲۴ ساعت
+    }
       // نت ملی: جستجوی بی‌نهایت همیشه روشن است
       if (nationalMode) indestructibleMode = true;
       if (nationalMode != was && mounted) {
@@ -10374,8 +10380,12 @@ ListTile( // KINGEXTRAS row
         content: TextField(
           controller: c,
           maxLines: 8,
-          decoration: const InputDecoration(
-              hintText: 'هر بازه در یک خط: مثلاً 5.160.0.0/16 یا 5.160.0.0-5.160.3.255 (بدون فاصله)'),
+          // نت ملی: بازه‌ی دستی غیرفعال است؛ جستجو کاملاً خودکار است و دخالتی نمی‌شود
+          readOnly: nationalMode,
+          decoration: InputDecoration(
+              hintText: nationalMode
+                  ? 'در نت ملی جستجوی IP خودکار است و بازه‌ی دستی غیرفعال است.'
+                  : 'هر بازه در یک خط: مثلاً 5.160.0.0/16 یا 5.160.0.0-5.160.3.255 (بدون فاصله)'),
         ),
         actions: [
           TextButton(
@@ -10388,7 +10398,22 @@ ListTile( // KINGEXTRAS row
             child: const Text('واسط‌ها (relay)'),
           ),
           TextButton(
+            // فقط خواندن: IPهای سالمی که قبلاً جواب داده‌اند را کپی می‌کند؛ چیزی را تغییر نمی‌دهد
             onPressed: () async {
+              final lines = {
+                for (final e in natIpMem) '${e['ip']}:${e['port']}'
+              }.toList();
+              await Clipboard.setData(ClipboardData(text: lines.join('\n')));
+              _set('${lines.length} IP سالم کپی شد');
+            },
+            child: const Text('کپی IPهای سالم'),
+          ),
+          TextButton(
+            onPressed: () async {
+              if (nationalMode) {
+                _set('در نت ملی بازه‌ی دستی ذخیره نمی‌شود؛ جستجو خودکار است.');
+                return;
+              }
               await natRangesSave(c.text);
               if (ctx.mounted) Navigator.pop(ctx);
               _set('بازه‌ها ذخیره شد (${natRanges.length} بازه)');
@@ -14706,6 +14731,7 @@ UiHero(
             UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),
             UiTool(Icons.router, 'بازه‌های IP نت ملی', () => _natRangesDialog(context)),
             UiTool(Icons.travel_explore_outlined, 'اسکنر DNS', () => dnsxSheet(context)), // DNSSCAN
+            UiTool(Icons.radar, 'اسکن خودکار IP', () => ipAutoSheet(context)), // IPAUTO
             UiTool(Icons.security, sniSpoofAll ? 'جعل SNI: روشن ✓' : 'جعل SNI: خاموش', () { setState(() => sniSpoofAll = !sniSpoofAll); _saveSettings(); _set(sniSpoofAll ? 'جعل SNI روشن شد' : 'جعل SNI خاموش شد'); }),
             UiTool(Icons.cloud_off_outlined, sniCfOn ? 'جعل SNI کلودفلر: روشن' : 'جعل SNI کلودفلر: خاموش', () { setState(() => sniCfOn = !sniCfOn); _saveSettings(); _set(sniCfOn ? 'جعل SNI برای کلودفلر روشن شد' : 'جعل SNI برای کلودفلر خاموش شد'); }),
             UiTool(Icons.support_agent, 'ارتباط با ادمین', () => _uiOpenAdmin(context)),
