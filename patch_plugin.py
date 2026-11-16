@@ -120,4 +120,134 @@ try:
 except Exception as e:
     print(f'WARN: DELAYPOOL failed: {e}')
 
+
+# 4) V3 FIXES (review items #8, #56, #86). Exact text replacements. Each one is skipped when
+#    its new text is already present; a missing anchor is reported as an ERROR and stops the build.
+def exact_replace(path, old, new, label):
+    src = open(path, encoding='utf-8').read()
+    if new in src:
+        print(f'OK: {label} (already applied)')
+        return
+    n = src.count(old)
+    if n != 1:
+        print(f'ERROR: {label}: anchor found {n} times (expected 1).')
+        show_context(src, old[:40])
+        sys.exit(1)
+    open(path, 'w', encoding='utf-8').write(src.replace(old, new, 1))
+    print(f'OK: {label}')
+
+
+v2_ctrl = find_java('V2rayController.java')
+proxy_svc = find_java('V2rayProxyOnlyService.java')
+
+# 4a) #56 + #8: the stop button targets the running service class, and uses the stop intent.
+exact_replace(core, '''        Intent stopIntent;
+        if (AppConfigs.V2RAY_CONNECTION_MODE == AppConfigs.V2RAY_CONNECTION_MODES.PROXY_ONLY) {
+            stopIntent = new Intent(context, V2rayProxyOnlyService.class);
+        } else if (AppConfigs.V2RAY_CONNECTION_MODE == AppConfigs.V2RAY_CONNECTION_MODES.VPN_TUN) {
+            stopIntent = new Intent(context, V2rayVPNService.class);
+        } else {
+            return;
+        }
+        stopIntent.putExtra("COMMAND", AppConfigs.V2RAY_SERVICE_COMMANDS.STOP_SERVICE);
+''', '''        // FIX #56: the service runs in its own process, where the static
+        // AppConfigs.V2RAY_CONNECTION_MODE is not the value the app set. The stop button must
+        // target the class that is actually running (VPN or proxy-only), so take it from here.
+        Intent stopIntent = new Intent(context, context.getClass());
+        stopIntent.putExtra("COMMAND", AppConfigs.V2RAY_SERVICE_COMMANDS.STOP_SERVICE);
+''', 'V3 #56 stop intent from running class')
+
+exact_replace(core, '''                    .addAction(0, v2rayConfig.NOTIFICATION_DISCONNECT_BUTTON_NAME, notificationContentPendingIntent)''',
+'''                    // FIX #8: the disconnect button must stop the service, not open the app.
+                    .addAction(0, v2rayConfig.NOTIFICATION_DISCONNECT_BUTTON_NAME, pendingIntent)''',
+'V3 #8 disconnect button uses stop intent')
+
+# 4b) #86: promoteForStop helper (5 s foreground rule for stops that arrive via startForegroundService)
+exact_replace(core, '''    public boolean isV2rayCoreRunning() {''', '''    private static final String STOP_CHANNEL_ID = "king_vpn_stop";
+
+    /**
+     * FIX #86: a stop can arrive through startForegroundService (when startService is refused
+     * in the background). Android then requires startForeground() within 5 seconds, even when
+     * the service is only stopping. Call this at the start of the STOP branch.
+     */
+    public void promoteForStop(Service service) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                NotificationManager nm = (NotificationManager) service.getSystemService(Context.NOTIFICATION_SERVICE);
+                if (nm != null) {
+                    NotificationChannel ch = new NotificationChannel(
+                            STOP_CHANNEL_ID, "VPN", NotificationManager.IMPORTANCE_MIN);
+                    nm.createNotificationChannel(ch);
+                }
+            }
+            Notification n = new NotificationCompat.Builder(service, STOP_CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.ic_lock_lock)
+                    .setContentTitle("VPN")
+                    .setPriority(NotificationCompat.PRIORITY_MIN)
+                    .setOngoing(true)
+                    .build();
+            service.startForeground(NOTIFICATION_ID, n);
+        } catch (Exception e) {
+            Log.w("V2rayCoreManager", "promoteForStop failed", e);
+        }
+    }
+
+    public boolean isV2rayCoreRunning() {''', 'V3 #86 promoteForStop helper')
+
+# 4c) #86: StopV2ray falls back to startForegroundService when startService is refused
+exact_replace(v2_ctrl, '''        stop_intent.putExtra("COMMAND", AppConfigs.V2RAY_SERVICE_COMMANDS.STOP_SERVICE);
+        context.startService(stop_intent);
+        AppConfigs.V2RAY_CONFIG = null;''', '''        stop_intent.putExtra("COMMAND", AppConfigs.V2RAY_SERVICE_COMMANDS.STOP_SERVICE);
+        // FIX #86: startService is refused from the background on Android 8+ (IllegalStateException).
+        // The service is already running, so a foreground start is allowed; the service promotes
+        // itself in its STOP branch (promoteForStop).
+        try {
+            context.startService(stop_intent);
+        } catch (IllegalStateException e) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(stop_intent);
+            } else {
+                throw e;
+            }
+        }
+        AppConfigs.V2RAY_CONFIG = null;''', 'V3 #86 StopV2ray fallback')
+
+# 4d) #86: both services promote themselves in the STOP branch
+for svc_path, svc_name in ((vpn, 'VPN'), (proxy_svc, 'ProxyOnly')):
+    exact_replace(svc_path, '''        } else if (startCommand.equals(AppConfigs.V2RAY_SERVICE_COMMANDS.STOP_SERVICE)) {
+            V2rayCoreManager.getInstance().stopCore();''', '''        } else if (startCommand.equals(AppConfigs.V2RAY_SERVICE_COMMANDS.STOP_SERVICE)) {
+            // FIX #86: satisfy the 5 s foreground rule for a stop started with startForegroundService
+            V2rayCoreManager.getInstance().promoteForStop(this);
+            V2rayCoreManager.getInstance().stopCore();''', f'V3 #86 {svc_name} STOP promotes')
+
+
+# 5) FIX #49: the app is not excluded from the VPN (its own requests must go through the tunnel).
+#    Only the core's outbound sockets are exempt, through protect() (see the protector below).
+exact_replace(vpn, '''        // Keep this process outside the VPN so outbound sockets don't loop.
+        try {
+            builder.addDisallowedApplication(getPackageName());
+        } catch (Exception e) {
+            Log.w("V2rayVPNService", "Failed to exclude self from VPN", e);
+        }
+''', '''        // FIX #49: the app is NOT excluded from the tunnel. Its own requests (for example the
+        // ASN lookup that uses DIRECT) must go through the VPN, otherwise they show the real IP.
+        // The core's outbound sockets are exempt through protect() in the protector below.
+''', 'V3 #49 do not exclude app from VPN')
+
+# 5b) FIX #49: if the service reference is gone, protect must fail instead of returning true
+#     (true without a real protect() sends the socket back into the tunnel: a loop).
+exact_replace(core, '''                public boolean protect(long fd) {
+                    if (v2rayServicesListener != null) {
+                        return v2rayServicesListener.onProtect((int) fd);
+                    }
+                    return true;
+                }''', '''                public boolean protect(long fd) {
+                    if (v2rayServicesListener != null) {
+                        return v2rayServicesListener.onProtect((int) fd);
+                    }
+                    // FIX #49: do not report success without protecting the socket
+                    Log.w("V2rayCoreManager", "protect: no VPN service; socket not protected");
+                    return false;
+                }''', 'V3 #49 protector fails when service is missing')
+
 print('patch_plugin.py finished OK')
