@@ -2656,9 +2656,12 @@ extension HomeExtras on _HomePageState {
       } catch (e, stk) { logError(e, stk); }
 
       // PILOTKEEP2: خلبان روشن که وصل نیست خودش دوباره تلاش می‌کند (بلوک زیر دست‌نخورده)
-      if (localPilotOn && !connected && !busy && !switching) wantVpn = true;
+      // OFFLINE-PILOT: در حالت آفلاین اگر هیچ سرور سالمی در پوشه نیست، خلبان دیگر وصل نمی‌کند
+      // (قبلاً یک سرور تصادفی و تست‌نشده را وصل می‌کرد و بعد پشت‌سرهم عوض می‌کرد)
+      final offlineNoHealthy = offlineOnly && standbyCount == 0;
+      if (localPilotOn && !connected && !busy && !switching && !offlineNoHealthy) wantVpn = true;
       // اگر هنوز قطع است دوباره وصل کن
-      if (localPilotOn && wantVpn && !connected && !busy && !switching) {
+      if (localPilotOn && wantVpn && !connected && !busy && !switching && !offlineNoHealthy) {
         if (decision.action == 'none' || decision.action == 'connect') {
           await connect();
         }
@@ -2685,7 +2688,7 @@ extension HomeExtras on _HomePageState {
       logError(e, stk);
       localPilotText.value =
           'خطای خلبان: ${e.toString().replaceFirst("Exception: ", "")}';
-      if (localPilotOn && wantVpn && !connected && !busy) {
+      if (localPilotOn && wantVpn && !connected && !busy && !(offlineOnly && standbyCount == 0)) {
         try {
           await connect();
         } catch (e, stk) { logError(e, stk); }

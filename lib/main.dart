@@ -14,6 +14,7 @@ import 'package:installed_apps/app_info.dart';
 import 'package:installed_apps/installed_apps.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'prefs_store.dart';
+import 'online_count.dart'; // ONLINECOUNT: شمارش کاربران آنلاین
 import 'nnie_core.dart'; // NNIE: کد خالص و قابل تست
 import 'own_vpn.dart'; // KINGVPN: سرویس VPN خودمان (پیش‌فرض خاموش)
 import 'package:workmanager/workmanager.dart';
@@ -2134,6 +2135,8 @@ String _dbgProbText() {
     'E-SERVER-SKIP',
     // SHORTCONN: اتصال کوتاه (زیر ۶۰ ثانیه) فقط اطلاعاتی است
     'E-SHORT-CONN',
+    // REPORTFIX3: تست مجدد عادی وقتی سرور سالم نبود؛ کار خاصی لازم ندارد
+    'E-NO-HEALTHY-RETRY',
   };
   final allP = dbgProbs.values.toList();
   var infoN = 0;
@@ -5333,6 +5336,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     unawaited(NationalNetworkIntelligence.load()); // NNIE: حافظه‌ی شبکه، بدون تأخیر در UI
+    OnlineCounter.start(); // ONLINECOUNT
     _crashGuardInit(); // CRASHGUARD: آیا اجرای قبلی وسط شروع یک سرور مرده است؟
     unawaited(_loadVpnPerm()); // FIX-PERSIST
     Future.delayed(const Duration(seconds: 4), () => unawaited(_logLastExit())); // KINGDIAG
@@ -14462,6 +14466,8 @@ ListTile( // KINGEXTRAS row
           Text('VPN', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFD9AE55))),
           SizedBox(width: 8),
           Icon(Icons.workspace_premium, color: Color(0xFFD9AE55), size: 22),
+          SizedBox(width: 10),
+          OnlineCountBadge(), // ONLINECOUNT
         ]),
         actions: [
           IconButton(

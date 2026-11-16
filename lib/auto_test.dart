@@ -134,8 +134,13 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
   // بخش‌های تست با ترتیب اجرا (نام نمایشی)
   // NATONLY2: فقط این دو بخش در تست و گزارش دیده می‌شوند
   // FIVE-HOUR: همه‌ی مسیرهای اتصال در گزارش دیده می‌شوند
+  // ALLNAT: ۴ ساعت = جستجوی نت ملی + ماتریس سطوح + جایگزینی؛ هر بخش کلید گزارش جدا دارد
   static List<String> get _atActiveNames =>
-      [_atItemNames[2], _atSubstName]; // STEST60: فقط نت ملی
+      [_atSearchName, _atItemNames[2], _atSubstName];
+  static const String _atSearchName = 'نت ملی: جستجوی سرورهای سالم (IP و کانفیگ)';
+  static const Duration _atSearchCap = Duration(minutes: 100); // سقف جستجو
+  static const Duration _atMatrixCap = Duration(minutes: 50); // سقف ماتریس (۱۱ سطح)
+  static const Duration _atSubstBudget = Duration(minutes: 30); // حداقل وقت لازم جایگزینی
   static const List<String> _atItemNames = [
     'اینترنت جهانی (عادی)',
     'پوشه‌ی منابع تازه (ساخت)',
@@ -193,7 +198,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
       // NATREPORT: بخش‌های نت ملی فقط وقتی «جواب داد» حساب می‌شوند که واقعاً تست شده باشند.
       // قبلاً از این فهرست کنار گذاشته می‌شدند و گزارش «همه‌ی سطوح جواب دادند» می‌نوشت
       // حتی وقتی تست نشده بود.
-      final isNat = n == _atItemNames[2] || n == _atSubstName;
+      final isNat = n == _atSearchName || n == _atItemNames[2] || n == _atSubstName;
       if (isNat && !r.contains('تست نشد') && !r.contains('رد شد') && !r.contains('❌')) continue;
       if (r.contains('❌') || r.contains('اجرا نشد') || r.contains('تست نشد') ||
           r.contains('رد شد') || r.contains('⚠️')) {
@@ -343,7 +348,9 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
       // ask for more than _testDuration (it used to ask for 5h, so it never ran);
       // a 10-minute margin covers the setup time already spent when this runs.
       final steps = <(String, Duration, Future<void> Function())>[
-        (_atItemNames[2], _testDuration - const Duration(minutes: 10), _atItemNational),
+        (_atSearchName, _atSearchCap, _atItemNational),
+        (_atItemNames[2], const Duration(minutes: 40), _atItemNatModes),
+        (_atSubstName, _atSubstBudget, _atItemSubst),
       ];
       for (final s in steps) {
         if (_abortRequested) return _atFinish(reason: 'توقف دستی');
@@ -403,7 +410,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     final buf = StringBuffer();
     buf.writeln('===== گزارش تست خودکار نت ملی (۴ ساعت) =====');
     buf.writeln('مدت: ${min}m ${sec}s • دلیل پایان: $reason');
-    buf.writeln('نمونه وضعیت: ${_samples.length}');
+    buf.writeln('نمونه‌های ثبت‌شده (حداکثر ۵۰۰): ${_samples.length}');
     // TOPACTIONS: the three most important findings first, each with its first action
     const atPriority = ['ABORT-STUCK', 'TIMEOUT', 'SWITCH-FLAG-STUCK', 'SWITCH-STUCK', 'BG-BUSY',
         'BUSY-STUCK', 'CONNECT-HANG', 'STABLE-NODATA', 'PLUGIN-SWALLOW', 'XRAY-NOLOG', 'PILOT-FLAP'];
@@ -1766,7 +1773,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
   /// همه‌ی سطوح ماتریس (تا ۱۰) باید در این جستجو امتحان شوند.
     Future<void> _atItemNational() async {
     _scenario = 3;
-    final name = _atItemNames[2];
+    final name = _atSearchName;
     natForce = true;
     nationalMode = true;
     userModeChoice = true;
@@ -1785,7 +1792,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     await connect(); // Triggers V13 logic, returns on first server
 
     final tStart = DateTime.now();
-    final testDuration = _testDuration;
+    final testDuration = _atSearchCap;
 
     while (_phase == _AtPhase.running && !_abortRequested) {
       final elapsed = DateTime.now().difference(tStart);
@@ -1793,7 +1800,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
 
       final progress = elapsed.inSeconds / testDuration.inSeconds;
       autoTestProgress.value = progress.clamp(0.0, 1.0);
-      autoTestText.value = 'نت ملی ۴ ساعته • ${elapsed.inHours}h ${elapsed.inMinutes % 60}m • '
+      autoTestText.value = 'جستجوی نت ملی • ${elapsed.inHours}h ${elapsed.inMinutes % 60}m • '
           'دور: $natRound • سالم: ${good.length} • صف: ${pending.length} • '
           'IP تست‌شده: $natIpTested • IP باز: $natIpFound';
 
@@ -1809,7 +1816,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
       await Future<void>.delayed(const Duration(seconds: 3));
     }
 
-    _itemResult[name] = '✅ تست ۴ ساعته تمام شد • '
+    _itemResult[name] = '✅ جستجو تمام شد • '
         'سالم: ${good.length} • تست‌شده: $natIpTested • باز: $natIpFound';
   }
 
@@ -2091,8 +2098,13 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     final rows = <String>[];
     _atNatRows.clear();
     _atNatWorking = false;
+    final matrixEnd = DateTime.now().add(_atMatrixCap);
     for (var lvl = 0; lvl <= 10; lvl++) {
       if (_abortRequested || _phase != _AtPhase.running) break;
+      if (DateTime.now().isAfter(matrixEnd)) {
+        _atAdd('NATMODES-TIME', 'ماتریس: سطوح بعدی به‌خاطر سقف زمانی ماتریس رد شدند');
+        break;
+      }
       natFloor = lvl;
       natLevel = lvl;
       final s0 = natIpScanned, f0 = natIpFound, t0 = natIpTested, o0 = natIpOk;
