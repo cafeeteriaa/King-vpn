@@ -189,8 +189,12 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
           '(مثلاً ${noServerNames.take(5).join('، ')})');
     }
     for (final n in _atActiveNames) {
-      if (n == _atItemNames[2] || n == _atSubstName) continue;
       final r = _itemResult[n] ?? 'تست نشد';
+      // NATREPORT: بخش‌های نت ملی فقط وقتی «جواب داد» حساب می‌شوند که واقعاً تست شده باشند.
+      // قبلاً از این فهرست کنار گذاشته می‌شدند و گزارش «همه‌ی سطوح جواب دادند» می‌نوشت
+      // حتی وقتی تست نشده بود.
+      final isNat = n == _atItemNames[2] || n == _atSubstName;
+      if (isNat && !r.contains('تست نشد') && !r.contains('رد شد') && !r.contains('❌')) continue;
       if (r.contains('❌') || r.contains('اجرا نشد') || r.contains('تست نشد') ||
           r.contains('رد شد') || r.contains('⚠️')) {
         out.add('$n: $r');
