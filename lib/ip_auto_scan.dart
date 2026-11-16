@@ -149,20 +149,30 @@ extension IpAutoExt on _HomePageState {
   }
 
   Future<void> _ipAutoRunOnce(void Function(String) say) async {
-    final tpl = good.isNotEmpty
-        ? good.take(2).toList()
-        : natTemplateSeeds.take(2).toList();
-    if (tpl.isEmpty) {
-      say('هنوز سرور نمونه‌ای نیست. یک بار جستجوی سرور را اجرا کنید تا سرور سالم پیدا شود.');
+    // سرور نمونه: اول از پوشه‌ی منابع (تازه دریافت می‌شود)، و اگر آن جواب نداد، از سرورهای موجود برنامه
+    var pool = <Server>[];
+    say('دریافت سرور نمونه از منابع...');
+    try {
+      pool = await fetchServers(stop: () => _ipAutoHalt(), quickCap: 200);
+    } catch (e, stk) {
+      logError(e, stk);
+      pool = <Server>[];
+    }
+    if (pool.isEmpty) {
+      pool = <Server>[...good, ...natTemplateSeeds, ...pending, ...fetchedAll];
+    }
+    if (pool.isEmpty) {
+      say('دریافت لیست سرورها ناموفق بود. اینترنت را بررسی کنید و دوباره اجرا کنید.');
       return;
     }
+    final tpl = pool.take(2).toList();
     say('ساخت آدرس‌ها...');
     final addrs = await _ipAutoNextAddrs();
     if (addrs.isEmpty) {
       say('آدرسی برای اسکن پیدا نشد.');
       return;
     }
-    final ports = natAutoPorts(good).take(_ipAutoPorts).toList();
+    final ports = natAutoPorts(pool).take(_ipAutoPorts).toList();
     if (ports.isEmpty) ports.add(443);
 
     // مرحله‌ی ۱: TCP روی همه‌ی آدرس‌ها
