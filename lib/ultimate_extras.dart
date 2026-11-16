@@ -48,16 +48,29 @@ Future<void> ultimateSave() async {
 }
 
 // lightweight network fingerprint (no extra packages)
+// FIX #113: domestic hosts are tried first, because they still resolve when international
+// DNS is cut (national network). The international host is only the last resort.
+const _fingerprintHosts = [
+  'www.digikala.com',
+  'www.aparat.com',
+  'one.one.one.one',
+];
+
 Future<String> _netFingerprint() async {
-  try {
-    final r = await InternetAddress.lookup('one.one.one.one')
-        .timeout(const Duration(seconds: 3));
-    final ips = r.map((e) => e.address).join(',');
-    return '${nationalMode ? 'N' : 'G'}|$ips';
-  } catch (e, stk) {
-    logError(e, stk);
-    return nationalMode ? 'N|down' : 'G|down';
+  for (final host in _fingerprintHosts) {
+    try {
+      final r = await InternetAddress.lookup(host)
+          .timeout(const Duration(seconds: 3));
+      if (r.isEmpty) continue;
+      // Only the addresses go into the fingerprint, so the host that answered does not
+      // change the value by itself.
+      final ips = r.map((e) => e.address).join(',');
+      return '${nationalMode ? 'N' : 'G'}|$ips';
+    } catch (e, stk) {
+      logError(e, stk);
+    }
   }
+  return nationalMode ? 'N|down' : 'G|down';
 }
 
 extension UltimateExt on _HomePageState {

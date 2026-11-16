@@ -78,7 +78,7 @@ Future<List<NipHit>> nipScan(
 
   final n = min(concurrency.clamp(1, 16), max(ips.length, 1));
   await Future.wait(List.generate(n, (_) => worker()));
-  hits.sort((a, b) => a.ms.compareTo(b.ms));
+  natStableSort(hits, (a, b) => a.ms.compareTo(b.ms));
   return hits;
 }
 
@@ -114,8 +114,7 @@ String? nipSwapLink(Server t, String ip) {
   if (lower.startsWith('ss://')) return null;
   try {
     if (lower.startsWith('vmess://')) {
-      var b = l.substring(8);
-      b = b.padRight(b.length + (4 - b.length % 4) % 4, '=');
+      var b = natB64Normalize(l.substring(8));
       final j = jsonDecode(utf8.decode(base64.decode(b)));
       j['add'] = ip;
       if ((j['sni'] ?? '').toString().isEmpty) j['sni'] = t.host;
@@ -144,7 +143,9 @@ Future<void> natRelayHostsLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
     natRelayHosts = p.getStringList('nat_relay_hosts') ?? <String>[];
-  } catch (_) {}
+  } catch (e, st) {
+    logError(e, st);
+  }
 }
 
 Future<void> natRelayHostsSave(String text) async {
@@ -155,13 +156,18 @@ Future<void> natRelayHostsSave(String text) async {
   try {
     final p = await SharedPreferences.getInstance();
     await p.setStringList('nat_relay_hosts', natRelayHosts);
-  } catch (_) {}
+  } catch (e, st) {
+    logError(e, st);
+  }
 }
 
 Future<String?> nipResolve(String host) async {
-  // DNSDOH: اول DoH (در نت ملی DNS معمولی جواب بسته می‌دهد)
-  final d = await dohResolve(host);
-  if (d != null) return d;
+  // NATOPT: وقتی جهانی قطع است، DoH (سرویس خارجی) بی‌فایده و کند است؛ مستقیم DNS سیستم.
+  if (!NatNetworkDiagnosis.preferDomestic) {
+    // DNSDOH: اول DoH (در نت ملی DNS معمولی جواب بسته می‌دهد)
+    final d = await dohResolve(host);
+    if (d != null) return d;
+  }
   try {
     final l = await InternetAddress.lookup(host).timeout(const Duration(seconds: 5));
     return l.isEmpty ? null : l.first.address;
@@ -183,17 +189,30 @@ Future<void> natPrefetchAsn(List<Server> list) async {
   }
 }
 
+/// آخرین شکست RIPE برای هر IP (حافظه‌ی موقت، جدا از کش دائمی).
+final Map<String, DateTime> _asnFailAt = <String, DateTime>{};
+
 /// بلوک‌های IPv4 اعلام‌شده‌ی شرکت هاست همان IP (از RIPE Stat).
 Future<List<String>> nipAsnPrefixes(String ip) async {
   final prefs = await SharedPreferences.getInstance();
   final cacheKey = 'nip_asn_v1_$ip';
   final cached = prefs.getStringList(cacheKey);
   if (cached != null && cached.isNotEmpty) return cached;
+  // NATOPT: RIPE خارج از کشور است. وقتی جهانی قطع است فقط کش معتبر است؛ شبکه نمی‌زنیم.
+  if (NatNetworkDiagnosis.preferDomestic) return const [];
+  // NATOPT: شکست اخیر را ۱۵ دقیقه به خاطر می‌سپاریم تا هر دور جستجو ۳ بار ۱۲ ثانیه تایم‌اوت نخورد.
+  final failAt = _asnFailAt[ip];
+  if (failAt != null && DateTime.now().difference(failAt) < const Duration(minutes: 15)) {
+    return const [];
+  }
   try {
     final r = await http
         .get(Uri.parse('https://stat.ripe.net/data/network-info/data.json?resource=$ip'))
         .timeout(const Duration(seconds: 12));
-    if (r.statusCode != 200) return const [];
+    if (r.statusCode != 200) {
+      _asnFailAt[ip] = DateTime.now();
+      return const [];
+    }
     final asns = ((jsonDecode(r.body)['data']?['asns']) as List?) ?? const [];
     final out = <String>[];
     for (final a in asns.take(2)) {
@@ -207,9 +226,14 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
         if (pr.contains('/') && !pr.contains(':')) out.add(pr);
       }
     }
-    if (out.isNotEmpty) await prefs.setStringList(cacheKey, out);
+    if (out.isNotEmpty) {
+      await prefs.setStringList(cacheKey, out);
+    } else {
+      _asnFailAt[ip] = DateTime.now();
+    }
     return out;
   } catch (_) {
+    _asnFailAt[ip] = DateTime.now();
     return const [];
   }
 }
@@ -242,8 +266,8 @@ Future<String?> nipFrontProbe(String ip, int port, String sni) async {
   } catch (_) {
     return null;
   } finally {
-    try { sec?.destroy(); } catch (_) {}
-    try { raw?.destroy(); } catch (_) {}
+    try { sec?.destroy(); } catch (e, st) { logError(e, st); }
+    try { raw?.destroy(); } catch (e, st) { logError(e, st); }
   }
 }
 
@@ -263,8 +287,7 @@ String? nipSwapSni(Server t, String ip, String sni) {
   if (echFromLink(l).isNotEmpty) return null; // ECH: SNI جایگزین ممنوع
   try {
     if (lower.startsWith('vmess://')) {
-      var b = l.substring(8);
-      b = b.padRight(b.length + (4 - b.length % 4) % 4, '=');
+      var b = natB64Normalize(l.substring(8));
       final j = jsonDecode(utf8.decode(base64.decode(b)));
       final oldSni = (j['sni'] ?? '').toString().isNotEmpty ? j['sni'].toString() : t.host;
       if ((j['host'] ?? '').toString().isEmpty) j['host'] = oldSni;

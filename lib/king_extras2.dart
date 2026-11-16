@@ -1,5 +1,6 @@
 // king_extras2.dart
 import 'dart:async';
+import 'errjournal.dart';
 import 'dart:convert';
 import 'dart:math';
 
@@ -412,7 +413,7 @@ export default {
     let writer = null;
 
     server.addEventListener('close', () => {
-      try { if (remote) remote.close(); } catch (_) {}
+      try { if (remote) remote.close(); } catch (e) { errJournalAdd(e, kind: 'SILENT-LIB'); }
     });
 
     server.addEventListener('message', async (event) => {
@@ -469,10 +470,10 @@ export default {
         remote.readable.pipeTo(new WritableStream({
           write(data) { server.send(data); },
         })).catch(() => {}).finally(() => {
-          try { server.close(1000, 'done'); } catch (_) {}
+          try { server.close(1000, 'done'); } catch (e) { errJournalAdd(e, kind: 'SILENT-LIB'); }
         });
       } catch (e) {
-        try { server.close(1011, 'Connection failed'); } catch (_) {}
+        try { server.close(1011, 'Connection failed'); } catch (e) { errJournalAdd(e, kind: 'SILENT-LIB'); }
       }
     });
 
@@ -497,7 +498,7 @@ String _cfErrText(http.Response r) {
           .join(' | ');
       return 'HTTP ${r.statusCode}: $msgs';
     }
-  } catch (_) {}
+  } catch (e) { errJournalAdd(e, kind: 'SILENT-LIB'); }
   return 'HTTP ${r.statusCode}';
 }
 
@@ -584,7 +585,7 @@ Future<CfDeployResult> cloudflareAutoDeploy(String token) async {
       final res = sj['result'];
       if (res is Map && res['subdomain'] is String) sub = res['subdomain'] as String;
     }
-  } catch (_) {}
+  } catch (e) { errJournalAdd(e, kind: 'SILENT-LIB'); }
 
   // Step 4: build the link
   final host = sub.isNotEmpty ? '$workerName.$sub.workers.dev' : '$workerName.workers.dev';
@@ -623,14 +624,14 @@ class _CloudflareAutoDeployPageState extends State<CloudflareAutoDeployPage> {
           .timeout(const Duration(seconds: 3));
       if (!mounted || t == null || t.isEmpty) return;
       if (_tokenCtrl.text.isEmpty) _tokenCtrl.text = t;
-    } catch (_) {}
+    } catch (e) { errJournalAdd(e, kind: 'SILENT-LIB'); }
   }
 
   Future<void> _saveToken(String t) async {
     try {
       await _cfSec.write(key: _cfTokenKey, value: t)
           .timeout(const Duration(seconds: 3));
-    } catch (_) {}
+    } catch (e) { errJournalAdd(e, kind: 'SILENT-LIB'); }
   }
 
   bool _deploying = false;
@@ -667,12 +668,12 @@ class _CloudflareAutoDeployPageState extends State<CloudflareAutoDeployPage> {
             .timeout(const Duration(seconds: 3));
         await _cfSec.delete(key: 'personal_exp')
             .timeout(const Duration(seconds: 3));
-      } catch (_) {}
+      } catch (e) { errJournalAdd(e, kind: 'SILENT-LIB'); }
       // FOLDERAUTO: هر سرور ساخته‌شده به «سرورهای شخصی» هم می‌رود (قبلاً فقط با دکمه‌ی ذخیره اضافه می‌شد،
       // و سرورهای ساخته‌شده‌ی بعدی در تست پینگ دیده نمی‌شدند)
       try {
         await addToPersonalFolder([r.link]);
-      } catch (_) {}
+      } catch (e) { errJournalAdd(e, kind: 'SILENT-LIB'); }
       setState(() => _link = r.link);
     } on TimeoutException {
       if (mounted) setState(() => _error = 'اتصال به Cloudflare زمان‌بر شد. دوباره تلاش کن.');
@@ -707,7 +708,7 @@ class _CloudflareAutoDeployPageState extends State<CloudflareAutoDeployPage> {
           .timeout(const Duration(seconds: 3));
       await sec.delete(key: 'personal_exp')
           .timeout(const Duration(seconds: 3));
-    } catch (_) {}
+    } catch (e) { errJournalAdd(e, kind: 'SILENT-LIB'); }
     // سرور ساخته‌شده‌ی کلودفلر به پوشه‌ی «سرورهای شخصی» هم اضافه می‌شود
     await addToPersonalFolder([l]);
     if (!mounted) return;

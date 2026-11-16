@@ -39,10 +39,11 @@ class NatProbeEvidence {
     final domestic = domesticDnsOk || domesticTcpOk;
     final global = globalDnsOk || globalTcpOk;
     if (domestic && !global) return NatNetworkClass.domesticOnlyLikely;
-    if (domestic && global && !domesticTcpOk && !globalTcpOk) {
-      return NatNetworkClass.transportRestricted;
-    }
-    if (domesticDnsOk && !domesticTcpOk && !globalTcpOk) {
+    // A resolver answering on UDP is NOT proof of a working international
+    // route: if the TCP/443 checks to global hosts all fail while domestic
+    // hosts work, the international path is restricted. This is the case the
+    // national-first ordering must still handle (see preferDomestic).
+    if (domestic && global && !globalTcpOk) {
       return NatNetworkClass.transportRestricted;
     }
     if (domestic && global) return NatNetworkClass.globalReachable;
@@ -288,4 +289,36 @@ NatAttemptStage natStageFor({required int variantIndex, required bool isKcp,
   if (isCdnCompatible && variantIndex < 12) return NatAttemptStage.quick;
   if (variantIndex < 32) return NatAttemptStage.alternate;
   return NatAttemptStage.expensive;
+}
+
+/// Normalises a vmess:// payload to standard base64 with padding. Many vmess
+/// links use the URL-safe alphabet (- and _), which plain base64.decode rejects.
+String natB64Normalize(String raw) {
+  var b = raw.trim().replaceAll('-', '+').replaceAll('_', '/');
+  b = b.padRight(b.length + (4 - b.length % 4) % 4, '=');
+  return b;
+}
+
+/// Stable in-place sort. Dart's List.sort is NOT stable, so items that compare
+/// equal could swap places between runs. Here ties keep their original order,
+/// which keeps the national search order deterministic and the learned order
+/// meaningful.
+void natStableSort<T>(List<T> list, int Function(T a, T b) cmp) {
+  final tagged = <MapEntry<int, T>>[
+    for (var i = 0; i < list.length; i++) MapEntry<int, T>(i, list[i]),
+  ];
+  tagged.sort((x, y) {
+    final c = cmp(x.value, y.value);
+    return c != 0 ? c : x.key.compareTo(y.key);
+  });
+  for (var i = 0; i < tagged.length; i++) {
+    list[i] = tagged[i].value;
+  }
+}
+
+/// Stable sorted copy; the input list is not modified.
+List<T> natStableSorted<T>(Iterable<T> items, int Function(T a, T b) cmp) {
+  final out = items.toList();
+  natStableSort(out, cmp);
+  return out;
 }

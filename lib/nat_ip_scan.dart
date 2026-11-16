@@ -23,6 +23,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'errjournal.dart';
+import 'nnie_core.dart'; // natStableSort
 
 class NatIpHit {
   final String ip;
@@ -69,15 +70,18 @@ Future<int?> natTcpProbe(String ip, int port, Duration timeout) async {
     s = await Socket.connect(ip, port, timeout: timeout);
     sw.stop();
     return sw.elapsedMilliseconds;
-  } catch (e, stk) {
-    // خطای شبکه عادی است؛ فقط در ژورنال ثبت می‌شود
-    errJournalAdd(e, st: stk);
+  } catch (e) {
+    // خطای شبکه عادی است. با پیشوند SILENT- سقف ۳۰۰ بار در ژورنال اعمال می‌شود
+    // (قبلاً هر تایم‌اوت یک ورودی کامل با stack می‌ساخت و در یک اسکن هزاران بار).
+    errJournalAdd(e, kind: 'SILENT-NATIP');
     return null;
   } finally {
     // Belt-and-braces: destroy even if the catch path was bypassed
     try {
       s?.destroy();
-    } catch (_) {}
+    } catch (e) {
+      errJournalAdd(e, kind: 'SILENT-DESTROY');
+    }
   }
 }
 
@@ -166,7 +170,7 @@ Future<List<NatIpHit>> natScanIps(
   ];
   await Future.wait(workers);
 
-  hits.sort((a, b) => a.ms.compareTo(b.ms));
+  natStableSort(hits, (a, b) => a.ms.compareTo(b.ms));
   if (onProgress != null) onProgress(done, total, hits.length);
   return hits;
 }

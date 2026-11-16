@@ -76,7 +76,7 @@ extension AutoTestEngine on _HomePageState {
   // ALLPATHS: تست کامل همه‌ی مسیرها؛ مدت مهم نیست، بخش‌ها همه اجرا می‌شوند
   // SIX-HOUR: تست کامل همه‌ی مسیرها ۶ ساعت است (وقت کافی برای همه‌ی بخش‌ها)
   // STEST60: کل تست ۶۰ دقیقه و فقط نت ملی است (جهانی، پوشه، آفلاین، آنلاین، پروتکل‌ها، کشور و خلبان هوش مصنوعی حذف شدند)
-  static const _testDuration = Duration(hours: 6); // تست نت ملی ۶ ساعته (با متن‌های برنامه و راهنما یکی شد)
+  static const _testDuration = Duration(minutes: 90); // تست نت ملی ۹۰ دقیقه (کافی برای بررسی‌های CHANGES_v3)
   static const _sampleEvery = Duration(seconds: 3);
   // آستانه‌ها باید بیشتر از مهلت واقعی اتصال باشند (وگرنه اتصال عادی گزارش گیر می‌دهد)
   static const _busyStuckLimit = Duration(seconds: 240); // TESTUPGRADE
@@ -138,9 +138,9 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
   static List<String> get _atActiveNames =>
       [_atSearchName, _atItemNames[2], _atSubstName];
   static const String _atSearchName = 'نت ملی: جستجوی سرورهای سالم (IP و کانفیگ)';
-  static const Duration _atSearchCap = Duration(minutes: 180); // سقف جستجو
+  static const Duration _atSearchCap = Duration(minutes: 30); // سقف جستجو (کاهش از ۱۸۰ دقیقه)
   static const Duration _atMatrixCap = Duration(minutes: 120); // سقف ماتریس (۱۱ سطح)
-  static const Duration _atSubstBudget = Duration(minutes: 60); // حداقل وقت لازم جایگزینی
+  static const Duration _atSubstBudget = Duration(minutes: 35); // حداقل وقت لازم جایگزینی (کاهش از ۶۰)
   static const List<String> _atItemNames = [
     'اینترنت جهانی (عادی)',
     'پوشه‌ی منابع تازه (ساخت)',
@@ -229,7 +229,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
         textDirection: TextDirection.rtl,
         child: StatefulBuilder(
           builder: (ctx, setD) => AlertDialog(
-            title: const Text('تست نت ملی (۶ ساعت)'),
+            title: const Text('تست نت ملی (۹۰ دقیقه)'),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -248,7 +248,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
                   const SizedBox(height: 8),
                   const SizedBox(height: 6),
                   const Text(
-                    'در این ۶ ساعت اپ را نبند و صفحه را قفل نکن.\n'
+                    'در این ۹۰ دقیقه اپ را نبند و صفحه را قفل نکن.\n'
                     'می‌توانی وسط کار «توقف تست» را بزنی.',
                     style: TextStyle(fontSize: 12),
                   ),
@@ -316,8 +316,8 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     autoTestRunning.value = true;
     autoTestProgress.value = 0;
     autoTestText.value = 'تست خودکار شروع شد (${_atSelected.length} VPN)…';
-    dbg('🧪 AUTOTEST نت ملی شروع شد (۶ ساعت • ${_atActiveNames.length} بخش)');
-    _dbgProb('🧪 تست نت ملی — ۶ ساعت');
+    dbg('🧪 AUTOTEST نت ملی شروع شد (۹۰ دقیقه • ${_atActiveNames.length} بخش)');
+    _dbgProb('🧪 تست نت ملی — ۹۰ دقیقه');
 
     _sampleT?.cancel();
     _sampleT = Timer.periodic(_sampleEvery, (_) => _atSample());
@@ -325,7 +325,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     _endT?.cancel();
     _endT = Timer(_testDuration, () {
       if (_phase == _AtPhase.running) {
-        dbg('🧪 AUTOTEST زمان ۶ ساعت تمام شد');
+        dbg('🧪 AUTOTEST زمان ۹۰ دقیقه تمام شد');
         _atFinish(reason: 'زمان تمام شد');
       }
     });
@@ -349,7 +349,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
       // a 10-minute margin covers the setup time already spent when this runs.
       final steps = <(String, Duration, Future<void> Function())>[
         (_atSearchName, _atSearchCap, _atItemNational),
-        (_atItemNames[2], const Duration(minutes: 40), _atItemNatModes),
+        (_atItemNames[2], const Duration(minutes: 25), _atItemNatModes),
         (_atSubstName, _atSubstBudget, _atItemSubst),
       ];
       for (final s in steps) {
@@ -408,7 +408,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     }
     _atVerdict = _atNatDiagnosis(); // NATONLY
     final buf = StringBuffer();
-    buf.writeln('===== گزارش تست خودکار نت ملی (۶ ساعت) =====');
+    buf.writeln('===== گزارش تست خودکار نت ملی (۹۰ دقیقه) =====');
     buf.writeln('مدت: ${min}m ${sec}s • دلیل پایان: $reason');
     buf.writeln('نمونه‌های ثبت‌شده (حداکثر ۵۰۰): ${_samples.length}');
     // TOPACTIONS: the three most important findings first, each with its first action
@@ -1164,7 +1164,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
           final all = f.readAsLinesSync();
           xrayText = (all.length > 400 ? all.sublist(all.length - 400) : all).join('\n');
         }
-      } catch (_) {}
+      } catch (e, st) { logError(e, st); }
 
       final journalMsgs = errJournal
           .where((e) => _startedAt == null || !e.at.isBefore(_startedAt!))
@@ -1781,7 +1781,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     natRound = 1; // V14: force pass 1
     await ultimateSave();
 
-    _set('نت ملی: پاک‌سازی صف برای تست کامل ۶ ساعته');
+    _set('نت ملی: پاک‌سازی صف برای تست کامل ۹۰ دقیقه‌ای');
     good.clear();
     pending.clear();
     failed.clear();
@@ -2332,7 +2332,7 @@ Future<String> atSaveReport(String report) async {
   try {
     final st = Permission.manageExternalStorage;
     if (!await st.isGranted) await st.request();
-  } catch (_) {}
+  } catch (e, st) { logError(e, st); }
   final stamp = DateTime.now()
       .toIso8601String()
       .replaceAll(':', '-')
@@ -2355,7 +2355,7 @@ Future<String> atSaveReport(String report) async {
       await File('${dir.path}/last_auto_test_report.txt')
           .writeAsString(report, flush: true);
       if (saved.isEmpty) saved = f.path;
-    } catch (_) {}
+    } catch (e, st) { logError(e, st); }
   }
   // XRAYCOPY: کپی کامل خطای هسته (xray_err.log) کنار گزارش، بدون نیاز به کامپیوتر
   try {
@@ -2369,9 +2369,9 @@ Future<String> atSaveReport(String report) async {
           final dir = Directory(d);
           if (!dir.existsSync()) dir.createSync(recursive: true);
           await File('${dir.path}/xray_err_last.log').writeAsString(txt, flush: true);
-        } catch (_) {}
+        } catch (e, st) { logError(e, st); }
       }
     }
-  } catch (_) {}
+  } catch (e, st) { logError(e, st); }
   return saved;
 }

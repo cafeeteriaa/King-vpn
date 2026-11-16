@@ -116,7 +116,7 @@ extension UpdateCheck on _HomePageState {
       // فیکس ۱: بدون هش در Gist، هیچ APK ای خودکار نصب نمی‌شود (بدون بررسی یکپارچگی)
       if (sha256Expected.isEmpty) {
         _set('هش فایل آپدیت در Gist نیست؛ نصب خودکار انجام نشد. از لینک دانلود دستی استفاده کن');
-        try { await file.delete(); } catch (_) {}
+        try { await file.delete(); } catch (e, st) { logError(e, st); }
         return;
       }
       if (sha256Expected.isNotEmpty) {
@@ -126,7 +126,7 @@ extension UpdateCheck on _HomePageState {
           if (hash != sha256Expected) {
             _set('❌ فایل آپدیت معتبر نیست (hash mismatch)؛ نصب لغو شد');
             kingHealText.value = '❌ APK دستکاری شده';
-            try { await file.delete(); } catch (_) {}
+            try { await file.delete(); } catch (e, st) { logError(e, st); }
             return;
           }
         } catch (e) { logError(e); }

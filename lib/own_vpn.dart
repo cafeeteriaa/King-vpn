@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'errjournal.dart';
 import 'package:flutter/services.dart';
 
 // KINGVPN: اتصال VPN با سرویس خود برنامه (کانال king/vpn)
@@ -7,13 +10,54 @@ const bool kOwnVpnService = false;
 
 const MethodChannel _kingVpnChannel = MethodChannel('king/vpn');
 
+// جدید: the native service reports the real outcome of a start through the 'status' call:
+// 'CONNECTED', 'FAILED' or 'STOPPED'. The plugin's status events are not used for this path.
+Completer<String>? _startWaiter;
+bool _handlerSet = false;
+// FIX #83: each start gets an id. The native service echoes it in every status message,
+// so a late CONNECTED/FAILED from an earlier attempt cannot complete the current waiter.
+// Id 0 means "no attempt" (service restart/resume) and is accepted by every waiter.
+int _ownAttemptSeq = 0;
+int _ownAttemptCurrent = 0;
+
+void _ensureStatusHandler() {
+  if (_handlerSet) return;
+  _handlerSet = true;
+  _kingVpnChannel.setMethodCallHandler((call) async {
+    if (call.method != 'status') return null;
+    final args = call.arguments;
+    final state = args is Map ? '${args['state'] ?? ''}' : '';
+    final err = args is Map ? '${args['error'] ?? ''}' : '';
+    final attemptRaw = args is Map ? args['attempt'] : null;
+    final attempt = attemptRaw is int ? attemptRaw : 0;
+    if (attempt != 0 && attempt != _ownAttemptCurrent) {
+      // Late message from an earlier attempt: ignore it.
+      return null;
+    }
+    if (state != 'CONNECTED') {
+      errJournalAdd(StateError('king/vpn status $state: $err'), kind: 'OWNVPN');
+    }
+    final w = _startWaiter;
+    if (w != null && !w.isCompleted) w.complete(state);
+    return null;
+  });
+}
+
+/// Returns true only when the native service reports CONNECTED.
+/// Returns false on FAILED, STOPPED, a platform error, or after 190 s without an answer.
 Future<bool> ownVpnStart({
   required String config,
   required String remark,
   String addr = '',
   String port = '',
   String backups = '', // KINGFAILOVER: JSON list of backup servers
+  bool national = false, // NATPROBE: national mode skips the international health probe
 }) async {
+  _ensureStatusHandler();
+  final waiter = Completer<String>();
+  _startWaiter = waiter;
+  final attemptId = ++_ownAttemptSeq;
+  _ownAttemptCurrent = attemptId;
   try {
     final ok = await _kingVpnChannel.invokeMethod<bool>('start', {
       'config': config,
@@ -21,15 +65,35 @@ Future<bool> ownVpnStart({
       'addr': addr,
       'port': port,
       'backups': backups,
+      'national': national,
+      'attempt': attemptId,
     });
-    return ok ?? false;
-  } catch (e) {
+    if (ok != true) {
+      errJournalAdd(StateError('king/vpn start returned ${ok ?? 'null'}'), kind: 'OWNVPN');
+      return false;
+    }
+    // جدید: wait for the real result. 190 s covers up to 9 servers at the native 20 s cap.
+    final state = await waiter.future
+        .timeout(const Duration(seconds: 190), onTimeout: () => 'TIMEOUT');
+    if (state == 'CONNECTED') return true;
+    errJournalAdd(StateError('king/vpn start ended with $state'), kind: 'OWNVPN');
+    if (state == 'TIMEOUT') await ownVpnStop();
     return false;
+  } catch (e, st) {
+    errJournalAdd(e, kind: 'OWNVPN', st: st);
+    return false;
+  } finally {
+    if (identical(_startWaiter, waiter)) _startWaiter = null;
   }
 }
 
 Future<void> ownVpnStop() async {
+  // جدید: release a start that is still waiting for its result
+  final w = _startWaiter;
+  if (w != null && !w.isCompleted) w.complete('STOPPED');
   try {
     await _kingVpnChannel.invokeMethod<bool>('stop');
-  } catch (_) {}
+  } catch (e, st) {
+    errJournalAdd(e, kind: 'OWNVPN', st: st); // جدید: was SILENT-LIB, now carries the stack
+  }
 }

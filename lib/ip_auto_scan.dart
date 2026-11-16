@@ -27,6 +27,11 @@ final Map<String, int> ipAutoCursors = {};
 int ipAutoPos = 0;
 
 String _ipAutoKeyNow() => nationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
+// IPAUTO-MODE: کرسر و جای فعلی هم برای هر حالت جدا هستند (فهرست بلوک‌ها در دو حالت فرق دارد)
+String _ipAutoPosKeyNow() => '${_ipAutoPosKey}_${nationalMode ? 'nat' : 'glob'}';
+String _ipAutoCursorKeyNow() => '${_ipAutoCursorKey}_${nationalMode ? 'nat' : 'glob'}';
+// حالتی که فهرست IP در حافظه متعلق به آن است (null = هنوز بارگذاری نشده)
+bool? _ipAutoLoadedNat;
 String _ipAutoModeName() => nationalMode ? 'نت ملی' : 'جهانی';
 
 Future<void> ipAutoLoad() async {
@@ -36,8 +41,9 @@ Future<void> ipAutoLoad() async {
     ipAutoHits
       ..clear()
       ..addAll(s.split('\n').where((x) => x.contains('|')));
-    ipAutoPos = int.tryParse(p.getString(_ipAutoPosKey) ?? '') ?? 0;
-    final c = p.getString(_ipAutoCursorKey);
+    _ipAutoLoadedNat = nationalMode;
+    ipAutoPos = int.tryParse(p.getString(_ipAutoPosKeyNow()) ?? '') ?? 0;
+    final c = p.getString(_ipAutoCursorKeyNow());
     if (c != null && c.isNotEmpty) {
       final m = jsonDecode(c) as Map;
       ipAutoCursors
@@ -51,10 +57,13 @@ Future<void> ipAutoLoad() async {
 
 Future<void> _ipAutoSave() async {
   try {
+    // IPAUTO-MODE: اگر حالت وسط کار عوض شده، فهرست حافظه مال حالت دیگری است؛ ذخیره نمی‌کنیم
+    // تا نتایج یک حالت در کلید حالت دیگر نریزد.
+    if (_ipAutoLoadedNat != null && _ipAutoLoadedNat != nationalMode) return;
     final p = await SharedPreferences.getInstance();
     await p.setString(_ipAutoKeyNow(), ipAutoHits.join('\n'));
-    await p.setString(_ipAutoCursorKey, jsonEncode(ipAutoCursors));
-    await p.setString(_ipAutoPosKey, ipAutoPos.toString());
+    await p.setString(_ipAutoCursorKeyNow(), jsonEncode(ipAutoCursors));
+    await p.setString(_ipAutoPosKeyNow(), ipAutoPos.toString());
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -62,7 +71,8 @@ Future<void> _ipAutoSave() async {
 
 /// بلوک‌های اسکن: بازه‌های ISP/دیتاسنتر ایرانی (kIrIspRanges). بازه‌های CDN جدا از طریق
 /// liveRanges در _ipAutoNextAddrs اضافه می‌شوند. کرسر باعث می‌شود اجراها جلو بروند.
-List<String> _ipAutoBlocks() => kIrIspRanges;
+// GLOBALONLY: حالت جهانی فقط CDN را اسکن می‌کند؛ بازه‌های ISP داخلی فقط برای نت ملی‌اند
+List<String> _ipAutoBlocks() => nationalMode ? kIrIspRanges : const <String>[];
 
 Future<List<String>> _ipAutoNextAddrs() async {
   final args = <String, dynamic>{
@@ -127,9 +137,6 @@ extension IpAutoExt on _HomePageState {
   /// دلیل رد شدن شروع اسکن؛ null یعنی می‌شود شروع کرد
   String? _ipAutoRefusal() {
     // نت ملی کاملاً خودکار است؛ دکمه‌ی دستی فقط برای حالت عادی است
-    if (nationalMode) {
-      return 'در نت ملی اسکن IP خودکار است و خودش هر ۲۴ ساعت (یا ۶ ساعت اگر نتیجه نداشت) اجرا می‌شود. نتایج را همین‌جا ببینید و کپی کنید.';
-    }
     if (ipAutoBusy) return 'اسکن در حال اجراست.';
     if (connected || busy) return 'اول VPN را قطع کنید، بعد اسکن خودکار IP را اجرا کنید.';
     if (nationalMode && _natRangeScanBusy) {
@@ -157,7 +164,7 @@ extension IpAutoExt on _HomePageState {
     }
   }
 
-  Future<void> _ipAutoRunOnce(void Function(String) say) async {
+  Future<void> _ipAutoRunOnce(void Function(String) say, {bool manual = false}) async {
     // سرور نمونه: اول از پوشه‌ی منابع (تازه دریافت می‌شود)، و اگر آن جواب نداد، از سرورهای موجود برنامه
     var pool = <Server>[];
     say('دریافت سرور نمونه از منابع...');
@@ -192,7 +199,7 @@ extension IpAutoExt on _HomePageState {
       final hits = await natScanIps(
         addrs,
         port: port,
-        concurrency: _ipAutoConc,
+        concurrency: (manual && nationalMode) ? kNatManualConc : _ipAutoConc,
         want: 300,
         budget: const Duration(minutes: 5),
         timeout: const Duration(milliseconds: 1500),
@@ -230,7 +237,7 @@ extension IpAutoExt on _HomePageState {
         continue;
       }
       ipAutoHits.insert(0, c);
-      unawaited(goldMergeIps([CleanIp(ip, sw.elapsedMilliseconds, port)])); // GOLDAUTO: در پوشه‌ی جهانی ذخیره شود
+      unawaited(goldMergeIps([CleanIp(ip, sw.elapsedMilliseconds, port)])); // FOLDERALL
       seen.add(c);
       found++;
       if (ipAutoHits.length > _ipAutoMaxHits) {
@@ -255,7 +262,9 @@ extension IpAutoExt on _HomePageState {
           void upd(VoidCallback f) {
             try {
               setS(f);
-            } catch (_) {}
+            } catch (e) {
+              errJournalAdd(e, kind: 'SILENT-SHEET');
+            }
           }
 
           Future<void> start() async {
@@ -270,7 +279,7 @@ extension IpAutoExt on _HomePageState {
             ipAutoStopFlag = false;
             upd(() => ipAutoStatus = 'شروع...');
             try {
-              await _ipAutoRunOnce((s) => upd(() => ipAutoStatus = s));
+              await _ipAutoRunOnce((s) => upd(() => ipAutoStatus = s), manual: true);
             } catch (e, stk) {
               logError(e, stk);
               upd(() => ipAutoStatus = 'خطا: $e');

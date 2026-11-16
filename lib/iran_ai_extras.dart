@@ -239,7 +239,7 @@ Future<void> loadGeminiPrefs(SharedPreferences p) async {
     'gem_key', 'grok_key', 'claude_key', 'openai_key', 'deepseek_key', 'ai_prov',
   ]) {
     if (verify[k] != null) {
-      try { await p.remove(k); } catch (_) {}
+      try { await p.remove(k); } catch (e, st) { logError(e, st); }
     }
   }
 }
@@ -276,7 +276,7 @@ Future<void> saveGeminiPrefs() async {
     }
     if (allVerified) {
       for (final k in keys.keys) {
-        try { await p.remove(k); } catch (_) {}
+        try { await p.remove(k); } catch (e, st) { logError(e, st); }
       }
     }
   } catch (e, stk) {
@@ -2747,7 +2747,7 @@ extension HomeExtras on _HomePageState {
     minSpeedKB = 0;
     // NORMALPARITY: مثل اتصال عادی، ۳ تست هم‌زمان (نه مقدار تصادفی از قبل)
     // PILOTUSER: اگر کاربر «تست همزمان» را خودش تنظیم کرده، همان عدد را نگه می‌دارد؛ وگرنه ۳
-    fastWorkers = (fwUserSet && fwUserValue >= 1) ? fwUserValue.clamp(1, 32) : 7;
+    fastWorkers = (fwUserSet && fwUserValue >= 1) ? fwUserValue.clamp(1, 32) : 5;
     bgWorkers = 3;
 
     // فرمول‌های پیوسته نسبت به قدرت (هرچه بالاتر = تهاجمی‌تر)
@@ -3039,7 +3039,7 @@ class NumOpt {
 
 final List<NumOpt> numOpts = [
   // BEST PROFILE defaults — هم‌تراز با پیش‌فرض main.dart
-  NumOpt('fastWorkers', 'تست همزمان (جستجوی اول)', 1, 32, 7, 32, false,
+  NumOpt('fastWorkers', 'تست همزمان (جستجوی اول)', 1, 32, 5, 32, false,
       () => fastWorkers.clamp(1, 32), (v) => fastWorkers = v.clamp(1, 32)),
   NumOpt('bgWorkers', 'تست همزمان (وقتی وصل است)', 1, 32, 3, 32, false,
       () => bgWorkers.clamp(1, 32), (v) => bgWorkers = v.clamp(1, 32)),

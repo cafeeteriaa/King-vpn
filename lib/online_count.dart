@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'errjournal.dart';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -37,7 +38,7 @@ class OnlineCounter {
         final n = (jsonDecode(res.body) as Map)['online'];
         if (n is int) count.value = n;
       }
-    } catch (_) {}
+    } catch (e) { errJournalAdd(e, kind: 'SILENT-LIB'); }
   }
 
   static void start() {

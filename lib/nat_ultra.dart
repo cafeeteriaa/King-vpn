@@ -874,7 +874,7 @@ List<int> _natOrder(Server s, {bool full = false}) {
     }
     // NNIE staged scheduler: retain every compatible variant, but try cheap
     // options before expensive KCP unless a real winner was learned earlier.
-    app.sort((a, b) {
+    natStableSort(app, (a, b) {
       final sa = NationalNetworkIntelligence.stageFor(
         variantIndex: a % _natCodeBase,
         isKcp: _natIsSlowHeavy(a),
@@ -942,8 +942,7 @@ List<int> _natOrder(Server s, {bool full = false}) {
 String _natSetParam(String link, String key, String val) {
   try {
     if (link.toLowerCase().startsWith('vmess://')) {
-      var b = link.substring(8);
-      b = b.padRight(b.length + (4 - b.length % 4) % 4, '=');
+      var b = natB64Normalize(link.substring(8));
       final j = jsonDecode(utf8.decode(base64.decode(b)));
       j[key] = val;
       return 'vmess://${base64.encode(utf8.encode(jsonEncode(j)))}';
@@ -961,8 +960,7 @@ String _natSetParam(String link, String key, String val) {
 String _natGetParam(String link, String key) {
   try {
     if (link.toLowerCase().startsWith('vmess://')) {
-      var b = link.substring(8);
-      b = b.padRight(b.length + (4 - b.length % 4) % 4, '=');
+      var b = natB64Normalize(link.substring(8));
       final j = jsonDecode(utf8.decode(base64.decode(b)));
       return (j[key] ?? '').toString();
     }
@@ -976,8 +974,7 @@ String _natGetParam(String link, String key) {
 String _natSetPort(String link, int port) {
   try {
     if (link.toLowerCase().startsWith('vmess://')) {
-      var b = link.substring(8);
-      b = b.padRight(b.length + (4 - b.length % 4) % 4, '=');
+      var b = natB64Normalize(link.substring(8));
       final j = jsonDecode(utf8.decode(base64.decode(b)));
       j['port'] = port;
       return 'vmess://${base64.encode(utf8.encode(jsonEncode(j)))}';
@@ -992,8 +989,7 @@ String _natSetPort(String link, int port) {
 String _natSetHost(String link, String ip, String host) {
   try {
     if (link.toLowerCase().startsWith('vmess://')) {
-      var b = link.substring(8);
-      b = b.padRight(b.length + (4 - b.length % 4) % 4, '=');
+      var b = natB64Normalize(link.substring(8));
       final j = jsonDecode(utf8.decode(base64.decode(b)));
       j['add'] = ip;
       if ((j['sni'] ?? '').toString().isEmpty) j['sni'] = host;
@@ -1761,8 +1757,8 @@ List<int> natAutoPorts(List<Server> known) {
     final p = (e['port'] as num?)?.toInt() ?? 0;
     if (p > 0 && p < 65536) cnt[p] = (cnt[p] ?? 0) + 5;
   }
-  final ports = cnt.keys.toList()
-    ..sort((x, y) => cnt[y]! - cnt[x]!);
+  final ports = natStableSorted<int>(
+      cnt.keys, (x, y) => cnt[y]! - cnt[x]!);
   final out = <int>[...ports.take(10)];
   for (final p in natCommonPorts) {
     if (!out.contains(p)) out.add(p);
@@ -1817,8 +1813,8 @@ int _ipToInt(String ip) {
 String _intToIp(int v) =>
     '${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}';
 
-List<String> natExpandAny(String item) {
-  if (!item.contains('-')) return natExpandCidr(item, maxPerBlock: 65536);
+List<String> natExpandAny(String item, {int maxPerBlock = 65536}) {
+  if (!item.contains('-')) return natExpandCidr(item, maxPerBlock: maxPerBlock);
   final parts = item.split('-');
   if (parts.length != 2) return const [];
   final a = InternetAddress.tryParse(parts[0].trim());
@@ -1836,7 +1832,7 @@ List<String> natExpandAny(String item) {
     end = t;
   }
   final out = <String>[];
-  for (var v = start; v <= end && out.length < 65536; v++) {
+  for (var v = start; v <= end && out.length < maxPerBlock; v++) {
     out.add(_intToIp(v));
   }
   return out;
@@ -2050,15 +2046,20 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   final List<String> liveRanges = List<String>.from(args['liveRanges'] as List);
   final Map<String, int> cursors = Map<String, int>.from(args['cursors'] as Map);
   final addrs = <String>[];
+  // NATMEM: هر بلوک حداکثر ۲۵۶ آدرس پراکنده و کل فهرست سقف دارد. قبلاً هر بلوک تا ۶۵۵۳۶ آدرس
+  // و فهرست ISP حدود ۲۸۰۰ بلوک داشت، یعنی ده‌ها میلیون رشته در isolate و فقط ۶۰۰۰ تای آن استفاده می‌شد.
+  final cap = max(cfIpsBatch * 4, 20000);
+  void addBlocks() {
+    for (final r in blocks) {
+      if (addrs.length >= cap) break;
+      addrs.addAll(natExpandAny(r, maxPerBlock: 256));
+    }
+  }
   if (nationalMode) {
     addrs.addAll(_getCfIps(batchSize: cfIpsBatch, liveRanges: liveRanges, cursors: cursors));
-    for (final r in blocks) {
-      addrs.addAll(natExpandAny(r));
-    }
+    addBlocks();
   } else {
-    for (final r in blocks) {
-      addrs.addAll(natExpandAny(r));
-    }
+    addBlocks();
     addrs.addAll(_getCfIps(batchSize: cfIpsBatch, liveRanges: liveRanges, cursors: cursors));
   }
   return {'addrs': addrs, 'cursors': cursors};
@@ -2273,9 +2274,9 @@ Future<void> hotExportToDownload() async {
           catch (_) { return 0; }
         });
       for (var i = 3; i < all.length; i++) {
-        try { all[i].deleteSync(); } catch (_) {}
+        try { all[i].deleteSync(); } catch (e, st) { logError(e, st); }
       }
-    } catch (_) {}
+    } catch (e, st) { logError(e, st); }
   } catch (e) {
     dbg('hotExport ignored: $e');
   }
@@ -2364,9 +2365,10 @@ Future<void> natHotEnsure({bool force = false}) async {
         ];
         await File(extraPath).writeAsString(ex.join('\n'), flush: true);
       }
-      final order = [for (var i = 0; i < urls.length; i++) i]
-        ..sort((a, b) => (natSrcRates[urls[b]] ?? 0.3)
-            .compareTo(natSrcRates[urls[a]] ?? 0.3));
+      final order = natStableSorted<int>(
+          [for (var i = 0; i < urls.length; i++) i],
+          (a, b) => (natSrcRates[urls[b]] ?? 0.3)
+              .compareTo(natSrcRates[urls[a]] ?? 0.3));
       final mixed = order;
       final newPath = '${_hotPath()}.new';
       final offs = <int>[0];
@@ -2562,7 +2564,9 @@ Future<void> natRememberSuccess(Server s) async {
           'offlineOnly': offlineOnly,
           'indestructibleMode': indestructibleMode,
         }));
-  } catch (_) {}
+  } catch (e, st) {
+    logError(e, st);
+  }
 }
 
 Future<void> natMemLoad() async {
@@ -2573,7 +2577,9 @@ Future<void> natMemLoad() async {
     final m = jsonDecode(raw) as Map<String, dynamic>;
     natLevel = (m['natLevel'] as int?) ?? natLevel;
     offlineOnly = (m['offlineOnly'] as bool?) ?? offlineOnly;
-  } catch (_) {}
+  } catch (e, st) {
+    logError(e, st);
+  }
 }
 
 

@@ -244,12 +244,16 @@ Future<List<DnsxHit>> dnsxScan(List<String> list,
     {List<String>? domains,
     Duration gap = Duration.zero,
     void Function(int done, int total)? onProgress,
-    bool Function()? stop}) async {
+    bool Function()? stop,
+    bool manual = false}) async {
   final results = <DnsxHit>[];
   var done = 0;
-  const dnsBatch = 12; // DNS در هر دسته‌ی همزمان
+  // NATQUOTA: اسکن دستی در نت ملی سهمیه‌ی کم دارد و منتظر جستجوی نت ملی می‌ماند
+  final limited = manual && nationalMode;
+  final dnsBatch = limited ? kNatManualConc : 12; // DNS در هر دسته‌ی همزمان
   for (var i = 0; i < list.length; i += dnsBatch) {
     if (stop != null && stop()) break;
+    if (limited) await natManualYield();
     final batch = list.sublist(i, min(i + dnsBatch, list.length));
     await Future.wait(batch.map((server) async {
       final hit =
@@ -268,6 +272,7 @@ Future<List<DnsxHit>> dnsxScan(List<String> list,
 
 /// بهترین DNSهای پیداشده که در نت ملی اول استفاده می‌شوند (در حافظه)
 List<String> dnsxBestCache = [];
+bool? _dnsxBestMode; // حالتی که dnsxBestCache برایش پر شده
 bool _dnsxAutoBusy = false;
 /// اسکن دستی در حال اجراست؛ تا تمام نشده، اسکن خودکار شروع نمی‌شود
 bool dnsxManualBusy = false;
@@ -279,18 +284,24 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
   _dnsxAutoBusy = true;
   try {
     final p = await SharedPreferences.getInstance();
-    final cached = p.get('dnsx_best_v1');
+    // DNSMODE: نتیجه‌ی هر حالت (ملی/جهانی) کلید جدا دارد؛ قبلاً یک کلید مشترک بود و یکی دیگری را بازنویسی می‌کرد
+    final sfx = nationalMode ? 'nat' : 'glob';
+    if (_dnsxBestMode != nationalMode) {
+      dnsxBestCache = [];
+      _dnsxBestMode = nationalMode;
+    }
+    final cached = p.get('dnsx_best_v1_$sfx');
     if (cached is List && dnsxBestCache.isEmpty) {
       dnsxBestCache = [for (final x in cached) x.toString()];
     }
-    final at = p.get('dnsx_at_v1');
+    final at = p.get('dnsx_at_v1_$sfx');
     final last = at is int ? at : 0;
     final now = DateTime.now().millisecondsSinceEpoch;
     // فاصله‌ی ۲۴ ساعته همیشه رعایت شود، حتی وقتی نتیجه‌ای نبود (جلوگیری از اسکن تکراری)
     // اگر DNS سالمی نداریم، زودتر دوباره اسکن می‌شود (۶ ساعت)؛ وگرنه هر ۲۴ ساعت
     final gapMs = dnsxBestCache.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
     if (now - last < gapMs) return;
-    final list = nationalMode ? kDnsxNationalDefaults : kDnsxDefaults;
+    final list = {...(await goldDnsList()).take(40), ...(nationalMode ? kDnsxNationalDefaults : kDnsxDefaults)}.toList();
     // کامل: همه‌ی دامنه‌های پروژه، با فاصله‌ی ۱۵۰ میلی‌ثانیه بین بسته‌ها
     final r = await dnsxScan(
       list,
@@ -301,9 +312,9 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
     // اگر وسط کار اتصال برقرار شد، نتیجه‌ی ناقص ذخیره نمی‌شود و اسکن بعدی دوباره انجام می‌شود
     if (stop != null && stop()) return;
     dnsxBestCache = [for (final e in r.take(4)) e.ip];
-    unawaited(goldAddDns(r)); // GOLDDNS: نتیجه‌ی DNS سالم در پوشه‌ی جهانی ذخیره شود
-    await p.setStringList('dnsx_best_v1', dnsxBestCache);
-    await p.setInt('dnsx_at_v1', now);
+    unawaited(goldAddDns(r)); // FOLDERALL
+    await p.setStringList('dnsx_best_v1_$sfx', dnsxBestCache);
+    await p.setInt('dnsx_at_v1_$sfx', now);
     dbg('DNSX خودکار: ${dnsxBestCache.length} DNS سالم (${nationalMode ? 'نت ملی' : 'عادی'})');
   } catch (e, stk) {
     logError(e, stk);
@@ -319,6 +330,7 @@ extension DnsxExt on _HomePageState {
     var done = 0;
     var total = 0;
     var results = <DnsxHit>[];
+    var note = ''; // DNSNOTE: پیام داخل خود شیت (SnackBar زیر شیت دیده نمی‌شد)
     final extraC = TextEditingController();
 
     showModalBottomSheet(
@@ -330,21 +342,17 @@ extension DnsxExt on _HomePageState {
           void upd(VoidCallback f) {
             try {
               setS(f);
-            } catch (_) {}
+            } catch (e) {
+              // شیت بسته شده؛ طبیعی است. فقط با سقف ژورنال ثبت می‌شود
+              errJournalAdd(e, kind: 'SILENT-SHEET');
+            }
           }
 
           Future<void> start() async {
             // نت ملی: اسکن دستی DNS کاملاً جداست و در این حالت اجرا نمی‌شود تا اتصال و
             // اسکن خودکار مختل نشوند. اسکن دستی را در حالت عادی اجرا کنید.
-            if (nationalMode) {
-              ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(const SnackBar(
-                  content: Text(
-                      'اسکن دستی DNS در نت ملی غیرفعال است؛ برای اسکن دستی به حالت عادی بروید.')));
-              return;
-            }
             if (connected) {
-              ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(const SnackBar(
-                  content: Text('اول VPN را قطع کنید، بعد اسکن دستی را اجرا کنید.')));
+              upd(() => note = 'اول VPN را قطع کنید، بعد اسکن دستی را اجرا کنید.');
               return;
             }
             final extra = extraC.text
@@ -355,7 +363,7 @@ extension DnsxExt on _HomePageState {
                     InternetAddress.tryParse(s)?.type ==
                         InternetAddressType.IPv4)
                 .toList();
-            final list = {...kDnsxDefaults, ...kDnsxNationalDefaults, ...extra}
+            final list = {...await goldDnsList(), ...kDnsxDefaults, ...kDnsxNationalDefaults, ...extra}
                 .toList();
             upd(() {
               running = true;
@@ -363,6 +371,7 @@ extension DnsxExt on _HomePageState {
               done = 0;
               total = list.length;
               results = [];
+              note = '';
             });
             dnsxManualBusy = true;
             List<DnsxHit> r = const <DnsxHit>[];
@@ -370,13 +379,14 @@ extension DnsxExt on _HomePageState {
               r = await dnsxScan(
                 list,
                 domains: dnsxFullDomains(),
+                manual: true,
                 stop: () => stopFlag,
                 onProgress: (d, t) => upd(() {
                   done = d;
                   total = t;
                 }),
               );
-              await goldAddDns(r); // DNSSAVE: نتیجه‌ی اسکنر دستی هم در پوشه‌ی جهانی ذخیره شود
+              await goldAddDns(r); // FOLDERALL: همه‌ی حالت‌ها در پوشه
             } catch (e, stk) {
               logError(e, stk);
             } finally {
@@ -386,6 +396,7 @@ extension DnsxExt on _HomePageState {
             upd(() {
               running = false;
               results = r;
+              note = r.isEmpty ? 'هیچ DNS ای جواب معتبر نداد.' : '${r.length} DNS سالم پیدا شد.';
             });
           }
 
@@ -414,6 +425,7 @@ extension DnsxExt on _HomePageState {
                   const SizedBox(height: 8),
                   Text(total == 0 ? 'آماده' : 'انجام شده: $done / $total'),
                   const SizedBox(height: 6),
+                  if (note.isNotEmpty) Text(note, style: const TextStyle(fontWeight: FontWeight.bold)),
                   Row(children: [
                     Expanded(
                       child: ElevatedButton(
@@ -441,8 +453,7 @@ extension DnsxExt on _HomePageState {
                       onPressed: () async {
                         await Clipboard.setData(ClipboardData(
                             text: results.map((r) => r.ip).join('\n')));
-                        ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(SnackBar(
-                            content: Text('${results.length} DNS کپی شد')));
+                        upd(() => note = '${results.length} DNS کپی شد');
                       },
                       child: Text('کپی همه‌ی ${results.length} DNS'),
                     ),
@@ -454,8 +465,7 @@ extension DnsxExt on _HomePageState {
                       trailing: Text('${r.avgMs} ms'),
                       onTap: () async {
                         await Clipboard.setData(ClipboardData(text: r.ip));
-                        ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(
-                            SnackBar(content: Text('${r.ip} کپی شد')));
+                        upd(() => note = '${r.ip} کپی شد');
                       },
                     ),
                 ],

@@ -179,7 +179,7 @@ const int kFastBatchesPerSearch = 1;
 bool standbyPaused = false;
 // FAST SEARCH: parallel ping tests (core delay test, no VPN toggling) used
 // when looking for the first healthy server (settings 1..8).
-int fastWorkers = 7; // FAST100 (تست همزمان جستجوی اول = ۷ پیش‌فرض)
+int fastWorkers = 5; // FAST100 (تست همزمان جستجوی اول = ۵ پیش‌فرض)
 // a healthy server not checked for this long is pinged again (occasional
 // re-check, the server stays in the list until it really fails)
 Duration recheckAfter = const Duration(minutes: 4);
@@ -591,12 +591,24 @@ const _pingUrls = [
   // CFPINGFIX: Cloudflare-hosted targets are blocked from Workers connect(); google first
   // (v2rayNG standard generate_204 URL)
   delayTestUrl,
-  'https://www.google.com/generate_204',
+  // FIX #45: was a second copy of google; gstatic is the independent fallback
+  'https://www.gstatic.com/generate_204',
   'https://telegram.org/',
   'http://cp.cloudflare.com/generate_204',
   'http://1.1.1.1/',
   'http://9.9.9.9/',
   'https://www.cloudflare.com/cdn-cgi/trace',
+];
+
+// FIX #12: tunnel-traffic destinations per network mode (see _tunnelTrafficOk).
+const _tunnelTestUrlsGlobal = [
+  'https://www.google.com/generate_204',
+  'https://www.gstatic.com/generate_204',
+];
+const _tunnelTestUrlsNational = [
+  'https://www.aparat.com/',
+  'https://www.digikala.com/',
+  'https://www.snapp.ir/',
 ];
 
 // PROXY MODE: no VPN tunnel / no key icon. Only a local proxy is started:
@@ -1878,6 +1890,11 @@ List<String> _dbgHelpOf(String m) {
         'تیک خلبان چون کار دیگری در جریان بود دوباره امتحان شد؛ خطا نیست.',
         'اگر تا ۶۰ بار ادامه پیدا کرد، یعنی busy گیر کرده؛ خط «کار بیش از ۱۰ دقیقه» را ببین.');
   }
+  // RPTFIX: تیک خلبان وقتی تونل پایدار است یا تعویض لازم نیست، اطلاعاتی است
+  if (has('خلبان: تیک') || has('تونل پایدار است')) {
+    return h('E-PILOT-INFO', 'iran_ai_extras.dart → خلبان',
+        'خلبان بررسی کرد و تعویضی لازم نبود؛ نشانه‌ی سالم بودن اتصال است.', 'نادیده بگیر.');
+  }
   if (has('پیش‌پرواز') || has('موتور انتخاب شد')) {
     return h('E-PREFLIGHT-INFO', 'lib/main.dart → پیش‌پرواز',
         'مرحله‌ی آماده‌سازی اتصال؛ خطا نیست.', 'نادیده بگیر.');
@@ -2138,6 +2155,8 @@ String _dbgProbText() {
     'E-SHORT-CONN',
     // REPORTFIX3: تست مجدد عادی وقتی سرور سالم نبود؛ کار خاصی لازم ندارد
     'E-NO-HEALTHY-RETRY',
+    // RPTFIX: پینگ بد یک سرور و رفتن به بعدی، و تیک خلبان سالم، نتیجه‌ی عادی‌اند
+    'E-PILOT-INFO', 'E-TUN-PING',
   };
   final allP = dbgProbs.values.toList();
   var infoN = 0;
@@ -2354,7 +2373,7 @@ void _trailWrite(String line) {
         if (f.existsSync() && f.lengthSync() > 2 * 1024 * 1024) f.deleteSync();
         await f.writeAsString(chunk, mode: FileMode.append, flush: true);
         return;
-      } catch (_) {}
+      } catch (e, st) { logError(e, st); }
     }
   });
 }
@@ -2374,7 +2393,7 @@ void _flushTrail() {
       if (f.existsSync() && f.lengthSync() > 2 * 1024 * 1024) f.deleteSync();
       f.writeAsStringSync(buf, mode: FileMode.append, flush: true);
       return;
-    } catch (_) {}
+    } catch (e, st) { logError(e, st); }
   }
 }
 
@@ -2904,6 +2923,9 @@ String _reliableVpnCfg(String cfg) {
 Completer<bool>? connSig;
 // RARE BUG FIX: generation to ignore late CONNECTED from a previous start
 int _connGen = 0;
+// FIX #107: true when a stop gave up waiting for DISCONNECTED, so an old core may still send a
+// late CONNECTED. While this is true, a CONNECTED only completes the waiter after a real traffic check.
+bool _staleCoreMayBeUp = false;
 // جدید: completes when the V2Ray core really reports DISCONNECTED
 Completer<bool>? downSig;
 
@@ -3668,8 +3690,7 @@ class Server {
         return null;
       }
       if (l.startsWith('vmess://')) {
-        var b = link.substring(8);
-        b = b.padRight(b.length + (4 - b.length % 4) % 4, '=');
+        var b = natB64Normalize(link.substring(8));
         dynamic j; // CLEANERR
         try {
           j = jsonDecode(utf8.decode(base64.decode(b), allowMalformed: true));
@@ -4854,6 +4875,8 @@ Future<String?> dohResolve(String name) async {
   final c = _dohCache[name];
   final at = _dohCacheAt[name];
   if (c != null && at != null && DateTime.now().difference(at) < const Duration(minutes: 10)) return c;
+  // NATOPT: جهانی قطع است → DoH خارجی جواب نمی‌دهد؛ فقط کش (هر سنی) و بدون انتظار
+  if (NatNetworkDiagnosis.preferDomestic) return c;
   if (_dohFail >= 6) {
     final failAt = _dohFailAt;
     if (failAt != null && DateTime.now().difference(failAt) < const Duration(minutes: 5)) {
@@ -4902,8 +4925,7 @@ Future<String?> ipLinkFor(Server s) async {
   if (ip == null) return null;
   try {
     if (l.toLowerCase().startsWith('vmess://')) {
-      var b = l.substring(8);
-      b = b.padRight(b.length + (4 - b.length % 4) % 4, '=');
+      var b = natB64Normalize(l.substring(8));
       final j = jsonDecode(utf8.decode(base64.decode(b), allowMalformed: true));
       j['add'] = ip;
       if ((j['sni'] ?? '').toString().isEmpty) j['sni'] = s.host;
@@ -5336,6 +5358,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    natSearchBusyProbe = () => busy || searching; // NATQUOTA-2: برای سهمیه‌ی اسکنرهای دستی نت ملی
     unawaited(NationalNetworkIntelligence.load()); // NNIE: حافظه‌ی شبکه، بدون تأخیر در UI
     OnlineCounter.start(); // ONLINECOUNT
     _crashGuardInit(); // CRASHGUARD: آیا اجرای قبلی وسط شروع یک سرور مرده است؟
@@ -5399,7 +5422,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (st.state == 'CONNECTED' &&
           connSig != null &&
           !connSig!.isCompleted) {
-        connSig!.complete(true);
+        if (_staleCoreMayBeUp) {
+          // FIX #107: this CONNECTED may come from the old core; prove it with traffic first
+          _verifyPendingConnect(connSig!);
+        } else {
+          connSig!.complete(true);
+        }
       }
       if (st.state == 'CONNECTED' && wantVpn && mounted && (busy || switching)) {
         // the event arrives while the app is busy: do not lose it, re-sync later
@@ -5478,7 +5506,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _joinPending = false;
       adFreeMember = true;
       unawaited(adFreeSave());
-      _set('✅ ممنون از عضویت؛ تبلیغ‌ها خاموش شد');
+      _set('✅ ممنون از عضویت؛ تبلیغ قبل از هر اتصال همچنان نشان داده می‌شود');
     }
     // healthy servers are kept on disk, so the next start tests them first
     if (s == AppLifecycleState.paused || s == AppLifecycleState.detached) {
@@ -5887,6 +5915,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       });
     }
     downSig = null;
+    // FIX #107: a stop that timed out leaves a core that may still report CONNECTED later
+    _staleCoreMayBeUp = !gotDown;
     // a stale CONNECTED must not stay behind after a stop
     lastState = 'DISCONNECTED';
     // Android needs a moment to tear the old VPN service down, or the next
@@ -5943,7 +5973,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           fwRawAbove32 = (rfu is num && rfu.toInt() > 32) ||
               (rfs is num && rfs.toInt() > 32);
         }
-      } catch (_) {}
+      } catch (e, st) { logError(e, st); }
       await loadNumPrefs(p);
       if (fwRawAbove32 && p.getBool('fw_cap_warned_32') != true) {
         await p.setBool('fw_cap_warned_32', true);
@@ -6564,10 +6594,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<bool> _ensureSession({bool userTap = false}) async {
     // جدید: تست خودکار ۶۰ دقیقه‌ای و خودترمیمی معاف‌اند؛ خلبان قبل از اتصال تبلیغ دارد
     // PERSAD: وقتی کاربر خودش روی سرور شخصی می‌زند، تبلیغ نشان داده می‌شود (حتی اگر کار خودکار در پس‌زمینه باشد)
+    // ADALL: هر تپ کاربر روی اتصال (عادی، شخصی، پوشه، لیست) قبل از اتصال تبلیغ دارد
     if (!userTap && (isAutoTesting || healActive)) return true;
     if (!userTap && autoTestAdFree) return true; // TESTNOAD: no ad during the 20-minute test
-    // ADFREE: عضو کانال تبلیغ نمی‌بیند
-    if (adFreeMember && !userTap) return true; // PERSAD: عضو کانال هم برای سرور شخصی تبلیغ می‌بیند
+    if (!userTap && adFreeMember) return true; // ADFREE: فقط کارهای خودکار؛ تپ کاربر همیشه تبلیغ دارد
     if (!requireRewardedAd || (_sessionValid && !_adEveryConnect)) return true;
     if (!mounted) return false;
     unawaited(adsRemoteLoad());
@@ -7077,14 +7107,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             return NationalNetworkIntelligence.scoreFor(bk)
                 .compareTo(NationalNetworkIntelligence.scoreFor(ak));
           }
-          final knownPart = mix.where((x) => x.checkedAt != null).toList()..sort(nnieCompare);
-          final unknownPart = mix.where((x) => x.checkedAt == null).toList()..sort(nnieCompare);
+          final knownPart = natStableSorted(mix.where((x) => x.checkedAt != null), nnieCompare);
+          final unknownPart = natStableSorted(mix.where((x) => x.checkedAt == null), nnieCompare);
           cand = <Server>[];
           var ki = 0, ui = 0;
           while (ki < knownPart.length || ui < unknownPart.length) {
             if (ki < knownPart.length) cand.add(knownPart[ki++]);
             if (ui < unknownPart.length) cand.add(unknownPart[ui++]);
           }
+          // NNIE-DOM: جهانی قطع و نت ملی باز → منبع ایران‌محور و سرور IR جلوتر (ترتیب داخل هر گروه حفظ می‌شود)
+          if (NatNetworkDiagnosis.preferDomestic) cand = _natDomesticFirstKeepWinners(cand);
         }
         final batch = _mixBatch(cand, size);
         _set('ردیف ${row ?? 'همه'} • '
@@ -7393,7 +7425,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (_natCdnNets.contains(s.net)) return 1;
         return 2;
       }
-      alive.sort((a, b) => natRank(a).compareTo(natRank(b)));
+      natStableSort(alive, (a, b) => natRank(a).compareTo(natRank(b)));
+      if (NatNetworkDiagnosis.preferDomestic) {
+        final reordered = _natDomesticFirstKeepWinners(alive); // NNIE-DOM
+        alive..clear()..addAll(reordered);
+      }
     }
     await pool<Server>(alive, gateMax,
         (s) async {
@@ -7669,7 +7705,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
         return jsonEncode(j);
       }
-    } catch (_) {}
+    } catch (e, st) { logError(e, st); }
     return sanitizeCfg(cfg);
   }
 
@@ -8311,12 +8347,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await Future.delayed(Duration(milliseconds: _personalFast ? 350 : 1500)); // PERSQUICK
           if (kOwnVpnService) {
             // KINGVPN: سرویس خودمان (کانال king/vpn)
-            await ownVpnStart(
+            final ownOk = await ownVpnStart(
                 config: sanitizeCfg(cfgTries[ci]),
                 remark: s.name,
                 addr: s.host,
                 port: '${s.port}',
-                backups: _backupsJson(s)); // KINGFAILOVER
+                backups: _backupsJson(s), // KINGFAILOVER
+                national: nationalMode); // جدید: national flag was never sent, so national mode used the wrong probe
+            // جدید: a false result was ignored and the code waited 30 s for CONNECTED; now it fails at once
+            if (!ownOk) throw Exception('سرویس VPN خودمان شروع نشد');
+            // جدید: ownVpnStart returns true only after the native CONNECTED report, so the
+            // connection wait below is satisfied at once and the plugin's events are not needed.
+            if (!sig.isCompleted) sig.complete(true);
           } else {
             // START-TIMEOUT: هسته‌ی گیرکرده نباید کل اتصال را قفل کند
             await v2ray.startV2Ray(
@@ -8795,15 +8837,34 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  // TUNCHK: ترافیک واقعی از داخل تونل (VPN) باید هم به google و هم به youtube برسد.
+  // TUNCHK: ترافیک واقعی از داخل تونل (VPN) باید به مقصد متناسب با حالت شبکه برسد.
   // در حالت پروکسی تونلی وجود ندارد، پس بررسی انجام نمی‌شود.
+  // FIX #12: national mode tests domestic destinations (international traffic is cut there);
+  // global mode tests only international ones, so a domestic site cannot pass a dead tunnel.
   Future<bool> _tunnelTrafficOk() async {
     if (proxyMode) return true;
     await Future.delayed(const Duration(seconds: 2));
     // TUNFIX: viaCore true = the core proxy (real outbound). DIRECT from this app bypasses the VPN
     // because the app is excluded from its own tunnel, so every server was wrongly rejected.
-    return _siteOpens(delayTestUrl, viaCore: true)
-        .timeout(const Duration(seconds: 8), onTimeout: () => false);
+    final urls = nationalMode ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
+    for (final u in urls) {
+      final ok = await _siteOpens(u, viaCore: true)
+          .timeout(const Duration(seconds: 8), onTimeout: () => false);
+      if (ok) return true;
+    }
+    return false;
+  }
+
+  // FIX #107: completes the connect waiter only when real traffic passes through the tunnel now.
+  // A pass clears the stale-core flag, because the connection is now proven.
+  Future<void> _verifyPendingConnect(Completer<bool> c) async {
+    final ok = await _tunnelTrafficOk();
+    if (!ok) {
+      dbg('CONNECTED ignored: traffic not through the tunnel yet (possible stale core)');
+      return;
+    }
+    _staleCoreMayBeUp = false;
+    if (!c.isCompleted) c.complete(true);
   }
 
   // [trust] = the server was already tested: skip the extra verification.
@@ -9751,7 +9812,7 @@ ListTile( // KINGEXTRAS row
                         }
                       }
                     }
-                  } catch (_) {}
+                  } catch (e, st) { logError(e, st); }
                 }
 
                 Navigator.of(context).push(MaterialPageRoute<void>(
@@ -11090,14 +11151,15 @@ ListTile( // KINGEXTRAS row
     // PERSPING: پینگ واقعی همین ۱۰۰ سرور؛ فقط سالم‌ها وارد ترتیب اتصال می‌شوند
     final okMap = await _personalPingAll(list);
     final okList = [for (final s in order) if (okMap.containsKey(s.link)) s];
-    okList.sort((a, b) => okMap[a.link]!.compareTo(okMap[b.link]!));
-    if (lg.isNotEmpty) {
-      final i = okList.indexWhere((x) => x.link == lg);
-      if (i > 0) okList.insert(0, okList.removeAt(i));
-    }
+    // PERSLOWEST: فقط کمترین پینگ تعیین‌کننده است؛ آخرین سرور موفق فقط در برابر پینگ مساوی جلو می‌افتد
+    okList.sort((a, b) {
+      final c = okMap[a.link]!.compareTo(okMap[b.link]!);
+      if (c != 0) return c;
+      return (a.link == lg ? 0 : 1).compareTo(b.link == lg ? 0 : 1);
+    });
     _personalRanked = okList;
     _personalPrepDone = true;
-    dbg('PERSFOLDER پوشه=$folderCount • روی صفحه=${list.length} • بدون تست پینگ');
+    dbg('PERSFOLDER پوشه=$folderCount • روی صفحه=${list.length} • پینگ گرفته شد');
     unawaited(_persistScreenLists());
     if (mounted) setState(() {});
   }
@@ -11153,9 +11215,9 @@ ListTile( // KINGEXTRAS row
                     ListTile(
                       leading: const Icon(Icons.speed),
                       title: Text(
-                          'همه‌ی سرورهای شخصی: ${rows.length} • بدون تست پینگ'),
+                          'همه‌ی سرورهای شخصی: ${rows.length} • پینگ گرفته می‌شود'),
                       subtitle: const Text(
-                          'از بالا به پایین وصل می‌شود؛ اگر یکی خراب بود، بعدی امتحان می‌شود'),
+                          'به کمترین پینگ وصل می‌شود؛ اگر یکی خراب بود، بعدی امتحان می‌شود'),
                     ),
                     const Divider(height: 1),
                     Expanded(
@@ -11274,7 +11336,7 @@ ListTile( // KINGEXTRAS row
                               () => _personalAdThen(personalFolderConnect),
                               askMode: false));
                         },
-                  child: const Text('اتصال به سرورهای شخصی (بدون تست پینگ)'),
+                  child: const Text('اتصال به سرورهای شخصی (کمترین پینگ)'),
                 ),
               ),
               const Divider(height: 1),
@@ -11294,9 +11356,7 @@ ListTile( // KINGEXTRAS row
                                 : () {
                                     Navigator.pop(ctx);
                                     unawaited(pickEngineThenStart(
-                                        () => _personalAdThen(() async {
-                                          await _connectPersonalFast(s);
-                                        }),
+                                        () => _personalAdThen(() => personalFolderConnect()),
                                         askMode: false));
                                   },
                             onLongPress: () async {
@@ -11330,7 +11390,7 @@ ListTile( // KINGEXTRAS row
       // آنلاین/آفلاین/نت ملی: جستجوی پس‌زمینه همان لحظه‌ی تبلیغ متوقف می‌شود
       unawaited(_haltBgForAd());
     }
-    final persTap = (only != null && only.personal) || (row == 'f:pfolder' && only == null);
+    final persTap = true; // ADALL: هر تپ اتصال تبلیغ دارد
     if (!await _ensureSession(userTap: persTap)) {
       _set('تبلیغ کامل دیده نشد؛ اتصال انجام نشد');
       if (_automationRunning) wantVpn = false;
@@ -11389,7 +11449,12 @@ ListTile( // KINGEXTRAS row
     // watcher then resets wantVpn when abort is set in manual mode
     wantVpn = true;
     _nnieTapAt = DateTime.now();
-    if (nationalMode && !connected) unawaited(NatNetworkDiagnosis.refresh());
+    // NNIE-DIAG: کوتاه منتظر تشخیص شبکه می‌مانیم تا اولین دسته‌ی نت ملی آگاه باشد.
+    // پروب‌ها موازی‌اند و بیشترشان حداکثر ۳ ثانیه؛ مهلت ۵ ثانیه تا تشخیص وسط کار قطع نشود.
+    if (nationalMode && !connected) {
+      await NatNetworkDiagnosis.refresh()
+          .timeout(const Duration(seconds: 5), onTimeout: () => NatNetworkDiagnosis.current);
+    }
     await _runBusy(() async {
       if (natForce || _resNext) _resInject(); // NATRESPATCH
       _resNext = false;
@@ -11546,7 +11611,7 @@ ListTile( // KINGEXTRAS row
                 ? await _connectLoop(_mineList())
                 // پوشه‌ی «سرورهای شخصی»: حداکثر ۵۰ سرور، با ترتیب پوشه و آخرین سرور موفق در اولویت
                 : (row == 'f:pfolder')
-                    ? await _connectLoop(personalFolderServers())
+                    ? await _connectLoop(personalFolderServers(max: kPersonalShowCap))
                 // DSGETTER: از مقدار مؤثر
                 : await _acquire(strictRow: row != null, speed: effAutoSpeed);
         // AUTONET: the tapped mode found nothing -> the app picks the best
@@ -14300,12 +14365,8 @@ ListTile( // KINGEXTRAS row
                   ? null
                   : persMode
                       ? () {
-                          final i = _personalRanked.indexWhere((x) => x.link == s.link);
-                          if (i >= 0) {
-                            unawaited(_personalConnectAt(i));
-                          } else {
-                            unawaited(pickEngineThenStart(() => connect(s), askMode: false));
-                          }
+                          // PERSLOWEST: تپ روی سرور شخصی = تبلیغ، پینگ همه‌ی پوشه، وصل به کمترین پینگ
+                          unawaited(_personalAdThen(() => personalFolderConnect()));
                         }
                       : () => pickEngineThenStart(() => connect(s), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */,
               child: Padding(
@@ -14791,6 +14852,7 @@ UiHero(
                   shape: const StadiumBorder()),
             ),
           ),
+          NatNetHintCard(enabled: !busy && !connected), // NNIE-UI: وضعیت شبکه زیر دکمه‌ی نت ملی
           Padding( // NATRESPATCH
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
             child: OutlinedButton.icon(
@@ -15966,6 +16028,30 @@ bool _natSrc(Server s) {
       u.contains('mmbateni') ||
       (u.contains('morpheusadam') && u.contains('iran')) ||
       u.contains('delta-kronecker');
+}
+
+// NNIE-DOM: وقتی جهانی قطع و ملی باز است، سرورهای ایران‌محور جلو می‌روند.
+// تفکیک صریح و پایدار است (List.sort در Dart پایدار نیست).
+List<Server> _natDomesticFirst(List<Server> list) {
+  final dom = <Server>[];
+  final rest = <Server>[];
+  for (final s in list) {
+    (s.country == 'IR' || _natSrc(s) ? dom : rest).add(s);
+  }
+  return [...dom, ...rest];
+}
+
+// NNIE-WIN: سرورهایی که قبلاً همین endpoint را در نت ملی باز کرده‌اند (حافظه‌ی دامنه)
+// همیشه قبل از ترجیح ایران‌محور می‌آیند؛ وگرنه ترتیب یادگیری‌شده خنثی می‌شد.
+// ترتیب نسبی داخل هر گروه حفظ می‌شود.
+List<Server> _natDomesticFirstKeepWinners(List<Server> list) {
+  final remDom = natDomMemHosts();
+  final winners = <Server>[];
+  final rest = <Server>[];
+  for (final s in list) {
+    (remDom.contains('${s.host}:${s.port}') ? winners : rest).add(s);
+  }
+  return [...winners, ..._natDomesticFirst(rest)];
 }
 
 // رتبه نت ملی: برندگان قبلی > منبع ایران‌محور > Reality > IR > CDN

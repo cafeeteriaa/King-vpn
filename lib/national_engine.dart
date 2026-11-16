@@ -130,9 +130,8 @@ class NationalNetworkIntelligence {
           isKnownWinner: isKnownWinner, isCdnCompatible: isCdnCompatible);
 
   static List<T> rank<T>(Iterable<T> items, String Function(T) key) {
-    final out = items.toList();
-    out.sort((a, b) => scoreFor(key(b)).compareTo(scoreFor(key(a))));
-    return out;
+    return natStableSorted(items,
+        (a, b) => scoreFor(key(b)).compareTo(scoreFor(key(a))));
   }
 }
 
@@ -174,32 +173,62 @@ class NatNetworkDiagnosis {
     }
   }
 
+  /// True when the national network is up but the international one is cut.
+  /// Read by the search ordering (main.dart): Iran-hosted sources go first.
+  static bool get preferDomestic =>
+      current == NatNetworkClass.domesticOnlyLikely ||
+      current == NatNetworkClass.dnsDegraded ||
+      current == NatNetworkClass.transportRestricted;
+
   static Future<NatNetworkClass> refresh({bool force = false}) async {
     if (_running) return current;
-    final at = _checkedAt;
-    final id = await _identityHash();
-    if (!force && at != null && id == _identityAtCheck &&
-        DateTime.now().difference(at) < _ttl) {
-      return current;
-    }
+    // Mark as running BEFORE the first await, so two callers cannot both pass
+    // the guard while the identity hash is being computed.
     _running = true;
     try {
-      final domesticTcp = await Future.wait(_domesticHosts.map(_tcpOk));
-      final globalTcp = await Future.wait(_globalHosts.map(_tcpOk));
-      final globalDns = await Future.wait(_globalResolvers.map(
-          (r) => NatDnsWireProbe.probe(r, 'google.com').then((x) => x.ok)));
+      final at = _checkedAt;
+      final id = await _identityHash();
+      if (!force && at != null && id == _identityAtCheck &&
+          DateTime.now().difference(at) < _ttl) {
+        return current;
+      }
+      // All probes start together. Awaiting the groups one after another made
+      // the total time the SUM of their timeouts (a black-holed TCP connect
+      // waits the full timeout), so the caller's deadline usually expired first.
+      final domesticF = Future.wait(_domesticHosts.map(_tcpOk));
+      final globalF = Future.wait(_globalHosts.map(_tcpOk));
+      final dnsF = Future.wait(
+          _globalResolvers.map((r) => NatDnsWireProbe.probe(r, 'google.com')));
+      final domesticTcp = await domesticF;
+      final globalTcp = await globalF;
+      final globalDnsRes = await dnsF;
+      final globalDnsOk = globalDnsRes.any((x) => x.ok);
+      final domesticTcpOk = domesticTcp.any((x) => x);
+      final globalTcpOk = globalTcp.any((x) => x);
+      // DNS poisoning / blockpage check: a resolver returned a public A answer,
+      // yet none of the answered addresses accepts TCP/443, while domestic hosts
+      // do. That is the typical signature of an injected answer, not a live Google.
+      var poison = false;
+      if (globalDnsOk && !globalTcpOk && domesticTcpOk) {
+        final answered = [
+          for (final r in globalDnsRes) if (r.ok) ...r.addresses,
+        ].toSet().take(2).toList();
+        final reach = await Future.wait(answered.map(_tcpOk));
+        poison = reach.isNotEmpty && !reach.any((x) => x);
+      }
       final ev = NatProbeEvidence(
         domesticDnsOk: false, // no domestic resolver probe is configured yet
-        domesticTcpOk: domesticTcp.any((x) => x),
-        globalDnsOk: globalDns.any((x) => x),
-        globalTcpOk: globalTcp.any((x) => x),
-        sampleCount: domesticTcp.length + globalTcp.length + globalDns.length,
+        domesticTcpOk: domesticTcpOk,
+        globalDnsOk: globalDnsOk,
+        globalTcpOk: globalTcpOk,
+        dnsPoisonSuspected: poison,
+        sampleCount: domesticTcp.length + globalTcp.length + globalDnsRes.length,
       );
       current = ev.classify();
       _checkedAt = DateTime.now();
       _identityAtCheck = id;
       dbg('NNIE-DIAG: ${natNetworkClassLabel(current)} '
-          '(domesticTcp=${ev.domesticTcpOk} globalTcp=${ev.globalTcpOk} globalDns=${ev.globalDnsOk})');
+          '(domesticTcp=${ev.domesticTcpOk} globalTcp=${ev.globalTcpOk} globalDns=${ev.globalDnsOk} poison=$poison)');
     } catch (e, st) {
       logError(e, st);
       current = NatNetworkClass.unknown;
@@ -217,3 +246,93 @@ String natNetworkClassLabel(NatNetworkClass value) => switch (value) {
       NatNetworkClass.transportRestricted => 'محدودیت مسیر یا پروتکل محتمل است',
       NatNetworkClass.unknown => 'وضعیت شبکه نامشخص است',
     };
+
+/// NNIE-UI: shows the national-network diagnosis to the user (it used to exist
+/// only in the debug log). Visible only while disconnected, because the probes
+/// must run with the tunnel down. It never changes a setting by itself.
+class NatNetHintCard extends StatefulWidget {
+  const NatNetHintCard({super.key, required this.enabled});
+
+  final bool enabled;
+
+  @override
+  State<NatNetHintCard> createState() => _NatNetHintCardState();
+}
+
+class _NatNetHintCardState extends State<NatNetHintCard> {
+  NatNetworkClass _cls = NatNetworkDiagnosis.current;
+  bool _checking = false;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _check();
+    _timer = Timer.periodic(const Duration(seconds: 90), (_) => _check());
+  }
+
+  @override
+  void didUpdateWidget(covariant NatNetHintCard old) {
+    super.didUpdateWidget(old);
+    // Re-check at the moment the user disconnects, not only on the timer.
+    if (widget.enabled && !old.enabled) _check();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _check() async {
+    if (!widget.enabled || _checking) return;
+    _checking = true;
+    try {
+      final c = await NatNetworkDiagnosis.refresh()
+          .timeout(const Duration(seconds: 6), onTimeout: () => NatNetworkDiagnosis.current);
+      if (mounted) setState(() => _cls = c);
+    } catch (e, st) {
+      logError(e, st);
+    } finally {
+      _checking = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.enabled) return const SizedBox.shrink();
+    final nationalLikely = _cls == NatNetworkClass.domesticOnlyLikely ||
+        _cls == NatNetworkClass.dnsDegraded ||
+        _cls == NatNetworkClass.transportRestricted;
+    final label = _checking && _cls == NatNetworkClass.unknown
+        ? 'در حال بررسی شبکه…'
+        : natNetworkClassLabel(_cls);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 2, 12, 4),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+              color: nationalLikely ? Colors.orange : Colors.grey.withOpacity(0.4)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('وضعیت شبکه: $label',
+                textAlign: TextAlign.center, style: const TextStyle(fontSize: 12)),
+            if (nationalLikely) ...[
+              const SizedBox(height: 6),
+              const Text(
+                'اینترنت جهانی قطع به نظر می‌رسد. دکمه‌ی «جستجوی سرور با نت ملی» را بزنید؛ '
+                'برنامه سرورهای ایران‌محور را اول امتحان می‌کند.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}

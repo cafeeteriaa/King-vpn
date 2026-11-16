@@ -286,8 +286,7 @@ String? npvNormalizeLink(String line) {
     if (h >= 0) payload = payload.substring(0, h);
     try {
       payload = Uri.decodeComponent(payload);
-    } catch (_) {
-    }
+    } catch (e, st) { logError(e, st); }
   } else {
     payload = t;
   }
@@ -407,7 +406,9 @@ String? _npvOutboundLink(dynamic o, String remark) {
     }
 
     if (proto == 'vmess' || proto == 'vless') {
-      final vn = (settings['vnext'] as List?)?.first as Map?;
+      final vnl = settings['vnext'];
+      // SAFE: آرایه‌ی خالی از یک منبع خارجی نباید با first استثنا بیندازد
+      final vn = (vnl is List && vnl.isNotEmpty && vnl.first is Map) ? vnl.first as Map : null;
       if (vn == null) return null;
       final users = vn['users'];
       if (users is! List || users.isEmpty) return null;
@@ -448,7 +449,8 @@ String? _npvOutboundLink(dynamic o, String remark) {
       };
       return 'vmess://${base64.encode(utf8.encode(jsonEncode(m)))}';
     }
-    final sv = (settings['servers'] as List?)?.first as Map?;
+    final svl = settings['servers'];
+    final sv = (svl is List && svl.isNotEmpty && svl.first is Map) ? svl.first as Map : null;
     if (sv == null) return null;
     final addr = sv['address']?.toString() ?? '';
     if (addr.isEmpty) return null;
@@ -679,7 +681,9 @@ String echFromLink(String link) {
       final m = jsonDecode(utf8.decode(base64.decode(b)));
       if (m is Map) return (m['ech'] ?? '').toString().trim();
     }
-  } catch (_) {}
+  } catch (e, st) {
+    logError(e, st);
+  }
   return '';
 }
 
@@ -1525,10 +1529,34 @@ List<CleanIp> goldIpList() {
   return _goldTop = [for (final v in best) CleanIp(v.ip, v.ms, v.port)];
 }
 
+// NATHELP: نت ملی از IPهای تمیز پوشه‌ی جهانی کمک می‌گیرد (فقط خواندن). اسکنر دستی در نت ملی اجرا نمی‌شود، پس چیزی را خراب نمی‌کند.
 void goldPrepareNational() {
   if (!nationalMode) return;
   final g = goldIpList();
   if (g.isNotEmpty) cleanIps = g;
+}
+
+// NATQUOTA: سهمیه‌ی اسکنرهای دستی در نت ملی. همزمانی کم، و هر بار قبل از شروع صبر می‌کنند
+// تا جستجوی بازه‌ی نت ملی تمام شود، تا نت ملی همیشه اولویت داشته باشد.
+const int kNatManualConc = 3;
+// NATQUOTA-2: جستجوی عادی/آماده‌باش (busy/searching) هم اولویت دارد. _natKeep عمداً گوش داده نمی‌شود
+// چون در نت ملی ساعت‌ها اجرا می‌شود و اسکن دستی را گرسنه نگه می‌دارد.
+bool Function()? natSearchBusyProbe; // توسط State در initState تنظیم می‌شود
+const Duration kNatYieldCap = Duration(minutes: 3); // هیچ اسکن دستی بیش از این صبر نمی‌کند
+Future<void> natManualYield() async {
+  final sw = Stopwatch()..start();
+  while (nationalMode &&
+      (_natRangeScanBusy || (natSearchBusyProbe?.call() ?? false))) {
+    if (sw.elapsed > kNatYieldCap) break;
+    await Future.delayed(const Duration(milliseconds: 500));
+  }
+}
+
+// FOLDERALL: همه‌ی اسکنرها (DNS، SNI/پورت، بازه، IP) در هر حالتی در پوشه‌ی جهانی ذخیره می‌شوند.
+// DNS های پوشه برای اسکن DNS هر دو حالت استفاده می‌شوند.
+Future<List<String>> goldDnsList() async {
+  await goldLoad();
+  return _goldDns.keys.toList();
 }
 
 Future<void> goldAddScan(String kind, List<String> items) async {
@@ -1883,7 +1911,10 @@ void goldNoteServer(Server srv) {
 }
 
 // MANUALSCAN: اسکن دستی بازه‌ها با پیشرفت و نتیجه داخل خود دیالوگ (نه پیام پشت دیالوگ)
-Future<void> manualRangeScan(BuildContext context, List<String> addrs) async {
+Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async {
+  // FOLDERHELP: IPهای تمیز پوشه اول تست می‌شوند (کمک پوشه به اسکن بازه، در نت ملی و عادی)
+  await goldLoad();
+  final addrs = {for (final c in goldIpList()) c.ip, ...userAddrs}.toList();
   var cancelled = false;
   var finished = false;
   var done = 0;
@@ -1920,6 +1951,13 @@ Future<void> manualRangeScan(BuildContext context, List<String> addrs) async {
                 const Padding(
                   padding: EdgeInsets.only(top: 10),
                   child: Text('هیچ IP سالمی پیدا نشد.'),
+                ),
+              if (finished && result.isNotEmpty)
+                TextButton.icon(
+                  onPressed: () => Clipboard.setData(ClipboardData(
+                      text: result.map((h) => '${h.ip}:443').join('\n'))),
+                  icon: const Icon(Icons.copy, size: 16),
+                  label: Text('کپی ${result.length} IP'),
                 ),
               if (finished && result.isNotEmpty)
                 SizedBox(
@@ -1964,10 +2002,11 @@ Future<void> manualRangeScan(BuildContext context, List<String> addrs) async {
   ).then((_) => open = false);
 
   try {
+    if (nationalMode) await natManualYield(); // NATQUOTA: قبل از شروع صبر می‌کند تا جستجوی بازه‌ی نت ملی تمام شود
     result = await natScanIps(
       addrs,
       want: 1000,
-      concurrency: natAdaptiveWorkers(),
+      concurrency: nationalMode ? kNatManualConc : natAdaptiveWorkers(),
       budget: const Duration(minutes: 5),
       timeout: const Duration(milliseconds: 1500),
       cancelled: () => cancelled,
@@ -1977,7 +2016,7 @@ Future<void> manualRangeScan(BuildContext context, List<String> addrs) async {
         hitsCount = h;
       }),
     );
-    await goldMergeIps([for (final h in result) CleanIp(h.ip, h.ms, 443)]);
+    await goldMergeIps([for (final h in result) CleanIp(h.ip, h.ms, 443)]); // FOLDERALL
   } catch (e, stk) {
     logError(e, stk);
   }

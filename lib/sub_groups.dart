@@ -45,7 +45,7 @@ Future<List<SgrpGroup>> sgrpLoad() async {
       try {
         final g = SgrpGroup.fromJson(jsonDecode(s.toString()));
         if (g != null) out.add(g);
-      } catch (_) {}
+      } catch (e, st) { logError(e, st); }
     }
   }
   return out;

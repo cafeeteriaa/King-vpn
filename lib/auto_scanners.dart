@@ -11,6 +11,11 @@ const List<String> kAutoSniDomains = [
 ];
 const List<int> kAutoPorts = [443, 8443, 2053, 2083, 2087, 2096];
 const int kAutoIpLimit = 40;
+// AUTOFALLBACK: IPهای داخلی برای وقتی پوشه‌ی جهانی هنوز IP تمیز ندارد
+const List<String> kAutoFallbackIps = [
+  '104.16.0.1', '104.17.0.1', '104.18.0.1', '104.19.0.1', '104.20.0.1',
+  '172.67.0.1', '162.159.0.1', '188.114.96.1', '188.114.97.1', '141.101.113.1',
+];
 
 bool _autoScanRunning = false;
 bool _autoScanStop = false;
@@ -64,11 +69,30 @@ Future<void> autoScanRun(void Function(String) say) async {
   _autoScanStop = false;
   try {
     await goldLoad();
-    final ips = [for (final c in _goldIps.values.take(kAutoIpLimit)) c.ip];
-    if (ips.isEmpty) {
-      say('IP تمیزی در پوشه نیست؛ اول «اسکن خودکار IP» را اجرا کن');
-      return;
+    // GLOBALONLY: فقط IPهای تمیز پوشه‌ی جهانی. بازه‌های ISP نت ملی حذف شدند (جدایی از نت ملی).
+    // اگر پوشه‌ی جهانی هنوز خالی است، از بازه‌های CDN (Cloudflare) نمونه‌برداری می‌شود، نه ISP داخلی.
+    // FOLDERALL: IPهای پوشه اول؛ در نت ملی IPهای ISP داخلی هم اضافه می‌شود (بهینه برای نت ملی)
+    final global = [for (final c in _goldIps.values.take(kAutoIpLimit)) c.ip];
+    final domestic = <String>[];
+    if (nationalMode) {
+      for (final r in kIrIspRanges.take(12)) {
+        final a = natExpandCidr(r, maxPerBlock: 3);
+        if (a.isNotEmpty) domestic.add(a.first);
+        if (domestic.length >= kAutoIpLimit) break;
+      }
     }
+    final base = <String>{...global, ...domestic}.toList();
+    final cdnSample = <String>[];
+    if (base.isEmpty) {
+      for (final r in _cfRanges.take(8)) {
+        cdnSample.addAll(natExpandCidr(r, maxPerBlock: 3));
+        if (cdnSample.length >= 20) break;
+      }
+    }
+    final ips = base.isNotEmpty
+        ? base
+        : (cdnSample.isNotEmpty ? cdnSample : kAutoFallbackIps);
+    say('تست با ${ips.length} IP (${nationalMode ? 'پوشه + ISP داخلی' : 'پوشه‌ی جهانی'})');
 
     // SNI: خروجی خود دامنه‌هاست. هر دامنه یک بار؛ به محض یک IP سالم، همان دامنه ثبت می‌شود
     final sniHits = <String>[];
@@ -76,6 +100,7 @@ Future<void> autoScanRun(void Function(String) say) async {
     sniLoop:
     for (final d in kAutoSniDomains) {
       n++;
+      if (nationalMode) await natManualYield(); // NATQUOTA
       var ok = false;
       for (final ip in ips) {
         if (_autoScanStop) break sniLoop;
@@ -94,6 +119,7 @@ Future<void> autoScanRun(void Function(String) say) async {
     portLoop:
     for (final p in kAutoPorts) {
       m++;
+      if (nationalMode) await natManualYield(); // NATQUOTA (مثل حلقه‌ی SNI)
       var ok = false;
       for (final ip in ips) {
         if (_autoScanStop) break portLoop;
@@ -160,6 +186,19 @@ Future<void> autoScanSheet(BuildContext context) async {
               Text(status),
               const SizedBox(height: 8),
               Text('SNI: ${(_goldScan['sni'] ?? const []).length} • پورت: ${(_goldScan['port'] ?? const []).length} • TLS: ${(_goldScan['tls'] ?? const []).length}'),
+              // SCANSHOW: نتایج همین‌جا روی صفحه با دکمه‌ی کپی
+              for (final k in const ['sni', 'port', 'tls'])
+                if ((_goldScan[k] ?? const <String>[]).isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(k == 'sni' ? 'SNIهای سالم:' : (k == 'port' ? 'پورت‌های سالم:' : 'TLSهای سالم:')),
+                  SelectableText((_goldScan[k] ?? const <String>[]).join('\n')),
+                  TextButton.icon(
+                    onPressed: () => Clipboard.setData(ClipboardData(
+                        text: (_goldScan[k] ?? const <String>[]).join('\n'))),
+                    icon: const Icon(Icons.copy, size: 16),
+                    label: Text('کپی ${k == 'sni' ? 'SNIها' : (k == 'port' ? 'پورت‌ها' : 'TLSها')}'),
+                  ),
+                ],
             ],
           ),
         ),
