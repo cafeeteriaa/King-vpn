@@ -10408,15 +10408,7 @@ ListTile( // KINGEXTRAS row
                 _set('بازه‌ی معتبر نیست؛ مثلاً 5.160.0.0/24 بنویس');
                 return;
               }
-              _set('اسکن دستی ${addrs.length} آدرس شروع شد...');
-              unawaited(() async {
-                final hits = await natScanIps(addrs,
-                    want: 1000,
-                    concurrency: natAdaptiveWorkers(),
-                    budget: const Duration(minutes: 5));
-                await goldMergeIps([for (final h in hits) CleanIp(h.ip, h.ms)]);
-                _set('${hits.length} IP سالم پیدا و در پوشه‌ی جهانی ذخیره شد');
-              }());
+              unawaited(manualRangeScan(context, addrs)); // MANUALSCAN: نتیجه و پیشرفت داخل دیالوگ
             },
             child: const Text('اسکن بازه‌ها'),
           ),
@@ -11027,7 +11019,41 @@ ListTile( // KINGEXTRAS row
     _personalPrep = _personalPrepWork();
   }
 
-  /// PERSNOPING: تست پینگ سرورهای شخصی کاملاً حذف شده است.
+  /// PERSPING: پینگ همزمان (۸ تایی) برای سرورهای شخصی؛ نتیجه‌ی هر سرور همان لحظه روی صفحه می‌آید.
+  /// خروجی: نقشه‌ی link -> ms فقط برای سرورهای سالم
+  Future<Map<String, int>> _personalPingAll(List<Server> list) async {
+    final ok = <String, int>{};
+    final rows = _personalRows.value;
+    var next = 0;
+    var doneCount = 0;
+    Future<void> worker() async {
+      while (true) {
+        if (next >= list.length) return;
+        final i = next++;
+        final s = list[i];
+        int? d;
+        try {
+          d = await probe(s).timeout(const Duration(seconds: 6));
+        } catch (_) {
+          d = null;
+        }
+        if (d != null && d >= 0) {
+          ok[s.link] = d;
+          if (i < rows.length) rows[i].ping = d;
+        } else if (i < rows.length) {
+          rows[i].ping = -1;
+        }
+        doneCount++;
+        _personalRows.value = List<_PRow>.of(rows);
+        _set('پینگ سرورهای شخصی: $doneCount/${list.length} • سالم: ${ok.length}');
+      }
+    }
+    await Future.wait([for (var k = 0; k < 8; k++) worker()]);
+    _set('پینگ سرورهای شخصی تمام شد: ${ok.length} سالم از ${list.length}');
+    return ok;
+  }
+
+  /// PERSNOPING (قدیمی): تست پینگ سرورهای شخصی قبلاً حذف شده بود.
   /// فقط لیست پوشه (تا ۵۰ تای اول) روی صفحه می‌آید و ترتیب اتصال همان ترتیب پوشه است
   /// (آخرین سرور سالم اول). هر سرور با تست واقعی هسته امتحان می‌شود؛ اگر خراب بود، بعدی.
   Future<void> _personalPrepWork() async {
@@ -11053,7 +11079,15 @@ ListTile( // KINGEXTRAS row
       final i = order.indexWhere((x) => x.link == lg);
       if (i > 0) order.insert(0, order.removeAt(i));
     }
-    _personalRanked = order;
+    // PERSPING: پینگ واقعی همین ۱۰۰ سرور؛ فقط سالم‌ها وارد ترتیب اتصال می‌شوند
+    final okMap = await _personalPingAll(list);
+    final okList = [for (final s in order) if (okMap.containsKey(s.link)) s];
+    okList.sort((a, b) => okMap[a.link]!.compareTo(okMap[b.link]!));
+    if (lg.isNotEmpty) {
+      final i = okList.indexWhere((x) => x.link == lg);
+      if (i > 0) okList.insert(0, okList.removeAt(i));
+    }
+    _personalRanked = okList;
     _personalPrepDone = true;
     dbg('PERSFOLDER پوشه=$folderCount • روی صفحه=${list.length} • بدون تست پینگ');
     unawaited(_persistScreenLists());

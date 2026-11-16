@@ -2746,7 +2746,8 @@ extension HomeExtras on _HomePageState {
     if (userOfflineChoice != true) offlineOnly = false;
     minSpeedKB = 0;
     // NORMALPARITY: مثل اتصال عادی، ۳ تست هم‌زمان (نه مقدار تصادفی از قبل)
-    fastWorkers = 3; // خلبان ۳تا۳تا (fwUserSet دست‌نخورده؛ با snapshot برمی‌گردد)
+    // PILOTUSER: اگر کاربر «تست همزمان» را خودش تنظیم کرده، همان عدد را نگه می‌دارد؛ وگرنه ۳
+    fastWorkers = (fwUserSet && fwUserValue >= 1) ? fwUserValue.clamp(1, 32) : 3;
     bgWorkers = 3;
 
     // فرمول‌های پیوسته نسبت به قدرت (هرچه بالاتر = تهاجمی‌تر)

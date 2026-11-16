@@ -8,8 +8,8 @@ import 'prefs_store.dart';
 import 'errjournal.dart';
 
 const int kPersonalFolderCap = 1000;
-/// PERSNOPING: حداکثر تعداد سرور شخصی که روی صفحه نشان داده و به ترتیب امتحان می‌شود
-const int kPersonalShowCap = 50;
+/// PERSPING: تا ۱۰۰ سرور شخصی اول پینگ گرفته می‌شوند و از بین سالم‌ها بهترین وصل می‌شود
+const int kPersonalShowCap = 100;
 const String _kPersonalFolderPref = 'personal_folder_v1';
 
 /// کش درون‌حافظه‌ای لینک‌های پوشه (برای نمایش سریع در صفحه‌ی اصلی)

@@ -1841,3 +1841,108 @@ void goldNoteServer(Server srv) {
     unawaited(goldSave());
   });
 }
+
+// MANUALSCAN: اسکن دستی بازه‌ها با پیشرفت و نتیجه داخل خود دیالوگ (نه پیام پشت دیالوگ)
+Future<void> manualRangeScan(BuildContext context, List<String> addrs) async {
+  var cancelled = false;
+  var finished = false;
+  var done = 0;
+  var hitsCount = 0;
+  var total = addrs.length;
+  var result = <NatIpHit>[];
+  var open = true;
+  StateSetter? setS;
+
+  void upd(VoidCallback f) {
+    if (open && setS != null) setS!(f);
+  }
+
+  // ignore: unawaited_futures
+  showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => StatefulBuilder(builder: (ctx2, ss) {
+      setS = ss;
+      return AlertDialog(
+        title: Text(finished ? 'نتیجه‌ی اسکن بازه' : 'در حال اسکن بازه...'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('آدرس‌ها: $done / $total   •   IP سالم: $hitsCount'),
+              if (!finished) ...[
+                const SizedBox(height: 10),
+                const LinearProgressIndicator(),
+              ],
+              if (finished && result.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(top: 10),
+                  child: Text('هیچ IP سالمی پیدا نشد.'),
+                ),
+              if (finished && result.isNotEmpty)
+                SizedBox(
+                  height: 260,
+                  child: ListView(
+                    children: [
+                      for (final h in result)
+                        Text('${h.ms} ms  •  ${h.ip}:443',
+                            style: const TextStyle(
+                                fontSize: 12, fontFamily: 'monospace')),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          if (!finished)
+            TextButton(
+              onPressed: () => cancelled = true,
+              child: const Text('توقف'),
+            ),
+          if (finished && result.isNotEmpty)
+            TextButton(
+              onPressed: () async {
+                final t = result.map((h) => '${h.ip}:443').join('\n');
+                await Clipboard.setData(ClipboardData(text: t));
+                if (ctx.mounted) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                      SnackBar(content: Text('${result.length} IP کپی شد')));
+                }
+              },
+              child: const Text('کپی IPها'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('بستن'),
+          ),
+        ],
+      );
+    }),
+  ).then((_) => open = false);
+
+  try {
+    result = await natScanIps(
+      addrs,
+      want: 1000,
+      concurrency: natAdaptiveWorkers(),
+      budget: const Duration(minutes: 5),
+      timeout: const Duration(milliseconds: 1500),
+      cancelled: () => cancelled,
+      onProgress: (d, t, h) => upd(() {
+        done = d;
+        total = t;
+        hitsCount = h;
+      }),
+    );
+    await goldMergeIps([for (final h in result) CleanIp(h.ip, h.ms, 443)]);
+  } catch (e, stk) {
+    logError(e, stk);
+  }
+  upd(() {
+    finished = true;
+    hitsCount = result.length;
+  });
+}
