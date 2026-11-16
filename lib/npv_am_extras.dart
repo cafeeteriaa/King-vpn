@@ -1405,6 +1405,8 @@ class _GoldSrv {
 
 final Map<String, _GoldIp> _goldIps = {};
 final Map<String, _GoldSrv> _goldSrv = {};
+// GOLDDNS: DNS سالم (ip -> میانگین ms) از اسکن DNS؛ جدا از IP تمیز چون پورت VPN ندارد
+final Map<String, int> _goldDns = {};
 bool _goldRunning = false;
 Timer? _goldTimer;
 String _goldDay = '';
@@ -1446,6 +1448,10 @@ Future<void> _goldLoadOnce() async {
       _goldSrv[link] = _GoldSrv(link, (x[1] as num).toInt(),
           (x[2] as num).toInt(), (x[3] as num).toInt());
     }
+    for (final e in (m['dns'] as List? ?? const [])) {
+      final x = e as List;
+      _goldDns[x[0].toString()] = (x[1] as num).toInt();
+    }
     _goldDay = (m['day'] ?? '').toString();
     _goldCnt = (m['cnt'] as num? ?? 0).toInt();
   } catch (e, stk) {
@@ -1470,6 +1476,7 @@ Future<void> goldSave() async {
             for (final v in (_goldSrv.values.toList()..sort((a, b) => a.ping.compareTo(b.ping))))
               [v.link, v.ping, v.okAt, v.testAt]
           ],
+          'dns': [for (final e in _goldDns.entries) [e.key, e.value]],
           'day': _goldDay,
           'cnt': _goldCnt,
         }));
@@ -1516,6 +1523,17 @@ void goldPrepareNational() {
   if (!nationalMode) return;
   final g = goldIpList();
   if (g.isNotEmpty) cleanIps = g;
+}
+
+Future<void> goldAddDns(List<DnsxHit> hits) async {
+  await goldLoad();
+  var changed = false;
+  for (final h in hits) {
+    if (h.okCount <= 0) continue;
+    _goldDns[h.ip] = h.avgMs;
+    changed = true;
+  }
+  if (changed) await goldSave();
 }
 
 Future<void> goldMergeIps(List<CleanIp> res) async {
@@ -1689,44 +1707,116 @@ String goldInfo() {
   final when = lastMs == 0
       ? 'هنوز تست نشده'
       : 'آخرین تست: ${DateTime.fromMillisecondsSinceEpoch(lastMs).toString().substring(0, 16)}';
-  return 'IP تمیز: ${_goldIps.length} • سرور سالم: ${_goldSrv.length} • $when';
+  return 'IP تمیز: ${_goldIps.length} • سرور سالم: ${_goldSrv.length} • DNS: ${_goldDns.length} • $when';
 }
 
 Future<void> goldShowList(BuildContext context) async {
   await goldLoad();
-  final ipL = _goldIps.values.toList()..sort((a, b) => a.ms.compareTo(b.ms));
-  final srvL = _goldSrv.values.toList()..sort((a, b) => a.ping.compareTo(b.ping));
+  var open = true;
+  var dnsBusy = false;
+  var dnsStatus = '';
   await showDialog<void>(
     context: context,
-    builder: (ctx) => AlertDialog(
-      title: const Text('پوشه‌ی جهانی'),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            Text(goldInfo(), style: const TextStyle(fontSize: 12)),
-            const Divider(),
-            const Text('سرورهای سالم (سریع → کند):',
-                style: TextStyle(fontWeight: FontWeight.bold)),
-            for (final v in srvL.take(200))
-              Text('${v.ping} ms  •  ${Server.parse(v.link)?.name ?? v.link}',
-                  style: const TextStyle(fontSize: 12)),
-            const Divider(),
-            const Text('IP تمیز (سریع → کند):',
-                style: TextStyle(fontWeight: FontWeight.bold)),
-            for (final v in ipL.take(200))
-              Text('${v.ms} ms  •  ${v.ip}:${v.port}',
-                  style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
+    builder: (ctx) {
+      StateSetter? setD;
+      void upd(VoidCallback f) {
+        if (open && setD != null) setD!(f);
+      }
+      return StatefulBuilder(builder: (ctx2, ss) {
+        setD = ss;
+        final ipL = _goldIps.values.toList()..sort((a, b) => a.ms.compareTo(b.ms));
+        final srvL = _goldSrv.values.toList()..sort((a, b) => a.ping.compareTo(b.ping));
+        final dnsL = _goldDns.entries.toList()..sort((a, b) => a.value.compareTo(b.value));
+        return AlertDialog(
+          title: const Text('پوشه‌ی جهانی'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                Text(goldInfo(), style: const TextStyle(fontSize: 12)),
+                if (dnsStatus.isNotEmpty)
+                  Text(dnsStatus,
+                      style: const TextStyle(fontSize: 12, color: Color(0xFFD9AE55))),
+                const Divider(),
+                const Text('سرورهای سالم (سریع → کند):',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                for (final v in srvL.take(200))
+                  Text('${v.ping} ms  •  ${Server.parse(v.link)?.name ?? v.link}',
+                      style: const TextStyle(fontSize: 12)),
+                const Divider(),
+                const Text('IP تمیز (سریع → کند):',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                for (final v in ipL.take(200))
+                  Text('${v.ms} ms  •  ${v.ip}:${v.port}',
+                      style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
+                const Divider(),
+                const Text('DNS سالم (سریع → کند):',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                for (final e in dnsL.take(200))
+                  Text('${e.value} ms  •  ${e.key}',
+                      style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: dnsBusy
+                  ? null
+                  : () async {
+                      upd(() {
+                        dnsBusy = true;
+                        dnsStatus = 'اسکن DNS شروع شد...';
+                      });
+                      try {
+                        final list = nationalMode ? kDnsxNationalDefaults : kDnsxDefaults;
+                        final r = await dnsxScan(
+                          list,
+                          domains: dnsxFullDomains(),
+                          gap: const Duration(milliseconds: 150),
+                          onProgress: (d, t) => upd(() => dnsStatus = 'اسکن DNS: $d/$t'),
+                        );
+                        await goldAddDns(r);
+                        upd(() => dnsStatus =
+                            '${r.where((h) => h.okCount > 0).length} DNS سالم پیدا و ذخیره شد');
+                      } catch (e, stk) {
+                        logError(e, stk);
+                        upd(() => dnsStatus = 'خطا در اسکن DNS');
+                      }
+                      upd(() => dnsBusy = false);
+                    },
+              child: Text(dnsBusy ? 'در حال اسکن DNS...' : 'اسکن DNS الان'),
+            ),
+            TextButton(
+              onPressed: () async {
+                final t = ipL.map((v) => '${v.ip}:${v.port}').join('\n');
+                await Clipboard.setData(ClipboardData(text: t));
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('${ipL.length} IP کپی شد')));
+                }
+              },
+              child: const Text('کپی IPها'),
+            ),
+            TextButton(
+              onPressed: () async {
+                final t = dnsL.map((e) => e.key).join('\n');
+                await Clipboard.setData(ClipboardData(text: t));
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('${dnsL.length} DNS کپی شد')));
+                }
+              },
+              child: const Text('کپی DNSها'),
+            ),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx), child: const Text('بستن')),
           ],
-        ),
-      ),
-      actions: [
-        TextButton(
-            onPressed: () => Navigator.pop(ctx), child: const Text('بستن')),
-      ],
-    ),
+        );
+      });
+    },
   );
+  open = false;
 }
 
 Timer? _goldSaveT;

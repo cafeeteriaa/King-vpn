@@ -301,6 +301,7 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
     // اگر وسط کار اتصال برقرار شد، نتیجه‌ی ناقص ذخیره نمی‌شود و اسکن بعدی دوباره انجام می‌شود
     if (stop != null && stop()) return;
     dnsxBestCache = [for (final e in r.take(4)) e.ip];
+    unawaited(goldAddDns(r)); // GOLDDNS: نتیجه‌ی DNS سالم در پوشه‌ی جهانی ذخیره شود
     await p.setStringList('dnsx_best_v1', dnsxBestCache);
     await p.setInt('dnsx_at_v1', now);
     dbg('DNSX خودکار: ${dnsxBestCache.length} DNS سالم (${nationalMode ? 'نت ملی' : 'عادی'})');

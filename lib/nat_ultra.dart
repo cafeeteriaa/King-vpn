@@ -2104,7 +2104,8 @@ Future<List<String>> _natRangeScanStepBody({
     ...await natDeviceHosts(),
     ...natIranDnsHosts,
   ];
-  final blocks = natRanges.isNotEmpty ? natRanges : natSeedBlocks(hosts);
+  // NATAUTO: نت ملی همیشه خودکار از بازه‌های داخلی برنامه اسکن می‌کند؛ بازه‌ی دستی فقط برای اسکن دستی است
+  final blocks = natSeedBlocks(hosts);
   // فیکس ۳: refresh بازه‌های CDN همان‌طور که قبلاً داخل _getCfIps بود، اینجا (ترد اصلی)
   // fire-and-forget می‌ماند؛ isolate به شبکه/prefs دسترسی ندارد.
   unawaited(refreshCdnRanges());

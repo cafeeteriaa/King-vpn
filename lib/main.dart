@@ -10395,6 +10395,32 @@ ListTile( // KINGEXTRAS row
           TextButton(
               onPressed: () => Navigator.pop(ctx), child: const Text('بستن')),
           TextButton(
+            // MANUALSCAN: اسکن دستی بازه‌ها؛ نتیجه در پوشه‌ی جهانی ذخیره می‌شود (نت ملی را تغییر نمی‌دهد)
+            onPressed: () {
+              final lines = c.text.split('\n');
+              final addrs = <String>[];
+              for (final line in lines) {
+                final t = line.trim();
+                if (t.isEmpty) continue;
+                addrs.addAll(natExpandCidr(t));
+              }
+              if (addrs.isEmpty) {
+                _set('بازه‌ی معتبر نیست؛ مثلاً 5.160.0.0/24 بنویس');
+                return;
+              }
+              _set('اسکن دستی ${addrs.length} آدرس شروع شد...');
+              unawaited(() async {
+                final hits = await natScanIps(addrs,
+                    want: 1000,
+                    concurrency: natAdaptiveWorkers(),
+                    budget: const Duration(minutes: 5));
+                await goldMergeIps([for (final h in hits) CleanIp(h.ip, h.ms)]);
+                _set('${hits.length} IP سالم پیدا و در پوشه‌ی جهانی ذخیره شد');
+              }());
+            },
+            child: const Text('اسکن بازه‌ها'),
+          ),
+          TextButton(
             onPressed: () {
               Navigator.pop(ctx);
               _natRelayHostsDialog(context);

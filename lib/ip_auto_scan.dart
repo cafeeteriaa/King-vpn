@@ -220,6 +220,7 @@ extension IpAutoExt on _HomePageState {
       final ip = parts[0];
       final port = int.tryParse(parts[1]) ?? 443;
       final s = Server(_natSetHost(tplSrv.link, ip, tplSrv.host), tplSrv.name, ip, port);
+      final sw = Stopwatch()..start(); // GOLDAUTO: زمان واقعی برای مرتب‌سازی پوشه‌ی جهانی
       if (!await _ipAutoCoreOk(s, url)) {
         say('تست $checked/${toTest.length} • جواب‌داده: $found');
         continue;
@@ -229,6 +230,7 @@ extension IpAutoExt on _HomePageState {
         continue;
       }
       ipAutoHits.insert(0, c);
+      unawaited(goldMergeIps([CleanIp(ip, sw.elapsedMilliseconds, port)])); // GOLDAUTO: در پوشه‌ی جهانی ذخیره شود
       seen.add(c);
       found++;
       if (ipAutoHits.length > _ipAutoMaxHits) {
