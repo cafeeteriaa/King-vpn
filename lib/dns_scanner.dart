@@ -376,6 +376,7 @@ extension DnsxExt on _HomePageState {
                   total = t;
                 }),
               );
+              await goldAddDns(r); // DNSSAVE: نتیجه‌ی اسکنر دستی هم در پوشه‌ی جهانی ذخیره شود
             } catch (e, stk) {
               logError(e, stk);
             } finally {

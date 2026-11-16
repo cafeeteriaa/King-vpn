@@ -745,6 +745,9 @@ void natCursorAdvance(Server s, int n) {
 }
 
 Duration natBudget({bool full = false}) {
+  // NATFIRST: نت ملی، دور اول: هر سرور فقط ۲۰ ثانیه برای حالت‌ها وقت دارد و بقیه‌ی حالت‌ها
+  // در دور بعد ادامه می‌یابند (natCursor). اولین سرور سالم فوراً وصل می‌شود.
+  if (nationalMode && !full && natRound == 1) return const Duration(seconds: 20);
   final l = full ? 3 : natLevel;
   // V12: at lvl 10 (national default) give a generous budget so the FULL
   // matrix (Fragment, DNS, port, FP, ALPN, clean IP, host, SNI...) is tested

@@ -1407,6 +1407,8 @@ final Map<String, _GoldIp> _goldIps = {};
 final Map<String, _GoldSrv> _goldSrv = {};
 // GOLDDNS: DNS سالم (ip -> میانگین ms) از اسکن DNS؛ جدا از IP تمیز چون پورت VPN ندارد
 final Map<String, int> _goldDns = {};
+// AUTOSCAN: نتیجه‌ی اسکنرهای خودکار (کلید: 'sni' یا 'port')
+final Map<String, List<String>> _goldScan = {};
 bool _goldRunning = false;
 Timer? _goldTimer;
 String _goldDay = '';
@@ -1452,6 +1454,9 @@ Future<void> _goldLoadOnce() async {
       final x = e as List;
       _goldDns[x[0].toString()] = (x[1] as num).toInt();
     }
+    for (final e in (m['scan'] as Map? ?? const {}).entries) {
+      _goldScan[e.key.toString()] = [for (final x in (e.value as List)) x.toString()];
+    }
     _goldDay = (m['day'] ?? '').toString();
     _goldCnt = (m['cnt'] as num? ?? 0).toInt();
   } catch (e, stk) {
@@ -1477,6 +1482,7 @@ Future<void> goldSave() async {
               [v.link, v.ping, v.okAt, v.testAt]
           ],
           'dns': [for (final e in _goldDns.entries) [e.key, e.value]],
+          'scan': _goldScan,
           'day': _goldDay,
           'cnt': _goldCnt,
         }));
@@ -1523,6 +1529,13 @@ void goldPrepareNational() {
   if (!nationalMode) return;
   final g = goldIpList();
   if (g.isNotEmpty) cleanIps = g;
+}
+
+Future<void> goldAddScan(String kind, List<String> items) async {
+  await goldLoad();
+  final merged = {...(_goldScan[kind] ?? const <String>[]), ...items};
+  _goldScan[kind] = merged.toList();
+  await goldSave();
 }
 
 Future<void> goldAddDns(List<DnsxHit> hits) async {
@@ -1756,6 +1769,15 @@ Future<void> goldShowList(BuildContext context) async {
                 for (final e in dnsL.take(200))
                   Text('${e.value} ms  •  ${e.key}',
                       style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
+                for (final k in const ['sni', 'port', 'tls']) ...[
+                  const Divider(),
+                  Text(
+                      {'sni': 'SNI سالم', 'port': 'پورت سالم', 'tls': 'پروتکل TLS سالم'}[k]! +
+                          ' (${(_goldScan[k] ?? const []).length}):',
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  for (final x in (_goldScan[k] ?? const <String>[]).take(200))
+                    Text(x, style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
+                ],
               ],
             ),
           ),
@@ -1808,6 +1830,24 @@ Future<void> goldShowList(BuildContext context) async {
                 }
               },
               child: const Text('کپی DNSها'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: (_goldScan['sni'] ?? const <String>[]).join('\n')));
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('SNI کپی شد')));
+                }
+              },
+              child: const Text('کپی SNI'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: (_goldScan['port'] ?? const <String>[]).join('\n')));
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('پورت‌ها کپی شد')));
+                }
+              },
+              child: const Text('کپی پورت‌ها'),
             ),
             TextButton(
                 onPressed: () => Navigator.pop(ctx), child: const Text('بستن')),

@@ -43,6 +43,7 @@ part 'telegram_channels.dart';
 part 'backup_restore.dart'; // BKPRESTORE
 part 'dns_scanner.dart'; // DNSSCAN
 part 'ip_auto_scan.dart'; // IPAUTO: اسکن خودکار IP با هسته، جدا از نت ملی
+part 'auto_scanners.dart'; // AUTOSCAN: اسکن خودکار SNI و پورت
 part 'ip_isp_ranges.dart'; // IPAUTO-ISP: بازه‌های ISP/دیتاسنتر ایرانی (از داده‌ی ASN)
 part 'sub_groups.dart'; // SUBGROUP
 part 'ultimate_extras.dart';
@@ -178,7 +179,7 @@ const int kFastBatchesPerSearch = 1;
 bool standbyPaused = false;
 // FAST SEARCH: parallel ping tests (core delay test, no VPN toggling) used
 // when looking for the first healthy server (settings 1..8).
-int fastWorkers = 3; // FAST100 (تست همزمان جستجوی اول = ۳)
+int fastWorkers = 7; // FAST100 (تست همزمان جستجوی اول = ۷ پیش‌فرض)
 // a healthy server not checked for this long is pinged again (occasional
 // re-check, the server stays in the list until it really fails)
 Duration recheckAfter = const Duration(minutes: 4);
@@ -6698,8 +6699,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!bg && !connected) _set('در حال دریافت لیست‌ها...');
       try {
         // QUICKLIST: اولین دریافت (و نه بعد از اتصال) فقط ~۲۰۰ سرور؛ لیست کامل بعد از اتصال می‌آید
-        final quick = !bg && !connected && !nationalMode && !offlineOnly && !exhausted && !_listPartial;
-        final f = await fetchServers(stop: () => abort, quickCap: quick ? 200 : null);
+        // FASTLIST: اتصال عادی هم مثل خلبان با ~۲۰۰ سرور اول شروع می‌کند و سقف ۲۵ ثانیه‌ای دارد
+        final quick = !bg && !connected && !nationalMode && !offlineOnly;
+        final f = await fetchServers(stop: () => abort, quickCap: quick ? 200 : null)
+            .timeout(const Duration(seconds: 25), onTimeout: () => <Server>[]);
         _listPartial = quick && f.isNotEmpty;
         if (f.isNotEmpty) {
           // lists that were "dead" get a new chance with the new content
@@ -6900,6 +6903,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // MIN3: همه‌ی مسیرها (عادی، خلبان، نت ملی) قبل از وصل شدن ۳ سرور سالم جمع می‌کنند
         // تا بعد از قطع، سرور جایگزین آماده باشد. بعد از ۳ دقیقه با هر تعدادی وصل می‌شود.
         if (!bg) {
+          // FIRSTCONNECT: آنلاین/آفلاین/عادی به محض پیدا شدن اولین سرور سالم وصل می‌شوند (مثل سرور شخصی)؛
+          // نت ملی و شکست‌ناپذیر همان رفتار قبلی را دارند
+          if (!nationalMode && !indestructibleMode && ready >= 1) return true;
           if (ready >= kFgSearchTarget) return true;
           // FAST100: تا ۲۰ سرور سالم یا پایان مهلت ۳۰ثانیه‌ای، دسته را غربال کن.
           // اگر کمتر از ۲۰ سرور پیدا شد، بعد از ۳۰ ثانیه با بهترین‌های موجود ادامه بده.
@@ -8391,7 +8397,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       // A config is accepted only after CONNECTED, a confirmed Android TUN,
       // and a successful outbound probe. CONNECTED alone is not proof of traffic.
-      if (ready && t == true && _personalFast) {
+      // FASTTRAFFIC: آنلاین و آفلاین (غیر از نت ملی و شکست‌ناپذیر) هم مثل سرور شخصی:
+      // تست ترافیک سریع ۵ ثانیه‌ای؛ اگر ترافیک نبود، فوراً سرور بعدی
+      if (ready && t == true && (_personalFast || (!nationalMode && !indestructibleMode))) {
         // سرور شخصی: یک تست ۳ ثانیه‌ای کافی است؛ بدون زنجیره‌ی تأخیر و بدون کانفیگ جایگزین
         final pp = await pingAny(total: const Duration(seconds: 5), direct: true, tries: 2); // PERSMUX: ۶ ثانیه برای شروع کند
         if (!wantVpn || abort) {
@@ -11340,7 +11348,7 @@ ListTile( // KINGEXTRAS row
     if (secureDns && dnsProv == 'auto') {
       try {
         final p = await pickBestDns()
-            .timeout(const Duration(seconds: 3), onTimeout: () => dnsProvActive);
+            .timeout(const Duration(seconds: 1), onTimeout: () => dnsProvActive); // QUICKSTART: حداکثر ۱ ثانیه
         dbg('DNS خودکار انتخاب شد: $p');
       } catch (e, stk) { logError(e, stk); }
     }
@@ -11516,7 +11524,8 @@ ListTile( // KINGEXTRAS row
         _set('برای اتصال باید بهینه‌سازی باتری خاموش شود: دوباره «اتصال» را بزن و روی «اجازه» بزن');
         return;
       }
-      await runPreflight();
+      // QUICKSTART: پیش‌پرواز (DNS و HTTP، تا ۹ ثانیه) مانع شروع تست نمی‌شود؛ پس‌زمینه اجرا می‌شود
+      unawaited(runPreflight());
       startNetWatch();
       switching = true;
       try {
@@ -14798,6 +14807,7 @@ UiHero(
             UiTool(Icons.router, 'بازه‌های IP نت ملی', () => _natRangesDialog(context)),
             UiTool(Icons.travel_explore_outlined, 'اسکنر DNS', () => dnsxSheet(context)), // DNSSCAN
             UiTool(Icons.radar, 'اسکن خودکار IP', () => ipAutoSheet(context)), // IPAUTO
+            UiTool(Icons.auto_awesome, 'اسکن خودکار SNI و پورت', () => autoScanSheet(context)), // AUTOSCAN
             UiTool(Icons.security, sniSpoofAll ? 'جعل SNI: روشن ✓' : 'جعل SNI: خاموش', () { setState(() => sniSpoofAll = !sniSpoofAll); _saveSettings(); _set(sniSpoofAll ? 'جعل SNI روشن شد' : 'جعل SNI خاموش شد'); }),
             UiTool(Icons.cloud_off_outlined, sniCfOn ? 'جعل SNI کلودفلر: روشن' : 'جعل SNI کلودفلر: خاموش', () { setState(() => sniCfOn = !sniCfOn); _saveSettings(); _set(sniCfOn ? 'جعل SNI برای کلودفلر روشن شد' : 'جعل SNI برای کلودفلر خاموش شد'); }),
             UiTool(Icons.support_agent, 'ارتباط با ادمین', () => _uiOpenAdmin(context)),

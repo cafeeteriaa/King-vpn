@@ -76,7 +76,7 @@ extension AutoTestEngine on _HomePageState {
   // ALLPATHS: تست کامل همه‌ی مسیرها؛ مدت مهم نیست، بخش‌ها همه اجرا می‌شوند
   // SIX-HOUR: تست کامل همه‌ی مسیرها ۶ ساعت است (وقت کافی برای همه‌ی بخش‌ها)
   // STEST60: کل تست ۶۰ دقیقه و فقط نت ملی است (جهانی، پوشه، آفلاین، آنلاین، پروتکل‌ها، کشور و خلبان هوش مصنوعی حذف شدند)
-  static const _testDuration = Duration(hours: 4); // تست نت ملی ۴ ساعته (با متن‌های برنامه و راهنما یکی شد)
+  static const _testDuration = Duration(hours: 6); // تست نت ملی ۶ ساعته (با متن‌های برنامه و راهنما یکی شد)
   static const _sampleEvery = Duration(seconds: 3);
   // آستانه‌ها باید بیشتر از مهلت واقعی اتصال باشند (وگرنه اتصال عادی گزارش گیر می‌دهد)
   static const _busyStuckLimit = Duration(seconds: 240); // TESTUPGRADE
@@ -133,14 +133,14 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
   static final Map<String, String> _engineResult = {}; // ok / fail / skip
   // بخش‌های تست با ترتیب اجرا (نام نمایشی)
   // NATONLY2: فقط این دو بخش در تست و گزارش دیده می‌شوند
-  // FIVE-HOUR: همه‌ی مسیرهای اتصال در گزارش دیده می‌شوند
-  // ALLNAT: ۴ ساعت = جستجوی نت ملی + ماتریس سطوح + جایگزینی؛ هر بخش کلید گزارش جدا دارد
+  // SIXHOUR: همه‌ی مسیرهای اتصال در گزارش دیده می‌شوند
+  // ALLNAT: ۶ ساعت = جستجوی نت ملی + ماتریس سطوح + جایگزینی؛ هر بخش کلید گزارش جدا دارد
   static List<String> get _atActiveNames =>
       [_atSearchName, _atItemNames[2], _atSubstName];
   static const String _atSearchName = 'نت ملی: جستجوی سرورهای سالم (IP و کانفیگ)';
-  static const Duration _atSearchCap = Duration(minutes: 100); // سقف جستجو
-  static const Duration _atMatrixCap = Duration(minutes: 50); // سقف ماتریس (۱۱ سطح)
-  static const Duration _atSubstBudget = Duration(minutes: 30); // حداقل وقت لازم جایگزینی
+  static const Duration _atSearchCap = Duration(minutes: 180); // سقف جستجو
+  static const Duration _atMatrixCap = Duration(minutes: 120); // سقف ماتریس (۱۱ سطح)
+  static const Duration _atSubstBudget = Duration(minutes: 60); // حداقل وقت لازم جایگزینی
   static const List<String> _atItemNames = [
     'اینترنت جهانی (عادی)',
     'پوشه‌ی منابع تازه (ساخت)',
@@ -229,7 +229,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
         textDirection: TextDirection.rtl,
         child: StatefulBuilder(
           builder: (ctx, setD) => AlertDialog(
-            title: const Text('تست نت ملی (۴ ساعت)'),
+            title: const Text('تست نت ملی (۶ ساعت)'),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -248,7 +248,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
                   const SizedBox(height: 8),
                   const SizedBox(height: 6),
                   const Text(
-                    'در این ۴ ساعت اپ را نبند و صفحه را قفل نکن.\n'
+                    'در این ۶ ساعت اپ را نبند و صفحه را قفل نکن.\n'
                     'می‌توانی وسط کار «توقف تست» را بزنی.',
                     style: TextStyle(fontSize: 12),
                   ),
@@ -287,7 +287,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     _phase = _AtPhase.running;
     autoTestAdFree = true; // TESTNOAD
     _abortRequested = false;
-    _applyModePreset(true, offlineOnly, false); // BESTDEF: تست ۴ ساعته = تنظیمات نت ملی
+    _applyModePreset(true, offlineOnly, false); // BESTDEF: تست ۶ ساعته = تنظیمات نت ملی
     _findings.clear();
     _atNoTraffic = false;
     _samples.clear();
@@ -316,8 +316,8 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     autoTestRunning.value = true;
     autoTestProgress.value = 0;
     autoTestText.value = 'تست خودکار شروع شد (${_atSelected.length} VPN)…';
-    dbg('🧪 AUTOTEST نت ملی شروع شد (۴ ساعت • ${_atActiveNames.length} بخش)');
-    _dbgProb('🧪 تست نت ملی — ۴ ساعت');
+    dbg('🧪 AUTOTEST نت ملی شروع شد (۶ ساعت • ${_atActiveNames.length} بخش)');
+    _dbgProb('🧪 تست نت ملی — ۶ ساعت');
 
     _sampleT?.cancel();
     _sampleT = Timer.periodic(_sampleEvery, (_) => _atSample());
@@ -325,7 +325,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     _endT?.cancel();
     _endT = Timer(_testDuration, () {
       if (_phase == _AtPhase.running) {
-        dbg('🧪 AUTOTEST زمان ۴ ساعت تمام شد');
+        dbg('🧪 AUTOTEST زمان ۶ ساعت تمام شد');
         _atFinish(reason: 'زمان تمام شد');
       }
     });
@@ -408,7 +408,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     }
     _atVerdict = _atNatDiagnosis(); // NATONLY
     final buf = StringBuffer();
-    buf.writeln('===== گزارش تست خودکار نت ملی (۴ ساعت) =====');
+    buf.writeln('===== گزارش تست خودکار نت ملی (۶ ساعت) =====');
     buf.writeln('مدت: ${min}m ${sec}s • دلیل پایان: $reason');
     buf.writeln('نمونه‌های ثبت‌شده (حداکثر ۵۰۰): ${_samples.length}');
     // TOPACTIONS: the three most important findings first, each with its first action
@@ -1781,7 +1781,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     natRound = 1; // V14: force pass 1
     await ultimateSave();
 
-    _set('نت ملی: پاک‌سازی صف برای تست کامل ۴ ساعته');
+    _set('نت ملی: پاک‌سازی صف برای تست کامل ۶ ساعته');
     good.clear();
     pending.clear();
     failed.clear();
