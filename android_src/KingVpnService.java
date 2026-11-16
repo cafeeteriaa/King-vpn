@@ -3,6 +3,7 @@ package com.kingvpn.king_vpn;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -25,9 +26,15 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 
 import dev.amirzr.flutter_v2ray_client.v2ray.core.V2rayCoreManager;
 import dev.amirzr.flutter_v2ray_client.v2ray.interfaces.V2rayServicesListener;
@@ -78,13 +85,15 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     public static final String EXTRA_BACKUPS = "backups";
 
     private static final int NOTIF_ID = 42;
+    /** جدید: notification id used by the plugin (V2rayCoreManager.NOTIFICATION_ID). */
+    private static final int PLUGIN_NOTIF_ID = 1;
+    /** جدید: libv2ray is wired once per process; see wireCoreOnce(). */
+    private static volatile boolean coreWired = false;
     private static final String CHANNEL_ID = "king_vpn";
     private static final int MTU = 1500;
 
     /** Same local HTTP port that the Dart side configures for the core (httpProxyPort). */
     private static final int LOCAL_HTTP_PORT = 10809;
-    /** v2rayNG uses the same URL for its "real ping" check. */
-    private static final String CHECK_URL = "https://www.google.com/generate_204";
     private static final int CHECK_EVERY_SEC = 30;
     private static final int CHECK_TIMEOUT_MS = 8000;
     /** Soft failures in a row before we switch servers. */
@@ -103,26 +112,114 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private static final String PREFS = "king_vpn_state";
     private static final String SCORE_PREFS = "king_vpn_scores";
 
+    /** Boolean extra: the user chose national-network mode (international internet cut). */
+    public static final String EXTRA_NATIONAL = "national";
+    /** Attempt id from Dart (see own_vpn.dart). 0 = no attempt (service restart / resume). */
+    public static final String EXTRA_ATTEMPT = "attempt";
+    /**
+     * Probes used in national mode (international internet cut). Only domestic
+     * destinations count there; the international probes always fail in that mode.
+     */
+    private static final String[] DOMESTIC_PROBE_URLS = {
+            "https://www.aparat.com/",
+            "https://www.digikala.com/",
+            "https://www.snapp.ir/",
+    };
+    /**
+     * Probes used in global mode. Only international destinations count there, so a
+     * domestic site answering through a dead tunnel cannot mark the server as healthy.
+     */
+    private static final String[] INTERNATIONAL_PROBE_URLS = {
+            "https://www.google.com/generate_204",
+            "https://www.gstatic.com/generate_204",
+    };
+
     private final Object lock = new Object();
     private final List<Srv> servers = new ArrayList<>();
     private ParcelFileDescriptor tun = null;
-    private ScheduledExecutorService watchdog = null;
+    // جدید: ONE scheduler for the whole service (was a new executor per tick, never closed)
+    private volatile ScheduledExecutorService scheduler = null;
+    // جدید: the pending watchdog tick; cancelled when replaced
+    private volatile ScheduledFuture<?> watchdogTask = null;
+    /** Attempt id of the start that is currently active; sent with every status message. */
+    private volatile int activeAttemptId = 0;
     private int currentIdx = 0;
     private int fails = 0;
     private int listExhaustedStreak = 0;
     private int healthyStreak = 0;
     private volatile boolean active = false;
     private volatile boolean stopping = false;
-    private volatile boolean starting = false;
     private volatile boolean retryWaiting = false;
-    // CANCELBRINGUP: توکن لغو per-attempt؛ stop فقط تلاش فعلی را لغو می‌کند
-    private volatile java.util.concurrent.atomic.AtomicBoolean bringUpCancel = new java.util.concurrent.atomic.AtomicBoolean(false);
+    // ---- Core ownership -------------------------------------------------------
+    // The V2Ray core is ONE native instance and the TUN is ONE fd. Lock order is
+    // lock -> coreLock -> tunLock. Every operation that starts or stops the core,
+    // or opens or closes the TUN, runs under coreLock and only while its attempt
+    // is still the newest (isCurrent). So an orphaned attempt can never touch the
+    // core once it has been superseded, however long it lives: it either never
+    // gets the lock and bails out, or it cleans up its own result before releasing.
+    private final ReentrantLock coreLock = new ReentrantLock();
+    /** Every new attempt, every stop and every timeout increments this. */
+    private final AtomicInteger attemptSeq = new AtomicInteger(0);
+    /** bringUp calls that have not returned yet, orphans included. */
+    private final AtomicInteger inFlight = new AtomicInteger(0);
+    /** True while a stopCore call is still running on its thread (it may hang). Core is fenced. */
+    private volatile boolean coreStopping = false;
+    /**
+     * A native call (startCore/stopCore) that does not return cannot be killed from Java.
+     * If one stays busy longer than HUNG_NATIVE_MS, the only real recovery is a fresh
+     * process: the Go runtime behind the core cannot be reset in place. We save the
+     * state first, then end the process; START_STICKY makes Android restart the service,
+     * and resumeSaved() reconnects from the saved list.
+     */
+    private static final long HUNG_NATIVE_MS = 45_000L;
+    private final AtomicLong nativeToken = new AtomicLong(0);
+    private volatile boolean nativeBusy = false;
+    private final AtomicBoolean recovering = new AtomicBoolean(false);
+    /** True when the user asked to stop. A restart after a hang must not resume the connection. */
+    private volatile boolean userStopped = false;
+    /** How long a stop waits for coreLock before it leaves the core to the attempt holding it. */
+    private static final long STOP_LOCK_WAIT_MS = 3000L;
+    /** How long one stopCore call may take before the core is considered fenced. */
+    private static final long STOP_CORE_WAIT_MS = 3000L;
+    /** Guards the TUN handle only. Never acquire `lock` while holding this. */
+    private final Object tunLock = new Object();
+    /** Single worker: all start/stop/resume work runs here, never on the main thread. */
+    private volatile ExecutorService worker = null;
+
+    /** Persisted national-mode flag (see EXTRA_NATIONAL). */
+    private volatile boolean nationalMode = false;
 
     /** Last error message for Dart diagnostics (populated on failures). */
     private volatile String lastError = "";
 
     /** Diagnostic accessor for the last failure message. */
     public String getLastError() { return lastError; }
+
+    /** جدید: receives start/stop outcomes; MainActivity forwards them to Dart. */
+    public interface StatusSink {
+        void onStatus(String state, String error, int attempt);
+    }
+    /** جدید: set by MainActivity. States: CONNECTED, FAILED, STOPPED. */
+    public static volatile StatusSink statusSink = null;
+    /** جدید: the running instance, so the app can stop it directly (no background startService). */
+    public static volatile KingVpnService instance = null;
+
+    /** جدید: sends a status to Dart if a sink is registered. Never throws. */
+    private void emit(String state, String error) {
+        StatusSink s = statusSink;
+        if (s == null) return;
+        try {
+            s.onStatus(state, error == null ? "" : error, activeAttemptId);
+        } catch (Throwable t) {
+            Log.w(TAG, "status sink failed", t);
+        }
+    }
+
+    /** جدید: stop requested by the app while it is in the background. */
+    public void stopFromApp() {
+        requestStop();
+        submit(this::stopEverything);
+    }
 
     private static class Srv {
         final String config, remark, addr, port;
@@ -144,17 +241,26 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     @Override
     public void onCreate() {
         super.onCreate();
-        V2rayCoreManager.getInstance().setUpListener(this);
+        worker = Executors.newSingleThreadExecutor();
+        instance = this; // جدید
+        wireCoreOnce(); // جدید: was setUpListener() on every start
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        // Keep this method short: it runs on the main thread, and the system
+        // expects a foreground service to be promoted within a few seconds.
         if (intent == null) {
-            return resumeSaved();
+            // Android restarted the service (START_STICKY): resume the saved list.
+            // No Dart attempt is waiting for it, so its status uses attempt 0 (accepted by all).
+            activeAttemptId = 0;
+            submit(this::resumeSaved);
+            return START_STICKY;
         }
         String action = intent.getAction();
         if (ACTION_STOP.equals(action)) {
-            stopEverything();
+            requestStop();
+            submit(this::stopEverything);
             return START_NOT_STICKY;
         }
         if (!ACTION_START.equals(action)) {
@@ -165,7 +271,11 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         if (json == null || json.isEmpty()) {
             Log.e(TAG, "start without config");
             lastError = "start called with empty config";
-            stopEverything();
+            // جدید: startForegroundService requires startForeground() within 5 s, or Android
+            // kills the process with ForegroundServiceDidNotStartInTimeException.
+            updateNotification("خطا: تنظیمات سرور خالی است");
+            requestStop();
+            submit(this::stopEverything);
             return START_NOT_STICKY;
         }
 
@@ -176,9 +286,40 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 orEmpty(intent.getStringExtra(EXTRA_PORT)));
         List<Srv> backups = parseBackups(intent.getStringExtra(EXTRA_BACKUPS));
         sortByScoreDesc(backups);
+        nationalMode = intent.getBooleanExtra(EXTRA_NATIONAL, false);
+        activeAttemptId = intent.getIntExtra(EXTRA_ATTEMPT, 0);
+        userStopped = false;
 
         startForegroundSafe(first.remark);
+        submit(() -> startFlow(first, backups));
+        return START_STICKY;
+    }
+
+    /** Runs a task on the single worker thread (never on the main thread). */
+    private void submit(Runnable r) {
+        ExecutorService ex = worker;
+        if (ex == null || ex.isShutdown()) {
+            Thread t = new Thread(r);
+            t.setDaemon(true);
+            t.start();
+            return;
+        }
+        ex.execute(r);
+    }
+
+    /** Worker side of ACTION_START: builds the list and connects. */
+    private void startFlow(Srv first, List<Srv> backups) {
         synchronized (lock) {
+            if (stopping) return; // a stop request arrived first
+            // جدید: without the user's VPN consent, establish() fails for every server one by one.
+            // Check once here and report a single clear error instead.
+            if (VpnService.prepare(this) != null) {
+                lastError = "VPN permission not granted";
+                Log.e(TAG, lastError);
+                emit("FAILED", lastError); // جدید
+                stopEverything();
+                return;
+            }
             stopWatchdog();
             listExhaustedStreak = 0;
             healthyStreak = 0;
@@ -188,39 +329,57 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 if (servers.size() > MAX_BACKUPS) break;
                 if (!b.config.equals(first.config)) servers.add(b);
             }
+            currentIdx = 0; // جدید: new list starts at 0; a stale index from the last session was saved before
+            fails = 0;      // جدید
+            saveState(); // persist the pending list first, so a restart mid-connect can resume it
             if (connectFrom(0)) {
                 saveState();
                 startWatchdog(CHECK_EVERY_SEC);
+                emit("CONNECTED", ""); // جدید
             } else {
                 lastError = "no server could be started";
                 Log.e(TAG, lastError);
+                emit("FAILED", lastError); // جدید
                 stopEverything();
             }
         }
-        return START_STICKY;
     }
 
-    private int resumeSaved() {
+    private void resumeSaved() {
         synchronized (lock) {
+            if (stopping) return;
             if (!loadState()) {
                 stopSelf();
-                return START_NOT_STICKY;
+                return;
             }
             startForegroundSafe(servers.get(currentIdx).remark);
             if (connectFrom(currentIdx)) {
                 saveState();
                 startWatchdog(CHECK_EVERY_SEC);
-                return START_STICKY;
+                return;
             }
             stopEverything();
-            return START_NOT_STICKY;
         }
+    }
+
+    /**
+     * Non-blocking half of a stop. Safe to call on the main thread: it only sets
+     * flags and cancels the running attempt. The real work runs on the worker.
+     */
+    private void requestStop() {
+        userStopped = true;
+        stopping = true;
+        active = false;
+        retryWaiting = false;
+        // Supersede whatever attempt is running. It can no longer act on the core.
+        attemptSeq.incrementAndGet();
     }
 
     /** Try each server starting at [first]; the first one that comes up wins. */
     private boolean connectFrom(int first) {
         int n = servers.size();
         for (int k = 0; k < n; k++) {
+            if (stopping) return false; // جدید: a Stop stops the list walk at once; no next server starts
             int idx = (first + k) % n;
             Srv s = servers.get(idx);
             Log.i(TAG, "starting server " + idx + "/" + n + " " + s.remark);
@@ -230,6 +389,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 healthyStreak = 0;
                 active = true;
                 startForegroundSafe(s.remark);
+                cancelPluginNotification(); // جدید
                 return true;
             }
             Log.w(TAG, "server failed to start: " + s.remark);
@@ -238,69 +398,161 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     }
 
     /**
-     * Wraps bringUp() in a hard timeout so a stuck core cannot block the whole
-     * service. If bringUp itself is slow, we give up and try the next server.
+     * Runs bringUp() on its own thread with a hard timeout. A timed-out attempt is
+     * superseded at once (attemptSeq is bumped), so it can never act on the core
+     * afterwards. There is no join-and-continue: the next attempt does not start
+     * the core until it holds coreLock, which the orphan releases only when it is done.
      */
     private boolean bringUpWithTimeout(Srv s) {
+        final int myAttempt = attemptSeq.incrementAndGet();
         final boolean[] result = {false};
         final Object waitLock = new Object();
         final boolean[] done = {false};
 
-        // CANCELBRINGUP: هر تلاش توکن خودش را دارد؛ orphan قبلی با توکن خودش لغو می‌شود
-        final java.util.concurrent.atomic.AtomicBoolean cancel = new java.util.concurrent.atomic.AtomicBoolean(false);
-        bringUpCancel = cancel;
-        Thread worker = new Thread(() -> {
+        Thread attemptThread = new Thread(() -> {
+            boolean ok = false;
             try {
-                boolean ok = bringUp(s, cancel);
+                ok = bringUp(s, myAttempt);
+            } catch (Throwable t) {
+                Log.e(TAG, "bringUp threw", t);
+                lastError = "bringUp: " + t.getMessage();
+            } finally {
                 synchronized (waitLock) {
                     result[0] = ok;
                     done[0] = true;
                     waitLock.notifyAll();
                 }
-            } catch (Throwable t) {
-                Log.e(TAG, "bringUp threw", t);
-                lastError = "bringUp: " + t.getMessage();
-                synchronized (waitLock) {
-                    result[0] = false;
-                    done[0] = true;
-                    waitLock.notifyAll();
-                }
             }
         });
-        worker.setDaemon(true);
-        worker.start();
+        attemptThread.setDaemon(true);
+        attemptThread.start();
 
         synchronized (waitLock) {
             long deadline = System.currentTimeMillis() + BRING_UP_TIMEOUT_MS;
             while (!done[0]) {
+                if (stopping) break; // جدید: a Stop cancels this wait at once instead of up to 20 s
                 long remaining = deadline - System.currentTimeMillis();
                 if (remaining <= 0) break;
                 try {
-                    waitLock.wait(remaining);
+                    waitLock.wait(Math.min(remaining, 100L)); // جدید: short slices so Stop is seen quickly
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;
                 }
             }
-            if (!done[0]) {
-                // CANCELBRINGUP: worker یتیم پس از timeout متوقف می‌شود
-                cancel.set(true);
-                lastError = "bringUp timed out after " + (BRING_UP_TIMEOUT_MS / 1000) + "s";
-                Log.e(TAG, lastError + " for " + s.remark);
-            } else {
-                return result[0];
-            }
+            if (done[0]) return result[0];
         }
-        // JOINOUTSIDELOCK: join باید بیرون از waitLock باشد؛ worker برای done=true به همان قفل نیاز دارد
-        try { worker.join(2000); } catch (InterruptedException ignored) {}
+        // Not finished: either a Stop arrived or the timeout expired. Supersede this attempt
+        // BEFORE reporting, so that if it returns later from startCore it sees it is stale.
+        attemptSeq.incrementAndGet();
+        if (stopping) {
+            lastError = "stopped by user"; // جدید
+            Log.i(TAG, lastError + " for " + s.remark);
+        } else {
+            lastError = "bringUp timed out after " + (BRING_UP_TIMEOUT_MS / 1000) + "s";
+            Log.e(TAG, lastError + " for " + s.remark);
+        }
         return false;
     }
 
-    private boolean bringUp(Srv s, java.util.concurrent.atomic.AtomicBoolean cancel) {
-        starting = true;
+    private static void closeQuietly(ParcelFileDescriptor fd) {
+        if (fd == null) return;
+        try { fd.close(); } catch (Exception ignored) {}
+    }
+
+    /** True only for the newest attempt, while no stop is in progress. */
+    private boolean isCurrent(int myAttempt) {
+        return myAttempt == attemptSeq.get() && !stopping;
+    }
+
+    /** True while any bringUp thread (including an orphan) is still inside the core path. */
+    private boolean isStarting() {
+        return inFlight.get() > 0;
+    }
+
+    /** Marks a native call as in progress and arms a watcher for it. */
+    private void beginNative(final String what) {
+        final long token = nativeToken.incrementAndGet();
+        nativeBusy = true;
+        Thread w = new Thread(() -> {
+            try {
+                Thread.sleep(HUNG_NATIVE_MS);
+            } catch (InterruptedException ie) {
+                return;
+            }
+            if (nativeBusy && nativeToken.get() == token) recoverWedgedCore(what);
+        }, "king-native-watch");
+        w.setDaemon(true);
+        w.start();
+    }
+
+    private void endNative() {
+        nativeBusy = false;
+    }
+
+    /**
+     * The core is wedged inside a native call. Save what we need, then end the process so
+     * Android restarts the service fresh (START_STICKY). If the user asked to stop, the
+     * saved state is cleared so the restart does not reconnect.
+     */
+    private void recoverWedgedCore(String what) {
+        if (!recovering.compareAndSet(false, true)) return;
+        Log.e(TAG, what + " has not returned after " + (HUNG_NATIVE_MS / 1000)
+                + "s; restarting the VPN process");
         try {
-            // CANCELBRINGUP: اگر لغو شده یا STOP آمده، اصلاً شروع نکن
-            if (cancel.get() || stopping) return false;
+            if (userStopped) clearState();
+            else saveState();
+        } catch (Throwable t) {
+            Log.w(TAG, "state save before restart failed", t);
+        }
+        android.os.Process.killProcess(android.os.Process.myPid());
+    }
+
+    /**
+     * Stops the core if it is running. Caller must hold coreLock. The stop runs on its
+     * own thread so that a hung native call cannot block shutdown forever. If it is
+     * still running after STOP_CORE_WAIT_MS the core stays fenced (coreStopping) until
+     * that call returns, and no start is allowed in the meantime.
+     */
+    private void stopCoreNow() {
+        V2rayCoreManager core = V2rayCoreManager.getInstance();
+        if (coreStopping) return;
+        if (!core.isV2rayCoreRunning()) return;
+        coreStopping = true;
+        Thread t = new Thread(() -> {
+            try {
+                core.stopCore();
+            } catch (Throwable ex) {
+                Log.e(TAG, "stopCore failed", ex);
+            } finally {
+                endNative();
+                coreStopping = false;
+            }
+        });
+        t.setDaemon(true);
+        beginNative("stopCore");
+        t.start();
+        try {
+            t.join(STOP_CORE_WAIT_MS);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+        if (coreStopping) {
+            Log.w(TAG, "stopCore still running; core stays fenced until it returns");
+        }
+    }
+
+    /**
+     * Worker-side start of one attempt. Everything that touches the shared core or the
+     * TUN happens here, under coreLock, and only while this attempt is current.
+     */
+    private boolean bringUp(Srv s, int myAttempt) {
+        inFlight.incrementAndGet();
+        coreLock.lock();
+        try {
+            // A newer attempt, a stop, or a timeout may have superseded us while we waited.
+            if (!isCurrent(myAttempt)) return false;
+
             V2rayConfig cfg = new V2rayConfig();
             cfg.V2RAY_FULL_JSON_CONFIG = s.config;
             cfg.REMARK = s.remark;
@@ -311,33 +563,47 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             cfg.ENABLE_TRAFFIC_STATICS = true;
 
             V2rayCoreManager core = V2rayCoreManager.getInstance();
-            core.setUpListener(this);
+            // جدید: setUpListener() here rebuilt the CoreController, so the running core was
+            // orphaned (isV2rayCoreRunning() read false on the new one, ports stayed bound).
+            // Only the listener reference is updated now; the controller is never replaced.
+            core.v2rayServicesListener = this;
             if (core.isV2rayCoreRunning()) {
-                try {
-                    core.stopCore();
-                    // Wait briefly so the old TUN + sockets are released
-                    Thread.sleep(300);
-                } catch (Throwable t) {
-                    Log.w(TAG, "stopCore before restart", t);
+                stopCoreNow();
+                // Poll briefly until the core reports stopped (its flag may lag the call).
+                long until = System.currentTimeMillis() + 1500L;
+                while (core.isV2rayCoreRunning() && !coreStopping
+                        && System.currentTimeMillis() < until) {
+                    try { Thread.sleep(50); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                 }
             }
+            // Refuse to start on a core that is still shutting down or still running.
+            if (coreStopping || core.isV2rayCoreRunning()) {
+                lastError = "core still busy from a previous attempt";
+                Log.e(TAG, lastError);
+                return false;
+            }
 
-            // Close any previous TUN before opening a new one
             closeTun();
-            tun = establish(cfg);
-            if (tun == null) {
+            ParcelFileDescriptor fd = establish(cfg);
+            if (fd == null) {
                 lastError = "VPN interface not established (permission missing?)";
                 Log.e(TAG, lastError);
                 return false;
             }
-            // CANCELBRINGUP: بعد از ساخت TUN، اگر لغو شده، TUN را ببند
-            if (cancel.get() || stopping) { closeTun(); return false; }
+            synchronized (tunLock) {
+                if (!isCurrent(myAttempt)) {
+                    closeQuietly(fd);
+                    return false;
+                }
+                tun = fd;
+            }
 
-            // SOCKETPROTECT: make sure the service's own sockets bypass the
-            // tunnel. V2rayVPNService already calls protect() via onProtect(),
-            // but for the very first sockets we call it here too.
+            // SOCKETPROTECT: the service's own sockets must bypass the tunnel.
             try {
-                protect((int) tun.getFd());
+                protect((int) fd.getFd());
             } catch (Throwable t) {
                 // Non-fatal; the core will still call onProtect() per socket
                 Log.w(TAG, "protect(tun fd) failed", t);
@@ -345,36 +611,54 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
             boolean ok;
             try {
-                ok = core.startCore(cfg, tun.getFd());
+                beginNative("startCore");
+                ok = core.startCore(cfg, fd.getFd());
             } catch (Throwable t) {
                 Log.e(TAG, "startCore threw", t);
                 lastError = "startCore: " + t.getMessage();
                 ok = false;
+            } finally {
+                endNative();
             }
-            // CANCELBRINGUP: بعد از startCore، اگر لغو شده، TUN را ببند
-            if (cancel.get() || stopping) { closeTun(); return false; }
+            if (!isCurrent(myAttempt)) {
+                // Superseded while startCore ran. We still hold coreLock, so no other
+                // attempt has touched the core; undo our own start and leave.
+                if (ok) stopCoreNow();
+                closeTun();
+                return false;
+            }
             if (!ok) {
                 lastError = "core startCore returned false";
                 closeTun();
             }
             return ok;
         } finally {
-            starting = false;
+            coreLock.unlock();
+            inFlight.decrementAndGet();
         }
     }
 
     /** Schedule the next watchdog tick (single-shot; each tick reschedules). */
     private void startWatchdog(int delaySec) {
-        stopWatchdog();
-        watchdog = Executors.newSingleThreadScheduledExecutor();
-        watchdog.schedule(this::checkOnce, delaySec, TimeUnit.SECONDS);
+        scheduleTask(this::checkOnce, delaySec);
     }
 
-    private void stopWatchdog() {
-        if (watchdog != null) {
-            watchdog.shutdown();
-            watchdog = null;
+    /** جدید: schedules one task on the single shared scheduler, replacing any pending tick. */
+    private void scheduleTask(Runnable task, int delaySec) {
+        stopWatchdog();
+        ScheduledExecutorService s = scheduler;
+        if (s == null || s.isShutdown()) {
+            s = Executors.newSingleThreadScheduledExecutor();
+            scheduler = s;
         }
+        watchdogTask = s.schedule(task, delaySec, TimeUnit.SECONDS);
+    }
+
+    /** جدید: cancels the pending tick. The scheduler thread is reused, never leaked. */
+    private void stopWatchdog() {
+        ScheduledFuture<?> f = watchdogTask;
+        watchdogTask = null;
+        if (f != null) f.cancel(false);
     }
 
     /**
@@ -387,16 +671,24 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private void checkOnce() {
         synchronized (lock) {
             if (!active || stopping) return;
-
-            if (starting) {
+            if (isStarting()) {
                 // A server is starting right now; skip the probe but keep alive.
                 rescheduleNormal();
                 return;
             }
+        }
+        // The probe does network I/O (several seconds at worst). It runs OUTSIDE the
+        // lock, so a stop request or a server switch is never blocked behind it.
+        V2rayCoreManager core = V2rayCoreManager.getInstance();
+        boolean coreUp = core.isV2rayCoreRunning();
+        ProbeResult pr = coreUp ? probeResult() : ProbeResult.HARD_FAIL;
 
-            V2rayCoreManager core = V2rayCoreManager.getInstance();
-            boolean coreUp = core.isV2rayCoreRunning();
-            ProbeResult pr = coreUp ? probeResult() : ProbeResult.HARD_FAIL;
+        synchronized (lock) {
+            if (!active || stopping) return;
+            if (isStarting()) {
+                rescheduleNormal();
+                return;
+            }
 
             if (pr == ProbeResult.OK) {
                 fails = 0;
@@ -460,9 +752,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         lastError = "all servers down; retrying in " + delay + "s";
         Log.w(TAG, lastError);
         updateNotification("در حال تلاش برای اتصال مجدد… (" + delay + "s)");
-        stopWatchdog();
-        watchdog = Executors.newSingleThreadScheduledExecutor();
-        watchdog.schedule(this::retryWholeListNow, delay, TimeUnit.SECONDS);
+        scheduleTask(this::retryWholeListNow, delay);
     }
 
     private void retryWholeListNow() {
@@ -479,21 +769,40 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
     }
 
+    /**
+     * OK if any probe gets an HTTP answer through the tunnel. In national mode the
+     * international probe is skipped: it always fails there, which used to make the
+     * watchdog punish good national servers and switch between them forever.
+     */
     private ProbeResult probeResult() {
+        ProbeResult worst = ProbeResult.HARD_FAIL;
+        String[] urls = nationalMode ? DOMESTIC_PROBE_URLS : INTERNATIONAL_PROBE_URLS;
+        for (String u : urls) {
+            ProbeResult r = probeOne(u);
+            if (r == ProbeResult.OK) return ProbeResult.OK;
+            if (r == ProbeResult.SOFT_FAIL) worst = ProbeResult.SOFT_FAIL;
+        }
+        return worst;
+    }
+
+    private ProbeResult probeOne(String url) {
         HttpURLConnection c = null;
         try {
             Proxy p = new Proxy(Proxy.Type.HTTP,
                     new InetSocketAddress("127.0.0.1", LOCAL_HTTP_PORT));
-            c = (HttpURLConnection) new URL(CHECK_URL).openConnection(p);
+            c = (HttpURLConnection) new URL(url).openConnection(p);
             c.setConnectTimeout(CHECK_TIMEOUT_MS);
             c.setReadTimeout(CHECK_TIMEOUT_MS);
             c.setUseCaches(false);
             c.setInstanceFollowRedirects(false);
+            c.setRequestProperty("User-Agent", "Mozilla/5.0");
+            // Any real HTTP answer (2xx, 3xx, even 403) proves the request went through the tunnel.
             int code = c.getResponseCode();
-            return (code == 204 || code == 200) ? ProbeResult.OK : ProbeResult.SOFT_FAIL;
+            return (code >= 200 && code < 500) ? ProbeResult.OK : ProbeResult.SOFT_FAIL;
         } catch (ConnectException | NoRouteToHostException e) {
-            return ProbeResult.HARD_FAIL;
-        } catch (SocketTimeoutException e) {
+            // جدید: the core is running (checked before probing), so a refused connection to the
+            // local port means only that this config has no HTTP inbound. That must not switch
+            // servers every 30 s; it counts as a soft failure like any other.
             return ProbeResult.SOFT_FAIL;
         } catch (Exception e) {
             return ProbeResult.SOFT_FAIL;
@@ -515,16 +824,38 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 Log.w(TAG, "ipv6 sinkhole not supported", e);
             }
             b.addRoute("0.0.0.0", 0);
-            try {
-                b.addDisallowedApplication(getPackageName());
-            } catch (Exception e) {
-                Log.w(TAG, "cannot exclude self", e);
-            }
+            // FIX #49: the app is NOT excluded from the tunnel. Its own requests (e.g. the ASN
+            // lookup in nat_ultra.dart, which uses DIRECT) must go through the VPN, otherwise they
+            // show the real IP. Only the core's outbound sockets are exempt, via protect() in onProtect.
             return b.establish();
         } catch (Exception e) {
             Log.e(TAG, "establish failed", e);
             lastError = "establish failed: " + e.getMessage();
             return null;
+        }
+    }
+
+    /** جدید: wires libv2ray exactly once per process. */
+    private void wireCoreOnce() {
+        synchronized (KingVpnService.class) {
+            if (coreWired) return;
+            V2rayCoreManager.getInstance().setUpListener(this);
+            coreWired = true;
+        }
+    }
+
+    /**
+     * جدید: the plugin calls startForeground(1) inside startCore() and shows its own
+     * notification whose button points to the plugin's VPN service. That service's
+     * onCreate() would call setUpListener() and orphan our core. Remove it: our own
+     * notification (id 42) is the foreground one and has our own stop button.
+     */
+    private void cancelPluginNotification() {
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm != null) nm.cancel(PLUGIN_NOTIF_ID);
+        } catch (Throwable t) {
+            Log.w(TAG, "cancel plugin notification failed", t);
         }
     }
 
@@ -548,26 +879,16 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                     .setSmallIcon(android.R.drawable.ic_lock_lock)
                     .setOngoing(true);
 
-            // FGSTYPE-FIX: on Android 14+ some devices throw SecurityException
-            // if the declared foregroundServiceType is rejected. Retry with a
-            // plain startForeground so the service still runs.
-            try {
-                startForeground(NOTIF_ID, nb.build());
-            } catch (SecurityException se) {
-                Log.w(TAG, "startForeground with type failed, retry plain", se);
-                try {
-                    Notification.Builder plain = Build.VERSION.SDK_INT >= 26
-                            ? new Notification.Builder(this, CHANNEL_ID)
-                            : new Notification.Builder(this);
-                    plain.setContentTitle("King VPN")
-                            .setContentText(text)
-                            .setSmallIcon(android.R.drawable.ic_lock_lock)
-                            .setOngoing(true);
-                    startForeground(NOTIF_ID, plain.build());
-                } catch (Throwable t) {
-                    Log.e(TAG, "startForeground plain failed too", t);
-                }
-            }
+            // جدید: the stop button now targets THIS service (was the plugin's VPN service).
+            Intent stop = new Intent(this, KingVpnService.class);
+            stop.setAction(ACTION_STOP);
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT
+                    | (Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0);
+            PendingIntent stopPi = PendingIntent.getService(this, 1, stop, flags);
+            nb.addAction(0, "قطع", stopPi); // جدید
+
+            // Plain startForeground: no typed variant, so no separate retry is needed.
+            startForeground(NOTIF_ID, nb.build());
         } catch (Throwable e) {
             Log.w(TAG, "foreground notification failed", e);
         }
@@ -575,53 +896,35 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     private void stopEverything() {
         synchronized (lock) {
-            if (stopping) return;
+            // Supersede every attempt first: a stale one that returns later does nothing.
             stopping = true;
+            attemptSeq.incrementAndGet();
+            active = false;
+            retryWaiting = false;
+            stopWatchdog(); // جدید: cancel only; the shared scheduler is closed in onDestroy
+
+            boolean locked = false;
             try {
-                active = false;
-                retryWaiting = false;
-                // STOPMIDBRINGUP: اگر bringUp یتیم هنوز در جریان است، لغوش کن و تا پایانش صبر کن
-                if (starting) {
-                    bringUpCancel.set(true);
-                    long until = System.currentTimeMillis() + 2000;
-                    while (starting && System.currentTimeMillis() < until) {
-                        try { Thread.sleep(50); } catch (InterruptedException ie) {
-                            Thread.currentThread().interrupt(); break;
-                        }
-                    }
-                }
-                if (watchdog != null) {
-                    watchdog.shutdownNow();
-                    watchdog = null;
-                }
-                V2rayCoreManager core = V2rayCoreManager.getInstance();
-                if (core.isV2rayCoreRunning()) {
-                    // SHUTDOWN-TIMEOUT: don't block forever if the core hangs
-                    final boolean[] stopped = {false};
-                    Thread t = new Thread(() -> {
-                        try {
-                            core.stopCore();
-                        } catch (Throwable ex) {
-                            Log.e(TAG, "stopCore failed", ex);
-                        } finally {
-                            stopped[0] = true;
-                        }
-                    });
-                    t.setDaemon(true);
-                    t.start();
-                    try {
-                        t.join(3000);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                    }
-                    if (!stopped[0]) {
-                        Log.w(TAG, "stopCore timeout; continuing shutdown");
-                    }
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "stopEverything core stop failed", e);
+                locked = coreLock.tryLock(STOP_LOCK_WAIT_MS, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
             }
-            closeTun();
+            if (locked) {
+                try {
+                    stopCoreNow();
+                    closeTun();
+                } catch (Exception e) {
+                    Log.e(TAG, "stopEverything core stop failed", e);
+                } finally {
+                    coreLock.unlock();
+                }
+            } else {
+                // An attempt is still inside a native call. Never touch the core or the
+                // TUN from here: that attempt is stale now and will stop the core and
+                // close its TUN itself as soon as it returns.
+                Log.w(TAG, "core busy in a previous attempt; leaving it to that attempt");
+                lastError = "core busy from a previous attempt";
+            }
             clearState();
             servers.clear();
             try {
@@ -630,17 +933,15 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             }
             stopSelf();
             stopping = false;
+            emit("STOPPED", ""); // جدید
         }
     }
 
     private void closeTun() {
-        try {
-            if (tun != null) {
-                tun.close();
-            }
-        } catch (Exception ignored) {
+        synchronized (tunLock) {
+            closeQuietly(tun);
+            tun = null;
         }
-        tun = null;
     }
 
     private void saveState() {
@@ -657,6 +958,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
             sp.edit().putString("list", arr.toString())
                     .putInt("idx", currentIdx)
+                    .putBoolean("national", nationalMode)
                     .apply();
         } catch (Exception e) {
             Log.w(TAG, "saveState failed", e);
@@ -678,6 +980,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             currentIdx = Math.max(0, Math.min(sp.getInt("idx", 0), servers.size() - 1));
             listExhaustedStreak = 0;
             healthyStreak = 0;
+            nationalMode = sp.getBoolean("national", false);
             return !servers.isEmpty();
         } catch (Exception e) {
             Log.w(TAG, "loadState failed", e);
@@ -749,15 +1052,29 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     @Override
     public void onRevoke() {
-        stopEverything();
+        // Another VPN took over: stop our core and free the TUN, without blocking the main thread.
+        requestStop();
+        submit(this::stopEverything);
     }
 
     @Override
     public void onDestroy() {
+        if (instance == this) instance = null; // جدید
         stopWatchdog();
-        // هسته‌ی V2Ray باید همین‌جا متوقف شود تا پورت‌های ۱۰۸۰۷/۱۰۸۰۸/۱۰۸۰۹ آزاد شوند
-        try { stopEverything(); } catch (Throwable ignored) {}
-        closeTun();
+        requestStop();
+        ScheduledExecutorService sch = scheduler; // جدید: close the scheduler thread for good
+        scheduler = null;
+        if (sch != null) sch.shutdownNow();
+        // The core must stop so its local ports are released. Run it on the worker; shutdown()
+        // still runs queued tasks, so this does not block the main thread.
+        ExecutorService ex = worker;
+        worker = null;
+        if (ex != null) {
+            ex.execute(this::stopEverything);
+            ex.shutdown();
+        } else {
+            stopEverything();
+        }
         super.onDestroy();
     }
 
@@ -788,7 +1105,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     @Override
     public void stopService() {
-        if (starting || stopping || !active) return;
+        if (isStarting() || stopping || !active) return;
         Log.w(TAG, "core stopped by itself; watchdog will fail over");
         lastError = "core stopped by itself";
     }

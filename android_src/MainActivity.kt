@@ -24,6 +24,11 @@ import io.flutter.plugin.common.MethodChannel
 //     activity destruction cannot crash the process.
 class MainActivity : FlutterActivity() {
 
+    // FIX #63: true only while a Flutter engine is attached to this Activity.
+    // Dart uses vpn/bg 'alive' to tell whether the app is still running; before this
+    // it always answered true, even after the app was closed from recents.
+    @Volatile private var engineAttached = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // KINGDIAG: install the crash recorder before super.onCreate so crashes
         // during startup are also captured. If it fails, the app must still open.
@@ -35,11 +40,33 @@ class MainActivity : FlutterActivity() {
         super.onCreate(savedInstanceState)
     }
 
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        engineAttached = false
+        super.cleanUpFlutterEngine(flutterEngine)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        engineAttached = true
 
         // ---- Channel 1: king/vpn (start / stop the own VPN service) ----
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "king/vpn")
+        val kingVpnChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "king/vpn")
+        // جدید: the native outcome of a start (CONNECTED / FAILED / STOPPED) goes to Dart as 'status'
+        // FIX #83: every status carries the attempt id of the start it belongs to, so Dart
+        // can drop late messages from an earlier attempt.
+        KingVpnService.statusSink = KingVpnService.StatusSink { state, error, attempt ->
+            runOnUiThread {
+                try {
+                    kingVpnChannel.invokeMethod(
+                        "status",
+                        mapOf("state" to state, "error" to error, "attempt" to attempt)
+                    )
+                } catch (_: Throwable) {
+                    // Activity or engine already gone; nothing to report to
+                }
+            }
+        }
+        kingVpnChannel
             .setMethodCallHandler { call, result ->
                 try {
                     when (call.method) {
@@ -58,13 +85,17 @@ class MainActivity : FlutterActivity() {
                             // to the native service (was silently dropped)
                             i.putExtra(KingVpnService.EXTRA_BACKUPS,
                                 call.argument<String>("backups") ?: "")
+                            i.putExtra(KingVpnService.EXTRA_NATIONAL,
+                                call.argument<Boolean>("national") ?: false)
+                            i.putExtra(KingVpnService.EXTRA_ATTEMPT,
+                                call.argument<Int>("attempt") ?: 0)
                             startForegroundService(i)
                             result.success(true)
                         }
                         "stop" -> {
-                            val i = Intent(this, KingVpnService::class.java)
-                            i.action = KingVpnService.ACTION_STOP
-                            startService(i)
+                            // جدید: call the running service directly. startService from the
+                            // background is refused on Android 12+; a direct call is not.
+                            KingVpnService.instance?.stopFromApp()
                             result.success(true)
                         }
                         else -> result.notImplemented()
@@ -80,7 +111,9 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 try {
                     when (call.method) {
-                        "alive" -> result.success(true)
+                        "alive" -> result.success(
+                            engineAttached && !isFinishing && !isDestroyed
+                        )
                         "back" -> {
                             moveTaskToBack(true)
                             result.success(true)
