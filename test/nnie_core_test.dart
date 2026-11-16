@@ -33,6 +33,7 @@ List<int> _response({
 }
 
 void main() {
+  stableSortTests();
   group('NatProbeEvidence.classify', () {
     test('a single failed sample is never proof of a national network', () {
       const ev = NatProbeEvidence(
@@ -71,6 +72,15 @@ void main() {
       const ev = NatProbeEvidence(
         domesticDnsOk: true, domesticTcpOk: false,
         globalDnsOk: true, globalTcpOk: false, sampleCount: 4,
+      );
+      expect(ev.classify(), NatNetworkClass.transportRestricted);
+    });
+
+    test('UDP DNS answer alone is not global reachability when TCP is blocked', () {
+      // Domestic TCP works, resolvers answer, but no global TCP/443 connects.
+      const ev = NatProbeEvidence(
+        domesticDnsOk: false, domesticTcpOk: true,
+        globalDnsOk: true, globalTcpOk: false, sampleCount: 6,
       );
       expect(ev.classify(), NatNetworkClass.transportRestricted);
     });
@@ -199,6 +209,25 @@ void main() {
 
     test('CDN-compatible low indices are quick', () {
       expect(stage(v: 5, cdn: true), NatAttemptStage.quick);
+    });
+  });
+}
+
+void stableSortTests() {
+  group('natStableSort', () {
+    test('equal keys keep their original order', () {
+      final items = [
+        ('a', 1), ('b', 0), ('c', 1), ('d', 0), ('e', 1),
+      ];
+      natStableSort(items, (x, y) => x.$2.compareTo(y.$2));
+      expect(items.map((e) => e.$1).toList(), ['b', 'd', 'a', 'c', 'e']);
+    });
+
+    test('natStableSorted leaves the input untouched', () {
+      final input = [3, 1, 2];
+      final out = natStableSorted(input, (a, b) => a.compareTo(b));
+      expect(out, [1, 2, 3]);
+      expect(input, [3, 1, 2]);
     });
   });
 }
