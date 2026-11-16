@@ -19,10 +19,9 @@ bool _autoScanStop = false;
 Future<int?> _autoSniOk(String ip, int port, String sni) async {
   final sw = Stopwatch()..start();
   try {
-    final s = await SecureSocket.connect(ip, port,
-        host: sni,
-        timeout: const Duration(seconds: 4),
-        onBadCertificate: (_) => true);
+    final raw = await Socket.connect(ip, port, timeout: const Duration(seconds: 4));
+    final s = await SecureSocket.secure(raw,
+        host: sni, onBadCertificate: (_) => true);
     s.destroy();
     return sw.elapsedMilliseconds;
   } catch (_) {
@@ -33,9 +32,9 @@ Future<int?> _autoSniOk(String ip, int port, String sni) async {
 // ALPN (پروتکل لایه‌ی TLS): خروجی خود نام پروتکل است، مثل h2 یا http/1.1
 Future<String?> _autoAlpnOk(String ip, String sni, String alpn) async {
   try {
-    final s = await SecureSocket.connect(ip, 443,
+    final raw = await Socket.connect(ip, 443, timeout: const Duration(seconds: 4));
+    final s = await SecureSocket.secure(raw,
         host: sni,
-        timeout: const Duration(seconds: 4),
         supportedProtocols: [alpn],
         onBadCertificate: (_) => true);
     final sel = s.selectedProtocol;
