@@ -2747,7 +2747,7 @@ extension HomeExtras on _HomePageState {
     minSpeedKB = 0;
     // NORMALPARITY: مثل اتصال عادی، ۳ تست هم‌زمان (نه مقدار تصادفی از قبل)
     // PILOTUSER: اگر کاربر «تست همزمان» را خودش تنظیم کرده، همان عدد را نگه می‌دارد؛ وگرنه ۳
-    fastWorkers = (fwUserSet && fwUserValue >= 1) ? fwUserValue.clamp(1, 32) : 5;
+    fastWorkers = (fwUserSet && fwUserValue >= 1) ? fwUserValue.clamp(1, 32) : 3;
     bgWorkers = 3;
 
     // فرمول‌های پیوسته نسبت به قدرت (هرچه بالاتر = تهاجمی‌تر)
@@ -3039,7 +3039,7 @@ class NumOpt {
 
 final List<NumOpt> numOpts = [
   // BEST PROFILE defaults — هم‌تراز با پیش‌فرض main.dart
-  NumOpt('fastWorkers', 'تست همزمان (جستجوی اول)', 1, 32, 5, 32, false,
+  NumOpt('fastWorkers', 'تست همزمان (جستجوی اول)', 1, 32, 3, 32, false,
       () => fastWorkers.clamp(1, 32), (v) => fastWorkers = v.clamp(1, 32)),
   NumOpt('bgWorkers', 'تست همزمان (وقتی وصل است)', 1, 32, 3, 32, false,
       () => bgWorkers.clamp(1, 32), (v) => bgWorkers = v.clamp(1, 32)),

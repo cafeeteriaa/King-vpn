@@ -489,7 +489,18 @@ const List<String> _natTestUrls = [
 
 String? _natUrlFor(int code, String? url) {
   final i = code ~/ _natCodeBase;
-  return i == 0 ? url : _natTestUrls[(i - 1) % _natTestUrls.length];
+  if (i == 0) return url;
+  if (nationalMode) {
+    // NATDOMESTIC: در نت ملی یکی در میان مقصد داخلی (فرد) و جهانی (زوج).
+    // FIXNATURL: قبلاً برای i زوج همیشه (i-1)%8 (اندیس فرد) انتخاب می‌شد، پس نیمی از
+    // مقصدهای جهانی (cp.cloudflare، one.one.one.one، dns.google، wikipedia) هرگز تست نمی‌شدند.
+    if (i % 2 == 1) {
+      final d = _tunnelTestUrlsNational;
+      return d[(i ~/ 2) % d.length];
+    }
+    return _natTestUrls[(i ~/ 2 - 1) % _natTestUrls.length];
+  }
+  return _natTestUrls[(i - 1) % _natTestUrls.length];
 }
 
 // V7-PORT: priority-ordered list for port hopping, tuned for Iranian operators.
@@ -1049,6 +1060,40 @@ String _natLinkFor(Server s, int v, {bool reuse = false}) {
 
 final Map<int, bool> dohPreOk = {};
 final Map<int, DateTime> _dohPreAt = {};
+int _dohGen = 0; // نسل کش: هر تغییر شبکه آن را بالا می‌برد
+// نتیجه‌ی probe به شبکه‌ی فعلی وابسته است؛ با تغییر شبکه باید پاک شود.
+void natDohCacheClear() {
+  _dohGen++;
+  dohPreOk.clear();
+  _dohPreAt.clear();
+}
+/// SNI نام‌های DoH شناخته‌شده؛ برای دامنه‌ها خود host استفاده می‌شود.
+const Map<String, String> _natDohSni = {
+  '1.1.1.1': 'cloudflare-dns.com',
+  '8.8.8.8': 'dns.google',
+  '9.9.9.9': 'dns.quad9.net',
+};
+
+/// TLS handshake (با SNI) روی 443. اگر IP ناشناخته باشد و SNI معلوم نباشد، true (فقط TCP).
+Future<bool> _natDohTlsOk(String host, int seconds) async {
+  final sni = _natDohSni[host] ??
+      (InternetAddress.tryParse(host) == null ? host : null);
+  if (sni == null) return true;
+  Socket? raw;
+  SecureSocket? sec;
+  try {
+    raw = await Socket.connect(host, 443, timeout: Duration(seconds: seconds));
+    sec = await SecureSocket.secure(raw, host: sni)
+        .timeout(Duration(seconds: seconds));
+    return true;
+  } catch (_) {
+    return false;
+  } finally {
+    sec?.destroy();
+    raw?.destroy();
+  }
+}
+
 Future<bool> natDohUsable(int v) async {
   if (v < 0 || v >= _natSpecs.length) return false;
   final doh = _natSpecs[v].doh;
@@ -1063,10 +1108,15 @@ Future<bool> natDohUsable(int v) async {
   var host = doh;
   final u = Uri.tryParse(doh);
   if (u != null && u.hasAuthority) host = u.host;
+  final gen = _dohGen; // نسل قبل از probe گرفته می‌شود
   final ms = await natTcpProbe(host, 443, const Duration(seconds: 4));
-  final ok = ms != null;
-  dohPreOk[v] = ok;
-  _dohPreAt[v] = DateTime.now();
+  // د-۴: TCP به‌تنهایی کافی نیست؛ TLS با SNI هم باید برقرار شود
+  final ok = ms != null && await _natDohTlsOk(host, 6);
+  // ج-۱: اگر در این فاصله شبکه عوض شده، نتیجه مربوط به شبکه‌ی قبلی است؛ ننویس
+  if (gen == _dohGen) {
+    dohPreOk[v] = ok;
+    _dohPreAt[v] = DateTime.now();
+  }
   return ok;
 }
 

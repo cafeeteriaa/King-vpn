@@ -16,7 +16,7 @@ Completer<String>? _startWaiter;
 bool _handlerSet = false;
 // FIX #83: each start gets an id. The native service echoes it in every status message,
 // so a late CONNECTED/FAILED from an earlier attempt cannot complete the current waiter.
-// Id 0 means "no attempt" (service restart/resume) and is accepted by every waiter.
+// Id 0 (service restart/resume) and -1 (stop) never complete a waiter (مشکل ۹).
 int _ownAttemptSeq = 0;
 int _ownAttemptCurrent = 0;
 
@@ -30,8 +30,8 @@ void _ensureStatusHandler() {
     final err = args is Map ? '${args['error'] ?? ''}' : '';
     final attemptRaw = args is Map ? args['attempt'] : null;
     final attempt = attemptRaw is int ? attemptRaw : 0;
-    if (attempt != 0 && attempt != _ownAttemptCurrent) {
-      // Late message from an earlier attempt: ignore it.
+    // مشکل ۹: فقط شناسه‌ی همین تلاش؛ شناسه‌ی ۰ یا STOP (-1) هیچ waiterی را کامل نمی‌کند.
+    if (attempt != _ownAttemptCurrent) {
       return null;
     }
     if (state != 'CONNECTED') {

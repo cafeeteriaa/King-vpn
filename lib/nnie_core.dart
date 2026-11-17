@@ -93,7 +93,7 @@ class NatDnsWireProbe {
     if (a == 169 && c == 254) return false;
     if (a == 172 && c >= 16 && c <= 31) return false;
     if (a == 192 && c == 168) return false;
-    if (a == 192 && c == 0) return false; // IETF special-purpose 192.0.0.0/24 and TEST-NET-1
+    if (a == 192 && c == 0 && (d == 0 || d == 2)) return false; // 192.0.0.0/24 و TEST-NET-1 (192.0.2.0/24) فقط
     if (a == 192 && c == 88 && d == 99) return false; // deprecated 6to4 relay anycast
     if (a == 198 && (c == 18 || c == 19)) return false; // benchmarking
     if (a == 198 && c == 51 && d == 100) return false; // TEST-NET-2

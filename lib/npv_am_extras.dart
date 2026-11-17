@@ -1914,7 +1914,10 @@ void goldNoteServer(Server srv) {
 Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async {
   // FOLDERHELP: IPهای تمیز پوشه اول تست می‌شوند (کمک پوشه به اسکن بازه، در نت ملی و عادی)
   await goldLoad();
-  final addrs = {for (final c in goldIpList()) c.ip, ...userAddrs}.toList();
+  // RANGEFIX: بازه‌ی کاربر اول می‌آید تا با سقف زمان کوتاه هرگز کنار گذاشته نشود
+  // RANGEFIX: بازه‌ی کاربر اول و با ترتیب تصادفی (تا بازه‌ی بزرگ در سقف زمان کل بازه را پوشش دهد)
+  final shuffledUser = List<String>.of(userAddrs)..shuffle(Random());
+  final addrs = {...shuffledUser, for (final c in goldIpList()) c.ip}.toList();
   var cancelled = false;
   var finished = false;
   var done = 0;
@@ -2007,7 +2010,8 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
       addrs,
       want: 1000,
       concurrency: nationalMode ? kNatManualConc : natAdaptiveWorkers(),
-      budget: const Duration(minutes: 5),
+      // RANGEFIX: بازه‌ی کوچک ۲ دقیقه؛ بازه‌ی بزرگ (بیش از ۴۰۹۶ IP) ۸ دقیقه
+      budget: Duration(minutes: userAddrs.length > 4096 ? 8 : 2),
       timeout: const Duration(milliseconds: 1500),
       cancelled: () => cancelled,
       onProgress: (d, t, h) => upd(() {

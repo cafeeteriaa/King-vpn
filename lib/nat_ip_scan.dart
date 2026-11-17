@@ -61,6 +61,34 @@ List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   return out;
 }
 
+/// بازه‌ی خطی به شکل a.b.c.d-e.f.g.h (برای نوشته‌هایی که CIDR نیستند).
+/// بازه‌های بزرگ‌تر از maxCount به‌طور یکنواخت نمونه‌برداری می‌شوند.
+List<String> natExpandDash(String range, {int maxCount = 65536}) {
+  final parts = range.trim().split('-');
+  if (parts.length != 2) return const [];
+  int? toInt(String ip) {
+    final o = ip.trim().split('.');
+    if (o.length != 4) return null;
+    var v = 0;
+    for (final x in o) {
+      final n = int.tryParse(x.trim());
+      if (n == null || n < 0 || n > 255) return null;
+      v = (v << 8) | n;
+    }
+    return v;
+  }
+  final a = toInt(parts[0]);
+  final b = toInt(parts[1]);
+  if (a == null || b == null || b < a) return const [];
+  final count = b - a + 1;
+  final step = count > maxCount ? (count + maxCount - 1) ~/ maxCount : 1; // مشکل ۱۵: سقف رعایت شود
+  final out = <String>[];
+  for (var v = a; v <= b; v += step) {
+    out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
+  }
+  return out;
+}
+
 /// اتصال TCP به ip:port. اگر جواب داد زمان پاسخ را برمی‌گرداند، وگرنه null.
 /// تضمین: سوکت در هر حالتی (موفق، خطا، تایم‌اوت) بسته می‌شود.
 Future<int?> natTcpProbe(String ip, int port, Duration timeout) async {

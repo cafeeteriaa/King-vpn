@@ -311,7 +311,10 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     _connectingSince = null;
     _currentEngine = 'v2ray';
     _startedAt = DateTime.now();
-    _atDomesticProbe(); // DOMESTIC: which sites open on the national network now
+    // مشکل ۱۱: پروب شبکه‌ی پایه فقط وقتی معنا دارد که تونل یا پروکسی فعال نباشد
+    if (!connected && !wantVpn && !proxyMode) {
+      _atDomesticProbe(); // DOMESTIC: which sites open on the national network now
+    }
     _dbgStartIdx = dbgLines.length;
     autoTestRunning.value = true;
     autoTestProgress.value = 0;
@@ -1879,6 +1882,9 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
           await natHotEnsure().timeout(const Duration(minutes: 5));
         }
         await _findGood(3).timeout(const Duration(minutes: 8));
+        if (lastFindGoodRejected) {
+          dbg('جستجوی سرور کامل نشد: جستجوی دیگری فعال بود؛ فهرست سالم ممکن است ناقص باشد');
+        }
       } catch (e, stk) {
         logError(e, stk);
       }
