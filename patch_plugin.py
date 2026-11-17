@@ -101,24 +101,9 @@ if not done:
         show_context(src, 'startCore')
         sys.exit(1)
 
-# 3) DELAYPOOL: the plugin's latency-test queue has DELAY_THREADS = 2.
-#    We raise it to DELAY_THREADS_NEW (this is the real limit for simultaneous tests).
-DELAY_THREADS_NEW = 8  # برابر سقف گیت Dart (kFastGateCeil = 8). بالاتر از این باعث بسته شدن pipe می‌شود.
-try:
-    src = open(core, encoding='utf-8').read()
-    pat = re.compile(r'(DELAY_THREADS\s*=\s*)(\d+)(\s*;)')
-    m = pat.findall(src)
-    if len(m) == 1:
-        if int(m[0][1]) != DELAY_THREADS_NEW:
-            src2 = pat.sub(lambda g: g.group(1) + str(DELAY_THREADS_NEW) + g.group(3), src, count=1)
-            open(core, 'w', encoding='utf-8').write(src2)
-            print(f'OK: DELAYPOOL DELAY_THREADS {m[0][1]} -> {DELAY_THREADS_NEW}')
-        else:
-            print('OK: DELAYPOOL already ' + str(DELAY_THREADS_NEW))
-    else:
-        print(f'WARN: DELAYPOOL: DELAY_THREADS found {len(m)} times (expected 1). Skipped.')
-except Exception as e:
-    print(f'WARN: DELAYPOOL failed: {e}')
+# 3) DELAYPOOL (حذف شد): این مرحله به ثابت DELAY_THREADS اشاره می‌کرد که در
+#    flutter_v2ray_client 3.5.0 وجود ندارد (بررسی شد). تست تأخیر در پلاگین با
+#    Libv2ray.measureOutboundDelay انجام می‌شود و صف جاوا ندارد؛ هشدار همیشگی بی‌فایده بود.
 
 
 # 4) V3 FIXES (review items #8, #56, #86). Exact text replacements. Each one is skipped when
