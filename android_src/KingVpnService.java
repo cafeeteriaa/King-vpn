@@ -205,11 +205,11 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     public static volatile KingVpnService instance = null;
 
     /** جدید: sends a status to Dart if a sink is registered. Never throws. */
-    private void emit(String state, String error) {
+    private void emit(String state, String error, int attempt) {
         StatusSink s = statusSink;
         if (s == null) return;
         try {
-            s.onStatus(state, error == null ? "" : error, activeAttemptId);
+            s.onStatus(state, error == null ? "" : error, attempt);
         } catch (Throwable t) {
             Log.w(TAG, "status sink failed", t);
         }
@@ -291,7 +291,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         userStopped = false;
 
         startForegroundSafe(first.remark);
-        submit(() -> startFlow(first, backups));
+        final int attempt = activeAttemptId; // مشکل ۹: شناسه‌ی همین شروع، نه فیلد سراسری بعدی
+        submit(() -> startFlow(first, backups, attempt));
         return START_STICKY;
     }
 
@@ -308,7 +309,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     }
 
     /** Worker side of ACTION_START: builds the list and connects. */
-    private void startFlow(Srv first, List<Srv> backups) {
+    private void startFlow(Srv first, List<Srv> backups, int attempt) {
         synchronized (lock) {
             if (stopping) return; // a stop request arrived first
             // جدید: without the user's VPN consent, establish() fails for every server one by one.
@@ -316,7 +317,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             if (VpnService.prepare(this) != null) {
                 lastError = "VPN permission not granted";
                 Log.e(TAG, lastError);
-                emit("FAILED", lastError); // جدید
+                emit("FAILED", lastError, attempt); // جدید
                 stopEverything();
                 return;
             }
@@ -335,11 +336,11 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             if (connectFrom(0)) {
                 saveState();
                 startWatchdog(CHECK_EVERY_SEC);
-                emit("CONNECTED", ""); // جدید
+                emit("CONNECTED", "", attempt); // جدید
             } else {
                 lastError = "no server could be started";
                 Log.e(TAG, lastError);
-                emit("FAILED", lastError); // جدید
+                emit("FAILED", lastError, attempt); // جدید
                 stopEverything();
             }
         }
@@ -933,7 +934,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             }
             stopSelf();
             stopping = false;
-            emit("STOPPED", ""); // جدید
+            emit("STOPPED", "", -1); // جدید: با هیچ تلاشی تطابق ندارد
         }
     }
 

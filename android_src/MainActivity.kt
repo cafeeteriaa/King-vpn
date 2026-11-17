@@ -28,6 +28,7 @@ class MainActivity : FlutterActivity() {
     // Dart uses vpn/bg 'alive' to tell whether the app is still running; before this
     // it always answered true, even after the app was closed from recents.
     @Volatile private var engineAttached = false
+    private var mySink: KingVpnService.StatusSink? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // KINGDIAG: install the crash recorder before super.onCreate so crashes
@@ -42,6 +43,8 @@ class MainActivity : FlutterActivity() {
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
         engineAttached = false
+        if (KingVpnService.statusSink === mySink) KingVpnService.statusSink = null // مشکل ۱۰
+        mySink = null
         super.cleanUpFlutterEngine(flutterEngine)
     }
 
@@ -54,7 +57,7 @@ class MainActivity : FlutterActivity() {
         // جدید: the native outcome of a start (CONNECTED / FAILED / STOPPED) goes to Dart as 'status'
         // FIX #83: every status carries the attempt id of the start it belongs to, so Dart
         // can drop late messages from an earlier attempt.
-        KingVpnService.statusSink = KingVpnService.StatusSink { state, error, attempt ->
+        val sink = KingVpnService.StatusSink { state, error, attempt ->
             runOnUiThread {
                 try {
                     kingVpnChannel.invokeMethod(
@@ -66,6 +69,8 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+        mySink = sink
+        KingVpnService.statusSink = sink
         kingVpnChannel
             .setMethodCallHandler { call, result ->
                 try {
