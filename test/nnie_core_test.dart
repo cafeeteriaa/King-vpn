@@ -147,6 +147,8 @@ void main() {
       expect(NatDnsWireProbe.publicV4([192, 168, 1, 1], 0), isFalse);
       expect(NatDnsWireProbe.publicV4([198, 18, 0, 1], 0), isFalse); // benchmarking
       expect(NatDnsWireProbe.publicV4([8, 8, 8, 8], 0), isTrue);
+      expect(NatDnsWireProbe.publicV4([192, 0, 1, 1], 0), isTrue); // مشکل ۱۴: عمومی است
+      expect(NatDnsWireProbe.publicV4([192, 0, 2, 1], 0), isFalse); // TEST-NET-1
     });
   });
 
