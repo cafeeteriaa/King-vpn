@@ -72,9 +72,10 @@ Future<void> _ipAutoSave() async {
 /// خودکار فقط IPهای دقیقِ کانفیگ‌های موجود و سرورهای قبلاً موفق را بررسی می‌کند.
 /// پیمایش گسترده‌ی CIDRهای ISP/CDN برای اجرای خودکار مجاز نیست؛ اسکن دستی جداست.
 List<String> _ipAutoBlocks() => <String>{
+  // This is a top-level part function; State fields such as good/pending/
+  // fetchedAll are not in scope here. Use the shared, persisted national-IP
+  // memory only. It contains concrete hosts and avoids broad CIDR scanning.
   ...natIpMemHosts(),
-  for (final server in [...good, ...pending, ...fetchedAll])
-    if (server.isIp) server.host,
 }.map((ip) => '$ip/32').toList(growable: false);
 
 Future<List<String>> _ipAutoNextAddrs() async {
