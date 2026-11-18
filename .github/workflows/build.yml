@@ -1,3 +1,4 @@
+
 name: King VPN Android CI
 
 on:
@@ -78,9 +79,23 @@ jobs:
 
       - name: Analyze Dart sources
         working-directory: build_app
+        shell: bash
         run: |
-          set -o pipefail
+          set +e
           flutter analyze --no-fatal-warnings --no-fatal-infos 2>&1 | tee analyze.log
+          ANALYZE_EXIT=${PIPESTATUS[0]}
+
+          echo ""
+          echo "========== ANALYZER ERRORS =========="
+          grep -n -E 'error •|Error:' analyze.log || true
+
+          echo ""
+          echo "========== ANALYZER SUMMARY =========="
+          tail -n 10 analyze.log
+
+          echo ""
+          echo "Analyzer exit code: $ANALYZE_EXIT"
+          exit "$ANALYZE_EXIT"
 
       - name: Build debug APK (unsigned)
         working-directory: build_app
