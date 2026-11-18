@@ -15,7 +15,11 @@ void main() {
       );
       expect(evidence.mode, DetectedNetworkMode.domesticOnly);
       expect(evidence.acceptsTunnel(nationalOnly: true), isTrue);
-      expect(evidence.acceptsTunnel(nationalOnly: false), isTrue);
+      expect(evidence.acceptsTunnel(nationalOnly: false), isFalse);
+      expect(
+        choosePilotNetworkStrategy(evidence),
+        PilotNetworkStrategy.domestic,
+      );
     });
 
     test('unknown evidence is not treated as successful connectivity', () {
@@ -25,7 +29,24 @@ void main() {
       );
       expect(evidence.mode, DetectedNetworkMode.unknown);
       expect(evidence.acceptsTunnel(nationalOnly: true), isFalse);
+      expect(
+        choosePilotNetworkStrategy(evidence),
+        PilotNetworkStrategy.preserve,
+      );
     });
+  });
+
+  test('single failed probe cannot force domestic strategy', () {
+    const evidence = NetworkEvidence(
+      domestic: LinkHealth.healthy,
+      global: LinkHealth.unreachable,
+      domesticSamples: 1,
+      globalSamples: 1,
+    );
+    expect(
+      choosePilotNetworkStrategy(evidence),
+      PilotNetworkStrategy.preserve,
+    );
   });
 
   group('Self repair diagnostics privacy', () {

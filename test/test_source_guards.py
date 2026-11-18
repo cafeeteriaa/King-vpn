@@ -32,6 +32,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
         self.assertGreaterEqual(workflow.count('set -o pipefail'), 3)
 
+
+    def test_home_screen_exposes_one_unified_pilot_action(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        pilot_ui = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        self.assertIn("'شروع خلبان هوشمند'", main)
+        self.assertIn('await startLocalPilot();', main)
+        self.assertNotIn("label: const Text('جستجوی سرور با نت ملی')", main)
+        ai_bar = pilot_ui[pilot_ui.index('Widget aiBar()'):pilot_ui.index('void aiSheet()')]
+        self.assertNotIn('startGrokPilot', ai_bar)
+        self.assertNotIn('startLocalPilot', ai_bar)
+        self.assertNotIn('pickEngineThenStart(startGrokPilot', pilot_ui)
+
+    def test_flutter_artifact_path_matches_non_split_apk_build(self):
+        workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
+        self.assertIn('flutter build apk --debug --target-platform android-arm64', workflow)
+        self.assertIn('build_app/build/app/outputs/flutter-apk/app-debug.apk', workflow)
+        self.assertNotIn('app-arm64-v8a-debug.apk', workflow)
+
     def test_plugin_dart_parser_hardening_is_part_of_build_patch(self):
         patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
         for name in ('patch_url_dart', 'patch_vmess_dart', 'patch_vless_dart',
