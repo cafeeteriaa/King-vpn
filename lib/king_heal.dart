@@ -460,7 +460,6 @@ extension KingHealEngine on _HomePageState {
           // نگه‌داری: تعویض را قفل زمانی کن
           _healStableSince = DateTime.now();
           _localSlowStreak = 0;
-          _localTgFail = 0;
           _localPhase = 'stable';
           if (localPilotOn) {
             localPilotText.value =
