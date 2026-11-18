@@ -8,7 +8,7 @@ bool npvParse = true;
 String relayServerUrl = ''; // RELAY: لینک سرور واسط (Multi-hop)
 bool cleanIpMode = true;
 bool fragEnabled = false;
-bool muxEnabled = true;
+bool muxEnabled = false; // off by default: enable only when a server is verified compatible
 bool secureDns = true;
 bool blockQuic = true;
 bool lanDirect = true;
@@ -19,6 +19,22 @@ int muxConc = 32; // default Mux concurrency = 32 (۱۲۸ باعث HOL blocking 
 String dnsProv = 'auto';
 String dnsProvActive = 'cloudflare';
 DateTime? _dnsPickAt;
+String? _dnsPickNetworkKey;
+
+Future<String> _dnsNetworkKey() async {
+  try {
+    final interfaces = await NetworkInterface.list(includeLoopback: false);
+    final rows = <String>[];
+    for (final iface in interfaces) {
+      final ips = iface.addresses.map((a) => a.address).toList()..sort();
+      if (ips.isNotEmpty) rows.add('${iface.name}:${ips.join(',')}');
+    }
+    rows.sort();
+    return '${nationalMode ? 'nat' : 'global'}|${rows.join('|')}';
+  } catch (_) {
+    return '${nationalMode ? 'nat' : 'global'}|unknown';
+  }
+}
 const _fragLenOpts = <String>['100-200', '50-100', '10-30'];
 const _fragIntOpts = <String>['10-20', '1-5', '20-40'];
 const _muxOpts = <int>[4, 8, 16, 32, 64, 128];
@@ -92,7 +108,7 @@ List<String>? customDnsList() {
   return null;
 }
 
-Future<int?> _probeDoh(String url) async {
+Future<int?> _probeDoh(String url, {String expectedDomain = 'google.com'}) async {
   final sw = Stopwatch()..start();
   final cl = HttpClient()..connectionTimeout = const Duration(seconds: 2);
   try {
@@ -108,8 +124,8 @@ Future<int?> _probeDoh(String url) async {
     if (decoded is! Map || (decoded['Status'] as num?)?.toInt() != 0) return null;
     final question = decoded['Question'];
     if (question is! List || !question.any((q) => q is Map &&
-        (q['name']?.toString().toLowerCase() == 'google.com' ||
-         q['name']?.toString().toLowerCase() == 'google.com.') &&
+        (q['name']?.toString().toLowerCase() == expectedDomain.toLowerCase() ||
+         q['name']?.toString().toLowerCase() == '${expectedDomain.toLowerCase()}.') &&
         (q['type'] as num?)?.toInt() == 1)) return null;
     final answers = decoded['Answer'];
     if (answers is! List) return null;
@@ -143,6 +159,11 @@ Future<String> pickBestDns({bool force = false}) async {
   if (dnsProv != 'auto') {
     dnsProvActive = dnsProv;
     return dnsProv;
+  }
+  final networkKey = await _dnsNetworkKey();
+  if (_dnsPickNetworkKey != networkKey) {
+    _dnsPickAt = null;
+    _dnsPickNetworkKey = networkKey;
   }
   if (!force &&
       _dnsPickAt != null &&
@@ -182,7 +203,7 @@ Future<String> pickBestDns({bool force = false}) async {
 
   await Future.wait([
     ...selectedDohProbes.entries.map((e) async {
-      final ms = await _probeDoh(e.value);
+      final ms = await _probeDoh(e.value, expectedDomain: 'google.com');
       if (ms != null && ms < bestMs) {
         bestMs = ms;
         best = e.key;
@@ -201,6 +222,7 @@ Future<String> pickBestDns({bool force = false}) async {
 
   if (foundValidResolver) dnsProvActive = best;
   else dbg('DNS auto: no resolver returned a validated answer; keeping previous provider=$dnsProvActive');
+  _dnsPickNetworkKey = networkKey;
   _dnsPickAt = DateTime.now();
   return dnsProvActive;
 }
@@ -1004,9 +1026,16 @@ String withNpvAmCore(String cfg) {
 
     if (routeOnly) {
       for (final ib in (j['inbounds'] as List?) ?? <dynamic>[]) {
-        if (ib is Map && ib['sniffing'] is Map) {
-          (ib['sniffing'] as Map)['routeOnly'] = true;
-        }
+        if (ib is! Map) continue;
+        final sniffing = ib['sniffing'] is Map
+            ? Map<String, dynamic>.from(ib['sniffing'] as Map)
+            : <String, dynamic>{};
+        sniffing['enabled'] = true;
+        sniffing['destOverride'] = sniffing['destOverride'] is List
+            ? sniffing['destOverride']
+            : <String>['http', 'tls'];
+        sniffing['routeOnly'] = true;
+        ib['sniffing'] = sniffing;
       }
     }
 
@@ -1058,41 +1087,26 @@ String withNpvAmCore(String cfg) {
     j['outbounds'] = outs;
     if (secureDns) {
       final d = j['dns'] is Map ? j['dns'] as Map : <String, dynamic>{};
-      final first = customDnsList() ??
-          _dnsUrls[effectiveDnsProv()] ??
-          _dnsUrls['cloudflare']!;
+      final first = nationalMode
+          ? (_dnsUrls['shecan'] ?? _dnsUrls['electro']!)
+          : (customDnsList() ?? _dnsUrls[effectiveDnsProv()] ?? _dnsUrls['cloudflare']!);
       final ips = <dynamic>[];
       final doh = <dynamic>[];
-      for (final u in first) {
-        if (u.toString().startsWith('https://')) {
-          doh.add(u);
-        } else {
-          ips.add(u);
+      void addResolver(String value) {
+        if (value.startsWith('https://')) {
+          if (!doh.contains(value)) doh.add(value);
+        } else if (!ips.contains(value)) {
+          ips.add(value);
         }
       }
-      for (final e in _dnsUrls.entries) {
-        for (final u in e.value) {
-          if (u.startsWith('https://')) {
-            if (!doh.contains(u)) doh.add(u);
-          } else if (!ips.contains(u)) {
-            ips.add(u);
-          }
-        }
+      // National: Iranian resolvers first, imported/custom and global fallback later.
+      for (final value in first) { addResolver(value.toString()); }
+      final existingServers = d['servers'];
+      if (existingServers is List) {
+        for (final value in existingServers) { addResolver(value.toString()); }
       }
-      for (final ip in [
-        '1.1.1.1',
-        '8.8.8.8',
-        '9.9.9.9',
-        '208.67.222.222',
-        '94.140.14.14',
-        '178.22.122.100',
-        '185.51.200.2',
-        '78.157.42.100',
-        '10.202.10.10',
-        '2606:4700:4700::1111',
-        '2001:4860:4860::8888',
-      ]) {
-        if (!ips.contains(ip)) ips.add(ip);
+      for (final entry in _dnsUrls.entries) {
+        for (final value in entry.value) { addResolver(value); }
       }
       d['servers'] = [...ips, ...doh];
       d['queryStrategy'] = 'UseIP';

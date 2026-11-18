@@ -170,8 +170,10 @@ class NatDnsWireProbe {
     if (qname != domain.toLowerCase() || qtype != 1 || qclass != 1) {
       throw const FormatException('Question mismatch');
     }
-    final ips = <String>[];
+    final records = <({String owner, int type, int cls, int rd, int rdlen})>[];
+    final cnameTargets = <String, String>{};
     for (var i = 0; i < an; i++) {
+      final owner = _readName(b, p);
       p = _skipName(b, p);
       if (p + 10 > b.length) throw const FormatException('Truncated RR');
       final type = (b[p] << 8) | b[p + 1];
@@ -179,13 +181,31 @@ class NatDnsWireProbe {
       final rdlen = (b[p + 8] << 8) | b[p + 9];
       final rd = p + 10;
       if (rd + rdlen > b.length) throw const FormatException('Bad RDATA length');
-      if (type == 1 && cls == 1 && rdlen == 4) {
-        if (!publicV4(b, rd)) throw const FormatException('Non-public/blockpage A answer');
-        ips.add('${b[rd]}.${b[rd + 1]}.${b[rd + 2]}.${b[rd + 3]}');
+      records.add((owner: owner, type: type, cls: cls, rd: rd, rdlen: rdlen));
+      if (type == 5 && cls == 1 && rdlen > 0) {
+        cnameTargets[owner] = _readName(b, rd);
       }
       p = rd + rdlen;
     }
-    if (ips.isEmpty) throw const FormatException('No usable A answer');
+    // Only accept A records owned by the queried QNAME or its validated CNAME
+    // chain. An unrelated A record elsewhere in the answer section is ignored.
+    final allowedOwners = <String>{domain.toLowerCase()};
+    var owner = domain.toLowerCase();
+    for (var hop = 0; hop < 16; hop++) {
+      final target = cnameTargets[owner];
+      if (target == null || !allowedOwners.add(target)) break;
+      owner = target;
+    }
+    final ips = <String>[];
+    for (final rr in records) {
+      if (rr.type != 1 || rr.cls != 1 || rr.rdlen != 4 ||
+          !allowedOwners.contains(rr.owner)) continue;
+      if (!publicV4(b, rr.rd)) {
+        throw const FormatException('Non-public/blockpage A answer for queried name');
+      }
+      ips.add('${b[rr.rd]}.${b[rr.rd + 1]}.${b[rr.rd + 2]}.${b[rr.rd + 3]}');
+    }
+    if (ips.isEmpty) throw const FormatException('No usable A answer for queried name');
     return ips;
   }
 

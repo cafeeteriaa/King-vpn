@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:convert';
+import 'self_repair_policy.dart';
 
 // ERRJOURNAL (مستقل از main تا فایل‌های جدا هم بتوانند ثبت کنند): دفتر خطاها برای تست ۶۰ دقیقه‌ای.
 // هر خطایی که از logError رد شود با زمان، نوع، پیام، جای دقیق در کد (فایل:خط) و بخش فعلی تست ثبت می‌شود.
@@ -155,3 +157,46 @@ void errJournalAdd(Object e, {String kind = '', StackTrace? st}) {
 }
 
 String _whereHere() => stackHead(StackTrace.current);
+
+
+/// Sanitized, bounded report for the optional source-repair workflow. Raw
+/// config links, UUIDs and credential-like strings are never exported.
+String buildRepairDiagnosticJson({int maxEntries = 300}) {
+  final relevant = errJournal
+      .where((e) => !e.type.startsWith('SILENT-') &&
+          !e.type.startsWith('INFO-') &&
+          !e.type.startsWith('SUBST-NODEAD'))
+      .toList(growable: false);
+  final selected = relevant.length > maxEntries
+      ? relevant.sublist(relevant.length - maxEntries)
+      : relevant;
+  final payload = <String, Object?>{
+    'schema': 'kingvpn.runtime-repair-diagnostics.v1',
+    'generated_at': DateTime.now().toUtc().toIso8601String(),
+    'entry_count': selected.length,
+    'entries': <Map<String, Object?>>[
+      for (final e in selected)
+        <String, Object?>{
+          'at': e.at.toUtc().toIso8601String(),
+          'type': redactSensitiveDiagnostic(e.type),
+          'category': errCategory(e),
+          'where': redactSensitiveDiagnostic(e.where),
+          'tag': redactSensitiveDiagnostic(e.tag),
+          'message': redactSensitiveDiagnostic(e.msg),
+        },
+    ],
+    'safety': <String, Object?>{
+      'raw_config_links_exported': false,
+      'credential_values_exported': false,
+      'source_files_modified': false,
+    },
+  };
+  return const JsonEncoder.withIndent('  ').convert(payload);
+}
+
+/// Writes the sanitized report to the app-private temporary directory.
+Future<String> exportRepairDiagnosticFile() async {
+  final file = File('${Directory.systemTemp.path}/kingvpn_repair_diagnostics.json');
+  await file.writeAsString(buildRepairDiagnosticJson(), flush: true);
+  return file.path;
+}

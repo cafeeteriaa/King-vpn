@@ -1231,9 +1231,9 @@ extension HomeExtras on _HomePageState {
                   padding: const EdgeInsets.all(10),
                   margin: const EdgeInsets.only(bottom: 10),
                   decoration: BoxDecoration(
-                    color: Color(0xFF1B5E20).withValues(alpha: 0.25),
+                    color: Color(0xFF352919).withValues(alpha: 0.25),
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFF4CAF50)),
+                    border: Border.all(color: const Color(0xFFD9AE55)),
                   ),
                   child: Text(
                     'پیشنهاد الان: ${best.title}\n${best.why}',
@@ -1248,7 +1248,7 @@ extension HomeExtras on _HomePageState {
                       padding: const EdgeInsets.only(bottom: 6),
                       child: Material(
                         color: isBest
-                            ? Color(0xFF1B5E20).withValues(alpha: 0.35)
+                            ? Color(0xFF352919).withValues(alpha: 0.35)
                             : Colors.transparent,
                         borderRadius: BorderRadius.circular(10),
                         child: ListTile(
@@ -1256,13 +1256,13 @@ extension HomeExtras on _HomePageState {
                             borderRadius: BorderRadius.circular(10),
                             side: BorderSide(
                               color: isBest
-                                  ? const Color(0xFF4CAF50)
+                                  ? const Color(0xFFD9AE55)
                                   : Colors.grey.shade700,
                             ),
                           ),
                           leading: CircleAvatar(
                             backgroundColor: isBest
-                                ? const Color(0xFF2E7D32)
+                                ? const Color(0xFF66512D)
                                 : Colors.grey.shade800,
                             child: Text(
                               '${i + 1}',
@@ -1288,7 +1288,7 @@ extension HomeExtras on _HomePageState {
                                 const Text(
                                   '★ بهتر',
                                   style: TextStyle(
-                                    color: Color(0xFF81C784),
+                                    color: Color(0xFFD9AE55),
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
                                   ),
@@ -1324,12 +1324,21 @@ extension HomeExtras on _HomePageState {
   }
 
   void applyPilotEngine(String e) {
-    // V2Ray is the only engine left.
-    pilotEngine = 'v2ray';
+    // Never select a planned/parser-only engine as if its native runtime existed.
+    final requested = engineById(e);
+    if (requested == null || !requested.isRunnable) {
+      pilotEngine = 'v2ray';
+      proto = 'all';
+      connRow = null;
+      if (mounted) setState(() {});
+      _set('این موتور هنوز runtime تأییدشده ندارد؛ موتور اجرایی فعلی حفظ شد.');
+      return;
+    }
+    pilotEngine = requested.id;
     proto = 'all';
     connRow = null;
     if (mounted) setState(() {});
-    _set('موتور انتخاب شد: ${_engineLabel(e)}');
+    _set('موتور انتخاب شد: ${requested.name}');
   }
 
   String _engineLabel(String e) => 'V2Ray';
@@ -1478,12 +1487,34 @@ extension HomeExtras on _HomePageState {
     return true;
   }
 
+  void _resetNetworkHealthCounters() {
+    fails = 0;
+    slowCount = 0;
+    speedTick = 0;
+    lowSpeed = 0;
+    badPingRun = 0;
+    noData = 0;
+    stallRun = 0;
+    siteFail = 0;
+    siteSeen = false;
+    siteNever = 0;
+    siteNeverSwitches = 0;
+    betterRun = 0;
+    _lowSince = null;
+    _persBadPingRun = 0;
+    lastDomesticTunnelRttMs = null;
+    _spWin.clear();
+    _spFor = null;
+    _spAt = DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
   Future<void> _applyNetPick(bool net, bool off) async {
-    // PILOTNONAT: خلبان (محلی یا ابری) هرگز روی نت ملی اجرا نمی‌شود، آنلاین یا آفلاین
-    if (localPilotOn || aiSession) net = false;
+    // خلبان محلی/ابری روی نت ملی هم مجاز است؛ حالت انتخاب‌شده را به Global اجبار نکن.
+    final previousMode = nationalMode;
     userModeChoice = net;
     natForce = net;
     nationalMode = net;
+    if (previousMode != nationalMode) _resetNetworkHealthCounters();
     indestructibleMode = true; // ABADIAT: هر دو حالت ابدی هستند؛ با لیست صفر جستجو تموم نمی‌شه
     offlineOnly = off;
     userOfflineChoice = off;
@@ -1604,7 +1635,6 @@ extension HomeExtras on _HomePageState {
 
   // FULL PILOT: Grok takes over from search to keep-alive until user disconnects
   Future<void> startGrokPilot() async {
-    _pilotLeaveNational(); // PILOTNONAT
     if (!_selectedAiKeyAvailable) {
       _set('برای ارائه‌دهنده انتخاب‌شده ($aiProvider) کلید API معتبر وارد و ذخیره کن؛ یا Auto را انتخاب کن.');
       aiSheet();
@@ -1615,9 +1645,10 @@ extension HomeExtras on _HomePageState {
     if (aiSession) stopGrokPilot();
     // ثبت تنظیمات کاربر قبل از هر تغییر خلبان؛ در stop دقیقاً همین‌ها برمی‌گردند
     _pilotSnap ??= _beginPilotSnap();
+    await _pilotDetectNetworkMode();
     _pilotForcedUltra = false;
     _pilotForcedIndestructible = false;
-    _applyModePreset(false, false, true); // PILOTDEF: تنظیمات پایه‌ی خلبان
+    _applyModePreset(nationalMode, offlineOnly, true); // pilot preset follows detected network
     // ارائه‌دهنده‌ای که کاربر انتخاب کرده حفظ می‌شود؛ Auto خودش fallback می‌کند.
     aiSession = true;
     wantVpn = true;
@@ -1901,8 +1932,8 @@ extension HomeExtras on _HomePageState {
                           // اگر خلبان ابری روشن بود، خاموشش کن تا تداخل نداشته باشد
                           if (aiSession) stopGrokPilot();
                           await pickEngineThenStart(() async {
-                            startLocalPilot();
-                          }, keepNet: true); // جدید: خلبان حالت شبکه را دست نمی‌زند
+                            await startLocalPilot();
+                          }, keepNet: true); // خلبان خودش نوع شبکه را تشخیص می‌دهد
                         }
                       },
                 icon: Icon(
@@ -1913,8 +1944,8 @@ extension HomeExtras on _HomePageState {
                     : '👑 خلبان'),
                 style: FilledButton.styleFrom(
                   backgroundColor: localPilotOn
-                      ? const Color(0xFFB71C1C)
-                      : const Color(0xFF1B5E20),
+                      ? const Color(0xFF66512D)
+                      : const Color(0xFF352919),
                 ),
               ),
             ),
@@ -1926,9 +1957,9 @@ extension HomeExtras on _HomePageState {
                   width: double.infinity,
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0D1B0E),
+                    color: const Color(0xFF1F2328),
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFF2E7D32), width: 1),
+                    border: Border.all(color: const Color(0xFF66512D), width: 1),
                   ),
                   child: Text(
                     t,
@@ -1936,7 +1967,7 @@ extension HomeExtras on _HomePageState {
                       fontSize: 12.5,
                       height: 1.35,
                       fontFamily: 'monospace',
-                      color: Color(0xFFE8F5E9),
+                      color: Color(0xFFF2F0EB),
                     ),
                   ),
                 ),
@@ -2138,34 +2169,26 @@ extension HomeExtras on _HomePageState {
 
   // ---- خلبان محلی King Pro (داخل HomeExtras) ----
 
-  /// پروب سبک — اگر سرعت واقعی داریم، پروب سخت‌گیرانه نیست (گزارش: پورت هسته بسته → false اشتباه)
+  /// Probe the active network class through the tunnel. Telegram is never a
+  /// universal health gate: domestic and global data-plane checks are separate.
   Future<Map<String, bool?>> _localProbeSites() async {
-    final out = <String, bool?>{
-      'tg': null,
-      'yt': null,
-      'ig': null,
-      'net': null,
-    };
+    final out = <String, bool?>{'tg': null, 'yt': null, 'ig': null, 'net': null};
     if (!connected) return out;
     try {
-      // فقط تلگرام معیار سلامت است. Timeout/خطای پروب = نامعلوم، نه شکست قطعی.
-      final tgOk = await _siteOpens('https://telegram.org/', viaCore: true)
-          .timeout(const Duration(seconds: 8));
-      out['tg'] = tgOk;
-      out['yt'] = null; // عمداً خارج از معیار سلامت
-      out['ig'] = null; // عمداً خارج از معیار سلامت
-      out['net'] = tgOk;
-    } on TimeoutException {
-      // مقدار null باقی می‌ماند تا timeout باعث تعویض اشتباه سرور نشود.
-    } catch (e, stk) { logError(e, stk); }
+      final urls = nationalMode ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
+      final checks = await Future.wait(urls.map((url) => _siteOpens(url, viaCore: true)
+          .timeout(const Duration(seconds: 8), onTimeout: () => false)));
+      out['net'] = checks.any((ok) => ok);
+      // Service-specific probes remain informational only; they do not decide
+      // whether the tunnel is healthy or trigger an engine switch.
+    } catch (e, stk) {
+      logError(e, stk);
+    }
     return out;
   }
 
   int _localScore({
     required bool connected,
-    required bool? tg,
-    required bool? yt,
-    required bool? ig,
     required bool? net,
     required int? ping,
     required double? speed,
@@ -2199,7 +2222,8 @@ extension HomeExtras on _HomePageState {
         sc -= 10;
       }
     }
-    if (tg == true) sc += 15; // تنها پروب سرویس مجاز: تلگرام
+    if (net == true) sc += 15;
+    if (net == false) sc -= 12;
     if (good >= 3) sc += 5;
     // تاریخچه‌ی موفقیت این نوع سرور (۰..۱) — افت بیشتر = امتیاز کمتر
     if (rate != null) sc += ((rate - 0.5) * 20).round();
@@ -2222,7 +2246,7 @@ extension HomeExtras on _HomePageState {
         sec = spec.security;
       } catch (e, stk) { logError(e, stk); }
       ping = current!.ping;
-      if (current!.speed != null && current!.speed! > 0) {
+      if (!nationalMode && current!.speed != null && current!.speed! > 0) {
         spd = current!.speed;
       }
       svc = current!.svc;
@@ -2235,20 +2259,15 @@ extension HomeExtras on _HomePageState {
       yt = p['yt'];
       ig = p['ig'];
       netOk = p['net'];
-      if (tg == true) {
-        _localTgOk++;
-        _localTgFail = 0;
-      } else if (tg == false) {
-        _localTgFail++;
-        _localTgOk = 0;
+      if (netOk == true) {
+        _localNetFail = 0;
+      } else if (netOk == false) {
+        _localNetFail++;
       }
     }
 
     final score = _localScore(
       connected: connected,
-      tg: tg,
-      yt: yt,
-      ig: ig,
       net: netOk,
       ping: ping,
       speed: spd,
@@ -2287,7 +2306,7 @@ extension HomeExtras on _HomePageState {
     String act = 'none';
     var conf = 80;
     // hold تطبیقی با قدرت: قدرت بالاتر → واکنش کمی زودتر (حداقل ۱۲۰ث)
-    final minHoldSec = (180 - (_localPower * 3).clamp(0, 60)).clamp(120, 180);
+    final minHoldSec = (180 - (min(_localPower, 20) * 3).clamp(0, 60)).clamp(120, 180);
 
     // -------- CONNECTED --------
     if (s.connected) {
@@ -2303,17 +2322,17 @@ extension HomeExtras on _HomePageState {
       final observedBadTransport =
           (spd != null && spd < 0.10) ||
           (s.pingMs != null && s.pingMs! >= 3000);
-      final repeatedTelegramFailure = _localTgFail >= 2 && s.tgOk == false;
+      // Telegram is not a universal health endpoint and is not a gate on domestic-only links.
+      final repeatedDataPlaneFailure = _localNetFail >= 2 && s.netOk == false;
       final deadTunnel = !hasSpeed && !hasPing &&
-          (observedBadTransport || repeatedTelegramFailure);
+          (observedBadTransport || repeatedDataPlaneFailure);
       final weakTunnel = !hasSpeed && softSpeed && s.score < 40;
-      // SVCGATE: سرور فقط وقتی نگه داشته می‌شود که تلگرام باز شود (سرعت و پینگ
-      // مثل قبل بررسی می‌شوند). اگر دو بار پشت‌سرهم تلگرام باز نشد، سرور کنار
-      // گذاشته و سرور بعدی گرفته می‌شود.
-      final svcFail = s.tgOk == false;
+      // Consecutive failure of the class-appropriate tunnel data-plane probe
+      // may trigger failover; service-specific sites are not universal gates.
+      final svcFail = s.netOk == false;
       if (svcFail) {
         _localSvcFail++;
-      } else if (s.tgOk == true) {
+      } else {
         _localSvcFail = 0;
       }
       // PILOTHOLD: a tunnel with real speed or still inside its hold time is not switched because of a probe
@@ -2321,7 +2340,7 @@ extension HomeExtras on _HomePageState {
         if (current != null) current!.badAt = DateTime.now();
         _localSvcFail = 0;
         return _LocalDecision('switch_best', set,
-            'تلگرام باز نشد ×۲ → سرور بعدی',
+            'آزمون مسیر داده ناموفق ×۲ → سرور بعدی',
             confidence: 92);
       }
 
@@ -2380,7 +2399,6 @@ extension HomeExtras on _HomePageState {
 
     // -------- DISCONNECTED --------
     _localConnectedSince = null;
-    _localTgOk = 0;
     _localSvcFail = 0;
     _localSlowStreak = 0;
     _localPhase = _localFailStreak >= 2 ? 'recover' : 'search';
@@ -2434,7 +2452,7 @@ extension HomeExtras on _HomePageState {
     return _LocalDecision(act, set, why.toString().trim(), confidence: conf);
   }
 
-  // انتخاب سرور جایگزین برای هر دو خلبان با معیار یکسان؛ فقط تلگرام + سرعت + پینگ + سابقه.
+  // Standby ranking uses only evidence relevant to the active network class.
   Server? _pilotBestStandby() {
     final candidates = _pickList()
         .where((s) => !identical(s, current) && !_bad(s))
@@ -2443,8 +2461,14 @@ extension HomeExtras on _HomePageState {
     double bestScore = -1e12;
     for (final s in candidates) {
       var score = 0.0;
-      if (s.svc >= 0 && (s.svc & 1) != 0) score += 120; // Telegram only
-      score += (s.speed ?? 0) * 50;
+      // svc bits and historical throughput come from global service probes;
+      // never reward Telegram/Cloudflare evidence in national-only mode.
+      if (!nationalMode && s.svc >= 0) {
+        score += ((s.svc & 1) != 0 ? 40 : 0) +
+            ((s.svc & 2) != 0 ? 30 : 0) +
+            ((s.svc & 4) != 0 ? 20 : 0);
+        score += (s.speed ?? 0) * 50;
+      }
       final ping = s.ping;
       if (ping != null && ping > 0) score += max(0, 100 - ping / 15);
       score += (_profRate(s) - 0.5) * 30;
@@ -2730,9 +2754,9 @@ extension HomeExtras on _HomePageState {
     _pilotSnap ??= _beginPilotSnap(); // PILOTREV
     // PILOTCAP: در حالت عادی قدرت تا ۱۰ است؛ در نت ملی سقف قدرت بالاتر است
     // (سقف workers/batch جداگانه و ثابت است و هسته را حفاظت می‌کند)
-    // POWERCAP: عادی = ۱۲؛ نت ملی = بی‌نهایت
-    final pCap = 12; // NATSOLO: سقف قدرت مستقل از نت ملی
-    final p = (power ?? _localPower).clamp(0, pCap);
+    // No arbitrary pilot-level ceiling. Individual resource controls below
+    // remain bounded by safe runtime limits and real device capacity.
+    final p = max(0, power ?? _localPower);
     _localPower = p;
     if (p > _localPeakPower) _localPeakPower = p;
 
@@ -2740,10 +2764,18 @@ extension HomeExtras on _HomePageState {
     proxyMode = false;
     turboSpeed = true;
     muxEnabled = true;
-    autoSpeed = true; // خلبان مستقل از نت ملی است؛ همیشه تست سرعت دارد (جدید)
-    autoCycle = true;
+    // Current speed-test endpoints are international Cloudflare endpoints.
+    // Do not use them as a national-only health gate until domestic throughput
+    // endpoints with stable, measurable payloads are configured.
+    autoSpeed = !nationalMode;
     savedFirst = true;
     if (userOfflineChoice != true) offlineOnly = false;
+    autoCycle = !offlineOnly;
+    // Keep national-specific routing/scan policy after the pilot power profile.
+    fragEnabled = nationalMode;
+    cleanIpMode = nationalMode;
+    ipMode = nationalMode;
+    autoUpgrade = !nationalMode && !offlineOnly;
     minSpeedKB = 0;
     // NORMALPARITY: مثل اتصال عادی، ۳ تست هم‌زمان (نه مقدار تصادفی از قبل)
     // PILOTUSER: اگر کاربر «تست همزمان» را خودش تنظیم کرده، همان عدد را نگه می‌دارد؛ وگرنه ۳
@@ -2757,18 +2789,20 @@ extension HomeExtras on _HomePageState {
     // پس fastWorkers=3 و bgWorkers=3 رو ست می‌کنیم. بعد از توقف خلبان،
     // _restorePilotSnap مقدار اصلی کاربر رو برمی‌گردونه. پس این override
     // موقتی است و به تنظیمات کاربر آسیب نمی‌زنه.
-    // timeout ثانیه: 9 + قدرت p
-    delayTimeout =
-        Duration(seconds: (9 + p * 0.7).clamp(8, 45).round());
-    tcpTimeout = Duration(
-        milliseconds: (3500 + p * 250).clamp(3000, 15000).round());
-    batchSize = (180 + p * 10).clamp(100, 300).toInt();
-    // NORMALPARITY: پایه‌ی پینگ بد مثل حالت عادی (سخت‌گیرتر با sniSpoofAll)
+    // Infinite learning level, bounded operational knobs: prevent integer
+    // overflow and keep actual workers/timeouts within safe device limits.
+    final timeoutPower = min(p, 52);
+    final batchPower = min(p, 12);
+    final pingPower = min(p, 68);
+    final concurrencyPower = min(p, 12);
+    delayTimeout = Duration(seconds: (9 + timeoutPower * 0.7).clamp(8, 45).round());
+    tcpTimeout = Duration(milliseconds: (3500 + timeoutPower * 250).clamp(3000, 15000).round());
+    batchSize = (180 + batchPower * 10).clamp(100, 300).toInt();
     final basePing = sniSpoofAll ? 5000 : 3000;
-    badPingMs = max(basePing, (2500 + p * 80).clamp(2000, 8000).toInt());
-    watchFailLimit = (3 + (p / 4).floor()).clamp(2, 12).toInt();
-    speedTopN = (2 + (p / 5).floor()).clamp(1, 10).toInt();
-    muxConc = (8 + p * 2).clamp(8, 32).toInt();
+    badPingMs = max(basePing, (2500 + pingPower * 80).clamp(2000, 8000).toInt());
+    watchFailLimit = (3 + (min(p, 36) / 4).floor()).clamp(2, 12).toInt();
+    speedTopN = (2 + (min(p, 40) / 5).floor()).clamp(1, 10).toInt();
+    muxConc = (8 + concurrencyPower * 2).clamp(8, 32).toInt();
 
     // سوییچ‌های وابسته به قدرت / مکان / نوع جستجو
     if (p >= 2) ultraMode = true;
@@ -2803,7 +2837,7 @@ extension HomeExtras on _HomePageState {
       p += 1;
       if (good.isEmpty) p += 2;
       if (pending.isEmpty && fetchedAll.isEmpty) p += 3; // لیست خالی = سخت‌تر
-    } else {
+    } else if (!nationalMode) {
       final spd = current?.speed;
       if (spd != null && spd > 0 && spd < 0.15) p += 2; // وصل ولی خیلی کند
       if (spd != null && spd >= 1.0 && _localFailStreak == 0) {
@@ -2814,7 +2848,7 @@ extension HomeExtras on _HomePageState {
     // --- شکست‌ها: هر شکست قدرت را بالا می‌برد (مسیر به ∞) ---
     p += _localFailStreak * 2;
     p += _localSlowStreak;
-    if (_localTgFail >= 3) p += 2;
+    if (_localNetFail >= 3) p += 2;
 
     // --- پایداری: آرام پایین بیا (نه یک‌دفعه) ---
     if (_localGoodStreak >= 5 && _localFailStreak == 0 && connected) {
@@ -2824,19 +2858,67 @@ extension HomeExtras on _HomePageState {
       p = max(0, p - 1);
     }
 
-    // هرگز منفی نشود؛ سقف نرم فقط برای جلوگیری از int دیوانه‌وار در UI
-    return p.clamp(0, 1000000);
+    // No software level ceiling; per-setting controls below enforce safe limits.
+    return max(0, p);
   }
 
-  /// PILOTNONAT: خلبان از حالت نت ملی خارج می‌شود (حالت آنلاین/آفلاین خود کاربر حفظ می‌شود)
-  void _pilotLeaveNational() {
-    nationalMode = false;
-    natForce = false;
+  /// تشخیص پیش از اتصال؛ شواهد نامشخص، انتخاب قبلی کاربر را دست‌نخورده می‌گذارد.
+  Future<NatNetworkClass> _pilotDetectNetworkMode() async {
+    // NatNetworkDiagnosis probes the underlying link; do not run it through an
+    // already active VPN tunnel and accidentally classify the relay instead.
+    if (connected) return NatNetworkDiagnosis.current;
+    try {
+      final previousMode = nationalMode;
+      final detected = await NatNetworkDiagnosis.refresh(force: true)
+          .timeout(const Duration(seconds: 7), onTimeout: () => NatNetworkDiagnosis.current);
+      final evidence = switch (detected) {
+        NatNetworkClass.globalReachable => const NetworkEvidence(
+            domestic: LinkHealth.unknown,
+            global: LinkHealth.healthy,
+            globalSamples: 4,
+          ),
+        NatNetworkClass.domesticOnlyLikely => const NetworkEvidence(
+            domestic: LinkHealth.healthy,
+            global: LinkHealth.unreachable,
+            domesticSamples: 2,
+            globalSamples: 2,
+          ),
+        NatNetworkClass.dnsDegraded || NatNetworkClass.transportRestricted =>
+          const NetworkEvidence(
+            domestic: LinkHealth.healthy,
+            global: LinkHealth.unreachable,
+            domesticSamples: 2,
+            globalSamples: 2,
+          ),
+        NatNetworkClass.unknown => const NetworkEvidence(
+            domestic: LinkHealth.unknown,
+            global: LinkHealth.unknown,
+          ),
+      };
+      if (evidence.mode == DetectedNetworkMode.domesticOnly) {
+        nationalMode = true;
+      } else if (evidence.mode == DetectedNetworkMode.globalOnly) {
+        nationalMode = false;
+      }
+      // Unknown is not a license to guess. Keep the last explicit user mode.
+      natForce = nationalMode;
+      userModeChoice = nationalMode;
+      if (previousMode != nationalMode) _resetNetworkHealthCounters();
+      await ultimateSave();
+      final label = natNetworkClassLabel(detected);
+      final modeLabel = nationalMode ? 'نت ملی' : 'اینترنت جهانی/انتخاب قبلی';
+      localPilotText.value = 'خلبان هوشمند ∞ • تشخیص شبکه: $label\n'
+          'حالت انتخاب‌شده: $modeLabel';
+      return detected;
+    } catch (e, st) {
+      logError(e, st);
+      localPilotText.value = 'تشخیص شبکه ناموفق بود؛ حالت قبلی حفظ شد.';
+      return NatNetworkClass.unknown;
+    }
   }
 
   /// فعال‌سازی خلبان بدون حلقهٔ اتصال (برای وقتی کاربر فقط «اتصال» زده)
   void ensureLocalPilotRunning() {
-    _pilotLeaveNational(); // PILOTNONAT
     if (aiSession) stopGrokPilot();
     final wasOff = !localPilotOn;
     localPilotOn = true;
@@ -2851,8 +2933,7 @@ extension HomeExtras on _HomePageState {
     _localFailStreak = 0;
     _localSlowStreak = 0;
     _localGoodStreak = 0;
-    _localTgOk = 0;
-    _localTgFail = 0;
+    _localNetFail = 0;
     _localConnectedSince = null;
     _localPeakPower = 1;
     _localPower = 1;
@@ -2869,15 +2950,18 @@ extension HomeExtras on _HomePageState {
     // تشخیص اپراتور و شبکه فقط یک بار در startLocalPilot انجام می‌شود.
   }
 
-  void startLocalPilot() {
-    _applyModePreset(false, false, true); // V19: best settings for pilot
+  Future<void> startLocalPilot() async {
+    _pilotSnap ??= _beginPilotSnap();
+    await _pilotDetectNetworkMode();
+    _applyModePreset(nationalMode, offlineOnly, true); // preset follows detected domestic/global state
     ensureLocalPilotRunning();
     final eng = _engineLabel(pilotEngine);
+    final modeLabel = nationalMode ? 'نت ملی' : 'جهانی/حالت قبلی';
     localPilotText.value =
-        '👑 خلبان فعال شد • موتور: $eng\n'
-        '• قدرت خودکار از ۰ تا ∞\n'
-        '• اینترنت، مکان و جستجوی عادی را خودش تشخیص می‌دهد\n'
-        '• فقط روی موتور انتخاب‌شده کار می‌کند';
+        '👑 خلبان هوشمند ∞ فعال شد • موتور: $eng\n'
+        '• شبکه: $modeLabel\n'
+        '• قدرت و روش اتصال بر اساس شواهد و منابع دستگاه تنظیم می‌شود\n'
+        '• سلامت داخلی و جهانی مستقل ارزیابی می‌شوند';
     unawaited(() async {
       try {
         final want = _localAutoPickPower();
@@ -3615,7 +3699,7 @@ Future<String?> tunedSettings(SharedPreferences p) async {
   return p.getString('settings');
 }
 
-// ======================= خلبان محلی King Pro (بدون کلید API) =======================
+// ======================= خلبان هوشمند ∞ (موتور محلی King Pro، بدون کلید API) =======================
 // موتور تصمیم‌گیری چندلایه — سریع‌تر و پایدارتر از هر دستیار ابری.
 // لایه‌ها: پروب واقعی سایت‌ها | امتیازدهی چندعاملی | حافظه اپراتور | ماشین‌حالت
 // هیچ کلید API لازم نیست. تا قطع دستی کاربر، کنترل کامل دارد.
@@ -3694,19 +3778,20 @@ Iterable<String> _allTouchKeys() => <String>[
       'smartOrder', 'protoSel', 'numValues',
       ...numOpts.map((o) => _numVarName(o.id)),
     ];
-// خلبان با نت ملی کار ندارد: نه آن را روشن می‌کند، نه جستجویش را اجرا می‌کند (جدید)
+// سیاست شبکه ملی/جهانی در مدل مستقل NetworkEvidence نگهداری می‌شود؛
+// شکست Global نباید سلامت Domestic را به‌تنهایی باطل کند.
 bool? _pendingNet; // NETCANCEL: انتخاب شبکه‌ی موقت تا انتخاب موتور
 bool _pendingOff = false;
 Timer? localPilotLoop;
 final localPilotText = ValueNotifier<String>(
-    'خلبان محلی King Pro آماده است.\nبدون API • تحلیل واقعی شبکه • اولویت تلگرام');
+    'خلبان هوشمند ∞ آماده است.\nیادگیری محلی • تحلیل واقعی شبکه • بدون وابستگی به API');
 final localPilotLoading = ValueNotifier<bool>(false);
 
 // Track flags forced by cloud pilot so stop can restore them
 bool _pilotForcedUltra = false;
 bool _pilotForcedIndestructible = false;
 DateTime? _pilotConnectedAt; // hold before cloud pilot may switch
-// engine the pilot/assistant should use: v2ray only
+// Engine ID from EngineCapabilityRegistry; only verified runtimes are selectable.
 String pilotEngine = 'v2ray';
 
 // قدرت خلبان محلی
@@ -3722,9 +3807,8 @@ int _localFailStreak = 0;
 int _localSlowStreak = 0;
 int _localGoodStreak = 0;
 int _localTickN = 0;
-int _localTgOk = 0; // consecutive telegram OK
-int _localSvcFail = 0; // SVCGATE: پشت‌سرهم یکی از تلگرام/یوتیوب/اینستا جواب نداد
-int _localTgFail = 0;
+int _localSvcFail = 0; // consecutive active-network data-plane probe failures
+int _localNetFail = 0;
 
 // حافظه یادگیری محلی: اپراتور → آخرین اقدام موفق / امتیاز
 final Map<String, int> _localOpWins = {}; // action hash → win count

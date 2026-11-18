@@ -69,17 +69,20 @@ Future<void> _ipAutoSave() async {
   }
 }
 
-/// بلوک‌های اسکن: بازه‌های ISP/دیتاسنتر ایرانی (kIrIspRanges). بازه‌های CDN جدا از طریق
-/// liveRanges در _ipAutoNextAddrs اضافه می‌شوند. کرسر باعث می‌شود اجراها جلو بروند.
-// GLOBALONLY: حالت جهانی فقط CDN را اسکن می‌کند؛ بازه‌های ISP داخلی فقط برای نت ملی‌اند
-List<String> _ipAutoBlocks() => nationalMode ? kIrIspRanges : const <String>[];
+/// خودکار فقط IPهای دقیقِ کانفیگ‌های موجود و سرورهای قبلاً موفق را بررسی می‌کند.
+/// پیمایش گسترده‌ی CIDRهای ISP/CDN برای اجرای خودکار مجاز نیست؛ اسکن دستی جداست.
+List<String> _ipAutoBlocks() => <String>{
+  ...natIpMemHosts(),
+  for (final server in [...good, ...pending, ...fetchedAll])
+    if (server.isIp) server.host,
+}.map((ip) => '$ip/32').toList(growable: false);
 
 Future<List<String>> _ipAutoNextAddrs() async {
   final args = <String, dynamic>{
-    'cfIpsBatch': _ipAutoBatch,
+    'cfIpsBatch': 0, // exact known endpoints only; no broad public CIDR scan
     'blocks': _ipAutoBlocks(),
     'nationalMode': nationalMode,
-    'liveRanges': List<String>.of(_liveCdnRanges),
+    'liveRanges': <String>[],
     'cursors': Map<String, int>.of(ipAutoCursors),
   };
   final gen = await compute(_genAddrsIso, args);
@@ -103,6 +106,7 @@ extension IpAutoExt on _HomePageState {
   /// نتایج در فهرست نت ملی ذخیره می‌شوند و هیچ صف یا بازه‌ی دیگری را تغییر نمی‌دهد.
   Future<void> ipAutoBackground() async {
     try {
+      if (!kNatIpScanOn) return; // shared master switch applies to every IP scanner
       if (!nationalMode) return;
       if (ipAutoBusy || dnsxManualBusy || _natRangeScanBusy || _dnsxAutoBusy) return;
       if (connected || busy) return;
@@ -137,6 +141,7 @@ extension IpAutoExt on _HomePageState {
   /// دلیل رد شدن شروع اسکن؛ null یعنی می‌شود شروع کرد
   String? _ipAutoRefusal() {
     // نت ملی کاملاً خودکار است؛ دکمه‌ی دستی فقط برای حالت عادی است
+    if (!kNatIpScanOn) return 'اسکن IP از تنظیم اصلی خاموش است.';
     if (ipAutoBusy) return 'اسکن در حال اجراست.';
     if (connected || busy) return 'اول VPN را قطع کنید، بعد اسکن خودکار IP را اجرا کنید.';
     if (nationalMode && _natRangeScanBusy) {
@@ -226,8 +231,8 @@ extension IpAutoExt on _HomePageState {
       final parts = c.split('|');
       final ip = parts[0];
       final port = int.tryParse(parts[1]) ?? 443;
-      final s = Server(_natSetHost(tplSrv.link, ip, tplSrv.host), tplSrv.name, ip, port);
-      final sw = Stopwatch()..start(); // GOLDAUTO: زمان واقعی برای مرتب‌سازی پوشه‌ی جهانی
+      final ipLink = _natSetPort(_natSetHost(tplSrv.link, ip, tplSrv.host), port);
+      final s = Server(ipLink, tplSrv.name, ip, port);
       if (!await _ipAutoCoreOk(s, url)) {
         say('تست $checked/${toTest.length} • جواب‌داده: $found');
         continue;
@@ -237,7 +242,8 @@ extension IpAutoExt on _HomePageState {
         continue;
       }
       ipAutoHits.insert(0, c);
-      unawaited(goldMergeIps([CleanIp(ip, sw.elapsedMilliseconds, port)])); // FOLDERALL
+      // Core outbound delay is not proof of a clean IP or Android TUN health.
+      // Keep it as a candidate only; promotion requires a real user tunnel test.
       seen.add(c);
       found++;
       if (ipAutoHits.length > _ipAutoMaxHits) {
@@ -341,7 +347,7 @@ extension IpAutoExt on _HomePageState {
                       child: Text('کپی همه‌ی ${ipAutoHits.length} IP (${_ipAutoModeName()})'),
                     ),
                   if (ipAutoHits.isEmpty)
-                    Text('هنوز IP سالمی برای حالت ${_ipAutoModeName()} پیدا نشده است.'),
+                    Text('هنوز endpoint پاسخ‌گوی هسته برای حالت ${_ipAutoModeName()} پیدا نشده است.'),
                   for (final h in ipAutoHits)
                     ListTile(
                       dense: true,

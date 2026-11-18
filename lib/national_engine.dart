@@ -314,7 +314,7 @@ class _NatNetHintCardState extends State<NatNetHintCard> {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-              color: nationalLikely ? Colors.orange : Colors.grey.withOpacity(0.4)),
+              color: nationalLikely ? const Color(0xFFD9AE55) : Colors.grey.withOpacity(0.4)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,

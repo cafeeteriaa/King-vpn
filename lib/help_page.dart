@@ -412,16 +412,16 @@ class _HelpSection extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 17,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFFE8C468),
+                color: Color(0xFFD9AE55),
               ),
             ),
-            const Divider(height: 16, color: Color(0x55E8C468)),
+            const Divider(height: 16, color: Color(0x55D9AE55)),
             Text(
               content,
               style: const TextStyle(
                 fontSize: 15,
                 height: 1.85,
-                color: Color(0xFFF2F4F7),
+                color: Color(0xFFF2F0EB),
               ),
             ),
           ],

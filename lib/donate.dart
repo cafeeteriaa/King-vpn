@@ -92,7 +92,7 @@ void donateSheet(BuildContext context) {
                     const Text(
                       'آدرس کیف پول هنوز تنظیم نشده است.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.redAccent),
+                      style: TextStyle(color: const Color(0xFFD9AE55)),
                     ),
                   const SizedBox(height: 12),
                   const Text(

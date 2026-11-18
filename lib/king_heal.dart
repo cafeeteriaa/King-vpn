@@ -63,7 +63,7 @@ extension KingHealEngine on _HomePageState {
   /// نقطهٔ ورود اصلی — از واچ‌داگ، خلبان، و بعد از خطا
   /// نسخهٔ تهاجمی: سریع‌تر حس می‌کند، زودتر وارد عمل می‌شود، کمتر صبر می‌کند
   Future<void> kingSelfHeal({String reason = ''}) async {
-    if (!mounted) return;
+    if (!mounted || kingHealBusy.value) return; // حقیقی: جلوگیری از هم‌پوشانی چرخه‌های ترمیم
     final now = DateTime.now();
     // فاصلهٔ بین چرخه‌ها کمتر شد (۸ → ۴ ثانیه)
     if (_healLastRun != null &&
@@ -134,8 +134,22 @@ extension KingHealEngine on _HomePageState {
       _healPhase = _HealPhase.verify;
       await Future.delayed(const Duration(seconds: 2));
       final stillBad = await _healSense();
-      final fixed = stillBad.every((s) => s.severity < 5) ||
-          (wantVpn && connected && lastState == 'CONNECTED');
+      // Core CONNECTED is not proof of repair. Require traffic through the
+      // active tunnel, using domestic endpoints in nationalMode and global
+      // endpoints otherwise. Proxy-only mode has no TUN data-plane to verify.
+      final bool dataPlaneOk;
+      if (!wantVpn) {
+        dataPlaneOk = true;
+      } else if (proxyMode) {
+        dataPlaneOk = connected && lastState == 'CONNECTED';
+      } else {
+        dataPlaneOk = connected &&
+            await _tunnelTrafficOk().timeout(
+              const Duration(seconds: 10),
+              onTimeout: () => false,
+            );
+      }
+      final fixed = dataPlaneOk && stillBad.every((s) => s.severity < 5);
 
       // ----- ۵) یادگیری + پیشنهاد آپدیت اگر ترمیم کافی نبود -----
       _healPhase = _HealPhase.learn;
@@ -173,6 +187,12 @@ extension KingHealEngine on _HomePageState {
 
   Future<List<_HealSignal>> _healSense() async {
     final out = <_HealSignal>[];
+    // Stability age belongs to the current connected session only.
+    if (connected) {
+      _healStableSince ??= DateTime.now();
+    } else {
+      _healStableSince = null;
+    }
 
     // همگام‌سازی هسته
     try {
@@ -229,7 +249,7 @@ extension KingHealEngine on _HomePageState {
 
     // پینگ بد — فقط بعد از ۲ بار متوالی (تعویض نمی‌کند، فقط Mux تقویت می‌شود)
     final cp = current?.ping;
-    if (connected && cp != null && cp > badPingMs) {
+    if (connected && !nationalMode && cp != null && cp > badPingMs) {
       _hBadPing++;
       if (_hBadPing >= 2) {
         out.add(_HealSignal('bad_ping', 5, 'پینگ ${cp}ms'));
@@ -240,7 +260,7 @@ extension KingHealEngine on _HomePageState {
 
     // سرعت نزدیک صفر (زیر ~۴۰ KB/s) — فقط بعد از پایداری کافی
     final sp = current?.speed;
-    if (connected &&
+    if (connected && !nationalMode &&
         (sp == null || sp < 0.04) &&
         _healStableSince != null &&
         DateTime.now().difference(_healStableSince!).inSeconds > 35) {
@@ -373,8 +393,9 @@ extension KingHealEngine on _HomePageState {
         case 'clear_abort_connect':
           abort = false;
           wantVpn = true;
-          if (!busy) await connect();
-          return true;
+          if (busy || switching) return false;
+          await connect();
+          return connected;
 
         case 'connect_now':
           abort = false;
@@ -390,8 +411,9 @@ extension KingHealEngine on _HomePageState {
           wantVpn = true;
           listTime = null;
           lastFetchTry = DateTime.fromMillisecondsSinceEpoch(0);
-          if (!busy) await connect();
-          return true;
+          if (busy || switching) return false;
+          await connect();
+          return connected;
 
         case 'soft_clear_blacklist':
         case 'soft_clear_and_search':
@@ -413,17 +435,18 @@ extension KingHealEngine on _HomePageState {
             wantVpn = true;
             listTime = null;
             lastFetchTry = DateTime.fromMillisecondsSinceEpoch(0);
-            if (!busy) await connect();
+            if (busy || switching) return false;
+            await connect();
+            return connected;
           }
           return true;
 
         case 'failover':
         case 'failover_soft':
-          if (!busy && !switching) {
-            lastWhy = 'خودترمیمی: $action';
-            await _failover();
-          }
-          return true;
+          if (busy || switching) return false;
+          lastWhy = 'خودترمیمی: $action';
+          await _failover();
+          return connected;
 
         case 'restart_tunnel':
           if (current != null && connected) {
@@ -502,6 +525,7 @@ extension KingHealEngine on _HomePageState {
       connected: connected,
       tunBadNow: tunBad,
       pingRounds: badPingRounds,
+      nationalMode: nationalMode,
     );
     return 'فاز: $_healPhase • چرخه: $_healCycle • شبکه: ${_netStateLabel(st)} • اخیر: $mem';
   }

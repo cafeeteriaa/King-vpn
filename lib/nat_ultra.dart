@@ -195,7 +195,7 @@ const List<_NatSpec> _natBase = [
   _NatSpec('SNI>cdnjs', sniSwap: 0),
   _NatSpec('SNI>cloudflare', sniSwap: 2),
   _NatSpec('SNI>speed', sniSwap: 3),
-  _NatSpec('SNI>1.1.1.1', sniSwap: 10),
+  _NatSpec('SNI>divar.ir', sniSwap: 7),
 ];
 
 final List<_NatSpec> _natSpecs = [..._natBase, ..._natGenerate(), ..._natExtra];
@@ -649,7 +649,7 @@ bool _natAppliesF(_NatFacts f, int v) {
 bool _natChangesAddr(int v) {
   if (v <= 0 || v >= _natSpecs.length) return false;
   final x = _natSpecs[v];
-  return x.other || x.port || x.clean || x.doh != null;
+  return x.other || x.port || x.clean;
 }
 
 final Map<String, int> natDimWins = {};
@@ -1067,33 +1067,6 @@ void natDohCacheClear() {
   dohPreOk.clear();
   _dohPreAt.clear();
 }
-/// SNI نام‌های DoH شناخته‌شده؛ برای دامنه‌ها خود host استفاده می‌شود.
-const Map<String, String> _natDohSni = {
-  '1.1.1.1': 'cloudflare-dns.com',
-  '8.8.8.8': 'dns.google',
-  '9.9.9.9': 'dns.quad9.net',
-};
-
-/// TLS handshake (با SNI) روی 443. اگر IP ناشناخته باشد و SNI معلوم نباشد، true (فقط TCP).
-Future<bool> _natDohTlsOk(String host, int seconds) async {
-  final sni = _natDohSni[host] ??
-      (InternetAddress.tryParse(host) == null ? host : null);
-  if (sni == null) return true;
-  Socket? raw;
-  SecureSocket? sec;
-  try {
-    raw = await Socket.connect(host, 443, timeout: Duration(seconds: seconds));
-    sec = await SecureSocket.secure(raw, host: sni)
-        .timeout(Duration(seconds: seconds));
-    return true;
-  } catch (_) {
-    return false;
-  } finally {
-    sec?.destroy();
-    raw?.destroy();
-  }
-}
-
 Future<bool> natDohUsable(int v) async {
   if (v < 0 || v >= _natSpecs.length) return false;
   final doh = _natSpecs[v].doh;
@@ -1109,9 +1082,15 @@ Future<bool> natDohUsable(int v) async {
   final u = Uri.tryParse(doh);
   if (u != null && u.hasAuthority) host = u.host;
   final gen = _dohGen; // نسل قبل از probe گرفته می‌شود
-  final ms = await natTcpProbe(host, 443, const Duration(seconds: 4));
-  // د-۴: TCP به‌تنهایی کافی نیست؛ TLS با SNI هم باید برقرار شود
-  final ok = ms != null && await _natDohTlsOk(host, 6);
+  // A TCP-open port or successful TLS handshake is not proof of DoH.
+  // Require a valid DNS-over-HTTPS JSON response for a mode-appropriate name.
+  final path = (u?.path.isNotEmpty ?? false) ? u!.path : '/dns-query';
+  final query = Uri.https(host, path, <String, String>{
+    'name': nationalMode ? 'nic.ir' : 'google.com',
+    'type': 'A',
+  }).toString();
+  final ms = await _probeDoh(query, expectedDomain: nationalMode ? 'nic.ir' : 'google.com');
+  final ok = ms != null;
   // ج-۱: اگر در این فاصله شبکه عوض شده، نتیجه مربوط به شبکه‌ی قبلی است؛ ننویس
   if (gen == _dohGen) {
     dohPreOk[v] = ok;
@@ -1212,8 +1191,7 @@ String _natApplySniSwap(String cfg, int sniIdx) {
       final tls = st['tlsSettings'];
       if (tls is! Map) continue;
       if (tlsHasEch(tls)) continue; // ECH: SNI را عوض نکن
-      tls['serverName'] = sni;
-      tls['allowInsecure'] = true;
+      tls['serverName'] = sni; // keep certificate validation enabled
     }
     return jsonEncode(j);
   } catch (_) {
@@ -1931,46 +1909,54 @@ const List<String> natIrDomains = [
 Future<List<String>> _natDomainFirst(List<Server> known,
     {required int conc, bool Function()? stop}) async {
   final out = <String>[];
-  if (!kNatIpScanOn) return out;
+  if (!kNatIpScanOn || known.isEmpty) return out;
   try {
-    final hosts = <String>{
-      for (final s in known) if (!s.isIp && s.host.isNotEmpty) s.host,
-      ...natIrDomains,
-    }.take(3000).toList();
-    final ips = <String>{};
-    for (var i = 0; i < hosts.length; i += 50) {
+    // Only inspect hosts and ports explicitly present in the user's/current
+    // server configurations. Do not scan unrelated public domains or all
+    // 65,535 ports on third-party hosts.
+    final endpoints = <String, Set<int>>{};
+    for (final server in known.take(1200)) {
       if (stop != null && stop()) break;
-      final chunk = hosts.skip(i).take(50);
-      final res = await Future.wait(chunk.map((h) => safeLookup(h)));
-      for (final list in res) {
-        for (final a in list) {
-          if (a.type == InternetAddressType.IPv4) ips.add(a.address);
-        }
+      final host = server.host.trim();
+      final port = server.port;
+      if (host.isEmpty || port <= 0 || port > 65535) continue;
+      (endpoints[host] ??= <int>{}).add(port);
+    }
+    natDomainHosts = endpoints.length;
+    final resolved = <String, Set<int>>{};
+    for (final entry in endpoints.entries) {
+      if (stop != null && stop()) break;
+      final parsed = InternetAddress.tryParse(entry.key);
+      final addresses = parsed == null ? await safeLookup(entry.key) : <InternetAddress>[parsed];
+      for (final address in addresses) {
+        if (address.type != InternetAddressType.IPv4) continue;
+        (resolved[address.address] ??= <int>{}).addAll(entry.value);
       }
     }
-    natDomainHosts = hosts.length;
-    natDomainIps = ips.length;
-    dbg('دامنه‌ها: ${hosts.length} دامنه • ${ips.length} IP یکتا');
-    if (ips.isEmpty) return out;
-    final tw = Stopwatch()..start();
-    final portOrder = <int>[
-      ...natCommonPorts,
-      for (var p = 1; p < 65536; p++) if (!natCommonPorts.contains(p)) p,
-    ];
-    for (final p in portOrder) {
-      if (tw.elapsed > const Duration(minutes: 3)) break;
+    natDomainIps = resolved.length;
+    natDomainOpen = 0;
+    dbg('بررسی endpointهای کانفیگ: ${endpoints.length} دامنه/IP • ${resolved.length} IP • فقط پورت‌های تعریف‌شده');
+    final grouped = <int, List<String>>{};
+    for (final entry in resolved.entries) {
+      for (final port in entry.value) {
+        (grouped[port] ??= <String>[]).add(entry.key);
+      }
+    }
+    final deadline = DateTime.now().add(const Duration(seconds: 45));
+    for (final entry in grouped.entries) {
       if (stop != null && stop()) break;
+      if (DateTime.now().isAfter(deadline)) break;
       final hits = await natScanIps(
-        ips.toList(),
-        port: p,
-        concurrency: conc,
+        entry.value,
+        port: entry.key,
+        concurrency: conc.clamp(1, 32).toInt(),
         want: 50,
         budget: const Duration(seconds: 5),
-        timeout: const Duration(milliseconds: 1500),
+        timeout: const Duration(milliseconds: 1200),
         cancelled: stop,
       );
-      for (final h in hits) {
-        out.add('${h.ip}|$p');
+      for (final hit in hits) {
+        out.add('${hit.ip}|${entry.key}');
         natDomainOpen = out.length;
       }
     }
@@ -2006,18 +1992,15 @@ Future<List<String>> natDeviceHosts() async {
 }
 
 List<String> natSeedBlocks(List<String> hosts) {
+  // A discovered DNS/server/device IP is not permission to scan its /24.
+  // Keep the candidate set to the exact observed address (/32).
   final out = <String>[];
-  void add(String b) {
-    if (!out.contains(b)) out.add(b);
-  }
-  for (final h in hosts) {
-    final t = _ipTriple(h);
-    if (t == null) continue;
-    add('${t[0]}.${t[1]}.${t[2]}.0/24');
-    for (final d in const [-1, 1]) {
-      final c = t[2] + d;
-      if (c >= 0 && c <= 255) add('${t[0]}.${t[1]}.$c.0/24');
-    }
+  final seen = <String>{};
+  for (final host in hosts) {
+    final parsed = InternetAddress.tryParse(host.trim());
+    if (parsed == null || parsed.type != InternetAddressType.IPv4) continue;
+    final cidr = '${parsed.address}/32';
+    if (seen.add(cidr)) out.add(cidr);
   }
   return out;
 }
@@ -2084,6 +2067,51 @@ List<String> _getCfIps({
   return out;
 }
 
+// Cursor-aware expansion so large CIDR catalogs are covered fairly across runs.
+(List<String>, int) _natExpandAnyCursor(String item, int cursor, int maxPerBlock) {
+  String? startIp;
+  int span = 0;
+  if (item.contains('/')) {
+    final parts = item.split('/');
+    if (parts.length != 2) return (<String>[], 0);
+    final ip = InternetAddress.tryParse(parts[0].trim());
+    final prefix = int.tryParse(parts[1]);
+    if (ip == null || ip.type != InternetAddressType.IPv4 || prefix == null || prefix < 8 || prefix > 32) {
+      return (<String>[], 0);
+    }
+    final base = _ipToInt(ip.address) & (0xffffffff << (32 - prefix));
+    span = 1 << (32 - prefix);
+    startIp = _intToIp(base);
+  } else if (item.contains('-')) {
+    final parts = item.split('-');
+    if (parts.length != 2) return (<String>[], 0);
+    final a = InternetAddress.tryParse(parts[0].trim());
+    final b = InternetAddress.tryParse(parts[1].trim());
+    if (a == null || b == null || a.type != InternetAddressType.IPv4 || b.type != InternetAddressType.IPv4) {
+      return (<String>[], 0);
+    }
+    final first = _ipToInt(a.address);
+    final last = _ipToInt(b.address);
+    final low = min(first, last);
+    span = (max(first, last) - low) + 1;
+    startIp = _intToIp(low);
+  } else {
+    final ip = InternetAddress.tryParse(item.trim());
+    if (ip == null || ip.type != InternetAddressType.IPv4) return (<String>[], 0);
+    startIp = ip.address;
+    span = 1;
+  }
+  if (span <= 0) return (<String>[], 0);
+  final base = _ipToInt(startIp);
+  final offset = cursor % span;
+  final count = min(maxPerBlock, span);
+  final out = <String>[];
+  for (var i = 0; i < count; i++) {
+    out.add(_intToIp(base + ((offset + i) % span)));
+  }
+  return (out, (offset + count) % span);
+}
+
 // فیکس ۳: ساخت رشته‌های IP (صدها هزار تا چند میلیون) از ترد UI به isolate منتقل شد.
 // args: {cfIpsBatch:int, blocks:List<String>, nationalMode:bool,
 //        liveRanges:List<String>, cursors:Map<String,int>}
@@ -2100,10 +2128,25 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   // و فهرست ISP حدود ۲۸۰۰ بلوک داشت، یعنی ده‌ها میلیون رشته در isolate و فقط ۶۰۰۰ تای آن استفاده می‌شد.
   final cap = max(cfIpsBatch * 4, 20000);
   void addBlocks() {
-    for (final r in blocks) {
+    if (blocks.isEmpty) return;
+    // Rotate across the entire CIDR/range catalog; otherwise a capped list
+    // repeatedly expands only its first ~N blocks and starves the rest.
+    final start = (cursors['__block_cursor'] ?? 0) % blocks.length;
+    var processed = 0;
+    for (var offset = 0; offset < blocks.length; offset++) {
       if (addrs.length >= cap) break;
-      addrs.addAll(natExpandAny(r, maxPerBlock: 256));
+      final index = (start + offset) % blocks.length;
+      final range = blocks[index];
+      final key = 'block:$range';
+      final cursor = cursors[key] ?? 0;
+      final generated = _natExpandAnyCursor(range, cursor, 256);
+      if (generated.$1.isNotEmpty) {
+        addrs.addAll(generated.$1);
+        cursors[key] = generated.$2;
+      }
+      processed++;
     }
+    cursors['__block_cursor'] = (start + max(1, processed)) % blocks.length;
   }
   if (nationalMode) {
     addrs.addAll(_getCfIps(batchSize: cfIpsBatch, liveRanges: liveRanges, cursors: cursors));
@@ -2153,11 +2196,13 @@ Future<List<String>> _natRangeScanStepBody({
     }
   }
   natTemplateSeeds = seeds.take(2).toList();
-  final hosts = <String>[
+  // Only previously successful server IPs and exact IP endpoints from the
+  // current config pool are eligible. Device addresses and public DNS servers
+  // are not scan authorization and are deliberately excluded.
+  final hosts = <String>{
     ...natIpMemHosts(),
-    ...await natDeviceHosts(),
-    ...natIranDnsHosts,
-  ];
+    for (final server in seeds) if (server.isIp) server.host,
+  }.toList(growable: false);
   // NATAUTO: نت ملی همیشه خودکار از بازه‌های داخلی برنامه اسکن می‌کند؛ بازه‌ی دستی فقط برای اسکن دستی است
   final blocks = natSeedBlocks(hosts);
   // فیکس ۳: refresh بازه‌های CDN همان‌طور که قبلاً داخل _getCfIps بود، اینجا (ترد اصلی)
@@ -2166,10 +2211,10 @@ Future<List<String>> _natRangeScanStepBody({
   final blocksList = blocks; // List<String> موجود
   final args = <String, dynamic>{
     // حالت غیرملی قبلاً _getCfIps() با پیش‌فرض ۱۶۰۰۰۰ صدا می‌زد؛ همان حفظ شد
-    'cfIpsBatch': nationalMode ? maxAddrs : 160000,
+    'cfIpsBatch': 0, // no broad CDN/third-party range sweep in automatic mode
     'blocks': blocksList,
     'nationalMode': nationalMode,
-    'liveRanges': List<String>.of(_liveCdnRanges),
+    'liveRanges': <String>[],
     'cursors': Map<String, int>.of(_cfRangeCursors),
   };
   final gen = await compute(_genAddrsIso, args);

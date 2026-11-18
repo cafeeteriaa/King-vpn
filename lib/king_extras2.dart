@@ -326,15 +326,15 @@ class _KingExtrasPageState extends State<KingExtrasPage> {
             ),
             if (_chError != null) ...[
               const SizedBox(height: 8),
-              Text(_chError!, style: const TextStyle(color: Colors.redAccent)),
+              Text(_chError!, style: const TextStyle(color: const Color(0xFFD9AE55))),
             ],
             if (_chResult != null) ...[
               const SizedBox(height: 8),
               Text(_chResult!.summary,
                   style: TextStyle(
                       color: _chResult!.anyReachable
-                          ? Colors.green
-                          : Colors.redAccent,
+                          ? const Color(0xFFD9AE55)
+                          : const Color(0xFFD9AE55),
                       fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
               Text(_chResult!.nodeNotes.join(' • '),
@@ -345,7 +345,7 @@ class _KingExtrasPageState extends State<KingExtrasPage> {
 
             // ---- راهنمای ساده (بخش جدید) ----
             const Text('💡 راهنمای ساده این صفحه',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.amber)),
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: const Color(0xFFD9AE55))),
             const SizedBox(height: 12),
             
             // راهنمای بخش ۱
@@ -602,9 +602,9 @@ class CloudflareAutoDeployPage extends StatefulWidget {
 }
 
 class _CloudflareAutoDeployPageState extends State<CloudflareAutoDeployPage> {
-  static const _gold = Color(0xFFFFC107);
-  static const _bg = Color(0xFF0E0E12);
-  static const _card = Color(0xFF1A1A22);
+  static const _gold = Color(0xFFD9AE55);
+  static const _bg = Color(0xFF1F2328);
+  static const _card = Color(0xFF2A2D33);
 
   final _tokenCtrl = TextEditingController();
   // CFTOKSAVE: توکن در حافظه‌ی رمزشده ذخیره می‌شود تا دفعه‌ی بعد لازم نباشد دوباره الصاق شود
@@ -824,7 +824,7 @@ class _CloudflareAutoDeployPageState extends State<CloudflareAutoDeployPage> {
             ),
             if (_error != null) ...[
               const SizedBox(height: 16),
-              Text(_error!, style: const TextStyle(color: Colors.redAccent, height: 1.6)),
+              Text(_error!, style: const TextStyle(color: const Color(0xFFD9AE55), height: 1.6)),
             ],
             if (_link != null) ...[
               const SizedBox(height: 20),
