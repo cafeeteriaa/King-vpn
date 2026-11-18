@@ -82,21 +82,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          set +e
           flutter analyze --no-fatal-warnings --no-fatal-infos 2>&1 | tee analyze.log
-          ANALYZE_EXIT=${PIPESTATUS[0]}
-
-          echo ""
-          echo "========== ANALYZER ERRORS =========="
-          grep -n -E 'error •|Error:' analyze.log || true
-
-          echo ""
-          echo "========== ANALYZER SUMMARY =========="
-          tail -n 10 analyze.log
-
-          echo ""
-          echo "Analyzer exit code: $ANALYZE_EXIT"
-          exit "$ANALYZE_EXIT"
 
       - name: Build debug APK (unsigned)
         working-directory: build_app
@@ -105,6 +91,12 @@ jobs:
         run: |
           set -o pipefail
           flutter build apk --debug --target-platform android-arm64 2>&1 | tee build.log
+
+      - name: Verify APK output
+        working-directory: build_app
+        run: |
+          test -f build/app/outputs/flutter-apk/app-debug.apk
+          ls -lh build/app/outputs/flutter-apk/app-debug.apk
 
       - name: Build diagnostics for source repair
         if: failure()
@@ -124,6 +116,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: king-vpn-debug-${{ github.run_number }}
-          path: build_app/build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk
+          path: build_app/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
           retention-days: 14
