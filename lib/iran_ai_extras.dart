@@ -1888,61 +1888,6 @@ extension HomeExtras on _HomePageState {
                     '${aiLastProvider.isEmpty ? '' : ' · $aiLastProvider'})'),
               ),
             ),
-            const SizedBox(height: 4),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.tonalIcon(
-                onPressed: busy
-                    ? null
-                    : () async {
-                        if (aiSession) {
-                          stopGrokPilot();
-                          _set(
-                              'خلبان AI خاموش شد — برای قطع کامل VPN دکمه قطع را بزن');
-                        } else {
-                          if (!await confirmHeavyFeature(context, 'خلبان کامل AI')) return;
-                          await pickEngineThenStart(startGrokPilot, keepNet: true); // جدید: خلبان حالت شبکه را دست نمی‌زند
-                        }
-                      },
-                icon: Icon(aiSession ? Icons.flight_land : Icons.flight_takeoff,
-                    size: 18),
-                label: Text(aiSession
-                    ? '⏹ توقف خلبان (VPN تا قطع دستی می‌ماند)'
-                    : '🚀 خلبان کامل AI — کنترل خودکار تا قطع تو'),
-              ),
-            ),
-            const SizedBox(height: 4),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: busy
-                    ? null
-                    : () async {
-                        if (localPilotOn) {
-                          stopLocalPilot();
-                          _set('خلبان محلی خاموش شد — VPN تا قطع دستی می‌ماند');
-                        } else {
-                          if (!await confirmHeavyFeature(context, 'خلبان')) return;
-                          // اگر خلبان ابری روشن بود، خاموشش کن تا تداخل نداشته باشد
-                          if (aiSession) stopGrokPilot();
-                          await pickEngineThenStart(() async {
-                            await startLocalPilot();
-                          }, keepNet: true); // خلبان خودش نوع شبکه را تشخیص می‌دهد
-                        }
-                      },
-                icon: Icon(
-                    localPilotOn ? Icons.flight_land : Icons.rocket_launch,
-                    size: 18),
-                label: Text(localPilotOn
-                    ? '⏹ توقف خلبان (قدرت $_localPower)'
-                    : '👑 خلبان'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: localPilotOn
-                      ? const Color(0xFF66512D)
-                      : const Color(0xFF352919),
-                ),
-              ),
-            ),
             if (localPilotOn || localPilotText.value.isNotEmpty) ...[
               const SizedBox(height: 8),
               ValueListenableBuilder<String>(
@@ -2104,13 +2049,6 @@ extension HomeExtras on _HomePageState {
                             });
                           },
                           child: const Text('اتصال به سرور مخصوص AI')),
-                      FilledButton(
-                          onPressed: () async {
-                            await save();
-                            if (ctx.mounted) Navigator.pop(ctx);
-                            await pickEngineThenStart(startGrokPilot, keepNet: true); // جدید: خلبان حالت شبکه را دست نمی‌زند
-                          },
-                          child: const Text('🚀 خلبان کامل AI (کنترل خودکار VPN)')),
                     ]),
                     ValueListenableBuilder<bool>(
                         valueListenable: aiLoading,
@@ -2889,12 +2827,15 @@ extension HomeExtras on _HomePageState {
             global: LinkHealth.unknown,
           ),
       };
-      if (evidence.mode == DetectedNetworkMode.domesticOnly) {
+      final strategy = choosePilotNetworkStrategy(evidence);
+      if (strategy == PilotNetworkStrategy.domestic) {
         nationalMode = true;
-      } else if (evidence.mode == DetectedNetworkMode.globalOnly) {
+      } else if (strategy == PilotNetworkStrategy.global) {
         nationalMode = false;
+      } else if (strategy == PilotNetworkStrategy.offline) {
+        localPilotText.value = 'هیچ مسیر قابل‌تأییدی در دسترس نیست؛ اتصال امن متوقف می‌ماند.';
       }
-      // Unknown is not a license to guess. Keep the last explicit user mode.
+      // Unknown/partial evidence is not a license to guess. Keep last mode.
       natForce = nationalMode;
       userModeChoice = nationalMode;
       if (previousMode != nationalMode) _resetNetworkHealthCounters();
@@ -2945,17 +2886,31 @@ extension HomeExtras on _HomePageState {
   }
 
   Future<void> startLocalPilot() async {
-    _pilotSnap ??= _beginPilotSnap();
-    await _pilotDetectNetworkMode();
-    _applyModePreset(nationalMode, offlineOnly, true); // preset follows detected domestic/global state
-    ensureLocalPilotRunning();
-    final eng = _engineLabel(pilotEngine);
-    final modeLabel = nationalMode ? 'نت ملی' : 'جهانی/حالت قبلی';
-    localPilotText.value =
-        '👑 خلبان هوشمند ∞ فعال شد • موتور: $eng\n'
-        '• شبکه: $modeLabel\n'
-        '• قدرت و روش اتصال بر اساس شواهد و منابع دستگاه تنظیم می‌شود\n'
-        '• سلامت داخلی و جهانی مستقل ارزیابی می‌شوند';
+    if (localPilotOn || _localPilotStarting) return;
+    _localPilotStarting = true;
+    try {
+      _pilotSnap ??= _beginPilotSnap();
+      // The primary pilot uses the one runtime actually shipped in this build.
+      // It does not ask the user to choose a network mode or a fictional engine.
+      applyPilotEngine('v2ray');
+      await _pilotDetectNetworkMode();
+      _applyModePreset(nationalMode, offlineOnly, true); // one pilot, two internal strategies
+      ensureLocalPilotRunning();
+      final eng = _engineLabel(pilotEngine);
+      final modeLabel = nationalMode ? 'نت ملی' : 'جهانی/حالت قبلی';
+      localPilotText.value =
+          '👑 خلبان هوشمند ∞ فعال شد • موتور: $eng\n'
+          '• شبکه: $modeLabel\n'
+          '• قدرت و روش اتصال بر اساس شواهد و منابع دستگاه تنظیم می‌شود\n'
+          '• سلامت داخلی و جهانی مستقل ارزیابی می‌شوند';
+    } catch (e, stk) {
+      logError(e, stk);
+      localPilotText.value = 'شروع خلبان ناموفق بود؛ تنظیمات قبلی بازیابی شد.';
+      _restorePilotSnap();
+      return;
+    } finally {
+      _localPilotStarting = false;
+    }
     unawaited(() async {
       try {
         final want = _localAutoPickPower();
@@ -3701,6 +3656,7 @@ Future<String?> tunedSettings(SharedPreferences p) async {
 int _localConnFail = 0; // DOHAUTO: connect failures in a row
 int _localGoodTog = 0; // TOGGLES: connected ticks in a row
 bool localPilotOn = false;
+bool _localPilotStarting = false; // prevents duplicate starts during network classification
 
 // FWUSER: مقدار دستی کاربر برای «تست همزمان (جستجوی اول)». پیش‌فرض ۳؛
 // اگر کاربر خودش عدد گذاشته باشد، هر اتصال عادی همان عدد (تا ۳۲) را نگه می‌دارد.

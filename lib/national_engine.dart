@@ -324,8 +324,8 @@ class _NatNetHintCardState extends State<NatNetHintCard> {
             if (nationalLikely) ...[
               const SizedBox(height: 6),
               const Text(
-                'اینترنت جهانی قطع به نظر می‌رسد. دکمه‌ی «جستجوی سرور با نت ملی» را بزنید؛ '
-                'برنامه سرورهای ایران‌محور را اول امتحان می‌کند.',
+                'اینترنت جهانی محدود به نظر می‌رسد؛ خلبان هوشمند اصلی به‌صورت خودکار راهبرد داخلی را انتخاب می‌کند. '
+                'برنامه سرورهای ایران‌محور را در اولویت قرار می‌دهد.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 12),
               ),

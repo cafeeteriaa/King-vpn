@@ -14936,10 +14936,10 @@ UiHero(
             on: connected,
             busy: busy,
             label: (connected || wantVpn)
-                    ? 'قطع اتصال'
+                    ? 'توقف خلبان هوشمند'
                     : busy
-                        ? 'لغو'
-                        : 'اتصال',
+                        ? 'لغو عملیات خلبان'
+                        : 'شروع خلبان هوشمند',
             ping: (connected && current != null && current!.ping != null)
                 ? '${current!.ping}'
                 : '-',
@@ -14949,13 +14949,15 @@ UiHero(
             // busy while not connected = connecting/searching: cancel at once
             // (wantVpn is already true during a connect, so this must come first)
             onTap: (busy && !connected)
-                    ? () => _cancelNow()
+                    ? () { if (localPilotOn) stopLocalPilot(); _cancelNow(); }
                     : (connected || wantVpn || lastState == 'CONNECTED')
                     ? () => disconnect()
                     : () async {
-                          aiSession = false;
-                          // ONLINEFIX: دکمه‌ی اتصال اصلی باید اول «آنلاین/آفلاین» بپرسد
-                          await pickEngineThenStart(() => connect(), askMode: true, skipEngine: true);
+                          // SINGLE-PILOT: the only primary action owns both network
+                          // strategies. Detection and strategy selection happen inside
+                          // startLocalPilot; no separate national-mode button is exposed.
+                          if (aiSession) stopGrokPilot();
+                          await startLocalPilot();
                         },
           ),
           if (busy)
@@ -15012,25 +15014,7 @@ UiHero(
           ),
           _speedPanel(u),
           aiBar(),
-          Padding( // NATBTNPATCH
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-            child: OutlinedButton.icon(
-              onPressed: (busy || connected)
-                  ? null
-                  : () async {
-                      if (!await confirmHeavyFeature(context, 'جستجوی سرور با نت ملی')) return;
-                      await pickEngineThenStart(() async {
-                        await connect();
-                      }, forceNet: true);
-                    },
-              icon: const Icon(Icons.public_off),
-              label: const Text('جستجوی سرور با نت ملی'),
-              style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(52),
-                  shape: const StadiumBorder()),
-            ),
-          ),
-          NatNetHintCard(enabled: !busy && !connected), // NNIE-UI: وضعیت شبکه زیر دکمه‌ی نت ملی
+          // Unified Smart Pilot selects domestic/global strategy internally.
           Padding( // NATRESPATCH
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
             child: OutlinedButton.icon(
@@ -15217,12 +15201,12 @@ UiHero(
 
 
 // UITHEMEPATCH ---- appearance only, no logic ----
-const Color _uiGold = Color(0xFFD9AE55);
-const Color _uiBg = Color(0xFF1F2328);
-const Color _uiBar = Color(0xFF0F233E);
-const Color _uiCard = Color(0xFF2A2D33);
+const Color _uiGold = Color(0xFFC9A765);
+const Color _uiBg = Color(0xFF2B3037);
+const Color _uiBar = Color(0xFF354456);
+const Color _uiCard = Color(0xFF383F48);
 const Color _uiText = Color(0xFFF2F0EB);
-const Color _uiSub = Color(0xFFCDD1D8);
+const Color _uiSub = Color(0xFFD0D4DA);
 
 ThemeData uiTheme() {
   final cs = ColorScheme.fromSeed(
@@ -15235,11 +15219,11 @@ ThemeData uiTheme() {
           surface: _uiCard,
           onSurface: _uiText,
           onSurfaceVariant: _uiSub,
-          surfaceContainerHighest: const Color(0xFF34373E),
-          surfaceContainerHigh: const Color(0xFF34373E),
+          surfaceContainerHighest: const Color(0xFF454D57),
+          surfaceContainerHigh: const Color(0xFF454D57),
           surfaceContainer: _uiCard,
           surfaceContainerLow: _uiCard,
-          secondaryContainer: const Color(0xFF3A3F47),
+          secondaryContainer: const Color(0xFF454D57),
           onSecondaryContainer: _uiText);
   final base = ThemeData(
       brightness: Brightness.dark, useMaterial3: true, colorScheme: cs);
@@ -15280,7 +15264,7 @@ ThemeData uiTheme() {
         color: _uiCard, textStyle: TextStyle(color: _uiText)),
     bottomSheetTheme: const BottomSheetThemeData(backgroundColor: _uiCard),
     progressIndicatorTheme: const ProgressIndicatorThemeData(color: _uiGold),
-    dividerColor: const Color(0x44D9AE55),
+    dividerColor: const Color(0x44C9A765),
     dividerTheme: const DividerThemeData(color: Color(0x44D9AE55)),
     inputDecorationTheme: const InputDecorationTheme(
         labelStyle: TextStyle(color: _uiSub),
@@ -15297,8 +15281,8 @@ ThemeData uiTheme() {
             (s) => s.contains(WidgetState.selected) ? _uiGold : _uiSub),
         trackColor: WidgetStateProperty.resolveWith((s) =>
             s.contains(WidgetState.selected)
-                ? const Color(0x66D9AE55)
-                : const Color(0xFF3A3F47))),
+                ? const Color(0x66C9A765)
+                : const Color(0xFF454D57))),
     checkboxTheme: CheckboxThemeData(
         fillColor: WidgetStateProperty.resolveWith(
             (s) => s.contains(WidgetState.selected) ? _uiGold : null),
@@ -15563,7 +15547,7 @@ void uiJoinPrompt(BuildContext context) {
             backgroundColor: _uiCard,
             shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(22),
-                side: const BorderSide(color: Color(0x88D9AE55))),
+                side: const BorderSide(color: Color(0x88C9A765))),
             title: const Row(children: [
               Icon(Icons.send_rounded, color: _uiGold, size: 26),
               SizedBox(width: 10),

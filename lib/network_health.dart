@@ -2,6 +2,9 @@
 enum LinkHealth { unknown, healthy, degraded, unreachable }
 enum DetectedNetworkMode { unknown, domesticOnly, globalOnly, dualStack, offline }
 
+/// Internal route selected by the single Smart Pilot controller.
+enum PilotNetworkStrategy { domestic, global, preserve, offline }
+
 class NetworkEvidence {
   const NetworkEvidence({
     required this.domestic,
@@ -31,11 +34,9 @@ class NetworkEvidence {
     return DetectedNetworkMode.globalOnly;
   }
 
-  /// Global failure must never invalidate a proven domestic-only tunnel.
-  bool acceptsTunnel({required bool nationalOnly}) {
-    if (nationalOnly) return domesticDataPlaneVerified;
-    return domesticDataPlaneVerified || globalDataPlaneVerified;
-  }
+  /// Health of one address family must not be inferred from the other.
+  bool acceptsTunnel({required bool nationalOnly}) =>
+      nationalOnly ? domesticDataPlaneVerified : globalDataPlaneVerified;
 
   double get confidence {
     final sampleCount = domesticSamples + globalSamples;
@@ -45,4 +46,25 @@ class NetworkEvidence {
         (globalDataPlaneVerified ? 1 : 0);
     return (coverage * (0.55 + verified * 0.225)).clamp(0, 1).toDouble();
   }
+}
+
+
+/// Conservative strategy selection with minimum evidence requirements.
+/// Partial evidence preserves the last strategy instead of guessing.
+PilotNetworkStrategy choosePilotNetworkStrategy(NetworkEvidence evidence) {
+  final domesticUsable = evidence.domestic == LinkHealth.healthy ||
+      evidence.domestic == LinkHealth.degraded;
+  final globalUsable = evidence.global == LinkHealth.healthy ||
+      evidence.global == LinkHealth.degraded;
+  final domesticConfirmed = domesticUsable && evidence.domesticSamples >= 2;
+  final globalConfirmed = globalUsable && evidence.globalSamples >= 2;
+  final domesticFailed = evidence.domestic == LinkHealth.unreachable &&
+      evidence.domesticSamples >= 2;
+  final globalFailed = evidence.global == LinkHealth.unreachable &&
+      evidence.globalSamples >= 2;
+
+  if (domesticConfirmed && globalFailed) return PilotNetworkStrategy.domestic;
+  if (globalConfirmed) return PilotNetworkStrategy.global;
+  if (domesticFailed && globalFailed) return PilotNetworkStrategy.offline;
+  return PilotNetworkStrategy.preserve;
 }

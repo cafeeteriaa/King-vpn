@@ -4,19 +4,19 @@
 String redactSensitiveDiagnostic(String input) {
   var value = input;
   value = value.replaceAll(
-    RegExp(r'(?:vmess|vless|trojan|ss|socks5?|hysteria2|tuic|wireguard)://\S+', caseSensitive: false),
+    RegExp(r'(?i)(?:vmess|vless|trojan|ss|socks5?|hysteria2|tuic|wireguard)://\S+'),
     '[CONFIG_REDACTED]',
   );
   value = value.replaceAll(
-    RegExp(r'(api[_-]?key|access[_-]?token|token|secret|password|uuid)\s*[:=]\s*[^\s,;]+', caseSensitive: false),
+    RegExp(r'(?i)(api[_-]?key|access[_-]?token|token|secret|password|uuid)\s*[:=]\s*[^\s,;]+'),
     r'$1=[REDACTED]',
   );
   value = value.replaceAll(
-    RegExp(r'([?&](?:key|token|auth|password|uuid)=)[^&#\s]+', caseSensitive: false),
+    RegExp(r'(?i)([?&](?:key|token|auth|password|uuid)=)[^&#\s]+'),
     r'$1[REDACTED]',
   );
   value = value.replaceAll(
-    RegExp(r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b', caseSensitive: false),
+    RegExp(r'(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b'),
     '[ID_REDACTED]',
   );
   return value.length > 1200 ? value.substring(0, 1200) : value;
