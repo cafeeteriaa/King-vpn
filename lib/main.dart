@@ -7593,7 +7593,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             _set('بررسی دسترسی اینترنت روی ${s.name}...');
             // two tries: one flaky request must not throw away a good server
             var ok = await internetEndpointsOpen(direct: tunnelMode);
-            if (!ok && !networkProbeDefinite) ok = await internetEndpointsOpen(direct: tunnelMode);
+            if (!ok) ok = await internetEndpointsOpen(direct: tunnelMode);
             s.ai = ok;
             if (ok) _saveSoon();
           }
