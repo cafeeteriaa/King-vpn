@@ -10714,6 +10714,7 @@ ListTile( // KINGEXTRAS row
           if (!mounted) return;
           final transcript = result.recognizedWords.trim();
           if (transcript.isEmpty) return;
+          if (result.finalResult) _smartSpeechOnDeviceAttempt = false;
           _smartSpeechVoiceInput = true;
           setState(() {
             _smartCommandController.value = TextEditingValue(
