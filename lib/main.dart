@@ -23,7 +23,6 @@ import 'prefs_store.dart';
 import 'online_count.dart'; // ONLINECOUNT: شمارش کاربران آنلاین
 import 'nnie_core.dart'; // NNIE: کد خالص و قابل تست
 import 'own_vpn.dart'; // KINGVPN: سرویس VPN خودمان (پیش‌فرض خاموش)
-import 'package:workmanager/workmanager.dart';
 import 'package:crypto/crypto.dart'; // فیکس ۱: sha256 برای APK آپدیت
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // فیکس ۲: کلیدهای AI
 import 'package:webview_flutter/webview_flutter.dart';
@@ -2960,9 +2959,7 @@ Future<void> main() async {
   }, (e, st) => logError(e));
 }
 
-// The old 15-minute background scan is gone: while the VPN is off nothing
-// runs and no data is used. The dispatcher stays only so Workmanager can be
-// initialised and the periodic task of old installs can be cancelled.
+// Background AI repair is opt-in and runs only when the user enables it.
 @pragma('vm:entry-point')
 void callbackDispatcher() => kingAiBackgroundDispatcher();
 
