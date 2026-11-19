@@ -21,6 +21,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_v2ray_client/flutter_v2ray.dart';
 
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:installed_apps/app_info.dart';
 import 'package:installed_apps/installed_apps.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -5467,6 +5469,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     inForeground = s == AppLifecycleState.resumed;
     _appFg = inForeground;
+    if (s == AppLifecycleState.resumed && _pendingUpdateApkPath != null) {
+      _updateChecked = false;
+      unawaited(checkForUpdate());
+    }
     if (s == AppLifecycleState.resumed && _joinPending) {
       // JOINADS: کاربر کانال را باز کرد و برگشت
       _joinPending = false;
