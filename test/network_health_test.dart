@@ -54,6 +54,17 @@ void main() {
     });
 
 
+    test('reports unknown mode when only one domestic endpoint responds', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.degraded,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+      );
+      expect(evidence.mode, DetectedNetworkMode.unknown);
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
+    });
+
     test('does not switch on a single responding endpoint', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.degraded,
