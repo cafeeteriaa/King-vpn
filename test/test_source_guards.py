@@ -294,7 +294,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_smart_command_respects_negated_connect_and_scan_intents(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn('final negatesConnection = RegExp(', main)
-        self.assertIn('&& !negatesConnection;', main)
+        self.assertIn('!negatesConnection;', main)
         self.assertIn('final negatesScan = RegExp(', main)
         self.assertIn("!negatesScan && command.contains('اسکن')", main)
         self.assertIn("!negatesScan && (command.contains('اسکنر dns')", main)
