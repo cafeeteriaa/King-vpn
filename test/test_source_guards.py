@@ -19,6 +19,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Owner authentication is required', public_create)
         self.assertIn('final proposal = await _proposeRepair(', ai)
         self.assertIn('final url = await _createRepairPullRequest(', ai)
+        feature_start = ai.index('Future<Map<String, Object?>> createOwnerFeatureProposal({')
+        feature_end = ai.index('Future<void> dispose()', feature_start)
+        feature = ai[feature_start:feature_end]
+        self.assertIn('hasActiveSession', feature)
+        self.assertIn("'status': 'owner_auth_required'", feature)
+        self.assertIn("baseBranch: 'main'", feature)
+        self.assertIn('createOwnerFeatureProposal(', (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8'))
 
     def test_manual_code_repair_requires_device_owner_but_autonomous_repair_is_separate(self):
         auth = (ROOT / 'lib' / 'king_ai_owner_auth.dart').read_text(encoding='utf-8')
