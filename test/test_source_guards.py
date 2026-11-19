@@ -5,6 +5,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KingVpnSourceGuardTests(unittest.TestCase):
+    def test_smart_pilot_never_forwards_user_code_requests_to_local_coder(self):
+        pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        start = pilot.index('Future<String> _runPilotCommand(String raw)')
+        end = pilot.index('void ensureLocalPilotRunning()', start)
+        dispatcher = pilot[start:end]
+        self.assertIn('این کادر فقط امکانات موجود King VPN', dispatcher)
+        self.assertIn("'کدنویسی کن'", dispatcher)
+        self.assertIn("'add feature'", dispatcher)
+        self.assertNotIn('generateCode(', dispatcher)
+        self.assertNotIn('repairFromFailedCi(', dispatcher)
+
     def test_king_address_is_removed_before_smart_pilot_command_dispatch(self):
         pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
         start = pilot.index('String _normalizePilotText(String raw)')
