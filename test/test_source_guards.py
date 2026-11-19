@@ -36,8 +36,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_home_screen_exposes_one_unified_pilot_action(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         pilot_ui = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
-        self.assertIn("'شروع خلبان هوشمند'", main)
+        self.assertIn('_smartCommandPanel()', main)
+        self.assertIn("'اتصال خلبان'", main)
         self.assertIn('await startLocalPilot();', main)
+        self.assertIn('onTap: null,', main)
         self.assertNotIn("label: const Text('جستجوی سرور با نت ملی')", main)
         ai_bar = pilot_ui[pilot_ui.index('Widget aiBar()'):pilot_ui.index('void aiSheet()')]
         self.assertNotIn('startGrokPilot', ai_bar)
