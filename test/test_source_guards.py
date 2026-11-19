@@ -286,7 +286,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('async { {', console)
         self.assertIn('_busy || !_hasToken ? null : _setupOwnerPassword', console)
         self.assertIn('ابتدا کلید GitHub حساب مالک مخزن', console)
-        self.assertIn("_ownerConfigured && !await _requireOwnerSession('تغییر کلید GitHub')", console)
+        self.assertIn("_ownerConfigured && !await _reauthenticateOwnerForCodeChange()", console)
+        self.assertIn('final valid = await _ownerAuth.authenticate(password);', console)
         for action in ('فعال‌سازی ترمیم خودکار پس‌زمینه','فعال‌سازی کشف خودکار مخزن','توقف ترمیم پس‌زمینه','پاک‌کردن کلید GitHub'):
             self.assertIn(f"_requireOwnerSession('{action}')", console)
 
