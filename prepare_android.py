@@ -140,6 +140,7 @@ def replace_function_braces(file_key, sig_regex, new_func, label):
 mp = os.path.join(APP, 'android/app/src/main/AndroidManifest.xml')
 m = open(mp, encoding='utf-8').read()
 perms = ('<uses-permission android:name="android.permission.INTERNET"/>\n'
+         '    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n'
          '    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>\n'
          '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>\n'
          '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>\n'
@@ -148,6 +149,15 @@ perms = ('<uses-permission android:name="android.permission.INTERNET"/>\n'
          '    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>\n    ')
 if 'QUERY_ALL_PACKAGES' not in m:
     m = m.replace('<application', perms + '<application', 1)
+# speech_to_text uses Android's system recognizer. Keep recognition on-device
+# in Dart and declare package visibility for Android 11+.
+if '<queries>' not in m:
+    speech_queries = ('<queries>\\n'
+                      '        <intent>\\n'
+                      '            <action android:name="android.speech.RecognitionService"/>\\n'
+                      '        </intent>\\n'
+                      '    </queries>\\n    ')
+    m = m.replace('<application', speech_queries + '<application', 1)
 SVC = ('<service android:name="dev.amirzr.flutter_v2ray_client.v2ray.services.V2rayProxyOnlyService"\n'
        '             android:foregroundServiceType="specialUse">\n'
        '            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"\n'
