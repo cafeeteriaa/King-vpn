@@ -12620,7 +12620,7 @@ ListTile( // KINGEXTRAS row
               Expanded(
                   child: Text(
                       personal == null
-                          ? '🏠 ساخت سرور شخصی (Cloudflare) • بزن تا راهنما باز شود'
+                          ? '🏠 سرور شخصی • برای ساخت، تنظیمات را باز کن'
                           : '🏠 سرور شخصی'
                               '${personalMsg.isEmpty ? '' : ' • $personalMsg'}',
                       maxLines: 4,
@@ -12633,7 +12633,7 @@ ListTile( // KINGEXTRAS row
             const Padding(
               padding: EdgeInsets.only(top: 4),
               child: Text(
-                'برای ساخت سرور رایگان نامحدود، ساخت خودکار سرور کلودفلر را بزنید',
+                'برای ساخت یا ویرایش سرور شخصی، آیکون تنظیمات را انتخاب کنید؛ اتصال فقط از کادر فرمان انجام می‌شود',
                 style: TextStyle(fontSize: 12, color: Colors.white70),
               ),
             ),
@@ -14632,21 +14632,6 @@ ListTile( // KINGEXTRAS row
             ]),
           ),
         );
-    Widget searchAllRow(VoidCallback onTap) => InkWell(
-          onTap: onTap,
-          child: Container(
-            width: double.infinity,
-            color: const Color(0xFFD9AE55),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: const Row(children: [
-              Expanded(
-                  child: Text(
-                      '🔍 جستجوی همه • بزن تا بهترین سرور پیدا و وصل شود',
-                      style: TextStyle(fontWeight: FontWeight.bold))),
-              Icon(Icons.play_circle_outline, size: 22),
-            ]),
-          ),
-        );
     final rows = <Object>[];
     // Primary search/connect is routed through the single command field.
 
@@ -14655,18 +14640,18 @@ ListTile( // KINGEXTRAS row
         rows.add(_personalHeader());
         rows.add(rowHeader(
             'f:pfolder',
-            '🗂 سرورهای شخصی • ${personalFolderCache.isEmpty ? 'خالی — سرور اضافه کن یا با ساخت خودکار کلودفلر بساز' : '${personalFolderCache.length} سرور • بزن تا ۱۰۰ تا پینگ و به بهترینش وصل شود'}'));
+            '🗂 سرورهای شخصی • ${personalFolderCache.isEmpty ? 'خالی — سرور اضافه کن یا با ساخت خودکار کلودفلر بساز' : '${personalFolderCache.length} سرور • برای اتصال بنویس «سرور شخصی وصل شو»'}'));
         rows.add(tgProxyRow(context));
       } else if (g == 'f:mine') {
         rows.add(rowHeader(
             g,
             '${titles[g]} • '
-            '${l.isEmpty ? 'خالی — از منو «افزودن کانفیگ» را بزن' : '${l.length} کانفیگ • بزن تا مستقیم وصل شود'}'));
+            '${l.isEmpty ? 'خالی — از منو «افزودن کانفیگ» را انتخاب کن' : '${l.length} کانفیگ • برای اتصال نام کانفیگ را در کادر بنویس'}'));
       } else {
         rows.add(rowHeader(
             g,
             '${titles[g]} • '
-            '${l.isEmpty ? 'سالمی نیست — بزن تا همین‌جا جستجو کنه' : '${l.length} سرور • بهترین: ${l.first.ping ?? '-'}ms'}'));
+            '${l.isEmpty ? 'سالمی نیست — برای جستجو «وصل شو» را در کادر بنویس' : '${l.length} سرور • بهترین: ${l.first.ping ?? '-'}ms • اتصال از کادر فرمان'}'));
       }
       for (final s in l) {
         rows.add(MapEntry(s, g));
