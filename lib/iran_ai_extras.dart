@@ -2578,6 +2578,16 @@ extension HomeExtras on _HomePageState {
       localPilotText.value =
           '⏳ قدرت $_localPower ($_localPowerLabel): پروب + اینترنت + مکان...';
 
+      // When the tunnel is down, re-check the underlying link identity. The
+      // diagnosis cache is keyed by interface identity, so a Wi-Fi/mobile switch
+      // triggers fresh evidence while repeated ticks on the same network are cheap.
+      if (!connected) {
+        final previousMode = nationalMode;
+        await _pilotDetectNetworkMode();
+        if (previousMode != nationalMode) {
+          _applyModePreset(nationalMode, offlineOnly, true);
+        }
+      }
 
       // قدرت را هر تیک با شبکه هماهنگ کن (تمام‌اتوماتیک)
       final wantPower = _localAutoPickPower();
@@ -2801,7 +2811,7 @@ extension HomeExtras on _HomePageState {
     if (connected) return NatNetworkDiagnosis.current;
     try {
       final previousMode = nationalMode;
-      final detected = await NatNetworkDiagnosis.refresh(force: true)
+      final detected = await NatNetworkDiagnosis.refresh()
           .timeout(const Duration(seconds: 7), onTimeout: () => NatNetworkDiagnosis.current);
       final evidence = switch (detected) {
         NatNetworkClass.globalReachable => const NetworkEvidence(
