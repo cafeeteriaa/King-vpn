@@ -1884,7 +1884,7 @@ extension HomeExtras on _HomePageState {
     bool hasAny(List<String> words) => words.any((w) => q.contains(w));
     bool hasAll(List<String> words) => words.every((w) => q.contains(w));
     final asksConnect = hasAny([
-      'وصل', 'اتصال', 'متصل', 'connect', 'شروع اتصال', 'راه بنداز',
+      'وصل', 'اتصال', 'متصل', 'connect', 'شروع اتصال', 'راه بنداز', 'بهترین سرور', 'پیدا کن',
     ]);
     final asksDisconnect = hasAny([
       'قطع اتصال', 'قطع vpn', 'قطع شو', 'قطع کن', 'اتصال را قطع',
@@ -1951,9 +1951,8 @@ extension HomeExtras on _HomePageState {
       final countryMatches = countryFa.entries.where((entry) =>
           q.contains(_normalizePilotText(entry.value)) ||
           q.contains(_normalizePilotText(entry.key))).toList();
-      final asksForTarget = hasAny([
-        'به کشور', 'کشور', 'سرور', 'بهترین', 'از کشور', 'در کشور',
-      ]) || countryMatches.isNotEmpty;
+      final asksForTarget = countryMatches.isNotEmpty ||
+          hasAny(['به کشور', 'کشور ', 'سرور ']) && !hasAny(['بهترین سرور']);
       if (hasAny(['سرور شخصی', 'پوشه شخصی', 'کانفیگ شخصی'])) {
         if (personalFolderCache.isEmpty && personal == null) {
           return 'سرور شخصی آماده‌ای وجود ندارد؛ ابتدا از بخش ساخت/افزودن سرور، یک سرور شخصی ثبت کن.';
@@ -4017,70 +4016,143 @@ class PilotCommandBar extends StatefulWidget {
 }
 class _PilotCommandBarState extends State<PilotCommandBar> {
   final TextEditingController _controller = TextEditingController();
+  final FocusNode _focus = FocusNode();
   bool _sending = false;
-  String _reply = 'نمونه: «وصل شو»، «قطع اتصال»، «لغو جستجو»، «وضعیت اتصال».';
+  String _lastCommand = '';
+  String _reply = 'برای شروع یکی از فرمان‌های آماده را انتخاب کن یا درخواستت را بنویس.';
   @override
-  void dispose() { _controller.dispose(); super.dispose(); }
-  Future<void> _send() async {
+  void dispose() {
+    _controller.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send([String? quickCommand]) async {
     if (_sending) return;
-    final command = _controller.text.trim();
+    final command = (quickCommand ?? _controller.text).trim();
     if (command.isEmpty) return;
-    setState(() => _sending = true);
+    setState(() {
+      _sending = true;
+      _lastCommand = command;
+      _reply = 'در حال تحلیل فرمان و اجرای امن آن…';
+    });
     _controller.clear();
     try {
       final result = await widget.onSubmit(command);
       if (mounted) setState(() => _reply = result);
     } catch (e) {
-      if (mounted) setState(() => _reply = 'اجرای فرمان با خطا روبه‌رو شد: $e');
+      if (mounted) setState(() => _reply = 'اجرای فرمان ناموفق بود: $e');
     } finally {
       if (mounted) setState(() => _sending = false);
     }
   }
+
+  Widget _quickCommand(String label, IconData icon, String command) =>
+      ActionChip(
+        avatar: Icon(icon, size: 16, color: const Color(0xFFFFD98B)),
+        label: Text(label, style: const TextStyle(color: Color(0xFFF2F0EB), fontSize: 11)),
+        backgroundColor: const Color(0xFF303640),
+        side: BorderSide.none,
+        onPressed: _sending ? null : () => _send(command),
+      );
+
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
     child: Container(
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: const Color(0xFF202329),
+      decoration: BoxDecoration(
+        color: const Color(0xFF202329),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFD9AE55), width: 1.2)),
+        border: Border.all(color: const Color(0xFFD9AE55), width: 1.2),
+        boxShadow: const [BoxShadow(color: Color(0x33202020), blurRadius: 10, offset: Offset(0, 3))],
+      ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(children: [
           const Icon(Icons.psychology_alt_outlined, color: Color(0xFFD9AE55), size: 22),
           const SizedBox(width: 8),
           const Expanded(child: Text('فرمان به خلبان هوشمند',
             style: TextStyle(color: Color(0xFFFFE7B0), fontWeight: FontWeight.bold, fontSize: 15))),
-          Text(widget.pilotOn ? 'خلبان روشن' : widget.busy ? 'در حال اجرا' : 'آماده',
-            style: const TextStyle(color: Color(0xFFFFD98B), fontSize: 11)),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: widget.pilotOn ? const Color(0xFF174B35) : const Color(0xFF343941),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(widget.pilotOn ? 'خلبان روشن' : widget.busy ? 'در حال اجرا' : 'آماده',
+              style: const TextStyle(color: Color(0xFFF2F0EB), fontSize: 11)),
+          ),
         ]),
-        const SizedBox(height: 10),
+        const SizedBox(height: 9),
         Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          Expanded(child: TextField(controller: _controller, minLines: 1, maxLines: 3,
-            textDirection: TextDirection.rtl, textInputAction: TextInputAction.send,
+          Expanded(child: TextField(
+            controller: _controller,
+            focusNode: _focus,
+            minLines: 1,
+            maxLines: 3,
+            textDirection: TextDirection.rtl,
+            textInputAction: TextInputAction.send,
             onSubmitted: (_) => _send(),
             style: const TextStyle(color: Color(0xFFF2F0EB), fontSize: 14),
-            decoration: InputDecoration(hintText: 'مثلاً: بهترین سرور را پیدا کن و وصل شو…',
-              hintStyle: const TextStyle(color: Color(0xFF9DA3AD), fontSize: 13),
-              filled: true, fillColor: const Color(0xFF15181D),
+            decoration: InputDecoration(
+              hintText: 'مثلاً: بهترین سرور آلمان را پیدا کن و وصل شو…',
+              hintStyle: const TextStyle(color: Color(0xFF9DA3AD), fontSize: 12.5),
+              filled: true,
+              fillColor: const Color(0xFF15181D),
               contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(13), borderSide: BorderSide.none)))),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(13), borderSide: BorderSide.none),
+              suffixIcon: IconButton(
+                tooltip: 'پاک کردن متن',
+                onPressed: _sending ? null : _controller.clear,
+                icon: const Icon(Icons.close, color: Color(0xFF9DA3AD), size: 18),
+              ),
+            ),
+          )),
           const SizedBox(width: 8),
           SizedBox(width: 52, height: 48, child: FilledButton(
             onPressed: _sending ? null : _send,
-            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFD9AE55),
-              foregroundColor: const Color(0xFF191919), padding: EdgeInsets.zero),
-            child: _sending ? const SizedBox(width: 19, height: 19,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF191919)))
-              : const Icon(Icons.send_rounded))),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFD9AE55),
+              foregroundColor: const Color(0xFF191919),
+              padding: EdgeInsets.zero,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+            ),
+            child: _sending
+              ? const SizedBox(width: 19, height: 19,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF191919)))
+              : const Icon(Icons.send_rounded),
+          )),
         ]),
-        const SizedBox(height: 8),
-        ValueListenableBuilder<String>(valueListenable: widget.localStatus,
-          builder: (_, status, __) => Text(status.isEmpty ? _reply : status,
-            maxLines: 3, overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Color(0xFFCFD2D8), fontSize: 11.5, height: 1.35))),
+        const SizedBox(height: 5),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(children: [
+            _quickCommand('وصل شو', Icons.power_settings_new, 'وصل شو'),
+            const SizedBox(width: 5),
+            _quickCommand('بهترین سرور', Icons.bolt, 'بهترین سرور را پیدا کن و وصل شو'),
+            const SizedBox(width: 5),
+            _quickCommand('وضعیت', Icons.monitor_heart_outlined, 'وضعیت اتصال'),
+            const SizedBox(width: 5),
+            _quickCommand('قطع اتصال', Icons.power_off, 'قطع اتصال'),
+          ]),
+        ),
+        if (_lastCommand.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text('فرمان: $_lastCommand', textDirection: TextDirection.rtl,
+            maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Color(0xFFB6BBC4), fontSize: 10.5)),
+        ],
+        const SizedBox(height: 5),
+        ValueListenableBuilder<String>(
+          valueListenable: widget.localStatus,
+          builder: (_, status, __) => Text(status.isEmpty ? 'خلبان آماده دریافت فرمان است.' : status,
+            maxLines: 2, overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Color(0xFFCFD2D8), fontSize: 11, height: 1.3)),
+        ),
         const SizedBox(height: 4),
-        Text(_reply, maxLines: 2, overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: Color(0xFFFFD98B), fontSize: 11.5)),
+        Text(_reply, textDirection: TextDirection.rtl,
+          maxLines: 3, overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: Color(0xFFFFD98B), fontSize: 11.5, height: 1.3)),
       ]),
     ),
   );
