@@ -40,6 +40,8 @@ void main() {
           KingRequestedNetworkMode.global);
       expect(KingCommandSafety.requestedNetworkMode('شبکه ملی اتصال برقرار کن'),
           KingRequestedNetworkMode.domestic);
+      expect(KingCommandSafety.requestedNetworkMode('اینترنت ملی وصل شو'),
+          KingRequestedNetworkMode.domestic);
       expect(KingCommandSafety.requestedNetworkMode('کینگ نت ملی وصل نشو'), isNull);
       expect(KingCommandSafety.requestedNetworkMode('وضعیت اتصال نت ملی'), isNull);
     });
