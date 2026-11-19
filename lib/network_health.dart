@@ -56,12 +56,12 @@ class NetworkEvidence {
 /// Conservative strategy selection with minimum evidence requirements.
 /// Partial evidence preserves the last strategy instead of guessing.
 PilotNetworkStrategy choosePilotNetworkStrategy(NetworkEvidence evidence) {
-  final domesticUsable = evidence.domestic == LinkHealth.healthy ||
-      evidence.domestic == LinkHealth.degraded;
-  final globalUsable = evidence.global == LinkHealth.healthy ||
-      evidence.global == LinkHealth.degraded;
-  final domesticConfirmed = domesticUsable && evidence.domesticSamples >= 2;
-  final globalConfirmed = globalUsable && evidence.globalSamples >= 2;
+  // A single successful endpoint is only a hint (degraded), not enough to
+  // change the active route. Require the scanner's >=2/3 quorum on each side.
+  final domesticConfirmed = evidence.domestic == LinkHealth.healthy &&
+      evidence.domesticSamples >= 3;
+  final globalConfirmed = evidence.global == LinkHealth.healthy &&
+      evidence.globalSamples >= 3;
   final domesticFailed = evidence.domestic == LinkHealth.unreachable &&
       evidence.domesticSamples >= 2;
   final globalFailed = evidence.global == LinkHealth.unreachable &&
