@@ -24,10 +24,14 @@ class KingAiOwnerAuth {
   static const String _lockUntilKey = 'king_ai_owner_lock_until_v1';
 
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
-  final Pbkdf2 _kdf = Pbkdf2(
-    macAlgorithm: Hmac.sha256(),
-    iterations: 210000,
-    bits: 256,
+  // Argon2id is memory-hard and recommended by the cryptography package
+  // for password hashing. 32 MiB keeps the one-time unlock cost bounded on
+  // mid-range Android devices while resisting large-scale GPU guessing.
+  final Argon2id _kdf = Argon2id(
+    memory: 32 * 1024,
+    parallelism: 2,
+    iterations: 3,
+    hashLength: 32,
   );
 
   DateTime? _sessionExpiresAt;
