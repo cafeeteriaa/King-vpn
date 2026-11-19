@@ -12,10 +12,10 @@ void main() {
     });
 
     test('rejects a mismatch and malformed or missing digest', () {
-      expect(verifySha256Bytes(hello, '0' * 64), isFalse);
+      expect(verifySha256Bytes(hello, List.filled(64, '0').join()), isFalse);
       expect(verifySha256Bytes(hello, ''), isFalse);
       expect(verifySha256Bytes(hello, 'not-a-hash'), isFalse);
-      expect(verifySha256Bytes(hello, 'a' * 63), isFalse);
+      expect(verifySha256Bytes(hello, List.filled(63, 'a').join()), isFalse);
     });
   });
 }
