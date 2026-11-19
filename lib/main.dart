@@ -5704,6 +5704,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _netWatchTimer?.cancel();
     _dbgSaveT?.cancel();
     _dbgProbT?.cancel();
+    _smartCommandController.dispose();
     super.dispose();
   }
 
@@ -10640,6 +10641,124 @@ ListTile( // KINGEXTRAS row
     );
   }
 
+
+  final TextEditingController _smartCommandController = TextEditingController();
+  bool _smartCommandRunning = false;
+
+  Future<void> _runSmartCommand([String? raw]) async {
+    final command = (raw ?? _smartCommandController.text).trim().toLowerCase();
+    if (command.isEmpty || _smartCommandRunning) return;
+    setState(() => _smartCommandRunning = true);
+    try {
+      if (RegExp(r'(قطع|خاموش|disconnect)').hasMatch(command)) {
+        if (localPilotOn) stopLocalPilot();
+        await disconnect();
+        _set('دستور اجرا شد: اتصال قطع شد.');
+      } else if (RegExp(r'(اتصال|شروع).*(خلبان|هوشمند)|(خلبان|هوشمند).*(اتصال|شروع)').hasMatch(command) ||
+          command == 'اتصال' || command == 'connect') {
+        if (aiSession) stopGrokPilot();
+        await startLocalPilot();
+      } else if (command.contains('اسکنر dns') || command.contains('پویش dns')) {
+        dnsxSheet(context);
+      } else if (command.contains('اسکن ip') || command.contains('پویش ip')) {
+        ipAutoSheet(context);
+      } else if (command.contains('اسکن sni') || command.contains('اسکن پورت')) {
+        autoScanSheet(context);
+      } else if (command.contains('ip تمیز') || command.contains('آی پی تمیز')) {
+        cleanIpDialog();
+      } else if (command.contains('پروکسی تلگرام')) {
+        showModalBottomSheet<void>(
+          context: context,
+          isScrollControlled: true,
+          builder: (_) => SafeArea(
+            child: SingleChildScrollView(child: tgProxyRow(context)),
+          ),
+        );
+      } else if (command.contains('بازه') && command.contains('خلبان')) {
+        _pilotRangesDialog(context);
+      } else if (command.contains('اسکن') && command.contains('خلبان')) {
+        await _pilotScanOnly();
+      } else if (command.contains('آلمان') || command.contains('germany') ||
+          command.contains('vless') || command.contains('vmess')) {
+        _set('این محدودیت در حال حاضر هنوز به فیلتر واقعی انتخاب سرور متصل نشده است؛ برای جلوگیری از اتصال اشتباه اجرا نشد.');
+      } else {
+        _set('دستور شناخته نشد. از راهنمای زیر کادر نمونه‌ها را ببین.');
+      }
+    } catch (e, st) {
+      logError(e, st);
+      _set('اجرای دستور با خطا روبه‌رو شد: $e');
+    } finally {
+      if (mounted) setState(() => _smartCommandRunning = false);
+    }
+  }
+
+  Widget _smartCommandPanel() => Padding(
+    padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+    child: Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF151D2A),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0x8874D9FF)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const Row(children: [
+          Icon(Icons.psychology_alt, color: Color(0xFF83DFFF)),
+          SizedBox(width: 8),
+          Expanded(child: Text('مرکز فرمان هوشمند',
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFFE8EDF7)))),
+        ]),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _smartCommandController,
+          minLines: 1,
+          maxLines: 3,
+          textInputAction: TextInputAction.send,
+          onSubmitted: (_) => _runSmartCommand(),
+          style: const TextStyle(color: Color(0xFFE8EDF7)),
+          decoration: InputDecoration(
+            hintText: 'مثلاً: اتصال خلبان، اسکن IP، پروکسی تلگرام، IP تمیز...',
+            hintStyle: const TextStyle(color: Color(0xFF8D9BAD), fontSize: 12),
+            filled: true,
+            fillColor: const Color(0xFF0D1420),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            suffixIcon: IconButton(
+              tooltip: 'پاک کردن',
+              onPressed: () => _smartCommandController.clear(),
+              icon: const Icon(Icons.close),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        FilledButton.icon(
+          onPressed: _smartCommandRunning ? null : () => _runSmartCommand(),
+          icon: _smartCommandRunning
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.play_arrow),
+          label: Text(_smartCommandRunning ? 'در حال اجرا...' : 'اجرای دستور'),
+        ),
+        ExpansionTile(
+          tilePadding: EdgeInsets.zero,
+          childrenPadding: const EdgeInsets.only(bottom: 4),
+          title: const Text('راهنما و نمونه دستورها', style: TextStyle(color: Color(0xFFD9E6F4), fontSize: 13)),
+          children: const [
+            Align(alignment: Alignment.centerRight, child: Text(
+              'اتصال خلبان • قطع اتصال • اسکنر DNS • اسکن IP • اسکن SNI و پورت\nIP تمیز • پروکسی تلگرام • بازه‌های IP خلبان • اسکن IP خلبان',
+              textAlign: TextAlign.right,
+              style: TextStyle(color: Color(0xFF9EADBF), fontSize: 12),
+            )),
+            SizedBox(height: 6),
+            Align(alignment: Alignment.centerRight, child: Text(
+              'فیلتر کشور و پروتکل تا زمان اتصال کامل به موتور انتخاب سرور اجرا نمی‌شوند و سیستم به‌جای حدس‌زدن، آن‌ها را رد می‌کند.',
+              textAlign: TextAlign.right,
+              style: TextStyle(color: Color(0xFFFFD18A), fontSize: 11),
+            )),
+          ],
+        ),
+      ]),
+    ),
+  );
+
   // اسکن IP بدون تغییر تنظیمات دیگر: در هر دور نت ملی اجرا می‌شود
   Future<void> _natScanOnly() async {
     try {
@@ -15256,6 +15375,7 @@ UiHero(
               ],
             ),
           ),
+          _smartCommandPanel(),
           UiStatus(text: status, on: connected),
           if (localPilotOn)
             Padding(
@@ -15347,37 +15467,20 @@ UiHero(
                   shape: const StadiumBorder()),
             ),
           ),
-          UiTools(items: [
-            UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),
-            UiTool(Icons.travel_explore_outlined, 'اسکنر DNS', () => dnsxSheet(context)), // DNSSCAN
-            UiTool(Icons.radar, 'اسکن خودکار IP', () => ipAutoSheet(context)), // IPAUTO
-            UiTool(Icons.auto_awesome, 'اسکن خودکار SNI و پورت', () => autoScanSheet(context)), // AUTOSCAN
-            UiTool(Icons.security, sniSpoofAll ? 'جعل SNI: روشن ✓' : 'جعل SNI: خاموش', () { setState(() => sniSpoofAll = !sniSpoofAll); _saveSettings(); _set(sniSpoofAll ? 'جعل SNI روشن شد' : 'جعل SNI خاموش شد'); }),
-            UiTool(Icons.cloud_off_outlined, sniCfOn ? 'جعل SNI کلودفلر: روشن' : 'جعل SNI کلودفلر: خاموش', () { setState(() => sniCfOn = !sniCfOn); _saveSettings(); _set(sniCfOn ? 'جعل SNI برای کلودفلر روشن شد' : 'جعل SNI برای کلودفلر خاموش شد'); }),
-            UiTool(Icons.support_agent, 'ارتباط با ادمین', () => _uiOpenAdmin(context)),
-            UiTool(Icons.link, 'لینک‌های اشتراک کانفیگ', () => _userListsDialog(context)),
-            UiTool(Icons.add_home_outlined, 'ساخت سرور شخصی', () => _guideSheet()), // BUILDGUIDE: این کاشی مستقیم راهنما و سایت‌های سرورساز را باز می‌کند، بدون پرسش
-            UiTool(Icons.cloud_upload_outlined, 'ساخت خودکار سرور (کلودفلر)', () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CloudflareAutoDeployPage()))),
-            UiTool(Icons.shopping_cart_outlined, 'خرید سرور شخصی', () => serverShopOpen(context)),
-            UiTool(Icons.campaign_outlined, 'کانال‌های تلگرامی', () => telegramChannelsOpen(context)),
-            UiTool(Icons.cleaning_services_outlined, 'IP تمیز', () => cleanIpDialog()),
-            UiTool(Icons.send_outlined, 'پروکسی تلگرام', () => showModalBottomSheet(
-                context: context,
-                isScrollControlled: true,
-                builder: (_) => SafeArea(
-                    child: SingleChildScrollView(child: tgProxyRow(context))))),
-            UiTool(Icons.push_pin_outlined, 'کانفیگ‌های من', () => pickEngineThenStart(() => connectRow('f:mine'), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
-            UiTool(Icons.auto_awesome, 'سرورهای AI', () async {
-              await pickEngineThenStart(() => connectRow('r:ai'));
-            }),
-            UiTool(Icons.pin_outlined, 'اتصال با IP', () => pickEngineThenStart(() => connectRow('r:ip'), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
-            UiTool(Icons.cloud_outlined, 'CDN / کلودفلر', () => pickEngineThenStart(() => connectRow('r:cdn'), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
-            UiTool(Icons.shield_outlined, 'Reality', () => pickEngineThenStart(() => connectRow('r:reality'), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
-            UiTool(Icons.power_outlined, 'WebSocket', () => pickEngineThenStart(() => connectRow('r:ws'), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
-            UiTool(Icons.favorite_border, 'حمایت از ما', () => donateSheet(context)),
-            UiTool(Icons.menu_book_outlined, 'راهنما', () => Navigator.push(
-                context, MaterialPageRoute(builder: (_) => const HelpPage()))),
-          ]),
+          ExpansionTile(
+            leading: const Icon(Icons.folder_open, color: Color(0xFFF0C766)),
+            title: const Text('متفرقه'),
+            children: [
+              ListTile(leading: const Icon(Icons.support_agent), title: const Text('ارتباط با ادمین'), onTap: () => _uiOpenAdmin(context)),
+              ListTile(leading: const Icon(Icons.link), title: const Text('لینک‌های اشتراک کانفیگ'), onTap: () => _userListsDialog(context)),
+              ListTile(leading: const Icon(Icons.add_home_outlined), title: const Text('ساخت سرور شخصی'), onTap: () => _guideSheet()),
+              ListTile(leading: const Icon(Icons.cloud_upload_outlined), title: const Text('ساخت خودکار سرور کلودفلر'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CloudflareAutoDeployPage()))),
+              ListTile(leading: const Icon(Icons.shopping_cart_outlined), title: const Text('خرید سرور شخصی'), onTap: () => serverShopOpen(context)),
+              ListTile(leading: const Icon(Icons.campaign_outlined), title: const Text('کانال‌های تلگرامی'), onTap: () => telegramChannelsOpen(context)),
+              ListTile(leading: const Icon(Icons.favorite_border), title: const Text('حمایت از ما'), onTap: () => donateSheet(context)),
+              ListTile(leading: const Icon(Icons.menu_book_outlined), title: const Text('راهنمای کامل'), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HelpPage()))),
+            ],
+          ),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 12),
