@@ -159,7 +159,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         for phrase in ('کد رو اصلاح', 'سورس رو تغییر', 'برنامه را تغییر', 'قابلیت بساز'):
             self.assertIn(phrase, ai)
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
-        code_start = main.index('final codeRequest = RegExp(')
+        code_start = main.index('final codeRequest = !KingCommandSafety.isQuestionRequest(command) && RegExp(')
         code_end = main.index(').hasMatch(command);', code_start)
         self.assertIn('کدشو بنویس', main[code_start:code_end])
         self.assertIn('قابلیت اضافه', main[code_start:code_end])
