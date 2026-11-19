@@ -2506,7 +2506,7 @@ extension HomeExtras on _HomePageState {
         return base;
       }
       final action = decoded['action'] as String;
-      final confidence = (decoded['confidence'] as num).round().clamp(0, 100);
+      final confidence = (decoded['confidence'] as num).round().clamp(0, 100).toInt();
       final reason = (decoded['reason'] as String).trim();
       if (confidence < 88 ||
           !const {'none', 'connect', 'switch_best', 'soft_recover'}.contains(action)) {
@@ -2545,7 +2545,7 @@ extension HomeExtras on _HomePageState {
           base.action,
           base.settings,
           '${base.explain} • بازبینی مدل محلی: ${reason.isEmpty ? "تأیید شد" : reason}',
-          confidence: min(base.confidence, confidence),
+          confidence: min(base.confidence, confidence).toInt(),
         );
       }
       if (action == 'none' &&
