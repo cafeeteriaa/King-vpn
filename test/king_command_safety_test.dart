@@ -10,6 +10,9 @@ void main() {
       expect(KingCommandSafety.negatesConnection('اتصال را شروع نکن'), isTrue);
       expect(KingCommandSafety.negatesConnection('کینگ وصل نشو'), isTrue);
       expect(KingCommandSafety.negatesConnection('اتصال نداشته باش'), isTrue);
+      expect(KingCommandSafety.negatesConnection('قطع نکن'), isTrue);
+      expect(KingCommandSafety.negatesConnection("don't disconnect"), isTrue);
+      expect(KingCommandSafety.negatesConnection('do not connect'), isTrue);
       expect(KingCommandSafety.negatesConnection('کینگ وصل شو'), isFalse);
       expect(KingCommandSafety.negatesConnection('اتصال خلبان را شروع کن'), isFalse);
     });
@@ -19,6 +22,7 @@ void main() {
       expect(KingCommandSafety.negatesScan('نمیخوام اسکن IP انجام بدی'), isTrue);
       expect(KingCommandSafety.negatesScan('نمی‌خوام اسکن DNS انجام بدی'), isTrue);
       expect(KingCommandSafety.negatesScan('اسکن را انجام نده'), isTrue);
+      expect(KingCommandSafety.negatesScan("don't scan"), isTrue);
       expect(KingCommandSafety.negatesScan('اسکن خلبان را شروع کن'), isFalse);
       expect(KingCommandSafety.negatesScan('پویش DNS را آغاز کن'), isFalse);
     });
