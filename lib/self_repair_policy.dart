@@ -147,7 +147,7 @@ bool isAllowedSourcePatchPath(String path) {
       path.split('/').any((part) => part.isEmpty || part == '.' || part == '..')) {
     return false;
   }
-  return allowedSourcePatchRoots.any(path.startsWith);
+  return allowedSourcePatchRoots.any((root) => path.startsWith(root));
 }
 
 PatchGateResult validateSourcePatch(PatchGateInput input) {
