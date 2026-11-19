@@ -5,6 +5,25 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KingVpnSourceGuardTests(unittest.TestCase):
+    def test_manual_code_repair_requires_device_owner_but_autonomous_repair_is_separate(self):
+        auth = (ROOT / 'lib' / 'king_ai_owner_auth.dart').read_text(encoding='utf-8')
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        worker = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
+        console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
+        self.assertIn('Pbkdf2(', auth)
+        self.assertIn('iterations: 210000', auth)
+        self.assertIn('FlutterSecureStorage', auth)
+        self.assertIn('_maxFailuresBeforeLock', auth)
+        self.assertIn('sessionLifetime', auth)
+        manual = ai[ai.index('Future<Map<String, Object?>> repairFromFailedCi({'):
+                    ai.index('Future<Map<String, Object?>> repairFromFailedCiAutonomous({')]
+        self.assertIn('hasActiveSession', manual)
+        self.assertIn("'status': 'owner_auth_required'", manual)
+        self.assertIn('repairFromFailedCiAutonomous(', worker)
+        self.assertIn('_ownerAuth.setInitialPassword(password)', console)
+        self.assertIn('_ownerAuth.authenticate(password)', console)
+        self.assertIn('if (!_ownerAuth.hasActiveSession)', console)
+
     def test_no_additional_engine_scaffolding_remains(self):
         self.assertFalse((ROOT / 'lib' / 'engine_registry.dart').exists())
         self.assertFalse((ROOT / 'lib' / 'singbox_core.dart').exists())
