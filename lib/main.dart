@@ -10052,6 +10052,7 @@ ListTile( // KINGEXTRAS row
     try {
       while (mounted &&
           nationalMode &&
+          localPilotOn &&
           !appGone &&
           !abort &&
           DateTime.now().difference(startedAt) < const Duration(hours: 8)) {
@@ -10063,7 +10064,7 @@ ListTile( // KINGEXTRAS row
           autoCycle = true;
           // NATRANGE: پس‌زمینه، هر ۵ دقیقه، بخشی کم از بازه‌های IP با سرعت کم
           // NATPENDCAP: اگر pending از سقف گذشته، اسکن بازه‌ی جدید اضافه نکن
-          if (cpuHot == 0 &&
+          if (localPilotOn && cpuHot == 0 &&
               DateTime.now().difference(natRangeLast) >
                   const Duration(minutes: 5) &&
               pending.length < 3000) {
@@ -15250,6 +15251,29 @@ UiHero(
             ),
           ),
           UiStatus(text: status, on: connected),
+          if (localPilotOn)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 2, 14, 8),
+              child: Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: _natRangesDialog(context),
+                    icon: const Icon(Icons.tune, size: 17),
+                    label: const Text('بازه‌های IP اختصاصی خلبان'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _natRangeScanBusy
+                        ? null
+                        : () => unawaited(_natScanOnly()),
+                    icon: const Icon(Icons.radar, size: 17),
+                    label: const Text('پویش IP اختصاصی خلبان'),
+                  ),
+                ],
+              ),
+            ),
           ValueListenableBuilder<String>(
             valueListenable: localPilotText,
             builder: (_, text, __) => Padding(
@@ -15319,7 +15343,6 @@ UiHero(
           ),
           UiTools(items: [
             UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),
-            UiTool(Icons.router, 'بازه‌های IP نت ملی', () => _natRangesDialog(context)),
             UiTool(Icons.travel_explore_outlined, 'اسکنر DNS', () => dnsxSheet(context)), // DNSSCAN
             UiTool(Icons.radar, 'اسکن خودکار IP', () => ipAutoSheet(context)), // IPAUTO
             UiTool(Icons.auto_awesome, 'اسکن خودکار SNI و پورت', () => autoScanSheet(context)), // AUTOSCAN
