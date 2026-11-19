@@ -1874,15 +1874,14 @@ extension HomeExtras on _HomePageState {
         .replaceAll('ي', 'ی').replaceAll('ك', 'ک')
         .replaceAll('ۀ', 'ه').replaceAll('ة', 'ه')
         .replaceAll('‌', ' ')
-        .replaceAll(RegExp(r'[،,؛;.!?؟:()\\[\\]{}]+'), ' ')
-        .replaceAll(RegExp(r'\\s+'), ' ');
+        .replaceAll(RegExp(r'[،,؛;.!?؟:]+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ');
   }
 
   Future<String> _runPilotCommand(String raw) async {
     final q = _normalizePilotText(raw);
     if (q.isEmpty) return 'فرمان خالی است؛ مثلاً «وصل شو» یا «وضعیت اتصال» را بنویس.';
     bool hasAny(List<String> words) => words.any((w) => q.contains(w));
-    bool hasAll(List<String> words) => words.every((w) => q.contains(w));
     final asksConnect = hasAny([
       'وصل', 'اتصال', 'متصل', 'connect', 'شروع اتصال', 'راه بنداز', 'بهترین سرور', 'پیدا کن',
     ]);
@@ -1891,7 +1890,7 @@ extension HomeExtras on _HomePageState {
       'خاموش کردن vpn', 'disconnect',
     ]);
     final asksCancel = hasAny([
-      'لغو', 'کنسل', 'متوقف کن', 'توقف جستجو', 'لغو جستجو', 'cancel',
+      'لغو', 'کنسل', 'توقف جستجو', 'لغو جستجو', 'توقف عملیات', 'cancel',
     ]);
 
     // Help and read-only status must never trigger a connection action.
@@ -1948,9 +1947,12 @@ extension HomeExtras on _HomePageState {
     // Country/server targeting is evaluated before the generic "best server"
     // command so "best server in Germany" cannot degrade into a generic scan.
     if (asksConnect) {
-      final countryMatches = countryFa.entries.where((entry) =>
-          q.contains(_normalizePilotText(entry.value)) ||
-          q.contains(_normalizePilotText(entry.key))).toList();
+      final countryMatches = countryFa.entries.where((entry) {
+        final name = _normalizePilotText(entry.value);
+        final code = _normalizePilotText(entry.key);
+        return (name.length >= 3 && q.contains(name)) ||
+            (code.length >= 3 && q.split(' ').contains(code));
+      }).toList();
       final asksForTarget = countryMatches.isNotEmpty ||
           hasAny(['به کشور', 'کشور ', 'سرور ']) && !hasAny(['بهترین سرور']);
       if (hasAny(['سرور شخصی', 'پوشه شخصی', 'کانفیگ شخصی'])) {
