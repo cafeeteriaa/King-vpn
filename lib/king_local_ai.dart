@@ -342,9 +342,9 @@ empty changes list and explain what is missing.
           ? prompt.substring(0, 18000)
           : prompt;
       final generation = engine.generate(
-        '<|im_start|>system\\n$systemPrompt<|im_end|>\\n'
-        '<|im_start|>user\\n$safePrompt<|im_end|>\\n'
-        '<|im_start|>assistant\\n',
+        '<|im_start|>system\n$systemPrompt<|im_end|>\n'
+        '<|im_start|>user\n$safePrompt<|im_end|>\n'
+        '<|im_start|>assistant\n',
         GenerationOptions(
           sampling: SamplingOptions(maxTokens: maxTokens),
           stop: const ['<|im_end|>'],
