@@ -43,6 +43,13 @@ class ReleaseSigningConfigurationTests(unittest.TestCase):
         self.assertIn("KING_UPDATE_GIST_TOKEN: ${{ secrets.KING_UPDATE_GIST_TOKEN }}", workflow)
         self.assertNotIn(r"\${{ secrets.KING_UPDATE_GIST_TOKEN }}", workflow)
 
+    def test_release_is_limited_to_merged_main_and_semver_tags(self):
+        workflow = (ROOT / ".github" / "workflows" / "signed-release.yml").read_text(encoding="utf-8")
+        self.assertIn("git merge-base --is-ancestor", workflow)
+        self.assertIn("Release tags must point to a commit already merged into main.", workflow)
+        self.assertIn("^\\\\d+\\\\.[0-9]+\\\\.[0-9]+$", workflow)
+        self.assertIn("keytool -list -keystore", workflow)
+
     def test_signed_release_resolves_package_info_plus_used_by_updater(self):
         workflow = (ROOT / ".github" / "workflows" / "signed-release.yml").read_text(encoding="utf-8")
         self.assertIn("path_provider package_info_plus speech_to_text", workflow)
