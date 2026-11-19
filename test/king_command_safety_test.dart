@@ -33,6 +33,15 @@ void main() {
       expect(KingCommandSafety.negatesConnection('اتصال خلبان را شروع کن'), isFalse);
     });
 
+    test('connect intent recognises متصل and rejects status/negated commands', () {
+      expect(KingCommandSafety.isConnectIntent('به نت ملی متصل شو'), isTrue);
+      expect(KingCommandSafety.isConnectIntent('کینگ متصل شو'), isTrue);
+      expect(KingCommandSafety.isConnectIntent('کینگ نت جهانی وصل شو'), isTrue);
+      expect(KingCommandSafety.isConnectIntent('وضعیت اتصال نت ملی'), isFalse);
+      expect(KingCommandSafety.isConnectIntent('کینگ نت ملی وصل نشو'), isFalse);
+      expect(KingCommandSafety.isConnectIntent('لطفاً اتصال را شروع نکن'), isFalse);
+    });
+
     test('explicit domestic and global network requests are distinguished', () {
       expect(KingCommandSafety.requestedNetworkMode('کینگ نت ملی وصل شو'),
           KingRequestedNetworkMode.domestic);
