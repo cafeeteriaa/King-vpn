@@ -64,21 +64,21 @@ if flutter_root:
     if os.path.isfile(flutter_gradle_settings):
         with open(flutter_gradle_settings, encoding='utf-8') as f:
             sdk_settings = f.read()
-        pm = re.search(r'pluginManagement\\s*\\{', sdk_settings)
+        pm = re.search(r'pluginManagement\s*\{', sdk_settings)
         if not pm:
             sdk_settings = (
-                'pluginManagement {\\n'
-                '    repositories { google(); mavenCentral(); gradlePluginPortal() }\\n'
-                '}\\n\\n' + sdk_settings
+                'pluginManagement {\n'
+                '    repositories { google(); mavenCentral(); gradlePluginPortal() }\n'
+                '}\n\n' + sdk_settings
             )
         else:
             repo_match = re.search(
-                r'repositories\\s*\\{', sdk_settings[pm.end():]
+                r'repositories\s*\{', sdk_settings[pm.end():]
             )
             if not repo_match:
                 sdk_settings = (
                     sdk_settings[:pm.end()] +
-                    '\\n    repositories { google(); mavenCentral(); gradlePluginPortal() }' +
+                    '\n    repositories { google(); mavenCentral(); gradlePluginPortal() }' +
                     sdk_settings[pm.end():]
                 )
             else:
@@ -88,14 +88,14 @@ if flutter_root:
                     raise SystemExit('HARD FAIL: malformed Flutter SDK pluginManagement repositories')
                 repo_body = sdk_settings[repo_open:repo_close]
                 additions = []
-                if not re.search(r'\\bgoogle\\s*\\(\\s*\\)', repo_body):
+                if not re.search(r'\bgoogle\s*\(\s*\)', repo_body):
                     additions.append('google()')
-                if not re.search(r'\\bmavenCentral\\s*\\(\\s*\\)', repo_body):
+                if not re.search(r'\bmavenCentral\s*\(\s*\)', repo_body):
                     additions.append('mavenCentral()')
                 if additions:
                     sdk_settings = (
                         sdk_settings[:repo_open] +
-                        '\\n        ' + '\\n        '.join(additions) +
+                        '\n        ' + '\n        '.join(additions) +
                         sdk_settings[repo_open:]
                     )
         with open(flutter_gradle_settings, 'w', encoding='utf-8') as f:
