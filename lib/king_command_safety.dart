@@ -48,7 +48,7 @@ class KingCommandSafety {
     if (isStatusRequest(value) || negatesConnection(value)) return null;
     final asksToConnect = RegExp(r'(اتصال|وصل|متصل|connect)').hasMatch(value);
     if (!asksToConnect) return null;
-    if (RegExp(r'(نت\s*ملی|شبکه\s*ملی|اینترنت\s*داخلی|مسیر\s*داخلی)')
+    if (RegExp(r'(نت\s*ملی|شبکه\s*ملی|اینترنت\s*ملی|اینترنت\s*داخلی|مسیر\s*داخلی)')
         .hasMatch(value)) {
       return KingRequestedNetworkMode.domestic;
     }
