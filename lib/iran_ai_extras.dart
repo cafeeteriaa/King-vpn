@@ -1770,38 +1770,47 @@ extension HomeExtras on _HomePageState {
     return _LocalDecision(act, set, why.toString().trim(), confidence: conf);
   }
 
-  // Standby ranking uses only evidence relevant to the active network class.
+  // Use one scoring function for both the current endpoint and standby
+  // candidates, so both are compared on the same evidence scale.
+  double _pilotStandbyScore(Server s) {
+    var score = 0.0;
+    // Service bits/throughput are global-service evidence, so never reward
+    // them in domestic-only mode. Tunnel history applies in BOTH modes.
+    if (!nationalMode && s.svc >= 0) {
+      score += ((s.svc & 1) != 0 ? 40 : 0) +
+          ((s.svc & 2) != 0 ? 30 : 0) +
+          ((s.svc & 4) != 0 ? 20 : 0);
+      score += (s.speed ?? 0) * 50;
+    }
+    final ping = s.ping;
+    if (ping != null && ping > 0) score += max(0, 100 - ping / 15);
+    // Fresh live evidence dominates; verified history remains a modest signal.
+    final learned = NationalNetworkIntelligence.scoreFor(
+      NationalNetworkIntelligence.keyOfServer(s),
+    );
+    score += (learned.clamp(-20.0, 100.0) * 0.25).toDouble();
+    score += (_profRate(s) - 0.5) * 30;
+    return score;
+  }
+
+  // Hysteresis: don't disrupt a working tunnel for a marginal score gain.
+  // A 12-point margin filters noisy ping/throughput fluctuations.
   Server? _pilotBestStandby() {
     final candidates = _pickList()
         .where((s) => !identical(s, current) && !_bad(s))
         .toList();
     Server? best;
-    double bestScore = -1e12;
+    var bestScore = -1e12;
     for (final s in candidates) {
-      var score = 0.0;
-      // Service bits/throughput are global-service evidence, so never reward
-      // them in domestic-only mode. Tunnel history below is independent and
-      // applies in BOTH modes after end-to-end traffic verification.
-      if (!nationalMode && s.svc >= 0) {
-        score += ((s.svc & 1) != 0 ? 40 : 0) +
-            ((s.svc & 2) != 0 ? 30 : 0) +
-            ((s.svc & 4) != 0 ? 20 : 0);
-        score += (s.speed ?? 0) * 50;
-      }
-      final ping = s.ping;
-      if (ping != null && ping > 0) score += max(0, 100 - ping / 15);
-      // Keep learned history modest: fresh live evidence dominates, while
-      // proven reliability helps even when the route mode changes.
-      final learned = NationalNetworkIntelligence.scoreFor(
-        NationalNetworkIntelligence.keyOfServer(s),
-      );
-      score += (learned.clamp(-20.0, 100.0) * 0.25).toDouble();
-      score += (_profRate(s) - 0.5) * 30;
+      final score = _pilotStandbyScore(s);
       if (score > bestScore) {
         bestScore = score;
         best = s;
       }
     }
+    final active = current;
+    if (best == null || active == null) return best;
+    if (bestScore < _pilotStandbyScore(active) + 12.0) return null;
     return best;
   }
 
