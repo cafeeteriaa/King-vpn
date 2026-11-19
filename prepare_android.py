@@ -220,10 +220,10 @@ if flutter_root:
             continue
         with open(flutter_settings, encoding='utf-8') as f:
             flutter_settings_text = f.read()
-        pm = re.search(r'pluginManagement\\s*\\{', flutter_settings_text)
+        pm = re.search(r'pluginManagement\s*\{', flutter_settings_text)
         if not pm:
             continue
-        repo_match = re.search(r'repositories\\s*\\{', flutter_settings_text[pm.end():])
+        repo_match = re.search(r'repositories\s*\{', flutter_settings_text[pm.end():])
         if not repo_match:
             continue
         repo_open = pm.end() + repo_match.end() - 1
@@ -244,7 +244,7 @@ if flutter_root:
             insert_at = repo_open + 1
             flutter_settings_text = (
                 flutter_settings_text[:insert_at]
-                + '\\n        mavenCentral()'
+                + '\n        mavenCentral()'
                 + flutter_settings_text[insert_at:]
             )
             with open(flutter_settings, 'w', encoding='utf-8') as f:
