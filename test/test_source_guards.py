@@ -290,6 +290,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         for action in ('فعال‌سازی ترمیم خودکار پس‌زمینه','فعال‌سازی کشف خودکار مخزن','توقف ترمیم پس‌زمینه','پاک‌کردن کلید GitHub'):
             self.assertIn(f"_requireOwnerSession('{action}')", console)
 
+    def test_daily_autonomous_source_audit_is_owner_enabled_and_review_only(self):
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        worker = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
+        start = ai.index('Future<Map<String, Object?>> createAutonomousMaintenanceProposal(')
+        end = ai.index('static const Set<String> _researchHosts', start)
+        audit = ai[start:end]
+        self.assertIn('isBackgroundAutoDiscoveryEnabled()', audit)
+        self.assertIn("Duration(hours: 24)", audit)
+        self.assertIn('changes.length <= 2', audit)
+        self.assertIn('context.containsKey(entry.key)', audit)
+        self.assertIn('_createRepairPullRequest(', audit)
+        self.assertNotIn('createRepairPullRequest(', audit)
+        self.assertIn('_auditTaskName', worker)
+        self.assertIn('frequency: const Duration(hours: 24)', worker)
+        self.assertIn('await Workmanager().cancelByTag(_auditTag)', worker)
+
     def test_official_iran_network_research_is_scheduled_automatically(self):
         worker = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
         self.assertIn('await _scheduleOfficialResearch();', worker)

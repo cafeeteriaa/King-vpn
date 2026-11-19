@@ -1172,6 +1172,7 @@ empty changes list and explain what is missing.
     );
     if (context.isEmpty) {
       await stateFile.writeAsString(jsonEncode({
+        ...state,
         'attempts': attempts + 1,
         'lastAttemptAt': now.toIso8601String(),
       }), flush: true);
@@ -1182,6 +1183,7 @@ empty changes list and explain what is missing.
     final changes = proposal['changes'] as Map<String, String>;
     if (changes.isEmpty) {
       await stateFile.writeAsString(jsonEncode({
+        ...state,
         'attempts': attempts + 1,
         'lastAttemptAt': now.toIso8601String(),
         'lastSummary': proposal['summary'],
@@ -1192,6 +1194,20 @@ empty changes list and explain what is missing.
       };
     }
 
+    final safeCandidate = changes.length <= 2 &&
+        changes.entries.every((entry) =>
+            (entry.key.startsWith('lib/') || entry.key.startsWith('test/')) &&
+            context.containsKey(entry.key) &&
+            context[entry.key] != entry.value);
+    if (!safeCandidate) {
+      await stateFile.writeAsString(jsonEncode({
+        ...state,
+        'attempts': attempts + 1,
+        'lastAttemptAt': now.toIso8601String(),
+        'lastSummary': 'Candidate exceeded the narrow source/test scope or contained no actual diff.',
+      }), flush: true);
+      return {'status': 'candidate_outside_safe_scope'};
+    }
     final canonical = changes.entries.toList()
       ..sort((a, b) => a.key.compareTo(b.key));
     final hash = sha256.convert(utf8.encode(jsonEncode(
