@@ -5,6 +5,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KingVpnSourceGuardTests(unittest.TestCase):
+    def test_github_token_is_verified_as_repository_owner_before_use(self):
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        start = ai.index('Future<void> saveGitHubToken(String token)')
+        end = ai.index('Future<bool> hasGitHubToken()', start)
+        save = ai[start:end]
+        self.assertIn("_requireRepositoryOwnerIdentity('cafeeteriaa')", save)
+        self.assertIn('final previous = await _secure.read', save)
+        self.assertIn('await _secure.write(key: \'king_ai_github_token\', value: previous)', save)
+        self.assertIn('rethrow;', save)
+
     def test_code_writes_require_matching_github_repository_owner_identity(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
         helper_start = ai.index('Future<void> _requireRepositoryOwnerIdentity(')
