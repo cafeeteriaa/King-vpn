@@ -400,7 +400,7 @@ extension PlusExt on _HomePageState {
                   await _plusAddFromText(t);
                 }),
                 tile(Icons.copy_all, 'کپی سرورهای پوشه (نت ملی)', () async {
-                  final l = _resMap.values.whereType<_NatResItem>().map((e) => e.link).toList();
+                  final l = _resMap.values.map((e) => e.link).toList();
                   await Clipboard.setData(ClipboardData(text: l.join('\n')));
                   _set('${l.length} سرور پوشه کپی شد');
                 }),
