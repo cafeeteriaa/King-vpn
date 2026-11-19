@@ -214,9 +214,11 @@ class NatNetworkDiagnosis {
       final dnsF = Future.wait(
           _globalResolvers.map((r) => NatDnsWireProbe.probe(r, 'google.com')));
       final domesticDnsF = Future.wait(
-        for (final resolver in _domesticResolvers)
-          for (final domain in _domesticDnsNames)
-            NatDnsWireProbe.probe(resolver, domain),
+        <Future<NatDnsProbeResult>>[
+          for (final resolver in _domesticResolvers)
+            for (final domain in _domesticDnsNames)
+              NatDnsWireProbe.probe(resolver, domain),
+        ],
       );
       final domesticTcp = await domesticF;
       final globalTcp = await globalF;
