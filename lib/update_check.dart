@@ -16,26 +16,69 @@ extension UpdateCheck on _HomePageState {
     try {
       await Future.delayed(const Duration(seconds: 2));
       if (!mounted) return;
-      final r = await http
-          .get(Uri.parse(updateConfigUrl))
-          .timeout(const Duration(seconds: 12));
-      if (r.statusCode != 200) return;
-      final j = jsonDecode(r.body);
-      if (j is! Map) return;
-      final map = Map<String, dynamic>.from(j);
+      final response = await http
+          .get(
+            Uri.parse(updateConfigUrl),
+            headers: const {
+              'Accept': 'application/vnd.github+json',
+              'User-Agent': 'King-VPN-Android-Updater',
+            },
+          )
+          .timeout(const Duration(seconds: 15));
+      if (response.statusCode != 200) return;
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map) return;
+      final release = Map<String, dynamic>.from(decoded);
+      if (release['draft'] == true || release['prerelease'] == true) return;
 
-      final heal = map['heal'];
-      if (heal is Map) {
-        _remoteHeal = Map<String, dynamic>.from(heal);
-        _applyRemoteHeal();
+      final body = (release['body'] ?? '').toString();
+      final latest = int.tryParse(
+            RegExp(r'(?m)^KING_BUILD:\s*(\d+)\s*$')
+                    .firstMatch(body)
+                    ?.group(1) ??
+                '',
+          ) ??
+          0;
+      final minimumBuild = int.tryParse(
+            RegExp(r'(?m)^KING_MIN_BUILD:\s*(\d+)\s*$')
+                    .firstMatch(body)
+                    ?.group(1) ??
+                '',
+          ) ??
+          0;
+      final sha256Expected = RegExp(
+        r'(?im)^SHA256:\s*([a-f0-9]{64})\s*$',
+      ).firstMatch(body)?.group(1)?.toLowerCase() ?? '';
+
+      final assets = release['assets'] is List
+          ? release['assets'] as List
+          : const <dynamic>[];
+      final apkAsset = assets.whereType<Map>().firstWhere(
+            (asset) => asset['name']?.toString() == 'king-vpn.apk',
+            orElse: () => const <String, Object?>{},
+          );
+      final apk = apkAsset['browser_download_url']?.toString() ?? '';
+      final apkUri = Uri.tryParse(apk);
+      final releaseUrl = release['html_url']?.toString() ?? '';
+      final releaseUri = Uri.tryParse(releaseUrl);
+      if (latest <= 0 ||
+          sha256Expected.length != 64 ||
+          apkUri == null ||
+          apkUri.scheme != 'https' ||
+          apkUri.host != 'github.com' ||
+          releaseUri == null ||
+          releaseUri.scheme != 'https' ||
+          releaseUri.host != 'github.com') {
+        return;
       }
 
-      if (map['draft'] == true || map['prerelease'] == true) return;
-      final body = (map['body'] ?? '').toString();
-      final latest = int.tryParse(
-            RegExp(r'(?m)^KING_BUILD:\\s*(\\d+)\\s*
+      final force = appBuild < minimumBuild;
       if (!force && appBuild >= latest) return;
       if (!mounted) return;
+      final message = body
+          .replaceAll(RegExp(r'(?m)^KING_(?:BUILD|MIN_BUILD):.*$'), '')
+          .replaceAll(RegExp(r'(?im)^SHA256:.*$'), '')
+          .trim();
 
       await showDialog<void>(
         context: context,
@@ -47,11 +90,10 @@ extension UpdateCheck on _HomePageState {
             child: AlertDialog(
               title: const Text('🚀 آپدیت King VPN'),
               content: Text(
-                msg.isNotEmpty
-                    ? msg
-                    : 'نسخه‌ی جدید با موتور خودترمیمی قوی‌تر آماده است.\n'
-                        'Build $appBuild → $latest\n'
-                        'دانلود کن و نصب کن تا ترمیم‌های عمیق‌تر فعال شوند.',
+                message.isNotEmpty
+                    ? message
+                    : 'نسخه‌ی جدید آماده است.\nBuild $appBuild → $latest\n'
+                        'فایل امضاشده دانلود و اصالت آن بررسی می‌شود؛ سپس نصب را در اندروید تأیید کن.',
               ),
               actions: [
                 if (!force)
@@ -59,36 +101,20 @@ extension UpdateCheck on _HomePageState {
                     onPressed: () => Navigator.pop(ctx),
                     child: const Text('بعداً'),
                   ),
-                if (apk.isNotEmpty)
-                  FilledButton(
-                    onPressed: () async {
-                      Navigator.pop(ctx);
-                      await _downloadAndInstallApk(apk, sha256Expected);
-                    },
-                    child: const Text('دانلود و نصب'),
-                  ),
                 FilledButton(
                   onPressed: () async {
-                    final open = apk.isNotEmpty ? apk : url;
-                    try {
-                      await launchUrl(Uri.parse(open),
-                          mode: LaunchMode.externalApplication);
-                    } catch (e, stk) {
-                      logError(e, stk);
-                      await Clipboard.setData(ClipboardData(text: open));
-                      _set('لینک آپدیت کپی شد');
-                    }
-                    if (ctx.mounted) Navigator.pop(ctx);
+                    Navigator.pop(ctx);
+                    await _downloadAndInstallApk(apk, sha256Expected);
                   },
-                  child: Text(apk.isNotEmpty ? 'لینک APK' : 'دانلود'),
+                  child: const Text('دانلود و نصب'),
                 ),
               ],
             ),
           ),
         ),
       );
-    } catch (e, stk) {
-      logError(e, stk);
+    } catch (error, stackTrace) {
+      logError(error, stackTrace);
     }
   }
 
