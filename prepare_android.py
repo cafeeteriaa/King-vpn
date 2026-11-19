@@ -46,7 +46,30 @@ if os.path.exists(sett):
             if additions:
                 s = s[:insert_at] + additions + s[insert_at:]
         else:
-            s = s[:pm.end()] + '\n    repositories { google(); mavenCentral(); gradlePluginPortal() }' + s[pm.end():]
+            mirror_entry = (
+                f'maven {{ url = uri("{MAVEN_CENTRAL_MIRROR}") }}'
+                if sett.endswith('.kts') else
+                f'maven {{ url "{MAVEN_CENTRAL_MIRROR}" }}'
+            )
+            s = s[:pm.end()] + '\n    repositories { ' + mirror_entry + '; google(); mavenCentral(); gradlePluginPortal() }' + s[pm.end():]
+    # App dependency resolution also needs the mirror; pluginManagement alone
+    # does not supply repositories for ordinary implementation dependencies.
+    drm_root = re.search(
+        r'dependencyResolutionManagement\s*\{[\s\S]*?repositories\s*\{',
+        s,
+    )
+    if drm_root:
+        repo_body_start = drm_root.end()
+        repo_body_end = s.find('\n    }', repo_body_start)
+        if repo_body_end < 0:
+            raise SystemExit('HARD FAIL: malformed app dependencyResolutionManagement repositories block')
+        if MAVEN_CENTRAL_MIRROR not in s[repo_body_start:repo_body_end]:
+            root_mirror = (
+                f'\n        maven {{ url = uri("{MAVEN_CENTRAL_MIRROR}") }}'
+                if sett.endswith('.kts') else
+                f'\n        maven {{ url "{MAVEN_CENTRAL_MIRROR}" }}'
+            )
+            s = s[:repo_body_start] + root_mirror + s[repo_body_start:]
     s = re.sub(r'(id\("com\.android\.(?:application|library)"\)\s+version\s+")[^"]+(")',
                lambda m: f'{m.group(1)}{AGP_VERSION}{m.group(2)}', s)
     with open(sett, 'w', encoding='utf-8') as f:
@@ -322,7 +345,7 @@ if flutter_root:
         # Google-hosted Maven Central mirror there as well; otherwise Kotlin/ASM
         # transitives can fail even though the app plugin repositories are correct.
         drm_repo = re.search(
-            r'dependencyResolutionManagement\\s*\\{[\\s\\S]*?repositories\\s*\\{',
+            r'dependencyResolutionManagement\s*\{[\s\S]*?repositories\s*\{',
             flutter_settings_text,
         )
         if drm_repo:
