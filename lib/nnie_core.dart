@@ -80,7 +80,8 @@ class NatProbeEvidence {
       return NatNetworkClass.transportRestricted;
     }
     return NatNetworkClass.unknown;
-  }}
+  }
+}
 
 class NatDnsProbeResult {
   const NatDnsProbeResult(this.server, this.domain, this.elapsedMs,
