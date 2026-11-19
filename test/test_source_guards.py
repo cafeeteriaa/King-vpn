@@ -703,5 +703,29 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('grokAsk(', dispatcher)
 
 
+    def test_legacy_remote_llm_providers_are_purged_and_never_called(self):
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        for forbidden in (
+            'generativelanguage.googleapis.com',
+            'gemini.google.com',
+            'api.x.ai',
+            'api.anthropic.com',
+            'api.openai.com',
+            'api.deepseek.com',
+            'Future<String> geminiAsk(',
+            'Future<String> grokAsk(',
+            'startGrokPilot(',
+            'grokPilotPrompt(',
+        ):
+            self.assertNotIn(forbidden, extras + main)
+        self.assertIn('loadLocalAiPrefs(p)', main)
+        self.assertIn('Future<void> loadLocalAiPrefs(SharedPreferences prefs)', extras)
+        for legacy_key in ('gem_key', 'grok_key', 'claude_key', 'openai_key', 'deepseek_key'):
+            self.assertIn(legacy_key, extras)  # deleted from both prefs and secure storage
+        self.assertIn('aiAsk(aiPrompt())', extras)
+        self.assertIn('KingLocalAi.instance.ask(prompt)', extras)
+
+
 if __name__ == '__main__':
     unittest.main()
