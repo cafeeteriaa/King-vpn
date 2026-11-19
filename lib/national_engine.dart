@@ -143,6 +143,15 @@ class NatNetworkDiagnosis {
   static const List<String> _domesticHosts = <String>['www.aparat.com', 'www.digikala.com'];
   static const List<String> _globalHosts = <String>['www.google.com', 'www.cloudflare.com'];
   static const List<String> _globalResolvers = <String>['8.8.8.8', '1.1.1.1'];
+  // Resolvers already shipped in the app's national DNS list. Keep this
+  // diagnosis independent from the VPN's configured DNS and test two local
+  // domains so one unavailable domain does not decide the network class.
+  static const List<String> _domesticResolvers = <String>[
+    '178.22.122.100', '185.51.200.2', '78.157.42.100',
+  ];
+  static const List<String> _domesticDnsNames = <String>[
+    'aparat.com', 'digikala.com',
+  ];
 
   static NatNetworkClass current = NatNetworkClass.unknown;
   static DateTime? _checkedAt;
@@ -204,10 +213,17 @@ class NatNetworkDiagnosis {
       final globalF = Future.wait(_globalHosts.map(_tcpOk));
       final dnsF = Future.wait(
           _globalResolvers.map((r) => NatDnsWireProbe.probe(r, 'google.com')));
+      final domesticDnsF = Future.wait(
+        for (final resolver in _domesticResolvers)
+          for (final domain in _domesticDnsNames)
+            NatDnsWireProbe.probe(resolver, domain),
+      );
       final domesticTcp = await domesticF;
       final globalTcp = await globalF;
       final globalDnsRes = await dnsF;
+      final domesticDnsRes = await domesticDnsF;
       final globalDnsOk = globalDnsRes.any((x) => x.ok);
+      final domesticDnsOk = domesticDnsRes.any((x) => x.ok);
       final domesticTcpOk = domesticTcp.any((x) => x);
       final globalTcpOk = globalTcp.any((x) => x);
       // DNS poisoning / blockpage check: a resolver returned a public A answer,
@@ -222,18 +238,20 @@ class NatNetworkDiagnosis {
         poison = reach.isNotEmpty && !reach.any((x) => x);
       }
       final ev = NatProbeEvidence(
-        domesticDnsOk: false, // no domestic resolver probe is configured yet
+        domesticDnsOk: domesticDnsOk,
         domesticTcpOk: domesticTcpOk,
         globalDnsOk: globalDnsOk,
         globalTcpOk: globalTcpOk,
         dnsPoisonSuspected: poison,
-        sampleCount: domesticTcp.length + globalTcp.length + globalDnsRes.length,
+        sampleCount: domesticTcp.length + globalTcp.length +
+            globalDnsRes.length + domesticDnsRes.length,
       );
       current = ev.classify();
       _checkedAt = DateTime.now();
       _identityAtCheck = id;
       dbg('NNIE-DIAG: ${natNetworkClassLabel(current)} '
-          '(domesticTcp=${ev.domesticTcpOk} globalTcp=${ev.globalTcpOk} globalDns=${ev.globalDnsOk} poison=$poison)');
+          '(domesticDns=${ev.domesticDnsOk} domesticTcp=${ev.domesticTcpOk} '
+          'globalDns=${ev.globalDnsOk} globalTcp=${ev.globalTcpOk} poison=$poison)');
     } catch (e, st) {
       logError(e, st);
       current = NatNetworkClass.unknown;
