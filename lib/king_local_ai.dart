@@ -304,6 +304,19 @@ empty changes list and explain what is missing.
     required Map<String, String> sourceFiles,
     List<Map<String, String>> researchNotes = const [],
   }) async {
+    if (!KingAiOwnerAuth.instance.hasActiveSession) {
+      throw StateError('Owner authentication is required for code generation.');
+    }
+    return _proposeRepair(
+      task: task, sourceFiles: sourceFiles, researchNotes: researchNotes,
+    );
+  }
+
+  Future<Map<String, Object?>> _proposeRepair({
+    required String task,
+    required Map<String, String> sourceFiles,
+    List<Map<String, String>> researchNotes = const [],
+  }) async {
     if (sourceFiles.isEmpty || sourceFiles.length > 6) {
       throw ArgumentError('Provide between 1 and 6 source files');
     }
@@ -816,7 +829,7 @@ empty changes list and explain what is missing.
         // Research is optional; CI evidence remains the primary source.
       }
     }
-    final proposal = await proposeRepair(task: task, sourceFiles: context);
+    final proposal = await _proposeRepair(task: task, sourceFiles: context);
     final changes = proposal['changes'] as Map<String, String>;
     if (changes.isEmpty) {
       return {
@@ -841,7 +854,7 @@ empty changes list and explain what is missing.
     }
 
     final end = failureText.length.clamp(0, 5000).toInt();
-    final url = await createRepairPullRequest(
+    final url = await _createRepairPullRequest(
       owner: owner,
       repository: repository,
       baseBranch: branch,
@@ -1093,6 +1106,27 @@ empty changes list and explain what is missing.
   /// Writes a new branch and pull request, never commits to the default branch.
   /// GitHub Actions must run tests/analyzer/build before the change is accepted.
   Future<String> createRepairPullRequest({
+    required String owner,
+    required String repository,
+    required String baseBranch,
+    required String title,
+    required String summary,
+    required Map<String, String> changes,
+  }) async {
+    if (!KingAiOwnerAuth.instance.hasActiveSession) {
+      throw StateError('Owner authentication is required to create a code-change PR.');
+    }
+    return _createRepairPullRequest(
+      owner: owner,
+      repository: repository,
+      baseBranch: baseBranch,
+      title: title,
+      summary: summary,
+      changes: changes,
+    );
+  }
+
+  Future<String> _createRepairPullRequest({
     required String owner,
     required String repository,
     required String baseBranch,
