@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:local_inference_flutter/local_inference_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'king_ai_research_policy.dart';
+
 /// On-device coding model and a guarded GitHub pull-request writer.
 ///
 /// The model runs locally. Network access is used only to fetch the pinned
@@ -451,30 +453,19 @@ empty changes list and explain what is missing.
     for (final note in notes) {
       lines.add(jsonEncode(note));
     }
-    final retained = lines.length > 200 ? lines.sublist(lines.length - 200) : lines;
-    await file.writeAsString(retained.join('\n') + '\n', flush: true);
+    final retained = mergeKingAiResearchMemory(lines, notes);
+    await file.writeAsString(
+      retained.join('\n') + (retained.isEmpty ? '' : '\n'),
+      flush: true,
+    );
   }
 
   Future<List<Map<String, String>>> _relevantResearchMemory(String query) async {
     final root = await getApplicationSupportDirectory();
-    final file = File('${root.path}/king_ai_research_memory.jsonl');
+    final file = File('\${root.path}/king_ai_research_memory.jsonl');
     if (!await file.exists()) return const [];
-    final words = query.toLowerCase().split(RegExp(r'[^a-z0-9\u0600-\u06FF]+'))
-        .where((word) => word.length > 3).toSet();
-    final ranked = <({int score, Map<String, String> note})>[];
-    for (final line in await file.readAsLines()) {
-      try {
-        final raw = jsonDecode(line);
-        if (raw is! Map) continue;
-        final note = raw.map((key, value) =>
-            MapEntry(key.toString(), value.toString()));
-        final text = '${note['title']} ${note['excerpt']}'.toLowerCase();
-        final score = words.where(text.contains).length;
-        if (score > 0) ranked.add((score: score, note: note));
-      } catch (_) {}
-    }
-    ranked.sort((a, b) => b.score.compareTo(a.score));
-    return ranked.take(3).map((item) => item.note).toList();
+    final lines = await file.readAsLines();
+    return rankKingAiResearchMemory(query, lines, maxItems: 3);
   }
 
   Future<List<String>> _selectRelevantPaths(
