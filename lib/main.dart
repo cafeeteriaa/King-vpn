@@ -6327,7 +6327,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _screenWasOn = false;
   String _restoredRow = ''; // KEEPALL
   List<Server> _restoredGood = <Server>[]; // KEEPALL
-  DateTime? _nnieTapAt; // شروع واقعی اتصال (بعد از تبلیغ و مجوز) برای زمان‌سنجی NNIE
+  DateTime? _nnieAttemptStartedAt;
+  String? _nnieAttemptServerKey;
+
+  void _nnieBeginAttempt(Server server) {
+    _nnieAttemptServerKey = server.key;
+    _nnieAttemptStartedAt = DateTime.now();
+  }
+
+  void _nnieClearAttempt(Server server) {
+    if (_nnieAttemptServerKey != server.key) return;
+    _nnieAttemptServerKey = null;
+    _nnieAttemptStartedAt = null;
+  }
+
+  int? _nnieFinishAttempt(Server server) {
+    if (_nnieAttemptServerKey != server.key) return null;
+    final startedAt = _nnieAttemptStartedAt;
+    _nnieClearAttempt(server);
+    return startedAt == null
+        ? null
+        : max(0, DateTime.now().difference(startedAt).inMilliseconds);
+  }
   /// PERSKEEP: لیست سرورهای شخصی روی صفحه بعد از بستن و باز کردن برنامه می‌ماند
   /// و فقط با قطع اتصال پاک می‌شود. سرورهای سالم دیگر روی صفحه بازیابی نمی‌شوند.
   Future<void> _persistScreenLists() async {
@@ -8648,9 +8669,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   void _onConnected(Server s) {
-    // NNIE: هر اتصال، شروع خودش را دارد؛ شروع قدیمی هرگز برای اتصال بعدی استفاده نشود
-    final nnieTap = _nnieTapAt;
-    _nnieTapAt = null;
+    // NNIE: measure only this server's own start-to-data-plane verification time.
+    final nnieElapsedMs = _nnieFinishAttempt(s);
     if (_listPartial) unawaited(_fetchFullListBg());
     // IP کارا به حافظه (هم در نت جهانی و هم در نت ملی؛ دفعه‌ی بعد اول از همین‌ها استفاده می‌شود)
     if (InternetAddress.tryParse(s.host) != null) {
@@ -8702,15 +8722,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       unawaited(natRememberSuccess(s)); // NATMEM
       // NNIE: فقط این مسیر پس از تأیید end-to-end موفقیت سرور را ثبت می‌کند.
       final nnieKey = NationalNetworkIntelligence.keyOfServer(s);
-      // زمان واقعی از شروع اتصال تا CONNECTED (شامل همه‌ی سرورهای امتحان‌شده).
-      // اگر شروع ثبت نشده یا خیلی قدیمی است (اتصال خودکار)، به RTT قبلی برمی‌گردیم.
-      final tapOk = nnieTap != null &&
-          DateTime.now().difference(nnieTap) < const Duration(minutes: 10);
-      final realMs = tapOk ? DateTime.now().difference(nnieTap).inMilliseconds : -1;
+      // A server's EWMA must never include time spent failing over through earlier servers.
       unawaited(NationalNetworkIntelligence.record(
         endpointKey: nnieKey,
         success: true,
-        elapsedMs: realMs >= 0 ? realMs : max(0, s.ping ?? 0),
+        elapsedMs: nnieElapsedMs ?? max(0, s.ping ?? 0),
         stableForFiveMinutes: false,
       ));
       NationalNetworkIntelligence.armStable(nnieKey, () => _stableTunnelTrafficOk(s));
@@ -8786,7 +8802,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           continue;
         }
         natTryCount[v] = (natTryCount[v] ?? 0) + 1;
-        if (!await _start(s, variant: v)) continue;
+        _nnieBeginAttempt(s);
+        if (!await _start(s, variant: v)) {
+          _nnieClearAttempt(s);
+          continue;
+        }
         // مشکل ۴: وقتی socialGate هست، نتیجه‌ی ping قبلی دور ریخته می‌شد؛ حالا فقط در
         // غیاب socialGate ping اجرا می‌شود.
         final accepted = socialGate != null
@@ -8795,12 +8815,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     total: Duration(seconds: nationalMode ? 12 : 9),
                     direct: true, networkAware: true) != null;
         if (!accepted) {
+          final failedElapsedMs = _nnieFinishAttempt(s) ?? 0;
           dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» ترافیک تونل نداد؛ حالت بعدی');
-          // NNIE: فقط شکستی که به سرور/حالت مربوط است ثبت می‌شود (نه permission و نه DNS)
+          // NNIE: only a started candidate with failed tunnel traffic is a server failure.
           unawaited(NationalNetworkIntelligence.record(
             endpointKey: NationalNetworkIntelligence.keyOfServer(s),
             success: false,
-            elapsedMs: 0,
+            elapsedMs: failedElapsedMs,
             stableForFiveMinutes: false,
           ));
           await _stopV2();
@@ -8937,9 +8958,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         dbg('ℹ ${s.name}: برای هسته ۳.۵.۰ پشتیبانی نمی‌شود ($badCfg) • بدون تست رد شد • سرور بعدی');
         continue;
       }
+      // NNIE: start a fresh timer for this candidate, not the whole user tap.
+      _nnieBeginAttempt(s);
       // V8: pre-social-check removed (v2rayNG-style connect)
       _set('اتصال به ${s.name}...');
       if (!await _start(s)) {
+        _nnieClearAttempt(s);
         // CANCEL-NOPENALTY: the user (or an abort) stopped the connect, or the
         // VPN was not requested. That is not a fault of this server/config, so
         // it must NOT be blacklisted or reported as E-CONFIG-FAIL.
@@ -12140,7 +12164,7 @@ ListTile( // KINGEXTRAS row
     // set AFTER _haltAll: stopping the search sets abort, and the background
     // watcher then resets wantVpn when abort is set in manual mode
     wantVpn = true;
-    _nnieTapAt = DateTime.now();
+    // Per-server NNIE timers start inside _connectLoop, immediately before each core start.
     // NNIE-DIAG: کوتاه منتظر تشخیص شبکه می‌مانیم تا اولین دسته‌ی نت ملی آگاه باشد.
     // پروب‌ها موازی‌اند و بیشترشان حداکثر ۳ ثانیه؛ مهلت ۵ ثانیه تا تشخیص وسط کار قطع نشود.
     if (nationalMode && !connected) {
