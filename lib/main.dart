@@ -10685,7 +10685,7 @@ ListTile( // KINGEXTRAS row
             _set('تشخیص گفتار در دسترس نیست: ${error.errorMsg}');
           },
         );
-        _smartSpeechInitialized = true;
+        _smartSpeechInitialized = _smartSpeechAvailable;
       }
       if (!_smartSpeechAvailable) {
         _set('سرویس تشخیص گفتار این دستگاه در دسترس نیست.');
