@@ -2249,8 +2249,9 @@ extension HomeExtras on _HomePageState {
       for (final e in _localOpWins.entries) {
         if (!e.key.startsWith('$opKey|')) continue;
         final losses = _localOpLosses[e.key] ?? 0;
-        if (e.value >= 3 && e.value > losses && e.value > memoryBestW) {
-          memoryBestW = e.value - losses;
+        final netWins = e.value - losses;
+        if (e.value >= 3 && netWins >= 3 && netWins > memoryBestW) {
+          memoryBestW = netWins;
           memoryBest = e.key.split('|').last;
         }
       }
@@ -2379,8 +2380,8 @@ extension HomeExtras on _HomePageState {
     // real throughput is measured. A connected core alone is not success.
     final verified = snap.connected &&
         (snap.netOk == true || (snap.speedMBs != null && snap.speedMBs! >= 0.25));
-    final expiredFailure = !snap.connected &&
-        DateTime.now().difference(at) >= const Duration(minutes: 2);
+    final expiredFailure = !verified &&
+        DateTime.now().difference(at) >= const Duration(minutes: 3);
     if (!verified && !expiredFailure) return;
     if (verified) {
       _localOpWins[key] = (_localOpWins[key] ?? 0) + 1;
