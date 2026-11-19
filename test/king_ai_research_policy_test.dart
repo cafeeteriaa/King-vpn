@@ -25,6 +25,15 @@ void main() {
       expect(isTrustedKingAiResearchUri(Uri.parse('https://user@ooni.org/fake')), isFalse);
     });
 
+    test('blocks personal identifiers and secret-bearing public queries', () {
+      expect(isSafeKingAiPublicResearchQuery('latest Flutter release'), isTrue);
+      expect(isSafeKingAiPublicResearchQuery('find docs for owner@example.com'), isFalse);
+      expect(isSafeKingAiPublicResearchQuery('call me at +989121234567'), isFalse);
+      expect(isSafeKingAiPublicResearchQuery('شماره تماس من ۰۹۱۲۱۲۳۴۵۶۷'), isFalse);
+      expect(isSafeKingAiPublicResearchQuery('my card 4111 1111 1111 1111'), isFalse);
+      expect(isSafeKingAiPublicResearchQuery('password=secret123'), isFalse);
+    });
+
     test('deduplicates by URL and keeps the newest trusted note', () {
       final old = note(
         url: 'https://docs.flutter.dev/testing',
