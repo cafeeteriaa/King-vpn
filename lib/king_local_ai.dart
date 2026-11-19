@@ -380,6 +380,14 @@ empty changes list and explain what is missing.
   }
 
   void _validatePath(String path) {
+    const protectedPaths = <String>{
+      'lib/king_ai_owner_auth.dart',
+      'lib/king_local_ai.dart',
+      'lib/king_ai_background.dart',
+      'lib/king_ai_ci_policy.dart',
+      'lib/king_ai_research_policy.dart',
+      'lib/iran_ai_extras.dart',
+    };
     if (path.startsWith('/') ||
         path.contains('\\') ||
         path.split('/').any((part) => part == '..' || part.isEmpty) ||
@@ -388,14 +396,7 @@ empty changes list and explain what is missing.
           path.startsWith('tools/')) ||
         path.startsWith('lib/android') ||
         path.startsWith('lib/own_vpn') ||
-        const {
-          'lib/king_ai_owner_auth.dart',
-          'lib/king_local_ai.dart',
-          'lib/king_ai_background.dart',
-          'lib/king_ai_ci_policy.dart',
-          'lib/king_ai_research_policy.dart',
-          'lib/iran_ai_extras.dart',
-        }.contains(path)) {
+        protectedPaths.contains(path)) {
       throw FormatException('Protected or unsafe repository path: $path');
     }
   }
