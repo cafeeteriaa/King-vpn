@@ -988,5 +988,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (nationalMode)', pilot[standby_start:standby_end])
 
 
+    def test_smart_command_uses_safe_disconnect_intent_and_voice_answer(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<void> _runSmartCommand')
+        end = main.index('Widget _smartCommandPanel()', start)
+        dispatcher = main[start:end]
+        self.assertIn('KingCommandSafety.isDisconnectIntent(normalizedCommand)', dispatcher)
+        self.assertNotIn("RegExp(r'(قطع اتصال|قطع|disconnect|خاموش کردن اتصال)')", dispatcher)
+        self.assertIn('voiceReply = answer;', dispatcher)
+        self.assertIn('_speakSmartCommandResponse(voiceReply ?? status)', dispatcher)
+
+
 if __name__ == '__main__':
     unittest.main()
