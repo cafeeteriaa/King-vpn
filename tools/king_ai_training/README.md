@@ -1,6 +1,6 @@
 # King AI local-model training pipeline
 
-This pipeline turns only reviewed, security-scanned, CI-green repairs into a
+This pipeline turns only merged, CI-green repairs that pass a dedicated secret scan into a
 small supervised fine-tuning dataset and trains a QLoRA adapter on a dedicated
 GPU runner. It uses no paid AI API, Gemini, Grok, or hosted inference endpoint.
 
@@ -13,7 +13,7 @@ One JSON object per line in the input JSONL:
 - `changes`: map of those same paths to complete accepted replacement contents.
 - `ci_passed`: boolean, must be true.
 - `human_reviewed`: boolean, or `merged`: boolean set only after GitHub confirms the PR was merged.
-- `security_scan_passed`: boolean, must be true.
+- `secret_scan_passed`: boolean, set only after the collector's secret-pattern scan passes. This is not a substitute for a full code security audit.
 
 The merged-repair collector obtains the pre-merge source from the merge commit's first parent and the accepted replacement from the merged head. The preparation step removes malformed, duplicate, unreviewed/unmerged, failed, and secret-bearing examples. It creates ChatML samples aligned with the app's JSON full-file repair contract and a deterministic train/evaluation split.
 At least five trusted examples are required.
@@ -34,7 +34,7 @@ python3 tools/king_ai_training/train_lora.py \
 ```
 
 Training requires a CUDA GPU and a locally available, reviewed base model.
-The Android device remains an inference target, not a training machine.
+The base model must be a full Hugging Face Transformers checkpoint (`config.json` plus model weights), not the 1.1 GB GGUF file installed by the Android app. The Android device remains an inference target, not a training machine.
 
 ## Release safety
 
