@@ -682,7 +682,7 @@ empty changes list and explain what is missing.
         };
       }
       latestRepairUrl = repair['url']?.toString();
-      final match = RegExp(r'/pull/(\\d+)').firstMatch(latestRepairUrl ?? '');
+      final match = RegExp(r'/pull/(\d+)').firstMatch(latestRepairUrl ?? '');
       final nextPull = int.tryParse(match?.group(1) ?? '');
       if (nextPull == null || nextPull < 1) {
         return {
