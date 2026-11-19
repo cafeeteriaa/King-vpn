@@ -8,9 +8,10 @@ import shutil
 from pathlib import Path
 
 
-def validate(base_model: Path, dataset: Path) -> dict:
+def validate(base_model: Path, dataset: Path, prepared_dir: Path) -> dict:
     base_model = base_model.expanduser().resolve()
     dataset = dataset.expanduser().resolve()
+    prepared_dir = prepared_dir.expanduser().resolve()
     if not base_model.is_dir():
         raise RuntimeError(f"Base model directory does not exist: {base_model}")
     if not (base_model / "config.json").is_file():
@@ -19,8 +20,8 @@ def validate(base_model: Path, dataset: Path) -> dict:
         raise RuntimeError("No local safetensors or PyTorch model weights were found")
     if not dataset.is_file() or dataset.suffix.lower() != ".jsonl":
         raise RuntimeError("Training dataset must be an existing JSONL file")
-    train = dataset.parent / "train.jsonl"
-    evaluation = dataset.parent / "eval.jsonl"
+    train = prepared_dir / "train.jsonl"
+    evaluation = prepared_dir / "eval.jsonl"
     if not train.is_file() or not evaluation.is_file():
         raise RuntimeError("Prepared train.jsonl and eval.jsonl splits are missing; run prepare_dataset.py first")
 
@@ -57,8 +58,9 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-model", required=True, type=Path)
     parser.add_argument("--dataset", required=True, type=Path)
+    parser.add_argument("--prepared-dir", required=True, type=Path)
     args = parser.parse_args()
-    print(json.dumps(validate(args.base_model, args.dataset), indent=2))
+    print(json.dumps(validate(args.base_model, args.dataset, args.prepared_dir), indent=2))
     return 0
 
 
