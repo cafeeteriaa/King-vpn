@@ -15,6 +15,11 @@ const String _researchTaskName = 'kingAiIranNetworkResearch';
 const String _researchUniqueName = 'king-ai-iran-network-research-periodic';
 const String _researchInitialName = 'king-ai-iran-network-research-initial';
 const String _researchTag = 'king-ai-iran-network-research';
+
+const String _auditTaskName = 'kingAiIranNetworkAudit';
+const String _auditUniqueName = 'king-ai-iran-network-audit-periodic';
+const String _auditInitialName = 'king-ai-iran-network-audit-initial';
+const String _auditTag = 'king-ai-iran-network-audit';
 const String _researchQuery =
     'Iran internet national network DNS routing IPv6 TLS SNI Android VPNService '
     'Flutter network connectivity diagnostics official documentation';
@@ -26,7 +31,9 @@ void kingAiBackgroundDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     WidgetsFlutterBinding.ensureInitialized();
     DartPluginRegistrant.ensureInitialized();
-    if (task != _taskName && task != _researchTaskName) return true;
+    if (task != _taskName &&
+        task != _researchTaskName &&
+        task != _auditTaskName) return true;
 
     final ai = KingLocalAi.instance;
     try {
@@ -35,6 +42,16 @@ void kingAiBackgroundDispatcher() {
         // retained by researchGoogle; this never edits code or needs a token.
         await ai.researchGoogle(_researchQuery, maxResults: 2)
             .timeout(const Duration(seconds: 55));
+        return true;
+      }
+      if (task == _auditTaskName) {
+        if (!await ai.hasGitHubToken()) return true;
+        final loaded = await ai.loadInstalledModelForBackground();
+        if (!loaded) return true;
+        await ai.createAutonomousMaintenanceProposal(
+          owner: 'cafeeteriaa',
+          repository: 'King-vpn',
+        );
         return true;
       }
       if (!await ai.hasGitHubToken()) {
@@ -205,6 +222,32 @@ class KingAiBackgroundSupervisor {
     await _scheduleSupervisor();
   }
 
+  /// A daily source audit is deliberately low frequency and resource-bounded.
+  static Future<void> _scheduleAutonomousAudit() async {
+    final constraints = Constraints(
+      networkType: NetworkType.connected,
+      requiresBatteryNotLow: true,
+    );
+    await Workmanager().registerPeriodicTask(
+      _auditUniqueName,
+      _auditTaskName,
+      frequency: const Duration(hours: 24),
+      constraints: constraints,
+      existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
+      tag: _auditTag,
+    );
+    await Workmanager().registerOneOffTask(
+      _auditInitialName,
+      _auditTaskName,
+      initialDelay: Duration.zero,
+      constraints: constraints,
+      existingWorkPolicy: ExistingWorkPolicy.keep,
+      backoffPolicy: BackoffPolicy.exponential,
+      backoffPolicyDelay: const Duration(minutes: 30),
+      tag: _auditTag,
+    );
+  }
+
   /// One-time owner opt-in starts the continuous maintenance loop. It
   /// researches official network guidance automatically and creates isolated
   /// CI-repair PRs when evidence supports a fix. It never merges or publishes.
@@ -217,6 +260,7 @@ class KingAiBackgroundSupervisor {
     await KingLocalAi.instance.setBackgroundAutoDiscovery(true);
     await KingLocalAi.instance.clearBackgroundRepairPullNumber();
     await _scheduleSupervisor();
+    await _scheduleAutonomousAudit();
   }
 
   /// Backwards-compatible name for the owner console.
@@ -226,6 +270,7 @@ class KingAiBackgroundSupervisor {
   static Future<void> disable() async {
     _requireOwnerSession();
     await Workmanager().cancelByTag(_tag);
+    await Workmanager().cancelByTag(_auditTag);
     await KingLocalAi.instance.clearBackgroundRepairPullNumber();
     await KingLocalAi.instance.setBackgroundAutoDiscovery(false);
   }
