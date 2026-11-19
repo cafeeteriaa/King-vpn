@@ -80,6 +80,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('android.permission.RECORD_AUDIO', prepare)
         self.assertIn("if 'android.permission.RECORD_AUDIO' not in m:", prepare)
         self.assertIn('android.speech.RecognitionService', prepare)
+        self.assertIn("if 'android.speech.RecognitionService' not in m:", prepare)
+        self.assertIn("if '<queries>' in m:", prepare)
+        self.assertIn("m.replace('<queries>', '<queries>' + speech_intent, 1)", prepare)
 
     def test_ci_pipelines_propagate_failures_through_tee(self):
         workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
