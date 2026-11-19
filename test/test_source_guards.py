@@ -112,9 +112,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = ai.index('final generation = engine.generate(', ai.index('Future<String> _generateWithSystemPrompt'))
         end = ai.index('GenerationOptions(', start)
         template = ai[start:end]
-        self.assertIn("'<|im_start|>system\n$systemPrompt", template)
-        self.assertIn("'<|im_start|>user\n$safePrompt", template)
-        self.assertNotIn('\\\n', template)
+        self.assertIn("'<|im_start|>system\\n$systemPrompt", template)
+        self.assertIn("'<|im_start|>user\\n$safePrompt", template)
+        self.assertNotIn('\\\\n', template)
 
     def test_github_token_is_verified_as_repository_owner_before_use(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
@@ -293,9 +293,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         for method in ('_submitFeatureRequest', '_repair', '_enableBackground',
                        '_enableAutomaticDiscovery', '_saveToken', '_clearToken'):
             start = console.index('Future<void> ' + method)
-            end = console.find('\n  Future<void> ', start + 1)
+            end = console.find('\\n  Future<void> ', start + 1)
             if end < 0:
-                end = console.find('\n  @override', start + 1)
+                end = console.find('\\n  @override', start + 1)
             self.assertIn('_reauthenticateOwnerForCodeChange()', console[start:end], method)
 
     def test_national_network_optimization_requests_enter_owner_code_flow(self):
@@ -991,7 +991,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = source.index("if 'androidx.core.content.FileProvider'", start)
         provider = source[start:end]
         self.assertIn(r'FileProvider"\n', provider)
-        self.assertNotIn(r'FileProvider"\n', provider)
+        self.assertNotIn(r'FileProvider"\\n', provider)
         self.assertIn('@xml/king_file_paths', provider)
 
     def test_explicit_network_command_pins_smart_pilot_mode_for_session(self):
@@ -1017,6 +1017,29 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (disconnectIntent)', main)
         self.assertNotIn("else if (RegExp(r'(قطع اتصال|قطع|disconnect|خاموش کردن اتصال)'", main)
 
+
+    def test_failed_endpoint_checks_invalidate_stale_ping_evidence(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        record_start = main.index('void _record(Server s, int? d)')
+        record_end = main.index('// TCP prefilter', record_start)
+        self.assertIn('s.ping = null;', main[record_start:record_end])
+
+        standby_start = main.index('Future<void> _recheckStandby()')
+        standby_end = main.index('// SPEEDSWITCHPATCH', standby_start)
+        standby = main[standby_start:standby_end]
+        self.assertIn('if (d == null) {\\n          s.ping = null;', standby)
+
+        ping_start = main.index('Future<List<Server>> _pingRecheck()')
+        ping_end = main.index('// manual = started by the user', ping_start)
+        ping_recheck = main[ping_start:ping_end]
+        self.assertIn('if (d == null) {\\n        s.ping = null;', ping_recheck)
+
+        stable_start = main.index('Future<void> _stableCheck()')
+        stable_end = main.index('Future<void> _stableSwap(', stable_start)
+        stable = main[stable_start:stable_end]
+        self.assertIn('if (d == null) {\\n            c.ping = null;', stable)
+        self.assertIn('if (r.length < 3) {\\n        // A partial/failed confirmation', stable)
+        self.assertIn('t.ping = null;', stable)
 
     def test_failed_endpoint_checks_invalidate_stale_ping_evidence(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
