@@ -413,7 +413,7 @@ export default {
     let writer = null;
 
     server.addEventListener('close', () => {
-      try { if (remote) remote.close(); } catch (e) { errJournalAdd(e, kind: 'SILENT-LIB'); }
+      try { if (remote) remote.close(); } catch (_) {}
     });
 
     server.addEventListener('message', async (event) => {
@@ -470,10 +470,10 @@ export default {
         remote.readable.pipeTo(new WritableStream({
           write(data) { server.send(data); },
         })).catch(() => {}).finally(() => {
-          try { server.close(1000, 'done'); } catch (e) { errJournalAdd(e, kind: 'SILENT-LIB'); }
+          try { server.close(1000, 'done'); } catch (_) {}
         });
       } catch (e) {
-        try { server.close(1011, 'Connection failed'); } catch (e) { errJournalAdd(e, kind: 'SILENT-LIB'); }
+        try { server.close(1011, 'Connection failed'); } catch (_) {}
       }
     });
 
