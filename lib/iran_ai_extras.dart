@@ -1869,144 +1869,189 @@ extension HomeExtras on _HomePageState {
     _set('✅ تنظیمات پیشنهادی دستیار اعمال شد');
   }
 
+  String _normalizePilotText(String raw) {
+    return raw.trim().toLowerCase()
+        .replaceAll('ي', 'ی').replaceAll('ك', 'ک')
+        .replaceAll('ۀ', 'ه').replaceAll('ة', 'ه')
+        .replaceAll('‌', ' ')
+        .replaceAll(RegExp(r'[،,؛;.!?؟:()\\[\\]{}]+'), ' ')
+        .replaceAll(RegExp(r'\\s+'), ' ');
+  }
+
   Future<String> _runPilotCommand(String raw) async {
-    final q = raw.trim().toLowerCase().replaceAll('ي', 'ی')
-        .replaceAll('ك', 'ک').replaceAll('\u200c', ' ')
-        .replaceAll(RegExp(r'[،,؛;!?؟]+'), ' ')
-        .replaceAll(RegExp(r'\s+'), ' ');
-    if (q.isEmpty) return 'یک فرمان بنویس؛ مثلاً «وصل شو» یا «وضعیت اتصال».';
-    bool hasAny(List<String> words) => words.any(q.contains);
-    if (hasAny(['راهنما', 'دستورات', 'کمک'])) {
-      return 'فرمان‌ها: «وصل شو»، «قطع اتصال»، «لغو جستجو»، «خلبان روشن»، '
-          '«خلبان خاموش»، «بهبود اتصال» و «وضعیت اتصال».';
+    final q = _normalizePilotText(raw);
+    if (q.isEmpty) return 'فرمان خالی است؛ مثلاً «وصل شو» یا «وضعیت اتصال» را بنویس.';
+    bool hasAny(List<String> words) => words.any((w) => q.contains(w));
+    bool hasAll(List<String> words) => words.every((w) => q.contains(w));
+    final asksConnect = hasAny([
+      'وصل', 'اتصال', 'متصل', 'connect', 'شروع اتصال', 'راه بنداز',
+    ]);
+    final asksDisconnect = hasAny([
+      'قطع اتصال', 'قطع vpn', 'قطع شو', 'قطع کن', 'اتصال را قطع',
+      'خاموش کردن vpn', 'disconnect',
+    ]);
+    final asksCancel = hasAny([
+      'لغو', 'کنسل', 'متوقف کن', 'توقف جستجو', 'لغو جستجو', 'cancel',
+    ]);
+
+    // Help and read-only status must never trigger a connection action.
+    if (hasAny(['راهنما', 'دستورات', 'کمک', 'چه فرمان'])) {
+      return 'می‌توانی طبیعی بنویسی: «وصل شو»، «اتصال مجدد»، «قطع اتصال»، '
+          '«لغو جستجو»، «وضعیت اتصال»، «بهبود اتصال»، «خلبان روشن»، '
+          '«خلبان خاموش»، «بهترین سرور آلمان را پیدا کن و وصل شو»، '
+          '«نت ملی وصل شو» یا «نت جهانی وصل شو».';
     }
-    if (hasAny(['وضعیت', 'گزارش اتصال', 'چطوری'])) {
+    if (hasAny(['وضعیت', 'گزارش اتصال', 'چطوری', 'الان وصلم'])) {
       final s = current;
       final ping = s?.ping == null ? 'نامشخص' : '${s!.ping} ms';
-      final speed = (s?.speed ?? 0) > 0 ? '${s!.speed!.toStringAsFixed(2)} MB/s' : 'در حال اندازه‌گیری';
-      final serverName = current?.name ?? 'انتخاب نشده';
-      return 'وضعیت: ${connected ? 'متصل' : busy ? 'در حال جستجو/اتصال' : 'غیرمتصل'}'
-          ' • خلبان: ${localPilotOn ? 'روشن' : 'خاموش'}'
-          ' • راهبرد: ${nationalMode ? 'نت ملی' : 'جهانی/تشخیص خودکار'}'
-          ' • سرور: $serverName • سرور سالم: ${_usable().length}'
-          ' • پینگ: $ping • سرعت: $speed';
+      final speed = (s?.speed ?? 0) > 0
+          ? '${s!.speed!.toStringAsFixed(2)} MB/s' : 'در حال اندازه‌گیری';
+      final serverName = s?.name ?? 'انتخاب نشده';
+      final state = connected && lastState == 'CONNECTED'
+          ? 'متصل' : busy ? 'در حال جستجو/اتصال' : 'غیرمتصل';
+      return 'وضعیت واقعی: $state • هسته: $lastState • خلبان: '
+          '${localPilotOn ? 'روشن' : 'خاموش'} • راهبرد: '
+          '${nationalMode ? 'نت ملی' : 'جهانی/تشخیص خودکار'} • سرور: '
+          '$serverName • سرور سالم: ${_usable().length} • پینگ: $ping • سرعت: $speed';
     }
-    if (hasAny(['لغو', 'متوقف کن', 'توقف جستجو', 'cancel'])) {
+    if (asksCancel) {
+      if (!busy && !searching && !connected) return 'عملیات فعالی برای لغو وجود ندارد.';
       if (localPilotOn) stopLocalPilot();
       _cancelNow();
-      return 'درخواست لغو عملیات ثبت شد.';
+      return 'فرمان لغو ارسال شد؛ عملیات جاری متوقف می‌شود.';
+    }
+    if (asksDisconnect) {
+      if (!connected && !wantVpn && !busy && !searching) {
+        if (localPilotOn) stopLocalPilot();
+        return 'اتصال فعالی وجود ندارد.';
+      }
+      await disconnect();
+      return 'فرمان قطع اجرا شد؛ وضعیت هسته اکنون: $lastState.';
     }
     if (hasAny(['اتصال مجدد', 'دوباره وصل', 'از نو وصل', 'reconnect'])) {
       if (busy && !connected) return 'یک عملیات در جریان است؛ ابتدا «لغو جستجو» را بفرست.';
-      if (connected || wantVpn) await disconnect(keepPilot: true);
-      if (localPilotOn) {
-        await connect();
-      } else {
-        await startLocalPilot();
-      }
-      return 'اتصال مجدد از مسیر خلبان آغاز شد؛ سلامت تونل پس از اتصال بررسی می‌شود.';
+      if (connected || wantVpn || localPilotOn) await disconnect();
+      await startLocalPilot();
+      return 'چرخه اتصال مجدد به خلبان سپرده شد؛ نتیجه با بررسی سلامت تونل مشخص می‌شود.';
     }
-    if (hasAny(['قطع اتصال', 'اتصال را قطع', 'قطع کن', 'قطع vpn', 'disconnect', 'قطع شو'])) {
-      if (localPilotOn) stopLocalPilot();
-      if (aiSession) stopGrokPilot();
-      if (connected || wantVpn || busy) {
-        await disconnect();
-        return 'فرمان قطع اتصال اجرا شد.';
-      }
-      return 'اتصالی فعال نیست.';
-    }
-    if (hasAny(['خلبان خاموش', 'توقف خلبان', 'خلبان را متوقف', 'خاموش کن'])) {
+    if (hasAny(['خلبان خاموش', 'توقف خلبان', 'خلبان را متوقف'])) {
       if (!localPilotOn) return 'خلبان محلی از قبل خاموش است.';
       stopLocalPilot();
-      return 'خلبان متوقف شد و تنظیمات قبلی بازیابی شدند.';
+      return 'خلبان محلی خاموش شد؛ تنظیمات ذخیره‌شده کاربر بازیابی می‌شوند.';
     }
-    if (hasAny(['بهبود', 'بهینه', 'بررسی دوباره', 'بهترین سرور'])) {
-      if (!localPilotOn) {
-        await startLocalPilot();
-        return 'خلبان فعال شد و ارزیابی شبکه و انتخاب سرور را آغاز کرد.';
+    if (hasAny(['خلبان روشن', 'خلبان را روشن', 'خلبان رو روشن', 'شروع خلبان'])) {
+      if (localPilotOn) return 'خلبان هوشمند از قبل روشن است.';
+      await startLocalPilot();
+      return 'خلبان هوشمند روشن شد و چرخه تشخیص شبکه و اتصال را آغاز کرد.';
+    }
+
+    // Country/server targeting is evaluated before the generic "best server"
+    // command so "best server in Germany" cannot degrade into a generic scan.
+    if (asksConnect) {
+      final countryMatches = countryFa.entries.where((entry) =>
+          q.contains(_normalizePilotText(entry.value)) ||
+          q.contains(_normalizePilotText(entry.key))).toList();
+      final asksForTarget = hasAny([
+        'به کشور', 'کشور', 'سرور', 'بهترین', 'از کشور', 'در کشور',
+      ]) || countryMatches.isNotEmpty;
+      if (hasAny(['سرور شخصی', 'پوشه شخصی', 'کانفیگ شخصی'])) {
+        if (personalFolderCache.isEmpty && personal == null) {
+          return 'سرور شخصی آماده‌ای وجود ندارد؛ ابتدا از بخش ساخت/افزودن سرور، یک سرور شخصی ثبت کن.';
+        }
+        final ok = await pickEngineThenStart(
+          () => personalFolderCache.isNotEmpty
+              ? _personalAdThen(personalFolderConnect)
+              : connectPersonal(),
+          askMode: false,
+        );
+        return ok
+            ? 'درخواست اتصال به سرور شخصی اجرا شد؛ نتیجه پس از بررسی تونل اعلام می‌شود.'
+            : 'اتصال به سرور شخصی لغو شد.';
       }
-      await localPilotTick(force: true);
-      return 'ارزیابی فوری انجام شد؛ تصمیم بر اساس شواهد تازه شبکه گرفته می‌شود.';
+      if (asksForTarget) {
+        final available = _usable();
+        final named = available.where((server) {
+          final n = _normalizePilotText(server.name);
+          return n.length >= 3 && q.contains(n);
+        }).toList();
+        if (named.isNotEmpty) {
+          final chosen = named.first;
+          final ok = await pickEngineThenStart(
+            () => connect(chosen), askMode: false,
+          );
+          return ok
+              ? 'درخواست اتصال به «${chosen.name}» ارسال شد؛ سلامت تونل بررسی می‌شود.'
+              : 'درخواست اتصال لغو شد.';
+        }
+        if (countryMatches.isNotEmpty) {
+          final key = countryMatches.first.key;
+          final matches = available.where((server) =>
+              _normalizePilotText(server.country ?? '') == _normalizePilotText(key) ||
+              _normalizePilotText(server.country ?? '') == _normalizePilotText(countryFa[key] ?? key)).toList();
+          if (matches.isEmpty) {
+            return 'در حال حاضر سرور سالم و آماده‌ای برای ${countryFa[key] ?? key} ندارم. '
+                'برای جستجوی خودکار در همه کشورها بنویس «بهترین سرور را پیدا کن و وصل شو».';
+          }
+          final chosen = matches.first;
+          final ok = await pickEngineThenStart(
+            () => connect(chosen), askMode: false,
+          );
+          return ok
+              ? 'سرور آماده از ${countryFa[key] ?? key} انتخاب شد؛ سلامت تونل بررسی می‌شود.'
+              : 'اتصال لغو شد.';
+        }
+        return 'نام کشور یا سرور مشخص نشد. نام کشور/سرور را دقیق‌تر بنویس یا «وصل شو» را ارسال کن.';
+      }
     }
-    // Explicit strategy requests are routed through the same command entry.
-    if (hasAny(['نت ملی', 'اینترنت ملی', 'شبکه داخلی']) &&
-        hasAny(['وصل', 'اتصال', 'connect'])) {
+
+    if (asksConnect && hasAny(['نت ملی', 'اینترنت ملی', 'شبکه داخلی'])) {
       if (_resMap.isEmpty) {
         await startLocalPilot();
-        return 'پوشه آماده خالی است؛ خلبان محلی فعال شد تا شبکه را تشخیص دهد و مسیر اتصال مناسب را پیدا کند.';
+        return 'خلبان فعال شد؛ چون پوشه سرورهای آماده خالی است، تشخیص شبکه و انتخاب مسیر به خلبان سپرده شد.';
       }
       final ok = await pickEngineThenStart(() async {
         _resNext = true;
         await connect();
       }, forceNet: true);
-      return ok ? 'درخواست اتصال با راهبرد نت ملی از مسیر خلبان اجرا شد.' : 'درخواست اتصال لغو شد.';
+      return ok ? 'اتصال با راهبرد نت ملی آغاز شد؛ نتیجه تونل بررسی می‌شود.' : 'درخواست اتصال لغو شد.';
     }
-    if (hasAny(['نت جهانی', 'اینترنت جهانی', 'شبکه جهانی']) &&
-        hasAny(['وصل', 'اتصال', 'connect'])) {
+    if (asksConnect && hasAny(['نت جهانی', 'اینترنت جهانی', 'شبکه جهانی'])) {
       if (_resMap.isEmpty) {
         await startLocalPilot();
-        return 'پوشه آماده خالی است؛ خلبان محلی فعال شد تا شبکه را تشخیص دهد و مسیر جهانی/مناسب را پیدا کند.';
+        return 'خلبان فعال شد؛ تشخیص شبکه و انتخاب مسیر مناسب را انجام می‌دهد.';
       }
       final ok = await pickEngineThenStart(() async {
         _resNext = true;
         await connect();
       }, forceNet: false);
-      return ok ? 'درخواست اتصال با راهبرد جهانی از مسیر خلبان اجرا شد.' : 'درخواست اتصال لغو شد.';
+      return ok ? 'اتصال با راهبرد جهانی آغاز شد؛ نتیجه تونل بررسی می‌شود.' : 'درخواست اتصال لغو شد.';
     }
-    if (hasAny(['سرور شخصی', 'پوشه شخصی', 'کانفیگ شخصی']) &&
-        hasAny(['وصل', 'اتصال', 'connect'])) {
-      if (personalFolderCache.isEmpty) return 'پوشه سرورهای شخصی خالی است.';
-      final ok = await pickEngineThenStart(
-          () => _personalAdThen(personalFolderConnect), askMode: false);
-      return ok ? 'اتصال به بهترین سرور شخصی از مسیر خلبان آغاز شد.' : 'درخواست اتصال لغو شد.';
-    }
-    // Explicit target selection is deterministic and only uses already-tested servers.
-    final asksForSpecificTarget = hasAny(['به کشور ', 'کشور ', 'سرور ']);
-    if (asksForSpecificTarget && hasAny(['وصل', 'اتصال', 'connect'])) {
-      final available = _usable();
-      final byName = available.where((server) {
-        final n = server.name.toLowerCase()
-            .replaceAll('ي', 'ی').replaceAll('ك', 'ک');
-        return n.length >= 3 && q.contains(n);
-      }).toList();
-      if (byName.isNotEmpty) {
-        final chosen = byName.first;
-        await pickEngineThenStart(() => connect(chosen), askMode: false);
-        return 'درخواست اتصال به سرور «${chosen.name}» اجرا شد؛ نتیجه پس از بررسی تونل مشخص می‌شود.';
+
+    if (asksConnect && hasAny(['بهبود', 'بهینه', 'بررسی دوباره', 'بهترین سرور', 'پیدا کن'])) {
+      if (!localPilotOn) {
+        await startLocalPilot();
+        return 'خلبان فعال شد و انتخاب سرور مناسب را آغاز کرد.';
       }
-      final countryMatch = countryFa.entries.where((entry) =>
-          q.contains(entry.value.toLowerCase()) ||
-          q.contains(entry.key.toLowerCase())).toList();
-      if (countryMatch.isNotEmpty) {
-        final key = countryMatch.first.key;
-        final matches = available.where((server) =>
-            (server.country ?? '').toLowerCase() == key.toLowerCase()).toList();
-        if (matches.isEmpty) {
-          return 'در فهرست سرورهای سالم، سرور آماده‌ای برای این کشور پیدا نشد. برای جستجوی گسترده‌تر «وصل شو» را بفرست.';
-        }
-        final chosen = matches.first;
-        await pickEngineThenStart(() => connect(chosen), askMode: false);
-        return 'بهترین سرورِ آماده از کشور ${countryFa[key] ?? key} انتخاب شد؛ نتیجه اتصال در حال بررسی است.';
-      }
-      return 'نام کشور یا سرور در فهرست آماده‌ها پیدا نشد. نام دقیق‌تری بنویس یا «وصل شو» را بفرست تا خلبان جستجو کند.';
+      await localPilotTick(force: true);
+      return 'ارزیابی فوری به خلبان سپرده شد؛ سرور فقط بر پایه شواهد شبکه انتخاب می‌شود.';
     }
-    if (hasAny(['وصل', 'اتصال', 'connect', 'شروع خلبان', 'خلبان روشن', 'خلبان را روشن', 'خلبان رو روشن', 'شروع کن', 'اتصال برقرار'])) {
+    if (asksConnect) {
+      if (busy && !connected) return 'جستجو یا اتصال در حال اجراست؛ برای توقف «لغو جستجو» را بفرست.';
       if (connected && localPilotOn) {
         await localPilotTick(force: true);
-        return 'اتصال برقرار است؛ خلبان وضعیت را دوباره ارزیابی کرد.';
+        return 'تونل برقرار است؛ خلبان سلامت و کیفیت آن را دوباره ارزیابی کرد.';
       }
-      if (busy && !connected) return 'جستجو/اتصال در جریان است؛ برای توقف «لغو جستجو» را بفرست.';
-      if (localPilotOn) {
-        await connect();
-      } else {
-        await startLocalPilot();
-      }
-      return 'خلبان هوشمند فعال شد؛ تشخیص شبکه و جستجوی سرور مناسب شروع شد.';
+      await startLocalPilot();
+      return 'خلبان هوشمند فعال شد؛ تشخیص شبکه، انتخاب سرور و بررسی سلامت تونل آغاز شد.';
     }
     if (hasAny(['نت ملی', 'اینترنت ملی', 'شبکه داخلی'])) {
-      return 'خلبان اصلی راهبرد داخلی و جهانی را با شواهد واقعی ارزیابی می‌کند. برای شروع «وصل شو» را بفرست.';
+      return 'برای شروع با این راهبرد بنویس «نت ملی وصل شو».';
     }
-    return 'فرمان شناخته نشد. «راهنما» را بفرست؛ برای جلوگیری از اجرای اشتباه تغییری اعمال نشد.';
+    if (hasAny(['نت جهانی', 'اینترنت جهانی', 'شبکه جهانی'])) {
+      return 'برای شروع با این راهبرد بنویس «نت جهانی وصل شو».';
+    }
+    return 'منظور فرمان را دقیق تشخیص ندادم و برای جلوگیری از اجرای اشتباه، تغییری ندادم. '
+        'مثلاً «وصل شو»، «قطع اتصال» یا «وضعیت اتصال» را بنویس.';
   }
 
   Widget aiBar() => PilotCommandBar(
