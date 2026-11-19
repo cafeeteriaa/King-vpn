@@ -22,11 +22,19 @@ void main() {
       expect(redactKingAiCiEvidence('abc', maxChars: 0), isEmpty);
     });
 
-    test('allows no more than two repair iterations by default', () {
+    test('allows a finite eight-attempt repair budget by default', () {
       expect(kingAiCiRepairAttemptAllowed(0), isTrue);
-      expect(kingAiCiRepairAttemptAllowed(1), isTrue);
-      expect(kingAiCiRepairAttemptAllowed(2), isFalse);
+      expect(kingAiCiRepairAttemptAllowed(7), isTrue);
+      expect(kingAiCiRepairAttemptAllowed(8), isFalse);
       expect(kingAiCiRepairAttemptAllowed(-1), isFalse);
+    });
+
+    test('uses exponential cooldown capped at six hours', () {
+      expect(kingAiCiRepairBackoff(0), Duration.zero);
+      expect(kingAiCiRepairBackoff(1), const Duration(minutes: 10));
+      expect(kingAiCiRepairBackoff(2), const Duration(minutes: 20));
+      expect(kingAiCiRepairBackoff(3), const Duration(minutes: 40));
+      expect(kingAiCiRepairBackoff(10), const Duration(hours: 6));
     });
 
     test('supports an explicitly smaller retry budget', () {
