@@ -10669,7 +10669,7 @@ ListTile( // KINGEXTRAS row
   }
 
   String _pilotIpText(int n) =>
-      '\${(n >> 24) & 255}.\${(n >> 16) & 255}.\${(n >> 8) & 255}.\${n & 255}';
+      '${(n >> 24) & 255}.${(n >> 16) & 255}.${(n >> 8) & 255}.${n & 255}';
 
   List<String> _pilotExpandRanges(String raw) {
     final out = <String>{};
@@ -10747,7 +10747,7 @@ ListTile( // KINGEXTRAS row
         alive.addAll(result.whereType<String>());
       }
       await prefs.setStringList('king_pilot_scan_results_v1', alive);
-      _set('اسکن مستقل خلبان تمام شد: \${alive.length} میزبان TCP/443 پاسخ دادند؛ این نتیجه اثبات اتصال VPN نیست.');
+      _set('اسکن مستقل خلبان تمام شد: ${alive.length} میزبان TCP/443 پاسخ دادند؛ این نتیجه اثبات اتصال VPN نیست.');
     } catch (e, st) { logError(e, st); _set('اسکن خلبان ناموفق بود: $e'); }
     finally { if (mounted) setState(() => _pilotRangeBusy = false); }
   }
@@ -10787,8 +10787,8 @@ ListTile( // KINGEXTRAS row
         pending.clear();
         if (!connected && !busy && !searching) unawaited(_loadPending(bg: true));
         final filters = <String>[
-          if (selCountry != null) 'کشور: \${countryFa[selCountry] ?? selCountry}',
-          if (protoSel.isNotEmpty) 'پروتکل: \${protoSel.join(', ')}',
+          if (selCountry != null) 'کشور: ${countryFa[selCountry] ?? selCountry}',
+          if (protoSel.isNotEmpty) 'پروتکل: ${protoSel.join(', ')}',
           if (selCountry == null && protoSel.isEmpty) 'بدون محدودیت',
         ].join(' • ');
         _set('فیلتر اعمال شد: $filters');
@@ -10824,7 +10824,7 @@ ListTile( // KINGEXTRAS row
         const SizedBox(height: 8),
         TextField(controller: _smartCommandController, minLines: 1, maxLines: 3, textInputAction: TextInputAction.send,
           onSubmitted: (_) => _runSmartCommand(), style: const TextStyle(color: Color(0xFFE8EDF7)),
-          decoration: InputDecoration(hintText: 'مثلاً: اتصال خلبان، آلمان و فقط VMess، اسکن IP، پروکسی تلگرام...', hintStyle: const TextStyle(color: Color(0xFF8D9BAD, fontSize: 12),), filled: true, fillColor: const Color(0xFF0D1420), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), suffixIcon: IconButton(tooltip: 'پاک کردن', onPressed: () => _smartCommandController.clear(), icon: const Icon(Icons.close)))),
+          decoration: InputDecoration(hintText: 'مثلاً: اتصال خلبان، آلمان و فقط VMess، اسکن IP، پروکسی تلگرام...', hintStyle: const TextStyle(color: Color(0xFF8D9BAD), fontSize: 12), filled: true, fillColor: const Color(0xFF0D1420), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), suffixIcon: IconButton(tooltip: 'پاک کردن', onPressed: () => _smartCommandController.clear(), icon: const Icon(Icons.close)))),
         const SizedBox(height: 8),
         FilledButton.icon(onPressed: _smartCommandRunning ? null : () => _runSmartCommand(), icon: _smartCommandRunning ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.play_arrow), label: Text(_smartCommandRunning ? 'در حال اجرا...' : 'اجرای دستور')),
         ExpansionTile(tilePadding: EdgeInsets.zero, childrenPadding: const EdgeInsets.only(bottom: 4), title: const Text('راهنما و توضیحات'),
