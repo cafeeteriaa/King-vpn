@@ -422,10 +422,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('UiHero(', main)
         self.assertIn('onTap: null,', main)
         self.assertNotIn("label: const Text('جستجوی سرور با نت ملی')", main)
-        ai_bar = pilot_ui[pilot_ui.index('Widget aiBar()'):pilot_ui.index('void aiSheet()')]
-        self.assertNotIn('startGrokPilot', ai_bar)
-        self.assertNotIn('startLocalPilot', ai_bar)
-        self.assertNotIn('pickEngineThenStart(startGrokPilot', pilot_ui)
+        self.assertNotIn('Widget aiBar()', pilot_ui)
+        self.assertNotIn('PilotCommandBar', pilot_ui)
+        self.assertNotIn('_runPilotCommand(', pilot_ui)
 
     def test_local_pilot_rechecks_network_after_link_changes(self):
         pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
