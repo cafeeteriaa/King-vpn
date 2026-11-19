@@ -2962,18 +2962,12 @@ Future<void> main() async {
   }, (e, st) => logError(e));
 }
 
-// The old 15-minute background scan is gone: while the VPN is off nothing
-// runs and no data is used. The dispatcher stays only so Workmanager can be
-// initialised and the periodic task of old installs can be cancelled.
-@pragma('vm:entry-point')
-void callbackDispatcher() {
-  Workmanager().executeTask((task, input) async => true);
-}
-
+// The King AI supervisor uses a dedicated WorkManager dispatcher. Merely
+// initializing it does not schedule work; scheduling remains an explicit
+// choice in the secure owner console.
 Future<void> initBackground() async {
   try {
-    await Workmanager().initialize(callbackDispatcher);
-    await Workmanager().cancelAll();
+    await KingAiBackgroundSupervisor.initialize();
   } catch (e, stk) {
     logError(e, stk);
   }
