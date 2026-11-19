@@ -266,6 +266,7 @@ class PilotNetworkProbe {
     global: LinkHealth.unknown,
   );
   static Future<NetworkEvidence>? _flight;
+  static NetworkEvidence get current => _last;
 
   static Future<NetworkEvidence> refresh({bool force = false}) async {
     final active = _flight;
