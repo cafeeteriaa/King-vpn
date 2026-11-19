@@ -136,6 +136,7 @@ class _KingChatPageState extends State<KingChatPage> {
         ),
       );
       if (!mounted || accepted != true) {
+        _voiceTurn = false;
         if (mounted) setState(() => _notice =
             'تشخیص گفتار آنلاین مجاز نشد؛ هیچ صدایی به سرویس آنلاین ارسال نمی‌شود.');
         return;
@@ -155,6 +156,7 @@ class _KingChatPageState extends State<KingChatPage> {
       if (mounted) {
         setState(() {
           _listening = false;
+          _voiceTurn = false;
           _notice = 'تشخیص گفتار آفلاین و آنلاین در دسترس نیست: $error';
         });
       }
@@ -190,6 +192,7 @@ class _KingChatPageState extends State<KingChatPage> {
               unawaited(_requestChatSpeechOnlineFallback());
               return;
             }
+            if (_onlineSpeechFallbackAttempted) _voiceTurn = false;
             setState(() => _notice = 'تشخیص گفتار: ${error.errorMsg}');
           },
         );
