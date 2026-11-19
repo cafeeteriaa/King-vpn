@@ -8675,7 +8675,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         elapsedMs: realMs >= 0 ? realMs : max(0, s.ping ?? 0),
         stableForFiveMinutes: false,
       ));
-      NationalNetworkIntelligence.armStable(nnieKey, () => connected && identical(current, s));
+      NationalNetworkIntelligence.armStable(nnieKey, () => _stableTunnelTrafficOk(s));
     }
     if (mounted) setState(() {});
     if (mounted) uiJoinPrompt(context);
@@ -8855,6 +8855,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (ok) return true;
     }
     return false;
+  }
+
+  // Stable history requires a fresh multi-destination check through the active core.
+  // This also covers proxy mode: the core's local proxy is the measured data path.
+  Future<bool> _stableTunnelTrafficOk(Server server) async {
+    if (!connected || !identical(current, server)) return false;
+    final urls = nationalMode ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
+    if (urls.length < 2) return false;
+    final results = await Future.wait(urls.map((url) =>
+        _siteOpens(url, viaCore: true).timeout(
+            const Duration(seconds: 8), onTimeout: () => false)));
+    final passed = results.where((ok) => ok).length;
+    return connected && identical(current, server) && passed >= 2;
   }
 
   // FIX #107: completes the connect waiter only when real traffic passes through the tunnel now.
