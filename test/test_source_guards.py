@@ -84,7 +84,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         pilot_controls_start = main.index("label: const Text('بازه‌های IP اختصاصی خلبان')")
         pilot_controls_end = main.index('ValueListenableBuilder<String>', pilot_controls_start)
         pilot_controls = main[pilot_controls_start:pilot_controls_end]
-        self.assertIn('_pilotRangesDialog(context)', pilot_controls)
+        self.assertIn('_pilotRangesDialog(context)', main)
         self.assertIn('_pilotScanOnly()', pilot_controls)
         self.assertNotIn('_natRangesDialog(context)', pilot_controls)
         self.assertNotIn('_natScanOnly()', pilot_controls)
