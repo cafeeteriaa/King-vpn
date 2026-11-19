@@ -16,8 +16,8 @@ class ReleaseSigningConfigurationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             gradle = pathlib.Path(directory) / "build.gradle.kts"
             gradle.write_text(
-                'plugins {\\n    id("com.android.application")\\n}\\n'
-                'android { buildTypes { getByName("release") { } } }\\n',
+                'plugins {\n    id("com.android.application")\n}\n'
+                'android { buildTypes { getByName("release") { } } }\n',
                 encoding="utf-8",
             )
             MODULE.configure(gradle)
@@ -32,7 +32,7 @@ class ReleaseSigningConfigurationTests(unittest.TestCase):
     def test_groovy_release_signing_is_configured(self):
         with tempfile.TemporaryDirectory() as directory:
             gradle = pathlib.Path(directory) / "build.gradle"
-            gradle.write_text("plugins { id 'com.android.application' }\\n", encoding="utf-8")
+            gradle.write_text("plugins { id 'com.android.application' }\n", encoding="utf-8")
             MODULE.configure(gradle)
             result = gradle.read_text(encoding="utf-8")
             self.assertIn("kingRelease {", result)
@@ -42,8 +42,8 @@ class ReleaseSigningConfigurationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             gradle = pathlib.Path(directory) / "build.gradle.kts"
             gradle.write_text(
-                'plugins { id("com.android.application") }\\n'
-                'val kingReleaseProperties = Properties()\\n',
+                'plugins { id("com.android.application") }\n'
+                'val kingReleaseProperties = Properties()\n',
                 encoding="utf-8",
             )
             with self.assertRaises(SystemExit):
