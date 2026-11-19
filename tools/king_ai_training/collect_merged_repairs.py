@@ -131,7 +131,7 @@ def collect(event: dict, repository: str, token: str, output: Path) -> dict:
         "ci_passed": True,
         "merged": True,
         "human_reviewed": False,
-        "security_scan_passed": True,
+        "secret_scan_passed": True,
         "commit_sha": sha,
         "pull_number": number,
     }
