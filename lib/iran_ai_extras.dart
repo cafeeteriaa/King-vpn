@@ -1914,6 +1914,36 @@ extension HomeExtras on _HomePageState {
       await localPilotTick(force: true);
       return 'ارزیابی فوری انجام شد؛ تصمیم بر اساس شواهد تازه شبکه گرفته می‌شود.';
     }
+    // Explicit target selection is deterministic and only uses already-tested servers.
+    final asksForSpecificTarget = hasAny(['به کشور ', 'کشور ', 'سرور ']);
+    if (asksForSpecificTarget && hasAny(['وصل', 'اتصال', 'connect'])) {
+      final available = _usable();
+      final byName = available.where((server) {
+        final n = server.name.toLowerCase()
+            .replaceAll('ي', 'ی').replaceAll('ك', 'ک');
+        return n.length >= 3 && q.contains(n);
+      }).toList();
+      if (byName.isNotEmpty) {
+        final chosen = byName.first;
+        await pickEngineThenStart(() => connect(chosen), askMode: false);
+        return 'درخواست اتصال به سرور «${chosen.name}» اجرا شد؛ نتیجه پس از بررسی تونل مشخص می‌شود.';
+      }
+      final countryMatch = countryFa.entries.where((entry) =>
+          q.contains(entry.value.toLowerCase()) ||
+          q.contains(entry.key.toLowerCase())).toList();
+      if (countryMatch.isNotEmpty) {
+        final key = countryMatch.first.key;
+        final matches = available.where((server) =>
+            (server.country ?? '').toLowerCase() == key.toLowerCase()).toList();
+        if (matches.isEmpty) {
+          return 'در فهرست سرورهای سالم، سرور آماده‌ای برای این کشور پیدا نشد. برای جستجوی گسترده‌تر «وصل شو» را بفرست.';
+        }
+        final chosen = matches.first;
+        await pickEngineThenStart(() => connect(chosen), askMode: false);
+        return 'بهترین سرورِ آماده از کشور ${countryFa[key] ?? key} انتخاب شد؛ نتیجه اتصال در حال بررسی است.';
+      }
+      return 'نام کشور یا سرور در فهرست آماده‌ها پیدا نشد. نام دقیق‌تری بنویس یا «وصل شو» را بفرست تا خلبان جستجو کند.';
+    }
     if (hasAny(['وصل', 'اتصال', 'connect', 'شروع خلبان', 'خلبان روشن', 'شروع کن'])) {
       if (connected && localPilotOn) {
         await localPilotTick(force: true);
