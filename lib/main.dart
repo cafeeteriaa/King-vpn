@@ -8720,17 +8720,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         .then((p) => p.setString('last_conn', s.link));
     if (nationalMode) {
       unawaited(natRememberSuccess(s)); // NATMEM
-      // NNIE: فقط این مسیر پس از تأیید end-to-end موفقیت سرور را ثبت می‌کند.
-      final nnieKey = NationalNetworkIntelligence.keyOfServer(s);
-      // A server's EWMA must never include time spent failing over through earlier servers.
-      unawaited(NationalNetworkIntelligence.record(
-        endpointKey: nnieKey,
-        success: true,
-        elapsedMs: nnieElapsedMs ?? max(0, s.ping ?? 0),
-        stableForFiveMinutes: false,
-      ));
-      NationalNetworkIntelligence.armStable(nnieKey, () => _stableTunnelTrafficOk(s));
     }
+    // NNIE records end-to-end successes in BOTH domestic and global modes.
+    // The previous nationalMode guard silently left global-route servers
+    // without learned history, biasing Smart Pilot toward incomplete evidence.
+    final nnieKey = NationalNetworkIntelligence.keyOfServer(s);
+    // A server's EWMA must never include time spent failing over through earlier servers.
+    unawaited(NationalNetworkIntelligence.record(
+      endpointKey: nnieKey,
+      success: true,
+      elapsedMs: nnieElapsedMs ?? max(0, s.ping ?? 0),
+      stableForFiveMinutes: false,
+    ));
+    NationalNetworkIntelligence.armStable(nnieKey, () => _stableTunnelTrafficOk(s));
     if (mounted) setState(() {});
     if (mounted) uiJoinPrompt(context);
     _set(_connStatus());
