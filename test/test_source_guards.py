@@ -641,5 +641,33 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('Permission.manageExternalStorage', main)
 
 
+    def test_owner_idea_analysis_is_separate_and_owner_gated(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        start = main.index('Future<void> _runSmartCommand')
+        end = main.index('Widget _smartCommandPanel()', start)
+        dispatcher = main[start:end]
+        self.assertIn('analysisOnlyRequest', dispatcher)
+        self.assertIn('initialIdeaAnalysis: command', dispatcher)
+        self.assertIn('speakResponses: voiceResponse', dispatcher)
+        self.assertIn('Future<String> analyzeOwnerIdea', ai)
+        idea_start = ai.index('Future<String> analyzeOwnerIdea')
+        idea_end = ai.index('Future<String> _askCoding', idea_start)
+        idea_flow = ai[idea_start:idea_end]
+        self.assertIn('hasActiveSession', idea_flow)
+        self.assertNotIn('_createRepairPullRequest', idea_flow)
+        self.assertIn('فقط تحلیل ایده (بدون تغییر کد)', console)
+
+
+
+    def test_voice_idea_analysis_speaks_raw_text_not_json_quoted_string(self):
+        console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
+        self.assertIn('final rendered = result is String', console)
+        self.assertIn('final summary = result is String', console)
+        self.assertIn('KingVoiceOutput.instance.speakPersian(summary)', console)
+
+
+
 if __name__ == '__main__':
     unittest.main()

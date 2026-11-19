@@ -1,52 +1,61 @@
 # King AI continuous maintenance
 
-King's maintenance lifecycle is continuous in intent, but bounded by Android
-background scheduling, device resources and explicit owner security.
+King's maintenance loop is designed to make steady progress without bypassing
+Android resource limits or owner security.
 
-## Currently scheduled background work
+## Automatic read-only research
 
-- A best-effort WorkManager job researches official Android, Flutter, Dart,
-  protocol and network-measurement documentation every six hours when network
-  and battery constraints permit.
-- Research is limited to an explicit HTTPS host allowlist, short excerpts and a
-  bounded local history. Retrieved text is untrusted reference material, never
-  executable instructions.
-- This worker currently performs research only. It does not read source files,
-  create code candidates, change runtime settings, or install application
-  updates. The policy engine below defines the gates for those future actions;
-  it is not itself an executor.
+- On app startup, WorkManager schedules an immediate best-effort research pass
+  and a periodic pass every six hours, subject to network and battery constraints.
+- Research uses a strict HTTPS allowlist, stores bounded excerpts locally, and
+  treats retrieved pages as untrusted reference material rather than commands.
+- Research updates the local knowledge memory; it does not retrain or replace
+  the installed model weights.
 
-## Evidence and safe optimization gates
+## Owner-enabled autonomous maintenance
 
-- Reversible runtime tuning requires at least four network samples, four
-  connection samples and a rollback snapshot. Domestic and global evidence
-  must both be present.
-- A code candidate is eligible only after a reproducible issue is supported by
-  at least eight network and connection samples. A candidate is not an applied
-  change.
-- Applying source changes requires an authenticated owner session, an explicit
-  owner command scoped to that exact candidate, and passing CI.
-- Dependencies, native VPN services, owner-security policy and releases remain
-  separately protected. Publishing a release also requires separate owner
-  release authorization and release validation.
-- The in-app owner feature-request workflow and the background research worker
-  are separate. Background research must never imply that a code change was
-  owner-approved.
+The owner must unlock the device-local owner console and explicitly enable
+continuous maintenance. The opt-in flag is stored in secure storage. The
+feature also requires the verified local coding model and a GitHub token whose
+identity is verified as the repository owner.
 
-## Owner idea workflow
+When enabled:
 
-When the owner submits an idea, King should analyze feasibility, security,
-network impact, testability and rollback cost first. It should explain the
-recommendation in Persian and prepare a review candidate only after owner
-authentication. An explicit, scoped authorization is required before applying
-the candidate. Ordinary users remain limited to allowlisted connection and
-troubleshooting commands.
+- A daily source audit may prepare one small, reversible candidate from existing
+  lib/ or test/ files, with a strict attempt budget and duplicate-patch guard.
+- The supervisor checks selected pull requests for CI failures on a best-effort
+  15-minute schedule and may prepare bounded follow-up repair pull requests.
+- Candidate changes are isolated in draft pull requests. They are not merged,
+  published or silently installed. Owner review and green CI remain required.
+- Native VPN service code, Android permissions, dependencies, Gradle, CI policy,
+  secrets, signing and owner-security files remain outside the automatic repair
+  scope.
 
-## Limits
+## Owner ideas
 
-Android may defer WorkManager jobs for Doze, battery, network, OEM restrictions
-or user force-stop; six hours is a requested cadence, not an exact execution
-guarantee. Research updates the local technical knowledge base, not the model
-weights. A successful probe on one carrier or device does not characterize all
-Iranian networks. If evidence is incomplete, the safe action is to observe and
-explain what is missing rather than guess.
+The command bar distinguishes an owner request to analyze an idea from a
+request to prepare a code change. Idea analysis is read-only: it explains
+feasibility, Iran-network relevance, risks, evidence needs, tests and rollback.
+A separate explicit code-change request can prepare a draft review PR after
+owner authentication, local-model readiness and repository-owner verification.
+
+Ordinary users can use only allowlisted connection and troubleshooting
+commands. They cannot submit code requests or enable background maintenance.
+
+## Evidence limits
+
+The national/global pilot probes measure the current route and are useful for
+connection decisions, but their results are currently transient. The scheduled
+source audit inspects repository context; it does not yet consume a persistent,
+carrier-labelled history of live Iranian-network observations. It must never
+claim that one probe characterizes all Iranian carriers or that source research
+proves real-world connectivity. Persistent network-evidence learning and
+evidence-gated runtime tuning remain separate work items.
+
+## Android scheduling limits
+
+WorkManager is best-effort. Android may defer or skip jobs because of Doze,
+battery, network, OEM restrictions or user force-stop. A six-hour cadence is a
+requested interval, not an exact timer or an always-on daemon. Background
+workers never download the large local model; they use only a previously
+downloaded and integrity-verified model.
