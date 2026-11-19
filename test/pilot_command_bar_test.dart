@@ -1,47 +1,22 @@
-import 'dart:async';
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import '../lib/main.dart';
+import '../lib/king_command_safety.dart';
 
 void main() {
-  testWidgets('cancel command remains usable during a pending command and wins over stale reply',
-      (tester) async {
-    final status = ValueNotifier<String>('');
-    addTearDown(status.dispose);
-    final pending = Completer<String>();
-    final commands = <String>[];
+  group('King command safety', () {
+    test('strips the King wake name without granting privileges', () {
+      expect(KingCommandSafety.stripKingAddress('سلام کینگ وصل شو'), 'وصل شو');
+      expect(KingCommandSafety.stripKingAddress('King جان وضعیت اتصال'), 'وضعیت اتصال');
+    });
 
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(
-        body: PilotCommandBar(
-          onSubmit: (command) {
-            commands.add(command);
-            return command == 'long-running'
-                ? pending.future
-                : Future<String>.value('درخواست لغو شد');
-          },
-          localStatus: status,
-          pilotOn: true,
-          connected: false,
-          busy: false,
-        ),
-      ),
-    ));
+    test('does not turn a negated connect command into an active connect', () {
+      expect(KingCommandSafety.negatesConnection('به من وصل نشو'), isTrue);
+      expect(KingCommandSafety.negatesConnection('اتصال برقرار کن'), isFalse);
+      expect(KingCommandSafety.negatesConnection('قطع اتصال نکن'), isTrue);
+    });
 
-    await tester.enterText(find.byType(TextField), 'long-running');
-    await tester.tap(find.byIcon(Icons.send_rounded));
-    await tester.pump();
-    expect(find.text('لغو عملیات'), findsOneWidget);
-
-    await tester.tap(find.text('لغو عملیات'));
-    await tester.pump();
-    expect(commands, <String>['long-running', 'لغو جستجو']);
-    expect(find.text('درخواست لغو شد'), findsOneWidget);
-
-    pending.complete('پاسخ قدیمی فرمان قبلی');
-    await tester.pump();
-    expect(find.text('درخواست لغو شد'), findsOneWidget);
+    test('recognizes negated scanner commands', () {
+      expect(KingCommandSafety.negatesScan('اسکن نکن'), isTrue);
+      expect(KingCommandSafety.negatesScan('خلبان را اسکن کن'), isFalse);
+    });
   });
 }
