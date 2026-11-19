@@ -91,9 +91,9 @@ if os.path.exists(sett):
             )
             s = s[:pm.end()] + '\n    repositories { ' + mirror_entry + '; google(); mavenCentral(); gradlePluginPortal() }' + s[pm.end():]
     root_mirror_entry = (
-        f'maven {{ url = uri("{MAVEN_CENTRAL_MIRROR}") }}'
+        f'        maven {{ url = uri("{MAVEN_CENTRAL_MIRROR}") }}'
         if sett.endswith('.kts') else
-        f'maven {{ url "{MAVEN_CENTRAL_MIRROR}" }}'
+        f'        maven {{ url "{MAVEN_CENTRAL_MIRROR}" }}'
     )
     s = add_maven_mirror_to_scope(s, 'dependencyResolutionManagement', root_mirror_entry)
     s = re.sub(r'(id\("com\.android\.(?:application|library)"\)\s+version\s+")[^"]+(")',
