@@ -542,15 +542,15 @@ Future<CfDeployResult> cloudflareAutoDeploy(
     'compatibility_date': _kCfCompatDate,
     'bindings': [],
   });
-  final body = '--$boundary\\r\\n'
-      'Content-Disposition: form-data; name="metadata"\\r\\n'
-      'Content-Type: application/json\\r\\n\\r\\n'
-      '$metadata\\r\\n'
-      '--$boundary\\r\\n'
-      'Content-Disposition: form-data; name="worker.js"; filename="worker.js"\\r\\n'
-      'Content-Type: application/javascript+module\\r\\n\\r\\n'
-      '$script\\r\\n'
-      '--$boundary--\\r\\n';
+  final body = '--$boundary\r\n'
+      'Content-Disposition: form-data; name="metadata"\r\n'
+      'Content-Type: application/json\r\n\r\n'
+      '$metadata\r\n'
+      '--$boundary\r\n'
+      'Content-Disposition: form-data; name="worker.js"; filename="worker.js"\r\n'
+      'Content-Type: application/javascript+module\r\n\r\n'
+      '$script\r\n'
+      '--$boundary--\r\n';
 
   final scriptUrl =
       'https://api.cloudflare.com/client/v4/accounts/$resolvedAccountId/workers/scripts/$workerName';
