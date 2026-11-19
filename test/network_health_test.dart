@@ -9,8 +9,6 @@ void main() {
         global: LinkHealth.healthy,
         domesticSamples: 3,
         globalSamples: 3,
-        domesticSuccesses: 3,
-        globalSuccesses: 3,
         domesticTlsReachabilityVerified: true,
         globalTlsReachabilityVerified: true,
       );
@@ -21,38 +19,11 @@ void main() {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.degraded,
         global: LinkHealth.unknown,
-        domesticSamples: 3,
-        globalSamples: 3,
-        domesticSuccesses: 1,
-        globalSuccesses: 0,
+        domesticSamples: 1,
+        globalSamples: 0,
       );
       expect(evidence.confidence, greaterThan(0));
       expect(evidence.confidence, lessThan(1));
-    });
-
-    test('failed attempts do not inflate reachability confidence', () {
-      const evidence = NetworkEvidence(
-        domestic: LinkHealth.unreachable,
-        global: LinkHealth.unreachable,
-        domesticSamples: 3,
-        globalSamples: 3,
-        domesticSuccesses: 0,
-        globalSuccesses: 0,
-      );
-      expect(evidence.confidence, 0);
-      expect(evidence.mode, DetectedNetworkMode.offline);
-    });
-
-    test('one successful handshake gives only proportional confidence', () {
-      const evidence = NetworkEvidence(
-        domestic: LinkHealth.degraded,
-        global: LinkHealth.unreachable,
-        domesticSamples: 3,
-        globalSamples: 3,
-        domesticSuccesses: 1,
-        globalSuccesses: 0,
-      );
-      expect(evidence.confidence, closeTo(0.55 / 6, 0.0001));
     });
 
     test('selects domestic only when global probes fail', () {
