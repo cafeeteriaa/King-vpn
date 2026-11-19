@@ -526,7 +526,10 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       throw StateError('Owner authentication is required for code generation.');
     }
     return _proposeRepair(
-      task: task, sourceFiles: sourceFiles, researchNotes: researchNotes,
+      task: task,
+      sourceFiles: sourceFiles,
+      researchNotes: researchNotes,
+      allowOwnerMain: true,
     );
   }
 
@@ -534,6 +537,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     required String task,
     required Map<String, String> sourceFiles,
     List<Map<String, String>> researchNotes = const [],
+    bool allowOwnerMain = false,
   }) async {
     if (sourceFiles.isEmpty || sourceFiles.length > 6) {
       throw ArgumentError('Provide between 1 and 6 source files');
@@ -541,7 +545,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     final safeFiles = <String, String>{};
     var total = 0;
     for (final entry in sourceFiles.entries) {
-      _validatePath(entry.key);
+      _validatePath(entry.key, allowOwnerMain: allowOwnerMain);
       if (entry.value.length > 4000) {
         throw ArgumentError('Source file too large for local context: ${entry.key}');
       }
@@ -581,7 +585,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
         throw const FormatException('Malformed file change from local model');
       }
       final path = item['path'] as String;
-      _validatePath(path);
+      _validatePath(path, allowOwnerMain: allowOwnerMain);
       if (!sourceFiles.containsKey(path)) {
         throw FormatException('Model tried to modify a file outside its context: $path');
       }
@@ -621,7 +625,9 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     return protectedPaths.contains(path);
   }
 
-  void _validatePath(String path) {
+  void _validatePath(String path, {bool allowOwnerMain = false}) {
+    final protected = _isProtectedGeneratedPath(path) &&
+        !(allowOwnerMain && path == 'lib/main.dart');
     if (path.startsWith('/') ||
         path.contains('\\') ||
         path.split('/').any((part) => part == '..' || part.isEmpty) ||
@@ -630,7 +636,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
           path.startsWith('tools/')) ||
         path.startsWith('lib/android') ||
         path.startsWith('lib/own_vpn') ||
-        _isProtectedGeneratedPath(path)) {
+        protected) {
       throw FormatException('Protected or unsafe repository path: $path');
     }
   }
@@ -1616,7 +1622,11 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     required String repository,
     required String baseBranch,
     required String task,
+    bool allowOwnerMain = false,
   }) async {
+    if (allowOwnerMain && !KingAiOwnerAuth.instance.hasActiveSession) {
+      throw StateError('Owner authentication is required to read protected source context.');
+    }
     final repo = '${Uri.encodeComponent(owner)}/${Uri.encodeComponent(repository)}';
     final ref = await _github('GET', '/repos/$repo/git/ref/heads/${Uri.encodeComponent(baseBranch)}');
     final commitSha = (ref['object'] as Map)['sha'] as String;
@@ -1631,7 +1641,8 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       return entry['type'] == 'blob' &&
           path is String &&
           (path.startsWith('lib/') || path.startsWith('test/') || path.startsWith('tools/')) &&
-          !_isProtectedGeneratedPath(path) &&
+          (!_isProtectedGeneratedPath(path) ||
+              (allowOwnerMain && path == 'lib/main.dart')) &&
           (path.endsWith('.dart') || path.endsWith('.py')) &&
           entry['size'] is num &&
           (entry['size'] as num) <= 16000;
@@ -1670,6 +1681,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     required String title,
     required String summary,
     required Map<String, String> changes,
+    bool allowOwnerMain = false,
   }) async {
     if (!KingAiOwnerAuth.instance.hasActiveSession) {
       throw StateError('Owner authentication is required to create a code-change PR.');
@@ -1681,6 +1693,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       title: title,
       summary: summary,
       changes: changes,
+      allowOwnerMain: allowOwnerMain,
     );
   }
 
@@ -1691,8 +1704,12 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     required String title,
     required String summary,
     required Map<String, String> changes,
+    bool allowOwnerMain = false,
   }) async {
     _requireKingRepository(owner, repository);
+    if (allowOwnerMain && !KingAiOwnerAuth.instance.hasActiveSession) {
+      throw StateError('Owner authentication is required to change main.dart.');
+    }
     await _requireRepositoryOwnerIdentity();
     _rejectSecrets(title);
     _rejectSecrets(summary);
@@ -1700,7 +1717,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       throw ArgumentError('Repair must contain 1 to 3 changed files');
     }
     for (final entry in changes.entries) {
-      _validatePath(entry.key);
+      _validatePath(entry.key, allowOwnerMain: allowOwnerMain);
       _rejectSecrets(entry.value);
     }
     final repo = '${Uri.encodeComponent(owner)}/${Uri.encodeComponent(repository)}';
@@ -1774,6 +1791,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       repository: repository,
       baseBranch: 'main',
       task: request,
+      allowOwnerMain: true,
     );
     if (context.isEmpty) {
       return {'status': 'no_safe_source_context', 'changes': 0};
@@ -1794,6 +1812,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       title: 'Owner feature request',
       summary: proposal['summary'] as String,
       changes: changes,
+      allowOwnerMain: true,
     );
     return {
       'status': 'review_pr_created',
