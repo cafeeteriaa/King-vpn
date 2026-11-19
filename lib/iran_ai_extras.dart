@@ -2012,7 +2012,8 @@ extension HomeExtras on _HomePageState {
       final urls = nationalMode ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
       final checks = await Future.wait(urls.map((url) => _siteOpens(url, viaCore: true)
           .timeout(const Duration(seconds: 8), onTimeout: () => false)));
-      out['net'] = checks.any((ok) => ok);
+      // A single reachable site is a weak hint, not a successful tunnel check.
+      out['net'] = checks.where((ok) => ok).length >= 2;
       // Service-specific probes remain informational only; they do not decide
       // whether the tunnel is healthy or trigger an engine switch.
     } catch (e, stk) {
@@ -2462,6 +2463,11 @@ extension HomeExtras on _HomePageState {
     final evidence = <String, Object?>{
       'networkMode': nationalMode ? 'domestic' : 'global',
       'networkClass': PilotNetworkProbe.current.mode.name,
+      'domesticProbeHealth': PilotNetworkProbe.current.domestic.name,
+      'globalProbeHealth': PilotNetworkProbe.current.global.name,
+      'domesticProbeLatencyMs': PilotNetworkProbe.current.domesticLatencyMs,
+      'globalProbeLatencyMs': PilotNetworkProbe.current.globalLatencyMs,
+      'probeConfidence': PilotNetworkProbe.current.confidence,
       'phase': _localPhase,
       'connected': snap.connected,
       'operator': snap.operatorKey,
