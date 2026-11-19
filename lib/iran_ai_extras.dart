@@ -124,8 +124,8 @@ Future<Map<String, String?>> _secReadMany(List<String> keys) async {
     await Future.wait(keys.map((key) async {
       result[key] = await _secure.read(key: key);
     })).timeout(const Duration(seconds: 3));
-  } catch (error, stack) {
-    errJournalAdd(error, kind: 'SILENT-FILE', st: stack);
+  } catch (error) {
+    errJournalAdd(error, kind: 'SILENT-FILE');
   }
   return result;
 }
@@ -136,8 +136,8 @@ Future<void> _secApply(Map<String, String?> values) async {
         ? _secure.delete(key: entry.key)
         : _secure.write(key: entry.key, value: entry.value!)))
         .timeout(const Duration(seconds: 3));
-  } catch (error, stack) {
-    errJournalAdd(error, kind: 'SILENT-FILE', st: stack);
+  } catch (error) {
+    errJournalAdd(error, kind: 'SILENT-FILE');
   }
 }
 
