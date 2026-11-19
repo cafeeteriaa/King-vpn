@@ -727,7 +727,7 @@ empty changes list and explain what is missing.
 
   Future<List<Map<String, String>>> _relevantResearchMemory(String query) async {
     final root = await getApplicationSupportDirectory();
-    final file = File('\${root.path}/king_ai_research_memory.jsonl');
+    final file = File('${root.path}/king_ai_research_memory.jsonl');
     if (!await file.exists()) return const [];
     final lines = await file.readAsLines();
     return rankKingAiResearchMemory(query, lines, maxItems: 3);
