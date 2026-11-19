@@ -595,6 +595,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Upload complete project ZIP', workflow)
         self.assertIn('${{ runner.temp }}', workflow)
 
+    def test_flutter_sdk_included_build_resolves_kotlin_plugin_transitives(self):
+        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        self.assertIn("packages/flutter_tools/gradle/settings.gradle.kts", prepare)
+        self.assertIn("FLUTTER_ROOT", prepare)
+        self.assertIn("mavenCentral()", prepare)
+        self.assertIn("gradlePluginPortal()", prepare)
+
     def test_plugin_dart_parser_hardening_is_part_of_build_patch(self):
         patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
         for name in ('patch_url_dart', 'patch_vmess_dart', 'patch_vless_dart',
