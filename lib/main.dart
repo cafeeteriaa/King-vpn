@@ -10975,7 +10975,21 @@ ListTile( // KINGEXTRAS row
         r'(بهینه|ارتقا|بروز|به روز|خودکار|هوشمند|توسعه|تقویت).{0,40}(نت ملی|اینترنت ایران))',
       ).hasMatch(command);
 
-      if (codeRequest) {
+      final analysisOnlyRequest = RegExp(
+        r'((ایده|پیشنهاد|فکر).{0,45}(تحلیل|بررسی|نظرت)|'
+        r'(تحلیل|بررسی).{0,30}(ایده|پیشنهاد|فکر)|'
+        r'(به ذهنم رسیده|ایده دارم|یه ایده|یک ایده).{0,60}(تحلیل|بررسی|نظرت))',
+      ).hasMatch(command);
+
+      if (analysisOnlyRequest) {
+        unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => KingAiConsolePage(
+            initialIdeaAnalysis: command,
+            speakResponses: voiceResponse,
+          ),
+        )));
+        _set('چشم رئیس؛ ایده را فقط تحلیل می‌کنم و بدون دستور جداگانهٔ تو هیچ سورس یا کدی را تغییر نمی‌دهم.');
+      } else if (codeRequest) {
         unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
           builder: (_) => KingAiConsolePage(initialFeatureRequest: command,
               speakResponses: voiceResponse),

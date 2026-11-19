@@ -11,10 +11,12 @@ class KingAiConsolePage extends StatefulWidget {
   const KingAiConsolePage({
     super.key,
     this.initialFeatureRequest,
+    this.initialIdeaAnalysis,
     this.speakResponses = false,
   });
 
   final String? initialFeatureRequest;
+  final String? initialIdeaAnalysis;
   final bool speakResponses;
 
   @override
@@ -34,6 +36,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   final TextEditingController _featureRequestController = TextEditingController();
   final KingAiOwnerAuth _ownerAuth = KingAiOwnerAuth.instance;
   bool _initialRequestSubmitted = false;
+  bool _initialIdeaAnalysisSubmitted = false;
   bool _ownerConfigured = false;
   bool _ownerUnlocked = false;
   bool _busy = false;
@@ -44,7 +47,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   @override
   void initState() {
     super.initState();
-    _featureRequestController.text = widget.initialFeatureRequest ?? '';
+    _featureRequestController.text = widget.initialIdeaAnalysis ?? widget.initialFeatureRequest ?? '';
     _refreshTokenState();
     _refreshOwnerState();
   }
@@ -81,6 +84,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
         });
       }
       if (_ownerAuth.hasActiveSession) {
+        await _maybeAnalyzeInitialIdea();
         await _maybeSubmitInitialFeatureRequest();
       }
     } catch (error) {
@@ -154,12 +158,16 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     });
     try {
       final result = await action();
-      final rendered = const JsonEncoder.withIndent('  ').convert(result);
+      final rendered = result is String
+          ? result
+          : const JsonEncoder.withIndent('  ').convert(result);
       if (mounted) setState(() => _output = rendered);
       if (widget.speakResponses) {
-        final summary = result is Map && result['summary'] is String
-            ? result['summary'].toString()
-            : rendered;
+        final summary = result is String
+            ? result
+            : result is Map && result['summary'] is String
+                ? result['summary'].toString()
+                : rendered;
         await KingVoiceOutput.instance.speakPersian(summary);
       }
     } catch (error) {
@@ -193,6 +201,38 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       return {'status': 'token_saved_securely', 'token_exposed': false};
     });
     await _maybeSubmitInitialFeatureRequest();
+  }
+
+  Future<void> _maybeAnalyzeInitialIdea() async {
+    if (_initialIdeaAnalysisSubmitted ||
+        (widget.initialIdeaAnalysis?.trim().length ?? 0) < 12 ||
+        !_ownerAuth.hasActiveSession) {
+      return;
+    }
+    if (!_ai.isLoaded) {
+      if (mounted) {
+        setState(() => _output =
+            'ایده مالک محفوظ است. برای تحلیل محلی، ابتدا مدل کینگ را بارگذاری کن.');
+      }
+      return;
+    }
+    _initialIdeaAnalysisSubmitted = true;
+    await _analyzeFeatureRequest();
+  }
+
+  Future<void> _analyzeFeatureRequest() async {
+    if (!_ownerAuth.hasActiveSession) {
+      setState(() => _output = 'تحلیل ایده فقط برای مالک احراز هویت‌شده فعال است.');
+      await _refreshOwnerState();
+      return;
+    }
+    final task = _featureRequestController.text.trim();
+    if (task.length < 12) {
+      setState(() => _output = 'ایده را دقیق‌تر بنویس (حداقل ۱۲ نویسه).');
+      return;
+    }
+    await _run('تحلیل ایده مالک؛ بدون تغییر سورس یا ساخت PR',
+        () => _ai.analyzeOwnerIdea(task: task));
   }
 
   /// A direct owner request sent from the command bar is carried into this
@@ -248,6 +288,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       return {'status': 'model_loaded', 'model': KingLocalAi.modelId, 'loaded': _ai.isLoaded};
     });
     if (mounted) setState(() => _progress = null);
+    await _maybeAnalyzeInitialIdea();
     await _maybeSubmitInitialFeatureRequest();
   }
 
@@ -477,6 +518,17 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
                     alignLabelWithHint: true,
                   ),
                 ),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _busy || !_ownerUnlocked || !_ai.isLoaded
+                        ? null
+                        : _analyzeFeatureRequest,
+                    icon: const Icon(Icons.psychology_alt),
+                    label: const Text('فقط تحلیل ایده (بدون تغییر کد)'),
+                  ),
+                ),
+                const SizedBox(height: 8),
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton.tonal(
