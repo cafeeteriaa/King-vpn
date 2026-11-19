@@ -436,6 +436,7 @@ empty changes list and explain what is missing.
     final files = <String, String>{};
     var total = 0;
     for (final entry in selected) {
+      if (files.length >= 6) break;
       final path = entry['path'] as String;
       final blob = await _github('GET', '/repos/$repo/git/blobs/${entry['sha']}');
       final bytes = base64.decode((blob['content'] as String).replaceAll('\n', ''));
