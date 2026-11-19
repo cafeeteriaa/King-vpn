@@ -436,6 +436,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('onDevice: false', chat)
         self.assertIn('_startChatSpeechOnlineFallback()', chat)
         self.assertIn('_requestChatSpeechOnlineFallback()', chat)
+        self.assertIn('_voiceTurn = false;', chat)
         self.assertIn('اجازه تشخیص گفتار آنلاین؟', chat)
         self.assertIn('if (result.finalResult) _onDeviceSpeechAttempt = false;', chat)
         self.assertIn('تشخیص گفتار آفلاین', chat)
