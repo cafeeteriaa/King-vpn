@@ -80,6 +80,17 @@ empty changes list and explain what is missing.
   Future<void> clearBackgroundRepairPullNumber() =>
       _secure.delete(key: 'king_ai_background_pull_number');
 
+  Future<void> setBackgroundAutoDiscovery(bool enabled) async {
+    if (enabled) {
+      await _secure.write(key: 'king_ai_background_auto_discovery', value: 'true');
+    } else {
+      await _secure.delete(key: 'king_ai_background_auto_discovery');
+    }
+  }
+
+  Future<bool> isBackgroundAutoDiscoveryEnabled() async =>
+      (await _secure.read(key: 'king_ai_background_auto_discovery')) == 'true';
+
   /// Loads only a model previously downloaded and verified in the foreground.
   /// A background worker must never start a 1.1 GB model download unexpectedly.
   Future<bool> loadInstalledModelForBackground() async {
@@ -629,6 +640,45 @@ empty changes list and explain what is missing.
           rowHead['ref'] == branch) {
         return number.toInt();
       }
+    }
+    return null;
+  }
+
+  /// Finds the most recently updated same-repository open PR with failed CI.
+  /// It is deliberately bounded to avoid scanning the whole repository on a
+  /// periodic Android background wake-up.
+  Future<int?> findOpenPullRequestWithCiFailures({
+    required String owner,
+    required String repository,
+    int maxPullRequests = 10,
+  }) async {
+    final repo = '${Uri.encodeComponent(owner)}/${Uri.encodeComponent(repository)}';
+    final limit = maxPullRequests.clamp(1, 20);
+    final rows = await _githubList(
+      '/repos/$repo/pulls?state=open&sort=updated&direction=desc&per_page=$limit',
+    );
+    for (final row in rows.whereType<Map>()) {
+      if (row['draft'] == true || row['state'] != 'open') continue;
+      final head = row['head'];
+      final base = row['base'];
+      final headRepo = head is Map ? head['repo'] : null;
+      final baseRepo = base is Map ? base['repo'] : null;
+      final baseBranch = base is Map ? base['ref']?.toString() ?? '' : '';
+      final number = row['number'];
+      if (number is! num ||
+          headRepo is! Map ||
+          baseRepo is! Map ||
+          headRepo['full_name'] != '$owner/$repository' ||
+          baseRepo['full_name'] != '$owner/$repository' ||
+          !(baseBranch == 'main' || baseBranch.startsWith('king-ai/'))) {
+        continue;
+      }
+      final report = await inspectPullRequestCi(
+        owner: owner,
+        repository: repository,
+        pullNumber: number.toInt(),
+      );
+      if (report['hasFailures'] == true) return number.toInt();
     }
     return null;
   }
