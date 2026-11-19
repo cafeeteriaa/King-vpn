@@ -203,7 +203,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
                       child: const Text('پاک‌کردن کلید')),
                 ]),
                 const SizedBox(height: 6),
-                Text('مجوزهای لازم: دسترسی مخزن Contents و Pull requests و خواندن Actions. کلید در گزارش‌ها نمایش داده نمی‌شود.',
+                Text('مجوزهای لازم برای همین مخزن: Contents (خواندن/نوشتن)، Pull requests (خواندن/نوشتن)، Actions (خواندن) و Checks (خواندن). کلید در گزارش‌ها نمایش داده نمی‌شود.',
                     style: theme.textTheme.bodySmall),
               ]),
             )),
