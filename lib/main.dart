@@ -5944,7 +5944,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         await _saveSettings();
         dbg('V8-FRESH: default settings applied');
       }
-      await loadGeminiPrefs(p);
+      await loadLocalAiPrefs(p);
       // FW-CAP-WARN: detect a saved fastWorkers/fwUser above the new cap BEFORE loadNumPrefs clamps it
       bool fwRawAbove32 = false;
       try {
