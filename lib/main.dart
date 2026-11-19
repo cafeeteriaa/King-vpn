@@ -10896,11 +10896,9 @@ ListTile( // KINGEXTRAS row
   }
 
   Future<void> _runSmartCommand([String? raw]) async {
-    final command = (raw ?? _smartCommandController.text)
-        .trim()
-        .toLowerCase()
-        .replaceAll('ي', 'ی')
-        .replaceAll('ك', 'ک');
+    final command = KingCommandSafety.stripKingAddress(
+      raw ?? _smartCommandController.text,
+    );
     if (command.contains('اسکن') && command.contains('خلبان') &&
         RegExp(r'(لغو|متوقف|توقف)').hasMatch(command)) {
       if (_pilotRangeBusy) {
@@ -10914,6 +10912,12 @@ ListTile( // KINGEXTRAS row
     if (command.isEmpty || _smartCommandRunning) return;
     setState(() => _smartCommandRunning = true);
     try {
+      if (command == 'راهنما' || command == 'help' || command.contains('دستورات')) {
+        _set('فرمان‌ها: «کینگ وصل شو»، «کینگ قطع اتصال»، «کینگ وضعیت اتصال»، '
+            '«کینگ نت ملی وصل شو»، «کینگ نت جهانی وصل شو»، «کینگ خلبان اسکن کن». '
+            'درخواست تغییر کد فقط از پنل امن مالک اصلی پذیرفته می‌شود.');
+        return;
+      }
       final countryCode = _smartCountryCode(command);
       final normalized = command
           .replaceAll('vmees', 'vmess')

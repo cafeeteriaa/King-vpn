@@ -3,6 +3,14 @@ import 'package:king_vpn/king_command_safety.dart';
 
 void main() {
   group('KingCommandSafety', () {
+    test('strips Persian and English wake prefixes only at the beginning', () {
+      expect(KingCommandSafety.stripKingAddress('کینگ وصل شو'), 'وصل شو');
+      expect(KingCommandSafety.stripKingAddress('سلام کینگ جان وضعیت اتصال'), 'وضعیت اتصال');
+      expect(KingCommandSafety.stripKingAddress('King, connect now'), 'connect now');
+      expect(KingCommandSafety.stripKingAddress('سلام وضعیت اتصال'), 'سلام وضعیت اتصال');
+      expect(KingCommandSafety.stripKingAddress('کینگ'), '');
+    });
+
     test('negative connect commands are blocked', () {
       expect(KingCommandSafety.negatesConnection('کینگ اتصال نکن'), isTrue);
       expect(KingCommandSafety.negatesConnection('لطفاً اتصال را شروع نکنید'), isTrue);

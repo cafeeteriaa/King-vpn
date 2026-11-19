@@ -12,6 +12,24 @@ class KingCommandSafety {
       .replaceAll('ك', 'ک')
       .replaceAll('‌', '');
 
+  /// Removes the assistant's optional wake/address prefix without granting
+  /// permissions. Authorization remains enforced by the owner-only console.
+  static String stripKingAddress(String raw) {
+    final normalized = raw.trim().toLowerCase()
+        .replaceAll('ي', 'ی')
+        .replaceAll('ك', 'ک')
+        .replaceAll('ۀ', 'ه')
+        .replaceAll('ة', 'ه')
+        .replaceAll('‌', ' ')
+        .replaceAll(RegExp(r'[،,؛;.!?؟:]+'), ' ')
+        .replaceAll(RegExp(r'\\s+'), ' ')
+        .trim();
+    return normalized.replaceFirst(
+      RegExp(r'^(?:(?:سلام|هی)\\s+)?(?:کینگ|king)(?:\\s+(?:جان|عزیز))?\\s*'),
+      '',
+    ).trim();
+  }
+
   static bool negatesConnection(String command) {
     final value = _normalize(command);
     return RegExp(
