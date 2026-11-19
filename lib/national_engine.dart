@@ -148,6 +148,8 @@ class NatNetworkDiagnosis {
   static DateTime? _checkedAt;
   static String? _identityAtCheck;
   static bool _running = false;
+  static final NatSingleFlight<NatNetworkClass> _refreshFlight =
+      NatSingleFlight<NatNetworkClass>();
 
   /// Network identity from local interfaces (no native code). Hashed, so the
   /// cache can tell "same network" from "network changed" without storing IPs.
@@ -180,7 +182,10 @@ class NatNetworkDiagnosis {
       current == NatNetworkClass.dnsDegraded ||
       current == NatNetworkClass.transportRestricted;
 
-  static Future<NatNetworkClass> refresh({bool force = false}) async {
+  static Future<NatNetworkClass> refresh({bool force = false}) =>
+      _refreshFlight.run(() => _refreshImpl(force: force));
+
+  static Future<NatNetworkClass> _refreshImpl({bool force = false}) async {
     if (_running) return current;
     // Mark as running BEFORE the first await, so two callers cannot both pass
     // the guard while the identity hash is being computed.

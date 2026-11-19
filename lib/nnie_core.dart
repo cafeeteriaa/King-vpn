@@ -15,6 +15,31 @@ enum NatNetworkClass {
 
 enum NatAttemptStage { quick, alternate, expensive }
 
+/// Coalesces concurrent requests for the same asynchronous operation.
+/// Every caller receives the same result/error; a later call can retry after
+/// completion. This prevents overlapping network diagnosis from returning a
+/// stale snapshot to a second caller.
+class NatSingleFlight<T> {
+  Future<T>? _pending;
+
+  Future<T> run(Future<T> Function() action) {
+    final active = _pending;
+    if (active != null) return active;
+
+    final completer = Completer<T>();
+    final future = completer.future;
+    _pending = future;
+    Future<T>.sync(action).then((value) {
+      if (identical(_pending, future)) _pending = null;
+      completer.complete(value);
+    }, onError: (Object error, StackTrace stack) {
+      if (identical(_pending, future)) _pending = null;
+      completer.completeError(error, stack);
+    });
+    return future;
+  }
+}
+
 class NatProbeEvidence {
   const NatProbeEvidence({
     required this.domesticDnsOk,
