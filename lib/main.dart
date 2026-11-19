@@ -11632,8 +11632,14 @@ ListTile( // KINGEXTRAS row
     // NNIE-DIAG: کوتاه منتظر تشخیص شبکه می‌مانیم تا اولین دسته‌ی نت ملی آگاه باشد.
     // پروب‌ها موازی‌اند و بیشترشان حداکثر ۳ ثانیه؛ مهلت ۵ ثانیه تا تشخیص وسط کار قطع نشود.
     if (nationalMode && !connected) {
-      await NatNetworkDiagnosis.refresh()
-          .timeout(const Duration(seconds: 5), onTimeout: () => NatNetworkDiagnosis.current);
+      if (localPilotOn) {
+        // Unified Pilot uses only its dedicated probe snapshot here.
+        await PilotNetworkProbe.refresh()
+            .timeout(const Duration(seconds: 5), onTimeout: () => PilotNetworkProbe.current);
+      } else {
+        await NatNetworkDiagnosis.refresh()
+            .timeout(const Duration(seconds: 5), onTimeout: () => NatNetworkDiagnosis.current);
+      }
     }
     await _runBusy(() async {
       if (natForce || _resNext) _resInject(); // NATRESPATCH
