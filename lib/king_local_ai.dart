@@ -395,6 +395,7 @@ empty changes list and explain what is missing.
     required String owner,
     required String repository,
     required String baseBranch,
+    required String task,
   }) async {
     final repo = '${Uri.encodeComponent(owner)}/${Uri.encodeComponent(repository)}';
     final ref = await _github('GET', '/repos/$repo/git/ref/heads/${Uri.encodeComponent(baseBranch)}');
@@ -409,7 +410,14 @@ empty changes list and explain what is missing.
           (path.startsWith('lib/') || path.startsWith('test/') || path.startsWith('tools/')) &&
           (path.endsWith('.dart') || path.endsWith('.py'));
     }).toList();
-    final selected = entries.take(6);
+    final words = task.toLowerCase().split(RegExp(r'[^a-z0-9\\u0600-\\u06FF]+'))
+        .where((word) => word.length > 2).toSet();
+    int relevance(Map entry) {
+      final path = (entry['path'] as String).toLowerCase();
+      return words.where(path.contains).length;
+    }
+    entries.sort((a, b) => relevance(b).compareTo(relevance(a)));
+    final selected = entries.take(18);
     final files = <String, String>{};
     var total = 0;
     for (final entry in selected) {
