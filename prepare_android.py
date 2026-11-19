@@ -4,12 +4,12 @@ import shutil
 
 APP = 'build_app'
 LIB = os.path.join(APP, 'lib')
-# Kotlin 2.3.21 fully supports Gradle through 9.3.0 and AGP through 9.0.0.
-AGP_VERSION = '9.0.0'
-GRADLE_VERSION = '9.3.1'
+# Flutter 3.50 + Kotlin 2.4.21 supported Android toolchain.
+AGP_VERSION = '9.3.1'
+GRADLE_VERSION = '9.7.0'
 
 # =====================================================================
-# ---- 0) Flutter 3.50 minimum Gradle patch with AGP 9.0.0 ----
+# ---- 0) Flutter 3.50 / Kotlin 2.4.21 compatible toolchain ----
 # =====================================================================
 print(f'[0] Pinning AGP {AGP_VERSION} + Gradle {GRADLE_VERSION}')
 
