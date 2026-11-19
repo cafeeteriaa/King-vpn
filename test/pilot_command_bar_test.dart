@@ -3,11 +3,11 @@ import '../lib/network_health.dart';
 
 void main() {
   group('Smart Pilot network strategy', () {
-    test('selects domestic routing only with repeated domestic evidence', () {
+    test('selects domestic routing only with a confirmed domestic quorum', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.healthy,
         global: LinkHealth.unreachable,
-        domesticSamples: 2,
+        domesticSamples: 3,
         globalSamples: 2,
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.domestic);
@@ -21,12 +21,12 @@ void main() {
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
     });
 
-    test('prefers global routing when global reachability is confirmed', () {
+    test('selects global routing only when global quorum and domestic failure are confirmed', () {
       const evidence = NetworkEvidence(
-        domestic: LinkHealth.healthy,
+        domestic: LinkHealth.unreachable,
         global: LinkHealth.healthy,
         domesticSamples: 2,
-        globalSamples: 2,
+        globalSamples: 3,
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.global);
     });
