@@ -13,7 +13,9 @@ Android resource limits or owner security.
   Cloudflare, and public measurement standards; only HTTPS allowlisted sources
   are retained. Retrieved pages are never executable instructions.
 - Research updates a bounded local technical knowledge memory; it does not
-  retrain or replace the installed model weights.
+  retrain or replace the installed model weights. Google is used for discovery,
+  but only HTTPS pages from the explicit trusted-domain allowlist are fetched
+  and retained; search results and pages are untrusted evidence, never commands.
 - The general conversation assistant keeps a small, redacted recent-history
   memory inside the app's private storage. This supports follow-up questions
   across launches; it is contextual memory, not model training. Tokens and
@@ -34,9 +36,15 @@ When enabled:
   15-minute schedule and may prepare bounded follow-up repair pull requests.
 - Candidate changes are isolated in draft pull requests. They are not merged,
   published or silently installed. owner review and green CI remain required.
-- A user-requested feature change is accepted only after the device-local owner
-  session is unlocked and GitHub independently verifies the repository owner.
-  The model cannot grant itself owner rights, widen its protected paths, or
+- A user-requested source change, CI repair, or maintenance-policy action
+  requires a fresh owner-password proof for that exact action, not merely an
+  already-open chat or a recently unlocked screen. The interactive owner
+  session expires after two minutes and is locked whenever the app leaves the
+  foreground. GitHub independently verifies the repository owner identity.
+- The local owner password is stored only as an Argon2id verifier in secure
+  device storage; it is never included in chat prompts, model context, PR text,
+  or logs. Other users may chat with King but cannot authorize repository writes.
+- The model cannot grant itself owner rights, widen its protected paths, or
   change authentication/security policy.
 - Native VPN service code, Android permissions, dependencies, Gradle, CI policy,
   secrets, signing and owner-security files remain outside the automatic repair
@@ -56,7 +64,8 @@ commands. They cannot submit code requests or enable background maintenance.
 ## Application updates and installation
 
 The existing startup update checker can detect a newer build, download an APK,
-and verify its SHA-256 before handing it to Android. The digest must be present
+and verify its SHA-256 before handing it to Android. This is update detection
+and verified download, not silent installation. The digest must be present
 and valid; a missing or mismatched digest fails closed. The Android package
 installer still requires the user to confirm installation on ordinary phones.
 Silent installation is not available to a normal app without privileged device
@@ -82,3 +91,15 @@ battery, network, OEM restrictions or user force-stop. A six-hour cadence is a
 requested interval, not an exact timer or an always-on daemon. Background
 workers never download the large local model; they use only a previously
 downloaded and integrity-verified model.
+
+## Model learning versus conversation memory
+
+King retains a bounded, redacted recent conversation context for follow-up
+questions. This is retrieval memory, not automatic training on private chats.
+Conversation text is not copied into the coding dataset. Only source repairs
+that were merged into main, pass CI and pass the dataset allowlist/secret scan
+can be proposed as training examples. Dataset changes are submitted as a
+separate review PR; no workflow pushes them directly to main. Model training
+requires at least five accepted examples and a separately configured,
+owner-controlled GPU runner/checkpoint. A trained candidate is an artifact for
+review, not an automatically installed replacement model.
