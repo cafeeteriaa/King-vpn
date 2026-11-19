@@ -1677,7 +1677,8 @@ const int _ipMemMax = 200;
 final List<Map<String, dynamic>> natIpMem = [];
 final Set<String> natIpDeadRun = {};
 List<String> natRanges = [];
-int natRangeCursor = 0;
+int natRangeCursor = 0; // generic range cursor
+int _natConfiguredRangeCursor = 0; // isolated National Net user-range cursor
 DateTime natRangeLast = DateTime.fromMillisecondsSinceEpoch(0);
 
 Set<String> natIpMemHosts() => {for (final e in natIpMem) '${e['ip']}'};
@@ -1699,7 +1700,7 @@ Future<void> natIpMemLoad() async {
         .split(RegExp(r'[\r\n,; ]+'))
         .where((x) => x.contains('/') || x.contains('-'))
         .toList();
-    natRangeCursor = (p.getInt('natRangesCursor') ?? 0).clamp(0, 1 << 31).toInt();
+    _natConfiguredRangeCursor = (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -1771,16 +1772,16 @@ List<String> _natConfiguredRangeBatch(int limit) {
   }
   if (candidates.isEmpty) return const <String>[];
   final values = candidates.toList(growable: false);
-  final start = natRangeCursor % values.length;
+  final start = _natConfiguredRangeCursor % values.length;
   final count = min(limit, values.length).toInt();
   final out = <String>[
     for (var i = 0; i < count; i++) values[(start + i) % values.length],
   ];
-  natRangeCursor = (start + count) % values.length;
+  _natConfiguredRangeCursor = (start + count) % values.length;
   unawaited(() async {
     try {
       final p = await SharedPreferences.getInstance();
-      await p.setInt('natRangesCursor', natRangeCursor);
+      await p.setInt('natConfiguredRangeCursor', _natConfiguredRangeCursor);
     } catch (e, st) {
       logError(e, st);
     }
@@ -1793,11 +1794,11 @@ Future<void> natRangesSave(String text) async {
       .split(RegExp(r'[\r\n,; ]+'))
       .where((x) => x.contains('/') || x.contains('-'))
       .toList();
-  natRangeCursor = 0;
+  _natConfiguredRangeCursor = 0;
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString(_rangeKey, natRanges.join('\n'));
-    await p.setInt('natRangesCursor', 0);
+    await p.setInt('natConfiguredRangeCursor', 0);
   } catch (e, stk) {
     logError(e, stk);
   }
