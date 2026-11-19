@@ -269,7 +269,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(title: const Text('هوش مصنوعی داخلی King')),
+        appBar: AppBar(title: const Text('هوش مصنوعی داخلی کینگ')),
         body: ListView(
           padding: const EdgeInsets.all(16),
           children: [
