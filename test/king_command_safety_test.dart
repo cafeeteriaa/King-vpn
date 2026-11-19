@@ -6,6 +6,8 @@ void main() {
     test('negative connect commands are blocked', () {
       expect(KingCommandSafety.negatesConnection('کینگ اتصال نکن'), isTrue);
       expect(KingCommandSafety.negatesConnection('کینگ اتصال نزن'), isTrue);
+      expect(KingCommandSafety.negatesConnection('نمیخوام قطع اتصال کنی'), isTrue);
+      expect(KingCommandSafety.negatesConnection("I don't want you to disconnect"), isTrue);
       expect(KingCommandSafety.negatesConnection('وصل نزن'), isTrue);
       expect(KingCommandSafety.negatesConnection('نمیخوام وصل بشی'), isTrue);
       expect(KingCommandSafety.negatesConnection('نمی‌خوام اتصال برقرار کنی'), isTrue);

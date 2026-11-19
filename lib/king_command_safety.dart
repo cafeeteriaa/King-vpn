@@ -17,7 +17,7 @@ class KingCommandSafety {
     return RegExp(
       '(?:اتصال|وصل|شروع|قطع|connect|disconnect).{0,16}$_negation',
     ).hasMatch(value) || RegExp(
-      '$_negation.{0,16}(?:اتصال|وصل|شروع|connect)',
+      '$_negation.{0,16}(?:اتصال|وصل|شروع|قطع|connect|disconnect)',
     ).hasMatch(value);
   }
 
