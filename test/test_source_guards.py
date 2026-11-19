@@ -16,6 +16,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('generateCode(', dispatcher)
         self.assertNotIn('repairFromFailedCi(', dispatcher)
 
+    def test_command_help_mentions_king_address(self):
+        pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        start = pilot.index('if (hasAny([\'راهنما\'')
+        end = pilot.index("if (hasAny(['وضعیت'", start)
+        self.assertIn('ابتدای فرمان «کینگ»', pilot[start:end])
+
     def test_king_address_is_removed_before_smart_pilot_command_dispatch(self):
         pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
         start = pilot.index('String _normalizePilotText(String raw)')
