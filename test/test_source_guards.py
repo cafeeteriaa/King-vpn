@@ -36,6 +36,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('_systemPrompt', public_ask)
         self.assertIn('کدنویسی کن', ai[ai.index('bool _looksLikeCodeGenerationRequest'):ask_start])
         self.assertIn('add feature', ai[ai.index('bool _looksLikeCodeGenerationRequest'):ask_start])
+        self.assertIn('پیاده سازی کن', ai[ai.index('bool _looksLikeCodeGenerationRequest'):ask_start])
+        self.assertIn('write a function', ai[ai.index('bool _looksLikeCodeGenerationRequest'):ask_start])
         proposal_start = ai.index('Future<Map<String, Object?>> _proposeRepair({')
         proposal_end = ai.index('Future<Map<String, Object?>> repairFromFailedCi({', proposal_start)
         self.assertIn('await _askCoding(', ai[proposal_start:proposal_end])
