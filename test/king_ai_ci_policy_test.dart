@@ -16,6 +16,21 @@ void main() {
       expect(safe, contains('[REDACTED]'));
     });
 
+    test('redacts common provider tokens, basic auth and all PEM private-key labels', () {
+      const raw = 'sk-123456789012345678901234 xoxb-123456789012 '
+          'AKIA1234567890ABCDEF AIza1234567890123456789012345678901234 '
+          'Basic dXNlcjpwYXNzd29yZA== '
+          '-----BEGIN PRIVATE KEY-----\\nsecret-material\\n-----END PRIVATE KEY-----';
+      final safe = redactKingAiCiEvidence(raw);
+      expect(safe, isNot(contains('sk-123456')));
+      expect(safe, isNot(contains('xoxb-')));
+      expect(safe, isNot(contains('AKIA1234567890ABCDEF')));
+      expect(safe, isNot(contains('AIza')));
+      expect(safe, isNot(contains('dXNlcjpwYXNzd29yZA==')));
+      expect(safe, isNot(contains('secret-material')));
+      expect(safe, contains('[REDACTED_PRIVATE_KEY]'));
+    });
+
     test('bounds evidence to the requested tail window', () {
       final safe = redactKingAiCiEvidence('0123456789', maxChars: 4);
       expect(safe, '6789');
