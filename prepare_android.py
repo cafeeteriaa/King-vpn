@@ -7,6 +7,7 @@ LIB = os.path.join(APP, 'lib')
 # Flutter 3.50 + Kotlin 2.4.20 supported Android toolchain.
 AGP_VERSION = '9.3.1'
 GRADLE_VERSION = '9.5.0'
+MAVEN_CENTRAL_MIRROR = 'https://maven-central.storage-download.googleapis.com/maven2/'
 
 # =====================================================================
 # ---- 0) Flutter 3.50 / Kotlin 2.4.20 compatible toolchain ----
@@ -31,6 +32,13 @@ if os.path.exists(sett):
             insert_at = pm.end() + repo_match.end()
             repo_block = block[repo_match.end():]
             additions = ''
+            mirror_entry = (
+                f'maven {{ url = uri("{MAVEN_CENTRAL_MIRROR}") }}'
+                if sett.endswith('.kts') else
+                f'maven {{ url "{MAVEN_CENTRAL_MIRROR}" }}'
+            )
+            if MAVEN_CENTRAL_MIRROR not in repo_block:
+                additions += '\n        ' + mirror_entry
             if 'google()' not in repo_block:
                 additions += '\n        google()'
             if 'mavenCentral()' not in repo_block:
@@ -244,9 +252,9 @@ if flutter_root:
             flutter_settings_text = f.read()
 
         mirror_repo = (
-            '        maven { url = uri("https://maven-central.storage-download.googleapis.com/maven2") }\n'
+            f'        maven {{ url = uri("{MAVEN_CENTRAL_MIRROR}") }}\n'
             if settings_name.endswith('.kts') else
-            '        maven { url "https://maven-central.storage-download.googleapis.com/maven2" }\n'
+            f'        maven {{ url "{MAVEN_CENTRAL_MIRROR}" }}\n'
         )
         pm = re.search(r'pluginManagement\s*\{', flutter_settings_text)
         if not pm:
@@ -308,6 +316,30 @@ if flutter_root:
                 print('  OK: Added Maven Central mirror and missing Flutter plugin repositories')
             else:
                 print('  OK: Flutter included-build plugin repositories already complete')
+
+        # The included Flutter build resolves implementation(...) dependencies
+        # from dependencyResolutionManagement, not pluginManagement. Add the same
+        # Google-hosted Maven Central mirror there as well; otherwise Kotlin/ASM
+        # transitives can fail even though the app plugin repositories are correct.
+        drm_repo = re.search(
+            r'dependencyResolutionManagement\\s*\\{[\\s\\S]*?repositories\\s*\\{',
+            flutter_settings_text,
+        )
+        if drm_repo:
+            repo_body_start = drm_repo.end()
+            repo_body_end = flutter_settings_text.find('\\n    }', repo_body_start)
+            if repo_body_end < 0:
+                raise SystemExit('HARD FAIL: malformed Flutter dependencyResolutionManagement repositories block')
+            repo_body = flutter_settings_text[repo_body_start:repo_body_end]
+            if MAVEN_CENTRAL_MIRROR not in repo_body:
+                flutter_settings_text = (
+                    flutter_settings_text[:repo_body_start]
+                    + '\\n        ' + mirror_repo.strip()
+                    + flutter_settings_text[repo_body_start:]
+                )
+                print('  OK: Added Google Maven Central mirror to Flutter dependency repositories')
+            else:
+                print('  OK: Flutter dependency repositories already contain Maven Central mirror')
 
         with open(flutter_settings, 'w', encoding='utf-8') as f:
             f.write(flutter_settings_text)
