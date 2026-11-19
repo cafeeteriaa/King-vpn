@@ -184,8 +184,8 @@ empty changes list and explain what is missing.
       maxTokens: 1400,
     );
     var cleaned = raw
-        .replaceFirst(RegExp(r'^\\s*```(?:json)?\\s*'), '')
-        .replaceFirst(RegExp(r'\\s*```\\s*$'), '')
+        .replaceFirst(RegExp(r'^\s*```(?:json)?\s*'), '')
+        .replaceFirst(RegExp(r'\s*```\s*$'), '')
         .trim();
     final jsonStart = cleaned.indexOf('{');
     final jsonEnd = cleaned.lastIndexOf('}');
