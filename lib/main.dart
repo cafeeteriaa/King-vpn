@@ -576,7 +576,6 @@ const betterMinGapMs = 80;
 const betterEvery = Duration(minutes: 10); // SWITCHRULE: حداقل ۱۰ دقیقه بین دو تعویض سرور
 int? connBaseDelay; // test ping of the connected server
 int betterRun = 0;
-bool aiFastOn = false; // legacy external-provider scan is disabled
 int aiTried = 0;
 int aiHit = 0;
 int aiGen = 0; // FASTPATCH-AI: one analysis loop per connection
@@ -4212,12 +4211,6 @@ Future<int?> pingAny(
   return null;
 }
 
-// External AI-provider server checks are intentionally disabled.
-/// King VPN's assistant and pilot use only the locally installed King model.
-bool gemDefinite = true;
-bool _gemSkip(Server s) => true;
-Future<bool> geminiOpens({bool direct = true}) async => false;
-
 String buildPersonalLink(String host, String uuid) {
   final h = host.trim().replaceAll(RegExp(r'^https?://'), '').split('/').first;
   return 'vless://${uuid.trim()}@$h:443?encryption=none&security=tls'
@@ -5200,7 +5193,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _tgChkBusy = false;
   void _tgKeepCheck() {
     try {
-      if (nationalMode || _tgChkBusy || busy || switching || connRow == 'r:ai') return;
+      if (nationalMode || _tgChkBusy || busy || switching) return;
       final cur = current;
       if (cur == null || !connected) return;
       final now = DateTime.now();
@@ -6916,15 +6909,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (enough()) natFun('loop_enough_at_start');
       natFun('loop_pending_ip', pending.where((s) => s.isIp).length);
       if (pending.isEmpty && folderQ.isEmpty) await _loadPending(bg: bg, exhausted: true);
-      // healthy servers not yet tested for Gemini are tested too
-      if (!bg && row == 'r:ai') {
-        pending.insertAll(
-            0,
-            good.where((s) =>
-                s.ai == null &&
-                s.checkedAt != null && // SRCSPLIT: پوشه‌ی سالم فقط از صف تست می‌شود
-                !identical(s, current)));
-      }
       var batches = 0;
       var reloaded = false;
       var stallBatches = 0; // FREEZEFIX
@@ -7474,34 +7458,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _set('تست سریع $realTested/${alive.length} • '
           'سالم:${_usable().length} • ($fastOk/$fastTested)');
     });
-    // AI row: only the servers that passed the quick delay test are checked
-    // for Gemini (through the real route, one by one)
-    if (row == 'r:ai' && !abort) {
-      okNow.sort((a, b) => (a.ping ?? 99999).compareTo(b.ping ?? 99999));
-      var gi = 0;
-      for (final s in okNow) {
-        if (abort || enough()) break;
-        if (s.ai != null) continue;
-        if (_gemSkip(s)) {
-          s.ai = false; // exit country without Gemini: no test needed
-          continue;
-        }
-        gi++;
-        _set('بررسی Gemini $gi/${okNow.length} • '
-            'سالم:${_usable().length}');
-        final tunnelMode = viaVpn;
-        if (await _start(s, proxyOnly: !tunnelMode)) {
-          if (tunnelMode ||
-              await waitProxyPort(max: const Duration(seconds: 4))) {
-            var ok = await geminiOpens(direct: tunnelMode);
-            if (!ok && !gemDefinite) ok = await geminiOpens(direct: tunnelMode);
-            s.ai = ok;
-            if (ok) _saveSoon();
-          }
-        }
-        await _stopCore();
-      }
-    }
     // FREEZEFIX: skipped servers go to the END of the queue, never the front.
     // Putting them at the front made the same batch come back forever.
     pending.addAll(skipped);
@@ -7540,11 +7496,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         break;
       }
       tried.add(s);
-      if (row == 'r:ai' && _gemSkip(s)) {
-        s.ai = false; // exit country without Gemini: no test needed
-        continue;
-      }
-      final tunnelMode = viaVpn && row != 'r:ai';
+      final tunnelMode = viaVpn;
       _set('تست ${realTested + 1}/${alive.length} • TCP:$dTcp • '
           'سالم:${_usable().length}${tunnelMode ? ' • VPN' : ''}');
       if (ipMode && s.ipLink == null && !s.ipTried) {
@@ -7565,15 +7517,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             dFake++; // too fast to be a real ping
             d = null;
           }
-          // AI row: does Gemini open through this server?
-          if (d != null && row == 'r:ai') {
-            _set('بررسی باز شدن Gemini روی ${s.name}...');
-            // two tries: one flaky request must not throw away a good server
-            var ok = await geminiOpens(direct: tunnelMode);
-            if (!ok && !gemDefinite) ok = await geminiOpens(direct: tunnelMode);
-            s.ai = ok;
-            if (ok) _saveSoon();
-          }
         } else {
           portFail = true;
           portFailRun++;
@@ -7591,7 +7534,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           tunnelMode &&
           keepUp &&
           nationalMode &&
-          (row != 'r:ai' || s.ai == true)) {
+          true) {
         // NATVERIFY: سرور قبل از «سالم» شدن باید ترافیک واقعی تونل بدهد. اگر حالت فعلی نداد،
         // نردبان حالت‌ها و جایگزین‌ها همین‌جا (قبل از اعلام سلامت) روی همین سرور امتحان می‌شود.
         var natOk = await _tunnelTrafficOk();
@@ -11171,7 +11114,7 @@ ListTile( // KINGEXTRAS row
           if (abort) break;
           // RETRYPATCH: nothing left to test -> forget the failures and go again
           if (pending.isEmpty) failed.clear();
-          // EMPTYROWFIX: a fixed row (e.g. the Gemini row) can have no server
+          // EMPTYROWFIX: a fixed row can have no server
           // at all while the other healthy servers do not belong to it. The
           // search then ended after 0 s again and again for ever. After a few
           // empty rounds we stop and tell the user; the watchdog / the user
@@ -12535,7 +12478,7 @@ ListTile( // KINGEXTRAS row
         if (mounted) setState(() {});
         _set('تعویض سرور (${lastWhy.isEmpty ? 'نامشخص' : lastWhy})...');
         // FAILSPEED: تعویض بعد از قطع بدون تست سرعت ۵ سرور (قبلاً ~۴۰ ثانیه طول می‌کشید)
-        if (await _acquire(strictRow: connRow == 'r:ai', speed: false)) {
+        if (await _acquire(strictRow: false, speed: false)) {
           unawaited(_saveCache().catchError((e) => logError(e)));
         } else if (abort) {
           wantVpn = false;
@@ -12605,7 +12548,7 @@ ListTile( // KINGEXTRAS row
 
   // FASTPATCH-AI: analyse, then apply the suggested settings by itself
   Future<void> _aiRunAuto() async {
-    if (!mounted || !connected || aiLoading.value || geminiKey.isEmpty) {
+    if (!mounted || !connected || aiLoading.value) {
       return;
     }
     if (DateTime.now().difference(_lastAutoAi) <
@@ -13246,43 +13189,6 @@ ListTile( // KINGEXTRAS row
     });
   }
 
-  // GEMWATCH: in the Gemini row the connection must KEEP opening Gemini. Every
-  // 3 minutes it is checked through the tunnel; two clear "no" answers in a
-  // row mark the server and the next Gemini server takes over.
-  DateTime _aiChkAt = DateTime.fromMillisecondsSinceEpoch(0);
-  int _aiChkBad = 0;
-  bool _aiChkBusy = false;
-  void _aiKeepCheck() {
-    try {
-      if (_aiChkBusy || connRow != 'r:ai' || busy || switching) return;
-      final cur = current;
-      if (cur == null || !connected) return;
-      final now = DateTime.now();
-      if (now.difference(_aiChkAt) < const Duration(minutes: 3)) return;
-      if (now.difference(lastSwitch) < const Duration(seconds: 40)) return;
-      _aiChkAt = now;
-      _aiChkBusy = true;
-      geminiOpens(direct: true).then((ok) {
-        if (!mounted || !identical(current, cur) || busy || switching) return;
-        if (ok) {
-          _aiChkBad = 0;
-          cur.ai = true;
-        } else if (gemDefinite) {
-          if (++_aiChkBad >= 2) {
-            _aiChkBad = 0;
-            cur.ai = false;
-            lastWhy = 'Gemini روی این سرور باز نمی‌شود';
-            unawaited(_failover().catchError((e) => logError(e)));
-          } else {
-            _aiChkAt = DateTime.now().subtract(const Duration(minutes: 2));
-          }
-        }
-      }).catchError((e) { logError(e); }).whenComplete(() => _aiChkBusy = false);
-    } catch (e, stk) {
-      logError(e, stk);
-    }
-  }
-
   // NETCHANGE: Wi-Fi <-> mobile data (or a new IP) while connected. The old
   // tunnel is often dead right after such a change, so the next failed check
   // switches server at once instead of waiting for several failures.
@@ -13737,12 +13643,6 @@ ListTile( // KINGEXTRAS row
       final x = (b.country == selCountry ? 1 : 0) -
           (a.country == selCountry ? 1 : 0);
       if (x != 0) return x;
-    }
-    // AI row: healthy servers not yet tested for Gemini come first
-    if (connRow == 'r:ai') {
-      final z = ((b.ping != null && b.ai == null) ? 1 : 0) -
-          ((a.ping != null && a.ai == null) ? 1 : 0);
-      if (z != 0) return z;
     }
     if (connected) {
       // while connected only servers already seen alive are worth testing
@@ -15172,15 +15072,13 @@ ListTile( // KINGEXTRAS row
     final groups = <String, List<Server>>{}; // row id -> servers
     final titles = <String, String>{};
     // fixed first lines (every display mode):
-    // 1) personal server, 2) my own configs, 3) AI servers (Gemini opens)
+    // 1) personal server, 2) my own configs
     groups['p:personal'] = _personalShown.isNotEmpty
         ? _personalShown
         : (personal == null ? [] : [personal!]); // PERSPAGE
     titles['p:personal'] = '🏠 سرور شخصی';
     groups['f:mine'] = _mineList();
     titles['f:mine'] = '📌 کانفیگ‌های من';
-    groups['r:ai'] = u.where((s) => s.ai == true && s.ping != null).toList();
-    titles['r:ai'] = 'هوش مصنوعی محلی کینگ (بدون سرور اختصاصی)';
     if (groupMode == 'country') {
       for (final s in u) {
         final c = s.country ?? '??';
@@ -15207,7 +15105,6 @@ ListTile( // KINGEXTRAS row
       // every row is always shown, even before it has a healthy server
       final used = <Server>{};
       for (final d in rowDefs) {
-        if (d.id == 'ai') continue; // already shown as the second line
         final l = u.where(d.test).toList();
         groups['r:${d.id}'] = l;
         titles['r:${d.id}'] = d.title;
