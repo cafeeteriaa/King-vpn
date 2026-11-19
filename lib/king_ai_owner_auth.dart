@@ -93,10 +93,28 @@ class KingAiOwnerAuth {
         throw StateError('Owner authentication is required.');
       }
       _validatePassword(password);
+      final oldSalt = await _storage.read(key: _saltKey);
+      final oldVerifier = await _storage.read(key: _verifierKey);
+      if (oldSalt == null || oldVerifier == null) {
+        _sessionClock = null;
+        throw StateError('Owner credential storage is incomplete; re-enrollment is required.');
+      }
       final salt = _randomBytes(16);
       final verifier = await _derive(password, salt);
-      await _storage.write(key: _saltKey, value: base64Encode(salt));
-      await _storage.write(key: _verifierKey, value: base64Encode(verifier));
+      // Rotate both values as one logical transaction. If either secure-store
+      // write fails, restore the previous pair rather than bricking owner access.
+      try {
+        await _storage.write(key: _verifierKey, value: base64Encode(verifier));
+        await _storage.write(key: _saltKey, value: base64Encode(salt));
+      } catch (_) {
+        try {
+          await _storage.write(key: _saltKey, value: oldSalt);
+          await _storage.write(key: _verifierKey, value: oldVerifier);
+        } catch (_) {
+          _sessionClock = null;
+        }
+        rethrow;
+      }
       await _storage.delete(key: _failuresKey);
       await _storage.delete(key: _lockUntilKey);
       _sessionClock = Stopwatch()..start();
