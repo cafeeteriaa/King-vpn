@@ -32,7 +32,7 @@ def main() -> int:
             "--base-model must be a local Hugging Face Transformers model directory "
             "containing config.json; GGUF files from the Android app cannot be QLoRA training inputs"
         )
-    has_weights = any(base_path.glob("*.safetensors")) or any(base_path.glob("pytorch_model*.bin"))
+    has_weights = any(base_path.rglob("*.safetensors")) or any(base_path.rglob("pytorch_model*.bin"))
     if not has_weights:
         raise ValueError("No safetensors or PyTorch model weights found in the base-model directory")
 
