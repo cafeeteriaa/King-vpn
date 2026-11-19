@@ -399,7 +399,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('resolveSymbolicLinks()', loader)
         self.assertIn('repairFromFailedCiAutonomous(', worker)
 
-    def test_king_voice_commands_are_persian_on_device_and_user_confirmed(self):
+    def test_king_voice_commands_support_persian_speech_service_fallback(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
@@ -409,7 +409,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         voice = main[start:end]
         self.assertIn('Permission.microphone.request()', voice)
         self.assertIn("startsWith('fa')", voice)
-        self.assertIn('onDevice: true', voice)
+        self.assertIn('onDevice: false', voice)
+        chat = (ROOT / 'lib' / 'king_chat_page.dart').read_text(encoding='utf-8')
+        self.assertIn('Future<void> _send()', chat)
+        self.assertIn('KingLocalAi.instance.ask(prompt', chat)
+        self.assertIn('KingVoiceOutput.instance.speakPersian(answer)', chat)
+        self.assertIn('result.finalResult', chat)
+        self.assertIn('onDevice: false', chat)
         self.assertIn('_smartSpeechInitialized = _smartSpeechAvailable;', voice)
         self.assertIn('if (s != AppLifecycleState.resumed && _smartSpeech.isListening)', main)
         self.assertIn('_smartCommandController.value = TextEditingValue(', voice)
