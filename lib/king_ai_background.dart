@@ -10,6 +10,14 @@ const String _uniqueName = 'king-ai-ci-repair-periodic';
 const String _initialUniqueName = 'king-ai-ci-repair-initial';
 const String _tag = 'king-ai-ci-repair';
 
+const String _researchTaskName = 'kingAiOfficialResearch';
+const String _researchUniqueName = 'king-ai-official-research-periodic';
+const String _researchInitialName = 'king-ai-official-research-initial';
+const String _researchTag = 'king-ai-official-research';
+const String _researchQuery =
+    'Android VPNService Flutter WorkManager DNS connectivity diagnostics '
+    'network security official documentation';
+
 /// WorkManager entry point. The model is loaded only from a foreground-verified
 /// local file; this worker never downloads the 1.1 GB model in the background.
 @pragma('vm:entry-point')
@@ -17,10 +25,18 @@ void kingAiBackgroundDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     WidgetsFlutterBinding.ensureInitialized();
     DartPluginRegistrant.ensureInitialized();
-    if (task != _taskName) return true;
+    if (task != _taskName && task != _researchTaskName) return true;
 
     final ai = KingLocalAi.instance;
     try {
+      if (task == _researchTaskName) {
+        // Passive learning only: this worker stores short excerpts from the
+        // official-source allowlist. It never loads the 1.1 GB model, reads
+        // private project files, changes source code, or needs a GitHub token.
+        await ai.researchGoogle(_researchQuery, maxResults: 2)
+            .timeout(const Duration(seconds: 55));
+        return true;
+      }
       if (!await ai.hasGitHubToken()) {
         await Workmanager().cancelByTag(_tag);
         await ai.clearBackgroundRepairPullNumber();
@@ -112,6 +128,35 @@ class KingAiBackgroundSupervisor {
 
   static Future<void> initialize() async {
     await Workmanager().initialize(kingAiBackgroundDispatcher);
+    await _scheduleOfficialResearch();
+  }
+
+  /// Best-effort background research, scheduled automatically on app startup.
+  /// WorkManager enforces network and battery constraints and may defer work
+  /// according to Android power policy; this is not an exact timer.
+  static Future<void> _scheduleOfficialResearch() async {
+    final constraints = Constraints(
+      networkType: NetworkType.connected,
+      requiresBatteryNotLow: true,
+    );
+    await Workmanager().registerPeriodicTask(
+      _researchUniqueName,
+      _researchTaskName,
+      frequency: const Duration(hours: 12),
+      constraints: constraints,
+      existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
+      tag: _researchTag,
+    );
+    await Workmanager().registerOneOffTask(
+      _researchInitialName,
+      _researchTaskName,
+      initialDelay: Duration.zero,
+      constraints: constraints,
+      existingWorkPolicy: ExistingWorkPolicy.keep,
+      backoffPolicy: BackoffPolicy.exponential,
+      backoffPolicyDelay: const Duration(minutes: 30),
+      tag: _researchTag,
+    );
   }
 
   /// Android WorkManager periodic work is best-effort, not an exact timer.
