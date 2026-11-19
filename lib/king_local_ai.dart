@@ -309,9 +309,11 @@ empty changes list and explain what is missing.
     if (token == null || token.isEmpty) {
       throw StateError('ابتدا توکن GitHub را در تنظیمات هوش مصنوعی ذخیره کن');
     }
-    final pathParts = path.split('?');
-    final query = pathParts.length > 1 ? <String, String>{'recursive': '1'} : null;
-    final uri = Uri.https('api.github.com', pathParts.first.replaceFirst(RegExp(r'^/'), ''), query);
+    final uri = Uri.parse('https://api.github.com$path');
+    if (uri.host != 'api.github.com' || uri.scheme != 'https' ||
+        uri.userInfo.isNotEmpty || uri.fragment.isNotEmpty) {
+      throw ArgumentError('Unsafe GitHub API path');
+    }
     final headers = <String, String>{
       'Accept': 'application/vnd.github+json',
       'Authorization': 'Bearer $token',
@@ -332,6 +334,203 @@ empty changes list and explain what is missing.
     }
     if (response.body.isEmpty) return <String, dynamic>{};
     return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+
+  /// Reads a JSON array from a GitHub API endpoint (for check annotations).
+  Future<List<dynamic>> _githubList(String path) async {
+    final token = await _secure.read(key: 'king_ai_github_token');
+    if (token == null || token.isEmpty) {
+      throw StateError('ابتدا توکن GitHub را در تنظیمات هوش مصنوعی ذخیره کن');
+    }
+    final uri = Uri.parse('https://api.github.com$path');
+    if (uri.host != 'api.github.com' || uri.scheme != 'https' ||
+        uri.userInfo.isNotEmpty || uri.fragment.isNotEmpty) {
+      throw ArgumentError('Unsafe GitHub API path');
+    }
+    final response = await http.get(uri, headers: {
+      'Accept': 'application/vnd.github+json',
+      'Authorization': 'Bearer $token',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'King-VPN-Local-AI',
+    }).timeout(const Duration(seconds: 25));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final end = response.body.length.clamp(0, 800).toInt();
+      throw HttpException('GitHub API ${response.statusCode}: ${response.body.substring(0, end)}');
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! List) throw const FormatException('Expected GitHub JSON array');
+    return decoded;
+  }
+
+  String _redactCiText(String value) {
+    var safe = value
+        .replaceAll(RegExp(r'gh[pousr]_[A-Za-z0-9]{20,}'), '[REDACTED_GITHUB_TOKEN]')
+        .replaceAll(RegExp(r'github_pat_[A-Za-z0-9_]{20,}'), '[REDACTED_GITHUB_TOKEN]')
+        .replaceAll(RegExp(r'Bearer\\s+[A-Za-z0-9._~+/-]+=*', caseSensitive: false), 'Bearer [REDACTED]')
+        .replaceAll(RegExp(r'(api[_-]?key|access[_-]?token|client[_-]?secret|password)\\s*[:=]\\s*[^\\s,;]+', caseSensitive: false), '[REDACTED]');
+    if (safe.length > 12000) safe = safe.substring(safe.length - 12000);
+    return safe;
+  }
+
+  /// Collects bounded, redacted GitHub check annotations and failed workflow
+  /// steps for the exact head commit of a pull request.
+  Future<Map<String, Object?>> inspectPullRequestCi({
+    required String owner,
+    required String repository,
+    required int pullNumber,
+  }) async {
+    if (pullNumber < 1) throw ArgumentError.value(pullNumber, 'pullNumber');
+    final repo = '${Uri.encodeComponent(owner)}/${Uri.encodeComponent(repository)}';
+    final pull = await _github('GET', '/repos/$repo/pulls/$pullNumber');
+    final head = pull['head'];
+    if (head is! Map || head['sha'] is! String || head['ref'] is! String) {
+      throw const FormatException('Pull request head metadata is incomplete');
+    }
+    final headRepo = head['repo'];
+    final expectedRepo = '$owner/$repository';
+    if (headRepo is! Map || headRepo['full_name'] != expectedRepo) {
+      throw StateError('CI repair is disabled for fork-origin pull requests');
+    }
+    final sha = head['sha'] as String;
+    final checks = await _github('GET',
+        '/repos/$repo/commits/$sha/check-runs?per_page=100');
+    final checkRuns = (checks['check_runs'] as List? ?? const [])
+        .whereType<Map>().toList();
+    final failures = <Map<String, Object?>>[];
+    for (final check in checkRuns.where((item) =>
+        item['status'] == 'completed' && item['conclusion'] == 'failure').take(4)) {
+      final id = check['id'];
+      final output = check['output'] is Map ? check['output'] as Map : const {};
+      final annotations = <Map<String, Object?>>[];
+      if (id is num) {
+        try {
+          final rows = await _githubList('/repos/$repo/check-runs/$id/annotations?per_page=50');
+          for (final row in rows.whereType<Map>().take(20)) {
+            annotations.add({
+              'path': row['path']?.toString() ?? '',
+              'line': row['start_line'],
+              'level': row['annotation_level']?.toString() ?? '',
+              'message': _redactCiText(row['message']?.toString() ?? ''),
+            });
+          }
+        } catch (_) {
+          // Annotation access is optional; the check summary remains useful.
+        }
+      }
+      failures.add({
+        'kind': 'check',
+        'name': check['name']?.toString() ?? 'unknown check',
+        'conclusion': check['conclusion']?.toString() ?? '',
+        'summary': _redactCiText(output['summary']?.toString() ?? ''),
+        'text': _redactCiText(output['text']?.toString() ?? ''),
+        'annotations': annotations,
+      });
+    }
+
+    final runsResponse = await _github('GET',
+        '/repos/$repo/actions/runs?head_sha=$sha&per_page=10');
+    final runs = (runsResponse['workflow_runs'] as List? ?? const [])
+        .whereType<Map>()
+        .where((run) => run['status'] == 'completed' && run['conclusion'] == 'failure')
+        .take(3);
+    for (final run in runs) {
+      final runId = run['id'];
+      if (runId is! num) continue;
+      final jobsResponse = await _github('GET',
+          '/repos/$repo/actions/runs/$runId/jobs?per_page=50');
+      final jobs = (jobsResponse['jobs'] as List? ?? const []).whereType<Map>();
+      for (final job in jobs.where((item) => item['conclusion'] == 'failure').take(2)) {
+        final failedSteps = (job['steps'] as List? ?? const [])
+            .whereType<Map>()
+            .where((step) => step['conclusion'] == 'failure')
+            .map((step) => step['name']?.toString() ?? 'unknown step')
+            .take(8).toList();
+        failures.add({
+          'kind': 'workflow',
+          'workflow': run['name']?.toString() ?? 'GitHub Actions',
+          'job': job['name']?.toString() ?? 'unknown job',
+          'failedSteps': failedSteps,
+          'runUrl': run['html_url']?.toString() ?? '',
+        });
+      }
+    }
+    return {
+      'pullNumber': pullNumber,
+      'headSha': sha,
+      'headBranch': head['ref'] as String,
+      'state': pull['state']?.toString() ?? '',
+      'failures': failures,
+      'hasFailures': failures.isNotEmpty,
+      'allChecksPassed': failures.isEmpty && checkRuns.isNotEmpty &&
+          checkRuns.every((item) => item['status'] == 'completed' &&
+              item['conclusion'] == 'success'),
+    };
+  }
+
+  /// One operator-invoked repair iteration. At most two follow-up PRs are
+  /// proposed per source PR; no check is auto-merged or silently retried.
+  Future<Map<String, Object?>> repairFromFailedCi({
+    required String owner,
+    required String repository,
+    required int pullNumber,
+  }) async {
+    final report = await inspectPullRequestCi(
+      owner: owner, repository: repository, pullNumber: pullNumber);
+    if (report['hasFailures'] != true) {
+      return {'status': 'no_failed_checks', 'report': report};
+    }
+    final root = await getApplicationSupportDirectory();
+    final attemptsFile = File('${root.path}/king_ai_ci_repair_attempts.json');
+    Map<String, dynamic> attempts = {};
+    if (await attemptsFile.exists()) {
+      try {
+        final raw = jsonDecode(await attemptsFile.readAsString());
+        if (raw is Map) attempts = raw.map((k, v) => MapEntry(k.toString(), v));
+      } catch (_) {
+        attempts = {};
+      }
+    }
+    final key = '$owner/$repository#$pullNumber';
+    final used = (attempts[key] as num?)?.toInt() ?? 0;
+    if (used >= 2) {
+      return {'status': 'repair_limit_reached', 'attempts': used, 'report': report};
+    }
+    final branch = report['headBranch'] as String;
+    final failureText = jsonEncode(report['failures']);
+    final task = 'Repair the following verified GitHub CI failures for pull request #$pullNumber. '
+        'Use only the supplied source context and failure evidence. Do not change dependencies, '
+        'Gradle, CI, Android permissions, VPN native/service code, secrets, or signing. '
+        'Make the smallest safe correction and add/update focused tests when possible. '
+        'CI EVIDENCE: $failureText';
+    final context = await readRepositoryContext(
+      owner: owner, repository: repository, baseBranch: branch, task: task);
+    if (context.isEmpty) {
+      return {'status': 'insufficient_source_context', 'report': report};
+    }
+    final proposal = await proposeRepair(task: task, sourceFiles: context);
+    final changes = proposal['changes'] as Map<String, String>;
+    if (changes.isEmpty) {
+      return {'status': 'model_declined_insufficient_evidence', 'summary': proposal['summary'], 'report': report};
+    }
+    final end = failureText.length.clamp(0, 5000).toInt();
+    final url = await createRepairPullRequest(
+      owner: owner,
+      repository: repository,
+      baseBranch: branch,
+      title: 'CI repair for #$pullNumber (attempt ${used + 1})',
+      summary: '${proposal['summary']}\\n\\nEvidence: ${failureText.substring(0, end)}',
+      changes: changes,
+    );
+    attempts[key] = used + 1;
+    await attemptsFile.writeAsString(jsonEncode(attempts), flush: true);
+    return {
+      'status': 'follow_up_pull_request_created',
+      'attempt': used + 1,
+      'url': url,
+      'summary': proposal['summary'],
+      'report': report,
+    };
   }
 
   static const Set<String> _researchHosts = {
