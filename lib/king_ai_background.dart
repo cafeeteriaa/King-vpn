@@ -169,7 +169,7 @@ class KingAiBackgroundSupervisor {
     await Workmanager().registerPeriodicTask(
       _researchUniqueName,
       _researchTaskName,
-      frequency: const Duration(hours: 12),
+      frequency: const Duration(hours: 6),
       constraints: constraints,
       existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
       tag: _researchTag,

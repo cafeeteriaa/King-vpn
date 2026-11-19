@@ -290,6 +290,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         for action in ('فعال‌سازی ترمیم خودکار پس‌زمینه','فعال‌سازی کشف خودکار مخزن','توقف ترمیم پس‌زمینه','پاک‌کردن کلید GitHub'):
             self.assertIn(f"_requireOwnerSession('{action}')", console)
 
+    def test_national_network_optimization_requests_enter_owner_code_flow(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn("r'(نت ملی|اینترنت ایران).{0,40}(بهینه|ارتقا|بروز|به روز|خودکار|هوشمند|توسعه|تقویت)|'", main)
+        self.assertIn("KingAiConsolePage(initialFeatureRequest: command", main)
+
     def test_daily_autonomous_source_audit_is_owner_enabled_and_review_only(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
         worker = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
@@ -311,7 +316,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('await _scheduleOfficialResearch();', worker)
         self.assertIn("const String _researchTaskName = 'kingAiIranNetworkResearch';", worker)
         self.assertIn('researchGoogle(_researchQuery, maxResults: 2)', worker)
-        self.assertIn('frequency: const Duration(hours: 12)', worker)
+        self.assertIn('frequency: const Duration(hours: 6)', worker)
         self.assertIn('networkType: NetworkType.connected', worker)
         self.assertIn('requiresBatteryNotLow: true', worker)
         self.assertIn('static Future<void> enableAutonomousMaintenance() async {', worker)

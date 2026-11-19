@@ -33,6 +33,6 @@ bool kingAiMayRunInBackground({
 }) => networkAvailable && batteryNotLow && !userPaused;
 
 /// Android WorkManager is best-effort; it may defer work under power policy.
-const Duration kingAiOfficialResearchInterval = Duration(hours: 12);
+const Duration kingAiOfficialResearchInterval = Duration(hours: 6);
 const Duration kingAiCiRepairInterval = Duration(minutes: 15);
 const int kingAiBackgroundResearchMaxResults = 2;
