@@ -81,11 +81,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_runSmartCommand', main)
         self.assertIn("king_pilot_ip_ranges_v1", main)
         self.assertIn("king_pilot_scan_results_v1", main)
+        self.assertIn('bool _pilotRangeCancelRequested = false;', main)
+        command_start = main.index('Future<void> _runSmartCommand')
+        command_end = main.index('Widget _smartCommandPanel()', command_start)
+        command_parser = main[command_start:command_end]
+        self.assertIn('_pilotRangeCancelRequested = true;', command_parser)
+        self.assertLess(command_parser.index('_pilotRangeCancelRequested = true;'),
+                        command_parser.index('if (command.isEmpty || _smartCommandRunning) return;'))
         pilot_scan_start = main.index('Future<void> _pilotScanOnly()')
         pilot_scan_end = main.index('// اسکن IP بدون تغییر تنظیمات دیگر', pilot_scan_start)
         pilot_scan = main[pilot_scan_start:pilot_scan_end]
         self.assertNotIn('natRangeScanStep', pilot_scan)
         self.assertNotIn('natRanges', pilot_scan)
+        self.assertNotIn('abort', pilot_scan)
+        self.assertIn('_pilotRangeCancelRequested', pilot_scan)
         self.assertIn('Socket.connect(host, 443', pilot_scan)
         self.assertIn('_pilotRangesDialog(context)', main)
         self.assertIn('_pilotScanOnly()', main)
