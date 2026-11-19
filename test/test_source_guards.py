@@ -999,5 +999,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_speakSmartCommandResponse(voiceReply ?? status)', dispatcher)
 
 
+    def test_local_chat_and_pilot_share_a_serialized_inference_queue(self):
+        local = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        self.assertIn('Future<void> _generationQueue = Future<void>.value();', local)
+        self.assertIn('Future<T> _runSerializedGeneration<T>', local)
+        self.assertIn('return _runSerializedGeneration(() async {', local)
+        self.assertEqual(local.count('engine.generate('), 2)
+        self.assertNotIn("if (_busy) throw StateError('Local AI is already generating');", local)
+
+
 if __name__ == '__main__':
     unittest.main()
