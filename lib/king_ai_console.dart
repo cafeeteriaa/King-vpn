@@ -226,6 +226,10 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       await _refreshOwnerState();
       return;
     }
+    if (!ownerReauthenticated &&
+        !await _reauthenticateOwnerForCodeChange()) {
+      return;
+    }
     final task = _featureRequestController.text.trim();
     if (task.length < 12) {
       setState(() => _output = 'ایده را دقیق‌تر بنویس (حداقل ۱۲ نویسه).');
@@ -239,6 +243,59 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   /// secure console. Once the owner session, GitHub token and local model are
   /// ready, submit it automatically instead of making the owner press a second
   /// button. No request is submitted before authentication.
+  /// A warm owner session alone is not enough to authorize a source write.
+  /// Require a fresh password proof for every user-originated code request.
+  Future<bool> _reauthenticateOwnerForCodeChange() async {
+    final controller = TextEditingController();
+    try {
+      final password = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('تأیید دوباره مالک'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              obscureText: true,
+              maxLength: 128,
+              autocorrect: false,
+              enableSuggestions: false,
+              decoration: const InputDecoration(
+                labelText: 'رمز مالک را برای همین درخواست وارد کن',
+              ),
+              onSubmitted: (_) => Navigator.pop(dialogContext, controller.text),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('انصراف'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, controller.text),
+                child: const Text('تأیید مالک'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (password == null || password.isEmpty) return false;
+      final valid = await _ownerAuth.authenticate(password);
+      if (mounted) {
+        setState(() {
+          _ownerUnlocked = valid;
+          _output = valid
+              ? 'هویت مالک برای همین درخواست دوباره تأیید شد.'
+              : 'رمز مالک نادرست است؛ درخواست کدنویسی لغو شد.';
+        });
+      }
+      return valid;
+    } finally {
+      controller.dispose();
+    }
+  }
+
   Future<void> _maybeSubmitInitialFeatureRequest() async {
     if (_initialRequestSubmitted ||
         (widget.initialFeatureRequest?.trim().length ?? 0) < 12 ||
@@ -253,10 +310,11 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       return;
     }
     _initialRequestSubmitted = true;
-    await _submitFeatureRequest();
+    if (!await _reauthenticateOwnerForCodeChange()) return;
+    await _submitFeatureRequest(ownerReauthenticated: true);
   }
 
-  Future<void> _submitFeatureRequest() async {
+  Future<void> _submitFeatureRequest({bool ownerReauthenticated = false}) async {
     if (!_ownerAuth.hasActiveSession) {
       setState(() => _output = 'برای افزودن قابلیت، احراز هویت مالک لازم است.');
       await _refreshOwnerState();
