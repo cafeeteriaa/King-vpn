@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       base_model_path:
-        description: "Path to a reviewed base model already present on the dedicated GPU runner"
+        description: "Path to a reviewed Hugging Face Transformers checkpoint already present on the dedicated GPU runner (not GGUF)"
         required: true
         type: string
       dataset_path:
