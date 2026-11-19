@@ -1,30 +1,26 @@
-
 /// Redact configuration links, identifiers and credential-like values before
 /// runtime diagnostics are sent to any optional AI/provider or support flow.
 String redactSensitiveDiagnostic(String input) {
   var value = input;
   value = value.replaceAll(
-    RegExp(r'(?:vmess|vless|trojan|ss|socks5?|hysteria2|tuic|wireguard)://\S+', caseSensitive: false),
+    RegExp(r'(?:vmess|vless|trojan|ss|socks5?|hysteria2|tuic|wireguard)://\\S+', caseSensitive: false),
     '[CONFIG_REDACTED]',
   );
   value = value.replaceAll(
-    RegExp(r'(api[_-]?key|access[_-]?token|token|secret|password|uuid)\s*[:=]\s*[^\s,;]+', caseSensitive: false),
+    RegExp(r'(api[_-]?key|access[_-]?token|token|secret|password|uuid)\\s*[:=]\\s*[^\\s,;]+', caseSensitive: false),
     r'$1=[REDACTED]',
   );
   value = value.replaceAll(
-    RegExp(r'([?&](?:key|token|auth|password|uuid)=)[^&#\s]+', caseSensitive: false),
+    RegExp(r'([?&](?:key|token|auth|password|uuid)=)[^&#\\s]+', caseSensitive: false),
     r'$1[REDACTED]',
   );
   value = value.replaceAll(
-    RegExp(r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b', caseSensitive: false),
+    RegExp(r'\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b', caseSensitive: false),
     '[ID_REDACTED]',
   );
   return value.length > 1200 ? value.substring(0, 1200) : value;
 }
 
-/// Safety policy shared by runtime recovery and the external source repair job.
-/// Runtime repair may recover state/configuration; it must not rewrite Dart or
-/// native executable files inside the installed application.
 enum RepairSeverity { info, warning, critical }
 enum RepairAction {
   none,
@@ -138,6 +134,22 @@ const Set<String> protectedRuntimePaths = <String>{
   'pubspec.lock',
 };
 
+const List<String> allowedSourcePatchRoots = <String>[
+  'lib/',
+  'test/',
+  'tools/',
+];
+
+bool isAllowedSourcePatchPath(String path) {
+  if (path.isEmpty ||
+      path.startsWith('/') ||
+      path.contains('\\\\') ||
+      path.split('/').any((part) => part.isEmpty || part == '.' || part == '..')) {
+    return false;
+  }
+  return allowedSourcePatchRoots.any(path.startsWith);
+}
+
 PatchGateResult validateSourcePatch(PatchGateInput input) {
   final reasons = <String>[];
   if (!input.signedByTrustedKey) reasons.add('امضای معتبر وجود ندارد');
@@ -149,8 +161,8 @@ PatchGateResult validateSourcePatch(PatchGateInput input) {
     reasons.add('اندازه Patch خارج از محدوده مجاز است');
   }
   for (final path in input.changedFiles) {
-    if (path.startsWith('/') || path.split('/').contains('..')) {
-      reasons.add('مسیر فایل نامعتبر است: $path');
+    if (!isAllowedSourcePatchPath(path)) {
+      reasons.add('مسیر خارج از محدوده مجاز است: $path');
     }
     if (protectedRuntimePaths.contains(path) ||
         path.startsWith('android/app/src/main/java/') ||
