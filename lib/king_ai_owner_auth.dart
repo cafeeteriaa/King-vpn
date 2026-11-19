@@ -15,7 +15,7 @@ class KingAiOwnerAuth {
 
   static final KingAiOwnerAuth instance = KingAiOwnerAuth._();
 
-  static const Duration sessionLifetime = Duration(minutes: 15);
+  static const Duration sessionLifetime = Duration(minutes: 2);
   static const int _minimumPasswordLength = 12;
   static const int _maximumPasswordLength = 128;
   static const int _maxFailuresBeforeLock = 5;
