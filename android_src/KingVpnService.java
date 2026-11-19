@@ -185,6 +185,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private final Object tunLock = new Object();
     /** Single worker: all start/stop/resume work runs here, never on the main thread. */
     private volatile ExecutorService worker = null;
+    /** Serializes worker submission with onDestroy() detaching and shutting it down. */
+    private final Object workerLock = new Object();
 
     /** Persisted national-mode flag (see EXTRA_NATIONAL). */
     private volatile boolean nationalMode = false;
@@ -304,14 +306,25 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     /** Runs a task on the single worker thread (never on the main thread). */
     private void submit(Runnable r) {
-        ExecutorService ex = worker;
-        if (ex == null || ex.isShutdown()) {
-            Thread t = new Thread(r);
-            t.setDaemon(true);
-            t.start();
-            return;
+        synchronized (workerLock) {
+            ExecutorService ex = worker;
+            if (ex != null && !ex.isShutdown()) {
+                try {
+                    ex.execute(r);
+                    return;
+                } catch (java.util.concurrent.RejectedExecutionException e) {
+                    Log.w(TAG, "worker rejected a task during shutdown; using fallback", e);
+                }
+            }
         }
-        ex.execute(r);
+        runFallback(r);
+    }
+
+    /** Last-resort daemon execution when the service worker is already unavailable. */
+    private void runFallback(Runnable r) {
+        Thread t = new Thread(r, "KingVpnService-fallback");
+        t.setDaemon(true);
+        t.start();
     }
 
     /** Worker side of ACTION_START: builds the list and connects. */
@@ -1074,14 +1087,25 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         if (sch != null) sch.shutdownNow();
         // The core must stop so its local ports are released. Run it on the worker; shutdown()
         // still runs queued tasks, so this does not block the main thread.
-        ExecutorService ex = worker;
-        worker = null;
-        if (ex != null) {
-            ex.execute(this::stopEverything);
-            ex.shutdown();
-        } else {
-            stopEverything();
+        boolean fallbackStop = false;
+        synchronized (workerLock) {
+            ExecutorService ex = worker;
+            worker = null;
+            if (ex != null) {
+                try {
+                    // Queue cleanup before shutdown while submissions are excluded by workerLock.
+                    ex.execute(this::stopEverything);
+                } catch (java.util.concurrent.RejectedExecutionException e) {
+                    Log.w(TAG, "worker rejected final cleanup; using fallback", e);
+                    fallbackStop = true;
+                } finally {
+                    ex.shutdown();
+                }
+            } else {
+                fallbackStop = true;
+            }
         }
+        if (fallbackStop) runFallback(this::stopEverything);
         super.onDestroy();
     }
 
