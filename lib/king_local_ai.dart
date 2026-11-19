@@ -590,6 +590,7 @@ empty changes list and explain what is missing.
       'pullNumber': pullNumber,
       'headSha': sha,
       'headBranch': head['ref'] as String,
+      'baseBranch': (pull['base'] is Map ? (pull['base'] as Map)['ref'] : null)?.toString() ?? 'main',
       'repairRoot': repairRoot,
       'state': pull['state']?.toString() ?? '',
       'failures': failures,
@@ -598,6 +599,33 @@ empty changes list and explain what is missing.
           checkRuns.every((item) => item['status'] == 'completed' &&
               item['conclusion'] == 'success'),
     };
+  }
+
+  /// Finds an open PR whose head is the branch that a closed repair PR targeted.
+  /// This lets the background supervisor return to the parent PR after a child
+  /// repair PR is merged or closed.
+  Future<int?> findOpenPullRequestForHeadBranch({
+    required String owner,
+    required String repository,
+    required String branch,
+  }) async {
+    if (branch.isEmpty || branch.length > 255) return null;
+    final repo = '${Uri.encodeComponent(owner)}/${Uri.encodeComponent(repository)}';
+    final head = Uri.encodeComponent('$owner:$branch');
+    final rows = await _githubList('/repos/$repo/pulls?state=open&head=$head&per_page=10');
+    for (final row in rows.whereType<Map>()) {
+      final rowHead = row['head'];
+      final rowRepo = rowHead is Map ? rowHead['repo'] : null;
+      final number = row['number'];
+      if (number is num &&
+          row['state'] == 'open' &&
+          rowRepo is Map &&
+          rowRepo['full_name'] == '$owner/$repository' &&
+          rowHead['ref'] == branch) {
+        return number.toInt();
+      }
+    }
+    return null;
   }
 
   /// One evidence-based repair iteration with persisted cooldown and duplicate-patch protection.
