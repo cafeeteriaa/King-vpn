@@ -823,6 +823,31 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('for (final key in legacyKeys)', loader)
 
 
+    def test_general_king_chat_persists_bounded_redacted_context_without_code_authority(self):
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        ask_start = ai.index('Future<String> ask(')
+        ask_end = ai.index('Future<String> _askCoding(', ask_start)
+        chat = ai[ask_start:ask_end]
+        self.assertIn('_conversationSystemPrompt', chat)
+        self.assertIn('_loadConversationMemory()', chat)
+        self.assertIn('_saveConversationMemory()', chat)
+        self.assertIn('_looksLikeCodeGenerationRequest(prompt)', chat)
+        self.assertIn('king_ai_conversation_memory.json', ai)
+        self.assertIn('_redactConversationSecrets', ai)
+        self.assertIn('length > 12', chat)
+        self.assertIn('hasActiveSession', ai[ai.index('Future<Map<String, Object?>> proposeRepair'):])
+
+    def test_owner_only_background_maintenance_and_research_allowlist(self):
+        background = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
+        policy = (ROOT / 'lib' / 'king_ai_research_policy.dart').read_text(encoding='utf-8')
+        docs = (ROOT / 'docs' / 'KING_AI_AUTONOMOUS_MAINTENANCE.md').read_text(encoding='utf-8')
+        self.assertIn('_requireOwnerSession();', background)
+        self.assertIn('enableAutonomousMaintenance()', background)
+        self.assertIn('https', policy)
+        self.assertIn('isTrustedKingAiResearchUri', policy)
+        self.assertIn('owner review and green CI remain required', docs)
+        self.assertIn('installer still requires the user to confirm', docs)
+
     def test_stable_success_requires_fresh_multi_destination_tunnel_traffic(self):
         national = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
