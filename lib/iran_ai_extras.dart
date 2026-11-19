@@ -184,7 +184,7 @@ bool get _hasAnyAiKey =>
     openaiKey.isNotEmpty ||
     deepseekKey.isNotEmpty;
 
-bool get _selectedAiKeyAvailable => aiProvider == 'local';
+bool get _selectedAiKeyAvailable => aiProvider == 'local' && KingLocalAi.instance.isLoaded;
 
 Future<void> loadGeminiPrefs(SharedPreferences p) async {
   // 1) prefs read (migration from old builds)
@@ -1913,6 +1913,10 @@ extension HomeExtras on _HomePageState {
                 final task = taskC.text.trim();
                 if (owner.isEmpty || repoName.isEmpty || base.isEmpty || task.isEmpty) {
                   aiText.value = 'نام مالک، مخزن، شاخه اصلی و شرح مشکل را کامل کن.';
+                  return;
+                }
+                if (!await KingLocalAi.instance.hasGitHubToken()) {
+                  aiText.value = 'ابتدا توکن GitHub را در همین صفحه ذخیره کن.';
                   return;
                 }
                 setS(() => working = true);
