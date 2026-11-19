@@ -1032,6 +1032,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('if (nationalMode)', success_record)
         self.assertIn('final failedElapsedMs = _nnieFinishAttempt(s) ?? 0;', main)
         self.assertNotIn('_nnieTapAt', main)
+        tunnel_fail = main.index('// Record a server-level failure only after the same-server')
+        tunnel_fail_end = main.index("final ip1 = await resolveHostIp(s.host);", tunnel_fail)
+        failure_record = main[tunnel_fail:tunnel_fail_end]
+        self.assertIn('NationalNetworkIntelligence.record(', failure_record)
+        self.assertIn('success: false', failure_record)
+        self.assertIn('if (!abort && wantVpn)', failure_record)
         self.assertIn('await NationalNetworkIntelligence.load();', pilot)
         self.assertIn('NationalNetworkIntelligence.scoreFor(', pilot)
         standby_start = pilot.index('Server? _pilotBestStandby()')
