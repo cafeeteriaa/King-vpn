@@ -35,6 +35,18 @@ void main() {
       );
     });
 
+    test('redacts JWTs and cloud secret assignments without hiding ordinary text', () {
+      const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signaturevalue1234567890';
+      const raw = 'JWT=$jwt AWS_SECRET_ACCESS_KEY=cloud-secret '
+          'refresh_token=refresh-secret ordinary-message=hello';
+      final safe = redactKingAiCiEvidence(raw);
+      expect(safe, isNot(contains(jwt)));
+      expect(safe, isNot(contains('cloud-secret')));
+      expect(safe, isNot(contains('refresh-secret')));
+      expect(safe, contains('ordinary-message=hello'));
+      expect(safe, contains('[REDACTED_JWT]'));
+    });
+
     test('bounds evidence to the requested tail window', () {
       final safe = redactKingAiCiEvidence('0123456789', maxChars: 4);
       expect(safe, '6789');
