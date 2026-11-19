@@ -381,6 +381,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('if MAVEN_CENTRAL_MIRROR in source:', patcher)
         self.assertIn('maven-central.storage-download.googleapis.com/maven2/', patcher)
 
+    def test_flutter_kotlin_dsl_resolution_has_central_and_plugin_fallback_mirrors(self):
+        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        self.assertIn('maven.aliyun.com/repository/central/', prepare)
+        self.assertIn('maven.aliyun.com/repository/gradle-plugin/', prepare)
+        self.assertIn('ALIYUN_CENTRAL_MIRROR', prepare)
+        self.assertIn('ALIYUN_GRADLE_PLUGIN_MIRROR', prepare)
+        self.assertIn('pluginManagement', prepare)
+        self.assertIn('dependencyResolutionManagement', prepare)
+        self.assertIn('repositories_text', prepare)
+
     def test_android_vpn_background_channel_is_registered_and_packaged(self):
         native = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
