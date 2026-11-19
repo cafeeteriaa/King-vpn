@@ -11,7 +11,7 @@ One JSON object per line in the input JSONL:
 - `task`: the repair task without private user data.
 - `diff`: the accepted unified diff.
 - `ci_passed`: boolean, must be true.
-- `human_reviewed`: boolean, must be true.
+- `human_reviewed`: boolean, or `merged`: boolean set only after GitHub confirms the PR was merged.
 - `security_scan_passed`: boolean, must be true.
 
 The preparation step removes malformed, duplicate, unreviewed, failed, and
