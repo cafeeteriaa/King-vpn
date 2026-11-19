@@ -252,13 +252,13 @@ if 'com.kingvpn.king_vpn.KingVpnService' not in m and '</application>' in m:
     m = m.replace('</application>', KSVC + '</application>', 1)
 # FileProvider exposes only the app-cache subfolder used for SHA-256 verified
 # APK updates. Never use file:// URIs for Android package installation.
-UPDATE_PROVIDER = ('<provider android:name="androidx.core.content.FileProvider"\\n'
-                   '            android:authorities="${applicationId}.fileprovider"\\n'
-                   '            android:exported="false"\\n'
-                   '            android:grantUriPermissions="true">\\n'
-                   '            <meta-data android:name="android.support.FILE_PROVIDER_PATHS"\\n'
-                   '                       android:resource="@xml/king_file_paths"/>\\n'
-                   '        </provider>\\n    ')
+UPDATE_PROVIDER = ('<provider android:name="androidx.core.content.FileProvider"\n'
+                   '            android:authorities="${applicationId}.fileprovider"\n'
+                   '            android:exported="false"\n'
+                   '            android:grantUriPermissions="true">\n'
+                   '            <meta-data android:name="android.support.FILE_PROVIDER_PATHS"\n'
+                   '                       android:resource="@xml/king_file_paths"/>\n'
+                   '        </provider>\n    ')
 if 'androidx.core.content.FileProvider' not in m and '</application>' in m:
     m = m.replace('</application>', UPDATE_PROVIDER + '</application>', 1)
 open(mp, 'w', encoding='utf-8').write(m)
