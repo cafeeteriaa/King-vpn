@@ -22,16 +22,25 @@ void main() {
       expect(redactKingAiCiEvidence('abc', maxChars: 0), isEmpty);
     });
 
-    test('allows no more than two repair iterations by default', () {
-      expect(kingAiCiRepairAttemptAllowed(0), isTrue);
-      expect(kingAiCiRepairAttemptAllowed(1), isTrue);
-      expect(kingAiCiRepairAttemptAllowed(2), isFalse);
+    test('allows up to eight bounded repair iterations by default', () {
+      for (var attempt = 0; attempt < 8; attempt++) {
+        expect(kingAiCiRepairAttemptAllowed(attempt), isTrue);
+      }
+      expect(kingAiCiRepairAttemptAllowed(8), isFalse);
       expect(kingAiCiRepairAttemptAllowed(-1), isFalse);
     });
 
-    test('supports an explicitly smaller retry budget', () {
+    test('supports a smaller explicitly configured retry budget', () {
       expect(kingAiCiRepairAttemptAllowed(0, maxAttempts: 1), isTrue);
       expect(kingAiCiRepairAttemptAllowed(1, maxAttempts: 1), isFalse);
+    });
+
+    test('backs off exponentially and respects the maximum delay', () {
+      expect(kingAiCiRepairBackoff(0), Duration.zero);
+      expect(kingAiCiRepairBackoff(1), const Duration(minutes: 10));
+      expect(kingAiCiRepairBackoff(2), const Duration(minutes: 20));
+      expect(kingAiCiRepairBackoff(20), const Duration(hours: 6));
+      expect(kingAiCiRepairBackoff(-1), Duration.zero);
     });
   });
 }
