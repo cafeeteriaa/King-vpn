@@ -21,19 +21,20 @@ if os.path.exists(sett):
     # can otherwise leave Kotlin stdlib/plugin artifacts searched only at portal.
     pm = re.search(r'pluginManagement\s*\{', s)
     if pm:
-        block_end = s.find('}', pm.end())
-        block = s[pm.end():block_end if block_end >= 0 else len(s)]
-        repo_match = re.search(r'repositories\s*\{', block)
+        repo_match = re.search(r'repositories\s*\{', s[pm.end():])
         if repo_match:
             insert_at = pm.end() + repo_match.end()
-            repo_block = block[repo_match.end():]
-            additions = ''
-            if 'google()' not in repo_block:
-                additions += '\n        google()'
-            if 'mavenCentral()' not in repo_block:
-                additions += '\n        mavenCentral()'
+            repo_end = s.find('}', insert_at)
+            if repo_end < 0:
+                raise SystemExit('HARD FAIL: malformed pluginManagement repositories')
+            repo_block = s[insert_at:repo_end]
+            additions = []
+            if not re.search(r'\bgoogle\s*\(\s*\)', repo_block):
+                additions.append('google()')
+            if not re.search(r'\bmavenCentral\s*\(\s*\)', repo_block):
+                additions.append('mavenCentral()')
             if additions:
-                s = s[:insert_at] + additions + s[insert_at:]
+                s = s[:insert_at] + '\n        ' + '\n        '.join(additions) + s[insert_at:]
         else:
             s = s[:pm.end()] + '\n    repositories { google(); mavenCentral(); gradlePluginPortal() }' + s[pm.end():]
     s = re.sub(r'(id\("com\.android\.(?:application|library)"\)\s+version\s+")[^"]+(")',
