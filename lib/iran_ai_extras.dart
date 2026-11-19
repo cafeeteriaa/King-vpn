@@ -1746,18 +1746,51 @@ extension HomeExtras on _HomePageState {
   }
 
   String _normalizePilotText(String raw) {
-    return raw.trim().toLowerCase()
+    final normalized = raw.trim().toLowerCase()
         .replaceAll('ي', 'ی').replaceAll('ك', 'ک')
         .replaceAll('ۀ', 'ه').replaceAll('ة', 'ه')
         .replaceAll('‌', ' ')
         .replaceAll(RegExp(r'[،,؛;.!?؟:]+'), ' ')
-        .replaceAll(RegExp(r'\s+'), ' ');
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    // "کینگ" is the assistant's wake/address name, not an authorization role.
+    // Accept Persian/English addressing without changing the underlying allowlisted
+    // command parser or granting any additional permissions.
+    return normalized.replaceFirst(
+      RegExp(r'^(?:(?:سلام|هی)\s+)?(?:کینگ|king)(?:\s+(?:جان|عزیز))?\s*'),
+      '',
+    ).trim();
   }
 
   Future<String> _runPilotCommand(String raw) async {
     final q = _normalizePilotText(raw);
-    if (q.isEmpty) return 'فرمان خالی است؛ مثلاً «وصل شو» یا «وضعیت اتصال» را بنویس.';
+    if (q.isEmpty) return 'فرمان خالی است؛ مثلاً «کینگ وصل شو» یا «کینگ وضعیت اتصال» را بنویس.';
     bool hasAny(List<String> words) => words.any((w) => q.contains(w));
+
+    // This panel controls existing app capabilities only. User text must never
+    // be forwarded to the local coding model or interpreted as a code patch.
+    final asksForCodeChange =
+        hasAny([
+          'کدنویسی کن', 'برنامه نویسی کن', 'کد بنویس', 'کدشو بنویس',
+          'کد بزن', 'کد تولید', 'کد جدید', 'کد بده', 'سورس را تغییر',
+          'تغییر سورس', 'کد برنامه را تغییر', 'برنامه را تغییر بده',
+          'قابلیت اضافه کن', 'ماژول بساز', 'اسکریپت بنویس', 'تابع بنویس',
+          'پیاده سازی کن', 'توسعه بده', 'تغییر ساختار برنامه',
+          'feature request', 'write code', 'add feature', 'create feature',
+          'new module', 'write a function', 'write a script',
+          'implement feature', 'generate a patch', 'modify the app',
+        ]) ||
+        (q.contains('قابلیت') &&
+            hasAny(['جدید', 'اضافه', 'بساز', 'ایجاد', 'توسعه'])) ||
+        (q.contains('ویژگی') &&
+            hasAny(['جدید', 'اضافه', 'بساز', 'ایجاد', 'توسعه'])) ||
+        (q.contains('امکان') &&
+            hasAny(['جدید', 'اضافه', 'افزودن', 'بساز', 'ایجاد'])) ||
+        (q.contains('ماژول') &&
+            hasAny(['جدید', 'اضافه', 'بساز', 'ایجاد']));
+    if (asksForCodeChange) {
+      return 'این کادر فقط امکانات موجود King VPN را کنترل می‌کند و اجازه کدنویسی یا افزودن قابلیت ندارد. برای توسعه دستی، مالک اصلی باید از بخش هوش مصنوعی داخلی احراز هویت کند.';
+    }
     final asksConnect = hasAny([
       'وصل', 'متصل شو', 'اتصال برقرار کن', 'اتصال بزن', 'connect',
       'شروع اتصال', 'راه بنداز', 'بهترین سرور', 'پیدا کن',
@@ -1772,10 +1805,10 @@ extension HomeExtras on _HomePageState {
 
     // Help and read-only status must never trigger a connection action.
     if (hasAny(['راهنما', 'دستورات', 'کمک', 'چه فرمان'])) {
-      return 'می‌توانی طبیعی بنویسی: «وصل شو»، «اتصال مجدد»، «قطع اتصال»، '
-          '«لغو جستجو»، «وضعیت اتصال»، «بهبود اتصال»، «خلبان روشن»، '
-          '«خلبان خاموش»، «بهترین سرور آلمان را پیدا کن و وصل شو»، '
-          '«نت ملی وصل شو» یا «نت جهانی وصل شو».';
+      return 'برای خطاب به دستیار، ابتدای فرمان «کینگ» بگذار. نمونه‌ها: «کینگ وصل شو»، «کینگ اتصال مجدد»، «کینگ قطع اتصال»، '
+          '«کینگ لغو جستجو»، «کینگ وضعیت اتصال»، «کینگ بهبود اتصال»، «کینگ خلبان روشن»، '
+          '«کینگ خلبان خاموش»، «کینگ بهترین سرور آلمان را پیدا کن و وصل شو»، '
+          '«کینگ نت ملی وصل شو» یا «کینگ نت جهانی وصل شو».';
     }
     if (hasAny(['وضعیت', 'گزارش اتصال', 'چطوری', 'الان وصلم', 'وصل هستم', 'وصل شدم', 'متصل هستم', 'اتصال دارم'])) {
       final s = current;

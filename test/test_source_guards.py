@@ -5,6 +5,40 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KingVpnSourceGuardTests(unittest.TestCase):
+    def test_smart_pilot_never_forwards_user_code_requests_to_local_coder(self):
+        pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        start = pilot.index('Future<String> _runPilotCommand(String raw)')
+        end = pilot.index('void ensureLocalPilotRunning()', start)
+        dispatcher = pilot[start:end]
+        self.assertIn('این کادر فقط امکانات موجود King VPN', dispatcher)
+        self.assertIn("'کدنویسی کن'", dispatcher)
+        self.assertIn("'add feature'", dispatcher)
+        self.assertIn("'توسعه بده'", dispatcher)
+        self.assertIn("'write a function'", dispatcher)
+        self.assertIn("q.contains('قابلیت')", dispatcher)
+        self.assertIn("q.contains('ویژگی')", dispatcher)
+        self.assertNotIn('generateCode(', dispatcher)
+        self.assertNotIn('repairFromFailedCi(', dispatcher)
+
+    def test_command_help_mentions_king_address(self):
+        pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        start = pilot.index('if (hasAny([\'راهنما\'')
+        end = pilot.index("if (hasAny(['وضعیت'", start)
+        help_text = pilot[start:end]
+        self.assertIn('ابتدای فرمان «کینگ»', help_text)
+        self.assertIn('«کینگ خلبان خاموش»', help_text)
+        self.assertIn('«کینگ نت ملی وصل شو»', help_text)
+        self.assertIn('«کینگ نت جهانی وصل شو»', help_text)
+
+    def test_king_address_is_removed_before_smart_pilot_command_dispatch(self):
+        pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        start = pilot.index('String _normalizePilotText(String raw)')
+        end = pilot.index('Future<String> _runPilotCommand(String raw)', start)
+        normalizer = pilot[start:end]
+        self.assertIn("(?:کینگ|king)", normalizer)
+        self.assertIn("(?:سلام|هی)", normalizer)
+        self.assertIn("return normalized.replaceFirst(", normalizer)
+
     def test_no_additional_engine_scaffolding_remains(self):
         self.assertFalse((ROOT / 'lib' / 'engine_registry.dart').exists())
         self.assertFalse((ROOT / 'lib' / 'singbox_core.dart').exists())
