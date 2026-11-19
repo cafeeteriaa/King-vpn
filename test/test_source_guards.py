@@ -5,6 +5,22 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KingVpnSourceGuardTests(unittest.TestCase):
+    def test_generated_patches_cannot_modify_security_and_command_policy_files(self):
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        start = ai.index('void _validatePath(String path)')
+        end = ai.index('void _rejectSecrets(String text)', start)
+        guard = ai[start:end]
+        for path in (
+            'lib/king_ai_owner_auth.dart',
+            'lib/king_local_ai.dart',
+            'lib/king_ai_background.dart',
+            'lib/king_ai_ci_policy.dart',
+            'lib/king_ai_research_policy.dart',
+            'lib/iran_ai_extras.dart',
+        ):
+            self.assertIn(path, guard)
+        self.assertIn('protectedPaths.contains(path)', guard)
+
     def test_all_public_code_generation_and_pr_write_apis_require_owner(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
         propose_start = ai.index('Future<Map<String, Object?>> proposeRepair({')
