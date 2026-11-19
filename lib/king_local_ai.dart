@@ -417,6 +417,34 @@ empty changes list and explain what is missing.
     }
   }
 
+  /// Require the authenticated GitHub identity to be the repository owner.
+  /// Device-local password alone is not sufficient authority to write to the
+  /// upstream project; GitHub must independently confirm the owner identity.
+  Future<void> _requireRepositoryOwnerIdentity(String expectedOwner) async {
+    final token = await _secure.read(key: 'king_ai_github_token');
+    if (token == null || token.isEmpty) {
+      throw StateError('ابتدا کلید GitHub مالک مخزن را ذخیره کن.');
+    }
+    final response = await http.get(
+      Uri.https('api.github.com', '/user'),
+      headers: {
+        'Accept': 'application/vnd.github+json',
+        'Authorization': 'Bearer $token',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'User-Agent': 'King-VPN-Local-AI',
+      },
+    ).timeout(const Duration(seconds: 20));
+    if (response.statusCode != 200) {
+      throw StateError('هویت GitHub تأیید نشد؛ دسترسی مالک مخزن لازم است.');
+    }
+    final decoded = jsonDecode(response.body);
+    final login = decoded is Map ? decoded['login']?.toString() : null;
+    if (login == null ||
+        login.toLowerCase() != expectedOwner.toLowerCase()) {
+      throw StateError('فقط حساب مالک اصلی مخزن اجازه ثبت تغییرات کد را دارد.');
+    }
+  }
+
   Future<Map<String, dynamic>> _github(
     String method,
     String path, {
@@ -1143,6 +1171,7 @@ empty changes list and explain what is missing.
     required String summary,
     required Map<String, String> changes,
   }) async {
+    await _requireRepositoryOwnerIdentity(owner);
     if (changes.isEmpty || changes.length > 3) {
       throw ArgumentError('Repair must contain 1 to 3 changed files');
     }
