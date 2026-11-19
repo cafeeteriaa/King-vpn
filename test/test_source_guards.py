@@ -634,5 +634,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn(r"'        gradlePluginPortal()\n'", prepare)
 
 
+    def test_android_host_does_not_request_unneeded_all_files_access(self):
+        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertNotIn('android.permission.MANAGE_EXTERNAL_STORAGE', prepare)
+        self.assertNotIn('Permission.manageExternalStorage', main)
+
+
 if __name__ == '__main__':
     unittest.main()
