@@ -22,8 +22,9 @@ const String _auditUniqueName = 'king-ai-iran-network-audit-periodic';
 const String _auditInitialName = 'king-ai-iran-network-audit-initial';
 const String _auditTag = 'king-ai-iran-network-audit';
 const String _researchQuery =
-    'Iran internet national network DNS routing IPv6 TLS SNI Android VPNService '
-    'Flutter network connectivity diagnostics official documentation';
+    'Iran mobile internet domestic routing national network DNS IPv4 IPv6 '
+    'Android VPNService network changes DoH TLS SNI Xray V2Ray sing-box '
+    'Cloudflare tunnel DNS security Flutter Dart performance official docs';
 
 /// WorkManager entry point. The model is loaded only from a foreground-verified
 /// local file; this worker never downloads the 1.1 GB model in the background.
@@ -41,7 +42,7 @@ void kingAiBackgroundDispatcher() {
       if (task == _researchTaskName) {
         // Passive, bounded research. Only allowlisted official sources are
         // retained by researchGoogle; this never edits code or needs a token.
-        await ai.researchGoogle(_researchQuery, maxResults: 2)
+        await ai.researchGoogle(_researchQuery, maxResults: 5)
             .timeout(const Duration(seconds: 55));
         return true;
       }
