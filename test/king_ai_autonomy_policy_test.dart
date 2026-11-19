@@ -96,6 +96,12 @@ void main() {
         userPaused: false, candidatePrepared: true, ownerAuthenticated: true,
       ));
       expect(noCi.mayApplySourceChanges, isFalse);
+      final noScopedCommand = evaluateKingAiMaintenance(const KingAiMaintenanceEvidence(
+        enabled: true, networkAvailable: true, batteryNotLow: true,
+        userPaused: false, candidatePrepared: true, ownerAuthenticated: true,
+        ciPassed: true,
+      ));
+      expect(noScopedCommand.mayApplySourceChanges, isFalse);
       final approved = evaluateKingAiMaintenance(const KingAiMaintenanceEvidence(
         enabled: true, networkAvailable: true, batteryNotLow: true,
         userPaused: false, candidatePrepared: true, ownerAuthenticated: true,
