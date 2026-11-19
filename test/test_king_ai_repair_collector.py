@@ -149,6 +149,9 @@ class MergedRepairCollectorTests(unittest.TestCase):
                 return {"check_runs": [{
                     "status": "completed", "conclusion": "success",
                 }]}
+            if "/pulls/17/reviews" in url:
+                return [{"state": "APPROVED", "commit_id": "a" * 40,
+                         "user": {"type": "User"}}]
             if "/commits/" + "b" * 40 in url:
                 return {"parents": [{"sha": "c" * 40}]}
             if "/contents/lib/king_ai_ci_policy.dart?ref=" in url:
