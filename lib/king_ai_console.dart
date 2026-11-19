@@ -304,6 +304,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
                 TextField(
                   controller: _ownerPasswordController,
                   obscureText: true,
+                  maxLength: 128,
                   autocorrect: false,
                   enableSuggestions: false,
                   decoration: InputDecoration(
@@ -314,6 +315,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
                   TextField(
                     controller: _ownerConfirmController,
                     obscureText: true,
+                    maxLength: 128,
                     autocorrect: false,
                     enableSuggestions: false,
                     decoration: const InputDecoration(labelText: 'تکرار رمز مالک'),
