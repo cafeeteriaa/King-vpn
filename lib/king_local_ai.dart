@@ -1137,6 +1137,8 @@ empty changes list and explain what is missing.
     if (changes.isEmpty || changes.length > 3) {
       throw ArgumentError('Repair must contain 1 to 3 changed files');
     }
+    _rejectSecrets(title);
+    _rejectSecrets(summary);
     for (final entry in changes.entries) {
       _validatePath(entry.key);
       _rejectSecrets(entry.value);
