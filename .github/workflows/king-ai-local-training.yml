@@ -1,0 +1,75 @@
+name: King AI Local QLoRA Training
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_model_path:
+        description: "Path to a reviewed base model already present on the dedicated GPU runner"
+        required: true
+        type: string
+      dataset_path:
+        description: "Path to the reviewed accepted-repairs JSONL file in the repository"
+        required: true
+        default: "data/king_ai_accepted_repairs.jsonl"
+        type: string
+      max_steps:
+        description: "Bounded training steps"
+        required: true
+        default: "500"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: king-ai-model-training
+  cancel-in-progress: false
+
+jobs:
+  train-candidate:
+    runs-on: [self-hosted, linux, x64, gpu, king-ai-training]
+    timeout-minutes: 360
+    steps:
+      - name: Checkout trusted source
+        uses: actions/checkout@v4
+      - name: Validate local inputs
+        env:
+          BASE_MODEL_PATH: ${{ inputs.base_model_path }}
+          DATASET_PATH: ${{ inputs.dataset_path }}
+          MAX_STEPS: ${{ inputs.max_steps }}
+        run: |
+          test -d "$BASE_MODEL_PATH"
+          test -f "$DATASET_PATH"
+          case "$DATASET_PATH" in data/*.jsonl) ;; *) echo "Dataset must be under data/"; exit 1;; esac
+          case "$MAX_STEPS" in ''|*[!0-9]*) echo "max_steps must be an integer"; exit 1;; esac
+          test "$MAX_STEPS" -ge 10 && test "$MAX_STEPS" -le 5000
+      - name: Prepare trusted training and evaluation splits
+        env:
+          DATASET_PATH: ${{ inputs.dataset_path }}
+        run: |
+          python3 tools/king_ai_training/prepare_dataset.py \
+            --input "$DATASET_PATH" --output-dir "$RUNNER_TEMP/king-ai-dataset"
+      - name: Install pinned local training dependencies
+        run: python3 -m pip install --requirement tools/king_ai_training/requirements.txt
+      - name: Train isolated QLoRA candidate
+        env:
+          BASE_MODEL_PATH: ${{ inputs.base_model_path }}
+          MAX_STEPS: ${{ inputs.max_steps }}
+        run: |
+          python3 tools/king_ai_training/train_lora.py \
+            --base-model "$BASE_MODEL_PATH" \
+            --dataset-dir "$RUNNER_TEMP/king-ai-dataset" \
+            --output-dir "$RUNNER_TEMP/king-ai-candidate" \
+            --max-steps "$MAX_STEPS"
+      - name: Package candidate without deployment
+        run: |
+          cp "$RUNNER_TEMP/king-ai-dataset/dataset_report.json" "$RUNNER_TEMP/king-ai-candidate/"
+          cd "$RUNNER_TEMP"
+          tar -czf king-ai-qlora-candidate.tar.gz king-ai-candidate
+      - name: Upload candidate for independent review
+        uses: actions/upload-artifact@v4
+        with:
+          name: king-ai-qlora-candidate-${{ github.run_number }}
+          path: ${{ runner.temp }}/king-ai-qlora-candidate.tar.gz
+          if-no-files-found: error
+          retention-days: 30
