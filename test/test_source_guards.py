@@ -8,7 +8,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_android_gradle_versions_match_kotlin_2_3_21_support_bounds(self):
         script = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         self.assertIn("AGP_VERSION = '9.0.0'", script)
-        self.assertIn("GRADLE_VERSION = '9.3.0'", script)
+        self.assertIn("GRADLE_VERSION = '9.3.1'", script)
         self.assertNotIn('9.4.0', script)
         self.assertNotIn('9.6.0', script)
 
