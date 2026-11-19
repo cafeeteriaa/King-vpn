@@ -26,14 +26,14 @@ MAX_DIFF = 24000
 SECRET_PATTERNS = [
     re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"),
     re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
-    re.compile(r"(?i)\\bBearer\\s+[A-Za-z0-9._~+/=-]{20,}"),
+    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{20,}"),
     re.compile(r"AKIA[0-9A-Z]{16}"),
     re.compile(r"AIza[0-9A-Za-z_-]{30,}"),
     re.compile(r"sk-[A-Za-z0-9_-]{20,}"),
     re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"),
-    re.compile(r"(?i)\\bBasic\\s+[A-Za-z0-9+/]{12,}={0,2}"),
-    re.compile(r"https?://[^/\\s:@]+:[^@\\s]+@"),
-    re.compile(r"(?i)(api[_-]?key|access[_-]?token|client[_-]?secret|password)\\s*[:=]\\s*[^\\s,;]+"),
+    re.compile(r"(?i)\bBasic\s+[A-Za-z0-9+/]{12,}={0,2}"),
+    re.compile(r"https?://[^/\s:@]+:[^@\s]+@"),
+    re.compile(r"(?i)(api[_-]?key|access[_-]?token|client[_-]?secret|password)\s*[:=]\s*[^\s,;]+"),
     re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----"),
 
 ]
