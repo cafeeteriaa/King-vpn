@@ -634,7 +634,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn(r"'        gradlePluginPortal()\n'", prepare)
         self.assertIn("MAVEN_CENTRAL_MIRROR", prepare)
         self.assertIn("dependencyResolutionManagement", prepare)
-        self.assertIn("repo_body_start", prepare)
+        self.assertIn("def add_maven_mirror_to_scope", prepare)
+        self.assertIn("root_mirror_entry", prepare)
+        self.assertIn("matching_brace", prepare)
         self.assertIn("maven-central.storage-download.googleapis.com/maven2/", prepare)
 
 
