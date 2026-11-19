@@ -411,6 +411,10 @@ empty changes list and explain what is missing.
     if (headRepo is! Map || headRepo['full_name'] != expectedRepo) {
       throw StateError('CI repair is disabled for fork-origin pull requests');
     }
+    final pullBody = pull['body']?.toString() ?? '';
+    final rootMatch = RegExp(r'King-AI-Repair-Root:\s*([^\r\n]+)')
+        .firstMatch(pullBody);
+    final repairRoot = rootMatch?.group(1)?.trim() ?? '$owner/$repository#$pullNumber';
     final sha = head['sha'] as String;
     final checks = await _github('GET',
         '/repos/$repo/commits/$sha/check-runs?per_page=100');
@@ -488,6 +492,7 @@ empty changes list and explain what is missing.
       'pullNumber': pullNumber,
       'headSha': sha,
       'headBranch': head['ref'] as String,
+      'repairRoot': repairRoot,
       'state': pull['state']?.toString() ?? '',
       'failures': failures,
       'hasFailures': failures.isNotEmpty,
@@ -520,7 +525,7 @@ empty changes list and explain what is missing.
         attempts = {};
       }
     }
-    final key = '$owner/$repository#$pullNumber';
+    final key = report['repairRoot'] as String;
     final used = (attempts[key] as num?)?.toInt() ?? 0;
     if (!kingAiCiRepairAttemptAllowed(used)) {
       return {'status': 'repair_limit_reached', 'attempts': used, 'report': report};
@@ -548,7 +553,7 @@ empty changes list and explain what is missing.
       repository: repository,
       baseBranch: branch,
       title: 'CI repair for #$pullNumber (attempt ${used + 1})',
-      summary: '${proposal['summary']}\\n\\nEvidence: ${failureText.substring(0, end)}',
+      summary: '${proposal['summary']}\n\nEvidence: ${failureText.substring(0, end)}\n\nKing-AI-Repair-Root: $key',
       changes: changes,
     );
     attempts[key] = used + 1;
