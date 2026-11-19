@@ -304,7 +304,14 @@ class NatEndpointMemory {
         ? 720.0
         : max(0, DateTime.now().millisecondsSinceEpoch - lastSuccessMs) / 3600000.0;
     final recency = (1.0 - (ageHours / 168.0).clamp(0.0, 1.0)).toDouble();
-    return reliability * 55 + speed * 15 + recency * 15 + min(stableSuccesses, 10) * 1.5 - failStreak * 4;
+    // Historical reliability/speed/stability must fade together. Otherwise a
+    // once-good endpoint can keep a high score indefinitely after going stale.
+    // A 7-day half-life is gradual and keeps recent verified experience useful.
+    final historyDecay = exp(-ageHours * 0.6931471805599453 / 168.0);
+    final historical = reliability * 55 +
+        speed * 15 +
+        min(stableSuccesses, 10) * 1.5;
+    return historical * historyDecay + recency * 15 - failStreak * 4;
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
