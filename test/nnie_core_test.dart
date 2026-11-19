@@ -1,6 +1,8 @@
 // Unit tests for the pure NNIE core. Run from the generated Flutter project:
 //   flutter test test/nnie_core_test.dart
 // These cover logic only; they do not test real networks, VPN, or Android.
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:king_vpn/nnie_core.dart';
 
