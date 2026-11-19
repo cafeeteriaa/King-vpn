@@ -936,5 +936,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
                         audit.index('loadInstalledModelForBackground()'))
 
 
+    def test_generated_fileprovider_manifest_uses_real_xml_newlines(self):
+        source = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        start = source.index('UPDATE_PROVIDER =')
+        end = source.index("if 'androidx.core.content.FileProvider'", start)
+        provider = source[start:end]
+        self.assertIn(r'FileProvider"\\n', provider)
+        self.assertNotIn(r'FileProvider"\\\\n', provider)
+        self.assertIn('@xml/king_file_paths', provider)
+
+
 if __name__ == '__main__':
     unittest.main()
