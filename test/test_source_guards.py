@@ -632,6 +632,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("if not pm:", prepare)
         self.assertIn(r"'        mavenCentral()\n'", prepare)
         self.assertIn(r"'        gradlePluginPortal()\n'", prepare)
+        self.assertIn("MAVEN_CENTRAL_MIRROR", prepare)
+        self.assertIn("dependencyResolutionManagement", prepare)
+        self.assertIn("repo_body_start", prepare)
+        self.assertIn("maven-central.storage-download.googleapis.com/maven2/", prepare)
 
 
     def test_android_host_does_not_request_unneeded_all_files_access(self):
