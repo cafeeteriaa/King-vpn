@@ -26,7 +26,7 @@ void main() {
         'lib/../secret.dart',
         'lib/./secret.dart',
         'lib//secret.dart',
-        r'lib\\..\\secret.dart',
+        r'lib\..\secret.dart',
         '/lib/secret.dart',
       ]) {
         expect(isAllowedSourcePatchPath(path), isFalse, reason: path);

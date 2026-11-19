@@ -3,19 +3,19 @@
 String redactSensitiveDiagnostic(String input) {
   var value = input;
   value = value.replaceAll(
-    RegExp(r'(?:vmess|vless|trojan|ss|socks5?|hysteria2|tuic|wireguard)://\\S+', caseSensitive: false),
+    RegExp(r'(?:vmess|vless|trojan|ss|socks5?|hysteria2|tuic|wireguard)://\S+', caseSensitive: false),
     '[CONFIG_REDACTED]',
   );
   value = value.replaceAll(
-    RegExp(r'(api[_-]?key|access[_-]?token|token|secret|password|uuid)\\s*[:=]\\s*[^\\s,;]+', caseSensitive: false),
+    RegExp(r'(api[_-]?key|access[_-]?token|token|secret|password|uuid)\s*[:=]\s*[^\s,;]+', caseSensitive: false),
     r'$1=[REDACTED]',
   );
   value = value.replaceAll(
-    RegExp(r'([?&](?:key|token|auth|password|uuid)=)[^&#\\s]+', caseSensitive: false),
+    RegExp(r'([?&](?:key|token|auth|password|uuid)=)[^&#\s]+', caseSensitive: false),
     r'$1[REDACTED]',
   );
   value = value.replaceAll(
-    RegExp(r'\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b', caseSensitive: false),
+    RegExp(r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b', caseSensitive: false),
     '[ID_REDACTED]',
   );
   return value.length > 1200 ? value.substring(0, 1200) : value;
@@ -143,7 +143,7 @@ const List<String> allowedSourcePatchRoots = <String>[
 bool isAllowedSourcePatchPath(String path) {
   if (path.isEmpty ||
       path.startsWith('/') ||
-      path.contains('\\\\') ||
+      path.contains('\\') ||
       path.split('/').any((part) => part.isEmpty || part == '.' || part == '..')) {
     return false;
   }
