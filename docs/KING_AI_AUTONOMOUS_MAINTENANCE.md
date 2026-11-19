@@ -33,7 +33,7 @@ When enabled:
 - The supervisor checks selected pull requests for CI failures on a best-effort
   15-minute schedule and may prepare bounded follow-up repair pull requests.
 - Candidate changes are isolated in draft pull requests. They are not merged,
-  published or silently installed. Owner review and green CI remain required.
+  published or silently installed. owner review and green CI remain required.
 - A user-requested feature change is accepted only after the device-local owner
   session is unlocked and GitHub independently verifies the repository owner.
   The model cannot grant itself owner rights, widen its protected paths, or
