@@ -20,7 +20,8 @@ Android resource limits or owner security.
   turns in Android Keystore-backed secure storage. Obvious GitHub tokens,
   bearer tokens, passwords and API-key patterns are redacted before persistence.
   This supports follow-up questions across launches; it is contextual memory,
-  not model training. A clear-memory API is available; the user-facing control still needs wiring.
+  not model training. A clear-memory API and a user-facing clear-memory control
+  are available in the King chat screen.
 
 ## Owner-enabled autonomous maintenance
 
