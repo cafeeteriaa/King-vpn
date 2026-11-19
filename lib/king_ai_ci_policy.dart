@@ -14,7 +14,7 @@ String redactKingAiCiEvidence(String input, {int maxChars = 12000}) {
         RegExp(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----'),
         '[REDACTED_PRIVATE_KEY]',
       );
-  final limit = math.max(0, maxChars);
+  final limit = math.max(0, maxChars).toInt();
   if (safe.length > limit) safe = safe.substring(safe.length - limit);
   return safe;
 }
