@@ -2,7 +2,9 @@
 """Train a local QLoRA adapter; this creates a candidate, never deploys it."""
 from __future__ import annotations
 import argparse
+import hashlib
 import json
+import shutil
 from pathlib import Path
 import torch
 from datasets import load_dataset
@@ -80,11 +82,24 @@ def main() -> int:
     trainer.model.save_pretrained(args.output_dir / "adapter")
     tokenizer.save_pretrained(args.output_dir / "tokenizer")
     metrics = trainer.evaluate()
+
+    # Checkpoints are useful while training but are not part of the candidate.
+    shutil.rmtree(args.output_dir / "checkpoints", ignore_errors=True)
+    files = {}
+    for path in sorted(args.output_dir.rglob("*")):
+        if path.is_file():
+            digest = hashlib.sha256()
+            with path.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            files[str(path.relative_to(args.output_dir))] = digest.hexdigest()
+
     report = {
         "status": "candidate_trained",
         "base_model": str(base_path),
         "eval_metrics": {key: float(value) for key, value in metrics.items()
                          if isinstance(value, (int, float))},
+        "files_sha256": files,
         "deployment_authorized": False,
         "note": "Adapter requires independent benchmark, security review, conversion and device validation.",
     }
