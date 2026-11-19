@@ -117,7 +117,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
                   children: [
                     const Icon(Icons.auto_awesome, size: 52),
                     const SizedBox(height: 8),
-                    Text('$_links.length منبع ذخیره‌شده'.replaceFirst('$_links.length', '${_links.length}'),
+                    Text('${_links.length} منبع ذخیره‌شده',
                         textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                     const SizedBox(height: 6),
                     Text('آخرین به‌روزرسانی: $updated', textAlign: TextAlign.center),
