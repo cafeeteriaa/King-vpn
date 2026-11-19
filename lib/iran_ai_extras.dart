@@ -2451,6 +2451,14 @@ extension HomeExtras on _HomePageState {
             ((s.svc & 4) != 0 ? 20 : 0);
         score += (s.speed ?? 0) * 50;
       }
+      if (nationalMode) {
+        // In national mode, prefer evidence learned from successful real VPN
+        // sessions on this exact transport/TLS endpoint. Unknown endpoints get
+        // no penalty; repeated failures lower their standby priority.
+        final learned = NationalNetworkIntelligence.scoreFor(
+            NationalNetworkIntelligence.keyOfServer(s));
+        score += learned.clamp(-100.0, 100.0).toDouble() * 0.55;
+      }
       final ping = s.ping;
       if (ping != null && ping > 0) score += max(0, 100 - ping / 15);
       score += (_profRate(s) - 0.5) * 30;
@@ -2610,6 +2618,10 @@ extension HomeExtras on _HomePageState {
     final evidence = <String, Object?>{
       'networkMode': nationalMode ? 'domestic' : 'global',
       'networkClass': natNetworkClassLabel(NatNetworkDiagnosis.current),
+      'nationalEndpointMemoryScore': nationalMode && current != null
+          ? NationalNetworkIntelligence.scoreFor(NationalNetworkIntelligence.keyOfServer(current!))
+          : null,
+      'serviceProbesApplicable': !nationalMode,
       'phase': _localPhase,
       'connected': snap.connected,
       'operator': snap.operatorKey,
@@ -2639,6 +2651,7 @@ extension HomeExtras on _HomePageState {
     try {
       final raw = await ai.askPilot(
         'Review this VPN pilot decision using only the evidence below. '
+        'In national-only mode, ignore global service probes and use only domestic data-plane evidence. '
         'Return exactly the required JSON. Do not invent data. '
         'If uncertain choose action none. Evidence: ${jsonEncode(evidence)}',
         maxTokens: 192,
@@ -4224,7 +4237,7 @@ class _PilotCommandBarState extends State<PilotCommandBar> {
           child: Row(children: [
             _quickCommand('وصل شو', Icons.power_settings_new, 'وصل شو'),
             const SizedBox(width: 5),
-            if (widget.busy) ...[
+            if (widget.busy || _sending) ...[
               _quickCommand('لغو عملیات', Icons.stop_circle_outlined, 'لغو جستجو', allowWhileSending: true),
               const SizedBox(width: 5),
             ],

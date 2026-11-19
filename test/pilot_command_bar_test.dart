@@ -25,7 +25,7 @@ void main() {
           localStatus: status,
           pilotOn: true,
           connected: false,
-          busy: true,
+          busy: false,
         ),
       ),
     ));
