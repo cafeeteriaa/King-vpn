@@ -5,12 +5,14 @@ Uses only Python's standard library. Requires GITHUB_TOKEN, GITHUB_REPOSITORY,
 and GITHUB_EVENT_PATH supplied by the GitHub Actions workflow.
 """
 from __future__ import annotations
+import base64
 import json
 import os
 import re
 import sys
 import urllib.error
 import urllib.request
+import urllib.parse
 from pathlib import Path
 
 ALLOWED_PATHS = {
@@ -79,12 +81,33 @@ def collect(event: dict, repository: str, token: str, output: Path) -> dict:
         return {"status": "skipped", "reason": "Not every check on exact head SHA succeeded"}
 
     task = (str(pull.get("title") or "") + "\n" + str(pull.get("body") or ""))[:MAX_TASK].strip()
-    diff = "\n\n".join(
-        f"FILE: {item['filename']}\n{item['patch']}" for item in files
-    )
-    if not task or not diff or len(diff) > MAX_DIFF:
-        return {"status": "skipped", "reason": "Task or patch is empty/oversized"}
-    if not secret_free(task) or not secret_free(diff):
+    base_sha = base.get("sha")
+    if not isinstance(base_sha, str):
+        return {"status": "skipped", "reason": "Missing base commit SHA"}
+    source_files = {}
+    changes = {}
+    total_chars = len(task)
+    for item in files:
+        path = item["filename"]
+        encoded_path = urllib.parse.quote(path, safe="/")
+        old_file = github_get(f"{api}/contents/{encoded_path}?ref={base_sha}", token)
+        new_file = github_get(f"{api}/contents/{encoded_path}?ref={sha}", token)
+        if old_file.get("encoding") != "base64" or new_file.get("encoding") != "base64":
+            return {"status": "skipped", "reason": "GitHub did not return base64 source contents"}
+        try:
+            old_content = base64.b64decode(old_file.get("content", "")).decode("utf-8")
+            new_content = base64.b64decode(new_file.get("content", "")).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            return {"status": "skipped", "reason": "Changed file is not valid UTF-8 text"}
+        if len(old_content) > 20000 or len(new_content) > MAX_DIFF:
+            return {"status": "skipped", "reason": "Source or replacement file is oversized"}
+        source_files[path] = old_content
+        changes[path] = new_content
+        total_chars += len(old_content) + len(new_content)
+    if not task or not source_files or total_chars > 48000:
+        return {"status": "skipped", "reason": "Task or source/target context is empty/oversized"}
+    all_text = task + "\n" + json.dumps(source_files, ensure_ascii=False) + "\n" + json.dumps(changes, ensure_ascii=False)
+    if not secret_free(all_text):
         return {"status": "skipped", "reason": "Secret scan rejected the repair"}
 
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -98,7 +121,8 @@ def collect(event: dict, repository: str, token: str, output: Path) -> dict:
 
     record = {
         "task": task,
-        "diff": diff,
+        "source_files": source_files,
+        "changes": changes,
         "ci_passed": True,
         "merged": True,
         "human_reviewed": False,
