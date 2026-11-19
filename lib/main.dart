@@ -10988,7 +10988,7 @@ ListTile( // KINGEXTRAS row
       final clearFilters = RegExp(r'(پاک کردن فیلتر|حذف محدودیت|ریست فیلتر)').hasMatch(command);
       final allCountries = RegExp(r'(همه کشورها|تمام کشورها)').hasMatch(command);
       final allProtocols = RegExp(r'(همه پروتکل|تمام پروتکل)').hasMatch(command);
-      final codeRequest = RegExp(
+      final codeRequest = !KingCommandSafety.isQuestionRequest(command) && RegExp(
         r'(کدنویسی کن|برنامه نویسی کن|کد بنویس|کدشو بنویس|کد تولید کن|کد جدید بنویس|کد رو بنویس|کد را بنویس|'
         r'کد رو اصلاح|کد را اصلاح|سورس رو تغییر|سورس را تغییر|برنامه رو تغییر|'
         r'برنامه را تغییر|به برنامه اضافه|قابلیت بساز|قابلیت اضافه کن|'
