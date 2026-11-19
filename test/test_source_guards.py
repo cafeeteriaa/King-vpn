@@ -59,7 +59,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("static const String _repositoryName = 'King-vpn';", ai)
         self.assertIn('void _requireKingRepository(String owner, String repository)', ai)
         protected_start = ai.index('bool _isProtectedGeneratedPath(String path)')
-        protected_end = ai.index('void _validatePath(String path)', protected_start)
+        protected_end = ai.index('void _validatePath(String path,', protected_start)
         protected = ai[protected_start:protected_end]
         for path in (
             'lib/king_ai_console.dart',
