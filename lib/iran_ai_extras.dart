@@ -1024,74 +1024,37 @@ extension HomeExtras on _HomePageState {
     if (aiLoading.value) return;
     if (!_hasAnyAiKey) {
       if (!auto) {
-        aiText.value =
-            'ابتدا مدل هوش مصنوعی داخلی را از تنظیمات دانلود و بارگذاری کن.';
+        aiText.value = 'ابتدا مدل هوش مصنوعی داخلی را از تنظیمات دانلود و بارگذاری کن.';
       }
       return;
     }
     if (!connected) {
       if (!auto) {
-        aiText.value =
-            'برای تحلیل زنده اتصال، ابتدا VPN را وصل کن؛ تحلیل کد محلی به VPN نیاز ندارد.';
+        aiText.value = 'برای تحلیل زنده اتصال، ابتدا VPN را وصل کن؛ تحلیل کد محلی به VPN نیاز ندارد.';
       }
       return;
     }
     aiLoading.value = true;
     try {
-      for (var attempt = 0; attempt < 2; attempt++) {
-        if (!auto) {
-          const who = 'هوش مصنوعی محلی King';
-          aiText.value = attempt == 0
-              ? 'در حال ارسال آمار به $who...'
-              : 'تحلیل محلی ناموفق بود؛ تلاش دوباره...';
-        }
-        try {
-          aiShow(await aiAsk(aiPrompt()));
-          if (aiLastProvider.isNotEmpty && !auto) {
-            aiText.value = '[$aiLastProvider]\n${aiText.value}';
-          }
-          applyAiSuggest();
-          if (auto && mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text('🤖 تحلیل $aiLastProvider آماده شد'),
-              duration: const Duration(seconds: 8),
-              action: SnackBarAction(
-                  label: 'نمایش', onPressed: () => this.aiSheet()),
-            ));
-          }
-          return;
-        } on GeminiLocationError {
-          current?.ai = false;
-          // if Grok is available, try it once without switching server
-          if (grokKey.isNotEmpty && aiProvider != 'gemini') {
-            try {
-              aiShow(await grokAsk(aiPrompt()));
-              if (aiLastProvider.isNotEmpty) {
-                aiText.value = '[$aiLastProvider]\n${aiText.value}';
-              }
-              applyAiSuggest();
-              return;
-            } catch (e, stk) { logError(e, stk); }
-          }
-          if (auto) return; // خودکار: اتصال را به‌هم نمی‌زنیم
-          final has =
-              _usable().any((s) =>
-              s.ai == true && s.ping != null && !identical(s, current));
-          if (attempt == 1 || !has) {
-            aiText.value = 'مدل هوش مصنوعی محلی پاسخ نداد؛ وضعیت مدل و حافظه آزاد دستگاه را بررسی کن.';
-            return;
-          }
-          await connectRow('r:ai');
-          if (!connected) {
-            aiText.value = 'اتصال به سرور AI انجام نشد.';
-            return;
-          }
-        }
+      aiText.value = 'در حال تحلیل محلی وضعیت اتصال...';
+      aiShow(await aiAsk(aiPrompt()));
+      if (aiLastProvider.isNotEmpty && !auto) {
+        aiText.value = '[$aiLastProvider]\n${aiText.value}';
       }
-    } catch (e, jstk) { errJournalAdd(e, st: jstk);
-      if (!auto) {
-        aiText.value = 'خطا: ${e.toString().replaceFirst('Exception: ', '')}';
+      applyAiSuggest();
+      if (auto && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('🤖 تحلیل ${aiLastProvider} آماده شد'),
+          duration: const Duration(seconds: 8),
+          action: SnackBarAction(
+            label: 'نمایش',
+            onPressed: () => this.aiSheet(),
+          ),
+        ));
       }
+    } catch (e, st) {
+      errJournalAdd(e, st: st);
+      if (!auto) aiText.value = 'خطای هوش مصنوعی محلی: $e';
     } finally {
       aiLoading.value = false;
     }
