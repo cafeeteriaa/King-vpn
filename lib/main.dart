@@ -2810,6 +2810,10 @@ String _reliableVpnCfg(String cfg) {
   // TUNFIX: remove dialerProxy that points to a missing outbound first;
   // otherwise the core connects and then passes no traffic at all
   cfg = sanitizeCfg(cfg);
+  // Apply user-selected routing and transport policies only to the real VPN
+  // configuration. Scanner/delay configs remain unchanged for fair diagnostics.
+  cfg = withIranRouting(cfg);
+  cfg = withNpvAmCore(cfg);
   try {
     final j = jsonDecode(cfg);
     if (j is! Map<String, dynamic>) return cfg;
