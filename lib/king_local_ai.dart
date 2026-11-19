@@ -7,6 +7,7 @@ import 'package:local_inference_flutter/local_inference_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'king_ai_research_policy.dart';
+import 'king_ai_ci_policy.dart';
 
 /// On-device coding model and a guarded GitHub pull-request writer.
 ///
@@ -337,6 +338,30 @@ empty changes list and explain what is missing.
   }
 
 
+
+  Future<String> _githubText(String path) async {
+    final token = await _secure.read(key: 'king_ai_github_token');
+    if (token == null || token.isEmpty) {
+      throw StateError('ابتدا توکن GitHub را در تنظیمات هوش مصنوعی ذخیره کن');
+    }
+    final uri = Uri.parse('https://api.github.com$path');
+    if (uri.host != 'api.github.com' || uri.scheme != 'https' ||
+        uri.userInfo.isNotEmpty || uri.fragment.isNotEmpty) {
+      throw ArgumentError('Unsafe GitHub API path');
+    }
+    // GitHub redirects this authenticated endpoint to a short-lived log URL.
+    final response = await http.get(uri, headers: {
+      'Accept': 'application/vnd.github+json',
+      'Authorization': 'Bearer $token',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'King-VPN-Local-AI',
+    }).timeout(const Duration(seconds: 35));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw HttpException('GitHub job log HTTP ${response.statusCode}');
+    }
+    return _redactCiText(response.body);
+  }
+
   /// Reads a JSON array from a GitHub API endpoint (for check annotations).
   Future<List<dynamic>> _githubList(String path) async {
     final token = await _secure.read(key: 'king_ai_github_token');
@@ -364,13 +389,7 @@ empty changes list and explain what is missing.
   }
 
   String _redactCiText(String value) {
-    var safe = value
-        .replaceAll(RegExp(r'gh[pousr]_[A-Za-z0-9]{20,}'), '[REDACTED_GITHUB_TOKEN]')
-        .replaceAll(RegExp(r'github_pat_[A-Za-z0-9_]{20,}'), '[REDACTED_GITHUB_TOKEN]')
-        .replaceAll(RegExp(r'Bearer\\s+[A-Za-z0-9._~+/-]+=*', caseSensitive: false), 'Bearer [REDACTED]')
-        .replaceAll(RegExp(r'(api[_-]?key|access[_-]?token|client[_-]?secret|password)\\s*[:=]\\s*[^\\s,;]+', caseSensitive: false), '[REDACTED]');
-    if (safe.length > 12000) safe = safe.substring(safe.length - 12000);
-    return safe;
+    return redactKingAiCiEvidence(value);
   }
 
   /// Collects bounded, redacted GitHub check annotations and failed workflow
@@ -446,11 +465,21 @@ empty changes list and explain what is missing.
             .where((step) => step['conclusion'] == 'failure')
             .map((step) => step['name']?.toString() ?? 'unknown step')
             .take(8).toList();
+        var jobLog = '';
+        final jobId = job['id'];
+        if (jobId is num) {
+          try {
+            jobLog = await _githubText('/repos/$repo/actions/jobs/$jobId/logs');
+          } catch (_) {
+            // Missing log permission or expired logs must not block diagnosis.
+          }
+        }
         failures.add({
           'kind': 'workflow',
           'workflow': run['name']?.toString() ?? 'GitHub Actions',
           'job': job['name']?.toString() ?? 'unknown job',
           'failedSteps': failedSteps,
+          'logExcerpt': jobLog,
           'runUrl': run['html_url']?.toString() ?? '',
         });
       }
@@ -493,7 +522,7 @@ empty changes list and explain what is missing.
     }
     final key = '$owner/$repository#$pullNumber';
     final used = (attempts[key] as num?)?.toInt() ?? 0;
-    if (used >= 2) {
+    if (!kingAiCiRepairAttemptAllowed(used)) {
       return {'status': 'repair_limit_reached', 'attempts': used, 'report': report};
     }
     final branch = report['headBranch'] as String;
