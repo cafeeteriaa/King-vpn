@@ -10902,6 +10902,7 @@ ListTile( // KINGEXTRAS row
     final command = KingCommandSafety.stripKingAddress(
       raw ?? _smartCommandController.text,
     );
+    String? voiceReply;
     if (command.contains('اسکن') && command.contains('خلبان') &&
         RegExp(r'(لغو|متوقف|توقف)').hasMatch(command)) {
       if (_pilotRangeBusy) {
@@ -10910,7 +10911,7 @@ ListTile( // KINGEXTRAS row
       } else {
         _set('اسکن فعالی از خلبان برای لغو وجود ندارد.');
       }
-      if (voiceResponse) await _speakSmartCommandResponse(status);
+      if (voiceResponse) await _speakSmartCommandResponse(voiceReply ?? status);
       _smartSpeechVoiceInput = false;
       return;
     }
@@ -10929,14 +10930,16 @@ ListTile( // KINGEXTRAS row
           .trim();
       // Stop and identity intents are resolved before country/protocol parsing.
       if (RegExp(r'(اسمت چیه|اسم تو چیه|تو کی هستی|نامت چیست)').hasMatch(normalizedCommand)) {
-        _set('من کینگ هستم؛ هوش مصنوعی داخلی King VPN. مغز فرمان، خلبان اتصال و دستیار راهنمای برنامه.');
+        voiceReply = 'من کینگ هستم؛ هوش مصنوعی داخلی King VPN. مغز فرمان، خلبان اتصال و دستیار راهنمای برنامه.';
+        _set(voiceReply!);
         return;
       }
       final disconnectIntent = KingCommandSafety.isDisconnectIntent(normalizedCommand);
       if (disconnectIntent) {
         if (localPilotOn) stopLocalPilot();
         await disconnect();
-        _set('اتصال قطع شد. خلبان هم برای این اتصال متوقف شد.');
+        voiceReply = 'اتصال قطع شد. خلبان هم برای این اتصال متوقف شد.';
+        _set(voiceReply!);
         return;
       }
       if (command == 'راهنما' || command == 'help' || command.contains('دستورات')) {
@@ -11122,9 +11125,11 @@ ListTile( // KINGEXTRAS row
         // not a failed VPN command. The local model retains bounded chat memory.
         _set('کینگ در حال فکر کردن به سؤال توست...');
         final answer = await KingLocalAi.instance.ask(command, maxTokens: 768);
+        voiceReply = answer;
         _set(answer);
       } else {
-        _set('این پیام یک سؤال یا گفت‌وگوی آزاد است، نه فرمان اتصال. برای پاسخ‌گویی به سؤال‌های عمومی در همین کادر، یک‌بار مغز محلی کینگ را از پنل هوش مصنوعی دانلود و بارگذاری کن (حدود ۱٫۱ گیگابایت). پس از آماده‌سازی، همین کادر فرمان و ورودی صوتی به گفت‌وگوی آزاد با حافظهٔ محلی تبدیل می‌شوند؛ بدون API پولی.');
+        voiceReply = 'این پیام یک سؤال یا گفت‌وگوی آزاد است، نه فرمان اتصال. برای پاسخ‌گویی به سؤال‌های عمومی در همین کادر، یک‌بار مغز محلی کینگ را از پنل هوش مصنوعی دانلود و بارگذاری کن (حدود ۱٫۱ گیگابایت). پس از آماده‌سازی، همین کادر فرمان و ورودی صوتی به گفت‌وگوی آزاد با حافظهٔ محلی تبدیل می‌شوند؛ بدون API پولی.';
+        _set(voiceReply!);
       }
     } catch (e, st) {
       logError(e, st);
