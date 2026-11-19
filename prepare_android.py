@@ -241,16 +241,16 @@ if flutter_root:
         with open(flutter_settings, encoding='utf-8') as f:
             flutter_settings_text = f.read()
 
-        pm = re.search(r'pluginManagement\\s*\\{', flutter_settings_text)
+        pm = re.search(r'pluginManagement\s*\{', flutter_settings_text)
         if not pm:
             flutter_settings_text = (
-                'pluginManagement {\\n'
-                '    repositories {\\n'
-                '        google()\\n'
-                '        mavenCentral()\\n'
-                '        gradlePluginPortal()\\n'
-                '    }\\n'
-                '}\\n\\n' + flutter_settings_text
+                'pluginManagement {\n'
+                '    repositories {\n'
+                '        google()\n'
+                '        mavenCentral()\n'
+                '        gradlePluginPortal()\n'
+                '    }\n'
+                '}\n\n' + flutter_settings_text
             )
             print('  OK: Added pluginManagement repositories to Flutter included build')
         else:
@@ -268,7 +268,7 @@ if flutter_root:
             if block_close is None:
                 raise SystemExit('HARD FAIL: malformed Flutter pluginManagement block')
             block = flutter_settings_text[block_open + 1:block_close]
-            repo_match = re.search(r'repositories\\s*\\{', block)
+            repo_match = re.search(r'repositories\s*\{', block)
             if not repo_match:
                 raise SystemExit('HARD FAIL: Flutter pluginManagement has no repositories block')
             repo_open = block_open + 1 + repo_match.end() - 1
@@ -287,9 +287,9 @@ if flutter_root:
             repositories_text = flutter_settings_text[repo_open:repo_close]
             additions = ''
             if 'google()' not in repositories_text:
-                additions += '\\n        google()'
+                additions += '\n        google()'
             if 'mavenCentral()' not in repositories_text:
-                additions += '\\n        mavenCentral()'
+                additions += '\n        mavenCentral()'
             if additions:
                 flutter_settings_text = (
                     flutter_settings_text[:repo_open + 1] + additions
