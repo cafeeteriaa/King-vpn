@@ -139,6 +139,32 @@ class _KingChatPageState extends State<KingChatPage> {
     }
   }
 
+  Future<void> _clearMemory() async {
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('پاک‌کردن حافظه گفت‌وگو؟'),
+          content: const Text('خاطرات مکالمه‌ای ذخیره‌شده در حافظه امن گوشی پاک می‌شود. پیام‌های همین صفحه نیز پاک خواهند شد.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('انصراف')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('پاک کن')),
+          ],
+        ),
+      ),
+    );
+    if (accepted != true || !mounted) return;
+    await KingLocalAi.instance.clearConversationMemory();
+    if (!mounted) return;
+    setState(() {
+      _messages
+        ..clear()
+        ..add({'text': 'حافظه گفت‌وگوی قبلی پاک شد. از نو شروع کنیم؟', 'king': true});
+      _notice = 'حافظه مکالمه از فضای امن دستگاه پاک شد.';
+    });
+  }
+
   Future<void> _openModel() async {
     await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const KingAiConsolePage()));
     if (mounted) setState(() {});
@@ -157,6 +183,11 @@ class _KingChatPageState extends State<KingChatPage> {
               tooltip: _speak ? 'خاموش‌کردن پاسخ صوتی' : 'روشن‌کردن پاسخ صوتی',
               onPressed: () => setState(() => _speak = !_speak),
               icon: Icon(_speak ? Icons.volume_up : Icons.volume_off),
+            ),
+            IconButton(
+              tooltip: 'پاک‌کردن حافظه گفت‌وگو',
+              onPressed: _busy ? null : _clearMemory,
+              icon: const Icon(Icons.delete_sweep_outlined),
             ),
           ],
         ),
