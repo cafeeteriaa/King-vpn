@@ -212,6 +212,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_ownerAuth.authenticate(password)', console)
         self.assertIn('if (!_ownerAuth.hasActiveSession)', console)
 
+    def test_background_supervisor_is_initialized_with_its_own_dispatcher(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn("import 'king_ai_background.dart';", main)
+        self.assertIn('KingAiBackgroundSupervisor.initialize()', main)
+        self.assertNotIn('cancelAll()', main)
+
     def test_background_supervisor_apis_exist_and_verify_installed_model(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
         worker = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
