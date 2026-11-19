@@ -10848,7 +10848,7 @@ ListTile( // KINGEXTRAS row
     for (final entry in countryFa.entries) {
       final label = entry.value.toString().replaceAll('ي', 'ی').replaceAll('ك', 'ک');
       if (label.length >= 3 &&
-          RegExp('(?:^|[\\s،,.!?؛])${RegExp.escape(label)}(?:$|[\\s،,.!?؛])')
+          RegExp('(?:^|[\\s،,.!?؛])${RegExp.escape(label)}(?:\$|[\\s،,.!?؛])')
               .hasMatch(normalized)) {
         return entry.key;
       }
