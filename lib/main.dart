@@ -11125,11 +11125,13 @@ ListTile( // KINGEXTRAS row
           _set('فیلتر فرمان اعمال شد • ' + applied);
         }
       } else if (KingLocalAi.instance.isLoaded) {
-        _set('کینگ در حال تحلیل درخواست است...');
-        final answer = await KingLocalAi.instance.ask(command, maxTokens: 512);
+        // Every unrecognised natural-language request is a conversation turn,
+        // not a failed VPN command. The local model retains bounded chat memory.
+        _set('کینگ در حال فکر کردن به سؤال توست...');
+        final answer = await KingLocalAi.instance.ask(command, maxTokens: 768);
         _set(answer);
       } else {
-        _set('این فرمان جزو فرمان‌های اتصال شناخته‌شده نیست. برای گفت‌وگوی آزاد با کینگ، مدل محلی را از پنل هوش مصنوعی بارگذاری کن.');
+        _set('این پیام یک سؤال یا گفت‌وگوی آزاد است، نه فرمان اتصال. برای پاسخ‌گویی به سؤال‌های عمومی در همین کادر، یک‌بار مغز محلی کینگ را از پنل هوش مصنوعی دانلود و بارگذاری کن (حدود ۱٫۱ گیگابایت). پس از آماده‌سازی، همین کادر فرمان و ورودی صوتی به گفت‌وگوی آزاد با حافظهٔ محلی تبدیل می‌شوند؛ بدون API پولی.');
       }
     } catch (e, st) {
       logError(e, st);
@@ -11152,7 +11154,7 @@ ListTile( // KINGEXTRAS row
         TextField(controller: _smartCommandController, minLines: 1, maxLines: 3, textInputAction: TextInputAction.send,
           onChanged: (_) => _smartSpeechVoiceInput = false,
           onSubmitted: (_) => _runSmartCommand(), style: const TextStyle(color: Color(0xFFE8EDF7)),
-          decoration: InputDecoration(hintText: 'مثلاً: اتصال خلبان با سرورهای آلمان و فقط VMess؛ یا اسکن IP خلبان...', hintStyle: const TextStyle(color: Color(0xFF8D9BAD), fontSize: 12), filled: true, fillColor: const Color(0xFF0D1420), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), suffixIcon: Row(mainAxisSize: MainAxisSize.min, children: [
+          decoration: InputDecoration(hintText: 'فرمان بده یا هر سؤالی بپرس؛ مثلاً «نت ملی وصل شو» یا «چرا اتصال قطع می‌شود؟»', hintStyle: const TextStyle(color: Color(0xFF8D9BAD), fontSize: 12), filled: true, fillColor: const Color(0xFF0D1420), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), suffixIcon: Row(mainAxisSize: MainAxisSize.min, children: [
             IconButton(
               tooltip: _smartSpeechListening ? 'توقف ضبط فرمان' : 'فرمان صوتی فارسی کینگ (آفلاین یا سرویس گفتار دستگاه)',
               onPressed: _smartSpeechBusy ? null : _toggleSmartCommandSpeech,
