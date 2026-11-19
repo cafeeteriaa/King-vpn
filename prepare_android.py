@@ -9,6 +9,44 @@ AGP_VERSION = '9.3.1'
 GRADLE_VERSION = '9.5.0'
 MAVEN_CENTRAL_MIRROR = 'https://maven-central.storage-download.googleapis.com/maven2/'
 
+def add_maven_mirror_to_scope(text, scope_name, mirror_line):
+    """Insert the Maven Central mirror into a named Gradle repositories block."""
+    scope = re.search(rf'{re.escape(scope_name)}\\s*\\{{', text)
+    if not scope:
+        return text
+    scope_open = scope.end() - 1
+
+    def matching_brace(source, open_pos):
+        depth = 0
+        for pos in range(open_pos, len(source)):
+            if source[pos] == '{':
+                depth += 1
+            elif source[pos] == '}':
+                depth -= 1
+                if depth == 0:
+                    return pos
+        return -1
+
+    scope_close = matching_brace(text, scope_open)
+    if scope_close < 0:
+        raise SystemExit('HARD FAIL: malformed ' + scope_name + ' block')
+    block = text[scope_open + 1:scope_close]
+    repo_match = re.search(r'repositories\\s*\\{', block)
+    if not repo_match:
+        raise SystemExit('HARD FAIL: ' + scope_name + ' has no repositories block')
+    repo_open = scope_open + 1 + repo_match.end() - 1
+    repo_close = matching_brace(text, repo_open)
+    if repo_close < 0 or repo_close > scope_close:
+        raise SystemExit('HARD FAIL: malformed ' + scope_name + ' repositories block')
+    repo_body = text[repo_open:repo_close]
+    if MAVEN_CENTRAL_MIRROR not in repo_body:
+        text = text[:repo_open + 1] + '\\n' + mirror_line.rstrip('\\n') + text[repo_open + 1:]
+        print('  OK: Added Maven Central mirror to ' + scope_name)
+    else:
+        print('  OK: ' + scope_name + ' already has Maven Central mirror')
+    return text
+
+
 # =====================================================================
 # ---- 0) Flutter 3.50 / Kotlin 2.4.20 compatible toolchain ----
 # =====================================================================
@@ -52,24 +90,12 @@ if os.path.exists(sett):
                 f'maven {{ url "{MAVEN_CENTRAL_MIRROR}" }}'
             )
             s = s[:pm.end()] + '\n    repositories { ' + mirror_entry + '; google(); mavenCentral(); gradlePluginPortal() }' + s[pm.end():]
-    # App dependency resolution also needs the mirror; pluginManagement alone
-    # does not supply repositories for ordinary implementation dependencies.
-    drm_root = re.search(
-        r'dependencyResolutionManagement\s*\{[\s\S]*?repositories\s*\{',
-        s,
+    root_mirror_entry = (
+        f'maven {{ url = uri("{MAVEN_CENTRAL_MIRROR}") }}'
+        if sett.endswith('.kts') else
+        f'maven {{ url "{MAVEN_CENTRAL_MIRROR}" }}'
     )
-    if drm_root:
-        repo_body_start = drm_root.end()
-        repo_body_end = s.find('\n    }', repo_body_start)
-        if repo_body_end < 0:
-            raise SystemExit('HARD FAIL: malformed app dependencyResolutionManagement repositories block')
-        if MAVEN_CENTRAL_MIRROR not in s[repo_body_start:repo_body_end]:
-            root_mirror = (
-                f'\n        maven {{ url = uri("{MAVEN_CENTRAL_MIRROR}") }}'
-                if sett.endswith('.kts') else
-                f'\n        maven {{ url "{MAVEN_CENTRAL_MIRROR}" }}'
-            )
-            s = s[:repo_body_start] + root_mirror + s[repo_body_start:]
+    s = add_maven_mirror_to_scope(s, 'dependencyResolutionManagement', root_mirror_entry)
     s = re.sub(r'(id\("com\.android\.(?:application|library)"\)\s+version\s+")[^"]+(")',
                lambda m: f'{m.group(1)}{AGP_VERSION}{m.group(2)}', s)
     with open(sett, 'w', encoding='utf-8') as f:
@@ -341,28 +367,12 @@ if flutter_root:
                 print('  OK: Flutter included-build plugin repositories already complete')
 
         # The included Flutter build resolves implementation(...) dependencies
-        # from dependencyResolutionManagement, not pluginManagement. Add the same
-        # Google-hosted Maven Central mirror there as well; otherwise Kotlin/ASM
-        # transitives can fail even though the app plugin repositories are correct.
-        drm_repo = re.search(
-            r'dependencyResolutionManagement\s*\{[\s\S]*?repositories\s*\{',
+        # from dependencyResolutionManagement, not pluginManagement.
+        flutter_settings_text = add_maven_mirror_to_scope(
             flutter_settings_text,
+            'dependencyResolutionManagement',
+            mirror_repo.rstrip('\\n'),
         )
-        if drm_repo:
-            repo_body_start = drm_repo.end()
-            repo_body_end = flutter_settings_text.find('\\n    }', repo_body_start)
-            if repo_body_end < 0:
-                raise SystemExit('HARD FAIL: malformed Flutter dependencyResolutionManagement repositories block')
-            repo_body = flutter_settings_text[repo_body_start:repo_body_end]
-            if MAVEN_CENTRAL_MIRROR not in repo_body:
-                flutter_settings_text = (
-                    flutter_settings_text[:repo_body_start]
-                    + '\\n        ' + mirror_repo.strip()
-                    + flutter_settings_text[repo_body_start:]
-                )
-                print('  OK: Added Google Maven Central mirror to Flutter dependency repositories')
-            else:
-                print('  OK: Flutter dependency repositories already contain Maven Central mirror')
 
         with open(flutter_settings, 'w', encoding='utf-8') as f:
             f.write(flutter_settings_text)
