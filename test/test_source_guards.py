@@ -332,6 +332,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("test('negative connect commands are blocked'", tests)
         self.assertIn("test('negative scan commands are blocked'", tests)
 
+    def test_android_vpn_background_channel_is_registered_and_packaged(self):
+        native = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
+        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        self.assertIn('MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "vpn/bg")', native)
+        for method in ('"alive"', '"back"', '"vpnSettings"'):
+            self.assertIn(method, native)
+        self.assertIn("shutil.copy('android_src/MainActivity.kt', os.path.join(ka, 'MainActivity.kt'))", prepare)
+        self.assertIn("old_java_main = os.path.join(ja, 'MainActivity.java')", prepare)
+        self.assertIn("os.remove(old_java_main)", prepare)
+
     def test_background_supervisor_is_initialized_with_its_own_dispatcher(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn("import 'king_ai_background.dart';", main)
