@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'king_local_ai.dart';
 import 'king_ai_background.dart';
+import 'king_ai_owner_auth.dart';
 
 /// In-app control surface for the local coding model and guarded GitHub PR workflow.
 class KingAiConsolePage extends StatefulWidget {
@@ -16,6 +17,11 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   final KingLocalAi _ai = KingLocalAi.instance;
   final TextEditingController _tokenController = TextEditingController();
   final TextEditingController _pullController = TextEditingController();
+  final TextEditingController _ownerPasswordController = TextEditingController();
+  final TextEditingController _ownerConfirmController = TextEditingController();
+  final KingAiOwnerAuth _ownerAuth = KingAiOwnerAuth.instance;
+  bool _ownerConfigured = false;
+  bool _ownerUnlocked = false;
   bool _busy = false;
   bool _hasToken = false;
   double? _progress;
@@ -25,12 +31,15 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   void initState() {
     super.initState();
     _refreshTokenState();
+    _refreshOwnerState();
   }
 
   @override
   void dispose() {
     _tokenController.dispose();
     _pullController.dispose();
+    _ownerPasswordController.dispose();
+    _ownerConfirmController.dispose();
     super.dispose();
   }
 
@@ -41,6 +50,59 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     } catch (error) {
       if (mounted) setState(() => _output = 'خطا در بررسی امن کلید GitHub: $error');
     }
+  }
+
+  Future<void> _refreshOwnerState() async {
+    try {
+      final configured = await _ownerAuth.isConfigured;
+      if (mounted) {
+        setState(() {
+          _ownerConfigured = configured;
+          _ownerUnlocked = _ownerAuth.hasActiveSession;
+        });
+      }
+    } catch (error) {
+      if (mounted) setState(() => _output = 'خطا در بررسی وضعیت مالک: $error');
+    }
+  }
+
+  Future<void> _setupOwnerPassword() async {
+    final password = _ownerPasswordController.text;
+    if (password != _ownerConfirmController.text) {
+      setState(() => _output = 'رمز و تکرار آن یکسان نیستند.');
+      return;
+    }
+    try {
+      await _ownerAuth.setInitialPassword(password);
+      _ownerPasswordController.clear();
+      _ownerConfirmController.clear();
+      await _refreshOwnerState();
+      if (mounted) setState(() => _output = 'رمز مالک روی همین دستگاه به‌صورت امن ثبت شد.');
+    } catch (error) {
+      if (mounted) setState(() => _output = 'ثبت رمز مالک انجام نشد: $error');
+    }
+  }
+
+  Future<void> _unlockOwner() async {
+    final password = _ownerPasswordController.text;
+    _ownerPasswordController.clear();
+    try {
+      final accepted = await _ownerAuth.authenticate(password);
+      await _refreshOwnerState();
+      if (mounted) {
+        setState(() => _output = accepted
+            ? 'دسترسی مالک برای ۱۵ دقیقه فعال شد.'
+            : 'احراز هویت ناموفق بود یا موقتاً قفل شده است.');
+      }
+    } catch (error) {
+      if (mounted) setState(() => _output = 'احراز هویت انجام نشد: $error');
+    }
+  }
+
+  Future<void> _lockOwner() async {
+    _ownerAuth.lock();
+    await _refreshOwnerState();
+    if (mounted) setState(() => _output = 'دسترسی مالک قفل شد.');
   }
 
   Future<void> _run(String label, Future<Object?> Function() action) async {
@@ -99,6 +161,11 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   }
 
   Future<void> _repair() async {
+    if (!_ownerAuth.hasActiveSession) {
+      setState(() => _output = 'برای درخواست اصلاح کد، ابتدا مالک اصلی باید احراز هویت شود.');
+      await _refreshOwnerState();
+      return;
+    }
     final number = _pullNumber;
     if (number == null || number < 1) {
       setState(() => _output = 'شماره Pull Request معتبر نیست.');
@@ -203,6 +270,52 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
             Card(child: Padding(
               padding: const EdgeInsets.all(14),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('مالک اصلی و مجوز توسعه', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                Text(!_ownerConfigured
+                    ? 'رمز مالک هنوز روی این دستگاه تعیین نشده است.'
+                    : (_ownerUnlocked ? 'دسترسی مالک فعال است (حداکثر ۱۵ دقیقه).' : 'دسترسی مالک قفل است.')),
+                TextField(
+                  controller: _ownerPasswordController,
+                  obscureText: true,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  decoration: InputDecoration(
+                    labelText: _ownerConfigured ? 'رمز مالک' : 'رمز جدید مالک',
+                  ),
+                ),
+                if (!_ownerConfigured)
+                  TextField(
+                    controller: _ownerConfirmController,
+                    obscureText: true,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    decoration: const InputDecoration(labelText: 'تکرار رمز مالک'),
+                  ),
+                const SizedBox(height: 8),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  if (!_ownerConfigured)
+                    FilledButton(
+                      onPressed: _busy ? null : _setupOwnerPassword,
+                      child: const Text('ثبت رمز مالک روی دستگاه'),
+                    )
+                  else if (!_ownerUnlocked)
+                    FilledButton(
+                      onPressed: _busy ? null : _unlockOwner,
+                      child: const Text('احراز هویت مالک'),
+                    )
+                  else
+                    OutlinedButton(
+                      onPressed: _busy ? null : _lockOwner,
+                      child: const Text('قفل‌کردن دسترسی مالک'),
+                    ),
+                ]),
+                const SizedBox(height: 6),
+                Text(
+                  'رمز فقط روی همین دستگاه ثبت می‌شود و در چت یا گزارش‌ها ارسال نمی‌شود. حداقل ۱۲ نویسه؛ پس از ۵ تلاش ناموفق، تأخیر افزایشی اعمال می‌شود. اولین ثبت فقط یک‌بار ممکن است؛ برای درخواست تغییر کد باید مالک احراز هویت شود.',
+                  style: theme.textTheme.bodySmall,
+                ),
+                const SizedBox(height: 10),
                 const Text('اتصال امن GitHub', style: TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 6),
                 Text(_hasToken ? 'کلید GitHub در حافظه امن دستگاه ذخیره است.' : 'هنوز کلید GitHub ذخیره نشده است.'),
