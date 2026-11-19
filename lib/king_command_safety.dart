@@ -41,6 +41,14 @@ class KingCommandSafety {
     ).hasMatch(value);
   }
 
+  /// Canonical connection-intent parser shared by voice and text commands.
+  /// Include "متصل" as well as "وصل"; status questions and negations are never actions.
+  static bool isConnectIntent(String command) {
+    final value = _normalize(command);
+    if (isStatusRequest(value) || negatesConnection(value)) return false;
+    return RegExp(r'(اتصال|وصل|متصل|شروع|connect)').hasMatch(value);
+  }
+
   /// Explicit network-mode requests are separated from automatic pilot mode.
   /// Status questions must never be interpreted as a request to connect.
   static KingRequestedNetworkMode? requestedNetworkMode(String command) {
