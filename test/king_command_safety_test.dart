@@ -53,6 +53,13 @@ void main() {
       }
     });
 
+    test('King wake word is not mistaken for the Persian question word کی', () {
+      expect(KingCommandSafety.isQuestionRequest('کینگ وصل شو'), isFalse);
+      expect(KingCommandSafety.isQuestionRequest('کی نت ملی وصل می‌شود؟'), isTrue);
+      expect(KingCommandSafety.isConnectIntent('کینگ وصل شو'), isTrue);
+      expect(KingCommandSafety.isConnectIntent('کینگ نت ملی وصل شو'), isTrue);
+    });
+
     test('only imperative connection phrases are executable', () {
       for (final command in [
         'کینگ وصل شو',
