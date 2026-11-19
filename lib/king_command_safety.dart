@@ -54,15 +54,15 @@ class KingCommandSafety {
   /// Only imperative/action phrasing is executable; questions and negations
   /// always fall through to King's conversational model.
   static bool isConnectIntent(String command) {
-    final value = _normalize(command).replaceAll(RegExp(r'\\s+'), ' ').trim();
+    final value = _normalize(command).replaceAll(RegExp(r'\s+'), ' ').trim();
     if (isStatusRequest(value) || isQuestionRequest(value) ||
         negatesConnection(value)) return false;
     return RegExp(
-      r'(?:وصل|متصل)\\s*(?:شو|بشو|کن|کنید|بشید)|'
-      r'اتصال\\s*(?:را|رو)?\\s*(?:برقرار\\s*)?(?:کن|کنید|بده|بدید)|'
-      r'اتصال.{0,24}(?:شروع|برقرار)\\s*(?:کن|کنید)|'
-      r'(?:شروع|برقرار)\\s*(?:کن|کنید).{0,24}(?:اتصال|وصل|خلبان)|'
-      r'\\b(?:connect|start\\s+(?:vpn|connection))\\b',
+      r'(?:وصل|متصل)\s*(?:شو|بشو|کن|کنید|بشید)|'
+      r'اتصال\s*(?:را|رو)?\s*(?:برقرار\s*)?(?:کن|کنید|بده|بدید)|'
+      r'اتصال.{0,24}(?:شروع|برقرار)\s*(?:کن|کنید)|'
+      r'(?:شروع|برقرار)\s*(?:کن|کنید).{0,24}(?:اتصال|وصل|خلبان)|'
+      r'\b(?:connect|start\s+(?:vpn|connection))\b',
     ).hasMatch(value);
   }
 
@@ -71,8 +71,6 @@ class KingCommandSafety {
   static KingRequestedNetworkMode? requestedNetworkMode(String command) {
     final value = _normalize(command).replaceAll(RegExp(r'\s+'), ' ').trim();
     if (!isConnectIntent(value)) return null;
-    final asksToConnect = true;
-    if (!asksToConnect) return null;
     if (RegExp(r'(نت\s*ملی|شبکه\s*ملی|اینترنت\s*ملی|اینترنت\s*داخلی|مسیر\s*داخلی)')
         .hasMatch(value)) {
       return KingRequestedNetworkMode.domestic;
