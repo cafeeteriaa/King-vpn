@@ -99,7 +99,7 @@ void main() {
       final approved = evaluateKingAiMaintenance(const KingAiMaintenanceEvidence(
         enabled: true, networkAvailable: true, batteryNotLow: true,
         userPaused: false, candidatePrepared: true, ownerAuthenticated: true,
-        ciPassed: true,
+        ownerCommandAuthorizedForCandidate: true, ciPassed: true,
       ));
       expect(approved.mayApplySourceChanges, isTrue);
       expect(approved.mayPublishRelease, isFalse);
@@ -121,10 +121,20 @@ void main() {
       final plan = evaluateKingAiMaintenance(const KingAiMaintenanceEvidence(
         enabled: true, networkAvailable: true, batteryNotLow: true,
         userPaused: false, candidatePrepared: true, ownerAuthenticated: true,
-        ciPassed: true, releaseValidated: true,
+        ownerCommandAuthorizedForCandidate: true, ciPassed: true,
+        releaseValidated: true, releaseAuthorized: true,
       ));
       expect(plan.mayApplySourceChanges, isTrue);
       expect(plan.mayPublishRelease, isTrue);
+      final noReleaseAuthorization = evaluateKingAiMaintenance(
+        const KingAiMaintenanceEvidence(
+          enabled: true, networkAvailable: true, batteryNotLow: true,
+          userPaused: false, candidatePrepared: true, ownerAuthenticated: true,
+          ownerCommandAuthorizedForCandidate: true, ciPassed: true,
+          releaseValidated: true,
+        ),
+      );
+      expect(noReleaseAuthorization.mayPublishRelease, isFalse);
     });
 
     test('paused or unavailable background work cannot tune or prepare candidates', () {

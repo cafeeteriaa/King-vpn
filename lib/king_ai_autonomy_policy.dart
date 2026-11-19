@@ -61,6 +61,8 @@ class KingAiMaintenanceEvidence {
     this.ciPassed = false,
     this.releaseValidated = false,
     this.ownerAuthenticated = false,
+    this.ownerCommandAuthorizedForCandidate = false,
+    this.releaseAuthorized = false,
   });
 
   final bool enabled;
@@ -77,6 +79,10 @@ class KingAiMaintenanceEvidence {
   final bool ciPassed;
   final bool releaseValidated;
   final bool ownerAuthenticated;
+  /// Short-lived, explicit owner command scoped to this exact candidate.
+  final bool ownerCommandAuthorizedForCandidate;
+  /// Separate owner authorization is required to publish a release.
+  final bool releaseAuthorized;
 
   int get boundedNetworkSamples =>
       domesticSamples.clamp(0, 100000).toInt() +
@@ -136,8 +142,11 @@ KingAiMaintenancePlan evaluateKingAiMaintenance(
       evidence.reproducibleIssue;
   final mayApply = evidence.candidatePrepared &&
       evidence.ownerAuthenticated &&
+      evidence.ownerCommandAuthorizedForCandidate &&
       evidence.ciPassed;
-  final mayPublish = mayApply && evidence.releaseValidated;
+  final mayPublish = mayApply &&
+      evidence.releaseValidated &&
+      evidence.releaseAuthorized;
 
   return KingAiMaintenancePlan(
     runPassiveCycle: runPassive,

@@ -17,6 +17,14 @@ Map<String, String> note({
 
 void main() {
   group('King AI research memory', () {
+    test('uses the same strict HTTPS host allowlist for live fetches and memory', () {
+      expect(isTrustedKingAiResearchUri(Uri.parse('https://ooni.org/nettest')), isTrue);
+      expect(isTrustedKingAiResearchUri(Uri.parse('https://sub.ripe.net/about')), isTrue);
+      expect(isTrustedKingAiResearchUri(Uri.parse('https://ooni.org.attacker.example/fake')), isFalse);
+      expect(isTrustedKingAiResearchUri(Uri.parse('http://ooni.org/fake')), isFalse);
+      expect(isTrustedKingAiResearchUri(Uri.parse('https://user@ooni.org/fake')), isFalse);
+    });
+
     test('deduplicates by URL and keeps the newest trusted note', () {
       final old = note(
         url: 'https://docs.flutter.dev/testing',
