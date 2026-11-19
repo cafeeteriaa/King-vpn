@@ -867,13 +867,6 @@ empty changes list and explain what is missing.
     );
   }
 
-  /* old signature removed */
-  /*
-      _repairFromFailedCi(
-        owner: owner, repository: repository, pullNumber: pullNumber,
-      );
-  */
-
   Future<Map<String, Object?>> _repairFromFailedCi({
     required String owner,
     required String repository,
