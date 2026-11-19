@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'network_health.dart';
 import 'king_local_ai.dart';
+import 'king_ai_console.dart';
+import 'king_ai_background.dart';
+import 'king_ai_owner_auth.dart';
 import 'package:local_inference_flutter/local_inference_flutter.dart';
 import 'update_integrity.dart';
 import 'errjournal.dart';
@@ -5542,6 +5545,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState s) {
+    if (s != AppLifecycleState.resumed) KingAiOwnerAuth.instance.lock();
     if (s != AppLifecycleState.resumed && _smartSpeech.isListening) {
       unawaited(_smartSpeech.cancel());
       _smartSpeechListening = false;
@@ -10932,8 +10936,18 @@ ListTile( // KINGEXTRAS row
       final clearFilters = RegExp(r'(پاک کردن فیلتر|حذف محدودیت|ریست فیلتر)').hasMatch(command);
       final allCountries = RegExp(r'(همه کشورها|تمام کشورها)').hasMatch(command);
       final allProtocols = RegExp(r'(همه پروتکل|تمام پروتکل)').hasMatch(command);
+      final codeRequest = RegExp(
+        r'(کدنویسی کن|کد بنویس|قابلیت جدید|قابلیت اضافه کن|ویژگی جدید|'
+        r'افزودن قابلیت|توسعه بده|پیاده سازی کن|پیاده‌سازی کن|'
+        r'write code|generate code|add feature|implement feature|create module)',
+      ).hasMatch(command);
 
-      if (RegExp(r'(قطع اتصال|قطع|disconnect|خاموش کردن اتصال)').hasMatch(command) &&
+      if (codeRequest) {
+        unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => const KingAiConsolePage(),
+        )));
+        _set('درخواست توسعه به پنل امن کینگ هدایت شد؛ فقط مالک اصلی پس از احراز هویت می‌تواند آن را ثبت کند.');
+      } else if (RegExp(r'(قطع اتصال|قطع|disconnect|خاموش کردن اتصال)').hasMatch(command) &&
           !command.contains('نکن')) {
         if (localPilotOn) stopLocalPilot();
         await disconnect();
@@ -15459,7 +15473,11 @@ ListTile( // KINGEXTRAS row
           ),
           PopupMenuButton<String>(
             onSelected: (v) {
-              if (v == 'kingai') _kingAiSheet();
+              if (v == 'kingai') {
+                Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => const KingAiConsolePage(),
+                ));
+              }
               if (v == 'set') _settingsSheet();
               if (v == 'apps') _appsSheet();
               if (v == 'add') _importDialog();
