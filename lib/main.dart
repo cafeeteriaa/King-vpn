@@ -5,7 +5,7 @@ import 'package:local_inference_flutter/local_inference_flutter.dart';
 import 'update_integrity.dart';
 import 'errjournal.dart';
 import 'dart:ui' as ui;
-import 'package:flutter/foundation.dart' show compute;
+import 'package:flutter/foundation.dart' show compute, ValueListenable;
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
