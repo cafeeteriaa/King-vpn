@@ -10895,7 +10895,7 @@ ListTile( // KINGEXTRAS row
           .replaceAll('ي', 'ی')
           .replaceAll('ك', 'ک')
           .replaceAll('‌', ' ')
-          .replaceAll(RegExp(r'\\s+'), ' ')
+          .replaceAll(RegExp(r'\s+'), ' ')
           .trim();
       // Stop and identity intents are resolved before country/protocol parsing.
       if (RegExp(r'(اسمت چیه|اسم تو چیه|تو کی هستی|نامت چیست)').hasMatch(normalizedCommand)) {
@@ -10903,7 +10903,7 @@ ListTile( // KINGEXTRAS row
         return;
       }
       final disconnectIntent = RegExp(
-        r'(قطع\\s*(?:کردن|کن|کنید)?\\s*(?:اتصال)?|اتصال\\s*(?:را|رو)?\\s*قطع|disconnect|خاموش\\s*کردن\\s*اتصال)',
+        r'(قطع\s*(?:کردن|کن|کنید)?\s*(?:اتصال)?|اتصال\s*(?:را|رو)?\s*قطع|disconnect|خاموش\s*کردن\s*اتصال)',
       ).hasMatch(normalizedCommand) && !KingCommandSafety.negatesConnection(normalizedCommand);
       if (disconnectIntent) {
         if (localPilotOn) stopLocalPilot();
