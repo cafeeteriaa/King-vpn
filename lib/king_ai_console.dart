@@ -33,6 +33,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   final TextEditingController _ownerNewConfirmController = TextEditingController();
   final TextEditingController _featureRequestController = TextEditingController();
   final KingAiOwnerAuth _ownerAuth = KingAiOwnerAuth.instance;
+  bool _initialRequestSubmitted = false;
   bool _ownerConfigured = false;
   bool _ownerUnlocked = false;
   bool _busy = false;
@@ -96,6 +97,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       _ownerConfirmController.clear();
       await _refreshOwnerState();
       if (mounted) setState(() => _output = 'رمز مالک روی همین دستگاه به‌صورت امن ثبت شد.');
+      await _maybeSubmitInitialFeatureRequest();
     } catch (error) {
       if (mounted) setState(() => _output = 'ثبت رمز مالک انجام نشد: $error');
     }
@@ -112,6 +114,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
             ? 'دسترسی مالک برای ۱۵ دقیقه فعال شد.'
             : 'احراز هویت ناموفق بود یا موقتاً قفل شده است.');
       }
+      if (accepted) await _maybeSubmitInitialFeatureRequest();
     } catch (error) {
       if (mounted) setState(() => _output = 'احراز هویت انجام نشد: $error');
     }
@@ -186,6 +189,28 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       await _refreshTokenState();
       return {'status': 'token_saved_securely', 'token_exposed': false};
     });
+    await _maybeSubmitInitialFeatureRequest();
+  }
+
+  /// A direct owner request sent from the command bar is carried into this
+  /// secure console. Once the owner session, GitHub token and local model are
+  /// ready, submit it automatically instead of making the owner press a second
+  /// button. No request is submitted before authentication.
+  Future<void> _maybeSubmitInitialFeatureRequest() async {
+    if (_initialRequestSubmitted ||
+        (widget.initialFeatureRequest?.trim().length ?? 0) < 12 ||
+        !_ownerAuth.hasActiveSession) {
+      return;
+    }
+    if (!_hasToken || !_ai.isLoaded) {
+      if (mounted) {
+        setState(() => _output =
+            'درخواست مالک محفوظ است. برای اجرای خودکار، اتصال GitHub و بارگذاری مدل محلی را کامل کن.');
+      }
+      return;
+    }
+    _initialRequestSubmitted = true;
+    await _submitFeatureRequest();
   }
 
   Future<void> _submitFeatureRequest() async {
@@ -220,6 +245,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       return {'status': 'model_loaded', 'model': KingLocalAi.modelId, 'loaded': _ai.isLoaded};
     });
     if (mounted) setState(() => _progress = null);
+    await _maybeSubmitInitialFeatureRequest();
   }
 
   int? get _pullNumber => int.tryParse(_pullController.text.trim());
