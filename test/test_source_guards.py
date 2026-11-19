@@ -316,7 +316,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         policy = (ROOT / 'lib' / 'king_ai_autonomy_policy.dart').read_text(encoding='utf-8')
         self.assertIn('await _scheduleOfficialResearch();', worker)
         self.assertIn("const String _researchTaskName = 'kingAiIranNetworkResearch';", worker)
-        self.assertIn('researchGoogle(_researchQuery, maxResults: 2)', worker)
+        self.assertIn('researchGoogle(_researchQuery, maxResults: 5)', worker)
         self.assertIn('frequency: kingAiOfficialResearchInterval', worker)
         self.assertIn('Duration(hours: 6)', policy)
         self.assertIn('networkType: NetworkType.connected', worker)
