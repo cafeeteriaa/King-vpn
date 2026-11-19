@@ -62,6 +62,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('networkAware: true', main)
         self.assertIn('final urls = nationalMode ? _tunnelTestUrlsNational', main)
 
+    def test_code_changes_are_pinned_to_the_official_repository(self):
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        self.assertIn("static const String _repositoryOwner = 'cafeeteriaa';", ai)
+        self.assertIn("static const String _repositoryName = 'King-vpn';", ai)
+        self.assertIn('void _requireKingRepository(String owner, String repository)', ai)
+        self.assertIn('login.toLowerCase() != _repositoryOwner', ai)
+        for method in (
+            'createOwnerFeatureProposal({',
+            'repairFromFailedCi({',
+            'repairFromFailedCiAutonomous({',
+        ):
+            start = ai.index(method)
+            end = ai.index('  }', start)
+            self.assertIn('_requireKingRepository(owner, repository);', ai[start:end + 3])
+        self.assertNotIn('old signature removed', ai)
+
     def test_first_owner_enrollment_requires_live_repository_owner_proof(self):
         auth = (ROOT / 'lib' / 'king_ai_owner_auth.dart').read_text(encoding='utf-8')
         start = auth.index('Future<void> setInitialPassword(String password)')
