@@ -50,8 +50,8 @@ class KingCommandSafety {
           // Persian question words must be token-bounded: matching "کی" as a
           // substring incorrectly classified the assistant name "کینگ" as a
           // question and blocked every imperative command addressed to King.
-          r'(?:^|\\s)(?:چرا|چطور|چگونه|چیست|چیه|چی|چه|آیا|مگر|کدام|کجا|کی|چند|میتونی|میتوانی|میشه|می‌شود)(?:\\s|$)|'
-          r'\\b(?:can\\s+you|could\\s+you|would\\s+you|is|are|am|do|does|did|can|could|would|should|will|has|have|had|what|why|how|when|where|which|who)\\b',
+          r'(?:^|\s)(?:چرا|چطور|چگونه|چیست|چیه|چی|چه|آیا|مگر|کدام|کجا|کی|چند|میتونی|میتوانی|میشه|می‌شود)(?:\s|$)|'
+          r'\b(?:can\s+you|could\s+you|would\s+you|is|are|am|do|does|did|can|could|would|should|will|has|have|had|what|why|how|when|where|which|who)\b',
         ).hasMatch(value);
   }
 
