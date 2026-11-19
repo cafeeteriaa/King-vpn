@@ -5,13 +5,18 @@ String redactKingAiCiEvidence(String input, {int maxChars = 12000}) {
   var safe = input
       .replaceAll(RegExp(r'gh[pousr]_[A-Za-z0-9]{20,}'), '[REDACTED_GITHUB_TOKEN]')
       .replaceAll(RegExp(r'github_pat_[A-Za-z0-9_]{20,}'), '[REDACTED_GITHUB_TOKEN]')
-      .replaceAll(RegExp(r'Bearer\s+[A-Za-z0-9._~+/-]+=*', caseSensitive: false), 'Bearer [REDACTED]')
+      .replaceAll(RegExp(r'sk-[A-Za-z0-9_-]{20,}'), '[REDACTED_API_TOKEN]')
+      .replaceAll(RegExp(r'xox[baprs]-[A-Za-z0-9-]{10,}'), '[REDACTED_SLACK_TOKEN]')
+      .replaceAll(RegExp(r'AKIA[A-Z0-9]{16}'), '[REDACTED_AWS_KEY]')
+      .replaceAll(RegExp(r'AIza[0-9A-Za-z_-]{30,}'), '[REDACTED_GOOGLE_KEY]')
+      .replaceAll(RegExp(r'Bearer\\s+[A-Za-z0-9._~+/-]+=*', caseSensitive: false), 'Bearer [REDACTED]')
+      .replaceAll(RegExp(r'(?:Basic)\\s+[A-Za-z0-9+/]{12,}={0,2}', caseSensitive: false), 'Basic [REDACTED]')
       .replaceAll(
-        RegExp(r'(api[_-]?key|access[_-]?token|client[_-]?secret|password)\s*[:=]\s*[^\s,;]+', caseSensitive: false),
+        RegExp(r'(api[_-]?key|access[_-]?token|client[_-]?secret|password)\\s*[:=]\\s*[^\\s,;]+', caseSensitive: false),
         '[REDACTED]',
       )
       .replaceAll(
-        RegExp(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----'),
+        RegExp(r'-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\\s\\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----'),
         '[REDACTED_PRIVATE_KEY]',
       );
   final limit = math.max(0, maxChars).toInt();
