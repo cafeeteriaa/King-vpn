@@ -5,6 +5,8 @@ void main() {
   group('KingCommandSafety', () {
     test('negative connect commands are blocked', () {
       expect(KingCommandSafety.negatesConnection('کینگ اتصال نکن'), isTrue);
+      expect(KingCommandSafety.negatesConnection('کینگ اتصال نزن'), isTrue);
+      expect(KingCommandSafety.negatesConnection('وصل نزن'), isTrue);
       expect(KingCommandSafety.negatesConnection('نمیخوام وصل بشی'), isTrue);
       expect(KingCommandSafety.negatesConnection('نمی‌خوام اتصال برقرار کنی'), isTrue);
       expect(KingCommandSafety.negatesConnection('اتصال را شروع نکن'), isTrue);
@@ -19,6 +21,7 @@ void main() {
 
     test('negative scan commands are blocked', () {
       expect(KingCommandSafety.negatesScan('اسکن DNS نکن'), isTrue);
+      expect(KingCommandSafety.negatesScan('اسکن DNS نزن'), isTrue);
       expect(KingCommandSafety.negatesScan('نمیخوام اسکن IP انجام بدی'), isTrue);
       expect(KingCommandSafety.negatesScan('نمی‌خوام اسکن DNS انجام بدی'), isTrue);
       expect(KingCommandSafety.negatesScan('اسکن را انجام نده'), isTrue);
