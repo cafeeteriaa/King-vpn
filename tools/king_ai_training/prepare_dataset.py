@@ -2,7 +2,7 @@
 """Build a leak-resistant SFT dataset from reviewed, CI-green repair records.
 
 Input JSONL fields: task, diff, ci_passed, human_reviewed,
-security_scan_passed. Unreviewed, failed, malformed, duplicate, or secret-bearing
+secret_scan_passed. Unreviewed, failed, malformed, duplicate, or secret-bearing
 records are discarded. No API or hosted AI service is used.
 """
 from __future__ import annotations
@@ -41,7 +41,7 @@ def prepare(source: Path, output_dir: Path, min_examples: int = 5) -> dict:
             changes = row["changes"]
             if not isinstance(task, str) or not isinstance(source_files, dict) or not isinstance(changes, dict):
                 raise ValueError("task, source_files, and changes have invalid types")
-            if not row.get("ci_passed") or not (row.get("human_reviewed") or row.get("merged")) or not row.get("security_scan_passed"):
+            if not row.get("ci_passed") or not (row.get("human_reviewed") or row.get("merged")) or not row.get("secret_scan_passed"):
                 rejected += 1
                 continue
             task = task.strip()
