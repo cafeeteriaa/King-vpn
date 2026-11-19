@@ -29,10 +29,10 @@ class DiagnoseBuildTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / 'source-guard.log'
             log.write_text(
-                'ERROR: test_owner_gate (test_source_guards.SourceGuardTests)\\n'
-                'Traceback (most recent call last):\\n'
-                'NameError: name \'policy\' is not defined\\n'
-                'FAILED (errors=1)\\n',
+                'ERROR: test_owner_gate (test_source_guards.SourceGuardTests)\n'
+                'Traceback (most recent call last):\n'
+                'NameError: name \'policy\' is not defined\n'
+                'FAILED (errors=1)\n',
                 encoding='utf-8',
             )
             report = diagnose_build.analyze_logs([log])
