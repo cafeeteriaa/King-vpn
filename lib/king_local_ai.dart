@@ -118,6 +118,56 @@ empty changes list and explain what is missing.
     }
   }
 
+
+  /// A separate, tightly-scoped reasoning channel for the network pilot.
+  /// It cannot author code or change settings; callers must validate its action.
+  Future<String> askPilot(String prompt, {int maxTokens = 192}) async {
+    if (maxTokens < 1 || maxTokens > 512) {
+      throw ArgumentError.value(maxTokens, 'maxTokens', 'Must be between 1 and 512');
+    }
+    final engine = _engine;
+    if (engine == null) {
+      throw StateError('مدل هوش مصنوعی داخلی هنوز آماده نیست.');
+    }
+    if (_busy) throw StateError('Local AI is already generating');
+    _busy = true;
+    try {
+      final safePrompt = prompt.length > 6000
+          ? prompt.substring(0, 6000)
+          : prompt;
+      final generation = engine.generate(
+        '<|im_start|>system\\n'
+        'You are King VPN local network-operations advisor. '
+        'Use only the supplied measurements. Never invent observations. '
+        'Return exactly one JSON object: '
+        '{"action":"none|connect|switch_best|soft_recover",'
+        '"confidence":0,"reason":"short reason"}. '
+        'You do not control the VPN and cannot change settings. '
+        'Never recommend switching a working tunnel merely for a tiny gain. '
+        'If evidence is incomplete or conflicting, choose none. '
+        'Never suggest disabling encryption, certificate checks, Android '
+        'security, or privacy protections. '
+        '<|im_end|>\\n'
+        '<|im_start|>user\\n$safePrompt<|im_end|>\\n'
+        '<|im_start|>assistant\\n',
+        GenerationOptions(
+          sampling: SamplingOptions(maxTokens: maxTokens),
+          stop: const ['<|im_end|>'],
+        ),
+      );
+      final output = StringBuffer();
+      await for (final delta in generation.text) {
+        output.write(delta);
+      }
+      await generation.result;
+      final answer = output.toString().trim();
+      if (answer.isEmpty) throw StateError('Local pilot advisor returned an empty answer');
+      return answer;
+    } finally {
+      _busy = false;
+    }
+  }
+
   Future<String> ask(String prompt, {int maxTokens = 768}) async {
     if (maxTokens < 1 || maxTokens > 2048) {
       throw ArgumentError.value(maxTokens, 'maxTokens', 'Must be between 1 and 2048');
@@ -477,12 +527,17 @@ empty changes list and explain what is missing.
     final commit = await _github('GET', '/repos/$repo/git/commits/$commitSha');
     final treeSha = (commit['tree'] as Map)['sha'] as String;
     final tree = await _github('GET', '/repos/$repo/git/trees/$treeSha?recursive=1');
+    if (tree['truncated'] == true) {
+      throw StateError('GitHub returned a truncated repository tree; refusing incomplete code context');
+    }
     final entries = (tree['tree'] as List).whereType<Map>().where((entry) {
       final path = entry['path'];
       return entry['type'] == 'blob' &&
           path is String &&
           (path.startsWith('lib/') || path.startsWith('test/') || path.startsWith('tools/')) &&
-          (path.endsWith('.dart') || path.endsWith('.py'));
+          (path.endsWith('.dart') || path.endsWith('.py')) &&
+          entry['size'] is num &&
+          (entry['size'] as num) <= 16000;
     }).toList();
     final words = task.toLowerCase().split(RegExp(r'[^a-z0-9\u0600-\u06FF]+'))
         .where((word) => word.length > 2).toSet();
