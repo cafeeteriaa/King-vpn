@@ -160,11 +160,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_scheduleOfficialResearch()', worker)
         self.assertIn('Duration(hours: 12)', worker)
         self.assertIn('requiresBatteryNotLow: true', worker)
-        research_start = worker.index("if (task == _researchTaskName)")
-        research_end = worker.index("if (!await ai.hasGitHubToken())", research_start)
-        research_worker = worker[research_start:research_end]
-        self.assertIn('researchGoogle', research_worker)
-        self.assertNotIn('repairFromFailedCi', research_worker)
+        self.assertIn('researchGoogle', worker)
+        self.assertNotIn('hasGitHubToken', worker)
+        self.assertNotIn('repairFromFailedCi', worker)
         self.assertIn('changeOwnerSecurityPolicy', policy)
         self.assertIn('publishRelease', policy)
 
