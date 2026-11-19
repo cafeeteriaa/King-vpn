@@ -14667,7 +14667,7 @@ ListTile( // KINGEXTRAS row
           child: Text(t, style: const TextStyle(fontWeight: FontWeight.bold)),
         );
     Widget rowHeader(String gid, String t) => InkWell(
-          onTap: () => pickEngineThenStart(() => connectRow(gid), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */,
+          onTap: null, // گروه‌ها فقط فهرست‌اند؛ اتصال از کادر فرمان انجام می‌شود.
           child: Container(
             width: double.infinity,
             color: Color(0xFF2A2D33),
@@ -14898,30 +14898,8 @@ ListTile( // KINGEXTRAS row
                   : 'مداد جادویی خاموش — عددها دستی می‌مانند');
             },
           ),
-          // refresh = search again and connect. The healthy servers are NOT
-          // deleted: they are only marked "unchecked" and tested first.
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: (busy || connected)
-                ? null
-                : () async {
-                    if (!await pickEngineThenStart(() async {})) return;
-                    for (final g in good) {
-                      g.checkedAt = null;
-                    }
-                    pending = [];
-                    failed.clear();
-                    listTime = null;
-                    viaVpn = true;
-                    portFailRun = 0;
-                    pxTested = 0;
-                    pxOk = 0;
-                    fastDelay = true;
-                    fastTested = 0;
-                    fastOk = 0;
-                    unawaited(connect().catchError((e) => logError(e)));
-                  },
-          ),
+          // Refresh/search connection is now requested through the command field.
+
         ],
       ),
       bottomNavigationBar: UiNav(items: [
@@ -15037,14 +15015,6 @@ UiHero(
                 isScrollControlled: true,
                 builder: (_) => SafeArea(
                     child: SingleChildScrollView(child: tgProxyRow(context))))),
-            UiTool(Icons.push_pin_outlined, 'کانفیگ‌های من', () => pickEngineThenStart(() => connectRow('f:mine'), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
-            UiTool(Icons.auto_awesome, 'سرورهای AI', () async {
-              await pickEngineThenStart(() => connectRow('r:ai'));
-            }),
-            UiTool(Icons.pin_outlined, 'اتصال با IP', () => pickEngineThenStart(() => connectRow('r:ip'), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
-            UiTool(Icons.cloud_outlined, 'CDN / کلودفلر', () => pickEngineThenStart(() => connectRow('r:cdn'), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
-            UiTool(Icons.shield_outlined, 'Reality', () => pickEngineThenStart(() => connectRow('r:reality'), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
-            UiTool(Icons.power_outlined, 'WebSocket', () => pickEngineThenStart(() => connectRow('r:ws'), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
             UiTool(Icons.favorite_border, 'حمایت از ما', () => donateSheet(context)),
             UiTool(Icons.menu_book_outlined, 'راهنما', () => Navigator.push(
                 context, MaterialPageRoute(builder: (_) => const HelpPage()))),
