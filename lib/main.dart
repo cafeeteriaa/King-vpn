@@ -10660,6 +10660,24 @@ ListTile( // KINGEXTRAS row
     } catch (e, st) { logError(e, st); }
   }
 
+  // Command-to-country aliases; unknown or untagged servers never pass a strict country filter.
+  String? _smartCountryCode(String command) {
+    const aliases = <String, String>{
+      'germany': 'DE', 'آلمان': 'DE',
+      'netherlands': 'NL', 'هلند': 'NL',
+      'france': 'FR', 'فرانسه': 'FR',
+      'turkey': 'TR', 'ترکیه': 'TR',
+      'united states': 'US', 'آمریکا': 'US',
+      'united kingdom': 'GB', 'انگلیس': 'GB',
+      'canada': 'CA', 'کانادا': 'CA',
+      'singapore': 'SG', 'سنگاپور': 'SG',
+    };
+    for (final entry in aliases.entries) {
+      if (command.contains(entry.key)) return entry.value;
+    }
+    return null;
+  }
+
   int? _pilotIpNumber(String value) {
     final ip = InternetAddress.tryParse(value.trim());
     if (ip == null || ip.type != InternetAddressType.IPv4) return null;
@@ -10695,6 +10713,7 @@ ListTile( // KINGEXTRAS row
     return out.take(256).toList();
   }
 
+  // بازه‌های IP اختصاصی خلبان — این inventory فقط متعلق به Smart Pilot است.
   Future<void> _pilotRangesDialog(BuildContext context) async {
     final prefs = await SharedPreferences.getInstance();
     _pilotRanges = prefs.getStringList('king_pilot_ip_ranges_v1') ?? _pilotRanges;
@@ -15419,36 +15438,11 @@ ListTile( // KINGEXTRAS row
                   : 'مداد جادویی خاموش — عددها دستی می‌مانند');
             },
           ),
-          // refresh = search again and connect. The healthy servers are NOT
-          // deleted: they are only marked "unchecked" and tested first.
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: (busy || connected)
-                ? null
-                : () async {
-                    if (!await pickEngineThenStart(() async {})) return;
-                    for (final g in good) {
-                      g.checkedAt = null;
-                    }
-                    pending = [];
-                    failed.clear();
-                    listTime = null;
-                    viaVpn = true;
-                    portFailRun = 0;
-                    pxTested = 0;
-                    pxOk = 0;
-                    fastDelay = true;
-                    fastTested = 0;
-                    fastOk = 0;
-                    unawaited(startLocalPilot().catchError((e) => logError(e)));
-                  },
-          ),
         ],
       ),
       bottomNavigationBar: UiNav(items: [
         UiNavItem(Icons.person_outline, 'پروفایل', () => _importDialog()),
         UiNavItem(Icons.settings_outlined, 'تنظیمات', () => _settingsSheet()),
-        UiNavItem(Icons.dns_outlined, 'سرورها', busy ? null : () => _countrySheet()),
       ]),
       body: Column(
         children: [
