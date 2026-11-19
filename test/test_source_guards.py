@@ -164,6 +164,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('await _askCoding(', ai[proposal_start:proposal_end])
         extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
         self.assertIn('return KingLocalAi.instance.ask(prompt);', extras)
+        for phrase in ('کد رو اصلاح', 'سورس رو تغییر', 'برنامه را تغییر', 'قابلیت بساز'):
+            self.assertIn(phrase, ai)
 
     def test_generated_patches_cannot_modify_security_and_command_policy_files(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
