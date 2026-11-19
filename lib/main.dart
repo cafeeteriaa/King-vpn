@@ -5392,6 +5392,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     super.initState();
     natSearchBusyProbe = () => busy || searching; // NATQUOTA-2: برای سهمیه‌ی اسکنرهای دستی نت ملی
     unawaited(NationalNetworkIntelligence.load()); // NNIE: حافظه‌ی شبکه، بدون تأخیر در UI
+    // KING-AI-KNOWLEDGE: weekly foreground refresh from Google-discovered,
+    // allowlisted official documentation. This stores research notes, not weights.
+    Future.delayed(const Duration(seconds: 30), () {
+      unawaited(KingLocalAi.instance.refreshKnowledgeIfDue().then((result) {
+        dbg('KING-AI-RESEARCH: ${jsonEncode(result)}');
+      }).catchError((Object error, StackTrace stack) {
+        logError(error, stack);
+      }));
+    });
     OnlineCounter.start(); // ONLINECOUNT
     _crashGuardInit(); // CRASHGUARD: آیا اجرای قبلی وسط شروع یک سرور مرده است؟
     unawaited(_loadVpnPerm()); // FIX-PERSIST
