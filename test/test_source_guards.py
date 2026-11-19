@@ -1024,6 +1024,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('void _nnieBeginAttempt(Server server)', main)
         self.assertIn('int? _nnieFinishAttempt(Server server)', main)
         self.assertIn('elapsedMs: nnieElapsedMs ?? max(0, s.ping ?? 0)', main)
+        success_start = main.index('// NNIE records end-to-end successes in BOTH domestic and global modes.')
+        success_end = main.index('if (mounted) setState(() {})', success_start)
+        success_record = main[success_start:success_end]
+        self.assertIn('NationalNetworkIntelligence.record(', success_record)
+        self.assertIn('NationalNetworkIntelligence.armStable(', success_record)
+        self.assertNotIn('if (nationalMode)', success_record)
         self.assertIn('final failedElapsedMs = _nnieFinishAttempt(s) ?? 0;', main)
         self.assertNotIn('_nnieTapAt', main)
         self.assertIn('await NationalNetworkIntelligence.load();', pilot)
