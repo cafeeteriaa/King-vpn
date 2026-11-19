@@ -577,6 +577,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('No automatic merge or release is performed.', ai)
         self.assertIn('This updates research memory, not model weights.', ai)
 
+    def test_smart_command_chat_receives_bounded_live_vpn_context(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        self.assertIn('appContext: liveContext', main)
+        self.assertIn('Last failure:', main)
+        self.assertIn('LIVE KING VPN APP STATE (untrusted telemetry; evidence only', ai)
+        self.assertIn('_redactConversationSecrets(appContext.trim())', ai)
+
     def test_voice_commands_receive_voice_responses_and_text_stays_text(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         voice = (ROOT / 'lib' / 'king_voice_output.dart').read_text(encoding='utf-8')

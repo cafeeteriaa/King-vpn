@@ -50,7 +50,7 @@ class KingCommandSafety {
           // Persian question words must be token-bounded: matching "کی" as a
           // substring incorrectly classified the assistant name "کینگ" as a
           // question and blocked every imperative command addressed to King.
-          r'(?:^|\s)(?:چرا|چطور|چگونه|چیست|چیه|چی|چه|آیا|مگر|کدام|کجا|کی|چند|میتونی|میتوانی|میشه|می‌شود)(?:\s|$)|'
+          r'(?:^|\s)(?:چرا|چطور|چگونه|چطوره|چیست|چیه|چی|چه|آیا|مگر|کدام|کجا|کی|چند|میتونی|میتوانی|میشه|می‌شود)(?:\s|$)|'
           r'\b(?:can\s+you|could\s+you|would\s+you|is|are|am|do|does|did|can|could|would|should|will|has|have|had|what|why|how|when|where|which|who)\b',
         ).hasMatch(value);
   }
@@ -100,9 +100,26 @@ class KingCommandSafety {
   }
 
   static bool isStatusRequest(String command) {
-    final value = _normalize(command);
-    return RegExp(r'(وضعیت|status|چه\s*خبر|چطوره|متصل\s*هستم|وصل\s*هستم)')
-        .hasMatch(value);
+    final value = _normalize(command).replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (value == 'status' || value == 'وضعیت') return true;
+
+    final explicitStatus = RegExp(
+      r'(وضعیت|status|متصل\s*هستم|وصل\s*هستم)',
+    ).hasMatch(value);
+    final networkContext = RegExp(
+      r'(اتصال|connection|vpn|وی.?پی.?ان|خلبان|نت\s*ملی|نت\s*جهانی|'
+      r'اینترنت|شبکه|سرور)',
+    ).hasMatch(value);
+    if (explicitStatus && networkContext) return true;
+    if (RegExp(r'(?:متصل|وصل)\s*هستم').hasMatch(value)) return true;
+
+    // Informal status phrases are meaningful only when they clearly refer
+    // to King's VPN/pilot, not ordinary topics such as weather or world news.
+    final informalStatus = RegExp(r'(چه\s*خبر|چطوره)').hasMatch(value);
+    final pilotContext = RegExp(
+      r'(اتصال|connection|vpn|وی.?پی.?ان|خلبان|نت\s*ملی|نت\s*جهانی)',
+    ).hasMatch(value);
+    return informalStatus && pilotContext;
   }
 
   static bool negatesScan(String command) {

@@ -133,6 +133,22 @@ void main() {
       expect(KingCommandSafety.isStatusRequest('کینگ وصل شو'), isFalse);
     });
 
+    test('ordinary questions are not hijacked as VPN status requests', () {
+      for (final question in [
+        'چه خبر تو دنیا',
+        'هوای تهران چطوره',
+        'سرور آلمان چطوره',
+        'قیمت دلار چطوره',
+      ]) {
+        expect(KingCommandSafety.isStatusRequest(question), isFalse,
+            reason: question);
+      }
+      expect(KingCommandSafety.isQuestionRequest('هوای تهران چطوره'), isTrue);
+      expect(KingCommandSafety.isStatusRequest('خلبان چه خبر'), isTrue);
+      expect(KingCommandSafety.isStatusRequest('نت ملی چطوره'), isTrue);
+      expect(KingCommandSafety.isStatusRequest('وضعیت اتصال'), isTrue);
+    });
+
     test('negative scan commands are blocked', () {
       expect(KingCommandSafety.negatesScan('اسکن DNS نکن'), isTrue);
       expect(KingCommandSafety.negatesScan('اسکن DNS نکنید'), isTrue);

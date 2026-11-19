@@ -11124,7 +11124,19 @@ ListTile( // KINGEXTRAS row
         // Every unrecognised natural-language request is a conversation turn,
         // not a failed VPN command. The local model retains bounded chat memory.
         _set('کینگ در حال فکر کردن به سؤال توست...');
-        final answer = await KingLocalAi.instance.ask(command, maxTokens: 768);
+        final liveContext = <String>[
+          'VPN connected: $connected',
+          'Connection operation active: ${busy || searching}',
+          'Local pilot active: $localPilotOn',
+          'National network mode selected: $nationalMode',
+          'Current app status: ${status.substring(0, status.length.clamp(0, 1400).toInt())}',
+          'Last failure: ${lastFail.substring(0, lastFail.length.clamp(0, 600).toInt())}',
+        ].join('\n');
+        final answer = await KingLocalAi.instance.ask(
+          command,
+          maxTokens: 768,
+          appContext: liveContext,
+        );
         voiceReply = answer;
         _set(answer);
       } else {
@@ -11154,7 +11166,7 @@ ListTile( // KINGEXTRAS row
           onSubmitted: (_) => _runSmartCommand(), style: const TextStyle(color: Color(0xFFE8EDF7)),
           decoration: InputDecoration(hintText: 'فرمان بده یا هر سؤالی بپرس؛ مثلاً «نت ملی وصل شو» یا «چرا اتصال قطع می‌شود؟»', hintStyle: const TextStyle(color: Color(0xFF8D9BAD), fontSize: 12), filled: true, fillColor: const Color(0xFF0D1420), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), suffixIcon: Row(mainAxisSize: MainAxisSize.min, children: [
             IconButton(
-              tooltip: _smartSpeechListening ? 'توقف ضبط فرمان' : 'فرمان صوتی فارسی کینگ (آفلاین یا سرویس گفتار دستگاه)',
+              tooltip: _smartSpeechListening ? 'توقف ضبط فرمان' : 'فرمان صوتی فارسی کینگ (وابسته به سرویس گفتار دستگاه)',
               onPressed: _smartSpeechBusy ? null : _toggleSmartCommandSpeech,
               icon: Icon(_smartSpeechListening ? Icons.mic : Icons.mic_none,
                   color: _smartSpeechListening ? const Color(0xFFFF7777) : const Color(0xFF83DFFF)),
