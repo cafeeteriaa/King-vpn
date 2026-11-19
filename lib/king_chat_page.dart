@@ -78,6 +78,7 @@ class _KingChatPageState extends State<KingChatPage> {
     if (!mounted) return;
     final value = result.recognizedWords.trim();
     if (value.isEmpty) return;
+    if (result.finalResult) _onDeviceSpeechAttempt = false;
     setState(() {
       _input.value = TextEditingValue(
         text: value,
