@@ -40,13 +40,13 @@ bool isSafeKingAiPublicResearchQuery(String prompt) {
     RegExp(r'(رمز|پسورد|کلمه عبور|توکن|کلید خصوصی|شماره کارت|شماره حساب|حساب بانکی|کد ملی|اطلاعات پزشکی|password|api.?key|access.?token|private.?key|credit.?card|bank account)', caseSensitive: false),
     RegExp(r'gh[pousr]_[A-Za-z0-9]{20,}'),
     RegExp(r'github_pat_[A-Za-z0-9_]{20,}'),
-    RegExp(r'(?i)\\bBearer\\s+[A-Za-z0-9._~+/-]{16,}'),
+    RegExp(r'(?i)\bBearer\s+[A-Za-z0-9._~+/-]{16,}'),
     RegExp(r'sk-[A-Za-z0-9_-]{20,}'),
     RegExp(r'xox[baprs]-[A-Za-z0-9-]{10,}'),
     RegExp(r'AKIA[A-Z0-9]{16}'),
     RegExp(r'AIza[0-9A-Za-z_-]{30,}'),
     RegExp(r'-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----'),
-    RegExp(r'https?://[^/\\s:@]+:[^@\\s]+@'),
+    RegExp(r'https?://[^/\s:@]+:[^@\s]+@'),
   ];
   return !sensitivePatterns.any((pattern) => pattern.hasMatch(prompt));
 }
