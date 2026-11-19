@@ -2628,7 +2628,7 @@ extension HomeExtras on _HomePageState {
       }
       // Start optional tuning only after the underlying-link diagnosis has
       // completed, so its probes cannot accidentally run through a new tunnel.
-      if (autoTune && !connected) unawaited(autoTuneNow());
+      // Pilot uses its own evidence gathering and optimizer; generic AutoTune is separate.
 
       // قدرت را هر تیک با شبکه هماهنگ کن (تمام‌اتوماتیک)
       final wantPower = _localAutoPickPower();
@@ -2848,65 +2848,55 @@ extension HomeExtras on _HomePageState {
 
   /// تشخیص پیش از اتصال؛ شواهد نامشخص، انتخاب قبلی کاربر را دست‌نخورده می‌گذارد.
   Future<NatNetworkClass> _pilotDetectNetworkMode() async {
-    // NatNetworkDiagnosis probes the underlying link; do not run it through an
-    // already active VPN tunnel and accidentally classify the relay instead.
-    if (connected) return NatNetworkDiagnosis.current;
+    // Dedicated Smart Pilot probes; never consume general scanner results,
+    // user IP ranges, or a probe routed through an active VPN tunnel.
+    if (connected) return NatNetworkClass.unknown;
     try {
       final previousMode = nationalMode;
-      final detected = await NatNetworkDiagnosis.refresh(force: true)
-          .timeout(const Duration(seconds: 7), onTimeout: () => NatNetworkDiagnosis.current);
-      final evidence = switch (detected) {
-        NatNetworkClass.globalReachable => const NetworkEvidence(
-            domestic: LinkHealth.unknown,
-            global: LinkHealth.healthy,
-            globalSamples: 4,
-          ),
-        NatNetworkClass.domesticOnlyLikely => const NetworkEvidence(
-            domestic: LinkHealth.healthy,
-            global: LinkHealth.unreachable,
-            domesticSamples: 2,
-            globalSamples: 2,
-          ),
-        NatNetworkClass.dnsDegraded || NatNetworkClass.transportRestricted =>
-          const NetworkEvidence(
-            domestic: LinkHealth.healthy,
-            global: LinkHealth.unreachable,
-            domesticSamples: 2,
-            globalSamples: 2,
-          ),
-        NatNetworkClass.unknown => const NetworkEvidence(
-            domestic: LinkHealth.unknown,
-            global: LinkHealth.unknown,
-          ),
-      };
+      final evidence = await PilotNetworkProbe.refresh(force: true)
+          .timeout(const Duration(seconds: 9), onTimeout: () =>
+              const NetworkEvidence(
+                domestic: LinkHealth.unknown,
+                global: LinkHealth.unknown,
+              ));
       final strategy = choosePilotNetworkStrategy(evidence);
       if (strategy == PilotNetworkStrategy.domestic) {
         nationalMode = true;
       } else if (strategy == PilotNetworkStrategy.global) {
         nationalMode = false;
-      } else if (strategy == PilotNetworkStrategy.offline) {
-        localPilotText.value = 'هیچ مسیر قابل‌تأییدی در دسترس نیست؛ اتصال امن متوقف می‌ماند.';
       }
-      // Unknown/partial evidence is not a license to guess. Keep last mode.
+      // Offline/partial evidence preserves the previous strategy.
       natForce = nationalMode;
       userModeChoice = nationalMode;
       if (previousMode != nationalMode) {
         _resetNetworkHealthCounters();
         await ultimateSave();
       }
-      final label = natNetworkClassLabel(detected);
-      final modeLabel = nationalMode ? 'نت ملی' : 'اینترنت جهانی/انتخاب قبلی';
-      localPilotText.value = 'خلبان هوشمند ∞ • تشخیص شبکه: $label\n'
-          'حالت انتخاب‌شده: $modeLabel';
-      return detected;
+      final modeLabel = switch (evidence.mode) {
+        DetectedNetworkMode.domesticOnly => 'فقط مسیر داخلی تأیید شد',
+        DetectedNetworkMode.globalOnly => 'مسیر جهانی تأیید شد',
+        DetectedNetworkMode.dualStack => 'مسیر داخلی و جهانی هر دو در دسترس‌اند',
+        DetectedNetworkMode.offline => 'هیچ مسیر آزمایشی پاسخ نداد',
+        DetectedNetworkMode.unknown => 'شواهد کافی نیست؛ حالت قبلی حفظ شد',
+      };
+      final strategyLabel = nationalMode ? 'نت ملی' : 'جهانی/حالت قبلی';
+      localPilotText.value = 'خلبان هوشمند ∞ • اسکن اختصاصی شبکه\n'
+          '$modeLabel\nراهبرد: $strategyLabel • '
+          'شواهد: داخلی ${evidence.domesticSamples} / جهانی ${evidence.globalSamples}';
+      return switch (evidence.mode) {
+        DetectedNetworkMode.domesticOnly => NatNetworkClass.domesticOnlyLikely,
+        DetectedNetworkMode.globalOnly ||
+        DetectedNetworkMode.dualStack => NatNetworkClass.globalReachable,
+        DetectedNetworkMode.offline => NatNetworkClass.transportRestricted,
+        DetectedNetworkMode.unknown => NatNetworkClass.unknown,
+      };
     } catch (e, st) {
       logError(e, st);
-      localPilotText.value = 'تشخیص شبکه ناموفق بود؛ حالت قبلی حفظ شد.';
+      localPilotText.value = 'اسکن اختصاصی خلبان ناموفق بود؛ حالت قبلی حفظ شد.';
       return NatNetworkClass.unknown;
     }
   }
 
-  /// فعال‌سازی خلبان بدون حلقهٔ اتصال (برای وقتی کاربر فقط «اتصال» زده)
   void ensureLocalPilotRunning() {
     if (aiSession) stopGrokPilot();
     final wasOff = !localPilotOn;
