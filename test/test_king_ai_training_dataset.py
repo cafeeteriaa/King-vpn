@@ -24,7 +24,7 @@ class DatasetPreparationTests(unittest.TestCase):
                     "ci_passed": True,
                     "human_reviewed": index != 0,
                     "merged": index == 0,
-                    "security_scan_passed": True,
+                    "secret_scan_passed": True,
                 })
             rows.append({
                 "task": "bad unreviewed",
@@ -33,7 +33,7 @@ class DatasetPreparationTests(unittest.TestCase):
                 "ci_passed": True,
                 "human_reviewed": False,
                 "merged": False,
-                "security_scan_passed": True,
+                "secret_scan_passed": True,
             })
             rows.append({
                 "task": "token leaked",
@@ -42,7 +42,7 @@ class DatasetPreparationTests(unittest.TestCase):
                 "ci_passed": True,
                 "human_reviewed": True,
                 "merged": True,
-                "security_scan_passed": True,
+                "secret_scan_passed": True,
             })
             source.write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
             report = module.prepare(source, root / "out")
@@ -61,7 +61,7 @@ class DatasetPreparationTests(unittest.TestCase):
             source = root / "examples.jsonl"
             source.write_text(json.dumps({
                 "task": "task", "diff": "+change", "ci_passed": True,
-                "human_reviewed": True, "security_scan_passed": True,
+                "human_reviewed": True, "secret_scan_passed": True,
             }), encoding="utf-8")
             with self.assertRaises(RuntimeError):
                 module.prepare(source, root / "out")
