@@ -1869,52 +1869,70 @@ extension HomeExtras on _HomePageState {
     _set('✅ تنظیمات پیشنهادی دستیار اعمال شد');
   }
 
-  // دکمه‌ی دستیار روی صفحه‌ی اصلی (زیر پنل سرعت)
-  Widget aiBar() => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-        child: Column(
-          children: [
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () async {
-                  if (await confirmHeavyFeature(context, 'دستیارهای AI')) {
-                    this.aiSheet();
-                  }
-                },
-                icon: const Icon(Icons.smart_toy_outlined, size: 18),
-                label: Text(
-                    '🤖 دستیارهای AI (Grok/Claude/ChatGPT/DeepSeek/Gemini'
-                    '${aiLastProvider.isEmpty ? '' : ' · $aiLastProvider'})'),
-              ),
-            ),
-            if (localPilotOn || localPilotText.value.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              ValueListenableBuilder<String>(
-                valueListenable: localPilotText,
-                builder: (_, t, _) => Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1F2328),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFF66512D), width: 1),
-                  ),
-                  child: Text(
-                    t,
-                    style: const TextStyle(
-                      fontSize: 12.5,
-                      height: 1.35,
-                      fontFamily: 'monospace',
-                      color: Color(0xFFF2F0EB),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      );
+  Future<String> _runPilotCommand(String raw) async {
+    final q = raw.trim().toLowerCase().replaceAll('ي', 'ی')
+        .replaceAll('ك', 'ک').replaceAll(RegExp(r'\\s+'), ' ');
+    if (q.isEmpty) return 'یک فرمان بنویس؛ مثلاً «وصل شو» یا «وضعیت اتصال».';
+    bool hasAny(List<String> words) => words.any(q.contains);
+    if (hasAny(['راهنما', 'دستورات', 'کمک'])) {
+      return 'فرمان‌ها: «وصل شو»، «قطع اتصال»، «لغو جستجو»، «خلبان روشن»، '
+          '«خلبان خاموش»، «بهبود اتصال» و «وضعیت اتصال».';
+    }
+    if (hasAny(['وضعیت', 'گزارش اتصال', 'چطوری'])) {
+      final s = current;
+      final ping = s?.ping == null ? 'نامشخص' : '${s!.ping} ms';
+      final speed = (s?.speed ?? 0) > 0 ? '${s!.speed!.toStringAsFixed(2)} MB/s' : 'در حال اندازه‌گیری';
+      return 'وضعیت: ${connected ? 'متصل' : busy ? 'در حال جستجو/اتصال' : 'غیرمتصل'}'
+          ' • خلبان: ${localPilotOn ? 'روشن' : 'خاموش'}'
+          ' • راهبرد: ${nationalMode ? 'نت ملی' : 'جهانی/تشخیص خودکار'}'
+          ' • سرور سالم: ${_usable().length} • پینگ: $ping • سرعت: $speed';
+    }
+    if (hasAny(['لغو', 'متوقف کن', 'توقف جستجو', 'cancel'])) {
+      if (localPilotOn) stopLocalPilot();
+      _cancelNow();
+      return 'درخواست لغو عملیات ثبت شد.';
+    }
+    if (hasAny(['قطع اتصال', 'قطع vpn', 'disconnect', 'قطع شو'])) {
+      if (localPilotOn) stopLocalPilot();
+      if (aiSession) stopGrokPilot();
+      if (connected || wantVpn || busy) {
+        await disconnect();
+        return 'فرمان قطع اتصال اجرا شد.';
+      }
+      return 'اتصالی فعال نیست.';
+    }
+    if (hasAny(['خلبان خاموش', 'توقف خلبان'])) {
+      if (!localPilotOn) return 'خلبان محلی از قبل خاموش است.';
+      stopLocalPilot();
+      return 'خلبان متوقف شد و تنظیمات قبلی بازیابی شدند.';
+    }
+    if (hasAny(['بهبود', 'بهینه', 'بررسی دوباره', 'بهترین سرور'])) {
+      if (!localPilotOn) {
+        await startLocalPilot();
+        return 'خلبان فعال شد و ارزیابی شبکه و انتخاب سرور را آغاز کرد.';
+      }
+      await localPilotTick(force: true);
+      return 'ارزیابی فوری انجام شد؛ تصمیم بر اساس شواهد تازه شبکه گرفته می‌شود.';
+    }
+    if (hasAny(['وصل', 'اتصال', 'connect', 'شروع خلبان', 'خلبان روشن', 'شروع کن'])) {
+      if (connected && localPilotOn) {
+        await localPilotTick(force: true);
+        return 'اتصال برقرار است؛ خلبان وضعیت را دوباره ارزیابی کرد.';
+      }
+      if (busy && !connected) return 'جستجو/اتصال در جریان است؛ برای توقف «لغو جستجو» را بفرست.';
+      await startLocalPilot();
+      return 'خلبان هوشمند فعال شد؛ تشخیص شبکه و جستجوی سرور مناسب شروع شد.';
+    }
+    if (hasAny(['نت ملی', 'اینترنت ملی', 'شبکه داخلی'])) {
+      return 'خلبان اصلی راهبرد داخلی و جهانی را با شواهد واقعی ارزیابی می‌کند. برای شروع «وصل شو» را بفرست.';
+    }
+    return 'فرمان شناخته نشد. «راهنما» را بفرست؛ برای جلوگیری از اجرای اشتباه تغییری اعمال نشد.';
+  }
+
+  Widget aiBar() => PilotCommandBar(
+    onSubmit: _runPilotCommand, localStatus: localPilotText,
+    pilotOn: localPilotOn, connected: connected, busy: busy,
+  );
 
   void aiSheet() {
     final k = TextEditingController(text: geminiKey);
@@ -3858,4 +3876,87 @@ class _LocalDecision {
 
   _LocalDecision(this.action, this.settings, this.explain,
       {this.confidence = 70});
+}
+
+
+// Local-first command field: commands stay on-device and are routed to the
+// app's Smart Pilot. No external AI key or network request is required.
+class PilotCommandBar extends StatefulWidget {
+  final Future<String> Function(String) onSubmit;
+  final ValueListenable<String> localStatus;
+  final bool pilotOn, connected, busy;
+  const PilotCommandBar({super.key, required this.onSubmit, required this.localStatus,
+    required this.pilotOn, required this.connected, required this.busy});
+  @override
+  State<PilotCommandBar> createState() => _PilotCommandBarState();
+}
+class _PilotCommandBarState extends State<PilotCommandBar> {
+  final TextEditingController _controller = TextEditingController();
+  bool _sending = false;
+  String _reply = 'نمونه: «وصل شو»، «قطع اتصال»، «لغو جستجو»، «وضعیت اتصال».';
+  @override
+  void dispose() { _controller.dispose(); super.dispose(); }
+  Future<void> _send() async {
+    if (_sending) return;
+    final command = _controller.text.trim();
+    if (command.isEmpty) return;
+    setState(() => _sending = true);
+    _controller.clear();
+    try {
+      final result = await widget.onSubmit(command);
+      if (mounted) setState(() => _reply = result);
+    } catch (e) {
+      if (mounted) setState(() => _reply = 'اجرای فرمان با خطا روبه‌رو شد: $e');
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+    child: Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: const Color(0xFF202329),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFD9AE55), width: 1.2)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          const Icon(Icons.psychology_alt_outlined, color: Color(0xFFD9AE55), size: 22),
+          const SizedBox(width: 8),
+          const Expanded(child: Text('فرمان به خلبان هوشمند',
+            style: TextStyle(color: Color(0xFFFFE7B0), fontWeight: FontWeight.bold, fontSize: 15))),
+          Text(widget.pilotOn ? 'خلبان روشن' : widget.busy ? 'در حال اجرا' : 'آماده',
+            style: const TextStyle(color: Color(0xFFFFD98B), fontSize: 11)),
+        ]),
+        const SizedBox(height: 10),
+        Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          Expanded(child: TextField(controller: _controller, minLines: 1, maxLines: 3,
+            textDirection: TextDirection.rtl, textInputAction: TextInputAction.send,
+            onSubmitted: (_) => _send(),
+            style: const TextStyle(color: Color(0xFFF2F0EB), fontSize: 14),
+            decoration: InputDecoration(hintText: 'مثلاً: بهترین سرور را پیدا کن و وصل شو…',
+              hintStyle: const TextStyle(color: Color(0xFF9DA3AD), fontSize: 13),
+              filled: true, fillColor: const Color(0xFF15181D),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(13), borderSide: BorderSide.none)))),
+          const SizedBox(width: 8),
+          SizedBox(width: 52, height: 48, child: FilledButton(
+            onPressed: _sending ? null : _send,
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFD9AE55),
+              foregroundColor: const Color(0xFF191919), padding: EdgeInsets.zero),
+            child: _sending ? const SizedBox(width: 19, height: 19,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF191919)))
+              : const Icon(Icons.send_rounded))),
+        ]),
+        const SizedBox(height: 8),
+        ValueListenableBuilder<String>(valueListenable: widget.localStatus,
+          builder: (_, status, __) => Text(status.isEmpty ? _reply : status,
+            maxLines: 3, overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Color(0xFFCFD2D8), fontSize: 11.5, height: 1.35))),
+        const SizedBox(height: 4),
+        Text(_reply, maxLines: 2, overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: Color(0xFFFFD98B), fontSize: 11.5)),
+      ]),
+    ),
+  );
 }
