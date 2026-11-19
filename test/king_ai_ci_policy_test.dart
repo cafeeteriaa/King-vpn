@@ -29,6 +29,10 @@ void main() {
       expect(safe, isNot(contains('dXNlcjpwYXNzd29yZA==')));
       expect(safe, isNot(contains('secret-material')));
       expect(safe, contains('[REDACTED_PRIVATE_KEY]'));
+      expect(
+        redactKingAiCiEvidence('https://user:secret@example.com/path'),
+        isNot(contains('user:secret')),
+      );
     });
 
     test('bounds evidence to the requested tail window', () {
