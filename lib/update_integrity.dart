@@ -2,6 +2,20 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 
+/// Only HTTPS downloads from the official GitHub release asset hosts are
+/// accepted. Explicit ports, credentials and lookalike suffix hosts fail closed.
+bool isAllowedUpdateDownloadUri(Uri uri) {
+  const allowedHosts = <String>{
+    'github.com',
+    'release-assets.githubusercontent.com',
+    'objects.githubusercontent.com',
+  };
+  return uri.scheme.toLowerCase() == 'https' &&
+      uri.userInfo.isEmpty &&
+      uri.port == 443 &&
+      allowedHosts.contains(uri.host.toLowerCase());
+}
+
 /// Validates an expected SHA-256 digest and compares it with downloaded bytes.
 /// Invalid or missing digests always fail closed.
 bool verifySha256Bytes(List<int> bytes, String expectedHex) {
