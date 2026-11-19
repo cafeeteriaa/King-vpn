@@ -53,6 +53,18 @@ void main() {
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
     });
 
+
+    test('does not switch on a single responding endpoint', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.degraded,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticDataPlaneVerified: false,
+      );
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
+    });
+
     test('does not infer offline from missing evidence', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.unknown,
