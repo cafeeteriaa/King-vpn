@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
-import '../lib/king_ai_autonomy_policy.dart';
+import 'package:king_vpn/king_ai_autonomy_policy.dart';
 
 void main() {
   group('King AI autonomy guardrails', () {
-    test('permits passive learning and isolated candidates without owner prompt', () {
+    test('passive learning and isolated candidates do not require owner prompt', () {
       for (final operation in <KingAiAutonomyOperation>[
         KingAiAutonomyOperation.observeNetwork,
         KingAiAutonomyOperation.learnFromConnectionEvidence,
@@ -15,19 +15,20 @@ void main() {
       }
     });
 
-    test('requires owner authorization for source and release mutations', () {
+    test('source changes, protected surfaces and release operations are owner-gated', () {
       for (final operation in <KingAiAutonomyOperation>[
         KingAiAutonomyOperation.applySourceChanges,
         KingAiAutonomyOperation.changeDependencies,
         KingAiAutonomyOperation.modifyVpnCoreOrNativeService,
         KingAiAutonomyOperation.changeOwnerSecurityPolicy,
         KingAiAutonomyOperation.publishRelease,
+        KingAiAutonomyOperation.mergeOrPublishRelease,
       ]) {
         expect(kingAiRequiresOwnerAuthorization(operation), isTrue);
       }
     });
 
-    test('background research respects network, battery and pause gates', () {
+    test('background work respects network, battery and pause gates', () {
       expect(kingAiMayRunInBackground(
         networkAvailable: true, batteryNotLow: true, userPaused: false,
       ), isTrue);
@@ -42,8 +43,9 @@ void main() {
       ), isFalse);
     });
 
-    test('keeps the research cadence bounded', () {
-      expect(kingAiOfficialResearchInterval, const Duration(hours: 12));
+    test('research cadence and result budget stay bounded', () {
+      expect(kingAiOfficialResearchInterval, const Duration(hours: 6));
+      expect(kingAiCiRepairInterval, const Duration(minutes: 15));
       expect(kingAiBackgroundResearchMaxResults, 2);
     });
   });

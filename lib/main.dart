@@ -1,6 +1,10 @@
 import 'dart:async';
 import 'network_health.dart';
 import 'king_local_ai.dart';
+import 'king_ai_console.dart';
+import 'king_ai_background.dart';
+import 'king_ai_owner_auth.dart';
+import 'king_command_safety.dart';
 import 'package:local_inference_flutter/local_inference_flutter.dart';
 import 'update_integrity.dart';
 import 'errjournal.dart';
@@ -21,9 +25,10 @@ import 'prefs_store.dart';
 import 'online_count.dart'; // ONLINECOUNT: شمارش کاربران آنلاین
 import 'nnie_core.dart'; // NNIE: کد خالص و قابل تست
 import 'own_vpn.dart'; // KINGVPN: سرویس VPN خودمان (پیش‌فرض خاموش)
-import 'package:workmanager/workmanager.dart';
 import 'package:crypto/crypto.dart'; // فیکس ۱: sha256 برای APK آپدیت
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // فیکس ۲: کلیدهای AI
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'king_voice_output.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'tg_proxy.dart' show tgProxyRow; // فقط پروکسی تلگرام
@@ -2958,18 +2963,11 @@ Future<void> main() async {
   }, (e, st) => logError(e));
 }
 
-// The old 15-minute background scan is gone: while the VPN is off nothing
-// runs and no data is used. The dispatcher stays only so Workmanager can be
-// initialised and the periodic task of old installs can be cancelled.
-@pragma('vm:entry-point')
-void callbackDispatcher() {
-  Workmanager().executeTask((task, input) async => true);
-}
-
+// The King AI supervisor schedules passive, official-source research on
+// startup. Source-repair automation remains a separate owner-authorized choice.
 Future<void> initBackground() async {
   try {
-    await Workmanager().initialize(callbackDispatcher);
-    await Workmanager().cancelAll();
+    await KingAiBackgroundSupervisor.initialize();
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -5541,6 +5539,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState s) {
+    if (s != AppLifecycleState.resumed) KingAiOwnerAuth.instance.lock();
+    if (s != AppLifecycleState.resumed && _smartSpeech.isListening) {
+      unawaited(_smartSpeech.cancel());
+      unawaited(KingVoiceOutput.instance.stop());
+      _smartSpeechListening = false;
+    }
     inForeground = s == AppLifecycleState.resumed;
     _appFg = inForeground;
     if (s == AppLifecycleState.resumed && _joinPending) {
@@ -5705,6 +5709,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _netWatchTimer?.cancel();
     _dbgSaveT?.cancel();
     _dbgProbT?.cancel();
+    unawaited(_smartSpeech.cancel());
+    unawaited(KingVoiceOutput.instance.stop());
     _smartCommandController.dispose();
     super.dispose();
   }
@@ -10644,10 +10650,89 @@ ListTile( // KINGEXTRAS row
 
 
   final TextEditingController _smartCommandController = TextEditingController();
+  final stt.SpeechToText _smartSpeech = stt.SpeechToText();
   bool _smartCommandRunning = false;
+  bool _smartSpeechInitialized = false;
+  bool _smartSpeechAvailable = false;
+  bool _smartSpeechBusy = false;
+  bool _smartSpeechListening = false;
+  String? _smartSpeechLocaleId;
+  bool _smartSpeechVoiceInput = false;
   List<String> _pilotRanges = <String>[];
   bool _pilotRangeBusy = false;
   bool _pilotRangeCancelRequested = false;
+
+  Future<void> _toggleSmartCommandSpeech() async {
+    if (_smartSpeechBusy) return;
+    if (_smartSpeechListening || _smartSpeech.isListening) {
+      await _smartSpeech.stop();
+      if (mounted) setState(() => _smartSpeechListening = false);
+      return;
+    }
+    setState(() => _smartSpeechBusy = true);
+    try {
+      final permission = await Permission.microphone.request();
+      if (!permission.isGranted) {
+        _set('برای فرمان صوتی کینگ، اجازه دسترسی به میکروفون لازم است.');
+        return;
+      }
+      if (!_smartSpeechInitialized) {
+        _smartSpeechAvailable = await _smartSpeech.initialize(
+          onStatus: (status) {
+            if (!mounted) return;
+            setState(() => _smartSpeechListening = _smartSpeech.isListening);
+          },
+          onError: (error) {
+            if (!mounted) return;
+            setState(() => _smartSpeechListening = false);
+            _set('تشخیص گفتار در دسترس نیست: ${error.errorMsg}');
+          },
+        );
+        _smartSpeechInitialized = _smartSpeechAvailable;
+      }
+      if (!_smartSpeechAvailable) {
+        _set('سرویس تشخیص گفتار این دستگاه در دسترس نیست.');
+        return;
+      }
+      final locales = await _smartSpeech.locales();
+      final persian = locales.where((locale) =>
+          locale.localeId.toLowerCase().replaceAll('_', '-').startsWith('fa'));
+      if (persian.isEmpty) {
+        _set('زبان فارسی در سرویس گفتار دستگاه نصب نیست؛ بسته زبان فارسی آفلاین را نصب کن.');
+        return;
+      }
+      _smartSpeechLocaleId = persian.first.localeId;
+      await _smartSpeech.listen(
+        listenOptions: stt.SpeechListenOptions(
+          localeId: _smartSpeechLocaleId,
+          listenFor: const Duration(seconds: 20),
+          pauseFor: const Duration(seconds: 3),
+          onDevice: true,
+          partialResults: true,
+          cancelOnError: true,
+          listenMode: stt.ListenMode.confirmation,
+        ),
+        onResult: (result) {
+          if (!mounted) return;
+          final transcript = result.recognizedWords.trim();
+          if (transcript.isEmpty) return;
+          _smartSpeechVoiceInput = true;
+          setState(() {
+            _smartCommandController.value = TextEditingValue(
+              text: transcript,
+              selection: TextSelection.collapsed(offset: transcript.length),
+            );
+          });
+        },
+      );
+      if (mounted) setState(() => _smartSpeechListening = _smartSpeech.isListening);
+    } catch (error, stack) {
+      logError(error, stack);
+      _set('شروع فرمان صوتی ناموفق بود: $error');
+    } finally {
+      if (mounted) setState(() => _smartSpeechBusy = false);
+    }
+  }
 
   Future<void> _loadSmartCommandFilters() async {
     try {
@@ -10814,12 +10899,22 @@ ListTile( // KINGEXTRAS row
     return null;
   }
 
+  Future<void> _speakSmartCommandResponse(String response) async {
+    if (response.trim().isEmpty) return;
+    try {
+      await KingVoiceOutput.instance.speakPersian(response);
+    } catch (error, stack) {
+      logError(error, stack);
+      // Keep the visible text response available if the device has no Persian
+      // TTS voice installed or its speech engine is unavailable.
+    }
+  }
+
   Future<void> _runSmartCommand([String? raw]) async {
-    final command = (raw ?? _smartCommandController.text)
-        .trim()
-        .toLowerCase()
-        .replaceAll('ي', 'ی')
-        .replaceAll('ك', 'ک');
+    final voiceResponse = _smartSpeechVoiceInput;
+    final command = KingCommandSafety.stripKingAddress(
+      raw ?? _smartCommandController.text,
+    );
     if (command.contains('اسکن') && command.contains('خلبان') &&
         RegExp(r'(لغو|متوقف|توقف)').hasMatch(command)) {
       if (_pilotRangeBusy) {
@@ -10828,11 +10923,22 @@ ListTile( // KINGEXTRAS row
       } else {
         _set('اسکن فعالی از خلبان برای لغو وجود ندارد.');
       }
+      if (voiceResponse) await _speakSmartCommandResponse(status);
+      _smartSpeechVoiceInput = false;
       return;
     }
-    if (command.isEmpty || _smartCommandRunning) return;
+    if (command.isEmpty || _smartCommandRunning) {
+      _smartSpeechVoiceInput = false;
+      return;
+    }
     setState(() => _smartCommandRunning = true);
     try {
+      if (command == 'راهنما' || command == 'help' || command.contains('دستورات')) {
+        _set('فرمان‌ها: «کینگ وصل شو»، «کینگ قطع اتصال»، «کینگ وضعیت اتصال»، '
+            '«کینگ نت ملی وصل شو»، «کینگ نت جهانی وصل شو»، «کینگ خلبان اسکن کن». '
+            'درخواست تغییر کد فقط از پنل امن مالک اصلی پذیرفته می‌شود.');
+        return;
+      }
       final countryCode = _smartCountryCode(command);
       final normalized = command
           .replaceAll('vmees', 'vmess')
@@ -10845,25 +10951,46 @@ ListTile( // KINGEXTRAS row
       final selectedProtocols = supportedProtocols
           .where((p) => RegExp(r'\b' + p + r'\b').hasMatch(normalized))
           .toList();
-      final wantsConnect = RegExp(r'(اتصال|وصل|شروع|connect)').hasMatch(command);
+      final negatesConnection = KingCommandSafety.negatesConnection(command);
+      final wantsConnect = RegExp(r'(اتصال|وصل|شروع|connect)').hasMatch(command) &&
+          !negatesConnection;
+      final negatesScan = KingCommandSafety.negatesScan(command);
       final clearFilters = RegExp(r'(پاک کردن فیلتر|حذف محدودیت|ریست فیلتر)').hasMatch(command);
       final allCountries = RegExp(r'(همه کشورها|تمام کشورها)').hasMatch(command);
       final allProtocols = RegExp(r'(همه پروتکل|تمام پروتکل)').hasMatch(command);
+      final codeRequest = RegExp(
+        r'(کدنویسی کن|برنامه نویسی کن|کد بنویس|کدشو بنویس|کد تولید|کد جدید|کد رو بنویس|کد را بنویس|'
+        r'کد رو اصلاح|کد را اصلاح|سورس رو تغییر|سورس را تغییر|برنامه رو تغییر|'
+        r'برنامه را تغییر|به برنامه اضافه|قابلیت بساز|قابلیت جدید|قابلیت اضافه|قابلیت اضافه کن|'
+        r'ویژگی جدید|ویژگی اضافه|افزودن قابلیت|توسعه بده|پیاده سازی کن|پیاده‌سازی کن|'
+        r'write code|generate code|add feature|implement feature|create module|'
+        r'بهینه.{0,30}(کل اپ|کل برنامه|کل پروژه|سورس|کد)|'
+        r'(کل اپ|کل برنامه|کل پروژه).{0,30}(بهینه|ارتقا|بروز|به روز)|'
+        r'(اینترنت ایران|نت ملی).{0,30}(قابلیت جدید|امکانات جدید|افزودن|اضافه|کدنویسی|سورس|کد)|'
+        r'(نت ملی|اینترنت ایران).{0,40}(بهینه|ارتقا|بروز|به روز|خودکار|هوشمند|توسعه|تقویت)|'
+        r'(بهینه|ارتقا|بروز|به روز|خودکار|هوشمند|توسعه|تقویت).{0,40}(نت ملی|اینترنت ایران))',
+      ).hasMatch(command);
 
-      if (RegExp(r'(قطع اتصال|قطع|disconnect|خاموش کردن اتصال)').hasMatch(command) &&
-          !command.contains('نکن')) {
+      if (codeRequest) {
+        unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => KingAiConsolePage(initialFeatureRequest: command,
+              speakResponses: voiceResponse),
+        )));
+        _set('چشم رئیس؛ فقط مالک اصلی پس از احراز هویت می‌تواند درخواست تغییر کد را ثبت کند. کینگ آن را تحلیل می‌کند و تغییرات را فقط در شاخهٔ بازبینی‌شونده آماده می‌کند.');
+      } else if (RegExp(r'(قطع اتصال|قطع|disconnect|خاموش کردن اتصال)').hasMatch(command) &&
+          !negatesConnection) {
         if (localPilotOn) stopLocalPilot();
         await disconnect();
         _set('دستور اجرا شد: اتصال قطع شد.');
       } else if (command.contains('بازه') && command.contains('خلبان')) {
         await _pilotRangesDialog(context);
-      } else if (command.contains('اسکن') && command.contains('خلبان')) {
+      } else if (!negatesScan && command.contains('اسکن') && command.contains('خلبان')) {
         await _pilotScanOnly();
-      } else if (command.contains('اسکنر dns') || command.contains('پویش dns')) {
+      } else if (!negatesScan && (command.contains('اسکنر dns') || command.contains('پویش dns'))) {
         dnsxSheet(context);
-      } else if (command.contains('اسکن ip') || command.contains('پویش ip')) {
+      } else if (!negatesScan && (command.contains('اسکن ip') || command.contains('پویش ip'))) {
         ipAutoSheet(context);
-      } else if (command.contains('اسکن sni') || command.contains('اسکن پورت')) {
+      } else if (!negatesScan && (command.contains('اسکن sni') || command.contains('اسکن پورت'))) {
         autoScanSheet(context);
       } else if (command.contains('ip تمیز') || command.contains('آی پی تمیز')) {
         cleanIpDialog();
@@ -10913,13 +11040,19 @@ ListTile( // KINGEXTRAS row
           }
           _set('فیلتر فرمان اعمال شد • ' + applied);
         }
+      } else if (KingLocalAi.instance.isLoaded) {
+        _set('کینگ در حال تحلیل درخواست است...');
+        final answer = await KingLocalAi.instance.ask(command, maxTokens: 512);
+        _set(answer);
       } else {
-        _set('دستور شناخته نشد. از پوشه راهنمای زیر کادر نمونه‌ها را ببین.');
+        _set('این فرمان جزو فرمان‌های اتصال شناخته‌شده نیست. برای گفت‌وگوی آزاد با کینگ، مدل محلی را از پنل هوش مصنوعی بارگذاری کن.');
       }
     } catch (e, st) {
       logError(e, st);
       _set('اجرای دستور با خطا روبه‌رو شد: ' + e.toString());
     } finally {
+      if (voiceResponse) await _speakSmartCommandResponse(status);
+      _smartSpeechVoiceInput = false;
       if (mounted) setState(() => _smartCommandRunning = false);
     }
   }
@@ -10933,8 +11066,24 @@ ListTile( // KINGEXTRAS row
         const Row(children: [Icon(Icons.psychology_alt, color: Color(0xFF83DFFF)), SizedBox(width: 8), Expanded(child: Text('مرکز فرمان هوشمند', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFFE8EDF7))))]),
         const SizedBox(height: 8),
         TextField(controller: _smartCommandController, minLines: 1, maxLines: 3, textInputAction: TextInputAction.send,
+          onChanged: (_) => _smartSpeechVoiceInput = false,
           onSubmitted: (_) => _runSmartCommand(), style: const TextStyle(color: Color(0xFFE8EDF7)),
-          decoration: InputDecoration(hintText: 'مثلاً: اتصال خلبان با سرورهای آلمان و فقط VMess؛ یا اسکن IP خلبان...', hintStyle: const TextStyle(color: Color(0xFF8D9BAD), fontSize: 12), filled: true, fillColor: const Color(0xFF0D1420), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), suffixIcon: IconButton(tooltip: 'پاک کردن', onPressed: () => _smartCommandController.clear(), icon: const Icon(Icons.close)))),
+          decoration: InputDecoration(hintText: 'مثلاً: اتصال خلبان با سرورهای آلمان و فقط VMess؛ یا اسکن IP خلبان...', hintStyle: const TextStyle(color: Color(0xFF8D9BAD), fontSize: 12), filled: true, fillColor: const Color(0xFF0D1420), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), suffixIcon: Row(mainAxisSize: MainAxisSize.min, children: [
+            IconButton(
+              tooltip: _smartSpeechListening ? 'توقف ضبط فرمان' : 'فرمان صوتی فارسی کینگ (پردازش آفلاین)',
+              onPressed: _smartSpeechBusy ? null : _toggleSmartCommandSpeech,
+              icon: Icon(_smartSpeechListening ? Icons.mic : Icons.mic_none,
+                  color: _smartSpeechListening ? const Color(0xFFFF7777) : const Color(0xFF83DFFF)),
+            ),
+            IconButton(tooltip: 'پاک کردن', onPressed: () { _smartSpeechVoiceInput = false; _smartCommandController.clear(); }, icon: const Icon(Icons.close)),
+          ]))),
+        if (_smartSpeechListening)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 6),
+            child: Text('کینگ گوش می‌دهد؛ متن تشخیص‌داده‌شده را بررسی و سپس اجرا کن.',
+                textAlign: TextAlign.right,
+                style: TextStyle(color: Color(0xFF83DFFF), fontSize: 11)),
+          ),
         const SizedBox(height: 8),
         FilledButton.icon(onPressed: _smartCommandRunning ? null : () => _runSmartCommand(), icon: _smartCommandRunning ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.play_arrow), label: Text(_smartCommandRunning ? 'در حال اجرا...' : 'اجرای دستور')),
         ExpansionTile(tilePadding: EdgeInsets.zero, childrenPadding: const EdgeInsets.only(bottom: 4), title: const Text('راهنما و توضیحات'),
@@ -15361,7 +15510,11 @@ ListTile( // KINGEXTRAS row
           ),
           PopupMenuButton<String>(
             onSelected: (v) {
-              if (v == 'kingai') _kingAiSheet();
+              if (v == 'kingai') {
+                Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => const KingAiConsolePage(),
+                ));
+              }
               if (v == 'set') _settingsSheet();
               if (v == 'apps') _appsSheet();
               if (v == 'add') _importDialog();

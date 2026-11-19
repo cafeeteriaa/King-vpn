@@ -39,6 +39,8 @@ void main() {
       expect(kingAiCiRepairBackoff(0), Duration.zero);
       expect(kingAiCiRepairBackoff(1), const Duration(minutes: 10));
       expect(kingAiCiRepairBackoff(2), const Duration(minutes: 20));
+      expect(kingAiCiRepairBackoff(3), const Duration(minutes: 40));
+      expect(kingAiCiRepairBackoff(10), const Duration(hours: 6));
       expect(kingAiCiRepairBackoff(20), const Duration(hours: 6));
       expect(kingAiCiRepairBackoff(-1), Duration.zero);
     });
