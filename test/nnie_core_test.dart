@@ -122,6 +122,22 @@ void main() {
       expect(ev.classify(), NatNetworkClass.transportRestricted);
     });
 
+    test('domestic DNS alone never proves a working national data path', () {
+      const ev = NatProbeEvidence(
+        domesticDnsOk: true, domesticTcpOk: false,
+        globalDnsOk: false, globalTcpOk: false, sampleCount: 8,
+      );
+      expect(ev.classify(), NatNetworkClass.transportRestricted);
+    });
+
+    test('global TCP reachability is recognized even if domestic targets fail', () {
+      const ev = NatProbeEvidence(
+        domesticDnsOk: false, domesticTcpOk: false,
+        globalDnsOk: false, globalTcpOk: true, sampleCount: 4,
+      );
+      expect(ev.classify(), NatNetworkClass.globalReachable);
+    });
+
     test('nothing reachable -> unknown, not domesticOnlyLikely', () {
       const ev = NatProbeEvidence(
         domesticDnsOk: false, domesticTcpOk: false,
