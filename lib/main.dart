@@ -14544,14 +14544,8 @@ ListTile( // KINGEXTRAS row
               child: Column(children: [
           for (final s in list)
             InkWell(
-              onTap: (connected && identical(s, current))
-                  ? null
-                  : persMode
-                      ? () {
-                          // PERSLOWEST: تپ روی سرور شخصی = تبلیغ، پینگ همه‌ی پوشه، وصل به کمترین پینگ
-                          unawaited(_personalAdThen(() => personalFolderConnect()));
-                        }
-                      : () => pickEngineThenStart(() => connect(s), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */,
+              // Connection switching is centralized in the Smart Pilot command field.
+              onTap: null,
               child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               child: Row(children: [
