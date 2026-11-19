@@ -15916,31 +15916,54 @@ class UiHero extends StatelessWidget {
           onTap: onTap,
           child: Stack(alignment: Alignment.center, children: [
             Container(
-              width: 160,
-              height: 160,
+              width: 190,
+              height: 190,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: const Color(0xFF352919),
+                color: const Color(0xFF171B25),
                 border: Border.all(
-                    color: on ? _uiGold : const Color(0x88D9AE55), width: 4),
-                boxShadow: on
-                    ? const [BoxShadow(color: Color(0x77D9AE55), blurRadius: 24)]
-                    : null,
+                    color: on ? _uiGold : const Color(0x887C91B8), width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: on ? const Color(0x8874D9FF) : const Color(0x557C91B8),
+                    blurRadius: on ? 34 : 22,
+                    spreadRadius: on ? 3 : 1,
+                  ),
+                  const BoxShadow(color: Color(0xAA090D16), blurRadius: 18, spreadRadius: 4),
+                ],
               ),
-              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Text(big,
-                    style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: _uiGold)),
-                const SizedBox(height: 6),
-                Text(label, style: const TextStyle(fontSize: 13, color: _uiSub)),
-              ]),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  const Positioned.fill(
+                    child: CustomPaint(painter: KingBrainPainter()),
+                  ),
+                  Positioned(
+                    bottom: 20,
+                    left: 4,
+                    right: 4,
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      Text(big,
+                          style: const TextStyle(
+                              fontSize: 21,
+                              fontWeight: FontWeight.bold,
+                              color: _uiGold,
+                              shadows: [Shadow(color: Color(0xCC000000), blurRadius: 8)])),
+                      const SizedBox(height: 2),
+                      Text(label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 11, color: Colors.white70)),
+                    ]),
+                  ),
+                ],
+              ),
             ),
             if (busy)
               const SizedBox(
-                  width: 160,
-                  height: 160,
+                  width: 190,
+                  height: 190,
                   child: CircularProgressIndicator(
                       strokeWidth: 3, color: _uiGold)),
           ]),
@@ -15961,6 +15984,85 @@ class UiHero extends StatelessWidget {
 
 
 
+
+
+/// Neural brain mark for the single King AI Pilot control.
+class KingBrainPainter extends CustomPainter {
+  const KingBrainPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.scale(size.width / 190, size.height / 190);
+    final glow = Paint()
+      ..color = const Color(0x5574D9FF)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 8
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
+    final line = Paint()
+      ..color = const Color(0xFF83DFFF)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.4
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final faint = Paint()
+      ..color = const Color(0x9974BFE8)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2;
+    final brain = Path()
+      ..moveTo(94, 35)
+      ..cubicTo(80, 21, 62, 29, 61, 45)
+      ..cubicTo(42, 44, 35, 62, 43, 77)
+      ..cubicTo(30, 91, 40, 111, 55, 114)
+      ..cubicTo(53, 132, 69, 142, 83, 134)
+      ..cubicTo(88, 145, 100, 145, 95, 129)
+      ..lineTo(95, 35)
+      ..moveTo(96, 35)
+      ..cubicTo(110, 21, 128, 29, 129, 45)
+      ..cubicTo(148, 44, 155, 62, 147, 77)
+      ..cubicTo(160, 91, 150, 111, 135, 114)
+      ..cubicTo(137, 132, 121, 142, 107, 134)
+      ..cubicTo(102, 145, 90, 145, 95, 129);
+    canvas.drawPath(brain, glow);
+    canvas.drawPath(brain, line);
+    canvas.drawPath(Path()..moveTo(95, 35)..lineTo(95, 130), faint);
+    final folds = <Path>[
+      Path()..moveTo(61, 47)..cubicTo(76, 45, 79, 57, 73, 67)..cubicTo(65, 77, 70, 86, 84, 87),
+      Path()..moveTo(44, 78)..cubicTo(58, 72, 64, 83, 59, 96)..cubicTo(55, 106, 65, 116, 77, 112),
+      Path()..moveTo(129, 47)..cubicTo(114, 45, 111, 57, 117, 67)..cubicTo(125, 77, 120, 86, 106, 87),
+      Path()..moveTo(146, 78)..cubicTo(132, 72, 126, 83, 131, 96)..cubicTo(135, 106, 125, 116, 113, 112),
+    ];
+    for (final path in folds) canvas.drawPath(path, faint);
+    final nodes = <Offset>[
+      const Offset(61, 47), const Offset(73, 67), const Offset(44, 78),
+      const Offset(59, 96), const Offset(77, 112), const Offset(129, 47),
+      const Offset(117, 67), const Offset(146, 78), const Offset(131, 96),
+      const Offset(113, 112), const Offset(95, 35), const Offset(95, 130),
+    ];
+    final nodePaint = Paint()..color = const Color(0xFFFFD778);
+    final nodeGlow = Paint()
+      ..color = const Color(0x6674D9FF)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
+    for (final node in nodes) {
+      canvas.drawCircle(node, 5, nodeGlow);
+      canvas.drawCircle(node, 2.7, nodePaint);
+    }
+    final circuit = Paint()
+      ..color = const Color(0x6674D9FF)
+      ..strokeWidth = 1.2
+      ..style = PaintingStyle.stroke;
+    for (final path in [
+      Path()..moveTo(24, 62)..lineTo(39, 62)..lineTo(48, 72),
+      Path()..moveTo(25, 111)..lineTo(43, 111)..lineTo(54, 105),
+      Path()..moveTo(166, 62)..lineTo(151, 62)..lineTo(142, 72),
+      Path()..moveTo(165, 111)..lineTo(147, 111)..lineTo(136, 105),
+    ]) canvas.drawPath(path, circuit);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant KingBrainPainter oldDelegate) => false;
+}
 
 // RESETALL ================================================================
 extension ResetAllExt on _HomePageState {
