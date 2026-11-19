@@ -945,5 +945,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn(r'FileProvider"\\n', provider)
         self.assertIn('@xml/king_file_paths', provider)
 
+    def test_explicit_network_command_pins_smart_pilot_mode_for_session(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        command_start = main.index('} else if (requestedNetworkMode != null && wantsConnect)')
+        command_end = main.index("} else if (RegExp(r'(قطع اتصال", command_start)
+        command = main[command_start:command_end]
+        self.assertIn('await startLocalPilot(pinNetworkMode: true);', command)
+        self.assertIn('bool _pilotNetworkModePinned = false;', pilot)
+        detect_start = pilot.index('Future<NatNetworkClass> _pilotDetectNetworkMode() async')
+        detect_end = pilot.index('void ensureLocalPilotRunning()', detect_start)
+        detection = pilot[detect_start:detect_end]
+        self.assertIn('if (!_pilotNetworkModePinned)', detection)
+        self.assertIn('PILOT-MODE-PINNED', detection)
+        start = pilot.index('Future<void> startLocalPilot({bool pinNetworkMode = false})')
+        stop = pilot.index('void stopLocalPilot()', start)
+        lifecycle = pilot[start:stop]
+        self.assertIn('_pilotNetworkModePinned = pinNetworkMode;', lifecycle)
+        self.assertIn('_pilotNetworkModePinned = false;', lifecycle)
+        self.assertIn('_pilotNetworkModePinned = false;', pilot[stop:stop + 220])
+
+
 if __name__ == '__main__':
     unittest.main()
