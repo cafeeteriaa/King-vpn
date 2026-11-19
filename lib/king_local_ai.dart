@@ -485,10 +485,16 @@ empty changes list and explain what is missing.
 
     final runsResponse = await _github('GET',
         '/repos/$repo/actions/runs?head_sha=$sha&per_page=10');
-    final runs = (runsResponse['workflow_runs'] as List? ?? const [])
+    final workflowRuns = (runsResponse['workflow_runs'] as List? ?? const [])
         .whereType<Map>()
+        .toList();
+    final runs = workflowRuns
         .where((run) => run['status'] == 'completed' && run['conclusion'] == 'failure')
         .take(3);
+    final checksPending = checkRuns.any((item) => item['status'] != 'completed') ||
+        workflowRuns.any((run) => run['status'] == 'queued' ||
+            run['status'] == 'in_progress' || run['status'] == 'waiting' ||
+            run['status'] == 'requested');
     for (final run in runs) {
       final runId = run['id'];
       if (runId is! num) continue;
@@ -528,6 +534,7 @@ empty changes list and explain what is missing.
       'state': pull['state']?.toString() ?? '',
       'failures': failures,
       'hasFailures': failures.isNotEmpty,
+      'checksPending': checksPending,
       'allChecksPassed': failures.isEmpty && checkRuns.isNotEmpty &&
           checkRuns.every((item) => item['status'] == 'completed' &&
               item['conclusion'] == 'success'),
@@ -544,7 +551,14 @@ empty changes list and explain what is missing.
     final report = await inspectPullRequestCi(
       owner: owner, repository: repository, pullNumber: pullNumber);
     if (report['hasFailures'] != true) {
-      return {'status': 'no_failed_checks', 'report': report};
+      return {
+        'status': report['allChecksPassed'] == true
+            ? 'checks_passed'
+            : report['checksPending'] == true
+                ? 'checks_pending'
+                : 'no_failed_checks',
+        'report': report,
+      };
     }
     final root = await getApplicationSupportDirectory();
     final attemptsFile = File('${root.path}/king_ai_ci_repair_attempts.json');
@@ -597,6 +611,89 @@ empty changes list and explain what is missing.
       'summary': proposal['summary'],
       'report': report,
     };
+  }
+
+  /// Polls CI and performs bounded follow-up repairs until checks pass or
+  /// the retry/time budget is exhausted. It never merges or releases a PR.
+  Future<Map<String, Object?>> repairUntilGreen({
+    required String owner,
+    required String repository,
+    required int pullNumber,
+    int maxRepairCycles = 2,
+    int pollsPerPull = 8,
+    Duration pollInterval = const Duration(seconds: 15),
+  }) async {
+    if (maxRepairCycles < 0 || maxRepairCycles > 2) {
+      throw ArgumentError.value(maxRepairCycles, 'maxRepairCycles', 'Must be 0..2');
+    }
+    if (pollsPerPull < 1 || pollsPerPull > 12) {
+      throw ArgumentError.value(pollsPerPull, 'pollsPerPull', 'Must be 1..12');
+    }
+    var currentPull = pullNumber;
+    String? latestRepairUrl;
+    for (var cycle = 0; cycle <= maxRepairCycles; cycle++) {
+      Map<String, Object?> report = <String, Object?>{};
+      for (var poll = 0; poll < pollsPerPull; poll++) {
+        report = await inspectPullRequestCi(
+          owner: owner, repository: repository, pullNumber: currentPull);
+        if (report['hasFailures'] == true ||
+            report['allChecksPassed'] == true ||
+            report['checksPending'] != true) {
+          break;
+        }
+        await Future.delayed(pollInterval);
+      }
+      if (report['allChecksPassed'] == true) {
+        return {
+          'status': 'checks_passed',
+          'pullNumber': currentPull,
+          'url': latestRepairUrl,
+          'report': report,
+          'repairCycles': cycle,
+        };
+      }
+      if (report['hasFailures'] != true) {
+        return {
+          'status': report['checksPending'] == true
+              ? 'checks_pending_timeout'
+              : 'ci_result_inconclusive',
+          'pullNumber': currentPull,
+          'url': latestRepairUrl,
+          'report': report,
+          'repairCycles': cycle,
+        };
+      }
+      if (cycle >= maxRepairCycles) {
+        return {
+          'status': 'repair_limit_reached',
+          'pullNumber': currentPull,
+          'url': latestRepairUrl,
+          'report': report,
+          'repairCycles': cycle,
+        };
+      }
+      final repair = await repairFromFailedCi(
+        owner: owner, repository: repository, pullNumber: currentPull);
+      if (repair['status'] != 'follow_up_pull_request_created') {
+        return {
+          ...repair,
+          'previousPullNumber': currentPull,
+          'repairCycles': cycle,
+        };
+      }
+      latestRepairUrl = repair['url']?.toString();
+      final match = RegExp(r'/pull/(\\d+)').firstMatch(latestRepairUrl ?? '');
+      final nextPull = int.tryParse(match?.group(1) ?? '');
+      if (nextPull == null || nextPull < 1) {
+        return {
+          'status': 'follow_up_pr_number_unavailable',
+          'url': latestRepairUrl,
+          'summary': repair['summary'],
+        };
+      }
+      currentPull = nextPull;
+    }
+    return {'status': 'repair_loop_stopped', 'url': latestRepairUrl};
   }
 
   static const Set<String> _researchHosts = {
