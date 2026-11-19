@@ -1509,6 +1509,9 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     if (q.length > 400) {
       throw ArgumentError('Research query is limited to 400 characters');
     }
+    if (!isSafeKingAiPublicResearchQuery(q)) {
+      throw ArgumentError('Research query contains private or credential-like data');
+    }
     final boundedResults = maxResults.clamp(1, 8);
     final searchUri = Uri.https('www.google.com', '/search', {
       'q': q,
