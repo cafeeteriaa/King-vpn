@@ -76,6 +76,16 @@ def prepare(source: Path, output_dir: Path, min_examples: int = 5) -> dict:
             if not valid or total_chars > 48000 or not safe_sources:
                 rejected += 1
                 continue
+            # Re-scan every field here as defense in depth. The collector is
+            # not the only possible producer of this JSONL file.
+            all_text = (
+                task + "\\n" +
+                json.dumps(safe_sources, ensure_ascii=False, sort_keys=True) + "\\n" +
+                json.dumps(changes, ensure_ascii=False, sort_keys=True)
+            )
+            if has_secret(all_text):
+                rejected += 1
+                continue
             serialized_sources = json.dumps(safe_sources, ensure_ascii=False, sort_keys=True)
             target = json.dumps({
                 "summary": "Verified merged repair",
