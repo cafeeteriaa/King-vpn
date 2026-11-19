@@ -54,6 +54,22 @@ class MergedRepairCollectorTests(unittest.TestCase):
             }
         raise AssertionError(url)
 
+    def test_secret_scan_rejects_common_provider_credentials_and_pem_keys(self):
+        secrets = [
+            "sk-123456789012345678901234",
+            "xoxb-123456789012",
+            "AIza1234567890123456789012345678901234",
+            "Basic dXNlcjpwYXNzd29yZA==",
+            "-----BEGIN PRIVATE KEY-----",
+            "AKIA1234567890ABCDEF",
+        ]
+        for value in secrets:
+            with self.subTest(value=value):
+                self.assertFalse(module.secret_free(value))
+
+    def test_secret_scan_accepts_non_secret_technical_text(self):
+        self.assertTrue(module.secret_free("Flutter build failed: missing class MainActivity"))
+
     def test_collects_full_source_and_target_for_merged_green_repair(self):
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp) / "data" / "repairs.jsonl"
