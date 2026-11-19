@@ -304,8 +304,8 @@ class PilotNetworkProbe {
       globalSamples: global.length,
       domesticLatencyMs: _median(domestic),
       globalLatencyMs: _median(global),
-      domesticDataPlaneVerified: domestic.any((x) => x != null),
-      globalDataPlaneVerified: global.any((x) => x != null),
+      domesticDataPlaneVerified: domestic.whereType<int>().length >= 2,
+      globalDataPlaneVerified: global.whereType<int>().length >= 2,
     );
     _lastAt = DateTime.now();
     _lastIdentity = identity;
