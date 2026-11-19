@@ -231,6 +231,30 @@ void main() {
       expect(back.stableSuccesses, 3);
     });
 
+    test('stale endpoint history loses influence over time', () {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final fresh = NatEndpointMemory(
+        attempts: 10, successes: 10, failStreak: 0,
+        ewmaConnectMs: 1000, lastSuccessMs: now, stableSuccesses: 10,
+      );
+      final stale = NatEndpointMemory(
+        attempts: 10, successes: 10, failStreak: 0,
+        ewmaConnectMs: 1000,
+        lastSuccessMs: now - const Duration(days: 30).inMilliseconds,
+        stableSuccesses: 10,
+      );
+      expect(fresh.score, greaterThan(stale.score));
+      expect(stale.score, lessThan(fresh.score * 0.25));
+    });
+
+    test('missing success timestamp treats historical evidence as stale', () {
+      const m = NatEndpointMemory(
+        attempts: 10, successes: 10, failStreak: 0,
+        ewmaConnectMs: 1000, lastSuccessMs: 0, stableSuccesses: 10,
+      );
+      expect(m.score, lessThan(15));
+    });
+
     test('a failure streak lowers the score', () {
       const healthy = NatEndpointMemory(
         attempts: 10, successes: 9, failStreak: 0,
