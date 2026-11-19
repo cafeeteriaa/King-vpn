@@ -11125,7 +11125,7 @@ ListTile( // KINGEXTRAS row
           onSubmitted: (_) => _runSmartCommand(), style: const TextStyle(color: Color(0xFFE8EDF7)),
           decoration: InputDecoration(hintText: 'مثلاً: اتصال خلبان با سرورهای آلمان و فقط VMess؛ یا اسکن IP خلبان...', hintStyle: const TextStyle(color: Color(0xFF8D9BAD), fontSize: 12), filled: true, fillColor: const Color(0xFF0D1420), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), suffixIcon: Row(mainAxisSize: MainAxisSize.min, children: [
             IconButton(
-              tooltip: _smartSpeechListening ? 'توقف ضبط فرمان' : 'فرمان صوتی فارسی کینگ (پردازش آفلاین)',
+              tooltip: _smartSpeechListening ? 'توقف ضبط فرمان' : 'فرمان صوتی فارسی کینگ (آفلاین یا سرویس گفتار دستگاه)',
               onPressed: _smartSpeechBusy ? null : _toggleSmartCommandSpeech,
               icon: Icon(_smartSpeechListening ? Icons.mic : Icons.mic_none,
                   color: _smartSpeechListening ? const Color(0xFFFF7777) : const Color(0xFF83DFFF)),
