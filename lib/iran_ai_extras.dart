@@ -2241,14 +2241,16 @@ extension HomeExtras on _HomePageState {
     set['fastWorkers'] = fastWorkers;
     set['timeout'] = delayTimeout.inSeconds;
 
-    // بهترین اقدام یادگرفته‌شده برای این اپراتور
+    // یادگیری فقط از نتیجه‌ی تأییدشده؛ تعداد تلاش‌ها به‌تنهایی «برد» نیست.
     final opKey = s.operatorKey;
     String? memoryBest;
     var memoryBestW = 0;
     if (opKey.isNotEmpty) {
       for (final e in _localOpWins.entries) {
-        if (e.key.startsWith('$opKey|') && e.value > memoryBestW) {
-          memoryBestW = e.value;
+        if (!e.key.startsWith('$opKey|')) continue;
+        final losses = _localOpLosses[e.key] ?? 0;
+        if (e.value >= 3 && e.value > losses && e.value > memoryBestW) {
+          memoryBestW = e.value - losses;
           memoryBest = e.key.split('|').last;
         }
       }
@@ -2315,6 +2317,81 @@ extension HomeExtras on _HomePageState {
     return best;
   }
 
+  Future<void> _pilotLoadExperience() async {
+    if (_pilotExperienceLoaded) return;
+    _pilotExperienceLoaded = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_pilotExperiencePrefsKey);
+      if (raw == null || raw.isEmpty) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return;
+      Map<String, int> readMap(Object? value) {
+        if (value is! Map) return <String, int>{};
+        return <String, int>{
+          for (final entry in value.entries)
+            if (entry.key is String && entry.value is num)
+              (entry.key as String): (entry.value as num).toInt().clamp(0, 10000),
+        };
+      }
+      _localOpWins = readMap(decoded['wins']);
+      _localOpLosses = readMap(decoded['losses']);
+    } catch (e, st) {
+      logError(e, st);
+    }
+  }
+
+  Future<void> _pilotSaveExperience() async {
+    try {
+      // Bound memory size and values; experience is advisory, never authority.
+      Map<String, int> bounded(Map<String, int> source) {
+        final entries = source.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
+        return Map<String, int>.fromEntries(entries.take(100).map(
+          (e) => MapEntry(e.key, e.value.clamp(0, 10000)),
+        ));
+      }
+      _localOpWins = bounded(_localOpWins);
+      _localOpLosses = bounded(_localOpLosses);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_pilotExperiencePrefsKey, jsonEncode({
+        'version': 1,
+        'wins': _localOpWins,
+        'losses': _localOpLosses,
+      }));
+    } catch (e, st) {
+      logError(e, st);
+    }
+  }
+
+  void _pilotBeginExperience(String operatorKey, String action) {
+    final op = operatorKey.trim();
+    if (op.isEmpty || action.isEmpty) return;
+    _pilotPendingExperienceKey = '$op|$action';
+    _pilotPendingExperienceAt = DateTime.now();
+  }
+
+  Future<void> _pilotReconcileExperience(_LocalNetSnap snap) async {
+    final key = _pilotPendingExperienceKey;
+    final at = _pilotPendingExperienceAt;
+    if (key == null || at == null) return;
+    // Count a win only when class-appropriate tunnel traffic is verified or
+    // real throughput is measured. A connected core alone is not success.
+    final verified = snap.connected &&
+        (snap.netOk == true || (snap.speedMBs != null && snap.speedMBs! >= 0.25));
+    final expiredFailure = !snap.connected &&
+        DateTime.now().difference(at) >= const Duration(minutes: 2);
+    if (!verified && !expiredFailure) return;
+    if (verified) {
+      _localOpWins[key] = (_localOpWins[key] ?? 0) + 1;
+    } else {
+      _localOpLosses[key] = (_localOpLosses[key] ?? 0) + 1;
+    }
+    _pilotPendingExperienceKey = null;
+    _pilotPendingExperienceAt = null;
+    await _pilotSaveExperience();
+  }
+
   Future<void> _localApply(_LocalDecision d) async {
     _localLastAction = d.action;
 
@@ -2338,12 +2415,14 @@ extension HomeExtras on _HomePageState {
     switch (d.action) {
       case 'connect':
         if (!connected && !busy) {
+          _pilotBeginExperience(_localLastOp, 'connect');
           turboSpeed = true;
           _applyTurboLevers();
           await connect();
         }
         break;
       case 'soft_recover':
+        _pilotBeginExperience(_localLastOp, 'soft_recover');
         // بازیابی نرم: فقط توربو همان سرور قبل از تعویض کامل (جدید: بدون نت ملی)
         if (connected && current != null && !busy && !switching) {
           turboSpeed = true;
@@ -2359,11 +2438,7 @@ extension HomeExtras on _HomePageState {
         if (!busy && !switching) {
           final best = _pilotBestStandby();
           if (best != null) {
-            final op = _localLastOp;
-            if (op.isNotEmpty) {
-              final k = '$op|switch_best';
-              _localOpWins[k] = (_localOpWins[k] ?? 0) + 1;
-            }
+            _pilotBeginExperience(_localLastOp, 'switch_best');
             await _swapTo(best);
             _localConnectedSince = DateTime.now();
             _localSlowStreak = 0;
@@ -2642,7 +2717,9 @@ extension HomeExtras on _HomePageState {
         _localApplyMaxPowerProfile(power: wantPower);
       }
 
+      await _pilotLoadExperience();
       final snap = await _localGather(probe: true);
+      await _pilotReconcileExperience(snap);
       final baseDecision = _localDecide(snap);
       final decision = await _localAiReview(snap, baseDecision);
 
@@ -3812,7 +3889,12 @@ int _localSvcFail = 0; // consecutive active-network data-plane probe failures
 int _localNetFail = 0;
 
 // حافظه یادگیری محلی: اپراتور → آخرین اقدام موفق / امتیاز
-final Map<String, int> _localOpWins = {}; // action hash → win count
+final Map<String, int> _localOpWins = {}; // confirmed successes by operator/action
+Map<String, int> _localOpLosses = {}; // confirmed failures by operator/action
+const String _pilotExperiencePrefsKey = 'king_pilot_experience_v1';
+bool _pilotExperienceLoaded = false;
+String? _pilotPendingExperienceKey;
+DateTime? _pilotPendingExperienceAt;
 final Map<String, int> _localOpFails = {};
 
 // ماشین‌حالت
