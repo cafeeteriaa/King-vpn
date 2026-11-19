@@ -173,7 +173,11 @@ extension UltimateExt on _HomePageState {
 
   Future<void> panicNow() async {
     abort = true;
-    stopAiSession();
+    if (localPilotOn) {
+      stopLocalPilot();
+    } else {
+      stopAiSession();
+    }
     stopNetWatch();
     aiSession = false;
     aiLoop?.cancel();
