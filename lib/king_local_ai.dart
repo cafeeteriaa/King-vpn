@@ -19,6 +19,9 @@ class KingLocalAi {
   KingLocalAi._();
   static final KingLocalAi instance = KingLocalAi._();
 
+  static const String _repositoryOwner = 'cafeeteriaa';
+  static const String _repositoryName = 'King-vpn';
+
   static const String modelId = 'qwen25-coder-15b-q4km-v1';
   static const String modelUrl =
       'https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/f86cb2c1fa58255f8052cc32aeede1b7482d4361/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf';
@@ -70,7 +73,7 @@ empty changes list and explain what is missing.
     final previous = await _secure.read(key: 'king_ai_github_token');
     await _secure.write(key: 'king_ai_github_token', value: value);
     try {
-      await _requireRepositoryOwnerIdentity('cafeeteriaa');
+      await _requireRepositoryOwnerIdentity();
     } catch (_) {
       if (previous == null) {
         await _secure.delete(key: 'king_ai_github_token');
@@ -499,7 +502,14 @@ empty changes list and explain what is missing.
   /// Require the authenticated GitHub identity to be the repository owner.
   /// Device-local password alone is not sufficient authority to write to the
   /// upstream project; GitHub must independently confirm the owner identity.
-  Future<void> _requireRepositoryOwnerIdentity(String expectedOwner) async {
+  void _requireKingRepository(String owner, String repository) {
+    if (owner.toLowerCase() != _repositoryOwner ||
+        repository.toLowerCase() != _repositoryName.toLowerCase()) {
+      throw StateError('King AI code changes are restricted to the official King VPN repository.');
+    }
+  }
+
+  Future<void> _requireRepositoryOwnerIdentity() async {
     final token = await _secure.read(key: 'king_ai_github_token');
     if (token == null || token.isEmpty) {
       throw StateError('ابتدا کلید GitHub مالک مخزن را ذخیره کن.');
@@ -519,7 +529,7 @@ empty changes list and explain what is missing.
     final decoded = jsonDecode(response.body);
     final login = decoded is Map ? decoded['login']?.toString() : null;
     if (login == null ||
-        login.toLowerCase() != expectedOwner.toLowerCase()) {
+        login.toLowerCase() != _repositoryOwner) {
       throw StateError('فقط حساب مالک اصلی مخزن اجازه ثبت تغییرات کد را دارد.');
     }
   }
@@ -835,6 +845,7 @@ empty changes list and explain what is missing.
     required String repository,
     required int pullNumber,
   }) async {
+    _requireKingRepository(owner, repository);
     if (!KingAiOwnerAuth.instance.hasActiveSession) {
       return {'status': 'owner_auth_required'};
     }
@@ -849,10 +860,19 @@ empty changes list and explain what is missing.
     required String owner,
     required String repository,
     required int pullNumber,
-  }) =>
+  }) {
+    _requireKingRepository(owner, repository);
+    return _repairFromFailedCi(
+      owner: owner, repository: repository, pullNumber: pullNumber,
+    );
+  }
+
+  /* old signature removed */
+  /*
       _repairFromFailedCi(
         owner: owner, repository: repository, pullNumber: pullNumber,
       );
+  */
 
   Future<Map<String, Object?>> _repairFromFailedCi({
     required String owner,
@@ -1387,7 +1407,8 @@ empty changes list and explain what is missing.
     required String summary,
     required Map<String, String> changes,
   }) async {
-    await _requireRepositoryOwnerIdentity(owner);
+    _requireKingRepository(owner, repository);
+    await _requireRepositoryOwnerIdentity();
     _rejectSecrets(title);
     _rejectSecrets(summary);
     if (changes.isEmpty || changes.length > 3) {
@@ -1449,6 +1470,7 @@ empty changes list and explain what is missing.
     required String owner,
     required String repository,
   }) async {
+    _requireKingRepository(owner, repository);
     if (!KingAiOwnerAuth.instance.hasActiveSession) {
       return {'status': 'owner_auth_required'};
     }
