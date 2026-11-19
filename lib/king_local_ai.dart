@@ -340,8 +340,8 @@ empty changes list and explain what is missing.
 
   String _redactConversationSecrets(String value) => value
       .replaceAll(RegExp(r'github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9]{20,}'), '[REDACTED_TOKEN]')
-      .replaceAll(RegExp(r'(?i)bearer\s+[A-Za-z0-9._~-]{12,}'), 'Bearer [REDACTED_TOKEN]')
-      .replaceAll(RegExp(r'(?i)(password|رمز عبور|api[_ -]?key|access[_ -]?token|secret|کلید خصوصی)\s*[:=：]\s*[^\s,;]+'), '[REDACTED_SECRET]');
+      .replaceAll(RegExp(r'bearer\s+[A-Za-z0-9._~-]{12,}', caseSensitive: false), 'Bearer [REDACTED_TOKEN]')
+      .replaceAll(RegExp(r'(password|رمز عبور|api[_ -]?key|access[_ -]?token|secret|کلید خصوصی)\s*[:=：]\s*[^\s,;]+', caseSensitive: false), '[REDACTED_SECRET]');
 
   static const String _conversationMemoryKey = 'king_ai_conversation_memory_v2';
 
