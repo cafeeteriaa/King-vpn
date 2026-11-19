@@ -1779,8 +1779,9 @@ extension HomeExtras on _HomePageState {
     double bestScore = -1e12;
     for (final s in candidates) {
       var score = 0.0;
-      // svc bits and historical throughput come from global service probes;
-      // never reward Telegram/Cloudflare evidence in national-only mode.
+      // Service bits/throughput are global-service evidence, so never reward
+      // them in domestic-only mode. Tunnel history below is independent and
+      // applies in BOTH modes after end-to-end traffic verification.
       if (!nationalMode && s.svc >= 0) {
         score += ((s.svc & 1) != 0 ? 40 : 0) +
             ((s.svc & 2) != 0 ? 30 : 0) +
@@ -1789,14 +1790,12 @@ extension HomeExtras on _HomePageState {
       }
       final ping = s.ping;
       if (ping != null && ping > 0) score += max(0, 100 - ping / 15);
-      // NNIE history is recorded only for national-mode tunnel outcomes;
-      // keep its influence modest so fresh live evidence still dominates.
-      if (nationalMode) {
-        final learned = NationalNetworkIntelligence.scoreFor(
-          NationalNetworkIntelligence.keyOfServer(s),
-        );
-        score += (learned.clamp(-20.0, 100.0) * 0.25).toDouble();
-      }
+      // Keep learned history modest: fresh live evidence dominates, while
+      // proven reliability helps even when the route mode changes.
+      final learned = NationalNetworkIntelligence.scoreFor(
+        NationalNetworkIntelligence.keyOfServer(s),
+      );
+      score += (learned.clamp(-20.0, 100.0) * 0.25).toDouble();
       score += (_profRate(s) - 0.5) * 30;
       if (score > bestScore) {
         bestScore = score;
