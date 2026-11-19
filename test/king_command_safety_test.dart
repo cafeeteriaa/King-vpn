@@ -74,6 +74,11 @@ void main() {
       expect(KingCommandSafety.isConnectIntent('به نت ملی متصل شو'), isTrue);
       expect(KingCommandSafety.isConnectIntent('کینگ متصل شو'), isTrue);
       expect(KingCommandSafety.isConnectIntent('کینگ نت جهانی وصل شو'), isTrue);
+      expect(KingCommandSafety.isConnectIntent('کینگ کانکت کن'), isTrue);
+      expect(KingCommandSafety.isConnectIntent('کینگ نت ملی کانکت شو'), isTrue);
+      expect(KingCommandSafety.requestedNetworkMode('کینگ نت ملی کانکت شو'),
+          KingRequestedNetworkMode.domestic);
+      expect(KingCommandSafety.isConnectIntent('کینگ کانکت نکن'), isFalse);
       expect(KingCommandSafety.isConnectIntent('وضعیت اتصال نت ملی'), isFalse);
       expect(KingCommandSafety.isConnectIntent('کینگ نت ملی وصل نشو'), isFalse);
       expect(KingCommandSafety.isConnectIntent('لطفاً اتصال را شروع نکن'), isFalse);
