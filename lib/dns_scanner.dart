@@ -93,7 +93,7 @@ const List<String> kDnsxGlobalDomains = <String>[
   'canva.com', 'speedtest.net', 'docker.com', 'vercel.com',
   // هوش مصنوعی
   'openai.com', 'chatgpt.com', 'anthropic.com', 'claude.ai', 'perplexity.ai',
-  'huggingface.co', 'deepseek.com', 'gemini.google.com', 'mistral.ai',
+  'huggingface.co', 'mistral.ai',
   'midjourney.com',
   // خرید، پرداخت و مالی
   'amazon.com', 'ebay.com', 'aliexpress.com', 'etsy.com', 'shopify.com',
