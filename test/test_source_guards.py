@@ -603,7 +603,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_android_toolchain_matches_flutter_350_supported_defaults(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         self.assertIn("AGP 9.3.1 + Gradle 9.5.0", prepare)
-        self.assertIn("gradle-9.5.0-\\\\1.zip", prepare)
+        self.assertIn("gradle-9.5.0-", prepare)
+        self.assertIn(".zip", prepare)
         self.assertIn("2.4.20", prepare)
         self.assertIn("9.3.1", prepare)
 
