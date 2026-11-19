@@ -244,6 +244,108 @@ class NatNetworkDiagnosis {
   }
 }
 
+/// Dedicated Smart Pilot link scanner. Its target inventory and results are
+/// independent from the general DNS/IP/SNI scanners and their user-defined ranges.
+/// It only probes a small, fixed set of HTTPS endpoints; it never sweeps subnets.
+class PilotNetworkProbe {
+  static const List<String> domesticTargets = <String>[
+    'www.aparat.com',
+    'www.digikala.com',
+    'divar.ir',
+  ];
+  static const List<String> globalTargets = <String>[
+    'www.cloudflare.com',
+    'www.google.com',
+    'github.com',
+  ];
+  static const Duration _timeout = Duration(milliseconds: 2600);
+  static DateTime? _lastAt;
+  static String? _lastIdentity;
+  static NetworkEvidence _last = const NetworkEvidence(
+    domestic: LinkHealth.unknown,
+    global: LinkHealth.unknown,
+  );
+  static Future<NetworkEvidence>? _flight;
+
+  static Future<NetworkEvidence> refresh({bool force = false}) async {
+    final active = _flight;
+    if (active != null) return active;
+    final future = _refresh(force: force);
+    _flight = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_flight, future)) _flight = null;
+    }
+  }
+
+  static Future<NetworkEvidence> _refresh({required bool force}) async {
+    final identity = await _networkIdentity();
+    final lastAt = _lastAt;
+    if (!force && lastAt != null && identity == _lastIdentity &&
+        DateTime.now().difference(lastAt) < const Duration(minutes: 2)) {
+      return _last;
+    }
+    final domesticFuture = Future.wait(domesticTargets.map(_probeHttps));
+    final globalFuture = Future.wait(globalTargets.map(_probeHttps));
+    final domestic = await domesticFuture;
+    final global = await globalFuture;
+    LinkHealth health(List<int?> samples) {
+      final successes = samples.whereType<int>().length;
+      if (successes >= 2) return LinkHealth.healthy;
+      if (successes == 1) return LinkHealth.degraded;
+      return LinkHealth.unreachable;
+    }
+    _last = NetworkEvidence(
+      domestic: health(domestic),
+      global: health(global),
+      domesticSamples: domestic.length,
+      globalSamples: global.length,
+      domesticDataPlaneVerified: domestic.any((x) => x != null),
+      globalDataPlaneVerified: global.any((x) => x != null),
+    );
+    _lastAt = DateTime.now();
+    _lastIdentity = identity;
+    dbg('PILOT-PROBE: domestic=${domestic.whereType<int>().length}/${domestic.length} '
+        'global=${global.whereType<int>().length}/${global.length} '
+        'latencyDomestic=${_median(domestic)}ms latencyGlobal=${_median(global)}ms');
+    return _last;
+  }
+
+  static Future<int?> _probeHttps(String host) async {
+    final watch = Stopwatch()..start();
+    Socket? socket;
+    try {
+      socket = await Socket.connect(host, 443, timeout: _timeout);
+      watch.stop();
+      return watch.elapsedMilliseconds;
+    } catch (_) {
+      return null;
+    } finally {
+      socket?.destroy();
+    }
+  }
+
+  static int? _median(List<int?> values) {
+    final sorted = values.whereType<int>().toList()..sort();
+    return sorted.isEmpty ? null : sorted[sorted.length ~/ 2];
+  }
+
+  static Future<String> _networkIdentity() async {
+    try {
+      final interfaces = await NetworkInterface.list(includeLoopback: false);
+      final values = <String>[
+        for (final item in interfaces)
+          for (final address in item.addresses)
+            '${item.name}=${address.address}',
+      ]..sort();
+      return sha256.convert(utf8.encode(values.join(';'))).toString();
+    } catch (_) {
+      return '';
+    }
+  }
+}
+
 String natNetworkClassLabel(NatNetworkClass value) => switch (value) {
       NatNetworkClass.globalReachable => 'دسترسی جهانی برقرار',
       NatNetworkClass.domesticOnlyLikely => 'احتمالاً فقط مسیرهای داخلی فعال‌اند',
