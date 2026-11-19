@@ -23,8 +23,9 @@ jobs:
 
       - name: Validate source-repair guard
         run: |
-          python3 -m unittest discover -s test -p 'test_*.py'
-          python3 -m py_compile tools/king_ai_training/*.py
+          set -o pipefail
+          python3 -m unittest discover -s test -p 'test_*.py' 2>&1 | tee source-guard.log
+          python3 -m py_compile tools/king_ai_training/*.py 2>&1 | tee -a source-guard.log
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -115,7 +116,7 @@ jobs:
       - name: Build diagnostics for source repair
         if: failure()
         run: |
-          python3 tools/diagnose_build.py build_app/test.log build_app/analyze.log build_app/build.log --output repair-diagnostics.json || true
+          python3 tools/diagnose_build.py source-guard.log build_app/test.log build_app/analyze.log build_app/build.log --output repair-diagnostics.json || true
 
       - name: Upload repair diagnostics
         if: failure()
