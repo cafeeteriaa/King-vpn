@@ -4,6 +4,33 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:king_vpn/update_integrity.dart';
 
 void main() {
+  group('isAllowedUpdateDownloadUri', () {
+    test('accepts official HTTPS GitHub release hosts', () {
+      for (final value in [
+        'https://github.com/owner/repo/releases/download/v1/app.apk',
+        'https://release-assets.githubusercontent.com/assets/app.apk',
+        'https://objects.githubusercontent.com/assets/app.apk',
+      ]) {
+        expect(isAllowedUpdateDownloadUri(Uri.parse(value)), isTrue,
+            reason: value);
+      }
+    });
+
+    test('rejects HTTP, lookalike hosts, credentials and nonstandard ports', () {
+      for (final value in [
+        'http://github.com/owner/repo/app.apk',
+        'https://github.com.evil.example/app.apk',
+        'https://release-assets.githubusercontent.com.evil.example/app.apk',
+        'https://user:pass@github.com/owner/repo/app.apk',
+        'https://github.com:8443/owner/repo/app.apk',
+        'https://example.com/app.apk',
+      ]) {
+        expect(isAllowedUpdateDownloadUri(Uri.parse(value)), isFalse,
+            reason: value);
+      }
+    });
+  });
+
   group('verifySha256Bytes', () {
     final hello = 'hello'.codeUnits;
     const helloSha256 = '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824';
