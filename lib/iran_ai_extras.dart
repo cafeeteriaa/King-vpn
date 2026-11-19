@@ -557,8 +557,8 @@ extension HomeExtras on _HomePageState {
         'or "none".\n'
         'Be proactive: if not connected use connect; if speed is poor use '
         'switch_best; if few healthy servers use refresh_lists; otherwise use connect.\n'
-        'You have FULL freedom over every numeric setting in range and every '
-        'toggle (1/0). Prefer higher throughput (Mux on, Fragment off) when '
+        'Suggest only the allowlisted settings and toggles, changing one or two at a time. '
+        'Prefer higher throughput (Mux on, Fragment off) only when '
         'the tunnel already works; prefer low data when searching lists.\n\n'
         '$sb';
   }
@@ -1211,14 +1211,15 @@ extension HomeExtras on _HomePageState {
     int g(String k, int d, int lo, int hi) =>
         (m.containsKey(k) ? m[k]!.clamp(lo, hi).toInt() : d);
     // PILOTCLAMP: سقف‌های محافظ برای جلوگیری از اشباع CPU/RAM و مصرف بی‌رویه دیتا.
-    fastWorkers = g('fastWorkers', fastWorkers, 1, 32);
-    bgWorkers = g('bgWorkers', bgWorkers, 1, 32);
+    // Keep the LLM's ranges aligned with the prompt and phone resource budget.
+    fastWorkers = g('fastWorkers', fastWorkers, 1, 20);
+    bgWorkers = g('bgWorkers', bgWorkers, 1, 3);
     delayTimeout =
         Duration(seconds: g('timeout', delayTimeout.inSeconds, 3, 45));
     batchSize = g('batch', batchSize, 1, 300);
     minSpeedKB = g('minSpeedKB', minSpeedKB, 0, 1000);
     badPingMs = g('badPingMs', badPingMs, 70, 7000);
-    speedTopN = g('speedTopN', speedTopN, 1, 30);
+    speedTopN = g('speedTopN', speedTopN, 1, 10);
     applyNumSuggest(m);
     const protoKeys = ['vless', 'vmess', 'trojan', 'ss'];
     if (protoKeys.any((p) => m.containsKey('proto_$p'))) {
