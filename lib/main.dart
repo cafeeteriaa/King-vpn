@@ -24,6 +24,7 @@ import 'own_vpn.dart'; // KINGVPN: سرویس VPN خودمان (پیش‌فرض 
 import 'package:workmanager/workmanager.dart';
 import 'package:crypto/crypto.dart'; // فیکس ۱: sha256 برای APK آپدیت
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // فیکس ۲: کلیدهای AI
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'tg_proxy.dart' show tgProxyRow; // فقط پروکسی تلگرام
@@ -5705,6 +5706,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _netWatchTimer?.cancel();
     _dbgSaveT?.cancel();
     _dbgProbT?.cancel();
+    unawaited(_smartSpeech.cancel());
     _smartCommandController.dispose();
     super.dispose();
   }
@@ -10644,10 +10646,85 @@ ListTile( // KINGEXTRAS row
 
 
   final TextEditingController _smartCommandController = TextEditingController();
+  final stt.SpeechToText _smartSpeech = stt.SpeechToText();
   bool _smartCommandRunning = false;
+  bool _smartSpeechInitialized = false;
+  bool _smartSpeechAvailable = false;
+  bool _smartSpeechBusy = false;
+  bool _smartSpeechListening = false;
+  String? _smartSpeechLocaleId;
   List<String> _pilotRanges = <String>[];
   bool _pilotRangeBusy = false;
   bool _pilotRangeCancelRequested = false;
+
+  Future<void> _toggleSmartCommandSpeech() async {
+    if (_smartSpeechBusy) return;
+    if (_smartSpeechListening || _smartSpeech.isListening) {
+      await _smartSpeech.stop();
+      if (mounted) setState(() => _smartSpeechListening = false);
+      return;
+    }
+    setState(() => _smartSpeechBusy = true);
+    try {
+      final permission = await Permission.microphone.request();
+      if (!permission.isGranted) {
+        _set('برای فرمان صوتی کینگ، اجازه دسترسی به میکروفون لازم است.');
+        return;
+      }
+      if (!_smartSpeechInitialized) {
+        _smartSpeechAvailable = await _smartSpeech.initialize(
+          onStatus: (status) {
+            if (!mounted) return;
+            setState(() => _smartSpeechListening = _smartSpeech.isListening);
+          },
+          onError: (error) {
+            if (!mounted) return;
+            setState(() => _smartSpeechListening = false);
+            _set('تشخیص گفتار در دسترس نیست: ${error.errorMsg}');
+          },
+        );
+        _smartSpeechInitialized = true;
+      }
+      if (!_smartSpeechAvailable) {
+        _set('سرویس تشخیص گفتار این دستگاه در دسترس نیست.');
+        return;
+      }
+      final locales = await _smartSpeech.locales();
+      final persian = locales.where((locale) =>
+          locale.localeId.toLowerCase().replaceAll('_', '-').startsWith('fa'));
+      if (persian.isEmpty) {
+        _set('زبان فارسی در سرویس گفتار دستگاه نصب نیست؛ بسته زبان فارسی آفلاین را نصب کن.');
+        return;
+      }
+      _smartSpeechLocaleId = persian.first.localeId;
+      await _smartSpeech.listen(
+        localeId: _smartSpeechLocaleId,
+        listenFor: const Duration(seconds: 20),
+        pauseFor: const Duration(seconds: 3),
+        onDevice: true,
+        partialResults: true,
+        cancelOnError: true,
+        listenMode: stt.ListenMode.confirmation,
+        onResult: (result) {
+          if (!mounted) return;
+          final transcript = result.recognizedWords.trim();
+          if (transcript.isEmpty) return;
+          setState(() {
+            _smartCommandController.value = TextEditingValue(
+              text: transcript,
+              selection: TextSelection.collapsed(offset: transcript.length),
+            );
+          });
+        },
+      );
+      if (mounted) setState(() => _smartSpeechListening = _smartSpeech.isListening);
+    } catch (error, stack) {
+      logError(error, stack);
+      _set('شروع فرمان صوتی ناموفق بود: $error');
+    } finally {
+      if (mounted) setState(() => _smartSpeechBusy = false);
+    }
+  }
 
   Future<void> _loadSmartCommandFilters() async {
     try {
@@ -10934,7 +11011,22 @@ ListTile( // KINGEXTRAS row
         const SizedBox(height: 8),
         TextField(controller: _smartCommandController, minLines: 1, maxLines: 3, textInputAction: TextInputAction.send,
           onSubmitted: (_) => _runSmartCommand(), style: const TextStyle(color: Color(0xFFE8EDF7)),
-          decoration: InputDecoration(hintText: 'مثلاً: اتصال خلبان با سرورهای آلمان و فقط VMess؛ یا اسکن IP خلبان...', hintStyle: const TextStyle(color: Color(0xFF8D9BAD), fontSize: 12), filled: true, fillColor: const Color(0xFF0D1420), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), suffixIcon: IconButton(tooltip: 'پاک کردن', onPressed: () => _smartCommandController.clear(), icon: const Icon(Icons.close)))),
+          decoration: InputDecoration(hintText: 'مثلاً: اتصال خلبان با سرورهای آلمان و فقط VMess؛ یا اسکن IP خلبان...', hintStyle: const TextStyle(color: Color(0xFF8D9BAD), fontSize: 12), filled: true, fillColor: const Color(0xFF0D1420), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), suffixIcon: Row(mainAxisSize: MainAxisSize.min, children: [
+            IconButton(
+              tooltip: _smartSpeechListening ? 'توقف ضبط فرمان' : 'فرمان صوتی فارسی کینگ (پردازش آفلاین)',
+              onPressed: _smartSpeechBusy ? null : _toggleSmartCommandSpeech,
+              icon: Icon(_smartSpeechListening ? Icons.mic : Icons.mic_none,
+                  color: _smartSpeechListening ? const Color(0xFFFF7777) : const Color(0xFF83DFFF)),
+            ),
+            IconButton(tooltip: 'پاک کردن', onPressed: () => _smartCommandController.clear(), icon: const Icon(Icons.close)),
+          ]))),
+        if (_smartSpeechListening)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 6),
+            child: Text('کینگ گوش می‌دهد؛ متن تشخیص‌داده‌شده را بررسی و سپس اجرا کن.',
+                textAlign: TextAlign.right,
+                style: TextStyle(color: Color(0xFF83DFFF), fontSize: 11)),
+          ),
         const SizedBox(height: 8),
         FilledButton.icon(onPressed: _smartCommandRunning ? null : () => _runSmartCommand(), icon: _smartCommandRunning ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.play_arrow), label: Text(_smartCommandRunning ? 'در حال اجرا...' : 'اجرای دستور')),
         ExpansionTile(tilePadding: EdgeInsets.zero, childrenPadding: const EdgeInsets.only(bottom: 4), title: const Text('راهنما و توضیحات'),
