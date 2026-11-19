@@ -10,7 +10,7 @@ class KingCommandSafety {
       .toLowerCase()
       .replaceAll('ي', 'ی')
       .replaceAll('ك', 'ک')
-      .replaceAll('‌', ' ');
+      .replaceAll('‌', '');
 
   static bool negatesConnection(String command) {
     final value = _normalize(command);
