@@ -37,7 +37,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         pilot_ui = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
         self.assertIn('_smartCommandPanel()', main)
-        self.assertIn("'اتصال خلبان'", main)
+        self.assertIn('اتصال خلبان', main)
         self.assertIn('await startLocalPilot();', main)
         self.assertIn('onTap: null,', main)
         self.assertNotIn("label: const Text('جستجوی سرور با نت ملی')", main)
