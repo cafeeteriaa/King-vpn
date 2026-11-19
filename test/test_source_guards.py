@@ -55,7 +55,33 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         detect_start = pilot.index('Future<NatNetworkClass> _pilotDetectNetworkMode()')
         detect_end = pilot.index('void ensureLocalPilotRunning()', detect_start)
         detect = pilot[detect_start:detect_end]
-        self.assertIn('NatNetworkDiagnosis.refresh(force: true)', detect)
+        self.assertIn('PilotNetworkProbe.refresh(force: true)', detect)
+        self.assertNotIn('NatNetworkDiagnosis.refresh', detect)
+        self.assertNotIn('autoTuneNow()', tick)
+
+
+    def test_pilot_scanner_and_ip_ranges_are_isolated_from_general_scanners(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        national = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        self.assertIn('class PilotNetworkProbe', national)
+        self.assertIn('domesticTargets', national)
+        self.assertIn('globalTargets', national)
+        self.assertIn('بازه‌های IP اختصاصی خلبان', main)
+        self.assertIn('پویش IP اختصاصی خلبان', main)
+        tools_start = main.index('UiTools(items: [', main.index('Widget build(BuildContext context)', main.index('class _HomePageState')))
+        tools_end = main.index(']),', tools_start)
+        general_tools = main[tools_start:tools_end]
+        self.assertNotIn('بازه‌های IP اختصاصی خلبان', general_tools)
+        self.assertNotIn('بازه‌های IP نت ملی', general_tools)
+        keep_start = main.index('Future<void> _natKeep()')
+        keep_end = main.index('void _natRangesDialog', keep_start)
+        keep = main[keep_start:keep_end]
+        self.assertIn('localPilotOn', keep)
+        self.assertIn('if (localPilotOn && cpuHot == 0', keep)
+        detect_start = pilot.index('Future<NatNetworkClass> _pilotDetectNetworkMode()')
+        detect_end = pilot.index('void ensureLocalPilotRunning()', detect_start)
+        self.assertNotIn('NatNetworkDiagnosis', pilot[detect_start:detect_end])
 
     def test_flutter_artifact_path_matches_non_split_apk_build(self):
         workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
