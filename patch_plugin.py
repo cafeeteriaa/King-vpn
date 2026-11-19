@@ -12,17 +12,42 @@ MAVEN_CENTRAL_MIRROR = 'https://maven-central.storage-download.googleapis.com/ma
 
 
 def patch_android_plugin_buildscript_repositories():
-    """Add the trusted Maven Central mirror to Android plugin buildscript repos.
+    """Add Maven Central mirror inside each plugin's own buildscript repositories.
 
-    Flutter plugins can resolve their own AGP/Kotlin classpaths from nested
-    buildscript.repositories blocks. settings.gradle mirrors do not override
-    those per-plugin buildscript repositories.
+    Do not treat a mirror in allprojects/dependencyResolutionManagement as
+    proof that the buildscript classpath can see it: Gradle scopes are separate.
     """
     config = Path('.dart_tool/package_config.json')
     if not config.is_file():
         raise RuntimeError('Pub package_config.json missing; run flutter pub get first')
     data = json.loads(config.read_text(encoding='utf-8'))
     patched = 0
+    inspected = 0
+
+    def matching_brace(source, open_pos):
+        depth = 0
+        quote = None
+        escaped = False
+        for pos in range(open_pos, len(source)):
+            char = source[pos]
+            if quote:
+                if escaped:
+                    escaped = False
+                elif char == '\\\\':
+                    escaped = True
+                elif char == quote:
+                    quote = None
+                continue
+            if char in ("'", '"'):
+                quote = char
+            elif char == '{':
+                depth += 1
+            elif char == '}':
+                depth -= 1
+                if depth == 0:
+                    return pos
+        return -1
+
     for package in data.get('packages', []):
         root_uri = package.get('rootUri')
         if not root_uri:
@@ -39,25 +64,27 @@ def patch_android_plugin_buildscript_repositories():
             if gradle_file.name not in ('build.gradle', 'build.gradle.kts'):
                 continue
             source = gradle_file.read_text(encoding='utf-8')
-            if MAVEN_CENTRAL_MIRROR in source:
+            pattern = r'buildscript\\s*\\{\\s*repositories\\s*\\{'
+            match = re.search(pattern, source, flags=re.S)
+            if not match:
+                continue
+            inspected += 1
+            repo_open = match.end() - 1
+            repo_close = matching_brace(source, repo_open)
+            if repo_close < 0:
+                raise RuntimeError('Malformed buildscript.repositories block: ' + str(gradle_file))
+            repo_body = source[repo_open + 1:repo_close]
+            if MAVEN_CENTRAL_MIRROR in repo_body:
                 continue
             if gradle_file.name.endswith('.kts'):
-                entry = f'\n        maven {{ url = uri("{MAVEN_CENTRAL_MIRROR}") }}'
+                entry = f'\\n        maven {{ url = uri("{MAVEN_CENTRAL_MIRROR}") }}'
             else:
-                entry = f'\n        maven {{ url "{MAVEN_CENTRAL_MIRROR}" }}'
-            pattern = r'(buildscript\s*\{\s*repositories\s*\{)'
-            updated, count = re.subn(
-                pattern,
-                lambda match: match.group(1) + entry,
-                source,
-                count=1,
-                flags=re.S,
-            )
-            if count:
-                gradle_file.write_text(updated, encoding='utf-8')
-                patched += 1
-                print('OK: Maven Central mirror added to plugin buildscript:', gradle_file)
-    print(f'OK: patched {patched} Android plugin buildscript repository block(s)')
+                entry = f'\\n        maven {{ url "{MAVEN_CENTRAL_MIRROR}" }}'
+            updated = source[:repo_open + 1] + entry + source[repo_open + 1:]
+            gradle_file.write_text(updated, encoding='utf-8')
+            patched += 1
+            print('OK: Maven Central mirror added to plugin buildscript:', gradle_file)
+    print(f'OK: inspected {inspected} plugin buildscript block(s); patched {patched}')
 
 
 patch_android_plugin_buildscript_repositories()
