@@ -1109,6 +1109,129 @@ empty changes list and explain what is missing.
     return {'status': 'repair_loop_stopped', 'url': latestRepairUrl};
   }
 
+  /// Daily, bounded source audit for Iran-network reliability.
+  ///
+  /// This path is available only after the owner has enabled the autonomous
+  /// maintenance supervisor. It can create a draft PR, never write to main.
+  Future<Map<String, Object?>> createAutonomousMaintenanceProposal({
+    required String owner,
+    required String repository,
+  }) async {
+    _requireKingRepository(owner, repository);
+    if (!await isBackgroundAutoDiscoveryEnabled()) {
+      return {'status': 'autonomous_maintenance_not_enabled'};
+    }
+    if (!isLoaded || !await hasGitHubToken()) {
+      return {'status': 'model_or_owner_repository_token_unavailable'};
+    }
+
+    final root = await getApplicationSupportDirectory();
+    final stateFile = File('${root.path}/king_ai_autonomous_audit.json');
+    Map<String, dynamic> state = {};
+    if (await stateFile.exists()) {
+      try {
+        final raw = jsonDecode(await stateFile.readAsString());
+        if (raw is Map) {
+          state = raw.map((key, value) => MapEntry(key.toString(), value));
+        }
+      } catch (_) {
+        state = {};
+      }
+    }
+    final now = DateTime.now().toUtc();
+    final lastAt = DateTime.tryParse(state['lastAttemptAt']?.toString() ?? '');
+    if (lastAt != null && now.difference(lastAt) < const Duration(hours: 24)) {
+      return {
+        'status': 'audit_cooldown',
+        'retryAfterSeconds': (const Duration(hours: 24) - now.difference(lastAt)).inSeconds,
+      };
+    }
+    final attempts = (state['attempts'] as num?)?.toInt() ?? 0;
+    if (attempts >= 30) return {'status': 'audit_budget_reached'};
+
+    const task = 'Perform one small, evidence-based maintenance review of the '
+        'King VPN Flutter project for reliability on Iranian domestic/national '
+        'and global mobile networks. Inspect the supplied source only. Focus on '
+        'measurable weaknesses involving DNS, IPv4/IPv6, network transitions, '
+        'high latency, intermittent connectivity, failover, resource use, and '
+        'distinguishing domestic from global reachability. Do not assume that '
+        'an IP country code proves national routing. Do not hardcode endpoints '
+        'or claim to have tested a real Iranian carrier. Do not add dependencies '
+        'or modify Android/native VPN service, permissions, Gradle, CI, secrets, '
+        'signing, security policy, or update/install flows. Do not upload private '
+        'traffic logs. Make at most one minimal, reversible change in existing '
+        'lib/ or test/ files and add a focused test when useful. If no concrete '
+        'source-backed defect or improvement is clear, return an empty changes '
+        'list. The result is only a draft review PR and must never be merged or '
+        'released automatically.';
+    final context = await readRepositoryContext(
+      owner: owner,
+      repository: repository,
+      baseBranch: 'main',
+      task: task,
+    );
+    if (context.isEmpty) {
+      await stateFile.writeAsString(jsonEncode({
+        'attempts': attempts + 1,
+        'lastAttemptAt': now.toIso8601String(),
+      }), flush: true);
+      return {'status': 'no_safe_source_context'};
+    }
+
+    final proposal = await _proposeRepair(task: task, sourceFiles: context);
+    final changes = proposal['changes'] as Map<String, String>;
+    if (changes.isEmpty) {
+      await stateFile.writeAsString(jsonEncode({
+        'attempts': attempts + 1,
+        'lastAttemptAt': now.toIso8601String(),
+        'lastSummary': proposal['summary'],
+      }), flush: true);
+      return {
+        'status': 'no_evidence_backed_change',
+        'summary': proposal['summary'],
+      };
+    }
+
+    final canonical = changes.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    final hash = sha256.convert(utf8.encode(jsonEncode(
+      canonical.map((entry) => [entry.key, entry.value]).toList(),
+    ))).toString();
+    if (state['lastProposalHash'] == hash) {
+      await stateFile.writeAsString(jsonEncode({
+        ...state,
+        'attempts': attempts + 1,
+        'lastAttemptAt': now.toIso8601String(),
+      }), flush: true);
+      return {'status': 'duplicate_audit_patch_blocked'};
+    }
+
+    final url = await _createRepairPullRequest(
+      owner: owner,
+      repository: repository,
+      baseBranch: 'main',
+      title: 'Iran network reliability maintenance candidate',
+      summary: '${proposal['summary']}\n\n'
+          'King AI autonomous audit. Evidence was limited to repository source; '
+          'real carrier testing is still required. Draft PR only; no automatic '
+          'merge or release.',
+      changes: changes,
+    );
+    await stateFile.writeAsString(jsonEncode({
+      'attempts': attempts + 1,
+      'lastAttemptAt': now.toIso8601String(),
+      'lastProposalHash': hash,
+      'lastPullRequest': url,
+    }), flush: true);
+    return {
+      'status': 'autonomous_audit_review_pr_created',
+      'url': url,
+      'summary': proposal['summary'],
+      'changedFiles': changes.keys.toList()..sort(),
+      'mergePolicy': 'owner review and green CI required',
+    };
+  }
+
   static const Set<String> _researchHosts = {
     'developer.android.com',
     'source.android.com',
