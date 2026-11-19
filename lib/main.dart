@@ -10958,6 +10958,8 @@ ListTile( // KINGEXTRAS row
       final negatesConnection = KingCommandSafety.negatesConnection(command);
       final wantsConnect = RegExp(r'(اتصال|وصل|شروع|connect)').hasMatch(command) &&
           !negatesConnection;
+      final requestedNetworkMode = KingCommandSafety.requestedNetworkMode(command);
+      final statusRequest = KingCommandSafety.isStatusRequest(command);
       final negatesScan = KingCommandSafety.negatesScan(command);
       final clearFilters = RegExp(r'(پاک کردن فیلتر|حذف محدودیت|ریست فیلتر)').hasMatch(command);
       final allCountries = RegExp(r'(همه کشورها|تمام کشورها)').hasMatch(command);
@@ -10995,6 +10997,19 @@ ListTile( // KINGEXTRAS row
               speakResponses: voiceResponse),
         )));
         _set('چشم رئیس؛ فقط مالک اصلی پس از احراز هویت می‌تواند درخواست تغییر کد را ثبت کند. کینگ آن را تحلیل می‌کند و تغییرات را فقط در شاخهٔ بازبینی‌شونده آماده می‌کند.');
+      } else if (statusRequest) {
+        final tunnel = connected ? 'متصل' : (busy || searching ? 'در حال اتصال/جستجو' : 'قطع');
+        final pilot = localPilotOn ? 'روشن' : 'خاموش';
+        final network = nationalMode ? 'نت ملی' : 'نت جهانی/خودکار';
+        _set('وضعیت اتصال: $tunnel • خلبان: $pilot • حالت شبکه: $network\\nجزئیات: $status');
+      } else if (requestedNetworkMode != null && wantsConnect) {
+        if (localPilotOn) stopLocalPilot();
+        final domestic = requestedNetworkMode == KingRequestedNetworkMode.domestic;
+        await _applyNetPick(domestic, false);
+        await startLocalPilot();
+        _set(domestic
+            ? 'درخواست اتصال در حالت نت ملی ثبت شد؛ خلبان با اولویت مسیرهای داخلی آغاز شد.'
+            : 'درخواست اتصال در حالت نت جهانی ثبت شد؛ خلبان با اولویت مسیرهای جهانی آغاز شد.');
       } else if (RegExp(r'(قطع اتصال|قطع|disconnect|خاموش کردن اتصال)').hasMatch(command) &&
           !negatesConnection) {
         if (localPilotOn) stopLocalPilot();
