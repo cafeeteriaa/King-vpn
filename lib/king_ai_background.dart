@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:workmanager/workmanager.dart';
 
 import 'king_local_ai.dart';
+import 'king_ai_owner_auth.dart';
 
 const String _taskName = 'kingAiCiRepair';
 const String _uniqueName = 'king-ai-ci-repair-periodic';
@@ -110,6 +111,12 @@ void kingAiBackgroundDispatcher() {
 class KingAiBackgroundSupervisor {
   KingAiBackgroundSupervisor._();
 
+  static void _requireOwnerSession() {
+    if (!KingAiOwnerAuth.instance.hasActiveSession) {
+      throw StateError('Owner authentication is required to manage background repair.');
+    }
+  }
+
   static Future<void> initialize() async {
     await Workmanager().initialize(kingAiBackgroundDispatcher);
   }
@@ -143,6 +150,7 @@ class KingAiBackgroundSupervisor {
   }
 
   static Future<void> enable(int pullNumber) async {
+    _requireOwnerSession();
     if (pullNumber < 1) throw ArgumentError.value(pullNumber, 'pullNumber');
     await KingLocalAi.instance.setBackgroundAutoDiscovery(false);
     await KingLocalAi.instance.setBackgroundRepairPullNumber(pullNumber);
@@ -150,12 +158,14 @@ class KingAiBackgroundSupervisor {
   }
 
   static Future<void> enableAutomaticDiscovery() async {
+    _requireOwnerSession();
     await KingLocalAi.instance.setBackgroundAutoDiscovery(true);
     await KingLocalAi.instance.clearBackgroundRepairPullNumber();
     await _scheduleSupervisor();
   }
 
   static Future<void> disable() async {
+    _requireOwnerSession();
     await Workmanager().cancelByTag(_tag);
     await KingLocalAi.instance.clearBackgroundRepairPullNumber();
     await KingLocalAi.instance.setBackgroundAutoDiscovery(false);
