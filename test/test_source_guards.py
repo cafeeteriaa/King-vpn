@@ -212,6 +212,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_ownerAuth.authenticate(password)', console)
         self.assertIn('if (!_ownerAuth.hasActiveSession)', console)
 
+    def test_autonomous_ci_repair_is_bounded_and_deduplicated(self):
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        policy = (ROOT / 'lib' / 'king_ai_ci_policy.dart').read_text(encoding='utf-8')
+        start = ai.index('Future<Map<String, Object?>> _repairFromFailedCi({')
+        end = ai.index('static const Set<String> _researchHosts', start)
+        repair = ai[start:end]
+        self.assertIn('kingAiCiRepairAttemptAllowed(used)', repair)
+        self.assertIn('kingAiCiRepairBackoff(used)', repair)
+        self.assertIn('lastAttemptAt', repair)
+        self.assertIn('duplicate_patch_blocked', repair)
+        self.assertIn('lastProposalHash', repair)
+        self.assertIn('setBackgroundRepairPullNumber(createdPullNumber)', repair)
+        self.assertIn('maxAttempts = 8', policy)
+        self.assertIn('maximum = const Duration(hours: 6)', policy)
+
     def test_background_supervisor_controls_require_owner_session(self):
         worker = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
         console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
