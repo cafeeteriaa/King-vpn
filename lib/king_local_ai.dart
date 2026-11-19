@@ -119,16 +119,6 @@ empty changes list and explain what is missing.
     }
   }
 
-  /// Releases only the in-memory inference engine. Persistent credentials,
-  /// repair history, and the verified model file remain untouched.
-  Future<void> dispose() async {
-    final engine = _engine;
-    _engine = null;
-    if (engine != null) {
-      await engine.dispose();
-    }
-  }
-
   Future<ModelManager> _modelManager() async {
     if (_models != null) return _models!;
     _models = await LocalInferenceFlutter.createModelManager(
