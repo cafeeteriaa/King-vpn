@@ -63,6 +63,62 @@ empty changes list and explain what is missing.
   Future<void> clearGitHubToken() =>
       _secure.delete(key: 'king_ai_github_token');
 
+  Future<void> setBackgroundRepairPullNumber(int pullNumber) async {
+    if (pullNumber < 1) throw ArgumentError.value(pullNumber, 'pullNumber');
+    await _secure.write(
+      key: 'king_ai_background_pull_number',
+      value: pullNumber.toString(),
+    );
+  }
+
+  Future<int?> getBackgroundRepairPullNumber() async {
+    final raw = await _secure.read(key: 'king_ai_background_pull_number');
+    final parsed = raw == null ? null : int.tryParse(raw);
+    return parsed != null && parsed > 0 ? parsed : null;
+  }
+
+  Future<void> clearBackgroundRepairPullNumber() =>
+      _secure.delete(key: 'king_ai_background_pull_number');
+
+  /// Loads only a model previously downloaded and verified in the foreground.
+  /// A background worker must never start a 1.1 GB model download unexpectedly.
+  Future<bool> loadInstalledModelForBackground() async {
+    if (_engine != null) return true;
+    if (_busy) throw StateError('Local AI is already busy');
+    final root = await getApplicationSupportDirectory();
+    final marker = File('${root.path}/king_ai_model_ready.json');
+    if (!await marker.exists()) return false;
+    final decoded = jsonDecode(await marker.readAsString());
+    if (decoded is! Map ||
+        decoded['sha256'] != modelSha256 ||
+        decoded['sizeBytes'] != modelSizeBytes ||
+        decoded['path'] is! String) {
+      return false;
+    }
+    final modelFile = File(decoded['path'] as String);
+    if (!await modelFile.exists() ||
+        await modelFile.length() != modelSizeBytes) {
+      return false;
+    }
+    _busy = true;
+    try {
+      final support = await LocalInferenceFlutter.checkDeviceSupport();
+      if (!support.isSupported) return false;
+      final engine = LlamadartEngine(logLevel: EngineLogLevel.error);
+      try {
+        final options = await LocalInferenceFlutter.platformLoadOptions();
+        await engine.load(modelFile.path, options);
+      } catch (_) {
+        await engine.dispose();
+        rethrow;
+      }
+      _engine = engine;
+      return true;
+    } finally {
+      _busy = false;
+    }
+  }
+
   Future<ModelManager> _modelManager() async {
     if (_models != null) return _models!;
     _models = await LocalInferenceFlutter.createModelManager(
@@ -97,6 +153,14 @@ empty changes list and explain what is missing.
       modelId,
       onProgress: (status) => onProgress?.call(status.progress),
     );
+    final root = await getApplicationSupportDirectory();
+    final marker = File('${root.path}/king_ai_model_ready.json');
+    await marker.writeAsString(jsonEncode({
+      'path': installed.path,
+      'sha256': modelSha256,
+      'sizeBytes': modelSizeBytes,
+      'verifiedAt': DateTime.now().toUtc().toIso8601String(),
+    }), flush: true);
     return installed.path;
   }
 
@@ -635,6 +699,10 @@ empty changes list and explain what is missing.
       summary: '${proposal['summary']}\n\nEvidence: ${failureText.substring(0, end)}\n\nKing-AI-Repair-Root: $key',
       changes: changes,
     );
+    final createdPullNumber = int.tryParse(Uri.parse(url).pathSegments.last);
+    if (createdPullNumber != null && createdPullNumber > 0) {
+      await setBackgroundRepairPullNumber(createdPullNumber);
+    }
     attempts[key] = {
       'count': used + 1,
       'lastAttemptAt': now.toIso8601String(),
