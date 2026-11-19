@@ -2853,7 +2853,7 @@ extension HomeExtras on _HomePageState {
     if (connected) return NatNetworkDiagnosis.current;
     try {
       final previousMode = nationalMode;
-      final detected = await NatNetworkDiagnosis.refresh()
+      final detected = await NatNetworkDiagnosis.refresh(force: true)
           .timeout(const Duration(seconds: 7), onTimeout: () => NatNetworkDiagnosis.current);
       final evidence = switch (detected) {
         NatNetworkClass.globalReachable => const NetworkEvidence(
