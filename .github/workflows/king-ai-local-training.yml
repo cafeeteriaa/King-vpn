@@ -61,6 +61,10 @@ jobs:
             --dataset-dir "$RUNNER_TEMP/king-ai-dataset" \
             --output-dir "$RUNNER_TEMP/king-ai-candidate" \
             --max-steps "$MAX_STEPS"
+      - name: Verify candidate integrity manifest
+        run: |
+          python3 tools/king_ai_training/verify_candidate.py \
+            --candidate-dir "$RUNNER_TEMP/king-ai-candidate"
       - name: Package candidate without deployment
         run: |
           cp "$RUNNER_TEMP/king-ai-dataset/dataset_report.json" "$RUNNER_TEMP/king-ai-candidate/"
