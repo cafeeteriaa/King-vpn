@@ -1772,9 +1772,13 @@ extension HomeExtras on _HomePageState {
     final asksForCodeChange =
         hasAny([
           'کدنویسی کن', 'برنامه نویسی کن', 'کد بنویس', 'کدشو بنویس',
-          'کد بزن', 'کد تولید', 'کد جدید', 'سورس را تغییر', 'تغییر سورس',
-          'کد برنامه را تغییر', 'برنامه را تغییر بده', 'feature request',
-          'write code', 'add feature', 'create feature', 'new module',
+          'کد بزن', 'کد تولید', 'کد جدید', 'کد بده', 'سورس را تغییر',
+          'تغییر سورس', 'کد برنامه را تغییر', 'برنامه را تغییر بده',
+          'قابلیت اضافه کن', 'ماژول بساز', 'اسکریپت بنویس', 'تابع بنویس',
+          'پیاده سازی کن', 'توسعه بده', 'تغییر ساختار برنامه',
+          'feature request', 'write code', 'add feature', 'create feature',
+          'new module', 'write a function', 'write a script',
+          'implement feature', 'generate a patch', 'modify the app',
         ]) ||
         (q.contains('قابلیت') &&
             hasAny(['جدید', 'اضافه', 'بساز', 'ایجاد', 'توسعه'])) ||
