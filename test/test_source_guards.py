@@ -51,7 +51,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         tick = pilot[tick_start:tick_end]
         self.assertIn('if (!connected)', tick)
         self.assertIn('await _pilotDetectNetworkMode();', tick)
-        self.assertLess(tick.index('await _pilotDetectNetworkMode();'), tick.index('unawaited(autoTuneNow());'))
+        self.assertNotIn('autoTuneNow()', tick)
         detect_start = pilot.index('Future<NatNetworkClass> _pilotDetectNetworkMode()')
         detect_end = pilot.index('void ensureLocalPilotRunning()', detect_start)
         detect = pilot[detect_start:detect_end]
