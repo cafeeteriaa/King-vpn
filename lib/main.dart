@@ -10752,66 +10752,137 @@ ListTile( // KINGEXTRAS row
     finally { if (mounted) setState(() => _pilotRangeBusy = false); }
   }
 
+  String? _smartCountryCode(String command) {
+    final normalized = command.replaceAll('ي', 'ی').replaceAll('ك', 'ک');
+    const englishAliases = <String, String>{
+      'germany': 'DE', 'deutschland': 'DE',
+      'netherlands': 'NL', 'holland': 'NL',
+      'united states': 'US', 'usa': 'US', 'america': 'US',
+      'united kingdom': 'GB', 'britain': 'GB', 'england': 'GB', 'uk': 'GB',
+      'france': 'FR', 'canada': 'CA', 'singapore': 'SG', 'japan': 'JP',
+      'turkey': 'TR', 'türkiye': 'TR', 'uae': 'AE',
+      'united arab emirates': 'AE', 'russia': 'RU', 'switzerland': 'CH',
+      'italy': 'IT', 'spain': 'ES', 'poland': 'PL', 'australia': 'AU',
+      'azerbaijan': 'AZ', 'finland': 'FI', 'sweden': 'SE',
+      'romania': 'RO', 'ukraine': 'UA', 'hong kong': 'HK',
+    };
+    for (final entry in englishAliases.entries) {
+      if (RegExp(r'\b' + RegExp.escape(entry.key) + r'\b').hasMatch(normalized)) {
+        return entry.value;
+      }
+    }
+    const persianAliases = <String, String>{
+      'امریکا': 'US', 'ایالات متحده': 'US', 'بریتانیا': 'GB',
+      'انگلستان': 'GB', 'دبی': 'AE', 'امارات متحده عربی': 'AE',
+    };
+    for (final entry in persianAliases.entries) {
+      if (normalized.contains(entry.key)) return entry.value;
+    }
+    for (final entry in countryFa.entries) {
+      final label = entry.value.toString().replaceAll('ي', 'ی').replaceAll('ك', 'ک');
+      if (label.length >= 3 && normalized.contains(label)) return entry.key;
+    }
+    return null;
+  }
+
   Future<void> _runSmartCommand([String? raw]) async {
-    final cmd = (raw ?? _smartCommandController.text).trim().toLowerCase();
-    if (cmd.isEmpty || _smartCommandRunning) return;
+    final command = (raw ?? _smartCommandController.text)
+        .trim()
+        .toLowerCase()
+        .replaceAll('ي', 'ی')
+        .replaceAll('ك', 'ک');
+    if (command.isEmpty || _smartCommandRunning) return;
     setState(() => _smartCommandRunning = true);
     try {
-      if (cmd.contains('قطع اتصال') || cmd == 'قطع' || cmd == 'disconnect') {
+      final countryCode = _smartCountryCode(command);
+      final normalized = command
+          .replaceAll('vmees', 'vmess')
+          .replaceAll('shadowsocks', 'ss')
+          .replaceAll('وی‌مس', 'vmess')
+          .replaceAll('وی مس', 'vmess')
+          .replaceAll('وی‌لس', 'vless')
+          .replaceAll('وی لس', 'vless');
+      const supportedProtocols = <String>['vless', 'vmess', 'trojan', 'ss'];
+      final selectedProtocols = supportedProtocols
+          .where((p) => RegExp(r'\b' + p + r'\b').hasMatch(normalized))
+          .toList();
+      final wantsConnect = RegExp(r'(اتصال|وصل|شروع|connect)').hasMatch(command);
+      final clearFilters = RegExp(r'(پاک کردن فیلتر|حذف محدودیت|ریست فیلتر)').hasMatch(command);
+      final allCountries = RegExp(r'(همه کشورها|تمام کشورها)').hasMatch(command);
+      final allProtocols = RegExp(r'(همه پروتکل|تمام پروتکل)').hasMatch(command);
+
+      if (RegExp(r'(قطع اتصال|قطع|disconnect|خاموش کردن اتصال)').hasMatch(command) &&
+          !command.contains('نکن')) {
         if (localPilotOn) stopLocalPilot();
         await disconnect();
-        _set('اتصال قطع شد.');
-      } else if (cmd.contains('بازه') && cmd.contains('خلبان')) {
+        _set('دستور اجرا شد: اتصال قطع شد.');
+      } else if (command.contains('بازه') && command.contains('خلبان')) {
         await _pilotRangesDialog(context);
-      } else if (cmd.contains('اسکن') && cmd.contains('خلبان')) {
+      } else if (command.contains('اسکن') && command.contains('خلبان')) {
         await _pilotScanOnly();
-      } else if (cmd.contains('آلمان') || cmd.contains('germany') ||
-          cmd.contains('vless') || cmd.contains('vmess') || cmd.contains('vmees') ||
-          cmd.contains('trojan') || cmd.contains('shadowsocks') || cmd.contains('فیلتر')) {
+      } else if (command.contains('اسکنر dns') || command.contains('پویش dns')) {
+        dnsxSheet(context);
+      } else if (command.contains('اسکن ip') || command.contains('پویش ip')) {
+        ipAutoSheet(context);
+      } else if (command.contains('اسکن sni') || command.contains('اسکن پورت')) {
+        autoScanSheet(context);
+      } else if (command.contains('ip تمیز') || command.contains('آی پی تمیز')) {
+        cleanIpDialog();
+      } else if (command.contains('پروکسی تلگرام')) {
+        showModalBottomSheet<void>(
+          context: context,
+          isScrollControlled: true,
+          builder: (_) => SafeArea(
+            child: SingleChildScrollView(child: tgProxyRow(context)),
+          ),
+        );
+      } else if (wantsConnect || clearFilters || allCountries || allProtocols ||
+          countryCode != null || selectedProtocols.isNotEmpty) {
         final prefs = await SharedPreferences.getInstance();
-        if (cmd.contains('پاک کردن فیلتر')) {
-          selCountry = null; protoSel.clear();
-          await prefs.remove('country'); await prefs.remove('protoSel');
-        } else {
-          if (cmd.contains('آلمان') || cmd.contains('germany')) {
-            selCountry = 'DE'; await prefs.setString('country', 'DE');
-          }
-          final normalized = cmd.replaceAll('vmees', 'vmess').replaceAll('shadowsocks', 'ss');
-          const options = ['vless', 'vmess', 'trojan', 'ss'];
-          final chosen = options.where(normalized.contains).toList();
-          if (chosen.isNotEmpty) {
-            protoSel..clear()..addAll(chosen);
-            await prefs.setStringList('protoSel', protoSel.toList());
-          }
+        if (clearFilters || allCountries) {
+          selCountry = null;
+          await prefs.remove('country');
+        }
+        if (clearFilters || allProtocols) {
+          protoSel.clear();
+          await prefs.remove('protoSel');
+        }
+        if (countryCode != null) {
+          selCountry = countryCode;
+          await prefs.setString('country', countryCode);
+        }
+        if (selectedProtocols.isNotEmpty) {
+          protoSel
+            ..clear()
+            ..addAll(selectedProtocols);
+          await prefs.setStringList('protoSel', protoSel.toList());
         }
         pending.clear();
-        if (!connected && !busy && !searching) unawaited(_loadPending(bg: true));
-        final filters = <String>[
-          if (selCountry != null) 'کشور: ${countryFa[selCountry] ?? selCountry}',
-          if (protoSel.isNotEmpty) 'پروتکل: ${protoSel.join(', ')}',
-          if (selCountry == null && protoSel.isEmpty) 'بدون محدودیت',
+        final applied = <String>[
+          if (selCountry != null)
+            'کشور: ' + (countryFa[selCountry] ?? selCountry!),
+          if (protoSel.isNotEmpty) 'پروتکل: ' + protoSel.join(', '),
+          if (selCountry == null && protoSel.isEmpty) 'بدون محدودیت کشور و پروتکل',
         ].join(' • ');
-        _set('فیلتر اعمال شد: $filters');
-        if (cmd.contains('اتصال') || cmd.contains('connect')) await startLocalPilot();
-      } else if (RegExp(r'(اتصال|شروع).*(خلبان|هوشمند)|(خلبان|هوشمند).*(اتصال|شروع)').hasMatch(cmd) || cmd == 'اتصال' || cmd == 'connect') {
-        if (aiSession) stopGrokPilot();
-        await startLocalPilot();
-      } else if (cmd.contains('اسکنر dns') || cmd.contains('پویش dns')) {
-        dnsxSheet(context);
-      } else if (cmd.contains('اسکن ip') || cmd.contains('پویش ip')) {
-        ipAutoSheet(context);
-      } else if (cmd.contains('اسکن sni') || cmd.contains('اسکن پورت')) {
-        autoScanSheet(context);
-      } else if (cmd.contains('ip تمیز') || cmd.contains('آی پی تمیز')) {
-        cleanIpDialog();
-      } else if (cmd.contains('پروکسی تلگرام')) {
-        showModalBottomSheet<void>(context: context, isScrollControlled: true,
-          builder: (_) => SafeArea(child: SingleChildScrollView(child: tgProxyRow(context))));
+        if (wantsConnect) {
+          if (aiSession) stopGrokPilot();
+          await startLocalPilot();
+          _set('فرمان به مغز خلبان ارسال شد • ' + applied);
+        } else {
+          if (!connected && !busy && !searching) {
+            unawaited(_loadPending(bg: true));
+          }
+          _set('فیلتر فرمان اعمال شد • ' + applied);
+        }
       } else {
-        _set('دستور شناخته نشد؛ راهنمای زیر کادر را ببین.');
+        _set('دستور شناخته نشد. از پوشه راهنمای زیر کادر نمونه‌ها را ببین.');
       }
-    } catch (e, st) { logError(e, st); _set('اجرای دستور ناموفق بود: $e'); }
-    finally { if (mounted) setState(() => _smartCommandRunning = false); }
+    } catch (e, st) {
+      logError(e, st);
+      _set('اجرای دستور با خطا روبه‌رو شد: ' + e.toString());
+    } finally {
+      if (mounted) setState(() => _smartCommandRunning = false);
+    }
   }
 
   Widget _smartCommandPanel() => Padding(
@@ -10824,11 +10895,11 @@ ListTile( // KINGEXTRAS row
         const SizedBox(height: 8),
         TextField(controller: _smartCommandController, minLines: 1, maxLines: 3, textInputAction: TextInputAction.send,
           onSubmitted: (_) => _runSmartCommand(), style: const TextStyle(color: Color(0xFFE8EDF7)),
-          decoration: InputDecoration(hintText: 'مثلاً: اتصال خلبان، آلمان و فقط VMess، اسکن IP، پروکسی تلگرام...', hintStyle: const TextStyle(color: Color(0xFF8D9BAD), fontSize: 12), filled: true, fillColor: const Color(0xFF0D1420), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), suffixIcon: IconButton(tooltip: 'پاک کردن', onPressed: () => _smartCommandController.clear(), icon: const Icon(Icons.close)))),
+          decoration: InputDecoration(hintText: 'مثلاً: اتصال خلبان با سرورهای آلمان و فقط VMess؛ یا اسکن IP خلبان...', hintStyle: const TextStyle(color: Color(0xFF8D9BAD), fontSize: 12), filled: true, fillColor: const Color(0xFF0D1420), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), suffixIcon: IconButton(tooltip: 'پاک کردن', onPressed: () => _smartCommandController.clear(), icon: const Icon(Icons.close)))),
         const SizedBox(height: 8),
         FilledButton.icon(onPressed: _smartCommandRunning ? null : () => _runSmartCommand(), icon: _smartCommandRunning ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.play_arrow), label: Text(_smartCommandRunning ? 'در حال اجرا...' : 'اجرای دستور')),
         ExpansionTile(tilePadding: EdgeInsets.zero, childrenPadding: const EdgeInsets.only(bottom: 4), title: const Text('راهنما و توضیحات'),
-          children: const [Align(alignment: Alignment.centerRight, child: Text('اتصال خلبان • اتصال به آلمان • فقط VLESS / VMess • پاک کردن فیلترها\nقطع اتصال • اسکن DNS / IP / SNI • IP تمیز • پروکسی تلگرام • بازه و اسکن IP خلبان', textAlign: TextAlign.right, style: TextStyle(fontSize: 12, color: Color(0xFF9EADBF))))]),
+          children: const [Align(alignment: Alignment.centerRight, child: Text('اتصال خلبان • فقط سرورهای آلمان • اتصال با VLESS یا VMess\nهمه کشورها • همه پروتکل‌ها • پاک کردن فیلترها • قطع اتصال\nاسکن DNS / IP / SNI و پورت • IP تمیز • پروکسی تلگرام\nبازه‌های IP خلبان • اسکن IP خلبان', textAlign: TextAlign.right, style: TextStyle(fontSize: 12, color: Color(0xFF9EADBF))))]),
       ]),
     ),
   );
@@ -15549,33 +15620,6 @@ UiHero(
               Padding(
                 padding: const EdgeInsets.only(left: 6),
                 child: ActionChip(
-                  label: Text(selCountry == null
-                      ? '🌍 کشور'
-                      : '${flagOf(selCountry!)} ${countryFa[selCountry] ?? selCountry}'),
-                  onPressed: busy ? null : _countrySheet,
-                ),
-              ),
-              for (final pr in ['all', 'vmess', 'vless', 'trojan', 'ss'])
-                Padding(
-                  padding: const EdgeInsets.only(left: 6),
-                  child: ChoiceChip(
-                    label: Text(pr == 'all' ? 'همه' : pr),
-                    selected: pr == 'all' ? protoSel.isEmpty : protoSel.contains(pr),
-                    onSelected: busy
-                        ? null
-                        : (_) => setState(() {
-                              if (pr == 'all') {
-                                protoSel.clear();
-                              } else if (!protoSel.remove(pr)) {
-                                protoSel.add(pr);
-                              }
-                              pending = [];
-                            }),
-                  ),
-                ),
-              Padding(
-                padding: const EdgeInsets.only(left: 6),
-                child: ActionChip(
                   label: Text(groupMode == 'type'
                       ? 'نمایش: دسته‌ها'
                       : groupMode == 'country'
@@ -15633,11 +15677,7 @@ UiHero(
                               : 'تست نشده'),
                   trailing: UiMs(standby || isCur ? s.ping : null, isCur),
                   // tapping works even during a search: it interrupts it
-                  onTap: isCur
-                      ? null
-                      : (s.personal
-                          ? () => pickEngineThenStart(() => connectPersonal(), askMode: false) // PERSROW: سرور شخصی از لیست، بدون پرسش
-                          : () => pickEngineThenStart(() => connect(s, gid), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
+                  onTap: isCur ? null : () => _set('برای اتصال، دستور موردنظر را در کادر مرکز فرمان بنویس.'),
                   onLongPress: () => _toggleFav(s),
                 ));
               },
