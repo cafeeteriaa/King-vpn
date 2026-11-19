@@ -1789,6 +1789,14 @@ extension HomeExtras on _HomePageState {
       }
       final ping = s.ping;
       if (ping != null && ping > 0) score += max(0, 100 - ping / 15);
+      // NNIE history is recorded only for national-mode tunnel outcomes;
+      // keep its influence modest so fresh live evidence still dominates.
+      if (nationalMode) {
+        final learned = NationalNetworkIntelligence.scoreFor(
+          NationalNetworkIntelligence.keyOfServer(s),
+        );
+        score += (learned.clamp(-20.0, 100.0) * 0.25).toDouble();
+      }
       score += (_profRate(s) - 0.5) * 30;
       if (score > bestScore) {
         bestScore = score;
@@ -2534,6 +2542,8 @@ extension HomeExtras on _HomePageState {
       // The primary pilot uses the one runtime actually shipped in this build.
       // It does not ask the user to choose a network mode or a fictional engine.
       applyPilotEngine('v2ray');
+      // Load persisted endpoint outcomes before the first standby ranking.
+      await NationalNetworkIntelligence.load();
       await _pilotDetectNetworkMode();
       _applyModePreset(nationalMode, offlineOnly, true); // one pilot, two internal strategies
       ensureLocalPilotRunning();
