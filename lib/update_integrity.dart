@@ -45,3 +45,16 @@ Future<bool> verifySha256File(File file, String expectedHex) async {
   }
   return difference == 0;
 }
+
+/// Resolve one HTTP redirect and fail closed unless the next hop is an
+/// allowlisted HTTPS GitHub release host. Relative locations are supported.
+Uri? resolveAllowedUpdateRedirect(Uri currentUri, String? location) {
+  final value = location?.trim();
+  if (value == null || value.isEmpty) return null;
+  try {
+    final resolved = currentUri.resolve(value);
+    return isAllowedUpdateDownloadUri(resolved) ? resolved : null;
+  } on FormatException {
+    return null;
+  }
+}

@@ -8,7 +8,7 @@ import 'king_ai_owner_auth.dart';
 import 'king_command_safety.dart';
 import 'fresh_resource_store.dart';
 import 'fresh_resources_page.dart';
-import 'package:local_inference_flutter/local_inference_flutter.dart';
+import 'package:local_inference_flutter/local_inference_flutter.dart' as local_inference;
 import 'update_integrity.dart';
 import 'errjournal.dart';
 import 'dart:ui' as ui;
@@ -2940,7 +2940,7 @@ Completer<bool>? downSig;
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
-    await LocalInferenceFlutter.installDownloaderStorage();
+    await local_inference.LocalInferenceFlutter.installDownloaderStorage();
   } catch (e, st) {
     logError(e, st);
   }
@@ -10640,6 +10640,9 @@ ListTile( // KINGEXTRAS row
   bool _smartSpeechAvailable = false;
   bool _smartSpeechBusy = false;
   bool _smartSpeechListening = false;
+  bool _smartSpeechOnDeviceAttempt = false;
+  bool _smartSpeechOnlineFallbackAttempted = false;
+  bool _smartSpeechOnlineConsentGranted = false;
   String? _smartSpeechLocaleId;
   bool _smartSpeechVoiceInput = false;
   List<String> _pilotRanges = <String>[];
@@ -10669,6 +10672,14 @@ ListTile( // KINGEXTRAS row
           onError: (error) {
             if (!mounted) return;
             setState(() => _smartSpeechListening = false);
+            if (_smartSpeechOnDeviceAttempt &&
+                !_smartSpeechOnlineFallbackAttempted) {
+              _smartSpeechOnDeviceAttempt = false;
+              _smartSpeechOnlineFallbackAttempted = true;
+              _set('تشخیص گفتار آفلاین در این دستگاه در دسترس نبود؛ اکنون با اطلاع تو سرویس آنلاین گفتار را امتحان می‌کنم. ممکن است صوت به سرویس گفتار دستگاه ارسال شود.');
+              unawaited(_requestSmartCommandOnlineFallback());
+              return;
+            }
             _set('تشخیص گفتار در دسترس نیست: ${error.errorMsg}');
           },
         );
@@ -10682,12 +10693,94 @@ ListTile( // KINGEXTRAS row
       final persian = locales.where((locale) =>
           locale.localeId.toLowerCase().replaceAll('_', '-').startsWith('fa'));
       _smartSpeechLocaleId = persian.isNotEmpty ? persian.first.localeId : 'fa-IR';
+      _smartSpeechOnlineFallbackAttempted = false;
+      _smartSpeechOnDeviceAttempt = true;
       if (persian.isEmpty) {
-        _set('فارسی در فهرست آفلاین نبود؛ سرویس گفتار دستگاه با fa-IR امتحان می‌شود و ممکن است اینترنت بخواهد.');
+        _set('بسته فارسی آفلاین پیدا نشد؛ ابتدا fa-IR را روی دستگاه امتحان می‌کنم. در صورت شکست، قبل از استفاده آنلاین پیام می‌دهم.');
+      } else {
+        _set('در حال امتحان تشخیص گفتار فارسی روی خود دستگاه (آفلاین)...');
       }
       await _smartSpeech.listen(
         listenOptions: stt.SpeechListenOptions(
           localeId: _smartSpeechLocaleId,
+          listenFor: const Duration(seconds: 30),
+          pauseFor: const Duration(seconds: 4),
+          onDevice: true,
+          partialResults: true,
+          cancelOnError: true,
+          listenMode: stt.ListenMode.confirmation,
+        ),
+        onResult: (result) {
+          if (!mounted) return;
+          final transcript = result.recognizedWords.trim();
+          if (transcript.isEmpty) return;
+          if (result.finalResult) _smartSpeechOnDeviceAttempt = false;
+          _smartSpeechVoiceInput = true;
+          setState(() {
+            _smartCommandController.value = TextEditingValue(
+              text: transcript,
+              selection: TextSelection.collapsed(offset: transcript.length),
+            );
+          });
+        },
+      );
+      if (mounted) setState(() => _smartSpeechListening = _smartSpeech.isListening);
+    } catch (error, stack) {
+      logError(error, stack);
+      if (_smartSpeechOnDeviceAttempt &&
+          !_smartSpeechOnlineFallbackAttempted) {
+        _smartSpeechOnDeviceAttempt = false;
+        _smartSpeechOnlineFallbackAttempted = true;
+        _set('شروع تشخیص آفلاین ممکن نشد؛ با اطلاع تو سرویس آنلاین گفتار را امتحان می‌کنم.');
+        await _requestSmartCommandOnlineFallback();
+      } else {
+        _set('شروع فرمان صوتی ناموفق بود: $error');
+      }
+    } finally {
+      if (mounted) setState(() => _smartSpeechBusy = false);
+    }
+  }
+
+  Future<void> _requestSmartCommandOnlineFallback() async {
+    if (!_smartSpeechOnlineConsentGranted) {
+      final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('اجازه تشخیص گفتار آنلاین؟'),
+            content: const Text('تشخیص آفلاین روی دستگاه در دسترس نبود. برای ادامه آنلاین ممکن است صدای تو به سرویس گفتار Android یا ارائه‌دهنده آن ارسال شود. فقط در صورت موافقت، ادامه می‌دهم.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('خیر، فقط آفلاین'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('اجازه می‌دهم'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (!mounted || accepted != true) {
+        if (mounted) _set('تشخیص گفتار آنلاین مجاز نشد؛ هیچ صدایی به سرویس آنلاین ارسال نمی‌شود.');
+        return;
+      }
+      _smartSpeechOnlineConsentGranted = true;
+    }
+    await _startSmartCommandOnlineFallback();
+  }
+
+  Future<void> _startSmartCommandOnlineFallback() async {
+    try {
+      if (mounted) setState(() => _smartSpeechBusy = true);
+      await _smartSpeech.stop();
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      if (!mounted) return;
+      await _smartSpeech.listen(
+        listenOptions: stt.SpeechListenOptions(
+          localeId: _smartSpeechLocaleId ?? 'fa-IR',
           listenFor: const Duration(seconds: 30),
           pauseFor: const Duration(seconds: 4),
           onDevice: false,
@@ -10708,10 +10801,15 @@ ListTile( // KINGEXTRAS row
           });
         },
       );
-      if (mounted) setState(() => _smartSpeechListening = _smartSpeech.isListening);
+      if (mounted) {
+        setState(() => _smartSpeechListening = _smartSpeech.isListening);
+      }
     } catch (error, stack) {
       logError(error, stack);
-      _set('شروع فرمان صوتی ناموفق بود: $error');
+      if (mounted) {
+        setState(() => _smartSpeechListening = false);
+        _set('تشخیص گفتار آفلاین و آنلاین در دسترس نیست: $error');
+      }
     } finally {
       if (mounted) setState(() => _smartSpeechBusy = false);
     }
@@ -11166,7 +11264,7 @@ ListTile( // KINGEXTRAS row
           onSubmitted: (_) => _runSmartCommand(), style: const TextStyle(color: Color(0xFFE8EDF7)),
           decoration: InputDecoration(hintText: 'فرمان بده یا هر سؤالی بپرس؛ مثلاً «نت ملی وصل شو» یا «چرا اتصال قطع می‌شود؟»', hintStyle: const TextStyle(color: Color(0xFF8D9BAD), fontSize: 12), filled: true, fillColor: const Color(0xFF0D1420), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), suffixIcon: Row(mainAxisSize: MainAxisSize.min, children: [
             IconButton(
-              tooltip: _smartSpeechListening ? 'توقف ضبط فرمان' : 'فرمان صوتی فارسی کینگ (وابسته به سرویس گفتار دستگاه)',
+              tooltip: _smartSpeechListening ? 'توقف ضبط فرمان' : 'فرمان صوتی فارسی کینگ (ابتدا آفلاین؛ آنلاین با اعلام پیام)',
               onPressed: _smartSpeechBusy ? null : _toggleSmartCommandSpeech,
               icon: Icon(_smartSpeechListening ? Icons.mic : Icons.mic_none,
                   color: _smartSpeechListening ? const Color(0xFFFF7777) : const Color(0xFF83DFFF)),

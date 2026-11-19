@@ -3,7 +3,7 @@ part of 'main.dart';
 // UPDATE CHECK + Remote heal flags ==========================================
 const int appBuild = 3; // Fallback only; PackageInfo supplies the installed build number.
 const String updateConfigUrl =
-    'https://gist.githubusercontent.com/cafeeteriaa/0e04f5efe29b8101eb554c6e9a41d969/raw';
+    'https://gist.githubusercontent.com/cafeeteriaa/0e04f5efe29b8101eb554c6e9a41d969/raw/update.json';
 
 const MethodChannel _kingUpdateChannel = MethodChannel('king/update');
 bool _updateChecked = false;
@@ -150,19 +150,36 @@ extension UpdateCheck on _HomePageState {
       file = File('${updateDirectory.path}/king-vpn-update.apk');
 
       client = http.Client();
-      final request = http.Request('GET', uri)
-        ..headers.addAll(const {
-          'Accept': 'application/vnd.android.package-archive',
-          'User-Agent': 'KingVPN-Updater/1.0',
-        });
-      final streamed = await client.send(request)
-          .timeout(const Duration(minutes: 4));
-      // The HTTP client follows redirects by default. Validate the final
-      // response URI too, otherwise an allowed GitHub URL could redirect to
-      // an untrusted host before the APK bytes are received.
-      final finalUri = streamed.request?.url;
-      if (finalUri == null || !isAllowedUpdateDownloadUri(finalUri)) {
-        throw StateError('APK redirect destination is not an allowed HTTPS GitHub host');
+      var currentUri = uri;
+      http.StreamedResponse? streamed;
+      const redirectStatuses = <int>{301, 302, 303, 307, 308};
+      for (var redirectCount = 0; redirectCount <= 5; redirectCount++) {
+        final request = http.Request('GET', currentUri)
+          ..followRedirects = false
+          ..headers.addAll(const {
+            'Accept': 'application/vnd.android.package-archive',
+            'User-Agent': 'KingVPN-Updater/1.0',
+          });
+        final response = await client.send(request)
+            .timeout(const Duration(minutes: 4));
+        if (redirectStatuses.contains(response.statusCode)) {
+          final location = response.headers['location'];
+          await response.stream.listen((_) {}).cancel();
+          final nextUri = resolveAllowedUpdateRedirect(currentUri, location);
+          if (nextUri == null) {
+            throw StateError('APK redirect has a missing or untrusted destination');
+          }
+          if (redirectCount == 5) {
+            throw StateError('APK redirect limit exceeded');
+          }
+          currentUri = nextUri;
+          continue;
+        }
+        streamed = response;
+        break;
+      }
+      if (streamed == null) {
+        throw StateError('APK download did not produce a response');
       }
       if (streamed.statusCode != 200) {
         throw HttpException('APK download returned HTTP ${streamed.statusCode}');

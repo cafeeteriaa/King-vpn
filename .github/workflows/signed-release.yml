@@ -1,0 +1,206 @@
+name: King VPN Signed Android Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: king-vpn-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  signed-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Require release tag to point to merged main history
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
+            echo "::error::Release tags must point to a commit already merged into main."
+            exit 1
+          fi
+
+      - name: Verify protected signing secrets
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KING_UPDATE_GIST_TOKEN: ${{ secrets.KING_UPDATE_GIST_TOKEN }}
+        run: |
+          set -euo pipefail
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD KING_UPDATE_GIST_TOKEN; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing GitHub Actions secret: $name"
+              exit 1
+            fi
+          done
+
+      - name: Validate Python guards and release tooling
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s test -p 'test_*.py'
+          python3 -m py_compile tools/configure_release_signing.py tools/configure_local_ai_host.py prepare_android.py
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android Flutter host and prepare sources
+        run: |
+          set -euo pipefail
+          flutter create --project-name king_vpn --org com.kingvpn --platforms=android build_app
+          test -f lib/main.dart
+          mkdir -p build_app/android/app/libs build_app/test
+          rm -f build_app/test/widget_test.dart
+          cp -R lib/. build_app/lib/
+          cp -R test/. build_app/test/
+          grep -q 'bool requireRewardedAd = true;' build_app/lib/main.dart
+          python3 prepare_android.py
+          python3 tools/configure_local_ai_host.py build_app/pubspec.yaml
+
+      - name: Resolve dependencies
+        working-directory: build_app
+        run: |
+          flutter pub add http flutter_v2ray_client:3.5.0 installed_apps:1.6.0 permission_handler workmanager url_launcher webview_flutter crypto:^3.0.3 flutter_secure_storage:^9.2.2 local_inference:0.1.1 local_inference_flutter:0.1.1 path_provider package_info_plus speech_to_text:^7.4.0 cryptography:^2.7.0 flutter_tts:^4.2.3
+          flutter pub get
+
+      - name: Patch V2Ray plugin
+        working-directory: build_app
+        run: python3 ../patch_plugin.py
+
+      - name: Run tests and analyzer
+        working-directory: build_app
+        run: |
+          set -euo pipefail
+          flutter test
+          flutter analyze --no-fatal-warnings --no-fatal-infos
+
+      - name: Configure protected release signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > build_app/android/app/king-release.jks
+          test -s build_app/android/app/king-release.jks
+          keytool -list -keystore build_app/android/app/king-release.jks \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
+          cat > build_app/android/key.properties <<EOF
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          storeFile=king-release.jks
+          EOF
+          GRADLE_APP=build_app/android/app/build.gradle.kts
+          if [ ! -f "$GRADLE_APP" ]; then
+            GRADLE_APP=build_app/android/app/build.gradle
+          fi
+          python3 tools/configure_release_signing.py "$GRADLE_APP"
+
+      - name: Build signed release APK
+        working-directory: build_app
+        env:
+          CGO_LDFLAGS: "-Wl,-z,max-page-size=16384"
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${VERSION%%+*}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tag must be vMAJOR.MINOR.PATCH (for example v1.2.3)."
+            exit 1
+          fi
+          flutter build apk --release --target-platform android-arm64 \
+            --build-name "$VERSION" \
+            --build-number "$GITHUB_RUN_NUMBER" \
+            --dart-define=KING_APP_BUILD="$GITHUB_RUN_NUMBER"
+          test -s build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Prepare release metadata
+        id: metadata
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          cp build_app/build/app/outputs/flutter-apk/app-release.apk release/king-vpn.apk
+          SHA="$(sha256sum release/king-vpn.apk | awk '{print $1}')"
+          printf '%s  king-vpn.apk\n' "$SHA" > release/king-vpn.apk.sha256
+          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${VERSION%%+*}"
+          cat > release/notes.md <<EOF
+          King VPN signed Android release.
+
+          KING_BUILD: $GITHUB_RUN_NUMBER
+          KING_MIN_BUILD: 0
+          SHA256: $SHA
+
+          APK integrity is verified by the app before opening the Android installer.
+          EOF
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Publish signed GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" \
+            release/king-vpn.apk#king-vpn.apk \
+            release/king-vpn.apk.sha256#king-vpn.apk.sha256 \
+            --title "King VPN ${{ steps.metadata.outputs.version }}" \
+            --notes-file release/notes.md
+
+      - name: Update owner-managed in-app update manifest
+        env:
+          KING_UPDATE_GIST_TOKEN: ${{ secrets.KING_UPDATE_GIST_TOKEN }}
+        run: |
+          set -euo pipefail
+          GIST_ID="0e04f5efe29b8101eb554c6e9a41d969"
+          RELEASE_URL="https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME"
+          APK_URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/king-vpn.apk"
+          GIST_RESPONSE="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $KING_UPDATE_GIST_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/gists/$GIST_ID")"
+          OLD_CONTENT="$(printf "%s" "$GIST_RESPONSE" | jq -r '.files["update.json"].content // "{}"')"
+          HEAL="$(printf "%s" "$OLD_CONTENT" | jq -c 'try (.heal // {}) catch {}')"
+          SHA="$(sha256sum release/king-vpn.apk | awk '{print $1}')"
+          VERSION="$(printf '%s' "$GITHUB_REF_NAME" | sed 's/^v//; s/+.*//')"
+          jq -n \
+            --arg latest "$GITHUB_RUN_NUMBER" \
+            --arg url "$RELEASE_URL" \
+            --arg apk "$APK_URL" \
+            --arg sha256 "$SHA" \
+            --arg message "King VPN $VERSION is ready. APK SHA-256 is checked before installation." \
+            --argjson heal "$HEAL" \
+            '{latest:($latest|tonumber), min:0, url:$url, apk:$apk, sha256:$sha256, message:$message, heal:$heal}' \
+            > release/update.json
+          PAYLOAD="$(jq -n --arg content "$(cat release/update.json)" \
+            '{files: {"update.json": {content: $content}}}')"
+          curl --fail --silent --show-error -X PATCH \
+            -H "Authorization: Bearer $KING_UPDATE_GIST_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            --data "$PAYLOAD" \
+            "https://api.github.com/gists/$GIST_ID"
