@@ -97,6 +97,29 @@ void main() {
       expect(KingCommandSafety.requestedNetworkMode('وضعیت اتصال نت ملی'), isNull);
     });
 
+    test('disconnect intent requires an explicit command, never a question', () {
+      for (final question in [
+        'چرا اتصال من قطع می‌شود؟',
+        'چرا قطع اتصال اتفاق می‌افتد؟',
+        'می‌تونی اتصال را قطع کنی؟',
+        'how do I disconnect?',
+      ]) {
+        expect(KingCommandSafety.isDisconnectIntent(question), isFalse,
+            reason: question);
+      }
+      for (final command in [
+        'قطع اتصال',
+        'اتصال را قطع کن',
+        'اتصال رو قطع کن',
+        'disconnect',
+      ]) {
+        expect(KingCommandSafety.isDisconnectIntent(command), isTrue,
+            reason: command);
+      }
+      expect(KingCommandSafety.isDisconnectIntent('قطع اتصال نکن'), isFalse);
+      expect(KingCommandSafety.isDisconnectIntent('وضعیت اتصال'), isFalse);
+    });
+
     test('connection status questions are not connect commands', () {
       expect(KingCommandSafety.isStatusRequest('کینگ وضعیت اتصال'), isTrue);
       expect(KingCommandSafety.isStatusRequest('connection status'), isTrue);
