@@ -442,7 +442,7 @@ empty changes list and explain what is missing.
     return {'summary': decoded['summary'], 'changes': changes};
   }
 
-  void _validatePath(String path) {
+  bool _isProtectedGeneratedPath(String path) {
     const protectedPaths = <String>{
       'lib/king_ai_owner_auth.dart',
       'lib/king_local_ai.dart',
@@ -451,6 +451,10 @@ empty changes list and explain what is missing.
       'lib/king_ai_research_policy.dart',
       'lib/iran_ai_extras.dart',
     };
+    return protectedPaths.contains(path);
+  }
+
+  void _validatePath(String path) {
     if (path.startsWith('/') ||
         path.contains('\\') ||
         path.split('/').any((part) => part == '..' || part.isEmpty) ||
@@ -459,7 +463,7 @@ empty changes list and explain what is missing.
           path.startsWith('tools/')) ||
         path.startsWith('lib/android') ||
         path.startsWith('lib/own_vpn') ||
-        protectedPaths.contains(path)) {
+        _isProtectedGeneratedPath(path)) {
       throw FormatException('Protected or unsafe repository path: $path');
     }
   }
@@ -1174,6 +1178,7 @@ empty changes list and explain what is missing.
       return entry['type'] == 'blob' &&
           path is String &&
           (path.startsWith('lib/') || path.startsWith('test/') || path.startsWith('tools/')) &&
+          !_isProtectedGeneratedPath(path) &&
           (path.endsWith('.dart') || path.endsWith('.py')) &&
           entry['size'] is num &&
           (entry['size'] as num) <= 16000;
