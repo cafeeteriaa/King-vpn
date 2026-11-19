@@ -2853,7 +2853,7 @@ extension HomeExtras on _HomePageState {
     if (connected) return NatNetworkClass.unknown;
     try {
       final previousMode = nationalMode;
-      final evidence = await PilotNetworkProbe.refresh(force: true)
+      final evidence = await PilotNetworkProbe.refresh()
           .timeout(const Duration(seconds: 9), onTimeout: () =>
               const NetworkEvidence(
                 domestic: LinkHealth.unknown,
