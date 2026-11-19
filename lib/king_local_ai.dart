@@ -217,7 +217,7 @@ empty changes list and explain what is missing.
 
   void _rejectSecrets(String text) {
     final patterns = [
-      RegExp(r'(?i)(api[_-]?key|access[_-]?token|client[_-]?secret|private[_-]?key)\s*[:=]\s*["\'][^"\']{12,}'),
+      RegExp(r"""(api[_-]?key|access[_-]?token|client[_-]?secret|private[_-]?key)\s*[:=]\s*["'][^"']{12,}""", caseSensitive: false),
       RegExp(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----'),
       RegExp(r'gh[pousr]_[A-Za-z0-9]{20,}'),
     ];
