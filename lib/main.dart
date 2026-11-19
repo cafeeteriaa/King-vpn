@@ -9114,6 +9114,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               return true;
             }
           }
+          // Record a server-level failure only after the same-server
+          // variant ladder also failed to pass real tunnel traffic. A core
+          // CONNECTED state or a failed first variant alone is not enough.
+          if (!abort && wantVpn) {
+            final failedElapsedMs = _nnieFinishAttempt(s) ?? 0;
+            unawaited(NationalNetworkIntelligence.record(
+              endpointKey: NationalNetworkIntelligence.keyOfServer(s),
+              success: false,
+              elapsedMs: failedElapsedMs,
+              stableForFiveMinutes: false,
+            ));
+          } else {
+            _nnieClearAttempt(s);
+          }
           final ip1 = await resolveHostIp(s.host);
           dbg(configFailMsg(
             s.link,
