@@ -1933,7 +1933,7 @@ extension HomeExtras on _HomePageState {
       await startLocalPilot();
       return 'چرخه اتصال مجدد به خلبان سپرده شد؛ نتیجه با بررسی سلامت تونل مشخص می‌شود.';
     }
-    if (hasAny(['خلبان خاموش', 'توقف خلبان', 'خلبان را متوقف'])) {
+    if (hasAny(['خلبان خاموش', 'توقف خلبان', 'خلبان را متوقف', 'خلبان را خاموش', 'خلبان رو خاموش'])) {
       if (!localPilotOn) return 'خلبان محلی از قبل خاموش است.';
       stopLocalPilot();
       return 'خلبان محلی خاموش شد؛ تنظیمات ذخیره‌شده کاربر بازیابی می‌شوند.';
@@ -1951,7 +1951,7 @@ extension HomeExtras on _HomePageState {
         final name = _normalizePilotText(entry.value);
         final code = _normalizePilotText(entry.key);
         return (name.length >= 3 && q.contains(name)) ||
-            (code.length >= 3 && q.split(' ').contains(code));
+            (code.length >= 2 && q.split(' ').contains(code));
       }).toList();
       final asksForTarget = countryMatches.isNotEmpty ||
           hasAny(['به کشور', 'کشور ', 'سرور ']) && !hasAny(['بهترین سرور']);
@@ -4136,6 +4136,10 @@ class _PilotCommandBarState extends State<PilotCommandBar> {
             _quickCommand('وضعیت', Icons.monitor_heart_outlined, 'وضعیت اتصال'),
             const SizedBox(width: 5),
             _quickCommand('قطع اتصال', Icons.power_off, 'قطع اتصال'),
+            const SizedBox(width: 5),
+            _quickCommand('نت ملی', Icons.home_work_outlined, 'نت ملی وصل شو'),
+            const SizedBox(width: 5),
+            _quickCommand('نت جهانی', Icons.public, 'نت جهانی وصل شو'),
           ]),
         ),
         if (_lastCommand.isNotEmpty) ...[
