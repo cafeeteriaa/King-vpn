@@ -632,5 +632,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn(r"'        gradlePluginPortal()\n'", prepare)
 
 
+    def test_flutter_included_build_adds_plugin_repositories_when_missing(self):
+        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        self.assertIn("packages/flutter_tools/gradle", prepare)
+        self.assertIn("if not pm:", prepare)
+        self.assertIn("'pluginManagement {\\n'", prepare)
+        self.assertIn("'        google()\\n'", prepare)
+        self.assertIn("'        mavenCentral()\\n'", prepare)
+        self.assertIn("'        gradlePluginPortal()\\n'", prepare)
+
 if __name__ == '__main__':
     unittest.main()
