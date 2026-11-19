@@ -4,7 +4,7 @@ class KingCommandSafety {
   KingCommandSafety._();
 
   static const String _negation =
-      r'(?:نکن|نده|نکنه|نزن|نشو|نشود|نشه|نمی\s*خواهم|نمیخوام|نمی‌خوام|نباید|نداشته\s*باش|don.t|do\s+not|never)';
+      r'(?:نکن|نکنید|نکنین|نده|نکنه|نزن|نزنید|نگیر|نگیرید|نشو|نشید|نشوید|نشود|نشه|نمی\s*خواهم|نمیخوام|نمی‌خوام|نباید|نداشته\s*باش|don.t|do\s+not|never)';
 
   static String _normalize(String value) => value
       .toLowerCase()
@@ -15,9 +15,9 @@ class KingCommandSafety {
   static bool negatesConnection(String command) {
     final value = _normalize(command);
     return RegExp(
-      '(?:اتصال|وصل|شروع|قطع|connect|disconnect).{0,16}$_negation',
+      '(?:اتصال|وصل|شروع|قطع|کانکت|متصل|connect|disconnect).{0,16}$_negation',
     ).hasMatch(value) || RegExp(
-      '$_negation.{0,16}(?:اتصال|وصل|شروع|قطع|connect|disconnect)',
+      '$_negation.{0,16}(?:اتصال|وصل|شروع|قطع|کانکت|متصل|connect|disconnect)',
     ).hasMatch(value);
   }
 
