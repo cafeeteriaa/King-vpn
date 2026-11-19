@@ -1051,7 +1051,7 @@ extension HomeExtras on _HomePageState {
     try {
       if (connected) _pilotConnectedAt ??= DateTime.now();
       _set('خلبان محلی: تحلیل اینترنت و مکان...');
-      aiShow(await aiAsk(grokPilotPrompt()));
+      aiShow(await aiAsk(aiPrompt()));
       applyAiSuggest();
       await aiRunAction();
       if (aiSession && wantVpn && !connected && !busy && !switching) {
@@ -2634,7 +2634,7 @@ extension HomeExtras on _HomePageState {
 
 // NUMPATCH ======================= عددهای قابل تنظیم =======================
 // first search (used by patch_fast.py): it stops at the FIRST healthy server
-// (for the Gemini row: the first Gemini server). Safety: after [firstCapSec]
+// (for the web-reachability row: the first verified endpoint). Safety: after [firstCapSec]
 // seconds it goes on with the ones found.
 int firstCapSec = 15; // BEST: کمی بیشتر برای پیدا کردن سرور سالم
 
