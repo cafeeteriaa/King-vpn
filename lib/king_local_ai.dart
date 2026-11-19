@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:local_inference_flutter/local_inference_flutter.dart';
@@ -534,8 +536,8 @@ empty changes list and explain what is missing.
     };
   }
 
-  /// One bounded repair iteration. The caller may schedule another attempt
-  /// after the CI result is available and the backoff policy has elapsed.
+  /// One evidence-based repair iteration with persisted cooldown and duplicate-patch protection.
+  /// The caller may schedule another run after the returned backoff expires.
   Future<Map<String, Object?>> repairFromFailedCi({
     required String owner,
     required String repository,
@@ -546,22 +548,47 @@ empty changes list and explain what is missing.
     if (report['hasFailures'] != true) {
       return {'status': 'no_failed_checks', 'report': report};
     }
+
     final root = await getApplicationSupportDirectory();
     final attemptsFile = File('${root.path}/king_ai_ci_repair_attempts.json');
     Map<String, dynamic> attempts = {};
     if (await attemptsFile.exists()) {
       try {
         final raw = jsonDecode(await attemptsFile.readAsString());
-        if (raw is Map) attempts = raw.map((k, v) => MapEntry(k.toString(), v));
+        if (raw is Map) {
+          attempts = raw.map((k, v) => MapEntry(k.toString(), v));
+        }
       } catch (_) {
         attempts = {};
       }
     }
+
     final key = report['repairRoot'] as String;
-    final used = (attempts[key] as num?)?.toInt() ?? 0;
+    final stored = attempts[key];
+    final record = stored is Map
+        ? stored.map((k, v) => MapEntry(k.toString(), v))
+        : <String, dynamic>{};
+    final used = stored is num
+        ? stored.toInt()
+        : (record['count'] as num?)?.toInt() ?? 0;
     if (!kingAiCiRepairAttemptAllowed(used)) {
       return {'status': 'repair_limit_reached', 'attempts': used, 'report': report};
     }
+
+    final now = DateTime.now().toUtc();
+    final lastAttemptAt = DateTime.tryParse(record['lastAttemptAt']?.toString() ?? '');
+    if (used > 0 && lastAttemptAt != null) {
+      final remaining = kingAiCiRepairBackoff(used) - now.difference(lastAttemptAt);
+      if (remaining > Duration.zero) {
+        return {
+          'status': 'retry_backoff',
+          'attempts': used,
+          'retryAfterSeconds': remaining.inSeconds,
+          'report': report,
+        };
+      }
+    }
+
     final branch = report['headBranch'] as String;
     final failureText = jsonEncode(report['failures']);
     final task = 'Repair the following verified GitHub CI failures for pull request #$pullNumber. '
@@ -574,11 +601,31 @@ empty changes list and explain what is missing.
     if (context.isEmpty) {
       return {'status': 'insufficient_source_context', 'report': report};
     }
+
     final proposal = await proposeRepair(task: task, sourceFiles: context);
     final changes = proposal['changes'] as Map<String, String>;
     if (changes.isEmpty) {
-      return {'status': 'model_declined_insufficient_evidence', 'summary': proposal['summary'], 'report': report};
+      return {
+        'status': 'model_declined_insufficient_evidence',
+        'summary': proposal['summary'],
+        'report': report,
+      };
     }
+
+    final canonicalChanges = changes.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    final proposalHash = sha256.convert(utf8.encode(jsonEncode(
+      canonicalChanges.map((entry) => [entry.key, entry.value]).toList(),
+    ))).toString();
+    if (record['lastProposalHash'] == proposalHash) {
+      return {
+        'status': 'duplicate_patch_blocked',
+        'attempts': used,
+        'summary': 'The local model proposed the exact same patch again; no duplicate PR was created.',
+        'report': report,
+      };
+    }
+
     final end = failureText.length.clamp(0, 5000).toInt();
     final url = await createRepairPullRequest(
       owner: owner,
@@ -588,7 +635,11 @@ empty changes list and explain what is missing.
       summary: '${proposal['summary']}\n\nEvidence: ${failureText.substring(0, end)}\n\nKing-AI-Repair-Root: $key',
       changes: changes,
     );
-    attempts[key] = used + 1;
+    attempts[key] = {
+      'count': used + 1,
+      'lastAttemptAt': now.toIso8601String(),
+      'lastProposalHash': proposalHash,
+    };
     await attemptsFile.writeAsString(jsonEncode(attempts), flush: true);
     return {
       'status': 'follow_up_pull_request_created',
