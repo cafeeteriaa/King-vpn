@@ -19,6 +19,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   final TextEditingController _pullController = TextEditingController();
   final TextEditingController _ownerPasswordController = TextEditingController();
   final TextEditingController _ownerConfirmController = TextEditingController();
+  final TextEditingController _featureRequestController = TextEditingController();
   final KingAiOwnerAuth _ownerAuth = KingAiOwnerAuth.instance;
   bool _ownerConfigured = false;
   bool _ownerUnlocked = false;
@@ -40,6 +41,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     _pullController.dispose();
     _ownerPasswordController.dispose();
     _ownerConfirmController.dispose();
+    _featureRequestController.dispose();
     super.dispose();
   }
 
@@ -134,6 +136,30 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       _tokenController.clear();
       await _refreshTokenState();
       return {'status': 'token_saved_securely', 'token_exposed': false};
+    });
+  }
+
+  Future<void> _submitFeatureRequest() async {
+    if (!_ownerAuth.hasActiveSession) {
+      setState(() => _output = 'برای افزودن قابلیت، احراز هویت مالک لازم است.');
+      await _refreshOwnerState();
+      return;
+    }
+    final task = _featureRequestController.text.trim();
+    if (task.length < 12) {
+      setState(() => _output = 'درخواست قابلیت را دقیق‌تر بنویس (حداقل ۱۲ نویسه).');
+      return;
+    }
+    await _run('تحلیل درخواست مالک و ساخت PR بازبینی', () async {
+      final result = await _ai.createOwnerFeatureProposal(
+        task: task,
+        owner: _owner,
+        repository: _repository,
+      );
+      if (result['status'] == 'review_pr_created') {
+        _featureRequestController.clear();
+      }
+      return result;
     });
   }
 
@@ -316,6 +342,31 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
                   style: theme.textTheme.bodySmall,
                 ),
                 const SizedBox(height: 10),
+                const Divider(height: 24),
+                const Text('درخواست قابلیت از مالک', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                const Text('این مسیر فقط پس از احراز هویت مالک فعال می‌شود. کینگ کد را با مدل محلی پیشنهاد می‌دهد و فقط یک Pull Request برای بازبینی می‌سازد؛ هیچ تغییری مستقیم روی main اعمال نمی‌شود.'),
+                TextField(
+                  controller: _featureRequestController,
+                  minLines: 2,
+                  maxLines: 5,
+                  maxLength: 2000,
+                  decoration: const InputDecoration(
+                    labelText: 'قابلیت موردنظر را توضیح بده',
+                    hintText: 'مثلاً یک قابلیت جدید برای مدیریت هوشمند اتصال...',
+                    alignLabelWithHint: true,
+                  ),
+                ),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.tonal(
+                    onPressed: _busy || !_ownerUnlocked || !_hasToken || !_ai.isLoaded
+                        ? null
+                        : _submitFeatureRequest,
+                    child: const Text('ساخت پیشنهاد کد و Pull Request'),
+                  ),
+                ),
+                const SizedBox(height: 12),
                 const Text('اتصال امن GitHub', style: TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 6),
                 Text(_hasToken ? 'کلید GitHub در حافظه امن دستگاه ذخیره است.' : 'هنوز کلید GitHub ذخیره نشده است.'),
