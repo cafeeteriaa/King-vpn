@@ -80,6 +80,9 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
           _ownerUnlocked = _ownerAuth.hasActiveSession;
         });
       }
+      if (_ownerAuth.hasActiveSession) {
+        await _maybeSubmitInitialFeatureRequest();
+      }
     } catch (error) {
       if (mounted) setState(() => _output = 'خطا در بررسی وضعیت مالک: $error');
     }

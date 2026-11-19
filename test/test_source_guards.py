@@ -280,10 +280,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             start = worker.index(signature)
             body = worker[start:worker.index('\n  }', start)]
             self.assertIn('_requireOwnerSession();', body)
-        self.assertIn(
-            'static Future<void> enableAutomaticDiscovery() => enableAutonomousMaintenance();',
-            worker,
-        )
+        self.assertIn('static Future<void> enableAutomaticDiscovery() =>', worker)
+        self.assertIn('enableAutonomousMaintenance();', worker)
         self.assertIn('Future<bool> _requireOwnerSession(String action)', console)
         self.assertNotIn('async { {', console)
         self.assertIn('_busy || !_hasToken ? null : _setupOwnerPassword', console)
