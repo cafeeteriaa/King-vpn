@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'network_health.dart';
 import 'king_local_ai.dart';
+import 'king_ai_console.dart';
 import 'package:local_inference_flutter/local_inference_flutter.dart';
 import 'update_integrity.dart';
 import 'errjournal.dart';
@@ -14741,6 +14742,11 @@ ListTile( // KINGEXTRAS row
           PopupMenuButton<String>(
             onSelected: (v) {
               if (v == 'set') _settingsSheet();
+              if (v == 'kingai') {
+                Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const KingAiConsolePage(),
+                ));
+              }
               if (v == 'apps') _appsSheet();
               if (v == 'add') _importDialog();
               if (v == 'cleanip') cleanIpDialog();
@@ -14775,6 +14781,7 @@ ListTile( // KINGEXTRAS row
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'apps', child: Text('برنامه‌های خارج از VPN')),
               PopupMenuItem(value: 'set', child: Text('تنظیمات تست')),
+              PopupMenuItem(value: 'kingai', child: Text('🤖 کنسول هوش مصنوعی King')),
               PopupMenuItem(value: 'add', child: Text('افزودن کانفیگ')),
               PopupMenuItem(value: 'cleanip', child: Text('IP تمیز')),
               PopupMenuItem(value: 'npvadv', child: Text('تنظیمات پیشرفته V2Ray')),
