@@ -845,6 +845,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('length > 12', chat)
         self.assertIn('_relevantResearchMemory(safePrompt)', chat)
         self.assertIn('_needsLiveResearch(safePrompt)', chat)
+        self.assertIn('_isSafePublicResearchQuery(safePrompt)', chat)
         self.assertIn('researchGoogle(publicQuery, maxResults: 3)', chat)
         self.assertIn('var research = needsLiveResearch', chat)
         self.assertIn('Never pass old cached pages as if they were current information.', chat)
