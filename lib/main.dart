@@ -4763,7 +4763,7 @@ final rowDefs = <RowDef>[
   RowDef('ss', '🔐 Shadowsocks (ss://)', (s) => s.link.startsWith('ss://')),
   
   // shown as its own fixed row (second line of the list), see build()
-  RowDef('ai', '🤖 سرورهای مخصوص هوش مصنوعی', (s) => s.ai == true && s.ping != null),
+  RowDef('ai', '🌐 سرورهای دارای دسترسی وب', (s) => s.ai == true && s.ping != null),
 ];
 
 final Map<String, String?> _ownerCache = {};
