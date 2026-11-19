@@ -155,7 +155,8 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     return false;
   }
 
-  Future<void> _saveToken() async {    if (_ownerConfigured && !await _requireOwnerSession('تغییر کلید GitHub')) return;
+  Future<void> _saveToken() async {
+    if (_ownerConfigured && !await _requireOwnerSession('تغییر کلید GitHub')) return;
 
     final token = _tokenController.text.trim();
     if (token.isEmpty) {
