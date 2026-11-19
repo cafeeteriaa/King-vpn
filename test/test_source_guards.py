@@ -73,10 +73,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Permission.microphone.request()', voice)
         self.assertIn("startsWith('fa')", voice)
         self.assertIn('onDevice: true', voice)
+        self.assertIn('if (s != AppLifecycleState.resumed && _smartSpeech.isListening)', main)
         self.assertIn('_smartCommandController.value = TextEditingValue(', voice)
         self.assertNotIn('_runSmartCommand(', voice)
         self.assertIn('speech_to_text:^7.4.0', workflow)
         self.assertIn('android.permission.RECORD_AUDIO', prepare)
+        self.assertIn("if 'android.permission.RECORD_AUDIO' not in m:", prepare)
         self.assertIn('android.speech.RecognitionService', prepare)
 
     def test_ci_pipelines_propagate_failures_through_tee(self):
