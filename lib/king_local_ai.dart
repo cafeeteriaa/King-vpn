@@ -111,6 +111,17 @@ empty changes list and explain what is missing.
         await modelFile.length() != modelSizeBytes) {
       return false;
     }
+    // A marker is metadata, not proof that the 1.1 GB model is still intact.
+    // Re-resolve the path inside app-private storage and verify the actual
+    // bytes before loading a background model after a reboot or file change.
+    final supportPath = await root.resolveSymbolicLinks();
+    final modelPath = await modelFile.resolveSymbolicLinks();
+    if (!modelPath.startsWith('${supportPath}${Platform.pathSeparator}')) {
+      return false;
+    }
+    final actualDigest = await sha256.bind(modelFile.openRead()).first;
+    if (actualDigest.toString() != modelSha256) return false;
+
     _busy = true;
     try {
       final support = await LocalInferenceFlutter.checkDeviceSupport();
