@@ -238,7 +238,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     ));
   }
 
-  Future<void> _enableBackground() async { {
+  Future<void> _enableBackground() async {
     if (!await _requireOwnerSession('فعال‌سازی ترمیم خودکار پس‌زمینه')) return;
 
     final number = _pullNumber;
@@ -263,7 +263,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     });
   }
 
-  Future<void> _enableAutomaticDiscovery() async { {
+  Future<void> _enableAutomaticDiscovery() async {
     if (!await _requireOwnerSession('فعال‌سازی کشف خودکار مخزن')) return;
 
     if (!_hasToken || !_ai.isLoaded) {
@@ -283,7 +283,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     });
   }
 
-  Future<void> _disableBackground() async { {
+  Future<void> _disableBackground() async {
     if (!await _requireOwnerSession('توقف ترمیم پس‌زمینه')) return;
 
     await _run('غیرفعال‌سازی ترمیم پس‌زمینه', () async {
@@ -292,7 +292,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     });
   }
 
-  Future<void> _clearToken() async { {
+  Future<void> _clearToken() async {
     if (!await _requireOwnerSession('پاک‌کردن کلید GitHub')) return;
 
     await _run('پاک‌کردن کلید ذخیره‌شده', () async {
