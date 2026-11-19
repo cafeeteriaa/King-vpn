@@ -74,6 +74,12 @@ jobs:
         run: |
           python3 tools/king_ai_training/prepare_dataset.py \
             --input "$DATASET_PATH" --output-dir "$RUNNER_TEMP/king-ai-dataset"
+      - name: Fail fast when the runner has no NVIDIA GPU
+        if: steps.dataset.outputs.ready == 'true'
+        run: |
+          command -v nvidia-smi
+          nvidia-smi --query-gpu=name,memory.free --format=csv,noheader
+          df -h "$RUNNER_TEMP"
       - name: Install pinned local training dependencies
         if: steps.dataset.outputs.ready == 'true'
         run: python3 -m pip install --requirement tools/king_ai_training/requirements.txt
