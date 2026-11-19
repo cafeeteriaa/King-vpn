@@ -15260,7 +15260,7 @@ UiHero(
                 runSpacing: 6,
                 children: [
                   OutlinedButton.icon(
-                    onPressed: _natRangesDialog(context),
+                    onPressed: () => _natRangesDialog(context),
                     icon: const Icon(Icons.tune, size: 17),
                     label: const Text('بازه‌های IP اختصاصی خلبان'),
                   ),
