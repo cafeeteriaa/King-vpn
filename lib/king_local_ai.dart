@@ -325,6 +325,9 @@ empty changes list and explain what is missing.
   }) async {
     final q = query.trim();
     if (q.isEmpty) return const [];
+    if (q.length > 400) {
+      throw ArgumentError('Research query is limited to 400 characters');
+    }
     final boundedResults = maxResults.clamp(1, 8);
     final searchUri = Uri.https('www.google.com', '/search', {
       'q': q,
@@ -356,12 +359,23 @@ empty changes list and explain what is missing.
     final notes = <Map<String, String>>[];
     for (final entry in found.entries) {
       try {
-        final pageResponse = await http.get(entry.key, headers: const {
-          'User-Agent': 'KingVPN-LocalAI/1.0',
-          'Accept': 'text/html,application/xhtml+xml',
-        }).timeout(const Duration(seconds: 12));
-        if (pageResponse.statusCode != 200) continue;
-        final text = _plainText(pageResponse.body);
+        final client = http.Client();
+        String pageBody;
+        try {
+          final request = http.Request('GET', entry.key)
+            ..followRedirects = false
+            ..headers.addAll(const {
+              'User-Agent': 'KingVPN-LocalAI/1.0',
+              'Accept': 'text/html,application/xhtml+xml',
+            });
+          final streamed = await client.send(request)
+              .timeout(const Duration(seconds: 12));
+          if (streamed.statusCode != 200) continue;
+          pageBody = await streamed.stream.bytesToString();
+        } finally {
+          client.close();
+        }
+        final text = _plainText(pageBody);
         if (text.isEmpty) continue;
         notes.add({
           'title': entry.value,
