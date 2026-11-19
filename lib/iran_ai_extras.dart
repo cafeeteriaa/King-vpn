@@ -1926,15 +1926,22 @@ extension HomeExtras on _HomePageState {
                   final files = await KingLocalAi.instance.readRepositoryContext(
                     owner: owner, repository: repoName, baseBranch: base);
                   if (files.isEmpty) throw StateError('فایل کد قابل‌خواندن در مخزن پیدا نشد.');
-                  aiText.value = '۲/۳ تحلیل کد و تولید اصلاح توسط مدل محلی...';
+                  aiText.value = '۲/۴ جست‌وجوی Google و مطالعه مستندات رسمی...';
+                  List<Map<String, String>> research = const [];
+                  try {
+                    research = await KingLocalAi.instance.researchGoogle(task);
+                  } catch (e) {
+                    aiText.value = 'جست‌وجوی Google در دسترس نبود؛ تحلیل با سورس مخزن ادامه می‌یابد: $e';
+                  }
+                  aiText.value = '۳/۴ تحلیل کد و تولید اصلاح توسط مدل محلی...';
                   final proposal = await KingLocalAi.instance.proposeRepair(
-                    task: task, sourceFiles: files);
+                    task: task, sourceFiles: files, researchNotes: research);
                   final changes = proposal['changes'] as Map<String, String>;
                   if (changes.isEmpty) {
                     aiText.value = 'مدل محلی تغییر امن و مستندی پیشنهاد نکرد. توضیح: ${proposal['summary']}';
                     return;
                   }
-                  aiText.value = '۳/۳ ساخت شاخه و Pull Request در GitHub...';
+                  aiText.value = '۴/۴ ساخت شاخه و Pull Request در GitHub...';
                   final url = await KingLocalAi.instance.createRepairPullRequest(
                     owner: owner,
                     repository: repoName,
