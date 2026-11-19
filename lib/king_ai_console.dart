@@ -364,7 +364,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
                 Wrap(spacing: 8, runSpacing: 8, children: [
                   if (!_ownerConfigured)
                     FilledButton(
-                      onPressed: _busy ? null : _setupOwnerPassword,
+                      onPressed: _busy || !_hasToken ? null : _setupOwnerPassword,
                       child: const Text('ثبت رمز مالک روی دستگاه'),
                     )
                   else if (!_ownerUnlocked)
@@ -402,6 +402,11 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
                   ),
                 ],
                 const SizedBox(height: 6),
+                if (!_ownerConfigured)
+                  Text(
+                    'برای ثبت اولیه، ابتدا کلید GitHub حساب مالک مخزن را در بخش اتصال امن پایین ذخیره کن؛ هویت حساب به‌صورت آنلاین بررسی می‌شود.',
+                    style: theme.textTheme.bodySmall,
+                  ),
                 Text(
                   'رمز فقط روی همین دستگاه ثبت می‌شود و در چت یا گزارش‌ها ارسال نمی‌شود. حداقل ۱۲ نویسه؛ پس از ۵ تلاش ناموفق، تأخیر افزایشی اعمال می‌شود. اولین ثبت فقط یک‌بار ممکن است؛ برای درخواست تغییر کد باید مالک احراز هویت شود.',
                   style: theme.textTheme.bodySmall,
