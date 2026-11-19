@@ -118,7 +118,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       await _refreshOwnerState();
       if (mounted) {
         setState(() => _output = accepted
-            ? 'دسترسی مالک برای ۱۵ دقیقه فعال شد.'
+            ? 'دسترسی مالک برای حداکثر ۲ دقیقه فعال شد.'
             : 'احراز هویت ناموفق بود یا موقتاً قفل شده است.');
       }
       if (accepted) await _maybeSubmitInitialFeatureRequest();
