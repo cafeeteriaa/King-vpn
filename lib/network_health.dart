@@ -13,8 +13,8 @@ class NetworkEvidence {
     this.globalSamples = 0,
     this.domesticLatencyMs,
     this.globalLatencyMs,
-    this.domesticDataPlaneVerified = false,
-    this.globalDataPlaneVerified = false,
+    this.domesticTlsReachabilityVerified = false,
+    this.globalTlsReachabilityVerified = false,
   });
 
   final LinkHealth domestic;
@@ -23,8 +23,8 @@ class NetworkEvidence {
   final int globalSamples;
   final int? domesticLatencyMs;
   final int? globalLatencyMs;
-  final bool domesticDataPlaneVerified;
-  final bool globalDataPlaneVerified;
+  final bool domesticTlsReachabilityVerified;
+  final bool globalTlsReachabilityVerified;
 
   DetectedNetworkMode get mode {
     if (domestic == LinkHealth.unknown && global == LinkHealth.unknown) {
@@ -48,16 +48,17 @@ class NetworkEvidence {
     return DetectedNetworkMode.unknown;
   }
 
-  /// Health of one address family must not be inferred from the other.
-  bool acceptsTunnel({required bool nationalOnly}) =>
-      nationalOnly ? domesticDataPlaneVerified : globalDataPlaneVerified;
+  /// TLS reachability is not proof that VPN tunnel traffic is passing.
+  /// This helper reports only the matching endpoint group's TLS evidence.
+  bool acceptsTlsReachability({required bool nationalOnly}) =>
+      nationalOnly ? domesticTlsReachabilityVerified : globalTlsReachabilityVerified;
 
   double get confidence {
     final sampleCount = domesticSamples + globalSamples;
     if (sampleCount <= 0) return 0;
     final coverage = (sampleCount / 8).clamp(0, 1).toDouble();
-    final verified = (domesticDataPlaneVerified ? 1 : 0) +
-        (globalDataPlaneVerified ? 1 : 0);
+    final verified = (domesticTlsReachabilityVerified ? 1 : 0) +
+        (globalTlsReachabilityVerified ? 1 : 0);
     return (coverage * (0.55 + verified * 0.225)).clamp(0, 1).toDouble();
   }
 }
