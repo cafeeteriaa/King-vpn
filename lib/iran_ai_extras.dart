@@ -1784,11 +1784,12 @@ extension HomeExtras on _HomePageState {
     // A recent core check is required before ping/service evidence can rank
     // an endpoint. A recent speed sample has its own, shorter validity window.
     final pingFresh = isFresh(s.checkedAt, const Duration(minutes: 4));
+    final pingSuccessfulFresh = pingFresh && s.ping != null && s.ping! > 0;
     final speedFresh = isFresh(s.speedAt, const Duration(minutes: 5));
     // Service bits need a recent endpoint check; measured throughput has
     // its own timestamp and remains useful even when the ping sample ages out.
     if (!nationalMode) {
-      if (pingFresh && s.svc >= 0) {
+      if (pingSuccessfulFresh && s.svc >= 0) {
         score += ((s.svc & 1) != 0 ? 40 : 0) +
             ((s.svc & 2) != 0 ? 30 : 0) +
             ((s.svc & 4) != 0 ? 20 : 0);
