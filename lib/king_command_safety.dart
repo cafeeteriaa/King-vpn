@@ -88,27 +88,12 @@ class KingCommandSafety {
   /// Disconnect actions are also restricted to explicit imperative wording.
   /// A question such as "چرا اتصال قطع می‌شود؟" must never disconnect the VPN.
   static bool isDisconnectIntent(String command) {
-    final value = _normalize(command).replaceAll(RegExp(r'\\s+'), ' ').trim();
+    final value = _normalize(command).replaceAll(RegExp(r'\s+'), ' ').trim();
     if (isStatusRequest(value) || isQuestionRequest(value) ||
         negatesConnection(value)) return false;
     return RegExp(
-      r'^(?:قطع\\s*اتصال|اتصال\\s*(?:را|رو)?\\s*قطع\\s*(?:کن|کنید)|'
-      r'قطع\\s*(?:کن|کنید)|disconnect(?:\\s+now)?|خاموش\\s*کردن\\s*اتصال)
-    final value = _normalize(command);
-    return RegExp(r'(وضعیت|status|چه\s*خبر|چطوره|متصل\s*هستم|وصل\s*هستم)')
-        .hasMatch(value);
-  }
-
-  static bool negatesScan(String command) {
-    final value = _normalize(command);
-    return RegExp(
-      '(?:اسکن|پویش|scan).{0,16}$_negation',
-    ).hasMatch(value) || RegExp(
-      '$_negation.{0,16}(?:اسکن|پویش|scan)',
-    ).hasMatch(value);
-  }
-}
-,
+      r'^(?:قطع\s*اتصال|اتصال\s*(?:را|رو)?\s*قطع\s*(?:کن|کنید)|'
+      r'قطع\s*(?:کن|کنید)|disconnect(?:\s+now)?|خاموش\s*کردن\s*اتصال)$',
     ).hasMatch(value);
   }
 
