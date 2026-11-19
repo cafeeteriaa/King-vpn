@@ -10948,8 +10948,7 @@ ListTile( // KINGEXTRAS row
           .where((p) => RegExp(r'\b' + p + r'\b').hasMatch(normalized))
           .toList();
       final negatesConnection = KingCommandSafety.negatesConnection(command);
-      final wantsConnect = RegExp(r'(اتصال|وصل|شروع|connect)').hasMatch(command) &&
-          !negatesConnection;
+      final wantsConnect = KingCommandSafety.isConnectIntent(command);
       final requestedNetworkMode = KingCommandSafety.requestedNetworkMode(command);
       final wantsPersonalFolder = wantsConnect &&
           RegExp(r'(سرور شخصی|پوشه شخصی)').hasMatch(normalizedCommand);
