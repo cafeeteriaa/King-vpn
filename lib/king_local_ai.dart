@@ -410,7 +410,7 @@ empty changes list and explain what is missing.
           (path.startsWith('lib/') || path.startsWith('test/') || path.startsWith('tools/')) &&
           (path.endsWith('.dart') || path.endsWith('.py'));
     }).toList();
-    final words = task.toLowerCase().split(RegExp(r'[^a-z0-9\\u0600-\\u06FF]+'))
+    final words = task.toLowerCase().split(RegExp(r'[^a-z0-9\u0600-\u06FF]+'))
         .where((word) => word.length > 2).toSet();
     int relevance(Map entry) {
       final path = (entry['path'] as String).toLowerCase();
