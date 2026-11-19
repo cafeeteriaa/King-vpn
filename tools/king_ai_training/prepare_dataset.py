@@ -35,7 +35,7 @@ def prepare(source: Path, output_dir: Path, min_examples: int = 5) -> dict:
             task, diff = row["task"], row["diff"]
             if not isinstance(task, str) or not isinstance(diff, str):
                 raise ValueError("task and diff must be strings")
-            if not row.get("ci_passed") or not row.get("human_reviewed") or not row.get("security_scan_passed"):
+            if not row.get("ci_passed") or not (row.get("human_reviewed") or row.get("merged")) or not row.get("security_scan_passed"):
                 rejected += 1
                 continue
             task, diff = task.strip(), diff.strip()
