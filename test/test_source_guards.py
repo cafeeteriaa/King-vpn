@@ -52,6 +52,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('king-vpn-full-source-${{ github.run_number }}.zip', workflow)
         self.assertIn('build_app/android/local.properties', workflow)
         self.assertIn('Upload complete project ZIP', workflow)
+        self.assertIn('${{ runner.temp }}', workflow)
 
     def test_plugin_dart_parser_hardening_is_part_of_build_patch(self):
         patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
