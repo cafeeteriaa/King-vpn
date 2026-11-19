@@ -534,8 +534,8 @@ empty changes list and explain what is missing.
     };
   }
 
-  /// One operator-invoked repair iteration. At most two follow-up PRs are
-  /// proposed per source PR; no check is auto-merged or silently retried.
+  /// One bounded repair iteration. The caller may schedule another attempt
+  /// after the CI result is available and the backoff policy has elapsed.
   Future<Map<String, Object?>> repairFromFailedCi({
     required String owner,
     required String repository,
