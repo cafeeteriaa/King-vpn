@@ -19,6 +19,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("login.toLowerCase() != _repositoryOwner", verifier)
         self.assertIn("key: 'king_ai_github_token'", verifier)
 
+    def test_owner_password_rotation_restores_previous_pair_on_storage_failure(self):
+        auth = (ROOT / 'lib' / 'king_ai_owner_auth.dart').read_text(encoding='utf-8')
+        start = auth.index('Future<void> changePassword(String password)')
+        end = auth.index('Future<bool> authenticate(String password)', start)
+        rotation = auth[start:end]
+        self.assertIn('final oldSalt = await _storage.read(key: _saltKey);', rotation)
+        self.assertIn('final oldVerifier = await _storage.read(key: _verifierKey);', rotation)
+        self.assertIn('await _storage.write(key: _saltKey, value: oldSalt);', rotation)
+        self.assertIn('await _storage.write(key: _verifierKey, value: oldVerifier);', rotation)
+        self.assertIn('Owner credential storage is incomplete', rotation)
+
     def test_local_model_prompt_uses_real_chat_template_newlines(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
         start = ai.index('final generation = engine.generate(', ai.index('Future<String> _generateWithSystemPrompt'))
