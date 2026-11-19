@@ -16,6 +16,7 @@ class KingAiOwnerAuth {
 
   static const Duration sessionLifetime = Duration(minutes: 15);
   static const int _minimumPasswordLength = 12;
+  static const int _maximumPasswordLength = 128;
   static const int _maxFailuresBeforeLock = 5;
 
   static const String _saltKey = 'king_ai_owner_salt_v1';
@@ -34,91 +35,110 @@ class KingAiOwnerAuth {
     hashLength: 32,
   );
 
-  DateTime? _sessionExpiresAt;
+  Stopwatch? _sessionClock;
+  bool _operationBusy = false;
 
   Future<bool> get isConfigured async =>
       (await _storage.read(key: _saltKey)) != null &&
       (await _storage.read(key: _verifierKey)) != null;
 
   bool get hasActiveSession {
-    final expires = _sessionExpiresAt;
-    if (expires == null || !DateTime.now().isBefore(expires)) {
-      _sessionExpiresAt = null;
+    final clock = _sessionClock;
+    if (clock == null || clock.elapsed >= sessionLifetime) {
+      _sessionClock = null;
       return false;
     }
     return true;
   }
 
   Future<void> setInitialPassword(String password) async {
-    if (await isConfigured) {
-      throw StateError('Owner password is already configured.');
+    if (_operationBusy) throw StateError('Owner authentication is busy.');
+    _operationBusy = true;
+    try {
+      if (await isConfigured) {
+        throw StateError('Owner password is already configured.');
+      }
+      _validatePassword(password);
+      final salt = _randomBytes(16);
+      final verifier = await _derive(password, salt);
+      await _storage.write(key: _saltKey, value: base64Encode(salt));
+      await _storage.write(key: _verifierKey, value: base64Encode(verifier));
+      await _storage.delete(key: _failuresKey);
+      await _storage.delete(key: _lockUntilKey);
+      _sessionClock = Stopwatch()..start();
+    } finally {
+      _operationBusy = false;
     }
-    _validatePassword(password);
-    final salt = _randomBytes(16);
-    final verifier = await _derive(password, salt);
-    await _storage.write(key: _saltKey, value: base64Encode(salt));
-    await _storage.write(key: _verifierKey, value: base64Encode(verifier));
-    await _storage.delete(key: _failuresKey);
-    await _storage.delete(key: _lockUntilKey);
-    _sessionExpiresAt = DateTime.now().add(sessionLifetime);
   }
 
   /// Password changes require a currently authenticated owner session.
   Future<void> changePassword(String password) async {
-    if (!hasActiveSession) {
-      throw StateError('Owner authentication is required.');
+    if (_operationBusy) throw StateError('Owner authentication is busy.');
+    _operationBusy = true;
+    try {
+      if (!hasActiveSession) {
+        throw StateError('Owner authentication is required.');
+      }
+      _validatePassword(password);
+      final salt = _randomBytes(16);
+      final verifier = await _derive(password, salt);
+      await _storage.write(key: _saltKey, value: base64Encode(salt));
+      await _storage.write(key: _verifierKey, value: base64Encode(verifier));
+      await _storage.delete(key: _failuresKey);
+      await _storage.delete(key: _lockUntilKey);
+      _sessionClock = Stopwatch()..start();
+    } finally {
+      _operationBusy = false;
     }
-    _validatePassword(password);
-    final salt = _randomBytes(16);
-    final verifier = await _derive(password, salt);
-    await _storage.write(key: _saltKey, value: base64Encode(salt));
-    await _storage.write(key: _verifierKey, value: base64Encode(verifier));
-    await _storage.delete(key: _failuresKey);
-    await _storage.delete(key: _lockUntilKey);
-    _sessionExpiresAt = DateTime.now().add(sessionLifetime);
   }
 
   Future<bool> authenticate(String password) async {
-    if (!await isConfigured) return false;
+    if (_operationBusy) return false;
+    _operationBusy = true;
+    try {
+      if (!await isConfigured) return false;
 
-    final lockRaw = await _storage.read(key: _lockUntilKey);
-    final lockUntil = lockRaw == null ? null : int.tryParse(lockRaw);
-    if (lockUntil != null &&
-        DateTime.now().millisecondsSinceEpoch < lockUntil) {
+      final lockRaw = await _storage.read(key: _lockUntilKey);
+      final lockUntil = lockRaw == null ? null : int.tryParse(lockRaw);
+      if (lockUntil != null &&
+          DateTime.now().millisecondsSinceEpoch < lockUntil) {
+        return false;
+      }
+
+      final saltRaw = await _storage.read(key: _saltKey);
+      final verifierRaw = await _storage.read(key: _verifierKey);
+      if (saltRaw == null || verifierRaw == null) return false;
+
+      final salt = base64Decode(saltRaw);
+      final expected = base64Decode(verifierRaw);
+      final actual = await _derive(password, salt);
+      if (_constantTimeEquals(actual, expected)) {
+        await _storage.delete(key: _failuresKey);
+        await _storage.delete(key: _lockUntilKey);
+        _sessionClock = Stopwatch()..start();
+        return true;
+      }
+
+      final previous =
+          int.tryParse(await _storage.read(key: _failuresKey) ?? '') ?? 0;
+      final failures = previous + 1;
+      await _storage.write(key: _failuresKey, value: failures.toString());
+      if (failures >= _maxFailuresBeforeLock) {
+        final exponent = (failures - _maxFailuresBeforeLock).clamp(0, 10);
+        final seconds = min(3600, 30 * (1 << exponent));
+        final until = DateTime.now()
+            .add(Duration(seconds: seconds))
+            .millisecondsSinceEpoch;
+        await _storage.write(key: _lockUntilKey, value: until.toString());
+      }
+      _sessionClock = null;
       return false;
+    } finally {
+      _operationBusy = false;
     }
-
-    final saltRaw = await _storage.read(key: _saltKey);
-    final verifierRaw = await _storage.read(key: _verifierKey);
-    if (saltRaw == null || verifierRaw == null) return false;
-
-    final salt = base64Decode(saltRaw);
-    final expected = base64Decode(verifierRaw);
-    final actual = await _derive(password, salt);
-    if (_constantTimeEquals(actual, expected)) {
-      await _storage.delete(key: _failuresKey);
-      await _storage.delete(key: _lockUntilKey);
-      _sessionExpiresAt = DateTime.now().add(sessionLifetime);
-      return true;
-    }
-
-    final previous =
-        int.tryParse(await _storage.read(key: _failuresKey) ?? '') ?? 0;
-    final failures = previous + 1;
-    await _storage.write(key: _failuresKey, value: failures.toString());
-    if (failures >= _maxFailuresBeforeLock) {
-      final exponent = (failures - _maxFailuresBeforeLock).clamp(0, 10);
-      final seconds = min(3600, 30 * (1 << exponent));
-      final until = DateTime.now()
-          .add(Duration(seconds: seconds))
-          .millisecondsSinceEpoch;
-      await _storage.write(key: _lockUntilKey, value: until.toString());
-    }
-    _sessionExpiresAt = null;
-    return false;
   }
 
-  void lock() => _sessionExpiresAt = null;
+  void lock() => _sessionClock = null;
 
   Future<List<int>> _derive(String password, List<int> salt) async {
     final key = await _kdf.deriveKeyFromPassword(
@@ -135,6 +155,7 @@ class KingAiOwnerAuth {
 
   static void _validatePassword(String password) {
     if (password.length < _minimumPasswordLength ||
+        password.length > _maximumPasswordLength ||
         password.trim() != password ||
         password.contains(RegExp(r'\s'))) {
       throw ArgumentError(
