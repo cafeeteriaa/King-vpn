@@ -2332,7 +2332,7 @@ extension HomeExtras on _HomePageState {
         return <String, int>{
           for (final entry in value.entries)
             if (entry.key is String && entry.value is num)
-              (entry.key as String): (entry.value as num).toInt().clamp(0, 10000),
+              (entry.key as String): (entry.value as num).toInt().clamp(0, 10000).toInt(),
         };
       }
       _localOpWins = readMap(decoded['wins']);
@@ -2349,7 +2349,7 @@ extension HomeExtras on _HomePageState {
         final entries = source.entries.toList()
           ..sort((a, b) => b.value.compareTo(a.value));
         return Map<String, int>.fromEntries(entries.take(100).map(
-          (e) => MapEntry(e.key, e.value.clamp(0, 10000)),
+          (e) => MapEntry(e.key, e.value.clamp(0, 10000).toInt()),
         ));
       }
       _localOpWins = bounded(_localOpWins);
@@ -3890,7 +3890,7 @@ int _localSvcFail = 0; // consecutive active-network data-plane probe failures
 int _localNetFail = 0;
 
 // حافظه یادگیری محلی: اپراتور → آخرین اقدام موفق / امتیاز
-final Map<String, int> _localOpWins = {}; // confirmed successes by operator/action
+Map<String, int> _localOpWins = {}; // confirmed successes by operator/action
 Map<String, int> _localOpLosses = {}; // confirmed failures by operator/action
 const String _pilotExperiencePrefsKey = 'king_pilot_experience_v1';
 bool _pilotExperienceLoaded = false;
