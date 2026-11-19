@@ -81,9 +81,14 @@ def collect(event: dict, repository: str, token: str, output: Path) -> dict:
         return {"status": "skipped", "reason": "Not every check on exact head SHA succeeded"}
 
     task = (str(pull.get("title") or "") + "\n" + str(pull.get("body") or ""))[:MAX_TASK].strip()
-    base_sha = base.get("sha")
-    if not isinstance(base_sha, str):
-        return {"status": "skipped", "reason": "Missing base commit SHA"}
+    merge_sha = pull.get("merge_commit_sha")
+    if not isinstance(merge_sha, str) or not merge_sha:
+        return {"status": "skipped", "reason": "Missing merge commit SHA"}
+    merge_commit = github_get(f"{api}/commits/{merge_sha}", token)
+    parents = merge_commit.get("parents") or []
+    if not parents or not isinstance(parents[0].get("sha"), str):
+        return {"status": "skipped", "reason": "Cannot identify pre-merge base commit"}
+    base_sha = parents[0]["sha"]
     source_files = {}
     changes = {}
     total_chars = len(task)
