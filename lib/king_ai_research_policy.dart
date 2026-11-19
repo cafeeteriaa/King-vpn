@@ -78,7 +78,7 @@ List<Map<String, String>> rankKingAiResearchMemory(
 }) {
   final current = now ?? DateTime.now().toUtc();
   final words = query.toLowerCase()
-      .split(RegExp(r'[^a-z0-9\\u0600-\\u06FF]+'))
+      .split(RegExp(r'[^a-z0-9\u0600-\u06FF]+'))
       .where((word) => word.length > 3)
       .toSet();
   if (words.isEmpty) return const <Map<String, String>>[];
