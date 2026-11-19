@@ -8716,7 +8716,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _aiLoop(aiGen);
     // the personal server has its own row, it never joins the healthy list
     if (!s.personal && !good.contains(s)) good.add(s);
-    if (nationalMode && !s.personal) unawaited(_natAdd(s));
+    if (nationalMode && !proxyMode && !s.personal) unawaited(_natAdd(s));
     // HEALTHY-STORE: every genuinely connected non-personal server is saved,
     // regardless of discovery source or mode. Reads/injection remain NAT-only.
     if (!s.personal) _resAdd(s);

@@ -4224,6 +4224,10 @@ class _PilotCommandBarState extends State<PilotCommandBar> {
           child: Row(children: [
             _quickCommand('وصل شو', Icons.power_settings_new, 'وصل شو'),
             const SizedBox(width: 5),
+            if (widget.busy) ...[
+              _quickCommand('لغو عملیات', Icons.stop_circle_outlined, 'لغو جستجو', allowWhileSending: true),
+              const SizedBox(width: 5),
+            ],
             _quickCommand('بهترین سرور', Icons.bolt, 'بهترین سرور را پیدا کن و وصل شو'),
             const SizedBox(width: 5),
             _quickCommand('وضعیت', Icons.monitor_heart_outlined, 'وضعیت اتصال'),
@@ -4235,10 +4239,6 @@ class _PilotCommandBarState extends State<PilotCommandBar> {
             _quickCommand('نت جهانی', Icons.public, 'نت جهانی وصل شو'),
             const SizedBox(width: 5),
             _quickCommand('راهنما', Icons.help_outline, 'راهنمای فرمان‌ها'),
-            if (widget.busy) ...[
-              const SizedBox(width: 5),
-              _quickCommand('لغو عملیات', Icons.stop_circle_outlined, 'لغو جستجو', allowWhileSending: true),
-            ],
             if (widget.connected) ...[
               const SizedBox(width: 5),
               _quickCommand('اتصال مجدد', Icons.refresh, 'اتصال مجدد'),
