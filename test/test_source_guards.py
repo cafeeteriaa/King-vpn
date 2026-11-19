@@ -940,6 +940,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('client.send(request)', update)
         self.assertIn('..followRedirects = false', update)
         self.assertIn('resolveAllowedUpdateRedirect(currentUri, location)', update)
+        self.assertIn('response.stream.listen((_) {}).cancel()', update)
         self.assertNotIn('streamed.request?.url', update)
         self.assertIn('Uri? resolveAllowedUpdateRedirect', integrity)
         self.assertIn('_kingUpdateChannel.invokeMethod', update)
