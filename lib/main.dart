@@ -11029,7 +11029,7 @@ ListTile( // KINGEXTRAS row
         if (wantsMaxSpeed) autoSpeed = true;
         await startLocalPilot();
         _set('حالت آنلاین فعال شد؛ منابع تازه از اینترنت دریافت و در پوشه گوشی ذخیره می‌شوند.');
-      } else if (analysisOnlyRequest) {
+      } else if (analysisOnlyRequest && KingAiOwnerAuth.instance.hasActiveSession) {
         unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
           builder: (_) => KingAiConsolePage(
             initialIdeaAnalysis: command,
