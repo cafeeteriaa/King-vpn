@@ -48,7 +48,8 @@ class MergedRepairCollectorTests(unittest.TestCase):
             return [{
                 "state": "APPROVED",
                 "commit_id": "a" * 40,
-                "user": {"type": "User"},
+                "submitted_at": "2026-11-20T01:00:00Z",
+                "user": {"login": "reviewer", "type": "User"},
             }]
         if "/commits/" + "b" * 40 in url:
             return {"parents": [{"sha": "c" * 40}]}
@@ -126,7 +127,8 @@ class MergedRepairCollectorTests(unittest.TestCase):
                 return {"check_runs": [{"status": "completed", "conclusion": "success"}]}
             if "/pulls/17/reviews" in url:
                 return [{"state": "APPROVED", "commit_id": "older-sha",
-                         "user": {"type": "User"}}]
+                         "submitted_at": "2026-11-20T01:00:00Z",
+                         "user": {"login": "reviewer", "type": "User"}}]
             raise AssertionError(url)
 
         with tempfile.TemporaryDirectory() as temp:
