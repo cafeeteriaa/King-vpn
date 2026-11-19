@@ -45,7 +45,8 @@ jobs:
             const pr = listed.data.find(item =>
               item.head?.sha === run.head_sha &&
               item.head?.repo?.full_name === fullName &&
-              item.base?.ref === 'main' &&
+              item.base?.repo?.full_name === fullName &&
+              item.base?.ref !== run.head_branch &&
               item.state === 'open' &&
               item.draft === false
             );
