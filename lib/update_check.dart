@@ -3,7 +3,7 @@ part of 'main.dart';
 // UPDATE CHECK + Remote heal flags ==========================================
 const int appBuild = 3; // Fallback only; PackageInfo supplies the installed build number.
 const String updateConfigUrl =
-    'https://gist.githubusercontent.com/cafeeteriaa/0e04f5efe29b8101eb554c6e9a41d969/raw';
+    'https://gist.githubusercontent.com/cafeeteriaa/0e04f5efe29b8101eb554c6e9a41d969/raw/update.json';
 
 const MethodChannel _kingUpdateChannel = MethodChannel('king/update');
 bool _updateChecked = false;
