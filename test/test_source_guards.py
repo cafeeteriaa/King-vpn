@@ -212,6 +212,30 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_ownerAuth.authenticate(password)', console)
         self.assertIn('if (!_ownerAuth.hasActiveSession)', console)
 
+    def test_background_supervisor_apis_exist_and_verify_installed_model(self):
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        worker = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
+        for method in (
+            'setBackgroundRepairPullNumber',
+            'getBackgroundRepairPullNumber',
+            'clearBackgroundRepairPullNumber',
+            'setBackgroundAutoDiscovery',
+            'isBackgroundAutoDiscoveryEnabled',
+            'loadInstalledModelForBackground',
+            'findOpenPullRequestWithCiFailures',
+            'findOpenPullRequestForHeadBranch',
+        ):
+            self.assertIn(f'{method}(', ai)
+            self.assertIn(f'.{method}(', worker)
+        load_start = ai.index('Future<bool> loadInstalledModelForBackground()')
+        load_end = ai.index('Future<ModelManager> _modelManager()', load_start)
+        loader = ai[load_start:load_end]
+        self.assertIn('decoded[\'sha256\'] != modelSha256', loader)
+        self.assertIn('decoded[\'sizeBytes\'] != modelSizeBytes', loader)
+        self.assertIn('sha256.bind(modelFile.openRead())', loader)
+        self.assertIn('resolveSymbolicLinks()', loader)
+        self.assertIn('repairFromFailedCiAutonomous(', worker)
+
     def test_king_voice_commands_are_persian_on_device_and_user_confirmed(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
