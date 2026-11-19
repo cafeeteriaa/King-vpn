@@ -577,7 +577,7 @@ const betterMinGapMs = 80;
 const betterEvery = Duration(minutes: 10); // SWITCHRULE: حداقل ۱۰ دقیقه بین دو تعویض سرور
 int? connBaseDelay; // test ping of the connected server
 int betterRun = 0;
-bool aiFastOn = true; // parallel Gemini test (off = old one-by-one)
+bool aiFastOn = true; // parallel public-web reachability test (off = old one-by-one)
 int aiTried = 0;
 int aiHit = 0;
 int aiGen = 0; // FASTPATCH-AI: one analysis loop per connection
@@ -1311,7 +1311,7 @@ List<String> _dbgHelpOf(String m) {
   if (m.startsWith('🕳')) {
     var code = 'E-SWALLOW-OTHER';
     var cause = 'یک try/catch این خطا را گرفت و بی‌صدا رد کرد؛ برنامه ادامه داد ولی کاری که داخل try بود نیمه‌کاره ماند.';
-    var fix = 'نوع خطا و تابع:خط را برای Claude بفرست تا همان‌جا شرط یا اصلاح درست شود.';
+    var fix = 'نوع خطا و تابع را به کینگ بده تا علت و اصلاح احتمالی را بررسی کند.';
     if (has('TimeoutException')) {
       code = 'E-SWALLOW-TIMEOUT';
       cause = 'یک عملیات (تست سرور، دانلود، گرفتن لیست) از مهلتش بیشتر طول کشید.';
@@ -1330,7 +1330,7 @@ List<String> _dbgHelpOf(String m) {
     } else if (has('PlatformException') || has('MissingPluginException')) {
       code = 'E-SWALLOW-PLATFORM';
       cause = 'خطای بخش native اندروید (هسته، مجوز، کانال vpn/bg یا بهینه‌سازی باتری).';
-      fix = 'تابع:خط را برای Claude بفرست؛ معمولاً به نسخه‌ی پلاگین یا مجوز اندروید مربوط است.';
+      fix = 'تابع و خطا را به کینگ بده؛ ممکن است به نسخه‌ی افزونه یا مجوز اندروید مربوط باشد.';
     } else if (has('FileSystemException')) {
       code = 'E-SWALLOW-FILE';
       cause = 'خواندن یا نوشتن فایل شکست خورد (فضای کم یا مجوز).';
@@ -1342,7 +1342,7 @@ List<String> _dbgHelpOf(String m) {
         has('type ')) {
       code = 'E-SWALLOW-BUG';
       cause = 'باگ کد: مقدار null، اندیس بیرون از لیست یا نوع اشتباه، و try/catch آن را پنهان کرده بود.';
-      fix = 'تابع:خط را برای Claude بفرست تا شرط null/اندیس همان‌جا درست شود.';
+      fix = 'تابع و خطا را به کینگ بده تا شرط null یا اندیس را بررسی کند.';
     }
     // ERRLOC: محل واقعی (تابع:خط) از خود پیام خوانده می‌شود، نه متن نمونه
     final locM = RegExp(r'بلعیده‌شده در (\S+)').firstMatch(m);
@@ -1393,7 +1393,7 @@ List<String> _dbgHelpOf(String m) {
     }
     return h('E-CNT-OTHER', 'lib/main.dart → _inspect (شمارنده‌های واچ‌داگ)',
         'یکی از شمارنده‌های واچ‌داگ بالا رفت.',
-        'نام شمارنده را برای Claude بفرست.');
+        'نام شمارنده را به کینگ بده.');
   }
 
   // ---- stuck flags / frozen loop (کد همین فایل) ----
@@ -1566,7 +1566,7 @@ List<String> _dbgHelpOf(String m) {
     return h('E-SELFHEAL',
         'lib/main.dart → _syncCore / _inspect (خودترمیمی)',
         'برنامه یک حالت گیرکرده را خودش اصلاح کرد (واچ‌داگ آزاد/روشن شد یا هسته و اپ هماهنگ شدند).',
-        'نیازی به اقدام نیست؛ فقط اگر عدد «بار» خیلی بالاست متن و ساعت‌ها را برای Claude بفرست.');
+        'نیازی به اقدام نیست؛ فقط اگر عدد «بار» خیلی بالاست متن و ساعت‌ها را برای کینگ بفرست.');
   }
   if (has('سرعت پایین')) {
     return h('E-LOW-SPEED-SWITCH',
@@ -3627,7 +3627,7 @@ class Server {
 
   bool geoTried = false;
   bool personal = false; // the user's own Cloudflare server
-  bool? ai; // true = Gemini opens through this server, false = it does not
+  bool? ai; // true = a generic public-web reachability probe passed
   DateTime? checkedAt; // last real test (standby re-check)
   // فیکس ۹: کش رتبه‌ی نت ملی (خصوصی). فقط وقتی معتبر است که src و country همان‌هایی
   // باشند که رتبه برایشان محاسبه شده؛ natGood همیشه زنده چک می‌شود (در _natRank).
@@ -6175,7 +6175,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (s == null) continue;
           s.ping = j['p'] as int?;
           s.speed = (j['s'] as num?)?.toDouble();
-          s.ai = j['a'] as bool?;
+          s.ai = null; // force revalidation; cached provider-era flags are not generic web evidence
           s.miss = (j['m'] as num?)?.toInt() ?? 0;
           s.restored = true; // RESTORE: همان سرورهای سالم قبلی؛ حذف نمی‌شوند
           warmKeys.add(s.key);
@@ -6790,7 +6790,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // can this server be a test candidate for the given row?
   bool _cand(Server s, String? row) {
     if (row == null) return true;
-    if (row == 'r:ai') return true; // every server is a Gemini candidate
+    if (row == 'r:ai') return true; // every server is a public-web candidate
     if (row == 'r:ip') return !s.link.startsWith('ss://'); // resolved to IP
     return inRowGid(s, row);
   }
@@ -6947,7 +6947,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (enough()) natFun('loop_enough_at_start');
       natFun('loop_pending_ip', pending.where((s) => s.isIp).length);
       if (pending.isEmpty && folderQ.isEmpty) await _loadPending(bg: bg, exhausted: true);
-      // healthy servers not yet tested for Gemini are tested too
+      // healthy servers not yet tested for public-web reachability are tested too
       if (!bg && row == 'r:ai') {
         pending.insertAll(
             0,
@@ -7011,7 +7011,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         batches++;
         batchNo = batches;
         // FAST mode (foreground): parallel core delay tests, no VPN toggling.
-        // Gemini rows still use the old tunnel test.
+        // Web-reachability rows use the dedicated public endpoint probe.
         final fast = !bg && fastDelay;
         // first batch is small when nothing healthy is known yet: the first
         // test starts after ~1-2 s instead of ~4 s
@@ -7245,7 +7245,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _resAdd(s);
     } else {
       failed[s.key] = DateTime.now();
-      s.ai = null; // dead now: the old Gemini result is no longer trusted
+      s.ai = null; // provider-specific legacy result is not valid for this generic probe
     }
     // learn which kind of server works on this network
     final k = _profKey(s);
@@ -7588,7 +7588,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             dFake++; // too fast to be a real ping
             d = null;
           }
-          // AI row: does Gemini open through this server?
+          // Public-web row: do generic external endpoints respond through this server?
           if (d != null && row == 'r:ai') {
             _set('بررسی دسترسی اینترنت روی ${s.name}...');
             // two tries: one flaky request must not throw away a good server
@@ -9417,7 +9417,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 () => _applyProfile('turbo'), heavy: true),
             tile(Icons.network_check, 'اینترنت ضعیف / نت ملی',
                 'صبر بیشتر، تعویض کمتر', () => _applyProfile('weak'), heavy: true),
-            tile(Icons.auto_awesome, 'سرور AI (Gemini/Grok)',
+            tile(Icons.public, 'سرورهای دارای دسترسی وب',
                 'سرورهایی که API هوش مصنوعی را باز می‌کنند',
                 () => pickEngineThenStart(() => connectRow('r:ai')), heavy: true),
           ]),
@@ -11261,7 +11261,7 @@ ListTile( // KINGEXTRAS row
           if (abort) break;
           // RETRYPATCH: nothing left to test -> forget the failures and go again
           if (pending.isEmpty) failed.clear();
-          // EMPTYROWFIX: a fixed row (e.g. the Gemini row) can have no server
+          // EMPTYROWFIX: a fixed row (e.g. the web-reachability row) can have no server
           // at all while the other healthy servers do not belong to it. The
           // search then ended after 0 s again and again for ever. After a few
           // empty rounds we stop and tell the user; the watchdog / the user
@@ -12213,7 +12213,7 @@ ListTile( // KINGEXTRAS row
           _set(abort
               ? 'لغو شد'
               : (only == null && row == 'r:ai')
-                  ? 'هیچ سروری که Gemini را باز کند پیدا نشد؛ بعداً دوباره امتحان کن یا حالت دیگری را بزن'
+                  ? 'هیچ سرور دارای دسترسی وب عمومی تأییدشده پیدا نشد؛ بعداً دوباره امتحان کن یا حالت دیگری را بزن'
                   : (only == null && row != null)
                   ? 'در این ردیف سرور سالمی پیدا نشد'
                   : 'هیچ سروری وصل نشد، دوباره تلاش کنید');
@@ -13336,7 +13336,7 @@ ListTile( // KINGEXTRAS row
     });
   }
 
-  // GEMWATCH: in the Gemini row the connection must KEEP opening Gemini. Every
+  // WEBWATCH: in the web-reachability row the connection must KEEP passing the generic probe. Every
   // 3 minutes it is checked through the tunnel; two clear "no" answers in a
   // row mark the server and the next reachable server takes over.
   DateTime _aiChkAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -13828,7 +13828,7 @@ ListTile( // KINGEXTRAS row
           (a.country == selCountry ? 1 : 0);
       if (x != 0) return x;
     }
-    // AI row: healthy servers not yet tested for Gemini come first
+    // Web row: healthy servers not yet tested for public-web reachability come first
     if (connRow == 'r:ai') {
       final z = ((b.ping != null && b.ai == null) ? 1 : 0) -
           ((a.ping != null && a.ai == null) ? 1 : 0);
@@ -15262,7 +15262,7 @@ ListTile( // KINGEXTRAS row
     final groups = <String, List<Server>>{}; // row id -> servers
     final titles = <String, String>{};
     // fixed first lines (every display mode):
-    // 1) personal server, 2) my own configs, 3) AI servers (Gemini opens)
+    // 1) personal server, 2) my own configs, 3) servers with verified public-web reachability
     groups['p:personal'] = _personalShown.isNotEmpty
         ? _personalShown
         : (personal == null ? [] : [personal!]); // PERSPAGE
