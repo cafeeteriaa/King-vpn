@@ -44,7 +44,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_generated_patches_cannot_modify_security_and_command_policy_files(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
-        start = ai.index('void _validatePath(String path)')
+        start = ai.index('bool _isProtectedGeneratedPath(String path)')
         end = ai.index('void _rejectSecrets(String text)', start)
         guard = ai[start:end]
         for path in (
@@ -56,7 +56,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             'lib/iran_ai_extras.dart',
         ):
             self.assertIn(path, guard)
-        self.assertIn('protectedPaths.contains(path)', guard)
+        self.assertIn('return protectedPaths.contains(path)', guard)
+        self.assertIn('_isProtectedGeneratedPath(path)', guard)
+        context_start = ai.index('Future<Map<String, String>> readRepositoryContext(')
+        context_end = ai.index('Future<String> createRepairPullRequest(', context_start)
+        self.assertIn('!_isProtectedGeneratedPath(path)', ai[context_start:context_end])
 
     def test_all_public_code_generation_and_pr_write_apis_require_owner(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
