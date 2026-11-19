@@ -313,6 +313,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_official_iran_network_research_is_scheduled_automatically(self):
         worker = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
+        policy = (ROOT / 'lib' / 'king_ai_autonomy_policy.dart').read_text(encoding='utf-8')
         self.assertIn('await _scheduleOfficialResearch();', worker)
         self.assertIn("const String _researchTaskName = 'kingAiIranNetworkResearch';", worker)
         self.assertIn('researchGoogle(_researchQuery, maxResults: 2)', worker)
@@ -610,7 +611,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_flutter_sdk_included_build_resolves_kotlin_plugin_transitives(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         self.assertIn("packages/flutter_tools/gradle", prepare)
-        self.assertIn("flutter_settings_path", prepare)
+        self.assertIn("flutter_settings = os.path.join(", prepare)
         self.assertIn("FLUTTER_ROOT", prepare)
         self.assertIn("mavenCentral()", prepare)
         self.assertIn("gradlePluginPortal()", prepare)
