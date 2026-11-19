@@ -6545,7 +6545,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (nationalMode) return;
       // بقیه‌ی اتصال‌ها و خلبان‌ها: بعد از ۴ ساعت هر دو قطع می‌شوند
       if (localPilotOn) stopLocalPilot();
-      if (aiSession) stopGrokPilot();
+      if (aiSession) stopAiSession();
       if (connected || wantVpn || localPilotOn || aiSession) {
         await disconnect(keepPilot: false);
         _set('⏱ ۴ ساعت گذشت؛ اتصال و خلبان قطع شدند. برای ادامه دوباره «اتصال» را بزن (تبلیغ نمایش داده می‌شود)');
@@ -10969,7 +10969,7 @@ ListTile( // KINGEXTRAS row
           if (selCountry == null && protoSel.isEmpty) 'بدون محدودیت کشور و پروتکل',
         ].join(' • ');
         if (wantsConnect) {
-          if (aiSession) stopGrokPilot();
+          if (aiSession) stopAiSession();
           await startLocalPilot();
           _set('فرمان به مغز خلبان ارسال شد • ' + applied);
         } else {
@@ -12245,7 +12245,7 @@ ListTile( // KINGEXTRAS row
     aiSession = false;
     aiLoop?.cancel();
     stopNetWatch();
-    stopGrokPilot();
+    stopAiSession();
     // PILOTOFF: خاموش کردن اتصال توسط کاربر، خلبان محلی را هم خاموش می‌کند
     // (وگرنه خلبان بعد از قطع دوباره وصل می‌شد)
     if (localPilotOn) stopLocalPilot();
