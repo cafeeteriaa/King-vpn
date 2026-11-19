@@ -144,9 +144,10 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
 
   Future<void> _clearToken() async {
     await _run('پاک‌کردن کلید ذخیره‌شده', () async {
+      await KingAiBackgroundSupervisor.disable();
       await _ai.clearGitHubToken();
       await _refreshTokenState();
-      return {'status': 'token_cleared'};
+      return {'status': 'token_cleared', 'background_repair': 'disabled'};
     });
   }
 
