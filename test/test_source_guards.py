@@ -1037,29 +1037,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         standby_start = main.index('Future<void> _recheckStandby()')
         standby_end = main.index('// SPEEDSWITCHPATCH', standby_start)
         standby = main[standby_start:standby_end]
-        self.assertIn('if (d == null) {\\n          s.ping = null;', standby)
-
-        ping_start = main.index('Future<List<Server>> _pingRecheck()')
-        ping_end = main.index('// manual = started by the user', ping_start)
-        ping_recheck = main[ping_start:ping_end]
-        self.assertIn('if (d == null) {\\n        s.ping = null;', ping_recheck)
-
-        stable_start = main.index('Future<void> _stableCheck()')
-        stable_end = main.index('Future<void> _stableSwap(', stable_start)
-        stable = main[stable_start:stable_end]
-        self.assertIn('if (d == null) {\\n            c.ping = null;', stable)
-        self.assertIn('if (r.length < 3) {\\n        // A partial/failed confirmation', stable)
-        self.assertIn('t.ping = null;', stable)
-
-    def test_failed_endpoint_checks_invalidate_stale_ping_evidence(self):
-        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
-        record_start = main.index('void _record(Server s, int? d)')
-        record_end = main.index('// TCP prefilter', record_start)
-        self.assertIn('s.ping = null;', main[record_start:record_end])
-
-        standby_start = main.index('Future<void> _recheckStandby()')
-        standby_end = main.index('// SPEEDSWITCHPATCH', standby_start)
-        standby = main[standby_start:standby_end]
         self.assertIn('if (d == null) {\n          s.ping = null;', standby)
 
         ping_start = main.index('Future<List<Server>> _pingRecheck()')
@@ -1130,6 +1107,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('return _runSerializedGeneration(() async {', local)
         self.assertEqual(local.count('engine.generate('), 2)
         self.assertNotIn("if (_busy) throw StateError('Local AI is already generating');", local)
+
+
+    def test_test_methods_are_unique(self):
+        import ast
+        source = Path(__file__).read_text(encoding='utf-8')
+        tree = ast.parse(source)
+        duplicates = []
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef):
+                names = [item.name for item in node.body
+                         if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+                         and item.name.startswith('test_')]
+                duplicates.extend(sorted({name for name in names if names.count(name) > 1}))
+        self.assertEqual([], duplicates, f'duplicate test methods: {duplicates}')
 
 
 if __name__ == '__main__':
