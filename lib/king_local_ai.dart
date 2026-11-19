@@ -349,17 +349,49 @@ empty changes list and explain what is missing.
         uri.userInfo.isNotEmpty || uri.fragment.isNotEmpty) {
       throw ArgumentError('Unsafe GitHub API path');
     }
-    // GitHub redirects this authenticated endpoint to a short-lived log URL.
-    final response = await http.get(uri, headers: {
-      'Accept': 'application/vnd.github+json',
-      'Authorization': 'Bearer $token',
-      'X-GitHub-Api-Version': '2022-11-28',
-      'User-Agent': 'King-VPN-Local-AI',
-    }).timeout(const Duration(seconds: 35));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HttpException('GitHub job log HTTP ${response.statusCode}');
+    final client = http.Client();
+    try {
+      final request = http.Request('GET', uri)
+        ..followRedirects = false
+        ..headers.addAll({
+          'Accept': 'application/vnd.github+json',
+          'Authorization': 'Bearer $token',
+          'X-GitHub-Api-Version': '2022-11-28',
+          'User-Agent': 'King-VPN-Local-AI',
+        });
+      final first = await client.send(request)
+          .timeout(const Duration(seconds: 25));
+      http.StreamedResponse download = first;
+      if (first.statusCode >= 300 && first.statusCode < 400) {
+        final location = first.headers['location'];
+        await first.stream.drain<void>();
+        if (location == null) throw const HttpException('GitHub log redirect has no location');
+        final target = uri.resolve(location);
+        if (target.scheme != 'https' || target.userInfo.isNotEmpty ||
+            target.host.isEmpty || target.port != 443) {
+          throw const HttpException('GitHub returned an unsafe log download URL');
+        }
+        final secondRequest = http.Request('GET', target)
+          ..followRedirects = false
+          ..headers['User-Agent'] = 'King-VPN-Local-AI';
+        download = await client.send(secondRequest)
+            .timeout(const Duration(seconds: 30));
+      }
+      if (download.statusCode != 200) {
+        await download.stream.drain<void>();
+        throw HttpException('GitHub job log HTTP ${download.statusCode}');
+      }
+      final bytes = <int>[];
+      await for (final chunk in download.stream) {
+        if (bytes.length + chunk.length > 2 * 1024 * 1024) {
+          throw const HttpException('GitHub job log exceeds the 2 MB safety limit');
+        }
+        bytes.addAll(chunk);
+      }
+      return _redactCiText(utf8.decode(bytes, allowMalformed: true));
+    } finally {
+      client.close();
     }
-    return _redactCiText(response.body);
   }
 
   /// Reads a JSON array from a GitHub API endpoint (for check annotations).
