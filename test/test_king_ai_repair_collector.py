@@ -140,6 +140,32 @@ class MergedRepairCollectorTests(unittest.TestCase):
             self.assertEqual(result["status"], "skipped")
             self.assertIn("human approval", result["reason"])
 
+    def test_newer_dismissed_review_overrides_older_approval(self):
+        def fake_get(url, token):
+            if "/pulls/17/files" in url:
+                return [{"filename": "lib/king_ai_ci_policy.dart", "patch": "+safe"}]
+            if "/check-runs" in url:
+                return {"check_runs": [{"status": "completed", "conclusion": "success"}]}
+            if "/pulls/17/reviews" in url:
+                return [
+                    {"state": "APPROVED", "commit_id": "a" * 40,
+                     "submitted_at": "2026-11-20T01:00:00Z",
+                     "user": {"login": "reviewer", "type": "User"}},
+                    {"state": "DISMISSED", "commit_id": "a" * 40,
+                     "submitted_at": "2026-11-20T02:00:00Z",
+                     "user": {"login": "reviewer", "type": "User"}},
+                ]
+            raise AssertionError(url)
+
+        with tempfile.TemporaryDirectory() as temp:
+            with patch.object(module, "github_get", side_effect=fake_get):
+                result = module.collect(
+                    self.event, "cafeeteriaa/King-vpn", "token",
+                    Path(temp) / "repairs.jsonl",
+                )
+            self.assertEqual(result["status"], "skipped")
+            self.assertIn("human approval", result["reason"])
+
     def test_rejects_secret_bearing_replacement_file(self):
         def fake_get(url, token):
             if "/pulls/17/files" in url:
@@ -153,7 +179,8 @@ class MergedRepairCollectorTests(unittest.TestCase):
                 }]}
             if "/pulls/17/reviews" in url:
                 return [{"state": "APPROVED", "commit_id": "a" * 40,
-                         "user": {"type": "User"}}]
+                         "submitted_at": "2026-11-20T01:00:00Z",
+                         "user": {"login": "reviewer", "type": "User"}}]
             if "/commits/" + "b" * 40 in url:
                 return {"parents": [{"sha": "c" * 40}]}
             if "/contents/lib/king_ai_ci_policy.dart?ref=" in url:
