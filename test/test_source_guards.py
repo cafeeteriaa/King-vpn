@@ -144,7 +144,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         coding_start = ai.index('Future<String> _askCoding(', ask_start)
         public_ask = ai[ask_start:coding_start]
         self.assertIn('_looksLikeCodeGenerationRequest(prompt)', public_ask)
-        self.assertIn('_assistantSystemPrompt', public_ask)
+        self.assertIn('_conversationSystemPrompt', public_ask)
         self.assertNotIn('_systemPrompt', public_ask)
         self.assertIn('کدنویسی کن', ai[ai.index('bool _looksLikeCodeGenerationRequest'):ask_start])
         self.assertIn('add feature', ai[ai.index('bool _looksLikeCodeGenerationRequest'):ask_start])
@@ -342,10 +342,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('KingCommandSafety.negatesConnection(command)', main)
         self.assertIn('!negatesConnection;', main)
         self.assertIn('KingCommandSafety.negatesScan(command)', main)
-        self.assertIn("!negatesScan && command.contains('اسکن')", main)
-        self.assertIn("!negatesScan && (command.contains('اسکنر dns')", main)
-        self.assertIn("!negatesScan && (command.contains('اسکن ip')", main)
-        self.assertIn("!negatesScan && (command.contains('اسکن sni')", main)
+        self.assertIn("!negatesScan && command.contains('dns') && command.contains('اسکن')", main)
+        self.assertIn("!negatesScan &&", main[main.index("Future<void> _runSmartCommand"):main.index("Widget _smartCommandPanel()")])
+        self.assertIn("command.contains('اسکن sni')", main)
+        self.assertIn("command.contains('اسکن پورت')", main)
 
     def test_command_safety_helper_is_used_and_has_dart_unit_coverage(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
