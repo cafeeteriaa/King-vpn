@@ -32,6 +32,11 @@ void main() {
       expect(isSafeKingAiPublicResearchQuery('شماره تماس من ۰۹۱۲۱۲۳۴۵۶۷'), isFalse);
       expect(isSafeKingAiPublicResearchQuery('my card 4111 1111 1111 1111'), isFalse);
       expect(isSafeKingAiPublicResearchQuery('password=secret123'), isFalse);
+      expect(isSafeKingAiPublicResearchQuery('ghp_123456789012345678901234567890'), isFalse());
+      expect(isSafeKingAiPublicResearchQuery('Bearer abcdefghijklmnopqrstuvwxyz'), isFalse());
+      expect(isSafeKingAiPublicResearchQuery('sk-123456789012345678901234'), isFalse());
+      expect(isSafeKingAiPublicResearchQuery('AKIA1234567890ABCDEF'), isFalse());
+      expect(isSafeKingAiPublicResearchQuery('https://user:secret@example.com/path'), isFalse());
     });
 
     test('deduplicates by URL and keeps the newest trusted note', () {
