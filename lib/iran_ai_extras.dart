@@ -1764,8 +1764,18 @@ extension HomeExtras on _HomePageState {
 
   Future<String> _runPilotCommand(String raw) async {
     final q = _normalizePilotText(raw);
-    if (q.isEmpty) return 'فرمان خالی است؛ مثلاً «وصل شو» یا «وضعیت اتصال» را بنویس.';
+    if (q.isEmpty) return 'فرمان خالی است؛ مثلاً «کینگ وصل شو» یا «کینگ وضعیت اتصال» را بنویس.';
     bool hasAny(List<String> words) => words.any((w) => q.contains(w));
+
+    // This panel controls existing app capabilities only. User text must never
+    // be forwarded to the local coding model or interpreted as a code patch.
+    if (hasAny([
+      'کدنویسی کن', 'کد بنویس', 'کد جدید', 'قابلیت جدید', 'قابلیت اضافه',
+      'امکان جدید اضافه', 'ماژول جدید', 'سورس را تغییر', 'کد برنامه را تغییر',
+      'برنامه را تغییر بده', 'feature request', 'write code', 'add feature',
+    ])) {
+      return 'این کادر فقط امکانات موجود King VPN را کنترل می‌کند و اجازه کدنویسی یا افزودن قابلیت ندارد. برای توسعه دستی، مالک اصلی باید از بخش هوش مصنوعی داخلی احراز هویت کند.';
+    }
     final asksConnect = hasAny([
       'وصل', 'متصل شو', 'اتصال برقرار کن', 'اتصال بزن', 'connect',
       'شروع اتصال', 'راه بنداز', 'بهترین سرور', 'پیدا کن',
