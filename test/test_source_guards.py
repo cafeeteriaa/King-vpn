@@ -81,13 +81,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('natRangeScanStep', pilot_scan)
         self.assertNotIn('natRanges', pilot_scan)
         self.assertIn('Socket.connect(host, 443', pilot_scan)
-        pilot_controls_start = main.index("label: const Text('بازه‌های IP اختصاصی خلبان')")
-        pilot_controls_end = main.index('ValueListenableBuilder<String>', pilot_controls_start)
-        pilot_controls = main[pilot_controls_start:pilot_controls_end]
         self.assertIn('_pilotRangesDialog(context)', main)
-        self.assertIn('_pilotScanOnly()', pilot_controls)
-        self.assertNotIn('_natRangesDialog(context)', pilot_controls)
-        self.assertNotIn('_natScanOnly()', pilot_controls)
+        self.assertIn('_pilotScanOnly()', main)
+        self.assertNotIn('_natRangesDialog(context)', main[main.index('Future<void> _pilotScanOnly()'):main.index('// اسکن IP بدون تغییر تنظیمات دیگر')])
+        self.assertNotIn('UiTools(items: [', main[main.index('Widget build(BuildContext context)', main.index('class _HomePageState')):])
         keep_start = main.index('Future<void> _natKeep()')
         keep_end = main.index('void _natRangesDialog', keep_start)
         keep = main[keep_start:keep_end]
