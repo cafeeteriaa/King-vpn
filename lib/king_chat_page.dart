@@ -22,6 +22,7 @@ class _KingChatPageState extends State<KingChatPage> {
   bool _busy = false, _listening = false, _speechReady = false, _speak = true;
   bool _voiceTurn = false, _voiceSubmitted = false;
   bool _onDeviceSpeechAttempt = false, _onlineSpeechFallbackAttempted = false;
+  bool _onlineSpeechConsentGranted = false;
   String? _notice, _locale;
 
   @override
@@ -111,6 +112,38 @@ class _KingChatPageState extends State<KingChatPage> {
     if (mounted) setState(() => _listening = _speech.isListening);
   }
 
+  Future<void> _requestChatSpeechOnlineFallback() async {
+    if (!_onlineSpeechConsentGranted) {
+      final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('اجازه تشخیص گفتار آنلاین؟'),
+            content: const Text('تشخیص آفلاین روی دستگاه در دسترس نبود. برای ادامه آنلاین ممکن است صدای تو به سرویس گفتار Android یا ارائه‌دهنده آن ارسال شود. فقط در صورت موافقت، ادامه می‌دهم.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('خیر، فقط آفلاین'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('اجازه می‌دهم'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (!mounted || accepted != true) {
+        if (mounted) setState(() => _notice =
+            'تشخیص گفتار آنلاین مجاز نشد؛ هیچ صدایی به سرویس آنلاین ارسال نمی‌شود.');
+        return;
+      }
+      _onlineSpeechConsentGranted = true;
+    }
+    await _startChatSpeechOnlineFallback();
+  }
+
   Future<void> _startChatSpeechOnlineFallback() async {
     try {
       await _speech.stop();
@@ -153,7 +186,7 @@ class _KingChatPageState extends State<KingChatPage> {
               _onlineSpeechFallbackAttempted = true;
               setState(() => _notice =
                   'تشخیص گفتار آفلاین در دسترس نبود؛ اکنون با اطلاع تو سرویس آنلاین گفتار را امتحان می‌کنم. ممکن است صوت به سرویس گفتار دستگاه ارسال شود.');
-              unawaited(_startChatSpeechOnlineFallback());
+              unawaited(_requestChatSpeechOnlineFallback());
               return;
             }
             setState(() => _notice = 'تشخیص گفتار: ${error.errorMsg}');
@@ -183,7 +216,7 @@ class _KingChatPageState extends State<KingChatPage> {
         _onlineSpeechFallbackAttempted = true;
         if (mounted) setState(() => _notice =
             'شروع تشخیص آفلاین ممکن نشد؛ با اطلاع تو سرویس آنلاین گفتار را امتحان می‌کنم.');
-        await _startChatSpeechOnlineFallback();
+        await _requestChatSpeechOnlineFallback();
       } else if (mounted) {
         setState(() {
           _listening = false;
