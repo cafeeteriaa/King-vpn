@@ -112,6 +112,35 @@ DateTime? _aiApplyAt; // زمان آخرین اعمال تنظیمات خلبا�
 String aiProvider = 'local';
 String aiLastProvider = '';
 
+const _secure = FlutterSecureStorage(
+  aOptions: AndroidOptions(encryptedSharedPreferences: true),
+);
+
+String? _nz(String? value) => (value == null || value.isEmpty) ? null : value;
+
+Future<Map<String, String?>> _secReadMany(List<String> keys) async {
+  final result = <String, String?>{};
+  try {
+    await Future.wait(keys.map((key) async {
+      result[key] = await _secure.read(key: key);
+    })).timeout(const Duration(seconds: 3));
+  } catch (error, stack) {
+    errJournalAdd(error, kind: 'SILENT-FILE', st: stack);
+  }
+  return result;
+}
+
+Future<void> _secApply(Map<String, String?> values) async {
+  try {
+    await Future.wait(values.entries.map((entry) => entry.value == null
+        ? _secure.delete(key: entry.key)
+        : _secure.write(key: entry.key, value: entry.value!)))
+        .timeout(const Duration(seconds: 3));
+  } catch (error, stack) {
+    errJournalAdd(error, kind: 'SILENT-FILE', st: stack);
+  }
+}
+
 final aiText = ValueNotifier<String>('');
 final aiLoading = ValueNotifier<bool>(false);
 final aiSuggest = ValueNotifier<Map<String, int>>(<String, int>{});
@@ -130,9 +159,6 @@ Future<void> loadLocalAiPrefs(SharedPreferences prefs) async {
     'gem_model', 'grok_model', 'claude_model', 'openai_model',
     'deepseek_model', 'ai_prov',
   ];
-  const storage = FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
-  );
   for (final key in legacyKeys) {
     try {
       await prefs.remove(key);
@@ -140,7 +166,7 @@ Future<void> loadLocalAiPrefs(SharedPreferences prefs) async {
       logError(error, stack);
     }
     try {
-      await storage.delete(key: key).timeout(const Duration(seconds: 3));
+      await _secure.delete(key: key).timeout(const Duration(seconds: 3));
     } catch (error, stack) {
       logError(error, stack);
     }
