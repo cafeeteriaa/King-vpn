@@ -25,7 +25,7 @@ class KingCommandSafety {
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
     return normalized.replaceFirst(
-      RegExp(r'^(?:(?:سلام|هی)\\s+)?(?:کینگ|king)(?:\\s+(?:جان|عزیز))?\\s*'),
+      RegExp(r'^(?:(?:سلام|هی)\s+)?(?:کینگ|king)(?:\s+(?:جان|عزیز))?\s*'),
       '',
     ).trim();
   }
