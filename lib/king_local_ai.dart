@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
-import 'package:local_inference/local_inference.dart';
+import 'package:local_inference_flutter/local_inference_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// On-device coding model and a guarded GitHub pull-request writer.
@@ -35,6 +35,7 @@ empty changes list and explain what is missing.
 
   final FlutterSecureStorage _secure = const FlutterSecureStorage();
   ModelManager? _models;
+  bool _modelsInitialized = false;
   LlamadartEngine? _engine;
   String? _modelPath;
   bool _busy = false;
@@ -59,15 +60,20 @@ empty changes list and explain what is missing.
 
   Future<ModelManager> _modelManager() async {
     if (_models != null) return _models!;
-    final root = await getApplicationSupportDirectory();
-    _models = ModelManager.forDirectory(
-      '${root.path}/king_ai_models',
+    _models = await LocalInferenceFlutter.createModelManager(
       catalog: ModelCatalog.single(
         ModelEntry(
           id: modelId,
           url: Uri.parse(modelUrl),
           sizeBytes: modelSizeBytes,
           sha256: modelSha256,
+          displayName: 'Qwen2.5-Coder 1.5B Instruct',
+          params: '1.5B',
+          quant: 'Q4_K_M',
+          minPhysicalRamMB: 5000,
+          minAvailableMemoryMB: 1800,
+          minFreeDiskMB: 1800,
+          recommended: true,
         ),
       ),
     );
@@ -78,6 +84,10 @@ empty changes list and explain what is missing.
   /// SHA-256 through local_inference before it can be loaded.
   Future<String> downloadModel({void Function(double progress)? onProgress}) async {
     final manager = await _modelManager();
+    if (!_modelsInitialized) {
+      await manager.init();
+      _modelsInitialized = true;
+    }
     final installed = await manager.install(
       modelId,
       onProgress: (status) => onProgress?.call(status.progress),
@@ -91,10 +101,15 @@ empty changes list and explain what is missing.
     if (_busy) throw StateError('Local AI is already busy');
     _busy = true;
     try {
+      final support = await LocalInferenceFlutter.checkDeviceSupport();
+      if (!support.isSupported) {
+        throw UnsupportedError('این دستگاه برای اجرای مدل محلی پشتیبانی نمی‌شود: ${support.problem}');
+      }
       final path = await downloadModel(onProgress: onProgress);
       final engine = LlamadartEngine(logLevel: EngineLogLevel.error);
       try {
-        await engine.load(path, const LoadOptions(contextTokens: 4096));
+        final loadOptions = await LocalInferenceFlutter.platformLoadOptions();
+        await engine.load(path, loadOptions);
       } catch (_) {
         await engine.dispose();
         rethrow;
@@ -499,6 +514,7 @@ empty changes list and explain what is missing.
     if (engine != null) await engine.dispose();
     final models = _models;
     _models = null;
+    _modelsInitialized = false;
     if (models != null) await models.dispose();
   }
 }
