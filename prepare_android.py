@@ -9,7 +9,7 @@ AGP_VERSION = '9.3.1'
 GRADLE_VERSION = '9.5.0'
 
 # =====================================================================
-# ---- 0) Flutter 3.50 / Kotlin 2.4.21 compatible toolchain ----
+# ---- 0) Flutter 3.50 / Kotlin 2.4.20 compatible toolchain ----
 # =====================================================================
 print(f'[0] Pinning AGP {AGP_VERSION} + Gradle {GRADLE_VERSION}')
 
