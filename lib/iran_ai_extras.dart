@@ -1914,6 +1914,32 @@ extension HomeExtras on _HomePageState {
       await localPilotTick(force: true);
       return 'ارزیابی فوری انجام شد؛ تصمیم بر اساس شواهد تازه شبکه گرفته می‌شود.';
     }
+    // Explicit strategy requests are routed through the same command entry.
+    if (hasAny(['نت ملی', 'اینترنت ملی', 'شبکه داخلی']) &&
+        hasAny(['وصل', 'اتصال', 'connect'])) {
+      if (_resMap.isEmpty) return 'پوشه سرورهای آماده خالی است؛ «وصل شو» را بفرست تا خلبان جستجوی عمومی انجام دهد.';
+      final ok = await pickEngineThenStart(() async {
+        _resNext = true;
+        await connect();
+      }, forceNet: true);
+      return ok ? 'درخواست اتصال با راهبرد نت ملی از مسیر خلبان اجرا شد.' : 'درخواست اتصال لغو شد.';
+    }
+    if (hasAny(['نت جهانی', 'اینترنت جهانی', 'شبکه جهانی']) &&
+        hasAny(['وصل', 'اتصال', 'connect'])) {
+      if (_resMap.isEmpty) return 'پوشه سرورهای آماده خالی است؛ «وصل شو» را بفرست تا خلبان جستجوی عمومی انجام دهد.';
+      final ok = await pickEngineThenStart(() async {
+        _resNext = true;
+        await connect();
+      }, forceNet: false);
+      return ok ? 'درخواست اتصال با راهبرد جهانی از مسیر خلبان اجرا شد.' : 'درخواست اتصال لغو شد.';
+    }
+    if (hasAny(['سرور شخصی', 'پوشه شخصی', 'کانفیگ شخصی']) &&
+        hasAny(['وصل', 'اتصال', 'connect'])) {
+      if (personalFolderCache.isEmpty) return 'پوشه سرورهای شخصی خالی است.';
+      final ok = await pickEngineThenStart(
+          () => _personalAdThen(personalFolderConnect), askMode: false);
+      return ok ? 'اتصال به بهترین سرور شخصی از مسیر خلبان آغاز شد.' : 'درخواست اتصال لغو شد.';
+    }
     // Explicit target selection is deterministic and only uses already-tested servers.
     final asksForSpecificTarget = hasAny(['به کشور ', 'کشور ', 'سرور ']);
     if (asksForSpecificTarget && hasAny(['وصل', 'اتصال', 'connect'])) {
