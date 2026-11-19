@@ -372,6 +372,32 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('resolveSymbolicLinks()', loader)
         self.assertIn('repairFromFailedCiAutonomous(', worker)
 
+    def test_king_ai_is_local_only_and_external_provider_keys_are_purged(self):
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        help_page = (ROOT / 'lib' / 'help_page.dart').read_text(encoding='utf-8')
+        for endpoint in (
+            'generativelanguage.googleapis.com',
+            'api.x.ai',
+            'api.anthropic.com',
+            'api.openai.com',
+            'api.deepseek.com',
+        ):
+            self.assertNotIn(endpoint, extras)
+            self.assertNotIn(endpoint, main)
+        self.assertIn('Future<String> aiAsk(String prompt) async', extras)
+        self.assertIn('KingLocalAi.instance.ask(prompt)', extras)
+        self.assertIn('Future<void> loadLocalAiPrefs(SharedPreferences prefs)', extras)
+        self.assertIn("aiProvider = 'local';", extras)
+        self.assertIn("await _secure.delete(key: key)", extras)
+        self.assertNotIn('geminiOpens', main)
+        self.assertNotIn('geminiKey', main)
+        self.assertNotIn("سرور AI (Gemini/Grok)", main)
+        self.assertIn('startKingPilot', extras)
+        self.assertIn('King Local AI', help_page)
+        self.assertNotIn('console.x.ai', help_page)
+        self.assertNotIn('aistudio.google.com', help_page)
+
     def test_king_voice_commands_are_persian_on_device_and_user_confirmed(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
@@ -423,9 +449,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('onTap: null,', main)
         self.assertNotIn("label: const Text('جستجوی سرور با نت ملی')", main)
         ai_bar = pilot_ui[pilot_ui.index('Widget aiBar()'):pilot_ui.index('void aiSheet()')]
-        self.assertNotIn('startGrokPilot', ai_bar)
+        self.assertNotIn('startKingPilot', ai_bar)
         self.assertNotIn('startLocalPilot', ai_bar)
-        self.assertNotIn('pickEngineThenStart(startGrokPilot', pilot_ui)
+        self.assertNotIn('pickEngineThenStart(startKingPilot', pilot_ui)
 
     def test_local_pilot_rechecks_network_after_link_changes(self):
         pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
