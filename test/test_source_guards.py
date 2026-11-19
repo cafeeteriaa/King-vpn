@@ -288,8 +288,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('ابتدا کلید GitHub حساب مالک مخزن', console)
         self.assertIn("_ownerConfigured && !await _reauthenticateOwnerForCodeChange()", console)
         self.assertIn('final valid = await _ownerAuth.authenticate(password);', console)
-        for action in ('فعال‌سازی ترمیم خودکار پس‌زمینه','فعال‌سازی کشف خودکار مخزن','توقف ترمیم پس‌زمینه','پاک‌کردن کلید GitHub'):
-            self.assertIn(f"_requireOwnerSession('{action}')", console)
+        for method in ('_submitFeatureRequest', '_repair', '_enableBackground',
+                       '_enableAutomaticDiscovery', '_saveToken', '_clearToken'):
+            start = console.index('Future<void> ' + method)
+            end = console.find('\\n  Future<void> ', start + 1)
+            if end < 0:
+                end = console.find('\\n  @override', start + 1)
+            self.assertIn('_reauthenticateOwnerForCodeChange()', console[start:end], method)
 
     def test_national_network_optimization_requests_enter_owner_code_flow(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
@@ -856,7 +861,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('enableAutonomousMaintenance()', background)
         self.assertIn('https', policy)
         self.assertIn('isTrustedKingAiResearchUri', policy)
-        self.assertIn('owner review and green CI remain required', docs)
+        self.assertIn('fresh owner-password proof', docs)
+        self.assertIn('owner review', docs)
+        self.assertIn('green CI', docs)
         self.assertIn('installer still requires the user to confirm', docs)
 
     def test_stable_success_requires_fresh_multi_destination_tunnel_traffic(self):
