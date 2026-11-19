@@ -5391,6 +5391,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    unawaited(_loadSmartCommandFilters());
     natSearchBusyProbe = () => busy || searching; // NATQUOTA-2: برای سهمیه‌ی اسکنرهای دستی نت ملی
     unawaited(NationalNetworkIntelligence.load()); // NNIE: حافظه‌ی شبکه، بدون تأخیر در UI
     // KING-AI-KNOWLEDGE: weekly foreground refresh from Google-discovered,
@@ -10645,6 +10646,20 @@ ListTile( // KINGEXTRAS row
 
   final TextEditingController _smartCommandController = TextEditingController();
   bool _smartCommandRunning = false;
+
+  Future<void> _loadSmartCommandFilters() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final country = prefs.getString('country');
+      if (country != null && countryFa.containsKey(country)) selCountry = country;
+      final protocols = prefs.getStringList('protoSel') ?? const <String>[];
+      protoSel
+        ..clear()
+        ..addAll(protocols.where((p) => const ['vless', 'vmess', 'trojan', 'ss'].contains(p)));
+    } catch (e, st) {
+      logError(e, st);
+    }
+  }
 
   Future<void> _runSmartCommand([String? raw]) async {
     final command = (raw ?? _smartCommandController.text).trim().toLowerCase();
