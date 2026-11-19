@@ -27,6 +27,17 @@ void kingAiBackgroundDispatcher() {
         pullNumber: pullNumber,
       );
       if (report['state'] != 'open') {
+        final parentBranch = report['baseBranch']?.toString() ?? 'main';
+        final parentPull = await ai.findOpenPullRequestForHeadBranch(
+          owner: 'cafeeteriaa',
+          repository: 'King-vpn',
+          branch: parentBranch,
+        );
+        if (parentPull != null) {
+          // A child repair PR was merged/closed. Resume monitoring its parent.
+          await ai.setBackgroundRepairPullNumber(parentPull);
+          return true;
+        }
         await Workmanager().cancelByTag(_tag);
         await ai.clearBackgroundRepairPullNumber();
         return true;
