@@ -524,6 +524,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('No automatic merge or release is performed.', ai)
         self.assertIn('This updates research memory, not model weights.', ai)
 
+    def test_voice_commands_receive_voice_responses_and_text_stays_text(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        voice = (ROOT / 'lib' / 'king_voice_output.dart').read_text(encoding='utf-8')
+        workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
+        self.assertIn('flutter_tts', workflow)
+        self.assertIn('_smartSpeechVoiceInput', main)
+        self.assertIn('if (voiceResponse) await _speakSmartCommandResponse(status)', main)
+        self.assertIn('onChanged: (_) => _smartSpeechVoiceInput = false', main)
+        self.assertIn('setLanguage', voice)
+        self.assertIn('fa-IR', voice)
+
     def test_flutter_artifact_path_matches_non_split_apk_build(self):
         workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
         self.assertIn('flutter build apk --debug --target-platform android-arm64', workflow)

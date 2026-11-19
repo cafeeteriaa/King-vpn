@@ -26,7 +26,7 @@ spec.loader.exec_module(patch_gate)
 DEPENDENCIES = [
     'http', 'flutter_v2ray_client:3.5.0', 'installed_apps:1.6.0',
     'permission_handler', 'workmanager', 'url_launcher', 'webview_flutter',
-    'crypto:^3.0.3', 'flutter_secure_storage:^9.2.2', 'local_inference:0.1.1', 'local_inference_flutter:0.1.1', 'path_provider',
+    'crypto:^3.0.3', 'flutter_secure_storage:^9.2.2', 'local_inference:0.1.1', 'local_inference_flutter:0.1.1', 'path_provider', 'speech_to_text:^7.4.0', 'cryptography:^2.7.0', 'flutter_tts:^4.2.3',
 ]
 
 

@@ -28,6 +28,7 @@ import 'own_vpn.dart'; // KINGVPN: سرویس VPN خودمان (پیش‌فرض 
 import 'package:crypto/crypto.dart'; // فیکس ۱: sha256 برای APK آپدیت
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // فیکس ۲: کلیدهای AI
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'king_voice_output.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'tg_proxy.dart' show tgProxyRow; // فقط پروکسی تلگرام
@@ -5542,6 +5543,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (s != AppLifecycleState.resumed) KingAiOwnerAuth.instance.lock();
     if (s != AppLifecycleState.resumed && _smartSpeech.isListening) {
       unawaited(_smartSpeech.cancel());
+      unawaited(KingVoiceOutput.instance.stop());
       _smartSpeechListening = false;
     }
     inForeground = s == AppLifecycleState.resumed;
@@ -5709,6 +5711,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _dbgSaveT?.cancel();
     _dbgProbT?.cancel();
     unawaited(_smartSpeech.cancel());
+    unawaited(KingVoiceOutput.instance.stop());
     _smartCommandController.dispose();
     super.dispose();
   }
@@ -10655,6 +10658,7 @@ ListTile( // KINGEXTRAS row
   bool _smartSpeechBusy = false;
   bool _smartSpeechListening = false;
   String? _smartSpeechLocaleId;
+  bool _smartSpeechVoiceInput = false;
   List<String> _pilotRanges = <String>[];
   bool _pilotRangeBusy = false;
   bool _pilotRangeCancelRequested = false;
@@ -10713,6 +10717,7 @@ ListTile( // KINGEXTRAS row
           if (!mounted) return;
           final transcript = result.recognizedWords.trim();
           if (transcript.isEmpty) return;
+          _smartSpeechVoiceInput = true;
           setState(() {
             _smartCommandController.value = TextEditingValue(
               text: transcript,
@@ -10895,7 +10900,19 @@ ListTile( // KINGEXTRAS row
     return null;
   }
 
+  Future<void> _speakSmartCommandResponse(String response) async {
+    if (response.trim().isEmpty) return;
+    try {
+      await KingVoiceOutput.instance.speakPersian(response);
+    } catch (error, stack) {
+      logError(error, stack);
+      // Keep the visible text response available if the device has no Persian
+      // TTS voice installed or its speech engine is unavailable.
+    }
+  }
+
   Future<void> _runSmartCommand([String? raw]) async {
+    final voiceResponse = _smartSpeechVoiceInput;
     final command = KingCommandSafety.stripKingAddress(
       raw ?? _smartCommandController.text,
     );
@@ -10907,9 +10924,14 @@ ListTile( // KINGEXTRAS row
       } else {
         _set('اسکن فعالی از خلبان برای لغو وجود ندارد.');
       }
+      if (voiceResponse) await _speakSmartCommandResponse(status);
+      _smartSpeechVoiceInput = false;
       return;
     }
-    if (command.isEmpty || _smartCommandRunning) return;
+    if (command.isEmpty || _smartCommandRunning) {
+      _smartSpeechVoiceInput = false;
+      return;
+    }
     setState(() => _smartCommandRunning = true);
     try {
       if (command == 'راهنما' || command == 'help' || command.contains('دستورات')) {
@@ -10942,14 +10964,18 @@ ListTile( // KINGEXTRAS row
         r'کد رو اصلاح|کد را اصلاح|سورس رو تغییر|سورس را تغییر|برنامه رو تغییر|'
         r'برنامه را تغییر|به برنامه اضافه|قابلیت بساز|قابلیت جدید|قابلیت اضافه|قابلیت اضافه کن|'
         r'ویژگی جدید|ویژگی اضافه|افزودن قابلیت|توسعه بده|پیاده سازی کن|پیاده‌سازی کن|'
-        r'write code|generate code|add feature|implement feature|create module)',
+        r'write code|generate code|add feature|implement feature|create module|'
+        r'بهینه.{0,30}(کل اپ|کل برنامه|اینترنت ایران|نت ملی)|'
+        r'(کل اپ|کل برنامه).{0,30}(بهینه|ارتقا|بروز|به روز)|'
+        r'(اینترنت ایران|نت ملی).{0,30}(بهینه|ارتقا|قابلیت|امکانات))',
       ).hasMatch(command);
 
       if (codeRequest) {
         unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
-          builder: (_) => const KingAiConsolePage(),
+          builder: (_) => KingAiConsolePage(initialFeatureRequest: command,
+              speakResponses: voiceResponse),
         )));
-        _set('درخواست توسعه به پنل امن کینگ هدایت شد؛ فقط مالک اصلی پس از احراز هویت می‌تواند آن را ثبت کند.');
+        _set('چشم رئیس؛ درخواست بهینه‌سازی به پنل امن مالک منتقل شد. پس از احراز هویت، کینگ آن را تحلیل می‌کند و تغییرات را فقط در شاخهٔ بازبینی‌شونده آماده می‌کند.');
       } else if (RegExp(r'(قطع اتصال|قطع|disconnect|خاموش کردن اتصال)').hasMatch(command) &&
           !negatesConnection) {
         if (localPilotOn) stopLocalPilot();
@@ -11013,13 +11039,19 @@ ListTile( // KINGEXTRAS row
           }
           _set('فیلتر فرمان اعمال شد • ' + applied);
         }
+      } else if (KingLocalAi.instance.isLoaded) {
+        _set('کینگ در حال تحلیل درخواست است...');
+        final answer = await KingLocalAi.instance.ask(command, maxTokens: 512);
+        _set(answer);
       } else {
-        _set('دستور شناخته نشد. از پوشه راهنمای زیر کادر نمونه‌ها را ببین.');
+        _set('این فرمان جزو فرمان‌های اتصال شناخته‌شده نیست. برای گفت‌وگوی آزاد با کینگ، مدل محلی را از پنل هوش مصنوعی بارگذاری کن.');
       }
     } catch (e, st) {
       logError(e, st);
       _set('اجرای دستور با خطا روبه‌رو شد: ' + e.toString());
     } finally {
+      if (voiceResponse) await _speakSmartCommandResponse(status);
+      _smartSpeechVoiceInput = false;
       if (mounted) setState(() => _smartCommandRunning = false);
     }
   }
@@ -11033,6 +11065,7 @@ ListTile( // KINGEXTRAS row
         const Row(children: [Icon(Icons.psychology_alt, color: Color(0xFF83DFFF)), SizedBox(width: 8), Expanded(child: Text('مرکز فرمان هوشمند', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFFE8EDF7))))]),
         const SizedBox(height: 8),
         TextField(controller: _smartCommandController, minLines: 1, maxLines: 3, textInputAction: TextInputAction.send,
+          onChanged: (_) => _smartSpeechVoiceInput = false,
           onSubmitted: (_) => _runSmartCommand(), style: const TextStyle(color: Color(0xFFE8EDF7)),
           decoration: InputDecoration(hintText: 'مثلاً: اتصال خلبان با سرورهای آلمان و فقط VMess؛ یا اسکن IP خلبان...', hintStyle: const TextStyle(color: Color(0xFF8D9BAD), fontSize: 12), filled: true, fillColor: const Color(0xFF0D1420), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), suffixIcon: Row(mainAxisSize: MainAxisSize.min, children: [
             IconButton(
@@ -11041,7 +11074,7 @@ ListTile( // KINGEXTRAS row
               icon: Icon(_smartSpeechListening ? Icons.mic : Icons.mic_none,
                   color: _smartSpeechListening ? const Color(0xFFFF7777) : const Color(0xFF83DFFF)),
             ),
-            IconButton(tooltip: 'پاک کردن', onPressed: () => _smartCommandController.clear(), icon: const Icon(Icons.close)),
+            IconButton(tooltip: 'پاک کردن', onPressed: () { _smartSpeechVoiceInput = false; _smartCommandController.clear(); }, icon: const Icon(Icons.close)),
           ]))),
         if (_smartSpeechListening)
           const Padding(

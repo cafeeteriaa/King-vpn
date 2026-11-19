@@ -3,10 +3,19 @@ import 'package:flutter/material.dart';
 import 'king_local_ai.dart';
 import 'king_ai_background.dart';
 import 'king_ai_owner_auth.dart';
+import 'king_voice_output.dart';
 
 /// In-app control surface for the local coding model and guarded GitHub PR workflow.
 class KingAiConsolePage extends StatefulWidget {
-  const KingAiConsolePage({super.key});
+  const KingAiConsolePage({
+    super.key,
+    this.initialFeatureRequest,
+    this.speakResponses = false,
+  });
+
+  final String? initialFeatureRequest;
+  final bool speakResponses;
+
   @override
   State<KingAiConsolePage> createState() => _KingAiConsolePageState();
 }
@@ -33,6 +42,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   @override
   void initState() {
     super.initState();
+    _featureRequestController.text = widget.initialFeatureRequest ?? '';
     _refreshTokenState();
     _refreshOwnerState();
   }
@@ -46,6 +56,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     _ownerNewPasswordController.dispose();
     _ownerNewConfirmController.dispose();
     _featureRequestController.dispose();
+    if (widget.speakResponses) unawaited(KingVoiceOutput.instance.stop());
     super.dispose();
   }
 
@@ -136,8 +147,13 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     });
     try {
       final result = await action();
-      if (mounted) {
-        setState(() => _output = const JsonEncoder.withIndent('  ').convert(result));
+      final rendered = const JsonEncoder.withIndent('  ').convert(result);
+      if (mounted) setState(() => _output = rendered);
+      if (widget.speakResponses) {
+        final summary = result is Map && result['summary'] is String
+            ? result['summary'].toString()
+            : rendered;
+        await KingVoiceOutput.instance.speakPersian(summary);
       }
     } catch (error) {
       if (mounted) setState(() => _output = 'خطا: $error');
