@@ -10679,8 +10679,42 @@ ListTile( // KINGEXTRAS row
       } else if (command.contains('اسکن') && command.contains('خلبان')) {
         await _pilotScanOnly();
       } else if (command.contains('آلمان') || command.contains('germany') ||
-          command.contains('vless') || command.contains('vmess')) {
-        _set('این محدودیت در حال حاضر هنوز به فیلتر واقعی انتخاب سرور متصل نشده است؛ برای جلوگیری از اتصال اشتباه اجرا نشد.');
+          command.contains('vless') || command.contains('vmess') ||
+          command.contains('trojan') || command.contains('shadowsocks') ||
+          command.contains('پاک کردن فیلتر')) {
+        final prefs = await SharedPreferences.getInstance();
+        if (command.contains('پاک کردن فیلتر')) {
+          selCountry = null;
+          protoSel.clear();
+          await prefs.remove('country');
+          await prefs.remove('protoSel');
+        } else {
+          if (command.contains('آلمان') || command.contains('germany')) {
+            selCountry = 'DE';
+            await prefs.setString('country', 'DE');
+          }
+          const protocols = ['vless', 'vmess', 'trojan', 'shadowsocks'];
+          final chosen = protocols.where((p) => command.contains(p)).toList();
+          if (chosen.isNotEmpty) {
+            protoSel
+              ..clear()
+              ..addAll(chosen);
+            await prefs.setStringList('protoSel', protoSel.toList());
+          }
+        }
+        pending.clear();
+        if (!connected && !busy && !searching) {
+          unawaited(_loadPending(bg: true));
+        }
+        final applied = <String>[
+          if (selCountry != null) 'کشور: ${countryFa[selCountry] ?? selCountry}',
+          if (protoSel.isNotEmpty) 'پروتکل: ${protoSel.join(', ')}',
+          if (selCountry == null && protoSel.isEmpty) 'همه کشورها و پروتکل‌ها'
+        ].join(' • ');
+        _set('فیلتر فرمان اعمال شد: $applied');
+        if (command.contains('اتصال') || command.contains('connect')) {
+          await startLocalPilot();
+        }
       } else {
         _set('دستور شناخته نشد. از راهنمای زیر کادر نمونه‌ها را ببین.');
       }
@@ -15525,14 +15559,14 @@ UiHero(
                 runSpacing: 6,
                 children: [
                   OutlinedButton.icon(
-                    onPressed: () => _natRangesDialog(context),
+                    onPressed: () => _pilotRangesDialog(context),
                     icon: const Icon(Icons.tune, size: 17),
                     label: const Text('بازه‌های IP اختصاصی خلبان'),
                   ),
                   OutlinedButton.icon(
-                    onPressed: _natRangeScanBusy
+                    onPressed: _pilotRangeBusy
                         ? null
-                        : () => unawaited(_natScanOnly()),
+                        : () => unawaited(_pilotScanOnly()),
                     icon: const Icon(Icons.radar, size: 17),
                     label: const Text('پویش IP اختصاصی خلبان'),
                   ),
