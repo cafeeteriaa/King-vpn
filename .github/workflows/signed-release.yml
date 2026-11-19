@@ -1,0 +1,145 @@
+name: King VPN Signed Android Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: king-vpn-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  signed-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Verify protected signing secrets
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing GitHub Actions secret: $name"
+              exit 1
+            fi
+          done
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android Flutter host and prepare sources
+        run: |
+          set -euo pipefail
+          flutter create --project-name king_vpn --org com.kingvpn --platforms=android build_app
+          test -f lib/main.dart
+          mkdir -p build_app/android/app/libs build_app/test
+          rm -f build_app/test/widget_test.dart
+          cp -R lib/. build_app/lib/
+          cp -R test/. build_app/test/
+          grep -q 'bool requireRewardedAd = true;' build_app/lib/main.dart
+          python3 prepare_android.py
+          python3 tools/configure_local_ai_host.py build_app/pubspec.yaml
+
+      - name: Resolve dependencies
+        working-directory: build_app
+        run: |
+          flutter pub add http flutter_v2ray_client:3.5.0 installed_apps:1.6.0 permission_handler workmanager url_launcher webview_flutter crypto:^3.0.3 flutter_secure_storage:^9.2.2 local_inference:0.1.1 local_inference_flutter:0.1.1 path_provider speech_to_text:^7.4.0 cryptography:^2.7.0 flutter_tts:^4.2.3
+          flutter pub get
+
+      - name: Patch V2Ray plugin
+        working-directory: build_app
+        run: python3 ../patch_plugin.py
+
+      - name: Run tests and analyzer
+        working-directory: build_app
+        run: |
+          set -euo pipefail
+          flutter test
+          flutter analyze --no-fatal-warnings --no-fatal-infos
+
+      - name: Configure protected release signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > build_app/android/app/king-release.jks
+          test -s build_app/android/app/king-release.jks
+          cat > build_app/android/key.properties <<EOF
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          storeFile=king-release.jks
+          EOF
+          python3 tools/configure_release_signing.py build_app/android/app/build.gradle.kts
+
+      - name: Build signed release APK
+        working-directory: build_app
+        env:
+          CGO_LDFLAGS: "-Wl,-z,max-page-size=16384"
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${VERSION%%+*}"
+          flutter build apk --release --target-platform android-arm64 \
+            --build-name "$VERSION" \
+            --build-number "$GITHUB_RUN_NUMBER" \
+            --dart-define=KING_APP_BUILD="$GITHUB_RUN_NUMBER"
+          test -s build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Prepare release metadata
+        id: metadata
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          cp build_app/build/app/outputs/flutter-apk/app-release.apk release/king-vpn.apk
+          SHA="$(sha256sum release/king-vpn.apk | awk '{print $1}')"
+          printf '%s  king-vpn.apk\n' "$SHA" > release/king-vpn.apk.sha256
+          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${VERSION%%+*}"
+          cat > release/notes.md <<EOF
+          King VPN signed Android release.
+
+          KING_BUILD: $GITHUB_RUN_NUMBER
+          KING_MIN_BUILD: 0
+          SHA256: $SHA
+
+          APK integrity is verified by the app before opening the Android installer.
+          EOF
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Publish signed GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" \
+            release/king-vpn.apk#king-vpn.apk \
+            release/king-vpn.apk.sha256#king-vpn.apk.sha256 \
+            --title "King VPN ${{ steps.metadata.outputs.version }}" \
+            --notes-file release/notes.md
