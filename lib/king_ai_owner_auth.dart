@@ -6,7 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// Device-local owner gate for user-requested code/feature changes.
 ///
-/// The password is never persisted. Only a random salt and a PBKDF2 verifier
+/// The password is never persisted. Only a random salt and an Argon2id verifier
 /// are stored in Android Keystore-backed secure storage. Autonomous background
 /// repair deliberately does not depend on this interactive owner session.
 class KingAiOwnerAuth {
