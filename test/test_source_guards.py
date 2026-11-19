@@ -941,10 +941,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('UPDATE_PROVIDER =')
         end = source.index("if 'androidx.core.content.FileProvider'", start)
         provider = source[start:end]
-        self.assertIn(r'FileProvider"\\n', provider)
-        self.assertNotIn(r'FileProvider"\\\\n', provider)
+        self.assertIn(r'FileProvider"\n', provider)
+        self.assertNotIn(r'FileProvider"\\n', provider)
         self.assertIn('@xml/king_file_paths', provider)
-
 
 if __name__ == '__main__':
     unittest.main()
