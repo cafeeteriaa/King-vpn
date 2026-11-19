@@ -14457,7 +14457,7 @@ ListTile( // KINGEXTRAS row
                                   return;
                                 }
                                 await runTask('بررسی شواهد CI و در صورت نیاز پیشنهاد اصلاح', () async {
-                                  final result = await ai.repairFromFailedCi(
+                                  final result = await ai.repairUntilGreen(
                                     owner: owner.text.trim(),
                                     repository: repository.text.trim(),
                                     pullNumber: number,
@@ -14465,7 +14465,7 @@ ListTile( // KINGEXTRAS row
                                   return const JsonEncoder.withIndent('  ').convert(result);
                                 });
                               },
-                        child: const Text('بررسی CI و اصلاح محدود با ساخت PR'),
+                        child: const Text('چرخه خودکار عیب‌یابی، اصلاح و تکرار تست تا سقف ایمن'),
                       ),
                       const Divider(),
                       const Text('تحقیق از منابع فنی معتبر',
