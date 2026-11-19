@@ -78,8 +78,7 @@ def configure(path: pathlib.Path) -> None:
     if path.name.endswith(".kts"):
         if not source.lstrip().startswith("plugins {"):
             raise SystemExit("Unexpected Kotlin Gradle template; refusing unsafe signing injection")
-        updated = KTS_IMPORTS + source + "
-" + KTS_TAIL
+        updated = KTS_IMPORTS + source + "\n" + KTS_TAIL
     elif path.name == "build.gradle":
         updated = source + "\n" + GROOVY_SNIPPET
     else:
