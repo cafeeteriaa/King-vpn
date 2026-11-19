@@ -22,6 +22,15 @@ jobs:
         with:
           ref: ${{ github.ref }}
 
+      - name: Require release tag to point to merged main history
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
+            echo "::error::Release tags must point to a commit already merged into main."
+            exit 1
+          fi
+
       - name: Verify protected signing secrets
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -96,6 +105,8 @@ jobs:
           set -euo pipefail
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > build_app/android/app/king-release.jks
           test -s build_app/android/app/king-release.jks
+          keytool -list -keystore build_app/android/app/king-release.jks \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
           cat > build_app/android/key.properties <<EOF
           storePassword=$ANDROID_KEYSTORE_PASSWORD
           keyPassword=$ANDROID_KEY_PASSWORD
@@ -116,6 +127,10 @@ jobs:
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
           VERSION="${VERSION%%+*}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tag must be vMAJOR.MINOR.PATCH (for example v1.2.3)."
+            exit 1
+          fi
           flutter build apk --release --target-platform android-arm64 \
             --build-name "$VERSION" \
             --build-number "$GITHUB_RUN_NUMBER" \
