@@ -206,6 +206,54 @@ for name in ('build.gradle', 'build.gradle.kts'):
         open(gp, 'w', encoding='utf-8').write(g)
 print('OK: Gradle')
 
+# Flutter's Gradle plugin is an included build. Its own plugin-management
+# repositories are independent from build_app/android/settings.gradle(.kts).
+# Ensure Maven Central is available there too, for Kotlin DSL transitive
+# artifacts (for example kotlin-stdlib / kotlin-gradle-plugin).
+flutter_root = os.environ.get('FLUTTER_ROOT')
+if flutter_root:
+    for settings_name in ('settings.gradle.kts', 'settings.gradle'):
+        flutter_settings = os.path.join(
+            flutter_root, 'packages/flutter_tools/gradle', settings_name
+        )
+        if not os.path.isfile(flutter_settings):
+            continue
+        with open(flutter_settings, encoding='utf-8') as f:
+            flutter_settings_text = f.read()
+        pm = re.search(r'pluginManagement\\s*\\{', flutter_settings_text)
+        if not pm:
+            continue
+        repo_match = re.search(r'repositories\\s*\\{', flutter_settings_text[pm.end():])
+        if not repo_match:
+            continue
+        repo_open = pm.end() + repo_match.end() - 1
+        depth = 0
+        repo_close = None
+        for pos in range(repo_open, len(flutter_settings_text)):
+            if flutter_settings_text[pos] == '{':
+                depth += 1
+            elif flutter_settings_text[pos] == '}':
+                depth -= 1
+                if depth == 0:
+                    repo_close = pos
+                    break
+        if repo_close is None:
+            continue
+        repositories_text = flutter_settings_text[repo_open:repo_close]
+        if 'mavenCentral()' not in repositories_text:
+            insert_at = repo_open + 1
+            flutter_settings_text = (
+                flutter_settings_text[:insert_at]
+                + '\\n        mavenCentral()'
+                + flutter_settings_text[insert_at:]
+            )
+            with open(flutter_settings, 'w', encoding='utf-8') as f:
+                f.write(flutter_settings_text)
+            print('  OK: Added Maven Central to Flutter included-build plugin repositories')
+        else:
+            print('  OK: Flutter included-build already has Maven Central')
+        break
+
 # =====================================================================
 # Dart source patches (V1..V19) have all been applied permanently to the
 # files under lib/ (main.dart, iran_ai_extras.dart, npv_am_extras.dart,
