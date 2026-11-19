@@ -47,6 +47,10 @@ void kingAiBackgroundDispatcher() {
         return true;
       }
       if (task == _auditTaskName) {
+        // Re-check the persisted owner opt-in inside the worker itself. A
+        // scheduled/stale task must never create source proposals after the
+        // owner has disabled autonomous maintenance.
+        if (!await ai.isBackgroundAutoDiscoveryEnabled()) return true;
         if (!await ai.hasGitHubToken()) return true;
         final loaded = await ai.loadInstalledModelForBackground();
         if (!loaded) return true;
