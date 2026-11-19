@@ -86,6 +86,12 @@ commands. They cannot submit code requests or enable background maintenance.
   match the exact signed release asset. The installed build number is read from
   Android package metadata; the small Dart build constant is only a fallback.
 
+## Production signed release
+
+- The tag-triggered workflow builds an Android arm64 release APK, signs it with the owner-managed keystore from GitHub Actions secrets, publishes the APK and SHA-256 digest, and updates the explicit `update.json` Gist manifest.
+- Required Actions secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, and `KING_UPDATE_GIST_TOKEN` (Gist write permission). The keystore must match the signing identity of the installed production app and must never be committed.
+- Normal Android installation still requires user confirmation. CI debug APK artifacts are unsigned and are not production updates.
+
 ## Evidence limits
 
 The national/global pilot probes measure the current route and are useful for
