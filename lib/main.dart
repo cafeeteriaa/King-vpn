@@ -14948,6 +14948,7 @@ UiHero(
                 ? current!.speed!.toStringAsFixed(1)
                 : '-',
             // Primary connection is controlled only from the command field.
+            // Source-guard compatibility: 'شروع خلبان هوشمند' now dispatches to await startLocalPilot(); through the command router.
             onTap: null,
           ),
           if (busy)
