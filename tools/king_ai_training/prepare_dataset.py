@@ -15,12 +15,15 @@ from pathlib import Path
 SECRET_PATTERNS = [
     re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"),
     re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
-    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{20,}"),
+    re.compile(r"(?i)\\bBearer\\s+[A-Za-z0-9._~+/=-]{20,}"),
     re.compile(r"AKIA[0-9A-Z]{16}"),
-    re.compile(r"xox[baprs]-[A-Za-z0-9-]{20,}"),
-    re.compile(r"https?://[^/\s:@]+:[^@\s]+@"),
-    re.compile(r"(?i)(api[_-]?key|access[_-]?token|client[_-]?secret|password)\s*[:=]\s*[^\s,;]+"),
-    re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+    re.compile(r"AIza[0-9A-Za-z_-]{30,}"),
+    re.compile(r"sk-[A-Za-z0-9_-]{20,}"),
+    re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"),
+    re.compile(r"(?i)\\bBasic\\s+[A-Za-z0-9+/]{12,}={0,2}"),
+    re.compile(r"https?://[^/\\s:@]+:[^@\\s]+@"),
+    re.compile(r"(?i)(api[_-]?key|access[_-]?token|client[_-]?secret|password)\\s*[:=]\\s*[^\\s,;]+"),
+    re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----"),
 ]
 MAX_TASK = 6000
 MAX_DIFF = 24000
@@ -42,7 +45,7 @@ def prepare(source: Path, output_dir: Path, min_examples: int = 5) -> dict:
             changes = row["changes"]
             if not isinstance(task, str) or not isinstance(source_files, dict) or not isinstance(changes, dict):
                 raise ValueError("task, source_files, and changes have invalid types")
-            if not row.get("ci_passed") or not (row.get("human_reviewed") or row.get("merged")) or not row.get("secret_scan_passed"):
+            if not row.get("ci_passed") or row.get("human_reviewed") is not True or not row.get("secret_scan_passed"):
                 rejected += 1
                 continue
             task = task.strip()
