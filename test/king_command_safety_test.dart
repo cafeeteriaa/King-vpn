@@ -33,6 +33,23 @@ void main() {
       expect(KingCommandSafety.negatesConnection('اتصال خلبان را شروع کن'), isFalse);
     });
 
+    test('explicit domestic and global network requests are distinguished', () {
+      expect(KingCommandSafety.requestedNetworkMode('کینگ نت ملی وصل شو'),
+          KingRequestedNetworkMode.domestic);
+      expect(KingCommandSafety.requestedNetworkMode('به اینترنت جهانی وصل شو'),
+          KingRequestedNetworkMode.global);
+      expect(KingCommandSafety.requestedNetworkMode('شبکه ملی اتصال برقرار کن'),
+          KingRequestedNetworkMode.domestic);
+      expect(KingCommandSafety.requestedNetworkMode('کینگ نت ملی وصل نشو'), isNull);
+      expect(KingCommandSafety.requestedNetworkMode('وضعیت اتصال نت ملی'), isNull);
+    });
+
+    test('connection status questions are not connect commands', () {
+      expect(KingCommandSafety.isStatusRequest('کینگ وضعیت اتصال'), isTrue);
+      expect(KingCommandSafety.isStatusRequest('connection status'), isTrue);
+      expect(KingCommandSafety.isStatusRequest('کینگ وصل شو'), isFalse);
+    });
+
     test('negative scan commands are blocked', () {
       expect(KingCommandSafety.negatesScan('اسکن DNS نکن'), isTrue);
       expect(KingCommandSafety.negatesScan('اسکن DNS نکنید'), isTrue);
