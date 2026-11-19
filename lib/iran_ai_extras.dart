@@ -2438,6 +2438,144 @@ extension HomeExtras on _HomePageState {
     if (changed) unawaited(_saveSettings().catchError((e) => logError(e)));
   }
 
+
+  /// Lets the on-device model review difficult pilot decisions at a low cadence.
+  /// The deterministic state machine remains authoritative and all model actions
+  /// pass explicit evidence/hold-time gates before they can affect the tunnel.
+  Future<_LocalDecision> _localAiReview(
+      _LocalNetSnap snap, _LocalDecision base) async {
+    final ai = KingLocalAi.instance;
+    if (!ai.isLoaded || ai.isBusy) return base;
+    if (base.confidence >= 96 && _localPhase == 'stable') return base;
+    if (_localPhase != 'degraded' &&
+        _localPhase != 'recover' &&
+        _localFailStreak == 0 &&
+        _localSlowStreak < 2) {
+      return base;
+    }
+    final now = DateTime.now();
+    final last = _localAiAdvisorAt;
+    if (last != null && now.difference(last) < const Duration(minutes: 6)) {
+      return base;
+    }
+    _localAiAdvisorAt = now;
+    final evidence = <String, Object?>{
+      'networkMode': nationalMode ? 'domestic' : 'global',
+      'networkClass': natNetworkClassLabel(NatNetworkDiagnosis.current),
+      'phase': _localPhase,
+      'connected': snap.connected,
+      'operator': snap.operatorKey,
+      'protocol': snap.configProto,
+      'transport': snap.configNet,
+      'security': snap.configSec,
+      'pingMs': snap.pingMs,
+      'speedMBps': snap.speedMBs,
+      'dataPlaneOk': snap.netOk,
+      'telegramOk': snap.tgOk,
+      'youtubeOk': snap.ytOk,
+      'instagramOk': snap.igOk,
+      'healthyServers': snap.goodCount,
+      'pendingServers': snap.pendingCount,
+      'failedServers': snap.failedCount,
+      'qualityScore': snap.score,
+      'slowStreak': _localSlowStreak,
+      'serviceFailStreak': _localSvcFail,
+      'connectionFailStreak': _localFailStreak,
+      'baseAction': base.action,
+      'baseConfidence': base.confidence,
+      'baseReason': base.explain,
+      'uptimeSeconds': _localConnectedSince == null
+          ? 0
+          : now.difference(_localConnectedSince!).inSeconds,
+    };
+    try {
+      final raw = await ai.askPilot(
+        'Review this VPN pilot decision using only the evidence below. '
+        'Return exactly the required JSON. Do not invent data. '
+        'If uncertain choose action none. Evidence: ${jsonEncode(evidence)}',
+        maxTokens: 192,
+      ).timeout(const Duration(seconds: 18));
+      final start = raw.indexOf('{');
+      final end = raw.lastIndexOf('}');
+      if (start < 0 || end <= start) return base;
+      final decoded = jsonDecode(raw.substring(start, end + 1));
+      if (decoded is! Map ||
+          decoded['action'] is! String ||
+          decoded['confidence'] is! num ||
+          decoded['reason'] is! String) {
+        return base;
+      }
+      final action = decoded['action'] as String;
+      final confidence = (decoded['confidence'] as num).round().clamp(0, 100);
+      final reason = (decoded['reason'] as String).trim();
+      if (confidence < 88 ||
+          !const {'none', 'connect', 'switch_best', 'soft_recover'}.contains(action)) {
+        return base;
+      }
+
+      // Hard gates: never let the model start a second connect, switch a
+      // healthy tunnel, or choose a standby that does not exist.
+      if (snap.connected && action == 'connect') return base;
+      if (!snap.connected && action != 'connect' && action != 'none') return base;
+      if (action == 'switch_best') {
+        final uptime = _localConnectedSince == null
+            ? 0
+            : now.difference(_localConnectedSince!).inSeconds;
+        if (!snap.connected ||
+            snap.goodCount <= 0 ||
+            _localSvcFail < 2 ||
+            uptime < 180) {
+          return base;
+        }
+      }
+      if (action == 'soft_recover' &&
+          (!snap.connected ||
+              _localPhase != 'degraded' ||
+              _localSlowStreak < 2)) {
+        return base;
+      }
+      if (action == 'connect' && (snap.connected || offlineOnly && snap.goodCount == 0)) {
+        return base;
+      }
+
+      // The model may veto an unnecessary failover, or add a cautious soft
+      // recovery when repeated evidence says the tunnel is degraded.
+      if (action == base.action) {
+        return _LocalDecision(
+          base.action,
+          base.settings,
+          '${base.explain} • بازبینی مدل محلی: ${reason.isEmpty ? "تأیید شد" : reason}',
+          confidence: min(base.confidence, confidence),
+        );
+      }
+      if (action == 'none' &&
+          (base.action == 'switch_best' || base.action == 'soft_recover')) {
+        return _LocalDecision(
+          'none',
+          const <String, int>{},
+          '${base.explain} • مدل محلی با تعویض/بازیابی مخالفت کرد: ${reason.isEmpty ? "شواهد کافی نیست" : reason}',
+          confidence: confidence,
+        );
+      }
+      if (action == 'soft_recover' &&
+          base.action == 'none' &&
+          snap.connected &&
+          _localPhase == 'degraded' &&
+          _localSlowStreak >= 2) {
+        return _LocalDecision(
+          'soft_recover',
+          base.settings,
+          'پیشنهاد مدل محلی پس از شواهد ضعف تکراری: $reason',
+          confidence: confidence,
+        );
+      }
+    } catch (e, st) {
+      // A timeout or unavailable model never blocks the deterministic pilot.
+      logError(e, st);
+    }
+    return base;
+  }
+
   Future<void> localPilotTick({bool force = false}) async {
     if (!localPilotOn || !mounted) return;
     // PILOTRETRY: تیک خلبان وقتی کار دیگری در جریان است، قبلاً بی‌صدا گم می‌شد
@@ -2499,7 +2637,8 @@ extension HomeExtras on _HomePageState {
       }
 
       final snap = await _localGather(probe: true);
-      final decision = _localDecide(snap);
+      final baseDecision = _localDecide(snap);
+      final decision = await _localAiReview(snap, baseDecision);
 
       final report = StringBuffer();
       report.writeln(
@@ -3666,6 +3805,7 @@ int _localPeakPower = 1; // بالاترین قدرت دیده‌شده در ا�
 String _localLastOp = '';
 String _localLastAction = '';
 DateTime? _localLastTick;
+DateTime? _localAiAdvisorAt; // throttles optional on-device LLM pilot reviews
 DateTime? _busyStuckSince; // BUSYCLEAR: when the busy flag started looking stuck
 DateTime? _localConnectedSince;
 int _localFailStreak = 0;
