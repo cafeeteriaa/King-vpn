@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:local_inference_flutter/local_inference_flutter.dart';
@@ -85,6 +86,85 @@ empty changes list and explain what is missing.
 
   Future<void> clearGitHubToken() =>
       _secure.delete(key: 'king_ai_github_token');
+
+  Future<void> setBackgroundRepairPullNumber(int pullNumber) async {
+    if (pullNumber < 1) throw ArgumentError.value(pullNumber, 'pullNumber');
+    await _secure.write(
+      key: 'king_ai_background_pull_number',
+      value: pullNumber.toString(),
+    );
+  }
+
+  Future<int?> getBackgroundRepairPullNumber() async {
+    final raw = await _secure.read(key: 'king_ai_background_pull_number');
+    final parsed = raw == null ? null : int.tryParse(raw);
+    return parsed != null && parsed > 0 ? parsed : null;
+  }
+
+  Future<void> clearBackgroundRepairPullNumber() =>
+      _secure.delete(key: 'king_ai_background_pull_number');
+
+  Future<void> setBackgroundAutoDiscovery(bool enabled) async {
+    if (enabled) {
+      await _secure.write(key: 'king_ai_background_auto_discovery', value: 'true');
+    } else {
+      await _secure.delete(key: 'king_ai_background_auto_discovery');
+    }
+  }
+
+  Future<bool> isBackgroundAutoDiscoveryEnabled() async =>
+      (await _secure.read(key: 'king_ai_background_auto_discovery')) == 'true';
+
+  /// Loads only a model previously downloaded and verified in the foreground.
+  /// A background worker must never start a 1.1 GB model download unexpectedly.
+  Future<bool> loadInstalledModelForBackground() async {
+    if (_engine != null) return true;
+    if (_busy) throw StateError('Local AI is already busy');
+    final root = await getApplicationSupportDirectory();
+    final marker = File('${root.path}/king_ai_model_ready.json');
+    if (!await marker.exists()) return false;
+    final decoded = jsonDecode(await marker.readAsString());
+    if (decoded is! Map ||
+        decoded['sha256'] != modelSha256 ||
+        decoded['sizeBytes'] != modelSizeBytes ||
+        decoded['path'] is! String) {
+      return false;
+    }
+    final modelFile = File(decoded['path'] as String);
+    if (!await modelFile.exists() ||
+        await modelFile.length() != modelSizeBytes) {
+      return false;
+    }
+    // A marker is metadata, not proof that the 1.1 GB model is still intact.
+    // Re-resolve the path inside app-private storage and verify the actual
+    // bytes before loading a background model after a reboot or file change.
+    final supportPath = await root.resolveSymbolicLinks();
+    final modelPath = await modelFile.resolveSymbolicLinks();
+    if (!modelPath.startsWith('${supportPath}${Platform.pathSeparator}')) {
+      return false;
+    }
+    final actualDigest = await sha256.bind(modelFile.openRead()).first;
+    if (actualDigest.toString() != modelSha256) return false;
+
+    _busy = true;
+    try {
+      final support = await LocalInferenceFlutter.checkDeviceSupport();
+      if (!support.isSupported) return false;
+      final engine = LlamadartEngine(logLevel: EngineLogLevel.error);
+      try {
+        final options = await LocalInferenceFlutter.platformLoadOptions();
+        await engine.load(modelFile.path, options);
+      } catch (_) {
+        await engine.dispose();
+        rethrow;
+      }
+      _engine = engine;
+      return true;
+    } finally {
+      _busy = false;
+    }
+  }
+
 
   Future<ModelManager> _modelManager() async {
     if (_models != null) return _models!;
@@ -686,6 +766,70 @@ empty changes list and explain what is missing.
 
   /// One operator-invoked repair iteration. At most two follow-up PRs are
   /// proposed per source PR; no check is auto-merged or silently retried.
+  Future<int?> findOpenPullRequestForHeadBranch({
+    required String owner,
+    required String repository,
+    required String branch,
+  }) async {
+    if (branch.isEmpty || branch.length > 255) return null;
+    final repo = '${Uri.encodeComponent(owner)}/${Uri.encodeComponent(repository)}';
+    final head = Uri.encodeComponent('$owner:$branch');
+    final rows = await _githubList('/repos/$repo/pulls?state=open&head=$head&per_page=10');
+    for (final row in rows.whereType<Map>()) {
+      final rowHead = row['head'];
+      final rowRepo = rowHead is Map ? rowHead['repo'] : null;
+      final number = row['number'];
+      if (number is num &&
+          row['state'] == 'open' &&
+          rowRepo is Map &&
+          rowRepo['full_name'] == '$owner/$repository' &&
+          rowHead['ref'] == branch) {
+        return number.toInt();
+      }
+    }
+    return null;
+  }
+
+  /// Finds the most recently updated same-repository open PR with failed CI.
+  /// It is deliberately bounded to avoid scanning the whole repository on a
+  /// periodic Android background wake-up.
+  Future<int?> findOpenPullRequestWithCiFailures({
+    required String owner,
+    required String repository,
+    int maxPullRequests = 10,
+  }) async {
+    final repo = '${Uri.encodeComponent(owner)}/${Uri.encodeComponent(repository)}';
+    final limit = maxPullRequests.clamp(1, 20);
+    final rows = await _githubList(
+      '/repos/$repo/pulls?state=open&sort=updated&direction=desc&per_page=$limit',
+    );
+    for (final row in rows.whereType<Map>()) {
+      if (row['draft'] == true || row['state'] != 'open') continue;
+      final head = row['head'];
+      final base = row['base'];
+      final headRepo = head is Map ? head['repo'] : null;
+      final baseRepo = base is Map ? base['repo'] : null;
+      final baseBranch = base is Map ? base['ref']?.toString() ?? '' : '';
+      final number = row['number'];
+      if (number is! num ||
+          headRepo is! Map ||
+          baseRepo is! Map ||
+          headRepo['full_name'] != '$owner/$repository' ||
+          baseRepo['full_name'] != '$owner/$repository' ||
+          !(baseBranch == 'main' || baseBranch.startsWith('king-ai/'))) {
+        continue;
+      }
+      final report = await inspectPullRequestCi(
+        owner: owner,
+        repository: repository,
+        pullNumber: number.toInt(),
+      );
+      if (report['hasFailures'] == true) return number.toInt();
+    }
+    return null;
+  }
+
+
   Future<Map<String, Object?>> repairFromFailedCi({
     required String owner,
     required String repository,
