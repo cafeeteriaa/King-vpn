@@ -5,6 +5,7 @@ import 'king_ai_console.dart';
 import 'king_ai_background.dart';
 import 'king_ai_owner_auth.dart';
 import 'king_command_safety.dart';
+import 'fresh_resource_store.dart';
 import 'package:local_inference_flutter/local_inference_flutter.dart';
 import 'update_integrity.dart';
 import 'errjournal.dart';
@@ -6669,6 +6670,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // (new servers appear in the hot lists all the time) and the cycle goes on.
   Future<void> _loadPending({bool bg = false, bool exhausted = false}) async {
     _purgePersonalLeaks(); // ONLYFOLDER
+    // FRESH-DISK: load the phone's reusable fresh-resource folder before choosing a mode.
+    // Never mix its entries into the personal-server folder.
+    try {
+      final diskLinks = await FreshResourceStore.readLinks();
+      final known = <String>{for (final item in fetchedAll) item.key};
+      for (final link in diskLinks) {
+        final parsed = Server.parse(link);
+        if (parsed != null && !_inPF(parsed) && known.add(parsed.key)) {
+          parsed.src = 'fresh-device-folder';
+          fetchedAll.add(parsed);
+        }
+      }
+    } catch (e, st) { logError(e, st); }
     // ULTIMATE: offline-only never downloads new lists
     if (offlineOnly) {
       if (!bg) _set('حالت آفلاین: پوشه‌ی منابع تازه و سرورهای ذخیره‌شده');
@@ -6677,9 +6691,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _set('پوشه‌ی منابع تازه هنوز ساخته نشده: روی «پوشه منابع تازه» بزن و حدود ۱۰ دقیقه صبر کن');
       }
       final hotOff = await natHotNext(300, fetch: false); // هر دور ۳۰۰ تا؛ اگر پیدا نشد دور بعد ادامه می‌دهد
-      // OFFLINE-SRC: صف قبلی (آنلاین) کنار گذاشته می‌شود؛ فقط منابع تازه تست می‌شوند
+      // FRESH-DISK: منابع تازه‌ی ذخیره‌شده روی گوشی در اتصال آفلاین هم قابل استفاده‌اند.
+      final diskLinks = await FreshResourceStore.readLinks();
+      final diskOff = <Server>[
+        for (final link in diskLinks)
+          if (Server.parse(link) case final parsed?) parsed,
+      ];
+      // OFFLINE-SRC: صف قبلی (آنلاین) کنار گذاشته می‌شود؛ فقط منابع تازه‌ی محلی تست می‌شوند.
+      // پوشه‌ی سرورهای شخصی و بانک IP نت ملی عمداً جدا می‌مانند.
       pending = [
-        for (final s in hotOff)
+        for (final s in [...diskOff, ...hotOff])
           if (!_inPF(s) && seenOff.add(s.link)) s, // ONLYFOLDER
       ];
       if (_folderMix && folderQ.isEmpty) folderQ = _folderPool();
@@ -6715,6 +6736,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             srcTested.removeWhere((k, v) => (srcOkN[k] ?? 0) == 0);
           }
           fetchedAll = f;
+          // Persist freshly fetched public configs for later offline use.
+          // Personal servers and the national IP inventory are stored elsewhere.
+          try {
+            await FreshResourceStore.merge(
+              f.map((server) => server.link),
+              source: 'online-public-sources',
+            );
+          } catch (e, st) { logError(e, st); }
           listTime = DateTime.now();
           _saveList();
         }
