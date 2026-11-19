@@ -103,14 +103,14 @@ class _KingChatPageState extends State<KingChatPage> {
       _voiceTurn = true;
       _voiceSubmitted = false;
       setState(() => _notice = fa.isEmpty
-          ? 'فارسی آفلاین پیدا نشد؛ سرویس گفتار دستگاه را با زبان fa-IR امتحان می‌کنم.'
-          : 'کینگ گوش می‌دهد؛ پس از تشخیص، متن را بررسی و ارسال کن.');
+          ? 'زبان فارسی در فهرست دستگاه نبود؛ سرویس گفتار با fa-IR امتحان می‌شود و ممکن است اینترنت بخواهد.'
+          : 'کینگ گوش می‌دهد؛ گفتار فارسی به متن تبدیل و برای کینگ ارسال می‌شود.');
       await _speech.listen(
         listenOptions: stt.SpeechListenOptions(
           localeId: _locale,
           listenFor: const Duration(seconds: 45),
           pauseFor: const Duration(seconds: 5),
-          onDevice: fa.isNotEmpty,
+          onDevice: false,
           partialResults: true,
           cancelOnError: true,
           listenMode: stt.ListenMode.dictation,
