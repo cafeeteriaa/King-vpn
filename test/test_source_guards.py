@@ -445,7 +445,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("import 'king_ai_console.dart';", main)
         self.assertIn("import 'king_ai_owner_auth.dart';", main)
         self.assertIn('const KingAiConsolePage()', main)
-        self.assertIn('final codeRequest = RegExp(', main)
+        self.assertIn('final codeRequest = !KingCommandSafety.isQuestionRequest(command) && RegExp(', main)
         self.assertIn('if (codeRequest)', main)
         self.assertIn('KingAiOwnerAuth.instance.lock()', main)
         self.assertIn('KingAiOwnerAuth.instance.hasActiveSession', extras)
@@ -590,7 +590,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_national_runtime_optimization_is_not_misclassified_as_code(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
-        start = main.index('final codeRequest = RegExp(')
+        start = main.index('final codeRequest = !KingCommandSafety.isQuestionRequest(command) && RegExp(')
         end = main.index(').hasMatch(command);', start)
         code_request = main[start:end]
         self.assertIn('(کل اپ|کل برنامه|کل پروژه)', code_request)
