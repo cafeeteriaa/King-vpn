@@ -21,6 +21,7 @@ class _KingChatPageState extends State<KingChatPage> {
   ];
   bool _busy = false, _listening = false, _speechReady = false, _speak = true;
   bool _voiceTurn = false, _voiceSubmitted = false;
+  bool _onDeviceSpeechAttempt = false, _onlineSpeechFallbackAttempted = false;
   String? _notice, _locale;
 
   @override
@@ -72,6 +73,60 @@ class _KingChatPageState extends State<KingChatPage> {
     }
   }
 
+  void _handleSpeechResult(stt.SpeechRecognitionResult result) {
+    if (!mounted) return;
+    final value = result.recognizedWords.trim();
+    if (value.isEmpty) return;
+    setState(() {
+      _input.value = TextEditingValue(
+        text: value,
+        selection: TextSelection.collapsed(offset: value.length),
+      );
+      _notice = result.finalResult
+          ? 'گفتار تشخیص داده شد؛ کینگ در حال پاسخ‌گویی است.'
+          : 'در حال تشخیص گفتار...';
+    });
+    if (result.finalResult && !_voiceSubmitted) {
+      _voiceSubmitted = true;
+      unawaited(Future<void>.delayed(
+        const Duration(milliseconds: 250),
+        () => _send(),
+      ));
+    }
+  }
+
+  Future<void> _startChatSpeech({required bool onDevice}) async {
+    await _speech.listen(
+      listenOptions: stt.SpeechListenOptions(
+        localeId: _locale ?? 'fa-IR',
+        listenFor: const Duration(seconds: 45),
+        pauseFor: const Duration(seconds: 5),
+        onDevice: onDevice,
+        partialResults: true,
+        cancelOnError: true,
+        listenMode: stt.ListenMode.dictation,
+      ),
+      onResult: _handleSpeechResult,
+    );
+    if (mounted) setState(() => _listening = _speech.isListening);
+  }
+
+  Future<void> _startChatSpeechOnlineFallback() async {
+    try {
+      await _speech.stop();
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      if (!mounted) return;
+      await _startChatSpeech(onDevice: false);
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _listening = false;
+          _notice = 'تشخیص گفتار آفلاین و آنلاین در دسترس نیست: $error';
+        });
+      }
+    }
+  }
+
   Future<void> _listen() async {
     if (_busy) return;
     if (_listening || _speech.isListening) {
@@ -81,61 +136,60 @@ class _KingChatPageState extends State<KingChatPage> {
     }
     final permission = await Permission.microphone.request();
     if (!permission.isGranted) {
-      setState(() => _notice = 'برای گفت‌وگوی صوتی اجازه میکروفون لازم است.');
+      if (mounted) setState(() => _notice = 'برای گفت‌وگوی صوتی اجازه میکروفون لازم است.');
       return;
     }
     try {
       if (!_speechReady) {
         _speechReady = await _speech.initialize(
-          onStatus: (_) { if (mounted) setState(() => _listening = _speech.isListening); },
+          onStatus: (_) {
+            if (mounted) setState(() => _listening = _speech.isListening);
+          },
           onError: (error) {
-            if (mounted) setState(() { _listening = false; _notice = 'تشخیص گفتار: ${error.errorMsg}'; });
+            if (!mounted) return;
+            setState(() => _listening = false);
+            if (_onDeviceSpeechAttempt && !_onlineSpeechFallbackAttempted) {
+              _onDeviceSpeechAttempt = false;
+              _onlineSpeechFallbackAttempted = true;
+              setState(() => _notice =
+                  'تشخیص گفتار آفلاین در دسترس نبود؛ اکنون با اطلاع تو سرویس آنلاین گفتار را امتحان می‌کنم. ممکن است صوت به سرویس گفتار دستگاه ارسال شود.');
+              unawaited(_startChatSpeechOnlineFallback());
+              return;
+            }
+            setState(() => _notice = 'تشخیص گفتار: ${error.errorMsg}');
           },
         );
       }
       if (!_speechReady) {
-        setState(() => _notice = 'سرویس تشخیص گفتار گوشی فعال نیست؛ موتور گفتار را در تنظیمات Android فعال کن.');
+        setState(() => _notice =
+            'سرویس تشخیص گفتار گوشی فعال نیست؛ موتور گفتار را در تنظیمات Android فعال کن.');
         return;
       }
       final locales = await _speech.locales();
-      final fa = locales.where((e) => e.localeId.toLowerCase().replaceAll('_', '-').startsWith('fa'));
+      final fa = locales.where((e) =>
+          e.localeId.toLowerCase().replaceAll('_', '-').startsWith('fa'));
       _locale = fa.isNotEmpty ? fa.first.localeId : 'fa-IR';
       _voiceTurn = true;
       _voiceSubmitted = false;
+      _onlineSpeechFallbackAttempted = false;
+      _onDeviceSpeechAttempt = true;
       setState(() => _notice = fa.isEmpty
-          ? 'زبان فارسی در فهرست دستگاه نبود؛ سرویس گفتار با fa-IR امتحان می‌شود و ممکن است اینترنت بخواهد.'
-          : 'کینگ گوش می‌دهد؛ گفتار فارسی به متن تبدیل و برای کینگ ارسال می‌شود.');
-      await _speech.listen(
-        listenOptions: stt.SpeechListenOptions(
-          localeId: _locale,
-          listenFor: const Duration(seconds: 45),
-          pauseFor: const Duration(seconds: 5),
-          onDevice: false,
-          partialResults: true,
-          cancelOnError: true,
-          listenMode: stt.ListenMode.dictation,
-        ),
-        onResult: (result) {
-          if (!mounted) return;
-          final value = result.recognizedWords.trim();
-          if (value.isEmpty) return;
-          setState(() {
-            _input.value = TextEditingValue(text: value,
-                selection: TextSelection.collapsed(offset: value.length));
-            _notice = result.finalResult ? 'گفتار تشخیص داده شد؛ کینگ در حال پاسخ‌گویی است.' : 'در حال تشخیص گفتار...';
-          });
-          if (result.finalResult && !_voiceSubmitted) {
-            _voiceSubmitted = true;
-            unawaited(Future<void>.delayed(
-              const Duration(milliseconds: 250),
-              () => _send(),
-            ));
-          }
-        },
-      );
-      if (mounted) setState(() => _listening = _speech.isListening);
+          ? 'بسته فارسی آفلاین پیدا نشد؛ ابتدا fa-IR را روی خود دستگاه امتحان می‌کنم. در صورت شکست، قبل از استفاده آنلاین پیام می‌دهم.'
+          : 'ابتدا تشخیص گفتار فارسی روی خود دستگاه (آفلاین) فعال می‌شود.');
+      await _startChatSpeech(onDevice: true);
     } catch (error) {
-      if (mounted) setState(() { _listening = false; _notice = 'شروع تشخیص گفتار ناموفق بود: $error'; });
+      if (_onDeviceSpeechAttempt && !_onlineSpeechFallbackAttempted) {
+        _onDeviceSpeechAttempt = false;
+        _onlineSpeechFallbackAttempted = true;
+        if (mounted) setState(() => _notice =
+            'شروع تشخیص آفلاین ممکن نشد؛ با اطلاع تو سرویس آنلاین گفتار را امتحان می‌کنم.');
+        await _startChatSpeechOnlineFallback();
+      } else if (mounted) {
+        setState(() {
+          _listening = false;
+          _notice = 'شروع تشخیص گفتار ناموفق بود: $error';
+        });
+      }
     }
   }
 
