@@ -1,3 +1,4 @@
+import ast
 import importlib.util
 import tempfile
 import unittest
@@ -10,6 +11,10 @@ spec.loader.exec_module(module)
 
 
 class TrainingHostPreflightTests(unittest.TestCase):
+    def test_train_script_is_valid_python_without_loading_gpu_dependencies(self):
+        train_script = MODULE_PATH.parent / "train_lora.py"
+        ast.parse(train_script.read_text(encoding="utf-8"), filename=str(train_script))
+
     def test_rejects_nonexistent_base_model_before_gpu_import(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
