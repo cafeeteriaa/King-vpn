@@ -7303,6 +7303,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // only refreshes an entry that is already saved)
       _resAdd(s);
     } else {
+      // The timestamp belongs to the failed check, not to the previous ping.
+      // Clear that ping so freshness gates cannot promote stale latency evidence.
+      s.ping = null;
       failed[s.key] = DateTime.now();
       s.ai = null; // provider-specific legacy result is not valid for this generic probe
     }
@@ -7967,6 +7970,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final d = await _delayOf(s, t: _bgTimeout);
         s.checkedAt = DateTime.now();
         if (d == null) {
+          s.ping = null;
           if (++s.miss >= missLimit) {
             good.remove(s);
             failed[s.key] = DateTime.now();
@@ -12737,6 +12741,7 @@ ListTile( // KINGEXTRAS row
           final d = await _delayOf(c, t: _bgTimeout);
           c.checkedAt = DateTime.now();
           if (d == null) {
+            c.ping = null;
             if (++c.miss >= missLimit) {
               good.remove(c);
               failed[c.key] = DateTime.now();
@@ -12767,6 +12772,8 @@ ListTile( // KINGEXTRAS row
       }
       t.checkedAt = DateTime.now();
       if (r.length < 3) {
+        // A partial/failed confirmation must not leave an older ping eligible.
+        t.ping = null;
         _spSkip[t.key] = DateTime.now();
         return;
       }
@@ -13438,6 +13445,7 @@ ListTile( // KINGEXTRAS row
       final d = await _delayOf(s, t: _bgTimeout);
       s.checkedAt = DateTime.now();
       if (d == null) {
+        s.ping = null;
         s.badAt = DateTime.now();
         if (++s.miss >= 2) good.remove(s);
       } else {
