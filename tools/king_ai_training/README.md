@@ -34,7 +34,7 @@ python3 tools/king_ai_training/train_lora.py \
 ```
 
 Training requires a CUDA GPU and a locally available, reviewed base model.
-The base model must be a full Hugging Face Transformers checkpoint (`config.json` plus model weights), not the 1.1 GB GGUF file installed by the Android app. The Android device remains an inference target, not a training machine.
+The base model must be a full Hugging Face Transformers checkpoint (`config.json` plus model weights), not the 1.1 GB GGUF file installed by the Android app. The Android device remains an inference target, not a training machine. The runner preflight requires an NVIDIA CUDA GPU with at least 10 GiB free VRAM and 12 GiB free disk space.
 
 ## Automatic training setup
 
