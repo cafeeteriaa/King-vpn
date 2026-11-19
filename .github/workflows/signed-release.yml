@@ -101,7 +101,11 @@ jobs:
           keyAlias=$ANDROID_KEY_ALIAS
           storeFile=king-release.jks
           EOF
-          python3 tools/configure_release_signing.py build_app/android/app/build.gradle.kts
+          GRADLE_APP=build_app/android/app/build.gradle.kts
+          if [ ! -f "$GRADLE_APP" ]; then
+            GRADLE_APP=build_app/android/app/build.gradle
+          fi
+          python3 tools/configure_release_signing.py "$GRADLE_APP"
 
       - name: Build signed release APK
         working-directory: build_app
