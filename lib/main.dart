@@ -11001,7 +11001,7 @@ ListTile( // KINGEXTRAS row
         final tunnel = connected ? 'متصل' : (busy || searching ? 'در حال اتصال/جستجو' : 'قطع');
         final pilot = localPilotOn ? 'روشن' : 'خاموش';
         final network = nationalMode ? 'نت ملی' : 'نت جهانی/خودکار';
-        _set('وضعیت اتصال: $tunnel • خلبان: $pilot • حالت شبکه: $network\\nجزئیات: $status');
+        _set('وضعیت اتصال: $tunnel • خلبان: $pilot • حالت شبکه: $network\nجزئیات: $status');
       } else if (requestedNetworkMode != null && wantsConnect) {
         if (localPilotOn) stopLocalPilot();
         final domestic = requestedNetworkMode == KingRequestedNetworkMode.domestic;
