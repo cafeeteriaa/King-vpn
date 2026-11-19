@@ -4,11 +4,53 @@ import shutil
 
 APP = 'build_app'
 LIB = os.path.join(APP, 'lib')
+# Flutter 3.50 + Kotlin 2.4.20 supported Android toolchain.
+AGP_VERSION = '9.3.1'
+GRADLE_VERSION = '9.5.0'
+MAVEN_CENTRAL_MIRROR = 'https://maven-central.storage-download.googleapis.com/maven2/'
+
+def add_maven_mirror_to_scope(text, scope_name, mirror_line):
+    """Insert the Maven Central mirror into a named Gradle repositories block."""
+    scope = re.search(rf'{re.escape(scope_name)}\s*\{{', text)
+    if not scope:
+        return text
+    scope_open = scope.end() - 1
+
+    def matching_brace(source, open_pos):
+        depth = 0
+        for pos in range(open_pos, len(source)):
+            if source[pos] == '{':
+                depth += 1
+            elif source[pos] == '}':
+                depth -= 1
+                if depth == 0:
+                    return pos
+        return -1
+
+    scope_close = matching_brace(text, scope_open)
+    if scope_close < 0:
+        raise SystemExit('HARD FAIL: malformed ' + scope_name + ' block')
+    block = text[scope_open + 1:scope_close]
+    repo_match = re.search(r'repositories\s*\{', block)
+    if not repo_match:
+        raise SystemExit('HARD FAIL: ' + scope_name + ' has no repositories block')
+    repo_open = scope_open + 1 + repo_match.end() - 1
+    repo_close = matching_brace(text, repo_open)
+    if repo_close < 0 or repo_close > scope_close:
+        raise SystemExit('HARD FAIL: malformed ' + scope_name + ' repositories block')
+    repo_body = text[repo_open:repo_close]
+    if MAVEN_CENTRAL_MIRROR not in repo_body:
+        text = text[:repo_open + 1] + '\n' + mirror_line.rstrip('\n') + text[repo_open + 1:]
+        print('  OK: Added Maven Central mirror to ' + scope_name)
+    else:
+        print('  OK: ' + scope_name + ' already has Maven Central mirror')
+    return text
+
 
 # =====================================================================
-# ---- 0) AGP 9.4.0 + Gradle 9.6.0 ----
+# ---- 0) Flutter 3.50 / Kotlin 2.4.20 compatible toolchain ----
 # =====================================================================
-print('[0] Upgrading AGP to 9.4.0 + Gradle 9.6.0')
+print(f'[0] Pinning AGP {AGP_VERSION} + Gradle {GRADLE_VERSION}')
 
 sett = os.path.join(APP, 'android/settings.gradle.kts')
 if not os.path.exists(sett):
@@ -28,6 +70,13 @@ if os.path.exists(sett):
             insert_at = pm.end() + repo_match.end()
             repo_block = block[repo_match.end():]
             additions = ''
+            mirror_entry = (
+                f'maven {{ url = uri("{MAVEN_CENTRAL_MIRROR}") }}'
+                if sett.endswith('.kts') else
+                f'maven {{ url "{MAVEN_CENTRAL_MIRROR}" }}'
+            )
+            if MAVEN_CENTRAL_MIRROR not in repo_block:
+                additions += '\n        ' + mirror_entry
             if 'google()' not in repo_block:
                 additions += '\n        google()'
             if 'mavenCentral()' not in repo_block:
@@ -35,21 +84,32 @@ if os.path.exists(sett):
             if additions:
                 s = s[:insert_at] + additions + s[insert_at:]
         else:
-            s = s[:pm.end()] + '\n    repositories { google(); mavenCentral(); gradlePluginPortal() }' + s[pm.end():]
+            mirror_entry = (
+                f'maven {{ url = uri("{MAVEN_CENTRAL_MIRROR}") }}'
+                if sett.endswith('.kts') else
+                f'maven {{ url "{MAVEN_CENTRAL_MIRROR}" }}'
+            )
+            s = s[:pm.end()] + '\n    repositories { ' + mirror_entry + '; google(); mavenCentral(); gradlePluginPortal() }' + s[pm.end():]
+    root_mirror_entry = (
+        f'        maven {{ url = uri("{MAVEN_CENTRAL_MIRROR}") }}'
+        if sett.endswith('.kts') else
+        f'        maven {{ url "{MAVEN_CENTRAL_MIRROR}" }}'
+    )
+    s = add_maven_mirror_to_scope(s, 'dependencyResolutionManagement', root_mirror_entry)
     s = re.sub(r'(id\("com\.android\.(?:application|library)"\)\s+version\s+")[^"]+(")',
-               r'\g<1>9.4.0\g<2>', s)
+               lambda m: f'{m.group(1)}{AGP_VERSION}{m.group(2)}', s)
     with open(sett, 'w', encoding='utf-8') as f:
         f.write(s)
-    print('  OK: settings.gradle plugin repositories + AGP -> 9.4.0')
+    print(f'  OK: settings.gradle plugin repositories + AGP -> {AGP_VERSION}')
 
 gw = os.path.join(APP, 'android/gradle/wrapper/gradle-wrapper.properties')
 if os.path.exists(gw):
     with open(gw, encoding='utf-8') as f:
         g = f.read()
-    g = re.sub(r'gradle-[0-9.]+-(bin|all)\.zip', r'gradle-9.6.0-\1.zip', g)
+    g = re.sub(r'gradle-[0-9.]+-(bin|all)\.zip', lambda m: f'gradle-{GRADLE_VERSION}-{m.group(1)}.zip', g)
     with open(gw, 'w', encoding='utf-8') as f:
         f.write(g)
-    print('  OK: gradle-wrapper -> 9.6.0')
+    print(f'  OK: gradle-wrapper -> {GRADLE_VERSION}')
 
 # =====================================================================
 # Helpers
@@ -145,8 +205,7 @@ perms = ('<uses-permission android:name="android.permission.INTERNET"/>\n'
          '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>\n'
          '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>\n'
          '    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>\n'
-         '    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n'
-         '    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>\n    ')
+         '    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n    ')
 if 'QUERY_ALL_PACKAGES' not in m:
     m = m.replace('<application', perms + '<application', 1)
 if 'android.permission.RECORD_AUDIO' not in m:
@@ -241,11 +300,17 @@ if flutter_root:
         with open(flutter_settings, encoding='utf-8') as f:
             flutter_settings_text = f.read()
 
+        mirror_repo = (
+            f'        maven {{ url = uri("{MAVEN_CENTRAL_MIRROR}") }}\n'
+            if settings_name.endswith('.kts') else
+            f'        maven {{ url "{MAVEN_CENTRAL_MIRROR}" }}\n'
+        )
         pm = re.search(r'pluginManagement\s*\{', flutter_settings_text)
         if not pm:
             flutter_settings_text = (
                 'pluginManagement {\n'
                 '    repositories {\n'
+                + mirror_repo +
                 '        google()\n'
                 '        mavenCentral()\n'
                 '        gradlePluginPortal()\n'
@@ -286,6 +351,8 @@ if flutter_root:
                 raise SystemExit('HARD FAIL: malformed Flutter plugin repositories block')
             repositories_text = flutter_settings_text[repo_open:repo_close]
             additions = ''
+            if mirror_repo.strip() not in repositories_text:
+                additions += '\n' + mirror_repo.rstrip('\n')
             if 'google()' not in repositories_text:
                 additions += '\n        google()'
             if 'mavenCentral()' not in repositories_text:
@@ -295,9 +362,17 @@ if flutter_root:
                     flutter_settings_text[:repo_open + 1] + additions
                     + flutter_settings_text[repo_open + 1:]
                 )
-                print('  OK: Added missing Flutter plugin repositories')
+                print('  OK: Added Maven Central mirror and missing Flutter plugin repositories')
             else:
                 print('  OK: Flutter included-build plugin repositories already complete')
+
+        # The included Flutter build resolves implementation(...) dependencies
+        # from dependencyResolutionManagement, not pluginManagement.
+        flutter_settings_text = add_maven_mirror_to_scope(
+            flutter_settings_text,
+            'dependencyResolutionManagement',
+            mirror_repo.rstrip('\\n'),
+        )
 
         with open(flutter_settings, 'w', encoding='utf-8') as f:
             f.write(flutter_settings_text)

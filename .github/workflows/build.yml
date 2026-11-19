@@ -23,8 +23,9 @@ jobs:
 
       - name: Validate source-repair guard
         run: |
-          python3 -m unittest discover -s test -p 'test_*.py'
-          python3 -m py_compile tools/king_ai_training/*.py
+          set -o pipefail
+          python3 -m unittest discover -s test -p 'test_*.py' 2>&1 | tee source-guard.log
+          python3 -m py_compile tools/king_ai_training/*.py 2>&1 | tee -a source-guard.log
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -58,7 +59,7 @@ jobs:
       - name: Resolve Flutter dependencies
         working-directory: build_app
         run: |
-          flutter pub add http flutter_v2ray_client:3.5.0 installed_apps:1.6.0 permission_handler workmanager url_launcher webview_flutter crypto:^3.0.3 flutter_secure_storage:^9.2.2 local_inference:0.1.1 local_inference_flutter:0.1.1 path_provider
+          flutter pub add http flutter_v2ray_client:3.5.0 installed_apps:1.6.0 permission_handler workmanager url_launcher webview_flutter crypto:^3.0.3 flutter_secure_storage:^9.2.2 local_inference:0.1.1 local_inference_flutter:0.1.1 path_provider speech_to_text:^7.4.0 cryptography:^2.7.0 flutter_tts:^4.2.3
           flutter pub get
 
       - name: Patch V2Ray plugin
@@ -91,7 +92,16 @@ jobs:
           CGO_LDFLAGS: "-Wl,-z,max-page-size=16384"
         run: |
           set -o pipefail
-          flutter build apk --debug --target-platform android-arm64 2>&1 | tee build.log
+          if flutter build apk --debug --target-platform android-arm64 2>&1 | tee build.log; then
+            exit 0
+          fi
+          if ! grep -Eq 'Could not (find|resolve) org[.]jetbrains[.]kotlin:' build.log; then
+            echo "APK build failed for a reason other than transient Kotlin artifact resolution."
+            exit 1
+          fi
+          echo "Kotlin artifacts were unavailable during the first attempt; refreshing Gradle dependencies once."
+          (cd android && ./gradlew help --refresh-dependencies) 2>&1 | tee -a build.log
+          flutter build apk --debug --target-platform android-arm64 2>&1 | tee -a build.log
 
       - name: Package complete source and generated Flutter project
         if: success()
@@ -115,7 +125,7 @@ jobs:
       - name: Build diagnostics for source repair
         if: failure()
         run: |
-          python3 tools/diagnose_build.py build_app/test.log build_app/analyze.log build_app/build.log --output repair-diagnostics.json || true
+          python3 tools/diagnose_build.py source-guard.log build_app/test.log build_app/analyze.log build_app/build.log --output repair-diagnostics.json || true
 
       - name: Upload repair diagnostics
         if: failure()

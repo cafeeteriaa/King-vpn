@@ -10,6 +10,7 @@ PATTERNS = [
     ('dart_compile', re.compile(r"Error: (?:[A-Z][A-Za-z]+Error|The method|Undefined name|A value of type|Couldn't find|Expected)")),
     ('dart_analyzer', re.compile(r"\berror • .+ • .+\.dart:\d+:\d+")),
     ('flutter_test', re.compile(r"Some tests failed|Test failed|Expected:|Actual:|Exception caught by flutter test framework")),
+    ('python_test', re.compile(r"^(?:ERROR|FAIL): test_|^Traceback \(most recent call last\):|^(?:AssertionError|NameError|TypeError|ValueError):|^FAILED \(.*\)$")),
     ('pub_resolution', re.compile(r"version solving failed|Because .+ depends on .+ version|pub get failed")),
     ('gradle', re.compile(r"FAILURE: Build failed|Execution failed for task|Could not resolve all files")),
     ('plugin_channel', re.compile(r"MissingPluginException|No implementation found for method")),

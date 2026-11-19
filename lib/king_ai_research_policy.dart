@@ -12,17 +12,26 @@ const Set<String> _kingAiResearchHosts = <String>{
   'docs.gradle.org',
   'github.com',
   'huggingface.co',
+  'ooni.org',
+  'ripe.net',
+  'apnic.net',
+  'ietf.org',
+  'rfc-editor.org',
+  'iana.org',
+  'cloudflare.com',
 };
 
-bool _trustedKingAiResearchNote(Map<String, String> note) {
-  final uri = Uri.tryParse(note['url'] ?? '');
-  if (uri == null || uri.scheme != 'https' || uri.userInfo.isNotEmpty) {
-    return false;
-  }
+bool isTrustedKingAiResearchUri(Uri uri) {
+  if (uri.scheme != 'https' || uri.userInfo.isNotEmpty) return false;
   final host = uri.host.toLowerCase();
   return _kingAiResearchHosts.any(
     (allowed) => host == allowed || host.endsWith('.$allowed'),
   );
+}
+
+bool _trustedKingAiResearchNote(Map<String, String> note) {
+  final uri = Uri.tryParse(note['url'] ?? '');
+  return uri != null && isTrustedKingAiResearchUri(uri);
 }
 
 /// Merge research notes by canonical URL, discard malformed/untrusted entries,
