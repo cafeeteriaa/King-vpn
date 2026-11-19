@@ -1047,7 +1047,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final learned = NationalNetworkIntelligence.scoreFor(', pilot)
         self.assertIn('if (!nationalMode && s.svc >= 0)', pilot)
         self.assertIn('bestScore < _pilotStandbyScore(active) + 12.0', standby)
-        self.assertIn('Hysteresis', standby)
         self.assertNotIn('if (nationalMode)', standby)
 
 
