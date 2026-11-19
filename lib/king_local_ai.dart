@@ -412,6 +412,44 @@ empty changes list and explain what is missing.
     return ranked.take(3).map((item) => item.note).toList();
   }
 
+  Future<List<String>> _selectRelevantPaths(
+    String task,
+    List<Map> candidates,
+  ) async {
+    final shortlist = candidates.take(40)
+        .map((entry) => entry['path'] as String).toList();
+    if (shortlist.length <= 6) return shortlist;
+    try {
+      final raw = await ask(
+        'You are selecting source files for a code repair. '
+        'Choose at most six paths most likely to contain the bug or its callers. '
+        'Use only exact paths from this JSON list. Return JSON only: '
+        '{"paths":["..."]}. Do not explain.\n'
+        'TASK: $task\nCANDIDATE PATHS: ${jsonEncode(shortlist)}',
+        maxTokens: 256,
+      );
+      var cleaned = raw.trim();
+      final start = cleaned.indexOf('{');
+      final end = cleaned.lastIndexOf('}');
+      if (start < 0 || end <= start) return shortlist.take(6).toList();
+      final decoded = jsonDecode(cleaned.substring(start, end + 1));
+      if (decoded is! Map || decoded['paths'] is! List) {
+        return shortlist.take(6).toList();
+      }
+      final allowed = shortlist.toSet();
+      final selected = (decoded['paths'] as List)
+          .whereType<String>()
+          .where(allowed.contains)
+          .toSet()
+          .take(6)
+          .toList();
+      return selected.isEmpty ? shortlist.take(6).toList() : selected;
+    } catch (_) {
+      // A selection failure must fall back to deterministic path ranking.
+      return shortlist.take(6).toList();
+    }
+  }
+
   /// Reads a small, relevant Dart/Python source subset from GitHub.
   Future<Map<String, String>> readRepositoryContext({
     required String owner,
@@ -439,12 +477,14 @@ empty changes list and explain what is missing.
       return words.where(path.contains).length;
     }
     entries.sort((a, b) => relevance(b).compareTo(relevance(a)));
-    final selected = entries.take(18);
+    final shortlist = entries.take(40).toList();
+    final selectedPaths = await _selectRelevantPaths(task, shortlist);
+    final byPath = {for (final entry in entries) entry['path'] as String: entry};
     final files = <String, String>{};
     var total = 0;
-    for (final entry in selected) {
+    for (final path in selectedPaths) {
       if (files.length >= 6) break;
-      final path = entry['path'] as String;
+      final entry = byPath[path]!;
       final blob = await _github('GET', '/repos/$repo/git/blobs/${entry['sha']}');
       final bytes = base64.decode((blob['content'] as String).replaceAll('\n', ''));
       final content = utf8.decode(bytes, allowMalformed: false);
