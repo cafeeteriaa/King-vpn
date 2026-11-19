@@ -2963,9 +2963,8 @@ Future<void> main() async {
   }, (e, st) => logError(e));
 }
 
-// The King AI supervisor uses a dedicated WorkManager dispatcher. Merely
-// initializing it does not schedule work; scheduling remains an explicit
-// choice in the secure owner console.
+// The King AI supervisor schedules passive, official-source research on
+// startup. Source-repair automation remains a separate owner-authorized choice.
 Future<void> initBackground() async {
   try {
     await KingAiBackgroundSupervisor.initialize();
