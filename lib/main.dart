@@ -14936,8 +14936,7 @@ ListTile( // KINGEXTRAS row
           ),
         );
     final rows = <Object>[];
-    rows.add(searchAllRow(() => unawaited(pickEngineThenStart(() => connect())
-        .catchError((e) { logError(e); return false; }))));
+    rows.add(searchAllRow(() => unawaited(startLocalPilot().catchError((e) { logError(e); }))));
     groups.forEach((g, l) {
       if (g == 'p:personal') {
         rows.add(_personalHeader());
@@ -15016,7 +15015,7 @@ ListTile( // KINGEXTRAS row
       child: Scaffold(
       appBar: AppBar(
         title: const Row(mainAxisSize: MainAxisSize.min, children: [
-          Text('VPN', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFD9AE55))),
+          Text('KING AI', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2, color: Color(0xFFD9AE55))),
           SizedBox(width: 8),
           Icon(Icons.workspace_premium, color: Color(0xFFD9AE55), size: 22),
           SizedBox(width: 10),
@@ -15161,7 +15160,7 @@ ListTile( // KINGEXTRAS row
                     fastDelay = true;
                     fastTested = 0;
                     fastOk = 0;
-                    unawaited(connect().catchError((e) => logError(e)));
+                    unawaited(startLocalPilot().catchError((e) => logError(e)));
                   },
           ),
         ],
@@ -15179,6 +15178,20 @@ ListTile( // KINGEXTRAS row
               itemBuilder: (_, i0) {
                 if (i0 == 0) {
                   return UiKeep(child: Column(children: [
+Padding(
+  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+  child: Column(children: const [
+    Text('AUTONOMOUS VPN INTELLIGENCE',
+        textAlign: TextAlign.center,
+        style: TextStyle(fontSize: 10, letterSpacing: 2.0,
+            fontWeight: FontWeight.w700, color: Color(0xFF83DFFF))),
+    SizedBox(height: 3),
+    Text('مغز مرکزی • خلبان هوشمند واحد',
+        textAlign: TextAlign.center,
+        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600,
+            color: Color(0xFFE8EDF7))),
+  ]),
+),
 UiHero(
             on: connected,
             busy: busy,
@@ -15228,6 +15241,28 @@ UiHero(
             ),
           ),
           UiStatus(text: status, on: connected),
+          ValueListenableBuilder<String>(
+            valueListenable: localPilotText,
+            builder: (_, text, __) => Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF151D2A),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0x5574D9FF)),
+                ),
+                child: Row(children: [
+                  const Icon(Icons.psychology_alt, color: Color(0xFF83DFFF), size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(text,
+                    maxLines: 3, overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11, color: Color(0xFFD9E6F4)))),
+                ]),
+              ),
+            ),
+          ),
           ValueListenableBuilder<bool>(
             valueListenable: autoTestRunning,
             builder: (_, running, __) {
