@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'king_local_ai.dart';
+import 'king_ai_background.dart';
 
 /// In-app control surface for the local coding model and guarded GitHub PR workflow.
 class KingAiConsolePage extends StatefulWidget {
@@ -112,6 +113,35 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     ));
   }
 
+  Future<void> _enableBackground() async {
+    final number = _pullNumber;
+    if (number == null || number < 1) {
+      setState(() => _output = 'شماره Pull Request معتبر نیست.');
+      return;
+    }
+    if (!_hasToken || !_ai.isLoaded) {
+      setState(() => _output = 'برای فعال‌سازی پس‌زمینه، ابتدا GitHub را متصل و مدل را در حالت foreground بارگذاری کن.');
+      return;
+    }
+    await _run('فعال‌سازی ترمیم خودکار پس‌زمینه', () async {
+      await KingAiBackgroundSupervisor.enable(number);
+      return {
+        'status': 'background_repair_scheduled',
+        'pullRequest': number,
+        'frequency': '15 minutes (best effort; Android may defer)',
+        'constraints': ['network connected', 'battery not low'],
+        'modelDownloadInBackground': false,
+      };
+    });
+  }
+
+  Future<void> _disableBackground() async {
+    await _run('غیرفعال‌سازی ترمیم پس‌زمینه', () async {
+      await KingAiBackgroundSupervisor.disable();
+      return {'status': 'background_repair_disabled'};
+    });
+  }
+
   Future<void> _clearToken() async {
     await _run('پاک‌کردن کلید ذخیره‌شده', () async {
       await _ai.clearGitHubToken();
@@ -196,6 +226,21 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
                       child: const Text('بررسی CI')),
                   FilledButton(onPressed: _busy || !_hasToken || !_ai.isLoaded ? null : _repair,
                       child: const Text('تحلیل و ساخت PR اصلاحی')),
+                ]),
+                const SizedBox(height: 10),
+                const Text(
+                  'ترمیم خودکار پس‌زمینه: هر ۱۵ دقیقه به‌صورت تقریبی؛ فقط با اتصال شبکه و باتری مناسب. اندروید ممکن است اجرای کار را به تعویق بیندازد.',
+                ),
+                const SizedBox(height: 8),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  FilledButton(
+                    onPressed: _busy || !_hasToken || !_ai.isLoaded ? null : _enableBackground,
+                    child: const Text('فعال‌سازی ترمیم خودکار'),
+                  ),
+                  OutlinedButton(
+                    onPressed: _busy ? null : _disableBackground,
+                    child: const Text('توقف ترمیم پس‌زمینه'),
+                  ),
                 ]),
               ]),
             )),
