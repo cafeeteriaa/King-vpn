@@ -93,10 +93,10 @@ jobs:
       - name: Package complete source and generated Flutter project
         if: success()
         run: |
-          zip -qr "king-vpn-full-source-${GITHUB_RUN_NUMBER}.zip" . \\
-            -x '.git/*' '__pycache__/*' '*/__pycache__/*' '*.pyc' \\
-               '.dart_tool/*' 'build/*' 'build_app/.dart_tool/*' \\
-               'build_app/build/*' 'build_app/android/.gradle/*' \\
+          zip -qr "king-vpn-full-source-${GITHUB_RUN_NUMBER}.zip" . \
+            -x '.git/*' '__pycache__/*' '*/__pycache__/*' '*.pyc' \
+               '.dart_tool/*' 'build/*' 'build_app/.dart_tool/*' \
+               'build_app/build/*' 'build_app/android/.gradle/*' \
                'build_app/android/local.properties'
 
       - name: Upload complete project ZIP
