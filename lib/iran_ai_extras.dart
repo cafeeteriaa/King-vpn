@@ -1769,11 +1769,22 @@ extension HomeExtras on _HomePageState {
 
     // This panel controls existing app capabilities only. User text must never
     // be forwarded to the local coding model or interpreted as a code patch.
-    if (hasAny([
-      'کدنویسی کن', 'کد بنویس', 'کد جدید', 'قابلیت جدید', 'قابلیت اضافه',
-      'امکان جدید اضافه', 'ماژول جدید', 'سورس را تغییر', 'کد برنامه را تغییر',
-      'برنامه را تغییر بده', 'feature request', 'write code', 'add feature',
-    ])) {
+    final asksForCodeChange =
+        hasAny([
+          'کدنویسی کن', 'برنامه نویسی کن', 'کد بنویس', 'کدشو بنویس',
+          'کد بزن', 'کد تولید', 'کد جدید', 'سورس را تغییر', 'تغییر سورس',
+          'کد برنامه را تغییر', 'برنامه را تغییر بده', 'feature request',
+          'write code', 'add feature', 'create feature', 'new module',
+        ]) ||
+        (q.contains('قابلیت') &&
+            hasAny(['جدید', 'اضافه', 'بساز', 'ایجاد', 'توسعه'])) ||
+        (q.contains('ویژگی') &&
+            hasAny(['جدید', 'اضافه', 'بساز', 'ایجاد', 'توسعه'])) ||
+        (q.contains('امکان') &&
+            hasAny(['جدید', 'اضافه کن', 'اضافه کن', 'بساز', 'ایجاد'])) ||
+        (q.contains('ماژول') &&
+            hasAny(['جدید', 'اضافه', 'بساز', 'ایجاد']));
+    if (asksForCodeChange) {
       return 'این کادر فقط امکانات موجود King VPN را کنترل می‌کند و اجازه کدنویسی یا افزودن قابلیت ندارد. برای توسعه دستی، مالک اصلی باید از بخش هوش مصنوعی داخلی احراز هویت کند.';
     }
     final asksConnect = hasAny([
