@@ -10148,61 +10148,61 @@ ListTile( // KINGEXTRAS row
         natGood.addAll(_resMap.keys); // FOLDERONLY
         await natLoadPersisted(); // NATULTRA
       }
-      final r = await Future.wait([
-        _natOpen('https://www.gstatic.com/generate_204'),
-        _natOpen('https://cp.cloudflare.com/generate_204'),
-        _natOpen('https://one.one.one.one/'),
-        _natOpen('https://www.apple.com/library/test/success.html'),
-        _natOpen('https://www.aparat.com/'),
-        _natOpen('https://www.digikala.com/'),
-      ]);
-      var world = r[0] || r[1] || r[2] || r[3];
-      final home = r[4] || r[5];
-      // NATSLOW: the world answers but is throttled to a crawl -> same as cut
-      if (world && (!natForce || localPilotOn || aiSession)) {
-        // Measure the endpoint that actually answered; a Cloudflare-only
-        // latency gate must not misclassify a reachable Google/Apple path.
-        final worldProbeUrl = r[0]
-            ? 'https://www.gstatic.com/generate_204'
-            : r[1]
-                ? 'https://cp.cloudflare.com/generate_204'
-                : r[2]
-                    ? 'https://one.one.one.one/'
-                    : 'https://www.apple.com/library/test/success.html';
-        final lat = await _tuneLatency(worldProbeUrl);
-        if (lat == null || lat > 3000) {
-          world = false;
-        } else if (lat > 1200) {
-          final kb = await _tuneSpeedKB();
-          if (kb != null && kb < 40) world = false;
-        }
-      }
       final was = nationalMode;
-      if (localPilotOn || aiSession) {
-        // Smart Pilot auto-detects domestic/global before each disconnected search.
-        // A domestic-only result must remain national even while the pilot is active.
-        if (home && !world) {
+      if (localPilotOn) {
+        // Pilot and national mode share their own bounded probe; the general
+        // DNS/IP/SNI scanners are never started by this detection path.
+        final evidence = await PilotNetworkProbe.refresh();
+        final strategy = choosePilotNetworkStrategy(evidence);
+        if (strategy == PilotNetworkStrategy.domestic) {
           nationalMode = true;
-        } else if (world) {
+        } else if (strategy == PilotNetworkStrategy.global) {
           nationalMode = false;
         }
-        // If both probe groups fail, preserve the previous mode; do not guess.
+        // Unknown/dual-failure evidence preserves the previous strategy.
         natForce = nationalMode;
         userModeChoice = nationalMode;
       } else {
-        // Manual connect respects the explicit network choice.
-        nationalMode = userModeChoice == true || natForce;
+        final r = await Future.wait([
+          _natOpen('https://www.gstatic.com/generate_204'),
+          _natOpen('https://cp.cloudflare.com/generate_204'),
+          _natOpen('https://one.one.one.one/'),
+          _natOpen('https://www.apple.com/library/test/success.html'),
+          _natOpen('https://www.aparat.com/'),
+          _natOpen('https://www.digikala.com/'),
+        ]);
+        var world = r[0] || r[1] || r[2] || r[3];
+        final home = r[4] || r[5];
+        if (world && aiSession) {
+          final worldProbeUrl = r[0]
+              ? 'https://www.gstatic.com/generate_204'
+              : r[1]
+                  ? 'https://cp.cloudflare.com/generate_204'
+                  : r[2]
+                      ? 'https://one.one.one.one/'
+                      : 'https://www.apple.com/library/test/success.html';
+          final lat = await _tuneLatency(worldProbeUrl);
+          if (lat == null || lat > 3000) {
+            world = false;
+          } else if (lat > 1200) {
+            final kb = await _tuneSpeedKB();
+            if (kb != null && kb < 40) world = false;
+          }
+        }
+        if (aiSession) {
+          if (home && !world) {
+            nationalMode = true;
+          } else if (world) {
+            nationalMode = false;
+          }
+          natForce = nationalMode;
+          userModeChoice = nationalMode;
+        } else {
+          // Manual connect respects the explicit network choice.
+          nationalMode = userModeChoice == true || natForce;
+        }
       }
       if (nationalMode != was) _resetNetworkHealthCounters();
-    // DNSAUTO: وقتی برنامه مشغول اتصال نیست و VPN قطع است. اگر وسط کار وصل شود، اسکن متوقف می‌شود.
-    if (nationalMode && !busy && !connected) {
-      // Shared scheduler: DNS and IP scanners must not start concurrently;
-      // IP-auto waits until DNS releases its busy flag, avoiding permanent starvation.
-      unawaited(() async {
-        await dnsxAutoPick(stop: () => connected || busy);
-        if (!connected && !busy) await ipAutoBackground();
-      }()); // IPAUTO: اسکن IP خودکار نت ملی، هر ۲۴ ساعت
-    }
       // نت ملی: جستجوی بی‌نهایت همیشه روشن است
       if (nationalMode) indestructibleMode = true;
       if (nationalMode != was && mounted) {
