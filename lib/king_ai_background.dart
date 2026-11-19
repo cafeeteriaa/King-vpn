@@ -20,13 +20,26 @@ void kingAiBackgroundDispatcher() {
 
     final ai = KingLocalAi.instance;
     try {
-      final pullNumber = await ai.getBackgroundRepairPullNumber();
-      if (pullNumber == null) return true;
       if (!await ai.hasGitHubToken()) {
         await Workmanager().cancelByTag(_tag);
         await ai.clearBackgroundRepairPullNumber();
+        await ai.setBackgroundAutoDiscovery(false);
         return true;
       }
+
+      final autoDiscovery = await ai.isBackgroundAutoDiscoveryEnabled();
+      var pullNumber = await ai.getBackgroundRepairPullNumber();
+      if (pullNumber == null && autoDiscovery) {
+        pullNumber = await ai.findOpenPullRequestWithCiFailures(
+          owner: 'cafeeteriaa',
+          repository: 'King-vpn',
+          maxPullRequests: 10,
+        );
+        if (pullNumber != null) {
+          await ai.setBackgroundRepairPullNumber(pullNumber);
+        }
+      }
+      if (pullNumber == null) return true;
 
       final report = await ai.inspectPullRequestCi(
         owner: 'cafeeteriaa',
@@ -45,8 +58,11 @@ void kingAiBackgroundDispatcher() {
           await ai.setBackgroundRepairPullNumber(parentPull);
           return true;
         }
-        await Workmanager().cancelByTag(_tag);
         await ai.clearBackgroundRepairPullNumber();
+        if (!autoDiscovery) {
+          await Workmanager().cancelByTag(_tag);
+          return true;
+        }
         return true;
       }
       if (report['hasFailures'] != true) return true;
@@ -114,8 +130,24 @@ class KingAiBackgroundSupervisor {
     );
   }
 
+  static Future<void> enableAutomaticDiscovery() async {
+    await KingLocalAi.instance.setBackgroundAutoDiscovery(true);
+    await KingLocalAi.instance.clearBackgroundRepairPullNumber();
+    await Workmanager().registerPeriodicTask(
+      _uniqueName,
+      _taskName,
+      frequency: const Duration(minutes: 15),
+      constraints: Constraints(
+        networkType: NetworkType.connected,
+        requiresBatteryNotLow: true,
+      ),
+      tag: _tag,
+    );
+  }
+
   static Future<void> disable() async {
     await Workmanager().cancelByTag(_tag);
     await KingLocalAi.instance.clearBackgroundRepairPullNumber();
+    await KingLocalAi.instance.setBackgroundAutoDiscovery(false);
   }
 }
