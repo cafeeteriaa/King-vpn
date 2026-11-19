@@ -5,6 +5,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KingVpnSourceGuardTests(unittest.TestCase):
+    def test_king_address_is_removed_before_smart_pilot_command_dispatch(self):
+        pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        start = pilot.index('String _normalizePilotText(String raw)')
+        end = pilot.index('Future<String> _runPilotCommand(String raw)', start)
+        normalizer = pilot[start:end]
+        self.assertIn("(?:کینگ|king)", normalizer)
+        self.assertIn("(?:سلام|هی)", normalizer)
+        self.assertIn("return normalized.replaceFirst(", normalizer)
+
     def test_no_additional_engine_scaffolding_remains(self):
         self.assertFalse((ROOT / 'lib' / 'engine_registry.dart').exists())
         self.assertFalse((ROOT / 'lib' / 'singbox_core.dart').exists())
