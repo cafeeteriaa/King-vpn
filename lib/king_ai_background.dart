@@ -4,14 +4,16 @@ import 'package:flutter/widgets.dart';
 import 'package:workmanager/workmanager.dart';
 
 import 'king_local_ai.dart';
+import 'king_ai_autonomy_policy.dart';
 
 const String _researchTaskName = 'kingAiOfficialResearch';
 const String _researchUniqueName = 'king-ai-official-research-periodic';
 const String _researchInitialName = 'king-ai-official-research-initial';
 const String _researchTag = 'king-ai-official-research';
 const String _researchQuery =
-    'Android VPNService Flutter WorkManager DNS connectivity diagnostics '
-    'network security official documentation';
+    'Iran domestic internet international connectivity DNS poisoning '
+    'TCP UDP QUIC IPv4 IPv6 TLS SNI Android VPNService V2Ray Xray '
+    'mobile network resilience official technical documentation';
 
 /// Low-cost background research only. This worker never downloads/loads the
 /// coding model, reads source files, accesses GitHub tokens, or mutates code.
@@ -53,7 +55,7 @@ class KingAiBackgroundSupervisor {
     await Workmanager().registerPeriodicTask(
       _researchUniqueName,
       _researchTaskName,
-      frequency: const Duration(hours: 12),
+      frequency: kingAiOfficialResearchInterval,
       constraints: constraints,
       existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
       tag: _researchTag,

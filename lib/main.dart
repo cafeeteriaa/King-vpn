@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'network_health.dart';
 import 'king_local_ai.dart';
+import 'king_ai_background.dart';
 import 'package:local_inference_flutter/local_inference_flutter.dart';
 import 'update_integrity.dart';
 import 'errjournal.dart';
@@ -21,7 +22,6 @@ import 'prefs_store.dart';
 import 'online_count.dart'; // ONLINECOUNT: شمارش کاربران آنلاین
 import 'nnie_core.dart'; // NNIE: کد خالص و قابل تست
 import 'own_vpn.dart'; // KINGVPN: سرویس VPN خودمان (پیش‌فرض خاموش)
-import 'package:workmanager/workmanager.dart';
 import 'package:crypto/crypto.dart'; // فیکس ۱: sha256 برای APK آپدیت
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // فیکس ۲: کلیدهای AI
 import 'package:webview_flutter/webview_flutter.dart';
@@ -2934,6 +2934,11 @@ Future<void> main() async {
   } catch (e, st) {
     logError(e, st);
   }
+  try {
+    await KingAiBackgroundSupervisor.initialize();
+  } catch (e, st) {
+    logError(e, st);
+  }
   Future.delayed(const Duration(seconds: 5), () => unawaited(hotAutoStart()));
   runZonedGuarded(() {
     FlutterError.onError = (d) => logError(d.exception);
@@ -2954,25 +2959,7 @@ Future<void> main() async {
       home:
           Directionality(textDirection: TextDirection.rtl, child: HomePage()),
     ));
-    initBackground();
   }, (e, st) => logError(e));
-}
-
-// The old 15-minute background scan is gone: while the VPN is off nothing
-// runs and no data is used. The dispatcher stays only so Workmanager can be
-// initialised and the periodic task of old installs can be cancelled.
-@pragma('vm:entry-point')
-void callbackDispatcher() {
-  Workmanager().executeTask((task, input) async => true);
-}
-
-Future<void> initBackground() async {
-  try {
-    await Workmanager().initialize(callbackDispatcher);
-    await Workmanager().cancelAll();
-  } catch (e, stk) {
-    logError(e, stk);
-  }
 }
 
 const countryFa = {

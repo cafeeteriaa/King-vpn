@@ -5,6 +5,24 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KingVpnSourceGuardTests(unittest.TestCase):
+    def test_android_gradle_versions_match_kotlin_2_3_21_support_bounds(self):
+        script = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        self.assertIn("AGP_VERSION = '9.3.1'", script)
+        self.assertIn("GRADLE_VERSION = '9.5.0'", script)
+        self.assertNotIn('9.4.0', script)
+        self.assertNotIn('9.6.0', script)
+
+
+    def test_autonomous_research_is_scheduled_at_startup_for_iran_networks(self):
+        background = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn("import 'king_ai_autonomy_policy.dart';", background)
+        self.assertIn('frequency: kingAiOfficialResearchInterval', background)
+        self.assertIn('Iran domestic internet international connectivity DNS poisoning', background)
+        self.assertIn('KingAiBackgroundSupervisor.initialize()', main)
+        self.assertNotIn('await Workmanager().cancelAll()', main)
+
+
     def test_no_additional_engine_scaffolding_remains(self):
         self.assertFalse((ROOT / 'lib' / 'engine_registry.dart').exists())
         self.assertFalse((ROOT / 'lib' / 'singbox_core.dart').exists())
@@ -158,7 +176,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         worker = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
         policy = (ROOT / 'lib' / 'king_ai_autonomy_policy.dart').read_text(encoding='utf-8')
         self.assertIn('_scheduleOfficialResearch()', worker)
-        self.assertIn('Duration(hours: 12)', worker)
+        self.assertIn('frequency: kingAiOfficialResearchInterval', worker)
+        self.assertIn('Duration(hours: 6)', policy)
         self.assertIn('requiresBatteryNotLow: true', worker)
         self.assertIn('researchGoogle', worker)
         self.assertNotIn('hasGitHubToken', worker)

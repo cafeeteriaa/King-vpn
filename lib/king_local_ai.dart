@@ -718,20 +718,6 @@ empty changes list and explain what is missing.
     return {'status': 'repair_loop_stopped', 'url': latestRepairUrl};
   }
 
-  static const Set<String> _researchHosts = {
-    'developer.android.com',
-    'source.android.com',
-    'developers.google.com',
-    'docs.flutter.dev',
-    'api.flutter.dev',
-    'dart.dev',
-    'pub.dev',
-    'kotlinlang.org',
-    'docs.gradle.org',
-    'github.com',
-    'huggingface.co',
-  };
-
   String _plainText(String html) {
     final withoutNoise = html
         .replaceAll(RegExp(r'<script[\s\S]*?</script>', caseSensitive: false), ' ')
@@ -745,13 +731,6 @@ empty changes list and explain what is missing.
         .replaceAll('&gt;', '>')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
-  }
-
-  bool _trustedResearchUri(Uri uri) {
-    if (uri.scheme != 'https' || uri.userInfo.isNotEmpty) return false;
-    final host = uri.host.toLowerCase();
-    return _researchHosts.any((allowed) =>
-        host == allowed || host.endsWith('.$allowed'));
   }
 
   /// Google discovers sources; only allowlisted official pages are retained.
@@ -787,7 +766,7 @@ empty changes list and explain what is missing.
         raw = wrapped.queryParameters['q'] ?? '';
       }
       final uri = Uri.tryParse(raw);
-      if (uri == null || !_trustedResearchUri(uri)) continue;
+      if (uri == null || !isTrustedKingAiResearchUri(uri)) continue;
       final title = _plainText(match.group(2) ?? '');
       if (title.length < 4 || found.containsKey(uri)) continue;
       found[uri] = title;

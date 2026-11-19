@@ -4,11 +4,14 @@ import shutil
 
 APP = 'build_app'
 LIB = os.path.join(APP, 'lib')
+# Flutter 3.50 verified defaults: AGP 9.3.1, Gradle 9.5.0, Kotlin 2.4.20.
+AGP_VERSION = '9.3.1'
+GRADLE_VERSION = '9.5.0'
 
 # =====================================================================
-# ---- 0) AGP 9.4.0 + Gradle 9.6.0 ----
+# ---- 0) Flutter 3.50 / Kotlin 2.4.21 compatible toolchain ----
 # =====================================================================
-print('[0] Upgrading AGP to 9.4.0 + Gradle 9.6.0')
+print(f'[0] Pinning AGP {AGP_VERSION} + Gradle {GRADLE_VERSION}')
 
 sett = os.path.join(APP, 'android/settings.gradle.kts')
 if not os.path.exists(sett):
@@ -37,19 +40,19 @@ if os.path.exists(sett):
         else:
             s = s[:pm.end()] + '\n    repositories { google(); mavenCentral(); gradlePluginPortal() }' + s[pm.end():]
     s = re.sub(r'(id\("com\.android\.(?:application|library)"\)\s+version\s+")[^"]+(")',
-               r'\g<1>9.4.0\g<2>', s)
+               lambda m: f'{m.group(1)}{AGP_VERSION}{m.group(2)}', s)
     with open(sett, 'w', encoding='utf-8') as f:
         f.write(s)
-    print('  OK: settings.gradle plugin repositories + AGP -> 9.4.0')
+    print(f'  OK: settings.gradle plugin repositories + AGP -> {AGP_VERSION}')
 
 gw = os.path.join(APP, 'android/gradle/wrapper/gradle-wrapper.properties')
 if os.path.exists(gw):
     with open(gw, encoding='utf-8') as f:
         g = f.read()
-    g = re.sub(r'gradle-[0-9.]+-(bin|all)\.zip', r'gradle-9.6.0-\1.zip', g)
+    g = re.sub(r'gradle-[0-9.]+-(bin|all)\.zip', lambda m: f'gradle-{GRADLE_VERSION}-{m.group(1)}.zip', g)
     with open(gw, 'w', encoding='utf-8') as f:
         f.write(g)
-    print('  OK: gradle-wrapper -> 9.6.0')
+    print(f'  OK: gradle-wrapper -> {GRADLE_VERSION}')
 
 # =====================================================================
 # Helpers
