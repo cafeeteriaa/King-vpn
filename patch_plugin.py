@@ -42,10 +42,10 @@ def patch_android_plugin_buildscript_repositories():
             if MAVEN_CENTRAL_MIRROR in source:
                 continue
             if gradle_file.name.endswith('.kts'):
-                entry = f'\\n        maven {{ url = uri("{MAVEN_CENTRAL_MIRROR}") }}'
+                entry = f'\n        maven {{ url = uri("{MAVEN_CENTRAL_MIRROR}") }}'
             else:
-                entry = f'\\n        maven {{ url "{MAVEN_CENTRAL_MIRROR}" }}'
-            pattern = r'(buildscript\\s*\\{\\s*repositories\\s*\\{)'
+                entry = f'\n        maven {{ url "{MAVEN_CENTRAL_MIRROR}" }}'
+            pattern = r'(buildscript\s*\{\s*repositories\s*\{)'
             updated, count = re.subn(
                 pattern,
                 lambda match: match.group(1) + entry,
