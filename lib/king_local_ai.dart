@@ -1185,6 +1185,66 @@ empty changes list and explain what is missing.
     return pull['html_url'] as String;
   }
 
+  /// Owner-only natural-language feature proposal. It reads a bounded,
+  /// relevant source context, asks the local model for a minimal patch, and
+  /// opens a review-only PR against main. It never writes directly to main.
+  Future<Map<String, Object?>> createOwnerFeatureProposal({
+    required String task,
+    required String owner,
+    required String repository,
+  }) async {
+    if (!KingAiOwnerAuth.instance.hasActiveSession) {
+      return {'status': 'owner_auth_required'};
+    }
+    final request = task.trim();
+    if (request.length < 12 || request.length > 2000) {
+      throw ArgumentError('Feature request must contain 12 to 2000 characters.');
+    }
+    if (!isLoaded) {
+      throw StateError('Load the local coding model before submitting a feature request.');
+    }
+    if (!await hasGitHubToken()) {
+      throw StateError('Connect the repository token before submitting a feature request.');
+    }
+
+    final context = await readRepositoryContext(
+      owner: owner,
+      repository: repository,
+      baseBranch: 'main',
+      task: request,
+    );
+    if (context.isEmpty) {
+      return {'status': 'no_safe_source_context', 'changes': 0};
+    }
+    final proposal = await proposeRepair(
+      task: request,
+      sourceFiles: context,
+    );
+    final changes = proposal['changes'] as Map<String, String>;
+    if (changes.isEmpty) {
+      return {
+        'status': 'model_declined_or_no_safe_changes',
+        'summary': proposal['summary'],
+        'changes': 0,
+      };
+    }
+    final url = await createRepairPullRequest(
+      owner: owner,
+      repository: repository,
+      baseBranch: 'main',
+      title: 'Owner feature request',
+      summary: proposal['summary'] as String,
+      changes: changes,
+    );
+    return {
+      'status': 'review_pr_created',
+      'url': url,
+      'summary': proposal['summary'],
+      'changedFiles': changes.keys.toList()..sort(),
+      'mergePolicy': 'manual review and green CI required',
+    };
+  }
+
   Future<void> dispose() async {
     final engine = _engine;
     _engine = null;
