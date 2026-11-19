@@ -465,11 +465,15 @@ empty changes list and explain what is missing.
   bool _isProtectedGeneratedPath(String path) {
     const protectedPaths = <String>{
       'lib/king_ai_owner_auth.dart',
+      'lib/king_ai_console.dart',
       'lib/king_local_ai.dart',
       'lib/king_ai_background.dart',
       'lib/king_ai_ci_policy.dart',
       'lib/king_ai_research_policy.dart',
       'lib/iran_ai_extras.dart',
+      'test/test_source_guards.py',
+      'test/king_ai_ci_policy_test.dart',
+      'test/king_ai_research_policy_test.dart',
     };
     return protectedPaths.contains(path);
   }
