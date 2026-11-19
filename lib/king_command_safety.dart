@@ -41,20 +41,37 @@ class KingCommandSafety {
     ).hasMatch(value);
   }
 
-  /// Canonical connection-intent parser shared by voice and text commands.
-  /// Include "متصل" as well as "وصل"; status questions and negations are never actions.
-  static bool isConnectIntent(String command) {
+  /// Questions belong to the conversational model, not the action dispatcher.
+  /// This conservative gate intentionally prefers asking/clarifying over connecting.
+  static bool isQuestionRequest(String command) {
     final value = _normalize(command);
-    if (isStatusRequest(value) || negatesConnection(value)) return false;
-    return RegExp(r'(اتصال|وصل|متصل|شروع|connect)').hasMatch(value);
+    return value.contains('?') || value.contains('؟') ||
+        RegExp(r'(چرا|چطور|چگونه|چیست|چیه|چی|چه|آیا|مگر|کدام|کجا|کی|چند|what|why|how|when|where|which|who)')
+            .hasMatch(value);
+  }
+
+  /// Canonical connection-intent parser shared by voice and text commands.
+  /// Only imperative/action phrasing is executable; questions and negations
+  /// always fall through to King's conversational model.
+  static bool isConnectIntent(String command) {
+    final value = _normalize(command).replaceAll(RegExp(r'\\s+'), ' ').trim();
+    if (isStatusRequest(value) || isQuestionRequest(value) ||
+        negatesConnection(value)) return false;
+    return RegExp(
+      r'(?:وصل|متصل)\\s*(?:شو|بشو|کن|کنید|بشید)|'
+      r'اتصال\\s*(?:را|رو)?\\s*(?:برقرار\\s*)?(?:کن|کنید|بده|بدید)|'
+      r'اتصال.{0,24}(?:شروع|برقرار)\\s*(?:کن|کنید)|'
+      r'(?:شروع|برقرار)\\s*(?:کن|کنید).{0,24}(?:اتصال|وصل|خلبان)|'
+      r'\\b(?:connect|start\\s+(?:vpn|connection))\\b',
+    ).hasMatch(value);
   }
 
   /// Explicit network-mode requests are separated from automatic pilot mode.
   /// Status questions must never be interpreted as a request to connect.
   static KingRequestedNetworkMode? requestedNetworkMode(String command) {
     final value = _normalize(command).replaceAll(RegExp(r'\s+'), ' ').trim();
-    if (isStatusRequest(value) || negatesConnection(value)) return null;
-    final asksToConnect = RegExp(r'(اتصال|وصل|متصل|connect)').hasMatch(value);
+    if (!isConnectIntent(value)) return null;
+    final asksToConnect = true;
     if (!asksToConnect) return null;
     if (RegExp(r'(نت\s*ملی|شبکه\s*ملی|اینترنت\s*ملی|اینترنت\s*داخلی|مسیر\s*داخلی)')
         .hasMatch(value)) {
