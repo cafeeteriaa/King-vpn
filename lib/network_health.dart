@@ -11,6 +11,8 @@ class NetworkEvidence {
     required this.global,
     this.domesticSamples = 0,
     this.globalSamples = 0,
+    this.domesticLatencyMs,
+    this.globalLatencyMs,
     this.domesticDataPlaneVerified = false,
     this.globalDataPlaneVerified = false,
   });
@@ -19,6 +21,8 @@ class NetworkEvidence {
   final LinkHealth global;
   final int domesticSamples;
   final int globalSamples;
+  final int? domesticLatencyMs;
+  final int? globalLatencyMs;
   final bool domesticDataPlaneVerified;
   final bool globalDataPlaneVerified;
 
@@ -64,7 +68,23 @@ PilotNetworkStrategy choosePilotNetworkStrategy(NetworkEvidence evidence) {
       evidence.globalSamples >= 2;
 
   if (domesticConfirmed && globalFailed) return PilotNetworkStrategy.domestic;
-  if (globalConfirmed) return PilotNetworkStrategy.global;
+  if (globalConfirmed && domesticFailed) return PilotNetworkStrategy.global;
+  if (domesticConfirmed && globalConfirmed) {
+    final domesticMs = evidence.domesticLatencyMs;
+    final globalMs = evidence.globalLatencyMs;
+    if (domesticMs != null && globalMs != null) {
+      // Switch only for a material gain; avoid oscillation on tiny variations.
+      if (domesticMs <= globalMs * 0.80 && globalMs - domesticMs >= 80) {
+        return PilotNetworkStrategy.domestic;
+      }
+      if (globalMs <= domesticMs * 0.80 && domesticMs - globalMs >= 80) {
+        return PilotNetworkStrategy.global;
+      }
+    }
+    return PilotNetworkStrategy.preserve;
+  }
+  if (domesticConfirmed && !globalConfirmed && globalFailed) return PilotNetworkStrategy.domestic;
+  if (globalConfirmed && !domesticConfirmed && domesticFailed) return PilotNetworkStrategy.global;
   if (domesticFailed && globalFailed) return PilotNetworkStrategy.offline;
   return PilotNetworkStrategy.preserve;
 }
