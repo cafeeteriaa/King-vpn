@@ -1871,7 +1871,7 @@ extension HomeExtras on _HomePageState {
 
   Future<String> _runPilotCommand(String raw) async {
     final q = raw.trim().toLowerCase().replaceAll('ي', 'ی')
-        .replaceAll('ك', 'ک').replaceAll(RegExp(r'\\s+'), ' ');
+        .replaceAll('ك', 'ک').replaceAll(RegExp(r'\s+'), ' ');
     if (q.isEmpty) return 'یک فرمان بنویس؛ مثلاً «وصل شو» یا «وضعیت اتصال».';
     bool hasAny(List<String> words) => words.any(q.contains);
     if (hasAny(['راهنما', 'دستورات', 'کمک'])) {
@@ -1892,7 +1892,7 @@ extension HomeExtras on _HomePageState {
       _cancelNow();
       return 'درخواست لغو عملیات ثبت شد.';
     }
-    if (hasAny(['قطع اتصال', 'قطع vpn', 'disconnect', 'قطع شو'])) {
+    if (hasAny(['قطع اتصال', 'اتصال را قطع', 'قطع کن', 'قطع vpn', 'disconnect', 'قطع شو'])) {
       if (localPilotOn) stopLocalPilot();
       if (aiSession) stopGrokPilot();
       if (connected || wantVpn || busy) {
@@ -1901,7 +1901,7 @@ extension HomeExtras on _HomePageState {
       }
       return 'اتصالی فعال نیست.';
     }
-    if (hasAny(['خلبان خاموش', 'توقف خلبان'])) {
+    if (hasAny(['خلبان خاموش', 'توقف خلبان', 'خاموش کن'])) {
       if (!localPilotOn) return 'خلبان محلی از قبل خاموش است.';
       stopLocalPilot();
       return 'خلبان متوقف شد و تنظیمات قبلی بازیابی شدند.';
@@ -1920,7 +1920,11 @@ extension HomeExtras on _HomePageState {
         return 'اتصال برقرار است؛ خلبان وضعیت را دوباره ارزیابی کرد.';
       }
       if (busy && !connected) return 'جستجو/اتصال در جریان است؛ برای توقف «لغو جستجو» را بفرست.';
-      await startLocalPilot();
+      if (localPilotOn) {
+        await connect();
+      } else {
+        await startLocalPilot();
+      }
       return 'خلبان هوشمند فعال شد؛ تشخیص شبکه و جستجوی سرور مناسب شروع شد.';
     }
     if (hasAny(['نت ملی', 'اینترنت ملی', 'شبکه داخلی'])) {
