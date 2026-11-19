@@ -5,6 +5,23 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KingVpnSourceGuardTests(unittest.TestCase):
+    def test_owner_console_is_reachable_and_legacy_manual_repair_is_gated(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        self.assertIn("import 'king_ai_owner_auth.dart';", main)
+        self.assertIn('KingAiOwnerAuth.instance.lock()', main)
+        self.assertIn('const KingAiConsolePage()', extras)
+        self.assertIn('بازکردن پنل امن مالک و کینگ', extras)
+        start = extras.index('Future<void> createRepair() async')
+        end = extras.index('return SingleChildScrollView(', start)
+        legacy = extras[start:end]
+        self.assertIn('KingAiOwnerAuth.instance.hasActiveSession', legacy)
+        self.assertIn('از «پنل امن مالک و کینگ»', legacy)
+        public_start = ai.index('Future<String> createRepairPullRequest({')
+        public_end = ai.index('Future<String> _createRepairPullRequest({', public_start)
+        self.assertIn('hasActiveSession', ai[public_start:public_end])
+
     def test_first_owner_enrollment_requires_live_repository_owner_proof(self):
         auth = (ROOT / 'lib' / 'king_ai_owner_auth.dart').read_text(encoding='utf-8')
         start = auth.index('Future<void> setInitialPassword(String password)')
