@@ -5393,7 +5393,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     unawaited(_loadSmartCommandFilters());
     natSearchBusyProbe = () => busy || searching; // NATQUOTA-2: برای سهمیه‌ی اسکنرهای دستی نت ملی
     unawaited(NationalNetworkIntelligence.load()); // NNIE: حافظه‌ی شبکه، بدون تأخیر در UI
-    // KING-AI-KNOWLEDGE: weekly foreground refresh from Google-discovered,
+    // KING-AI-KNOWLEDGE: daily foreground refresh from Google-discovered,
     // allowlisted official documentation. This stores research notes, not weights.
     Future.delayed(const Duration(seconds: 30), () {
       unawaited(KingLocalAi.instance.refreshKnowledgeIfDue().then((result) {
@@ -15529,7 +15529,7 @@ Padding(
                               : 'تست نشده'),
                   trailing: UiMs(standby || isCur ? s.ping : null, isCur),
                   // tapping works even during a search: it interrupts it
-                  onTap: isCur ? null : () => _set('برای اتصال، دستور موردنظر را در کادر مرکز فرمان بنویس.'),
+                  onTap: null, // All server rows are read-only; connect through the command center.
                   onLongPress: () => _toggleFav(s),
                 ));
               },
