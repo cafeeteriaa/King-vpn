@@ -93,18 +93,19 @@ jobs:
       - name: Package complete source and generated Flutter project
         if: success()
         run: |
-          zip -qr "king-vpn-full-source-${GITHUB_RUN_NUMBER}.zip" . \
+          zip -qr "$RUNNER_TEMP/king-vpn-full-source-${GITHUB_RUN_NUMBER}.zip" . \
             -x '.git/*' '__pycache__/*' '*/__pycache__/*' '*.pyc' \
                '.dart_tool/*' 'build/*' 'build_app/.dart_tool/*' \
                'build_app/build/*' 'build_app/android/.gradle/*' \
-               'build_app/android/local.properties'
+               'build_app/android/app/build/*' 'build_app/android/build/*' \
+               'build_app/android/local.properties' 'build_app/.flutter-plugins*'
 
       - name: Upload complete project ZIP
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: king-vpn-full-source-${{ github.run_number }}
-          path: king-vpn-full-source-${{ github.run_number }}.zip
+          path: ${{ runner.temp }}/king-vpn-full-source-${{ github.run_number }}.zip
           if-no-files-found: error
           retention-days: 14
 
