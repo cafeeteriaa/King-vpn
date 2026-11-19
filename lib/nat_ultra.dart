@@ -2146,7 +2146,7 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
       }
       processed++;
     }
-    cursors['__block_cursor'] = (start + max(1, processed)) % blocks.length;
+    cursors['__block_cursor'] = ((start + max(1, processed)) % blocks.length).toInt();
   }
   if (nationalMode) {
     addrs.addAll(_getCfIps(batchSize: cfIpsBatch, liveRanges: liveRanges, cursors: cursors));
