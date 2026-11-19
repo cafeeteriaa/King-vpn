@@ -117,6 +117,7 @@ class KingAiBackgroundSupervisor {
   /// It requires connectivity and a battery that is not currently low.
   static Future<void> enable(int pullNumber) async {
     if (pullNumber < 1) throw ArgumentError.value(pullNumber, 'pullNumber');
+    await KingLocalAi.instance.setBackgroundAutoDiscovery(false);
     await KingLocalAi.instance.setBackgroundRepairPullNumber(pullNumber);
     await Workmanager().registerPeriodicTask(
       _uniqueName,
