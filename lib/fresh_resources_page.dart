@@ -56,7 +56,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
   Future<void> _importText() async {
     final before = _links.length;
     final incoming = _importController.text
-        .split(RegExp(r'[\\r\\n\\s]+'))
+        .split(RegExp(r'[\r\n\s]+'))
         .where((value) => value.trim().isNotEmpty);
     try {
       final total = await FreshResourceStore.merge(incoming, source: 'manual-import');
