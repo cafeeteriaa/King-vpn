@@ -20,6 +20,7 @@ class MergedRepairCollectorTests(unittest.TestCase):
                 "number": 17,
                 "title": "Fix CI policy",
                 "body": "Verified fix",
+                "user": {"login": "pull-author", "type": "User"},
                 "head": {
                     "ref": "king-ai/repair-123",
                     "sha": "a" * 40,
