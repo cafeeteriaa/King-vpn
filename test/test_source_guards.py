@@ -230,6 +230,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         for action in ('فعال‌سازی ترمیم خودکار پس‌زمینه','فعال‌سازی کشف خودکار مخزن','توقف ترمیم پس‌زمینه','پاک‌کردن کلید GitHub'):
             self.assertIn(f"_requireOwnerSession('{action}')", console)
 
+    def test_autonomous_repair_uses_persisted_backoff_and_duplicate_patch_guard(self):
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        policy = (ROOT / 'lib' / 'king_ai_ci_policy.dart').read_text(encoding='utf-8')
+        start = ai.index('Future<Map<String, Object?>> _repairFromFailedCi({')
+        end = ai.index('Future<Map<String, Object?>> repairUntilGreen(', start)
+        repair = ai[start:end]
+        self.assertIn('kingAiCiRepairBackoff(used)', repair)
+        self.assertIn("'lastAttemptAt'", repair)
+        self.assertIn("'lastProposalHash'", repair)
+        self.assertIn("'duplicate_patch_blocked'", repair)
+        self.assertIn('maxAttempts = 8', policy)
+        self.assertIn('maximum = const Duration(hours: 6)', policy)
+
     def test_background_supervisor_is_initialized_with_its_own_dispatcher(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn("import 'king_ai_background.dart';", main)
