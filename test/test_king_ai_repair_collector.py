@@ -44,6 +44,12 @@ class MergedRepairCollectorTests(unittest.TestCase):
             return {"check_runs": [{
                 "status": "completed", "conclusion": "success",
             }]}
+        if "/pulls/17/reviews" in url:
+            return [{
+                "state": "APPROVED",
+                "commit_id": "a" * 40,
+                "user": {"type": "User"},
+            }]
         if "/commits/" + "b" * 40 in url:
             return {"parents": [{"sha": "c" * 40}]}
         if "/contents/lib/king_ai_ci_policy.dart?ref=" in url:
@@ -111,6 +117,26 @@ class MergedRepairCollectorTests(unittest.TestCase):
                 )
             self.assertEqual(result["status"], "skipped")
             self.assertIn("exact head SHA", result["reason"])
+
+    def test_rejects_repair_without_human_approval_for_exact_head_sha(self):
+        def fake_get(url, token):
+            if "/pulls/17/files" in url:
+                return [{"filename": "lib/king_ai_ci_policy.dart", "patch": "+safe"}]
+            if "/check-runs" in url:
+                return {"check_runs": [{"status": "completed", "conclusion": "success"}]}
+            if "/pulls/17/reviews" in url:
+                return [{"state": "APPROVED", "commit_id": "older-sha",
+                         "user": {"type": "User"}}]
+            raise AssertionError(url)
+
+        with tempfile.TemporaryDirectory() as temp:
+            with patch.object(module, "github_get", side_effect=fake_get):
+                result = module.collect(
+                    self.event, "cafeeteriaa/King-vpn", "token",
+                    Path(temp) / "repairs.jsonl",
+                )
+            self.assertEqual(result["status"], "skipped")
+            self.assertIn("human approval", result["reason"])
 
     def test_rejects_secret_bearing_replacement_file(self):
         def fake_get(url, token):
