@@ -1746,12 +1746,20 @@ extension HomeExtras on _HomePageState {
   }
 
   String _normalizePilotText(String raw) {
-    return raw.trim().toLowerCase()
+    final normalized = raw.trim().toLowerCase()
         .replaceAll('ي', 'ی').replaceAll('ك', 'ک')
         .replaceAll('ۀ', 'ه').replaceAll('ة', 'ه')
         .replaceAll('‌', ' ')
         .replaceAll(RegExp(r'[،,؛;.!?؟:]+'), ' ')
-        .replaceAll(RegExp(r'\s+'), ' ');
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    // "کینگ" is the assistant's wake/address name, not an authorization role.
+    // Accept Persian/English addressing without changing the underlying allowlisted
+    // command parser or granting any additional permissions.
+    return normalized.replaceFirst(
+      RegExp(r'^(?:(?:سلام|هی)\s+)?(?:کینگ|king)(?:\s+(?:جان|عزیز))?\s*'),
+      '',
+    ).trim();
   }
 
   Future<String> _runPilotCommand(String raw) async {
