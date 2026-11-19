@@ -859,5 +859,28 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('() => _stableTunnelTrafficOk(s)', main)
 
 
+    def test_every_privileged_code_operation_requires_fresh_owner_proof(self):
+        auth = (ROOT / 'lib' / 'king_ai_owner_auth.dart').read_text(encoding='utf-8')
+        console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
+        self.assertIn('sessionLifetime = Duration(minutes: 2)', auth)
+        self.assertIn('_reauthenticateOwnerForCodeChange()', console)
+        for method in ('_submitFeatureRequest', '_repair', '_enableBackground',
+                       '_enableAutomaticDiscovery', '_saveToken', '_clearToken'):
+            start = console.index('Future<void> ' + method)
+            end = console.find('\n  Future<void> ', start + 1)
+            if end < 0:
+                end = console.find('\n  @override', start + 1)
+            self.assertIn('_reauthenticateOwnerForCodeChange()', console[start:end], method)
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn('if (s != AppLifecycleState.resumed) KingAiOwnerAuth.instance.lock();', main)
+
+    def test_training_dataset_never_pushes_directly_to_main(self):
+        workflow = (ROOT / '.github' / 'workflows' / 'king-ai-repair-dataset.yml').read_text(encoding='utf-8')
+        self.assertIn('gh pr create', workflow)
+        self.assertIn('Review and merge are required', workflow)
+        self.assertNotIn('git push origin HEAD:main', workflow)
+        self.assertNotIn('git push origin HEAD:refs/heads/main', workflow)
+
+
 if __name__ == '__main__':
     unittest.main()
