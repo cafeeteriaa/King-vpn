@@ -25,7 +25,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('hasActiveSession', feature)
         self.assertIn("'status': 'owner_auth_required'", feature)
         self.assertIn("baseBranch: 'main'", feature)
-        self.assertIn('createOwnerFeatureProposal(', (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8'))
+        console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
+        self.assertIn('createOwnerFeatureProposal(', console)
+        self.assertIn('maxLength: 128', console)
+        self.assertIn('_rejectSecrets(summary)', ai)
 
     def test_manual_code_repair_requires_device_owner_but_autonomous_repair_is_separate(self):
         auth = (ROOT / 'lib' / 'king_ai_owner_auth.dart').read_text(encoding='utf-8')
@@ -38,6 +41,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('FlutterSecureStorage', auth)
         self.assertIn('_maxFailuresBeforeLock', auth)
         self.assertIn('sessionLifetime', auth)
+        self.assertIn('Stopwatch()', auth)
+        self.assertIn('_maximumPasswordLength = 128', auth)
         manual = ai[ai.index('Future<Map<String, Object?>> repairFromFailedCi({'):
                     ai.index('Future<Map<String, Object?>> repairFromFailedCiAutonomous({')]
         self.assertIn('hasActiveSession', manual)
