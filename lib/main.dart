@@ -2,6 +2,7 @@ import 'dart:async';
 import 'network_health.dart';
 import 'king_local_ai.dart';
 import 'king_ai_console.dart';
+import 'king_ai_background.dart';
 import 'package:local_inference_flutter/local_inference_flutter.dart';
 import 'update_integrity.dart';
 import 'errjournal.dart';
@@ -2963,14 +2964,13 @@ Future<void> main() async {
 // runs and no data is used. The dispatcher stays only so Workmanager can be
 // initialised and the periodic task of old installs can be cancelled.
 @pragma('vm:entry-point')
-void callbackDispatcher() {
-  Workmanager().executeTask((task, input) async => true);
-}
+void callbackDispatcher() => kingAiBackgroundDispatcher();
 
 Future<void> initBackground() async {
   try {
-    await Workmanager().initialize(callbackDispatcher);
-    await Workmanager().cancelAll();
+    await KingAiBackgroundSupervisor.initialize();
+    // Do not cancel all jobs on app startup: that silently disabled the
+    // user's explicit background repair opt-in on every launch.
   } catch (e, stk) {
     logError(e, stk);
   }
