@@ -135,6 +135,23 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     });
   }
 
+  Future<void> _enableAutomaticDiscovery() async {
+    if (!_hasToken || !_ai.isLoaded) {
+      setState(() => _output = 'برای کشف و ترمیم خودکار، ابتدا GitHub را متصل و مدل محلی را در حالت foreground بارگذاری کن.');
+      return;
+    }
+    await _run('فعال‌سازی کشف خودکار PRهای دارای خطای CI', () async {
+      await KingAiBackgroundSupervisor.enableAutomaticDiscovery();
+      return {
+        'status': 'automatic_repository_repair_scheduled',
+        'repository': 'cafeeteriaa/King-vpn',
+        'scanLimit': 10,
+        'frequency': '15 minutes (best effort; Android may defer)',
+        'constraints': ['network connected', 'battery not low'],
+      };
+    });
+  }
+
   Future<void> _disableBackground() async {
     await _run('غیرفعال‌سازی ترمیم پس‌زمینه', () async {
       await KingAiBackgroundSupervisor.disable();
@@ -235,8 +252,12 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
                 const SizedBox(height: 8),
                 Wrap(spacing: 8, runSpacing: 8, children: [
                   FilledButton(
+                    onPressed: _busy || !_hasToken || !_ai.isLoaded ? null : _enableAutomaticDiscovery,
+                    child: const Text('کشف و ترمیم خودکار کل مخزن'),
+                  ),
+                  OutlinedButton(
                     onPressed: _busy || !_hasToken || !_ai.isLoaded ? null : _enableBackground,
-                    child: const Text('فعال‌سازی ترمیم خودکار'),
+                    child: const Text('ترمیم خودکار یک PR مشخص'),
                   ),
                   OutlinedButton(
                     onPressed: _busy ? null : _disableBackground,
