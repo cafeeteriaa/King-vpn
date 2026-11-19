@@ -87,8 +87,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('PilotNetworkProbe.refresh()', nat_detect)
         self.assertNotIn('dnsxAutoPick(', nat_detect)
         self.assertNotIn('ipAutoBackground(', nat_detect)
-        connect_start = main.index('Future<void> connect([Server? only')
-        connect_end = main.index('Future<void> _stopV2()', connect_start)
+        connect_start = main.index('Future<void> _doConnect(')
+        connect_end = main.index('void _cancelNow()', connect_start)
         connect = main[connect_start:connect_end]
         self.assertIn('if (localPilotOn)', connect)
         self.assertIn('PilotNetworkProbe.refresh()', connect)
