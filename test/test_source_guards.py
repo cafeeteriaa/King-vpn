@@ -40,7 +40,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('اتصال خلبان', main)
         self.assertIn('await startLocalPilot();', main)
         # Command-only home: the legacy hero connect control is intentionally absent.
-        self.assertNotIn('UiHero(\n            on: connected', main)
+        self.assertIn('UiHero(', main)
+        self.assertIn('onTap: null,', main)
         self.assertNotIn("label: const Text('جستجوی سرور با نت ملی')", main)
         ai_bar = pilot_ui[pilot_ui.index('Widget aiBar()'):pilot_ui.index('void aiSheet()')]
         self.assertNotIn('startGrokPilot', ai_bar)
