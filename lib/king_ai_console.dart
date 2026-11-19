@@ -19,6 +19,8 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   final TextEditingController _pullController = TextEditingController();
   final TextEditingController _ownerPasswordController = TextEditingController();
   final TextEditingController _ownerConfirmController = TextEditingController();
+  final TextEditingController _ownerNewPasswordController = TextEditingController();
+  final TextEditingController _ownerNewConfirmController = TextEditingController();
   final TextEditingController _featureRequestController = TextEditingController();
   final KingAiOwnerAuth _ownerAuth = KingAiOwnerAuth.instance;
   bool _ownerConfigured = false;
@@ -41,6 +43,8 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     _pullController.dispose();
     _ownerPasswordController.dispose();
     _ownerConfirmController.dispose();
+    _ownerNewPasswordController.dispose();
+    _ownerNewConfirmController.dispose();
     _featureRequestController.dispose();
     super.dispose();
   }
@@ -98,6 +102,23 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       }
     } catch (error) {
       if (mounted) setState(() => _output = 'احراز هویت انجام نشد: $error');
+    }
+  }
+
+  Future<void> _changeOwnerPassword() async {
+    final password = _ownerNewPasswordController.text;
+    if (password != _ownerNewConfirmController.text) {
+      setState(() => _output = 'رمز جدید و تکرار آن یکسان نیستند.');
+      return;
+    }
+    try {
+      await _ownerAuth.changePassword(password);
+      _ownerNewPasswordController.clear();
+      _ownerNewConfirmController.clear();
+      await _refreshOwnerState();
+      if (mounted) setState(() => _output = 'رمز مالک با موفقیت تغییر کرد.');
+    } catch (error) {
+      if (mounted) setState(() => _output = 'تغییر رمز مالک انجام نشد: $error');
     }
   }
 
@@ -338,6 +359,29 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
                       child: const Text('قفل‌کردن دسترسی مالک'),
                     ),
                 ]),
+                if (_ownerUnlocked) ...[
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _ownerNewPasswordController,
+                    obscureText: true,
+                    maxLength: 128,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    decoration: const InputDecoration(labelText: 'رمز جدید مالک'),
+                  ),
+                  TextField(
+                    controller: _ownerNewConfirmController,
+                    obscureText: true,
+                    maxLength: 128,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    decoration: const InputDecoration(labelText: 'تکرار رمز جدید'),
+                  ),
+                  OutlinedButton(
+                    onPressed: _busy ? null : _changeOwnerPassword,
+                    child: const Text('تغییر رمز مالک'),
+                  ),
+                ],
                 const SizedBox(height: 6),
                 Text(
                   'رمز فقط روی همین دستگاه ثبت می‌شود و در چت یا گزارش‌ها ارسال نمی‌شود. حداقل ۱۲ نویسه؛ پس از ۵ تلاش ناموفق، تأخیر افزایشی اعمال می‌شود. اولین ثبت فقط یک‌بار ممکن است؛ برای درخواست تغییر کد باید مالک احراز هویت شود.',
