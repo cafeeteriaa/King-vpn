@@ -11171,7 +11171,25 @@ ListTile( // KINGEXTRAS row
                 style: TextStyle(color: Color(0xFF83DFFF), fontSize: 11)),
           ),
         const SizedBox(height: 8),
-        FilledButton.icon(onPressed: _smartCommandRunning ? null : () => _runSmartCommand(), icon: _smartCommandRunning ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.play_arrow), label: Text(_smartCommandRunning ? 'در حال اجرا...' : 'اجرای دستور')),
+        FilledButton.icon(onPressed: _smartCommandRunning ? null : () => _runSmartCommand(), icon: _smartCommandRunning ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.play_arrow), label: Text(_smartCommandRunning ? 'در حال اجرا...' : 'ارسال فرمان یا سؤال به کینگ')),
+        if (KingLocalAi.instance.isLoaded)
+          const Padding(
+            padding: EdgeInsets.only(top: 6),
+            child: Text('گفت‌وگوی آزاد فعال است؛ سؤال‌های عمومی در همین کادر با حافظهٔ محلی پاسخ داده می‌شوند.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Color(0xFF83DFFF), fontSize: 11)),
+          )
+        else
+          OutlinedButton.icon(
+            onPressed: () async {
+              await Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => const KingAiConsolePage(),
+              ));
+              if (mounted) setState(() {});
+            },
+            icon: const Icon(Icons.psychology_alt),
+            label: const Text('آماده‌سازی مغز محلی برای پاسخ به سؤال‌ها'),
+          ),
         ExpansionTile(tilePadding: EdgeInsets.zero, childrenPadding: const EdgeInsets.only(bottom: 4), title: const Text('راهنما و توضیحات'),
           children: const [Align(alignment: Alignment.centerRight, child: Text('اتصال خلبان • فقط سرورهای آلمان • اتصال با VLESS یا VMess\nهمه کشورها • همه پروتکل‌ها • پاک کردن فیلترها • قطع اتصال\nاسکن DNS / IP / SNI و پورت • IP تمیز • پروکسی تلگرام\nبازه‌های IP خلبان • اسکن IP خلبان', textAlign: TextAlign.right, style: TextStyle(fontSize: 12, color: Color(0xFF9EADBF))))]),
       ]),
