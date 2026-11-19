@@ -1632,8 +1632,8 @@ extension HomeExtras on _HomePageState {
   Future<void> aiAutopilotTick() async {
     if (!aiSession || !mounted || !_hasAnyAiKey) return;
     if (busy || switching || aiLoading.value) return;
-    // PILOTKEEP2: فقط دکمه‌ی قطع، خود خلبان را خاموش می‌کند؛
-    // اگر یک لغو/تعویض کوتاه wantVpn را false کرد، خلبان آن را بازیابی می‌کند.
+    // The deterministic pilot handles fast network events; the local LLM
+    // advises at a lower cadence to protect battery, heat and memory.
     if (!wantVpn && !connected) {
       wantVpn = true;
       abort = false;
@@ -1641,18 +1641,14 @@ extension HomeExtras on _HomePageState {
     aiLoading.value = true;
     try {
       if (connected) _pilotConnectedAt ??= DateTime.now();
-      _set('خلبان AI: تحلیل اینترنت و مکان...');
-      final prompt = grokPilotPrompt();
-      aiShow(await aiAsk(prompt));
+      _set('خلبان محلی: تحلیل اینترنت و مکان...');
+      aiShow(await aiAsk(grokPilotPrompt()));
       applyAiSuggest();
       await aiRunAction();
-      // if still disconnected, force a connect cycle
       if (aiSession && wantVpn && !connected && !busy && !switching) {
         _set('خلبان: هنوز وصل نیست — جستجوی سرور...');
-        // aiRunAction نام اقدام را مصرف می‌کند؛ تصمیم را از وضعیت واقعی بگیر، نه رشته‌ی پاک‌شده.
         await _acquire(strictRow: false, speed: true);
       }
-      // if connected but very slow, nudge switch — only after 3 min hold
       if (connected && current != null) {
         _pilotConnectedAt ??= DateTime.now();
         final holdOk = DateTime.now().difference(_pilotConnectedAt!) >=
@@ -1668,7 +1664,7 @@ extension HomeExtras on _HomePageState {
           if (best != null) {
             lastWhy = 'خلبان: سرعت پایین';
             await _swapTo(best);
-            _pilotConnectedAt = DateTime.now(); // reset hold after switch
+            _pilotConnectedAt = DateTime.now();
           }
         }
       } else if (!connected) {
@@ -1677,17 +1673,15 @@ extension HomeExtras on _HomePageState {
       if (aiSession && connected) {
         _set('خلبان محلی فعال • $aiLastProvider • ${_connStatus()}');
       }
-    } catch (e, stk) { logError(e, stk); }
-      } else if (_usable().any((s) => s.ai == true && !identical(s, current))) {
-        await connectRow('r:ai');
-      }
     } catch (e, stk) {
       logError(e, stk);
-      // still try to stay connected
+      // Keep the connection state machine alive even if local inference fails.
       if (aiSession && wantVpn && !connected && !busy) {
         try {
           await connect();
-        } catch (e, stk) { logError(e, stk); }
+        } catch (inner, innerSt) {
+          logError(inner, innerSt);
+        }
       }
     } finally {
       aiLoading.value = false;
