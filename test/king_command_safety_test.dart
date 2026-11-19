@@ -8,6 +8,8 @@ void main() {
       expect(KingCommandSafety.negatesConnection('نمیخوام وصل بشی'), isTrue);
       expect(KingCommandSafety.negatesConnection('نمی‌خوام اتصال برقرار کنی'), isTrue);
       expect(KingCommandSafety.negatesConnection('اتصال را شروع نکن'), isTrue);
+      expect(KingCommandSafety.negatesConnection('کینگ وصل نشو'), isTrue);
+      expect(KingCommandSafety.negatesConnection('اتصال نداشته باش'), isTrue);
       expect(KingCommandSafety.negatesConnection('کینگ وصل شو'), isFalse);
       expect(KingCommandSafety.negatesConnection('اتصال خلبان را شروع کن'), isFalse);
     });
