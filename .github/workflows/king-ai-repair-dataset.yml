@@ -6,9 +6,8 @@ on:
 
 permissions:
   contents: write
-  pull-requests: read
-  checks: read
   pull-requests: write
+  checks: read
 
 concurrency:
   group: king-ai-repair-dataset
@@ -32,6 +31,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python3 tools/king_ai_training/collect_merged_repairs.py
       - name: Commit new verified training example
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -f data/king_ai_accepted_repairs.jsonl ] && [ -n "$(git status --porcelain -- data/king_ai_accepted_repairs.jsonl)" ]; then
             git config user.name "github-actions[bot]"
