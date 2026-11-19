@@ -82,6 +82,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         detect_start = pilot.index('Future<NatNetworkClass> _pilotDetectNetworkMode()')
         detect_end = pilot.index('void ensureLocalPilotRunning()', detect_start)
         self.assertNotIn('NatNetworkDiagnosis', pilot[detect_start:detect_end])
+        self.assertIn('PilotNetworkProbe.refresh()', pilot[detect_start:detect_end])
+        self.assertNotIn('PilotNetworkProbe.refresh(force: true)', pilot[detect_start:detect_end])
+        self.assertIn('checks.where((ok) => ok).length >= 2', pilot)
         nat_detect_start = main.index('Future<void> _natDetect()')
         nat_detect_end = main.index('DateTime? _checkSavedAt', nat_detect_start)
         nat_detect = main[nat_detect_start:nat_detect_end]
