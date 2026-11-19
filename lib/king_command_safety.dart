@@ -1,5 +1,7 @@
 /// Small, deterministic safety checks for the unified text/voice command parser.
 /// This class never executes commands; it only detects explicit negation.
+enum KingRequestedNetworkMode { domestic, global }
+
 class KingCommandSafety {
   KingCommandSafety._();
 
@@ -37,6 +39,30 @@ class KingCommandSafety {
     ).hasMatch(value) || RegExp(
       '$_negation.{0,16}(?:اتصال|وصل|شروع|قطع|کانکت|متصل|connect|disconnect)',
     ).hasMatch(value);
+  }
+
+  /// Explicit network-mode requests are separated from automatic pilot mode.
+  /// Status questions must never be interpreted as a request to connect.
+  static KingRequestedNetworkMode? requestedNetworkMode(String command) {
+    final value = _normalize(command).replaceAll(RegExp(r'\\s+'), ' ').trim();
+    if (isStatusRequest(value) || negatesConnection(value)) return null;
+    final asksToConnect = RegExp(r'(اتصال|وصل|متصل|connect)').hasMatch(value);
+    if (!asksToConnect) return null;
+    if (RegExp(r'(نت\\s*ملی|شبکه\\s*ملی|اینترنت\\s*داخلی|مسیر\\s*داخلی)')
+        .hasMatch(value)) {
+      return KingRequestedNetworkMode.domestic;
+    }
+    if (RegExp(r'(نت\\s*جهانی|شبکه\\s*جهانی|اینترنت\\s*جهانی|مسیر\\s*جهانی|بین\\s*الملل)')
+        .hasMatch(value)) {
+      return KingRequestedNetworkMode.global;
+    }
+    return null;
+  }
+
+  static bool isStatusRequest(String command) {
+    final value = _normalize(command);
+    return RegExp(r'(وضعیت|status|چه\\s*خبر|چطوره|متصل\\s*هستم|وصل\\s*هستم)')
+        .hasMatch(value);
   }
 
   static bool negatesScan(String command) {
