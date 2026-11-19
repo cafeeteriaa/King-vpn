@@ -148,8 +148,7 @@ perms = ('<uses-permission android:name="android.permission.INTERNET"/>\n'
          '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>\n'
          '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>\n'
          '    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>\n'
-         '    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n'
-         '    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>\n    ')
+         '    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n    ')
 if 'QUERY_ALL_PACKAGES' not in m:
     m = m.replace('<application', perms + '<application', 1)
 if 'android.permission.RECORD_AUDIO' not in m:
