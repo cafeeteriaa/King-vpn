@@ -106,10 +106,10 @@ empty changes list and explain what is missing.
   }
 
   Future<String> ask(String prompt, {int maxTokens = 768}) async {
-    if (_engine == null) {
-      await loadModel();
+    final engine = _engine;
+    if (engine == null) {
+      throw StateError('مدل هوش مصنوعی داخلی هنوز آماده نیست؛ ابتدا آن را از تنظیمات دانلود و بارگذاری کن.');
     }
-    final engine = _engine!;
     if (_busy) throw StateError('Local AI is already generating');
     _busy = true;
     try {
