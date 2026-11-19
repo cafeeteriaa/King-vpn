@@ -10925,7 +10925,18 @@ ListTile( // KINGEXTRAS row
       final selectedProtocols = supportedProtocols
           .where((p) => RegExp(r'\b' + p + r'\b').hasMatch(normalized))
           .toList();
-      final wantsConnect = RegExp(r'(اتصال|وصل|شروع|connect)').hasMatch(command);
+      final negatesConnection = RegExp(
+        r'(?:اتصال|وصل|شروع).{0,16}(?:نکن|نمی‌خواهم|نمیخوام|نمی‌خوام|نباید)',
+      ).hasMatch(command) || RegExp(
+        r'(?:نکن|نمی‌خواهم|نمیخوام|نمی‌خوام|نباید).{0,16}(?:اتصال|وصل|شروع)',
+      ).hasMatch(command);
+      final wantsConnect = RegExp(r'(اتصال|وصل|شروع|connect)').hasMatch(command) &&
+          !negatesConnection;
+      final negatesScan = RegExp(
+        r'(?:اسکن|پویش).{0,16}(?:نکن|نمی‌خواهم|نمیخوام|نمی‌خوام|نباید)',
+      ).hasMatch(command) || RegExp(
+        r'(?:نکن|نمی‌خواهم|نمیخوام|نمی‌خوام|نباید).{0,16}(?:اسکن|پویش)',
+      ).hasMatch(command);
       final clearFilters = RegExp(r'(پاک کردن فیلتر|حذف محدودیت|ریست فیلتر)').hasMatch(command);
       final allCountries = RegExp(r'(همه کشورها|تمام کشورها)').hasMatch(command);
       final allProtocols = RegExp(r'(همه پروتکل|تمام پروتکل)').hasMatch(command);
@@ -10947,7 +10958,7 @@ ListTile( // KINGEXTRAS row
         _set('دستور اجرا شد: اتصال قطع شد.');
       } else if (command.contains('بازه') && command.contains('خلبان')) {
         await _pilotRangesDialog(context);
-      } else if (command.contains('اسکن') && command.contains('خلبان')) {
+      } else if (!negatesScan && command.contains('اسکن') && command.contains('خلبان')) {
         await _pilotScanOnly();
       } else if (command.contains('اسکنر dns') || command.contains('پویش dns')) {
         dnsxSheet(context);
