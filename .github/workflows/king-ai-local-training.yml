@@ -66,7 +66,7 @@ jobs:
           test -f "$DATASET_PATH"
           case "$DATASET_PATH" in data/*.jsonl) ;; *) echo "Dataset must be under data/"; exit 1;; esac
           case "$MAX_STEPS" in ''|*[!0-9]*) echo "max_steps must be an integer"; exit 1;; esac
-          test "$MAX_STEPS" -ge 10 && test "$MAX_STEPS" -le 5000
+          test "$MAX_STEPS" -ge 50 && test "$MAX_STEPS" -le 5000
       - name: Prepare trusted training and evaluation splits
         if: steps.dataset.outputs.ready == 'true'
         env:
