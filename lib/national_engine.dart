@@ -319,6 +319,8 @@ class PilotNetworkProbe {
       global: health(global),
       domesticSamples: domestic.length,
       globalSamples: global.length,
+      domesticSuccesses: domestic.whereType<int>().length,
+      globalSuccesses: global.whereType<int>().length,
       domesticLatencyMs: _median(domestic),
       globalLatencyMs: _median(global),
       domesticTlsReachabilityVerified: domestic.whereType<int>().length >= 2,
