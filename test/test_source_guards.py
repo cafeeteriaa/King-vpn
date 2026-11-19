@@ -301,7 +301,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('changes.length <= 2', audit)
         self.assertIn('context.containsKey(entry.key)', audit)
         self.assertIn('_createRepairPullRequest(', audit)
-        self.assertNotIn('createRepairPullRequest(', audit)
+        self.assertNotIn('await createRepairPullRequest(', audit)
         self.assertIn('_auditTaskName', worker)
         self.assertIn('frequency: const Duration(hours: 24)', worker)
         self.assertIn('await Workmanager().cancelByTag(_auditTag)', worker)
