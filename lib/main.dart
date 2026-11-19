@@ -5542,6 +5542,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState s) {
+    if (s != AppLifecycleState.resumed && _smartSpeech.isListening) {
+      unawaited(_smartSpeech.cancel());
+      _smartSpeechListening = false;
+    }
     inForeground = s == AppLifecycleState.resumed;
     _appFg = inForeground;
     if (s == AppLifecycleState.resumed && _joinPending) {
