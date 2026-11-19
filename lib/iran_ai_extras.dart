@@ -2556,8 +2556,6 @@ extension HomeExtras on _HomePageState {
       wantVpn = true;
       abort = false;
     }
-    // مداد جادویی زنده: وقتی وصل نیستیم، با هر تیک خلبان سرعت/پینگ را دوباره می‌سنجد
-    if (autoTune && !connected) unawaited(autoTuneNow());
     // STABLE-PILOT: a working tunnel that was switched less than 3 minutes ago
     // is left alone (stops the repeated switches)
     if (connected && lastState == 'CONNECTED' &&
@@ -2578,6 +2576,19 @@ extension HomeExtras on _HomePageState {
       localPilotText.value =
           '⏳ قدرت $_localPower ($_localPowerLabel): پروب + اینترنت + مکان...';
 
+      // When the tunnel is down, re-check the underlying link identity. The
+      // diagnosis cache is keyed by interface identity, so a Wi-Fi/mobile switch
+      // triggers fresh evidence while repeated ticks on the same network are cheap.
+      if (!connected) {
+        final previousMode = nationalMode;
+        await _pilotDetectNetworkMode();
+        if (previousMode != nationalMode) {
+          _applyModePreset(nationalMode, offlineOnly, true);
+        }
+      }
+      // Start optional tuning only after the underlying-link diagnosis has
+      // completed, so its probes cannot accidentally run through a new tunnel.
+      if (autoTune && !connected) unawaited(autoTuneNow());
 
       // قدرت را هر تیک با شبکه هماهنگ کن (تمام‌اتوماتیک)
       final wantPower = _localAutoPickPower();
@@ -2801,7 +2812,7 @@ extension HomeExtras on _HomePageState {
     if (connected) return NatNetworkDiagnosis.current;
     try {
       final previousMode = nationalMode;
-      final detected = await NatNetworkDiagnosis.refresh(force: true)
+      final detected = await NatNetworkDiagnosis.refresh()
           .timeout(const Duration(seconds: 7), onTimeout: () => NatNetworkDiagnosis.current);
       final evidence = switch (detected) {
         NatNetworkClass.globalReachable => const NetworkEvidence(
@@ -2838,8 +2849,10 @@ extension HomeExtras on _HomePageState {
       // Unknown/partial evidence is not a license to guess. Keep last mode.
       natForce = nationalMode;
       userModeChoice = nationalMode;
-      if (previousMode != nationalMode) _resetNetworkHealthCounters();
-      await ultimateSave();
+      if (previousMode != nationalMode) {
+        _resetNetworkHealthCounters();
+        await ultimateSave();
+      }
       final label = natNetworkClassLabel(detected);
       final modeLabel = nationalMode ? 'نت ملی' : 'اینترنت جهانی/انتخاب قبلی';
       localPilotText.value = 'خلبان هوشمند ∞ • تشخیص شبکه: $label\n'
