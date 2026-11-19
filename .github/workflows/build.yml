@@ -92,7 +92,16 @@ jobs:
           CGO_LDFLAGS: "-Wl,-z,max-page-size=16384"
         run: |
           set -o pipefail
-          flutter build apk --debug --target-platform android-arm64 2>&1 | tee build.log
+          if flutter build apk --debug --target-platform android-arm64 2>&1 | tee build.log; then
+            exit 0
+          fi
+          if ! grep -Eq 'Could not (find|resolve) org\\.jetbrains\\.kotlin:' build.log; then
+            echo "APK build failed for a reason other than transient Kotlin artifact resolution."
+            exit 1
+          fi
+          echo "Kotlin artifacts were unavailable during the first attempt; refreshing Gradle dependencies once."
+          (cd android && ./gradlew help --refresh-dependencies) 2>&1 | tee -a build.log
+          flutter build apk --debug --target-platform android-arm64 2>&1 | tee -a build.log
 
       - name: Package complete source and generated Flutter project
         if: success()
