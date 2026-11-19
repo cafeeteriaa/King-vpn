@@ -727,5 +727,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('KingLocalAi.instance.ask(prompt)', extras)
 
 
+    def test_unified_pilot_starts_and_stops_local_king_advisory_safely(self):
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        start = extras.index('Future<void> startLocalPilot()')
+        end = extras.index('Map<String, Object?> _takePilotSnap()', start)
+        pilot_start = extras[start:end]
+        self.assertIn('ensureLocalPilotRunning();', pilot_start)
+        self.assertIn('if (_hasAnyAiKey)', pilot_start)
+        self.assertIn('aiSession = true;', pilot_start)
+        self.assertIn('aiAutopilotStart();', pilot_start)
+        stop_start = extras.index('void stopLocalPilot()')
+        stop_end = extras.index('\n  }', stop_start) + 4
+        stop = extras[stop_start:stop_end]
+        self.assertIn('stopAiSession();', stop)
+        self.assertNotIn('stopGrokPilot', extras)
+        self.assertIn('aiAsk(aiPrompt())', extras)
+
+
 if __name__ == '__main__':
     unittest.main()
