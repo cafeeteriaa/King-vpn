@@ -6,9 +6,9 @@ APP = 'build_app'
 LIB = os.path.join(APP, 'lib')
 
 # =====================================================================
-# ---- 0) AGP 9.4.0 + Gradle 9.6.0 ----
+# ---- 0) AGP 9.3.1 + Gradle 9.5.0 ----
 # =====================================================================
-print('[0] Upgrading AGP to 9.4.0 + Gradle 9.6.0')
+print('[0] Aligning with Flutter 3.50 defaults: AGP 9.3.1 + Gradle 9.5.0')
 
 sett = os.path.join(APP, 'android/settings.gradle.kts')
 if not os.path.exists(sett):
@@ -37,19 +37,24 @@ if os.path.exists(sett):
         else:
             s = s[:pm.end()] + '\n    repositories { google(); mavenCentral(); gradlePluginPortal() }' + s[pm.end():]
     s = re.sub(r'(id\("com\.android\.(?:application|library)"\)\s+version\s+")[^"]+(")',
-               r'\g<1>9.4.0\g<2>', s)
+               r'\g<1>9.3.1\g<2>', s)
+    # Flutter 3.50's published Android toolchain is verified with KGP 2.4.20.
+    s = re.sub(
+        r'(id\("org\.jetbrains\.kotlin\.(?:android|jvm)"\)\s+version\s+")[^"]+(")',
+        r'\g<1>2.4.20\g<2>', s,
+    )
     with open(sett, 'w', encoding='utf-8') as f:
         f.write(s)
-    print('  OK: settings.gradle plugin repositories + AGP -> 9.4.0')
+    print('  OK: settings.gradle plugin repositories + AGP -> 9.3.1')
 
 gw = os.path.join(APP, 'android/gradle/wrapper/gradle-wrapper.properties')
 if os.path.exists(gw):
     with open(gw, encoding='utf-8') as f:
         g = f.read()
-    g = re.sub(r'gradle-[0-9.]+-(bin|all)\.zip', r'gradle-9.6.0-\1.zip', g)
+    g = re.sub(r'gradle-[0-9.]+-(bin|all)\.zip', r'gradle-9.5.0-\1.zip', g)
     with open(gw, 'w', encoding='utf-8') as f:
         f.write(g)
-    print('  OK: gradle-wrapper -> 9.6.0')
+    print('  OK: gradle-wrapper -> 9.5.0')
 
 # Flutter's own Gradle plugin is an included build and resolves its plugins
 # independently from the generated application's pluginManagement block.
