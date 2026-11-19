@@ -10654,8 +10654,25 @@ ListTile( // KINGEXTRAS row
         if (localPilotOn) stopLocalPilot();
         await disconnect();
         _set('دستور اجرا شد: اتصال قطع شد.');
+      } else if (command.contains('بازه') && command.contains('خلبان')) {
+        await _pilotRangesDialog(context);
+      } else if (command.contains('اسکن') && command.contains('خلبان')) {
+        await _pilotScanOnly();
       } else if (RegExp(r'(اتصال|شروع).*(خلبان|هوشمند)|(خلبان|هوشمند).*(اتصال|شروع)').hasMatch(command) ||
           command == 'اتصال' || command == 'connect') {
+        if (command.contains('آلمان') || command.contains('germany')) {
+          selCountry = 'DE';
+          await (await SharedPreferences.getInstance()).setString('country', 'DE');
+        }
+        const commandProtocols = ['vless', 'vmess', 'trojan', 'shadowsocks'];
+        final selectedProtocols = commandProtocols.where((p) => command.contains(p)).toList();
+        if (selectedProtocols.isNotEmpty) {
+          protoSel
+            ..clear()
+            ..addAll(selectedProtocols);
+          await (await SharedPreferences.getInstance()).setStringList('protoSel', protoSel.toList());
+        }
+        pending.clear();
         if (aiSession) stopGrokPilot();
         await startLocalPilot();
       } else if (command.contains('اسکنر dns') || command.contains('پویش dns')) {
@@ -10674,10 +10691,6 @@ ListTile( // KINGEXTRAS row
             child: SingleChildScrollView(child: tgProxyRow(context)),
           ),
         );
-      } else if (command.contains('بازه') && command.contains('خلبان')) {
-        _pilotRangesDialog(context);
-      } else if (command.contains('اسکن') && command.contains('خلبان')) {
-        await _pilotScanOnly();
       } else if (command.contains('آلمان') || command.contains('germany') ||
           command.contains('vless') || command.contains('vmess') ||
           command.contains('trojan') || command.contains('shadowsocks') ||
