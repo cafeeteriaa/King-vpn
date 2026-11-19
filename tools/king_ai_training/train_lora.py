@@ -62,7 +62,7 @@ def main() -> int:
     trainer = SFTTrainer(
         model=model, tokenizer=tokenizer,
         train_dataset=data["train"], eval_dataset=data["eval"],
-        dataset_text_field="text", max_seq_length=2048,
+        dataset_text_field="text", max_seq_length=4096,
         peft_config=lora, args=training,
     )
     trainer.train()
