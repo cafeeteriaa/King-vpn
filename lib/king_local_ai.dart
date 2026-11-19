@@ -362,7 +362,7 @@ empty changes list and explain what is missing.
       RegExp(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----'),
       RegExp(r'gh[pousr]_[A-Za-z0-9]{20,}'),
       RegExp(r'github_pat_[A-Za-z0-9_]{20,}'),
-      RegExp(r'(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{20,}'),
+      RegExp(r'\bBearer\s+[A-Za-z0-9._~+/=-]{20,}', caseSensitive: false),
       RegExp(r'AKIA[0-9A-Z]{16}'),
       RegExp(r'xox[baprs]-[A-Za-z0-9-]{20,}'),
       RegExp(r'https?://[^/\s:@]+:[^@\s]+@'),
