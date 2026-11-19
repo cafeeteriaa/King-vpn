@@ -74,8 +74,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             'repairFromFailedCiAutonomous({',
         ):
             start = ai.index(method)
-            end = ai.index('  }', start)
-            self.assertIn('_requireKingRepository(owner, repository);', ai[start:end + 3])
+            body_start = ai.index('}) async {', start) + len('}) async {')
+            if method == 'repairFromFailedCiAutonomous({':
+                body_start = ai.index('}) {', start) + len('}) {')
+            end = ai.index('\n  }', body_start)
+            self.assertIn('_requireKingRepository(owner, repository);', ai[body_start:end])
         self.assertNotIn('old signature removed', ai)
 
     def test_first_owner_enrollment_requires_live_repository_owner_proof(self):
@@ -117,7 +120,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = ai.index('Future<void> saveGitHubToken(String token)')
         end = ai.index('Future<bool> hasGitHubToken()', start)
         save = ai[start:end]
-        self.assertIn("_requireRepositoryOwnerIdentity('cafeeteriaa')", save)
+        self.assertIn('_requireRepositoryOwnerIdentity()', save)
         self.assertIn('final previous = await _secure.read', save)
         self.assertIn('await _secure.write(key: \'king_ai_github_token\', value: previous)', save)
         self.assertIn('rethrow;', save)
@@ -128,10 +131,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         helper_end = ai.index('Future<Map<String, dynamic>> _github(', helper_start)
         helper = ai[helper_start:helper_end]
         self.assertIn("Uri.https('api.github.com', '/user')", helper)
-        self.assertIn("login.toLowerCase() != expectedOwner.toLowerCase()", helper)
+        self.assertIn('login.toLowerCase() != _repositoryOwner', helper)
         create_start = ai.index('Future<String> _createRepairPullRequest({')
         create_end = ai.index('Future<Map<String, Object?>> createOwnerFeatureProposal({', create_start)
-        self.assertIn('await _requireRepositoryOwnerIdentity(owner);', ai[create_start:create_end])
+        self.assertIn('_requireKingRepository(owner, repository);', ai[create_start:create_end])
+        self.assertIn('await _requireRepositoryOwnerIdentity();', ai[create_start:create_end])
 
     def test_ordinary_king_chat_cannot_enter_the_coding_prompt(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
