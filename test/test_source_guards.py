@@ -13,6 +13,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('این کادر فقط امکانات موجود King VPN', dispatcher)
         self.assertIn("'کدنویسی کن'", dispatcher)
         self.assertIn("'add feature'", dispatcher)
+        self.assertIn("'توسعه بده'", dispatcher)
+        self.assertIn("'write a function'", dispatcher)
         self.assertIn("q.contains('قابلیت')", dispatcher)
         self.assertIn("q.contains('ویژگی')", dispatcher)
         self.assertNotIn('generateCode(', dispatcher)
