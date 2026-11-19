@@ -173,7 +173,7 @@ extension UltimateExt on _HomePageState {
 
   Future<void> panicNow() async {
     abort = true;
-    stopGrokPilot();
+    stopAiSession();
     stopNetWatch();
     aiSession = false;
     aiLoop?.cancel();
