@@ -11,7 +11,7 @@ MAVEN_CENTRAL_MIRROR = 'https://maven-central.storage-download.googleapis.com/ma
 
 def add_maven_mirror_to_scope(text, scope_name, mirror_line):
     """Insert the Maven Central mirror into a named Gradle repositories block."""
-    scope = re.search(rf'{re.escape(scope_name)}\\s*\\{{', text)
+    scope = re.search(rf'{re.escape(scope_name)}\s*\{{', text)
     if not scope:
         return text
     scope_open = scope.end() - 1
@@ -31,7 +31,7 @@ def add_maven_mirror_to_scope(text, scope_name, mirror_line):
     if scope_close < 0:
         raise SystemExit('HARD FAIL: malformed ' + scope_name + ' block')
     block = text[scope_open + 1:scope_close]
-    repo_match = re.search(r'repositories\\s*\\{', block)
+    repo_match = re.search(r'repositories\s*\{', block)
     if not repo_match:
         raise SystemExit('HARD FAIL: ' + scope_name + ' has no repositories block')
     repo_open = scope_open + 1 + repo_match.end() - 1
@@ -40,7 +40,7 @@ def add_maven_mirror_to_scope(text, scope_name, mirror_line):
         raise SystemExit('HARD FAIL: malformed ' + scope_name + ' repositories block')
     repo_body = text[repo_open:repo_close]
     if MAVEN_CENTRAL_MIRROR not in repo_body:
-        text = text[:repo_open + 1] + '\\n' + mirror_line.rstrip('\\n') + text[repo_open + 1:]
+        text = text[:repo_open + 1] + '\n' + mirror_line.rstrip('\n') + text[repo_open + 1:]
         print('  OK: Added Maven Central mirror to ' + scope_name)
     else:
         print('  OK: ' + scope_name + ' already has Maven Central mirror')
