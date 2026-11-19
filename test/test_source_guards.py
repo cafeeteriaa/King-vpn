@@ -1109,6 +1109,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("if (_busy) throw StateError('Local AI is already generating');", local)
 
 
+    def test_android_backup_excludes_vpn_credentials_and_local_ai_secrets(self):
+        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        backup = (ROOT / 'android_src' / 'king_backup_rules.xml').read_text(encoding='utf-8')
+        extraction = (ROOT / 'android_src' / 'king_data_extraction_rules.xml').read_text(encoding='utf-8')
+        self.assertIn("('allowBackup', 'false')", prepare)
+        self.assertIn("('fullBackupContent', 'false')", prepare)
+        self.assertIn("('dataExtractionRules', '@xml/king_data_extraction_rules')", prepare)
+        self.assertIn("king_backup_rules.xml", prepare)
+        self.assertIn("king_data_extraction_rules.xml", prepare)
+        for domain in ('root', 'file', 'database', 'sharedpref', 'external'):
+            self.assertIn(f'domain="{domain}" path="."', backup)
+            self.assertIn(f'domain="{domain}" path="."', extraction)
+        self.assertIn('<device-transfer>', extraction)
+        self.assertIn('<cloud-backup>', extraction)
+
     def test_test_methods_are_unique(self):
         import ast
         source = Path(__file__).read_text(encoding='utf-8')
