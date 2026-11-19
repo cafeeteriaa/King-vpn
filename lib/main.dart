@@ -11135,7 +11135,7 @@ ListTile( // KINGEXTRAS row
       logError(e, st);
       _set('اجرای دستور با خطا روبه‌رو شد: ' + e.toString());
     } finally {
-      if (voiceResponse) await _speakSmartCommandResponse(status);
+      if (voiceResponse) await _speakSmartCommandResponse(voiceReply ?? status);
       _smartSpeechVoiceInput = false;
       if (mounted) setState(() => _smartCommandRunning = false);
     }
