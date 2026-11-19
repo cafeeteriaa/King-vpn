@@ -108,7 +108,8 @@ class KingCommandSafety {
     ).hasMatch(value);
     final networkContext = RegExp(
       r'(اتصال|connection|vpn|وی.?پی.?ان|خلبان|نت\s*ملی|نت\s*جهانی|'
-      r'اینترنت|شبکه|سرور)',
+      r'شبکه\s*ملی|شبکه\s*جهانی|اینترنت\s*من|شبکه\s*من|'
+      r'سرور\s*(?:vpn|وی.?پی.?ان))',
     ).hasMatch(value);
     if (explicitStatus && networkContext) return true;
     if (RegExp(r'(?:متصل|وصل)\s*هستم').hasMatch(value)) return true;

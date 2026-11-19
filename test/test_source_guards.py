@@ -577,6 +577,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('No automatic merge or release is performed.', ai)
         self.assertIn('This updates research memory, not model weights.', ai)
 
+    def test_weather_and_current_queries_use_live_public_research(self):
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        self.assertIn('هوا|دمای|بارش|باد', ai)
+        self.assertIn('researchGoogle(publicQuery, maxResults: 3)', ai)
+
     def test_smart_command_chat_receives_bounded_live_vpn_context(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')

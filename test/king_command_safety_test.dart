@@ -147,6 +147,11 @@ void main() {
       expect(KingCommandSafety.isStatusRequest('خلبان چه خبر'), isTrue);
       expect(KingCommandSafety.isStatusRequest('نت ملی چطوره'), isTrue);
       expect(KingCommandSafety.isStatusRequest('وضعیت اتصال'), isTrue);
+      expect(KingCommandSafety.isStatusRequest('وضعیت نت ملی'), isTrue);
+      expect(KingCommandSafety.isStatusRequest('وضعیت شبکه ملی'), isTrue);
+      expect(KingCommandSafety.isStatusRequest('وضعیت اینترنت من'), isTrue);
+      expect(KingCommandSafety.isStatusRequest('وضعیت اینترنت ایران'), isFalse);
+      expect(KingCommandSafety.isStatusRequest('وضعیت سرور آلمان'), isFalse);
     });
 
     test('negative scan commands are blocked', () {

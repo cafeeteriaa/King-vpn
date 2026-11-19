@@ -415,7 +415,7 @@ empty changes list and explain what is missing.
   bool _needsLiveResearch(String prompt) {
     final value = prompt.toLowerCase();
     return RegExp(
-      r'(امروز|اکنون|الان|همین حالا|جدیدترین|آخرین|به.?روز|خبر|قیمت|نرخ|آب.?وهوا|'
+      r'(امروز|اکنون|الان|همین حالا|فعلی|کنونی|جدیدترین|آخرین|به.?روز|خبر|قیمت|نرخ|هوا|دمای|بارش|باد|آب.?وهوا|'
       r'پیش.?بینی|نسخه جدید|تازه منتشر|وضعیت فعلی|current|latest|today|right now|'
       r'breaking|news|price|weather|forecast|release notes)',
     ).hasMatch(value);
