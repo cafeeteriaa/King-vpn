@@ -113,23 +113,22 @@ extension UpdateCheck on _HomePageState {
       final dir = await Directory.systemTemp.createTemp('king_upd_');
       final file = File('${dir.path}/king-vpn-update.apk');
       await file.writeAsBytes(r.bodyBytes, flush: true);
-      // فیکس ۱: بدون هش در Gist، هیچ APK ای خودکار نصب نمی‌شود (بدون بررسی یکپارچگی)
-      if (sha256Expected.isEmpty) {
-        _set('هش فایل آپدیت در Gist نیست؛ نصب خودکار انجام نشد. از لینک دانلود دستی استفاده کن');
-        try { await file.delete(); } catch (e, st) { logError(e, st); }
+      // Fail closed: missing, malformed, mismatched or unreadable digests
+      // must never fall through to the Android package installer.
+      try {
+        final bytes = await file.readAsBytes();
+        if (!verifySha256Bytes(bytes, sha256Expected)) {
+          _set('❌ هش نامعتبر است یا با فایل تطابق ندارد؛ نصب لغو شد');
+          kingHealText.value = '❌ اصالت APK تأیید نشد';
+          try { await file.delete(); } catch (e, st) { logError(e, st); }
+          return;
+        }
+      } catch (e, st) {
+        logError(e, st);
+        _set('❌ بررسی اصالت APK ناموفق بود؛ نصب متوقف شد');
+        kingHealText.value = '❌ خطا در بررسی SHA-256؛ نصب لغو شد';
+        try { await file.delete(); } catch (cleanup, cleanupSt) { logError(cleanup, cleanupSt); }
         return;
-      }
-      if (sha256Expected.isNotEmpty) {
-        try {
-          final bytes = await file.readAsBytes();
-          final hash = sha256.convert(bytes).toString().toLowerCase();
-          if (hash != sha256Expected) {
-            _set('❌ فایل آپدیت معتبر نیست (hash mismatch)؛ نصب لغو شد');
-            kingHealText.value = '❌ APK دستکاری شده';
-            try { await file.delete(); } catch (e, st) { logError(e, st); }
-            return;
-          }
-        } catch (e) { logError(e); }
       }
       _set('✅ دانلود شد — نصب را تأیید کن');
       kingHealText.value = 'APK آماده — تأیید نصب اندروید';

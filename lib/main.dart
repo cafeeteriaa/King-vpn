@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'network_health.dart';
+import 'update_integrity.dart';
 import 'errjournal.dart';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart' show compute;
