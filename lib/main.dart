@@ -5,7 +5,7 @@ import 'package:local_inference_flutter/local_inference_flutter.dart';
 import 'update_integrity.dart';
 import 'errjournal.dart';
 import 'dart:ui' as ui;
-import 'package:flutter/foundation.dart' show compute;
+import 'package:flutter/foundation.dart' show compute, ValueListenable;
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -5195,7 +5195,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _protoOk(Server s) =>
       (protoSel.isEmpty ||
           protoSel.any((p) => s.link.toLowerCase().startsWith('$p://'))) &&
-      (selCountry == null || s.country == null || s.country == selCountry);
+      (selCountry == null || s.country == selCountry);
 
   bool _recentFail(Server s) {
     final t = failed[s.key];
@@ -5390,8 +5390,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    unawaited(_loadSmartCommandFilters());
     natSearchBusyProbe = () => busy || searching; // NATQUOTA-2: برای سهمیه‌ی اسکنرهای دستی نت ملی
     unawaited(NationalNetworkIntelligence.load()); // NNIE: حافظه‌ی شبکه، بدون تأخیر در UI
+    // KING-AI-KNOWLEDGE: daily foreground refresh from Google-discovered,
+    // allowlisted official documentation. This stores research notes, not weights.
+    Future.delayed(const Duration(seconds: 30), () {
+      unawaited(KingLocalAi.instance.refreshKnowledgeIfDue().then((result) {
+        dbg('KING-AI-RESEARCH: ${jsonEncode(result)}');
+      }).catchError((Object error, StackTrace stack) {
+        logError(error, stack);
+      }));
+    });
     OnlineCounter.start(); // ONLINECOUNT
     _crashGuardInit(); // CRASHGUARD: آیا اجرای قبلی وسط شروع یک سرور مرده است؟
     unawaited(_loadVpnPerm()); // FIX-PERSIST
@@ -5695,6 +5705,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _netWatchTimer?.cancel();
     _dbgSaveT?.cancel();
     _dbgProbT?.cancel();
+    _smartCommandController.dispose();
     super.dispose();
   }
 
@@ -10043,6 +10054,7 @@ ListTile( // KINGEXTRAS row
     try {
       while (mounted &&
           nationalMode &&
+          localPilotOn &&
           !appGone &&
           !abort &&
           DateTime.now().difference(startedAt) < const Duration(hours: 8)) {
@@ -10054,7 +10066,7 @@ ListTile( // KINGEXTRAS row
           autoCycle = true;
           // NATRANGE: پس‌زمینه، هر ۵ دقیقه، بخشی کم از بازه‌های IP با سرعت کم
           // NATPENDCAP: اگر pending از سقف گذشته، اسکن بازه‌ی جدید اضافه نکن
-          if (cpuHot == 0 &&
+          if (localPilotOn && cpuHot == 0 &&
               DateTime.now().difference(natRangeLast) >
                   const Duration(minutes: 5) &&
               pending.length < 3000) {
@@ -10138,61 +10150,61 @@ ListTile( // KINGEXTRAS row
         natGood.addAll(_resMap.keys); // FOLDERONLY
         await natLoadPersisted(); // NATULTRA
       }
-      final r = await Future.wait([
-        _natOpen('https://www.gstatic.com/generate_204'),
-        _natOpen('https://cp.cloudflare.com/generate_204'),
-        _natOpen('https://one.one.one.one/'),
-        _natOpen('https://www.apple.com/library/test/success.html'),
-        _natOpen('https://www.aparat.com/'),
-        _natOpen('https://www.digikala.com/'),
-      ]);
-      var world = r[0] || r[1] || r[2] || r[3];
-      final home = r[4] || r[5];
-      // NATSLOW: the world answers but is throttled to a crawl -> same as cut
-      if (world && (!natForce || localPilotOn || aiSession)) {
-        // Measure the endpoint that actually answered; a Cloudflare-only
-        // latency gate must not misclassify a reachable Google/Apple path.
-        final worldProbeUrl = r[0]
-            ? 'https://www.gstatic.com/generate_204'
-            : r[1]
-                ? 'https://cp.cloudflare.com/generate_204'
-                : r[2]
-                    ? 'https://one.one.one.one/'
-                    : 'https://www.apple.com/library/test/success.html';
-        final lat = await _tuneLatency(worldProbeUrl);
-        if (lat == null || lat > 3000) {
-          world = false;
-        } else if (lat > 1200) {
-          final kb = await _tuneSpeedKB();
-          if (kb != null && kb < 40) world = false;
-        }
-      }
       final was = nationalMode;
-      if (localPilotOn || aiSession) {
-        // Smart Pilot auto-detects domestic/global before each disconnected search.
-        // A domestic-only result must remain national even while the pilot is active.
-        if (home && !world) {
+      if (localPilotOn) {
+        // Pilot and national mode share their own bounded probe; the general
+        // DNS/IP/SNI scanners are never started by this detection path.
+        final evidence = await PilotNetworkProbe.refresh();
+        final strategy = choosePilotNetworkStrategy(evidence);
+        if (strategy == PilotNetworkStrategy.domestic) {
           nationalMode = true;
-        } else if (world) {
+        } else if (strategy == PilotNetworkStrategy.global) {
           nationalMode = false;
         }
-        // If both probe groups fail, preserve the previous mode; do not guess.
+        // Unknown/dual-failure evidence preserves the previous strategy.
         natForce = nationalMode;
         userModeChoice = nationalMode;
       } else {
-        // Manual connect respects the explicit network choice.
-        nationalMode = userModeChoice == true || natForce;
+        final r = await Future.wait([
+          _natOpen('https://www.gstatic.com/generate_204'),
+          _natOpen('https://cp.cloudflare.com/generate_204'),
+          _natOpen('https://one.one.one.one/'),
+          _natOpen('https://www.apple.com/library/test/success.html'),
+          _natOpen('https://www.aparat.com/'),
+          _natOpen('https://www.digikala.com/'),
+        ]);
+        var world = r[0] || r[1] || r[2] || r[3];
+        final home = r[4] || r[5];
+        if (world && aiSession) {
+          final worldProbeUrl = r[0]
+              ? 'https://www.gstatic.com/generate_204'
+              : r[1]
+                  ? 'https://cp.cloudflare.com/generate_204'
+                  : r[2]
+                      ? 'https://one.one.one.one/'
+                      : 'https://www.apple.com/library/test/success.html';
+          final lat = await _tuneLatency(worldProbeUrl);
+          if (lat == null || lat > 3000) {
+            world = false;
+          } else if (lat > 1200) {
+            final kb = await _tuneSpeedKB();
+            if (kb != null && kb < 40) world = false;
+          }
+        }
+        if (aiSession) {
+          if (home && !world) {
+            nationalMode = true;
+          } else if (world) {
+            nationalMode = false;
+          }
+          natForce = nationalMode;
+          userModeChoice = nationalMode;
+        } else {
+          // Manual connect respects the explicit network choice.
+          nationalMode = userModeChoice == true || natForce;
+        }
       }
       if (nationalMode != was) _resetNetworkHealthCounters();
-    // DNSAUTO: وقتی برنامه مشغول اتصال نیست و VPN قطع است. اگر وسط کار وصل شود، اسکن متوقف می‌شود.
-    if (nationalMode && !busy && !connected) {
-      // Shared scheduler: DNS and IP scanners must not start concurrently;
-      // IP-auto waits until DNS releases its busy flag, avoiding permanent starvation.
-      unawaited(() async {
-        await dnsxAutoPick(stop: () => connected || busy);
-        if (!connected && !busy) await ipAutoBackground();
-      }()); // IPAUTO: اسکن IP خودکار نت ملی، هر ۲۴ ساعت
-    }
       // نت ملی: جستجوی بی‌نهایت همیشه روشن است
       if (nationalMode) indestructibleMode = true;
       if (nationalMode != was && mounted) {
@@ -10629,6 +10641,307 @@ ListTile( // KINGEXTRAS row
       ),
     );
   }
+
+
+  final TextEditingController _smartCommandController = TextEditingController();
+  bool _smartCommandRunning = false;
+  List<String> _pilotRanges = <String>[];
+  bool _pilotRangeBusy = false;
+  bool _pilotRangeCancelRequested = false;
+
+  Future<void> _loadSmartCommandFilters() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      final c = p.getString('country');
+      if (c != null && countryFa.containsKey(c)) selCountry = c;
+      protoSel
+        ..clear()
+        ..addAll((p.getStringList('protoSel') ?? const <String>[])
+            .where((v) => const ['vless', 'vmess', 'trojan', 'ss'].contains(v)));
+    } catch (e, st) { logError(e, st); }
+  }
+
+  int? _pilotIpNumber(String value) {
+    final ip = InternetAddress.tryParse(value.trim());
+    if (ip == null || ip.type != InternetAddressType.IPv4) return null;
+    var n = 0;
+    for (final b in ip.rawAddress) { n = (n << 8) | b; }
+    return n;
+  }
+
+  String _pilotIpText(int n) =>
+      '${(n >> 24) & 255}.${(n >> 16) & 255}.${(n >> 8) & 255}.${n & 255}';
+
+  List<String> _pilotExpandRanges(String raw) {
+    final out = <String>{};
+    for (final source in raw.split(String.fromCharCode(10))) {
+      final line = source.trim();
+      if (line.isEmpty) continue;
+      final cidr = RegExp(r'^([0-9.]+)/([0-9]{1,2})$').firstMatch(line);
+      if (cidr != null) {
+        final base = _pilotIpNumber(cidr.group(1)!);
+        final prefix = int.tryParse(cidr.group(2)!);
+        if (base == null || prefix == null || prefix < 24 || prefix > 32) continue;
+        final mask = (0xffffffff << (32 - prefix)) & 0xffffffff;
+        final network = base & mask;
+        final count = 1 << (32 - prefix);
+        for (var i = 0; i < count && out.length < 256; i++) {
+          out.add(_pilotIpText(network + i));
+        }
+      } else if (_pilotIpNumber(line) != null) {
+        out.add(line);
+      }
+      if (out.length >= 256) break;
+    }
+    return out.take(256).toList();
+  }
+
+  bool _pilotRangesValid(String raw) {
+    final lines = raw.split(String.fromCharCode(10))
+        .map((v) => v.trim()).where((v) => v.isNotEmpty).toList();
+    if (lines.isEmpty) return false;
+    for (final line in lines) {
+      final cidr = RegExp(r'^([0-9.]+)/([0-9]{1,2})$').firstMatch(line);
+      if (cidr == null) {
+        if (_pilotIpNumber(line) == null) return false;
+        continue;
+      }
+      final base = _pilotIpNumber(cidr.group(1)!);
+      final prefix = int.tryParse(cidr.group(2)!);
+      if (base == null || prefix == null || prefix < 24 || prefix > 32) {
+        return false;
+      }
+    }
+    return _pilotExpandRanges(raw).isNotEmpty;
+  }
+
+  Future<void> _pilotRangesDialog(BuildContext context) async {
+    final prefs = await SharedPreferences.getInstance();
+    _pilotRanges = prefs.getStringList('king_pilot_ip_ranges_v1') ?? _pilotRanges;
+    if (!mounted) return;
+    final c = TextEditingController(text: _pilotRanges.join(String.fromCharCode(10)));
+    await showDialog<void>(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('بازه‌های مستقل IP خلبان'),
+      content: TextField(controller: c, minLines: 3, maxLines: 8,
+        decoration: const InputDecoration(hintText: 'هر خط یک IPv4 یا CIDR از /24 تا /32؛ نمونه: 1.2.3.0/24')),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('بستن')),
+        FilledButton(onPressed: () async {
+          if (!_pilotRangesValid(c.text)) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('یکی از بازه‌ها نامعتبر است؛ هر خط باید IPv4 یا CIDR معتبر /24 تا /32 باشد.')));
+            return;
+          }
+          _pilotRanges = c.text.split(String.fromCharCode(10)).map((v) => v.trim()).where((v) => v.isNotEmpty).toList();
+          await prefs.setStringList('king_pilot_ip_ranges_v1', _pilotRanges);
+          if (ctx.mounted) Navigator.pop(ctx);
+          _set('بازه‌های مستقل خلبان ذخیره شد؛ حداکثر ۲۵۶ IP در هر اجرا.');
+        }, child: const Text('ذخیره')),
+      ],
+    ));
+    c.dispose();
+  }
+
+  Future<void> _pilotScanOnly() async {
+    if (_pilotRangeBusy) {
+      _set('اسکن مستقل خلبان در حال اجراست؛ برای لغو بنویس «لغو اسکن خلبان».');
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    _pilotRanges = prefs.getStringList('king_pilot_ip_ranges_v1') ?? _pilotRanges;
+    final targets = _pilotExpandRanges(_pilotRanges.join(String.fromCharCode(10)));
+    if (targets.isEmpty) { _set('ابتدا بازه‌های اختصاصی خلبان را تعریف کن.'); return; }
+    _pilotRangeCancelRequested = false;
+    setState(() => _pilotRangeBusy = true);
+    _set('اسکن مستقل خلبان آغاز شد: ${targets.length} نشانی، فقط TCP/443.');
+    final alive = <String>[];
+    try {
+      for (var i = 0; i < targets.length; i += 12) {
+        if (_pilotRangeCancelRequested) break;
+        final batch = targets.skip(i).take(12).toList();
+        final result = await Future.wait(batch.map((host) async {
+          Socket? socket;
+          try {
+            socket = await Socket.connect(host, 443, timeout: const Duration(milliseconds: 900));
+            return host;
+          } catch (_) { return null; }
+          finally { socket?.destroy(); }
+        }));
+        alive.addAll(result.whereType<String>());
+      }
+      await prefs.setStringList('king_pilot_scan_results_v1', alive);
+      if (_pilotRangeCancelRequested) {
+        _set('اسکن خلبان به درخواست کاربر متوقف شد؛ ${alive.length} میزبان پاسخ‌گو تا این لحظه ذخیره شدند.');
+      } else {
+        _set('اسکن مستقل خلبان تمام شد: ${alive.length} میزبان TCP/443 پاسخ دادند؛ این نتیجه اثبات اتصال VPN نیست.');
+      }
+    } catch (e, st) { logError(e, st); _set('اسکن خلبان ناموفق بود: $e'); }
+    finally {
+      _pilotRangeCancelRequested = false;
+      if (mounted) setState(() => _pilotRangeBusy = false);
+    }
+  }
+
+  String? _smartCountryCode(String command) {
+    final normalized = command.replaceAll('ي', 'ی').replaceAll('ك', 'ک');
+    const englishAliases = <String, String>{
+      'germany': 'DE', 'deutschland': 'DE',
+      'netherlands': 'NL', 'holland': 'NL',
+      'united states': 'US', 'usa': 'US', 'america': 'US',
+      'united kingdom': 'GB', 'britain': 'GB', 'england': 'GB', 'uk': 'GB',
+      'france': 'FR', 'canada': 'CA', 'singapore': 'SG', 'japan': 'JP',
+      'turkey': 'TR', 'türkiye': 'TR', 'uae': 'AE',
+      'united arab emirates': 'AE', 'russia': 'RU', 'switzerland': 'CH',
+      'italy': 'IT', 'spain': 'ES', 'poland': 'PL', 'australia': 'AU',
+      'azerbaijan': 'AZ', 'finland': 'FI', 'sweden': 'SE',
+      'romania': 'RO', 'ukraine': 'UA', 'hong kong': 'HK',
+    };
+    for (final entry in englishAliases.entries) {
+      if (RegExp(r'\b' + RegExp.escape(entry.key) + r'\b').hasMatch(normalized)) {
+        return entry.value;
+      }
+    }
+    const persianAliases = <String, String>{
+      'امریکا': 'US', 'ایالات متحده': 'US', 'بریتانیا': 'GB',
+      'انگلستان': 'GB', 'دبی': 'AE', 'امارات متحده عربی': 'AE',
+    };
+    for (final entry in persianAliases.entries) {
+      if (normalized.contains(entry.key)) return entry.value;
+    }
+    for (final entry in countryFa.entries) {
+      final label = entry.value.toString().replaceAll('ي', 'ی').replaceAll('ك', 'ک');
+      if (label.length >= 3 && normalized.contains(label)) return entry.key;
+    }
+    return null;
+  }
+
+  Future<void> _runSmartCommand([String? raw]) async {
+    final command = (raw ?? _smartCommandController.text)
+        .trim()
+        .toLowerCase()
+        .replaceAll('ي', 'ی')
+        .replaceAll('ك', 'ک');
+    if (command.contains('اسکن') && command.contains('خلبان') &&
+        RegExp(r'(لغو|متوقف|توقف)').hasMatch(command)) {
+      if (_pilotRangeBusy) {
+        _pilotRangeCancelRequested = true;
+        _set('درخواست لغو اسکن خلبان ثبت شد؛ اتصال جاری حداکثر تا پایان مهلت کوتاه هر دسته بسته می‌شود.');
+      } else {
+        _set('اسکن فعالی از خلبان برای لغو وجود ندارد.');
+      }
+      return;
+    }
+    if (command.isEmpty || _smartCommandRunning) return;
+    setState(() => _smartCommandRunning = true);
+    try {
+      final countryCode = _smartCountryCode(command);
+      final normalized = command
+          .replaceAll('vmees', 'vmess')
+          .replaceAll('shadowsocks', 'ss')
+          .replaceAll('وی‌مس', 'vmess')
+          .replaceAll('وی مس', 'vmess')
+          .replaceAll('وی‌لس', 'vless')
+          .replaceAll('وی لس', 'vless');
+      const supportedProtocols = <String>['vless', 'vmess', 'trojan', 'ss'];
+      final selectedProtocols = supportedProtocols
+          .where((p) => RegExp(r'\b' + p + r'\b').hasMatch(normalized))
+          .toList();
+      final wantsConnect = RegExp(r'(اتصال|وصل|شروع|connect)').hasMatch(command);
+      final clearFilters = RegExp(r'(پاک کردن فیلتر|حذف محدودیت|ریست فیلتر)').hasMatch(command);
+      final allCountries = RegExp(r'(همه کشورها|تمام کشورها)').hasMatch(command);
+      final allProtocols = RegExp(r'(همه پروتکل|تمام پروتکل)').hasMatch(command);
+
+      if (RegExp(r'(قطع اتصال|قطع|disconnect|خاموش کردن اتصال)').hasMatch(command) &&
+          !command.contains('نکن')) {
+        if (localPilotOn) stopLocalPilot();
+        await disconnect();
+        _set('دستور اجرا شد: اتصال قطع شد.');
+      } else if (command.contains('بازه') && command.contains('خلبان')) {
+        await _pilotRangesDialog(context);
+      } else if (command.contains('اسکن') && command.contains('خلبان')) {
+        await _pilotScanOnly();
+      } else if (command.contains('اسکنر dns') || command.contains('پویش dns')) {
+        dnsxSheet(context);
+      } else if (command.contains('اسکن ip') || command.contains('پویش ip')) {
+        ipAutoSheet(context);
+      } else if (command.contains('اسکن sni') || command.contains('اسکن پورت')) {
+        autoScanSheet(context);
+      } else if (command.contains('ip تمیز') || command.contains('آی پی تمیز')) {
+        cleanIpDialog();
+      } else if (command.contains('پروکسی تلگرام')) {
+        showModalBottomSheet<void>(
+          context: context,
+          isScrollControlled: true,
+          builder: (_) => SafeArea(
+            child: SingleChildScrollView(child: tgProxyRow(context)),
+          ),
+        );
+      } else if (wantsConnect || clearFilters || allCountries || allProtocols ||
+          countryCode != null || selectedProtocols.isNotEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        if (clearFilters || allCountries) {
+          selCountry = null;
+          await prefs.remove('country');
+        }
+        if (clearFilters || allProtocols) {
+          protoSel.clear();
+          await prefs.remove('protoSel');
+        }
+        if (countryCode != null) {
+          selCountry = countryCode;
+          await prefs.setString('country', countryCode);
+        }
+        if (selectedProtocols.isNotEmpty) {
+          protoSel
+            ..clear()
+            ..addAll(selectedProtocols);
+          await prefs.setStringList('protoSel', protoSel.toList());
+        }
+        pending.clear();
+        final applied = <String>[
+          if (selCountry != null)
+            'کشور: ' + (countryFa[selCountry] ?? selCountry!),
+          if (protoSel.isNotEmpty) 'پروتکل: ' + protoSel.join(', '),
+          if (selCountry == null && protoSel.isEmpty) 'بدون محدودیت کشور و پروتکل',
+        ].join(' • ');
+        if (wantsConnect) {
+          if (aiSession) stopGrokPilot();
+          await startLocalPilot();
+          _set('فرمان به مغز خلبان ارسال شد • ' + applied);
+        } else {
+          if (!connected && !busy && !searching) {
+            unawaited(_loadPending(bg: true));
+          }
+          _set('فیلتر فرمان اعمال شد • ' + applied);
+        }
+      } else {
+        _set('دستور شناخته نشد. از پوشه راهنمای زیر کادر نمونه‌ها را ببین.');
+      }
+    } catch (e, st) {
+      logError(e, st);
+      _set('اجرای دستور با خطا روبه‌رو شد: ' + e.toString());
+    } finally {
+      if (mounted) setState(() => _smartCommandRunning = false);
+    }
+  }
+
+  Widget _smartCommandPanel() => Padding(
+    padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+    child: Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: const Color(0xFF151D2A), borderRadius: BorderRadius.circular(18), border: Border.all(color: const Color(0x8874D9FF))),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const Row(children: [Icon(Icons.psychology_alt, color: Color(0xFF83DFFF)), SizedBox(width: 8), Expanded(child: Text('مرکز فرمان هوشمند', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFFE8EDF7))))]),
+        const SizedBox(height: 8),
+        TextField(controller: _smartCommandController, minLines: 1, maxLines: 3, textInputAction: TextInputAction.send,
+          onSubmitted: (_) => _runSmartCommand(), style: const TextStyle(color: Color(0xFFE8EDF7)),
+          decoration: InputDecoration(hintText: 'مثلاً: اتصال خلبان با سرورهای آلمان و فقط VMess؛ یا اسکن IP خلبان...', hintStyle: const TextStyle(color: Color(0xFF8D9BAD), fontSize: 12), filled: true, fillColor: const Color(0xFF0D1420), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), suffixIcon: IconButton(tooltip: 'پاک کردن', onPressed: () => _smartCommandController.clear(), icon: const Icon(Icons.close)))),
+        const SizedBox(height: 8),
+        FilledButton.icon(onPressed: _smartCommandRunning ? null : () => _runSmartCommand(), icon: _smartCommandRunning ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.play_arrow), label: Text(_smartCommandRunning ? 'در حال اجرا...' : 'اجرای دستور')),
+        ExpansionTile(tilePadding: EdgeInsets.zero, childrenPadding: const EdgeInsets.only(bottom: 4), title: const Text('راهنما و توضیحات'),
+          children: const [Align(alignment: Alignment.centerRight, child: Text('اتصال خلبان • فقط سرورهای آلمان • اتصال با VLESS یا VMess\nهمه کشورها • همه پروتکل‌ها • پاک کردن فیلترها • قطع اتصال\nاسکن DNS / IP / SNI و پورت • IP تمیز • پروکسی تلگرام\nبازه‌های IP خلبان • اسکن IP خلبان', textAlign: TextAlign.right, style: TextStyle(fontSize: 12, color: Color(0xFF9EADBF))))]),
+      ]),
+    ),
+  );
 
   // اسکن IP بدون تغییر تنظیمات دیگر: در هر دور نت ملی اجرا می‌شود
   Future<void> _natScanOnly() async {
@@ -11622,8 +11935,14 @@ ListTile( // KINGEXTRAS row
     // NNIE-DIAG: کوتاه منتظر تشخیص شبکه می‌مانیم تا اولین دسته‌ی نت ملی آگاه باشد.
     // پروب‌ها موازی‌اند و بیشترشان حداکثر ۳ ثانیه؛ مهلت ۵ ثانیه تا تشخیص وسط کار قطع نشود.
     if (nationalMode && !connected) {
-      await NatNetworkDiagnosis.refresh()
-          .timeout(const Duration(seconds: 5), onTimeout: () => NatNetworkDiagnosis.current);
+      if (localPilotOn) {
+        // Unified Pilot uses only its dedicated probe snapshot here.
+        await PilotNetworkProbe.refresh()
+            .timeout(const Duration(seconds: 5), onTimeout: () => PilotNetworkProbe.current);
+      } else {
+        await NatNetworkDiagnosis.refresh()
+            .timeout(const Duration(seconds: 5), onTimeout: () => NatNetworkDiagnosis.current);
+      }
     }
     await _runBusy(() async {
       if (natForce || _resNext) _resInject(); // NATRESPATCH
@@ -14457,7 +14776,7 @@ ListTile( // KINGEXTRAS row
                                   return;
                                 }
                                 await runTask('بررسی شواهد CI و در صورت نیاز پیشنهاد اصلاح', () async {
-                                  final result = await ai.repairFromFailedCi(
+                                  final result = await ai.repairUntilGreen(
                                     owner: owner.text.trim(),
                                     repository: repository.text.trim(),
                                     pullNumber: number,
@@ -14465,7 +14784,7 @@ ListTile( // KINGEXTRAS row
                                   return const JsonEncoder.withIndent('  ').convert(result);
                                 });
                               },
-                        child: const Text('بررسی CI و اصلاح محدود با ساخت PR'),
+                        child: const Text('چرخه خودکار عیب‌یابی، اصلاح و تکرار تست تا سقف ایمن'),
                       ),
                       const Divider(),
                       const Text('تحقیق از منابع فنی معتبر',
@@ -14936,8 +15255,7 @@ ListTile( // KINGEXTRAS row
           ),
         );
     final rows = <Object>[];
-    rows.add(searchAllRow(() => unawaited(pickEngineThenStart(() => connect())
-        .catchError((e) { logError(e); return false; }))));
+    rows.add(searchAllRow(() => unawaited(startLocalPilot().catchError((e) { logError(e); }))));
     groups.forEach((g, l) {
       if (g == 'p:personal') {
         rows.add(_personalHeader());
@@ -15016,7 +15334,7 @@ ListTile( // KINGEXTRAS row
       child: Scaffold(
       appBar: AppBar(
         title: const Row(mainAxisSize: MainAxisSize.min, children: [
-          Text('VPN', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFD9AE55))),
+          Text('KING AI', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2, color: Color(0xFFD9AE55))),
           SizedBox(width: 8),
           Icon(Icons.workspace_premium, color: Color(0xFFD9AE55), size: 22),
           SizedBox(width: 10),
@@ -15140,246 +15458,55 @@ ListTile( // KINGEXTRAS row
                   : 'مداد جادویی خاموش — عددها دستی می‌مانند');
             },
           ),
-          // refresh = search again and connect. The healthy servers are NOT
-          // deleted: they are only marked "unchecked" and tested first.
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: (busy || connected)
-                ? null
-                : () async {
-                    if (!await pickEngineThenStart(() async {})) return;
-                    for (final g in good) {
-                      g.checkedAt = null;
-                    }
-                    pending = [];
-                    failed.clear();
-                    listTime = null;
-                    viaVpn = true;
-                    portFailRun = 0;
-                    pxTested = 0;
-                    pxOk = 0;
-                    fastDelay = true;
-                    fastTested = 0;
-                    fastOk = 0;
-                    unawaited(connect().catchError((e) => logError(e)));
-                  },
-          ),
         ],
       ),
       bottomNavigationBar: UiNav(items: [
         UiNavItem(Icons.person_outline, 'پروفایل', () => _importDialog()),
         UiNavItem(Icons.settings_outlined, 'تنظیمات', () => _settingsSheet()),
-        UiNavItem(Icons.dns_outlined, 'سرورها', busy ? null : () => _countrySheet()),
       ]),
       body: Column(
         children: [
           Expanded(
             child: ListView.builder(
-              itemCount: rows.length + 1,
+              itemCount: 1,
               itemBuilder: (_, i0) {
                 if (i0 == 0) {
                   return UiKeep(child: Column(children: [
-UiHero(
-            on: connected,
-            busy: busy,
-            label: (connected || wantVpn)
-                    ? 'توقف خلبان هوشمند'
-                    : busy
-                        ? 'لغو عملیات خلبان'
-                        : 'شروع خلبان هوشمند',
-            ping: (connected && current != null && current!.ping != null)
-                ? '${current!.ping}'
-                : '-',
-            speed: (connected && current != null && (current!.speed ?? 0) > 0)
-                ? current!.speed!.toStringAsFixed(1)
-                : '-',
-            // busy while not connected = connecting/searching: cancel at once
-            // (wantVpn is already true during a connect, so this must come first)
-            onTap: (busy && !connected)
-                    ? () { if (localPilotOn) stopLocalPilot(); _cancelNow(); }
-                    : (connected || wantVpn || lastState == 'CONNECTED')
-                    ? () => disconnect()
-                    : () async {
-                          // SINGLE-PILOT: the only primary action owns both network
-                          // strategies. Detection and strategy selection happen inside
-                          // startLocalPilot; no separate national-mode button is exposed.
-                          if (aiSession) stopGrokPilot();
-                          await startLocalPilot();
-                        },
-          ),
+Padding(
+  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+  child: Column(children: const [
+    Text('AUTONOMOUS VPN INTELLIGENCE',
+        textAlign: TextAlign.center,
+        style: TextStyle(fontSize: 10, letterSpacing: 2.0,
+            fontWeight: FontWeight.w700, color: Color(0xFF83DFFF))),
+    SizedBox(height: 3),
+    Text('مغز مرکزی • خلبان هوشمند واحد',
+        textAlign: TextAlign.center,
+        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600,
+            color: Color(0xFFE8EDF7))),
+  ]),
+),
           if (busy)
             LinearProgressIndicator(
                 value: realTotal > 0 && searchSw?.isRunning == true
                     ? (realTested / realTotal).clamp(0.0, 1.0)
                     : null),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 2),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                stat('لیست', '$total'),
-                stat('سالم', '${u.length}'),
-                stat('در صف', '${pending.length}'),
-                stat('دسته', '$batchNo'),
-                stat('تست/ثانیه', rate.toStringAsFixed(1)),
-                stat('موفقیت', '${okPct.toStringAsFixed(1)}%'),
-                stat('بهترین', best),
-              ],
-            ),
-          ),
+          _smartCommandPanel(),
           UiStatus(text: status, on: connected),
-          ValueListenableBuilder<bool>(
-            valueListenable: autoTestRunning,
-            builder: (_, running, __) {
-              if (!running) return const SizedBox.shrink();
-              return Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    ValueListenableBuilder<String>(
-                      valueListenable: autoTestText,
-                      builder: (_, t, __) => Text(
-                        '🧪 $t',
-                        style: const TextStyle(fontSize: 12),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    ValueListenableBuilder<double>(
-                      valueListenable: autoTestProgress,
-                      builder: (_, p, __) => LinearProgressIndicator(value: p),
-                    ),
-                    TextButton(
-                      onPressed: stopAutoTest,
-                      child: const Text('توقف تست خودکار'),
-                    ),
-                  ],
-                ),
-              );
-            },
+          ExpansionTile(
+            leading: const Icon(Icons.folder_open, color: Color(0xFFF0C766)),
+            title: const Text('متفرقه'),
+            children: [
+              ListTile(leading: const Icon(Icons.support_agent), title: const Text('ارتباط با ادمین'), onTap: () => _uiOpenAdmin(context)),
+              ListTile(leading: const Icon(Icons.link), title: const Text('لینک‌های اشتراک کانفیگ'), onTap: () => _userListsDialog(context)),
+              ListTile(leading: const Icon(Icons.add_home_outlined), title: const Text('ساخت سرور شخصی'), onTap: () => _guideSheet()),
+              ListTile(leading: const Icon(Icons.cloud_upload_outlined), title: const Text('ساخت خودکار سرور کلودفلر'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CloudflareAutoDeployPage()))),
+              ListTile(leading: const Icon(Icons.shopping_cart_outlined), title: const Text('خرید سرور شخصی'), onTap: () => serverShopOpen(context)),
+              ListTile(leading: const Icon(Icons.campaign_outlined), title: const Text('کانال‌های تلگرامی'), onTap: () => telegramChannelsOpen(context)),
+              ListTile(leading: const Icon(Icons.favorite_border), title: const Text('حمایت از ما'), onTap: () => donateSheet(context)),
+              ListTile(leading: const Icon(Icons.menu_book_outlined), title: const Text('راهنمای کامل'), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HelpPage()))),
+            ],
           ),
-          _speedPanel(u),
-          aiBar(),
-          // Unified Smart Pilot selects domestic/global strategy internally.
-          Padding( // NATRESPATCH
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
-            child: OutlinedButton.icon(
-              onPressed: _resMenu,
-              icon: const Icon(Icons.folder_special_outlined),
-              label: Text('پوشه‌ی سرورهای سالم (${_resMap.length})'),
-              style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48),
-                  shape: const StadiumBorder()),
-            ),
-          ),
-          UiTools(items: [
-            UiTool(Icons.swap_horiz, 'سرور واسط (نت ملی)', () => showRelayDialog(context)),
-            UiTool(Icons.router, 'بازه‌های IP نت ملی', () => _natRangesDialog(context)),
-            UiTool(Icons.travel_explore_outlined, 'اسکنر DNS', () => dnsxSheet(context)), // DNSSCAN
-            UiTool(Icons.radar, 'اسکن خودکار IP', () => ipAutoSheet(context)), // IPAUTO
-            UiTool(Icons.auto_awesome, 'اسکن خودکار SNI و پورت', () => autoScanSheet(context)), // AUTOSCAN
-            UiTool(Icons.security, sniSpoofAll ? 'جعل SNI: روشن ✓' : 'جعل SNI: خاموش', () { setState(() => sniSpoofAll = !sniSpoofAll); _saveSettings(); _set(sniSpoofAll ? 'جعل SNI روشن شد' : 'جعل SNI خاموش شد'); }),
-            UiTool(Icons.cloud_off_outlined, sniCfOn ? 'جعل SNI کلودفلر: روشن' : 'جعل SNI کلودفلر: خاموش', () { setState(() => sniCfOn = !sniCfOn); _saveSettings(); _set(sniCfOn ? 'جعل SNI برای کلودفلر روشن شد' : 'جعل SNI برای کلودفلر خاموش شد'); }),
-            UiTool(Icons.support_agent, 'ارتباط با ادمین', () => _uiOpenAdmin(context)),
-            UiTool(Icons.link, 'لینک‌های اشتراک کانفیگ', () => _userListsDialog(context)),
-            UiTool(Icons.add_home_outlined, 'ساخت سرور شخصی', () => _guideSheet()), // BUILDGUIDE: این کاشی مستقیم راهنما و سایت‌های سرورساز را باز می‌کند، بدون پرسش
-            UiTool(Icons.cloud_upload_outlined, 'ساخت خودکار سرور (کلودفلر)', () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CloudflareAutoDeployPage()))),
-            UiTool(Icons.shopping_cart_outlined, 'خرید سرور شخصی', () => serverShopOpen(context)),
-            UiTool(Icons.campaign_outlined, 'کانال‌های تلگرامی', () => telegramChannelsOpen(context)),
-            UiTool(Icons.cleaning_services_outlined, 'IP تمیز', () => cleanIpDialog()),
-            UiTool(Icons.send_outlined, 'پروکسی تلگرام', () => showModalBottomSheet(
-                context: context,
-                isScrollControlled: true,
-                builder: (_) => SafeArea(
-                    child: SingleChildScrollView(child: tgProxyRow(context))))),
-            UiTool(Icons.push_pin_outlined, 'کانفیگ‌های من', () => pickEngineThenStart(() => connectRow('f:mine'), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
-            UiTool(Icons.auto_awesome, 'سرورهای AI', () async {
-              await pickEngineThenStart(() => connectRow('r:ai'));
-            }),
-            UiTool(Icons.pin_outlined, 'اتصال با IP', () => pickEngineThenStart(() => connectRow('r:ip'), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
-            UiTool(Icons.cloud_outlined, 'CDN / کلودفلر', () => pickEngineThenStart(() => connectRow('r:cdn'), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
-            UiTool(Icons.shield_outlined, 'Reality', () => pickEngineThenStart(() => connectRow('r:reality'), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
-            UiTool(Icons.power_outlined, 'WebSocket', () => pickEngineThenStart(() => connectRow('r:ws'), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
-            UiTool(Icons.favorite_border, 'حمایت از ما', () => donateSheet(context)),
-            UiTool(Icons.menu_book_outlined, 'راهنما', () => Navigator.push(
-                context, MaterialPageRoute(builder: (_) => const HelpPage()))),
-          ]),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Row(children: [
-              // connection type: VPN (tunnel + key icon) or only a local proxy
-              Padding(
-                padding: const EdgeInsets.only(left: 6),
-                child: ActionChip(
-                  label: Text(proxyMode ? '🧩 حالت: پروکسی' : '🔐 حالت: VPN'),
-                  onPressed: busy
-                      ? null
-                      : () {
-                          setState(() => proxyMode = !proxyMode);
-                          unawaited(_saveSettings().catchError((e) => logError(e)));
-                          if (connected) {
-                            _restartTunnel();
-                          } else {
-                            _set(proxyMode
-                                ? 'حالت پروکسی: بعد از اتصال، SOCKS روی 127.0.0.1:10808 و HTTP روی 127.0.0.1:10809 است'
-                                : 'حالت VPN');
-                          }
-                        },
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(left: 6),
-                child: ActionChip(
-                  label: Text(selCountry == null
-                      ? '🌍 کشور'
-                      : '${flagOf(selCountry!)} ${countryFa[selCountry] ?? selCountry}'),
-                  onPressed: busy ? null : _countrySheet,
-                ),
-              ),
-              for (final pr in ['all', 'vmess', 'vless', 'trojan', 'ss'])
-                Padding(
-                  padding: const EdgeInsets.only(left: 6),
-                  child: ChoiceChip(
-                    label: Text(pr == 'all' ? 'همه' : pr),
-                    selected: pr == 'all' ? protoSel.isEmpty : protoSel.contains(pr),
-                    onSelected: busy
-                        ? null
-                        : (_) => setState(() {
-                              if (pr == 'all') {
-                                protoSel.clear();
-                              } else if (!protoSel.remove(pr)) {
-                                protoSel.add(pr);
-                              }
-                              pending = [];
-                            }),
-                  ),
-                ),
-              Padding(
-                padding: const EdgeInsets.only(left: 6),
-                child: ActionChip(
-                  label: Text(groupMode == 'type'
-                      ? 'نمایش: دسته‌ها'
-                      : groupMode == 'country'
-                          ? 'نمایش: کشورها'
-                          : 'نمایش: منابع'),
-                  onPressed: () => setState(() => groupMode =
-                      groupMode == 'type'
-                          ? 'country'
-                          : groupMode == 'country'
-                              ? 'source'
-                              : 'type'),
-                ),
-              ),
-              ChoiceChip(
-                label: Text(sortSpeed ? 'مرتب: سرعت' : 'مرتب: پینگ'),
-                selected: sortSpeed,
-                onSelected: (v) => setState(() => sortSpeed = v),
-              ),
-            ]),
-          ),
-          
                   ]));
                 }
                 final i = i0 - 1;
@@ -15416,11 +15543,7 @@ UiHero(
                               : 'تست نشده'),
                   trailing: UiMs(standby || isCur ? s.ping : null, isCur),
                   // tapping works even during a search: it interrupts it
-                  onTap: isCur
-                      ? null
-                      : (s.personal
-                          ? () => pickEngineThenStart(() => connectPersonal(), askMode: false) // PERSROW: سرور شخصی از لیست، بدون پرسش
-                          : () => pickEngineThenStart(() => connect(s, gid), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
+                  onTap: null, // All server rows are read-only; connect through the command center.
                   onLongPress: () => _toggleFav(s),
                 ));
               },
@@ -15916,31 +16039,54 @@ class UiHero extends StatelessWidget {
           onTap: onTap,
           child: Stack(alignment: Alignment.center, children: [
             Container(
-              width: 160,
-              height: 160,
+              width: 190,
+              height: 190,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: const Color(0xFF352919),
+                color: const Color(0xFF171B25),
                 border: Border.all(
-                    color: on ? _uiGold : const Color(0x88D9AE55), width: 4),
-                boxShadow: on
-                    ? const [BoxShadow(color: Color(0x77D9AE55), blurRadius: 24)]
-                    : null,
+                    color: on ? _uiGold : const Color(0x887C91B8), width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: on ? const Color(0x8874D9FF) : const Color(0x557C91B8),
+                    blurRadius: on ? 34 : 22,
+                    spreadRadius: on ? 3 : 1,
+                  ),
+                  const BoxShadow(color: Color(0xAA090D16), blurRadius: 18, spreadRadius: 4),
+                ],
               ),
-              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Text(big,
-                    style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: _uiGold)),
-                const SizedBox(height: 6),
-                Text(label, style: const TextStyle(fontSize: 13, color: _uiSub)),
-              ]),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  const Positioned.fill(
+                    child: CustomPaint(painter: KingBrainPainter()),
+                  ),
+                  Positioned(
+                    bottom: 20,
+                    left: 4,
+                    right: 4,
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      Text(big,
+                          style: const TextStyle(
+                              fontSize: 21,
+                              fontWeight: FontWeight.bold,
+                              color: _uiGold,
+                              shadows: [Shadow(color: Color(0xCC000000), blurRadius: 8)])),
+                      const SizedBox(height: 2),
+                      Text(label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 11, color: Colors.white70)),
+                    ]),
+                  ),
+                ],
+              ),
             ),
             if (busy)
               const SizedBox(
-                  width: 160,
-                  height: 160,
+                  width: 190,
+                  height: 190,
                   child: CircularProgressIndicator(
                       strokeWidth: 3, color: _uiGold)),
           ]),
@@ -15961,6 +16107,85 @@ class UiHero extends StatelessWidget {
 
 
 
+
+
+/// Neural brain mark for the single King AI Pilot control.
+class KingBrainPainter extends CustomPainter {
+  const KingBrainPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.scale(size.width / 190, size.height / 190);
+    final glow = Paint()
+      ..color = const Color(0x5574D9FF)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 8
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
+    final line = Paint()
+      ..color = const Color(0xFF83DFFF)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.4
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final faint = Paint()
+      ..color = const Color(0x9974BFE8)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2;
+    final brain = Path()
+      ..moveTo(94, 35)
+      ..cubicTo(80, 21, 62, 29, 61, 45)
+      ..cubicTo(42, 44, 35, 62, 43, 77)
+      ..cubicTo(30, 91, 40, 111, 55, 114)
+      ..cubicTo(53, 132, 69, 142, 83, 134)
+      ..cubicTo(88, 145, 100, 145, 95, 129)
+      ..lineTo(95, 35)
+      ..moveTo(96, 35)
+      ..cubicTo(110, 21, 128, 29, 129, 45)
+      ..cubicTo(148, 44, 155, 62, 147, 77)
+      ..cubicTo(160, 91, 150, 111, 135, 114)
+      ..cubicTo(137, 132, 121, 142, 107, 134)
+      ..cubicTo(102, 145, 90, 145, 95, 129);
+    canvas.drawPath(brain, glow);
+    canvas.drawPath(brain, line);
+    canvas.drawPath(Path()..moveTo(95, 35)..lineTo(95, 130), faint);
+    final folds = <Path>[
+      Path()..moveTo(61, 47)..cubicTo(76, 45, 79, 57, 73, 67)..cubicTo(65, 77, 70, 86, 84, 87),
+      Path()..moveTo(44, 78)..cubicTo(58, 72, 64, 83, 59, 96)..cubicTo(55, 106, 65, 116, 77, 112),
+      Path()..moveTo(129, 47)..cubicTo(114, 45, 111, 57, 117, 67)..cubicTo(125, 77, 120, 86, 106, 87),
+      Path()..moveTo(146, 78)..cubicTo(132, 72, 126, 83, 131, 96)..cubicTo(135, 106, 125, 116, 113, 112),
+    ];
+    for (final path in folds) canvas.drawPath(path, faint);
+    final nodes = <Offset>[
+      const Offset(61, 47), const Offset(73, 67), const Offset(44, 78),
+      const Offset(59, 96), const Offset(77, 112), const Offset(129, 47),
+      const Offset(117, 67), const Offset(146, 78), const Offset(131, 96),
+      const Offset(113, 112), const Offset(95, 35), const Offset(95, 130),
+    ];
+    final nodePaint = Paint()..color = const Color(0xFFFFD778);
+    final nodeGlow = Paint()
+      ..color = const Color(0x6674D9FF)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
+    for (final node in nodes) {
+      canvas.drawCircle(node, 5, nodeGlow);
+      canvas.drawCircle(node, 2.7, nodePaint);
+    }
+    final circuit = Paint()
+      ..color = const Color(0x6674D9FF)
+      ..strokeWidth = 1.2
+      ..style = PaintingStyle.stroke;
+    for (final path in [
+      Path()..moveTo(24, 62)..lineTo(39, 62)..lineTo(48, 72),
+      Path()..moveTo(25, 111)..lineTo(43, 111)..lineTo(54, 105),
+      Path()..moveTo(166, 62)..lineTo(151, 62)..lineTo(142, 72),
+      Path()..moveTo(165, 111)..lineTo(147, 111)..lineTo(136, 105),
+    ]) canvas.drawPath(path, circuit);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant KingBrainPainter oldDelegate) => false;
+}
 
 // RESETALL ================================================================
 extension ResetAllExt on _HomePageState {

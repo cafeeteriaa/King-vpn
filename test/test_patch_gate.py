@@ -25,12 +25,35 @@ class PatchGateTests(unittest.TestCase):
     def test_rejects_protected_android_file(self):
         diff = ('--- a/android/app/src/main/AndroidManifest.xml\n'
                 '+++ b/android/app/src/main/AndroidManifest.xml\n-old\n+new\n')
-        self.assertTrue(any('protected file' in e for e in patch_gate.validate(diff)))
+        errors = patch_gate.validate(diff)
+        self.assertTrue(any('outside allowed source roots' in e for e in errors))
+        self.assertTrue(any('protected file' in e for e in errors))
 
     def test_rejects_native_kotlin_source_without_human_review(self):
         diff = ('--- a/android/app/src/main/kotlin/MainActivity.kt\n'
                 '+++ b/android/app/src/main/kotlin/MainActivity.kt\n-old\n+new\n')
-        self.assertTrue(any('protected file' in e for e in patch_gate.validate(diff)))
+        errors = patch_gate.validate(diff)
+        self.assertTrue(any('outside allowed source roots' in e for e in errors))
+        self.assertTrue(any('protected file' in e for e in errors))
+
+    def test_rejects_root_docs_and_workflow_changes(self):
+        for path in ('README.md', '.github/workflows/build.yml', 'pubspec.yaml'):
+            with self.subTest(path=path):
+                diff = f'--- a/{path}\n+++ b/{path}\n-old\n+new\n'
+                self.assertTrue(any('outside allowed source roots' in e
+                                    for e in patch_gate.validate(diff)))
+
+    def test_accepts_only_the_three_explicit_roots(self):
+        for path in ('lib/a.dart', 'test/a_test.dart', 'tools/a.py'):
+            with self.subTest(path=path):
+                diff = f'--- a/{path}\n+++ b/{path}\n-old\n+new\n'
+                self.assertEqual(patch_gate.validate(diff), [])
+
+    def test_rejects_windows_and_dot_path_variants(self):
+        for path in (r'lib\\..\\secret.dart', 'lib/./secret.dart'):
+            with self.subTest(path=path):
+                diff = f'--- a/{path}\n+++ b/{path}\n-old\n+new\n'
+                self.assertTrue(patch_gate.validate(diff))
 
 
 if __name__ == '__main__':

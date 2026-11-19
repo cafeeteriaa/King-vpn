@@ -1745,53 +1745,6 @@ extension HomeExtras on _HomePageState {
     _set('✅ تنظیمات پیشنهادی دستیار اعمال شد');
   }
 
-  // دکمه‌ی دستیار روی صفحه‌ی اصلی (زیر پنل سرعت)
-  Widget aiBar() => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-        child: Column(
-          children: [
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () async {
-                  if (await confirmHeavyFeature(context, 'دستیارهای AI')) {
-                    this.aiSheet();
-                  }
-                },
-                icon: const Icon(Icons.smart_toy_outlined, size: 18),
-                label: Text(
-                    '🤖 دستیارهای AI (Grok/Claude/ChatGPT/DeepSeek/Gemini'
-                    '${aiLastProvider.isEmpty ? '' : ' · $aiLastProvider'})'),
-              ),
-            ),
-            if (localPilotOn || localPilotText.value.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              ValueListenableBuilder<String>(
-                valueListenable: localPilotText,
-                builder: (_, t, _) => Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1F2328),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFF66512D), width: 1),
-                  ),
-                  child: Text(
-                    t,
-                    style: const TextStyle(
-                      fontSize: 12.5,
-                      height: 1.35,
-                      fontFamily: 'monospace',
-                      color: Color(0xFFF2F0EB),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      );
-
   void aiSheet() {
     final tokenC = TextEditingController();
     final ownerC = TextEditingController(text: 'cafeeteriaa');
@@ -2012,7 +1965,8 @@ extension HomeExtras on _HomePageState {
       final urls = nationalMode ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
       final checks = await Future.wait(urls.map((url) => _siteOpens(url, viaCore: true)
           .timeout(const Duration(seconds: 8), onTimeout: () => false)));
-      out['net'] = checks.any((ok) => ok);
+      // A single reachable site is a weak hint, not a successful tunnel check.
+      out['net'] = checks.where((ok) => ok).length >= 2;
       // Service-specific probes remain informational only; they do not decide
       // whether the tunnel is healthy or trigger an engine switch.
     } catch (e, stk) {
@@ -2240,14 +2194,23 @@ extension HomeExtras on _HomePageState {
     set['fastWorkers'] = fastWorkers;
     set['timeout'] = delayTimeout.inSeconds;
 
-    // بهترین اقدام یادگرفته‌شده برای این اپراتور
-    final opKey = s.operatorKey;
+    // یادگیری فقط از نتیجه‌ی تأییدشده؛ تعداد تلاش‌ها به‌تنهایی «برد» نیست.
+    // Keep operator learning isolated by the active Pilot route class;
+    // a result on international access must not bias domestic-only decisions.
+    final opKey = _pilotExperienceOperatorKey(s.operatorKey);
     String? memoryBest;
     var memoryBestW = 0;
     if (opKey.isNotEmpty) {
       for (final e in _localOpWins.entries) {
-        if (e.key.startsWith('$opKey|') && e.value > memoryBestW) {
-          memoryBestW = e.value;
+        if (!e.key.startsWith('$opKey|')) continue;
+        final losses = _localOpLosses[e.key] ?? 0;
+        final total = e.value + losses;
+        final winRate = total == 0 ? 0.0 : e.value / total;
+        final netWins = e.value - losses;
+        // Do not let a tiny lucky sample dominate the next connection choice.
+        if (total >= 5 && e.value >= 4 && winRate >= 0.75 &&
+            netWins >= 3 && netWins > memoryBestW) {
+          memoryBestW = netWins;
           memoryBest = e.key.split('|').last;
         }
       }
@@ -2275,10 +2238,14 @@ extension HomeExtras on _HomePageState {
     }
 
     if (opKey.isNotEmpty && act != 'none') {
-      final w = _localOpWins['$opKey|$act'] ?? 0;
-      if (w >= 3) {
+      final memoryKey = '$opKey|$act';
+      final wins = _localOpWins[memoryKey] ?? 0;
+      final losses = _localOpLosses[memoryKey] ?? 0;
+      final total = wins + losses;
+      final winRate = total == 0 ? 0.0 : wins / total;
+      if (total >= 5 && wins >= 4 && winRate >= 0.75) {
         conf = min(100, conf + 5);
-        why.writeln('تقویت اطمینان از حافظه: $w برد');
+        why.writeln('تقویت اطمینان از حافظه: $wins برد از $total نتیجه');
       }
     }
 
@@ -2314,6 +2281,110 @@ extension HomeExtras on _HomePageState {
     return best;
   }
 
+  Future<void> _pilotLoadExperience() async {
+    if (_pilotExperienceLoaded) return;
+    _pilotExperienceLoaded = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_pilotExperiencePrefsKey);
+      if (raw == null || raw.isEmpty) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return;
+      Map<String, int> readMap(Object? value) {
+        if (value is! Map) return <String, int>{};
+        return <String, int>{
+          for (final entry in value.entries)
+            if (entry.key is String && entry.value is num)
+              (entry.key as String): (entry.value as num).toInt().clamp(0, 10000).toInt(),
+        };
+      }
+      _localOpWins = readMap(decoded['wins']);
+      _localOpLosses = readMap(decoded['losses']);
+    } catch (e, st) {
+      logError(e, st);
+    }
+  }
+
+  Future<void> _pilotSaveExperience() async {
+    try {
+      // Bound memory size and values; experience is advisory, never authority.
+      Map<String, int> bounded(Map<String, int> source) {
+        final entries = source.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
+        return Map<String, int>.fromEntries(entries.take(100).map(
+          (e) => MapEntry(e.key, e.value.clamp(0, 10000).toInt()),
+        ));
+      }
+      _localOpWins = bounded(_localOpWins);
+      _localOpLosses = bounded(_localOpLosses);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_pilotExperiencePrefsKey, jsonEncode({
+        'version': 1,
+        'wins': _localOpWins,
+        'losses': _localOpLosses,
+      }));
+    } catch (e, st) {
+      logError(e, st);
+    }
+  }
+
+  void _pilotBeginExperience(String operatorKey, String action) {
+    final op = operatorKey.trim();
+    if (op.isEmpty || action.isEmpty) return;
+    _pilotPendingExperienceKey = '$op|$action';
+    _pilotPendingExperienceAt = DateTime.now();
+    _pilotPendingWasConnected = connected;
+    _pilotPendingServerLink = current?.link;
+    _pilotPendingPositiveSamples = 0;
+    _pilotPendingLastPositiveAt = null;
+  }
+
+  Future<void> _pilotReconcileExperience(_LocalNetSnap snap) async {
+    final key = _pilotPendingExperienceKey;
+    final at = _pilotPendingExperienceAt;
+    if (key == null || at == null) return;
+    final now = DateTime.now();
+    final action = key.split('|').last;
+    final elapsed = now.difference(at);
+    // A connected core alone is not success. Require class-appropriate
+    // data-plane/throughput evidence twice, at least 10s apart, after action.
+    final hasData = snap.connected &&
+        (snap.netOk == true || (snap.speedMBs != null && snap.speedMBs! >= 0.25));
+    final transitioned = switch (action) {
+      'connect' => !_pilotPendingWasConnected && snap.connected,
+      'switch_best' => snap.connected && current?.link != null &&
+          current!.link != _pilotPendingServerLink,
+      'soft_recover' => snap.connected,
+      _ => false,
+    };
+    final verified = elapsed >= const Duration(seconds: 10) && hasData && transitioned;
+    if (verified) {
+      final last = _pilotPendingLastPositiveAt;
+      if (last == null || now.difference(last) >= const Duration(seconds: 10)) {
+        _pilotPendingPositiveSamples++;
+        _pilotPendingLastPositiveAt = now;
+      }
+    } else if (!hasData || !transitioned) {
+      _pilotPendingPositiveSamples = 0;
+      _pilotPendingLastPositiveAt = null;
+    }
+    final confirmed = _pilotPendingPositiveSamples >= 2;
+    final expiredFailure = !confirmed && elapsed >= const Duration(minutes: 3);
+    if (!confirmed && !expiredFailure) return;
+    if (confirmed) {
+      _localOpWins[key] = (_localOpWins[key] ?? 0) + 1;
+    } else {
+      _localOpLosses[key] = (_localOpLosses[key] ?? 0) + 1;
+    }
+    _pilotPendingExperienceKey = null;
+    _pilotPendingExperienceAt = null;
+    _pilotPendingWasConnected = false;
+    _pilotPendingServerLink = null;
+    _pilotPendingPositiveSamples = 0;
+    _pilotPendingLastPositiveAt = null;
+    await _pilotSaveExperience();
+  }
+
   Future<void> _localApply(_LocalDecision d) async {
     _localLastAction = d.action;
 
@@ -2337,12 +2408,14 @@ extension HomeExtras on _HomePageState {
     switch (d.action) {
       case 'connect':
         if (!connected && !busy) {
+          _pilotBeginExperience(_pilotExperienceOperatorKey(_localLastOp), 'connect');
           turboSpeed = true;
           _applyTurboLevers();
           await connect();
         }
         break;
       case 'soft_recover':
+        _pilotBeginExperience(_pilotExperienceOperatorKey(_localLastOp), 'soft_recover');
         // بازیابی نرم: فقط توربو همان سرور قبل از تعویض کامل (جدید: بدون نت ملی)
         if (connected && current != null && !busy && !switching) {
           turboSpeed = true;
@@ -2358,11 +2431,7 @@ extension HomeExtras on _HomePageState {
         if (!busy && !switching) {
           final best = _pilotBestStandby();
           if (best != null) {
-            final op = _localLastOp;
-            if (op.isNotEmpty) {
-              final k = '$op|switch_best';
-              _localOpWins[k] = (_localOpWins[k] ?? 0) + 1;
-            }
+            _pilotBeginExperience(_pilotExperienceOperatorKey(_localLastOp), 'switch_best');
             await _swapTo(best);
             _localConnectedSince = DateTime.now();
             _localSlowStreak = 0;
@@ -2461,7 +2530,12 @@ extension HomeExtras on _HomePageState {
     _localAiAdvisorAt = now;
     final evidence = <String, Object?>{
       'networkMode': nationalMode ? 'domestic' : 'global',
-      'networkClass': natNetworkClassLabel(NatNetworkDiagnosis.current),
+      'networkClass': PilotNetworkProbe.current.mode.name,
+      'domesticProbeHealth': PilotNetworkProbe.current.domestic.name,
+      'globalProbeHealth': PilotNetworkProbe.current.global.name,
+      'domesticProbeLatencyMs': PilotNetworkProbe.current.domesticLatencyMs,
+      'globalProbeLatencyMs': PilotNetworkProbe.current.globalLatencyMs,
+      'probeConfidence': PilotNetworkProbe.current.confidence,
       'phase': _localPhase,
       'connected': snap.connected,
       'operator': snap.operatorKey,
@@ -2628,7 +2702,7 @@ extension HomeExtras on _HomePageState {
       }
       // Start optional tuning only after the underlying-link diagnosis has
       // completed, so its probes cannot accidentally run through a new tunnel.
-      if (autoTune && !connected) unawaited(autoTuneNow());
+      // Pilot uses its own evidence gathering and optimizer; generic AutoTune is separate.
 
       // قدرت را هر تیک با شبکه هماهنگ کن (تمام‌اتوماتیک)
       final wantPower = _localAutoPickPower();
@@ -2636,7 +2710,9 @@ extension HomeExtras on _HomePageState {
         _localApplyMaxPowerProfile(power: wantPower);
       }
 
+      await _pilotLoadExperience();
       final snap = await _localGather(probe: true);
+      await _pilotReconcileExperience(snap);
       final baseDecision = _localDecide(snap);
       final decision = await _localAiReview(snap, baseDecision);
 
@@ -2848,65 +2924,55 @@ extension HomeExtras on _HomePageState {
 
   /// تشخیص پیش از اتصال؛ شواهد نامشخص، انتخاب قبلی کاربر را دست‌نخورده می‌گذارد.
   Future<NatNetworkClass> _pilotDetectNetworkMode() async {
-    // NatNetworkDiagnosis probes the underlying link; do not run it through an
-    // already active VPN tunnel and accidentally classify the relay instead.
-    if (connected) return NatNetworkDiagnosis.current;
+    // Dedicated Smart Pilot probes; never consume general scanner results,
+    // user IP ranges, or a probe routed through an active VPN tunnel.
+    if (connected) return NatNetworkClass.unknown;
     try {
       final previousMode = nationalMode;
-      final detected = await NatNetworkDiagnosis.refresh()
-          .timeout(const Duration(seconds: 7), onTimeout: () => NatNetworkDiagnosis.current);
-      final evidence = switch (detected) {
-        NatNetworkClass.globalReachable => const NetworkEvidence(
-            domestic: LinkHealth.unknown,
-            global: LinkHealth.healthy,
-            globalSamples: 4,
-          ),
-        NatNetworkClass.domesticOnlyLikely => const NetworkEvidence(
-            domestic: LinkHealth.healthy,
-            global: LinkHealth.unreachable,
-            domesticSamples: 2,
-            globalSamples: 2,
-          ),
-        NatNetworkClass.dnsDegraded || NatNetworkClass.transportRestricted =>
-          const NetworkEvidence(
-            domestic: LinkHealth.healthy,
-            global: LinkHealth.unreachable,
-            domesticSamples: 2,
-            globalSamples: 2,
-          ),
-        NatNetworkClass.unknown => const NetworkEvidence(
-            domestic: LinkHealth.unknown,
-            global: LinkHealth.unknown,
-          ),
-      };
+      final evidence = await PilotNetworkProbe.refresh()
+          .timeout(const Duration(seconds: 9), onTimeout: () =>
+              const NetworkEvidence(
+                domestic: LinkHealth.unknown,
+                global: LinkHealth.unknown,
+              ));
       final strategy = choosePilotNetworkStrategy(evidence);
       if (strategy == PilotNetworkStrategy.domestic) {
         nationalMode = true;
       } else if (strategy == PilotNetworkStrategy.global) {
         nationalMode = false;
-      } else if (strategy == PilotNetworkStrategy.offline) {
-        localPilotText.value = 'هیچ مسیر قابل‌تأییدی در دسترس نیست؛ اتصال امن متوقف می‌ماند.';
       }
-      // Unknown/partial evidence is not a license to guess. Keep last mode.
+      // Offline/partial evidence preserves the previous strategy.
       natForce = nationalMode;
       userModeChoice = nationalMode;
       if (previousMode != nationalMode) {
         _resetNetworkHealthCounters();
         await ultimateSave();
       }
-      final label = natNetworkClassLabel(detected);
-      final modeLabel = nationalMode ? 'نت ملی' : 'اینترنت جهانی/انتخاب قبلی';
-      localPilotText.value = 'خلبان هوشمند ∞ • تشخیص شبکه: $label\n'
-          'حالت انتخاب‌شده: $modeLabel';
-      return detected;
+      final modeLabel = switch (evidence.mode) {
+        DetectedNetworkMode.domesticOnly => 'فقط مسیر داخلی تأیید شد',
+        DetectedNetworkMode.globalOnly => 'مسیر جهانی تأیید شد',
+        DetectedNetworkMode.dualStack => 'مسیر داخلی و جهانی هر دو در دسترس‌اند',
+        DetectedNetworkMode.offline => 'هیچ مسیر آزمایشی پاسخ نداد',
+        DetectedNetworkMode.unknown => 'شواهد کافی نیست؛ حالت قبلی حفظ شد',
+      };
+      final strategyLabel = nationalMode ? 'نت ملی' : 'جهانی/حالت قبلی';
+      localPilotText.value = 'خلبان هوشمند ∞ • اسکن اختصاصی شبکه\n'
+          '$modeLabel\nراهبرد: $strategyLabel • '
+          'شواهد: داخلی ${evidence.domesticSamples} / جهانی ${evidence.globalSamples}';
+      return switch (evidence.mode) {
+        DetectedNetworkMode.domesticOnly => NatNetworkClass.domesticOnlyLikely,
+        DetectedNetworkMode.globalOnly ||
+        DetectedNetworkMode.dualStack => NatNetworkClass.globalReachable,
+        DetectedNetworkMode.offline => NatNetworkClass.transportRestricted,
+        DetectedNetworkMode.unknown => NatNetworkClass.unknown,
+      };
     } catch (e, st) {
       logError(e, st);
-      localPilotText.value = 'تشخیص شبکه ناموفق بود؛ حالت قبلی حفظ شد.';
+      localPilotText.value = 'اسکن اختصاصی خلبان ناموفق بود؛ حالت قبلی حفظ شد.';
       return NatNetworkClass.unknown;
     }
   }
 
-  /// فعال‌سازی خلبان بدون حلقهٔ اتصال (برای وقتی کاربر فقط «اتصال» زده)
   void ensureLocalPilotRunning() {
     if (aiSession) stopGrokPilot();
     final wasOff = !localPilotOn;
@@ -3816,7 +3882,18 @@ int _localSvcFail = 0; // consecutive active-network data-plane probe failures
 int _localNetFail = 0;
 
 // حافظه یادگیری محلی: اپراتور → آخرین اقدام موفق / امتیاز
-final Map<String, int> _localOpWins = {}; // action hash → win count
+Map<String, int> _localOpWins = {}; // confirmed successes by operator/action
+Map<String, int> _localOpLosses = {}; // confirmed failures by operator/action
+const String _pilotExperiencePrefsKey = 'king_pilot_experience_v1';
+bool _pilotExperienceLoaded = false;
+String _pilotExperienceOperatorKey(String operator) =>
+    'v2|${operator.trim().isEmpty ? 'unknown' : operator.trim()}|${nationalMode ? 'domestic' : 'global'}';
+String? _pilotPendingExperienceKey;
+bool _pilotPendingWasConnected = false;
+String? _pilotPendingServerLink;
+int _pilotPendingPositiveSamples = 0;
+DateTime? _pilotPendingLastPositiveAt;
+DateTime? _pilotPendingExperienceAt;
 final Map<String, int> _localOpFails = {};
 
 // ماشین‌حالت
@@ -3901,3 +3978,6 @@ class _LocalDecision {
   _LocalDecision(this.action, this.settings, this.explain,
       {this.confidence = 70});
 }
+
+// Local-first command field: commands stay on-device and are routed to the
+// app's Smart Pilot. No external AI key or network request is required.
