@@ -966,5 +966,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_pilotNetworkModePinned = false;', pilot[stop:stop + 220])
 
 
+    def test_national_pilot_uses_per_server_verified_learning(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        self.assertIn('void _nnieBeginAttempt(Server server)', main)
+        self.assertIn('int? _nnieFinishAttempt(Server server)', main)
+        self.assertIn('elapsedMs: nnieElapsedMs ?? max(0, s.ping ?? 0)', main)
+        self.assertIn('final failedElapsedMs = _nnieFinishAttempt(s) ?? 0;', main)
+        self.assertNotIn('_nnieTapAt', main)
+        self.assertIn('await NationalNetworkIntelligence.load();', pilot)
+        self.assertIn('NationalNetworkIntelligence.scoreFor(', pilot)
+        standby_start = pilot.index('Server? _pilotBestStandby()')
+        standby_end = pilot.index('Future<void> _pilotLoadExperience()', standby_start)
+        self.assertIn('if (nationalMode)', pilot[standby_start:standby_end])
+
+
 if __name__ == '__main__':
     unittest.main()
