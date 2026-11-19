@@ -33,7 +33,7 @@ Duration kingAiCiRepairBackoff(
   if (completedAttempts <= 0 || base <= Duration.zero || maximum <= Duration.zero) {
     return Duration.zero;
   }
-  final exponent = completedAttempts.clamp(0, 10);
+  final exponent = completedAttempts.clamp(0, 10).toInt();
   final multiplier = 1 << exponent;
   final candidate = base * multiplier;
   return candidate > maximum ? maximum : candidate;
