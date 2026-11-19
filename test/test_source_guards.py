@@ -295,13 +295,25 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_smart_command_respects_negated_connect_and_scan_intents(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
-        self.assertIn('final negatesConnection = RegExp(', main)
+        self.assertIn('KingCommandSafety.negatesConnection(command)', main)
         self.assertIn('!negatesConnection;', main)
-        self.assertIn('final negatesScan = RegExp(', main)
+        self.assertIn('KingCommandSafety.negatesScan(command)', main)
         self.assertIn("!negatesScan && command.contains('اسکن')", main)
         self.assertIn("!negatesScan && (command.contains('اسکنر dns')", main)
         self.assertIn("!negatesScan && (command.contains('اسکن ip')", main)
         self.assertIn("!negatesScan && (command.contains('اسکن sni')", main)
+
+    def test_command_safety_helper_is_used_and_has_dart_unit_coverage(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        helper = (ROOT / 'lib' / 'king_command_safety.dart').read_text(encoding='utf-8')
+        tests = (ROOT / 'test' / 'king_command_safety_test.dart').read_text(encoding='utf-8')
+        self.assertIn("import 'king_command_safety.dart';", main)
+        self.assertIn('KingCommandSafety.negatesConnection(command)', main)
+        self.assertIn('KingCommandSafety.negatesScan(command)', main)
+        self.assertIn('static bool negatesConnection(String command)', helper)
+        self.assertIn('static bool negatesScan(String command)', helper)
+        self.assertIn("test('negative connect commands are blocked'", tests)
+        self.assertIn("test('negative scan commands are blocked'", tests)
 
     def test_background_supervisor_is_initialized_with_its_own_dispatcher(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
