@@ -26,6 +26,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         create_end = ai.index('Future<Map<String, Object?>> createOwnerFeatureProposal({', create_start)
         self.assertIn('await _requireRepositoryOwnerIdentity(owner);', ai[create_start:create_end])
 
+    def test_ordinary_king_chat_cannot_enter_the_coding_prompt(self):
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        ask_start = ai.index('Future<String> ask(String prompt')
+        coding_start = ai.index('Future<String> _askCoding(', ask_start)
+        public_ask = ai[ask_start:coding_start]
+        self.assertIn('_looksLikeCodeGenerationRequest(prompt)', public_ask)
+        self.assertIn('_assistantSystemPrompt', public_ask)
+        self.assertNotIn('_systemPrompt', public_ask)
+        self.assertIn('کدنویسی کن', ai[ai.index('bool _looksLikeCodeGenerationRequest'):ask_start])
+        self.assertIn('add feature', ai[ai.index('bool _looksLikeCodeGenerationRequest'):ask_start])
+        proposal_start = ai.index('Future<Map<String, Object?>> _proposeRepair({')
+        proposal_end = ai.index('Future<Map<String, Object?>> repairFromFailedCi({', proposal_start)
+        self.assertIn('await _askCoding(', ai[proposal_start:proposal_end])
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        self.assertIn('return KingLocalAi.instance.ask(prompt);', extras)
+
     def test_generated_patches_cannot_modify_security_and_command_policy_files(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
         start = ai.index('void _validatePath(String path)')
