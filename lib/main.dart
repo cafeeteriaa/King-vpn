@@ -10722,8 +10722,8 @@ ListTile( // KINGEXTRAS row
   }
 
   Future<void> _pilotScanOnly() async {
-    if (_pilotRangeBusy || abort || !localPilotOn) {
-      _set('برای اجرای اسکنر اختصاصی، ابتدا خلبان را فعال کن.');
+    if (_pilotRangeBusy || abort) {
+      _set('اسکنر مستقل خلبان آماده اجراست؛ ابتدا بازه‌های اختصاصی را تعریف کن.');
       return;
     }
     final prefs = await SharedPreferences.getInstance();
@@ -10734,7 +10734,7 @@ ListTile( // KINGEXTRAS row
     final alive = <String>[];
     try {
       for (var i = 0; i < targets.length; i += 12) {
-        if (abort || !localPilotOn) break;
+        if (abort) break;
         final batch = targets.skip(i).take(12).toList();
         final result = await Future.wait(batch.map((host) async {
           Socket? socket;
@@ -15454,7 +15454,7 @@ ListTile( // KINGEXTRAS row
         children: [
           Expanded(
             child: ListView.builder(
-              itemCount: rows.length + 1,
+              itemCount: 1,
               itemBuilder: (_, i0) {
                 if (i0 == 0) {
                   return UiKeep(child: Column(children: [
@@ -15472,113 +15472,13 @@ Padding(
             color: Color(0xFFE8EDF7))),
   ]),
 ),
-UiHero(
-            on: connected,
-            busy: busy,
-            label: connected
-                    ? 'اتصال فعال • برای قطع، دستور بنویسید'
-                    : busy
-                        ? 'در حال اجرای دستور'
-                        : 'برای اتصال، دستور خود را بنویسید',
-            ping: (connected && current != null && current!.ping != null)
-                ? '${current!.ping}'
-                : '-',
-            speed: (connected && current != null && (current!.speed ?? 0) > 0)
-                ? current!.speed!.toStringAsFixed(1)
-                : '-',
-            // busy while not connected = connecting/searching: cancel at once
-            // (wantVpn is already true during a connect, so this must come first)
-            onTap: null,
-          ),
           if (busy)
             LinearProgressIndicator(
                 value: realTotal > 0 && searchSw?.isRunning == true
                     ? (realTested / realTotal).clamp(0.0, 1.0)
                     : null),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 2),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                stat('لیست', '$total'),
-                stat('سالم', '${u.length}'),
-                stat('در صف', '${pending.length}'),
-                stat('دسته', '$batchNo'),
-                stat('تست/ثانیه', rate.toStringAsFixed(1)),
-                stat('موفقیت', '${okPct.toStringAsFixed(1)}%'),
-                stat('بهترین', best),
-              ],
-            ),
-          ),
           _smartCommandPanel(),
           UiStatus(text: status, on: connected),
-          ValueListenableBuilder<String>(
-            valueListenable: localPilotText,
-            builder: (_, text, __) => Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF151D2A),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0x5574D9FF)),
-                ),
-                child: Row(children: [
-                  const Icon(Icons.psychology_alt, color: Color(0xFF83DFFF), size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(text,
-                    maxLines: 3, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11, color: Color(0xFFD9E6F4)))),
-                ]),
-              ),
-            ),
-          ),
-          ValueListenableBuilder<bool>(
-            valueListenable: autoTestRunning,
-            builder: (_, running, __) {
-              if (!running) return const SizedBox.shrink();
-              return Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    ValueListenableBuilder<String>(
-                      valueListenable: autoTestText,
-                      builder: (_, t, __) => Text(
-                        '🧪 $t',
-                        style: const TextStyle(fontSize: 12),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    ValueListenableBuilder<double>(
-                      valueListenable: autoTestProgress,
-                      builder: (_, p, __) => LinearProgressIndicator(value: p),
-                    ),
-                    TextButton(
-                      onPressed: stopAutoTest,
-                      child: const Text('توقف تست خودکار'),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-          _speedPanel(u),
-          aiBar(),
-          // Unified Smart Pilot selects domestic/global strategy internally.
-          Padding( // NATRESPATCH
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
-            child: OutlinedButton.icon(
-              onPressed: _resMenu,
-              icon: const Icon(Icons.folder_special_outlined),
-              label: Text('پوشه‌ی سرورهای سالم (${_resMap.length})'),
-              style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48),
-                  shape: const StadiumBorder()),
-            ),
-          ),
           ExpansionTile(
             leading: const Icon(Icons.folder_open, color: Color(0xFFF0C766)),
             title: const Text('متفرقه'),
@@ -15593,54 +15493,6 @@ UiHero(
               ListTile(leading: const Icon(Icons.menu_book_outlined), title: const Text('راهنمای کامل'), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HelpPage()))),
             ],
           ),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Row(children: [
-              // connection type: VPN (tunnel + key icon) or only a local proxy
-              Padding(
-                padding: const EdgeInsets.only(left: 6),
-                child: ActionChip(
-                  label: Text(proxyMode ? '🧩 حالت: پروکسی' : '🔐 حالت: VPN'),
-                  onPressed: busy
-                      ? null
-                      : () {
-                          setState(() => proxyMode = !proxyMode);
-                          unawaited(_saveSettings().catchError((e) => logError(e)));
-                          if (connected) {
-                            _restartTunnel();
-                          } else {
-                            _set(proxyMode
-                                ? 'حالت پروکسی: بعد از اتصال، SOCKS روی 127.0.0.1:10808 و HTTP روی 127.0.0.1:10809 است'
-                                : 'حالت VPN');
-                          }
-                        },
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(left: 6),
-                child: ActionChip(
-                  label: Text(groupMode == 'type'
-                      ? 'نمایش: دسته‌ها'
-                      : groupMode == 'country'
-                          ? 'نمایش: کشورها'
-                          : 'نمایش: منابع'),
-                  onPressed: () => setState(() => groupMode =
-                      groupMode == 'type'
-                          ? 'country'
-                          : groupMode == 'country'
-                              ? 'source'
-                              : 'type'),
-                ),
-              ),
-              ChoiceChip(
-                label: Text(sortSpeed ? 'مرتب: سرعت' : 'مرتب: پینگ'),
-                selected: sortSpeed,
-                onSelected: (v) => setState(() => sortSpeed = v),
-              ),
-            ]),
-          ),
-          
                   ]));
                 }
                 final i = i0 - 1;
