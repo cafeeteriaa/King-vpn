@@ -749,7 +749,39 @@ empty changes list and explain what is missing.
       return {'status': 'insufficient_source_context', 'report': report};
     }
 
-    final proposal = await proposeRepair(task: task, sourceFiles: context);
+    // Research only short, redacted failure hints. Fetched pages are
+    // allowlisted official documentation and remain untrusted model context.
+    final researchHints = <String>[];
+    for (final item in (report['failures'] as List? ?? const []).whereType<Map>().take(3)) {
+      for (final keyName in ['name', 'workflow', 'job', 'summary']) {
+        final value = item[keyName]?.toString().trim() ?? '';
+        if (value.isNotEmpty) researchHints.add(value);
+      }
+      final steps = item['failedSteps'];
+      if (steps is List) {
+        researchHints.addAll(steps.take(5).map((step) => step.toString()));
+      }
+    }
+    final researchQuery = redactKingAiCiEvidence(
+      researchHints.join(' '),
+      maxChars: 280,
+    ).replaceAll(RegExp(r'[^a-zA-Z0-9_ .:+/-]'), ' ').trim();
+    var researchNotes = <Map<String, String>>[];
+    if (researchQuery.length >= 8) {
+      try {
+        researchNotes = await researchGoogle(
+          'Flutter Dart Android build error $researchQuery',
+          maxResults: 2,
+        ).timeout(const Duration(seconds: 35));
+      } catch (_) {
+        // Research is an optional evidence source; CI evidence remains primary.
+      }
+    }
+    final proposal = await proposeRepair(
+      task: task,
+      sourceFiles: context,
+      researchNotes: researchNotes,
+    );
     final changes = proposal['changes'] as Map<String, String>;
     if (changes.isEmpty) {
       return {
