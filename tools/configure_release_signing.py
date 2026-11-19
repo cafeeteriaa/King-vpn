@@ -10,12 +10,13 @@ import pathlib
 import sys
 
 
-KTS_SNIPPET = r'''
+KTS_IMPORTS = """import java.io.FileInputStream
+import java.util.Properties
+"""
+
+KTS_TAIL = r'''
 // King VPN production signing. key.properties and the keystore are supplied
 // only by the protected GitHub release workflow, never committed to source.
-import java.io.FileInputStream
-import java.util.Properties
-
 val kingReleaseProperties = Properties()
 val kingReleasePropertiesFile = rootProject.file("key.properties")
 if (!kingReleasePropertiesFile.exists()) {
@@ -75,7 +76,10 @@ def configure(path: pathlib.Path) -> None:
     if "kingReleaseProperties" in source or "kingReleasePropertiesFile" in source:
         raise SystemExit("Release signing block already exists; refusing duplicate injection")
     if path.name.endswith(".kts"):
-        updated = KTS_SNIPPET + "\n" + source
+        if not source.lstrip().startswith("plugins {"):
+            raise SystemExit("Unexpected Kotlin Gradle template; refusing unsafe signing injection")
+        updated = KTS_IMPORTS + source + "
+" + KTS_TAIL
     elif path.name == "build.gradle":
         updated = source + "\n" + GROOVY_SNIPPET
     else:
