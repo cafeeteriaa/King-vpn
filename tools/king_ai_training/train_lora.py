@@ -82,7 +82,7 @@ def main() -> int:
     metrics = trainer.evaluate()
     report = {
         "status": "candidate_trained",
-        "base_model": str(args.base_model),
+        "base_model": str(base_path),
         "eval_metrics": {key: float(value) for key, value in metrics.items()
                          if isinstance(value, (int, float))},
         "deployment_authorized": False,
