@@ -7,7 +7,7 @@ part of 'main.dart';
 /// Bounded, privacy-preserving history. Only a SHA-256 key is persisted, never
 /// the raw V2Ray link, UUID, password, server name, or full endpoint string.
 class NationalNetworkIntelligence {
-  static const String _prefsKey = 'nnie_profiles_v2'; // v2: key includes transport + TLS
+  static const String _prefsKey = 'nnie_profiles_national_v3'; // old v2 also contained global-mode failures; isolate national learning
   static const int _maxEntries = 500;
   static Map<String, NatEndpointMemory> _memory = <String, NatEndpointMemory>{};
   static bool _loaded = false;

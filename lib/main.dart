@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'network_health.dart';
 import 'king_local_ai.dart';
+import 'king_ai_console.dart';
+import 'king_ai_background.dart';
 import 'package:local_inference_flutter/local_inference_flutter.dart';
 import 'update_integrity.dart';
 import 'errjournal.dart';
@@ -21,7 +23,6 @@ import 'prefs_store.dart';
 import 'online_count.dart'; // ONLINECOUNT: شمارش کاربران آنلاین
 import 'nnie_core.dart'; // NNIE: کد خالص و قابل تست
 import 'own_vpn.dart'; // KINGVPN: سرویس VPN خودمان (پیش‌فرض خاموش)
-import 'package:workmanager/workmanager.dart';
 import 'package:crypto/crypto.dart'; // فیکس ۱: sha256 برای APK آپدیت
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // فیکس ۲: کلیدهای AI
 import 'package:webview_flutter/webview_flutter.dart';
@@ -2935,6 +2936,7 @@ Future<void> main() async {
     logError(e, st);
   }
   Future.delayed(const Duration(seconds: 5), () => unawaited(hotAutoStart()));
+  await initBackground();
   runZonedGuarded(() {
     FlutterError.onError = (d) => logError(d.exception);
     // خطاهای async که هیچ‌جا گرفته نشده‌اند هم ثبت شوند
@@ -2954,22 +2956,18 @@ Future<void> main() async {
       home:
           Directionality(textDirection: TextDirection.rtl, child: HomePage()),
     ));
-    initBackground();
   }, (e, st) => logError(e));
 }
 
-// The old 15-minute background scan is gone: while the VPN is off nothing
-// runs and no data is used. The dispatcher stays only so Workmanager can be
-// initialised and the periodic task of old installs can be cancelled.
+// Background AI repair is opt-in and runs only when the user enables it.
 @pragma('vm:entry-point')
-void callbackDispatcher() {
-  Workmanager().executeTask((task, input) async => true);
-}
+void callbackDispatcher() => kingAiBackgroundDispatcher();
 
 Future<void> initBackground() async {
   try {
-    await Workmanager().initialize(callbackDispatcher);
-    await Workmanager().cancelAll();
+    await KingAiBackgroundSupervisor.initialize();
+    // Do not cancel all jobs on app startup: that silently disabled the
+    // user's explicit background repair opt-in on every launch.
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -6384,7 +6382,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _screenWasOn = false;
   String _restoredRow = ''; // KEEPALL
   List<Server> _restoredGood = <Server>[]; // KEEPALL
-  DateTime? _nnieTapAt; // شروع واقعی اتصال (بعد از تبلیغ و مجوز) برای زمان‌سنجی NNIE
+  final Map<String, DateTime> _nnieStartByServer = <String, DateTime>{}; // زمان شروع هر تلاش واقعی و مختص همان سرور
   /// PERSKEEP: لیست سرورهای شخصی روی صفحه بعد از بستن و باز کردن برنامه می‌ماند
   /// و فقط با قطع اتصال پاک می‌شود. سرورهای سالم دیگر روی صفحه بازیابی نمی‌شوند.
   Future<void> _persistScreenLists() async {
@@ -8207,6 +8205,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // فرصت پایان دارند. تست‌های بی‌صدا (proxyOnly) و حالت پروکسی بدون تغییر می‌مانند.
     final realVpn = !proxyOnly && !proxyMode && wantVpn;
     var ok = false;
+    if (realVpn) {
+      final now = DateTime.now();
+      _nnieStartByServer.removeWhere((_, started) =>
+          now.difference(started) > const Duration(minutes: 10));
+      if (_nnieStartByServer.length >= 64) {
+        _nnieStartByServer.remove(_nnieStartByServer.keys.first);
+      }
+      _nnieStartByServer[s.key] = now;
+    }
     try {
       if (realVpn) {
         await _delayGate.pauseAndDrain(const Duration(seconds: 4));
@@ -8221,6 +8228,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         zeroTrafficRun[s.key] = (zeroTrafficRun[s.key] ?? 0) + 1;
       }
       _inflightEnd(s.key, ok);
+      if (realVpn && !ok) _nnieStartByServer.remove(s.key);
     }
   }
 
@@ -8685,14 +8693,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   void _onConnected(Server s) {
     // NNIE: هر اتصال، شروع خودش را دارد؛ شروع قدیمی هرگز برای اتصال بعدی استفاده نشود
-    final nnieTap = _nnieTapAt;
-    _nnieTapAt = null;
+    final nnieStartAt = _nnieStartByServer.remove(s.key);
     if (_listPartial) unawaited(_fetchFullListBg());
-    // IP کارا به حافظه (هم در نت جهانی و هم در نت ملی؛ دفعه‌ی بعد اول از همین‌ها استفاده می‌شود)
-    if (InternetAddress.tryParse(s.host) != null) {
-      unawaited(natIpMemSave(s.host, s.port));
-    } else if (nationalMode) {
-      unawaited(natDomMemSave(s.host, s.port)); // NATDOM: دامنه‌ی موفق در نت ملی
+    // Only verified national-mode VPN successes enter the national IP/domain memory.
+    // Global successes belong to the global folder and must never pollute NNIE pools.
+    if (nationalMode && !proxyMode) {
+      if (InternetAddress.tryParse(s.host) != null) {
+        unawaited(natIpMemSave(s.host, s.port));
+      } else {
+        unawaited(natDomMemSave(s.host, s.port));
+      }
     }
     s.miss = 0; // BADCFG: only an end-to-end connection resets health
     softFailN.remove(s.key);
@@ -8706,7 +8716,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _aiLoop(aiGen);
     // the personal server has its own row, it never joins the healthy list
     if (!s.personal && !good.contains(s)) good.add(s);
-    if (nationalMode && !s.personal) unawaited(_natAdd(s));
+    if (nationalMode && !proxyMode && !s.personal) unawaited(_natAdd(s));
     // HEALTHY-STORE: every genuinely connected non-personal server is saved,
     // regardless of discovery source or mode. Reads/injection remain NAT-only.
     if (!s.personal) _resAdd(s);
@@ -8734,15 +8744,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // remembered so the app can pick the tunnel up again after being closed
     SharedPreferences.getInstance()
         .then((p) => p.setString('last_conn', s.link));
-    if (nationalMode) {
+    if (nationalMode && !proxyMode) {
       unawaited(natRememberSuccess(s)); // NATMEM
       // NNIE: فقط این مسیر پس از تأیید end-to-end موفقیت سرور را ثبت می‌کند.
       final nnieKey = NationalNetworkIntelligence.keyOfServer(s);
-      // زمان واقعی از شروع اتصال تا CONNECTED (شامل همه‌ی سرورهای امتحان‌شده).
-      // اگر شروع ثبت نشده یا خیلی قدیمی است (اتصال خودکار)، به RTT قبلی برمی‌گردیم.
-      final tapOk = nnieTap != null &&
-          DateTime.now().difference(nnieTap) < const Duration(minutes: 10);
-      final realMs = tapOk ? DateTime.now().difference(nnieTap).inMilliseconds : -1;
+      // Measure this exact server attempt, not the whole user tap (which may
+      // include many failed servers and would poison the learned latency).
+      final attemptOk = nnieStartAt != null &&
+          DateTime.now().difference(nnieStartAt) < const Duration(minutes: 10);
+      final realMs = attemptOk
+          ? DateTime.now().difference(nnieStartAt).inMilliseconds
+          : -1;
       unawaited(NationalNetworkIntelligence.record(
         endpointKey: nnieKey,
         success: true,
@@ -8832,13 +8844,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     direct: true, networkAware: true) != null;
         if (!accepted) {
           dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» ترافیک تونل نداد؛ حالت بعدی');
-          // NNIE: فقط شکستی که به سرور/حالت مربوط است ثبت می‌شود (نه permission و نه DNS)
-          unawaited(NationalNetworkIntelligence.record(
-            endpointKey: NationalNetworkIntelligence.keyOfServer(s),
-            success: false,
-            elapsedMs: 0,
-            stableForFiveMinutes: false,
-          ));
+          // NNIE: only national VPN variant failures update national memory.
+          if (nationalMode && !proxyMode) {
+            unawaited(NationalNetworkIntelligence.record(
+              endpointKey: NationalNetworkIntelligence.keyOfServer(s),
+              success: false,
+              elapsedMs: 0,
+              stableForFiveMinutes: false,
+            ));
+          }
           await _stopV2();
           continue;
         }
@@ -11569,7 +11583,6 @@ ListTile( // KINGEXTRAS row
     // set AFTER _haltAll: stopping the search sets abort, and the background
     // watcher then resets wantVpn when abort is set in manual mode
     wantVpn = true;
-    _nnieTapAt = DateTime.now();
     // NNIE-DIAG: کوتاه منتظر تشخیص شبکه می‌مانیم تا اولین دسته‌ی نت ملی آگاه باشد.
     // پروب‌ها موازی‌اند و بیشترشان حداکثر ۳ ثانیه؛ مهلت ۵ ثانیه تا تشخیص وسط کار قطع نشود.
     if (nationalMode && !connected) {
@@ -14741,6 +14754,11 @@ ListTile( // KINGEXTRAS row
           PopupMenuButton<String>(
             onSelected: (v) {
               if (v == 'set') _settingsSheet();
+              if (v == 'kingai') {
+                Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const KingAiConsolePage(),
+                ));
+              }
               if (v == 'apps') _appsSheet();
               if (v == 'add') _importDialog();
               if (v == 'cleanip') cleanIpDialog();
@@ -14775,6 +14793,7 @@ ListTile( // KINGEXTRAS row
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'apps', child: Text('برنامه‌های خارج از VPN')),
               PopupMenuItem(value: 'set', child: Text('تنظیمات تست')),
+              PopupMenuItem(value: 'kingai', child: Text('🤖 کنسول هوش مصنوعی King')),
               PopupMenuItem(value: 'add', child: Text('افزودن کانفیگ')),
               PopupMenuItem(value: 'cleanip', child: Text('IP تمیز')),
               PopupMenuItem(value: 'npvadv', child: Text('تنظیمات پیشرفته V2Ray')),

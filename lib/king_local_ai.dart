@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:local_inference_flutter/local_inference_flutter.dart';
@@ -61,6 +63,84 @@ empty changes list and explain what is missing.
   Future<void> clearGitHubToken() =>
       _secure.delete(key: 'king_ai_github_token');
 
+  Future<void> setBackgroundRepairPullNumber(int pullNumber) async {
+    if (pullNumber < 1) throw ArgumentError.value(pullNumber, 'pullNumber');
+    await _secure.write(
+      key: 'king_ai_background_pull_number',
+      value: pullNumber.toString(),
+    );
+  }
+
+  Future<int?> getBackgroundRepairPullNumber() async {
+    final raw = await _secure.read(key: 'king_ai_background_pull_number');
+    final parsed = raw == null ? null : int.tryParse(raw);
+    return parsed != null && parsed > 0 ? parsed : null;
+  }
+
+  Future<void> clearBackgroundRepairPullNumber() =>
+      _secure.delete(key: 'king_ai_background_pull_number');
+
+  Future<void> setBackgroundAutoDiscovery(bool enabled) async {
+    if (enabled) {
+      await _secure.write(key: 'king_ai_background_auto_discovery', value: 'true');
+    } else {
+      await _secure.delete(key: 'king_ai_background_auto_discovery');
+    }
+  }
+
+  Future<bool> isBackgroundAutoDiscoveryEnabled() async =>
+      (await _secure.read(key: 'king_ai_background_auto_discovery')) == 'true';
+
+  /// Loads only a model previously downloaded and verified in the foreground.
+  /// A background worker must never start a 1.1 GB model download unexpectedly.
+  Future<bool> loadInstalledModelForBackground() async {
+    if (_engine != null) return true;
+    if (_busy) throw StateError('Local AI is already busy');
+    final root = await getApplicationSupportDirectory();
+    final marker = File('${root.path}/king_ai_model_ready.json');
+    if (!await marker.exists()) return false;
+    final decoded = jsonDecode(await marker.readAsString());
+    if (decoded is! Map ||
+        decoded['sha256'] != modelSha256 ||
+        decoded['sizeBytes'] != modelSizeBytes ||
+        decoded['path'] is! String) {
+      return false;
+    }
+    final modelFile = File(decoded['path'] as String);
+    if (!await modelFile.exists() ||
+        await modelFile.length() != modelSizeBytes) {
+      return false;
+    }
+    // A marker is metadata, not proof that the 1.1 GB model is still intact.
+    // Re-resolve the path inside app-private storage and verify the actual
+    // bytes before loading a background model after a reboot or file change.
+    final supportPath = await root.resolveSymbolicLinks();
+    final modelPath = await modelFile.resolveSymbolicLinks();
+    if (!modelPath.startsWith('${supportPath}${Platform.pathSeparator}')) {
+      return false;
+    }
+    final actualDigest = await sha256.bind(modelFile.openRead()).first;
+    if (actualDigest.toString() != modelSha256) return false;
+
+    _busy = true;
+    try {
+      final support = await LocalInferenceFlutter.checkDeviceSupport();
+      if (!support.isSupported) return false;
+      final engine = LlamadartEngine(logLevel: EngineLogLevel.error);
+      try {
+        final options = await LocalInferenceFlutter.platformLoadOptions();
+        await engine.load(modelFile.path, options);
+      } catch (_) {
+        await engine.dispose();
+        rethrow;
+      }
+      _engine = engine;
+      return true;
+    } finally {
+      _busy = false;
+    }
+  }
+
   Future<ModelManager> _modelManager() async {
     if (_models != null) return _models!;
     _models = await LocalInferenceFlutter.createModelManager(
@@ -95,6 +175,14 @@ empty changes list and explain what is missing.
       modelId,
       onProgress: (status) => onProgress?.call(status.progress),
     );
+    final root = await getApplicationSupportDirectory();
+    final marker = File('${root.path}/king_ai_model_ready.json');
+    await marker.writeAsString(jsonEncode({
+      'path': installed.path,
+      'sha256': modelSha256,
+      'sizeBytes': modelSizeBytes,
+      'verifiedAt': DateTime.now().toUtc().toIso8601String(),
+    }), flush: true);
     return installed.path;
   }
 
@@ -295,6 +383,11 @@ empty changes list and explain what is missing.
       RegExp(r"""(api[_-]?key|access[_-]?token|client[_-]?secret|private[_-]?key)\s*[:=]\s*["'][^"']{12,}""", caseSensitive: false),
       RegExp(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----'),
       RegExp(r'gh[pousr]_[A-Za-z0-9]{20,}'),
+      RegExp(r'github_pat_[A-Za-z0-9_]{20,}'),
+      RegExp(r'\bBearer\s+[A-Za-z0-9._~+/=-]{20,}', caseSensitive: false),
+      RegExp(r'AKIA[0-9A-Z]{16}'),
+      RegExp(r'xox[baprs]-[A-Za-z0-9-]{20,}'),
+      RegExp(r'https?://[^/\s:@]+:[^@\s]+@'),
     ];
     if (patterns.any((pattern) => pattern.hasMatch(text))) {
       throw const FormatException('Generated change appears to contain a secret');
@@ -524,6 +617,7 @@ empty changes list and explain what is missing.
       'pullNumber': pullNumber,
       'headSha': sha,
       'headBranch': head['ref'] as String,
+      'baseBranch': (pull['base'] is Map ? (pull['base'] as Map)['ref'] : null)?.toString() ?? 'main',
       'repairRoot': repairRoot,
       'state': pull['state']?.toString() ?? '',
       'failures': failures,
@@ -534,8 +628,74 @@ empty changes list and explain what is missing.
     };
   }
 
-  /// One operator-invoked repair iteration. At most two follow-up PRs are
-  /// proposed per source PR; no check is auto-merged or silently retried.
+  /// Finds an open PR whose head is the branch that a closed repair PR targeted.
+  /// This lets the background supervisor return to the parent PR after a child
+  /// repair PR is merged or closed.
+  Future<int?> findOpenPullRequestForHeadBranch({
+    required String owner,
+    required String repository,
+    required String branch,
+  }) async {
+    if (branch.isEmpty || branch.length > 255) return null;
+    final repo = '${Uri.encodeComponent(owner)}/${Uri.encodeComponent(repository)}';
+    final head = Uri.encodeComponent('$owner:$branch');
+    final rows = await _githubList('/repos/$repo/pulls?state=open&head=$head&per_page=10');
+    for (final row in rows.whereType<Map>()) {
+      final rowHead = row['head'];
+      final rowRepo = rowHead is Map ? rowHead['repo'] : null;
+      final number = row['number'];
+      if (number is num &&
+          row['state'] == 'open' &&
+          rowRepo is Map &&
+          rowRepo['full_name'] == '$owner/$repository' &&
+          rowHead['ref'] == branch) {
+        return number.toInt();
+      }
+    }
+    return null;
+  }
+
+  /// Finds the most recently updated same-repository open PR with failed CI.
+  /// It is deliberately bounded to avoid scanning the whole repository on a
+  /// periodic Android background wake-up.
+  Future<int?> findOpenPullRequestWithCiFailures({
+    required String owner,
+    required String repository,
+    int maxPullRequests = 10,
+  }) async {
+    final repo = '${Uri.encodeComponent(owner)}/${Uri.encodeComponent(repository)}';
+    final limit = maxPullRequests.clamp(1, 20);
+    final rows = await _githubList(
+      '/repos/$repo/pulls?state=open&sort=updated&direction=desc&per_page=$limit',
+    );
+    for (final row in rows.whereType<Map>()) {
+      if (row['draft'] == true || row['state'] != 'open') continue;
+      final head = row['head'];
+      final base = row['base'];
+      final headRepo = head is Map ? head['repo'] : null;
+      final baseRepo = base is Map ? base['repo'] : null;
+      final baseBranch = base is Map ? base['ref']?.toString() ?? '' : '';
+      final number = row['number'];
+      if (number is! num ||
+          headRepo is! Map ||
+          baseRepo is! Map ||
+          headRepo['full_name'] != '$owner/$repository' ||
+          baseRepo['full_name'] != '$owner/$repository' ||
+          !(baseBranch == 'main' || baseBranch.startsWith('king-ai/'))) {
+        continue;
+      }
+      final report = await inspectPullRequestCi(
+        owner: owner,
+        repository: repository,
+        pullNumber: number.toInt(),
+      );
+      if (report['hasFailures'] == true) return number.toInt();
+    }
+    return null;
+  }
+
+  /// One evidence-based repair iteration with persisted cooldown and duplicate-patch protection.
+  /// The caller may schedule another run after the returned backoff expires.
   Future<Map<String, Object?>> repairFromFailedCi({
     required String owner,
     required String repository,
@@ -546,22 +706,47 @@ empty changes list and explain what is missing.
     if (report['hasFailures'] != true) {
       return {'status': 'no_failed_checks', 'report': report};
     }
+
     final root = await getApplicationSupportDirectory();
     final attemptsFile = File('${root.path}/king_ai_ci_repair_attempts.json');
     Map<String, dynamic> attempts = {};
     if (await attemptsFile.exists()) {
       try {
         final raw = jsonDecode(await attemptsFile.readAsString());
-        if (raw is Map) attempts = raw.map((k, v) => MapEntry(k.toString(), v));
+        if (raw is Map) {
+          attempts = raw.map((k, v) => MapEntry(k.toString(), v));
+        }
       } catch (_) {
         attempts = {};
       }
     }
+
     final key = report['repairRoot'] as String;
-    final used = (attempts[key] as num?)?.toInt() ?? 0;
+    final stored = attempts[key];
+    final record = stored is Map
+        ? stored.map((k, v) => MapEntry(k.toString(), v))
+        : <String, dynamic>{};
+    final used = stored is num
+        ? stored.toInt()
+        : (record['count'] as num?)?.toInt() ?? 0;
     if (!kingAiCiRepairAttemptAllowed(used)) {
       return {'status': 'repair_limit_reached', 'attempts': used, 'report': report};
     }
+
+    final now = DateTime.now().toUtc();
+    final lastAttemptAt = DateTime.tryParse(record['lastAttemptAt']?.toString() ?? '');
+    if (used > 0 && lastAttemptAt != null) {
+      final remaining = kingAiCiRepairBackoff(used) - now.difference(lastAttemptAt);
+      if (remaining > Duration.zero) {
+        return {
+          'status': 'retry_backoff',
+          'attempts': used,
+          'retryAfterSeconds': remaining.inSeconds,
+          'report': report,
+        };
+      }
+    }
+
     final branch = report['headBranch'] as String;
     final failureText = jsonEncode(report['failures']);
     final task = 'Repair the following verified GitHub CI failures for pull request #$pullNumber. '
@@ -574,11 +759,60 @@ empty changes list and explain what is missing.
     if (context.isEmpty) {
       return {'status': 'insufficient_source_context', 'report': report};
     }
+
+    // Research only short, redacted failure hints. Fetched pages are
+    // allowlisted official documentation and remain untrusted model context.
+    final researchHints = <String>[];
+    for (final item in (report['failures'] as List? ?? const []).whereType<Map>().take(3)) {
+      for (final keyName in ['name', 'workflow', 'job', 'summary']) {
+        final value = item[keyName]?.toString().trim() ?? '';
+        if (value.isNotEmpty) researchHints.add(value);
+      }
+      final steps = item['failedSteps'];
+      if (steps is List) {
+        researchHints.addAll(steps.take(5).map((step) => step.toString()));
+      }
+    }
+    final researchQuery = redactKingAiCiEvidence(
+      researchHints.join(' '),
+      maxChars: 280,
+    ).replaceAll(RegExp(r'[^a-zA-Z0-9_ .:+/-]'), ' ').trim();
+    if (researchQuery.length >= 8) {
+      try {
+        // researchGoogle persists validated notes; proposeRepair then ranks
+        // that fresh memory once, avoiding duplicate prompt context.
+        await researchGoogle(
+          'Flutter Dart Android build error $researchQuery',
+          maxResults: 2,
+        ).timeout(const Duration(seconds: 35));
+      } catch (_) {
+        // Research is optional; CI evidence remains the primary source.
+      }
+    }
     final proposal = await proposeRepair(task: task, sourceFiles: context);
     final changes = proposal['changes'] as Map<String, String>;
     if (changes.isEmpty) {
-      return {'status': 'model_declined_insufficient_evidence', 'summary': proposal['summary'], 'report': report};
+      return {
+        'status': 'model_declined_insufficient_evidence',
+        'summary': proposal['summary'],
+        'report': report,
+      };
     }
+
+    final canonicalChanges = changes.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    final proposalHash = sha256.convert(utf8.encode(jsonEncode(
+      canonicalChanges.map((entry) => [entry.key, entry.value]).toList(),
+    ))).toString();
+    if (record['lastProposalHash'] == proposalHash) {
+      return {
+        'status': 'duplicate_patch_blocked',
+        'attempts': used,
+        'summary': 'The local model proposed the exact same patch again; no duplicate PR was created.',
+        'report': report,
+      };
+    }
+
     final end = failureText.length.clamp(0, 5000).toInt();
     final url = await createRepairPullRequest(
       owner: owner,
@@ -588,7 +822,15 @@ empty changes list and explain what is missing.
       summary: '${proposal['summary']}\n\nEvidence: ${failureText.substring(0, end)}\n\nKing-AI-Repair-Root: $key',
       changes: changes,
     );
-    attempts[key] = used + 1;
+    final createdPullNumber = int.tryParse(Uri.parse(url).pathSegments.last);
+    if (createdPullNumber != null && createdPullNumber > 0) {
+      await setBackgroundRepairPullNumber(createdPullNumber);
+    }
+    attempts[key] = {
+      'count': used + 1,
+      'lastAttemptAt': now.toIso8601String(),
+      'lastProposalHash': proposalHash,
+    };
     await attemptsFile.writeAsString(jsonEncode(attempts), flush: true);
     return {
       'status': 'follow_up_pull_request_created',
@@ -727,7 +969,7 @@ empty changes list and explain what is missing.
 
   Future<List<Map<String, String>>> _relevantResearchMemory(String query) async {
     final root = await getApplicationSupportDirectory();
-    final file = File('\${root.path}/king_ai_research_memory.jsonl');
+    final file = File('${root.path}/king_ai_research_memory.jsonl');
     if (!await file.exists()) return const [];
     final lines = await file.readAsLines();
     return rankKingAiResearchMemory(query, lines, maxItems: 3);

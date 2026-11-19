@@ -65,34 +65,27 @@ Future<void> autoScanRun(void Function(String) say) async {
     say('اسکن در حال اجراست');
     return;
   }
+  if (nationalMode) {
+    say('این اسکنر فقط برای مسیر جهانی است؛ اسکن IP نت ملی از موتور و مخزن مستقل خودش استفاده می‌کند.');
+    return;
+  }
   _autoScanRunning = true;
   _autoScanStop = false;
   try {
     await goldLoad();
-    // GLOBALONLY: فقط IPهای تمیز پوشه‌ی جهانی. بازه‌های ISP نت ملی حذف شدند (جدایی از نت ملی).
-    // اگر پوشه‌ی جهانی هنوز خالی است، از بازه‌های CDN (Cloudflare) نمونه‌برداری می‌شود، نه ISP داخلی.
-    // FOLDERALL: IPهای پوشه اول؛ در نت ملی IPهای ISP داخلی هم اضافه می‌شود (بهینه برای نت ملی)
+    // GLOBAL-ONLY: این اسکنر هرگز بازه‌ها، IPها یا سهمیه‌ی نت ملی را نمی‌خواند.
     final global = [for (final c in _goldIps.values.take(kAutoIpLimit)) c.ip];
-    final domestic = <String>[];
-    if (nationalMode) {
-      for (final r in kIrIspRanges.take(12)) {
-        final a = natExpandCidr(r, maxPerBlock: 3);
-        if (a.isNotEmpty) domestic.add(a.first);
-        if (domestic.length >= kAutoIpLimit) break;
-      }
-    }
-    final base = <String>{...global, ...domestic}.toList();
     final cdnSample = <String>[];
-    if (base.isEmpty) {
+    if (global.isEmpty) {
       for (final r in _cfRanges.take(8)) {
         cdnSample.addAll(natExpandCidr(r, maxPerBlock: 3));
         if (cdnSample.length >= 20) break;
       }
     }
-    final ips = base.isNotEmpty
-        ? base
+    final ips = global.isNotEmpty
+        ? global
         : (cdnSample.isNotEmpty ? cdnSample : kAutoFallbackIps);
-    say('تست با ${ips.length} IP (${nationalMode ? 'پوشه + ISP داخلی' : 'پوشه‌ی جهانی'})');
+    say('تست جهانی با ${ips.length} IP از مخزن جهانی');
 
     // SNI: خروجی خود دامنه‌هاست. هر دامنه یک بار؛ به محض یک IP سالم، همان دامنه ثبت می‌شود
     final sniHits = <String>[];
@@ -100,7 +93,6 @@ Future<void> autoScanRun(void Function(String) say) async {
     sniLoop:
     for (final d in kAutoSniDomains) {
       n++;
-      if (nationalMode) await natManualYield(); // NATQUOTA
       var ok = false;
       for (final ip in ips) {
         if (_autoScanStop) break sniLoop;
@@ -119,7 +111,6 @@ Future<void> autoScanRun(void Function(String) say) async {
     portLoop:
     for (final p in kAutoPorts) {
       m++;
-      if (nationalMode) await natManualYield(); // NATQUOTA (مثل حلقه‌ی SNI)
       var ok = false;
       for (final ip in ips) {
         if (_autoScanStop) break portLoop;
@@ -152,7 +143,7 @@ Future<void> autoScanRun(void Function(String) say) async {
     await goldAddScan('tls', tlsHits);
     await goldAddScan('sni', sniHits);
     await goldAddScan('port', portHits);
-    say('تمام شد: ${sniHits.length} SNI و ${portHits.length} پورت در پوشه‌ی جهانی ذخیره شد');
+    say('تمام شد: ${sniHits.length} SNI و ${portHits.length} پورت در مخزن جهانی ذخیره شد');
   } catch (e, stk) {
     logError(e, stk);
     say('خطا در اسکن خودکار');
