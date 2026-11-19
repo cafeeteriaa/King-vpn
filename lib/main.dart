@@ -10975,7 +10975,7 @@ ListTile( // KINGEXTRAS row
           builder: (_) => KingAiConsolePage(initialFeatureRequest: command,
               speakResponses: voiceResponse),
         )));
-        _set('چشم رئیس؛ درخواست بهینه‌سازی به پنل امن مالک منتقل شد. پس از احراز هویت، کینگ آن را تحلیل می‌کند و تغییرات را فقط در شاخهٔ بازبینی‌شونده آماده می‌کند.');
+        _set('چشم رئیس؛ فقط مالک اصلی پس از احراز هویت می‌تواند درخواست تغییر کد را ثبت کند. کینگ آن را تحلیل می‌کند و تغییرات را فقط در شاخهٔ بازبینی‌شونده آماده می‌کند.');
       } else if (RegExp(r'(قطع اتصال|قطع|disconnect|خاموش کردن اتصال)').hasMatch(command) &&
           !negatesConnection) {
         if (localPilotOn) stopLocalPilot();

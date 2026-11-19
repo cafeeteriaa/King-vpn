@@ -458,7 +458,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         command_parser = main[command_start:command_end]
         self.assertIn('_pilotRangeCancelRequested = true;', command_parser)
         self.assertLess(command_parser.index('_pilotRangeCancelRequested = true;'),
-                        command_parser.index('if (command.isEmpty || _smartCommandRunning) return;'))
+                        command_parser.index('if (command.isEmpty || _smartCommandRunning) {'))
         pilot_scan_start = main.index('Future<void> _pilotScanOnly()')
         pilot_scan_end = main.index('// اسکن IP بدون تغییر تنظیمات دیگر', pilot_scan_start)
         pilot_scan = main[pilot_scan_start:pilot_scan_end]
@@ -534,6 +534,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('onChanged: (_) => _smartSpeechVoiceInput = false', main)
         self.assertIn('setLanguage', voice)
         self.assertIn('fa-IR', voice)
+
+    def test_voice_chat_uses_local_persian_tts_and_owner_task_prefill(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
+        voice = (ROOT / 'lib' / 'king_voice_output.dart').read_text(encoding='utf-8')
+        self.assertIn('if (voiceResponse) await _speakSmartCommandResponse(status)', main)
+        self.assertIn('onChanged: (_) => _smartSpeechVoiceInput = false', main)
+        self.assertIn('initialFeatureRequest: command', main)
+        self.assertIn('speakResponses: voiceResponse', main)
+        self.assertIn('widget.initialFeatureRequest', console)
+        self.assertIn('widget.speakResponses', console)
+        self.assertIn("setLanguage('fa-IR')", voice)
 
     def test_flutter_artifact_path_matches_non_split_apk_build(self):
         workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
