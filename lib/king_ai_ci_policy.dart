@@ -17,7 +17,7 @@ String redactKingAiCiEvidence(String input, {int maxChars = 12000}) {
       )
       // JWTs are three base64url segments; redact the whole token, not just a claim.
       .replaceAll(
-        RegExp(r'(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}(?![A-Za-z0-9_-])'),
+        RegExp(r'(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}(?![A-Za-z0-9_-])'),
         '[REDACTED_JWT]',
       )
       .replaceAll(
