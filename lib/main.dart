@@ -14292,6 +14292,237 @@ ListTile( // KINGEXTRAS row
     if (mounted) setState(() {});
   }
 
+  Future<void> _kingAiSheet() async {
+    final ai = KingLocalAi.instance;
+    final token = TextEditingController();
+    final owner = TextEditingController(text: 'cafeeteriaa');
+    final repository = TextEditingController(text: 'King-vpn');
+    final pullNumber = TextEditingController(text: '8');
+    final researchQuery = TextEditingController();
+    final prompt = TextEditingController();
+    var working = false;
+    var progress = 0.0;
+    var status = ai.isLoaded
+        ? 'مدل محلی بارگذاری شده و آماده است.'
+        : 'مدل محلی هنوز بارگذاری نشده است.';
+    var output = '';
+    var hasToken = await ai.hasGitHubToken();
+    if (!mounted) {
+      token.dispose();
+      owner.dispose();
+      repository.dispose();
+      pullNumber.dispose();
+      researchQuery.dispose();
+      prompt.dispose();
+      return;
+    }
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          void updateStatus(String value, {String? result}) {
+            if (!ctx.mounted) return;
+            setSheetState(() {
+              status = value;
+              if (result != null) output = result;
+            });
+          }
+
+          Future<void> runTask(
+            String label,
+            Future<String> Function() task,
+          ) async {
+            if (working) return;
+            setSheetState(() {
+              working = true;
+              status = label;
+              output = '';
+            });
+            try {
+              final result = await task();
+              updateStatus('$label • انجام شد', result: result);
+            } catch (error) {
+              updateStatus('$label • خطا: $error');
+            } finally {
+              if (ctx.mounted) setSheetState(() => working = false);
+            }
+          }
+
+          return Directionality(
+            textDirection: TextDirection.rtl,
+            child: SafeArea(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  16, 12, 16, MediaQuery.of(ctx).viewInsets.bottom + 16,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Text(
+                        '🧠 مهندس هوش مصنوعی محلی King',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'مدل روی گوشی اجرا می‌شود؛ برای GitHub فقط توکن شخصی ذخیره‌شده در حافظه امن دستگاه استفاده می‌شود. هیچ سرویس پولی هوش مصنوعی لازم نیست.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(status),
+                      if (working && progress > 0)
+                        LinearProgressIndicator(value: progress.clamp(0.0, 1.0)),
+                      if (working && progress > 0)
+                        Text('دانلود/بارگذاری مدل: \${(progress * 100).round()}٪'),
+                      const SizedBox(height: 8),
+                      FilledButton.icon(
+                        onPressed: working || ai.isLoaded
+                            ? null
+                            : () async {
+                                setSheetState(() {
+                                  working = true;
+                                  progress = 0;
+                                  status = 'در حال بررسی دستگاه، دانلود امن و بارگذاری مدل حدود ۱٫۱۲ گیگابایتی…';
+                                  output = '';
+                                });
+                                try {
+                                  await ai.loadModel(
+                                    onProgress: (value) {
+                                      if (ctx.mounted) {
+                                        setSheetState(() => progress = value.clamp(0.0, 1.0));
+                                      }
+                                    },
+                                  );
+                                  updateStatus('مدل محلی با موفقیت بارگذاری شد.');
+                                } catch (error) {
+                                  updateStatus('بارگذاری مدل ناموفق بود: $error');
+                                } finally {
+                                  if (ctx.mounted) setSheetState(() => working = false);
+                                }
+                              },
+                        icon: const Icon(Icons.download),
+                        label: Text(ai.isLoaded ? 'مدل آماده است' : 'دانلود و بارگذاری مدل محلی'),
+                      ),
+                      const Divider(),
+                      const Text('اتصال امن به مخزن GitHub',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
+                      TextField(
+                        controller: token,
+                        obscureText: true,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        decoration: InputDecoration(
+                          labelText: hasToken ? 'توکن ذخیره شده است؛ برای جایگزینی وارد کن' : 'GitHub fine-grained token',
+                          helperText: 'مجوزهای لازم فقط برای خواندن مخزن و ساخت Pull Request پیگیری هستند.',
+                        ),
+                      ),
+                      OutlinedButton(
+                        onPressed: working || token.text.trim().isEmpty
+                            ? null
+                            : () async {
+                                try {
+                                  await ai.saveGitHubToken(token.text);
+                                  token.clear();
+                                  hasToken = true;
+                                  updateStatus('توکن در حافظه امن دستگاه ذخیره شد.');
+                                } catch (error) {
+                                  updateStatus('ذخیره توکن ناموفق بود: $error');
+                                }
+                              },
+                        child: const Text('ذخیره امن توکن'),
+                      ),
+                      TextField(
+                        controller: owner,
+                        decoration: const InputDecoration(labelText: 'مالک مخزن'),
+                      ),
+                      TextField(
+                        controller: repository,
+                        decoration: const InputDecoration(labelText: 'نام مخزن'),
+                      ),
+                      TextField(
+                        controller: pullNumber,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(labelText: 'شماره Pull Request برای بررسی CI'),
+                      ),
+                      FilledButton.tonal(
+                        onPressed: working || !ai.isLoaded || !hasToken
+                            ? null
+                            : () async {
+                                final number = int.tryParse(pullNumber.text.trim());
+                                if (number == null || number < 1) {
+                                  updateStatus('شماره Pull Request معتبر نیست.');
+                                  return;
+                                }
+                                await runTask('بررسی شواهد CI و در صورت نیاز پیشنهاد اصلاح', () async {
+                                  final result = await ai.repairFromFailedCi(
+                                    owner: owner.text.trim(),
+                                    repository: repository.text.trim(),
+                                    pullNumber: number,
+                                  );
+                                  return const JsonEncoder.withIndent('  ').convert(result);
+                                });
+                              },
+                        child: const Text('بررسی CI و اصلاح محدود با ساخت PR'),
+                      ),
+                      const Divider(),
+                      const Text('تحقیق از منابع فنی معتبر',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
+                      TextField(
+                        controller: researchQuery,
+                        decoration: const InputDecoration(
+                          labelText: 'موضوع تحقیق',
+                          hintText: 'مثلاً Flutter Android background execution',
+                        ),
+                      ),
+                      OutlinedButton(
+                        onPressed: working || !ai.isLoaded
+                            ? null
+                            : () => runTask('جستجو و ذخیره دانش فنی', () async {
+                                final notes = await ai.researchGoogle(researchQuery.text);
+                                return const JsonEncoder.withIndent('  ').convert(notes);
+                              }),
+                        child: const Text('جستجو و ثبت منابع معتبر'),
+                      ),
+                      const Divider(),
+                      const Text('گفت‌وگو با مدل محلی',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
+                      TextField(
+                        controller: prompt,
+                        minLines: 2,
+                        maxLines: 5,
+                        decoration: const InputDecoration(
+                          labelText: 'درخواست یا پرسش فنی',
+                        ),
+                      ),
+                      FilledButton(
+                        onPressed: working || !ai.isLoaded || prompt.text.trim().isEmpty
+                            ? null
+                            : () => runTask('تحلیل با مدل محلی', () => ai.ask(prompt.text.trim())),
+                        child: const Text('تحلیل با هوش مصنوعی محلی'),
+                      ),
+                      if (output.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        SelectableText(output, textDirection: TextDirection.ltr),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    token.dispose();
+    owner.dispose();
+    repository.dispose();
+    pullNumber.dispose();
+    researchQuery.dispose();
+    prompt.dispose();
+  }
+
   void _settingsSheet() {
     final pmBefore = proxyMode;
     showModalBottomSheet(
@@ -14810,6 +15041,7 @@ ListTile( // KINGEXTRAS row
           ),
           PopupMenuButton<String>(
             onSelected: (v) {
+              if (v == 'kingai') _kingAiSheet();
               if (v == 'set') _settingsSheet();
               if (v == 'apps') _appsSheet();
               if (v == 'add') _importDialog();
@@ -14849,6 +15081,7 @@ ListTile( // KINGEXTRAS row
             },
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'apps', child: Text('برنامه‌های خارج از VPN')),
+              PopupMenuItem(value: 'kingai', child: Text('هوش مصنوعی مهندس محلی')),
               PopupMenuItem(value: 'set', child: Text('تنظیمات تست')),
               PopupMenuItem(value: 'add', child: Text('افزودن کانفیگ')),
               PopupMenuItem(value: 'cleanip', child: Text('IP تمیز')),
