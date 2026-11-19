@@ -3,6 +3,29 @@ import '../lib/network_health.dart';
 
 void main() {
   group('Smart Pilot route policy', () {
+    test('confidence reaches 1.0 when all six dedicated probes are verified', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.healthy,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticTlsReachabilityVerified: true,
+        globalTlsReachabilityVerified: true,
+      );
+      expect(evidence.confidence, 1.0);
+    });
+
+    test('confidence remains bounded and lower when probe coverage is partial', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.degraded,
+        global: LinkHealth.unknown,
+        domesticSamples: 1,
+        globalSamples: 0,
+      );
+      expect(evidence.confidence, greaterThan(0));
+      expect(evidence.confidence, lessThan(1));
+    });
+
     test('selects domestic only when global probes fail', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.healthy,
