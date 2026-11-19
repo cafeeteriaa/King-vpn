@@ -4,7 +4,7 @@ class KingCommandSafety {
   KingCommandSafety._();
 
   static const String _negation =
-      r'(?:نکن|نده|نکنه|نمی\s*خواهم|نمیخوام|نمی‌خوام|نباید)';
+      r'(?:نکن|نده|نکنه|نشو|نشود|نشه|نمی\s*خواهم|نمیخوام|نمی‌خوام|نباید|نداشته\s*باش)';
 
   static String _normalize(String value) => value
       .toLowerCase()
