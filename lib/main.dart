@@ -6,6 +6,7 @@ import 'king_ai_background.dart';
 import 'king_ai_owner_auth.dart';
 import 'king_command_safety.dart';
 import 'fresh_resource_store.dart';
+import 'fresh_resources_page.dart';
 import 'package:local_inference_flutter/local_inference_flutter.dart';
 import 'update_integrity.dart';
 import 'errjournal.dart';
@@ -6693,10 +6694,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final hotOff = await natHotNext(300, fetch: false); // هر دور ۳۰۰ تا؛ اگر پیدا نشد دور بعد ادامه می‌دهد
       // FRESH-DISK: منابع تازه‌ی ذخیره‌شده روی گوشی در اتصال آفلاین هم قابل استفاده‌اند.
       final diskLinks = await FreshResourceStore.readLinks();
-      final diskOff = <Server>[
-        for (final link in diskLinks)
-          if (Server.parse(link) case final parsed?) parsed,
-      ];
+      final diskOff = <Server>[];
+      for (final link in diskLinks) {
+        final parsed = Server.parse(link);
+        if (parsed != null) diskOff.add(parsed);
+      }
       // OFFLINE-SRC: صف قبلی (آنلاین) کنار گذاشته می‌شود؛ فقط منابع تازه‌ی محلی تست می‌شوند.
       // پوشه‌ی سرورهای شخصی و بانک IP نت ملی عمداً جدا می‌مانند.
       pending = [
@@ -10845,7 +10847,11 @@ ListTile( // KINGEXTRAS row
     }
     for (final entry in countryFa.entries) {
       final label = entry.value.toString().replaceAll('ي', 'ی').replaceAll('ك', 'ک');
-      if (label.length >= 3 && normalized.contains(label)) return entry.key;
+      if (label.length >= 3 &&
+          RegExp('(?:^|[\\s،,.!?؛])${RegExp.escape(label)}(?:$|[\\s،,.!?؛])')
+              .hasMatch(normalized)) {
+        return entry.key;
+      }
     }
     return null;
   }
@@ -10884,10 +10890,43 @@ ListTile( // KINGEXTRAS row
     }
     setState(() => _smartCommandRunning = true);
     try {
+      final normalizedCommand = command
+          .toLowerCase()
+          .replaceAll('ي', 'ی')
+          .replaceAll('ك', 'ک')
+          .replaceAll('‌', ' ')
+          .replaceAll(RegExp(r'\\s+'), ' ')
+          .trim();
+      // Stop and identity intents are resolved before country/protocol parsing.
+      if (RegExp(r'(اسمت چیه|اسم تو چیه|تو کی هستی|نامت چیست)').hasMatch(normalizedCommand)) {
+        _set('من کینگ هستم؛ هوش مصنوعی داخلی King VPN. مغز فرمان، خلبان اتصال و دستیار راهنمای برنامه.');
+        return;
+      }
+      final disconnectIntent = RegExp(
+        r'(قطع\\s*(?:کردن|کن|کنید)?\\s*(?:اتصال)?|اتصال\\s*(?:را|رو)?\\s*قطع|disconnect|خاموش\\s*کردن\\s*اتصال)',
+      ).hasMatch(normalizedCommand) && !KingCommandSafety.negatesConnection(normalizedCommand);
+      if (disconnectIntent) {
+        if (localPilotOn) stopLocalPilot();
+        await disconnect();
+        _set('اتصال قطع شد. خلبان هم برای این اتصال متوقف شد.');
+        return;
+      }
       if (command == 'راهنما' || command == 'help' || command.contains('دستورات')) {
-        _set('فرمان‌ها: «کینگ وصل شو»، «کینگ قطع اتصال»، «کینگ وضعیت اتصال»، '
-            '«کینگ نت ملی وصل شو»، «کینگ نت جهانی وصل شو»، «کینگ خلبان اسکن کن». '
-            'درخواست تغییر کد فقط از پنل امن مالک اصلی پذیرفته می‌شود.');
+        _set('من کینگ هستم؛ دستیار داخلی King VPN.\\n'
+            'اتصال: «کینگ وصل شو»، «با بالاترین سرعت وصل شو»، «با منابع آنلاین وصل شو».\\n'
+            'آفلاین: «با منابع آفلاین وصل شو»؛ از پوشه منابع تازه گوشی استفاده می‌کند.\\n'
+            'سرور شخصی: «با سرور شخصی وصل شو»؛ از پوشه جداگانه سرورهای شخصی استفاده می‌کند.\\n'
+            'شبکه: «نت ملی وصل شو» یا «نت جهانی وصل شو».\\n'
+            'اسکن: «DNS را اسکن کن»، «IP را اسکن کن»، «بازه IP خلبان را تنظیم کن»، «اسکن خلبان را شروع کن».\\n'
+            'مدیریت منابع: «پوشه منابع تازه را باز کن».\\n'
+            'توسعه سورس فقط از پنل امن و پس از احراز هویت مالک انجام می‌شود.');
+        return;
+      }
+      if (normalizedCommand.contains('پوشه منابع تازه') ||
+          normalizedCommand.contains('منابع تازه را باز')) {
+        await Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => const FreshResourcesPage(),
+        ));
         return;
       }
       final countryCode = _smartCountryCode(command);
@@ -10906,6 +10945,14 @@ ListTile( // KINGEXTRAS row
       final wantsConnect = RegExp(r'(اتصال|وصل|شروع|connect)').hasMatch(command) &&
           !negatesConnection;
       final requestedNetworkMode = KingCommandSafety.requestedNetworkMode(command);
+      final wantsPersonalFolder = wantsConnect &&
+          RegExp(r'(سرور شخصی|پوشه شخصی)').hasMatch(normalizedCommand);
+      final wantsOfflineSources = wantsConnect &&
+          RegExp(r'(آفلاین|بدون اینترنت|منابع ذخیره)').hasMatch(normalizedCommand);
+      final wantsOnlineSources = wantsConnect &&
+          RegExp(r'(آنلاین|منابع آنلاین|اینترنتی)').hasMatch(normalizedCommand);
+      final wantsMaxSpeed = wantsConnect &&
+          RegExp(r'(بالاترین سرعت|بیشترین سرعت|سریع.?ترین)').hasMatch(normalizedCommand);
       final statusRequest = KingCommandSafety.isStatusRequest(command);
       final negatesScan = KingCommandSafety.negatesScan(command);
       final clearFilters = RegExp(r'(پاک کردن فیلتر|حذف محدودیت|ریست فیلتر)').hasMatch(command);
@@ -10930,7 +10977,29 @@ ListTile( // KINGEXTRAS row
         r'(به ذهنم رسیده|ایده دارم|یه ایده|یک ایده).{0,60}(تحلیل|بررسی|نظرت))',
       ).hasMatch(command);
 
-      if (analysisOnlyRequest) {
+      if (wantsPersonalFolder) {
+        if (personalFolderCache.isEmpty && personal == null) {
+          _guideSheet();
+          _set('پوشه سرورهای شخصی خالی است؛ ابتدا سرور شخصی بساز یا کانفیگ وارد کن.');
+        } else if (personalFolderCache.isNotEmpty) {
+          await personalFolderConnect();
+          _set('اتصال از پوشه سرورهای شخصی آغاز شد؛ این حالت از منابع آنلاین مستقل است.');
+        } else {
+          await connectPersonalAsk();
+          _set('اتصال به سرور شخصی اختصاصی آغاز شد.');
+        }
+      } else if (wantsOfflineSources) {
+        await _applyNetPick(nationalMode, true);
+        if (wantsMaxSpeed) autoSpeed = true;
+        await startLocalPilot();
+        _set('حالت آفلاین فعال شد؛ از کانفیگ‌های ذخیره‌شده در پوشه منابع تازه استفاده می‌شود.');
+      } else if (wantsOnlineSources) {
+        final domestic = requestedNetworkMode == KingRequestedNetworkMode.domestic;
+        await _applyNetPick(domestic, false);
+        if (wantsMaxSpeed) autoSpeed = true;
+        await startLocalPilot();
+        _set('حالت آنلاین فعال شد؛ منابع تازه از اینترنت دریافت و در پوشه گوشی ذخیره می‌شوند.');
+      } else if (analysisOnlyRequest) {
         unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
           builder: (_) => KingAiConsolePage(
             initialIdeaAnalysis: command,
@@ -10962,13 +11031,18 @@ ListTile( // KINGEXTRAS row
         if (localPilotOn) stopLocalPilot();
         await disconnect();
         _set('دستور اجرا شد: اتصال قطع شد.');
+      } else if (!negatesScan && command.contains('بازه') &&
+          (command.contains('ip') || command.contains('آی پی'))) {
+        await _pilotRangesDialog(context);
+        if (_pilotRanges.isNotEmpty) await _pilotScanOnly();
       } else if (command.contains('بازه') && command.contains('خلبان')) {
         await _pilotRangesDialog(context);
       } else if (!negatesScan && command.contains('اسکن') && command.contains('خلبان')) {
         await _pilotScanOnly();
-      } else if (!negatesScan && (command.contains('اسکنر dns') || command.contains('پویش dns'))) {
+      } else if (!negatesScan && command.contains('dns') && command.contains('اسکن')) {
         dnsxSheet(context);
-      } else if (!negatesScan && (command.contains('اسکن ip') || command.contains('پویش ip'))) {
+      } else if (!negatesScan &&
+          ((command.contains('ip') || command.contains('آی پی')) && command.contains('اسکن'))) {
         ipAutoSheet(context);
       } else if (!negatesScan && (command.contains('اسکن sni') || command.contains('اسکن پورت'))) {
         autoScanSheet(context);
@@ -11012,8 +11086,9 @@ ListTile( // KINGEXTRAS row
         ].join(' • ');
         if (wantsConnect) {
           if (aiSession) stopAiSession();
+          if (wantsMaxSpeed) autoSpeed = true;
           await startLocalPilot();
-          _set('فرمان به مغز خلبان ارسال شد • ' + applied);
+          _set((wantsMaxSpeed ? 'جستجوی سریع‌ترین سرور آغاز شد' : 'فرمان اتصال اجرا شد') + ' • ' + applied);
         } else {
           if (!connected && !busy && !searching) {
             unawaited(_loadPending(bg: true));
@@ -15605,19 +15680,46 @@ ListTile( // KINGEXTRAS row
               itemBuilder: (_, i0) {
                 if (i0 == 0) {
                   return UiKeep(child: Column(children: [
-Padding(
-  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-  child: Column(children: const [
-    Text('AUTONOMOUS VPN INTELLIGENCE',
-        textAlign: TextAlign.center,
-        style: TextStyle(fontSize: 10, letterSpacing: 2.0,
-            fontWeight: FontWeight.w700, color: Color(0xFF83DFFF))),
-    SizedBox(height: 3),
-    Text('مغز مرکزی • خلبان هوشمند واحد',
-        textAlign: TextAlign.center,
-        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600,
-            color: Color(0xFFE8EDF7))),
-  ]),
+Container(
+  margin: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+  decoration: BoxDecoration(
+    gradient: const LinearGradient(
+      begin: Alignment.topRight,
+      end: Alignment.bottomLeft,
+      colors: [Color(0xFF172B42), Color(0xFF101925), Color(0xFF20233A)],
+    ),
+    borderRadius: BorderRadius.circular(22),
+    border: Border.all(color: const Color(0x6679DFFF)),
+    boxShadow: const [BoxShadow(color: Color(0x3326B9E8), blurRadius: 22, spreadRadius: 1)],
+  ),
+  child: Row(
+    children: [
+      Container(
+        width: 82,
+        height: 82,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: const RadialGradient(colors: [Color(0x664EDBFF), Color(0x222C75B8), Color(0x00101828)]),
+          border: Border.all(color: const Color(0x8879DFFF), width: 1.4),
+        ),
+        child: const Icon(Icons.psychology_alt_rounded, size: 58, color: Color(0xFF9BEAFF)),
+      ),
+      const SizedBox(width: 14),
+      const Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('KING • AI CORE', style: TextStyle(fontSize: 10, letterSpacing: 2.1, fontWeight: FontWeight.w800, color: Color(0xFF83DFFF))),
+            SizedBox(height: 5),
+            Text('کینگ؛ مغز هوشمند اتصال', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFFF2F7FF))),
+            SizedBox(height: 4),
+            Text('خلبان • تشخیص نت ملی • منابع آنلاین و آفلاین', style: TextStyle(fontSize: 11, height: 1.4, color: Color(0xFFB6C7D8))),
+          ],
+        ),
+      ),
+    ],
+  ),
 ),
           if (busy)
             LinearProgressIndicator(
@@ -15633,6 +15735,7 @@ Padding(
               ListTile(leading: const Icon(Icons.support_agent), title: const Text('ارتباط با ادمین'), onTap: () => _uiOpenAdmin(context)),
               ListTile(leading: const Icon(Icons.link), title: const Text('لینک‌های اشتراک کانفیگ'), onTap: () => _userListsDialog(context)),
               ListTile(leading: const Icon(Icons.add_home_outlined), title: const Text('ساخت سرور شخصی'), onTap: () => _guideSheet()),
+              ListTile(leading: const Icon(Icons.folder_special_outlined), title: const Text('پوشه منابع تازه • آنلاین و آفلاین'), onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const FreshResourcesPage()))),
               ListTile(leading: const Icon(Icons.cloud_upload_outlined), title: const Text('ساخت خودکار سرور کلودفلر'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CloudflareAutoDeployPage()))),
               ListTile(leading: const Icon(Icons.shopping_cart_outlined), title: const Text('خرید سرور شخصی'), onTap: () => serverShopOpen(context)),
               ListTile(leading: const Icon(Icons.campaign_outlined), title: const Text('کانال‌های تلگرامی'), onTap: () => telegramChannelsOpen(context)),
