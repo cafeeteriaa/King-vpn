@@ -290,6 +290,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         for action in ('فعال‌سازی ترمیم خودکار پس‌زمینه','فعال‌سازی کشف خودکار مخزن','توقف ترمیم پس‌زمینه','پاک‌کردن کلید GitHub'):
             self.assertIn(f"_requireOwnerSession('{action}')", console)
 
+    def test_official_iran_network_research_is_scheduled_automatically(self):
+        worker = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
+        self.assertIn('await _scheduleOfficialResearch();', worker)
+        self.assertIn("const String _researchTaskName = 'kingAiIranNetworkResearch';", worker)
+        self.assertIn('researchGoogle(_researchQuery, maxResults: 2)', worker)
+        self.assertIn('frequency: const Duration(hours: 12)', worker)
+        self.assertIn('networkType: NetworkType.connected', worker)
+        self.assertIn('requiresBatteryNotLow: true', worker)
+        self.assertIn('static Future<void> enableAutonomousMaintenance() async {', worker)
+        self.assertIn('never merges or publishes', worker)
+
     def test_autonomous_repair_uses_persisted_backoff_and_duplicate_patch_guard(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
         policy = (ROOT / 'lib' / 'king_ai_ci_policy.dart').read_text(encoding='utf-8')
