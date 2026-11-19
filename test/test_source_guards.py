@@ -864,7 +864,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('fresh owner-password proof', docs)
         self.assertIn('owner review', docs)
         self.assertIn('green CI', docs)
-        self.assertIn('installer still requires the user to confirm', docs)
+        self.assertIn('package installer requires the user to confirm', docs)
 
     def test_stable_success_requires_fresh_multi_destination_tunnel_traffic(self):
         national = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
