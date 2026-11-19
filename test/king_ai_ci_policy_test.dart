@@ -20,7 +20,7 @@ void main() {
       const raw = 'sk-123456789012345678901234 xoxb-123456789012 '
           'AKIA1234567890ABCDEF AIza1234567890123456789012345678901234 '
           'Basic dXNlcjpwYXNzd29yZA== '
-          '-----BEGIN PRIVATE KEY-----\\nsecret-material\\n-----END PRIVATE KEY-----';
+          '-----BEGIN PRIVATE KEY-----\nsecret-material\n-----END PRIVATE KEY-----';
       final safe = redactKingAiCiEvidence(raw);
       expect(safe, isNot(contains('sk-123456')));
       expect(safe, isNot(contains('xoxb-')));
