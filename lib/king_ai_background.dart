@@ -11,6 +11,14 @@ const String _uniqueName = 'king-ai-ci-repair-periodic';
 const String _initialUniqueName = 'king-ai-ci-repair-initial';
 const String _tag = 'king-ai-ci-repair';
 
+const String _researchTaskName = 'kingAiIranNetworkResearch';
+const String _researchUniqueName = 'king-ai-iran-network-research-periodic';
+const String _researchInitialName = 'king-ai-iran-network-research-initial';
+const String _researchTag = 'king-ai-iran-network-research';
+const String _researchQuery =
+    'Iran internet national network DNS routing IPv6 TLS SNI Android VPNService '
+    'Flutter network connectivity diagnostics official documentation';
+
 /// WorkManager entry point. The model is loaded only from a foreground-verified
 /// local file; this worker never downloads the 1.1 GB model in the background.
 @pragma('vm:entry-point')
@@ -18,10 +26,17 @@ void kingAiBackgroundDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     WidgetsFlutterBinding.ensureInitialized();
     DartPluginRegistrant.ensureInitialized();
-    if (task != _taskName) return true;
+    if (task != _taskName && task != _researchTaskName) return true;
 
     final ai = KingLocalAi.instance;
     try {
+      if (task == _researchTaskName) {
+        // Passive, bounded research. Only allowlisted official sources are
+        // retained by researchGoogle; this never edits code or needs a token.
+        await ai.researchGoogle(_researchQuery, maxResults: 2)
+            .timeout(const Duration(seconds: 55));
+        return true;
+      }
       if (!await ai.hasGitHubToken()) {
         await Workmanager().cancelByTag(_tag);
         await ai.clearBackgroundRepairPullNumber();
@@ -123,6 +138,35 @@ class KingAiBackgroundSupervisor {
 
   static Future<void> initialize() async {
     await Workmanager().initialize(kingAiBackgroundDispatcher);
+    await _scheduleOfficialResearch();
+  }
+
+  /// Research runs automatically without an owner session because it is
+  /// read-only and stores only short excerpts from the official-source
+  /// allowlist. Android may defer this best-effort background work.
+  static Future<void> _scheduleOfficialResearch() async {
+    final constraints = Constraints(
+      networkType: NetworkType.connected,
+      requiresBatteryNotLow: true,
+    );
+    await Workmanager().registerPeriodicTask(
+      _researchUniqueName,
+      _researchTaskName,
+      frequency: const Duration(hours: 12),
+      constraints: constraints,
+      existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
+      tag: _researchTag,
+    );
+    await Workmanager().registerOneOffTask(
+      _researchInitialName,
+      _researchTaskName,
+      initialDelay: Duration.zero,
+      constraints: constraints,
+      existingWorkPolicy: ExistingWorkPolicy.keep,
+      backoffPolicy: BackoffPolicy.exponential,
+      backoffPolicyDelay: const Duration(minutes: 30),
+      tag: _researchTag,
+    );
   }
 
   /// Android WorkManager periodic work is best-effort, not an exact timer.
@@ -161,12 +205,23 @@ class KingAiBackgroundSupervisor {
     await _scheduleSupervisor();
   }
 
-  static Future<void> enableAutomaticDiscovery() async {
+  /// One-time owner opt-in starts the continuous maintenance loop. It
+  /// researches official network guidance automatically and creates isolated
+  /// CI-repair PRs when evidence supports a fix. It never merges or publishes.
+  static Future<void> enableAutonomousMaintenance() async {
     _requireOwnerSession();
+    if (!await KingLocalAi.instance.hasGitHubToken() ||
+        !KingLocalAi.instance.isLoaded) {
+      throw StateError('GitHub token and the verified local model must be ready first.');
+    }
     await KingLocalAi.instance.setBackgroundAutoDiscovery(true);
     await KingLocalAi.instance.clearBackgroundRepairPullNumber();
     await _scheduleSupervisor();
   }
+
+  /// Backwards-compatible name for the owner console.
+  static Future<void> enableAutomaticDiscovery() =>
+      enableAutonomousMaintenance();
 
   static Future<void> disable() async {
     _requireOwnerSession();

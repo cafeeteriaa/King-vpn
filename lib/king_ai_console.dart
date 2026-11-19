@@ -288,11 +288,11 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       return;
     }
     await _run('فعال‌سازی کشف خودکار PRهای دارای خطای CI', () async {
-      await KingAiBackgroundSupervisor.enableAutomaticDiscovery();
+      await KingAiBackgroundSupervisor.enableAutonomousMaintenance();
       return {
-        'status': 'automatic_repository_repair_scheduled',
+        'status': 'autonomous_maintenance_scheduled',
         'repository': 'cafeeteriaa/King-vpn',
-        'scanLimit': 10,
+        'scanLimit': 10,\n        'officialIranNetworkResearch': 'every 12 hours (best effort)',\n        'ciRepair': 'every 15 minutes minimum (best effort)',\n        'codeChanges': 'isolated review PR only; never auto-merge or publish',
         'initialCheck': 'scheduled immediately as one-off work',
         'fallbackFrequency': '15 minutes minimum (best effort; Android may defer)',
         'constraints': ['network connected', 'battery not low'],
@@ -506,7 +506,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
                 Wrap(spacing: 8, runSpacing: 8, children: [
                   FilledButton(
                     onPressed: _busy || !_hasToken || !_ai.isLoaded ? null : _enableAutomaticDiscovery,
-                    child: const Text('کشف و ترمیم خودکار کل مخزن'),
+                    child: const Text('خودبهسازی خودکار و مستمر پروژه'),
                   ),
                   OutlinedButton(
                     onPressed: _busy || !_hasToken || !_ai.isLoaded ? null : _enableBackground,
