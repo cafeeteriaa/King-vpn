@@ -159,17 +159,16 @@ Future<void> loadLocalAiPrefs(SharedPreferences prefs) async {
     'gem_model', 'grok_model', 'claude_model', 'openai_model',
     'deepseek_model', 'ai_prov',
   ];
-  for (final key in legacyKeys) {
-    try {
-      await prefs.remove(key);
-    } catch (error, stack) {
-      logError(error, stack);
-    }
-    try {
-      await _secure.delete(key: key).timeout(const Duration(seconds: 3));
-    } catch (error, stack) {
-      logError(error, stack);
-    }
+  try {
+    await Future.wait(legacyKeys.map((key) => prefs.remove(key)));
+  } catch (error, stack) {
+    logError(error, stack);
+  }
+  try {
+    await Future.wait(legacyKeys.map((key) => _secure.delete(key: key)))
+        .timeout(const Duration(seconds: 5));
+  } catch (error, stack) {
+    logError(error, stack);
   }
 }
 
@@ -511,9 +510,28 @@ extension HomeExtras on _HomePageState {
     sb.writeln('Last error: ${errorLog.value.isEmpty ? '-' : errorLog.value}');
     sb.writeln('Numeric options (num_<id>=value [range] default): ' +
         numOpts.map((o) => 'num_${o.id}=${o.get()} [${o.lo}-${o.aiHi}] def ${o.def}').join(', '));
+    final evidence = PilotNetworkProbe.current;
+    sb.writeln('Independent TLS route evidence (not proof of VPN data-plane): '
+        'domestic=${evidence.domestic.name} ${evidence.domesticSuccesses}/${evidence.domesticSamples} '
+        'verified=${evidence.domesticTlsReachabilityVerified} '
+        'latency=${evidence.domesticLatencyMs ?? -1}ms; '
+        'global=${evidence.global.name} ${evidence.globalSuccesses}/${evidence.globalSamples} '
+        'verified=${evidence.globalTlsReachabilityVerified} '
+        'latency=${evidence.globalLatencyMs ?? -1}ms '
+        'confidence=${evidence.confidence.toStringAsFixed(2)}');
+    sb.writeln('National diagnosis: ${natNetworkClassLabel(NatNetworkDiagnosis.current)}');
+    if (c != null) {
+      final history = NationalNetworkIntelligence.memoryFor(
+          NationalNetworkIntelligence.keyOfServer(c));
+      sb.writeln('Current endpoint history: success=${history.successes}/${history.attempts} '
+          'failStreak=${history.failStreak} stable=${history.stableSuccesses} '
+          'score=${NationalNetworkIntelligence.scoreFor(NationalNetworkIntelligence.keyOfServer(c)).toStringAsFixed(1)}');
+    }
     return 'You are a network assistant inside a censorship-circumvention VPN '
-        'client used in Iran. Use Telegram as the ONLY service-availability health check; '
-        'never use YouTube or Instagram availability to judge or switch a server. '
+        'client used in Iran. Use only the measured statistics and the independent domestic/global TLS evidence above. '
+        'A TLS handshake is reachability evidence, not proof that VPN tunnel traffic works. '
+        'Never infer network class from one endpoint or one failed probe; preserve the current strategy when evidence is incomplete. '
+        'Do not use Telegram, YouTube, or Instagram availability as a universal health gate. '
         'Using ONLY the stats below, answer in Persian, '
         'max 12 short lines: (1) which protocol/transport kinds and sources '
         'work best on this network and how the app can find servers faster '
@@ -563,11 +581,14 @@ extension HomeExtras on _HomePageState {
     aiLoading.value = true;
     try {
       aiText.value = 'در حال تحلیل محلی وضعیت اتصال...';
-      aiShow(await aiAsk(aiPrompt()));
+      final answer = await aiAsk(aiPrompt());
+      if (auto && (!aiSession || !localPilotOn)) return;
+      aiShow(answer);
       if (aiLastProvider.isNotEmpty && !auto) {
         aiText.value = '[$aiLastProvider]\n${aiText.value}';
       }
-      applyAiSuggest();
+      // Manual analysis only proposes changes; the user presses Apply.
+      if (auto && aiSession && localPilotOn) applyAiSuggest();
       if (auto && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('🤖 تحلیل ${aiLastProvider} آماده شد'),
@@ -593,7 +614,8 @@ extension HomeExtras on _HomePageState {
       return;
     }
     Future.delayed(const Duration(seconds: 40), () {
-      if (!mounted || !connected || aiLoading.value) return;
+      if (!mounted || !connected || aiLoading.value ||
+          !aiSession || !localPilotOn) return;
       _lastAutoAi = DateTime.now();
       aiAnalyze(auto: true);
     });
@@ -1077,8 +1099,12 @@ extension HomeExtras on _HomePageState {
     try {
       if (connected) _pilotConnectedAt ??= DateTime.now();
       _set('خلبان محلی: تحلیل اینترنت و مکان...');
-      aiShow(await aiAsk(aiPrompt()));
+      final answer = await aiAsk(aiPrompt());
+      // A user stop during local inference must invalidate the pending answer.
+      if (!mounted || !aiSession || !localPilotOn) return;
+      aiShow(answer);
       applyAiSuggest();
+      if (!aiSession || !localPilotOn) return;
       await aiRunAction();
       if (aiSession && wantVpn && !connected && !busy && !switching) {
         _set('خلبان: هنوز وصل نیست — جستجوی سرور...');
@@ -1126,7 +1152,7 @@ extension HomeExtras on _HomePageState {
   Future<void> aiRunAction() async {
     final a = aiActionName;
     aiActionName = '';
-    if (a.isEmpty || a == 'none') return;
+    if (!aiSession || !localPilotOn || a.isEmpty || a == 'none') return;
     lastWhy = 'خلبان AI: $a';
     if (a == 'switch_best') {
       // Respect 3-minute hold after connect (same as local pilot)
