@@ -321,7 +321,11 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       return {
         'status': 'autonomous_maintenance_scheduled',
         'repository': 'cafeeteriaa/King-vpn',
-        'scanLimit': 10,\n        'officialIranNetworkResearch': 'every 12 hours (best effort)',\n        'autonomousSourceAudit': 'daily; creates a draft PR only',\n        'ciRepair': 'every 15 minutes minimum (best effort)',\n        'codeChanges': 'isolated review PR only; never auto-merge or publish',
+        'scanLimit': 10,
+        'officialIranNetworkResearch': 'every 6 hours (best effort)',
+        'autonomousSourceAudit': 'daily; creates a draft PR only',
+        'ciRepair': 'every 15 minutes minimum (best effort)',
+        'codeChanges': 'isolated review PR only; never auto-merge or publish',
         'initialCheck': 'scheduled immediately as one-off work',
         'fallbackFrequency': '15 minutes minimum (best effort; Android may defer)',
         'constraints': ['network connected', 'battery not low'],
