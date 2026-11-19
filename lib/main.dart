@@ -11451,14 +11451,7 @@ ListTile( // KINGEXTRAS row
                             title: Text(s?.name ?? links[i],
                                 maxLines: 1, overflow: TextOverflow.ellipsis),
                             subtitle: Text(s?.host ?? ''),
-                            onTap: s == null
-                                ? null
-                                : () {
-                                    Navigator.pop(ctx);
-                                    unawaited(pickEngineThenStart(
-                                        () => _personalAdThen(() => personalFolderConnect()),
-                                        askMode: false));
-                                  },
+                            onTap: null,
                             onLongPress: () async {
                               await removeFromPersonalFolder(links[i]);
                               if (ctx.mounted) Navigator.pop(ctx);
