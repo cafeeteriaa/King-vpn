@@ -10926,16 +10926,16 @@ ListTile( // KINGEXTRAS row
           .where((p) => RegExp(r'\b' + p + r'\b').hasMatch(normalized))
           .toList();
       final negatesConnection = RegExp(
-        r'(?:اتصال|وصل|شروع).{0,16}(?:نکن|نمی‌خواهم|نمیخوام|نمی‌خوام|نباید)',
+        r'(?:اتصال|وصل|شروع).{0,16}(?:نکن|نده|نکنه|نمی‌خواهم|نمیخوام|نمی‌خوام|نباید)',
       ).hasMatch(command) || RegExp(
-        r'(?:نکن|نمی‌خواهم|نمیخوام|نمی‌خوام|نباید).{0,16}(?:اتصال|وصل|شروع)',
+        r'(?:نکن|نده|نکنه|نمی‌خواهم|نمیخوام|نمی‌خوام|نباید).{0,16}(?:اتصال|وصل|شروع)',
       ).hasMatch(command);
       final wantsConnect = RegExp(r'(اتصال|وصل|شروع|connect)').hasMatch(command) &&
           !negatesConnection;
       final negatesScan = RegExp(
-        r'(?:اسکن|پویش).{0,16}(?:نکن|نمی‌خواهم|نمیخوام|نمی‌خوام|نباید)',
+        r'(?:اسکن|پویش).{0,16}(?:نکن|نده|نکنه|نمی‌خواهم|نمیخوام|نمی‌خوام|نباید)',
       ).hasMatch(command) || RegExp(
-        r'(?:نکن|نمی‌خواهم|نمیخوام|نمی‌خوام|نباید).{0,16}(?:اسکن|پویش)',
+        r'(?:نکن|نده|نکنه|نمی‌خواهم|نمیخوام|نمی‌خوام|نباید).{0,16}(?:اسکن|پویش)',
       ).hasMatch(command);
       final clearFilters = RegExp(r'(پاک کردن فیلتر|حذف محدودیت|ریست فیلتر)').hasMatch(command);
       final allCountries = RegExp(r'(همه کشورها|تمام کشورها)').hasMatch(command);
@@ -10960,11 +10960,11 @@ ListTile( // KINGEXTRAS row
         await _pilotRangesDialog(context);
       } else if (!negatesScan && command.contains('اسکن') && command.contains('خلبان')) {
         await _pilotScanOnly();
-      } else if (command.contains('اسکنر dns') || command.contains('پویش dns')) {
+      } else if (!negatesScan && (command.contains('اسکنر dns') || command.contains('پویش dns'))) {
         dnsxSheet(context);
-      } else if (command.contains('اسکن ip') || command.contains('پویش ip')) {
+      } else if (!negatesScan && (command.contains('اسکن ip') || command.contains('پویش ip'))) {
         ipAutoSheet(context);
-      } else if (command.contains('اسکن sni') || command.contains('اسکن پورت')) {
+      } else if (!negatesScan && (command.contains('اسکن sni') || command.contains('اسکن پورت'))) {
         autoScanSheet(context);
       } else if (command.contains('ip تمیز') || command.contains('آی پی تمیز')) {
         cleanIpDialog();
