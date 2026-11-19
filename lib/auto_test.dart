@@ -1708,14 +1708,14 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     await _atResetToGlobal();
     errTag = name;
     autoTestText.value = 'بخش «$name»: روشن کردن خلبان AI…';
-    startGrokPilot();
+    startKingPilot();
     await _atWaitUntil(() => connected && !busy,
         timeout: const Duration(minutes: 15), label: name);
     if (!connected) {
       _itemResult[name] =
           '❌ خلبان AI وصل نکرد • status="$status" • lastFail="$lastFail"';
       _atAdd('ITEM-FAIL', '$name وصل نشد • lastFail="$lastFail"');
-      stopGrokPilot();
+      stopKingPilot();
       await _atEnsureDisconnected();
       return;
     }
@@ -1726,7 +1726,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
       _itemResult[name] = '⚠️ خلبان AI بعد از وصل شدن قطع شد • status="$status"';
       _atAdd('AI-DROP', '$name بعد از وصل شدن قطع شد • status="$status"');
     }
-    stopGrokPilot();
+    stopKingPilot();
     await _atEnsureDisconnected();
   }
 
