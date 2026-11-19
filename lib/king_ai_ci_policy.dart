@@ -18,8 +18,8 @@ String redactKingAiCiEvidence(String input, {int maxChars = 12000}) {
       .replaceAll(
         RegExp(r'-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----'),
         '[REDACTED_PRIVATE_KEY]',
-      );
-  final limit = math.max(0, maxChars).toInt();
+      )
+      .replaceAll(RegExp(r'https?://[^/\s:@]+:[^@\s]+@'), '[REDACTED_URL_CREDENTIALS]');  final limit = math.max(0, maxChars).toInt();
   if (safe.length > limit) safe = safe.substring(safe.length - limit);
   return safe;
 }
