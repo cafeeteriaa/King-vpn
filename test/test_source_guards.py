@@ -77,7 +77,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             start = ai.index(method)
             body_start = ai.index('}) async {', start) + len('}) async {')
             if method == 'repairFromFailedCiAutonomous({':
-                body_start = ai.index('}) {', start) + len('}) {')
+                body_start = ai.index('}) async {', start) + len('}) async {')
             end = ai.index('\n  }', body_start)
             self.assertIn('_requireKingRepository(owner, repository);', ai[body_start:end])
         self.assertNotIn('old signature removed', ai)
