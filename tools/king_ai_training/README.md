@@ -9,13 +9,13 @@ GPU runner. It uses no paid AI API, Gemini, Grok, or hosted inference endpoint.
 One JSON object per line in the input JSONL:
 
 - `task`: the repair task without private user data.
-- `diff`: the accepted unified diff.
+- `source_files`: map of repository paths to complete pre-repair source contents.
+- `changes`: map of those same paths to complete accepted replacement contents.
 - `ci_passed`: boolean, must be true.
 - `human_reviewed`: boolean, or `merged`: boolean set only after GitHub confirms the PR was merged.
 - `security_scan_passed`: boolean, must be true.
 
-The preparation step removes malformed, duplicate, unreviewed, failed, and
-secret-bearing examples. It creates a deterministic train/evaluation split.
+The merged-repair collector obtains the pre-merge source from the merge commit's first parent and the accepted replacement from the merged head. The preparation step removes malformed, duplicate, unreviewed/unmerged, failed, and secret-bearing examples. It creates ChatML samples aligned with the app's JSON full-file repair contract and a deterministic train/evaluation split.
 At least five trusted examples are required.
 
 ## Run
