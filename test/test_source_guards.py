@@ -144,6 +144,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         coding_start = ai.index('Future<String> _askCoding(', ask_start)
         public_ask = ai[ask_start:coding_start]
         self.assertIn('_looksLikeCodeGenerationRequest(prompt)', public_ask)
+        self.assertIn('!KingCommandSafety.isQuestionRequest(prompt)', public_ask)
         self.assertIn('_conversationSystemPrompt', public_ask)
         self.assertNotIn('_systemPrompt', public_ask)
         self.assertIn('کدنویسی کن', ai[ai.index('bool _looksLikeCodeGenerationRequest'):ask_start])
