@@ -20,7 +20,7 @@ class _KingChatPageState extends State<KingChatPage> {
     {'text': 'سلام! من کینگ هستم. هر موضوعی دوست داری مطرح کن؛ می‌توانیم گفت‌وگو کنیم، سؤال حل کنیم یا چیزی یاد بگیریم.', 'king': true},
   ];
   bool _busy = false, _listening = false, _speechReady = false, _speak = true;
-  bool _voiceTurn = false;
+  bool _voiceTurn = false, _voiceSubmitted = false;
   String? _notice, _locale;
 
   @override
@@ -101,6 +101,7 @@ class _KingChatPageState extends State<KingChatPage> {
       final fa = locales.where((e) => e.localeId.toLowerCase().replaceAll('_', '-').startsWith('fa'));
       _locale = fa.isNotEmpty ? fa.first.localeId : 'fa-IR';
       _voiceTurn = true;
+      _voiceSubmitted = false;
       setState(() => _notice = fa.isEmpty
           ? 'فارسی آفلاین پیدا نشد؛ سرویس گفتار دستگاه را با زبان fa-IR امتحان می‌کنم.'
           : 'کینگ گوش می‌دهد؛ پس از تشخیص، متن را بررسی و ارسال کن.');
@@ -121,8 +122,15 @@ class _KingChatPageState extends State<KingChatPage> {
           setState(() {
             _input.value = TextEditingValue(text: value,
                 selection: TextSelection.collapsed(offset: value.length));
-            _notice = result.finalResult ? 'گفتار تشخیص داده شد؛ ارسال را بزن.' : 'در حال تشخیص گفتار...';
+            _notice = result.finalResult ? 'گفتار تشخیص داده شد؛ کینگ در حال پاسخ‌گویی است.' : 'در حال تشخیص گفتار...';
           });
+          if (result.finalResult && !_voiceSubmitted) {
+            _voiceSubmitted = true;
+            unawaited(Future<void>.delayed(
+              const Duration(milliseconds: 250),
+              () => _send(),
+            ));
+          }
         },
       );
       if (mounted) setState(() => _listening = _speech.isListening);
