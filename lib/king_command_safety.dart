@@ -46,7 +46,7 @@ class KingCommandSafety {
   static bool isQuestionRequest(String command) {
     final value = _normalize(command);
     return value.contains('?') || value.contains('؟') ||
-        RegExp(r'(چرا|چطور|چگونه|چیست|چیه|چی|چه|آیا|مگر|کدام|کجا|کی|چند|what|why|how|when|where|which|who)')
+        RegExp(r'(چرا|چطور|چگونه|چیست|چیه|چی|چه|آیا|مگر|کدام|کجا|کی|چند|میتونی|میتوانی|میشه|می‌شود|can\\s+you|could\\s+you|would\\s+you|is|are|do|does|did|can|could|would|should|will|what|why|how|when|where|which|who)')
             .hasMatch(value);
   }
 
@@ -58,10 +58,10 @@ class KingCommandSafety {
     if (isStatusRequest(value) || isQuestionRequest(value) ||
         negatesConnection(value)) return false;
     return RegExp(
-      r'(?:وصل|متصل)\s*(?:شو|بشو|کن|کنید|بشید)|'
-      r'اتصال\s*(?:را|رو)?\s*(?:برقرار\s*)?(?:کن|کنید|بده|بدید)|'
-      r'اتصال.{0,24}(?:شروع|برقرار)\s*(?:کن|کنید)|'
-      r'(?:شروع|برقرار)\s*(?:کن|کنید).{0,24}(?:اتصال|وصل|خلبان)|'
+      r'(?:وصل|متصل)\s*(?:شو|بشو|کن|کنید|بشید)(?:\s|$)|'
+      r'اتصال\s*(?:را|رو)?\s*(?:برقرار\s*)?(?:کن|کنید|بده|بدید)(?:\s|$)|'
+      r'اتصال.{0,24}(?:شروع|برقرار)\s*(?:کن|کنید)(?:\s|$)|'
+      r'(?:شروع|برقرار)\s*(?:کن|کنید)(?:\s|$).{0,24}(?:اتصال|وصل|خلبان)|'
       r'\b(?:connect|start\s+(?:vpn|connection))\b',
     ).hasMatch(value);
   }
