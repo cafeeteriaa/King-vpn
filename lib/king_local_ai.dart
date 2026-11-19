@@ -345,7 +345,7 @@ empty changes list and explain what is missing.
           'title': entry.value,
           'url': entry.key.toString(),
           'fetchedAt': DateTime.now().toUtc().toIso8601String(),
-          'excerpt': text.substring(0, text.length.clamp(0, 2600)),
+          'excerpt': text.substring(0, text.length.clamp(0, 2600).toInt()),
         });
       } catch (_) {
         // Failed pages are omitted rather than treated as evidence.
@@ -357,7 +357,7 @@ empty changes list and explain what is missing.
 
   Future<void> _rememberResearch(List<Map<String, String>> notes) async {
     final root = await getApplicationSupportDirectory();
-    final file = File('\${root.path}/king_ai_research_memory.jsonl');
+    final file = File('${root.path}/king_ai_research_memory.jsonl');
     final lines = await file.exists()
         ? await file.readAsLines()
         : <String>[];
@@ -365,14 +365,14 @@ empty changes list and explain what is missing.
       lines.add(jsonEncode(note));
     }
     final retained = lines.length > 200 ? lines.sublist(lines.length - 200) : lines;
-    await file.writeAsString(retained.join('\\n') + '\\n', flush: true);
+    await file.writeAsString(retained.join('\n') + '\n', flush: true);
   }
 
   Future<List<Map<String, String>>> _relevantResearchMemory(String query) async {
     final root = await getApplicationSupportDirectory();
-    final file = File('\${root.path}/king_ai_research_memory.jsonl');
+    final file = File('${root.path}/king_ai_research_memory.jsonl');
     if (!await file.exists()) return const [];
-    final words = query.toLowerCase().split(RegExp(r'[^a-z0-9\\u0600-\\u06FF]+'))
+    final words = query.toLowerCase().split(RegExp(r'[^a-z0-9\u0600-\u06FF]+'))
         .where((word) => word.length > 3).toSet();
     final ranked = <({int score, Map<String, String> note})>[];
     for (final line in await file.readAsLines()) {
@@ -381,7 +381,7 @@ empty changes list and explain what is missing.
         if (raw is! Map) continue;
         final note = raw.map((key, value) =>
             MapEntry(key.toString(), value.toString()));
-        final text = '\${note['title']} \${note['excerpt']}'.toLowerCase();
+        final text = '${note['title']} ${note['excerpt']}'.toLowerCase();
         final score = words.where(text.contains).length;
         if (score > 0) ranked.add((score: score, note: note));
       } catch (_) {}
