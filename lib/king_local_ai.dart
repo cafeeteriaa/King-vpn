@@ -806,6 +806,57 @@ empty changes list and explain what is missing.
     return notes;
   }
 
+  /// Refreshes the local technical knowledge base from Google-discovered,
+  /// allowlisted official documentation once every seven days while the app
+  /// is in the foreground. This updates research memory, not model weights.
+  Future<Map<String, Object?>> refreshKnowledgeIfDue({bool force = false}) async {
+    final root = await getApplicationSupportDirectory();
+    final stateFile = File('${root.path}/king_ai_research_sync.json');
+    if (!force && await stateFile.exists()) {
+      try {
+        final raw = jsonDecode(await stateFile.readAsString());
+        final last = raw is Map ? DateTime.tryParse(raw['lastSuccess']?.toString() ?? '') : null;
+        if (last != null && DateTime.now().toUtc().difference(last.toUtc()) <
+            const Duration(days: 7)) {
+          return {'status': 'not_due', 'lastSuccess': last.toIso8601String()};
+        }
+      } catch (_) {
+        // Corrupt schedule metadata is ignored; validated research memory stays intact.
+      }
+    }
+    const queries = <String>[
+      'Flutter stable release notes migration breaking changes site:docs.flutter.dev',
+      'Dart SDK release notes language changes site:dart.dev',
+      'Android VpnService foreground service restrictions latest site:developer.android.com',
+      'Xray core release notes security transport changes site:github.com/XTLS/Xray-core',
+    ];
+    var completed = 0;
+    var saved = 0;
+    final errors = <String>[];
+    for (final query in queries) {
+      try {
+        final notes = await researchGoogle(query, maxResults: 2);
+        completed++;
+        saved += notes.length;
+      } catch (error) {
+        errors.add(error.toString().substring(0, error.toString().length.clamp(0, 180).toInt()));
+      }
+    }
+    if (saved > 0) {
+      await stateFile.writeAsString(jsonEncode({
+        'lastSuccess': DateTime.now().toUtc().toIso8601String(),
+        'queriesCompleted': completed,
+        'notesSaved': saved,
+      }), flush: true);
+    }
+    return {
+      'status': saved > 0 ? 'updated' : 'no_verified_sources',
+      'queriesCompleted': completed,
+      'notesSaved': saved,
+      'errors': errors.take(4).toList(),
+    };
+  }
+
   Future<void> _rememberResearch(List<Map<String, String>> notes) async {
     final root = await getApplicationSupportDirectory();
     final file = File('${root.path}/king_ai_research_memory.jsonl');
