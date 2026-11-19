@@ -226,10 +226,6 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       await _refreshOwnerState();
       return;
     }
-    if (!ownerReauthenticated &&
-        !await _reauthenticateOwnerForCodeChange()) {
-      return;
-    }
     final task = _featureRequestController.text.trim();
     if (task.length < 12) {
       setState(() => _output = 'ایده را دقیق‌تر بنویس (حداقل ۱۲ نویسه).');
@@ -318,6 +314,10 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     if (!_ownerAuth.hasActiveSession) {
       setState(() => _output = 'برای افزودن قابلیت، احراز هویت مالک لازم است.');
       await _refreshOwnerState();
+      return;
+    }
+    if (!ownerReauthenticated &&
+        !await _reauthenticateOwnerForCodeChange()) {
       return;
     }
     final task = _featureRequestController.text.trim();
