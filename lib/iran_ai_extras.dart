@@ -177,12 +177,7 @@ final aiSuggest = ValueNotifier<Map<String, int>>(<String, int>{});
 DateTime _lastAutoAi = DateTime.fromMillisecondsSinceEpoch(0);
 String aiActionName = '';
 
-bool get _hasAnyAiKey =>
-    geminiKey.isNotEmpty ||
-    grokKey.isNotEmpty ||
-    claudeKey.isNotEmpty ||
-    openaiKey.isNotEmpty ||
-    deepseekKey.isNotEmpty;
+bool get _hasAnyAiKey => KingLocalAi.instance.isLoaded;
 
 bool get _selectedAiKeyAvailable => aiProvider == 'local' && KingLocalAi.instance.isLoaded;
 
@@ -1030,14 +1025,14 @@ extension HomeExtras on _HomePageState {
     if (!_hasAnyAiKey) {
       if (!auto) {
         aiText.value =
-            'اول کلید API گروک (console.x.ai) یا جمینای را وارد و ذخیره کن.';
+            'ابتدا مدل هوش مصنوعی داخلی را از تنظیمات دانلود و بارگذاری کن.';
       }
       return;
     }
     if (!connected) {
       if (!auto) {
         aiText.value =
-            'اول به VPN وصل شو (ترجیحاً با «اتصال به سرور مخصوص AI»).';
+            'برای تحلیل زنده اتصال، ابتدا VPN را وصل کن؛ تحلیل کد محلی به VPN نیاز ندارد.';
       }
       return;
     }
@@ -1045,12 +1040,10 @@ extension HomeExtras on _HomePageState {
     try {
       for (var attempt = 0; attempt < 2; attempt++) {
         if (!auto) {
-          final who = aiProvider == 'grok'
-              ? 'Grok'
-              : (aiProvider == 'gemini' ? 'Gemini' : 'دستیار (Grok/Gemini)');
+          const who = 'هوش مصنوعی محلی King';
           aiText.value = attempt == 0
               ? 'در حال ارسال آمار به $who...'
-              : 'این سرور برای AI جواب نداد؛ تعویض به سرور مخصوص AI...';
+              : 'تحلیل محلی ناموفق بود؛ تلاش دوباره...';
         }
         try {
           aiShow(await aiAsk(aiPrompt()));
@@ -1085,8 +1078,7 @@ extension HomeExtras on _HomePageState {
               _usable().any((s) =>
               s.ai == true && s.ping != null && !identical(s, current));
           if (attempt == 1 || !has) {
-            aiText.value =
-                'Gemini روی این سرور باز نمی‌شود. کلید Grok بگذار یا ردیف «🤖 سرورهای مخصوص هوش مصنوعی» را بزن.';
+            aiText.value = 'مدل هوش مصنوعی محلی پاسخ نداد؛ وضعیت مدل و حافظه آزاد دستگاه را بررسی کن.';
             return;
           }
           await connectRow('r:ai');
@@ -1568,7 +1560,7 @@ extension HomeExtras on _HomePageState {
   // FULL PILOT: Grok takes over from search to keep-alive until user disconnects
   Future<void> startGrokPilot() async {
     if (!_selectedAiKeyAvailable) {
-      _set('برای ارائه‌دهنده انتخاب‌شده ($aiProvider) کلید API معتبر وارد و ذخیره کن؛ یا Auto را انتخاب کن.');
+      _set('ابتدا مدل کدنویس محلی را از تنظیمات هوش مصنوعی دانلود و بارگذاری کن.');
       aiSheet();
       return;
     }
