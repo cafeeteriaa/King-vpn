@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Merge only verified King AI repair PRs
+      - name: Merge only verified low-risk King AI policy repairs
         uses: actions/github-script@v7
         with:
           script: |
@@ -30,12 +30,12 @@ jobs:
             const repo = context.repo;
             const fullName = `${repo.owner}/${repo.repo}`;
 
-            // Only successful PR-triggered runs from this repository are eligible.
             if (run.event !== 'pull_request' || run.conclusion !== 'success') {
               core.info('Not a successful pull-request build; skipping.');
               return;
             }
-            if (run.repository?.full_name !== fullName || !run.head_branch?.startsWith('king-ai/repair-')) {
+            if (run.repository?.full_name !== fullName ||
+                !run.head_branch?.startsWith('king-ai/repair-')) {
               core.info('Not a same-repository King AI repair branch; skipping.');
               return;
             }
@@ -51,18 +51,22 @@ jobs:
               item.draft === false
             );
             if (!pr) {
-              core.info('No matching open, non-draft same-repository PR for this exact commit.');
+              core.info('No matching open, non-draft PR for this exact commit.');
               return;
             }
 
             const files = await github.paginate(github.rest.pulls.listFiles, {
               ...repo, pull_number: pr.number, per_page: 100
             });
-            const allowed = path =>
-              (path.startsWith('lib/') && !path.startsWith('lib/android') && !path.startsWith('lib/own_vpn')) ||
-              path.startsWith('test/') || path.startsWith('tools/');
-            if (files.length < 1 || files.length > 3 || files.some(file => !allowed(file.filename))) {
-              core.warning('Changed paths exceed the narrow King AI repair allowlist; human review required.');
+            const allowed = new Set([
+              'lib/king_ai_ci_policy.dart',
+              'lib/king_ai_research_policy.dart',
+              'test/king_ai_ci_policy_test.dart',
+              'test/king_ai_research_policy_test.dart'
+            ]);
+            if (files.length < 1 || files.length > 3 ||
+                files.some(file => !allowed.has(file.filename))) {
+              core.warning('Only explicitly allowlisted AI policy and policy-test files can auto-merge.');
               return;
             }
 
@@ -85,13 +89,10 @@ jobs:
             }
 
             const result = await github.rest.pulls.merge({
-              ...repo,
-              pull_number: pr.number,
-              merge_method: 'squash',
-              sha: run.head_sha,
-              commit_title: `King AI verified repair #${pr.number}`
+              ...repo, pull_number: pr.number, merge_method: 'squash',
+              sha: run.head_sha, commit_title: `King AI verified policy repair #${pr.number}`
             });
             if (!result.data.merged) {
               throw new Error(`GitHub did not merge PR #${pr.number}: ${result.data.message}`);
             }
-            core.notice(`Safely merged King AI repair PR #${pr.number} at ${result.data.sha}`);
+            core.notice(`Safely merged King AI policy repair PR #${pr.number} at ${result.data.sha}`);
