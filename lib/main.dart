@@ -10759,6 +10759,145 @@ ListTile( // KINGEXTRAS row
     ),
   );
 
+
+  // Pilot-only range inventory: deliberately separate from natRanges and all generic scanners.
+  List<String> _pilotRanges = <String>[];
+  List<String> _pilotScanResults = <String>[];
+  bool _pilotRangeBusy = false;
+
+  int? _pilotIpv4Int(String value) {
+    final ip = InternetAddress.tryParse(value.trim());
+    if (ip == null || ip.type != InternetAddressType.IPv4) return null;
+    var out = 0;
+    for (final b in ip.rawAddress) {
+      out = (out << 8) | b;
+    }
+    return out;
+  }
+
+  String _pilotIntIpv4(int value) =>
+      '${(value >> 24) & 255}.${(value >> 16) & 255}.${(value >> 8) & 255}.${value & 255}';
+
+  List<String> _pilotExpandRanges(String raw) {
+    final out = <String>{};
+    for (final line in raw.split(RegExp(r'[\\r\\n,;]+'))) {
+      final value = line.trim();
+      if (value.isEmpty) continue;
+      final cidr = RegExp(r'^([0-9.]+)/([0-9]{1,2})$').firstMatch(value);
+      if (cidr != null) {
+        final base = _pilotIpv4Int(cidr.group(1)!);
+        final prefix = int.tryParse(cidr.group(2)!);
+        if (base == null || prefix == null || prefix < 24 || prefix > 32) continue;
+        final count = 1 << (32 - prefix);
+        final mask = prefix == 0 ? 0 : (0xffffffff << (32 - prefix)) & 0xffffffff;
+        final network = base & mask;
+        for (var i = 0; i < count && out.length < 256; i++) {
+          out.add(_pilotIntIpv4(network + i));
+        }
+        continue;
+      }
+      final dash = RegExp(r'^([0-9.]+)\\s*-\\s*([0-9.]+)$').firstMatch(value);
+      if (dash != null) {
+        final first = _pilotIpv4Int(dash.group(1)!);
+        final last = _pilotIpv4Int(dash.group(2)!);
+        if (first == null || last == null || last < first || last - first > 255) continue;
+        for (var i = first; i <= last && out.length < 256; i++) {
+          out.add(_pilotIntIpv4(i));
+        }
+        continue;
+      }
+      if (_pilotIpv4Int(value) != null) out.add(value);
+      if (out.length >= 256) break;
+    }
+    return out.take(256).toList();
+  }
+
+  Future<void> _pilotRangesDialog(BuildContext context) async {
+    final prefs = await SharedPreferences.getInstance();
+    _pilotRanges = prefs.getStringList('king_pilot_ip_ranges_v1') ?? _pilotRanges;
+    if (!mounted) return;
+    final controller = TextEditingController(text: _pilotRanges.join('\\n'));
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('بازه‌های مستقل IP خلبان'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: TextField(
+            controller: controller,
+            minLines: 3,
+            maxLines: 8,
+            decoration: const InputDecoration(
+              hintText: 'هر خط یک IP یا CIDR از /24 تا /32؛ نمونه: 1.2.3.0/24',
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('انصراف')),
+          FilledButton(
+            onPressed: () async {
+              final parsed = _pilotExpandRanges(controller.text);
+              if (parsed.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('بازه معتبر پیدا نشد؛ فقط IPv4 و CIDRهای /24 تا /32 پذیرفته می‌شوند.')),
+                );
+                return;
+              }
+              _pilotRanges = controller.text.split(RegExp(r'[\\r\\n]+')).map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+              await prefs.setStringList('king_pilot_ip_ranges_v1', _pilotRanges);
+              if (ctx.mounted) Navigator.pop(ctx);
+              _set('بازه‌های اختصاصی خلبان ذخیره شد؛ سقف هر اجرا ۲۵۶ IP است.');
+            },
+            child: const Text('ذخیره بازه‌های خلبان'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+  }
+
+  Future<void> _pilotScanOnly() async {
+    if (_pilotRangeBusy || abort || !localPilotOn) {
+      _set('برای اجرای اسکنر اختصاصی، ابتدا خلبان را فعال کن.');
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    _pilotRanges = prefs.getStringList('king_pilot_ip_ranges_v1') ?? _pilotRanges;
+    final targets = _pilotExpandRanges(_pilotRanges.join('\\n'));
+    if (targets.isEmpty) {
+      _set('ابتدا بازه‌های IPv4 اختصاصی خلبان را تعریف کن.');
+      return;
+    }
+    setState(() => _pilotRangeBusy = true);
+    final alive = <String>[];
+    try {
+      for (var i = 0; i < targets.length; i += 12) {
+        if (abort || !localPilotOn) break;
+        final batch = targets.skip(i).take(12).toList();
+        final results = await Future.wait(batch.map((host) async {
+          Socket? socket;
+          try {
+            socket = await Socket.connect(host, 443, timeout: const Duration(milliseconds: 900));
+            return host;
+          } catch (_) {
+            return null;
+          } finally {
+            socket?.destroy();
+          }
+        }));
+        alive.addAll(results.whereType<String>());
+      }
+      _pilotScanResults = alive;
+      await prefs.setStringList('king_pilot_scan_results_v1', alive);
+      _set('اسکن اختصاصی خلبان تمام شد: ${alive.length} میزبان TCP/443 پاسخ دادند. این نتیجه به‌تنهایی اثبات اتصال VPN نیست.');
+    } catch (e, st) {
+      logError(e, st);
+      _set('اسکن اختصاصی خلبان با خطا متوقف شد: $e');
+    } finally {
+      if (mounted) setState(() => _pilotRangeBusy = false);
+    }
+  }
+
   // اسکن IP بدون تغییر تنظیمات دیگر: در هر دور نت ملی اجرا می‌شود
   Future<void> _natScanOnly() async {
     try {
