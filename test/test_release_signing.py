@@ -43,6 +43,10 @@ class ReleaseSigningConfigurationTests(unittest.TestCase):
         self.assertIn("KING_UPDATE_GIST_TOKEN: ${{ secrets.KING_UPDATE_GIST_TOKEN }}", workflow)
         self.assertNotIn(r"\${{ secrets.KING_UPDATE_GIST_TOKEN }}", workflow)
 
+    def test_signed_release_resolves_package_info_plus_used_by_updater(self):
+        workflow = (ROOT / ".github" / "workflows" / "signed-release.yml").read_text(encoding="utf-8")
+        self.assertIn("path_provider package_info_plus speech_to_text", workflow)
+
     def test_duplicate_signing_injection_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             gradle = pathlib.Path(directory) / "build.gradle.kts"
