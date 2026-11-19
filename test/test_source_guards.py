@@ -535,6 +535,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('setLanguage', voice)
         self.assertIn('fa-IR', voice)
 
+    def test_national_runtime_optimization_is_not_misclassified_as_code(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('final codeRequest = RegExp(')
+        end = main.index(').hasMatch(command);', start)
+        code_request = main[start:end]
+        self.assertIn('(کل اپ|کل برنامه|کل پروژه)', code_request)
+        self.assertIn('(قابلیت جدید|امکانات جدید|افزودن|اضافه|کدنویسی|سورس|کد)', code_request)
+        self.assertNotIn('(اینترنت ایران|نت ملی).{0,30}(بهینه|ارتقا', code_request)
+
     def test_voice_chat_uses_local_persian_tts_and_owner_task_prefill(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
