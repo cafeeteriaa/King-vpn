@@ -140,6 +140,7 @@ def replace_function_braces(file_key, sig_regex, new_func, label):
 mp = os.path.join(APP, 'android/app/src/main/AndroidManifest.xml')
 m = open(mp, encoding='utf-8').read()
 perms = ('<uses-permission android:name="android.permission.INTERNET"/>\n'
+         '    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n'
          '    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>\n'
          '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>\n'
          '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>\n'
@@ -148,6 +149,24 @@ perms = ('<uses-permission android:name="android.permission.INTERNET"/>\n'
          '    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>\n    ')
 if 'QUERY_ALL_PACKAGES' not in m:
     m = m.replace('<application', perms + '<application', 1)
+if 'android.permission.RECORD_AUDIO' not in m:
+    m = m.replace(
+        '<application',
+        '    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <application',
+        1,
+    )
+# speech_to_text uses Android's system recognizer. Keep recognition on-device
+# in Dart and declare package visibility for Android 11+ even when Flutter's
+# generated manifest already contains an unrelated <queries> block.
+if 'android.speech.RecognitionService' not in m:
+    speech_intent = ('\n        <intent>\n'
+                     '            <action android:name="android.speech.RecognitionService"/>\n'
+                     '        </intent>\n    ')
+    if '<queries>' in m:
+        m = m.replace('<queries>', '<queries>' + speech_intent, 1)
+    else:
+        speech_queries = ('<queries>' + speech_intent + '</queries>\n    ')
+        m = m.replace('<application', speech_queries + '<application', 1)
 SVC = ('<service android:name="dev.amirzr.flutter_v2ray_client.v2ray.services.V2rayProxyOnlyService"\n'
        '             android:foregroundServiceType="specialUse">\n'
        '            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"\n'
@@ -206,10 +225,11 @@ for name in ('build.gradle', 'build.gradle.kts'):
         open(gp, 'w', encoding='utf-8').write(g)
 print('OK: Gradle')
 
-# Flutter's Gradle plugin is an included build. Its own plugin-management
-# repositories are independent from build_app/android/settings.gradle(.kts).
-# Ensure Maven Central is available there too, for Kotlin DSL transitive
-# artifacts (for example kotlin-stdlib / kotlin-gradle-plugin).
+# Flutter's Gradle plugin is an included build. Its settings are separate from
+# build_app/android/settings.gradle(.kts). The Flutter SDK settings file in
+# recent releases may declare dependencyResolutionManagement but omit
+# pluginManagement; Gradle then falls back to the Plugin Portal alone for
+# Kotlin DSL plugin transitives. Add explicit Google + Maven Central sources.
 flutter_root = os.environ.get('FLUTTER_ROOT')
 if flutter_root:
     for settings_name in ('settings.gradle.kts', 'settings.gradle'):
@@ -220,38 +240,67 @@ if flutter_root:
             continue
         with open(flutter_settings, encoding='utf-8') as f:
             flutter_settings_text = f.read()
+
         pm = re.search(r'pluginManagement\s*\{', flutter_settings_text)
         if not pm:
-            continue
-        repo_match = re.search(r'repositories\s*\{', flutter_settings_text[pm.end():])
-        if not repo_match:
-            continue
-        repo_open = pm.end() + repo_match.end() - 1
-        depth = 0
-        repo_close = None
-        for pos in range(repo_open, len(flutter_settings_text)):
-            if flutter_settings_text[pos] == '{':
-                depth += 1
-            elif flutter_settings_text[pos] == '}':
-                depth -= 1
-                if depth == 0:
-                    repo_close = pos
-                    break
-        if repo_close is None:
-            continue
-        repositories_text = flutter_settings_text[repo_open:repo_close]
-        if 'mavenCentral()' not in repositories_text:
-            insert_at = repo_open + 1
             flutter_settings_text = (
-                flutter_settings_text[:insert_at]
-                + '\n        mavenCentral()'
-                + flutter_settings_text[insert_at:]
+                'pluginManagement {\n'
+                '    repositories {\n'
+                '        google()\n'
+                '        mavenCentral()\n'
+                '        gradlePluginPortal()\n'
+                '    }\n'
+                '}\n\n' + flutter_settings_text
             )
-            with open(flutter_settings, 'w', encoding='utf-8') as f:
-                f.write(flutter_settings_text)
-            print('  OK: Added Maven Central to Flutter included-build plugin repositories')
+            print('  OK: Added pluginManagement repositories to Flutter included build')
         else:
-            print('  OK: Flutter included-build already has Maven Central')
+            block_open = pm.end() - 1
+            depth = 0
+            block_close = None
+            for pos in range(block_open, len(flutter_settings_text)):
+                if flutter_settings_text[pos] == '{':
+                    depth += 1
+                elif flutter_settings_text[pos] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        block_close = pos
+                        break
+            if block_close is None:
+                raise SystemExit('HARD FAIL: malformed Flutter pluginManagement block')
+            block = flutter_settings_text[block_open + 1:block_close]
+            repo_match = re.search(r'repositories\s*\{', block)
+            if not repo_match:
+                raise SystemExit('HARD FAIL: Flutter pluginManagement has no repositories block')
+            repo_open = block_open + 1 + repo_match.end() - 1
+            depth = 0
+            repo_close = None
+            for pos in range(repo_open, block_close + 1):
+                if flutter_settings_text[pos] == '{':
+                    depth += 1
+                elif flutter_settings_text[pos] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        repo_close = pos
+                        break
+            if repo_close is None:
+                raise SystemExit('HARD FAIL: malformed Flutter plugin repositories block')
+            repositories_text = flutter_settings_text[repo_open:repo_close]
+            additions = ''
+            if 'google()' not in repositories_text:
+                additions += '\n        google()'
+            if 'mavenCentral()' not in repositories_text:
+                additions += '\n        mavenCentral()'
+            if additions:
+                flutter_settings_text = (
+                    flutter_settings_text[:repo_open + 1] + additions
+                    + flutter_settings_text[repo_open + 1:]
+                )
+                print('  OK: Added missing Flutter plugin repositories')
+            else:
+                print('  OK: Flutter included-build plugin repositories already complete')
+
+        with open(flutter_settings, 'w', encoding='utf-8') as f:
+            f.write(flutter_settings_text)
         break
 
 # =====================================================================
