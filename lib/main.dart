@@ -8,7 +8,7 @@ import 'king_ai_owner_auth.dart';
 import 'king_command_safety.dart';
 import 'fresh_resource_store.dart';
 import 'fresh_resources_page.dart';
-import 'package:local_inference_flutter/local_inference_flutter.dart';
+import 'package:local_inference_flutter/local_inference_flutter.dart' as local_inference;
 import 'update_integrity.dart';
 import 'errjournal.dart';
 import 'dart:ui' as ui;
@@ -2940,7 +2940,7 @@ Completer<bool>? downSig;
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
-    await LocalInferenceFlutter.installDownloaderStorage();
+    await local_inference.LocalInferenceFlutter.installDownloaderStorage();
   } catch (e, st) {
     logError(e, st);
   }
