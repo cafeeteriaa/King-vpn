@@ -293,10 +293,13 @@ empty changes list and explain what is missing.
     const patterns = [
       'کدنویسی کن', 'برنامه نویسی کن', 'کد بنویس', 'کدشو بنویس',
       'کد تولید', 'کد جدید', 'قابلیت جدید', 'قابلیت اضافه',
-      'ویژگی جدید', 'ویژگی اضافه', 'افزودن قابلیت', 'ماژول جدید',
+      'ویژگی جدید', 'ویژگی اضافه', 'افزودن قابلیت', 'قابلیت اضافه کن',
+      'ماژول جدید', 'ماژول بساز', 'اسکریپت بنویس', 'تابع بنویس',
+      'کد بده', 'پیاده سازی کن', 'توسعه بده', 'تغییر ساختار برنامه',
       'سورس را تغییر', 'تغییر سورس', 'کد برنامه را تغییر',
       'write code', 'generate code', 'add feature', 'create feature',
-      'create module', 'modify source', 'write a program',
+      'create module', 'modify source', 'write a program', 'write a function',
+      'write a script', 'implement feature', 'generate a patch', 'modify the app',
     ];
     return patterns.any((pattern) => q.contains(pattern));
   }
