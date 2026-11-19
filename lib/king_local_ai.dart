@@ -1514,13 +1514,19 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       'Dart SDK release notes language changes site:dart.dev',
       'Android VpnService foreground service restrictions latest site:developer.android.com',
       'Xray core release notes security transport changes site:github.com/XTLS/Xray-core',
+      'V2Fly V2Ray core releases configuration DNS routing site:github.com/v2fly',
+      'sing-box release notes DNS routing tun Android site:github.com/SagerNet',
+      'Iran internet national information network DNS routing measurement site:ooni.org',
+      'RIPE Atlas DNS IPv6 routing measurement methodology site:ripe.net',
+      'Cloudflare DNS API Workers security rate limits documentation site:developers.cloudflare.com',
+      'IETF DNS HTTPS TLS IPv6 standards updates site:ietf.org',
     ];
     var completed = 0;
     var saved = 0;
     final errors = <String>[];
     for (final query in queries) {
       try {
-        final notes = await researchGoogle(query, maxResults: 2);
+        final notes = await researchGoogle(query, maxResults: 3);
         completed++;
         saved += notes.length;
       } catch (error) {
