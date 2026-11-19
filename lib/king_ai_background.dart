@@ -42,7 +42,10 @@ void kingAiBackgroundDispatcher() {
       if (task == _researchTaskName) {
         // Passive, bounded research. Only allowlisted official sources are
         // retained by researchGoogle; this never edits code or needs a token.
-        await ai.researchGoogle(_researchQuery, maxResults: 5)
+        await ai.researchGoogle(
+          _researchQuery,
+          maxResults: kingAiBackgroundResearchMaxResults,
+        )
             .timeout(const Duration(seconds: 55));
         return true;
       }
