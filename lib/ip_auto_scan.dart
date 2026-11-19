@@ -71,16 +71,16 @@ Future<void> _ipAutoSave() async {
 
 /// خودکار فقط IPهای دقیقِ کانفیگ‌های موجود و سرورهای قبلاً موفق را بررسی می‌کند.
 /// پیمایش گسترده‌ی CIDRهای ISP/CDN برای اجرای خودکار مجاز نیست؛ اسکن دستی جداست.
-List<String> _ipAutoBlocks() => <String>{
+List<String> _ipAutoBlocks(Iterable<Server> knownServers) => <String>{
   ...natIpMemHosts(),
-  for (final server in [...good, ...pending, ...fetchedAll])
+  for (final server in knownServers)
     if (server.isIp) server.host,
 }.map((ip) => '$ip/32').toList(growable: false);
 
-Future<List<String>> _ipAutoNextAddrs() async {
+Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers) async {
   final args = <String, dynamic>{
     'cfIpsBatch': 0, // exact known endpoints only; no broad public CIDR scan
-    'blocks': _ipAutoBlocks(),
+    'blocks': _ipAutoBlocks(knownServers),
     'nationalMode': nationalMode,
     'liveRanges': <String>[],
     'cursors': Map<String, int>.of(ipAutoCursors),
@@ -188,7 +188,7 @@ extension IpAutoExt on _HomePageState {
     }
     final tpl = pool.take(2).toList();
     say('ساخت آدرس‌ها...');
-    final addrs = await _ipAutoNextAddrs();
+    final addrs = await _ipAutoNextAddrs([...good, ...pending, ...fetchedAll]);
     if (addrs.isEmpty) {
       say('آدرسی برای اسکن پیدا نشد.');
       return;
