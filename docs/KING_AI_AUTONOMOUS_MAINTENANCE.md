@@ -84,6 +84,16 @@ commands. They cannot submit code requests or enable background maintenance.
 - The update manifest's latest/minimum build values, APK URL and SHA-256 must
   match the exact signed release asset. The installed build number is read from
   Android package metadata; the small Dart build constant is only a fallback.
+- A tag-triggered signed-release workflow runs Python and Flutter tests plus
+  Dart analysis, builds an Android arm64 release APK, signs it, and publishes
+  the APK and SHA-256 asset. It then updates the owner-managed Gist manifest
+  with the build number, release URL, APK URL, digest and preserved heal flags.
+  The app reads the explicit update.json file and rejects missing or malformed
+  digests before opening the installer.
+- Before creating a version tag, configure repository Actions secrets:
+  ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS,
+  ANDROID_KEY_PASSWORD and KING_UPDATE_GIST_TOKEN. The last token needs Gist
+  write permission. Secrets remain in GitHub Actions and never enter source.
 
 ## Evidence limits
 
