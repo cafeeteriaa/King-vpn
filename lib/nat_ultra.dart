@@ -1892,7 +1892,11 @@ List<String> natExpandAny(String item, {int maxPerBlock = 65536}) {
     end = t;
   }
   final out = <String>[];
-  for (var v = start; v <= end && out.length < maxPerBlock; v++) {
+  final count = end - start + 1;
+  final step = count > maxPerBlock
+      ? (count + maxPerBlock - 1) ~/ maxPerBlock
+      : 1;
+  for (var v = start; v <= end && out.length < maxPerBlock; v += step) {
     out.add(_intToIp(v));
   }
   return out;
