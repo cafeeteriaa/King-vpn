@@ -300,7 +300,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_national_network_optimization_requests_enter_owner_code_flow(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
-        self.assertIn("r'(نت ملی|اینترنت ایران).{0,40}(بهینه|ارتقا|بروز|به روز|خودکار|هوشمند|توسعه|تقویت)|'", main)
+        self.assertIn("r'(نت ملی|اینترنت ایران).{0,40}(بهینه|ارتقا|بروز|به روز|خودکار|هوشمند|توسعه|تقویت).{0,12}(کن|کنید|بده|بساز)|'", main)
         self.assertIn("KingAiConsolePage(initialFeatureRequest: command", main)
 
     def test_daily_autonomous_source_audit_is_owner_enabled_and_review_only(self):
@@ -583,7 +583,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
         self.assertIn('flutter_tts', workflow)
         self.assertIn('_smartSpeechVoiceInput', main)
-        self.assertIn('if (voiceResponse) await _speakSmartCommandResponse(status)', main)
+        self.assertIn('if (voiceResponse) await _speakSmartCommandResponse(voiceReply ?? status)', main)
         self.assertIn('onChanged: (_) => _smartSpeechVoiceInput = false', main)
         self.assertIn('setLanguage', voice)
         self.assertIn('fa-IR', voice)
@@ -594,14 +594,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = main.index(').hasMatch(command);', start)
         code_request = main[start:end]
         self.assertIn('(کل اپ|کل برنامه|کل پروژه)', code_request)
-        self.assertIn('(قابلیت جدید|امکانات جدید|افزودن|اضافه|کدنویسی|سورس|کد)', code_request)
+        self.assertIn('قابلیت.{0,12}(اضافه کن|بساز|ایجاد کن)', code_request)
         self.assertNotIn('(اینترنت ایران|نت ملی).{0,30}(بهینه|ارتقا', code_request)
 
     def test_voice_chat_uses_local_persian_tts_and_owner_task_prefill(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
         voice = (ROOT / 'lib' / 'king_voice_output.dart').read_text(encoding='utf-8')
-        self.assertIn('if (voiceResponse) await _speakSmartCommandResponse(status)', main)
+        self.assertIn('if (voiceResponse) await _speakSmartCommandResponse(voiceReply ?? status)', main)
         self.assertIn('onChanged: (_) => _smartSpeechVoiceInput = false', main)
         self.assertIn('initialFeatureRequest: command', main)
         self.assertIn('speakResponses: voiceResponse', main)
@@ -956,7 +956,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
         command_start = main.index('} else if (requestedNetworkMode != null && wantsConnect)')
-        command_end = main.index("} else if (RegExp(r'(قطع اتصال", command_start)
+        command_end = main.index("} else if (!negatesScan && command.contains('بازه')", command_start)
         command = main[command_start:command_end]
         self.assertIn('await startLocalPilot(pinNetworkMode: true);', command)
         self.assertIn('bool _pilotNetworkModePinned = false;', pilot)
