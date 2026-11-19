@@ -187,7 +187,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   }
 
   Future<void> _saveToken() async {
-    if (_ownerConfigured && !await _requireOwnerSession('تغییر کلید GitHub')) return;
+    if (_ownerConfigured && !await _reauthenticateOwnerForCodeChange()) return;
 
     final token = _tokenController.text.trim();
     if (token.isEmpty) {
@@ -364,11 +364,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   }
 
   Future<void> _repair() async {
-    if (!_ownerAuth.hasActiveSession) {
-      setState(() => _output = 'برای درخواست اصلاح کد، ابتدا مالک اصلی باید احراز هویت شود.');
-      await _refreshOwnerState();
-      return;
-    }
+    if (!await _reauthenticateOwnerForCodeChange()) return;
     final number = _pullNumber;
     if (number == null || number < 1) {
       setState(() => _output = 'شماره Pull Request معتبر نیست.');
@@ -384,7 +380,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   }
 
   Future<void> _enableBackground() async {
-    if (!await _requireOwnerSession('فعال‌سازی ترمیم خودکار پس‌زمینه')) return;
+    if (!await _reauthenticateOwnerForCodeChange()) return;
 
     final number = _pullNumber;
     if (number == null || number < 1) {
@@ -409,7 +405,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   }
 
   Future<void> _enableAutomaticDiscovery() async {
-    if (!await _requireOwnerSession('فعال‌سازی کشف خودکار مخزن')) return;
+    if (!await _reauthenticateOwnerForCodeChange()) return;
 
     if (!_hasToken || !_ai.isLoaded) {
       setState(() => _output = 'برای کشف و ترمیم خودکار، ابتدا GitHub را متصل و مدل محلی را در حالت foreground بارگذاری کن.');
@@ -433,7 +429,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   }
 
   Future<void> _disableBackground() async {
-    if (!await _requireOwnerSession('توقف ترمیم پس‌زمینه')) return;
+    if (!await _reauthenticateOwnerForCodeChange()) return;
 
     await _run('غیرفعال‌سازی ترمیم پس‌زمینه', () async {
       await KingAiBackgroundSupervisor.disable();
@@ -442,7 +438,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   }
 
   Future<void> _clearToken() async {
-    if (!await _requireOwnerSession('پاک‌کردن کلید GitHub')) return;
+    if (!await _reauthenticateOwnerForCodeChange()) return;
 
     await _run('پاک‌کردن کلید ذخیره‌شده', () async {
       await KingAiBackgroundSupervisor.disable();
