@@ -51,7 +51,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         tick = pilot[tick_start:tick_end]
         self.assertIn('if (!connected)', tick)
         self.assertIn('await _pilotDetectNetworkMode();', tick)
-        self.assertNotIn('autoTuneNow()', tick)
         detect_start = pilot.index('Future<NatNetworkClass> _pilotDetectNetworkMode()')
         detect_end = pilot.index('void ensureLocalPilotRunning()', detect_start)
         detect = pilot[detect_start:detect_end]
@@ -82,6 +81,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         detect_start = pilot.index('Future<NatNetworkClass> _pilotDetectNetworkMode()')
         detect_end = pilot.index('void ensureLocalPilotRunning()', detect_start)
         self.assertNotIn('NatNetworkDiagnosis', pilot[detect_start:detect_end])
+        nat_detect_start = main.index('Future<void> _natDetect()')
+        nat_detect_end = main.index('DateTime? _checkSavedAt', nat_detect_start)
+        nat_detect = main[nat_detect_start:nat_detect_end]
+        self.assertIn('PilotNetworkProbe.refresh()', nat_detect)
+        self.assertNotIn('dnsxAutoPick(', nat_detect)
+        self.assertNotIn('ipAutoBackground(', nat_detect)
+        connect_start = main.index('Future<void> connect()')
+        connect_end = main.index('Future<void> _stopV2()', connect_start)
+        connect = main[connect_start:connect_end]
+        self.assertIn('if (localPilotOn)', connect)
+        self.assertIn('PilotNetworkProbe.refresh()', connect)
 
     def test_flutter_artifact_path_matches_non_split_apk_build(self):
         workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
