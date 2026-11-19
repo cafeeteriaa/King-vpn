@@ -31,6 +31,35 @@ void main() {
     });
   });
 
+  group('resolveAllowedUpdateRedirect', () {
+    test('accepts HTTPS release hosts and safe relative redirects', () {
+      final current = Uri.parse('https://github.com/owner/repo/releases/download/v1/app.apk');
+      expect(
+        resolveAllowedUpdateRedirect(current, 'https://release-assets.githubusercontent.com/assets/app.apk')?.host,
+        'release-assets.githubusercontent.com',
+      );
+      expect(
+        resolveAllowedUpdateRedirect(current, '/owner/repo/releases/download/v2/app.apk')?.host,
+        'github.com',
+      );
+    });
+
+    test('rejects untrusted, downgraded, missing and malformed redirects', () {
+      final current = Uri.parse('https://github.com/owner/repo/app.apk');
+      for (final location in [
+        'https://github.com.evil.example/app.apk',
+        'http://github.com/owner/repo/app.apk',
+        'https://evil.example/app.apk',
+        '',
+      ]) {
+        expect(resolveAllowedUpdateRedirect(current, location), isNull,
+            reason: location);
+      }
+      expect(resolveAllowedUpdateRedirect(current, null), isNull);
+      expect(resolveAllowedUpdateRedirect(current, 'http://[invalid'), isNull);
+    });
+  });
+
   group('verifySha256Bytes', () {
     final hello = 'hello'.codeUnits;
     const helloSha256 = '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824';
