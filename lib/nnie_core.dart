@@ -58,23 +58,29 @@ class NatProbeEvidence {
   final int sampleCount;
 
   NatNetworkClass classify() {
-    // Do not infer a national-only network from one failed destination.
+    // DNS replies prove resolver availability only. They must never be used as
+    // proof that a domestic or global data path is reachable.
     if (sampleCount < 2) return NatNetworkClass.unknown;
     if (dnsPoisonSuspected) return NatNetworkClass.dnsDegraded;
-    final domestic = domesticDnsOk || domesticTcpOk;
-    final global = globalDnsOk || globalTcpOk;
-    if (domestic && !global) return NatNetworkClass.domesticOnlyLikely;
-    // A resolver answering on UDP is NOT proof of a working international
-    // route: if the TCP/443 checks to global hosts all fail while domestic
-    // hosts work, the international path is restricted. This is the case the
-    // national-first ordering must still handle (see preferDomestic).
-    if (domestic && global && !globalTcpOk) {
+
+    if (domesticTcpOk && globalTcpOk) {
+      return NatNetworkClass.globalReachable;
+    }
+    if (domesticTcpOk && !globalTcpOk) {
+      return globalDnsOk
+          ? NatNetworkClass.transportRestricted
+          : NatNetworkClass.domesticOnlyLikely;
+    }
+    if (!domesticTcpOk && globalTcpOk) {
+      return NatNetworkClass.globalReachable;
+    }
+    // DNS may work while TCP/443 is blocked on both route groups. Report a
+    // transport restriction, never "domestic only" or "global reachable".
+    if (domesticDnsOk || globalDnsOk) {
       return NatNetworkClass.transportRestricted;
     }
-    if (domestic && global) return NatNetworkClass.globalReachable;
     return NatNetworkClass.unknown;
-  }
-}
+  }}
 
 class NatDnsProbeResult {
   const NatDnsProbeResult(this.server, this.domain, this.elapsedMs,
