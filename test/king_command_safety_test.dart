@@ -33,6 +33,39 @@ void main() {
       expect(KingCommandSafety.negatesConnection('اتصال خلبان را شروع کن'), isFalse);
     });
 
+    test('natural questions never become connection actions', () {
+      for (final question in [
+        'چرا اتصال من برقرار نمی‌شود؟',
+        'چطور نت ملی کار می‌کند؟',
+        'آیا اتصال من امن است؟',
+        'سرور آلمان چه سرعتی دارد؟',
+        'how does the VPN connection work?',
+        'why is my connection not working?',
+      ]) {
+        expect(KingCommandSafety.isQuestionRequest(question), isTrue,
+            reason: question);
+        expect(KingCommandSafety.isConnectIntent(question), isFalse,
+            reason: question);
+        expect(KingCommandSafety.requestedNetworkMode(question), isNull,
+            reason: question);
+      }
+    });
+
+    test('only imperative connection phrases are executable', () {
+      for (final command in [
+        'کینگ وصل شو',
+        'به نت ملی متصل شو',
+        'اتصال را برقرار کن',
+        'اتصال خلبان را شروع کن',
+        'connect now',
+      ]) {
+        expect(KingCommandSafety.isConnectIntent(command), isTrue,
+            reason: command);
+      }
+      expect(KingCommandSafety.isConnectIntent('اتصال چیست'), isFalse);
+      expect(KingCommandSafety.isConnectIntent('وصل شدن چطور است'), isFalse);
+    });
+
     test('connect intent recognises متصل and rejects status/negated commands', () {
       expect(KingCommandSafety.isConnectIntent('به نت ملی متصل شو'), isTrue);
       expect(KingCommandSafety.isConnectIntent('کینگ متصل شو'), isTrue);
