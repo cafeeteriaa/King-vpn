@@ -10,7 +10,7 @@ void main() {
         domesticSamples: 3,
         globalSamples: 3,
         domesticLatencyMs: 140,
-        domesticDataPlaneVerified: true,
+        domesticTlsReachabilityVerified: true,
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.domestic);
     });
@@ -22,7 +22,7 @@ void main() {
         domesticSamples: 3,
         globalSamples: 3,
         globalLatencyMs: 190,
-        globalDataPlaneVerified: true,
+        globalTlsReachabilityVerified: true,
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.global);
     });
@@ -35,8 +35,8 @@ void main() {
         globalSamples: 3,
         domesticLatencyMs: 120,
         globalLatencyMs: 280,
-        domesticDataPlaneVerified: true,
-        globalDataPlaneVerified: true,
+        domesticTlsReachabilityVerified: true,
+        globalTlsReachabilityVerified: true,
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.domestic);
     });
@@ -71,7 +71,7 @@ void main() {
         global: LinkHealth.unreachable,
         domesticSamples: 3,
         globalSamples: 3,
-        domesticDataPlaneVerified: false,
+        domesticTlsReachabilityVerified: false,
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
     });
