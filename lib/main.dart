@@ -10660,24 +10660,6 @@ ListTile( // KINGEXTRAS row
     } catch (e, st) { logError(e, st); }
   }
 
-  // Command-to-country aliases; unknown or untagged servers never pass a strict country filter.
-  String? _smartCountryCode(String command) {
-    const aliases = <String, String>{
-      'germany': 'DE', 'آلمان': 'DE',
-      'netherlands': 'NL', 'هلند': 'NL',
-      'france': 'FR', 'فرانسه': 'FR',
-      'turkey': 'TR', 'ترکیه': 'TR',
-      'united states': 'US', 'آمریکا': 'US',
-      'united kingdom': 'GB', 'انگلیس': 'GB',
-      'canada': 'CA', 'کانادا': 'CA',
-      'singapore': 'SG', 'سنگاپور': 'SG',
-    };
-    for (final entry in aliases.entries) {
-      if (command.contains(entry.key)) return entry.value;
-    }
-    return null;
-  }
-
   int? _pilotIpNumber(String value) {
     final ip = InternetAddress.tryParse(value.trim());
     if (ip == null || ip.type != InternetAddressType.IPv4) return null;
