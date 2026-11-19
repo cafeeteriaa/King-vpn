@@ -26,7 +26,7 @@ class KingCommandSafety {
     return RegExp(
       '(?:اسکن|پویش|scan).{0,16}$_negation',
     ).hasMatch(value) || RegExp(
-      '$_negation.{0,16}(?:اسکن|پویش)',
+      '$_negation.{0,16}(?:اسکن|پویش|scan)',
     ).hasMatch(value);
   }
 }
