@@ -30,12 +30,22 @@ class NetworkEvidence {
     if (domestic == LinkHealth.unknown && global == LinkHealth.unknown) {
       return DetectedNetworkMode.unknown;
     }
-    final domesticUp = domestic == LinkHealth.healthy || domestic == LinkHealth.degraded;
-    final globalUp = global == LinkHealth.healthy || global == LinkHealth.degraded;
-    if (!domesticUp && !globalUp) return DetectedNetworkMode.offline;
+    // A degraded group means only one endpoint responded; do not label it
+    // as a confirmed network class or infer the other side is unavailable.
+    if (domestic == LinkHealth.degraded || global == LinkHealth.degraded) {
+      return DetectedNetworkMode.unknown;
+    }
+    final domesticUp = domestic == LinkHealth.healthy;
+    final globalUp = global == LinkHealth.healthy;
+    if (!domesticUp && !globalUp) {
+      return domestic == LinkHealth.unreachable && global == LinkHealth.unreachable
+          ? DetectedNetworkMode.offline
+          : DetectedNetworkMode.unknown;
+    }
     if (domesticUp && globalUp) return DetectedNetworkMode.dualStack;
-    if (domesticUp) return DetectedNetworkMode.domesticOnly;
-    return DetectedNetworkMode.globalOnly;
+    if (domesticUp && global == LinkHealth.unreachable) return DetectedNetworkMode.domesticOnly;
+    if (globalUp && domestic == LinkHealth.unreachable) return DetectedNetworkMode.globalOnly;
+    return DetectedNetworkMode.unknown;
   }
 
   /// Health of one address family must not be inferred from the other.
