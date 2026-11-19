@@ -243,11 +243,17 @@ if flutter_root:
         with open(flutter_settings, encoding='utf-8') as f:
             flutter_settings_text = f.read()
 
+        mirror_repo = (
+            '        maven { url = uri("https://maven-central.storage-download.googleapis.com/maven2") }\n'
+            if settings_name.endswith('.kts') else
+            '        maven { url "https://maven-central.storage-download.googleapis.com/maven2" }\n'
+        )
         pm = re.search(r'pluginManagement\s*\{', flutter_settings_text)
         if not pm:
             flutter_settings_text = (
                 'pluginManagement {\n'
                 '    repositories {\n'
+                + mirror_repo +
                 '        google()\n'
                 '        mavenCentral()\n'
                 '        gradlePluginPortal()\n'
@@ -288,6 +294,8 @@ if flutter_root:
                 raise SystemExit('HARD FAIL: malformed Flutter plugin repositories block')
             repositories_text = flutter_settings_text[repo_open:repo_close]
             additions = ''
+            if mirror_repo.strip() not in repositories_text:
+                additions += '\n' + mirror_repo.rstrip('\n')
             if 'google()' not in repositories_text:
                 additions += '\n        google()'
             if 'mavenCentral()' not in repositories_text:
@@ -297,7 +305,7 @@ if flutter_root:
                     flutter_settings_text[:repo_open + 1] + additions
                     + flutter_settings_text[repo_open + 1:]
                 )
-                print('  OK: Added missing Flutter plugin repositories')
+                print('  OK: Added Maven Central mirror and missing Flutter plugin repositories')
             else:
                 print('  OK: Flutter included-build plugin repositories already complete')
 
