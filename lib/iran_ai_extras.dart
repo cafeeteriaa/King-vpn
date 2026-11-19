@@ -2370,26 +2370,55 @@ extension HomeExtras on _HomePageState {
     if (op.isEmpty || action.isEmpty) return;
     _pilotPendingExperienceKey = '$op|$action';
     _pilotPendingExperienceAt = DateTime.now();
+    _pilotPendingWasConnected = connected;
+    _pilotPendingServerLink = current?.link;
+    _pilotPendingPositiveSamples = 0;
+    _pilotPendingLastPositiveAt = null;
   }
 
   Future<void> _pilotReconcileExperience(_LocalNetSnap snap) async {
     final key = _pilotPendingExperienceKey;
     final at = _pilotPendingExperienceAt;
     if (key == null || at == null) return;
-    // Count a win only when class-appropriate tunnel traffic is verified or
-    // real throughput is measured. A connected core alone is not success.
-    final verified = snap.connected &&
+    final now = DateTime.now();
+    final action = key.split('|').last;
+    final elapsed = now.difference(at);
+    // A connected core alone is not success. Require class-appropriate
+    // data-plane/throughput evidence twice, at least 10s apart, after action.
+    final hasData = snap.connected &&
         (snap.netOk == true || (snap.speedMBs != null && snap.speedMBs! >= 0.25));
-    final expiredFailure = !verified &&
-        DateTime.now().difference(at) >= const Duration(minutes: 3);
-    if (!verified && !expiredFailure) return;
+    final transitioned = switch (action) {
+      'connect' => !_pilotPendingWasConnected && snap.connected,
+      'switch_best' => snap.connected && current?.link != null &&
+          current!.link != _pilotPendingServerLink,
+      'soft_recover' => snap.connected,
+      _ => false,
+    };
+    final verified = elapsed >= const Duration(seconds: 10) && hasData && transitioned;
     if (verified) {
+      final last = _pilotPendingLastPositiveAt;
+      if (last == null || now.difference(last) >= const Duration(seconds: 10)) {
+        _pilotPendingPositiveSamples++;
+        _pilotPendingLastPositiveAt = now;
+      }
+    } else if (!hasData || !transitioned) {
+      _pilotPendingPositiveSamples = 0;
+      _pilotPendingLastPositiveAt = null;
+    }
+    final confirmed = _pilotPendingPositiveSamples >= 2;
+    final expiredFailure = !confirmed && elapsed >= const Duration(minutes: 3);
+    if (!confirmed && !expiredFailure) return;
+    if (confirmed) {
       _localOpWins[key] = (_localOpWins[key] ?? 0) + 1;
     } else {
       _localOpLosses[key] = (_localOpLosses[key] ?? 0) + 1;
     }
     _pilotPendingExperienceKey = null;
     _pilotPendingExperienceAt = null;
+    _pilotPendingWasConnected = false;
+    _pilotPendingServerLink = null;
+    _pilotPendingPositiveSamples = 0;
+    _pilotPendingLastPositiveAt = null;
     await _pilotSaveExperience();
   }
 
@@ -3895,6 +3924,10 @@ Map<String, int> _localOpLosses = {}; // confirmed failures by operator/action
 const String _pilotExperiencePrefsKey = 'king_pilot_experience_v1';
 bool _pilotExperienceLoaded = false;
 String? _pilotPendingExperienceKey;
+bool _pilotPendingWasConnected = false;
+String? _pilotPendingServerLink;
+int _pilotPendingPositiveSamples = 0;
+DateTime? _pilotPendingLastPositiveAt;
 DateTime? _pilotPendingExperienceAt;
 final Map<String, int> _localOpFails = {};
 
