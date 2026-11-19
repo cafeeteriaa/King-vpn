@@ -1670,7 +1670,7 @@ Future<void> natLoadPersisted() async {
   }
 }
 
-const String _ipMemKey = 'natIpMem';
+const String _ipMemKey = 'natIpMem_national_v2'; // old cache mixed global and national successes
 const String _rangeKey = 'natRanges';
 const int _ipMemMax = 200;
 
@@ -1744,6 +1744,8 @@ Future<void> natDomMemSave(String host, int port) async {
 }
 
 Future<void> natIpMemSave(String ip, int port) async {
+  // Belt-and-braces: this store is national VPN memory, never global/proxy memory.
+  if (!nationalMode || proxyMode) return;
   natIpMem.removeWhere((e) => e['ip'] == ip && e['port'] == port);
   natIpMem.insert(0, {'ip': ip, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
   if (natIpMem.length > _ipMemMax) {

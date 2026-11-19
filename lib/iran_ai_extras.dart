@@ -4066,6 +4066,8 @@ class _PilotCommandBarState extends State<PilotCommandBar> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focus = FocusNode();
   bool _sending = false;
+  bool _cancelSending = false;
+  int _requestRevision = 0;
   String _lastCommand = '';
   String _intentLabel = 'آماده دریافت فرمان';
   final List<String> _history = <String>[];
@@ -4077,10 +4079,32 @@ class _PilotCommandBarState extends State<PilotCommandBar> {
     super.dispose();
   }
 
-  Future<void> _send([String? quickCommand]) async {
-    if (_sending) return;
+  Future<void> _send([String? quickCommand, bool allowWhileSending = false]) async {
+    if (_cancelSending || (_sending && !allowWhileSending)) return;
     final command = (quickCommand ?? _controller.text).trim();
     if (command.isEmpty) return;
+    if (allowWhileSending) {
+      final revision = ++_requestRevision;
+      setState(() {
+        _cancelSending = true;
+        _lastCommand = command;
+        _intentLabel = _classifyIntent(command);
+        _history.remove(command);
+        _history.add(command);
+        if (_history.length > 8) _history.removeAt(0);
+        _reply = 'در حال ارسال فرمان لغو به موتور اتصال…';
+      });
+      try {
+        final result = await widget.onSubmit(command);
+        if (mounted && revision == _requestRevision) setState(() => _reply = result);
+      } catch (e) {
+        if (mounted && revision == _requestRevision) setState(() => _reply = 'لغو عملیات ناموفق بود: $e');
+      } finally {
+        if (mounted) setState(() => _cancelSending = false);
+      }
+      return;
+    }
+    final revision = ++_requestRevision;
     setState(() {
       _sending = true;
       _lastCommand = command;
@@ -4093,9 +4117,9 @@ class _PilotCommandBarState extends State<PilotCommandBar> {
     _controller.clear();
     try {
       final result = await widget.onSubmit(command);
-      if (mounted) setState(() => _reply = result);
+      if (mounted && revision == _requestRevision) setState(() => _reply = result);
     } catch (e) {
-      if (mounted) setState(() => _reply = 'اجرای فرمان ناموفق بود: $e');
+      if (mounted && revision == _requestRevision) setState(() => _reply = 'اجرای فرمان ناموفق بود: $e');
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -4114,13 +4138,16 @@ class _PilotCommandBarState extends State<PilotCommandBar> {
     return 'فرمان آزاد: بررسی نیت پیش از اجرا';
   }
 
-  Widget _quickCommand(String label, IconData icon, String command) =>
+  Widget _quickCommand(String label, IconData icon, String command,
+          {bool allowWhileSending = false}) =>
       ActionChip(
         avatar: Icon(icon, size: 16, color: const Color(0xFFFFD98B)),
         label: Text(label, style: const TextStyle(color: Color(0xFFF2F0EB), fontSize: 11)),
         backgroundColor: const Color(0xFF303640),
         side: BorderSide.none,
-        onPressed: _sending ? null : () => _send(command),
+        onPressed: (_cancelSending || (_sending && !allowWhileSending))
+            ? null
+            : () => _send(command, allowWhileSending),
       );
 
   @override
@@ -4210,7 +4237,7 @@ class _PilotCommandBarState extends State<PilotCommandBar> {
             _quickCommand('راهنما', Icons.help_outline, 'راهنمای فرمان‌ها'),
             if (widget.busy) ...[
               const SizedBox(width: 5),
-              _quickCommand('لغو عملیات', Icons.stop_circle_outlined, 'لغو جستجو'),
+              _quickCommand('لغو عملیات', Icons.stop_circle_outlined, 'لغو جستجو', allowWhileSending: true),
             ],
             if (widget.connected) ...[
               const SizedBox(width: 5),

@@ -72,13 +72,17 @@ Future<void> _ipAutoSave() async {
 /// خودکار فقط IPهای دقیقِ کانفیگ‌های موجود و سرورهای قبلاً موفق را بررسی می‌کند.
 /// پیمایش گسترده‌ی CIDRهای ISP/CDN برای اجرای خودکار مجاز نیست؛ اسکن دستی جداست.
 List<String> _ipAutoBlocks(Iterable<Server> knownServers) {
-  // Each mode owns its own candidate pool. National memory is never fed into
-  // the global scan; the currently selected server set is mode-scoped by the
-  // main search pipeline and the result/cursor keys are mode-specific too.
+  // Hard isolation: national candidates come only from the national scanner's
+  // verified memory/hits. Global candidates come only from the active global pool.
   final ips = <String>{};
-  if (nationalMode) ips.addAll(natIpMemHosts());
-  for (final server in knownServers) {
-    if (server.isIp) ips.add(server.host);
+  if (nationalMode) {
+    ips
+      ..addAll(natIpMemHosts())
+      ..addAll(natScanHits);
+  } else {
+    for (final server in knownServers) {
+      if (server.isIp) ips.add(server.host);
+    }
   }
   return ips.map((ip) => '$ip/32').toList(growable: false);
 }
@@ -176,17 +180,32 @@ extension IpAutoExt on _HomePageState {
   }
 
   Future<void> _ipAutoRunOnce(void Function(String) say, {bool manual = false}) async {
-    // سرور نمونه: اول از پوشه‌ی منابع (تازه دریافت می‌شود)، و اگر آن جواب نداد، از سرورهای موجود برنامه
+    // A national scan uses the national hot-source/template pipeline; it must
+    // not fetch or fall back to the global discovered-server pool.
     var pool = <Server>[];
-    say('دریافت سرور نمونه از منابع...');
-    try {
-      pool = await fetchServers(stop: () => _ipAutoHalt(), quickCap: 200);
-    } catch (e, stk) {
-      logError(e, stk);
-      pool = <Server>[];
-    }
-    if (pool.isEmpty) {
-      pool = <Server>[...good, ...natTemplateSeeds, ...pending, ...fetchedAll];
+    if (nationalMode) {
+      say('دریافت الگوهای مستقل نت ملی...');
+      try {
+        final nationalSeeds = await natHotNext(50, fetch: false);
+        if (nationalSeeds.isNotEmpty) {
+          natTemplateSeeds = nationalSeeds.take(2).toList();
+          pool = [...nationalSeeds, ...good, ...pending];
+        } else {
+          pool = <Server>[...natTemplateSeeds, ...good, ...pending];
+        }
+      } catch (e, stk) {
+        logError(e, stk);
+        pool = <Server>[...natTemplateSeeds, ...good, ...pending];
+      }
+    } else {
+      say('دریافت سرور نمونه از منابع جهانی...');
+      try {
+        pool = await fetchServers(stop: () => _ipAutoHalt(), quickCap: 200);
+      } catch (e, stk) {
+        logError(e, stk);
+        pool = <Server>[];
+      }
+      if (pool.isEmpty) pool = <Server>[...good, ...pending, ...fetchedAll];
     }
     if (pool.isEmpty) {
       say('دریافت لیست سرورها ناموفق بود. اینترنت را بررسی کنید و دوباره اجرا کنید.');
@@ -194,7 +213,8 @@ extension IpAutoExt on _HomePageState {
     }
     final tpl = pool.take(2).toList();
     say('ساخت آدرس‌ها...');
-    final addrs = await _ipAutoNextAddrs([...good, ...pending, ...fetchedAll]);
+    final addrs = await _ipAutoNextAddrs(
+        nationalMode ? const <Server>[] : [...good, ...pending, ...fetchedAll]);
     if (addrs.isEmpty) {
       say('آدرسی برای اسکن پیدا نشد.');
       return;
