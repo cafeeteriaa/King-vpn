@@ -53,16 +53,14 @@ def prepare(source: Path, output_dir: Path, min_examples: int = 5) -> dict:
         except (ValueError, KeyError, TypeError, json.JSONDecodeError):
             rejected += 1
 
-    rows = list(accepted.items())
+    rows = sorted(accepted.items(), key=lambda item: item[0])
     if len(rows) < min_examples:
         raise RuntimeError(f"Only {len(rows)} trusted examples; at least {min_examples} required")
-    train, evaluation = [], []
-    for digest, row in rows:
-        (evaluation if int(digest[:8], 16) % 10 == 0 else train).append(row)
-    if not evaluation:
-        evaluation.append(train.pop())
-    if len(train) < 2:
-        raise RuntimeError("Not enough training examples after deterministic holdout split")
+    # Deterministic 20% holdout, while always preserving at least two training
+    # samples even at the documented five-example minimum.
+    evaluation_count = max(1, min(len(rows) // 5, len(rows) - 2))
+    evaluation = [row for _, row in rows[:evaluation_count]]
+    train = [row for _, row in rows[evaluation_count:]]
     output_dir.mkdir(parents=True, exist_ok=True)
     for name, data in (("train.jsonl", train), ("eval.jsonl", evaluation)):
         (output_dir / name).write_text(
