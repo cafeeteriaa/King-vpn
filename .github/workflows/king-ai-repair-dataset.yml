@@ -1,0 +1,43 @@
+name: King AI Verified Repair Dataset
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+  pull-requests: read
+  checks: read
+
+concurrency:
+  group: king-ai-repair-dataset
+  cancel-in-progress: false
+
+jobs:
+  collect-merged-repair:
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'main' &&
+      startsWith(github.event.pull_request.head.ref, 'king-ai/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Collect only merged, green, allowlisted repairs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 tools/king_ai_training/collect_merged_repairs.py
+      - name: Commit new verified training example
+        run: |
+          if [ -f data/king_ai_accepted_repairs.jsonl ] && [ -n "$(git status --porcelain -- data/king_ai_accepted_repairs.jsonl)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/king_ai_accepted_repairs.jsonl
+            git commit -m "King AI: add verified merged repair training example"
+            git push origin HEAD:main
+          else
+            echo "No new eligible training example; nothing to commit."
+          fi
