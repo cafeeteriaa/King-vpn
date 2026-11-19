@@ -397,6 +397,15 @@ empty changes list and explain what is missing.
     ).hasMatch(value);
   }
 
+  bool _isSafePublicResearchQuery(String prompt) {
+    return !RegExp(
+      r'(رمز|پسورد|کلمه عبور|توکن|کلید خصوصی|شماره کارت|شماره حساب|'
+      r'حساب بانکی|کد ملی|شماره تلفن|آدرس دقیق|اطلاعات پزشکی|'
+      r'password|api.?key|access.?token|private.?key|credit.?card|bank account)',
+      caseSensitive: false,
+    ).hasMatch(prompt);
+  }
+
   String _formatResearchContext(List<Map<String, String>> notes) {
     if (notes.isEmpty) return '';
     return notes.take(4).map((note) {
