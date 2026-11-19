@@ -362,10 +362,8 @@ empty changes list and explain what is missing.
 
   bool _conversationMemoryLoaded = false;
 
-  String _redactConversationSecrets(String value) => value
-      .replaceAll(RegExp(r'github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9]{20,}'), '[REDACTED_TOKEN]')
-      .replaceAll(RegExp(r'bearer\s+[A-Za-z0-9._~-]{12,}', caseSensitive: false), 'Bearer [REDACTED_TOKEN]')
-      .replaceAll(RegExp(r'(password|رمز عبور|api[_ -]?key|access[_ -]?token|secret|کلید خصوصی)\s*[:=：]\s*[^\s,;]+', caseSensitive: false), '[REDACTED_SECRET]');
+  String _redactConversationSecrets(String value) =>
+      redactKingAiCiEvidence(value, maxChars: value.length);
 
   static const String _conversationMemoryKey = 'king_ai_conversation_memory_v2';
 
@@ -380,12 +378,15 @@ empty changes list and explain what is missing.
       final decoded = jsonDecode(encoded);
       if (decoded is! List) return;
       final restored = decoded.whereType<String>()
-          .map((line) => line.trim())
+          .map((line) => _redactConversationSecrets(line.trim()))
           .where((line) => line.isNotEmpty && line.length <= 1000)
           .toList();
       _conversationTurns
         ..clear()
         ..addAll(restored.length > 12 ? restored.sublist(restored.length - 12) : restored);
+      // Re-persist sanitized history so previously stored credentials do not
+      // remain in secure storage after the stronger redactor is introduced.
+      await _saveConversationMemory();
     } catch (_) {
       // Corrupt or unavailable secure memory must never block conversation.
     }
