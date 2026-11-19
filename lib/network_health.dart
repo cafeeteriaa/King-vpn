@@ -56,7 +56,9 @@ class NetworkEvidence {
   double get confidence {
     final sampleCount = domesticSamples + globalSamples;
     if (sampleCount <= 0) return 0;
-    final coverage = (sampleCount / 8).clamp(0, 1).toDouble();
+    // The dedicated pilot scanner samples exactly three domestic and three global targets.
+    // Six successful samples with both groups verified must be able to reach 100%.
+    final coverage = (sampleCount / 6).clamp(0, 1).toDouble();
     final verified = (domesticTlsReachabilityVerified ? 1 : 0) +
         (globalTlsReachabilityVerified ? 1 : 0);
     return (coverage * (0.55 + verified * 0.225)).clamp(0, 1).toDouble();
