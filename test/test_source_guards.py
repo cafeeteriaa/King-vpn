@@ -833,9 +833,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_loadConversationMemory()', chat)
         self.assertIn('_saveConversationMemory()', chat)
         self.assertIn('_looksLikeCodeGenerationRequest(prompt)', chat)
-        self.assertIn('king_ai_conversation_memory.json', ai)
+        self.assertIn("king_ai_conversation_memory_v2", ai)
+        self.assertIn('_secure.read(key: _conversationMemoryKey)', ai)
+        self.assertIn('_secure.write(', ai)
         self.assertIn('_redactConversationSecrets', ai)
         self.assertIn('length > 12', chat)
+        self.assertIn('_relevantResearchMemory(safePrompt)', chat)
+        self.assertIn('_needsLiveResearch(safePrompt)', chat)
+        self.assertIn('researchGoogle(publicQuery, maxResults: 3)', chat)
+        selector_start = ai.index('Future<List<String>> _selectRelevantPaths')
+        selector_end = ai.index('/// Reads a small, relevant Dart/Python source subset', selector_start)
+        selector = ai[selector_start:selector_end]
+        self.assertIn('words.intersection(pathWords)', selector)
+        self.assertNotIn('await ask(', selector)
         self.assertIn('hasActiveSession', ai[ai.index('Future<Map<String, Object?>> proposeRepair'):])
 
     def test_owner_only_background_maintenance_and_research_allowlist(self):
