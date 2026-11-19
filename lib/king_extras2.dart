@@ -661,6 +661,10 @@ class _CloudflareAutoDeployPageState extends State<CloudflareAutoDeployPage> {
   static const _card = Color(0xFF2A2D33);
 
   final _tokenCtrl = TextEditingController();
+  final _countCtrl = TextEditingController(text: '1');
+  String? _batchStatus;
+  int _batchDone = 0;
+  int _batchTotal = 0;
   // CFTOKSAVE: توکن در حافظه‌ی رمزشده ذخیره می‌شود تا دفعه‌ی بعد لازم نباشد دوباره الصاق شود
   static const _cfTokenKey = 'cf_api_token';
   static const _cfSec = FlutterSecureStorage(
@@ -696,6 +700,7 @@ class _CloudflareAutoDeployPageState extends State<CloudflareAutoDeployPage> {
   @override
   void dispose() {
     _tokenCtrl.dispose();
+    _countCtrl.dispose();
     super.dispose();
   }
 
@@ -733,6 +738,58 @@ class _CloudflareAutoDeployPageState extends State<CloudflareAutoDeployPage> {
       if (mounted) setState(() => _error = 'اتصال به Cloudflare زمان‌بر شد. دوباره تلاش کن.');
     } catch (e) {
       if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _deploying = false);
+    }
+  }
+
+  Future<void> _deployBatch() async {
+    final token = _tokenCtrl.text.trim();
+    final count = int.tryParse(_countCtrl.text.trim());
+    if (token.isEmpty) {
+      setState(() => _error = 'ابتدا API Token کلودفلر را وارد کن.');
+      return;
+    }
+    if (count == null || count < 1 || count > 100) {
+      setState(() => _error = 'تعداد باید عددی بین ۱ تا ۱۰۰ باشد.');
+      return;
+    }
+    await _saveToken(token);
+    setState(() {
+      _deploying = true;
+      _error = null;
+      _link = null;
+      _saved = false;
+      _batchDone = 0;
+      _batchTotal = count;
+      _batchStatus = 'آماده‌سازی ساخت $count سرور...';
+    });
+    try {
+      final result = await cloudflareAutoDeployBatch(
+        token,
+        count,
+        onProgress: (done, total) {
+          if (!mounted) return;
+          setState(() {
+            _batchDone = done;
+            _batchTotal = total;
+            _batchStatus = 'ساخت و ذخیره سرورها: $done از $total';
+          });
+        },
+      );
+      if (!mounted) return;
+      if (result.created.isNotEmpty) {
+        setState(() {
+          _link = result.created.last.link;
+          _saved = true;
+        });
+      }
+      setState(() {
+        _batchStatus = 'ساخته و در پوشه سرورهای شخصی ذخیره شد: ${result.created.length} از $count';
+        _error = result.error;
+      });
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _deploying = false);
     }
@@ -850,6 +907,44 @@ class _CloudflareAutoDeployPageState extends State<CloudflareAutoDeployPage> {
                 ),
               ),
             ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _countCtrl,
+                    enabled: !_deploying,
+                    keyboardType: TextInputType.number,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      labelText: 'تعداد سرور (۱ تا ۱۰۰)',
+                      labelStyle: const TextStyle(color: _gold),
+                      filled: true,
+                      fillColor: _card,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _deploying ? null : _deployBatch,
+                    icon: const Icon(Icons.auto_awesome),
+                    label: const Text('ساخت گروهی'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _gold,
+                      minimumSize: const Size.fromHeight(52),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (_batchStatus != null) ...[
+              const SizedBox(height: 10),
+              Text(_batchStatus!, style: const TextStyle(color: Colors.white70)),
+              if (_deploying && _batchTotal > 0)
+                LinearProgressIndicator(value: _batchDone / _batchTotal),
+            ],
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: _deploying ? null : _deploy,
