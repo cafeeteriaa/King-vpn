@@ -672,6 +672,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = main.index('Widget _smartCommandPanel()', start)
         dispatcher = main[start:end]
         self.assertIn('analysisOnlyRequest', dispatcher)
+        self.assertIn('analysisOnlyRequest && KingAiOwnerAuth.instance.hasActiveSession', dispatcher)
         self.assertIn('initialIdeaAnalysis: command', dispatcher)
         self.assertIn('speakResponses: voiceResponse', dispatcher)
         self.assertIn('Future<String> analyzeOwnerIdea', ai)
