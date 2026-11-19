@@ -8,6 +8,60 @@ from urllib.parse import unquote, urljoin, urlparse
 
 PUB = os.environ.get('PUB_CACHE', os.path.expanduser('~/.pub-cache'))
 
+MAVEN_CENTRAL_MIRROR = 'https://maven-central.storage-download.googleapis.com/maven2/'
+
+
+def patch_android_plugin_buildscript_repositories():
+    """Add the trusted Maven Central mirror to Android plugin buildscript repos.
+
+    Flutter plugins can resolve their own AGP/Kotlin classpaths from nested
+    buildscript.repositories blocks. settings.gradle mirrors do not override
+    those per-plugin buildscript repositories.
+    """
+    config = Path('.dart_tool/package_config.json')
+    if not config.is_file():
+        raise RuntimeError('Pub package_config.json missing; run flutter pub get first')
+    data = json.loads(config.read_text(encoding='utf-8'))
+    patched = 0
+    for package in data.get('packages', []):
+        root_uri = package.get('rootUri')
+        if not root_uri:
+            continue
+        resolved = urljoin(config.resolve().parent.as_uri() + '/', root_uri)
+        parsed = urlparse(resolved)
+        if parsed.scheme != 'file':
+            continue
+        package_root = Path(unquote(parsed.path)).resolve()
+        android_root = package_root / 'android'
+        if not android_root.is_dir():
+            continue
+        for gradle_file in android_root.rglob('build.gradle*'):
+            if gradle_file.name not in ('build.gradle', 'build.gradle.kts'):
+                continue
+            source = gradle_file.read_text(encoding='utf-8')
+            if MAVEN_CENTRAL_MIRROR in source:
+                continue
+            if gradle_file.name.endswith('.kts'):
+                entry = f'\\n        maven {{ url = uri("{MAVEN_CENTRAL_MIRROR}") }}'
+            else:
+                entry = f'\\n        maven {{ url "{MAVEN_CENTRAL_MIRROR}" }}'
+            pattern = r'(buildscript\\s*\\{\\s*repositories\\s*\\{)'
+            updated, count = re.subn(
+                pattern,
+                lambda match: match.group(1) + entry,
+                source,
+                count=1,
+                flags=re.S,
+            )
+            if count:
+                gradle_file.write_text(updated, encoding='utf-8')
+                patched += 1
+                print('OK: Maven Central mirror added to plugin buildscript:', gradle_file)
+    print(f'OK: patched {patched} Android plugin buildscript repository block(s)')
+
+
+patch_android_plugin_buildscript_repositories()
+
 
 def plugin_android_java_root():
     # Resolve the exact package selected by Pub. Never patch the first stale
