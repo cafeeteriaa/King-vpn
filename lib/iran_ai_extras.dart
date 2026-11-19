@@ -107,542 +107,60 @@ List<Widget> iranSettingsItems(
           sub: 'فقط روی کانفیگ‌های CDN+TLS؛ برای سرورهای مستقیم بی‌اثر است'),
     ];
 
-// ======================= Multi-AI =======================
-// Gemini / Grok (xAI) / Claude (Anthropic) / ChatGPT (OpenAI) / DeepSeek
-String geminiKey = '';
-String geminiModel = 'gemini-flash-latest';
-String grokKey = '';
-DateTime? _aiApplyAt; // PILOTRATE: زمان آخرین اعمال تنظیمات خلبان AI
-String grokModel = 'grok-3';
-String claudeKey = '';
-String claudeModel = 'claude-sonnet-4-20250514';
-String openaiKey = '';
-String openaiModel = 'gpt-4o-mini';
-String deepseekKey = '';
-String deepseekModel = 'deepseek-chat';
-// auto | grok | claude | openai | deepseek | gemini
+// ======================= King Local AI (on-device only) =======================
+DateTime? _aiApplyAt;
 String aiProvider = 'local';
-String aiLastProvider = '';
-// فیکس ۲: کلیدهای AI در Android Keystore (prefs هم برای fallback نگه داشته می‌شود)
-const _secure = FlutterSecureStorage(
+String aiLastProvider = 'King Local AI (on-device)';
+const FlutterSecureStorage _secure = FlutterSecureStorage(
   aOptions: AndroidOptions(encryptedSharedPreferences: true),
 );
-// مهلت ۳ ثانیه‌ای کل عملیات secure؛ اگر Keystore کند یا گیر کرد، مسیر اپ معطل نمی‌شود
-String? _nz(String? v) => (v == null || v.isEmpty) ? null : v;
-
-Future<Map<String, String?>> _secReadMany(List<String> keys) async {
-  final out = <String, String?>{};
-  try {
-    await Future.wait(keys.map((k) async {
-      out[k] = await _secure.read(key: k);
-    })).timeout(const Duration(seconds: 3));
-  } catch (e) {
-    errJournalAdd(e, kind: 'SILENT-FILE');
-  }
-  return out;
-}
-
-// مقدار null یعنی حذف از secure
-Future<void> _secApply(Map<String, String?> m) async {
-  try {
-    await Future.wait(m.entries.map((e) => e.value == null
-        ? _secure.delete(key: e.key)
-        : _secure.write(key: e.key, value: e.value!)))
-        .timeout(const Duration(seconds: 3));
-  } catch (e) {
-    errJournalAdd(e, kind: 'SILENT-FILE');
-  }
-}
-
-class GeminiLocationError implements Exception {
-  @override
-  String toString() => 'Gemini روی IP این سرور مسدود است (منطقه/آی‌پی)';
-}
-
-class AiApiError implements Exception {
-  final String msg;
-  AiApiError(this.msg);
-  @override
-  String toString() => msg;
-}
-
-class GrokApiError extends AiApiError {
-  GrokApiError(super.msg);
-}
-
 final aiText = ValueNotifier<String>('');
 final aiLoading = ValueNotifier<bool>(false);
-// تنظیمات پیشنهادی دستیار (کلید → عدد). با دکمه‌ی «اعمال» روی اپ اعمال می‌شود.
 final aiSuggest = ValueNotifier<Map<String, int>>(<String, int>{});
 DateTime _lastAutoAi = DateTime.fromMillisecondsSinceEpoch(0);
 String aiActionName = '';
 
 bool get _hasAnyAiKey => KingLocalAi.instance.isLoaded;
+bool get _selectedAiKeyAvailable =>
+    aiProvider == 'local' && KingLocalAi.instance.isLoaded;
 
-bool get _selectedAiKeyAvailable => aiProvider == 'local' && KingLocalAi.instance.isLoaded;
-
-Future<void> loadGeminiPrefs(SharedPreferences p) async {
-  // 1) prefs read (migration from old builds)
-  geminiKey = p.getString('gem_key') ?? '';
-  geminiModel = p.getString('gem_model') ?? geminiModel;
-  grokKey = p.getString('grok_key') ?? '';
-  grokModel = p.getString('grok_model') ?? grokModel;
-  claudeKey = p.getString('claude_key') ?? '';
-  claudeModel = p.getString('claude_model') ?? claudeModel;
-  openaiKey = p.getString('openai_key') ?? '';
-  openaiModel = p.getString('openai_model') ?? openaiModel;
-  deepseekKey = p.getString('deepseek_key') ?? '';
-  deepseekModel = p.getString('deepseek_model') ?? deepseekModel;
-  aiProvider = p.getString('ai_prov') ?? aiProvider;
-
-  // 2) secure override
-  final sec = await _secReadMany(const [
-    'gem_key', 'grok_key', 'claude_key', 'openai_key', 'deepseek_key', 'ai_prov',
-  ]);
-  geminiKey = _nz(sec['gem_key']) ?? geminiKey;
-  grokKey = _nz(sec['grok_key']) ?? grokKey;
-  claudeKey = _nz(sec['claude_key']) ?? claudeKey;
-  openaiKey = _nz(sec['openai_key']) ?? openaiKey;
-  deepseekKey = _nz(sec['deepseek_key']) ?? deepseekKey;
+/// Removes legacy paid-provider credentials and settings from previous builds.
+/// King VPN uses only its locally installed model; no external AI endpoint is called.
+Future<void> loadLocalAiPrefs(SharedPreferences prefs) async {
   aiProvider = 'local';
-
-  // 3) migrate prefs -> secure only where secure is still empty
-  await _secApply({
-    if (geminiKey.isNotEmpty && sec['gem_key'] == null) 'gem_key': geminiKey,
-    if (grokKey.isNotEmpty && sec['grok_key'] == null) 'grok_key': grokKey,
-    if (claudeKey.isNotEmpty && sec['claude_key'] == null) 'claude_key': claudeKey,
-    if (openaiKey.isNotEmpty && sec['openai_key'] == null) 'openai_key': openaiKey,
-    if (deepseekKey.isNotEmpty && sec['deepseek_key'] == null) 'deepseek_key': deepseekKey,
-    if (aiProvider.isNotEmpty && sec['ai_prov'] == null) 'ai_prov': aiProvider,
-  });
-
-  // 4) purge legacy prefs copies ONLY where secure now holds a value
-  final verify = await _secReadMany(const [
-    'gem_key', 'grok_key', 'claude_key', 'openai_key', 'deepseek_key', 'ai_prov',
-  ]);
-  for (final k in const [
-    'gem_key', 'grok_key', 'claude_key', 'openai_key', 'deepseek_key', 'ai_prov',
-  ]) {
-    if (verify[k] != null) {
-      try { await p.remove(k); } catch (e, st) { logError(e, st); }
-    }
-  }
-}
-
-Future<void> saveGeminiPrefs() async {
-  try {
-    final p = await SharedPreferences.getInstance();
-    // D1-FIX: models are non-sensitive and stay in prefs
-    await p.setString('gem_model', geminiModel);
-    await p.setString('grok_model', grokModel);
-    await p.setString('claude_model', claudeModel);
-    await p.setString('openai_model', openaiModel);
-    await p.setString('deepseek_model', deepseekModel);
-
-    final keys = <String, String>{
-      'gem_key': geminiKey,
-      'grok_key': grokKey,
-      'claude_key': claudeKey,
-      'openai_key': openaiKey,
-      'deepseek_key': deepseekKey,
-      'ai_prov': aiProvider,
-    };
-    // secure FIRST (_secApply swallows errors, so verify below)
-    await _secApply(keys);
-
-    // verify read-back before touching legacy prefs
-    bool allVerified = true;
-    for (final e in keys.entries) {
-      try {
-        final read = await _secure.read(key: e.key)
-            .timeout(const Duration(seconds: 3));
-        if ((read ?? '') != e.value) { allVerified = false; break; }
-      } catch (_) { allVerified = false; break; }
-    }
-    if (allVerified) {
-      for (final k in keys.keys) {
-        try { await p.remove(k); } catch (e, st) { logError(e, st); }
-      }
-    }
-  } catch (e, stk) {
-    logError(e, stk);
-  }
-}
-
-// true = API روی این سرور باز است، false = منطقه پشتیبانی نمی‌شود، null = نامعلوم
-Future<bool?> geminiApiStatus({bool direct = true}) async {
-  if (geminiKey.isEmpty) return null;
-  final c = HttpClient()
-    ..findProxy =
-        ((_) => direct ? 'DIRECT' : 'PROXY 127.0.0.1:$httpProxyPort')
-    ..connectionTimeout = const Duration(seconds: 6);
-  try {
-    return await () async {
-      final req = await c.getUrl(Uri.parse(
-          'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1'));
-      req.headers.set('x-goog-api-key', geminiKey);
-      final res = await req.close();
-      final body = (await res
-              .transform(const Utf8Decoder(allowMalformed: true))
-              .join())
-          .toLowerCase();
-      if (res.statusCode == 200) return true;
-      if (body.contains('location is not supported') ||
-          body.contains('not supported for the api use')) {
-        return false;
-      }
-      return null;
-    }()
-        .timeout(const Duration(seconds: 10));
-  } catch (e, stk) {
-    logError(e, stk);
-    return null;
-  } finally {
-    c.close(force: true);
-  }
-}
-
-// پاسخ HTML با کد 403 یعنی خودِ گوگل درخواست را (بر اساس IP/منطقه) بلاک کرده
-bool _geminiHtmlBlock(int code, String body) {
-  final b = body.trimLeft().toLowerCase();
-  return code == 403 && (b.startsWith('<!doctype') || b.startsWith('<html'));
-}
-
-// null = بلاک HTML (مسیر بعدی امتحان شود)
-Future<String?> _geminiTry(String route, String prompt) async {
-  final c = HttpClient()
-    ..findProxy = ((_) => route)
-    ..connectionTimeout = const Duration(seconds: 8);
-  try {
-    final req = await c
-        .postUrl(Uri.parse(
-            'https://generativelanguage.googleapis.com/v1beta/models/$geminiModel:generateContent'))
-        .timeout(const Duration(seconds: 10));
-    req.headers.set('content-type', 'application/json');
-    req.headers.set('x-goog-api-key', geminiKey);
-    req.add(utf8.encode(jsonEncode({
-      'contents': [
-        {
-          'parts': [
-            {'text': prompt}
-          ]
-        }
-      ]
-    })));
-    final res = await req.close().timeout(const Duration(seconds: 40));
-    final body = await res
-        .transform(const Utf8Decoder(allowMalformed: true))
-        .join()
-        .timeout(const Duration(seconds: 40));
-    if (res.statusCode == 200) {
-      try {
-        final j = jsonDecode(body);
-        final parts = j['candidates'][0]['content']['parts'] as List;
-        final t = parts.map((p) => (p['text'] ?? '').toString()).join('\n');
-        return t.trim().isEmpty ? 'پاسخ خالی بود.' : t.trim();
-      } catch (e, stk) {
-        logError(e, stk);
-        throw Exception('پاسخ Gemini قابل خواندن نبود');
-      }
-    }
-    final low = body.toLowerCase();
-    if (low.contains('location is not supported') ||
-        low.contains('not supported for the api use')) {
-      throw GeminiLocationError();
-    }
-    if (_geminiHtmlBlock(res.statusCode, body)) return null;
-    final cut = body.length > 160 ? body.substring(0, 160) : body;
-    throw Exception('Gemini ${res.statusCode}: $cut');
-  } finally {
-    c.close(force: true);
-  }
-}
-
-Future<String> geminiAsk(String prompt) async {
-  // حالت پروکسی: اول پورت محلی؛ حالت VPN: اول تونل، بعد پورت محلی
-  final routes = proxyMode
-      ? <String>['PROXY 127.0.0.1:$httpProxyPort', 'DIRECT']
-      : <String>['DIRECT', 'PROXY 127.0.0.1:$httpProxyPort'];
-  var blocked = false;
-  Object? lastErr;
-  for (final r in routes) {
+  aiLastProvider = 'King Local AI (on-device)';
+  const legacyKeys = [
+    'gem_key', 'grok_key', 'claude_key', 'openai_key', 'deepseek_key',
+    'ai_prov', 'gem_model', 'grok_model', 'claude_model', 'openai_model',
+    'deepseek_model',
+  ];
+  for (final key in legacyKeys) {
     try {
-      final t = await _geminiTry(r, prompt);
-      if (t != null) {
-        aiLastProvider = 'Gemini';
-        return t;
-      }
-      blocked = true;
-    } on IOException catch (e) {
-      lastErr = e;
-    } on TimeoutException catch (e) {
-      lastErr = e;
+      await prefs.remove(key);
+    } catch (e, st) {
+      logError(e, st);
     }
-  }
-  if (blocked) throw GeminiLocationError(); // یعنی IP این سرور مسدود است
-  throw lastErr ?? Exception('Gemini بدون پاسخ');
-}
-
-// ----------------------- Grok (xAI) -----------------------
-Future<String?> _grokTry(String route, String prompt) async {
-  if (grokKey.isEmpty) return null;
-  final c = HttpClient()
-    ..findProxy = ((_) => route)
-    ..connectionTimeout = const Duration(seconds: 8);
-  try {
-    final req = await c
-        .postUrl(Uri.parse('https://api.x.ai/v1/chat/completions'))
-        .timeout(const Duration(seconds: 10));
-    req.headers.set('content-type', 'application/json');
-    req.headers.set('authorization', 'Bearer $grokKey');
-    req.add(utf8.encode(jsonEncode({
-      'model': grokModel,
-      'messages': [
-        {
-          'role': 'system',
-          'content':
-              'You are Grok, the AI assistant inside King VPN (Iran). '
-              'Answer in Persian. Be practical about VPN, speed, and settings.'
-        },
-        {'role': 'user', 'content': prompt}
-      ],
-      'temperature': 0.4,
-    })));
-    final res = await req.close().timeout(const Duration(seconds: 45));
-    final body = await res
-        .transform(const Utf8Decoder(allowMalformed: true))
-        .join()
-        .timeout(const Duration(seconds: 45));
-    if (res.statusCode == 200) {
+    if (key.endsWith('_key') || key == 'ai_prov') {
       try {
-        final j = jsonDecode(body);
-        final t = (j['choices'][0]['message']['content'] ?? '').toString().trim();
-        return t.isEmpty ? 'پاسخ خالی بود.' : t;
-      } catch (e, stk) {
-        logError(e, stk);
-        throw GrokApiError('پاسخ Grok قابل خواندن نبود');
+        await _secure.delete(key: key);
+      } catch (e, st) {
+        logError(e, st);
       }
     }
-    final cut = body.length > 180 ? body.substring(0, 180) : body;
-    throw GrokApiError('Grok ${res.statusCode}: $cut');
-  } finally {
-    c.close(force: true);
   }
 }
 
-Future<String> grokAsk(String prompt) async {
-  final routes = proxyMode
-      ? <String>['PROXY 127.0.0.1:$httpProxyPort', 'DIRECT']
-      : <String>['DIRECT', 'PROXY 127.0.0.1:$httpProxyPort'];
-  Object? lastErr;
-  for (final r in routes) {
-    try {
-      final t = await _grokTry(r, prompt);
-      if (t != null) {
-        aiLastProvider = 'Grok';
-        return t;
-      }
-    } on IOException catch (e) {
-      lastErr = e;
-    } on TimeoutException catch (e) {
-      lastErr = e;
-    } on GrokApiError catch (e) {
-      lastErr = e;
-    }
-  }
-  throw lastErr ?? Exception('Grok بدون پاسخ');
+Future<void> saveLocalAiPrefs() async {
+  final prefs = await SharedPreferences.getInstance();
+  await loadLocalAiPrefs(prefs);
 }
 
-// OpenAI-compatible chat (ChatGPT, DeepSeek, and similar)
-Future<String?> _openAiCompatTry({
-  required String route,
-  required String prompt,
-  required String key,
-  required String model,
-  required String url,
-  required String label,
-  Map<String, String>? extraHeaders,
-}) async {
-  if (key.isEmpty) return null;
-  final c = HttpClient()
-    ..findProxy = ((_) => route)
-    ..connectionTimeout = const Duration(seconds: 8);
-  try {
-    final req =
-        await c.postUrl(Uri.parse(url)).timeout(const Duration(seconds: 10));
-    req.headers.set('content-type', 'application/json');
-    req.headers.set('authorization', 'Bearer $key');
-    extraHeaders?.forEach(req.headers.set);
-    req.add(utf8.encode(jsonEncode({
-      'model': model,
-      'messages': [
-        {
-          'role': 'system',
-          'content':
-              'You are the AI assistant inside King VPN (Iran). '
-              'Answer in Persian. Be practical about VPN, speed, settings.'
-        },
-        {'role': 'user', 'content': prompt}
-      ],
-      'temperature': 0.4,
-    })));
-    final res = await req.close().timeout(const Duration(seconds: 50));
-    final body = await res
-        .transform(const Utf8Decoder(allowMalformed: true))
-        .join()
-        .timeout(const Duration(seconds: 50));
-    if (res.statusCode == 200) {
-      try {
-        final j = jsonDecode(body);
-        final t =
-            (j['choices'][0]['message']['content'] ?? '').toString().trim();
-        return t.isEmpty ? 'پاسخ خالی بود.' : t;
-      } catch (e, stk) {
-        logError(e, stk);
-        throw AiApiError('پاسخ $label قابل خواندن نبود');
-      }
-    }
-    final cut = body.length > 180 ? body.substring(0, 180) : body;
-    throw AiApiError('$label ${res.statusCode}: $cut');
-  } finally {
-    c.close(force: true);
-  }
-}
-
-Future<String> _openAiCompatAsk({
-  required String prompt,
-  required String key,
-  required String model,
-  required String url,
-  required String label,
-  Map<String, String>? extraHeaders,
-}) async {
-  final routes = proxyMode
-      ? <String>['PROXY 127.0.0.1:$httpProxyPort', 'DIRECT']
-      : <String>['DIRECT', 'PROXY 127.0.0.1:$httpProxyPort'];
-  Object? lastErr;
-  for (final r in routes) {
-    try {
-      final t = await _openAiCompatTry(
-        route: r,
-        prompt: prompt,
-        key: key,
-        model: model,
-        url: url,
-        label: label,
-        extraHeaders: extraHeaders,
-      );
-      if (t != null) {
-        aiLastProvider = label;
-        return t;
-      }
-    } on IOException catch (e) {
-      lastErr = e;
-    } on TimeoutException catch (e) {
-      lastErr = e;
-    } on AiApiError catch (e) {
-      lastErr = e;
-    }
-  }
-  throw lastErr ?? Exception('$label بدون پاسخ');
-}
-
-Future<String> openaiAsk(String prompt) => _openAiCompatAsk(
-      prompt: prompt,
-      key: openaiKey,
-      model: openaiModel,
-      url: 'https://api.openai.com/v1/chat/completions',
-      label: 'ChatGPT',
-    );
-
-Future<String> deepseekAsk(String prompt) => _openAiCompatAsk(
-      prompt: prompt,
-      key: deepseekKey,
-      model: deepseekModel,
-      url: 'https://api.deepseek.com/chat/completions',
-      label: 'DeepSeek',
-    );
-
-// Claude (Anthropic Messages API)
-Future<String?> _claudeTry(String route, String prompt) async {
-  if (claudeKey.isEmpty) return null;
-  final c = HttpClient()
-    ..findProxy = ((_) => route)
-    ..connectionTimeout = const Duration(seconds: 8);
-  try {
-    final req = await c
-        .postUrl(Uri.parse('https://api.anthropic.com/v1/messages'))
-        .timeout(const Duration(seconds: 10));
-    req.headers.set('content-type', 'application/json');
-    req.headers.set('x-api-key', claudeKey);
-    req.headers.set('anthropic-version', '2023-06-01');
-    req.add(utf8.encode(jsonEncode({
-      'model': claudeModel,
-      'max_tokens': 2048,
-      'system':
-          'You are the AI assistant inside King VPN (Iran). '
-          'Answer in Persian. Be practical about VPN, speed, settings.',
-      'messages': [
-        {'role': 'user', 'content': prompt}
-      ],
-    })));
-    final res = await req.close().timeout(const Duration(seconds: 50));
-    final body = await res
-        .transform(const Utf8Decoder(allowMalformed: true))
-        .join()
-        .timeout(const Duration(seconds: 50));
-    if (res.statusCode == 200) {
-      try {
-        final j = jsonDecode(body);
-        final parts = j['content'] as List? ?? const [];
-        final t = parts
-            .map((p) => (p is Map ? (p['text'] ?? '') : '').toString())
-            .join('\n')
-            .trim();
-        return t.isEmpty ? 'پاسخ خالی بود.' : t;
-      } catch (e, stk) {
-        logError(e, stk);
-        throw AiApiError('پاسخ Claude قابل خواندن نبود');
-      }
-    }
-    final cut = body.length > 180 ? body.substring(0, 180) : body;
-    throw AiApiError('Claude ${res.statusCode}: $cut');
-  } finally {
-    c.close(force: true);
-  }
-}
-
-Future<String> claudeAsk(String prompt) async {
-  final routes = proxyMode
-      ? <String>['PROXY 127.0.0.1:$httpProxyPort', 'DIRECT']
-      : <String>['DIRECT', 'PROXY 127.0.0.1:$httpProxyPort'];
-  Object? lastErr;
-  for (final r in routes) {
-    try {
-      final t = await _claudeTry(r, prompt);
-      if (t != null) {
-        aiLastProvider = 'Claude';
-        return t;
-      }
-    } on IOException catch (e) {
-      lastErr = e;
-    } on TimeoutException catch (e) {
-      lastErr = e;
-    } on AiApiError catch (e) {
-      lastErr = e;
-    }
-  }
-  throw lastErr ?? Exception('Claude بدون پاسخ');
-}
-
-// unified entry: auto tries providers in order until one answers
 Future<String> aiAsk(String prompt) async {
   aiProvider = 'local';
   aiLastProvider = 'King Local AI (on-device)';
   return KingLocalAi.instance.ask(prompt);
 }
 
-// پاسخ Gemini را به «متن» و «تنظیمات پیشنهادی» جدا می‌کند
 void aiShow(String raw) {
   var text = raw;
   aiActionName = '';
@@ -1009,14 +527,14 @@ extension HomeExtras on _HomePageState {
   }
 
   // PILOT: richer prompt when Grok fully drives the VPN
-  String grokPilotPrompt() {
+  String kingPilotPrompt() {
     final base = aiPrompt();
-    return 'You are Grok fully piloting King VPN on this phone until the user '
+    return 'You are King, the on-device intelligence fully piloting King VPN until the user '
         'disconnects. Analyze network quality and location (operator/ASN only, '
         'no personal data). Decide the next concrete action to keep the best '
         'possible connection.\n'
         'Prefer actions over long text. Always end with SETTINGS JSON including '
-        'an "action" key. Prefer Grok-style direct decisions.\n\n$base';
+        'an "action" key. Use only evidence from the app and local reasoning.\n\n$base';
   }
 
   // auto = بعد از اتصال به‌صورت خودکار (هیچ‌وقت سرور را عوض نمی‌کند)
@@ -1457,7 +975,7 @@ extension HomeExtras on _HomePageState {
     // PILOTSTOP: هر اتصالی که کاربر خودش بزند، خلبان‌ها را خاموش می‌کند.
     // این کار بعد از انتخاب موتور است تا لغو چیزی را عوض نکند.
     if (localPilotOn) stopLocalPilot();
-    if (aiSession) stopGrokPilot();
+    if (aiSession) stopKingPilot();
     _restorePilotSnap(); // PILOTREV: تنظیمات خلبان برگردد، بعد انتخاب شبکه اعمال شود
     final pn = _pendingNet;
     final po = _pendingOff;
@@ -1522,7 +1040,7 @@ extension HomeExtras on _HomePageState {
   }
 
   // FULL PILOT: Grok takes over from search to keep-alive until user disconnects
-  Future<void> startGrokPilot() async {
+  Future<void> startKingPilot() async {
     if (!_selectedAiKeyAvailable) {
       _set('ابتدا مدل کدنویس محلی را از تنظیمات هوش مصنوعی دانلود و بارگذاری کن.');
       aiSheet();
@@ -1530,7 +1048,7 @@ extension HomeExtras on _HomePageState {
     }
     // جلوگیری از تداخل و جلوگیری از باقی‌ماندن تنظیمات اجباری نشست قبلی
     if (localPilotOn) stopLocalPilot();
-    if (aiSession) stopGrokPilot();
+    if (aiSession) stopKingPilot();
     // ثبت تنظیمات کاربر قبل از هر تغییر خلبان؛ در stop دقیقاً همین‌ها برمی‌گردند
     _pilotSnap ??= _beginPilotSnap();
     await _pilotDetectNetworkMode();
@@ -1554,7 +1072,7 @@ extension HomeExtras on _HomePageState {
     maxBatches = min(maxBatches, 4);
     _applyTurboLevers();
     final eng = _engineLabel(pilotEngine);
-    _set('خلبان Grok ($eng): تحلیل شبکه و جستجوی بهترین سرور...');
+    _set('خلبان هوشمند کینگ ($eng): تحلیل شبکه و جستجوی بهترین سرور...');
     aiAutopilotStart();
     // immediate bootstrap without waiting for first AI round-trip
     unawaited(() async {
@@ -1575,7 +1093,7 @@ extension HomeExtras on _HomePageState {
     }());
   }
 
-  void stopGrokPilot() {
+  void stopKingPilot() {
     aiSession = false;
     aiLoop?.cancel();
     aiLoop = null;
@@ -1605,7 +1123,7 @@ extension HomeExtras on _HomePageState {
     try {
       if (connected) _pilotConnectedAt ??= DateTime.now();
       _set('خلبان محلی: تحلیل اینترنت و مکان...');
-      aiShow(await aiAsk(grokPilotPrompt()));
+      aiShow(await aiAsk(kingPilotPrompt()));
       applyAiSuggest();
       await aiRunAction();
       if (aiSession && wantVpn && !connected && !busy && !switching) {
@@ -3220,7 +2738,7 @@ extension HomeExtras on _HomePageState {
   }
 
   void ensureLocalPilotRunning() {
-    if (aiSession) stopGrokPilot();
+    if (aiSession) stopKingPilot();
     final wasOff = !localPilotOn;
     localPilotOn = true;
     wantVpn = true;
@@ -3595,7 +3113,7 @@ List<Widget> numSettingsItems(
 extension NumHomeExtras on _HomePageState {
   void resetNumbers() {
     if (localPilotOn) stopLocalPilot(); // RESETSNAP
-    if (aiSession) stopGrokPilot(); // RESETSNAP
+    if (aiSession) stopKingPilot(); // RESETSNAP
     _pilotSnap = null; // RESETSNAP
     _pilotUserTouched.clear(); // RESETSNAP
     _markUserTouched(_allTouchKeys());
@@ -3630,7 +3148,7 @@ extension NumHomeExtras on _HomePageState {
   // برگرداندن کامل: همه‌ی عددها + همه‌ی کلیدهای روشن/خاموش به مقدار اولیه‌ی برنامه
   void resetAllToDefaults() {
     if (localPilotOn) stopLocalPilot(); // RESETSNAP
-    if (aiSession) stopGrokPilot(); // RESETSNAP
+    if (aiSession) stopKingPilot(); // RESETSNAP
     _pilotSnap = null; // RESETSNAP
     _pilotUserTouched.clear(); // RESETSNAP
     _markUserTouched(_allTouchKeys());
