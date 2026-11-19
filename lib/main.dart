@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'network_health.dart';
 import 'king_local_ai.dart';
+import 'package:local_inference_flutter/local_inference_flutter.dart';
 import 'update_integrity.dart';
 import 'errjournal.dart';
 import 'dart:ui' as ui;
@@ -2926,10 +2927,15 @@ bool _staleCoreMayBeUp = false;
 // جدید: completes when the V2Ray core really reports DISCONNECTED
 Completer<bool>? downSig;
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await LocalInferenceFlutter.installDownloaderStorage();
+  } catch (e, st) {
+    logError(e, st);
+  }
   Future.delayed(const Duration(seconds: 5), () => unawaited(hotAutoStart()));
   runZonedGuarded(() {
-    WidgetsFlutterBinding.ensureInitialized();
     FlutterError.onError = (d) => logError(d.exception);
     // خطاهای async که هیچ‌جا گرفته نشده‌اند هم ثبت شوند
     ui.PlatformDispatcher.instance.onError = (e, st) {
