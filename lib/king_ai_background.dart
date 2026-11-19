@@ -75,7 +75,7 @@ void kingAiBackgroundDispatcher() {
         return true;
       }
 
-      final result = await ai.repairFromFailedCi(
+      final result = await ai.repairFromFailedCiAutonomous(
         owner: 'cafeeteriaa',
         repository: 'King-vpn',
         pullNumber: pullNumber,
