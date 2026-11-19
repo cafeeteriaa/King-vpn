@@ -7,6 +7,7 @@ import 'king_local_ai.dart';
 
 const String _taskName = 'kingAiCiRepair';
 const String _uniqueName = 'king-ai-ci-repair-periodic';
+const String _initialUniqueName = 'king-ai-ci-repair-initial';
 const String _tag = 'king-ai-ci-repair';
 
 /// WorkManager entry point. The model is loaded only from a foreground-verified
@@ -114,36 +115,44 @@ class KingAiBackgroundSupervisor {
   }
 
   /// Android WorkManager periodic work is best-effort, not an exact timer.
-  /// It requires connectivity and a battery that is not currently low.
-  static Future<void> enable(int pullNumber) async {
-    if (pullNumber < 1) throw ArgumentError.value(pullNumber, 'pullNumber');
-    await KingLocalAi.instance.setBackgroundAutoDiscovery(false);
-    await KingLocalAi.instance.setBackgroundRepairPullNumber(pullNumber);
+  /// Schedule a one-shot first pass as well, so enabling the supervisor does
+  /// not leave the first check waiting for the next periodic maintenance window.
+  /// The periodic task remains the low-frequency recovery/safety net.
+  static Future<void> _scheduleSupervisor() async {
+    final constraints = Constraints(
+      networkType: NetworkType.connected,
+      requiresBatteryNotLow: true,
+    );
     await Workmanager().registerPeriodicTask(
       _uniqueName,
       _taskName,
       frequency: const Duration(minutes: 15),
-      constraints: Constraints(
-        networkType: NetworkType.connected,
-        requiresBatteryNotLow: true,
-      ),
+      constraints: constraints,
       tag: _tag,
     );
+    await Workmanager().registerOneOffTask(
+      _initialUniqueName,
+      _taskName,
+      initialDelay: Duration.zero,
+      constraints: constraints,
+      existingWorkPolicy: ExistingWorkPolicy.keep,
+      backoffPolicy: BackoffPolicy.exponential,
+      backoffPolicyDelay: const Duration(minutes: 1),
+      tag: _tag,
+    );
+  }
+
+  static Future<void> enable(int pullNumber) async {
+    if (pullNumber < 1) throw ArgumentError.value(pullNumber, 'pullNumber');
+    await KingLocalAi.instance.setBackgroundAutoDiscovery(false);
+    await KingLocalAi.instance.setBackgroundRepairPullNumber(pullNumber);
+    await _scheduleSupervisor();
   }
 
   static Future<void> enableAutomaticDiscovery() async {
     await KingLocalAi.instance.setBackgroundAutoDiscovery(true);
     await KingLocalAi.instance.clearBackgroundRepairPullNumber();
-    await Workmanager().registerPeriodicTask(
-      _uniqueName,
-      _taskName,
-      frequency: const Duration(minutes: 15),
-      constraints: Constraints(
-        networkType: NetworkType.connected,
-        requiresBatteryNotLow: true,
-      ),
-      tag: _tag,
-    );
+    await _scheduleSupervisor();
   }
 
   static Future<void> disable() async {
