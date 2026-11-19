@@ -897,6 +897,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn('if (s != AppLifecycleState.resumed) KingAiOwnerAuth.instance.lock();', main)
 
+    def test_apk_updater_streams_hash_verification_and_uses_android_fileprovider(self):
+        update = (ROOT / 'lib' / 'update_check.dart').read_text(encoding='utf-8')
+        integrity = (ROOT / 'lib' / 'update_integrity.dart').read_text(encoding='utf-8')
+        native = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
+        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn('verifySha256File(file, sha256Expected)', update)
+        self.assertIn('client.send(request)', update)
+        self.assertIn('_kingUpdateChannel.invokeMethod', update)
+        self.assertNotIn('Uri.file(file.path)', update)
+        self.assertIn('PackageInfo.fromPlatform()', update)
+        self.assertIn('Future<bool> verifySha256File(File file', integrity)
+        self.assertIn('FileProvider.getUriForFile', native)
+        self.assertIn('ACTION_MANAGE_UNKNOWN_APP_SOURCES', native)
+        self.assertIn('REQUEST_INSTALL_PACKAGES', prepare)
+        self.assertIn('king_file_paths.xml', prepare)
+        self.assertIn('package_info_plus', main)
+
     def test_training_dataset_never_pushes_directly_to_main(self):
         workflow = (ROOT / '.github' / 'workflows' / 'king-ai-repair-dataset.yml').read_text(encoding='utf-8')
         self.assertIn('gh pr create', workflow)
