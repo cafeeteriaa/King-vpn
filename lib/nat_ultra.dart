@@ -1699,7 +1699,7 @@ Future<void> natIpMemLoad() async {
         .split(RegExp(r'[\r\n,; ]+'))
         .where((x) => x.contains('/') || x.contains('-'))
         .toList();
-    natRangeCursor = max(0, p.getInt('natRangesCursor') ?? 0);
+    natRangeCursor = (p.getInt('natRangesCursor') ?? 0).clamp(0, 1 << 31).toInt();
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -1772,7 +1772,7 @@ List<String> _natConfiguredRangeBatch(int limit) {
   if (candidates.isEmpty) return const <String>[];
   final values = candidates.toList(growable: false);
   final start = natRangeCursor % values.length;
-  final count = min(limit, values.length);
+  final count = min(limit, values.length).toInt();
   final out = <String>[
     for (var i = 0; i < count; i++) values[(start + i) % values.length],
   ];
