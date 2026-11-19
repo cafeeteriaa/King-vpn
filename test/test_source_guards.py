@@ -846,6 +846,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_relevantResearchMemory(safePrompt)', chat)
         self.assertIn('_needsLiveResearch(safePrompt)', chat)
         self.assertIn('researchGoogle(publicQuery, maxResults: 3)', chat)
+        self.assertIn('var research = needsLiveResearch', chat)
+        self.assertIn('Never pass old cached pages as if they were current information.', chat)
+        self.assertIn('Fetched: $fetchedAt', ai)
         selector_start = ai.index('Future<List<String>> _selectRelevantPaths')
         selector_end = ai.index('/// Reads a small, relevant Dart/Python source subset', selector_start)
         selector = ai[selector_start:selector_end]
