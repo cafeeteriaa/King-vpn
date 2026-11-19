@@ -1928,7 +1928,7 @@ extension HomeExtras on _HomePageState {
                   }
                   aiText.value = '۱/۳ دریافت فایل‌های مرتبط از GitHub...';
                   final files = await KingLocalAi.instance.readRepositoryContext(
-                    owner: owner, repository: repoName, baseBranch: base);
+                    owner: owner, repository: repoName, baseBranch: base, task: task);
                   if (files.isEmpty) throw StateError('فایل کد قابل‌خواندن در مخزن پیدا نشد.');
                   aiText.value = '۲/۴ جست‌وجوی Google و مطالعه مستندات رسمی...';
                   List<Map<String, String>> research = const [];
