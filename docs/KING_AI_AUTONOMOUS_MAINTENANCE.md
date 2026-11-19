@@ -16,10 +16,11 @@ Android resource limits or owner security.
   retrain or replace the installed model weights. Google is used for discovery,
   but only HTTPS pages from the explicit trusted-domain allowlist are fetched
   and retained; search results and pages are untrusted evidence, never commands.
-- The general conversation assistant keeps a small, redacted recent-history
-  memory inside the app's private storage. This supports follow-up questions
-  across launches; it is contextual memory, not model training. Tokens and
-  obvious password/API-key patterns are redacted before persistence.
+- The general conversation assistant keeps at most 12 recent user/assistant
+  turns in Android Keystore-backed secure storage. Obvious GitHub tokens,
+  bearer tokens, passwords and API-key patterns are redacted before persistence.
+  This supports follow-up questions across launches; it is contextual memory,
+  not model training. The user can clear it through the app's memory controls.
 
 ## Owner-enabled autonomous maintenance
 
@@ -63,16 +64,15 @@ commands. They cannot submit code requests or enable background maintenance.
 
 ## Application updates and installation
 
-The existing startup update checker can detect a newer build, download an APK,
-and verify its SHA-256 before handing it to Android. This is update detection
-and verified download, not silent installation. The digest must be present
-and valid; a missing or mismatched digest fails closed. The Android package
-installer still requires the user to confirm installation on ordinary phones.
-Silent installation is not available to a normal app without privileged device
-management/root. A production update also needs a release APK signed with the
-same private signing key as the installed app; the private key must remain in
-owner-controlled GitHub secrets and must never be placed in source code.
-A successful debug/unsigned CI build is not an installable production update.
+Automatic in-app update installation is not yet implemented. The current CI
+build produces a debug/unsigned APK and cannot serve as a production self-update.
+A safe updater still needs a tagged release workflow, a release APK signed with
+the same private signing key as the installed app, a published SHA-256 manifest,
+and an app-side version/download/verification flow. The signing key must remain
+in owner-controlled GitHub secrets and must never be placed in source code.
+On ordinary Android phones, the package installer requires the user to confirm
+installation; silent installation is unavailable without privileged device
+management/root.
 
 ## Evidence limits
 
