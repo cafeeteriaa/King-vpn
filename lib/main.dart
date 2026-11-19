@@ -14621,7 +14621,7 @@ ListTile( // KINGEXTRAS row
               Expanded(
                   child: Text(t,
                       style: const TextStyle(fontWeight: FontWeight.bold))),
-              const Icon(Icons.play_circle_outline, size: 20),
+              const Icon(Icons.info_outline, size: 20),
             ]),
           ),
         );
@@ -14834,6 +14834,7 @@ ListTile( // KINGEXTRAS row
       ]),
       body: Column(
         children: [
+          aiBar(),
           Expanded(
             child: ListView.builder(
               itemCount: rows.length + 1,
@@ -14906,7 +14907,6 @@ UiHero(
               );
             },
           ),
-          aiBar(),
           _speedPanel(u),
           // Unified Smart Pilot selects domestic/global strategy internally.
           Padding( // NATRESPATCH
