@@ -1101,7 +1101,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         standby = pilot[standby_start:standby_end]
         self.assertIn('double _pilotStandbyScore(Server s)', pilot)
         self.assertIn('final learned = NationalNetworkIntelligence.scoreFor(', pilot)
-        self.assertIn('if (pingFresh && s.svc >= 0)', pilot)
+        self.assertIn('final pingSuccessfulFresh = pingFresh && s.ping != null && s.ping! > 0;', pilot)
+        self.assertIn('if (pingSuccessfulFresh && s.svc >= 0)', pilot)
+        self.assertNotIn('if (pingFresh && s.svc >= 0)', pilot)
         self.assertIn('isFresh(s.checkedAt, const Duration(minutes: 4))', pilot)
         self.assertIn('isFresh(s.speedAt, const Duration(minutes: 5))', pilot)
         self.assertIn('if (pingFresh && ping != null && ping > 0)', pilot)
