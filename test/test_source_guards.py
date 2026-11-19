@@ -375,6 +375,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('patch_android_plugin_buildscript_repositories()', patcher)
         self.assertIn('MAVEN_CENTRAL_MIRROR', patcher)
         self.assertIn(r'buildscript\s*\{\s*repositories\s*\{', patcher)
+        self.assertIn('repo_body = source[repo_open + 1:repo_close]', patcher)
+        self.assertIn('Maven Central mirror added to plugin buildscript', patcher)
+        self.assertNotIn('if MAVEN_CENTRAL_MIRROR in source:', patcher)
         self.assertIn('maven-central.storage-download.googleapis.com/maven2/', patcher)
 
     def test_android_vpn_background_channel_is_registered_and_packaged(self):
