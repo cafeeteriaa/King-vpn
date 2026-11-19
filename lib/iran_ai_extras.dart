@@ -1993,6 +1993,10 @@ extension HomeExtras on _HomePageState {
 
               Future<void> createRepair() async {
                 if (working) return;
+                if (!KingAiOwnerAuth.instance.hasActiveSession) {
+                  aiText.value = 'برای درخواست تغییر کد، از «پنل امن مالک و کینگ» وارد شو و رمز مالک را تأیید کن.';
+                  return;
+                }
                 final owner = ownerC.text.trim();
                 final repoName = repoC.text.trim();
                 final base = branchC.text.trim();
@@ -2057,6 +2061,20 @@ extension HomeExtras on _HomePageState {
                   children: [
                     const Text('🧠 مهندس هوش مصنوعی داخلی King',
                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          Navigator.of(context).push(MaterialPageRoute<void>(
+                            builder: (_) => const KingAiConsolePage(),
+                          ));
+                        },
+                        icon: const Icon(Icons.admin_panel_settings),
+                        label: const Text('بازکردن پنل امن مالک و کینگ'),
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     const Text(
                       'مدل کدنویس روی گوشی اجرا می‌شود؛ برای دانلود اولیه حدود ۱٫۱۲ گیگابایت فضا و اینترنت لازم است. پس از دانلود، استنتاج مدل آفلاین انجام می‌شود. جست‌وجوی وب فقط منبع تحقیق است.',
