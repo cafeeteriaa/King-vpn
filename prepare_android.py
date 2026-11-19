@@ -149,6 +149,12 @@ perms = ('<uses-permission android:name="android.permission.INTERNET"/>\n'
          '    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>\n    ')
 if 'QUERY_ALL_PACKAGES' not in m:
     m = m.replace('<application', perms + '<application', 1)
+if 'android.permission.RECORD_AUDIO' not in m:
+    m = m.replace(
+        '<application',
+        '    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\\n    <application',
+        1,
+    )
 # speech_to_text uses Android's system recognizer. Keep recognition on-device
 # in Dart and declare package visibility for Android 11+.
 if '<queries>' not in m:
