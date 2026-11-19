@@ -8,6 +8,7 @@ permissions:
   contents: write
   pull-requests: read
   checks: read
+  pull-requests: write
 
 concurrency:
   group: king-ai-repair-dataset
@@ -37,7 +38,15 @@ jobs:
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add data/king_ai_accepted_repairs.jsonl
             git commit -m "King AI: add verified merged repair training example"
-            git push origin HEAD:main
+            if ! git push origin HEAD:main; then
+              echo "Direct main update is unavailable; opening a dataset-only PR."
+              branch="king-ai/dataset-${GITHUB_RUN_ID}"
+              git push origin "HEAD:refs/heads/$branch"
+              GH_TOKEN="${GITHUB_TOKEN}" gh pr create \
+                --base main --head "$branch" \
+                --title "King AI: add verified repair training data" \
+                --body "Automated, secret-scanned examples from merged, CI-green, allowlisted repair PRs. This PR contains training data only; it does not modify app code or deploy model weights."
+            fi
           else
             echo "No new eligible training example; nothing to commit."
           fi
