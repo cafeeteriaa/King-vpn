@@ -5,6 +5,21 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KingVpnSourceGuardTests(unittest.TestCase):
+    def test_all_public_code_generation_and_pr_write_apis_require_owner(self):
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        propose_start = ai.index('Future<Map<String, Object?>> proposeRepair({')
+        propose_end = ai.index('Future<Map<String, Object?>> _proposeRepair({', propose_start)
+        public_propose = ai[propose_start:propose_end]
+        self.assertIn('hasActiveSession', public_propose)
+        self.assertIn('Owner authentication is required', public_propose)
+        create_start = ai.index('Future<String> createRepairPullRequest({')
+        create_end = ai.index('Future<String> _createRepairPullRequest({', create_start)
+        public_create = ai[create_start:create_end]
+        self.assertIn('hasActiveSession', public_create)
+        self.assertIn('Owner authentication is required', public_create)
+        self.assertIn('final proposal = await _proposeRepair(', ai)
+        self.assertIn('final url = await _createRepairPullRequest(', ai)
+
     def test_manual_code_repair_requires_device_owner_but_autonomous_repair_is_separate(self):
         auth = (ROOT / 'lib' / 'king_ai_owner_auth.dart').read_text(encoding='utf-8')
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
