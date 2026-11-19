@@ -81,6 +81,17 @@ commands. They cannot submit code requests or enable background maintenance.
   installed version. The signing key must remain in owner-controlled GitHub
   secrets and never be placed in source code. The current PR CI produces a
   debug/unsigned APK; it is not a production update package.
+- The tag-triggered signed-release workflow runs the Python/Flutter test
+  suite and Dart analysis, builds the Android arm64 release APK, signs it, and
+  publishes the APK and SHA-256 asset. It then updates the owner-managed Gist
+  manifest with the release build number, APK URL, digest and existing heal
+  settings. The app reads the explicit update.json file and fails closed if the
+  digest or download URL is missing or invalid.
+- Before creating a version tag, configure the repository Actions secrets
+  ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS,
+  ANDROID_KEY_PASSWORD and KING_UPDATE_GIST_TOKEN. The last token needs Gist
+  write permission; all secrets remain in GitHub Actions and never enter source.
+
 - The update manifest's latest/minimum build values, APK URL and SHA-256 must
   match the exact signed release asset. The installed build number is read from
   Android package metadata; the small Dart build constant is only a fallback.
