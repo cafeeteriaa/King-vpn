@@ -132,6 +132,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('PilotNetworkProbe.refresh()', connect)
         self.assertLess(connect.index('if (localPilotOn)'), connect.index('NatNetworkDiagnosis.refresh()'))
 
+    def test_local_ai_research_updates_pilot_brain_and_repairs_are_review_gated(self):
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        self.assertIn('Duration(hours: 24)', ai)
+        self.assertIn('_relevantResearchMemory(safePrompt)', ai)
+        self.assertIn('notes.take(2)', ai)
+        self.assertIn('not live telemetry', ai)
+        self.assertIn("'draft': true", ai)
+        self.assertIn('repairUntilGreen', ai)
+        self.assertIn('No automatic merge or release is performed.', ai)
+        self.assertIn('This updates research memory, not model weights.', ai)
+
     def test_flutter_artifact_path_matches_non_split_apk_build(self):
         workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
         self.assertIn('flutter build apk --debug --target-platform android-arm64', workflow)
