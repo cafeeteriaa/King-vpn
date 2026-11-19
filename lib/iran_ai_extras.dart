@@ -1774,17 +1774,31 @@ extension HomeExtras on _HomePageState {
   // candidates, so both are compared on the same evidence scale.
   double _pilotStandbyScore(Server s) {
     var score = 0.0;
-    // Service bits/throughput are global-service evidence, so never reward
-    // them in domestic-only mode. Tunnel history applies in BOTH modes.
-    if (!nationalMode && s.svc >= 0) {
+    final now = DateTime.now();
+    bool isFresh(DateTime? measuredAt, Duration maxAge) {
+      if (measuredAt == null) return false;
+      final age = now.difference(measuredAt);
+      return !age.isNegative && age <= maxAge;
+    }
+
+    // A recent core check is required before ping/service evidence can rank
+    // an endpoint. A recent speed sample has its own, shorter validity window.
+    final pingFresh = isFresh(s.checkedAt, const Duration(minutes: 4));
+    final speedFresh = isFresh(s.speedAt, const Duration(minutes: 5));
+    // Service bits/throughput are global-service evidence, never domestic-only.
+    if (!nationalMode && pingFresh && s.svc >= 0) {
       score += ((s.svc & 1) != 0 ? 40 : 0) +
           ((s.svc & 2) != 0 ? 30 : 0) +
           ((s.svc & 4) != 0 ? 20 : 0);
-      score += (s.speed ?? 0) * 50;
+      if (speedFresh && (s.speed ?? 0) > 0) {
+        score += s.speed! * 50;
+      }
     }
     final ping = s.ping;
-    if (ping != null && ping > 0) score += max(0, 100 - ping / 15);
-    // Fresh live evidence dominates; verified history remains a modest signal.
+    if (pingFresh && ping != null && ping > 0) {
+      score += max(0, 100 - ping / 15);
+    }
+    // Verified historical tunnel outcomes decay independently in NNIE.
     final learned = NationalNetworkIntelligence.scoreFor(
       NationalNetworkIntelligence.keyOfServer(s),
     );
