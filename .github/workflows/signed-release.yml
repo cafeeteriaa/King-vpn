@@ -37,6 +37,12 @@ jobs:
             fi
           done
 
+      - name: Validate Python guards and release tooling
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s test -p 'test_*.py'
+          python3 -m py_compile tools/configure_release_signing.py tools/configure_local_ai_host.py prepare_android.py
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
