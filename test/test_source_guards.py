@@ -5,6 +5,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KingVpnSourceGuardTests(unittest.TestCase):
+    def test_code_writes_require_matching_github_repository_owner_identity(self):
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        helper_start = ai.index('Future<void> _requireRepositoryOwnerIdentity(')
+        helper_end = ai.index('Future<Map<String, dynamic>> _github(', helper_start)
+        helper = ai[helper_start:helper_end]
+        self.assertIn("Uri.https('api.github.com', '/user')", helper)
+        self.assertIn("login.toLowerCase() != expectedOwner.toLowerCase()", helper)
+        create_start = ai.index('Future<String> _createRepairPullRequest({')
+        create_end = ai.index('Future<Map<String, Object?>> createOwnerFeatureProposal({', create_start)
+        self.assertIn('await _requireRepositoryOwnerIdentity(owner);', ai[create_start:create_end])
+
     def test_generated_patches_cannot_modify_security_and_command_policy_files(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
         start = ai.index('void _validatePath(String path)')
