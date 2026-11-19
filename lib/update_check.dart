@@ -164,7 +164,7 @@ extension UpdateCheck on _HomePageState {
             .timeout(const Duration(minutes: 4));
         if (redirectStatuses.contains(response.statusCode)) {
           final location = response.headers['location'];
-          await response.stream.drain<void>();
+          await response.stream.listen((_) {}).cancel();
           final nextUri = resolveAllowedUpdateRedirect(currentUri, location);
           if (nextUri == null) {
             throw StateError('APK redirect has a missing or untrusted destination');
