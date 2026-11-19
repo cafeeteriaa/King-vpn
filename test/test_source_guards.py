@@ -80,6 +80,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('مرکز فرمان هوشمند', main)
         self.assertIn('_runSmartCommand', main)
         self.assertIn("king_pilot_ip_ranges_v1", main)
+        self.assertIn("_pilotRangesValid(c.text)", main)
+        self.assertIn("bool _pilotRangesValid(String raw)", main)
         self.assertIn("king_pilot_scan_results_v1", main)
         self.assertIn('bool _pilotRangeCancelRequested = false;', main)
         command_start = main.index('Future<void> _runSmartCommand')
