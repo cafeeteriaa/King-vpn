@@ -12,6 +12,13 @@ const Set<String> _kingAiResearchHosts = <String>{
   'docs.gradle.org',
   'github.com',
   'huggingface.co',
+  'ooni.org',
+  'ripe.net',
+  'apnic.net',
+  'ietf.org',
+  'rfc-editor.org',
+  'iana.org',
+  'cloudflare.com',
 };
 
 bool _trustedKingAiResearchNote(Map<String, String> note) {

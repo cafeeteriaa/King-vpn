@@ -100,6 +100,27 @@ void main() {
           isNot(contains('https://docs.flutter.dev/future')));
     });
 
+    test('accepts reputable network standards and measurement sources', () {
+      final lines = mergeKingAiResearchMemory(
+        const [],
+        <Map<String, String>>[
+          note(url: 'https://ooni.org/nettest/', title: 'OONI network tests',
+            excerpt: 'Network measurement methodology', date: '2026-11-19T00:00:00Z'),
+          note(url: 'https://www.ripe.net/about-us/', title: 'RIPE NCC',
+            excerpt: 'Internet measurement and routing', date: '2026-11-19T00:00:00Z'),
+          note(url: 'https://www.ietf.org/standards/', title: 'IETF standards',
+            excerpt: 'Internet protocol standards', date: '2026-11-19T00:00:00Z'),
+          note(url: 'https://ooni.org.attacker.example/fake', title: 'Fake OONI',
+            excerpt: 'Untrusted content', date: '2026-11-19T00:00:00Z'),
+        ],
+      );
+      expect(lines, hasLength(3));
+      expect(lines.map((line) => jsonDecode(line)['url']),
+          contains('https://ooni.org/nettest/'));
+      expect(lines.map((line) => jsonDecode(line)['url']),
+          isNot(contains('https://ooni.org.attacker.example/fake')));
+    });
+
     test('bounds retained history', () {
       final notes = List<Map<String, String>>.generate(
         5,
