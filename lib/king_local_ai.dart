@@ -889,7 +889,14 @@ empty changes list and explain what is missing.
     final report = await inspectPullRequestCi(
       owner: owner, repository: repository, pullNumber: pullNumber);
     if (report['hasFailures'] != true) {
-      return {'status': 'no_failed_checks', 'report': report};
+      return {
+        'status': report['allChecksPassed'] == true
+            ? 'checks_passed'
+            : report['checksPending'] == true
+                ? 'checks_pending'
+                : 'no_failed_checks',
+        'report': report,
+      };
     }
 
     final root = await getApplicationSupportDirectory();

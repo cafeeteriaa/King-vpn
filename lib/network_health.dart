@@ -11,6 +11,8 @@ class NetworkEvidence {
     required this.global,
     this.domesticSamples = 0,
     this.globalSamples = 0,
+    this.domesticSuccesses = 0,
+    this.globalSuccesses = 0,
     this.domesticLatencyMs,
     this.globalLatencyMs,
     this.domesticTlsReachabilityVerified = false,
@@ -21,6 +23,8 @@ class NetworkEvidence {
   final LinkHealth global;
   final int domesticSamples;
   final int globalSamples;
+  final int domesticSuccesses;
+  final int globalSuccesses;
   final int? domesticLatencyMs;
   final int? globalLatencyMs;
   final bool domesticTlsReachabilityVerified;
@@ -54,11 +58,13 @@ class NetworkEvidence {
       nationalOnly ? domesticTlsReachabilityVerified : globalTlsReachabilityVerified;
 
   double get confidence {
-    final sampleCount = domesticSamples + globalSamples;
-    if (sampleCount <= 0) return 0;
+    // Count actual successful TLS handshakes, not attempts. Failed probes are
+    // evidence for route classification but must never inflate reachability confidence.
+    final successfulSamples = (domesticSuccesses + globalSuccesses).clamp(0, 6);
+    if (successfulSamples <= 0) return 0;
     // The dedicated pilot scanner samples exactly three domestic and three global targets.
-    // Six successful samples with both groups verified must be able to reach 100%.
-    final coverage = (sampleCount / 6).clamp(0, 1).toDouble();
+    // Six successful samples with both groups verified reach 100%.
+    final coverage = (successfulSamples / 6).clamp(0, 1).toDouble();
     final verified = (domesticTlsReachabilityVerified ? 1 : 0) +
         (globalTlsReachabilityVerified ? 1 : 0);
     return (coverage * (0.55 + verified * 0.225)).clamp(0, 1).toDouble();
