@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'king_ai_research_policy.dart';
 import 'king_ai_ci_policy.dart';
+import 'king_ai_owner_auth.dart';
 
 /// On-device coding model and a guarded GitHub pull-request writer.
 ///
@@ -696,7 +697,33 @@ empty changes list and explain what is missing.
 
   /// One evidence-based repair iteration with persisted cooldown and duplicate-patch protection.
   /// The caller may schedule another run after the returned backoff expires.
+  /// Interactive/manual repair is a code-writing operation and requires
+  /// a currently authenticated device owner.
   Future<Map<String, Object?>> repairFromFailedCi({
+    required String owner,
+    required String repository,
+    required int pullNumber,
+  }) async {
+    if (!KingAiOwnerAuth.instance.hasActiveSession) {
+      return {'status': 'owner_auth_required'};
+    }
+    return _repairFromFailedCi(
+      owner: owner, repository: repository, pullNumber: pullNumber,
+    );
+  }
+
+  /// Separate capability for the bounded autonomous worker. This path is
+  /// never exposed to the natural-language command dispatcher or UI actions.
+  Future<Map<String, Object?>> repairFromFailedCiAutonomous({
+    required String owner,
+    required String repository,
+    required int pullNumber,
+  }) =>
+      _repairFromFailedCi(
+        owner: owner, repository: repository, pullNumber: pullNumber,
+      );
+
+  Future<Map<String, Object?>> _repairFromFailedCi({
     required String owner,
     required String repository,
     required int pullNumber,
