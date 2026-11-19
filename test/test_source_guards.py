@@ -30,6 +30,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('maxLength: 128', console)
         self.assertIn('_rejectSecrets(summary)', ai)
 
+    def test_owner_password_rotation_is_available_only_in_active_session_ui(self):
+        console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
+        auth = (ROOT / 'lib' / 'king_ai_owner_auth.dart').read_text(encoding='utf-8')
+        self.assertIn('if (_ownerUnlocked) ...[', console)
+        self.assertIn('_ownerAuth.changePassword(password)', console)
+        self.assertIn('تغییر رمز مالک', console)
+        change_start = auth.index('Future<void> changePassword(String password)')
+        change_end = auth.index('Future<bool> authenticate(', change_start)
+        self.assertIn('hasActiveSession', auth[change_start:change_end])
+
     def test_manual_code_repair_requires_device_owner_but_autonomous_repair_is_separate(self):
         auth = (ROOT / 'lib' / 'king_ai_owner_auth.dart').read_text(encoding='utf-8')
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
