@@ -64,15 +64,26 @@ commands. They cannot submit code requests or enable background maintenance.
 
 ## Application updates and installation
 
-Automatic in-app update installation is not yet implemented. The current CI
-build produces a debug/unsigned APK and cannot serve as a production self-update.
-A safe updater still needs a tagged release workflow, a release APK signed with
-the same private signing key as the installed app, a published SHA-256 manifest,
-and an app-side version/download/verification flow. The signing key must remain
-in owner-controlled GitHub secrets and must never be placed in source code.
-On ordinary Android phones, the package installer requires the user to confirm
-installation; silent installation is unavailable without privileged device
-management/root.
+- The app checks the latest published GitHub Release on startup and compares its
+  embedded build number with the release metadata.
+- The signed-release workflow runs on version tags (v*), executes Python and
+  Flutter tests plus Dart analysis, builds an Android arm64 release APK, signs it,
+  publishes king-vpn.apk and its SHA-256 file, and embeds KING_BUILD,
+  KING_MIN_BUILD and SHA256 metadata in the release notes.
+- The app accepts only a published, non-draft HTTPS GitHub release with a valid
+  build number, APK asset and 64-character SHA-256. It verifies the downloaded
+  bytes before opening the Android package installer; malformed or missing
+  digests fail closed.
+- Configure these repository Actions secrets before creating a version tag:
+  ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS
+  and ANDROID_KEY_PASSWORD. The keystore must be the same signing identity
+  used for the installed production app. Keep it in owner-controlled secrets;
+  never commit the keystore or key.properties.
+- The update is detected automatically, but on ordinary Android phones the
+  package installer requires the user to confirm installation. Silent install
+  is unavailable without privileged device management/root. The current CI
+  debug APK is not a production update and must never be installed over a
+  differently signed release.
 
 ## Evidence limits
 
