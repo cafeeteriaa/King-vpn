@@ -4,9 +4,9 @@ import shutil
 
 APP = 'build_app'
 LIB = os.path.join(APP, 'lib')
-# Flutter 3.50 + Kotlin 2.4.21 supported Android toolchain.
+# Flutter 3.50 verified defaults: AGP 9.3.1, Gradle 9.5.0, Kotlin 2.4.20.
 AGP_VERSION = '9.3.1'
-GRADLE_VERSION = '9.7.0'
+GRADLE_VERSION = '9.5.0'
 
 # =====================================================================
 # ---- 0) Flutter 3.50 / Kotlin 2.4.21 compatible toolchain ----
