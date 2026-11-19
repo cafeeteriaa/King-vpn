@@ -1119,6 +1119,25 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(restart.index('startForegroundSafe('), restart.index('submit(this::resumeSaved)'))
         self.assertLess(stop.index('startForegroundSafe('), stop.index('submit(this::stopEverything)'))
 
+    def test_vpn_service_serializes_worker_submission_and_shutdown(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        submit_start = service.index('private void submit(Runnable r)')
+        submit_end = service.index('/** Worker side of ACTION_START', submit_start)
+        submit = service[submit_start:submit_end]
+        self.assertIn('synchronized (workerLock)', submit)
+        self.assertIn('ex.execute(r)', submit)
+        self.assertIn('RejectedExecutionException', submit)
+        self.assertIn('runFallback(r)', submit)
+
+        destroy_start = service.index('public void onDestroy()')
+        destroy_end = service.index('private static String orEmpty', destroy_start)
+        destroy = service[destroy_start:destroy_end]
+        self.assertIn('synchronized (workerLock)', destroy)
+        self.assertIn('ex.execute(this::stopEverything)', destroy)
+        self.assertLess(destroy.index('ex.execute(this::stopEverything)'), destroy.index('ex.shutdown()'))
+        self.assertIn('if (fallbackStop) runFallback(this::stopEverything);', destroy)
+
+
     def test_android_backup_excludes_vpn_credentials_and_local_ai_secrets(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         backup = (ROOT / 'android_src' / 'king_backup_rules.xml').read_text(encoding='utf-8')
