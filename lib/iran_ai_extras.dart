@@ -2848,8 +2848,10 @@ extension HomeExtras on _HomePageState {
       // Unknown/partial evidence is not a license to guess. Keep last mode.
       natForce = nationalMode;
       userModeChoice = nationalMode;
-      if (previousMode != nationalMode) _resetNetworkHealthCounters();
-      await ultimateSave();
+      if (previousMode != nationalMode) {
+        _resetNetworkHealthCounters();
+        await ultimateSave();
+      }
       final label = natNetworkClassLabel(detected);
       final modeLabel = nationalMode ? 'نت ملی' : 'اینترنت جهانی/انتخاب قبلی';
       localPilotText.value = 'خلبان هوشمند ∞ • تشخیص شبکه: $label\n'
