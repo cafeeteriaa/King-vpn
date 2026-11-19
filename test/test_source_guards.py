@@ -556,10 +556,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_flutter_included_build_resolves_kotlin_plugins_from_maven(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         self.assertIn("packages/flutter_tools/gradle", prepare)
-        self.assertIn("pm = re.search(r'pluginManagement\\s*\\{', flutter_settings_text)", prepare)
+        self.assertIn(r"pm = re.search(r'pluginManagement\s*\{', flutter_settings_text)", prepare)
         self.assertIn("if not pm:", prepare)
-        self.assertIn("'        mavenCentral()\\n'", prepare)
-        self.assertIn("'        gradlePluginPortal()\\n'", prepare)
+        self.assertIn(r"'        mavenCentral()\n'", prepare)
+        self.assertIn(r"'        gradlePluginPortal()\n'", prepare)
 
 
 if __name__ == '__main__':
