@@ -19,23 +19,23 @@ if os.path.exists(sett):
     # Resolve Kotlin/Android plugin transitives from Google's and Maven Central's
     # repositories as well as the Gradle Plugin Portal. Recent Flutter templates
     # can otherwise leave Kotlin stdlib/plugin artifacts searched only at portal.
-    pm = re.search(r'pluginManagement\\s*\\{', s)
+    pm = re.search(r'pluginManagement\s*\{', s)
     if pm:
         block_end = s.find('}', pm.end())
         block = s[pm.end():block_end if block_end >= 0 else len(s)]
-        repo_match = re.search(r'repositories\\s*\\{', block)
+        repo_match = re.search(r'repositories\s*\{', block)
         if repo_match:
             insert_at = pm.end() + repo_match.end()
             repo_block = block[repo_match.end():]
             additions = ''
             if 'google()' not in repo_block:
-                additions += '\\n        google()'
+                additions += '\n        google()'
             if 'mavenCentral()' not in repo_block:
-                additions += '\\n        mavenCentral()'
+                additions += '\n        mavenCentral()'
             if additions:
                 s = s[:insert_at] + additions + s[insert_at:]
         else:
-            s = s[:pm.end()] + '\\n    repositories { google(); mavenCentral(); gradlePluginPortal() }' + s[pm.end():]
+            s = s[:pm.end()] + '\n    repositories { google(); mavenCentral(); gradlePluginPortal() }' + s[pm.end():]
     s = re.sub(r'(id\("com\.android\.(?:application|library)"\)\s+version\s+")[^"]+(")',
                r'\g<1>9.4.0\g<2>', s)
     with open(sett, 'w', encoding='utf-8') as f:
