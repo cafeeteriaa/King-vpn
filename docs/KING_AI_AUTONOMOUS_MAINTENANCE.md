@@ -64,15 +64,26 @@ commands. They cannot submit code requests or enable background maintenance.
 
 ## Application updates and installation
 
-Automatic in-app update installation is not yet implemented. The current CI
-build produces a debug/unsigned APK and cannot serve as a production self-update.
-A safe updater still needs a tagged release workflow, a release APK signed with
-the same private signing key as the installed app, a published SHA-256 manifest,
-and an app-side version/download/verification flow. The signing key must remain
-in owner-controlled GitHub secrets and must never be placed in source code.
-On ordinary Android phones, the package installer requires the user to confirm
-installation; silent installation is unavailable without privileged device
-management/root.
+- The app already has a startup update checker backed by the owner-managed remote
+  update manifest. It reads the installed Android build number, compares the
+  latest/minimum build, and can download the APK.
+- APK downloads are streamed to the app cache to avoid loading a large installer
+  into RAM. The updater accepts HTTPS GitHub release hosts only and requires a
+  valid SHA-256 digest before handing the file to Android.
+- The verified APK is handed to Android through a scoped FileProvider content
+  URI. On Android 8+, King opens the per-app "install unknown apps" settings if
+  permission is missing, then resumes the pending installer flow when the user
+  returns.
+- Android's package installer still asks the user to confirm installation on
+  ordinary phones. Silent installation is unavailable to a normal app without
+  privileged device management/root; the app must never bypass that consent.
+- Every production APK must be signed with the same private signing key as the
+  installed version. The signing key must remain in owner-controlled GitHub
+  secrets and never be placed in source code. The current PR CI produces a
+  debug/unsigned APK; it is not a production update package.
+- The update manifest's latest/minimum build values, APK URL and SHA-256 must
+  match the exact signed release asset. The installed build number is read from
+  Android package metadata; the small Dart build constant is only a fallback.
 
 ## Evidence limits
 
