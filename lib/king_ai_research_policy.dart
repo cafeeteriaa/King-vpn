@@ -64,7 +64,7 @@ List<String> mergeKingAiResearchMemory(
   final entries = byUrl.values.toList()
     ..sort((a, b) => DateTime.parse(b['fetchedAt']!)
         .compareTo(DateTime.parse(a['fetchedAt']!)));
-  final bounded = entries.take(maxEntries.clamp(1, 500)).toList();
+  final bounded = entries.take(maxEntries.clamp(1, 500).toInt()).toList();
   return bounded.map(jsonEncode).toList();
 }
 
@@ -107,7 +107,7 @@ List<Map<String, String>> rankKingAiResearchMemory(
     }
   }
   ranked.sort((a, b) => b.score.compareTo(a.score));
-  return ranked.take(maxItems.clamp(1, 10))
+  return ranked.take(maxItems.clamp(1, 10).toInt())
       .map((item) => item.note)
       .toList();
 }
