@@ -908,11 +908,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_autonomous_source_audit_rechecks_owner_opt_in_in_worker(self):
         background = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
         audit_start = background.index('if (task == _auditTaskName)')
-        audit_end = background.index("if (!await ai.hasGitHubToken())", audit_start)
+        audit_end = background.index('await ai.createAutonomousMaintenanceProposal(', audit_start)
         audit = background[audit_start:audit_end]
         self.assertIn('isBackgroundAutoDiscoveryEnabled()', audit)
         self.assertIn('return true;', audit)
         self.assertLess(audit.index('isBackgroundAutoDiscoveryEnabled()'),
+                        audit.index('hasGitHubToken()'))
+        self.assertLess(audit.index('hasGitHubToken()'),
                         audit.index('loadInstalledModelForBackground()'))
 
 
