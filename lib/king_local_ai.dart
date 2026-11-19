@@ -119,6 +119,9 @@ empty changes list and explain what is missing.
   }
 
   Future<String> ask(String prompt, {int maxTokens = 768}) async {
+    if (maxTokens < 1 || maxTokens > 2048) {
+      throw ArgumentError.value(maxTokens, 'maxTokens', 'Must be between 1 and 2048');
+    }
     final engine = _engine;
     if (engine == null) {
       throw StateError('مدل هوش مصنوعی داخلی هنوز آماده نیست؛ ابتدا آن را از تنظیمات دانلود و بارگذاری کن.');
@@ -322,12 +325,13 @@ empty changes list and explain what is missing.
   }) async {
     final q = query.trim();
     if (q.isEmpty) return const [];
+    final boundedResults = maxResults.clamp(1, 8);
     final searchUri = Uri.https('www.google.com', '/search', {
       'q': q,
-      'num': (maxResults * 3).toString(),
+      'num': (boundedResults * 3).toString(),
     });
     final response = await http.get(searchUri, headers: const {
-      'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36',
+      'User-Agent': 'KingVPN-LocalAI/1.0',
       'Accept': 'text/html',
     }).timeout(const Duration(seconds: 18));
     if (response.statusCode != 200) {
@@ -347,7 +351,7 @@ empty changes list and explain what is missing.
       final title = _plainText(match.group(2) ?? '');
       if (title.length < 4 || found.containsKey(uri)) continue;
       found[uri] = title;
-      if (found.length >= maxResults) break;
+      if (found.length >= boundedResults) break;
     }
     final notes = <Map<String, String>>[];
     for (final entry in found.entries) {
