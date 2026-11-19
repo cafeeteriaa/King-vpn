@@ -144,7 +144,7 @@ class KingAiBackgroundSupervisor {
       _researchTaskName,
       frequency: const Duration(hours: 12),
       constraints: constraints,
-      existingWorkPolicy: ExistingWorkPolicy.keep,
+      existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
       tag: _researchTag,
     );
     await Workmanager().registerOneOffTask(
