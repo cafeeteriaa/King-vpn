@@ -21,19 +21,20 @@ if os.path.exists(sett):
     # can otherwise leave Kotlin stdlib/plugin artifacts searched only at portal.
     pm = re.search(r'pluginManagement\s*\{', s)
     if pm:
-        block_end = s.find('}', pm.end())
-        block = s[pm.end():block_end if block_end >= 0 else len(s)]
-        repo_match = re.search(r'repositories\s*\{', block)
+        repo_match = re.search(r'repositories\s*\{', s[pm.end():])
         if repo_match:
             insert_at = pm.end() + repo_match.end()
-            repo_block = block[repo_match.end():]
-            additions = ''
-            if 'google()' not in repo_block:
-                additions += '\n        google()'
-            if 'mavenCentral()' not in repo_block:
-                additions += '\n        mavenCentral()'
+            repo_end = s.find('}', insert_at)
+            if repo_end < 0:
+                raise SystemExit('HARD FAIL: malformed pluginManagement repositories')
+            repo_block = s[insert_at:repo_end]
+            additions = []
+            if not re.search(r'\bgoogle\s*\(\s*\)', repo_block):
+                additions.append('google()')
+            if not re.search(r'\bmavenCentral\s*\(\s*\)', repo_block):
+                additions.append('mavenCentral()')
             if additions:
-                s = s[:insert_at] + additions + s[insert_at:]
+                s = s[:insert_at] + '\n        ' + '\n        '.join(additions) + s[insert_at:]
         else:
             s = s[:pm.end()] + '\n    repositories { google(); mavenCentral(); gradlePluginPortal() }' + s[pm.end():]
     s = re.sub(r'(id\("com\.android\.(?:application|library)"\)\s+version\s+")[^"]+(")',
@@ -50,6 +51,57 @@ if os.path.exists(gw):
     with open(gw, 'w', encoding='utf-8') as f:
         f.write(g)
     print('  OK: gradle-wrapper -> 9.6.0')
+
+# The Flutter SDK Gradle plugin is an included build. Its own plugin
+# resolution repositories are independent from the generated app's
+# pluginManagement repositories above. Add Maven Central here as well so
+# Kotlin DSL transitive artifacts (for example kotlin-gradle-plugin-api)
+# are not looked up only in Gradle Plugin Portal.
+flutter_root = os.environ.get('FLUTTER_ROOT')
+if flutter_root:
+    flutter_gradle_settings = os.path.join(
+        flutter_root, 'packages/flutter_tools/gradle/settings.gradle.kts'
+    )
+    if os.path.isfile(flutter_gradle_settings):
+        with open(flutter_gradle_settings, encoding='utf-8') as f:
+            sdk_settings = f.read()
+        pm = re.search(r'pluginManagement\s*\{', sdk_settings)
+        if not pm:
+            sdk_settings = (
+                'pluginManagement {\n'
+                '    repositories { google(); mavenCentral(); gradlePluginPortal() }\n'
+                '}\n\n' + sdk_settings
+            )
+        else:
+            repo_match = re.search(
+                r'repositories\s*\{', sdk_settings[pm.end():]
+            )
+            if not repo_match:
+                sdk_settings = (
+                    sdk_settings[:pm.end()] +
+                    '\n    repositories { google(); mavenCentral(); gradlePluginPortal() }' +
+                    sdk_settings[pm.end():]
+                )
+            else:
+                repo_open = pm.end() + repo_match.end()
+                repo_close = sdk_settings.find('}', repo_open)
+                if repo_close < 0:
+                    raise SystemExit('HARD FAIL: malformed Flutter SDK pluginManagement repositories')
+                repo_body = sdk_settings[repo_open:repo_close]
+                additions = []
+                if not re.search(r'\bgoogle\s*\(\s*\)', repo_body):
+                    additions.append('google()')
+                if not re.search(r'\bmavenCentral\s*\(\s*\)', repo_body):
+                    additions.append('mavenCentral()')
+                if additions:
+                    sdk_settings = (
+                        sdk_settings[:repo_open] +
+                        '\n        ' + '\n        '.join(additions) +
+                        sdk_settings[repo_open:]
+                    )
+        with open(flutter_gradle_settings, 'w', encoding='utf-8') as f:
+            f.write(sdk_settings)
+        print('OK: Flutter SDK included-build plugin repositories')
 
 # =====================================================================
 # Helpers
