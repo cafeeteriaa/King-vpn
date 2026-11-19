@@ -1781,7 +1781,7 @@ extension HomeExtras on _HomePageState {
         (q.contains('ویژگی') &&
             hasAny(['جدید', 'اضافه', 'بساز', 'ایجاد', 'توسعه'])) ||
         (q.contains('امکان') &&
-            hasAny(['جدید', 'اضافه کن', 'اضافه کن', 'بساز', 'ایجاد'])) ||
+            hasAny(['جدید', 'اضافه', 'افزودن', 'بساز', 'ایجاد'])) ||
         (q.contains('ماژول') &&
             hasAny(['جدید', 'اضافه', 'بساز', 'ایجاد']));
     if (asksForCodeChange) {
