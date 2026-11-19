@@ -26,7 +26,7 @@ spec.loader.exec_module(patch_gate)
 DEPENDENCIES = [
     'http', 'flutter_v2ray_client:3.5.0', 'installed_apps:1.6.0',
     'permission_handler', 'workmanager', 'url_launcher', 'webview_flutter',
-    'crypto:^3.0.3', 'flutter_secure_storage:^9.2.2',
+    'crypto:^3.0.3', 'flutter_secure_storage:^9.2.2', 'local_inference:0.1.1', 'local_inference_flutter:0.1.1', 'path_provider',
 ]
 
 
@@ -64,6 +64,7 @@ def verify(patch_file: Path, output_patch: Path) -> dict:
         shutil.copytree(tmp / 'lib', build_app / 'lib', dirs_exist_ok=True)
         shutil.copytree(tmp / 'test', build_app / 'test', dirs_exist_ok=True)
         run(['python3', 'prepare_android.py'], tmp)
+        run(['python3', 'tools/configure_local_ai_host.py', 'build_app/pubspec.yaml'], tmp)
         run(['flutter', 'pub', 'add', *DEPENDENCIES], build_app, timeout=900)
         run(['flutter', 'pub', 'get'], build_app, timeout=900)
         run(['python3', '../patch_plugin.py'], build_app)

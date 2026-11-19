@@ -121,7 +121,7 @@ String openaiModel = 'gpt-4o-mini';
 String deepseekKey = '';
 String deepseekModel = 'deepseek-chat';
 // auto | grok | claude | openai | deepseek | gemini
-String aiProvider = 'auto';
+String aiProvider = 'local';
 String aiLastProvider = '';
 // فیکس ۲: کلیدهای AI در Android Keystore (prefs هم برای fallback نگه داشته می‌شود)
 const _secure = FlutterSecureStorage(
@@ -177,24 +177,9 @@ final aiSuggest = ValueNotifier<Map<String, int>>(<String, int>{});
 DateTime _lastAutoAi = DateTime.fromMillisecondsSinceEpoch(0);
 String aiActionName = '';
 
-bool get _hasAnyAiKey =>
-    geminiKey.isNotEmpty ||
-    grokKey.isNotEmpty ||
-    claudeKey.isNotEmpty ||
-    openaiKey.isNotEmpty ||
-    deepseekKey.isNotEmpty;
+bool get _hasAnyAiKey => KingLocalAi.instance.isLoaded;
 
-bool get _selectedAiKeyAvailable {
-  switch (aiProvider) {
-    case 'grok': return grokKey.isNotEmpty;
-    case 'claude': return claudeKey.isNotEmpty;
-    case 'openai': return openaiKey.isNotEmpty;
-    case 'deepseek': return deepseekKey.isNotEmpty;
-    case 'gemini': return geminiKey.isNotEmpty;
-    case 'auto': return _hasAnyAiKey;
-    default: return false;
-  }
-}
+bool get _selectedAiKeyAvailable => aiProvider == 'local' && KingLocalAi.instance.isLoaded;
 
 Future<void> loadGeminiPrefs(SharedPreferences p) async {
   // 1) prefs read (migration from old builds)
@@ -219,7 +204,7 @@ Future<void> loadGeminiPrefs(SharedPreferences p) async {
   claudeKey = _nz(sec['claude_key']) ?? claudeKey;
   openaiKey = _nz(sec['openai_key']) ?? openaiKey;
   deepseekKey = _nz(sec['deepseek_key']) ?? deepseekKey;
-  aiProvider = _nz(sec['ai_prov']) ?? aiProvider;
+  aiProvider = 'local';
 
   // 3) migrate prefs -> secure only where secure is still empty
   await _secApply({
@@ -652,61 +637,9 @@ Future<String> claudeAsk(String prompt) async {
 
 // unified entry: auto tries providers in order until one answers
 Future<String> aiAsk(String prompt) async {
-  final want = aiProvider;
-
-  Future<String> run(String id) async {
-    switch (id) {
-      case 'grok':
-        if (grokKey.isEmpty) throw Exception('کلید Grok نیست (console.x.ai)');
-        return grokAsk(prompt);
-      case 'claude':
-        if (claudeKey.isEmpty) {
-          throw Exception('کلید Claude نیست (console.anthropic.com)');
-        }
-        return claudeAsk(prompt);
-      case 'openai':
-        if (openaiKey.isEmpty) {
-          throw Exception('کلید ChatGPT نیست (platform.openai.com)');
-        }
-        return openaiAsk(prompt);
-      case 'deepseek':
-        if (deepseekKey.isEmpty) {
-          throw Exception('کلید DeepSeek نیست (platform.deepseek.com)');
-        }
-        return deepseekAsk(prompt);
-      case 'gemini':
-        if (geminiKey.isEmpty) {
-          throw Exception('کلید Gemini نیست (aistudio.google.com)');
-        }
-        return geminiAsk(prompt);
-      default:
-        throw Exception('ارائه‌دهنده ناشناخته: $id');
-    }
-  }
-
-  if (want != 'auto') return run(want);
-
-  // auto order: Grok → Claude → ChatGPT → DeepSeek → Gemini
-  final order = <String>[
-    if (grokKey.isNotEmpty) 'grok',
-    if (claudeKey.isNotEmpty) 'claude',
-    if (openaiKey.isNotEmpty) 'openai',
-    if (deepseekKey.isNotEmpty) 'deepseek',
-    if (geminiKey.isNotEmpty) 'gemini',
-  ];
-  if (order.isEmpty) {
-    throw Exception(
-        'هیچ کلید API نیست. یکی از Grok / Claude / ChatGPT / DeepSeek / Gemini را وارد کن.');
-  }
-  Object? lastErr;
-  for (final id in order) {
-    try {
-      return await run(id);
-    } catch (e, jstk) { errJournalAdd(e, st: jstk);
-      lastErr = e;
-    }
-  }
-  throw lastErr ?? Exception('هیچ دستیار AI جواب نداد');
+  aiProvider = 'local';
+  aiLastProvider = 'King Local AI (on-device)';
+  return KingLocalAi.instance.ask(prompt);
 }
 
 // پاسخ Gemini را به «متن» و «تنظیمات پیشنهادی» جدا می‌کند
@@ -1091,77 +1024,37 @@ extension HomeExtras on _HomePageState {
     if (aiLoading.value) return;
     if (!_hasAnyAiKey) {
       if (!auto) {
-        aiText.value =
-            'اول کلید API گروک (console.x.ai) یا جمینای را وارد و ذخیره کن.';
+        aiText.value = 'ابتدا مدل هوش مصنوعی داخلی را از تنظیمات دانلود و بارگذاری کن.';
       }
       return;
     }
     if (!connected) {
       if (!auto) {
-        aiText.value =
-            'اول به VPN وصل شو (ترجیحاً با «اتصال به سرور مخصوص AI»).';
+        aiText.value = 'برای تحلیل زنده اتصال، ابتدا VPN را وصل کن؛ تحلیل کد محلی به VPN نیاز ندارد.';
       }
       return;
     }
     aiLoading.value = true;
     try {
-      for (var attempt = 0; attempt < 2; attempt++) {
-        if (!auto) {
-          final who = aiProvider == 'grok'
-              ? 'Grok'
-              : (aiProvider == 'gemini' ? 'Gemini' : 'دستیار (Grok/Gemini)');
-          aiText.value = attempt == 0
-              ? 'در حال ارسال آمار به $who...'
-              : 'این سرور برای AI جواب نداد؛ تعویض به سرور مخصوص AI...';
-        }
-        try {
-          aiShow(await aiAsk(aiPrompt()));
-          if (aiLastProvider.isNotEmpty && !auto) {
-            aiText.value = '[$aiLastProvider]\n${aiText.value}';
-          }
-          applyAiSuggest();
-          if (auto && mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text('🤖 تحلیل $aiLastProvider آماده شد'),
-              duration: const Duration(seconds: 8),
-              action: SnackBarAction(
-                  label: 'نمایش', onPressed: () => this.aiSheet()),
-            ));
-          }
-          return;
-        } on GeminiLocationError {
-          current?.ai = false;
-          // if Grok is available, try it once without switching server
-          if (grokKey.isNotEmpty && aiProvider != 'gemini') {
-            try {
-              aiShow(await grokAsk(aiPrompt()));
-              if (aiLastProvider.isNotEmpty) {
-                aiText.value = '[$aiLastProvider]\n${aiText.value}';
-              }
-              applyAiSuggest();
-              return;
-            } catch (e, stk) { logError(e, stk); }
-          }
-          if (auto) return; // خودکار: اتصال را به‌هم نمی‌زنیم
-          final has =
-              _usable().any((s) =>
-              s.ai == true && s.ping != null && !identical(s, current));
-          if (attempt == 1 || !has) {
-            aiText.value =
-                'Gemini روی این سرور باز نمی‌شود. کلید Grok بگذار یا ردیف «🤖 سرورهای مخصوص هوش مصنوعی» را بزن.';
-            return;
-          }
-          await connectRow('r:ai');
-          if (!connected) {
-            aiText.value = 'اتصال به سرور AI انجام نشد.';
-            return;
-          }
-        }
+      aiText.value = 'در حال تحلیل محلی وضعیت اتصال...';
+      aiShow(await aiAsk(aiPrompt()));
+      if (aiLastProvider.isNotEmpty && !auto) {
+        aiText.value = '[$aiLastProvider]\n${aiText.value}';
       }
-    } catch (e, jstk) { errJournalAdd(e, st: jstk);
-      if (!auto) {
-        aiText.value = 'خطا: ${e.toString().replaceFirst('Exception: ', '')}';
+      applyAiSuggest();
+      if (auto && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('🤖 تحلیل ${aiLastProvider} آماده شد'),
+          duration: const Duration(seconds: 8),
+          action: SnackBarAction(
+            label: 'نمایش',
+            onPressed: () => this.aiSheet(),
+          ),
+        ));
       }
+    } catch (e, st) {
+      errJournalAdd(e, st: st);
+      if (!auto) aiText.value = 'خطای هوش مصنوعی محلی: $e';
     } finally {
       aiLoading.value = false;
     }
@@ -1183,8 +1076,9 @@ extension HomeExtras on _HomePageState {
   // پیشنهادهای دستیار را روی تنظیمات اپ اعمال می‌کند
   void aiAutopilotStart() {
     aiLoop?.cancel();
+    // A small on-device coder is expensive; the deterministic pilot handles fast network events.
     aiLoop =
-        Timer.periodic(const Duration(seconds: 90), (_) => aiAutopilotTick());
+        Timer.periodic(const Duration(minutes: 10), (_) => aiAutopilotTick());
     Future.delayed(const Duration(seconds: 8), aiAutopilotTick);
   }
 
@@ -1630,7 +1524,7 @@ extension HomeExtras on _HomePageState {
   // FULL PILOT: Grok takes over from search to keep-alive until user disconnects
   Future<void> startGrokPilot() async {
     if (!_selectedAiKeyAvailable) {
-      _set('برای ارائه‌دهنده انتخاب‌شده ($aiProvider) کلید API معتبر وارد و ذخیره کن؛ یا Auto را انتخاب کن.');
+      _set('ابتدا مدل کدنویس محلی را از تنظیمات هوش مصنوعی دانلود و بارگذاری کن.');
       aiSheet();
       return;
     }
@@ -1701,8 +1595,8 @@ extension HomeExtras on _HomePageState {
   Future<void> aiAutopilotTick() async {
     if (!aiSession || !mounted || !_hasAnyAiKey) return;
     if (busy || switching || aiLoading.value) return;
-    // PILOTKEEP2: فقط دکمه‌ی قطع، خود خلبان را خاموش می‌کند؛
-    // اگر یک لغو/تعویض کوتاه wantVpn را false کرد، خلبان آن را بازیابی می‌کند.
+    // The deterministic pilot handles fast network events; the local LLM
+    // advises at a lower cadence to protect battery, heat and memory.
     if (!wantVpn && !connected) {
       wantVpn = true;
       abort = false;
@@ -1710,23 +1604,14 @@ extension HomeExtras on _HomePageState {
     aiLoading.value = true;
     try {
       if (connected) _pilotConnectedAt ??= DateTime.now();
-      _set('خلبان AI: تحلیل اینترنت و مکان...');
-      final prompt = grokPilotPrompt();
-      try {
-        aiShow(await aiAsk(prompt));
-      } on GeminiLocationError {
-        // try any other provider that has a key
-        aiShow(await aiAsk(prompt));
-      }
+      _set('خلبان محلی: تحلیل اینترنت و مکان...');
+      aiShow(await aiAsk(grokPilotPrompt()));
       applyAiSuggest();
       await aiRunAction();
-      // if still disconnected, force a connect cycle
       if (aiSession && wantVpn && !connected && !busy && !switching) {
         _set('خلبان: هنوز وصل نیست — جستجوی سرور...');
-        // aiRunAction نام اقدام را مصرف می‌کند؛ تصمیم را از وضعیت واقعی بگیر، نه رشته‌ی پاک‌شده.
         await _acquire(strictRow: false, speed: true);
       }
-      // if connected but very slow, nudge switch — only after 3 min hold
       if (connected && current != null) {
         _pilotConnectedAt ??= DateTime.now();
         final holdOk = DateTime.now().difference(_pilotConnectedAt!) >=
@@ -1742,33 +1627,24 @@ extension HomeExtras on _HomePageState {
           if (best != null) {
             lastWhy = 'خلبان: سرعت پایین';
             await _swapTo(best);
-            _pilotConnectedAt = DateTime.now(); // reset hold after switch
+            _pilotConnectedAt = DateTime.now();
           }
         }
       } else if (!connected) {
         _pilotConnectedAt = null;
       }
       if (aiSession && connected) {
-        _set('خلبان Grok فعال • $aiLastProvider • ${_connStatus()}');
-      }
-    } on GeminiLocationError {
-      current?.ai = false;
-      if (grokKey.isNotEmpty) {
-        try {
-          aiShow(await grokAsk(grokPilotPrompt()));
-          applyAiSuggest();
-          await aiRunAction();
-        } catch (e, stk) { logError(e, stk); }
-      } else if (_usable().any((s) => s.ai == true && !identical(s, current))) {
-        await connectRow('r:ai');
+        _set('خلبان محلی فعال • $aiLastProvider • ${_connStatus()}');
       }
     } catch (e, stk) {
       logError(e, stk);
-      // still try to stay connected
+      // Keep the connection state machine alive even if local inference fails.
       if (aiSession && wantVpn && !connected && !busy) {
         try {
           await connect();
-        } catch (e, stk) { logError(e, stk); }
+        } catch (inner, innerSt) {
+          logError(inner, innerSt);
+        }
       }
     } finally {
       aiLoading.value = false;
@@ -2065,39 +1941,16 @@ extension HomeExtras on _HomePageState {
   );
 
   void aiSheet() {
-    final k = TextEditingController(text: geminiKey);
-    final m = TextEditingController(text: geminiModel);
-    final gk = TextEditingController(text: grokKey);
-    final gm = TextEditingController(text: grokModel);
-    final ck = TextEditingController(text: claudeKey);
-    final cm = TextEditingController(text: claudeModel);
-    final ok = TextEditingController(text: openaiKey);
-    final om = TextEditingController(text: openaiModel);
-    final dk = TextEditingController(text: deepseekKey);
-    final dm = TextEditingController(text: deepseekModel);
-    var prov = aiProvider;
-    Future<void> save() async {
-      geminiKey = k.text.trim();
-      final mm = m.text.trim().replaceFirst(RegExp(r'^models/'), '');
-      geminiModel = mm.isEmpty ? 'gemini-flash-latest' : mm;
-      grokKey = gk.text.trim();
-      final gmm = gm.text.trim();
-      grokModel = gmm.isEmpty ? 'grok-3' : gmm;
-      claudeKey = ck.text.trim();
-      final cmm = cm.text.trim();
-      claudeModel = cmm.isEmpty ? 'claude-sonnet-4-20250514' : cmm;
-      openaiKey = ok.text.trim();
-      final omm = om.text.trim();
-      openaiModel = omm.isEmpty ? 'gpt-4o-mini' : omm;
-      deepseekKey = dk.text.trim();
-      final dmm = dm.text.trim();
-      deepseekModel = dmm.isEmpty ? 'deepseek-chat' : dmm;
-      aiProvider = prov;
-      for (final g in good) {
-        g.ai = null;
-      }
-      await saveGeminiPrefs();
-    }
+    final tokenC = TextEditingController();
+    final ownerC = TextEditingController(text: 'cafeeteriaa');
+    final repoC = TextEditingController(text: 'King-vpn');
+    final branchC = TextEditingController(text: 'main');
+    final taskC = TextEditingController();
+    var progress = 0.0;
+    var downloading = false;
+    var working = false;
+    var ready = KingLocalAi.instance.isLoaded;
+    var tokenSaved = false;
 
     showModalBottomSheet(
       context: context,
@@ -2107,139 +1960,188 @@ extension HomeExtras on _HomePageState {
         child: SafeArea(
           child: Padding(
             padding: EdgeInsets.fromLTRB(
-                16, 16, 16, MediaQuery.of(ctx).viewInsets.bottom + 16),
+              16, 16, 16, MediaQuery.of(ctx).viewInsets.bottom + 16),
             child: StatefulBuilder(builder: (ctx, setS) {
-              Widget fields(String title, TextEditingController keyC,
-                      TextEditingController modelC, String keyLabel,
-                      String modelLabel) =>
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 10),
-                      Text(title,
-                          style: const TextStyle(fontWeight: FontWeight.w600)),
-                      TextField(
-                          controller: keyC,
-                          obscureText: true,
-                          textDirection: TextDirection.ltr,
-                          decoration: InputDecoration(labelText: keyLabel)),
-                      TextField(
-                          controller: modelC,
-                          textDirection: TextDirection.ltr,
-                          decoration: InputDecoration(labelText: modelLabel)),
-                    ],
+              Future<void> loadLocalModel() async {
+                if (downloading || working) return;
+                setS(() { downloading = true; progress = 0; });
+                try {
+                  await KingLocalAi.instance.loadModel(
+                    onProgress: (value) {
+                      if (ctx.mounted) setS(() => progress = value.clamp(0.0, 1.0));
+                    },
                   );
+                  if (ctx.mounted) setS(() => ready = true);
+                  aiText.value = 'مدل کدنویس محلی آماده است. اجرای استنتاج روی همین گوشی انجام می‌شود.';
+                } catch (e) {
+                  aiText.value = 'بارگذاری مدل محلی ناموفق بود: $e';
+                } finally {
+                  if (ctx.mounted) setS(() => downloading = false);
+                }
+              }
+
+              Future<void> saveToken() async {
+                try {
+                  await KingLocalAi.instance.saveGitHubToken(tokenC.text);
+                  tokenC.clear();
+                  if (ctx.mounted) setS(() => tokenSaved = true);
+                  aiText.value = 'توکن GitHub به‌صورت امن روی همین گوشی ذخیره شد.';
+                } catch (e) {
+                  aiText.value = 'ذخیره توکن انجام نشد: $e';
+                }
+              }
+
+              Future<void> createRepair() async {
+                if (working) return;
+                final owner = ownerC.text.trim();
+                final repoName = repoC.text.trim();
+                final base = branchC.text.trim();
+                final task = taskC.text.trim();
+                if (owner.isEmpty || repoName.isEmpty || base.isEmpty || task.isEmpty) {
+                  aiText.value = 'نام مالک، مخزن، شاخه اصلی و شرح مشکل را کامل کن.';
+                  return;
+                }
+                if (!await KingLocalAi.instance.hasGitHubToken()) {
+                  aiText.value = 'ابتدا توکن GitHub را در همین صفحه ذخیره کن.';
+                  return;
+                }
+                setS(() => working = true);
+                aiLoading.value = true;
+                try {
+                  if (!KingLocalAi.instance.isLoaded) {
+                    await KingLocalAi.instance.loadModel();
+                    if (ctx.mounted) setS(() => ready = true);
+                  }
+                  aiText.value = '۱/۳ دریافت فایل‌های مرتبط از GitHub...';
+                  final files = await KingLocalAi.instance.readRepositoryContext(
+                    owner: owner, repository: repoName, baseBranch: base, task: task);
+                  if (files.isEmpty) throw StateError('فایل کد قابل‌خواندن در مخزن پیدا نشد.');
+                  aiText.value = '۲/۴ جست‌وجوی Google و مطالعه مستندات رسمی...';
+                  List<Map<String, String>> research = const [];
+                  try {
+                    research = await KingLocalAi.instance.researchGoogle(task);
+                  } catch (e) {
+                    aiText.value = 'جست‌وجوی Google در دسترس نبود؛ تحلیل با سورس مخزن ادامه می‌یابد: $e';
+                  }
+                  aiText.value = '۳/۴ تحلیل کد و تولید اصلاح توسط مدل محلی...';
+                  final proposal = await KingLocalAi.instance.proposeRepair(
+                    task: task, sourceFiles: files, researchNotes: research);
+                  final changes = proposal['changes'] as Map<String, String>;
+                  if (changes.isEmpty) {
+                    aiText.value = 'مدل محلی تغییر امن و مستندی پیشنهاد نکرد. توضیح: ${proposal['summary']}';
+                    return;
+                  }
+                  aiText.value = '۴/۴ ساخت شاخه و Pull Request در GitHub...';
+                  final url = await KingLocalAi.instance.createRepairPullRequest(
+                    owner: owner,
+                    repository: repoName,
+                    baseBranch: base,
+                    title: task.length > 70 ? task.substring(0, 70) : task,
+                    summary: '${proposal['summary']}\n\nفایل‌های تغییرکرده: ${changes.keys.join(', ')}',
+                    changes: changes,
+                  );
+                  aiText.value = 'پیشنهاد اصلاح توسط مدل داخلی ساخته شد. قبل از ادغام، نتیجه CI و تغییرات را بررسی کن:\n$url';
+                } catch (e, st) {
+                  errJournalAdd(e, st: st);
+                  aiText.value = 'چرخه اصلاح خودکار متوقف شد: $e';
+                } finally {
+                  aiLoading.value = false;
+                  if (ctx.mounted) setS(() => working = false);
+                }
+              }
+
               return SingleChildScrollView(
-              child: Column(
+                child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('🤖 دستیارهای هوشمند (چند AI)',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 16)),
-                    const SizedBox(height: 6),
-                    const Text(
-                        'Grok، Claude، ChatGPT، DeepSeek و Gemini پشتیبانی می‌شوند. '
-                        'حالت Auto به ترتیب آن‌ها را امتحان می‌کند تا یکی جواب بدهد. '
-                        'کلیدها فقط روی همین گوشی ذخیره می‌شوند. لینک سرور ارسال نمی‌شود.',
-                        style: TextStyle(fontSize: 12, color: Color(0xFFCDD1D8))),
+                    const Text('🧠 مهندس هوش مصنوعی داخلی King',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
                     const SizedBox(height: 8),
-                    const Text('ارائه‌دهنده',
-                        style: TextStyle(fontWeight: FontWeight.w600)),
-                    Wrap(spacing: 6, runSpacing: 4, children: [
-                      for (final e in const [
-                        ('auto', 'Auto'),
-                        ('grok', 'Grok'),
-                        ('claude', 'Claude'),
-                        ('openai', 'ChatGPT'),
-                        ('deepseek', 'DeepSeek'),
-                        ('gemini', 'Gemini'),
-                      ])
-                        ChoiceChip(
-                          label: Text(e.$2),
-                          selected: prov == e.$1,
-                          onSelected: (_) => setS(() => prov = e.$1),
-                        ),
-                    ]),
-                    fields('Grok — console.x.ai', gk, gm,
-                        'کلید API گروک', 'مدل (مثلاً grok-3)'),
-                    fields('Claude — console.anthropic.com', ck, cm,
-                        'کلید API کلود', 'مدل (مثلاً claude-sonnet-4-20250514)'),
-                    fields('ChatGPT — platform.openai.com', ok, om,
-                        'کلید API اوپن‌ای‌آی', 'مدل (مثلاً gpt-4o-mini)'),
-                    fields('DeepSeek — platform.deepseek.com', dk, dm,
-                        'کلید API دیپ‌سیک', 'مدل (مثلاً deepseek-chat)'),
-                    fields('Gemini — aistudio.google.com', k, m,
-                        'کلید API جمینای', 'مدل Gemini'),
-                    const SizedBox(height: 10),
-                    Wrap(spacing: 8, runSpacing: 4, children: [
-                      FilledButton(
-                          onPressed: () async {
-                            await save();
-                            _set('تنظیمات دستیار ذخیره شد ($aiProvider)');
-                          },
-                          child: const Text('ذخیره')),
+                    const Text(
+                      'مدل کدنویس روی گوشی اجرا می‌شود؛ برای دانلود اولیه حدود ۱٫۱۲ گیگابایت فضا و اینترنت لازم است. پس از دانلود، استنتاج مدل آفلاین انجام می‌شود. جست‌وجوی وب فقط منبع تحقیق است.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFFCDD1D8))),
+                    const SizedBox(height: 12),
+                    Row(children: [
+                      Expanded(child: Text(ready ? 'مدل محلی بارگذاری شده' : 'مدل کدنویس هنوز بارگذاری نشده')),
                       FilledButton.tonal(
-                          onPressed: () async {
-                            await save();
-                            if (!await _askOnlineOfflineMode()) return; // جدید: فقط آنلاین/آفلاین
-                            aiAnalyze();
-                          },
-                          child: const Text('📊 تحلیل اتصال')),
-                      OutlinedButton(
-                          onPressed: () async {
-                            await save();
-                            if (ctx.mounted) Navigator.pop(ctx);
-                            await pickEngineThenStart(() async {
-                              aiSession = true;
-                              aiAutopilotStart();
-                              await connectRow('r:ai');
-                            });
-                          },
-                          child: const Text('اتصال به سرور مخصوص AI')),
+                        onPressed: downloading || working ? null : loadLocalModel,
+                        child: Text(downloading ? 'در حال دریافت...' : 'دانلود / بارگذاری مدل')),
                     ]),
+                    if (downloading) ...[
+                      LinearProgressIndicator(value: progress == 0 ? null : progress),
+                      Text('${(progress * 100).toStringAsFixed(0)}%'),
+                    ],
+                    const Divider(height: 24),
+                    const Text('اتصال امن GitHub', style: TextStyle(fontWeight: FontWeight.w600)),
+                    const Text(
+                      'توکن Fine-grained با دسترسی Contents: Read and write و Pull requests: Read and write بساز. توکن در Keystore اندروید ذخیره می‌شود و وارد prompt مدل نمی‌شود.',
+                      style: TextStyle(fontSize: 11, color: Color(0xFFCDD1D8))),
+                    TextField(
+                      controller: tokenC,
+                      obscureText: true,
+                      textDirection: TextDirection.ltr,
+                      decoration: const InputDecoration(labelText: 'GitHub token')),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton(
+                        onPressed: saveToken,
+                        child: Text(tokenSaved ? 'توکن ذخیره شد' : 'ذخیره امن توکن')),
+                    ),
+                    const Divider(height: 24),
+                    const Text('مهندسی و اصلاح کد مخزن', style: TextStyle(fontWeight: FontWeight.w600)),
+                    TextField(controller: ownerC, textDirection: TextDirection.ltr,
+                      decoration: const InputDecoration(labelText: 'GitHub owner')),
+                    TextField(controller: repoC, textDirection: TextDirection.ltr,
+                      decoration: const InputDecoration(labelText: 'Repository')),
+                    TextField(controller: branchC, textDirection: TextDirection.ltr,
+                      decoration: const InputDecoration(labelText: 'شاخه پایه')),
+                    TextField(
+                      controller: taskC,
+                      minLines: 2,
+                      maxLines: 5,
+                      decoration: const InputDecoration(
+                        labelText: 'مشکل یا قابلیت موردنظر',
+                        hintText: 'مثلاً خطای مشخص را تحلیل کن، علت را پیدا کن و اصلاح تست‌پذیر پیشنهاد بده.')),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: working || downloading ? null : createRepair,
+                        child: Text(working ? 'هوش مصنوعی در حال کار است...' : 'تحلیل کد و ساخت Pull Request')),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'امنیت: مدل فقط فایل‌های lib، test و tools را می‌تواند تغییر دهد؛ حداکثر ۳ فایل. تغییر مستقیم شاخه اصلی، ادغام خودکار، فایل‌های امضا/مجوز/هسته بومی و فایل‌های CI مسدود هستند. پذیرش تغییر فقط پس از بررسی diff و موفقیت CI انجام می‌شود.',
+                      style: TextStyle(fontSize: 11, color: Color(0xFFCDD1D8))),
                     ValueListenableBuilder<bool>(
-                        valueListenable: aiLoading,
-                        builder: (_, l, __) => l
-                            ? const Padding(
-                                padding: EdgeInsets.only(top: 10),
-                                child: LinearProgressIndicator())
-                            : const SizedBox.shrink()),
+                      valueListenable: aiLoading,
+                      builder: (_, l, __) => l
+                        ? const Padding(padding: EdgeInsets.only(top: 10),
+                            child: LinearProgressIndicator())
+                        : const SizedBox.shrink()),
                     ValueListenableBuilder<String>(
-                        valueListenable: aiText,
-                        builder: (_, t, __) => t.isEmpty
-                            ? const SizedBox.shrink()
-                            : Padding(
-                                padding: const EdgeInsets.only(top: 10),
-                                child: SelectableText(t))),
+                      valueListenable: aiText,
+                      builder: (_, t, __) => t.isEmpty ? const SizedBox.shrink()
+                        : Padding(padding: const EdgeInsets.only(top: 10),
+                            child: SelectableText(t)),
+                    ),
                     ValueListenableBuilder<Map<String, int>>(
-                        valueListenable: aiSuggest,
-                        builder: (_, sg, __) => sg.isEmpty
-                            ? const SizedBox.shrink()
-                            : Padding(
-                                padding: const EdgeInsets.only(top: 10),
-                                child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                          'تنظیمات پیشنهادی: ${sg.entries.map((e) => '${e.key}=${e.value}').join(' • ')}',
-                                          textDirection: TextDirection.ltr,
-                                          style: const TextStyle(
-                                              fontSize: 12,
-                                              color: Color(0xFFCDD1D8))),
-                                      const SizedBox(height: 6),
-                                      FilledButton(
-                                          onPressed: () {
-                                            applyAiSuggest();
-                                            Navigator.pop(ctx);
-                                          },
-                                          child: Text(
-                                              '✅ اعمال تنظیمات پیشنهادی (${sg.length})')),
-                                    ]),
-                              )),
-                  ]),
-            );
+                      valueListenable: aiSuggest,
+                      builder: (_, sg, __) => sg.isEmpty ? const SizedBox.shrink()
+                        : Padding(
+                            padding: const EdgeInsets.only(top: 10),
+                            child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('تنظیمات پیشنهادی: ${sg.entries.map((e) => '${e.key}=${e.value}').join(' • ')}'),
+                                FilledButton(
+                                  onPressed: () { applyAiSuggest(); Navigator.pop(ctx); },
+                                  child: Text('اعمال تنظیمات پیشنهادی (${sg.length})')),
+                              ])),
+                    ),
+                  ],
+                ),
+              );
             }),
           ),
         ),
@@ -2684,6 +2586,144 @@ extension HomeExtras on _HomePageState {
     if (changed) unawaited(_saveSettings().catchError((e) => logError(e)));
   }
 
+
+  /// Lets the on-device model review difficult pilot decisions at a low cadence.
+  /// The deterministic state machine remains authoritative and all model actions
+  /// pass explicit evidence/hold-time gates before they can affect the tunnel.
+  Future<_LocalDecision> _localAiReview(
+      _LocalNetSnap snap, _LocalDecision base) async {
+    final ai = KingLocalAi.instance;
+    if (!ai.isLoaded || ai.isBusy) return base;
+    if (base.confidence >= 96 && _localPhase == 'stable') return base;
+    if (_localPhase != 'degraded' &&
+        _localPhase != 'recover' &&
+        _localFailStreak == 0 &&
+        _localSlowStreak < 2) {
+      return base;
+    }
+    final now = DateTime.now();
+    final last = _localAiAdvisorAt;
+    if (last != null && now.difference(last) < const Duration(minutes: 6)) {
+      return base;
+    }
+    _localAiAdvisorAt = now;
+    final evidence = <String, Object?>{
+      'networkMode': nationalMode ? 'domestic' : 'global',
+      'networkClass': natNetworkClassLabel(NatNetworkDiagnosis.current),
+      'phase': _localPhase,
+      'connected': snap.connected,
+      'operator': snap.operatorKey,
+      'protocol': snap.configProto,
+      'transport': snap.configNet,
+      'security': snap.configSec,
+      'pingMs': snap.pingMs,
+      'speedMBps': snap.speedMBs,
+      'dataPlaneOk': snap.netOk,
+      'telegramOk': snap.tgOk,
+      'youtubeOk': snap.ytOk,
+      'instagramOk': snap.igOk,
+      'healthyServers': snap.goodCount,
+      'pendingServers': snap.pendingCount,
+      'failedServers': snap.failedCount,
+      'qualityScore': snap.score,
+      'slowStreak': _localSlowStreak,
+      'serviceFailStreak': _localSvcFail,
+      'connectionFailStreak': _localFailStreak,
+      'baseAction': base.action,
+      'baseConfidence': base.confidence,
+      'baseReason': base.explain,
+      'uptimeSeconds': _localConnectedSince == null
+          ? 0
+          : now.difference(_localConnectedSince!).inSeconds,
+    };
+    try {
+      final raw = await ai.askPilot(
+        'Review this VPN pilot decision using only the evidence below. '
+        'Return exactly the required JSON. Do not invent data. '
+        'If uncertain choose action none. Evidence: ${jsonEncode(evidence)}',
+        maxTokens: 192,
+      ).timeout(const Duration(seconds: 18));
+      final start = raw.indexOf('{');
+      final end = raw.lastIndexOf('}');
+      if (start < 0 || end <= start) return base;
+      final decoded = jsonDecode(raw.substring(start, end + 1));
+      if (decoded is! Map ||
+          decoded['action'] is! String ||
+          decoded['confidence'] is! num ||
+          decoded['reason'] is! String) {
+        return base;
+      }
+      final action = decoded['action'] as String;
+      final confidence = (decoded['confidence'] as num).round().clamp(0, 100).toInt();
+      final reason = (decoded['reason'] as String).trim();
+      if (confidence < 88 ||
+          !const {'none', 'connect', 'switch_best', 'soft_recover'}.contains(action)) {
+        return base;
+      }
+
+      // Hard gates: never let the model start a second connect, switch a
+      // healthy tunnel, or choose a standby that does not exist.
+      if (snap.connected && action == 'connect') return base;
+      if (!snap.connected && action != 'connect' && action != 'none') return base;
+      if (action == 'switch_best') {
+        final uptime = _localConnectedSince == null
+            ? 0
+            : now.difference(_localConnectedSince!).inSeconds;
+        if (!snap.connected ||
+            snap.goodCount <= 0 ||
+            _localSvcFail < 2 ||
+            uptime < 180) {
+          return base;
+        }
+      }
+      if (action == 'soft_recover' &&
+          (!snap.connected ||
+              _localPhase != 'degraded' ||
+              _localSlowStreak < 2)) {
+        return base;
+      }
+      if (action == 'connect' && (snap.connected || offlineOnly && snap.goodCount == 0)) {
+        return base;
+      }
+
+      // The model may veto an unnecessary failover, or add a cautious soft
+      // recovery when repeated evidence says the tunnel is degraded.
+      if (action == base.action) {
+        return _LocalDecision(
+          base.action,
+          base.settings,
+          '${base.explain} • بازبینی مدل محلی: ${reason.isEmpty ? "تأیید شد" : reason}',
+          confidence: min(base.confidence, confidence).toInt(),
+        );
+      }
+      if (action == 'none' &&
+          (base.action == 'switch_best' || base.action == 'soft_recover')) {
+        return _LocalDecision(
+          'none',
+          const <String, int>{},
+          '${base.explain} • مدل محلی با تعویض/بازیابی مخالفت کرد: ${reason.isEmpty ? "شواهد کافی نیست" : reason}',
+          confidence: confidence,
+        );
+      }
+      if (action == 'soft_recover' &&
+          base.action == 'none' &&
+          snap.connected &&
+          _localPhase == 'degraded' &&
+          _localSlowStreak >= 2) {
+        return _LocalDecision(
+          'soft_recover',
+          base.settings,
+          'پیشنهاد مدل محلی پس از شواهد ضعف تکراری: $reason',
+          confidence: confidence,
+        );
+      }
+    } catch (e, st) {
+      // A timeout or unavailable model never blocks the deterministic pilot.
+      logError(e, st);
+    }
+    return base;
+  }
+
   Future<void> localPilotTick({bool force = false}) async {
     if (!localPilotOn || !mounted) return;
     // PILOTRETRY: تیک خلبان وقتی کار دیگری در جریان است، قبلاً بی‌صدا گم می‌شد
@@ -2745,7 +2785,8 @@ extension HomeExtras on _HomePageState {
       }
 
       final snap = await _localGather(probe: true);
-      final decision = _localDecide(snap);
+      final baseDecision = _localDecide(snap);
+      final decision = await _localAiReview(snap, baseDecision);
 
       final report = StringBuffer();
       report.writeln(
@@ -3912,6 +3953,7 @@ int _localPeakPower = 1; // بالاترین قدرت دیده‌شده در ا�
 String _localLastOp = '';
 String _localLastAction = '';
 DateTime? _localLastTick;
+DateTime? _localAiAdvisorAt; // throttles optional on-device LLM pilot reviews
 DateTime? _busyStuckSince; // BUSYCLEAR: when the busy flag started looking stuck
 DateTime? _localConnectedSince;
 int _localFailStreak = 0;
