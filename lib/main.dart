@@ -14696,8 +14696,8 @@ ListTile( // KINGEXTRAS row
           ),
         );
     final rows = <Object>[];
-    rows.add(searchAllRow(() => unawaited(pickEngineThenStart(() => connect())
-        .catchError((e) { logError(e); return false; }))));
+    // Primary search/connect is routed through the single command field.
+
     groups.forEach((g, l) {
       if (g == 'p:personal') {
         rows.add(_personalHeader());
@@ -14940,30 +14940,15 @@ ListTile( // KINGEXTRAS row
 UiHero(
             on: connected,
             busy: busy,
-            label: (connected || wantVpn)
-                    ? 'توقف خلبان هوشمند'
-                    : busy
-                        ? 'لغو عملیات خلبان'
-                        : 'شروع خلبان هوشمند',
+            label: localPilotOn ? 'خلبان فعال' : busy ? 'در حال اجرا' : 'فرمان از کادر',
             ping: (connected && current != null && current!.ping != null)
                 ? '${current!.ping}'
                 : '-',
             speed: (connected && current != null && (current!.speed ?? 0) > 0)
                 ? current!.speed!.toStringAsFixed(1)
                 : '-',
-            // busy while not connected = connecting/searching: cancel at once
-            // (wantVpn is already true during a connect, so this must come first)
-            onTap: (busy && !connected)
-                    ? () { if (localPilotOn) stopLocalPilot(); _cancelNow(); }
-                    : (connected || wantVpn || lastState == 'CONNECTED')
-                    ? () => disconnect()
-                    : () async {
-                          // SINGLE-PILOT: the only primary action owns both network
-                          // strategies. Detection and strategy selection happen inside
-                          // startLocalPilot; no separate national-mode button is exposed.
-                          if (aiSession) stopGrokPilot();
-                          await startLocalPilot();
-                        },
+            // Primary connection is controlled only from the command field.
+            onTap: null,
           ),
           if (busy)
             LinearProgressIndicator(
@@ -15174,11 +15159,8 @@ UiHero(
                               : 'تست نشده'),
                   trailing: UiMs(standby || isCur ? s.ping : null, isCur),
                   // tapping works even during a search: it interrupts it
-                  onTap: isCur
-                      ? null
-                      : (s.personal
-                          ? () => pickEngineThenStart(() => connectPersonal(), askMode: false) // PERSROW: سرور شخصی از لیست، بدون پرسش
-                          : () => pickEngineThenStart(() => connect(s, gid), askMode: false) /* ROWNOASK: انتخاب مستقیم یک سرور/کانفیگ، بدون پرسش آنلاین/آفلاین */),
+                  // Server rows are informational; connect through the command field.
+                  onTap: null,
                   onLongPress: () => _toggleFav(s),
                 ));
               },
