@@ -766,22 +766,19 @@ empty changes list and explain what is missing.
       researchHints.join(' '),
       maxChars: 280,
     ).replaceAll(RegExp(r'[^a-zA-Z0-9_ .:+/-]'), ' ').trim();
-    var researchNotes = <Map<String, String>>[];
     if (researchQuery.length >= 8) {
       try {
-        researchNotes = await researchGoogle(
+        // researchGoogle persists validated notes; proposeRepair then ranks
+        // that fresh memory once, avoiding duplicate prompt context.
+        await researchGoogle(
           'Flutter Dart Android build error $researchQuery',
           maxResults: 2,
         ).timeout(const Duration(seconds: 35));
       } catch (_) {
-        // Research is an optional evidence source; CI evidence remains primary.
+        // Research is optional; CI evidence remains the primary source.
       }
     }
-    final proposal = await proposeRepair(
-      task: task,
-      sourceFiles: context,
-      researchNotes: researchNotes,
-    );
+    final proposal = await proposeRepair(task: task, sourceFiles: context);
     final changes = proposal['changes'] as Map<String, String>;
     if (changes.isEmpty) {
       return {
