@@ -1,28 +1,44 @@
 part of 'main.dart';
 
 // UPDATE CHECK + Remote heal flags ==========================================
-// appBuild را با هر Release یکی بالا ببر و update.json را آپدیت کن.
-const int appBuild = 3;
+const int appBuild = 3; // Fallback only; PackageInfo supplies the installed build number.
 const String updateConfigUrl =
     'https://gist.githubusercontent.com/cafeeteriaa/0e04f5efe29b8101eb554c6e9a41d969/raw';
 
+const MethodChannel _kingUpdateChannel = MethodChannel('king/update');
 bool _updateChecked = false;
+String? _pendingUpdateApkPath;
 Map<String, dynamic> _remoteHeal = {};
 
 extension UpdateCheck on _HomePageState {
+  Future<int> _installedAppBuild() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      return int.tryParse(info.buildNumber) ?? appBuild;
+    } catch (_) {
+      return appBuild;
+    }
+  }
+
   Future<void> checkForUpdate() async {
     if (_updateChecked) return;
     _updateChecked = true;
     try {
       await Future.delayed(const Duration(seconds: 2));
       if (!mounted) return;
-      final r = await http
-          .get(Uri.parse(updateConfigUrl))
+      final response = await http
+          .get(Uri.parse(updateConfigUrl), headers: const {
+            'Accept': 'application/json',
+            'User-Agent': 'KingVPN-Updater/1.0',
+          })
           .timeout(const Duration(seconds: 12));
-      if (r.statusCode != 200) return;
-      final j = jsonDecode(r.body);
-      if (j is! Map) return;
-      final map = Map<String, dynamic>.from(j);
+      if (response.statusCode != 200) {
+        _updateChecked = false;
+        return;
+      }
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map) return;
+      final map = Map<String, dynamic>.from(decoded);
 
       final heal = map['heal'];
       if (heal is Map) {
@@ -31,15 +47,18 @@ extension UpdateCheck on _HomePageState {
       }
 
       final latest = (map['latest'] as num?)?.toInt() ?? 0;
-      final minB = (map['min'] as num?)?.toInt() ?? 0;
-      var url = (map['url'] as String?)?.trim() ?? '';
-      final apk = (map['apk'] as String?)?.trim() ?? '';
-      // فیکس ۱: هش مورد انتظار APK (اگر Gist قدیمی بود خالی می‌ماند و رفتار قبلی حفظ می‌شود)
-      final sha256Expected = (map['sha256'] as String?)?.trim().toLowerCase() ?? '';
-      if (url.isEmpty) url = 'https://t.me/kingvpnn57';
-      final msg = (map['message'] as String?)?.trim() ?? '';
-      final force = appBuild < minB;
-      if (!force && appBuild >= latest) return;
+      final minBuild = (map['min'] as num?)?.toInt() ?? 0;
+      var pageUrl = (map['url'] as String?)?.trim() ?? '';
+      final apkUrl = (map['apk'] as String?)?.trim() ?? '';
+      final expectedSha256 =
+          (map['sha256'] as String?)?.trim().toLowerCase() ?? '';
+      if (pageUrl.isEmpty) pageUrl = 'https://t.me/kingvpnn57';
+      final message = (map['message'] as String?)?.trim() ?? '';
+      final currentBuild = await _installedAppBuild();
+      final force = currentBuild < minBuild;
+      if (!force && currentBuild >= latest && _pendingUpdateApkPath == null) {
+        return;
+      }
       if (!mounted) return;
 
       await showDialog<void>(
@@ -52,11 +71,11 @@ extension UpdateCheck on _HomePageState {
             child: AlertDialog(
               title: const Text('🚀 آپدیت King VPN'),
               content: Text(
-                msg.isNotEmpty
-                    ? msg
-                    : 'نسخه‌ی جدید با موتور خودترمیمی قوی‌تر آماده است.\n'
-                        'Build $appBuild → $latest\n'
-                        'دانلود کن و نصب کن تا ترمیم‌های عمیق‌تر فعال شوند.',
+                message.isNotEmpty
+                    ? message
+                    : 'نسخه‌ی جدید آماده است.\n'
+                        'Build $currentBuild → $latest\n'
+                        'فایل قبل از بازشدن نصب‌کننده با SHA-256 بررسی می‌شود.',
               ),
               actions: [
                 if (!force)
@@ -64,91 +83,152 @@ extension UpdateCheck on _HomePageState {
                     onPressed: () => Navigator.pop(ctx),
                     child: const Text('بعداً'),
                   ),
-                if (apk.isNotEmpty)
+                if (_pendingUpdateApkPath != null)
                   FilledButton(
                     onPressed: () async {
                       Navigator.pop(ctx);
-                      await _downloadAndInstallApk(apk, sha256Expected);
+                      await _continuePendingUpdateInstall();
+                    },
+                    child: const Text('ادامه نصب'),
+                  )
+                else if (apkUrl.isNotEmpty)
+                  FilledButton(
+                    onPressed: () async {
+                      Navigator.pop(ctx);
+                      await _downloadAndInstallApk(apkUrl, expectedSha256);
                     },
                     child: const Text('دانلود و نصب'),
                   ),
                 FilledButton(
                   onPressed: () async {
-                    final open = apk.isNotEmpty ? apk : url;
+                    final open = apkUrl.isNotEmpty ? apkUrl : pageUrl;
                     try {
                       await launchUrl(Uri.parse(open),
                           mode: LaunchMode.externalApplication);
-                    } catch (e, stk) {
-                      logError(e, stk);
+                    } catch (error, stack) {
+                      logError(error, stack);
                       await Clipboard.setData(ClipboardData(text: open));
                       _set('لینک آپدیت کپی شد');
                     }
                     if (ctx.mounted) Navigator.pop(ctx);
                   },
-                  child: Text(apk.isNotEmpty ? 'لینک APK' : 'دانلود'),
+                  child: Text(apkUrl.isNotEmpty ? 'لینک APK' : 'دانلود'),
                 ),
               ],
             ),
           ),
         ),
       );
-    } catch (e, stk) {
-      logError(e, stk);
+    } catch (error, stack) {
+      _updateChecked = false;
+      logError(error, stack);
     }
   }
 
-  Future<void> _downloadAndInstallApk(String apkUrl, String sha256Expected) async {
+  Future<void> _downloadAndInstallApk(
+    String apkUrl,
+    String sha256Expected,
+  ) async {
+    final uri = Uri.tryParse(apkUrl);
+    const allowedHosts = <String>{
+      'github.com',
+      'release-assets.githubusercontent.com',
+      'objects.githubusercontent.com',
+    };
+    if (uri == null ||
+        uri.scheme != 'https' ||
+        !allowedHosts.contains(uri.host.toLowerCase())) {
+      _set('❌ لینک آپدیت امن و معتبر نیست؛ دانلود متوقف شد');
+      return;
+    }
+    if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(sha256Expected)) {
+      _set('❌ هش SHA-256 در منبع آپدیت معتبر نیست؛ نصب لغو شد');
+      return;
+    }
+
+    http.Client? client;
+    File? file;
     try {
       _set('⬇ در حال دانلود نسخه‌ی جدید...');
       kingHealText.value = 'دانلود آپدیت...';
-      final r = await http
-          .get(Uri.parse(apkUrl))
+      final temporary = await getTemporaryDirectory();
+      final updateDirectory = Directory('${temporary.path}/king_updates');
+      await updateDirectory.create(recursive: true);
+      file = File('${updateDirectory.path}/king-vpn-update.apk');
+
+      client = http.Client();
+      final request = http.Request('GET', uri)
+        ..headers.addAll(const {
+          'Accept': 'application/vnd.android.package-archive',
+          'User-Agent': 'KingVPN-Updater/1.0',
+        });
+      final streamed = await client.send(request)
           .timeout(const Duration(minutes: 4));
-      if (r.statusCode != 200 || r.bodyBytes.isEmpty) {
-        _set('دانلود ناموفق — لینک را باز کن');
-        await launchUrl(Uri.parse(apkUrl),
-            mode: LaunchMode.externalApplication);
-        return;
+      if (streamed.statusCode != 200) {
+        throw HttpException('APK download returned HTTP ${streamed.statusCode}');
       }
-      final dir = await Directory.systemTemp.createTemp('king_upd_');
-      final file = File('${dir.path}/king-vpn-update.apk');
-      await file.writeAsBytes(r.bodyBytes, flush: true);
-      // Fail closed: missing, malformed, mismatched or unreadable digests
-      // must never fall through to the Android package installer.
+
+      final sink = file.openWrite();
+      var received = 0;
       try {
-        final bytes = await file.readAsBytes();
-        if (!verifySha256Bytes(bytes, sha256Expected)) {
-          _set('❌ هش نامعتبر است یا با فایل تطابق ندارد؛ نصب لغو شد');
-          kingHealText.value = '❌ اصالت APK تأیید نشد';
-          try { await file.delete(); } catch (e, st) { logError(e, st); }
-          return;
+        await for (final chunk in streamed.stream.timeout(
+          const Duration(seconds: 45),
+        )) {
+          received += chunk.length;
+          if (received > 300 * 1024 * 1024) {
+            throw StateError('APK exceeds the 300 MB safety limit');
+          }
+          sink.add(chunk);
         }
-      } catch (e, st) {
-        logError(e, st);
-        _set('❌ بررسی اصالت APK ناموفق بود؛ نصب متوقف شد');
-        kingHealText.value = '❌ خطا در بررسی SHA-256؛ نصب لغو شد';
-        try { await file.delete(); } catch (cleanup, cleanupSt) { logError(cleanup, cleanupSt); }
-        return;
+        await sink.flush();
+      } finally {
+        await sink.close();
+        client.close();
+        client = null;
       }
-      _set('✅ دانلود شد — نصب را تأیید کن');
-      kingHealText.value = 'APK آماده — تأیید نصب اندروید';
-      final ok = await launchUrl(
-        Uri.file(file.path),
-        mode: LaunchMode.externalApplication,
+      if (received == 0 || !await verifySha256File(file, sha256Expected)) {
+        throw StateError('APK SHA-256 mismatch or empty download');
+      }
+
+      _pendingUpdateApkPath = file.path;
+      _set('✅ فایل دریافت و اصالت آن تأیید شد؛ در حال بازکردن نصب‌کننده اندروید...');
+      kingHealText.value = 'APK تأیید شد — نصب‌کننده اندروید';
+      await _continuePendingUpdateInstall();
+    } catch (error, stack) {
+      logError(error, stack);
+      _set('❌ دریافت یا بررسی آپدیت ناموفق بود؛ نصب انجام نشد');
+      kingHealText.value = 'خطا در دریافت یا بررسی آپدیت';
+      if (file != null) {
+        try {
+          if (await file.exists()) await file.delete();
+        } catch (cleanupError, cleanupStack) {
+          logError(cleanupError, cleanupStack);
+        }
+      }
+    } finally {
+      client?.close();
+    }
+  }
+
+  Future<void> _continuePendingUpdateInstall() async {
+    final path = _pendingUpdateApkPath;
+    if (path == null) return;
+    try {
+      final result = await _kingUpdateChannel.invokeMethod<String>(
+        'installApk',
+        {'path': path},
       );
-      if (!ok) {
-        await launchUrl(Uri.parse(apkUrl),
-            mode: LaunchMode.externalApplication);
-        await Clipboard.setData(ClipboardData(text: apkUrl));
-        _set('لینک APK کپی شد');
+      if (result == 'permission_required') {
+        _updateChecked = false;
+        _set('برای نصب، اجازه «نصب برنامه‌های ناشناس» را برای King VPN فعال کن؛ بعد از برگشت، گزینه ادامه نصب را بزن.');
+      } else if (result == 'installer_opened') {
+        _set('نصب‌کننده اندروید باز شد؛ نصب نسخه جدید را تأیید کن.');
+      } else {
+        _set('وضعیت نصب آپدیت مشخص نیست؛ دوباره تلاش کن.');
       }
-    } catch (e, stk) {
-      logError(e, stk);
-      try {
-        await launchUrl(Uri.parse(apkUrl),
-            mode: LaunchMode.externalApplication);
-      } catch (e, stk) { logError(e, stk); }
-      _set('آپدیت: از مرورگر نصب کن');
+    } catch (error, stack) {
+      logError(error, stack);
+      _set('بازکردن نصب‌کننده اندروید ناموفق بود؛ فایل تأییدشده در حافظه موقت باقی ماند.');
     }
   }
 
@@ -158,10 +238,13 @@ extension UpdateCheck on _HomePageState {
         turboSpeed = true;
         muxEnabled = true;
       }
-      final mc = (_remoteHeal['muxConc'] as num?)?.toInt();
-      // MUXCAP: سقف امن ۳۲ (بالاتر از این HOL blocking شدید می‌شود).
-      if (mc != null && mc >= 8) muxConc = mc.clamp(8, 32);
+      final muxConcurrency = (_remoteHeal['muxConc'] as num?)?.toInt();
+      if (muxConcurrency != null && muxConcurrency >= 8) {
+        muxConc = muxConcurrency.clamp(8, 32);
+      }
       dbg('ترمیم از راه دور اعمال شد: $_remoteHeal');
-    } catch (e, stk) { logError(e, stk); }
+    } catch (error, stack) {
+      logError(error, stack);
+    }
   }
 }
