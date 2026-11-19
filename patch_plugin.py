@@ -33,7 +33,7 @@ def patch_android_plugin_buildscript_repositories():
             if quote:
                 if escaped:
                     escaped = False
-                elif char == '\\\\':
+                elif char == '\\':
                     escaped = True
                 elif char == quote:
                     quote = None
@@ -64,7 +64,7 @@ def patch_android_plugin_buildscript_repositories():
             if gradle_file.name not in ('build.gradle', 'build.gradle.kts'):
                 continue
             source = gradle_file.read_text(encoding='utf-8')
-            pattern = r'buildscript\\s*\\{\\s*repositories\\s*\\{'
+            pattern = r'buildscript\s*\{\s*repositories\s*\{'
             match = re.search(pattern, source, flags=re.S)
             if not match:
                 continue
@@ -77,9 +77,9 @@ def patch_android_plugin_buildscript_repositories():
             if MAVEN_CENTRAL_MIRROR in repo_body:
                 continue
             if gradle_file.name.endswith('.kts'):
-                entry = f'\\n        maven {{ url = uri("{MAVEN_CENTRAL_MIRROR}") }}'
+                entry = f'\n        maven {{ url = uri("{MAVEN_CENTRAL_MIRROR}") }}'
             else:
-                entry = f'\\n        maven {{ url "{MAVEN_CENTRAL_MIRROR}" }}'
+                entry = f'\n        maven {{ url "{MAVEN_CENTRAL_MIRROR}" }}'
             updated = source[:repo_open + 1] + entry + source[repo_open + 1:]
             gradle_file.write_text(updated, encoding='utf-8')
             patched += 1
