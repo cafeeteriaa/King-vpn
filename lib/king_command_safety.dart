@@ -24,7 +24,7 @@ class KingCommandSafety {
   static bool negatesScan(String command) {
     final value = _normalize(command);
     return RegExp(
-      '(?:اسکن|پویش).{0,16}$_negation',
+      '(?:اسکن|پویش|scan).{0,16}$_negation',
     ).hasMatch(value) || RegExp(
       '$_negation.{0,16}(?:اسکن|پویش)',
     ).hasMatch(value);
