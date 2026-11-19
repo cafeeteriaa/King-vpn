@@ -92,6 +92,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Duration(seconds: 10)', pilot)
         self.assertIn('_pilotExperienceOperatorKey(s.operatorKey)', pilot)
         self.assertIn("'domestic' : 'global'", pilot)
+        self.assertIn('total >= 5', pilot)
+        self.assertIn('winRate >= 0.75', pilot)
         self.assertIn('king_pilot_experience_v1', pilot)
         self.assertIn('_pilotReconcileExperience(snap)', pilot)
         self.assertIn('_pilotSaveExperience()', pilot)
