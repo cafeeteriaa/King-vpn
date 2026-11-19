@@ -302,12 +302,14 @@ class PilotNetworkProbe {
       global: health(global),
       domesticSamples: domestic.length,
       globalSamples: global.length,
+      domesticLatencyMs: _median(domestic),
+      globalLatencyMs: _median(global),
       domesticDataPlaneVerified: domestic.any((x) => x != null),
       globalDataPlaneVerified: global.any((x) => x != null),
     );
     _lastAt = DateTime.now();
     _lastIdentity = identity;
-    dbg('PILOT-PROBE: domestic=${domestic.whereType<int>().length}/${domestic.length} '
+    dbg('PILOT-TLS-PROBE: domestic=${domestic.whereType<int>().length}/${domestic.length} '
         'global=${global.whereType<int>().length}/${global.length} '
         'latencyDomestic=${_median(domestic)}ms latencyGlobal=${_median(global)}ms');
     return _last;
