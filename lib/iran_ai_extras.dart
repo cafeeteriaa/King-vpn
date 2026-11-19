@@ -526,7 +526,7 @@ extension HomeExtras on _HomePageState {
         '$sb';
   }
 
-  // PILOT: richer prompt when Grok fully drives the VPN
+  // PILOT: richer prompt for the local King intelligence
   String kingPilotPrompt() {
     final base = aiPrompt();
     return 'You are King, the on-device intelligence fully piloting King VPN until the user '
@@ -1039,7 +1039,7 @@ extension HomeExtras on _HomePageState {
     return true;
   }
 
-  // FULL PILOT: Grok takes over from search to keep-alive until user disconnects
+  // FULL PILOT: King local intelligence guides search and keep-alive until disconnect
   Future<void> startKingPilot() async {
     if (!_selectedAiKeyAvailable) {
       _set('ابتدا مدل کدنویس محلی را از تنظیمات هوش مصنوعی دانلود و بارگذاری کن.');
@@ -2817,7 +2817,7 @@ extension HomeExtras on _HomePageState {
     }());
   }
 
-  // PILOTREV: خلبان (محلی و Grok) تنظیمات را موقتاً عوض می‌کند. قبل از اولین تغییر
+  // PILOTREV: خلبان محلی کینگ تنظیمات را موقتاً عوض می‌کند. قبل از اولین تغییر
   // مقدارهای کاربر ذخیره می‌شود و با توقف خلبان یا با اتصال عادی بعدی برمی‌گردد.
   Map<String, Object?> _takePilotSnap() => {
         'fwUserSet': fwUserSet,
@@ -2934,7 +2934,7 @@ extension HomeExtras on _HomePageState {
 
 // NUMPATCH ======================= عددهای قابل تنظیم =======================
 // first search (used by patch_fast.py): it stops at the FIRST healthy server
-// (for the Gemini row: the first Gemini server). Safety: after [firstCapSec]
+// (for the first candidate server). Safety: after [firstCapSec]
 // seconds it goes on with the ones found.
 int firstCapSec = 15; // BEST: کمی بیشتر برای پیدا کردن سرور سالم
 
