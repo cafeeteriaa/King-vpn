@@ -2242,7 +2242,9 @@ extension HomeExtras on _HomePageState {
     set['timeout'] = delayTimeout.inSeconds;
 
     // یادگیری فقط از نتیجه‌ی تأییدشده؛ تعداد تلاش‌ها به‌تنهایی «برد» نیست.
-    final opKey = s.operatorKey;
+    // Keep operator learning isolated by the active Pilot route class;
+    // a result on international access must not bias domestic-only decisions.
+    final opKey = _pilotExperienceOperatorKey(s.operatorKey);
     String? memoryBest;
     var memoryBestW = 0;
     if (opKey.isNotEmpty) {
@@ -2445,14 +2447,14 @@ extension HomeExtras on _HomePageState {
     switch (d.action) {
       case 'connect':
         if (!connected && !busy) {
-          _pilotBeginExperience(_localLastOp, 'connect');
+          _pilotBeginExperience(_pilotExperienceOperatorKey(_localLastOp), 'connect');
           turboSpeed = true;
           _applyTurboLevers();
           await connect();
         }
         break;
       case 'soft_recover':
-        _pilotBeginExperience(_localLastOp, 'soft_recover');
+        _pilotBeginExperience(_pilotExperienceOperatorKey(_localLastOp), 'soft_recover');
         // بازیابی نرم: فقط توربو همان سرور قبل از تعویض کامل (جدید: بدون نت ملی)
         if (connected && current != null && !busy && !switching) {
           turboSpeed = true;
@@ -2468,7 +2470,7 @@ extension HomeExtras on _HomePageState {
         if (!busy && !switching) {
           final best = _pilotBestStandby();
           if (best != null) {
-            _pilotBeginExperience(_localLastOp, 'switch_best');
+            _pilotBeginExperience(_pilotExperienceOperatorKey(_localLastOp), 'switch_best');
             await _swapTo(best);
             _localConnectedSince = DateTime.now();
             _localSlowStreak = 0;
@@ -3923,6 +3925,8 @@ Map<String, int> _localOpWins = {}; // confirmed successes by operator/action
 Map<String, int> _localOpLosses = {}; // confirmed failures by operator/action
 const String _pilotExperiencePrefsKey = 'king_pilot_experience_v1';
 bool _pilotExperienceLoaded = false;
+String _pilotExperienceOperatorKey(String operator) =>
+    'v2|${operator.trim().isEmpty ? 'unknown' : operator.trim()}|${nationalMode ? 'domestic' : 'global'}';
 String? _pilotPendingExperienceKey;
 bool _pilotPendingWasConnected = false;
 String? _pilotPendingServerLink;
