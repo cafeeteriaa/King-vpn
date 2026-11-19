@@ -33,6 +33,9 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Setup Gradle and cache dependencies
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -92,16 +95,23 @@ jobs:
           CGO_LDFLAGS: "-Wl,-z,max-page-size=16384"
         run: |
           set -o pipefail
-          if flutter build apk --debug --target-platform android-arm64 2>&1 | tee build.log; then
-            exit 0
-          fi
-          if ! grep -Eq 'Could not (find|resolve) org[.]jetbrains[.]kotlin:' build.log; then
-            echo "APK build failed for a reason other than transient Kotlin artifact resolution."
-            exit 1
-          fi
-          echo "Kotlin artifacts were unavailable during the first attempt; refreshing Gradle dependencies once."
-          (cd android && ./gradlew help --refresh-dependencies) 2>&1 | tee -a build.log
-          flutter build apk --debug --target-platform android-arm64 2>&1 | tee -a build.log
+          for attempt in 1 2 3; do
+            echo "APK build attempt ${attempt}/3"
+            if flutter build apk --debug --target-platform android-arm64 2>&1 | tee -a build.log; then
+              exit 0
+            fi
+            if ! grep -Eq 'Could not (find|resolve) org[.]jetbrains[.]kotlin:|Received status code (429|5[0-9][0-9])' build.log; then
+              echo "APK build failed for a non-transient reason; stopping retries."
+              exit 1
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              delay=$((attempt * 30))
+              echo "Transient Maven/Kotlin resolution failure; retrying in ${delay}s without forcing dependency refresh."
+              sleep "$delay"
+            fi
+          done
+          echo "APK build still blocked after three transient-resolution attempts."
+          exit 1
 
       - name: Package complete source and generated Flutter project
         if: success()
