@@ -1871,7 +1871,9 @@ extension HomeExtras on _HomePageState {
 
   Future<String> _runPilotCommand(String raw) async {
     final q = raw.trim().toLowerCase().replaceAll('ي', 'ی')
-        .replaceAll('ك', 'ک').replaceAll(RegExp(r'\s+'), ' ');
+        .replaceAll('ك', 'ک').replaceAll('\u200c', ' ')
+        .replaceAll(RegExp(r'[،,؛;!?؟]+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ');
     if (q.isEmpty) return 'یک فرمان بنویس؛ مثلاً «وصل شو» یا «وضعیت اتصال».';
     bool hasAny(List<String> words) => words.any(q.contains);
     if (hasAny(['راهنما', 'دستورات', 'کمک'])) {
@@ -1882,15 +1884,27 @@ extension HomeExtras on _HomePageState {
       final s = current;
       final ping = s?.ping == null ? 'نامشخص' : '${s!.ping} ms';
       final speed = (s?.speed ?? 0) > 0 ? '${s!.speed!.toStringAsFixed(2)} MB/s' : 'در حال اندازه‌گیری';
+      final serverName = current?.name ?? 'انتخاب نشده';
       return 'وضعیت: ${connected ? 'متصل' : busy ? 'در حال جستجو/اتصال' : 'غیرمتصل'}'
           ' • خلبان: ${localPilotOn ? 'روشن' : 'خاموش'}'
           ' • راهبرد: ${nationalMode ? 'نت ملی' : 'جهانی/تشخیص خودکار'}'
-          ' • سرور سالم: ${_usable().length} • پینگ: $ping • سرعت: $speed';
+          ' • سرور: $serverName • سرور سالم: ${_usable().length}'
+          ' • پینگ: $ping • سرعت: $speed';
     }
     if (hasAny(['لغو', 'متوقف کن', 'توقف جستجو', 'cancel'])) {
       if (localPilotOn) stopLocalPilot();
       _cancelNow();
       return 'درخواست لغو عملیات ثبت شد.';
+    }
+    if (hasAny(['اتصال مجدد', 'دوباره وصل', 'از نو وصل', 'reconnect'])) {
+      if (busy && !connected) return 'یک عملیات در جریان است؛ ابتدا «لغو جستجو» را بفرست.';
+      if (connected || wantVpn) await disconnect(keepPilot: true);
+      if (localPilotOn) {
+        await connect();
+      } else {
+        await startLocalPilot();
+      }
+      return 'اتصال مجدد از مسیر خلبان آغاز شد؛ سلامت تونل پس از اتصال بررسی می‌شود.';
     }
     if (hasAny(['قطع اتصال', 'اتصال را قطع', 'قطع کن', 'قطع vpn', 'disconnect', 'قطع شو'])) {
       if (localPilotOn) stopLocalPilot();
@@ -1901,7 +1915,7 @@ extension HomeExtras on _HomePageState {
       }
       return 'اتصالی فعال نیست.';
     }
-    if (hasAny(['خلبان خاموش', 'توقف خلبان', 'خاموش کن'])) {
+    if (hasAny(['خلبان خاموش', 'توقف خلبان', 'خلبان را متوقف', 'خاموش کن'])) {
       if (!localPilotOn) return 'خلبان محلی از قبل خاموش است.';
       stopLocalPilot();
       return 'خلبان متوقف شد و تنظیمات قبلی بازیابی شدند.';
@@ -1929,7 +1943,10 @@ extension HomeExtras on _HomePageState {
     }
     if (hasAny(['نت جهانی', 'اینترنت جهانی', 'شبکه جهانی']) &&
         hasAny(['وصل', 'اتصال', 'connect'])) {
-      if (_resMap.isEmpty) return 'پوشه سرورهای آماده خالی است؛ «وصل شو» را بفرست تا خلبان جستجوی عمومی انجام دهد.';
+      if (_resMap.isEmpty) {
+        await startLocalPilot();
+        return 'پوشه آماده خالی است؛ خلبان محلی فعال شد تا شبکه را تشخیص دهد و مسیر جهانی/مناسب را پیدا کند.';
+      }
       final ok = await pickEngineThenStart(() async {
         _resNext = true;
         await connect();
@@ -1973,7 +1990,7 @@ extension HomeExtras on _HomePageState {
       }
       return 'نام کشور یا سرور در فهرست آماده‌ها پیدا نشد. نام دقیق‌تری بنویس یا «وصل شو» را بفرست تا خلبان جستجو کند.';
     }
-    if (hasAny(['وصل', 'اتصال', 'connect', 'شروع خلبان', 'خلبان روشن', 'شروع کن'])) {
+    if (hasAny(['وصل', 'اتصال', 'connect', 'شروع خلبان', 'خلبان روشن', 'خلبان را روشن', 'خلبان رو روشن', 'شروع کن', 'اتصال برقرار'])) {
       if (connected && localPilotOn) {
         await localPilotTick(force: true);
         return 'اتصال برقرار است؛ خلبان وضعیت را دوباره ارزیابی کرد.';
