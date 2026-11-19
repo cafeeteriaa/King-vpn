@@ -2453,12 +2453,15 @@ extension HomeExtras on _HomePageState {
                 global: LinkHealth.unknown,
               ));
       final strategy = choosePilotNetworkStrategy(evidence);
-      if (strategy == PilotNetworkStrategy.domestic) {
-        nationalMode = true;
-      } else if (strategy == PilotNetworkStrategy.global) {
-        nationalMode = false;
+      if (!_pilotNetworkModePinned) {
+        if (strategy == PilotNetworkStrategy.domestic) {
+          nationalMode = true;
+        } else if (strategy == PilotNetworkStrategy.global) {
+          nationalMode = false;
+        }
+      } else {
+        dbg('PILOT-MODE-PINNED: keeping explicit user-selected ${nationalMode ? 'domestic' : 'global'} strategy');
       }
-      // Offline/partial evidence preserves the previous strategy.
       natForce = nationalMode;
       userModeChoice = nationalMode;
       if (previousMode != nationalMode) {
@@ -2522,8 +2525,9 @@ extension HomeExtras on _HomePageState {
     // تشخیص اپراتور و شبکه فقط یک بار در startLocalPilot انجام می‌شود.
   }
 
-  Future<void> startLocalPilot() async {
+  Future<void> startLocalPilot({bool pinNetworkMode = false}) async {
     if (localPilotOn || _localPilotStarting) return;
+    _pilotNetworkModePinned = pinNetworkMode;
     _localPilotStarting = true;
     try {
       _pilotSnap ??= _beginPilotSnap();
@@ -2540,7 +2544,9 @@ extension HomeExtras on _HomePageState {
         aiAutopilotStart();
       }
       final eng = _engineLabel(pilotEngine);
-      final modeLabel = nationalMode ? 'نت ملی' : 'جهانی/حالت قبلی';
+      final modeLabel = nationalMode
+          ? (_pilotNetworkModePinned ? 'نت ملی (انتخاب صریح)' : 'نت ملی (خودکار)')
+          : (_pilotNetworkModePinned ? 'نت جهانی (انتخاب صریح)' : 'جهانی/حالت قبلی');
       localPilotText.value =
           '👑 خلبان هوشمند ∞ فعال شد • موتور: $eng\n'
           '• شبکه: $modeLabel\n'
@@ -2549,6 +2555,7 @@ extension HomeExtras on _HomePageState {
     } catch (e, stk) {
       logError(e, stk);
       localPilotText.value = 'شروع خلبان ناموفق بود؛ تنظیمات قبلی بازیابی شد.';
+      _pilotNetworkModePinned = false;
       _restorePilotSnap();
       return;
     } finally {
@@ -2677,6 +2684,7 @@ extension HomeExtras on _HomePageState {
   }
 
   void stopLocalPilot() {
+    _pilotNetworkModePinned = false;
     localPilotOn = false;
     localPilotLoop?.cancel();
     localPilotLoop = null;
@@ -3304,6 +3312,9 @@ int _localConnFail = 0; // DOHAUTO: connect failures in a row
 int _localGoodTog = 0; // TOGGLES: connected ticks in a row
 bool localPilotOn = false;
 bool _localPilotStarting = false; // prevents duplicate starts during network classification
+// Explicit owner/user network commands stay pinned for this Pilot session.
+// Automatic Pilot mode may still switch when fresh quorum evidence changes.
+bool _pilotNetworkModePinned = false;
 
 // FWUSER: مقدار دستی کاربر برای «تست همزمان (جستجوی اول)». پیش‌فرض ۳؛
 // اگر کاربر خودش عدد گذاشته باشد، هر اتصال عادی همان عدد (تا ۳۲) را نگه می‌دارد.
