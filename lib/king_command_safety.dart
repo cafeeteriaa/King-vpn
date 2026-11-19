@@ -22,7 +22,7 @@ class KingCommandSafety {
         .replaceAll('ة', 'ه')
         .replaceAll('‌', ' ')
         .replaceAll(RegExp(r'[،,؛;.!?؟:]+'), ' ')
-        .replaceAll(RegExp(r'\\s+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
     return normalized.replaceFirst(
       RegExp(r'^(?:(?:سلام|هی)\\s+)?(?:کینگ|king)(?:\\s+(?:جان|عزیز))?\\s*'),
