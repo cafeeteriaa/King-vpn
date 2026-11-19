@@ -757,5 +757,59 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('evidence.ownerCommandAuthorizedForCandidate', policy)
 
 
+    def test_legacy_ai_server_flags_are_revalidated_as_generic_web_evidence(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn('s.ai = null; // force revalidation', main)
+        self.assertNotIn("s.ai = j['a'] as bool?;", main)
+        self.assertIn("RowDef('ai', '🌐 سرورهای دارای دسترسی وب'", main)
+        for old_provider in ('Gemini', 'Grok', 'Claude', 'gemini', 'grok', 'claude'):
+            self.assertNotIn(old_provider, main)
+
+    def test_local_king_uses_real_network_evidence_and_bounded_tuning(self):
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        prompt_start = extras.index('String aiPrompt()')
+        prompt_end = extras.index('Future<void> aiAnalyze(', prompt_start)
+        prompt = extras[prompt_start:prompt_end]
+        self.assertIn('PilotNetworkProbe.current', prompt)
+        self.assertIn('NatNetworkDiagnosis.current', prompt)
+        self.assertIn('NationalNetworkIntelligence.scoreFor', prompt)
+        self.assertIn('not proof of VPN data-plane', prompt)
+        self.assertIn('fastWorkers, 1, 20', extras)
+        self.assertIn('bgWorkers, 1, 3', extras)
+        self.assertIn('speedTopN, 1, 10', extras)
+
+    def test_stopping_pilot_invalidates_pending_local_ai_and_manual_analysis_is_non_mutating(self):
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        analyze_start = extras.index('Future<void> aiAnalyze(')
+        analyze_end = extras.index('void autoAiAfterConnect()', analyze_start)
+        analyze = extras[analyze_start:analyze_end]
+        self.assertIn('if (auto && (!aiSession || !localPilotOn)) return;', analyze)
+        self.assertIn('if (auto && aiSession && localPilotOn) applyAiSuggest();', analyze)
+        self.assertNotIn('\n      applyAiSuggest();', analyze)
+        delayed_start = extras.index('void autoAiAfterConnect()')
+        delayed_end = extras.index('void aiAutopilotStart()', delayed_start)
+        delayed = extras[delayed_start:delayed_end]
+        self.assertIn('!aiSession || !localPilotOn', delayed)
+        tick_start = extras.index('Future<void> aiAutopilotTick()')
+        tick_end = extras.index('Future<void> aiRunAction()', tick_start)
+        tick = extras[tick_start:tick_end]
+        self.assertIn('final answer = await aiAsk(aiPrompt());', tick)
+        self.assertIn('if (!mounted || !aiSession || !localPilotOn) return;', tick)
+        self.assertIn('if (!aiSession || !localPilotOn) return;', tick)
+        action_start = extras.index('Future<void> aiRunAction()')
+        action_end = extras.index('void applyAiSuggest()', action_start)
+        self.assertIn('if (!aiSession || !localPilotOn || a.isEmpty', extras[action_start:action_end])
+
+    def test_legacy_provider_cleanup_has_one_bounded_timeout(self):
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        start = extras.index('Future<void> loadLocalAiPrefs(')
+        end = extras.index('Future<String> aiAsk(', start)
+        loader = extras[start:end]
+        self.assertIn('Future.wait(legacyKeys.map((key) => prefs.remove(key)))', loader)
+        self.assertIn('Future.wait(legacyKeys.map((key) => _secure.delete(key: key)))', loader)
+        self.assertIn('Duration(seconds: 5)', loader)
+        self.assertNotIn('for (final key in legacyKeys)', loader)
+
+
 if __name__ == '__main__':
     unittest.main()
