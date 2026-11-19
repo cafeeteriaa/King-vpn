@@ -968,6 +968,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_pilotNetworkModePinned = pinNetworkMode;', lifecycle)
         self.assertIn('_pilotNetworkModePinned = false;', lifecycle)
         self.assertIn('_pilotNetworkModePinned = false;', pilot[stop:stop + 220])
+        self.assertIn('final disconnectIntent = KingCommandSafety.isDisconnectIntent(normalizedCommand);', main)
+        self.assertIn('if (disconnectIntent)', main)
+        self.assertNotIn("else if (RegExp(r'(قطع اتصال|قطع|disconnect|خاموش کردن اتصال)'", main)
 
 
     def test_national_pilot_uses_per_server_verified_learning(self):
