@@ -361,6 +361,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Permission.microphone.request()', voice)
         self.assertIn("startsWith('fa')", voice)
         self.assertIn('onDevice: true', voice)
+        self.assertIn('_smartSpeechInitialized = _smartSpeechAvailable;', voice)
         self.assertIn('if (s != AppLifecycleState.resumed && _smartSpeech.isListening)', main)
         self.assertIn('_smartCommandController.value = TextEditingValue(', voice)
         self.assertNotIn('_runSmartCommand(', voice)
