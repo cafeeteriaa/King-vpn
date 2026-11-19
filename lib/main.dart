@@ -4984,6 +4984,11 @@ bool sniSpoofAll = true; // V16: apply SNI spoof to all CDN configs (normal mode
 bool sniCfOn = false;
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
+  // Expose the national IP sweep as a concrete state method so every part file
+  // resolves the same implementation without depending on extension lookup.
+  Future<List<CleanIp>> _atIpSweep(List<Server> pool, Duration budget) =>
+      ProjectNatSweep(this)._atIpSweepImpl(pool, budget);
+
   late final V2ray v2ray;
   // ALL healthy servers (no count limit). Servers saved from the last session
   // are loaded here too (checkedAt == null) and tested first.
@@ -16735,7 +16740,7 @@ extension ProjectNatSweep on _HomePageState {
   // فقط IP‌هایی که ترافیک تونل (google و youtube) بدهند نگه داشته می‌شوند (حداکثر ۱۰ تا).
   // IPSWEEP: IP‌های باز را روی همه‌ی پورت‌های CDN (_natCfPorts) پیدا می‌کند، سپس هر جفت IP:پورت
   // را با اتصال واقعی و بررسی تونل (google و youtube) می‌سنجد. فقط جفت‌های ترافیک‌دار نگه داشته می‌شوند.
-  Future<List<CleanIp>> _atIpSweep(List<Server> pool, Duration budget) async {
+  Future<List<CleanIp>> _atIpSweepImpl(List<Server> pool, Duration budget) async {
     Server? server;
     for (final x in pool) {
       if (_natCdnNets.contains(x.net)) {
