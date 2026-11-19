@@ -86,6 +86,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('PilotNetworkProbe.refresh()', pilot[detect_start:detect_end])
         self.assertNotIn('PilotNetworkProbe.refresh(force: true)', pilot[detect_start:detect_end])
         self.assertIn('checks.where((ok) => ok).length >= 2', pilot)
+        self.assertIn('king_pilot_experience_v1', pilot)
+        self.assertIn('_pilotReconcileExperience(snap)', pilot)
+        self.assertIn('_pilotSaveExperience()', pilot)
+        self.assertNotIn("_localOpWins[k] = (_localOpWins[k] ?? 0) + 1;", pilot)
         nat_detect_start = main.index('Future<void> _natDetect()')
         nat_detect_end = main.index('DateTime? _checkSavedAt', nat_detect_start)
         nat_detect = main[nat_detect_start:nat_detect_end]
