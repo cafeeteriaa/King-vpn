@@ -246,7 +246,7 @@ class NatNetworkDiagnosis {
 
 /// Dedicated Smart Pilot link scanner. Its target inventory and results are
 /// independent from the general DNS/IP/SNI scanners and their user-defined ranges.
-/// It only probes a small, fixed set of HTTPS endpoints; it never sweeps subnets.
+/// It verifies TLS handshakes to a small fixed HTTPS endpoint set; it never sweeps subnets.
 class PilotNetworkProbe {
   static const List<String> domesticTargets = <String>[
     'www.aparat.com',
@@ -317,7 +317,7 @@ class PilotNetworkProbe {
     final watch = Stopwatch()..start();
     Socket? socket;
     try {
-      socket = await Socket.connect(host, 443, timeout: _timeout);
+      socket = await SecureSocket.connect(host, 443, timeout: _timeout);
       watch.stop();
       return watch.elapsedMilliseconds;
     } catch (_) {
