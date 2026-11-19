@@ -669,5 +669,39 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
+    def test_server_reachability_uses_generic_public_endpoints_not_gemini(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<bool> internetEndpointsOpen(')
+        end = main.index('String buildPersonalLink(', start)
+        probe = main[start:end]
+        for endpoint in (
+            'https://www.google.com/generate_204',
+            'https://www.youtube.com/generate_204',
+            'https://cp.cloudflare.com/generate_204',
+        ):
+            self.assertIn(endpoint, probe)
+        self.assertIn('HttpStatus.noContent', probe)
+        self.assertNotIn('gemini.google.com', main)
+        self.assertNotIn('generativelanguage.googleapis.com', main)
+        self.assertNotIn('geminiOpens(', main)
+        self.assertNotIn('_gemSkip(', main)
+
+    def test_connected_auto_analysis_uses_only_loaded_local_king_model(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<void> _aiRunAuto()')
+        end = main.index('Future<void> _aiLoop(', start)
+        auto = main[start:end]
+        self.assertIn('aiAnalyze(auto: true)', auto)
+        self.assertNotIn('geminiKey', auto)
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        start = extras.index('Future<String> aiAsk(String prompt)')
+        end = extras.index('void aiShow(', start)
+        dispatcher = extras[start:end]
+        self.assertIn("aiProvider = 'local';", dispatcher)
+        self.assertIn('KingLocalAi.instance.ask(prompt)', dispatcher)
+        self.assertNotIn('geminiAsk(', dispatcher)
+        self.assertNotIn('grokAsk(', dispatcher)
+
+
 if __name__ == '__main__':
     unittest.main()
