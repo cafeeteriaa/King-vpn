@@ -4216,122 +4216,35 @@ Future<int?> pingAny(
   return null;
 }
 
-// Does Gemini REALLY work through the current tunnel? Two checks, both must pass:
-//  1) the Gemini API location check (generativelanguage.googleapis.com):
-//     an unsupported location gets "User location is not supported";
-//     a supported one gets a normal "API key not valid" error
-//  2) the Gemini web app opens (200, no "not supported" page / redirect)
-// GEMFLAG: true when the LAST Gemini check got a clear "not supported here"
-// answer from Google (no point in retrying), false when it was only a network
-// problem (worth one more try)
-bool gemDefinite = false;
-
-// exit countries where Gemini is never available: skipped without a test
-const _gemBlockedCc = {
-  'IR', 'CN', 'RU', 'KP', 'CU', 'SY', 'BY', 'MM', 'AF', 'SD', 'SS', 'VE', 'HK', 'MO',
-};
-bool _gemSkip(Server s) {
-  final c = (s.country ?? '').toUpperCase();
-  return c.isNotEmpty && _gemBlockedCc.contains(c);
-}
-
-Future<bool> _geminiApiOk({bool direct = true}) async {
-  final c = HttpClient()
-    ..findProxy = ((_) =>
-        (direct && !proxyMode) ? 'DIRECT' : 'PROXY 127.0.0.1:$httpProxyPort')
-    ..connectionTimeout = const Duration(seconds: 5);
-  try {
-    return await () async {
-      final req = await c.getUrl(Uri.parse(
-          'https://generativelanguage.googleapis.com/v1beta/models?key=location_check'));
-      req.headers.set('accept-language', 'en-US,en;q=0.9');
-      final res = await req.close();
-      final sb = StringBuffer();
-      await for (final chunk
-          in res.transform(Utf8Decoder(allowMalformed: true))) {
-        sb.write(chunk);
-        if (sb.length > 20000) break;
-      }
-      final b = sb.toString().toLowerCase();
-      if (b.contains('location is not supported') ||
-          b.contains('not supported for the api use') ||
-          b.contains('not available in your')) {
-        gemDefinite = true;
-        return false;
-      }
-      // reached Google and got a normal JSON error / answer about the key
-      return res.statusCode == 400 ||
-          res.statusCode == 403 ||
-          res.statusCode == 200;
-    }()
-        .timeout(const Duration(seconds: 10));
-  } catch (_swE) { _swl('_geminiApiOk#1', _swE);
-    return false;
-  } finally {
-    c.close(force: true);
+// Generic external reachability check for the optional web-capable server row.
+// This deliberately tests public 204 endpoints only; it does not call any AI provider.
+Future<bool> internetEndpointsOpen({bool direct = true}) async {
+  const endpoints = <String>[
+    'https://www.google.com/generate_204',
+    'https://www.youtube.com/generate_204',
+    'https://cp.cloudflare.com/generate_204',
+  ];
+  for (final endpoint in endpoints) {
+    final client = HttpClient()
+      ..findProxy = ((_) =>
+          (direct && !proxyMode) ? 'DIRECT' : 'PROXY 127.0.0.1:$httpProxyPort')
+      ..connectionTimeout = const Duration(seconds: 5);
+    try {
+      final request = await client.getUrl(Uri.parse(endpoint))
+          .timeout(const Duration(seconds: 7));
+      request.headers.set('user-agent',
+          'KingVPN-Network-Probe/1.0');
+      final response = await request.close()
+          .timeout(const Duration(seconds: 7));
+      await response.drain<void>().timeout(const Duration(seconds: 2));
+      if (response.statusCode == HttpStatus.noContent) return true;
+    } catch (error) {
+      _swl('internetEndpointsOpen', error);
+    } finally {
+      client.close(force: true);
+    }
   }
-}
-
-Future<bool> _geminiWebOk({bool direct = true}) async {
-  final c = HttpClient()
-    ..findProxy = ((_) =>
-        (direct && !proxyMode) ? 'DIRECT' : 'PROXY 127.0.0.1:$httpProxyPort')
-    ..connectionTimeout = const Duration(seconds: 5);
-  try {
-    return await () async {
-      final req = await c.getUrl(Uri.parse('https://gemini.google.com/app'));
-      req.headers.set('user-agent',
-          'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36');
-      req.headers.set('accept-language', 'en-US,en;q=0.9');
-      final res = await req.close();
-      if (res.statusCode != 200) return false;
-      if (res.redirects.any((r) {
-        final l = r.location.toString().toLowerCase();
-        return l.contains('/faq') || l.contains('unsupported');
-      })) {
-        gemDefinite = true;
-        return false;
-      }
-      final sb = StringBuffer();
-      await for (final chunk
-          in res.transform(Utf8Decoder(allowMalformed: true))) {
-        sb.write(chunk);
-        if (sb.length > 200000) break;
-      }
-      final b = sb.toString().toLowerCase();
-      if (!b.contains('gemini')) return false;
-      const bad = [
-        "isn't supported in your country",
-        'not supported in your country',
-        "isn't available in your country",
-        'not available in your country',
-        'not available in your region',
-      ];
-      if (bad.any(b.contains)) {
-        gemDefinite = true;
-        return false;
-      }
-      return true;
-    }()
-        .timeout(const Duration(seconds: 12));
-  } catch (_swE) { _swl('_geminiWebOk#1', _swE);
-    return false;
-  } finally {
-    c.close(force: true);
-  }
-}
-
-Future<bool> geminiOpens({bool direct = true}) async {
-  gemDefinite = false;
-  // with the user's real API key the answer is exact: 200 = works,
-  // "location not supported" = does not
-  if (geminiKey.isNotEmpty) {
-    final st = await geminiApiStatus(direct: direct);
-    if (st != null) return st;
-  }
-  // otherwise: API location check first (cheap), then the web app
-  if (!await _geminiApiOk(direct: direct)) return false;
-  return _geminiWebOk(direct: direct);
+  return false;
 }
 
 String buildPersonalLink(String host, String uuid) {
@@ -7593,26 +7506,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           'سالم:${_usable().length} • ($fastOk/$fastTested)');
     });
     // AI row: only the servers that passed the quick delay test are checked
-    // for Gemini (through the real route, one by one)
+    // for public web reachability (through the selected route, one by one)
     if (row == 'r:ai' && !abort) {
       okNow.sort((a, b) => (a.ping ?? 99999).compareTo(b.ping ?? 99999));
       var gi = 0;
       for (final s in okNow) {
         if (abort || enough()) break;
         if (s.ai != null) continue;
-        if (_gemSkip(s)) {
-          s.ai = false; // exit country without Gemini: no test needed
-          continue;
-        }
-        gi++;
-        _set('بررسی Gemini $gi/${okNow.length} • '
+                gi++;
+        _set('بررسی دسترسی وب $gi/${okNow.length} • '
             'سالم:${_usable().length}');
         final tunnelMode = viaVpn;
         if (await _start(s, proxyOnly: !tunnelMode)) {
           if (tunnelMode ||
               await waitProxyPort(max: const Duration(seconds: 4))) {
-            var ok = await geminiOpens(direct: tunnelMode);
-            if (!ok && !gemDefinite) ok = await geminiOpens(direct: tunnelMode);
+            var ok = await internetEndpointsOpen(direct: tunnelMode);
+            if (!ok) ok = await internetEndpointsOpen(direct: tunnelMode);
             s.ai = ok;
             if (ok) _saveSoon();
           }
@@ -7658,11 +7567,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         break;
       }
       tried.add(s);
-      if (row == 'r:ai' && _gemSkip(s)) {
-        s.ai = false; // exit country without Gemini: no test needed
-        continue;
-      }
-      final tunnelMode = viaVpn && row != 'r:ai';
+            final tunnelMode = viaVpn && row != 'r:ai';
       _set('تست ${realTested + 1}/${alive.length} • TCP:$dTcp • '
           'سالم:${_usable().length}${tunnelMode ? ' • VPN' : ''}');
       if (ipMode && s.ipLink == null && !s.ipTried) {
@@ -7685,10 +7590,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
           // AI row: does Gemini open through this server?
           if (d != null && row == 'r:ai') {
-            _set('بررسی باز شدن Gemini روی ${s.name}...');
+            _set('بررسی دسترسی اینترنت روی ${s.name}...');
             // two tries: one flaky request must not throw away a good server
-            var ok = await geminiOpens(direct: tunnelMode);
-            if (!ok && !gemDefinite) ok = await geminiOpens(direct: tunnelMode);
+            var ok = await internetEndpointsOpen(direct: tunnelMode);
+            if (!ok && !networkProbeDefinite) ok = await internetEndpointsOpen(direct: tunnelMode);
             s.ai = ok;
             if (ok) _saveSoon();
           }
@@ -12790,7 +12695,7 @@ ListTile( // KINGEXTRAS row
 
   // FASTPATCH-AI: analyse, then apply the suggested settings by itself
   Future<void> _aiRunAuto() async {
-    if (!mounted || !connected || aiLoading.value || geminiKey.isEmpty) {
+    if (!mounted || !connected || aiLoading.value) {
       return;
     }
     if (DateTime.now().difference(_lastAutoAi) <
@@ -13433,7 +13338,7 @@ ListTile( // KINGEXTRAS row
 
   // GEMWATCH: in the Gemini row the connection must KEEP opening Gemini. Every
   // 3 minutes it is checked through the tunnel; two clear "no" answers in a
-  // row mark the server and the next Gemini server takes over.
+  // row mark the server and the next reachable server takes over.
   DateTime _aiChkAt = DateTime.fromMillisecondsSinceEpoch(0);
   int _aiChkBad = 0;
   bool _aiChkBusy = false;
@@ -13447,16 +13352,16 @@ ListTile( // KINGEXTRAS row
       if (now.difference(lastSwitch) < const Duration(seconds: 40)) return;
       _aiChkAt = now;
       _aiChkBusy = true;
-      geminiOpens(direct: true).then((ok) {
+      internetEndpointsOpen(direct: true).then((ok) {
         if (!mounted || !identical(current, cur) || busy || switching) return;
         if (ok) {
           _aiChkBad = 0;
           cur.ai = true;
-        } else if (gemDefinite) {
+        } else {
           if (++_aiChkBad >= 2) {
             _aiChkBad = 0;
             cur.ai = false;
-            lastWhy = 'Gemini روی این سرور باز نمی‌شود';
+            lastWhy = 'دسترسی وب عمومی روی این سرور پایدار نیست';
             unawaited(_failover().catchError((e) => logError(e)));
           } else {
             _aiChkAt = DateTime.now().subtract(const Duration(minutes: 2));
@@ -15365,7 +15270,7 @@ ListTile( // KINGEXTRAS row
     groups['f:mine'] = _mineList();
     titles['f:mine'] = '📌 کانفیگ‌های من';
     groups['r:ai'] = u.where((s) => s.ai == true && s.ping != null).toList();
-    titles['r:ai'] = '🤖 سرورهای مخصوص هوش مصنوعی (Gemini)';
+    titles['r:ai'] = '🌐 سرورهای دارای دسترسی وب تأییدشده';
     if (groupMode == 'country') {
       for (final s in u) {
         final c = s.country ?? '??';
