@@ -44,7 +44,7 @@
 - `lib/self_repair_policy.dart` سیاست تعمیر امن، rollback و دروازه پذیرش Patch کد را تعریف می‌کند. برنامه نصب‌شده سورس اجرایی خود را درجا بازنویسی نمی‌کند.
 - `tools/diagnose_build.py` گزارش خطاهای build را برای تشخیص ریشه‌ای آماده می‌کند؛ CI هنگام شکست، artifact عیب‌یابی تولید می‌کند. `lib/errjournal.dart` نیز گزارش runtime محدود و پاک‌سازی‌شده از لینک کانفیگ/شناسه/credential می‌سازد.
 - `tools/patch_gate.py` ساختار Patchهای پیشنهادی را از نظر مسیرهای خطرناک، فایل‌های محافظت‌شده، افشای secret و اندازه تغییر بررسی می‌کند.
-- `tools/repair_orchestrator.py` Patch پیشنهادی را فقط در یک کپی موقت اعمال می‌کند و پس از تست، تحلیل ایستا و بیلد موفق، آن را به‌عنوان Patch تأییدشده صادر می‌کند؛ سورس اصلی را تغییر نمی‌دهد.
+- `docs/KING_AI_SOFTWARE_ENGINEER_FA.md` معماری هدف مهندس نرم‌افزار خودمختار و وضعیت واقعی اجزای پیاده‌سازی‌شده/باقی‌مانده را مشخص می‌کند.\n- `tools/repair_orchestrator.py` Patch پیشنهادی را فقط در یک کپی موقت اعمال می‌کند و پس از تست، تحلیل ایستا و بیلد موفق، آن را به‌عنوان Patch تأییدشده صادر می‌کند؛ سورس اصلی را تغییر نمی‌دهد.
   نمونه اجرا: `python3 tools/repair_orchestrator.py --patch candidate.patch --output verified-repair.patch`. این فرمان به Git و Flutter SDK نیاز دارد.
 - نقشه کامل نیازمندی‌ها و معیارهای پذیرش در `docs/KING_VPN_INFINITY_ROADMAP_FA.md` است؛ وضعیت واقعی تغییرات و محدودیت‌های تست در `docs/IMPLEMENTATION_STATUS_FA.md` ثبت می‌شود.
 
