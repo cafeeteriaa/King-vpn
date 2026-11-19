@@ -744,5 +744,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('aiAsk(aiPrompt())', extras)
 
 
+    def test_all_source_merges_remain_owner_reviewed(self):
+        workflows = ROOT / '.github' / 'workflows'
+        self.assertFalse((workflows / 'king-ai-safe-automerge.yml').exists())
+        for workflow in workflows.glob('*.yml'):
+            content = workflow.read_text(encoding='utf-8')
+            self.assertNotIn('github.rest.pulls.merge', content)
+            self.assertNotIn('gh pr merge', content)
+        policy = (ROOT / 'lib' / 'king_ai_autonomy_policy.dart').read_text(encoding='utf-8')
+        self.assertIn('KingAiAutonomyOperation.applySourceChanges', policy)
+        self.assertIn('evidence.ownerAuthenticated', policy)
+        self.assertIn('evidence.ownerCommandAuthorizedForCandidate', policy)
+
+
 if __name__ == '__main__':
     unittest.main()
