@@ -205,7 +205,8 @@ perms = ('<uses-permission android:name="android.permission.INTERNET"/>\n'
          '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>\n'
          '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>\n'
          '    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>\n'
-         '    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n    ')
+         '    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n'
+         '    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>\n    ')
 if 'QUERY_ALL_PACKAGES' not in m:
     m = m.replace('<application', perms + '<application', 1)
 if 'android.permission.RECORD_AUDIO' not in m:
@@ -243,6 +244,17 @@ KSVC = ('<service android:name="com.kingvpn.king_vpn.KingVpnService"\n'
         '        </service>\n    ')
 if 'com.kingvpn.king_vpn.KingVpnService' not in m and '</application>' in m:
     m = m.replace('</application>', KSVC + '</application>', 1)
+# FileProvider exposes only the app-cache subfolder used for SHA-256 verified
+# APK updates. Never use file:// URIs for Android package installation.
+UPDATE_PROVIDER = ('<provider android:name="androidx.core.content.FileProvider"\\n'
+                   '            android:authorities="${applicationId}.fileprovider"\\n'
+                   '            android:exported="false"\\n'
+                   '            android:grantUriPermissions="true">\\n'
+                   '            <meta-data android:name="android.support.FILE_PROVIDER_PATHS"\\n'
+                   '                       android:resource="@xml/king_file_paths"/>\\n'
+                   '        </provider>\\n    ')
+if 'androidx.core.content.FileProvider' not in m and '</application>' in m:
+    m = m.replace('</application>', UPDATE_PROVIDER + '</application>', 1)
 open(mp, 'w', encoding='utf-8').write(m)
 print('OK: AndroidManifest')
 
@@ -256,7 +268,10 @@ if os.path.exists(old_java_main):
 ka = os.path.join(APP, 'android/app/src/main/kotlin/com/kingvpn/king_vpn')
 os.makedirs(ka, exist_ok=True)
 shutil.copy('android_src/MainActivity.kt', os.path.join(ka, 'MainActivity.kt'))
-print('OK: Native files copied')
+xml_dir = os.path.join(APP, 'android/app/src/main/res/xml')
+os.makedirs(xml_dir, exist_ok=True)
+shutil.copy('android_src/king_file_paths.xml', os.path.join(xml_dir, 'king_file_paths.xml'))
+print('OK: Native files and scoped update FileProvider paths copied')
 
 # ---- 2) Gradle ----
 for name in ('build.gradle', 'build.gradle.kts'):
