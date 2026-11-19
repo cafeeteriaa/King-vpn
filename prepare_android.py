@@ -344,14 +344,20 @@ if flutter_root:
             if settings_name.endswith('.kts') else
             f'        maven {{ url "{MAVEN_CENTRAL_MIRROR}" }}\n'
         )
+        aliyun_flutter_repos = (
+            '        maven { url = uri("' + ALIYUN_CENTRAL_MIRROR + '") }\n'
+            '        maven { url = uri("' + ALIYUN_GRADLE_PLUGIN_MIRROR + '") }\n'
+            if settings_name.endswith('.kts') else
+            '        maven { url "' + ALIYUN_CENTRAL_MIRROR + '" }\n'
+            '        maven { url "' + ALIYUN_GRADLE_PLUGIN_MIRROR + '" }\n'
+        )
         pm = re.search(r'pluginManagement\s*\{', flutter_settings_text)
         if not pm:
             flutter_settings_text = (
                 'pluginManagement {\n'
                 '    repositories {\n'
                 + mirror_repo
-                + '        maven { url = uri("' + ALIYUN_CENTRAL_MIRROR + '") }\n'
-                + '        maven { url = uri("' + ALIYUN_GRADLE_PLUGIN_MIRROR + '") }\n'
+                + aliyun_flutter_repos
                 + '        google()\n'
                 '        mavenCentral()\n'
                 '        gradlePluginPortal()\n'
@@ -392,13 +398,6 @@ if flutter_root:
                 raise SystemExit('HARD FAIL: malformed Flutter plugin repositories block')
             repositories_text = flutter_settings_text[repo_open:repo_close]
             additions = ''
-            aliyun_flutter_repos = (
-                '        maven { url = uri("' + ALIYUN_CENTRAL_MIRROR + '") }\n'
-                '        maven { url = uri("' + ALIYUN_GRADLE_PLUGIN_MIRROR + '") }\n'
-                if settings_name.endswith('.kts') else
-                '        maven { url "' + ALIYUN_CENTRAL_MIRROR + '" }\n'
-                '        maven { url "' + ALIYUN_GRADLE_PLUGIN_MIRROR + '" }\n'
-            )
             if mirror_repo.strip() not in repositories_text:
                 additions += '\n' + mirror_repo.rstrip('\n')
             for mirror_line in aliyun_flutter_repos.splitlines():
