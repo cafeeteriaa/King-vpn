@@ -10647,6 +10647,7 @@ ListTile( // KINGEXTRAS row
   bool _smartCommandRunning = false;
   List<String> _pilotRanges = <String>[];
   bool _pilotRangeBusy = false;
+  bool _pilotRangeCancelRequested = false;
 
   Future<void> _loadSmartCommandFilters() async {
     try {
@@ -10723,19 +10724,21 @@ ListTile( // KINGEXTRAS row
   }
 
   Future<void> _pilotScanOnly() async {
-    if (_pilotRangeBusy || abort) {
-      _set('اسکنر مستقل خلبان آماده اجراست؛ ابتدا بازه‌های اختصاصی را تعریف کن.');
+    if (_pilotRangeBusy) {
+      _set('اسکن مستقل خلبان در حال اجراست؛ برای لغو بنویس «لغو اسکن خلبان».');
       return;
     }
     final prefs = await SharedPreferences.getInstance();
     _pilotRanges = prefs.getStringList('king_pilot_ip_ranges_v1') ?? _pilotRanges;
     final targets = _pilotExpandRanges(_pilotRanges.join(String.fromCharCode(10)));
     if (targets.isEmpty) { _set('ابتدا بازه‌های اختصاصی خلبان را تعریف کن.'); return; }
+    _pilotRangeCancelRequested = false;
     setState(() => _pilotRangeBusy = true);
+    _set('اسکن مستقل خلبان آغاز شد: ${targets.length} نشانی، فقط TCP/443.');
     final alive = <String>[];
     try {
       for (var i = 0; i < targets.length; i += 12) {
-        if (abort) break;
+        if (_pilotRangeCancelRequested) break;
         final batch = targets.skip(i).take(12).toList();
         final result = await Future.wait(batch.map((host) async {
           Socket? socket;
@@ -10748,9 +10751,16 @@ ListTile( // KINGEXTRAS row
         alive.addAll(result.whereType<String>());
       }
       await prefs.setStringList('king_pilot_scan_results_v1', alive);
-      _set('اسکن مستقل خلبان تمام شد: ${alive.length} میزبان TCP/443 پاسخ دادند؛ این نتیجه اثبات اتصال VPN نیست.');
+      if (_pilotRangeCancelRequested) {
+        _set('اسکن خلبان به درخواست کاربر متوقف شد؛ ${alive.length} میزبان پاسخ‌گو تا این لحظه ذخیره شدند.');
+      } else {
+        _set('اسکن مستقل خلبان تمام شد: ${alive.length} میزبان TCP/443 پاسخ دادند؛ این نتیجه اثبات اتصال VPN نیست.');
+      }
     } catch (e, st) { logError(e, st); _set('اسکن خلبان ناموفق بود: $e'); }
-    finally { if (mounted) setState(() => _pilotRangeBusy = false); }
+    finally {
+      _pilotRangeCancelRequested = false;
+      if (mounted) setState(() => _pilotRangeBusy = false);
+    }
   }
 
   String? _smartCountryCode(String command) {
@@ -10792,6 +10802,16 @@ ListTile( // KINGEXTRAS row
         .toLowerCase()
         .replaceAll('ي', 'ی')
         .replaceAll('ك', 'ک');
+    if (command.contains('اسکن') && command.contains('خلبان') &&
+        RegExp(r'(لغو|متوقف|توقف)').hasMatch(command)) {
+      if (_pilotRangeBusy) {
+        _pilotRangeCancelRequested = true;
+        _set('درخواست لغو اسکن خلبان ثبت شد؛ اتصال جاری حداکثر تا پایان مهلت کوتاه هر دسته بسته می‌شود.');
+      } else {
+        _set('اسکن فعالی از خلبان برای لغو وجود ندارد.');
+      }
+      return;
+    }
     if (command.isEmpty || _smartCommandRunning) return;
     setState(() => _smartCommandRunning = true);
     try {
