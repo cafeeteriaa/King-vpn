@@ -12,17 +12,39 @@ const Set<String> _kingAiResearchHosts = <String>{
   'docs.gradle.org',
   'github.com',
   'huggingface.co',
+  'ooni.org',
+  'ripe.net',
+  'apnic.net',
+  'ietf.org',
+  'rfc-editor.org',
+  'iana.org',
+  'cloudflare.com',
 };
 
-bool _trustedKingAiResearchNote(Map<String, String> note) {
-  final uri = Uri.tryParse(note['url'] ?? '');
-  if (uri == null || uri.scheme != 'https' || uri.userInfo.isNotEmpty) {
-    return false;
-  }
+bool isTrustedKingAiResearchUri(Uri uri) {
+  if (uri.scheme != 'https' || uri.userInfo.isNotEmpty) return false;
   final host = uri.host.toLowerCase();
   return _kingAiResearchHosts.any(
     (allowed) => host == allowed || host.endsWith('.$allowed'),
   );
+}
+
+/// Prevent private identifiers from being sent to public web search.
+/// This is deliberately conservative: uncertain queries stay local.
+bool isSafeKingAiPublicResearchQuery(String prompt) {
+  final sensitivePatterns = <RegExp>[
+    RegExp(r'\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b', caseSensitive: false),
+    RegExp(r'(?<![A-Za-z0-9])(?:\+?\d[\d\s().-]{7,}\d|[۰-۹][۰-۹\s().-]{7,}[۰-۹])(?![A-Za-z0-9])'),
+    RegExp(r'(?:\d[ -]?){13,19}'),
+    RegExp(r'(خیابان|کوچه|پلاک|واحد|آدرس دقیق|street address|apartment number)', caseSensitive: false),
+    RegExp(r'(رمز|پسورد|کلمه عبور|توکن|کلید خصوصی|شماره کارت|شماره حساب|حساب بانکی|کد ملی|اطلاعات پزشکی|password|api.?key|access.?token|private.?key|credit.?card|bank account)', caseSensitive: false),
+  ];
+  return !sensitivePatterns.any((pattern) => pattern.hasMatch(prompt));
+}
+
+bool _trustedKingAiResearchNote(Map<String, String> note) {
+  final uri = Uri.tryParse(note['url'] ?? '');
+  return uri != null && isTrustedKingAiResearchUri(uri);
 }
 
 /// Merge research notes by canonical URL, discard malformed/untrusted entries,

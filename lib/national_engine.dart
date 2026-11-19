@@ -83,14 +83,22 @@ class NationalNetworkIntelligence {
 
   static Timer? _stableTimer;
 
-  /// Counts a stable run only after 5 minutes on the same server. [stillSame] is
-  /// re-checked when the timer fires, so a dropped tunnel never gets counted.
-  static void armStable(String endpointKey, bool Function() stillSame) {
+  /// Counts a stable run only after five minutes AND a fresh end-to-end
+  /// traffic verification. A CONNECTED state alone is not stable-traffic proof.
+  static void armStable(
+    String endpointKey,
+    Future<bool> Function() verifyStableTraffic,
+  ) {
     _stableTimer?.cancel();
     _stableTimer = Timer(const Duration(minutes: 5), () {
       _stableTimer = null;
-      if (!stillSame()) return;
-      unawaited(recordStable(endpointKey));
+      unawaited(() async {
+        try {
+          if (await verifyStableTraffic()) await recordStable(endpointKey);
+        } catch (_) {
+          // Missing probe evidence is never counted as a successful stable run.
+        }
+      }());
     });
   }
 

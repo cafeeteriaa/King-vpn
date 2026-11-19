@@ -1702,20 +1702,20 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     _scenario = 7;
     final name = _atItemNames[idx];
     if (!_hasAnyAiKey) {
-      _itemResult[name] = '⏭ هیچ کلید هوش مصنوعی ذخیره نشده';
+      _itemResult[name] = '⏭ مدل محلی King بارگذاری نشده';
       return;
     }
     await _atResetToGlobal();
     errTag = name;
     autoTestText.value = 'بخش «$name»: روشن کردن خلبان AI…';
-    startGrokPilot();
+    startLocalPilot();
     await _atWaitUntil(() => connected && !busy,
         timeout: const Duration(minutes: 15), label: name);
     if (!connected) {
       _itemResult[name] =
           '❌ خلبان AI وصل نکرد • status="$status" • lastFail="$lastFail"';
       _atAdd('ITEM-FAIL', '$name وصل نشد • lastFail="$lastFail"');
-      stopGrokPilot();
+      stopLocalPilot();
       await _atEnsureDisconnected();
       return;
     }
@@ -1726,7 +1726,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
       _itemResult[name] = '⚠️ خلبان AI بعد از وصل شدن قطع شد • status="$status"';
       _atAdd('AI-DROP', '$name بعد از وصل شدن قطع شد • status="$status"');
     }
-    stopGrokPilot();
+    stopLocalPilot();
     await _atEnsureDisconnected();
   }
 

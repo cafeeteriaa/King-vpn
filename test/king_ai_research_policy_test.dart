@@ -17,6 +17,23 @@ Map<String, String> note({
 
 void main() {
   group('King AI research memory', () {
+    test('uses the same strict HTTPS host allowlist for live fetches and memory', () {
+      expect(isTrustedKingAiResearchUri(Uri.parse('https://ooni.org/nettest')), isTrue);
+      expect(isTrustedKingAiResearchUri(Uri.parse('https://sub.ripe.net/about')), isTrue);
+      expect(isTrustedKingAiResearchUri(Uri.parse('https://ooni.org.attacker.example/fake')), isFalse);
+      expect(isTrustedKingAiResearchUri(Uri.parse('http://ooni.org/fake')), isFalse);
+      expect(isTrustedKingAiResearchUri(Uri.parse('https://user@ooni.org/fake')), isFalse);
+    });
+
+    test('blocks personal identifiers and secret-bearing public queries', () {
+      expect(isSafeKingAiPublicResearchQuery('latest Flutter release'), isTrue);
+      expect(isSafeKingAiPublicResearchQuery('find docs for owner@example.com'), isFalse);
+      expect(isSafeKingAiPublicResearchQuery('call me at +989121234567'), isFalse);
+      expect(isSafeKingAiPublicResearchQuery('شماره تماس من ۰۹۱۲۱۲۳۴۵۶۷'), isFalse);
+      expect(isSafeKingAiPublicResearchQuery('my card 4111 1111 1111 1111'), isFalse);
+      expect(isSafeKingAiPublicResearchQuery('password=secret123'), isFalse);
+    });
+
     test('deduplicates by URL and keeps the newest trusted note', () {
       final old = note(
         url: 'https://docs.flutter.dev/testing',
@@ -98,6 +115,27 @@ void main() {
           isNot(contains('https://docs.flutter.dev/old')));
       expect(ranked.map((item) => item['url']),
           isNot(contains('https://docs.flutter.dev/future')));
+    });
+
+    test('accepts reputable network standards and measurement sources', () {
+      final lines = mergeKingAiResearchMemory(
+        const [],
+        <Map<String, String>>[
+          note(url: 'https://ooni.org/nettest/', title: 'OONI network tests',
+            excerpt: 'Network measurement methodology', date: '2026-11-19T00:00:00Z'),
+          note(url: 'https://www.ripe.net/about-us/', title: 'RIPE NCC',
+            excerpt: 'Internet measurement and routing', date: '2026-11-19T00:00:00Z'),
+          note(url: 'https://www.ietf.org/standards/', title: 'IETF standards',
+            excerpt: 'Internet protocol standards', date: '2026-11-19T00:00:00Z'),
+          note(url: 'https://ooni.org.attacker.example/fake', title: 'Fake OONI',
+            excerpt: 'Untrusted content', date: '2026-11-19T00:00:00Z'),
+        ],
+      );
+      expect(lines, hasLength(3));
+      expect(lines.map((line) => jsonDecode(line)['url']),
+          contains('https://ooni.org/nettest/'));
+      expect(lines.map((line) => jsonDecode(line)['url']),
+          isNot(contains('https://ooni.org.attacker.example/fake')));
     });
 
     test('bounds retained history', () {

@@ -1,6 +1,13 @@
 import 'dart:async';
 import 'network_health.dart';
 import 'king_local_ai.dart';
+import 'king_ai_console.dart';
+import 'king_chat_page.dart';
+import 'king_ai_background.dart';
+import 'king_ai_owner_auth.dart';
+import 'king_command_safety.dart';
+import 'fresh_resource_store.dart';
+import 'fresh_resources_page.dart';
 import 'package:local_inference_flutter/local_inference_flutter.dart';
 import 'update_integrity.dart';
 import 'errjournal.dart';
@@ -14,6 +21,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_v2ray_client/flutter_v2ray.dart';
 
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:installed_apps/app_info.dart';
 import 'package:installed_apps/installed_apps.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -21,9 +30,10 @@ import 'prefs_store.dart';
 import 'online_count.dart'; // ONLINECOUNT: شمارش کاربران آنلاین
 import 'nnie_core.dart'; // NNIE: کد خالص و قابل تست
 import 'own_vpn.dart'; // KINGVPN: سرویس VPN خودمان (پیش‌فرض خاموش)
-import 'package:workmanager/workmanager.dart';
 import 'package:crypto/crypto.dart'; // فیکس ۱: sha256 برای APK آپدیت
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // فیکس ۲: کلیدهای AI
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'king_voice_output.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'tg_proxy.dart' show tgProxyRow; // فقط پروکسی تلگرام
@@ -572,7 +582,7 @@ const betterMinGapMs = 80;
 const betterEvery = Duration(minutes: 10); // SWITCHRULE: حداقل ۱۰ دقیقه بین دو تعویض سرور
 int? connBaseDelay; // test ping of the connected server
 int betterRun = 0;
-bool aiFastOn = true; // parallel Gemini test (off = old one-by-one)
+bool aiFastOn = true; // parallel public-web reachability test (off = old one-by-one)
 int aiTried = 0;
 int aiHit = 0;
 int aiGen = 0; // FASTPATCH-AI: one analysis loop per connection
@@ -1306,7 +1316,7 @@ List<String> _dbgHelpOf(String m) {
   if (m.startsWith('🕳')) {
     var code = 'E-SWALLOW-OTHER';
     var cause = 'یک try/catch این خطا را گرفت و بی‌صدا رد کرد؛ برنامه ادامه داد ولی کاری که داخل try بود نیمه‌کاره ماند.';
-    var fix = 'نوع خطا و تابع:خط را برای Claude بفرست تا همان‌جا شرط یا اصلاح درست شود.';
+    var fix = 'نوع خطا و تابع را به کینگ بده تا علت و اصلاح احتمالی را بررسی کند.';
     if (has('TimeoutException')) {
       code = 'E-SWALLOW-TIMEOUT';
       cause = 'یک عملیات (تست سرور، دانلود، گرفتن لیست) از مهلتش بیشتر طول کشید.';
@@ -1325,7 +1335,7 @@ List<String> _dbgHelpOf(String m) {
     } else if (has('PlatformException') || has('MissingPluginException')) {
       code = 'E-SWALLOW-PLATFORM';
       cause = 'خطای بخش native اندروید (هسته، مجوز، کانال vpn/bg یا بهینه‌سازی باتری).';
-      fix = 'تابع:خط را برای Claude بفرست؛ معمولاً به نسخه‌ی پلاگین یا مجوز اندروید مربوط است.';
+      fix = 'تابع و خطا را به کینگ بده؛ ممکن است به نسخه‌ی افزونه یا مجوز اندروید مربوط باشد.';
     } else if (has('FileSystemException')) {
       code = 'E-SWALLOW-FILE';
       cause = 'خواندن یا نوشتن فایل شکست خورد (فضای کم یا مجوز).';
@@ -1337,7 +1347,7 @@ List<String> _dbgHelpOf(String m) {
         has('type ')) {
       code = 'E-SWALLOW-BUG';
       cause = 'باگ کد: مقدار null، اندیس بیرون از لیست یا نوع اشتباه، و try/catch آن را پنهان کرده بود.';
-      fix = 'تابع:خط را برای Claude بفرست تا شرط null/اندیس همان‌جا درست شود.';
+      fix = 'تابع و خطا را به کینگ بده تا شرط null یا اندیس را بررسی کند.';
     }
     // ERRLOC: محل واقعی (تابع:خط) از خود پیام خوانده می‌شود، نه متن نمونه
     final locM = RegExp(r'بلعیده‌شده در (\S+)').firstMatch(m);
@@ -1388,7 +1398,7 @@ List<String> _dbgHelpOf(String m) {
     }
     return h('E-CNT-OTHER', 'lib/main.dart → _inspect (شمارنده‌های واچ‌داگ)',
         'یکی از شمارنده‌های واچ‌داگ بالا رفت.',
-        'نام شمارنده را برای Claude بفرست.');
+        'نام شمارنده را به کینگ بده.');
   }
 
   // ---- stuck flags / frozen loop (کد همین فایل) ----
@@ -1561,7 +1571,7 @@ List<String> _dbgHelpOf(String m) {
     return h('E-SELFHEAL',
         'lib/main.dart → _syncCore / _inspect (خودترمیمی)',
         'برنامه یک حالت گیرکرده را خودش اصلاح کرد (واچ‌داگ آزاد/روشن شد یا هسته و اپ هماهنگ شدند).',
-        'نیازی به اقدام نیست؛ فقط اگر عدد «بار» خیلی بالاست متن و ساعت‌ها را برای Claude بفرست.');
+        'نیازی به اقدام نیست؛ فقط اگر عدد «بار» خیلی بالاست متن و ساعت‌ها را برای کینگ بفرست.');
   }
   if (has('سرعت پایین')) {
     return h('E-LOW-SPEED-SWITCH',
@@ -2934,6 +2944,11 @@ Future<void> main() async {
   } catch (e, st) {
     logError(e, st);
   }
+  try {
+    await KingAiBackgroundSupervisor.initialize();
+  } catch (e, st) {
+    logError(e, st);
+  }
   Future.delayed(const Duration(seconds: 5), () => unawaited(hotAutoStart()));
   runZonedGuarded(() {
     FlutterError.onError = (d) => logError(d.exception);
@@ -2954,22 +2969,14 @@ Future<void> main() async {
       home:
           Directionality(textDirection: TextDirection.rtl, child: HomePage()),
     ));
-    initBackground();
   }, (e, st) => logError(e));
 }
 
-// The old 15-minute background scan is gone: while the VPN is off nothing
-// runs and no data is used. The dispatcher stays only so Workmanager can be
-// initialised and the periodic task of old installs can be cancelled.
-@pragma('vm:entry-point')
-void callbackDispatcher() {
-  Workmanager().executeTask((task, input) async => true);
-}
-
+// The King AI supervisor schedules passive, official-source research on
+// startup. Source-repair automation remains a separate owner-authorized choice.
 Future<void> initBackground() async {
   try {
-    await Workmanager().initialize(callbackDispatcher);
-    await Workmanager().cancelAll();
+    await KingAiBackgroundSupervisor.initialize();
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -3625,7 +3632,7 @@ class Server {
 
   bool geoTried = false;
   bool personal = false; // the user's own Cloudflare server
-  bool? ai; // true = Gemini opens through this server, false = it does not
+  bool? ai; // true = a generic public-web reachability probe passed
   DateTime? checkedAt; // last real test (standby re-check)
   // فیکس ۹: کش رتبه‌ی نت ملی (خصوصی). فقط وقتی معتبر است که src و country همان‌هایی
   // باشند که رتبه برایشان محاسبه شده؛ natGood همیشه زنده چک می‌شود (در _natRank).
@@ -4214,122 +4221,35 @@ Future<int?> pingAny(
   return null;
 }
 
-// Does Gemini REALLY work through the current tunnel? Two checks, both must pass:
-//  1) the Gemini API location check (generativelanguage.googleapis.com):
-//     an unsupported location gets "User location is not supported";
-//     a supported one gets a normal "API key not valid" error
-//  2) the Gemini web app opens (200, no "not supported" page / redirect)
-// GEMFLAG: true when the LAST Gemini check got a clear "not supported here"
-// answer from Google (no point in retrying), false when it was only a network
-// problem (worth one more try)
-bool gemDefinite = false;
-
-// exit countries where Gemini is never available: skipped without a test
-const _gemBlockedCc = {
-  'IR', 'CN', 'RU', 'KP', 'CU', 'SY', 'BY', 'MM', 'AF', 'SD', 'SS', 'VE', 'HK', 'MO',
-};
-bool _gemSkip(Server s) {
-  final c = (s.country ?? '').toUpperCase();
-  return c.isNotEmpty && _gemBlockedCc.contains(c);
-}
-
-Future<bool> _geminiApiOk({bool direct = true}) async {
-  final c = HttpClient()
-    ..findProxy = ((_) =>
-        (direct && !proxyMode) ? 'DIRECT' : 'PROXY 127.0.0.1:$httpProxyPort')
-    ..connectionTimeout = const Duration(seconds: 5);
-  try {
-    return await () async {
-      final req = await c.getUrl(Uri.parse(
-          'https://generativelanguage.googleapis.com/v1beta/models?key=location_check'));
-      req.headers.set('accept-language', 'en-US,en;q=0.9');
-      final res = await req.close();
-      final sb = StringBuffer();
-      await for (final chunk
-          in res.transform(Utf8Decoder(allowMalformed: true))) {
-        sb.write(chunk);
-        if (sb.length > 20000) break;
-      }
-      final b = sb.toString().toLowerCase();
-      if (b.contains('location is not supported') ||
-          b.contains('not supported for the api use') ||
-          b.contains('not available in your')) {
-        gemDefinite = true;
-        return false;
-      }
-      // reached Google and got a normal JSON error / answer about the key
-      return res.statusCode == 400 ||
-          res.statusCode == 403 ||
-          res.statusCode == 200;
-    }()
-        .timeout(const Duration(seconds: 10));
-  } catch (_swE) { _swl('_geminiApiOk#1', _swE);
-    return false;
-  } finally {
-    c.close(force: true);
+// Generic external reachability check for the optional web-capable server row.
+// This deliberately tests public 204 endpoints only; it does not call any AI provider.
+Future<bool> internetEndpointsOpen({bool direct = true}) async {
+  const endpoints = <String>[
+    'https://www.google.com/generate_204',
+    'https://www.youtube.com/generate_204',
+    'https://cp.cloudflare.com/generate_204',
+  ];
+  for (final endpoint in endpoints) {
+    final client = HttpClient()
+      ..findProxy = ((_) =>
+          (direct && !proxyMode) ? 'DIRECT' : 'PROXY 127.0.0.1:$httpProxyPort')
+      ..connectionTimeout = const Duration(seconds: 5);
+    try {
+      final request = await client.getUrl(Uri.parse(endpoint))
+          .timeout(const Duration(seconds: 7));
+      request.headers.set('user-agent',
+          'KingVPN-Network-Probe/1.0');
+      final response = await request.close()
+          .timeout(const Duration(seconds: 7));
+      await response.drain<void>().timeout(const Duration(seconds: 2));
+      if (response.statusCode == HttpStatus.noContent) return true;
+    } catch (error) {
+      _swl('internetEndpointsOpen', error);
+    } finally {
+      client.close(force: true);
+    }
   }
-}
-
-Future<bool> _geminiWebOk({bool direct = true}) async {
-  final c = HttpClient()
-    ..findProxy = ((_) =>
-        (direct && !proxyMode) ? 'DIRECT' : 'PROXY 127.0.0.1:$httpProxyPort')
-    ..connectionTimeout = const Duration(seconds: 5);
-  try {
-    return await () async {
-      final req = await c.getUrl(Uri.parse('https://gemini.google.com/app'));
-      req.headers.set('user-agent',
-          'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36');
-      req.headers.set('accept-language', 'en-US,en;q=0.9');
-      final res = await req.close();
-      if (res.statusCode != 200) return false;
-      if (res.redirects.any((r) {
-        final l = r.location.toString().toLowerCase();
-        return l.contains('/faq') || l.contains('unsupported');
-      })) {
-        gemDefinite = true;
-        return false;
-      }
-      final sb = StringBuffer();
-      await for (final chunk
-          in res.transform(Utf8Decoder(allowMalformed: true))) {
-        sb.write(chunk);
-        if (sb.length > 200000) break;
-      }
-      final b = sb.toString().toLowerCase();
-      if (!b.contains('gemini')) return false;
-      const bad = [
-        "isn't supported in your country",
-        'not supported in your country',
-        "isn't available in your country",
-        'not available in your country',
-        'not available in your region',
-      ];
-      if (bad.any(b.contains)) {
-        gemDefinite = true;
-        return false;
-      }
-      return true;
-    }()
-        .timeout(const Duration(seconds: 12));
-  } catch (_swE) { _swl('_geminiWebOk#1', _swE);
-    return false;
-  } finally {
-    c.close(force: true);
-  }
-}
-
-Future<bool> geminiOpens({bool direct = true}) async {
-  gemDefinite = false;
-  // with the user's real API key the answer is exact: 200 = works,
-  // "location not supported" = does not
-  if (geminiKey.isNotEmpty) {
-    final st = await geminiApiStatus(direct: direct);
-    if (st != null) return st;
-  }
-  // otherwise: API location check first (cheap), then the web app
-  if (!await _geminiApiOk(direct: direct)) return false;
-  return _geminiWebOk(direct: direct);
+  return false;
 }
 
 String buildPersonalLink(String host, String uuid) {
@@ -4848,7 +4768,7 @@ final rowDefs = <RowDef>[
   RowDef('ss', '🔐 Shadowsocks (ss://)', (s) => s.link.startsWith('ss://')),
   
   // shown as its own fixed row (second line of the list), see build()
-  RowDef('ai', '🤖 سرورهای مخصوص هوش مصنوعی', (s) => s.ai == true && s.ping != null),
+  RowDef('ai', '🌐 سرورهای دارای دسترسی وب', (s) => s.ai == true && s.ping != null),
 ];
 
 final Map<String, String?> _ownerCache = {};
@@ -5541,8 +5461,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState s) {
+    if (s != AppLifecycleState.resumed) KingAiOwnerAuth.instance.lock();
+    if (s != AppLifecycleState.resumed && _smartSpeech.isListening) {
+      unawaited(_smartSpeech.cancel());
+      unawaited(KingVoiceOutput.instance.stop());
+      _smartSpeechListening = false;
+    }
     inForeground = s == AppLifecycleState.resumed;
     _appFg = inForeground;
+    if (s == AppLifecycleState.resumed && _pendingUpdateApkPath != null) {
+      _updateChecked = false;
+      unawaited(checkForUpdate());
+    }
     if (s == AppLifecycleState.resumed && _joinPending) {
       // JOINADS: کاربر کانال را باز کرد و برگشت
       _joinPending = false;
@@ -5705,6 +5635,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _netWatchTimer?.cancel();
     _dbgSaveT?.cancel();
     _dbgProbT?.cancel();
+    unawaited(_smartSpeech.cancel());
+    unawaited(KingVoiceOutput.instance.stop());
     _smartCommandController.dispose();
     super.dispose();
   }
@@ -6021,7 +5953,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         await _saveSettings();
         dbg('V8-FRESH: default settings applied');
       }
-      await loadGeminiPrefs(p);
+      await loadLocalAiPrefs(p);
       // FW-CAP-WARN: detect a saved fastWorkers/fwUser above the new cap BEFORE loadNumPrefs clamps it
       bool fwRawAbove32 = false;
       try {
@@ -6252,7 +6184,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (s == null) continue;
           s.ping = j['p'] as int?;
           s.speed = (j['s'] as num?)?.toDouble();
-          s.ai = j['a'] as bool?;
+          s.ai = null; // force revalidation; cached provider-era flags are not generic web evidence
           s.miss = (j['m'] as num?)?.toInt() ?? 0;
           s.restored = true; // RESTORE: همان سرورهای سالم قبلی؛ حذف نمی‌شوند
           warmKeys.add(s.key);
@@ -6395,7 +6327,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _screenWasOn = false;
   String _restoredRow = ''; // KEEPALL
   List<Server> _restoredGood = <Server>[]; // KEEPALL
-  DateTime? _nnieTapAt; // شروع واقعی اتصال (بعد از تبلیغ و مجوز) برای زمان‌سنجی NNIE
+  DateTime? _nnieAttemptStartedAt;
+  String? _nnieAttemptServerKey;
+
+  void _nnieBeginAttempt(Server server) {
+    _nnieAttemptServerKey = server.key;
+    _nnieAttemptStartedAt = DateTime.now();
+  }
+
+  void _nnieClearAttempt(Server server) {
+    if (_nnieAttemptServerKey != server.key) return;
+    _nnieAttemptServerKey = null;
+    _nnieAttemptStartedAt = null;
+  }
+
+  int? _nnieFinishAttempt(Server server) {
+    if (_nnieAttemptServerKey != server.key) return null;
+    final startedAt = _nnieAttemptStartedAt;
+    _nnieClearAttempt(server);
+    return startedAt == null
+        ? null
+        : max(0, DateTime.now().difference(startedAt).inMilliseconds);
+  }
   /// PERSKEEP: لیست سرورهای شخصی روی صفحه بعد از بستن و باز کردن برنامه می‌ماند
   /// و فقط با قطع اتصال پاک می‌شود. سرورهای سالم دیگر روی صفحه بازیابی نمی‌شوند.
   Future<void> _persistScreenLists() async {
@@ -6622,7 +6575,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (nationalMode) return;
       // بقیه‌ی اتصال‌ها و خلبان‌ها: بعد از ۴ ساعت هر دو قطع می‌شوند
       if (localPilotOn) stopLocalPilot();
-      if (aiSession) stopGrokPilot();
+      if (aiSession) stopAiSession();
       if (connected || wantVpn || localPilotOn || aiSession) {
         await disconnect(keepPilot: false);
         _set('⏱ ۴ ساعت گذشت؛ اتصال و خلبان قطع شدند. برای ادامه دوباره «اتصال» را بزن (تبلیغ نمایش داده می‌شود)');
@@ -6746,6 +6699,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // (new servers appear in the hot lists all the time) and the cycle goes on.
   Future<void> _loadPending({bool bg = false, bool exhausted = false}) async {
     _purgePersonalLeaks(); // ONLYFOLDER
+    // FRESH-DISK: load the phone's reusable fresh-resource folder before choosing a mode.
+    // Never mix its entries into the personal-server folder.
+    try {
+      final diskLinks = await FreshResourceStore.readLinks();
+      final known = <String>{for (final item in fetchedAll) item.key};
+      for (final link in diskLinks) {
+        final parsed = Server.parse(link);
+        if (parsed != null && !_inPF(parsed) && known.add(parsed.key)) {
+          parsed.src = 'fresh-device-folder';
+          fetchedAll.add(parsed);
+        }
+      }
+    } catch (e, st) { logError(e, st); }
     // ULTIMATE: offline-only never downloads new lists
     if (offlineOnly) {
       if (!bg) _set('حالت آفلاین: پوشه‌ی منابع تازه و سرورهای ذخیره‌شده');
@@ -6754,9 +6720,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _set('پوشه‌ی منابع تازه هنوز ساخته نشده: روی «پوشه منابع تازه» بزن و حدود ۱۰ دقیقه صبر کن');
       }
       final hotOff = await natHotNext(300, fetch: false); // هر دور ۳۰۰ تا؛ اگر پیدا نشد دور بعد ادامه می‌دهد
-      // OFFLINE-SRC: صف قبلی (آنلاین) کنار گذاشته می‌شود؛ فقط منابع تازه تست می‌شوند
+      // FRESH-DISK: منابع تازه‌ی ذخیره‌شده روی گوشی در اتصال آفلاین هم قابل استفاده‌اند.
+      final diskLinks = await FreshResourceStore.readLinks();
+      final diskOff = <Server>[];
+      for (final link in diskLinks) {
+        final parsed = Server.parse(link);
+        if (parsed != null) diskOff.add(parsed);
+      }
+      // OFFLINE-SRC: صف قبلی (آنلاین) کنار گذاشته می‌شود؛ فقط منابع تازه‌ی محلی تست می‌شوند.
+      // پوشه‌ی سرورهای شخصی و بانک IP نت ملی عمداً جدا می‌مانند.
       pending = [
-        for (final s in hotOff)
+        for (final s in [...diskOff, ...hotOff])
           if (!_inPF(s) && seenOff.add(s.link)) s, // ONLYFOLDER
       ];
       if (_folderMix && folderQ.isEmpty) folderQ = _folderPool();
@@ -6792,6 +6766,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             srcTested.removeWhere((k, v) => (srcOkN[k] ?? 0) == 0);
           }
           fetchedAll = f;
+          // Persist freshly fetched public configs for later offline use.
+          // Personal servers and the national IP inventory are stored elsewhere.
+          try {
+            await FreshResourceStore.merge(
+              f.map((server) => server.link),
+              source: 'online-public-sources',
+            );
+          } catch (e, st) { logError(e, st); }
           listTime = DateTime.now();
           _saveList();
         }
@@ -6867,7 +6849,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // can this server be a test candidate for the given row?
   bool _cand(Server s, String? row) {
     if (row == null) return true;
-    if (row == 'r:ai') return true; // every server is a Gemini candidate
+    if (row == 'r:ai') return true; // every server is a public-web candidate
     if (row == 'r:ip') return !s.link.startsWith('ss://'); // resolved to IP
     return inRowGid(s, row);
   }
@@ -7024,7 +7006,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (enough()) natFun('loop_enough_at_start');
       natFun('loop_pending_ip', pending.where((s) => s.isIp).length);
       if (pending.isEmpty && folderQ.isEmpty) await _loadPending(bg: bg, exhausted: true);
-      // healthy servers not yet tested for Gemini are tested too
+      // healthy servers not yet tested for public-web reachability are tested too
       if (!bg && row == 'r:ai') {
         pending.insertAll(
             0,
@@ -7088,7 +7070,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         batches++;
         batchNo = batches;
         // FAST mode (foreground): parallel core delay tests, no VPN toggling.
-        // Gemini rows still use the old tunnel test.
+        // Web-reachability rows use the dedicated public endpoint probe.
         final fast = !bg && fastDelay;
         // first batch is small when nothing healthy is known yet: the first
         // test starts after ~1-2 s instead of ~4 s
@@ -7322,7 +7304,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _resAdd(s);
     } else {
       failed[s.key] = DateTime.now();
-      s.ai = null; // dead now: the old Gemini result is no longer trusted
+      s.ai = null; // provider-specific legacy result is not valid for this generic probe
     }
     // learn which kind of server works on this network
     final k = _profKey(s);
@@ -7583,26 +7565,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           'سالم:${_usable().length} • ($fastOk/$fastTested)');
     });
     // AI row: only the servers that passed the quick delay test are checked
-    // for Gemini (through the real route, one by one)
+    // for public web reachability (through the selected route, one by one)
     if (row == 'r:ai' && !abort) {
       okNow.sort((a, b) => (a.ping ?? 99999).compareTo(b.ping ?? 99999));
       var gi = 0;
       for (final s in okNow) {
         if (abort || enough()) break;
         if (s.ai != null) continue;
-        if (_gemSkip(s)) {
-          s.ai = false; // exit country without Gemini: no test needed
-          continue;
-        }
-        gi++;
-        _set('بررسی Gemini $gi/${okNow.length} • '
+                gi++;
+        _set('بررسی دسترسی وب $gi/${okNow.length} • '
             'سالم:${_usable().length}');
         final tunnelMode = viaVpn;
         if (await _start(s, proxyOnly: !tunnelMode)) {
           if (tunnelMode ||
               await waitProxyPort(max: const Duration(seconds: 4))) {
-            var ok = await geminiOpens(direct: tunnelMode);
-            if (!ok && !gemDefinite) ok = await geminiOpens(direct: tunnelMode);
+            var ok = await internetEndpointsOpen(direct: tunnelMode);
+            if (!ok) ok = await internetEndpointsOpen(direct: tunnelMode);
             s.ai = ok;
             if (ok) _saveSoon();
           }
@@ -7648,11 +7626,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         break;
       }
       tried.add(s);
-      if (row == 'r:ai' && _gemSkip(s)) {
-        s.ai = false; // exit country without Gemini: no test needed
-        continue;
-      }
-      final tunnelMode = viaVpn && row != 'r:ai';
+            final tunnelMode = viaVpn && row != 'r:ai';
       _set('تست ${realTested + 1}/${alive.length} • TCP:$dTcp • '
           'سالم:${_usable().length}${tunnelMode ? ' • VPN' : ''}');
       if (ipMode && s.ipLink == null && !s.ipTried) {
@@ -7673,12 +7647,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             dFake++; // too fast to be a real ping
             d = null;
           }
-          // AI row: does Gemini open through this server?
+          // Public-web row: do generic external endpoints respond through this server?
           if (d != null && row == 'r:ai') {
-            _set('بررسی باز شدن Gemini روی ${s.name}...');
+            _set('بررسی دسترسی اینترنت روی ${s.name}...');
             // two tries: one flaky request must not throw away a good server
-            var ok = await geminiOpens(direct: tunnelMode);
-            if (!ok && !gemDefinite) ok = await geminiOpens(direct: tunnelMode);
+            var ok = await internetEndpointsOpen(direct: tunnelMode);
+            if (!ok) ok = await internetEndpointsOpen(direct: tunnelMode);
             s.ai = ok;
             if (ok) _saveSoon();
           }
@@ -8695,9 +8669,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   void _onConnected(Server s) {
-    // NNIE: هر اتصال، شروع خودش را دارد؛ شروع قدیمی هرگز برای اتصال بعدی استفاده نشود
-    final nnieTap = _nnieTapAt;
-    _nnieTapAt = null;
+    // NNIE: measure only this server's own start-to-data-plane verification time.
+    final nnieElapsedMs = _nnieFinishAttempt(s);
     if (_listPartial) unawaited(_fetchFullListBg());
     // IP کارا به حافظه (هم در نت جهانی و هم در نت ملی؛ دفعه‌ی بعد اول از همین‌ها استفاده می‌شود)
     if (InternetAddress.tryParse(s.host) != null) {
@@ -8749,18 +8722,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       unawaited(natRememberSuccess(s)); // NATMEM
       // NNIE: فقط این مسیر پس از تأیید end-to-end موفقیت سرور را ثبت می‌کند.
       final nnieKey = NationalNetworkIntelligence.keyOfServer(s);
-      // زمان واقعی از شروع اتصال تا CONNECTED (شامل همه‌ی سرورهای امتحان‌شده).
-      // اگر شروع ثبت نشده یا خیلی قدیمی است (اتصال خودکار)، به RTT قبلی برمی‌گردیم.
-      final tapOk = nnieTap != null &&
-          DateTime.now().difference(nnieTap) < const Duration(minutes: 10);
-      final realMs = tapOk ? DateTime.now().difference(nnieTap).inMilliseconds : -1;
+      // A server's EWMA must never include time spent failing over through earlier servers.
       unawaited(NationalNetworkIntelligence.record(
         endpointKey: nnieKey,
         success: true,
-        elapsedMs: realMs >= 0 ? realMs : max(0, s.ping ?? 0),
+        elapsedMs: nnieElapsedMs ?? max(0, s.ping ?? 0),
         stableForFiveMinutes: false,
       ));
-      NationalNetworkIntelligence.armStable(nnieKey, () => connected && identical(current, s));
+      NationalNetworkIntelligence.armStable(nnieKey, () => _stableTunnelTrafficOk(s));
     }
     if (mounted) setState(() {});
     if (mounted) uiJoinPrompt(context);
@@ -8833,7 +8802,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           continue;
         }
         natTryCount[v] = (natTryCount[v] ?? 0) + 1;
-        if (!await _start(s, variant: v)) continue;
+        _nnieBeginAttempt(s);
+        if (!await _start(s, variant: v)) {
+          _nnieClearAttempt(s);
+          continue;
+        }
         // مشکل ۴: وقتی socialGate هست، نتیجه‌ی ping قبلی دور ریخته می‌شد؛ حالا فقط در
         // غیاب socialGate ping اجرا می‌شود.
         final accepted = socialGate != null
@@ -8842,12 +8815,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     total: Duration(seconds: nationalMode ? 12 : 9),
                     direct: true, networkAware: true) != null;
         if (!accepted) {
+          final failedElapsedMs = _nnieFinishAttempt(s) ?? 0;
           dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» ترافیک تونل نداد؛ حالت بعدی');
-          // NNIE: فقط شکستی که به سرور/حالت مربوط است ثبت می‌شود (نه permission و نه DNS)
+          // NNIE: only a started candidate with failed tunnel traffic is a server failure.
           unawaited(NationalNetworkIntelligence.record(
             endpointKey: NationalNetworkIntelligence.keyOfServer(s),
             success: false,
-            elapsedMs: 0,
+            elapsedMs: failedElapsedMs,
             stableForFiveMinutes: false,
           ));
           await _stopV2();
@@ -8942,6 +8916,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return false;
   }
 
+  // Stable history requires a fresh multi-destination check through the active core.
+  // This also covers proxy mode: the core's local proxy is the measured data path.
+  Future<bool> _stableTunnelTrafficOk(Server server) async {
+    if (!connected || !identical(current, server)) return false;
+    final urls = nationalMode ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
+    if (urls.length < 2) return false;
+    final results = await Future.wait(urls.map((url) =>
+        _siteOpens(url, viaCore: true).timeout(
+            const Duration(seconds: 8), onTimeout: () => false)));
+    final passed = results.where((ok) => ok).length;
+    return connected && identical(current, server) && passed >= 2;
+  }
+
   // FIX #107: completes the connect waiter only when real traffic passes through the tunnel now.
   // A pass clears the stale-core flag, because the connection is now proven.
   Future<void> _verifyPendingConnect(Completer<bool> c) async {
@@ -8971,9 +8958,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         dbg('ℹ ${s.name}: برای هسته ۳.۵.۰ پشتیبانی نمی‌شود ($badCfg) • بدون تست رد شد • سرور بعدی');
         continue;
       }
+      // NNIE: start a fresh timer for this candidate, not the whole user tap.
+      _nnieBeginAttempt(s);
       // V8: pre-social-check removed (v2rayNG-style connect)
       _set('اتصال به ${s.name}...');
       if (!await _start(s)) {
+        _nnieClearAttempt(s);
         // CANCEL-NOPENALTY: the user (or an abort) stopped the connect, or the
         // VPN was not requested. That is not a fault of this server/config, so
         // it must NOT be blacklisted or reported as E-CONFIG-FAIL.
@@ -9502,7 +9492,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 () => _applyProfile('turbo'), heavy: true),
             tile(Icons.network_check, 'اینترنت ضعیف / نت ملی',
                 'صبر بیشتر، تعویض کمتر', () => _applyProfile('weak'), heavy: true),
-            tile(Icons.auto_awesome, 'سرور AI (Gemini/Grok)',
+            tile(Icons.public, 'سرورهای دارای دسترسی وب',
                 'سرورهایی که API هوش مصنوعی را باز می‌کنند',
                 () => pickEngineThenStart(() => connectRow('r:ai')), heavy: true),
           ]),
@@ -10644,10 +10634,88 @@ ListTile( // KINGEXTRAS row
 
 
   final TextEditingController _smartCommandController = TextEditingController();
+  final stt.SpeechToText _smartSpeech = stt.SpeechToText();
   bool _smartCommandRunning = false;
+  bool _smartSpeechInitialized = false;
+  bool _smartSpeechAvailable = false;
+  bool _smartSpeechBusy = false;
+  bool _smartSpeechListening = false;
+  String? _smartSpeechLocaleId;
+  bool _smartSpeechVoiceInput = false;
   List<String> _pilotRanges = <String>[];
   bool _pilotRangeBusy = false;
   bool _pilotRangeCancelRequested = false;
+
+  Future<void> _toggleSmartCommandSpeech() async {
+    if (_smartSpeechBusy) return;
+    if (_smartSpeechListening || _smartSpeech.isListening) {
+      await _smartSpeech.stop();
+      if (mounted) setState(() => _smartSpeechListening = false);
+      return;
+    }
+    setState(() => _smartSpeechBusy = true);
+    try {
+      final permission = await Permission.microphone.request();
+      if (!permission.isGranted) {
+        _set('برای فرمان صوتی کینگ، اجازه دسترسی به میکروفون لازم است.');
+        return;
+      }
+      if (!_smartSpeechInitialized) {
+        _smartSpeechAvailable = await _smartSpeech.initialize(
+          onStatus: (status) {
+            if (!mounted) return;
+            setState(() => _smartSpeechListening = _smartSpeech.isListening);
+          },
+          onError: (error) {
+            if (!mounted) return;
+            setState(() => _smartSpeechListening = false);
+            _set('تشخیص گفتار در دسترس نیست: ${error.errorMsg}');
+          },
+        );
+        _smartSpeechInitialized = _smartSpeechAvailable;
+      }
+      if (!_smartSpeechAvailable) {
+        _set('سرویس تشخیص گفتار این دستگاه در دسترس نیست.');
+        return;
+      }
+      final locales = await _smartSpeech.locales();
+      final persian = locales.where((locale) =>
+          locale.localeId.toLowerCase().replaceAll('_', '-').startsWith('fa'));
+      _smartSpeechLocaleId = persian.isNotEmpty ? persian.first.localeId : 'fa-IR';
+      if (persian.isEmpty) {
+        _set('فارسی در فهرست آفلاین نبود؛ سرویس گفتار دستگاه با fa-IR امتحان می‌شود و ممکن است اینترنت بخواهد.');
+      }
+      await _smartSpeech.listen(
+        listenOptions: stt.SpeechListenOptions(
+          localeId: _smartSpeechLocaleId,
+          listenFor: const Duration(seconds: 30),
+          pauseFor: const Duration(seconds: 4),
+          onDevice: false,
+          partialResults: true,
+          cancelOnError: true,
+          listenMode: stt.ListenMode.confirmation,
+        ),
+        onResult: (result) {
+          if (!mounted) return;
+          final transcript = result.recognizedWords.trim();
+          if (transcript.isEmpty) return;
+          _smartSpeechVoiceInput = true;
+          setState(() {
+            _smartCommandController.value = TextEditingValue(
+              text: transcript,
+              selection: TextSelection.collapsed(offset: transcript.length),
+            );
+          });
+        },
+      );
+      if (mounted) setState(() => _smartSpeechListening = _smartSpeech.isListening);
+    } catch (error, stack) {
+      logError(error, stack);
+      _set('شروع فرمان صوتی ناموفق بود: $error');
+    } finally {
+      if (mounted) setState(() => _smartSpeechBusy = false);
+    }
+  }
 
   Future<void> _loadSmartCommandFilters() async {
     try {
@@ -10809,17 +10877,32 @@ ListTile( // KINGEXTRAS row
     }
     for (final entry in countryFa.entries) {
       final label = entry.value.toString().replaceAll('ي', 'ی').replaceAll('ك', 'ک');
-      if (label.length >= 3 && normalized.contains(label)) return entry.key;
+      if (label.length >= 3 &&
+          RegExp('(?:^|[\\s،,.!?؛])${RegExp.escape(label)}(?:\$|[\\s،,.!?؛])')
+              .hasMatch(normalized)) {
+        return entry.key;
+      }
     }
     return null;
   }
 
+  Future<void> _speakSmartCommandResponse(String response) async {
+    if (response.trim().isEmpty) return;
+    try {
+      await KingVoiceOutput.instance.speakPersian(response);
+    } catch (error, stack) {
+      logError(error, stack);
+      // Keep the visible text response available if the device has no Persian
+      // TTS voice installed or its speech engine is unavailable.
+    }
+  }
+
   Future<void> _runSmartCommand([String? raw]) async {
-    final command = (raw ?? _smartCommandController.text)
-        .trim()
-        .toLowerCase()
-        .replaceAll('ي', 'ی')
-        .replaceAll('ك', 'ک');
+    final voiceResponse = _smartSpeechVoiceInput;
+    final command = KingCommandSafety.stripKingAddress(
+      raw ?? _smartCommandController.text,
+    );
+    String? voiceReply;
     if (command.contains('اسکن') && command.contains('خلبان') &&
         RegExp(r'(لغو|متوقف|توقف)').hasMatch(command)) {
       if (_pilotRangeBusy) {
@@ -10828,11 +10911,55 @@ ListTile( // KINGEXTRAS row
       } else {
         _set('اسکن فعالی از خلبان برای لغو وجود ندارد.');
       }
+      if (voiceResponse) await _speakSmartCommandResponse(voiceReply ?? status);
+      _smartSpeechVoiceInput = false;
       return;
     }
-    if (command.isEmpty || _smartCommandRunning) return;
+    if (command.isEmpty || _smartCommandRunning) {
+      _smartSpeechVoiceInput = false;
+      return;
+    }
     setState(() => _smartCommandRunning = true);
     try {
+      final normalizedCommand = command
+          .toLowerCase()
+          .replaceAll('ي', 'ی')
+          .replaceAll('ك', 'ک')
+          .replaceAll('‌', ' ')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+      // Stop and identity intents are resolved before country/protocol parsing.
+      if (RegExp(r'(اسمت چیه|اسم تو چیه|تو کی هستی|نامت چیست)').hasMatch(normalizedCommand)) {
+        voiceReply = 'من کینگ هستم؛ هوش مصنوعی داخلی King VPN. مغز فرمان، خلبان اتصال و دستیار راهنمای برنامه.';
+        _set(voiceReply!);
+        return;
+      }
+      final disconnectIntent = KingCommandSafety.isDisconnectIntent(normalizedCommand);
+      if (disconnectIntent) {
+        if (localPilotOn) stopLocalPilot();
+        await disconnect();
+        voiceReply = 'اتصال قطع شد. خلبان هم برای این اتصال متوقف شد.';
+        _set(voiceReply!);
+        return;
+      }
+      if (command == 'راهنما' || command == 'help' || command.contains('دستورات')) {
+        _set('من کینگ هستم؛ دستیار داخلی King VPN.\\n'
+            'اتصال: «کینگ وصل شو»، «با بالاترین سرعت وصل شو»، «با منابع آنلاین وصل شو».\\n'
+            'آفلاین: «با منابع آفلاین وصل شو»؛ از پوشه منابع تازه گوشی استفاده می‌کند.\\n'
+            'سرور شخصی: «با سرور شخصی وصل شو»؛ از پوشه جداگانه سرورهای شخصی استفاده می‌کند.\\n'
+            'شبکه: «کینگ نت ملی وصل شو» یا «کینگ نت جهانی وصل شو»؛ همچنین «نت ملی وصل شو» و «نت جهانی وصل شو».\\n'
+            'اسکن: «DNS را اسکن کن»، «IP را اسکن کن»، «بازه IP خلبان را تنظیم کن»، «اسکن خلبان را شروع کن».\\n'
+            'مدیریت منابع: «پوشه منابع تازه را باز کن».\\n'
+            'توسعه سورس فقط از پنل امن و پس از احراز هویت مالک انجام می‌شود.');
+        return;
+      }
+      if (normalizedCommand.contains('پوشه منابع تازه') ||
+          normalizedCommand.contains('منابع تازه را باز')) {
+        await Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => const FreshResourcesPage(),
+        ));
+        return;
+      }
       final countryCode = _smartCountryCode(command);
       final normalized = command
           .replaceAll('vmees', 'vmess')
@@ -10845,25 +10972,104 @@ ListTile( // KINGEXTRAS row
       final selectedProtocols = supportedProtocols
           .where((p) => RegExp(r'\b' + p + r'\b').hasMatch(normalized))
           .toList();
-      final wantsConnect = RegExp(r'(اتصال|وصل|شروع|connect)').hasMatch(command);
+      final negatesConnection = KingCommandSafety.negatesConnection(command);
+      final wantsConnect = KingCommandSafety.isConnectIntent(command);
+      final requestedNetworkMode = KingCommandSafety.requestedNetworkMode(command);
+      final wantsPersonalFolder = wantsConnect &&
+          RegExp(r'(سرور شخصی|پوشه شخصی)').hasMatch(normalizedCommand);
+      final wantsOfflineSources = wantsConnect &&
+          RegExp(r'(آفلاین|بدون اینترنت|منابع ذخیره)').hasMatch(normalizedCommand);
+      final wantsOnlineSources = wantsConnect &&
+          RegExp(r'(آنلاین|منابع آنلاین|اینترنتی)').hasMatch(normalizedCommand);
+      final wantsMaxSpeed = wantsConnect &&
+          RegExp(r'(بالاترین سرعت|بیشترین سرعت|سریع.?ترین)').hasMatch(normalizedCommand);
+      final statusRequest = KingCommandSafety.isStatusRequest(command);
+      final negatesScan = KingCommandSafety.negatesScan(command);
       final clearFilters = RegExp(r'(پاک کردن فیلتر|حذف محدودیت|ریست فیلتر)').hasMatch(command);
       final allCountries = RegExp(r'(همه کشورها|تمام کشورها)').hasMatch(command);
       final allProtocols = RegExp(r'(همه پروتکل|تمام پروتکل)').hasMatch(command);
+      final codeRequest = !KingCommandSafety.isQuestionRequest(command) && RegExp(
+        r'(کدنویسی کن|برنامه نویسی کن|کد بنویس|کدشو بنویس|کد تولید کن|کد جدید بنویس|کد رو بنویس|کد را بنویس|'
+        r'کد رو اصلاح|کد را اصلاح|سورس رو تغییر|سورس را تغییر|برنامه رو تغییر|'
+        r'برنامه را تغییر|به برنامه اضافه|قابلیت بساز|قابلیت اضافه کن|'
+        r'ویژگی بساز|ویژگی اضافه کن|ماژول بساز|ماژول ایجاد کن|توسعه بده|پیاده سازی کن|پیاده‌سازی کن|'
+        r'write code|generate code|add feature|implement feature|create module|'
+        r'بهینه.{0,30}(کل اپ|کل برنامه|کل پروژه|سورس|کد)|'
+        r'(کل اپ|کل برنامه|کل پروژه).{0,30}(بهینه|ارتقا|بروز|به روز)|'
+        r'(اینترنت ایران|نت ملی).{0,30}(قابلیت.{0,12}(اضافه کن|بساز|ایجاد کن)|امکانات.{0,12}(اضافه کن|بساز)|کدنویسی کن|سورس را تغییر بده|کد بنویس)|'
+        r'(نت ملی|اینترنت ایران).{0,40}(بهینه|ارتقا|بروز|به روز|خودکار|هوشمند|توسعه|تقویت).{0,12}(کن|کنید|بده|بساز)|'
+        r'(بهینه|ارتقا|بروز|به روز|خودکار|هوشمند|توسعه|تقویت).{0,30}(نت ملی|اینترنت ایران).{0,12}(کن|کنید|بده|بساز))',
+      ).hasMatch(command);
 
-      if (RegExp(r'(قطع اتصال|قطع|disconnect|خاموش کردن اتصال)').hasMatch(command) &&
-          !command.contains('نکن')) {
+      final analysisOnlyRequest = RegExp(
+        r'((ایده|پیشنهاد|فکر).{0,45}(تحلیل|بررسی|نظرت)|'
+        r'(تحلیل|بررسی).{0,30}(ایده|پیشنهاد|فکر)|'
+        r'(به ذهنم رسیده|ایده دارم|یه ایده|یک ایده).{0,60}(تحلیل|بررسی|نظرت))',
+      ).hasMatch(command);
+
+      if (wantsPersonalFolder) {
+        if (personalFolderCache.isEmpty && personal == null) {
+          _guideSheet();
+          _set('پوشه سرورهای شخصی خالی است؛ ابتدا سرور شخصی بساز یا کانفیگ وارد کن.');
+        } else if (personalFolderCache.isNotEmpty) {
+          await personalFolderConnect();
+          _set('اتصال از پوشه سرورهای شخصی آغاز شد؛ این حالت از منابع آنلاین مستقل است.');
+        } else {
+          await connectPersonalAsk();
+          _set('اتصال به سرور شخصی اختصاصی آغاز شد.');
+        }
+      } else if (wantsOfflineSources) {
+        await _applyNetPick(nationalMode, true);
+        if (wantsMaxSpeed) autoSpeed = true;
+        await startLocalPilot();
+        _set('حالت آفلاین فعال شد؛ از کانفیگ‌های ذخیره‌شده در پوشه منابع تازه استفاده می‌شود.');
+      } else if (wantsOnlineSources) {
+        final domestic = requestedNetworkMode == KingRequestedNetworkMode.domestic;
+        await _applyNetPick(domestic, false);
+        if (wantsMaxSpeed) autoSpeed = true;
+        await startLocalPilot();
+        _set('حالت آنلاین فعال شد؛ منابع تازه از اینترنت دریافت و در پوشه گوشی ذخیره می‌شوند.');
+      } else if (analysisOnlyRequest && KingAiOwnerAuth.instance.hasActiveSession) {
+        unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => KingAiConsolePage(
+            initialIdeaAnalysis: command,
+            speakResponses: voiceResponse,
+          ),
+        )));
+        _set('چشم رئیس؛ ایده را فقط تحلیل می‌کنم و بدون دستور جداگانهٔ تو هیچ سورس یا کدی را تغییر نمی‌دهم.');
+      } else if (codeRequest) {
+        unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => KingAiConsolePage(initialFeatureRequest: command,
+              speakResponses: voiceResponse),
+        )));
+        _set('چشم رئیس؛ فقط مالک اصلی پس از احراز هویت می‌تواند درخواست تغییر کد را ثبت کند. کینگ آن را تحلیل می‌کند و تغییرات را فقط در شاخهٔ بازبینی‌شونده آماده می‌کند.');
+      } else if (statusRequest) {
+        final tunnel = connected ? 'متصل' : (busy || searching ? 'در حال اتصال/جستجو' : 'قطع');
+        final pilot = localPilotOn ? 'روشن' : 'خاموش';
+        final network = nationalMode ? 'نت ملی' : 'نت جهانی/خودکار';
+        _set('وضعیت اتصال: $tunnel • خلبان: $pilot • حالت شبکه: $network\nجزئیات: $status');
+      } else if (requestedNetworkMode != null && wantsConnect) {
         if (localPilotOn) stopLocalPilot();
-        await disconnect();
-        _set('دستور اجرا شد: اتصال قطع شد.');
+        final domestic = requestedNetworkMode == KingRequestedNetworkMode.domestic;
+        await _applyNetPick(domestic, false);
+        await startLocalPilot(pinNetworkMode: true);
+        _set(domestic
+            ? 'درخواست اتصال در حالت نت ملی ثبت شد؛ خلبان با اولویت مسیرهای داخلی آغاز شد.'
+            : 'درخواست اتصال در حالت نت جهانی ثبت شد؛ خلبان با اولویت مسیرهای جهانی آغاز شد.');
+      } else if (!negatesScan && command.contains('بازه') &&
+          (command.contains('ip') || command.contains('آی پی'))) {
+              await _pilotRangesDialog(context);
+        if (_pilotRanges.isNotEmpty) await _pilotScanOnly();
       } else if (command.contains('بازه') && command.contains('خلبان')) {
         await _pilotRangesDialog(context);
-      } else if (command.contains('اسکن') && command.contains('خلبان')) {
+      } else if (!negatesScan && command.contains('اسکن') && command.contains('خلبان')) {
         await _pilotScanOnly();
-      } else if (command.contains('اسکنر dns') || command.contains('پویش dns')) {
+      } else if (!negatesScan && command.contains('dns') && command.contains('اسکن')) {
         dnsxSheet(context);
-      } else if (command.contains('اسکن ip') || command.contains('پویش ip')) {
+      } else if (!negatesScan &&
+          ((command.contains('ip') || command.contains('آی پی')) && command.contains('اسکن'))) {
         ipAutoSheet(context);
-      } else if (command.contains('اسکن sni') || command.contains('اسکن پورت')) {
+      } else if (!negatesScan && (command.contains('اسکن sni') || command.contains('اسکن پورت'))) {
         autoScanSheet(context);
       } else if (command.contains('ip تمیز') || command.contains('آی پی تمیز')) {
         cleanIpDialog();
@@ -10904,22 +11110,45 @@ ListTile( // KINGEXTRAS row
           if (selCountry == null && protoSel.isEmpty) 'بدون محدودیت کشور و پروتکل',
         ].join(' • ');
         if (wantsConnect) {
-          if (aiSession) stopGrokPilot();
+          if (aiSession) stopAiSession();
+          if (wantsMaxSpeed) autoSpeed = true;
           await startLocalPilot();
-          _set('فرمان به مغز خلبان ارسال شد • ' + applied);
+          _set((wantsMaxSpeed ? 'جستجوی سریع‌ترین سرور آغاز شد' : 'فرمان اتصال اجرا شد') + ' • ' + applied);
         } else {
           if (!connected && !busy && !searching) {
             unawaited(_loadPending(bg: true));
           }
           _set('فیلتر فرمان اعمال شد • ' + applied);
         }
+      } else if (KingLocalAi.instance.isLoaded) {
+        // Every unrecognised natural-language request is a conversation turn,
+        // not a failed VPN command. The local model retains bounded chat memory.
+        _set('کینگ در حال فکر کردن به سؤال توست...');
+        final liveContext = <String>[
+          'VPN connected: $connected',
+          'Connection operation active: ${busy || searching}',
+          'Local pilot active: $localPilotOn',
+          'National network mode selected: $nationalMode',
+          'Current app status: ${status.substring(0, status.length.clamp(0, 1400).toInt())}',
+          'Last failure: ${lastFail.substring(0, lastFail.length.clamp(0, 600).toInt())}',
+        ].join('\n');
+        final answer = await KingLocalAi.instance.ask(
+          command,
+          maxTokens: 768,
+          appContext: liveContext,
+        );
+        voiceReply = answer;
+        _set(answer);
       } else {
-        _set('دستور شناخته نشد. از پوشه راهنمای زیر کادر نمونه‌ها را ببین.');
+        voiceReply = 'این پیام یک سؤال یا گفت‌وگوی آزاد است، نه فرمان اتصال. برای پاسخ‌گویی به سؤال‌های عمومی در همین کادر، یک‌بار مغز محلی کینگ را از پنل هوش مصنوعی دانلود و بارگذاری کن (حدود ۱٫۱ گیگابایت). پس از آماده‌سازی، همین کادر فرمان و ورودی صوتی به گفت‌وگوی آزاد با حافظهٔ محلی تبدیل می‌شوند؛ بدون API پولی.';
+        _set(voiceReply!);
       }
     } catch (e, st) {
       logError(e, st);
       _set('اجرای دستور با خطا روبه‌رو شد: ' + e.toString());
     } finally {
+      if (voiceResponse) await _speakSmartCommandResponse(voiceReply ?? status);
+      _smartSpeechVoiceInput = false;
       if (mounted) setState(() => _smartCommandRunning = false);
     }
   }
@@ -10933,10 +11162,44 @@ ListTile( // KINGEXTRAS row
         const Row(children: [Icon(Icons.psychology_alt, color: Color(0xFF83DFFF)), SizedBox(width: 8), Expanded(child: Text('مرکز فرمان هوشمند', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFFE8EDF7))))]),
         const SizedBox(height: 8),
         TextField(controller: _smartCommandController, minLines: 1, maxLines: 3, textInputAction: TextInputAction.send,
+          onChanged: (_) => _smartSpeechVoiceInput = false,
           onSubmitted: (_) => _runSmartCommand(), style: const TextStyle(color: Color(0xFFE8EDF7)),
-          decoration: InputDecoration(hintText: 'مثلاً: اتصال خلبان با سرورهای آلمان و فقط VMess؛ یا اسکن IP خلبان...', hintStyle: const TextStyle(color: Color(0xFF8D9BAD), fontSize: 12), filled: true, fillColor: const Color(0xFF0D1420), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), suffixIcon: IconButton(tooltip: 'پاک کردن', onPressed: () => _smartCommandController.clear(), icon: const Icon(Icons.close)))),
+          decoration: InputDecoration(hintText: 'فرمان بده یا هر سؤالی بپرس؛ مثلاً «نت ملی وصل شو» یا «چرا اتصال قطع می‌شود؟»', hintStyle: const TextStyle(color: Color(0xFF8D9BAD), fontSize: 12), filled: true, fillColor: const Color(0xFF0D1420), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), suffixIcon: Row(mainAxisSize: MainAxisSize.min, children: [
+            IconButton(
+              tooltip: _smartSpeechListening ? 'توقف ضبط فرمان' : 'فرمان صوتی فارسی کینگ (وابسته به سرویس گفتار دستگاه)',
+              onPressed: _smartSpeechBusy ? null : _toggleSmartCommandSpeech,
+              icon: Icon(_smartSpeechListening ? Icons.mic : Icons.mic_none,
+                  color: _smartSpeechListening ? const Color(0xFFFF7777) : const Color(0xFF83DFFF)),
+            ),
+            IconButton(tooltip: 'پاک کردن', onPressed: () { _smartSpeechVoiceInput = false; _smartCommandController.clear(); }, icon: const Icon(Icons.close)),
+          ]))),
+        if (_smartSpeechListening)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 6),
+            child: Text('کینگ گوش می‌دهد؛ متن تشخیص‌داده‌شده را بررسی و سپس اجرا کن.',
+                textAlign: TextAlign.right,
+                style: TextStyle(color: Color(0xFF83DFFF), fontSize: 11)),
+          ),
         const SizedBox(height: 8),
-        FilledButton.icon(onPressed: _smartCommandRunning ? null : () => _runSmartCommand(), icon: _smartCommandRunning ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.play_arrow), label: Text(_smartCommandRunning ? 'در حال اجرا...' : 'اجرای دستور')),
+        FilledButton.icon(onPressed: _smartCommandRunning ? null : () => _runSmartCommand(), icon: _smartCommandRunning ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.play_arrow), label: Text(_smartCommandRunning ? 'در حال اجرا...' : 'ارسال فرمان یا سؤال به کینگ')),
+        if (KingLocalAi.instance.isLoaded)
+          const Padding(
+            padding: EdgeInsets.only(top: 6),
+            child: Text('گفت‌وگوی آزاد فعال است؛ سؤال‌های عمومی در همین کادر با حافظهٔ محلی پاسخ داده می‌شوند.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Color(0xFF83DFFF), fontSize: 11)),
+          )
+        else
+          OutlinedButton.icon(
+            onPressed: () async {
+              await Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => const KingAiConsolePage(),
+              ));
+              if (mounted) setState(() {});
+            },
+            icon: const Icon(Icons.psychology_alt),
+            label: const Text('آماده‌سازی مغز محلی برای پاسخ به سؤال‌ها'),
+          ),
         ExpansionTile(tilePadding: EdgeInsets.zero, childrenPadding: const EdgeInsets.only(bottom: 4), title: const Text('راهنما و توضیحات'),
           children: const [Align(alignment: Alignment.centerRight, child: Text('اتصال خلبان • فقط سرورهای آلمان • اتصال با VLESS یا VMess\nهمه کشورها • همه پروتکل‌ها • پاک کردن فیلترها • قطع اتصال\nاسکن DNS / IP / SNI و پورت • IP تمیز • پروکسی تلگرام\nبازه‌های IP خلبان • اسکن IP خلبان', textAlign: TextAlign.right, style: TextStyle(fontSize: 12, color: Color(0xFF9EADBF))))]),
       ]),
@@ -11174,7 +11437,7 @@ ListTile( // KINGEXTRAS row
           if (abort) break;
           // RETRYPATCH: nothing left to test -> forget the failures and go again
           if (pending.isEmpty) failed.clear();
-          // EMPTYROWFIX: a fixed row (e.g. the Gemini row) can have no server
+          // EMPTYROWFIX: a fixed row (e.g. the web-reachability row) can have no server
           // at all while the other healthy servers do not belong to it. The
           // search then ended after 0 s again and again for ever. After a few
           // empty rounds we stop and tell the user; the watchdog / the user
@@ -11931,7 +12194,7 @@ ListTile( // KINGEXTRAS row
     // set AFTER _haltAll: stopping the search sets abort, and the background
     // watcher then resets wantVpn when abort is set in manual mode
     wantVpn = true;
-    _nnieTapAt = DateTime.now();
+    // Per-server NNIE timers start inside _connectLoop, immediately before each core start.
     // NNIE-DIAG: کوتاه منتظر تشخیص شبکه می‌مانیم تا اولین دسته‌ی نت ملی آگاه باشد.
     // پروب‌ها موازی‌اند و بیشترشان حداکثر ۳ ثانیه؛ مهلت ۵ ثانیه تا تشخیص وسط کار قطع نشود.
     if (nationalMode && !connected) {
@@ -12126,7 +12389,7 @@ ListTile( // KINGEXTRAS row
           _set(abort
               ? 'لغو شد'
               : (only == null && row == 'r:ai')
-                  ? 'هیچ سروری که Gemini را باز کند پیدا نشد؛ بعداً دوباره امتحان کن یا حالت دیگری را بزن'
+                  ? 'هیچ سرور دارای دسترسی وب عمومی تأییدشده پیدا نشد؛ بعداً دوباره امتحان کن یا حالت دیگری را بزن'
                   : (only == null && row != null)
                   ? 'در این ردیف سرور سالمی پیدا نشد'
                   : 'هیچ سروری وصل نشد، دوباره تلاش کنید');
@@ -12158,7 +12421,7 @@ ListTile( // KINGEXTRAS row
     aiSession = false;
     aiLoop?.cancel();
     stopNetWatch();
-    stopGrokPilot();
+    stopAiSession();
     // PILOTOFF: خاموش کردن اتصال توسط کاربر، خلبان محلی را هم خاموش می‌کند
     // (وگرنه خلبان بعد از قطع دوباره وصل می‌شد)
     if (localPilotOn) stopLocalPilot();
@@ -12608,7 +12871,7 @@ ListTile( // KINGEXTRAS row
 
   // FASTPATCH-AI: analyse, then apply the suggested settings by itself
   Future<void> _aiRunAuto() async {
-    if (!mounted || !connected || aiLoading.value || geminiKey.isEmpty) {
+    if (!mounted || !connected || aiLoading.value) {
       return;
     }
     if (DateTime.now().difference(_lastAutoAi) <
@@ -13249,9 +13512,9 @@ ListTile( // KINGEXTRAS row
     });
   }
 
-  // GEMWATCH: in the Gemini row the connection must KEEP opening Gemini. Every
+  // WEBWATCH: in the web-reachability row the connection must KEEP passing the generic probe. Every
   // 3 minutes it is checked through the tunnel; two clear "no" answers in a
-  // row mark the server and the next Gemini server takes over.
+  // row mark the server and the next reachable server takes over.
   DateTime _aiChkAt = DateTime.fromMillisecondsSinceEpoch(0);
   int _aiChkBad = 0;
   bool _aiChkBusy = false;
@@ -13265,16 +13528,16 @@ ListTile( // KINGEXTRAS row
       if (now.difference(lastSwitch) < const Duration(seconds: 40)) return;
       _aiChkAt = now;
       _aiChkBusy = true;
-      geminiOpens(direct: true).then((ok) {
+      internetEndpointsOpen(direct: true).then((ok) {
         if (!mounted || !identical(current, cur) || busy || switching) return;
         if (ok) {
           _aiChkBad = 0;
           cur.ai = true;
-        } else if (gemDefinite) {
+        } else {
           if (++_aiChkBad >= 2) {
             _aiChkBad = 0;
             cur.ai = false;
-            lastWhy = 'Gemini روی این سرور باز نمی‌شود';
+            lastWhy = 'دسترسی وب عمومی روی این سرور پایدار نیست';
             unawaited(_failover().catchError((e) => logError(e)));
           } else {
             _aiChkAt = DateTime.now().subtract(const Duration(minutes: 2));
@@ -13741,7 +14004,7 @@ ListTile( // KINGEXTRAS row
           (a.country == selCountry ? 1 : 0);
       if (x != 0) return x;
     }
-    // AI row: healthy servers not yet tested for Gemini come first
+    // Web row: healthy servers not yet tested for public-web reachability come first
     if (connRow == 'r:ai') {
       final z = ((b.ping != null && b.ai == null) ? 1 : 0) -
           ((a.ping != null && a.ai == null) ? 1 : 0);
@@ -15175,7 +15438,7 @@ ListTile( // KINGEXTRAS row
     final groups = <String, List<Server>>{}; // row id -> servers
     final titles = <String, String>{};
     // fixed first lines (every display mode):
-    // 1) personal server, 2) my own configs, 3) AI servers (Gemini opens)
+    // 1) personal server, 2) my own configs, 3) servers with verified public-web reachability
     groups['p:personal'] = _personalShown.isNotEmpty
         ? _personalShown
         : (personal == null ? [] : [personal!]); // PERSPAGE
@@ -15183,7 +15446,7 @@ ListTile( // KINGEXTRAS row
     groups['f:mine'] = _mineList();
     titles['f:mine'] = '📌 کانفیگ‌های من';
     groups['r:ai'] = u.where((s) => s.ai == true && s.ping != null).toList();
-    titles['r:ai'] = '🤖 سرورهای مخصوص هوش مصنوعی (Gemini)';
+    titles['r:ai'] = '🌐 سرورهای دارای دسترسی وب تأییدشده';
     if (groupMode == 'country') {
       for (final s in u) {
         final c = s.country ?? '??';
@@ -15361,7 +15624,16 @@ ListTile( // KINGEXTRAS row
           ),
           PopupMenuButton<String>(
             onSelected: (v) {
-              if (v == 'kingai') _kingAiSheet();
+              if (v == 'kingchat') {
+                Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => const KingChatPage(),
+                ));
+              }
+              if (v == 'kingai') {
+                Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => const KingAiConsolePage(),
+                ));
+              }
               if (v == 'set') _settingsSheet();
               if (v == 'apps') _appsSheet();
               if (v == 'add') _importDialog();
@@ -15401,6 +15673,7 @@ ListTile( // KINGEXTRAS row
             },
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'apps', child: Text('برنامه‌های خارج از VPN')),
+              PopupMenuItem(value: 'kingchat', child: Text('گفت‌وگوی آزاد صوتی و متنی با کینگ')),
               PopupMenuItem(value: 'kingai', child: Text('هوش مصنوعی مهندس محلی')),
               PopupMenuItem(value: 'set', child: Text('تنظیمات تست')),
               PopupMenuItem(value: 'add', child: Text('افزودن کانفیگ')),
@@ -15472,19 +15745,46 @@ ListTile( // KINGEXTRAS row
               itemBuilder: (_, i0) {
                 if (i0 == 0) {
                   return UiKeep(child: Column(children: [
-Padding(
-  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-  child: Column(children: const [
-    Text('AUTONOMOUS VPN INTELLIGENCE',
-        textAlign: TextAlign.center,
-        style: TextStyle(fontSize: 10, letterSpacing: 2.0,
-            fontWeight: FontWeight.w700, color: Color(0xFF83DFFF))),
-    SizedBox(height: 3),
-    Text('مغز مرکزی • خلبان هوشمند واحد',
-        textAlign: TextAlign.center,
-        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600,
-            color: Color(0xFFE8EDF7))),
-  ]),
+Container(
+  margin: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+  decoration: BoxDecoration(
+    gradient: const LinearGradient(
+      begin: Alignment.topRight,
+      end: Alignment.bottomLeft,
+      colors: [Color(0xFF172B42), Color(0xFF101925), Color(0xFF20233A)],
+    ),
+    borderRadius: BorderRadius.circular(22),
+    border: Border.all(color: const Color(0x6679DFFF)),
+    boxShadow: const [BoxShadow(color: Color(0x3326B9E8), blurRadius: 22, spreadRadius: 1)],
+  ),
+  child: Row(
+    children: [
+      Container(
+        width: 82,
+        height: 82,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: const RadialGradient(colors: [Color(0x664EDBFF), Color(0x222C75B8), Color(0x00101828)]),
+          border: Border.all(color: const Color(0x8879DFFF), width: 1.4),
+        ),
+        child: const Icon(Icons.psychology_alt_rounded, size: 58, color: Color(0xFF9BEAFF)),
+      ),
+      const SizedBox(width: 14),
+      const Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('KING • AI CORE', style: TextStyle(fontSize: 10, letterSpacing: 2.1, fontWeight: FontWeight.w800, color: Color(0xFF83DFFF))),
+            SizedBox(height: 5),
+            Text('کینگ؛ مغز هوشمند اتصال', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFFF2F7FF))),
+            SizedBox(height: 4),
+            Text('خلبان • تشخیص نت ملی • منابع آنلاین و آفلاین', style: TextStyle(fontSize: 11, height: 1.4, color: Color(0xFFB6C7D8))),
+          ],
+        ),
+      ),
+    ],
+  ),
 ),
           if (busy)
             LinearProgressIndicator(
@@ -15500,6 +15800,7 @@ Padding(
               ListTile(leading: const Icon(Icons.support_agent), title: const Text('ارتباط با ادمین'), onTap: () => _uiOpenAdmin(context)),
               ListTile(leading: const Icon(Icons.link), title: const Text('لینک‌های اشتراک کانفیگ'), onTap: () => _userListsDialog(context)),
               ListTile(leading: const Icon(Icons.add_home_outlined), title: const Text('ساخت سرور شخصی'), onTap: () => _guideSheet()),
+              ListTile(leading: const Icon(Icons.folder_special_outlined), title: const Text('پوشه منابع تازه • آنلاین و آفلاین'), onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const FreshResourcesPage()))),
               ListTile(leading: const Icon(Icons.cloud_upload_outlined), title: const Text('ساخت خودکار سرور کلودفلر'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CloudflareAutoDeployPage()))),
               ListTile(leading: const Icon(Icons.shopping_cart_outlined), title: const Text('خرید سرور شخصی'), onTap: () => serverShopOpen(context)),
               ListTile(leading: const Icon(Icons.campaign_outlined), title: const Text('کانال‌های تلگرامی'), onTap: () => telegramChannelsOpen(context)),

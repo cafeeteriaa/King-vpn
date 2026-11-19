@@ -413,7 +413,7 @@ export default {
     let writer = null;
 
     server.addEventListener('close', () => {
-      try { if (remote) remote.close(); } catch (e) { errJournalAdd(e, kind: 'SILENT-LIB'); }
+      try { if (remote) remote.close(); } catch (_) {}
     });
 
     server.addEventListener('message', async (event) => {
@@ -470,10 +470,10 @@ export default {
         remote.readable.pipeTo(new WritableStream({
           write(data) { server.send(data); },
         })).catch(() => {}).finally(() => {
-          try { server.close(1000, 'done'); } catch (e) { errJournalAdd(e, kind: 'SILENT-LIB'); }
+          try { server.close(1000, 'done'); } catch (_) {}
         });
       } catch (e) {
-        try { server.close(1011, 'Connection failed'); } catch (e) { errJournalAdd(e, kind: 'SILENT-LIB'); }
+        try { server.close(1011, 'Connection failed'); } catch (_) {}
       }
     });
 
@@ -504,31 +504,36 @@ String _cfErrText(http.Response r) {
 
 /// Creates a Worker in the user's Cloudflare account and returns a vless:// link.
 /// Throws an Exception with a readable message on failure.
-Future<CfDeployResult> cloudflareAutoDeploy(String token) async {
+Future<String> _cfResolveAccountId(String token) async {
+  final response = await http
+      .get(
+        Uri.parse('https://api.cloudflare.com/client/v4/accounts'),
+        headers: {'Authorization': 'Bearer $token'},
+      )
+      .timeout(const Duration(seconds: 30));
+  if (response.statusCode != 200) {
+    throw Exception('گرفتن Account ID ناموفق بود (${_cfErrText(response)}). مجوز Account Settings (Read) را بررسی کن.');
+  }
+  final decoded = jsonDecode(response.body) as Map;
+  final accounts = (decoded['result'] as List?) ?? const [];
+  if (accounts.isEmpty) throw Exception('هیچ حسابی برای این توکن پیدا نشد.');
+  final id = (accounts.first as Map)['id'];
+  if (id is! String || id.isEmpty) throw Exception('Cloudflare شناسه حساب معتبر برنگرداند.');
+  return id;
+}
+
+/// Creates one Worker in the user's own Cloudflare account.
+Future<CfDeployResult> cloudflareAutoDeploy(
+  String token, {
+  String? accountId,
+}) async {
   final auth = {'Authorization': 'Bearer $token'};
   const timeout = Duration(seconds: 30);
+  final resolvedAccountId = accountId ?? await _cfResolveAccountId(token);
 
-  // Step 1: account id
-  final accRes = await http
-      .get(Uri.parse('https://api.cloudflare.com/client/v4/accounts'), headers: auth)
-      .timeout(timeout);
-  if (accRes.statusCode != 200) {
-    throw Exception('گرفتن Account ID ناموفق بود (${_cfErrText(accRes)}). توکن و دسترسی Account Settings (Read) را بررسی کن.');
-  }
-  final accJson = jsonDecode(accRes.body) as Map;
-  final accounts = (accJson['result'] as List?) ?? const [];
-  if (accounts.isEmpty) {
-    throw Exception('هیچ حسابی برای این توکن پیدا نشد.');
-  }
-  final accountId = (accounts.first as Map)['id'] as String;
-
-  // Step 2: upload the Worker as an ES module (multipart is required for `import`)
-  // UUIDDASH: لینک با UUID استاندارد (با خط تیره) ساخته می‌شود؛ بعضی کلاینت‌ها (مثل v2hub/v2rayNG) بدون خط تیره نمی‌خوانند.
-  // Worker فقط بایت‌ها را مقایسه می‌کند، پس نسخه‌ی بدون خط تیره فقط برای UUID_HEX است.
+  // Upload a unique VLESS/WebSocket Worker as an ES module.
   final uuidDash = kingSecureUuidV4();
   final uuid = uuidDash.replaceAll('-', '');
-  // NAMEUNIQ: نام یکتا از UUID (۱۶ کاراکتر هگز = ۶۴ بیت). قبلاً یک عدد تصادفی تا ۹۹۹۹ بود
-  // و با ۱۰۰ سرور حدود ۳۹٪ احتمال داشت یک Worker قبلی بی‌صدا بازنویسی شود.
   final workerName = 'king-vpn-${uuid.substring(0, 16)}';
   final script = _kCfWorkerTemplate.replaceAll('YOUR_UUID_HEX', uuid);
   final boundary = 'kingcf${DateTime.now().microsecondsSinceEpoch}';
@@ -548,7 +553,7 @@ Future<CfDeployResult> cloudflareAutoDeploy(String token) async {
       '--$boundary--\r\n';
 
   final scriptUrl =
-      'https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts/$workerName';
+      'https://api.cloudflare.com/client/v4/accounts/$resolvedAccountId/workers/scripts/$workerName';
   final putRes = await http
       .put(
         Uri.parse(scriptUrl),
@@ -560,7 +565,6 @@ Future<CfDeployResult> cloudflareAutoDeploy(String token) async {
     throw Exception('ساخت سرور ناموفق بود (${_cfErrText(putRes)}).');
   }
 
-  // Step 3: enable the workers.dev route
   final subRes = await http
       .post(
         Uri.parse('$scriptUrl/subdomain'),
@@ -572,26 +576,76 @@ Future<CfDeployResult> cloudflareAutoDeploy(String token) async {
     throw Exception('فعال‌سازی دامنه workers.dev ناموفق بود (${_cfErrText(subRes)}).');
   }
 
-  // Step 3b: real workers.dev host is name.<account-subdomain>.workers.dev (not name.workers.dev)
-  // WSHOST: آدرس قبلی وجود نداشت و هیچ ترافیکی به Worker نمی‌رسید.
   var sub = '';
   try {
     final sr = await http
-        .get(Uri.parse('https://api.cloudflare.com/client/v4/accounts/$accountId/workers/subdomain'),
-            headers: auth)
+        .get(
+          Uri.parse('https://api.cloudflare.com/client/v4/accounts/$resolvedAccountId/workers/subdomain'),
+          headers: auth,
+        )
         .timeout(timeout);
     if (sr.statusCode == 200) {
       final sj = jsonDecode(sr.body) as Map;
-      final res = sj['result'];
-      if (res is Map && res['subdomain'] is String) sub = res['subdomain'] as String;
+      final value = sj['result'];
+      if (value is Map && value['subdomain'] is String) {
+        sub = value['subdomain'] as String;
+      }
     }
-  } catch (e) { errJournalAdd(e, kind: 'SILENT-LIB'); }
+  } catch (e) {
+    errJournalAdd(e, kind: 'SILENT-LIB');
+  }
 
-  // Step 4: build the link
-  final host = sub.isNotEmpty ? '$workerName.$sub.workers.dev' : '$workerName.workers.dev';
+  if (sub.isEmpty) {
+    throw Exception('Worker ساخته شد اما دریافت زیردامنه workers.dev ناموفق بود؛ برای جلوگیری از ذخیره لینک ناقص، عملیات متوقف شد.');
+  }
+  final host = '$workerName.$sub.workers.dev';
   final link = 'vless://$uuidDash@$host:443?encryption=none&security=tls'
-      '&sni=$host&fp=chrome&type=ws&host=$host&path=%2F#$workerName'; // EDFIX: ed=2048 بدون خواندن early-data در Worker، اتصال را معلق می‌کرد
+      '&sni=$host&fp=chrome&type=ws&host=$host&path=%2F#$workerName';
   return CfDeployResult(link, workerName);
+}
+
+class CfBatchDeployResult {
+  final List<CfDeployResult> created;
+  final String? error;
+  const CfBatchDeployResult(this.created, this.error);
+}
+
+/// Creates up to 100 Workers sequentially. Each successful link is persisted
+/// immediately to the personal folder so a later API failure cannot lose it.
+Future<CfBatchDeployResult> cloudflareAutoDeployBatch(
+  String token,
+  int requestedCount, {
+  void Function(int completed, int total)? onProgress,
+}) async {
+  if (requestedCount < 1 || requestedCount > 100) {
+    throw ArgumentError.value(requestedCount, 'requestedCount', 'باید بین ۱ تا ۱۰۰ باشد.');
+  }
+  final created = <CfDeployResult>[];
+  try {
+    final accountId = await _cfResolveAccountId(token);
+    for (var i = 0; i < requestedCount; i++) {
+      try {
+        final result = await cloudflareAutoDeploy(token, accountId: accountId);
+        await addToPersonalFolder([result.link]);
+        created.add(result);
+        onProgress?.call(created.length, requestedCount);
+      } catch (error) {
+        return CfBatchDeployResult(
+          List<CfDeployResult>.unmodifiable(created),
+          'ساخت شماره ${i + 1} متوقف شد: ${error.toString().replaceFirst('Exception: ', '')}',
+        );
+      }
+      if (i + 1 < requestedCount) {
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+    }
+    return CfBatchDeployResult(List<CfDeployResult>.unmodifiable(created), null);
+  } catch (error) {
+    return CfBatchDeployResult(
+      List<CfDeployResult>.unmodifiable(created),
+      error.toString().replaceFirst('Exception: ', ''),
+    );
+  }
 }
 
 class CloudflareAutoDeployPage extends StatefulWidget {
@@ -607,6 +661,10 @@ class _CloudflareAutoDeployPageState extends State<CloudflareAutoDeployPage> {
   static const _card = Color(0xFF2A2D33);
 
   final _tokenCtrl = TextEditingController();
+  final _countCtrl = TextEditingController(text: '1');
+  String? _batchStatus;
+  int _batchDone = 0;
+  int _batchTotal = 0;
   // CFTOKSAVE: توکن در حافظه‌ی رمزشده ذخیره می‌شود تا دفعه‌ی بعد لازم نباشد دوباره الصاق شود
   static const _cfTokenKey = 'cf_api_token';
   static const _cfSec = FlutterSecureStorage(
@@ -642,6 +700,7 @@ class _CloudflareAutoDeployPageState extends State<CloudflareAutoDeployPage> {
   @override
   void dispose() {
     _tokenCtrl.dispose();
+    _countCtrl.dispose();
     super.dispose();
   }
 
@@ -679,6 +738,58 @@ class _CloudflareAutoDeployPageState extends State<CloudflareAutoDeployPage> {
       if (mounted) setState(() => _error = 'اتصال به Cloudflare زمان‌بر شد. دوباره تلاش کن.');
     } catch (e) {
       if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _deploying = false);
+    }
+  }
+
+  Future<void> _deployBatch() async {
+    final token = _tokenCtrl.text.trim();
+    final count = int.tryParse(_countCtrl.text.trim());
+    if (token.isEmpty) {
+      setState(() => _error = 'ابتدا API Token کلودفلر را وارد کن.');
+      return;
+    }
+    if (count == null || count < 1 || count > 100) {
+      setState(() => _error = 'تعداد باید عددی بین ۱ تا ۱۰۰ باشد.');
+      return;
+    }
+    await _saveToken(token);
+    setState(() {
+      _deploying = true;
+      _error = null;
+      _link = null;
+      _saved = false;
+      _batchDone = 0;
+      _batchTotal = count;
+      _batchStatus = 'آماده‌سازی ساخت $count سرور...';
+    });
+    try {
+      final result = await cloudflareAutoDeployBatch(
+        token,
+        count,
+        onProgress: (done, total) {
+          if (!mounted) return;
+          setState(() {
+            _batchDone = done;
+            _batchTotal = total;
+            _batchStatus = 'ساخت و ذخیره سرورها: $done از $total';
+          });
+        },
+      );
+      if (!mounted) return;
+      if (result.created.isNotEmpty) {
+        setState(() {
+          _link = result.created.last.link;
+          _saved = true;
+        });
+      }
+      setState(() {
+        _batchStatus = 'ساخته و در پوشه سرورهای شخصی ذخیره شد: ${result.created.length} از $count';
+        _error = result.error;
+      });
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _deploying = false);
     }
@@ -796,6 +907,44 @@ class _CloudflareAutoDeployPageState extends State<CloudflareAutoDeployPage> {
                 ),
               ),
             ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _countCtrl,
+                    enabled: !_deploying,
+                    keyboardType: TextInputType.number,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      labelText: 'تعداد سرور (۱ تا ۱۰۰)',
+                      labelStyle: const TextStyle(color: _gold),
+                      filled: true,
+                      fillColor: _card,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _deploying ? null : _deployBatch,
+                    icon: const Icon(Icons.auto_awesome),
+                    label: const Text('ساخت گروهی'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _gold,
+                      minimumSize: const Size.fromHeight(52),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (_batchStatus != null) ...[
+              const SizedBox(height: 10),
+              Text(_batchStatus!, style: const TextStyle(color: Colors.white70)),
+              if (_deploying && _batchTotal > 0)
+                LinearProgressIndicator(value: _batchDone / _batchTotal),
+            ],
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: _deploying ? null : _deploy,

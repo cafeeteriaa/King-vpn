@@ -25,5 +25,20 @@ class DiagnoseBuildTests(unittest.TestCase):
         self.assertTrue(any('plugin_channel' in f['categories'] for f in report['findings']))
 
 
+    def test_extracts_python_source_guard_failures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / 'source-guard.log'
+            log.write_text(
+                'ERROR: test_owner_gate (test_source_guards.SourceGuardTests)\n'
+                'Traceback (most recent call last):\n'
+                'NameError: name \'policy\' is not defined\n'
+                'FAILED (errors=1)\n',
+                encoding='utf-8',
+            )
+            report = diagnose_build.analyze_logs([log])
+        self.assertGreaterEqual(report['finding_count'], 3)
+        self.assertTrue(any('python_test' in f['categories'] for f in report['findings']))
+
+
 if __name__ == '__main__':
     unittest.main()

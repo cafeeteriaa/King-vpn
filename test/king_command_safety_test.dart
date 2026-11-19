@@ -1,0 +1,170 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:king_vpn/king_command_safety.dart';
+
+void main() {
+  group('KingCommandSafety', () {
+    test('strips Persian and English wake prefixes only at the beginning', () {
+      expect(KingCommandSafety.stripKingAddress('کینگ وصل شو'), 'وصل شو');
+      expect(KingCommandSafety.stripKingAddress('سلام کینگ جان وضعیت اتصال'), 'وضعیت اتصال');
+      expect(KingCommandSafety.stripKingAddress('King, connect now'), 'connect now');
+      expect(KingCommandSafety.stripKingAddress('سلام وضعیت اتصال'), 'سلام وضعیت اتصال');
+      expect(KingCommandSafety.stripKingAddress('کینگ'), '');
+    });
+
+    test('negative connect commands are blocked', () {
+      expect(KingCommandSafety.negatesConnection('کینگ اتصال نکن'), isTrue);
+      expect(KingCommandSafety.negatesConnection('لطفاً اتصال را شروع نکنید'), isTrue);
+      expect(KingCommandSafety.negatesConnection('کینگ متصل نشوید'), isTrue);
+      expect(KingCommandSafety.negatesConnection('کانکت نکن'), isTrue);
+      expect(KingCommandSafety.negatesConnection('اتصال نگیر'), isTrue);
+      expect(KingCommandSafety.negatesConnection('کینگ اتصال نزن'), isTrue);
+      expect(KingCommandSafety.negatesConnection('نمیخوام قطع اتصال کنی'), isTrue);
+      expect(KingCommandSafety.negatesConnection("I don't want you to disconnect"), isTrue);
+      expect(KingCommandSafety.negatesConnection('وصل نزن'), isTrue);
+      expect(KingCommandSafety.negatesConnection('نمیخوام وصل بشی'), isTrue);
+      expect(KingCommandSafety.negatesConnection('نمی‌خوام اتصال برقرار کنی'), isTrue);
+      expect(KingCommandSafety.negatesConnection('اتصال را شروع نکن'), isTrue);
+      expect(KingCommandSafety.negatesConnection('کینگ وصل نشو'), isTrue);
+      expect(KingCommandSafety.negatesConnection('اتصال نداشته باش'), isTrue);
+      expect(KingCommandSafety.negatesConnection('قطع نکن'), isTrue);
+      expect(KingCommandSafety.negatesConnection("don't disconnect"), isTrue);
+      expect(KingCommandSafety.negatesConnection('do not connect'), isTrue);
+      expect(KingCommandSafety.negatesConnection('کینگ وصل شو'), isFalse);
+      expect(KingCommandSafety.negatesConnection('اتصال خلبان را شروع کن'), isFalse);
+    });
+
+    test('natural questions never become connection actions', () {
+      for (final question in [
+        'چرا اتصال من برقرار نمی‌شود؟',
+        'چطور نت ملی کار می‌کند؟',
+        'آیا اتصال من امن است؟',
+        'سرور آلمان چه سرعتی دارد؟',
+        'how does the VPN connection work?',
+        'why is my connection not working?',
+        'can you connect me to the national network?',
+        'می‌تونی اتصال را برقرار کنی؟',
+      ]) {
+        expect(KingCommandSafety.isQuestionRequest(question), isTrue,
+            reason: question);
+        expect(KingCommandSafety.isConnectIntent(question), isFalse,
+            reason: question);
+        expect(KingCommandSafety.requestedNetworkMode(question), isNull,
+            reason: question);
+      }
+    });
+
+    test('King wake word is not mistaken for the Persian question word کی', () {
+      expect(KingCommandSafety.isQuestionRequest('کینگ وصل شو'), isFalse);
+      expect(KingCommandSafety.isQuestionRequest('کی نت ملی وصل می‌شود؟'), isTrue);
+      expect(KingCommandSafety.isConnectIntent('کینگ وصل شو'), isTrue);
+      expect(KingCommandSafety.isConnectIntent('کینگ نت ملی وصل شو'), isTrue);
+    });
+
+    test('only imperative connection phrases are executable', () {
+      for (final command in [
+        'کینگ وصل شو',
+        'به نت ملی متصل شو',
+        'اتصال را برقرار کن',
+        'اتصال خلبان را شروع کن',
+        'connect now',
+      ]) {
+        expect(KingCommandSafety.isConnectIntent(command), isTrue,
+            reason: command);
+      }
+      expect(KingCommandSafety.isConnectIntent('اتصال چیست'), isFalse);
+      expect(KingCommandSafety.isConnectIntent('وصل شدن چطور است'), isFalse);
+      expect(KingCommandSafety.isConnectIntent('می‌تونی اتصال را برقرار کنی؟'), isFalse);
+      expect(KingCommandSafety.isConnectIntent('can you connect me?'), isFalse);
+    });
+
+    test('connect intent recognises متصل and rejects status/negated commands', () {
+      expect(KingCommandSafety.isConnectIntent('به نت ملی متصل شو'), isTrue);
+      expect(KingCommandSafety.isConnectIntent('کینگ متصل شو'), isTrue);
+      expect(KingCommandSafety.isConnectIntent('کینگ نت جهانی وصل شو'), isTrue);
+      expect(KingCommandSafety.isConnectIntent('کینگ کانکت کن'), isTrue);
+      expect(KingCommandSafety.isConnectIntent('کینگ نت ملی کانکت شو'), isTrue);
+      expect(KingCommandSafety.requestedNetworkMode('کینگ نت ملی کانکت شو'),
+          KingRequestedNetworkMode.domestic);
+      expect(KingCommandSafety.isConnectIntent('کینگ کانکت نکن'), isFalse);
+      expect(KingCommandSafety.isConnectIntent('وضعیت اتصال نت ملی'), isFalse);
+      expect(KingCommandSafety.isConnectIntent('کینگ نت ملی وصل نشو'), isFalse);
+      expect(KingCommandSafety.isConnectIntent('لطفاً اتصال را شروع نکن'), isFalse);
+    });
+
+    test('explicit domestic and global network requests are distinguished', () {
+      expect(KingCommandSafety.requestedNetworkMode('کینگ نت ملی وصل شو'),
+          KingRequestedNetworkMode.domestic);
+      expect(KingCommandSafety.requestedNetworkMode('به اینترنت جهانی وصل شو'),
+          KingRequestedNetworkMode.global);
+      expect(KingCommandSafety.requestedNetworkMode('شبکه ملی اتصال برقرار کن'),
+          KingRequestedNetworkMode.domestic);
+      expect(KingCommandSafety.requestedNetworkMode('اینترنت ملی وصل شو'),
+          KingRequestedNetworkMode.domestic);
+      expect(KingCommandSafety.requestedNetworkMode('کینگ نت ملی وصل نشو'), isNull);
+      expect(KingCommandSafety.requestedNetworkMode('وضعیت اتصال نت ملی'), isNull);
+    });
+
+    test('disconnect intent requires an explicit command, never a question', () {
+      for (final question in [
+        'چرا اتصال من قطع می‌شود؟',
+        'چرا قطع اتصال اتفاق می‌افتد؟',
+        'می‌تونی اتصال را قطع کنی؟',
+        'how do I disconnect?',
+      ]) {
+        expect(KingCommandSafety.isDisconnectIntent(question), isFalse,
+            reason: question);
+      }
+      for (final command in [
+        'قطع اتصال',
+        'اتصال را قطع کن',
+        'اتصال رو قطع کن',
+        'disconnect',
+      ]) {
+        expect(KingCommandSafety.isDisconnectIntent(command), isTrue,
+            reason: command);
+      }
+      expect(KingCommandSafety.isDisconnectIntent('قطع اتصال نکن'), isFalse);
+      expect(KingCommandSafety.isDisconnectIntent('وضعیت اتصال'), isFalse);
+    });
+
+    test('connection status questions are not connect commands', () {
+      expect(KingCommandSafety.isStatusRequest('کینگ وضعیت اتصال'), isTrue);
+      expect(KingCommandSafety.isStatusRequest('connection status'), isTrue);
+      expect(KingCommandSafety.isStatusRequest('کینگ وصل شو'), isFalse);
+    });
+
+    test('ordinary questions are not hijacked as VPN status requests', () {
+      for (final question in [
+        'چه خبر تو دنیا',
+        'هوای تهران چطوره',
+        'سرور آلمان چطوره',
+        'قیمت دلار چطوره',
+      ]) {
+        expect(KingCommandSafety.isStatusRequest(question), isFalse,
+            reason: question);
+      }
+      expect(KingCommandSafety.isQuestionRequest('هوای تهران چطوره'), isTrue);
+      expect(KingCommandSafety.isStatusRequest('خلبان چه خبر'), isTrue);
+      expect(KingCommandSafety.isStatusRequest('نت ملی چطوره'), isTrue);
+      expect(KingCommandSafety.isStatusRequest('وضعیت اتصال'), isTrue);
+      expect(KingCommandSafety.isStatusRequest('وضعیت نت ملی'), isTrue);
+      expect(KingCommandSafety.isStatusRequest('وضعیت شبکه ملی'), isTrue);
+      expect(KingCommandSafety.isStatusRequest('وضعیت اینترنت من'), isTrue);
+      expect(KingCommandSafety.isStatusRequest('وضعیت اینترنت ایران'), isFalse);
+      expect(KingCommandSafety.isStatusRequest('وضعیت سرور آلمان'), isFalse);
+    });
+
+    test('negative scan commands are blocked', () {
+      expect(KingCommandSafety.negatesScan('اسکن DNS نکن'), isTrue);
+      expect(KingCommandSafety.negatesScan('اسکن DNS نکنید'), isTrue);
+      expect(KingCommandSafety.negatesScan('لطفاً اسکن را انجام ندهید'), isTrue);
+      expect(KingCommandSafety.negatesScan('اسکن DNS نزن'), isTrue);
+      expect(KingCommandSafety.negatesScan('نمیخوام اسکن IP انجام بدی'), isTrue);
+      expect(KingCommandSafety.negatesScan('نمی‌خوام اسکن DNS انجام بدی'), isTrue);
+      expect(KingCommandSafety.negatesScan('اسکن را انجام نده'), isTrue);
+      expect(KingCommandSafety.negatesScan("don't scan"), isTrue);
+      expect(KingCommandSafety.negatesScan('اسکن خلبان را شروع کن'), isFalse);
+      expect(KingCommandSafety.negatesScan('پویش DNS را آغاز کن'), isFalse);
+    });
+  });
+}
