@@ -14319,7 +14319,7 @@ ListTile( // KINGEXTRAS row
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (sheetContext) => StatefulBuilder(
+      builder: (_) => StatefulBuilder(
         builder: (ctx, setSheetState) {
           void updateStatus(String value, {String? result}) {
             if (!ctx.mounted) return;
@@ -14373,9 +14373,9 @@ ListTile( // KINGEXTRAS row
                       const SizedBox(height: 10),
                       Text(status),
                       if (working && progress > 0)
-                        LinearProgressIndicator(value: progress.clamp(0.0, 1.0)),
+                        LinearProgressIndicator(value: progress.clamp(0.0, 1.0).toDouble()),
                       if (working && progress > 0)
-                        Text('دانلود/بارگذاری مدل: \${(progress * 100).round()}٪'),
+                        Text('دانلود/بارگذاری مدل: ${(progress * 100).round()}٪'),
                       const SizedBox(height: 8),
                       FilledButton.icon(
                         onPressed: working || ai.isLoaded
@@ -14391,7 +14391,7 @@ ListTile( // KINGEXTRAS row
                                   await ai.loadModel(
                                     onProgress: (value) {
                                       if (ctx.mounted) {
-                                        setSheetState(() => progress = value.clamp(0.0, 1.0));
+                                        setSheetState(() => progress = value.clamp(0.0, 1.0).toDouble());
                                       }
                                     },
                                   );
