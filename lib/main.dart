@@ -2937,6 +2937,7 @@ Future<void> main() async {
     logError(e, st);
   }
   Future.delayed(const Duration(seconds: 5), () => unawaited(hotAutoStart()));
+  await initBackground();
   runZonedGuarded(() {
     FlutterError.onError = (d) => logError(d.exception);
     // خطاهای async که هیچ‌جا گرفته نشده‌اند هم ثبت شوند
@@ -2956,7 +2957,6 @@ Future<void> main() async {
       home:
           Directionality(textDirection: TextDirection.rtl, child: HomePage()),
     ));
-    initBackground();
   }, (e, st) => logError(e));
 }
 
