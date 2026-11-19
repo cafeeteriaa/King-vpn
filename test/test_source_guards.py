@@ -602,11 +602,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Upload complete project ZIP', workflow)
         self.assertIn('${{ runner.temp }}', workflow)
 
-    def test_android_toolchain_matches_flutter_350_and_kotlin_2421(self):
+    def test_android_toolchain_matches_flutter_350_and_kotlin_2420(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         self.assertIn("AGP_VERSION = '9.3.1'", prepare)
-        self.assertIn("GRADLE_VERSION = '9.7.0'", prepare)
-        self.assertIn("Kotlin 2.4.21", prepare)
+        self.assertIn("GRADLE_VERSION = '9.5.0'", prepare)
+        self.assertIn("Kotlin 2.4.20", prepare)
 
     def test_flutter_sdk_included_build_resolves_kotlin_plugin_transitives(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
