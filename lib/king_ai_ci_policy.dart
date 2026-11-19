@@ -12,8 +12,13 @@ String redactKingAiCiEvidence(String input, {int maxChars = 12000}) {
       .replaceAll(RegExp(r'Bearer\s+[A-Za-z0-9._~+/-]+=*', caseSensitive: false), 'Bearer [REDACTED]')
       .replaceAll(RegExp(r'(?:Basic)\s+[A-Za-z0-9+/]{12,}={0,2}', caseSensitive: false), 'Basic [REDACTED]')
       .replaceAll(
-        RegExp(r'(api[_-]?key|access[_-]?token|client[_-]?secret|password)\s*[:=]\s*[^\s,;]+', caseSensitive: false),
+        RegExp(r'(api[_-]?key|access[_-]?token|client[_-]?secret|secret[_-]?access[_-]?key|aws_secret_access_key|refresh[_-]?token|id[_-]?token|password)\s*[:=]\s*[^\s,;]+', caseSensitive: false),
         '[REDACTED]',
+      )
+      // JWTs are three base64url segments; redact the whole token, not just a claim.
+      .replaceAll(
+        RegExp(r'(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}(?![A-Za-z0-9_-])'),
+        '[REDACTED_JWT]',
       )
       .replaceAll(
         RegExp(r'-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----'),
