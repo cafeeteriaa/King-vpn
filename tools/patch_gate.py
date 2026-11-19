@@ -22,8 +22,9 @@ PROTECTED = {
     'pubspec.yaml',
     'pubspec.lock',
 }
+ALLOWED_ROOTS = ('lib/', 'test/', 'tools/')
 SECRET_PATTERNS = [
-    re.compile(r'(?i)(api[_-]?key|access[_-]?token|client[_-]?secret|private[_-]?key)\s*[:=]\s*[\"\'][^\"\']{12,}'),
+    re.compile(r'(?i)(api[_-]?key|access[_-]?token|client[_-]?secret|private[_-]?key)\s*[:=]\s*["\'][^"\']{12,}'),
     re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----'),
 ]
 
@@ -39,8 +40,11 @@ def validate(diff: str, max_changed_lines: int = 1200) -> list[str]:
                 continue
             if raw.startswith(('a/', 'b/')):
                 raw = raw[2:]
-            if raw.startswith('/') or '..' in raw.split('/'):
+            if (raw.startswith('/') or '\\' in raw or
+                    any(part in ('', '.', '..') for part in raw.split('/'))):
                 errors.append(f'unsafe path: {raw}')
+            elif not raw.startswith(ALLOWED_ROOTS):
+                errors.append(f'path outside allowed source roots: {raw}')
             paths.add(raw)
         elif line.startswith(('+', '-')) and not line.startswith(('+++', '---')):
             changed += 1

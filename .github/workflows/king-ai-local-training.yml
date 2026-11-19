@@ -1,0 +1,135 @@
+name: King AI Local QLoRA Training
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "data/king_ai_accepted_repairs.jsonl"
+  workflow_dispatch:
+    inputs:
+      base_model_path:
+        description: "Reviewed Hugging Face Transformers checkpoint directory on the dedicated GPU runner (not GGUF)"
+        required: true
+        type: string
+      dataset_path:
+        description: "Accepted repair dataset JSONL path"
+        required: true
+        default: "data/king_ai_accepted_repairs.jsonl"
+        type: string
+      max_steps:
+        description: "Bounded training steps"
+        required: true
+        default: "500"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: king-ai-model-training
+  cancel-in-progress: false
+
+jobs:
+  train-candidate:
+    if: github.event_name == 'workflow_dispatch' || vars.KING_AI_BASE_MODEL_PATH != ''
+    runs-on: [self-hosted, linux, x64, gpu, king-ai-training]
+    timeout-minutes: 360
+    steps:
+      - name: Checkout trusted source
+        uses: actions/checkout@v4
+      - name: Check for enough accepted examples
+        id: dataset
+        env:
+          DATASET_PATH: ${{ inputs.dataset_path || 'data/king_ai_accepted_repairs.jsonl' }}
+        run: |
+          if [ ! -f "$DATASET_PATH" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Accepted repair dataset is not present yet."
+            exit 0
+          fi
+          count="$(grep -cve '^[[:space:]]*$' "$DATASET_PATH" || true)"
+          if [ "$count" -lt 5 ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Waiting for at least five accepted repair examples; found $count."
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "Found $count accepted repair examples."
+          fi
+      - name: Validate local inputs
+        if: steps.dataset.outputs.ready == 'true'
+        env:
+          BASE_MODEL_PATH: ${{ inputs.base_model_path || vars.KING_AI_BASE_MODEL_PATH }}
+          DATASET_PATH: ${{ inputs.dataset_path || 'data/king_ai_accepted_repairs.jsonl' }}
+          MAX_STEPS: ${{ inputs.max_steps || '500' }}
+        run: |
+          test -d "$BASE_MODEL_PATH"
+          test -f "$DATASET_PATH"
+          case "$DATASET_PATH" in data/*.jsonl) ;; *) echo "Dataset must be under data/"; exit 1;; esac
+          case "$MAX_STEPS" in ''|*[!0-9]*) echo "max_steps must be an integer"; exit 1;; esac
+          test "$MAX_STEPS" -ge 50 && test "$MAX_STEPS" -le 5000
+      - name: Prepare trusted training and evaluation splits
+        if: steps.dataset.outputs.ready == 'true'
+        env:
+          DATASET_PATH: ${{ inputs.dataset_path || 'data/king_ai_accepted_repairs.jsonl' }}
+        run: |
+          python3 tools/king_ai_training/prepare_dataset.py \
+            --input "$DATASET_PATH" --output-dir "$RUNNER_TEMP/king-ai-dataset"
+      - name: Fail fast when the runner has no NVIDIA GPU
+        if: steps.dataset.outputs.ready == 'true'
+        run: |
+          command -v nvidia-smi
+          nvidia-smi --query-gpu=name,memory.free --format=csv,noheader
+          df -h "$RUNNER_TEMP"
+      - name: Install pinned local training dependencies
+        if: steps.dataset.outputs.ready == 'true'
+        run: python3 -m pip install --requirement tools/king_ai_training/requirements.txt
+      - name: Validate GPU, checkpoint, and prepared dataset before training
+        if: steps.dataset.outputs.ready == 'true'
+        env:
+          BASE_MODEL_PATH: ${{ inputs.base_model_path || vars.KING_AI_BASE_MODEL_PATH }}
+          DATASET_PATH: ${{ inputs.dataset_path || 'data/king_ai_accepted_repairs.jsonl' }}
+        run: |
+          python3 tools/king_ai_training/validate_training_host.py \
+            --base-model "$BASE_MODEL_PATH" \
+            --dataset "$DATASET_PATH" \
+            --prepared-dir "$RUNNER_TEMP/king-ai-dataset"
+      - name: Preflight GPU, checkpoint, and disk before training
+        if: steps.dataset.outputs.ready == 'true'
+        env:
+          BASE_MODEL_PATH: ${{ inputs.base_model_path || vars.KING_AI_BASE_MODEL_PATH }}
+          DATASET_PATH: ${{ inputs.dataset_path || 'data/king_ai_accepted_repairs.jsonl' }}
+        run: |
+          python3 tools/king_ai_training/validate_training_host.py \
+            --base-model "$BASE_MODEL_PATH" \
+            --dataset "$DATASET_PATH" \
+            --prepared-dir "$RUNNER_TEMP/king-ai-dataset"
+      - name: Train isolated QLoRA candidate
+        if: steps.dataset.outputs.ready == 'true'
+        env:
+          BASE_MODEL_PATH: ${{ inputs.base_model_path || vars.KING_AI_BASE_MODEL_PATH }}
+          MAX_STEPS: ${{ inputs.max_steps || '500' }}
+        run: |
+          python3 tools/king_ai_training/train_lora.py \
+            --base-model "$BASE_MODEL_PATH" \
+            --dataset-dir "$RUNNER_TEMP/king-ai-dataset" \
+            --output-dir "$RUNNER_TEMP/king-ai-candidate" \
+            --max-steps "$MAX_STEPS"
+      - name: Verify candidate integrity manifest
+        if: steps.dataset.outputs.ready == 'true'
+        run: |
+          python3 tools/king_ai_training/verify_candidate.py \
+            --candidate-dir "$RUNNER_TEMP/king-ai-candidate"
+      - name: Package candidate without deployment
+        if: steps.dataset.outputs.ready == 'true'
+        run: |
+          cp "$RUNNER_TEMP/king-ai-dataset/dataset_report.json" "$RUNNER_TEMP/king-ai-candidate/"
+          cd "$RUNNER_TEMP"
+          tar -czf king-ai-qlora-candidate.tar.gz king-ai-candidate
+      - name: Upload candidate for independent review
+        if: steps.dataset.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: king-ai-qlora-candidate-${{ github.run_number }}
+          path: ${{ runner.temp }}/king-ai-qlora-candidate.tar.gz
+          if-no-files-found: error
+          retention-days: 30

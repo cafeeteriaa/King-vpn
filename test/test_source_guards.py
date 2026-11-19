@@ -154,6 +154,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('No automatic merge or release is performed.', ai)
         self.assertIn('This updates research memory, not model weights.', ai)
 
+    def test_autonomous_research_is_periodic_but_never_mutates_source(self):
+        worker = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
+        policy = (ROOT / 'lib' / 'king_ai_autonomy_policy.dart').read_text(encoding='utf-8')
+        self.assertIn('_scheduleOfficialResearch()', worker)
+        self.assertIn('Duration(hours: 12)', worker)
+        self.assertIn('requiresBatteryNotLow: true', worker)
+        research_start = worker.index("if (task == _researchTaskName)")
+        research_end = worker.index("if (!await ai.hasGitHubToken())", research_start)
+        research_worker = worker[research_start:research_end]
+        self.assertIn('researchGoogle', research_worker)
+        self.assertNotIn('repairFromFailedCi', research_worker)
+        self.assertIn('changeOwnerSecurityPolicy', policy)
+        self.assertIn('publishRelease', policy)
+
     def test_flutter_artifact_path_matches_non_split_apk_build(self):
         workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
         self.assertIn('flutter build apk --debug --target-platform android-arm64', workflow)
