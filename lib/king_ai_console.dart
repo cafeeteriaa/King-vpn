@@ -34,6 +34,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   final TextEditingController _featureRequestController = TextEditingController();
   final KingAiOwnerAuth _ownerAuth = KingAiOwnerAuth.instance;
   bool _initialRequestSubmitted = false;
+  bool _autonomousMaintenanceStarted = false;
   bool _ownerConfigured = false;
   bool _ownerUnlocked = false;
   bool _busy = false;
@@ -81,6 +82,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
         });
       }
       if (_ownerAuth.hasActiveSession) {
+        await _maybeEnableAutonomousMaintenance();
         await _maybeSubmitInitialFeatureRequest();
       }
     } catch (error) {
@@ -192,6 +194,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       await _refreshTokenState();
       return {'status': 'token_saved_securely', 'token_exposed': false};
     });
+    await _maybeEnableAutonomousMaintenance();
     await _maybeSubmitInitialFeatureRequest();
   }
 
@@ -214,6 +217,30 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     }
     _initialRequestSubmitted = true;
     await _submitFeatureRequest();
+  }
+
+  /// The owner's authenticated session plus a verified local model and
+  /// repository token is the one-time authorization to keep maintenance
+  /// running. No repeated confirmation is needed on later app launches.
+  Future<void> _maybeEnableAutonomousMaintenance() async {
+    if (_autonomousMaintenanceStarted ||
+        _busy ||
+        !_ownerAuth.hasActiveSession ||
+        !_hasToken ||
+        !_ai.isLoaded) {
+      return;
+    }
+    _autonomousMaintenanceStarted = true;
+    await _run('فعال‌سازی خودبهسازی مستمر کینگ', () async {
+      await KingAiBackgroundSupervisor.enableAutonomousMaintenance();
+      return {
+        'status': 'autonomous_maintenance_enabled',
+        'research': 'every 6 hours (best effort)',
+        'sourceAudit': 'daily draft PR; owner review required',
+        'ciRepair': '15-minute minimum interval (best effort)',
+        'mergeOrRelease': 'never automatic',
+      };
+    });
   }
 
   Future<void> _submitFeatureRequest() async {
@@ -248,6 +275,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       return {'status': 'model_loaded', 'model': KingLocalAi.modelId, 'loaded': _ai.isLoaded};
     });
     if (mounted) setState(() => _progress = null);
+    await _maybeEnableAutonomousMaintenance();
     await _maybeSubmitInitialFeatureRequest();
   }
 

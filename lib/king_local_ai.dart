@@ -874,8 +874,18 @@ empty changes list and explain what is missing.
     required String owner,
     required String repository,
     required int pullNumber,
-  }) {
+  }) async {
     _requireKingRepository(owner, repository);
+    final autoDiscovery = await isBackgroundAutoDiscoveryEnabled();
+    final queuedPull = await getBackgroundRepairPullNumber();
+    // This API bypasses the interactive session only for work that the owner
+    // explicitly queued or enabled from the secure console.
+    if (!autoDiscovery && queuedPull != pullNumber) {
+      return {'status': 'autonomous_repair_not_owner_enabled'};
+    }
+    if (!isLoaded || !await hasGitHubToken()) {
+      return {'status': 'model_or_owner_repository_token_unavailable'};
+    }
     return _repairFromFailedCi(
       owner: owner, repository: repository, pullNumber: pullNumber,
     );

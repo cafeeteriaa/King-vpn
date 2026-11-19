@@ -295,6 +295,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("r'(نت ملی|اینترنت ایران).{0,40}(بهینه|ارتقا|بروز|به روز|خودکار|هوشمند|توسعه|تقویت)|'", main)
         self.assertIn("KingAiConsolePage(initialFeatureRequest: command", main)
 
+    def test_background_ci_repair_requires_owner_enabled_or_queued_work(self):
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
+        start = ai.index('Future<Map<String, Object?>> repairFromFailedCiAutonomous(')
+        end = ai.index('Future<Map<String, Object?>> _repairFromFailedCi(', start)
+        repair = ai[start:end]
+        self.assertIn('isBackgroundAutoDiscoveryEnabled()', repair)
+        self.assertIn('getBackgroundRepairPullNumber()', repair)
+        self.assertIn('hasGitHubToken()', repair)
+        self.assertIn('!isLoaded', repair)
+        self.assertIn('await _maybeEnableAutonomousMaintenance();', console)
+        self.assertIn('KingAiBackgroundSupervisor.enableAutonomousMaintenance()', console)
+
     def test_daily_autonomous_source_audit_is_owner_enabled_and_review_only(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
         worker = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
