@@ -36,24 +36,59 @@ def prepare(source: Path, output_dir: Path, min_examples: int = 5) -> dict:
     for line in source.read_text(encoding="utf-8").splitlines():
         try:
             row = json.loads(line)
-            task, diff = row["task"], row["diff"]
-            if not isinstance(task, str) or not isinstance(diff, str):
-                raise ValueError("task and diff must be strings")
+            task = row["task"]
+            source_files = row["source_files"]
+            changes = row["changes"]
+            if not isinstance(task, str) or not isinstance(source_files, dict) or not isinstance(changes, dict):
+                raise ValueError("task, source_files, and changes have invalid types")
             if not row.get("ci_passed") or not (row.get("human_reviewed") or row.get("merged")) or not row.get("security_scan_passed"):
                 rejected += 1
                 continue
-            task, diff = task.strip(), diff.strip()
-            if not task or not diff or len(task) > MAX_TASK or len(diff) > MAX_DIFF:
+            task = task.strip()
+            if not task or len(task) > MAX_TASK or not 1 <= len(changes) <= 3:
                 rejected += 1
                 continue
-            if has_secret(task) or has_secret(diff):
+            if not set(changes).issubset(source_files):
                 rejected += 1
                 continue
-            digest = hashlib.sha256((task + "\0" + diff).encode()).hexdigest()
-            accepted[digest] = {
-                "text": "<|user|>Repair task:\n" + task +
-                        "\nReturn a minimal unified diff only.\n<|assistant|>\n" + diff
-            }
+            safe_sources: dict[str, str] = {}
+            safe_changes: list[dict[str, str]] = []
+            total_chars = len(task)
+            valid = True
+            for path, content in source_files.items():
+                if not isinstance(path, str) or not isinstance(content, str):
+                    valid = False
+                    break
+                if not (path.startswith("lib/") or path.startswith("test/") or path.startswith("tools/")):
+                    valid = False
+                    break
+                if ".." in Path(path).parts or len(content) > 20000:
+                    valid = False
+                    break
+                total_chars += len(content)
+                safe_sources[path] = content
+            for path, content in changes.items():
+                if not isinstance(path, str) or not isinstance(content, str) or path not in safe_sources or len(content) > MAX_DIFF:
+                    valid = False
+                    break
+                total_chars += len(content)
+                safe_changes.append({"path": path, "content": content})
+            if not valid or total_chars > 48000 or not safe_sources:
+                rejected += 1
+                continue
+            serialized_sources = json.dumps(safe_sources, ensure_ascii=False, sort_keys=True)
+            target = json.dumps({
+                "summary": "Verified merged repair",
+                "changes": sorted(safe_changes, key=lambda item: item["path"]),
+            }, ensure_ascii=False, sort_keys=True)
+            sample = (
+                "<|im_start|>user\nRepair task:\n" + task +
+                "\nSOURCE FILES (JSON):\n" + serialized_sources +
+                "\nReturn only the required JSON object with complete replacement content for changed files.\n<|im_end|>\n"
+                "<|im_start|>assistant\n" + target + "<|im_end|>"
+            )
+            digest = hashlib.sha256((task + "\0" + serialized_sources + "\0" + target).encode()).hexdigest()
+            accepted[digest] = {"text": sample}
         except (ValueError, KeyError, TypeError, json.JSONDecodeError):
             rejected += 1
 
