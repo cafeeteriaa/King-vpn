@@ -11028,7 +11028,7 @@ ListTile( // KINGEXTRAS row
         if (localPilotOn) stopLocalPilot();
         final domestic = requestedNetworkMode == KingRequestedNetworkMode.domestic;
         await _applyNetPick(domestic, false);
-        await startLocalPilot();
+        await startLocalPilot(pinNetworkMode: true);
         _set(domestic
             ? 'درخواست اتصال در حالت نت ملی ثبت شد؛ خلبان با اولویت مسیرهای داخلی آغاز شد.'
             : 'درخواست اتصال در حالت نت جهانی ثبت شد؛ خلبان با اولویت مسیرهای جهانی آغاز شد.');
