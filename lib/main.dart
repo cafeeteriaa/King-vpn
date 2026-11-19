@@ -5195,7 +5195,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _protoOk(Server s) =>
       (protoSel.isEmpty ||
           protoSel.any((p) => s.link.toLowerCase().startsWith('$p://'))) &&
-      (selCountry == null || s.country == null || s.country == selCountry);
+      // A country-restricted command must not silently admit unknown-country servers.
+      (selCountry == null || s.country == selCountry);
 
   bool _recentFail(Server s) {
     final t = failed[s.key];
@@ -10664,8 +10665,9 @@ ListTile( // KINGEXTRAS row
           selCountry = 'DE';
           await (await SharedPreferences.getInstance()).setString('country', 'DE');
         }
-        const commandProtocols = ['vless', 'vmess', 'trojan', 'shadowsocks'];
-        final selectedProtocols = commandProtocols.where((p) => command.contains(p)).toList();
+        const commandProtocols = ['vless', 'vmess', 'trojan', 'ss'];
+        final normalizedCommand = command.replaceAll('vmees', 'vmess').replaceAll('shadowsocks', 'ss');
+        final selectedProtocols = commandProtocols.where((p) => normalizedCommand.contains(p)).toList();
         if (selectedProtocols.isNotEmpty) {
           protoSel
             ..clear()
@@ -10706,8 +10708,9 @@ ListTile( // KINGEXTRAS row
             selCountry = 'DE';
             await prefs.setString('country', 'DE');
           }
-          const protocols = ['vless', 'vmess', 'trojan', 'shadowsocks'];
-          final chosen = protocols.where((p) => command.contains(p)).toList();
+          const protocols = ['vless', 'vmess', 'trojan', 'ss'];
+          final normalizedCommand = command.replaceAll('vmees', 'vmess').replaceAll('shadowsocks', 'ss');
+          final chosen = protocols.where((p) => normalizedCommand.contains(p)).toList();
           if (chosen.isNotEmpty) {
             protoSel
               ..clear()
@@ -10796,7 +10799,7 @@ ListTile( // KINGEXTRAS row
             )),
             SizedBox(height: 6),
             Align(alignment: Alignment.centerRight, child: Text(
-              'فیلتر کشور و پروتکل تا زمان اتصال کامل به موتور انتخاب سرور اجرا نمی‌شوند و سیستم به‌جای حدس‌زدن، آن‌ها را رد می‌کند.',
+              'فیلتر کشور و پروتکل روی انتخاب واقعی سرورها اعمال می‌شوند؛ برای پاک‌کردن محدودیت‌ها بنویس: پاک کردن فیلترها.',
               textAlign: TextAlign.right,
               style: TextStyle(color: Color(0xFFFFD18A), fontSize: 11),
             )),
