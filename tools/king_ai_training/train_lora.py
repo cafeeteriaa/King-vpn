@@ -24,7 +24,17 @@ def main() -> int:
     if args.max_steps < 10 or args.max_steps > 5000:
         raise ValueError("--max-steps must be between 10 and 5000")
 
-    tokenizer = AutoTokenizer.from_pretrained(args.base_model, local_files_only=True)
+    base_path = Path(args.base_model).expanduser().resolve()
+    if not base_path.is_dir() or not (base_path / "config.json").is_file():
+        raise ValueError(
+            "--base-model must be a local Hugging Face Transformers model directory "
+            "containing config.json; GGUF files from the Android app cannot be QLoRA training inputs"
+        )
+    has_weights = any(base_path.glob("*.safetensors")) or any(base_path.glob("pytorch_model*.bin"))
+    if not has_weights:
+        raise ValueError("No safetensors or PyTorch model weights found in the base-model directory")
+
+    tokenizer = AutoTokenizer.from_pretrained(str(base_path), local_files_only=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     quant = BitsAndBytesConfig(
@@ -34,7 +44,7 @@ def main() -> int:
         bnb_4bit_use_double_quant=True,
     )
     model = AutoModelForCausalLM.from_pretrained(
-        args.base_model, quantization_config=quant, device_map="auto",
+        str(base_path), quantization_config=quant, device_map="auto",
         local_files_only=True, trust_remote_code=False,
     )
     data = load_dataset("json", data_files={
