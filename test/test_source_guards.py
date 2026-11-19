@@ -212,6 +212,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_ownerAuth.authenticate(password)', console)
         self.assertIn('if (!_ownerAuth.hasActiveSession)', console)
 
+    def test_background_supervisor_controls_require_owner_session(self):
+        worker = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
+        console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
+        self.assertIn("import 'king_ai_owner_auth.dart';", worker)
+        self.assertIn('static void _requireOwnerSession()', worker)
+        for signature in (
+            'static Future<void> enable(int pullNumber) async {',
+            'static Future<void> enableAutomaticDiscovery() async {',
+            'static Future<void> disable() async {',
+        ):
+            start = worker.index(signature)
+            body = worker[start:worker.index('\n  }', start)]
+            self.assertIn('_requireOwnerSession();', body)
+        self.assertIn('Future<bool> _requireOwnerSession(String action)', console)
+        self.assertIn("_ownerConfigured && !await _requireOwnerSession('تغییر کلید GitHub')", console)
+        for action in ('فعال‌سازی ترمیم خودکار پس‌زمینه','فعال‌سازی کشف خودکار مخزن','توقف ترمیم پس‌زمینه','پاک‌کردن کلید GitHub'):
+            self.assertIn(f"_requireOwnerSession('{action}')", console)
+
     def test_background_supervisor_is_initialized_with_its_own_dispatcher(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn("import 'king_ai_background.dart';", main)
