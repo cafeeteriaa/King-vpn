@@ -238,7 +238,8 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     ));
   }
 
-  Future<void> _enableBackground() async {    if (!await _requireOwnerSession('فعال‌سازی ترمیم خودکار پس‌زمینه')) return;
+  Future<void> _enableBackground() async { {
+    if (!await _requireOwnerSession('فعال‌سازی ترمیم خودکار پس‌زمینه')) return;
 
     final number = _pullNumber;
     if (number == null || number < 1) {
@@ -262,7 +263,8 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     });
   }
 
-  Future<void> _enableAutomaticDiscovery() async {    if (!await _requireOwnerSession('فعال‌سازی کشف خودکار مخزن')) return;
+  Future<void> _enableAutomaticDiscovery() async { {
+    if (!await _requireOwnerSession('فعال‌سازی کشف خودکار مخزن')) return;
 
     if (!_hasToken || !_ai.isLoaded) {
       setState(() => _output = 'برای کشف و ترمیم خودکار، ابتدا GitHub را متصل و مدل محلی را در حالت foreground بارگذاری کن.');
@@ -281,7 +283,8 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     });
   }
 
-  Future<void> _disableBackground() async {    if (!await _requireOwnerSession('توقف ترمیم پس‌زمینه')) return;
+  Future<void> _disableBackground() async { {
+    if (!await _requireOwnerSession('توقف ترمیم پس‌زمینه')) return;
 
     await _run('غیرفعال‌سازی ترمیم پس‌زمینه', () async {
       await KingAiBackgroundSupervisor.disable();
@@ -289,7 +292,8 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     });
   }
 
-  Future<void> _clearToken() async {    if (!await _requireOwnerSession('پاک‌کردن کلید GitHub')) return;
+  Future<void> _clearToken() async { {
+    if (!await _requireOwnerSession('پاک‌کردن کلید GitHub')) return;
 
     await _run('پاک‌کردن کلید ذخیره‌شده', () async {
       await KingAiBackgroundSupervisor.disable();
