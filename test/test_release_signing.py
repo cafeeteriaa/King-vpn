@@ -47,7 +47,7 @@ class ReleaseSigningConfigurationTests(unittest.TestCase):
         workflow = (ROOT / ".github" / "workflows" / "signed-release.yml").read_text(encoding="utf-8")
         self.assertIn("git merge-base --is-ancestor", workflow)
         self.assertIn("Release tags must point to a commit already merged into main.", workflow)
-        self.assertIn(r"^[0-9]+\\.[0-9]+\\.[0-9]+$", workflow)
+        self.assertIn(r"^[0-9]+\.[0-9]+\.[0-9]+$", workflow)
         self.assertIn("keytool -list -keystore", workflow)
 
     def test_signed_release_resolves_package_info_plus_used_by_updater(self):
