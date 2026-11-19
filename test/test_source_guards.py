@@ -62,6 +62,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('networkAware: true', main)
         self.assertIn('final urls = nationalMode ? _tunnelTestUrlsNational', main)
 
+    def test_king_voice_commands_are_persian_on_device_and_user_confirmed(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
+        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        self.assertIn("import 'package:speech_to_text/speech_to_text.dart' as stt;", main)
+        start = main.index('Future<void> _toggleSmartCommandSpeech()')
+        end = main.index('Future<void> _loadSmartCommandFilters()', start)
+        voice = main[start:end]
+        self.assertIn('Permission.microphone.request()', voice)
+        self.assertIn("startsWith('fa')", voice)
+        self.assertIn('onDevice: true', voice)
+        self.assertIn('_smartCommandController.value = TextEditingValue(', voice)
+        self.assertNotIn('_runSmartCommand(', voice)
+        self.assertIn('speech_to_text:^7.4.0', workflow)
+        self.assertIn('android.permission.RECORD_AUDIO', prepare)
+        self.assertIn('android.speech.RecognitionService', prepare)
+
     def test_ci_pipelines_propagate_failures_through_tee(self):
         workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
         self.assertGreaterEqual(workflow.count('set -o pipefail'), 3)
