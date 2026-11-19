@@ -1109,6 +1109,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("if (_busy) throw StateError('Local AI is already generating');", local)
 
 
+    def test_vpn_service_promotes_before_queuing_sticky_restart_or_stop(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = service.index('public int onStartCommand(Intent intent')
+        end = service.index('/** Runs a task on the single worker thread', start)
+        command = service[start:end]
+        restart = command[command.index('if (intent == null)'):command.index('String action = intent.getAction()')]
+        stop = command[command.index('if (ACTION_STOP.equals(action))'):command.index('if (!ACTION_START.equals(action))')]
+        self.assertLess(restart.index('startForegroundSafe('), restart.index('submit(this::resumeSaved)'))
+        self.assertLess(stop.index('startForegroundSafe('), stop.index('submit(this::stopEverything)'))
+
     def test_android_backup_excludes_vpn_credentials_and_local_ai_secrets(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         backup = (ROOT / 'android_src' / 'king_backup_rules.xml').read_text(encoding='utf-8')
