@@ -132,7 +132,7 @@ class KingAiOwnerAuth {
   static void _validatePassword(String password) {
     if (password.length < _minimumPasswordLength ||
         password.trim() != password ||
-        password.contains(RegExp(r'\\s'))) {
+        password.contains(RegExp(r'\s'))) {
       throw ArgumentError(
         'Choose a password with at least 12 characters and no spaces.',
       );
