@@ -34,6 +34,41 @@ List<int> _response({
 
 void main() {
   stableSortTests();
+  group('NatSingleFlight', () {
+    test('concurrent callers share one result and later calls can run again', () async {
+      final flight = NatSingleFlight<int>();
+      final gate = Completer<int>();
+      var calls = 0;
+      final first = flight.run(() {
+        calls++;
+        return gate.future;
+      });
+      final second = flight.run(() {
+        calls++;
+        return Future<int>.value(99);
+      });
+
+      expect(identical(first, second), isTrue);
+      expect(calls, 1);
+      gate.complete(7);
+      expect(await first, 7);
+
+      expect(await flight.run(() {
+        calls++;
+        return Future<int>.value(8);
+      }), 8);
+      expect(calls, 2);
+    });
+
+    test('a failed operation does not poison later retries', () async {
+      final flight = NatSingleFlight<int>();
+      await expectLater(
+        flight.run(() => Future<int>.error(StateError('probe failed'))),
+        throwsA(isA<StateError>()),
+      );
+      expect(await flight.run(() async => 4), 4);
+    });
+  });
   group('NatProbeEvidence.classify', () {
     test('a single failed sample is never proof of a national network', () {
       const ev = NatProbeEvidence(
