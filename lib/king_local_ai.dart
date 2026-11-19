@@ -298,7 +298,7 @@ empty changes list and explain what is missing.
       'write code', 'generate code', 'add feature', 'create feature',
       'create module', 'modify source', 'write a program',
     ];
-    return patterns.any(q.contains);
+    return patterns.any((pattern) => q.contains(pattern));
   }
 
   /// Public conversational entry point for ordinary app users.
