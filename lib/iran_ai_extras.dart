@@ -1917,7 +1917,10 @@ extension HomeExtras on _HomePageState {
     // Explicit strategy requests are routed through the same command entry.
     if (hasAny(['نت ملی', 'اینترنت ملی', 'شبکه داخلی']) &&
         hasAny(['وصل', 'اتصال', 'connect'])) {
-      if (_resMap.isEmpty) return 'پوشه سرورهای آماده خالی است؛ «وصل شو» را بفرست تا خلبان جستجوی عمومی انجام دهد.';
+      if (_resMap.isEmpty) {
+        await startLocalPilot();
+        return 'پوشه آماده خالی است؛ خلبان محلی فعال شد تا شبکه را تشخیص دهد و مسیر اتصال مناسب را پیدا کند.';
+      }
       final ok = await pickEngineThenStart(() async {
         _resNext = true;
         await connect();
