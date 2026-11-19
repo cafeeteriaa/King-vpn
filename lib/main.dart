@@ -10651,17 +10651,16 @@ ListTile( // KINGEXTRAS row
       final locales = await _smartSpeech.locales();
       final persian = locales.where((locale) =>
           locale.localeId.toLowerCase().replaceAll('_', '-').startsWith('fa'));
+      _smartSpeechLocaleId = persian.isNotEmpty ? persian.first.localeId : 'fa-IR';
       if (persian.isEmpty) {
-        _set('زبان فارسی در سرویس گفتار دستگاه نصب نیست؛ بسته زبان فارسی آفلاین را نصب کن.');
-        return;
+        _set('فارسی در فهرست آفلاین نبود؛ سرویس گفتار دستگاه با fa-IR امتحان می‌شود و ممکن است اینترنت بخواهد.');
       }
-      _smartSpeechLocaleId = persian.first.localeId;
       await _smartSpeech.listen(
         listenOptions: stt.SpeechListenOptions(
           localeId: _smartSpeechLocaleId,
-          listenFor: const Duration(seconds: 20),
-          pauseFor: const Duration(seconds: 3),
-          onDevice: true,
+          listenFor: const Duration(seconds: 30),
+          pauseFor: const Duration(seconds: 4),
+          onDevice: false,
           partialResults: true,
           cancelOnError: true,
           listenMode: stt.ListenMode.confirmation,
