@@ -1113,8 +1113,9 @@ extension HomeExtras on _HomePageState {
   // پیشنهادهای دستیار را روی تنظیمات اپ اعمال می‌کند
   void aiAutopilotStart() {
     aiLoop?.cancel();
+    // A small on-device coder is expensive; the deterministic pilot handles fast network events.
     aiLoop =
-        Timer.periodic(const Duration(seconds: 90), (_) => aiAutopilotTick());
+        Timer.periodic(const Duration(minutes: 10), (_) => aiAutopilotTick());
     Future.delayed(const Duration(seconds: 8), aiAutopilotTick);
   }
 
@@ -1642,12 +1643,7 @@ extension HomeExtras on _HomePageState {
       if (connected) _pilotConnectedAt ??= DateTime.now();
       _set('خلبان AI: تحلیل اینترنت و مکان...');
       final prompt = grokPilotPrompt();
-      try {
-        aiShow(await aiAsk(prompt));
-      } on GeminiLocationError {
-        // try any other provider that has a key
-        aiShow(await aiAsk(prompt));
-      }
+      aiShow(await aiAsk(prompt));
       applyAiSuggest();
       await aiRunAction();
       // if still disconnected, force a connect cycle
@@ -1679,16 +1675,9 @@ extension HomeExtras on _HomePageState {
         _pilotConnectedAt = null;
       }
       if (aiSession && connected) {
-        _set('خلبان Grok فعال • $aiLastProvider • ${_connStatus()}');
+        _set('خلبان محلی فعال • $aiLastProvider • ${_connStatus()}');
       }
-    } on GeminiLocationError {
-      current?.ai = false;
-      if (grokKey.isNotEmpty) {
-        try {
-          aiShow(await grokAsk(grokPilotPrompt()));
-          applyAiSuggest();
-          await aiRunAction();
-        } catch (e, stk) { logError(e, stk); }
+    } catch (e, stk) { logError(e, stk); }
       } else if (_usable().any((s) => s.ai == true && !identical(s, current))) {
         await connectRow('r:ai');
       }
