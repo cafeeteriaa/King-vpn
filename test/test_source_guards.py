@@ -316,7 +316,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('await _scheduleOfficialResearch();', worker)
         self.assertIn("const String _researchTaskName = 'kingAiIranNetworkResearch';", worker)
         self.assertIn('researchGoogle(_researchQuery, maxResults: 2)', worker)
-        self.assertIn('frequency: const Duration(hours: 6)', worker)
+        self.assertIn('frequency: kingAiOfficialResearchInterval', worker)
+        self.assertIn('Duration(hours: 6)', policy)
         self.assertIn('networkType: NetworkType.connected', worker)
         self.assertIn('requiresBatteryNotLow: true', worker)
         self.assertIn('static Future<void> enableAutonomousMaintenance() async {', worker)
@@ -602,14 +603,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_android_toolchain_matches_flutter_350_and_kotlin_2421(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
-        self.assertIn("AGP 9.3.1 + Gradle 9.7.0", prepare)
-        self.assertIn("gradle-9.7.0-\\\\1.zip", prepare)
-        self.assertIn("2.4.21", prepare)
-        self.assertIn("9.3.1", prepare)
+        self.assertIn("AGP_VERSION = '9.3.1'", prepare)
+        self.assertIn("GRADLE_VERSION = '9.7.0'", prepare)
+        self.assertIn("Kotlin 2.4.21", prepare)
 
     def test_flutter_sdk_included_build_resolves_kotlin_plugin_transitives(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
-        self.assertIn("packages/flutter_tools/gradle/settings.gradle.kts", prepare)
+        self.assertIn("packages/flutter_tools/gradle", prepare)
+        self.assertIn("flutter_settings_path", prepare)
         self.assertIn("FLUTTER_ROOT", prepare)
         self.assertIn("mavenCentral()", prepare)
         self.assertIn("gradlePluginPortal()", prepare)
