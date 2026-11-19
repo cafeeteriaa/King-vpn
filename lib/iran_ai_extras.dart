@@ -2461,7 +2461,7 @@ extension HomeExtras on _HomePageState {
     _localAiAdvisorAt = now;
     final evidence = <String, Object?>{
       'networkMode': nationalMode ? 'domestic' : 'global',
-      'networkClass': natNetworkClassLabel(NatNetworkDiagnosis.current),
+      'networkClass': PilotNetworkProbe.current.mode.name,
       'phase': _localPhase,
       'connected': snap.connected,
       'operator': snap.operatorKey,
