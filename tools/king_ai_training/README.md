@@ -36,6 +36,15 @@ python3 tools/king_ai_training/train_lora.py \
 Training requires a CUDA GPU and a locally available, reviewed base model.
 The base model must be a full Hugging Face Transformers checkpoint (`config.json` plus model weights), not the 1.1 GB GGUF file installed by the Android app. The Android device remains an inference target, not a training machine.
 
+## Automatic training setup
+
+- Register a trusted self-hosted GitHub Actions runner with labels: `self-hosted`, `linux`, `x64`, `gpu`, and `king-ai-training`.
+- Set the repository Actions variable `KING_AI_BASE_MODEL_PATH` to the runner-local directory containing the reviewed Transformers checkpoint.
+- After five accepted examples exist, the dataset collector dispatches training automatically when it can push the dataset to `main`. If repository policy requires a dataset PR, merge that data-only PR; the main-branch dataset update then triggers training.
+- The workflow can also be started manually from Actions using a local checkpoint path and bounded step count.
+
+Without that runner and repository variable, collection still works but GPU training remains queued/skipped; it is not silently run on the Android phone.
+
 ## Release safety
 
 The workflow produces a candidate adapter artifact only. It does not publish,
