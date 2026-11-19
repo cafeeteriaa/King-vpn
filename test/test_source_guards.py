@@ -66,6 +66,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('class PilotNetworkProbe', national)
         self.assertIn('domesticTargets', national)
         self.assertIn('globalTargets', national)
+        self.assertIn('SecureSocket.connect(host, 443', national)
         self.assertIn('بازه‌های IP اختصاصی خلبان', main)
         self.assertIn('پویش IP اختصاصی خلبان', main)
         tools_start = main.index('UiTools(items: [', main.index('Widget build(BuildContext context)', main.index('class _HomePageState')))
