@@ -23,8 +23,8 @@ def main() -> int:
     args = parser.parse_args()
     if not torch.cuda.is_available():
         raise RuntimeError("A CUDA GPU is required; training is not run on the Android phone")
-    if args.max_steps < 10 or args.max_steps > 5000:
-        raise ValueError("--max-steps must be between 10 and 5000")
+    if args.max_steps < 50 or args.max_steps > 5000:
+        raise ValueError("--max-steps must be between 50 and 5000 so at least one eval/checkpoint is produced")
 
     base_path = Path(args.base_model).expanduser().resolve()
     if not base_path.is_dir() or not (base_path / "config.json").is_file():
