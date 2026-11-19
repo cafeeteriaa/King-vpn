@@ -44,6 +44,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('startLocalPilot', ai_bar)
         self.assertNotIn('pickEngineThenStart(startGrokPilot', pilot_ui)
 
+    def test_local_pilot_rechecks_network_after_link_changes(self):
+        pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        tick_start = pilot.index('Future<void> localPilotTick(')
+        tick_end = pilot.index('\\n  void _localReschedule()', tick_start)
+        tick = pilot[tick_start:tick_end]
+        self.assertIn('if (!connected)', tick)
+        self.assertIn('await _pilotDetectNetworkMode();', tick)
+        detect_start = pilot.index('Future<NatNetworkClass> _pilotDetectNetworkMode()')
+        detect_end = pilot.index('\\n  /// فعال‌سازی خلبان بدون حلقهٔ اتصال', detect_start)
+        detect = pilot[detect_start:detect_end]
+        self.assertIn('NatNetworkDiagnosis.refresh()', detect)
+        self.assertNotIn('refresh(force: true)', detect)
+
     def test_flutter_artifact_path_matches_non_split_apk_build(self):
         workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
         self.assertIn('flutter build apk --debug --target-platform android-arm64', workflow)
