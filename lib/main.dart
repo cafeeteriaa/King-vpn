@@ -10932,9 +10932,7 @@ ListTile( // KINGEXTRAS row
         _set('من کینگ هستم؛ هوش مصنوعی داخلی King VPN. مغز فرمان، خلبان اتصال و دستیار راهنمای برنامه.');
         return;
       }
-      final disconnectIntent = RegExp(
-        r'(قطع\s*(?:کردن|کن|کنید)?\s*(?:اتصال)?|اتصال\s*(?:را|رو)?\s*قطع|disconnect|خاموش\s*کردن\s*اتصال)',
-      ).hasMatch(normalizedCommand) && !KingCommandSafety.negatesConnection(normalizedCommand);
+      final disconnectIntent = KingCommandSafety.isDisconnectIntent(normalizedCommand)
       if (disconnectIntent) {
         if (localPilotOn) stopLocalPilot();
         await disconnect();
