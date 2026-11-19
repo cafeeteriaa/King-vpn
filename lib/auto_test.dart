@@ -1702,7 +1702,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     _scenario = 7;
     final name = _atItemNames[idx];
     if (!_hasAnyAiKey) {
-      _itemResult[name] = '⏭ هیچ کلید هوش مصنوعی ذخیره نشده';
+      _itemResult[name] = '⏭ مدل محلی King بارگذاری نشده';
       return;
     }
     await _atResetToGlobal();
