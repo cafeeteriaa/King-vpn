@@ -811,5 +811,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('for (final key in legacyKeys)', loader)
 
 
+    def test_stable_success_requires_fresh_multi_destination_tunnel_traffic(self):
+        national = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn('Future<bool> Function() verifyStableTraffic', national)
+        self.assertIn('if (await verifyStableTraffic()) await recordStable(endpointKey);', national)
+        self.assertIn('Future<bool> _stableTunnelTrafficOk(Server server)', main)
+        self.assertIn('_siteOpens(url, viaCore: true)', main)
+        self.assertIn('passed >= 2', main)
+        self.assertIn('() => _stableTunnelTrafficOk(s)', main)
+
+
 if __name__ == '__main__':
     unittest.main()
