@@ -297,6 +297,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('&& !negatesConnection;', main)
         self.assertIn('final negatesScan = RegExp(', main)
         self.assertIn("!negatesScan && command.contains('اسکن')", main)
+        self.assertIn("!negatesScan && (command.contains('اسکنر dns')", main)
+        self.assertIn("!negatesScan && (command.contains('اسکن ip')", main)
+        self.assertIn("!negatesScan && (command.contains('اسکن sni')", main)
 
     def test_background_supervisor_is_initialized_with_its_own_dispatcher(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
