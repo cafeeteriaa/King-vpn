@@ -77,6 +77,16 @@ jobs:
       - name: Install pinned local training dependencies
         if: steps.dataset.outputs.ready == 'true'
         run: python3 -m pip install --requirement tools/king_ai_training/requirements.txt
+      - name: Validate GPU, checkpoint, and prepared dataset before training
+        if: steps.dataset.outputs.ready == 'true'
+        env:
+          BASE_MODEL_PATH: ${{ inputs.base_model_path || vars.KING_AI_BASE_MODEL_PATH }}
+          DATASET_PATH: ${{ inputs.dataset_path || 'data/king_ai_accepted_repairs.jsonl' }}
+        run: |
+          python3 tools/king_ai_training/validate_training_host.py \
+            --base-model "$BASE_MODEL_PATH" \
+            --dataset "$DATASET_PATH" \
+            --prepared-dir "$RUNNER_TEMP/king-ai-dataset"
       - name: Train isolated QLoRA candidate
         if: steps.dataset.outputs.ready == 'true'
         env:
