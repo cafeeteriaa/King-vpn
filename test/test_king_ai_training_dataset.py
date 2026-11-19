@@ -11,7 +11,7 @@ spec.loader.exec_module(module)
 
 
 class DatasetPreparationTests(unittest.TestCase):
-    def test_only_merged_or_reviewed_green_and_secret_free_examples_are_kept(self):
+    def test_only_human_reviewed_green_and_secret_free_examples_are_kept(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             source = root / "examples.jsonl"
@@ -46,14 +46,27 @@ class DatasetPreparationTests(unittest.TestCase):
             })
             source.write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
             report = module.prepare(source, root / "out")
-            self.assertEqual(report["accepted"], 10)
-            self.assertEqual(report["rejected"], 2)
+            self.assertEqual(report["accepted"], 9)
+            self.assertEqual(report["rejected"], 3)
             self.assertGreaterEqual(report["train"], 2)
             self.assertGreaterEqual(report["evaluation"], 1)
             self.assertFalse(report["deployment_authorized"])
             sample = json.loads((root / "out" / "train.jsonl").read_text(encoding="utf-8").splitlines()[0])
             self.assertIn("<|im_start|>assistant", sample["text"])
             self.assertIn('"changes"', sample["text"])
+
+    def test_secret_scan_rejects_common_provider_credentials_and_pem_keys(self):
+        secrets = [
+            "sk-123456789012345678901234",
+            "xoxb-123456789012",
+            "AIza1234567890123456789012345678901234",
+            "Basic dXNlcjpwYXNzd29yZA==",
+            "-----BEGIN PRIVATE KEY-----",
+            "AKIA1234567890ABCDEF",
+        ]
+        for value in secrets:
+            with self.subTest(value=value):
+                self.assertTrue(module.has_secret(value))
 
     def test_rejects_too_small_dataset(self):
         with tempfile.TemporaryDirectory() as temp:
