@@ -2556,8 +2556,6 @@ extension HomeExtras on _HomePageState {
       wantVpn = true;
       abort = false;
     }
-    // مداد جادویی زنده: وقتی وصل نیستیم، با هر تیک خلبان سرعت/پینگ را دوباره می‌سنجد
-    if (autoTune && !connected) unawaited(autoTuneNow());
     // STABLE-PILOT: a working tunnel that was switched less than 3 minutes ago
     // is left alone (stops the repeated switches)
     if (connected && lastState == 'CONNECTED' &&
@@ -2588,6 +2586,9 @@ extension HomeExtras on _HomePageState {
           _applyModePreset(nationalMode, offlineOnly, true);
         }
       }
+      // Start optional tuning only after the underlying-link diagnosis has
+      // completed, so its probes cannot accidentally run through a new tunnel.
+      if (autoTune && !connected) unawaited(autoTuneNow());
 
       // قدرت را هر تیک با شبکه هماهنگ کن (تمام‌اتوماتیک)
       final wantPower = _localAutoPickPower();
