@@ -2251,8 +2251,12 @@ extension HomeExtras on _HomePageState {
       for (final e in _localOpWins.entries) {
         if (!e.key.startsWith('$opKey|')) continue;
         final losses = _localOpLosses[e.key] ?? 0;
+        final total = e.value + losses;
+        final winRate = total == 0 ? 0.0 : e.value / total;
         final netWins = e.value - losses;
-        if (e.value >= 3 && netWins >= 3 && netWins > memoryBestW) {
+        // Do not let a tiny lucky sample dominate the next connection choice.
+        if (total >= 5 && e.value >= 4 && winRate >= 0.75 &&
+            netWins >= 3 && netWins > memoryBestW) {
           memoryBestW = netWins;
           memoryBest = e.key.split('|').last;
         }
@@ -2281,10 +2285,14 @@ extension HomeExtras on _HomePageState {
     }
 
     if (opKey.isNotEmpty && act != 'none') {
-      final w = _localOpWins['$opKey|$act'] ?? 0;
-      if (w >= 3) {
+      final memoryKey = '$opKey|$act';
+      final wins = _localOpWins[memoryKey] ?? 0;
+      final losses = _localOpLosses[memoryKey] ?? 0;
+      final total = wins + losses;
+      final winRate = total == 0 ? 0.0 : wins / total;
+      if (total >= 5 && wins >= 4 && winRate >= 0.75) {
         conf = min(100, conf + 5);
-        why.writeln('تقویت اطمینان از حافظه: $w برد');
+        why.writeln('تقویت اطمینان از حافظه: $wins برد از $total نتیجه');
       }
     }
 
