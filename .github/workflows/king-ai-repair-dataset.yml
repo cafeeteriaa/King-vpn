@@ -36,31 +36,31 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           KING_AI_BASE_MODEL_PATH: ${{ vars.KING_AI_BASE_MODEL_PATH }}
         run: |
-          if [ ! -f data/king_ai_accepted_repairs.jsonl ] || [ -z "$(git status --porcelain -- data/king_ai_accepted_repairs.jsonl)" ]; then
-            echo "No new eligible training example; nothing to commit."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/king_ai_accepted_repairs.jsonl
-          git commit -m "King AI: add verified merged repair training example"
-          if git push origin HEAD:main; then
-            count="$(awk 'NF { n++ } END { print n+0 }' data/king_ai_accepted_repairs.jsonl)"
-            if [ "$count" -ge 5 ] && [ -n "$KING_AI_BASE_MODEL_PATH" ]; then
-              GH_TOKEN="$GITHUB_TOKEN" gh workflow run king-ai-local-training.yml \
-                --ref main \
-                -f base_model_path="$KING_AI_BASE_MODEL_PATH" \
-                -f dataset_path=data/king_ai_accepted_repairs.jsonl \
-                -f max_steps=500
+          if [ -f data/king_ai_accepted_repairs.jsonl ] && [ -n "$(git status --porcelain -- data/king_ai_accepted_repairs.jsonl)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/king_ai_accepted_repairs.jsonl
+            git commit -m "King AI: add verified merged repair training example"
+            if git push origin HEAD:main; then
+              count="$(grep -cve '^[[:space:]]*$' data/king_ai_accepted_repairs.jsonl || true)"
+              if [ "$count" -ge 5 ] && [ -n "$KING_AI_BASE_MODEL_PATH" ]; then
+                GH_TOKEN="${GITHUB_TOKEN}" gh workflow run king-ai-local-training.yml \
+                  --ref main \
+                  -f base_model_path="$KING_AI_BASE_MODEL_PATH" \
+                  -f dataset_path=data/king_ai_accepted_repairs.jsonl \
+                  -f max_steps=500
+              else
+                echo "Training not dispatched: need five accepted examples and KING_AI_BASE_MODEL_PATH."
+              fi
             else
-              echo "Training not dispatched: need five accepted examples and KING_AI_BASE_MODEL_PATH."
+              echo "Direct main update is unavailable; opening a dataset-only PR."
+              branch="king-ai/dataset-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+              git push origin "HEAD:refs/heads/$branch"
+              GH_TOKEN="${GITHUB_TOKEN}" gh pr create \
+                --base main --head "$branch" \
+                --title "King AI: add verified repair training data" \
+                --body "Automated, secret-scanned examples from merged, CI-green, allowlisted repair PRs. This PR contains training data only; it does not modify app code or deploy model weights."
             fi
           else
-            echo "Direct main update is unavailable; opening a dataset-only PR."
-            branch="king-ai/dataset-${GITHUB_RUN_ID}"
-            git push origin "HEAD:refs/heads/$branch"
-            GH_TOKEN="$GITHUB_TOKEN" gh pr create \
-              --base main --head "$branch" \
-              --title "King AI: add verified repair training data" \
-              --body "Automated, secret-scanned examples from merged, CI-green, allowlisted repair PRs. This PR contains training data only; it does not modify app code or deploy model weights."
+            echo "No new eligible training example; nothing to commit."
           fi
