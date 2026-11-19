@@ -95,7 +95,7 @@ jobs:
           if flutter build apk --debug --target-platform android-arm64 2>&1 | tee build.log; then
             exit 0
           fi
-          if ! grep -Eq 'Could not (find|resolve) org\\.jetbrains\\.kotlin:' build.log; then
+          if ! grep -Eq 'Could not (find|resolve) org[.]jetbrains[.]kotlin:' build.log; then
             echo "APK build failed for a reason other than transient Kotlin artifact resolution."
             exit 1
           fi
