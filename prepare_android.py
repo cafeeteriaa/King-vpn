@@ -292,7 +292,7 @@ for attribute, value in (
     ('fullBackupContent', 'false'),
     ('dataExtractionRules', '@xml/king_data_extraction_rules'),
 ):
-    pattern = rf'android:{attribute}\\s*=\\s*("[^"]*"|\\'[^\\']*\\')'
+    pattern = rf"""android:{attribute}\s*=\s*("[^"]*"|'[^']*')"""
     replacement = f'android:{attribute}="{value}"'
     if re.search(pattern, app_tag):
         app_tag = re.sub(pattern, replacement, app_tag, count=1)
