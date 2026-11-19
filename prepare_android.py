@@ -279,6 +279,27 @@ UPDATE_PROVIDER = ('<provider android:name="androidx.core.content.FileProvider"\
                    '        </provider>\n    ')
 if 'androidx.core.content.FileProvider' not in m and '</application>' in m:
     m = m.replace('</application>', UPDATE_PROVIDER + '</application>', 1)
+
+# VPN server configs and local AI credentials are stored in app-private files
+# and SharedPreferences. Never include them in cloud backup or device transfer.
+app_start = m.find('<application')
+app_end = m.find('>', app_start)
+if app_start < 0 or app_end < 0:
+    raise SystemExit('HARD FAIL: AndroidManifest has no valid application tag')
+app_tag = m[app_start:app_end + 1]
+for attribute, value in (
+    ('allowBackup', 'false'),
+    ('fullBackupContent', 'false'),
+    ('dataExtractionRules', '@xml/king_data_extraction_rules'),
+):
+    pattern = rf'android:{attribute}\\s*=\\s*("[^"]*"|\\'[^\\']*\\')'
+    replacement = f'android:{attribute}="{value}"'
+    if re.search(pattern, app_tag):
+        app_tag = re.sub(pattern, replacement, app_tag, count=1)
+    else:
+        app_tag = app_tag[:-1] + ' ' + replacement + '>'
+m = m[:app_start] + app_tag + m[app_end + 1:]
+
 open(mp, 'w', encoding='utf-8').write(m)
 print('OK: AndroidManifest')
 
@@ -295,7 +316,9 @@ shutil.copy('android_src/MainActivity.kt', os.path.join(ka, 'MainActivity.kt'))
 xml_dir = os.path.join(APP, 'android/app/src/main/res/xml')
 os.makedirs(xml_dir, exist_ok=True)
 shutil.copy('android_src/king_file_paths.xml', os.path.join(xml_dir, 'king_file_paths.xml'))
-print('OK: Native files and scoped update FileProvider paths copied')
+shutil.copy('android_src/king_backup_rules.xml', os.path.join(xml_dir, 'king_backup_rules.xml'))
+shutil.copy('android_src/king_data_extraction_rules.xml', os.path.join(xml_dir, 'king_data_extraction_rules.xml'))
+print('OK: Native files, scoped update FileProvider paths, and private-data backup exclusions copied')
 
 # ---- 2) Gradle ----
 for name in ('build.gradle', 'build.gradle.kts'):
