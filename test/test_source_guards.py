@@ -187,6 +187,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             'lib/main.dart',
             'lib/king_command_safety.dart',
             'test/king_command_safety_test.dart',
+            'lib/auto_scanners.dart',
+            'lib/nat_ultra.dart',
+            'lib/national_engine.dart',
+            'lib/network_health.dart',
+            'lib/nnie_core.dart',
         ):
             self.assertIn(path, guard)
         self.assertIn('return protectedPaths.contains(path)', guard)
