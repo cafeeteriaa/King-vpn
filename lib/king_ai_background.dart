@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:flutter/widgets.dart';
 import 'package:workmanager/workmanager.dart';
 
 import 'king_local_ai.dart';
@@ -13,6 +14,7 @@ const String _tag = 'king-ai-ci-repair';
 @pragma('vm:entry-point')
 void kingAiBackgroundDispatcher() {
   Workmanager().executeTask((task, inputData) async {
+    WidgetsFlutterBinding.ensureInitialized();
     DartPluginRegistrant.ensureInitialized();
     if (task != _taskName) return true;
 
