@@ -1,6 +1,10 @@
 import 'dart:async';
 import 'network_health.dart';
 import 'king_local_ai.dart';
+import 'king_ai_console.dart';
+import 'king_ai_background.dart';
+import 'king_ai_owner_auth.dart';
+import 'king_command_safety.dart';
 import 'package:local_inference_flutter/local_inference_flutter.dart';
 import 'update_integrity.dart';
 import 'errjournal.dart';
@@ -21,7 +25,6 @@ import 'prefs_store.dart';
 import 'online_count.dart'; // ONLINECOUNT: شمارش کاربران آنلاین
 import 'nnie_core.dart'; // NNIE: کد خالص و قابل تست
 import 'own_vpn.dart'; // KINGVPN: سرویس VPN خودمان (پیش‌فرض خاموش)
-import 'package:workmanager/workmanager.dart';
 import 'package:crypto/crypto.dart'; // فیکس ۱: sha256 برای APK آپدیت
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // فیکس ۲: کلیدهای AI
 import 'package:speech_to_text/speech_to_text.dart' as stt;
@@ -2959,18 +2962,12 @@ Future<void> main() async {
   }, (e, st) => logError(e));
 }
 
-// The old 15-minute background scan is gone: while the VPN is off nothing
-// runs and no data is used. The dispatcher stays only so Workmanager can be
-// initialised and the periodic task of old installs can be cancelled.
-@pragma('vm:entry-point')
-void callbackDispatcher() {
-  Workmanager().executeTask((task, input) async => true);
-}
-
+// The King AI supervisor uses a dedicated WorkManager dispatcher. Merely
+// initializing it does not schedule work; scheduling remains an explicit
+// choice in the secure owner console.
 Future<void> initBackground() async {
   try {
-    await Workmanager().initialize(callbackDispatcher);
-    await Workmanager().cancelAll();
+    await KingAiBackgroundSupervisor.initialize();
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -5542,6 +5539,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState s) {
+    if (s != AppLifecycleState.resumed) KingAiOwnerAuth.instance.lock();
     if (s != AppLifecycleState.resumed && _smartSpeech.isListening) {
       unawaited(_smartSpeech.cancel());
       _smartSpeechListening = false;
@@ -10687,7 +10685,7 @@ ListTile( // KINGEXTRAS row
             _set('تشخیص گفتار در دسترس نیست: ${error.errorMsg}');
           },
         );
-        _smartSpeechInitialized = true;
+        _smartSpeechInitialized = _smartSpeechAvailable;
       }
       if (!_smartSpeechAvailable) {
         _set('سرویس تشخیص گفتار این دستگاه در دسترس نیست.');
@@ -10928,25 +10926,40 @@ ListTile( // KINGEXTRAS row
       final selectedProtocols = supportedProtocols
           .where((p) => RegExp(r'\b' + p + r'\b').hasMatch(normalized))
           .toList();
-      final wantsConnect = RegExp(r'(اتصال|وصل|شروع|connect)').hasMatch(command);
+      final negatesConnection = KingCommandSafety.negatesConnection(command);
+      final wantsConnect = RegExp(r'(اتصال|وصل|شروع|connect)').hasMatch(command) &&
+          !negatesConnection;
+      final negatesScan = KingCommandSafety.negatesScan(command);
       final clearFilters = RegExp(r'(پاک کردن فیلتر|حذف محدودیت|ریست فیلتر)').hasMatch(command);
       final allCountries = RegExp(r'(همه کشورها|تمام کشورها)').hasMatch(command);
       final allProtocols = RegExp(r'(همه پروتکل|تمام پروتکل)').hasMatch(command);
+      final codeRequest = RegExp(
+        r'(کدنویسی کن|برنامه نویسی کن|کد بنویس|کدشو بنویس|کد تولید|کد جدید|کد رو بنویس|کد را بنویس|'
+        r'کد رو اصلاح|کد را اصلاح|سورس رو تغییر|سورس را تغییر|برنامه رو تغییر|'
+        r'برنامه را تغییر|به برنامه اضافه|قابلیت بساز|قابلیت جدید|قابلیت اضافه|قابلیت اضافه کن|'
+        r'ویژگی جدید|ویژگی اضافه|افزودن قابلیت|توسعه بده|پیاده سازی کن|پیاده‌سازی کن|'
+        r'write code|generate code|add feature|implement feature|create module)',
+      ).hasMatch(command);
 
-      if (RegExp(r'(قطع اتصال|قطع|disconnect|خاموش کردن اتصال)').hasMatch(command) &&
-          !command.contains('نکن')) {
+      if (codeRequest) {
+        unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => const KingAiConsolePage(),
+        )));
+        _set('درخواست توسعه به پنل امن کینگ هدایت شد؛ فقط مالک اصلی پس از احراز هویت می‌تواند آن را ثبت کند.');
+      } else if (RegExp(r'(قطع اتصال|قطع|disconnect|خاموش کردن اتصال)').hasMatch(command) &&
+          !negatesConnection) {
         if (localPilotOn) stopLocalPilot();
         await disconnect();
         _set('دستور اجرا شد: اتصال قطع شد.');
       } else if (command.contains('بازه') && command.contains('خلبان')) {
         await _pilotRangesDialog(context);
-      } else if (command.contains('اسکن') && command.contains('خلبان')) {
+      } else if (!negatesScan && command.contains('اسکن') && command.contains('خلبان')) {
         await _pilotScanOnly();
-      } else if (command.contains('اسکنر dns') || command.contains('پویش dns')) {
+      } else if (!negatesScan && (command.contains('اسکنر dns') || command.contains('پویش dns'))) {
         dnsxSheet(context);
-      } else if (command.contains('اسکن ip') || command.contains('پویش ip')) {
+      } else if (!negatesScan && (command.contains('اسکن ip') || command.contains('پویش ip'))) {
         ipAutoSheet(context);
-      } else if (command.contains('اسکن sni') || command.contains('اسکن پورت')) {
+      } else if (!negatesScan && (command.contains('اسکن sni') || command.contains('اسکن پورت'))) {
         autoScanSheet(context);
       } else if (command.contains('ip تمیز') || command.contains('آی پی تمیز')) {
         cleanIpDialog();
@@ -15459,7 +15472,11 @@ ListTile( // KINGEXTRAS row
           ),
           PopupMenuButton<String>(
             onSelected: (v) {
-              if (v == 'kingai') _kingAiSheet();
+              if (v == 'kingai') {
+                Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => const KingAiConsolePage(),
+                ));
+              }
               if (v == 'set') _settingsSheet();
               if (v == 'apps') _appsSheet();
               if (v == 'add') _importDialog();
