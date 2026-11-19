@@ -6960,7 +6960,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         batches++;
         batchNo = batches;
         // FAST mode (foreground): parallel core delay tests, no VPN toggling.
-        // Gemini rows still use the old tunnel test.
+        // Fixed rows use the standard tunnel test.
         final fast = !bg && fastDelay;
         // first batch is small when nothing healthy is known yet: the first
         // test starts after ~1-2 s instead of ~4 s
