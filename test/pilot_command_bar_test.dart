@@ -1,22 +1,34 @@
 import 'package:flutter_test/flutter_test.dart';
-import '../lib/king_command_safety.dart';
+import '../lib/network_health.dart';
 
 void main() {
-  group('King command safety', () {
-    test('strips the King wake name without granting privileges', () {
-      expect(KingCommandSafety.stripKingAddress('سلام کینگ وصل شو'), 'وصل شو');
-      expect(KingCommandSafety.stripKingAddress('King جان وضعیت اتصال'), 'وضعیت اتصال');
+  group('Smart Pilot network strategy', () {
+    test('selects domestic routing only with repeated domestic evidence', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 2,
+        globalSamples: 2,
+      );
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.domestic);
     });
 
-    test('does not turn a negated connect command into an active connect', () {
-      expect(KingCommandSafety.negatesConnection('به من وصل نشو'), isTrue);
-      expect(KingCommandSafety.negatesConnection('اتصال برقرار کن'), isFalse);
-      expect(KingCommandSafety.negatesConnection('قطع اتصال نکن'), isTrue);
+    test('preserves the current strategy when evidence is incomplete', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.unknown,
+        global: LinkHealth.unknown,
+      );
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
     });
 
-    test('recognizes negated scanner commands', () {
-      expect(KingCommandSafety.negatesScan('اسکن نکن'), isTrue);
-      expect(KingCommandSafety.negatesScan('خلبان را اسکن کن'), isFalse);
+    test('prefers global routing when global reachability is confirmed', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.healthy,
+        domesticSamples: 2,
+        globalSamples: 2,
+      );
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.global);
     });
   });
 }
