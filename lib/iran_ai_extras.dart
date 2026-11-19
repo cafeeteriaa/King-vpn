@@ -1745,201 +1745,6 @@ extension HomeExtras on _HomePageState {
     _set('✅ تنظیمات پیشنهادی دستیار اعمال شد');
   }
 
-  String _normalizePilotText(String raw) {
-    return raw.trim().toLowerCase()
-        .replaceAll('ي', 'ی').replaceAll('ك', 'ک')
-        .replaceAll('ۀ', 'ه').replaceAll('ة', 'ه')
-        .replaceAll('‌', ' ')
-        .replaceAll(RegExp(r'[،,؛;.!?؟:]+'), ' ')
-        .replaceAll(RegExp(r'\s+'), ' ');
-  }
-
-  Future<String> _runPilotCommand(String raw) async {
-    final q = _normalizePilotText(raw);
-    if (q.isEmpty) return 'فرمان خالی است؛ مثلاً «وصل شو» یا «وضعیت اتصال» را بنویس.';
-    bool hasAny(List<String> words) => words.any((w) => q.contains(w));
-    final asksConnect = hasAny([
-      'وصل', 'متصل شو', 'اتصال برقرار کن', 'اتصال بزن', 'connect',
-      'شروع اتصال', 'راه بنداز', 'بهترین سرور', 'پیدا کن',
-    ]) || q == 'اتصال' || q == 'متصل';
-    final asksDisconnect = hasAny([
-      'قطع اتصال', 'قطع vpn', 'قطع شو', 'قطع کن', 'اتصال را قطع',
-      'خاموش کردن vpn', 'disconnect',
-    ]);
-    final asksCancel = hasAny([
-      'لغو', 'کنسل', 'توقف جستجو', 'لغو جستجو', 'توقف عملیات', 'cancel',
-    ]);
-
-    // Help and read-only status must never trigger a connection action.
-    if (hasAny(['راهنما', 'دستورات', 'کمک', 'چه فرمان'])) {
-      return 'می‌توانی طبیعی بنویسی: «وصل شو»، «اتصال مجدد»، «قطع اتصال»، '
-          '«لغو جستجو»، «وضعیت اتصال»، «بهبود اتصال»، «خلبان روشن»، '
-          '«خلبان خاموش»، «بهترین سرور آلمان را پیدا کن و وصل شو»، '
-          '«نت ملی وصل شو» یا «نت جهانی وصل شو».';
-    }
-    if (hasAny(['وضعیت', 'گزارش اتصال', 'چطوری', 'الان وصلم', 'وصل هستم', 'وصل شدم', 'متصل هستم', 'اتصال دارم'])) {
-      final s = current;
-      final ping = s?.ping == null ? 'نامشخص' : '${s!.ping} ms';
-      final speed = (s?.speed ?? 0) > 0
-          ? '${s!.speed!.toStringAsFixed(2)} MB/s' : 'در حال اندازه‌گیری';
-      final serverName = s?.name ?? 'انتخاب نشده';
-      final state = connected && lastState == 'CONNECTED'
-          ? 'متصل' : busy ? 'در حال جستجو/اتصال' : 'غیرمتصل';
-      return 'وضعیت واقعی: $state • هسته: $lastState • خلبان: '
-          '${localPilotOn ? 'روشن' : 'خاموش'} • راهبرد: '
-          '${nationalMode ? 'نت ملی' : 'جهانی/تشخیص خودکار'} • سرور: '
-          '$serverName • سرور سالم: ${_usable().length} • پینگ: $ping • سرعت: $speed';
-    }
-    if (asksCancel) {
-      if (!busy && !searching && !connected) return 'عملیات فعالی برای لغو وجود ندارد.';
-      if (localPilotOn) stopLocalPilot();
-      _cancelNow();
-      return 'فرمان لغو ارسال شد؛ عملیات جاری متوقف می‌شود.';
-    }
-    if (asksDisconnect) {
-      if (!connected && !wantVpn && !busy && !searching) {
-        if (localPilotOn) stopLocalPilot();
-        return 'اتصال فعالی وجود ندارد.';
-      }
-      await disconnect();
-      return 'فرمان قطع اجرا شد؛ وضعیت هسته اکنون: $lastState.';
-    }
-    if (hasAny(['اتصال مجدد', 'دوباره وصل', 'از نو وصل', 'reconnect'])) {
-      if (busy && !connected) return 'یک عملیات در جریان است؛ ابتدا «لغو جستجو» را بفرست.';
-      if (connected || wantVpn || localPilotOn) await disconnect();
-      await startLocalPilot();
-      return 'چرخه اتصال مجدد به خلبان سپرده شد؛ نتیجه با بررسی سلامت تونل مشخص می‌شود.';
-    }
-    if (hasAny(['خلبان خاموش', 'توقف خلبان', 'خلبان را متوقف', 'خلبان را خاموش', 'خلبان رو خاموش'])) {
-      if (!localPilotOn) return 'خلبان محلی از قبل خاموش است.';
-      stopLocalPilot();
-      return 'خلبان محلی خاموش شد؛ تنظیمات ذخیره‌شده کاربر بازیابی می‌شوند.';
-    }
-    if (hasAny(['خلبان روشن', 'خلبان را روشن', 'خلبان رو روشن', 'شروع خلبان'])) {
-      if (localPilotOn) return 'خلبان هوشمند از قبل روشن است.';
-      await startLocalPilot();
-      return 'خلبان هوشمند روشن شد و چرخه تشخیص شبکه و اتصال را آغاز کرد.';
-    }
-
-    // Country/server targeting is evaluated before the generic "best server"
-    // command so "best server in Germany" cannot degrade into a generic scan.
-    if (asksConnect) {
-      final countryMatches = countryFa.entries.where((entry) {
-        final name = _normalizePilotText(entry.value);
-        final code = _normalizePilotText(entry.key);
-        return (name.length >= 3 && q.contains(name)) ||
-            (code.length >= 2 && q.split(' ').contains(code));
-      }).toList();
-      final asksForTarget = countryMatches.isNotEmpty ||
-          hasAny(['به کشور', 'کشور ', 'سرور ']) && !hasAny(['بهترین سرور']);
-      if (hasAny(['سرور شخصی', 'پوشه شخصی', 'کانفیگ شخصی'])) {
-        if (personalFolderCache.isEmpty && personal == null) {
-          return 'سرور شخصی آماده‌ای وجود ندارد؛ ابتدا از بخش ساخت/افزودن سرور، یک سرور شخصی ثبت کن.';
-        }
-        final ok = await pickEngineThenStart(
-          () => personalFolderCache.isNotEmpty
-              ? _personalAdThen(personalFolderConnect)
-              : connectPersonal(),
-          askMode: false,
-        );
-        return ok
-            ? 'درخواست اتصال به سرور شخصی اجرا شد؛ نتیجه پس از بررسی تونل اعلام می‌شود.'
-            : 'اتصال به سرور شخصی لغو شد.';
-      }
-      if (asksForTarget) {
-        final available = _usable();
-        final named = available.where((server) {
-          final n = _normalizePilotText(server.name);
-          return n.length >= 3 && q.contains(n);
-        }).toList();
-        if (named.isNotEmpty) {
-          final chosen = named.first;
-          final ok = await pickEngineThenStart(
-            () => connect(chosen), askMode: false,
-          );
-          return ok
-              ? 'درخواست اتصال به «${chosen.name}» ارسال شد؛ سلامت تونل بررسی می‌شود.'
-              : 'درخواست اتصال لغو شد.';
-        }
-        if (countryMatches.isNotEmpty) {
-          final key = countryMatches.first.key;
-          final matches = available.where((server) =>
-              _normalizePilotText(server.country ?? '') == _normalizePilotText(key) ||
-              _normalizePilotText(server.country ?? '') == _normalizePilotText(countryFa[key] ?? key)).toList();
-          if (matches.isEmpty) {
-            return 'در حال حاضر سرور سالم و آماده‌ای برای ${countryFa[key] ?? key} ندارم. '
-                'برای جستجوی خودکار در همه کشورها بنویس «بهترین سرور را پیدا کن و وصل شو».';
-          }
-          final chosen = matches.first;
-          final ok = await pickEngineThenStart(
-            () => connect(chosen), askMode: false,
-          );
-          return ok
-              ? 'سرور آماده از ${countryFa[key] ?? key} انتخاب شد؛ سلامت تونل بررسی می‌شود.'
-              : 'اتصال لغو شد.';
-        }
-        return 'نام کشور یا سرور مشخص نشد. نام کشور/سرور را دقیق‌تر بنویس یا «وصل شو» را ارسال کن.';
-      }
-    }
-
-    if (asksConnect && hasAny(['نت ملی', 'اینترنت ملی', 'شبکه داخلی'])) {
-      if (_resMap.isEmpty) {
-        await startLocalPilot();
-        return 'خلبان فعال شد؛ چون پوشه سرورهای آماده خالی است، تشخیص شبکه و انتخاب مسیر به خلبان سپرده شد.';
-      }
-      final ok = await pickEngineThenStart(() async {
-        _resNext = true;
-        await connect();
-      }, forceNet: true);
-      return ok ? 'اتصال با راهبرد نت ملی آغاز شد؛ نتیجه تونل بررسی می‌شود.' : 'درخواست اتصال لغو شد.';
-    }
-    if (asksConnect && hasAny(['نت جهانی', 'اینترنت جهانی', 'شبکه جهانی'])) {
-      if (_resMap.isEmpty) {
-        await startLocalPilot();
-        return 'خلبان فعال شد؛ تشخیص شبکه و انتخاب مسیر مناسب را انجام می‌دهد.';
-      }
-      final ok = await pickEngineThenStart(() async {
-        _resNext = true;
-        await connect();
-      }, forceNet: false);
-      return ok ? 'اتصال با راهبرد جهانی آغاز شد؛ نتیجه تونل بررسی می‌شود.' : 'درخواست اتصال لغو شد.';
-    }
-
-    if (asksConnect && hasAny(['بهبود', 'بهینه', 'بررسی دوباره', 'بهترین سرور', 'پیدا کن'])) {
-      if (!localPilotOn) {
-        await startLocalPilot();
-        return 'خلبان فعال شد و انتخاب سرور مناسب را آغاز کرد.';
-      }
-      await localPilotTick(force: true);
-      return 'ارزیابی فوری به خلبان سپرده شد؛ سرور فقط بر پایه شواهد شبکه انتخاب می‌شود.';
-    }
-    if (asksConnect) {
-      if (busy && !connected) return 'جستجو یا اتصال در حال اجراست؛ برای توقف «لغو جستجو» را بفرست.';
-      if (connected && localPilotOn) {
-        await localPilotTick(force: true);
-        return 'تونل برقرار است؛ خلبان سلامت و کیفیت آن را دوباره ارزیابی کرد.';
-      }
-      await startLocalPilot();
-      return 'خلبان هوشمند فعال شد؛ تشخیص شبکه، انتخاب سرور و بررسی سلامت تونل آغاز شد.';
-    }
-    if (hasAny(['نت ملی', 'اینترنت ملی', 'شبکه داخلی'])) {
-      return 'برای شروع با این راهبرد بنویس «نت ملی وصل شو».';
-    }
-    if (hasAny(['نت جهانی', 'اینترنت جهانی', 'شبکه جهانی'])) {
-      return 'برای شروع با این راهبرد بنویس «نت جهانی وصل شو».';
-    }
-    if (q == 'خاموش کن' || q == 'خاموشش کن') {
-      return 'برای جلوگیری از اشتباه مشخص کن: «خلبان خاموش» یا «قطع اتصال».';
-    }
-    return 'منظور فرمان را دقیق تشخیص ندادم و برای جلوگیری از اجرای اشتباه، تغییری ندادم. '
-        'مثلاً «وصل شو»، «قطع اتصال» یا «وضعیت اتصال» را بنویس.';
-  }
-
-  Widget aiBar() => PilotCommandBar(
-    onSubmit: _runPilotCommand, localStatus: localPilotText,
-    pilotOn: localPilotOn, connected: connected, busy: busy,
-  );
-
   void aiSheet() {
     final tokenC = TextEditingController();
     final ownerC = TextEditingController(text: 'cafeeteriaa');
@@ -2160,7 +1965,8 @@ extension HomeExtras on _HomePageState {
       final urls = nationalMode ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
       final checks = await Future.wait(urls.map((url) => _siteOpens(url, viaCore: true)
           .timeout(const Duration(seconds: 8), onTimeout: () => false)));
-      out['net'] = checks.any((ok) => ok);
+      // A single reachable site is a weak hint, not a successful tunnel check.
+      out['net'] = checks.where((ok) => ok).length >= 2;
       // Service-specific probes remain informational only; they do not decide
       // whether the tunnel is healthy or trigger an engine switch.
     } catch (e, stk) {
@@ -2388,14 +2194,23 @@ extension HomeExtras on _HomePageState {
     set['fastWorkers'] = fastWorkers;
     set['timeout'] = delayTimeout.inSeconds;
 
-    // بهترین اقدام یادگرفته‌شده برای این اپراتور
-    final opKey = s.operatorKey;
+    // یادگیری فقط از نتیجه‌ی تأییدشده؛ تعداد تلاش‌ها به‌تنهایی «برد» نیست.
+    // Keep operator learning isolated by the active Pilot route class;
+    // a result on international access must not bias domestic-only decisions.
+    final opKey = _pilotExperienceOperatorKey(s.operatorKey);
     String? memoryBest;
     var memoryBestW = 0;
     if (opKey.isNotEmpty) {
       for (final e in _localOpWins.entries) {
-        if (e.key.startsWith('$opKey|') && e.value > memoryBestW) {
-          memoryBestW = e.value;
+        if (!e.key.startsWith('$opKey|')) continue;
+        final losses = _localOpLosses[e.key] ?? 0;
+        final total = e.value + losses;
+        final winRate = total == 0 ? 0.0 : e.value / total;
+        final netWins = e.value - losses;
+        // Do not let a tiny lucky sample dominate the next connection choice.
+        if (total >= 5 && e.value >= 4 && winRate >= 0.75 &&
+            netWins >= 3 && netWins > memoryBestW) {
+          memoryBestW = netWins;
           memoryBest = e.key.split('|').last;
         }
       }
@@ -2423,10 +2238,14 @@ extension HomeExtras on _HomePageState {
     }
 
     if (opKey.isNotEmpty && act != 'none') {
-      final w = _localOpWins['$opKey|$act'] ?? 0;
-      if (w >= 3) {
+      final memoryKey = '$opKey|$act';
+      final wins = _localOpWins[memoryKey] ?? 0;
+      final losses = _localOpLosses[memoryKey] ?? 0;
+      final total = wins + losses;
+      final winRate = total == 0 ? 0.0 : wins / total;
+      if (total >= 5 && wins >= 4 && winRate >= 0.75) {
         conf = min(100, conf + 5);
-        why.writeln('تقویت اطمینان از حافظه: $w برد');
+        why.writeln('تقویت اطمینان از حافظه: $wins برد از $total نتیجه');
       }
     }
 
@@ -2451,14 +2270,6 @@ extension HomeExtras on _HomePageState {
             ((s.svc & 4) != 0 ? 20 : 0);
         score += (s.speed ?? 0) * 50;
       }
-      if (nationalMode) {
-        // In national mode, prefer evidence learned from successful real VPN
-        // sessions on this exact transport/TLS endpoint. Unknown endpoints get
-        // no penalty; repeated failures lower their standby priority.
-        final learned = NationalNetworkIntelligence.scoreFor(
-            NationalNetworkIntelligence.keyOfServer(s));
-        score += learned.clamp(-100.0, 100.0).toDouble() * 0.55;
-      }
       final ping = s.ping;
       if (ping != null && ping > 0) score += max(0, 100 - ping / 15);
       score += (_profRate(s) - 0.5) * 30;
@@ -2468,6 +2279,110 @@ extension HomeExtras on _HomePageState {
       }
     }
     return best;
+  }
+
+  Future<void> _pilotLoadExperience() async {
+    if (_pilotExperienceLoaded) return;
+    _pilotExperienceLoaded = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_pilotExperiencePrefsKey);
+      if (raw == null || raw.isEmpty) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return;
+      Map<String, int> readMap(Object? value) {
+        if (value is! Map) return <String, int>{};
+        return <String, int>{
+          for (final entry in value.entries)
+            if (entry.key is String && entry.value is num)
+              (entry.key as String): (entry.value as num).toInt().clamp(0, 10000).toInt(),
+        };
+      }
+      _localOpWins = readMap(decoded['wins']);
+      _localOpLosses = readMap(decoded['losses']);
+    } catch (e, st) {
+      logError(e, st);
+    }
+  }
+
+  Future<void> _pilotSaveExperience() async {
+    try {
+      // Bound memory size and values; experience is advisory, never authority.
+      Map<String, int> bounded(Map<String, int> source) {
+        final entries = source.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
+        return Map<String, int>.fromEntries(entries.take(100).map(
+          (e) => MapEntry(e.key, e.value.clamp(0, 10000).toInt()),
+        ));
+      }
+      _localOpWins = bounded(_localOpWins);
+      _localOpLosses = bounded(_localOpLosses);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_pilotExperiencePrefsKey, jsonEncode({
+        'version': 1,
+        'wins': _localOpWins,
+        'losses': _localOpLosses,
+      }));
+    } catch (e, st) {
+      logError(e, st);
+    }
+  }
+
+  void _pilotBeginExperience(String operatorKey, String action) {
+    final op = operatorKey.trim();
+    if (op.isEmpty || action.isEmpty) return;
+    _pilotPendingExperienceKey = '$op|$action';
+    _pilotPendingExperienceAt = DateTime.now();
+    _pilotPendingWasConnected = connected;
+    _pilotPendingServerLink = current?.link;
+    _pilotPendingPositiveSamples = 0;
+    _pilotPendingLastPositiveAt = null;
+  }
+
+  Future<void> _pilotReconcileExperience(_LocalNetSnap snap) async {
+    final key = _pilotPendingExperienceKey;
+    final at = _pilotPendingExperienceAt;
+    if (key == null || at == null) return;
+    final now = DateTime.now();
+    final action = key.split('|').last;
+    final elapsed = now.difference(at);
+    // A connected core alone is not success. Require class-appropriate
+    // data-plane/throughput evidence twice, at least 10s apart, after action.
+    final hasData = snap.connected &&
+        (snap.netOk == true || (snap.speedMBs != null && snap.speedMBs! >= 0.25));
+    final transitioned = switch (action) {
+      'connect' => !_pilotPendingWasConnected && snap.connected,
+      'switch_best' => snap.connected && current?.link != null &&
+          current!.link != _pilotPendingServerLink,
+      'soft_recover' => snap.connected,
+      _ => false,
+    };
+    final verified = elapsed >= const Duration(seconds: 10) && hasData && transitioned;
+    if (verified) {
+      final last = _pilotPendingLastPositiveAt;
+      if (last == null || now.difference(last) >= const Duration(seconds: 10)) {
+        _pilotPendingPositiveSamples++;
+        _pilotPendingLastPositiveAt = now;
+      }
+    } else if (!hasData || !transitioned) {
+      _pilotPendingPositiveSamples = 0;
+      _pilotPendingLastPositiveAt = null;
+    }
+    final confirmed = _pilotPendingPositiveSamples >= 2;
+    final expiredFailure = !confirmed && elapsed >= const Duration(minutes: 3);
+    if (!confirmed && !expiredFailure) return;
+    if (confirmed) {
+      _localOpWins[key] = (_localOpWins[key] ?? 0) + 1;
+    } else {
+      _localOpLosses[key] = (_localOpLosses[key] ?? 0) + 1;
+    }
+    _pilotPendingExperienceKey = null;
+    _pilotPendingExperienceAt = null;
+    _pilotPendingWasConnected = false;
+    _pilotPendingServerLink = null;
+    _pilotPendingPositiveSamples = 0;
+    _pilotPendingLastPositiveAt = null;
+    await _pilotSaveExperience();
   }
 
   Future<void> _localApply(_LocalDecision d) async {
@@ -2493,12 +2408,14 @@ extension HomeExtras on _HomePageState {
     switch (d.action) {
       case 'connect':
         if (!connected && !busy) {
+          _pilotBeginExperience(_pilotExperienceOperatorKey(_localLastOp), 'connect');
           turboSpeed = true;
           _applyTurboLevers();
           await connect();
         }
         break;
       case 'soft_recover':
+        _pilotBeginExperience(_pilotExperienceOperatorKey(_localLastOp), 'soft_recover');
         // بازیابی نرم: فقط توربو همان سرور قبل از تعویض کامل (جدید: بدون نت ملی)
         if (connected && current != null && !busy && !switching) {
           turboSpeed = true;
@@ -2514,11 +2431,7 @@ extension HomeExtras on _HomePageState {
         if (!busy && !switching) {
           final best = _pilotBestStandby();
           if (best != null) {
-            final op = _localLastOp;
-            if (op.isNotEmpty) {
-              final k = '$op|switch_best';
-              _localOpWins[k] = (_localOpWins[k] ?? 0) + 1;
-            }
+            _pilotBeginExperience(_pilotExperienceOperatorKey(_localLastOp), 'switch_best');
             await _swapTo(best);
             _localConnectedSince = DateTime.now();
             _localSlowStreak = 0;
@@ -2617,11 +2530,12 @@ extension HomeExtras on _HomePageState {
     _localAiAdvisorAt = now;
     final evidence = <String, Object?>{
       'networkMode': nationalMode ? 'domestic' : 'global',
-      'networkClass': natNetworkClassLabel(NatNetworkDiagnosis.current),
-      'nationalEndpointMemoryScore': nationalMode && current != null
-          ? NationalNetworkIntelligence.scoreFor(NationalNetworkIntelligence.keyOfServer(current!))
-          : null,
-      'serviceProbesApplicable': !nationalMode,
+      'networkClass': PilotNetworkProbe.current.mode.name,
+      'domesticProbeHealth': PilotNetworkProbe.current.domestic.name,
+      'globalProbeHealth': PilotNetworkProbe.current.global.name,
+      'domesticProbeLatencyMs': PilotNetworkProbe.current.domesticLatencyMs,
+      'globalProbeLatencyMs': PilotNetworkProbe.current.globalLatencyMs,
+      'probeConfidence': PilotNetworkProbe.current.confidence,
       'phase': _localPhase,
       'connected': snap.connected,
       'operator': snap.operatorKey,
@@ -2651,7 +2565,6 @@ extension HomeExtras on _HomePageState {
     try {
       final raw = await ai.askPilot(
         'Review this VPN pilot decision using only the evidence below. '
-        'In national-only mode, ignore global service probes and use only domestic data-plane evidence. '
         'Return exactly the required JSON. Do not invent data. '
         'If uncertain choose action none. Evidence: ${jsonEncode(evidence)}',
         maxTokens: 192,
@@ -2789,7 +2702,7 @@ extension HomeExtras on _HomePageState {
       }
       // Start optional tuning only after the underlying-link diagnosis has
       // completed, so its probes cannot accidentally run through a new tunnel.
-      if (autoTune && !connected) unawaited(autoTuneNow());
+      // Pilot uses its own evidence gathering and optimizer; generic AutoTune is separate.
 
       // قدرت را هر تیک با شبکه هماهنگ کن (تمام‌اتوماتیک)
       final wantPower = _localAutoPickPower();
@@ -2797,7 +2710,9 @@ extension HomeExtras on _HomePageState {
         _localApplyMaxPowerProfile(power: wantPower);
       }
 
+      await _pilotLoadExperience();
       final snap = await _localGather(probe: true);
+      await _pilotReconcileExperience(snap);
       final baseDecision = _localDecide(snap);
       final decision = await _localAiReview(snap, baseDecision);
 
@@ -3009,65 +2924,55 @@ extension HomeExtras on _HomePageState {
 
   /// تشخیص پیش از اتصال؛ شواهد نامشخص، انتخاب قبلی کاربر را دست‌نخورده می‌گذارد.
   Future<NatNetworkClass> _pilotDetectNetworkMode() async {
-    // NatNetworkDiagnosis probes the underlying link; do not run it through an
-    // already active VPN tunnel and accidentally classify the relay instead.
-    if (connected) return NatNetworkDiagnosis.current;
+    // Dedicated Smart Pilot probes; never consume general scanner results,
+    // user IP ranges, or a probe routed through an active VPN tunnel.
+    if (connected) return NatNetworkClass.unknown;
     try {
       final previousMode = nationalMode;
-      final detected = await NatNetworkDiagnosis.refresh()
-          .timeout(const Duration(seconds: 7), onTimeout: () => NatNetworkDiagnosis.current);
-      final evidence = switch (detected) {
-        NatNetworkClass.globalReachable => const NetworkEvidence(
-            domestic: LinkHealth.unknown,
-            global: LinkHealth.healthy,
-            globalSamples: 4,
-          ),
-        NatNetworkClass.domesticOnlyLikely => const NetworkEvidence(
-            domestic: LinkHealth.healthy,
-            global: LinkHealth.unreachable,
-            domesticSamples: 2,
-            globalSamples: 2,
-          ),
-        NatNetworkClass.dnsDegraded || NatNetworkClass.transportRestricted =>
-          const NetworkEvidence(
-            domestic: LinkHealth.healthy,
-            global: LinkHealth.unreachable,
-            domesticSamples: 2,
-            globalSamples: 2,
-          ),
-        NatNetworkClass.unknown => const NetworkEvidence(
-            domestic: LinkHealth.unknown,
-            global: LinkHealth.unknown,
-          ),
-      };
+      final evidence = await PilotNetworkProbe.refresh()
+          .timeout(const Duration(seconds: 9), onTimeout: () =>
+              const NetworkEvidence(
+                domestic: LinkHealth.unknown,
+                global: LinkHealth.unknown,
+              ));
       final strategy = choosePilotNetworkStrategy(evidence);
       if (strategy == PilotNetworkStrategy.domestic) {
         nationalMode = true;
       } else if (strategy == PilotNetworkStrategy.global) {
         nationalMode = false;
-      } else if (strategy == PilotNetworkStrategy.offline) {
-        localPilotText.value = 'هیچ مسیر قابل‌تأییدی در دسترس نیست؛ اتصال امن متوقف می‌ماند.';
       }
-      // Unknown/partial evidence is not a license to guess. Keep last mode.
+      // Offline/partial evidence preserves the previous strategy.
       natForce = nationalMode;
       userModeChoice = nationalMode;
       if (previousMode != nationalMode) {
         _resetNetworkHealthCounters();
         await ultimateSave();
       }
-      final label = natNetworkClassLabel(detected);
-      final modeLabel = nationalMode ? 'نت ملی' : 'اینترنت جهانی/انتخاب قبلی';
-      localPilotText.value = 'خلبان هوشمند ∞ • تشخیص شبکه: $label\n'
-          'حالت انتخاب‌شده: $modeLabel';
-      return detected;
+      final modeLabel = switch (evidence.mode) {
+        DetectedNetworkMode.domesticOnly => 'فقط مسیر داخلی تأیید شد',
+        DetectedNetworkMode.globalOnly => 'مسیر جهانی تأیید شد',
+        DetectedNetworkMode.dualStack => 'مسیر داخلی و جهانی هر دو در دسترس‌اند',
+        DetectedNetworkMode.offline => 'هیچ مسیر آزمایشی پاسخ نداد',
+        DetectedNetworkMode.unknown => 'شواهد کافی نیست؛ حالت قبلی حفظ شد',
+      };
+      final strategyLabel = nationalMode ? 'نت ملی' : 'جهانی/حالت قبلی';
+      localPilotText.value = 'خلبان هوشمند ∞ • اسکن اختصاصی شبکه\n'
+          '$modeLabel\nراهبرد: $strategyLabel • '
+          'شواهد: داخلی ${evidence.domesticSamples} / جهانی ${evidence.globalSamples}';
+      return switch (evidence.mode) {
+        DetectedNetworkMode.domesticOnly => NatNetworkClass.domesticOnlyLikely,
+        DetectedNetworkMode.globalOnly ||
+        DetectedNetworkMode.dualStack => NatNetworkClass.globalReachable,
+        DetectedNetworkMode.offline => NatNetworkClass.transportRestricted,
+        DetectedNetworkMode.unknown => NatNetworkClass.unknown,
+      };
     } catch (e, st) {
       logError(e, st);
-      localPilotText.value = 'تشخیص شبکه ناموفق بود؛ حالت قبلی حفظ شد.';
+      localPilotText.value = 'اسکن اختصاصی خلبان ناموفق بود؛ حالت قبلی حفظ شد.';
       return NatNetworkClass.unknown;
     }
   }
 
-  /// فعال‌سازی خلبان بدون حلقهٔ اتصال (برای وقتی کاربر فقط «اتصال» زده)
   void ensureLocalPilotRunning() {
     if (aiSession) stopGrokPilot();
     final wasOff = !localPilotOn;
@@ -3977,7 +3882,18 @@ int _localSvcFail = 0; // consecutive active-network data-plane probe failures
 int _localNetFail = 0;
 
 // حافظه یادگیری محلی: اپراتور → آخرین اقدام موفق / امتیاز
-final Map<String, int> _localOpWins = {}; // action hash → win count
+Map<String, int> _localOpWins = {}; // confirmed successes by operator/action
+Map<String, int> _localOpLosses = {}; // confirmed failures by operator/action
+const String _pilotExperiencePrefsKey = 'king_pilot_experience_v1';
+bool _pilotExperienceLoaded = false;
+String _pilotExperienceOperatorKey(String operator) =>
+    'v2|${operator.trim().isEmpty ? 'unknown' : operator.trim()}|${nationalMode ? 'domestic' : 'global'}';
+String? _pilotPendingExperienceKey;
+bool _pilotPendingWasConnected = false;
+String? _pilotPendingServerLink;
+int _pilotPendingPositiveSamples = 0;
+DateTime? _pilotPendingLastPositiveAt;
+DateTime? _pilotPendingExperienceAt;
 final Map<String, int> _localOpFails = {};
 
 // ماشین‌حالت
@@ -4063,247 +3979,5 @@ class _LocalDecision {
       {this.confidence = 70});
 }
 
-
 // Local-first command field: commands stay on-device and are routed to the
 // app's Smart Pilot. No external AI key or network request is required.
-class PilotCommandBar extends StatefulWidget {
-  final Future<String> Function(String) onSubmit;
-  final ValueListenable<String> localStatus;
-  final bool pilotOn, connected, busy;
-  const PilotCommandBar({super.key, required this.onSubmit, required this.localStatus,
-    required this.pilotOn, required this.connected, required this.busy});
-  @override
-  State<PilotCommandBar> createState() => _PilotCommandBarState();
-}
-class _PilotCommandBarState extends State<PilotCommandBar> {
-  final TextEditingController _controller = TextEditingController();
-  final FocusNode _focus = FocusNode();
-  bool _sending = false;
-  bool _cancelSending = false;
-  int _requestRevision = 0;
-  String _lastCommand = '';
-  String _intentLabel = 'آماده دریافت فرمان';
-  final List<String> _history = <String>[];
-  String _reply = 'درخواستت را بنویس؛ فرمان‌ها روی دستگاه تحلیل می‌شوند و عملیات اتصال از مسیر خلبان اجرا می‌شود.';
-  @override
-  void dispose() {
-    _controller.dispose();
-    _focus.dispose();
-    super.dispose();
-  }
-
-  Future<void> _send([String? quickCommand, bool allowWhileSending = false]) async {
-    if (_cancelSending || (_sending && !allowWhileSending)) return;
-    final command = (quickCommand ?? _controller.text).trim();
-    if (command.isEmpty) return;
-    if (allowWhileSending) {
-      final revision = ++_requestRevision;
-      setState(() {
-        _cancelSending = true;
-        _lastCommand = command;
-        _intentLabel = _classifyIntent(command);
-        _history.remove(command);
-        _history.add(command);
-        if (_history.length > 8) _history.removeAt(0);
-        _reply = 'در حال ارسال فرمان لغو به موتور اتصال…';
-      });
-      try {
-        final result = await widget.onSubmit(command);
-        if (mounted && revision == _requestRevision) setState(() => _reply = result);
-      } catch (e) {
-        if (mounted && revision == _requestRevision) setState(() => _reply = 'لغو عملیات ناموفق بود: $e');
-      } finally {
-        if (mounted) setState(() => _cancelSending = false);
-      }
-      return;
-    }
-    final revision = ++_requestRevision;
-    setState(() {
-      _sending = true;
-      _lastCommand = command;
-      _intentLabel = _classifyIntent(command);
-      _history.remove(command);
-      _history.add(command);
-      if (_history.length > 8) _history.removeAt(0);
-      _reply = 'در حال تحلیل فرمان و اجرای امن آن…';
-    });
-    _controller.clear();
-    try {
-      final result = await widget.onSubmit(command);
-      if (mounted && revision == _requestRevision) setState(() => _reply = result);
-    } catch (e) {
-      if (mounted && revision == _requestRevision) setState(() => _reply = 'اجرای فرمان ناموفق بود: $e');
-    } finally {
-      if (mounted) setState(() => _sending = false);
-    }
-  }
-
-  String _classifyIntent(String raw) {
-    final q = raw.toLowerCase().replaceAll('ي', 'ی').replaceAll('ك', 'ک');
-    if (q.contains('قطع') || q.contains('disconnect')) return 'عملیات: قطع امن تونل';
-    if (q.contains('لغو') || q.contains('توقف') || q.contains('cancel')) return 'عملیات: لغو جستجو یا کار جاری';
-    if (q.contains('وضعیت') || q.contains('گزارش')) return 'عملیات: گزارش فقط‌خواندنی';
-    if (q.contains('نت ملی') || q.contains('داخلی')) return 'راهبرد: شبکه داخلی / نت ملی';
-    if (q.contains('نت جهانی') || q.contains('جهانی')) return 'راهبرد: شبکه جهانی';
-    if (q.contains('خلبان')) return 'عملیات: کنترل خلبان محلی';
-    if (q.contains('وصل') || q.contains('سرور') || q.contains('connect') || q.contains('بهترین')) return 'عملیات: انتخاب و بررسی تونل';
-    if (raw.trim().isEmpty) return 'آماده دریافت فرمان';
-    return 'فرمان آزاد: بررسی نیت پیش از اجرا';
-  }
-
-  Widget _quickCommand(String label, IconData icon, String command,
-          {bool allowWhileSending = false}) =>
-      ActionChip(
-        avatar: Icon(icon, size: 16, color: const Color(0xFFFFD98B)),
-        label: Text(label, style: const TextStyle(color: Color(0xFFF2F0EB), fontSize: 11)),
-        backgroundColor: const Color(0xFF303640),
-        side: BorderSide.none,
-        onPressed: (_cancelSending || (_sending && !allowWhileSending))
-            ? null
-            : () => _send(command, allowWhileSending),
-      );
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-    child: Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF202329),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFD9AE55), width: 1.2),
-        boxShadow: const [BoxShadow(color: Color(0x33202020), blurRadius: 10, offset: Offset(0, 3))],
-      ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(children: [
-          const Icon(Icons.psychology_alt_outlined, color: Color(0xFFD9AE55), size: 22),
-          const SizedBox(width: 8),
-          const Expanded(child: Text('فرمان به خلبان هوشمند',
-            style: TextStyle(color: Color(0xFFFFE7B0), fontWeight: FontWeight.bold, fontSize: 15))),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: widget.pilotOn ? const Color(0xFF174B35) : const Color(0xFF343941),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(widget.pilotOn ? 'خلبان روشن' : widget.busy ? 'در حال اجرا' : 'آماده',
-              style: const TextStyle(color: Color(0xFFF2F0EB), fontSize: 11)),
-          ),
-        ]),
-        const SizedBox(height: 9),
-        Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          Expanded(child: TextField(
-            controller: _controller,
-            focusNode: _focus,
-            minLines: 1,
-            maxLines: 3,
-            textDirection: TextDirection.rtl,
-            textInputAction: TextInputAction.send,
-            onSubmitted: (_) => _send(),
-            onChanged: (value) => setState(() => _intentLabel = _classifyIntent(value)),
-            style: const TextStyle(color: Color(0xFFF2F0EB), fontSize: 14),
-            decoration: InputDecoration(
-              hintText: 'مثلاً: بهترین سرور آلمان را پیدا کن و وصل شو…',
-              hintStyle: const TextStyle(color: Color(0xFF9DA3AD), fontSize: 12.5),
-              filled: true,
-              fillColor: const Color(0xFF15181D),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(13), borderSide: BorderSide.none),
-              suffixIcon: IconButton(
-                tooltip: 'پاک کردن متن',
-                onPressed: _sending ? null : _controller.clear,
-                icon: const Icon(Icons.close, color: Color(0xFF9DA3AD), size: 18),
-              ),
-            ),
-          )),
-          const SizedBox(width: 8),
-          SizedBox(width: 52, height: 48, child: FilledButton(
-            onPressed: _sending ? null : _send,
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFFD9AE55),
-              foregroundColor: const Color(0xFF191919),
-              padding: EdgeInsets.zero,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
-            ),
-            child: _sending
-              ? const SizedBox(width: 19, height: 19,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF191919)))
-              : const Icon(Icons.send_rounded),
-          )),
-        ]),
-        const SizedBox(height: 5),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(children: [
-            _quickCommand('وصل شو', Icons.power_settings_new, 'وصل شو'),
-            const SizedBox(width: 5),
-            if (widget.busy || _sending) ...[
-              _quickCommand('لغو عملیات', Icons.stop_circle_outlined, 'لغو جستجو', allowWhileSending: true),
-              const SizedBox(width: 5),
-            ],
-            _quickCommand('بهترین سرور', Icons.bolt, 'بهترین سرور را پیدا کن و وصل شو'),
-            const SizedBox(width: 5),
-            _quickCommand('وضعیت', Icons.monitor_heart_outlined, 'وضعیت اتصال'),
-            const SizedBox(width: 5),
-            _quickCommand('قطع اتصال', Icons.power_off, 'قطع اتصال'),
-            const SizedBox(width: 5),
-            _quickCommand('نت ملی', Icons.home_work_outlined, 'نت ملی وصل شو'),
-            const SizedBox(width: 5),
-            _quickCommand('نت جهانی', Icons.public, 'نت جهانی وصل شو'),
-            const SizedBox(width: 5),
-            _quickCommand('راهنما', Icons.help_outline, 'راهنمای فرمان‌ها'),
-            if (widget.connected) ...[
-              const SizedBox(width: 5),
-              _quickCommand('اتصال مجدد', Icons.refresh, 'اتصال مجدد'),
-            ],
-          ]),
-        ),
-        Padding(
-          padding: const EdgeInsets.only(top: 5),
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: Text(_intentLabel, textDirection: TextDirection.rtl,
-              style: const TextStyle(color: Color(0xFF9FD5C0), fontSize: 10.5, fontWeight: FontWeight.w600)),
-          ),
-        ),
-        if (_history.length > 1) ...[
-          const SizedBox(height: 3),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(children: [
-              for (final oldCommand in _history.reversed.skip(1).take(3)) ...[
-                _quickCommand('↶ $oldCommand', Icons.history, oldCommand),
-                const SizedBox(width: 5),
-              ],
-            ]),
-          ),
-        ],
-        if (_lastCommand.isNotEmpty) ...[
-          const SizedBox(height: 4),
-          Text('فرمان: $_lastCommand', textDirection: TextDirection.rtl,
-            maxLines: 1, overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Color(0xFFB6BBC4), fontSize: 10.5)),
-        ],
-        const SizedBox(height: 5),
-        ValueListenableBuilder<String>(
-          valueListenable: widget.localStatus,
-          builder: (_, status, __) => Text(status.isEmpty ? 'خلبان آماده دریافت فرمان است.' : status,
-            maxLines: 2, overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Color(0xFFCFD2D8), fontSize: 11, height: 1.3)),
-        ),
-        const SizedBox(height: 4),
-        Container(
-          margin: const EdgeInsets.only(top: 4),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(
-            color: const Color(0xFF292D34),
-            borderRadius: BorderRadius.circular(11),
-            border: Border.all(color: const Color(0x3356B99A)),
-          ),
-          child: SelectableText(_reply, textDirection: TextDirection.rtl,
-            style: const TextStyle(color: Color(0xFFFFD98B), fontSize: 11.5, height: 1.35)),
-        ),
-      ]),
-    ),
-  );
-}

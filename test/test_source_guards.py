@@ -36,13 +36,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_home_screen_exposes_one_unified_pilot_action(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         pilot_ui = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
-        self.assertIn("'شروع خلبان هوشمند'", main)
+        self.assertIn('_smartCommandPanel()', main)
+        self.assertIn('اتصال خلبان', main)
         self.assertIn('await startLocalPilot();', main)
+        # Command-only home: the legacy hero connect control is intentionally absent.
+        self.assertIn('UiHero(', main)
+        self.assertIn('onTap: null,', main)
         self.assertNotIn("label: const Text('جستجوی سرور با نت ملی')", main)
-        ai_bar = pilot_ui[pilot_ui.index('Widget aiBar()'):pilot_ui.index('void aiSheet()')]
-        self.assertNotIn('startGrokPilot', ai_bar)
-        self.assertNotIn('startLocalPilot', ai_bar)
-        self.assertNotIn('pickEngineThenStart(startGrokPilot', pilot_ui)
+        self.assertNotIn('Widget aiBar()', pilot_ui)
+        self.assertNotIn('PilotCommandBar', pilot_ui)
+        self.assertNotIn('_runPilotCommand(', pilot_ui)
 
     def test_local_pilot_rechecks_network_after_link_changes(self):
         pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
@@ -51,12 +54,105 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         tick = pilot[tick_start:tick_end]
         self.assertIn('if (!connected)', tick)
         self.assertIn('await _pilotDetectNetworkMode();', tick)
-        self.assertLess(tick.index('await _pilotDetectNetworkMode();'), tick.index('unawaited(autoTuneNow());'))
         detect_start = pilot.index('Future<NatNetworkClass> _pilotDetectNetworkMode()')
         detect_end = pilot.index('void ensureLocalPilotRunning()', detect_start)
         detect = pilot[detect_start:detect_end]
-        self.assertIn('NatNetworkDiagnosis.refresh()', detect)
-        self.assertNotIn('refresh(force: true)', detect)
+        self.assertIn('PilotNetworkProbe.refresh()', detect)
+        self.assertNotIn('PilotNetworkProbe.refresh(force: true)', detect)
+        self.assertNotIn('NatNetworkDiagnosis.refresh', detect)
+        self.assertNotIn('autoTuneNow()', tick)
+
+
+    def test_pilot_scanner_and_ip_ranges_are_isolated_from_general_scanners(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        national = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        self.assertIn('class PilotNetworkProbe', national)
+        self.assertIn('domesticTargets', national)
+        self.assertIn('globalTargets', national)
+        self.assertIn('SecureSocket.connect(host, 443', national)
+        self.assertIn("command.contains('بازه') && command.contains('خلبان')", main)
+        self.assertIn("command.contains('اسکن') && command.contains('خلبان')", main)
+        self.assertNotIn("label: const Text('بازه‌های IP اختصاصی خلبان')", main)
+        self.assertNotIn("label: const Text('پویش IP اختصاصی خلبان')", main)
+        self.assertIn('_smartCommandPanel()', main)
+        self.assertIn('مرکز فرمان هوشمند', main)
+        self.assertIn('_runSmartCommand', main)
+        self.assertIn("king_pilot_ip_ranges_v1", main)
+        self.assertIn("_pilotRangesValid(c.text)", main)
+        self.assertIn("bool _pilotRangesValid(String raw)", main)
+        self.assertIn("king_pilot_scan_results_v1", main)
+        self.assertIn('bool _pilotRangeCancelRequested = false;', main)
+        command_start = main.index('Future<void> _runSmartCommand')
+        command_end = main.index('Widget _smartCommandPanel()', command_start)
+        command_parser = main[command_start:command_end]
+        self.assertIn('_pilotRangeCancelRequested = true;', command_parser)
+        self.assertLess(command_parser.index('_pilotRangeCancelRequested = true;'),
+                        command_parser.index('if (command.isEmpty || _smartCommandRunning) return;'))
+        pilot_scan_start = main.index('Future<void> _pilotScanOnly()')
+        pilot_scan_end = main.index('// اسکن IP بدون تغییر تنظیمات دیگر', pilot_scan_start)
+        pilot_scan = main[pilot_scan_start:pilot_scan_end]
+        self.assertNotIn('natRangeScanStep', pilot_scan)
+        self.assertNotIn('natRanges', pilot_scan)
+        self.assertNotIn('abort', pilot_scan)
+        self.assertIn('_pilotRangeCancelRequested', pilot_scan)
+        self.assertIn('Socket.connect(host, 443', pilot_scan)
+        self.assertIn('_pilotRangesDialog(context)', main)
+        self.assertIn('_pilotScanOnly()', main)
+        self.assertIn('_smartCountryCode(command)', main)
+        self.assertIn("'germany': 'DE'", main)
+        self.assertNotIn('label: Text(selCountry == null', main)
+        self.assertNotIn("for (final pr in ['all', 'vmess'", main)
+        self.assertNotIn('pickEngineThenStart(() => connect(s, gid)', main)
+        self.assertEqual(main.count('extension ProjectNatSweep on _HomePageState'), 1)
+        self.assertNotIn('_natRangesDialog(context)', main[main.index('Future<void> _pilotScanOnly()'):main.index('// اسکن IP بدون تغییر تنظیمات دیگر')])
+        self.assertNotIn('UiTools(items: [', main[main.index('Widget build(BuildContext context)', main.index('class _HomePageState')):])
+        keep_start = main.index('Future<void> _natKeep()')
+        keep_end = main.index('void _natRangesDialog', keep_start)
+        keep = main[keep_start:keep_end]
+        self.assertIn('localPilotOn', keep)
+        self.assertIn('if (localPilotOn && cpuHot == 0', keep)
+        detect_start = pilot.index('Future<NatNetworkClass> _pilotDetectNetworkMode()')
+        detect_end = pilot.index('void ensureLocalPilotRunning()', detect_start)
+        self.assertNotIn('NatNetworkDiagnosis', pilot[detect_start:detect_end])
+        self.assertIn('PilotNetworkProbe.refresh()', pilot[detect_start:detect_end])
+        self.assertNotIn('PilotNetworkProbe.refresh(force: true)', pilot[detect_start:detect_end])
+        self.assertIn('checks.where((ok) => ok).length >= 2', pilot)
+        self.assertIn('_pilotPendingPositiveSamples >= 2', pilot)
+        self.assertIn("'switch_best' => snap.connected", pilot)
+        self.assertIn("'connect' => !_pilotPendingWasConnected && snap.connected", pilot)
+        self.assertIn('Duration(seconds: 10)', pilot)
+        self.assertIn('_pilotExperienceOperatorKey(s.operatorKey)', pilot)
+        self.assertIn("'domestic' : 'global'", pilot)
+        self.assertIn('total >= 5', pilot)
+        self.assertIn('winRate >= 0.75', pilot)
+        self.assertIn('king_pilot_experience_v1', pilot)
+        self.assertIn('_pilotReconcileExperience(snap)', pilot)
+        self.assertIn('_pilotSaveExperience()', pilot)
+        self.assertNotIn("_localOpWins[k] = (_localOpWins[k] ?? 0) + 1;", pilot)
+        nat_detect_start = main.index('Future<void> _natDetect()')
+        nat_detect_end = main.index('DateTime? _checkSavedAt', nat_detect_start)
+        nat_detect = main[nat_detect_start:nat_detect_end]
+        self.assertIn('PilotNetworkProbe.refresh()', nat_detect)
+        self.assertNotIn('dnsxAutoPick(', nat_detect)
+        self.assertNotIn('ipAutoBackground(', nat_detect)
+        connect_start = main.index('Future<void> _doConnect(')
+        connect_end = main.index('void _cancelNow()', connect_start)
+        connect = main[connect_start:connect_end]
+        self.assertIn('if (localPilotOn)', connect)
+        self.assertIn('PilotNetworkProbe.refresh()', connect)
+        self.assertLess(connect.index('if (localPilotOn)'), connect.index('NatNetworkDiagnosis.refresh()'))
+
+    def test_local_ai_research_updates_pilot_brain_and_repairs_are_review_gated(self):
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        self.assertIn('Duration(hours: 24)', ai)
+        self.assertIn('_relevantResearchMemory(safePrompt)', ai)
+        self.assertIn('notes.take(2)', ai)
+        self.assertIn('not live telemetry', ai)
+        self.assertIn("'draft': true", ai)
+        self.assertIn('repairUntilGreen', ai)
+        self.assertIn('No automatic merge or release is performed.', ai)
+        self.assertIn('This updates research memory, not model weights.', ai)
 
     def test_autonomous_research_is_periodic_but_never_mutates_source(self):
         worker = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
@@ -64,11 +160,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_scheduleOfficialResearch()', worker)
         self.assertIn('Duration(hours: 12)', worker)
         self.assertIn('requiresBatteryNotLow: true', worker)
-        research_start = worker.index("if (task == _researchTaskName)")
-        research_end = worker.index("if (!await ai.hasGitHubToken())", research_start)
-        research_worker = worker[research_start:research_end]
-        self.assertIn('researchGoogle', research_worker)
-        self.assertNotIn('repairFromFailedCi', research_worker)
+        self.assertIn('researchGoogle', worker)
+        self.assertNotIn('hasGitHubToken', worker)
+        self.assertNotIn('repairFromFailedCi', worker)
         self.assertIn('changeOwnerSecurityPolicy', policy)
         self.assertIn('publishRelease', policy)
 
@@ -89,6 +183,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             self.assertIn(name, patch)
         parser_base = (ROOT / 'plugin_source_reference' / 'dart' / 'lib' / 'url' / 'url.dart').read_text(encoding='utf-8')
         self.assertIn('String fallbackSni(', parser_base)
+
+
+    def test_flutter_included_build_adds_plugin_repositories_when_missing(self):
+        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        self.assertIn("packages/flutter_tools/gradle", prepare)
+        self.assertIn("if not pm:", prepare)
+        self.assertIn("'pluginManagement {\\n'", prepare)
+        self.assertIn("'        google()\\n'", prepare)
+        self.assertIn("'        mavenCentral()\\n'", prepare)
+        self.assertIn("'        gradlePluginPortal()\\n'", prepare)
 
 
 if __name__ == '__main__':

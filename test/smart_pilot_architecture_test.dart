@@ -11,11 +11,11 @@ void main() {
         global: LinkHealth.unreachable,
         domesticSamples: 4,
         globalSamples: 4,
-        domesticDataPlaneVerified: true,
+        domesticTlsReachabilityVerified: true,
       );
       expect(evidence.mode, DetectedNetworkMode.domesticOnly);
-      expect(evidence.acceptsTunnel(nationalOnly: true), isTrue);
-      expect(evidence.acceptsTunnel(nationalOnly: false), isFalse);
+      expect(evidence.acceptsTlsReachability(nationalOnly: true), isTrue);
+      expect(evidence.acceptsTlsReachability(nationalOnly: false), isFalse);
       expect(
         choosePilotNetworkStrategy(evidence),
         PilotNetworkStrategy.domestic,
@@ -28,7 +28,7 @@ void main() {
         global: LinkHealth.unknown,
       );
       expect(evidence.mode, DetectedNetworkMode.unknown);
-      expect(evidence.acceptsTunnel(nationalOnly: true), isFalse);
+      expect(evidence.acceptsTlsReachability(nationalOnly: true), isFalse);
       expect(
         choosePilotNetworkStrategy(evidence),
         PilotNetworkStrategy.preserve,
