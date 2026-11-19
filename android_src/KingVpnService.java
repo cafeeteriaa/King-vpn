@@ -251,7 +251,10 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         // Keep this method short: it runs on the main thread, and the system
         // expects a foreground service to be promoted within a few seconds.
         if (intent == null) {
-            // Android restarted the service (START_STICKY): resume the saved list.
+            // Android restarted the service (START_STICKY): promote immediately on the
+            // main thread before queuing recovery, otherwise a busy worker can miss the
+            // foreground-service deadline and Android may terminate the VPN process.
+            startForegroundSafe("در حال بازیابی اتصال…");
             // No Dart attempt is waiting for it, so its status uses attempt 0 (accepted by all).
             activeAttemptId = 0;
             submit(this::resumeSaved);
@@ -259,6 +262,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
         String action = intent.getAction();
         if (ACTION_STOP.equals(action)) {
+            // ACTION_STOP may itself arrive through startForegroundService; satisfy the
+            // same deadline before asynchronous shutdown work is queued.
+            startForegroundSafe("در حال قطع اتصال…");
             requestStop();
             submit(this::stopEverything);
             return START_NOT_STICKY;
