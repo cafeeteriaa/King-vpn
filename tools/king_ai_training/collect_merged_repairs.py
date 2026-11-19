@@ -85,6 +85,8 @@ def collect(event: dict, repository: str, token: str, output: Path) -> dict:
         return {"status": "skipped", "reason": "Not every check on exact head SHA succeeded"}
 
     reviews = github_get(f"{api}/pulls/{number}/reviews?per_page=100", token)
+    author = pull.get("user")
+    author_login = author.get("login") if isinstance(author, dict) else None
     latest_reviews: dict[str, dict] = {}
     if isinstance(reviews, list):
         for review in reviews:
@@ -102,9 +104,10 @@ def collect(event: dict, repository: str, token: str, output: Path) -> dict:
         review.get("state") == "APPROVED"
         and review.get("commit_id") == sha
         and (review.get("user") or {}).get("type") == "User"
+        and (review.get("user") or {}).get("login") != author_login
         for review in latest_reviews.values()
     ):
-        return {"status": "skipped", "reason": "No current human approval for the exact head SHA"}
+        return {"status": "skipped", "reason": "No current independent human approval for the exact head SHA"}
 
     task = (str(pull.get("title") or "") + "\n" + str(pull.get("body") or ""))[:MAX_TASK].strip()
     merge_sha = pull.get("merge_commit_sha")
