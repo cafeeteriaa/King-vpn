@@ -156,14 +156,17 @@ if 'android.permission.RECORD_AUDIO' not in m:
         1,
     )
 # speech_to_text uses Android's system recognizer. Keep recognition on-device
-# in Dart and declare package visibility for Android 11+.
-if '<queries>' not in m:
-    speech_queries = ('<queries>\n'
-                      '        <intent>\n'
-                      '            <action android:name="android.speech.RecognitionService"/>\n'
-                      '        </intent>\n'
-                      '    </queries>\n    ')
-    m = m.replace('<application', speech_queries + '<application', 1)
+# in Dart and declare package visibility for Android 11+ even when Flutter's
+# generated manifest already contains an unrelated <queries> block.
+if 'android.speech.RecognitionService' not in m:
+    speech_intent = ('\\n        <intent>\\n'
+                     '            <action android:name="android.speech.RecognitionService"/>\\n'
+                     '        </intent>\\n    ')
+    if '<queries>' in m:
+        m = m.replace('<queries>', '<queries>' + speech_intent, 1)
+    else:
+        speech_queries = ('<queries>' + speech_intent + '</queries>\\n    ')
+        m = m.replace('<application', speech_queries + '<application', 1)
 SVC = ('<service android:name="dev.amirzr.flutter_v2ray_client.v2ray.services.V2rayProxyOnlyService"\n'
        '             android:foregroundServiceType="specialUse">\n'
        '            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"\n'
