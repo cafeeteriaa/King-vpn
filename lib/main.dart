@@ -11053,14 +11053,9 @@ ListTile( // KINGEXTRAS row
         _set(domestic
             ? 'درخواست اتصال در حالت نت ملی ثبت شد؛ خلبان با اولویت مسیرهای داخلی آغاز شد.'
             : 'درخواست اتصال در حالت نت جهانی ثبت شد؛ خلبان با اولویت مسیرهای جهانی آغاز شد.');
-      } else if (RegExp(r'(قطع اتصال|قطع|disconnect|خاموش کردن اتصال)').hasMatch(command) &&
-          !negatesConnection) {
-        if (localPilotOn) stopLocalPilot();
-        await disconnect();
-        _set('دستور اجرا شد: اتصال قطع شد.');
       } else if (!negatesScan && command.contains('بازه') &&
           (command.contains('ip') || command.contains('آی پی'))) {
-        await _pilotRangesDialog(context);
+              await _pilotRangesDialog(context);
         if (_pilotRanges.isNotEmpty) await _pilotScanOnly();
       } else if (command.contains('بازه') && command.contains('خلبان')) {
         await _pilotRangesDialog(context);
