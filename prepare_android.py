@@ -8,6 +8,8 @@ LIB = os.path.join(APP, 'lib')
 AGP_VERSION = '9.3.1'
 GRADLE_VERSION = '9.5.0'
 MAVEN_CENTRAL_MIRROR = 'https://maven-central.storage-download.googleapis.com/maven2/'
+ALIYUN_CENTRAL_MIRROR = 'https://maven.aliyun.com/repository/central/'
+ALIYUN_GRADLE_PLUGIN_MIRROR = 'https://maven.aliyun.com/repository/gradle-plugin/'
 
 def add_maven_mirror_to_scope(text, scope_name, mirror_line):
     """Insert the Maven Central mirror into a named Gradle repositories block."""
@@ -75,8 +77,24 @@ if os.path.exists(sett):
                 if sett.endswith('.kts') else
                 f'maven {{ url "{MAVEN_CENTRAL_MIRROR}" }}'
             )
+            # Keep the Google-hosted Central mirror first, then use Aliyun
+            # as a fallback for Kotlin DSL plugin markers and transitives.
+            aliyun_central_entry = (
+                f'maven {{ url = uri("{ALIYUN_CENTRAL_MIRROR}") }}'
+                if sett.endswith('.kts') else
+                f'maven {{ url "{ALIYUN_CENTRAL_MIRROR}" }}'
+            )
+            aliyun_plugin_entry = (
+                f'maven {{ url = uri("{ALIYUN_GRADLE_PLUGIN_MIRROR}") }}'
+                if sett.endswith('.kts') else
+                f'maven {{ url "{ALIYUN_GRADLE_PLUGIN_MIRROR}" }}'
+            )
             if MAVEN_CENTRAL_MIRROR not in repo_block:
                 additions += '\n        ' + mirror_entry
+            if ALIYUN_CENTRAL_MIRROR not in repo_block:
+                additions += '\n        ' + aliyun_central_entry
+            if ALIYUN_GRADLE_PLUGIN_MIRROR not in repo_block:
+                additions += '\n        ' + aliyun_plugin_entry
             if 'google()' not in repo_block:
                 additions += '\n        google()'
             if 'mavenCentral()' not in repo_block:
@@ -331,8 +349,10 @@ if flutter_root:
             flutter_settings_text = (
                 'pluginManagement {\n'
                 '    repositories {\n'
-                + mirror_repo +
-                '        google()\n'
+                + mirror_repo
+                + '        maven { url = uri("' + ALIYUN_CENTRAL_MIRROR + '") }\n'
+                + '        maven { url = uri("' + ALIYUN_GRADLE_PLUGIN_MIRROR + '") }\n'
+                + '        google()\n'
                 '        mavenCentral()\n'
                 '        gradlePluginPortal()\n'
                 '    }\n'
@@ -372,8 +392,18 @@ if flutter_root:
                 raise SystemExit('HARD FAIL: malformed Flutter plugin repositories block')
             repositories_text = flutter_settings_text[repo_open:repo_close]
             additions = ''
+            aliyun_flutter_repos = (
+                '        maven { url = uri("' + ALIYUN_CENTRAL_MIRROR + '") }\n'
+                '        maven { url = uri("' + ALIYUN_GRADLE_PLUGIN_MIRROR + '") }\n'
+                if settings_name.endswith('.kts') else
+                '        maven { url "' + ALIYUN_CENTRAL_MIRROR + '" }\n'
+                '        maven { url "' + ALIYUN_GRADLE_PLUGIN_MIRROR + '" }\n'
+            )
             if mirror_repo.strip() not in repositories_text:
                 additions += '\n' + mirror_repo.rstrip('\n')
+            for mirror_line in aliyun_flutter_repos.splitlines():
+                if mirror_line.strip() not in repositories_text:
+                    additions += '\n' + mirror_line
             if 'google()' not in repositories_text:
                 additions += '\n        google()'
             if 'mavenCentral()' not in repositories_text:
