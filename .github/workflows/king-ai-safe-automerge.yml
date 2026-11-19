@@ -1,0 +1,97 @@
+name: King AI Safe Auto Merge
+
+on:
+  workflow_run:
+    workflows: ["King VPN Android CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: read
+  checks: read
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: king-ai-auto-merge-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  merge-verified-repair:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Merge only verified King AI repair PRs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const repo = context.repo;
+            const fullName = `${repo.owner}/${repo.repo}`;
+
+            // Only successful PR-triggered runs from this repository are eligible.
+            if (run.event !== 'pull_request' || run.conclusion !== 'success') {
+              core.info('Not a successful pull-request build; skipping.');
+              return;
+            }
+            if (run.repository?.full_name !== fullName || !run.head_branch?.startsWith('king-ai/repair-')) {
+              core.info('Not a same-repository King AI repair branch; skipping.');
+              return;
+            }
+
+            const listed = await github.rest.pulls.list({
+              ...repo, state: 'open', head: `${repo.owner}:${run.head_branch}`, per_page: 10
+            });
+            const pr = listed.data.find(item =>
+              item.head?.sha === run.head_sha &&
+              item.head?.repo?.full_name === fullName &&
+              item.base?.ref === 'main' &&
+              item.state === 'open' &&
+              item.draft === false
+            );
+            if (!pr) {
+              core.info('No matching open, non-draft same-repository PR for this exact commit.');
+              return;
+            }
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              ...repo, pull_number: pr.number, per_page: 100
+            });
+            const allowed = path =>
+              (path.startsWith('lib/') && !path.startsWith('lib/android') && !path.startsWith('lib/own_vpn')) ||
+              path.startsWith('test/') || path.startsWith('tools/');
+            if (files.length < 1 || files.length > 3 || files.some(file => !allowed(file.filename))) {
+              core.warning('Changed paths exceed the narrow King AI repair allowlist; human review required.');
+              return;
+            }
+
+            const checks = await github.rest.checks.listForRef({
+              ...repo, ref: run.head_sha, per_page: 100
+            });
+            if (checks.data.check_runs.length === 0 ||
+                checks.data.check_runs.some(check =>
+                  check.status !== 'completed' || check.conclusion !== 'success')) {
+              core.info('Not all checks for the exact head commit are complete and successful.');
+              return;
+            }
+
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              ...repo, pull_number: pr.number, per_page: 100
+            });
+            if (reviews.some(review => review.state === 'CHANGES_REQUESTED')) {
+              core.warning('A reviewer requested changes; refusing automatic merge.');
+              return;
+            }
+
+            const result = await github.rest.pulls.merge({
+              ...repo,
+              pull_number: pr.number,
+              merge_method: 'squash',
+              sha: run.head_sha,
+              commit_title: `King AI verified repair #${pr.number}`
+            });
+            if (!result.data.merged) {
+              throw new Error(`GitHub did not merge PR #${pr.number}: ${result.data.message}`);
+            }
+            core.notice(`Safely merged King AI repair PR #${pr.number} at ${result.data.sha}`);
