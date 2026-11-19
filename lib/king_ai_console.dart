@@ -128,7 +128,8 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       return {
         'status': 'background_repair_scheduled',
         'pullRequest': number,
-        'frequency': '15 minutes (best effort; Android may defer)',
+        'initialCheck': 'scheduled immediately as one-off work',
+        'fallbackFrequency': '15 minutes minimum (best effort; Android may defer)',
         'constraints': ['network connected', 'battery not low'],
         'modelDownloadInBackground': false,
       };
@@ -146,7 +147,8 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
         'status': 'automatic_repository_repair_scheduled',
         'repository': 'cafeeteriaa/King-vpn',
         'scanLimit': 10,
-        'frequency': '15 minutes (best effort; Android may defer)',
+        'initialCheck': 'scheduled immediately as one-off work',
+        'fallbackFrequency': '15 minutes minimum (best effort; Android may defer)',
         'constraints': ['network connected', 'battery not low'],
       };
     });
@@ -247,7 +249,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
                 ]),
                 const SizedBox(height: 10),
                 const Text(
-                  'ترمیم خودکار پس‌زمینه: هر ۱۵ دقیقه به‌صورت تقریبی؛ فقط با اتصال شبکه و باتری مناسب. اندروید ممکن است اجرای کار را به تعویق بیندازد.',
+                  'ترمیم خودکار: بلافاصله یک بررسی اولیه زمان‌بندی می‌شود؛ سپس بررسی دوره‌ای با حداقل فاصله ۱۵ دقیقه به‌عنوان پشتیبان اجرا می‌شود. هر دو تابع محدودیت‌های زمان‌بندی اندروید، اتصال شبکه و وضعیت باتری هستند.',
                 ),
                 const SizedBox(height: 8),
                 Wrap(spacing: 8, runSpacing: 8, children: [
