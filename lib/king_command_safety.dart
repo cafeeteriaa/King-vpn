@@ -46,8 +46,11 @@ class KingCommandSafety {
   static bool isQuestionRequest(String command) {
     final value = _normalize(command);
     return value.contains('?') || value.contains('؟') ||
-        RegExp(r'(چرا|چطور|چگونه|چیست|چیه|چی|چه|آیا|مگر|کدام|کجا|کی|چند|میتونی|میتوانی|میشه|می‌شود|can\\s+you|could\\s+you|would\\s+you|is|are|do|does|did|can|could|would|should|will|what|why|how|when|where|which|who)')
-            .hasMatch(value);
+        RegExp(
+          r'(چرا|چطور|چگونه|چیست|چیه|چی|چه|آیا|مگر|کدام|کجا|کی|چند|میتونی|میتوانی|میشه|می‌شود|'
+          r'can\s+you|could\s+you|would\s+you|'
+          r'\b(?:is|are|am|do|does|did|can|could|would|should|will|has|have|had|what|why|how|when|where|which|who)\b)',
+        ).hasMatch(value);
   }
 
   /// Canonical connection-intent parser shared by voice and text commands.
