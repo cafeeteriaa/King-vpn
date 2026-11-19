@@ -10947,7 +10947,7 @@ ListTile( // KINGEXTRAS row
         )));
         _set('درخواست توسعه به پنل امن کینگ هدایت شد؛ فقط مالک اصلی پس از احراز هویت می‌تواند آن را ثبت کند.');
       } else if (RegExp(r'(قطع اتصال|قطع|disconnect|خاموش کردن اتصال)').hasMatch(command) &&
-          !command.contains('نکن')) {
+          !negatesConnection) {
         if (localPilotOn) stopLocalPilot();
         await disconnect();
         _set('دستور اجرا شد: اتصال قطع شد.');
