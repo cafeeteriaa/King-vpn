@@ -3622,7 +3622,6 @@ class Server {
 
   bool geoTried = false;
   bool personal = false; // the user's own Cloudflare server
-  bool? ai; // true = Gemini opens through this server, false = it does not
   DateTime? checkedAt; // last real test (standby re-check)
   // فیکس ۹: کش رتبه‌ی نت ملی (خصوصی). فقط وقتی معتبر است که src و country همان‌هایی
   // باشند که رتبه برایشان محاسبه شده؛ natGood همیشه زنده چک می‌شود (در _natRank).
@@ -4727,7 +4726,6 @@ final rowDefs = <RowDef>[
   RowDef('ss', '🔐 Shadowsocks (ss://)', (s) => s.link.startsWith('ss://')),
   
   // shown as its own fixed row (second line of the list), see build()
-  RowDef('ai', '🤖 سرورهای مخصوص هوش مصنوعی', (s) => s.ai == true && s.ping != null),
 ];
 
 final Map<String, String?> _ownerCache = {};
@@ -6137,7 +6135,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (s == null) continue;
           s.ping = j['p'] as int?;
           s.speed = (j['s'] as num?)?.toDouble();
-          s.ai = j['a'] as bool?;
           s.miss = (j['m'] as num?)?.toInt() ?? 0;
           s.restored = true; // RESTORE: همان سرورهای سالم قبلی؛ حذف نمی‌شوند
           warmKeys.add(s.key);
@@ -6267,7 +6264,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     'l': s.link,
                     'p': s.ping,
                     's': s.speed,
-                    'a': s.ai,
                     'm': s.miss
                   })
               .toList()));
@@ -7198,7 +7194,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _resAdd(s);
     } else {
       failed[s.key] = DateTime.now();
-      s.ai = null; // dead now: the old Gemini result is no longer trusted
     }
     // learn which kind of server works on this network
     final k = _profKey(s);
@@ -12051,7 +12046,7 @@ ListTile( // KINGEXTRAS row
             only == null &&
             row != null &&
             !row.startsWith('f:') &&
-            row != 'r:ai') {
+) {
           _set('این حالت جواب نداد؛ بهترین حالت را خودم انتخاب می‌کنم...');
           connRow = null;
           // DSGETTER: از مقدار مؤثر
@@ -12065,9 +12060,7 @@ ListTile( // KINGEXTRAS row
           if (only?.personal == true && !abort) _checkPersonal(force: true);
           _set(abort
               ? 'لغو شد'
-              : (only == null && row == 'r:ai')
-                  ? 'هوش مصنوعی کینگ روی خود گوشی اجرا می‌شود و به سرور اختصاصی نیاز ندارد.'
-                  : (only == null && row != null)
+              : (only == null && row != null)
                   ? 'در این ردیف سرور سالمی پیدا نشد'
                   : 'هیچ سروری وصل نشد، دوباره تلاش کنید');
         }
@@ -12625,7 +12618,7 @@ ListTile( // KINGEXTRAS row
         if (mounted) setState(() {});
         if (await _connectLoop([t])) {
           unawaited(_saveCache().catchError((e) => logError(e)));
-        } else if (!abort && !await _acquire(strictRow: connRow == 'r:ai', speed: false)) {
+        } else if (!abort && !await _acquire(strictRow: false, speed: false)) {
           if (!inForeground) pendingFailover = true;
           _set('سرور جایگزین پیدا نشد • تلاش دوباره...');
         }
