@@ -215,6 +215,12 @@ if 'android.permission.RECORD_AUDIO' not in m:
         '    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <application',
         1,
     )
+if 'android.permission.REQUEST_INSTALL_PACKAGES' not in m:
+    m = m.replace(
+        '<application',
+        '    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>\n    <application',
+        1,
+    )
 # speech_to_text uses Android's system recognizer. Keep recognition on-device
 # in Dart and declare package visibility for Android 11+ even when Flutter's
 # generated manifest already contains an unrelated <queries> block.
