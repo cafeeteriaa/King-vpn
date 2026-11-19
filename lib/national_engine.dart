@@ -315,7 +315,7 @@ class PilotNetworkProbe {
 
   static Future<int?> _probeHttps(String host) async {
     final watch = Stopwatch()..start();
-    Socket? socket;
+    SecureSocket? socket;
     try {
       socket = await SecureSocket.connect(host, 443, timeout: _timeout);
       watch.stop();
