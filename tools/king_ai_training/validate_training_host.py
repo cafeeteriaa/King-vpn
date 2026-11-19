@@ -39,7 +39,16 @@ def validate(base_model: Path, dataset: Path, prepared_dir: Path) -> dict:
     free_bytes, total_bytes = torch.cuda.mem_get_info(0)
     free_gib = round(free_bytes / (1024 ** 3), 2)
     total_gib = round(total_bytes / (1024 ** 3), 2)
+    if free_gib < 10:
+        raise RuntimeError(
+            f"At least 10 GiB free VRAM is required for the 8k-context QLoRA run; found {free_gib} GiB"
+        )
     disk = shutil.disk_usage(dataset.parent)
+    free_disk_gib = round(disk.free / (1024 ** 3), 2)
+    if free_disk_gib < 12:
+        raise RuntimeError(
+            f"At least 12 GiB free disk space is required; found {free_disk_gib} GiB"
+        )
     return {
         "status": "ready",
         "gpu": device.name,
@@ -48,7 +57,7 @@ def validate(base_model: Path, dataset: Path, prepared_dir: Path) -> dict:
         "vram_free_gib": free_gib,
         "vram_total_gib": total_gib,
         "dataset_examples": sum(1 for line in dataset.open(encoding="utf-8") if line.strip()),
-        "free_disk_gib": round(disk.free / (1024 ** 3), 2),
+        "free_disk_gib": free_disk_gib,
         "base_model": str(base_model),
         "training_dataset": str(dataset),
     }
