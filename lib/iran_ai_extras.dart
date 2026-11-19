@@ -1061,7 +1061,7 @@ extension HomeExtras on _HomePageState {
       _pilotForcedIndestructible = false;
     }
     _pilotConnectedAt = null;
-    _restorePilotSnap(); // PILOTREV
+    if (!localPilotOn) _restorePilotSnap(); // PILOTREV
   }
 
   Future<void> aiAutopilotTick() async {
@@ -2506,6 +2506,12 @@ extension HomeExtras on _HomePageState {
       await _pilotDetectNetworkMode();
       _applyModePreset(nationalMode, offlineOnly, true); // one pilot, two internal strategies
       ensureLocalPilotRunning();
+      // When the verified on-device model is loaded, attach King's advisory
+      // loop to the same unified pilot. Without it, deterministic control still works.
+      if (_hasAnyAiKey) {
+        aiSession = true;
+        aiAutopilotStart();
+      }
       final eng = _engineLabel(pilotEngine);
       final modeLabel = nationalMode ? 'نت ملی' : 'جهانی/حالت قبلی';
       localPilotText.value =
@@ -2652,7 +2658,11 @@ extension HomeExtras on _HomePageState {
     _localPower = 1;
     localPilotText.value =
         'خلبان متوقف شد.\nقله قدرت این نشست: $peak';
-    _restorePilotSnap(); // PILOTREV
+    if (aiSession) {
+      stopAiSession(); // cancels King's local advisory loop and restores once
+    } else {
+      _restorePilotSnap(); // PILOTREV
+    }
   }
 
 }
