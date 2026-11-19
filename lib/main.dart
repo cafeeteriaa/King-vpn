@@ -4,6 +4,7 @@ import 'king_local_ai.dart';
 import 'king_ai_console.dart';
 import 'king_ai_background.dart';
 import 'king_ai_owner_auth.dart';
+import 'king_command_safety.dart';
 import 'package:local_inference_flutter/local_inference_flutter.dart';
 import 'update_integrity.dart';
 import 'errjournal.dart';
@@ -10925,18 +10926,10 @@ ListTile( // KINGEXTRAS row
       final selectedProtocols = supportedProtocols
           .where((p) => RegExp(r'\b' + p + r'\b').hasMatch(normalized))
           .toList();
-      final negatesConnection = RegExp(
-        r'(?:اتصال|وصل|شروع).{0,16}(?:نکن|نده|نکنه|نمی‌خواهم|نمیخوام|نمی‌خوام|نباید)',
-      ).hasMatch(command) || RegExp(
-        r'(?:نکن|نده|نکنه|نمی‌خواهم|نمیخوام|نمی‌خوام|نباید).{0,16}(?:اتصال|وصل|شروع)',
-      ).hasMatch(command);
+      final negatesConnection = KingCommandSafety.negatesConnection(command);
       final wantsConnect = RegExp(r'(اتصال|وصل|شروع|connect)').hasMatch(command) &&
           !negatesConnection;
-      final negatesScan = RegExp(
-        r'(?:اسکن|پویش).{0,16}(?:نکن|نده|نکنه|نمی‌خواهم|نمیخوام|نمی‌خوام|نباید)',
-      ).hasMatch(command) || RegExp(
-        r'(?:نکن|نده|نکنه|نمی‌خواهم|نمیخوام|نمی‌خوام|نباید).{0,16}(?:اسکن|پویش)',
-      ).hasMatch(command);
+      final negatesScan = KingCommandSafety.negatesScan(command);
       final clearFilters = RegExp(r'(پاک کردن فیلتر|حذف محدودیت|ریست فیلتر)').hasMatch(command);
       final allCountries = RegExp(r'(همه کشورها|تمام کشورها)').hasMatch(command);
       final allProtocols = RegExp(r'(همه پروتکل|تمام پروتکل)').hasMatch(command);
