@@ -41,6 +41,8 @@ void main() {
         'سرور آلمان چه سرعتی دارد؟',
         'how does the VPN connection work?',
         'why is my connection not working?',
+        'can you connect me to the national network?',
+        'می‌تونی اتصال را برقرار کنی؟',
       ]) {
         expect(KingCommandSafety.isQuestionRequest(question), isTrue,
             reason: question);
@@ -64,6 +66,8 @@ void main() {
       }
       expect(KingCommandSafety.isConnectIntent('اتصال چیست'), isFalse);
       expect(KingCommandSafety.isConnectIntent('وصل شدن چطور است'), isFalse);
+      expect(KingCommandSafety.isConnectIntent('می‌تونی اتصال را برقرار کنی؟'), isFalse);
+      expect(KingCommandSafety.isConnectIntent('can you connect me?'), isFalse);
     });
 
     test('connect intent recognises متصل and rejects status/negated commands', () {
