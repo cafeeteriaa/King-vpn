@@ -71,8 +71,12 @@ void kingAiBackgroundDispatcher() {
 
       final loaded = await ai.loadInstalledModelForBackground();
       if (!loaded) {
-        // No silent model download in background. The user can reopen the app,
-        // install/verify the model, and explicitly enable the supervisor again.
+        // No silent model download and no repeated 15-minute wakeups when the
+        // installed model is missing or fails integrity verification. Stop the
+        // schedule; the owner can reinstall/verify the model and re-enable it.
+        await Workmanager().cancelByTag(_tag);
+        await ai.clearBackgroundRepairPullNumber();
+        await ai.setBackgroundAutoDiscovery(false);
         return true;
       }
 
