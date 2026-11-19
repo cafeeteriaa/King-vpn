@@ -20,6 +20,11 @@ void kingAiBackgroundDispatcher() {
     try {
       final pullNumber = await ai.getBackgroundRepairPullNumber();
       if (pullNumber == null) return true;
+      if (!await ai.hasGitHubToken()) {
+        await Workmanager().cancelByTag(_tag);
+        await ai.clearBackgroundRepairPullNumber();
+        return true;
+      }
 
       final report = await ai.inspectPullRequestCi(
         owner: 'cafeeteriaa',
@@ -56,6 +61,15 @@ void kingAiBackgroundDispatcher() {
         repository: 'King-vpn',
         pullNumber: pullNumber,
       );
+      final status = result['status']?.toString();
+      if (status == 'repair_limit_reached' ||
+          status == 'duplicate_patch_blocked') {
+        // Stop rather than waking the device every 15 minutes when this root
+        // cannot make safe progress without new evidence or human intervention.
+        await Workmanager().cancelByTag(_tag);
+        await ai.clearBackgroundRepairPullNumber();
+        return true;
+      }
       final url = result['url'];
       if (url is String) {
         final nextPull = int.tryParse(Uri.parse(url).pathSegments.last);
