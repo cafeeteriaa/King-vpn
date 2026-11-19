@@ -1699,6 +1699,7 @@ Future<void> natIpMemLoad() async {
         .split(RegExp(r'[\r\n,; ]+'))
         .where((x) => x.contains('/') || x.contains('-'))
         .toList();
+    natRangeCursor = max(0, p.getInt('natRangesCursor') ?? 0);
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -1757,6 +1758,36 @@ Future<void> natIpMemSave(String ip, int port) async {
   }
 }
 
+
+/// Next bounded sample from the National Net engine's own user-configured
+/// ranges. This cursor and range inventory are not shared with generic scanners.
+List<String> _natConfiguredRangeBatch(int limit) {
+  if (limit <= 0 || natRanges.isEmpty) return const <String>[];
+  final candidates = <String>{};
+  for (final range in natRanges.take(128)) {
+    final remaining = limit * 4 - candidates.length;
+    if (remaining <= 0) break;
+    candidates.addAll(natExpandAny(range, maxPerBlock: remaining));
+  }
+  if (candidates.isEmpty) return const <String>[];
+  final values = candidates.toList(growable: false);
+  final start = natRangeCursor % values.length;
+  final count = min(limit, values.length);
+  final out = <String>[
+    for (var i = 0; i < count; i++) values[(start + i) % values.length],
+  ];
+  natRangeCursor = (start + count) % values.length;
+  unawaited(() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setInt('natRangesCursor', natRangeCursor);
+    } catch (e, st) {
+      logError(e, st);
+    }
+  }());
+  return out;
+}
+
 Future<void> natRangesSave(String text) async {
   natRanges = text
       .split(RegExp(r'[\r\n,; ]+'))
@@ -1766,6 +1797,7 @@ Future<void> natRangesSave(String text) async {
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString(_rangeKey, natRanges.join('\n'));
+    await p.setInt('natRangesCursor', 0);
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -2205,20 +2237,25 @@ Future<List<String>> _natRangeScanStepBody({
   }.toList(growable: false);
   // NATAUTO: نت ملی همیشه خودکار از بازه‌های داخلی برنامه اسکن می‌کند؛ بازه‌ی دستی فقط برای اسکن دستی است
   final blocks = natSeedBlocks(hosts);
-  // فیکس ۳: refresh بازه‌های CDN همان‌طور که قبلاً داخل _getCfIps بود، اینجا (ترد اصلی)
-  // fire-and-forget می‌ماند؛ isolate به شبکه/prefs دسترسی ندارد.
+  // National Net consumes only its own explicitly configured ranges plus
+  // exact known server IPs. It never borrows generic DNS/SNI/IP scanner ranges.
+  final configuredNatRanges = nationalMode
+      ? _natConfiguredRangeBatch(maxAddrs)
+      : const <String>[];
+  // CDN refresh is unrelated to the National Net range inventory.
   unawaited(refreshCdnRanges());
-  final blocksList = blocks; // List<String> موجود
   final args = <String, dynamic>{
-    // حالت غیرملی قبلاً _getCfIps() با پیش‌فرض ۱۶۰۰۰۰ صدا می‌زد؛ همان حفظ شد
     'cfIpsBatch': 0, // no broad CDN/third-party range sweep in automatic mode
-    'blocks': blocksList,
+    'blocks': blocks,
     'nationalMode': nationalMode,
     'liveRanges': <String>[],
     'cursors': Map<String, int>.of(_cfRangeCursors),
   };
   final gen = await compute(_genAddrsIso, args);
-  final addrs = gen['addrs'] as List<String>;
+  final addrs = <String>{
+    ...configuredNatRanges,
+    ...(gen['addrs'] as List).cast<String>(),
+  }.toList(growable: false);
   _cfRangeCursors
     ..clear()
     ..addAll(Map<String, int>.from(gen['cursors'] as Map));
