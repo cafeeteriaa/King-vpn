@@ -291,6 +291,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('maxAttempts = 8', policy)
         self.assertIn('maximum = const Duration(hours: 6)', policy)
 
+    def test_smart_command_respects_negated_connect_and_scan_intents(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn('final negatesConnection = RegExp(', main)
+        self.assertIn('&& !negatesConnection;', main)
+        self.assertIn('final negatesScan = RegExp(', main)
+        self.assertIn("!negatesScan && command.contains('اسکن')", main)
+
     def test_background_supervisor_is_initialized_with_its_own_dispatcher(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn("import 'king_ai_background.dart';", main)
