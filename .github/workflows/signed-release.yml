@@ -157,7 +157,7 @@ jobs:
 
       - name: Update owner-managed in-app update manifest
         env:
-          KING_UPDATE_GIST_TOKEN: \${{ secrets.KING_UPDATE_GIST_TOKEN }}
+          KING_UPDATE_GIST_TOKEN: ${{ secrets.KING_UPDATE_GIST_TOKEN }}
         run: |
           set -euo pipefail
           GIST_ID="0e04f5efe29b8101eb554c6e9a41d969"
