@@ -1043,9 +1043,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         standby_start = pilot.index('Server? _pilotBestStandby()')
         standby_end = pilot.index('Future<void> _pilotLoadExperience()', standby_start)
         standby = pilot[standby_start:standby_end]
-        self.assertIn('final learned = NationalNetworkIntelligence.scoreFor(', standby)
+        self.assertIn('double _pilotStandbyScore(Server s)', pilot)
+        self.assertIn('final learned = NationalNetworkIntelligence.scoreFor(', pilot)
+        self.assertIn('if (!nationalMode && s.svc >= 0)', pilot)
+        self.assertIn('bestScore < _pilotStandbyScore(active) + 12.0', standby)
+        self.assertIn('Hysteresis', standby)
         self.assertNotIn('if (nationalMode)', standby)
-        self.assertIn('if (!nationalMode && s.svc >= 0)', standby)
 
 
     def test_smart_command_uses_safe_disconnect_intent_and_voice_answer(self):
