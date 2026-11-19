@@ -10642,6 +10642,7 @@ ListTile( // KINGEXTRAS row
   bool _smartSpeechListening = false;
   bool _smartSpeechOnDeviceAttempt = false;
   bool _smartSpeechOnlineFallbackAttempted = false;
+  bool _smartSpeechOnlineConsentGranted = false;
   String? _smartSpeechLocaleId;
   bool _smartSpeechVoiceInput = false;
   List<String> _pilotRanges = <String>[];
@@ -10676,7 +10677,7 @@ ListTile( // KINGEXTRAS row
               _smartSpeechOnDeviceAttempt = false;
               _smartSpeechOnlineFallbackAttempted = true;
               _set('تشخیص گفتار آفلاین در این دستگاه در دسترس نبود؛ اکنون با اطلاع تو سرویس آنلاین گفتار را امتحان می‌کنم. ممکن است صوت به سرویس گفتار دستگاه ارسال شود.');
-              unawaited(_startSmartCommandOnlineFallback());
+              unawaited(_requestSmartCommandOnlineFallback());
               return;
             }
             _set('تشخیص گفتار در دسترس نیست: ${error.errorMsg}');
@@ -10730,13 +10731,44 @@ ListTile( // KINGEXTRAS row
         _smartSpeechOnDeviceAttempt = false;
         _smartSpeechOnlineFallbackAttempted = true;
         _set('شروع تشخیص آفلاین ممکن نشد؛ با اطلاع تو سرویس آنلاین گفتار را امتحان می‌کنم.');
-        await _startSmartCommandOnlineFallback();
+        await _requestSmartCommandOnlineFallback();
       } else {
         _set('شروع فرمان صوتی ناموفق بود: $error');
       }
     } finally {
       if (mounted) setState(() => _smartSpeechBusy = false);
     }
+  }
+
+  Future<void> _requestSmartCommandOnlineFallback() async {
+    if (!_smartSpeechOnlineConsentGranted) {
+      final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('اجازه تشخیص گفتار آنلاین؟'),
+            content: const Text('تشخیص آفلاین روی دستگاه در دسترس نبود. برای ادامه آنلاین ممکن است صدای تو به سرویس گفتار Android یا ارائه‌دهنده آن ارسال شود. فقط در صورت موافقت، ادامه می‌دهم.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('خیر، فقط آفلاین'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('اجازه می‌دهم'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (!mounted || accepted != true) {
+        if (mounted) _set('تشخیص گفتار آنلاین مجاز نشد؛ هیچ صدایی به سرویس آنلاین ارسال نمی‌شود.');
+        return;
+      }
+      _smartSpeechOnlineConsentGranted = true;
+    }
+    await _startSmartCommandOnlineFallback();
   }
 
   Future<void> _startSmartCommandOnlineFallback() async {
