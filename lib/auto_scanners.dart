@@ -72,16 +72,9 @@ Future<void> autoScanRun(void Function(String) say) async {
     // GLOBALONLY: فقط IPهای تمیز پوشه‌ی جهانی. بازه‌های ISP نت ملی حذف شدند (جدایی از نت ملی).
     // اگر پوشه‌ی جهانی هنوز خالی است، از بازه‌های CDN (Cloudflare) نمونه‌برداری می‌شود، نه ISP داخلی.
     // FOLDERALL: IPهای پوشه اول؛ در نت ملی IPهای ISP داخلی هم اضافه می‌شود (بهینه برای نت ملی)
-    final global = [for (final c in _goldIps.values.take(kAutoIpLimit)) c.ip];
-    final domestic = <String>[];
-    if (nationalMode) {
-      for (final r in kIrIspRanges.take(12)) {
-        final a = natExpandCidr(r, maxPerBlock: 3);
-        if (a.isNotEmpty) domestic.add(a.first);
-        if (domestic.length >= kAutoIpLimit) break;
-      }
-    }
-    final base = <String>{...global, ...domestic}.toList();
+    // This is the generic/global SNI and port scanner. National ISP ranges
+    // belong exclusively to the National Net engine and are never borrowed here.
+    final base = [for (final entry in _goldIps.values.take(kAutoIpLimit)) entry.ip];
     final cdnSample = <String>[];
     if (base.isEmpty) {
       for (final r in _cfRanges.take(8)) {
@@ -92,7 +85,7 @@ Future<void> autoScanRun(void Function(String) say) async {
     final ips = base.isNotEmpty
         ? base
         : (cdnSample.isNotEmpty ? cdnSample : kAutoFallbackIps);
-    say('تست با ${ips.length} IP (${nationalMode ? 'پوشه + ISP داخلی' : 'پوشه‌ی جهانی'})');
+    say('تست با ${ips.length} IP (پوشه جهانی / CDN مستقل از نت ملی)');
 
     // SNI: خروجی خود دامنه‌هاست. هر دامنه یک بار؛ به محض یک IP سالم، همان دامنه ثبت می‌شود
     final sniHits = <String>[];
