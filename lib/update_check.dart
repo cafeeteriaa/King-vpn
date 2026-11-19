@@ -113,54 +113,13 @@ extension UpdateCheck on _HomePageState {
       final dir = await Directory.systemTemp.createTemp('king_upd_');
       final file = File('${dir.path}/king-vpn-update.apk');
       await file.writeAsBytes(r.bodyBytes, flush: true);
-      // فیکس ۱: بدون هش در Gist، هیچ APK ای خودکار نصب نمی‌شود (بدون بررسی یکپارچگی)
-      if (!RegExp(r'^[0-9a-f]{64}      _set('✅ دانلود شد — نصب را تأیید کن');
-      kingHealText.value = 'APK آماده — تأیید نصب اندروید';
-      final ok = await launchUrl(
-        Uri.file(file.path),
-        mode: LaunchMode.externalApplication,
-      );
-      if (!ok) {
-        await launchUrl(Uri.parse(apkUrl),
-            mode: LaunchMode.externalApplication);
-        await Clipboard.setData(ClipboardData(text: apkUrl));
-        _set('لینک APK کپی شد');
-      }
-    } catch (e, stk) {
-      logError(e, stk);
-      try {
-        await launchUrl(Uri.parse(apkUrl),
-            mode: LaunchMode.externalApplication);
-      } catch (e, stk) { logError(e, stk); }
-      _set('آپدیت: از مرورگر نصب کن');
-    }
-  }
-
-  void _applyRemoteHeal() {
-    try {
-      if (_remoteHeal['turboForce'] == true) {
-        turboSpeed = true;
-        muxEnabled = true;
-      }
-      final mc = (_remoteHeal['muxConc'] as num?)?.toInt();
-      // MUXCAP: سقف امن ۳۲ (بالاتر از این HOL blocking شدید می‌شود).
-      if (mc != null && mc >= 8) muxConc = mc.clamp(8, 32);
-      dbg('ترمیم از راه دور اعمال شد: $_remoteHeal');
-    } catch (e, stk) { logError(e, stk); }
-  }
-}
-).hasMatch(sha256Expected)) {
-        _set('❌ هش SHA-256 معتبر و کامل نیست؛ نصب خودکار متوقف شد');
-        kingHealText.value = '❌ اصالت APK قابل تأیید نیست';
-        try { await file.delete(); } catch (e, st) { logError(e, st); }
-        return;
-      }
+      // Fail closed: missing, malformed, mismatched or unreadable digests
+      // must never fall through to the Android package installer.
       try {
         final bytes = await file.readAsBytes();
-        final hash = sha256.convert(bytes).toString().toLowerCase();
-        if (hash != sha256Expected) {
-          _set('❌ فایل آپدیت معتبر نیست (hash mismatch)؛ نصب لغو شد');
-          kingHealText.value = '❌ APK دستکاری شده';
+        if (!verifySha256Bytes(bytes, sha256Expected)) {
+          _set('❌ هش نامعتبر است یا با فایل تطابق ندارد؛ نصب لغو شد');
+          kingHealText.value = '❌ اصالت APK تأیید نشد';
           try { await file.delete(); } catch (e, st) { logError(e, st); }
           return;
         }
