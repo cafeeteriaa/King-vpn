@@ -346,7 +346,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_smart_command_respects_negated_connect_and_scan_intents(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn('KingCommandSafety.negatesConnection(command)', main)
-        self.assertIn('!negatesConnection;', main)
+        self.assertIn('KingCommandSafety.isConnectIntent(command)', main)
+        self.assertNotIn('!negatesConnection;', main)
         self.assertIn('KingCommandSafety.negatesScan(command)', main)
         self.assertIn("!negatesScan && command.contains('dns') && command.contains('اسکن')", main)
         self.assertIn("!negatesScan &&", main[main.index("Future<void> _runSmartCommand"):main.index("Widget _smartCommandPanel()")])
@@ -361,7 +362,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('KingCommandSafety.negatesConnection(command)', main)
         self.assertIn('KingCommandSafety.negatesScan(command)', main)
         self.assertIn('static bool negatesConnection(String command)', helper)
+        self.assertIn('static bool isConnectIntent(String command)', helper)
         self.assertIn('static bool negatesScan(String command)', helper)
+        self.assertIn("test('connect intent recognises متصل", tests)
         self.assertIn("test('negative connect commands are blocked'", tests)
         self.assertIn("test('negative scan commands are blocked'", tests)
 
@@ -747,10 +750,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_unified_pilot_starts_and_stops_local_king_advisory_safely(self):
         extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
-        start = extras.index('Future<void> startLocalPilot()')
+        start = extras.index('Future<void> startLocalPilot({bool pinNetworkMode = false})')
         end = extras.index('Map<String, Object?> _takePilotSnap()', start)
         pilot_start = extras[start:end]
         self.assertIn('ensureLocalPilotRunning();', pilot_start)
+        self.assertIn('await NationalNetworkIntelligence.load();', pilot_start)
         self.assertIn('if (_hasAnyAiKey)', pilot_start)
         self.assertIn('aiSession = true;', pilot_start)
         self.assertIn('aiAutopilotStart();', pilot_start)
