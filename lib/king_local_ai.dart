@@ -55,7 +55,18 @@ empty changes list and explain what is missing.
     if (!value.startsWith('github_pat_') && !value.startsWith('ghp_')) {
       throw ArgumentError('Use a fine-grained GitHub token or classic ghp_ token');
     }
+    final previous = await _secure.read(key: 'king_ai_github_token');
     await _secure.write(key: 'king_ai_github_token', value: value);
+    try {
+      await _requireRepositoryOwnerIdentity('cafeeteriaa');
+    } catch (_) {
+      if (previous == null) {
+        await _secure.delete(key: 'king_ai_github_token');
+      } else {
+        await _secure.write(key: 'king_ai_github_token', value: previous);
+      }
+      rethrow;
+    }
   }
 
   Future<bool> hasGitHubToken() async =>
