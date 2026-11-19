@@ -24,6 +24,7 @@ SECRET_PATTERNS = [
 ]
 MAX_TASK = 6000
 MAX_DIFF = 24000
+MAX_TOTAL_CHARS = 24000
 
 
 def has_secret(value: str) -> bool:
@@ -73,7 +74,7 @@ def prepare(source: Path, output_dir: Path, min_examples: int = 5) -> dict:
                     break
                 total_chars += len(content)
                 safe_changes.append({"path": path, "content": content})
-            if not valid or total_chars > 48000 or not safe_sources:
+            if not valid or total_chars > MAX_TOTAL_CHARS or not safe_sources:
                 rejected += 1
                 continue
             # Re-scan every field here as defense in depth. The collector is
