@@ -14410,6 +14410,7 @@ ListTile( // KINGEXTRAS row
                           style: TextStyle(fontWeight: FontWeight.bold)),
                       TextField(
                         controller: token,
+                        onChanged: (_) => setSheetState(() {}),
                         obscureText: true,
                         autocorrect: false,
                         enableSuggestions: false,
@@ -14490,6 +14491,7 @@ ListTile( // KINGEXTRAS row
                           style: TextStyle(fontWeight: FontWeight.bold)),
                       TextField(
                         controller: prompt,
+                        onChanged: (_) => setSheetState(() {}),
                         minLines: 2,
                         maxLines: 5,
                         decoration: const InputDecoration(
