@@ -4067,7 +4067,9 @@ class _PilotCommandBarState extends State<PilotCommandBar> {
   final FocusNode _focus = FocusNode();
   bool _sending = false;
   String _lastCommand = '';
-  String _reply = 'برای شروع یکی از فرمان‌های آماده را انتخاب کن یا درخواستت را بنویس.';
+  String _intentLabel = 'آماده دریافت فرمان';
+  final List<String> _history = <String>[];
+  String _reply = 'درخواستت را بنویس؛ فرمان‌ها روی دستگاه تحلیل می‌شوند و عملیات اتصال از مسیر خلبان اجرا می‌شود.';
   @override
   void dispose() {
     _controller.dispose();
@@ -4082,6 +4084,10 @@ class _PilotCommandBarState extends State<PilotCommandBar> {
     setState(() {
       _sending = true;
       _lastCommand = command;
+      _intentLabel = _classifyIntent(command);
+      _history.remove(command);
+      _history.add(command);
+      if (_history.length > 8) _history.removeAt(0);
       _reply = 'در حال تحلیل فرمان و اجرای امن آن…';
     });
     _controller.clear();
@@ -4093,6 +4099,19 @@ class _PilotCommandBarState extends State<PilotCommandBar> {
     } finally {
       if (mounted) setState(() => _sending = false);
     }
+  }
+
+  String _classifyIntent(String raw) {
+    final q = raw.toLowerCase().replaceAll('ي', 'ی').replaceAll('ك', 'ک');
+    if (q.contains('قطع') || q.contains('disconnect')) return 'عملیات: قطع امن تونل';
+    if (q.contains('لغو') || q.contains('توقف') || q.contains('cancel')) return 'عملیات: لغو جستجو یا کار جاری';
+    if (q.contains('وضعیت') || q.contains('گزارش')) return 'عملیات: گزارش فقط‌خواندنی';
+    if (q.contains('نت ملی') || q.contains('داخلی')) return 'راهبرد: شبکه داخلی / نت ملی';
+    if (q.contains('نت جهانی') || q.contains('جهانی')) return 'راهبرد: شبکه جهانی';
+    if (q.contains('خلبان')) return 'عملیات: کنترل خلبان محلی';
+    if (q.contains('وصل') || q.contains('سرور') || q.contains('connect') || q.contains('بهترین')) return 'عملیات: انتخاب و بررسی تونل';
+    if (raw.trim().isEmpty) return 'آماده دریافت فرمان';
+    return 'فرمان آزاد: بررسی نیت پیش از اجرا';
   }
 
   Widget _quickCommand(String label, IconData icon, String command) =>
@@ -4141,6 +4160,7 @@ class _PilotCommandBarState extends State<PilotCommandBar> {
             textDirection: TextDirection.rtl,
             textInputAction: TextInputAction.send,
             onSubmitted: (_) => _send(),
+            onChanged: (value) => setState(() => _intentLabel = _classifyIntent(value)),
             style: const TextStyle(color: Color(0xFFF2F0EB), fontSize: 14),
             decoration: InputDecoration(
               hintText: 'مثلاً: بهترین سرور آلمان را پیدا کن و وصل شو…',
@@ -4186,8 +4206,38 @@ class _PilotCommandBarState extends State<PilotCommandBar> {
             _quickCommand('نت ملی', Icons.home_work_outlined, 'نت ملی وصل شو'),
             const SizedBox(width: 5),
             _quickCommand('نت جهانی', Icons.public, 'نت جهانی وصل شو'),
+            const SizedBox(width: 5),
+            _quickCommand('راهنما', Icons.help_outline, 'راهنمای فرمان‌ها'),
+            if (widget.busy) ...[
+              const SizedBox(width: 5),
+              _quickCommand('لغو عملیات', Icons.stop_circle_outlined, 'لغو جستجو'),
+            ],
+            if (widget.connected) ...[
+              const SizedBox(width: 5),
+              _quickCommand('اتصال مجدد', Icons.refresh, 'اتصال مجدد'),
+            ],
           ]),
         ),
+        Padding(
+          padding: const EdgeInsets.only(top: 5),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: Text(_intentLabel, textDirection: TextDirection.rtl,
+              style: const TextStyle(color: Color(0xFF9FD5C0), fontSize: 10.5, fontWeight: FontWeight.w600)),
+          ),
+        ),
+        if (_history.length > 1) ...[
+          const SizedBox(height: 3),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(children: [
+              for (final oldCommand in _history.reversed.skip(1).take(3)) ...[
+                _quickCommand('↶ $oldCommand', Icons.history, oldCommand),
+                const SizedBox(width: 5),
+              ],
+            ]),
+          ),
+        ],
         if (_lastCommand.isNotEmpty) ...[
           const SizedBox(height: 4),
           Text('فرمان: $_lastCommand', textDirection: TextDirection.rtl,
@@ -4202,9 +4252,17 @@ class _PilotCommandBarState extends State<PilotCommandBar> {
             style: const TextStyle(color: Color(0xFFCFD2D8), fontSize: 11, height: 1.3)),
         ),
         const SizedBox(height: 4),
-        Text(_reply, textDirection: TextDirection.rtl,
-          maxLines: 3, overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: Color(0xFFFFD98B), fontSize: 11.5, height: 1.3)),
+        Container(
+          margin: const EdgeInsets.only(top: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFF292D34),
+            borderRadius: BorderRadius.circular(11),
+            border: Border.all(color: const Color(0x3356B99A)),
+          ),
+          child: SelectableText(_reply, textDirection: TextDirection.rtl,
+            style: const TextStyle(color: Color(0xFFFFD98B), fontSize: 11.5, height: 1.35)),
+        ),
       ]),
     ),
   );

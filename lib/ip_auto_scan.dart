@@ -71,11 +71,17 @@ Future<void> _ipAutoSave() async {
 
 /// خودکار فقط IPهای دقیقِ کانفیگ‌های موجود و سرورهای قبلاً موفق را بررسی می‌کند.
 /// پیمایش گسترده‌ی CIDRهای ISP/CDN برای اجرای خودکار مجاز نیست؛ اسکن دستی جداست.
-List<String> _ipAutoBlocks(Iterable<Server> knownServers) => <String>{
-  ...natIpMemHosts(),
-  for (final server in knownServers)
-    if (server.isIp) server.host,
-}.map((ip) => '$ip/32').toList(growable: false);
+List<String> _ipAutoBlocks(Iterable<Server> knownServers) {
+  // Each mode owns its own candidate pool. National memory is never fed into
+  // the global scan; the currently selected server set is mode-scoped by the
+  // main search pipeline and the result/cursor keys are mode-specific too.
+  final ips = <String>{};
+  if (nationalMode) ips.addAll(natIpMemHosts());
+  for (final server in knownServers) {
+    if (server.isIp) ips.add(server.host);
+  }
+  return ips.map((ip) => '$ip/32').toList(growable: false);
+}
 
 Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers) async {
   final args = <String, dynamic>{
