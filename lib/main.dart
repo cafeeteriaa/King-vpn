@@ -10702,13 +10702,15 @@ ListTile( // KINGEXTRAS row
       }
       _smartSpeechLocaleId = persian.first.localeId;
       await _smartSpeech.listen(
-        localeId: _smartSpeechLocaleId,
-        listenFor: const Duration(seconds: 20),
-        pauseFor: const Duration(seconds: 3),
-        onDevice: true,
-        partialResults: true,
-        cancelOnError: true,
-        listenMode: stt.ListenMode.confirmation,
+        listenOptions: stt.SpeechListenOptions(
+          localeId: _smartSpeechLocaleId,
+          listenFor: const Duration(seconds: 20),
+          pauseFor: const Duration(seconds: 3),
+          onDevice: true,
+          partialResults: true,
+          cancelOnError: true,
+          listenMode: stt.ListenMode.confirmation,
+        ),
         onResult: (result) {
           if (!mounted) return;
           final transcript = result.recognizedWords.trim();
