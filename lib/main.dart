@@ -9484,9 +9484,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 () => _applyProfile('turbo'), heavy: true),
             tile(Icons.network_check, 'اینترنت ضعیف / نت ملی',
                 'صبر بیشتر، تعویض کمتر', () => _applyProfile('weak'), heavy: true),
-            tile(Icons.auto_awesome, 'سرور AI (Gemini/Grok)',
-                'سرورهایی که API هوش مصنوعی را باز می‌کنند',
-                () => pickEngineThenStart(() => connectRow('r:ai')), heavy: true),
           ]),
         ),
       ),
@@ -9942,39 +9939,10 @@ ListTile( // KINGEXTRAS row
                 unawaited(hotFolderRebuild());
               },
             ),
-            ListTile(
-              leading: const Icon(Icons.public_off),
-              title: const Text('اتصال با سرورهای پوشه (نت ملی)'),
-              enabled: !busy && !connected && _resMap.isNotEmpty,
-              onTap: () async {
-                if (!await confirmHeavyFeature(
-                    context, 'اتصال با سرورهای پوشه (نت ملی)')) {
-                  return;
-                }
-                if (!mounted) return;
-                Navigator.pop(ctx);
-                if (!await pickEngineThenStart(() async {
-                  _resNext = true;
-                  await connect();
-                }, forceNet: true)) return;
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.public),
-              title: const Text('جستجو در پوشه با نت جهانی'),
-              enabled: !busy && !connected && _resMap.isNotEmpty,
-              onTap: () async {
-                if (!await confirmHeavyFeature(
-                    context, 'جستجو در پوشه با نت جهانی')) {
-                  return;
-                }
-                if (!mounted) return;
-                Navigator.pop(ctx);
-                if (!await pickEngineThenStart(() async {
-                  _resNext = true;
-                  await connect();
-                }, forceNet: false)) return;
-              },
+            const ListTile(
+              leading: Icon(Icons.psychology_alt_outlined),
+              title: Text('اتصال نت ملی یا جهانی'),
+              subtitle: Text('نوع شبکه را در کادر فرمان بنویس؛ خلبان راهبرد را اجرا می‌کند.'),
             ),
             ListTile(
               leading: const Icon(Icons.network_ping),
@@ -11467,19 +11435,9 @@ ListTile( // KINGEXTRAS row
                 subtitle: const Text(
                     'روی یک سرور بزن تا همان وصل شود. نگه‌دار تا از پوشه حذف شود.'),
               ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: FilledButton(
-                  onPressed: links.isEmpty
-                      ? null
-                      : () {
-                          Navigator.pop(ctx);
-                          unawaited(pickEngineThenStart(
-                              () => _personalAdThen(personalFolderConnect),
-                              askMode: false));
-                        },
-                  child: const Text('اتصال به سرورهای شخصی (کمترین پینگ)'),
-                ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Text('برای اتصال بنویس «سرور شخصی وصل شو» در کادر فرمان.'),
               ),
               const Divider(height: 1),
               Expanded(
@@ -12652,7 +12610,7 @@ ListTile( // KINGEXTRAS row
   }
 
   Widget _personalHeader() => InkWell(
-        onTap: connectPersonal,
+        onTap: null,
         child: Container(
           width: double.infinity,
           color: Color(0xFF34373E),
@@ -12670,7 +12628,7 @@ ListTile( // KINGEXTRAS row
               IconButton(
                   icon: const Icon(Icons.settings, size: 20),
                   onPressed: _personalSheet),
-              const Icon(Icons.play_circle_outline, size: 20),
+              const Icon(Icons.info_outline, size: 20),
             ]),
             const Padding(
               padding: EdgeInsets.only(top: 4),
@@ -14810,11 +14768,6 @@ ListTile( // KINGEXTRAS row
               if (v == 'dna') _plusDnaBoard();
               if (v == 'diagfull') exportFullDiag();
               if (v == 'panic') panicNow();
-              if (v == 'offline') {
-                unawaited(_askOnlineOfflineMode().then((ok) { // جدید: فقط آنلاین/آفلاین
-                  if (ok) connectBestCached();
-                }));
-              }
               if (v == 'plus') plusSheet();
               if (v == 'donate') donateSheet(context);
               if (v == 'shop') serverShopOpen(context);
@@ -14975,8 +14928,8 @@ UiHero(
               );
             },
           ),
-          _speedPanel(u),
           aiBar(),
+          _speedPanel(u),
           // Unified Smart Pilot selects domestic/global strategy internally.
           Padding( // NATRESPATCH
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
