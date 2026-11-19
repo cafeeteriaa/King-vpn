@@ -130,14 +130,7 @@ extension UpdateCheck on _HomePageState {
     String sha256Expected,
   ) async {
     final uri = Uri.tryParse(apkUrl);
-    const allowedHosts = <String>{
-      'github.com',
-      'release-assets.githubusercontent.com',
-      'objects.githubusercontent.com',
-    };
-    if (uri == null ||
-        uri.scheme != 'https' ||
-        !allowedHosts.contains(uri.host.toLowerCase())) {
+    if (uri == null || !isAllowedUpdateDownloadUri(uri)) {
       _set('❌ لینک آپدیت امن و معتبر نیست؛ دانلود متوقف شد');
       return;
     }
@@ -164,6 +157,13 @@ extension UpdateCheck on _HomePageState {
         });
       final streamed = await client.send(request)
           .timeout(const Duration(minutes: 4));
+      // The HTTP client follows redirects by default. Validate the final
+      // response URI too, otherwise an allowed GitHub URL could redirect to
+      // an untrusted host before the APK bytes are received.
+      final finalUri = streamed.request?.url;
+      if (finalUri == null || !isAllowedUpdateDownloadUri(finalUri)) {
+        throw StateError('APK redirect destination is not an allowed HTTPS GitHub host');
+      }
       if (streamed.statusCode != 200) {
         throw HttpException('APK download returned HTTP ${streamed.statusCode}');
       }
