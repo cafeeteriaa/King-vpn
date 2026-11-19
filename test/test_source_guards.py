@@ -420,7 +420,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         voice = main[start:end]
         self.assertIn('Permission.microphone.request()', voice)
         self.assertIn("startsWith('fa')", voice)
+        self.assertIn('onDevice: true', voice)
         self.assertIn('onDevice: false', voice)
+        self.assertIn('_startSmartCommandOnlineFallback()', voice)
+        self.assertIn('تشخیص گفتار آفلاین', voice)
         chat = (ROOT / 'lib' / 'king_chat_page.dart').read_text(encoding='utf-8')
         self.assertIn('Future<void> _send()', chat)
         self.assertIn('KingLocalAi.instance.ask(prompt', chat)
