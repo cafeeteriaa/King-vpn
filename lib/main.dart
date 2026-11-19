@@ -3,6 +3,7 @@ import 'network_health.dart';
 import 'king_local_ai.dart';
 import 'king_ai_console.dart';
 import 'king_ai_background.dart';
+import 'king_ai_owner_auth.dart';
 import 'package:local_inference_flutter/local_inference_flutter.dart';
 import 'update_integrity.dart';
 import 'errjournal.dart';
@@ -5529,6 +5530,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState s) {
+    if (s != AppLifecycleState.resumed) KingAiOwnerAuth.instance.lock();
     inForeground = s == AppLifecycleState.resumed;
     _appFg = inForeground;
     if (s == AppLifecycleState.resumed && _joinPending) {
