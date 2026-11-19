@@ -92,6 +92,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         connect = main[connect_start:connect_end]
         self.assertIn('if (localPilotOn)', connect)
         self.assertIn('PilotNetworkProbe.refresh()', connect)
+        self.assertNotIn('NatNetworkDiagnosis.refresh()', connect)
 
     def test_flutter_artifact_path_matches_non_split_apk_build(self):
         workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
