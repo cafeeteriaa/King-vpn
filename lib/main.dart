@@ -576,7 +576,7 @@ const betterMinGapMs = 80;
 const betterEvery = Duration(minutes: 10); // SWITCHRULE: حداقل ۱۰ دقیقه بین دو تعویض سرور
 int? connBaseDelay; // test ping of the connected server
 int betterRun = 0;
-bool aiFastOn = true; // parallel Gemini test (off = old one-by-one)
+bool aiFastOn = false; // legacy external-provider scan is disabled
 int aiTried = 0;
 int aiHit = 0;
 int aiGen = 0; // FASTPATCH-AI: one analysis loop per connection
@@ -4212,123 +4212,11 @@ Future<int?> pingAny(
   return null;
 }
 
-// Does Gemini REALLY work through the current tunnel? Two checks, both must pass:
-//  1) the Gemini API location check (generativelanguage.googleapis.com):
-//     an unsupported location gets "User location is not supported";
-//     a supported one gets a normal "API key not valid" error
-//  2) the Gemini web app opens (200, no "not supported" page / redirect)
-// GEMFLAG: true when the LAST Gemini check got a clear "not supported here"
-// answer from Google (no point in retrying), false when it was only a network
-// problem (worth one more try)
-bool gemDefinite = false;
-
-// exit countries where Gemini is never available: skipped without a test
-const _gemBlockedCc = {
-  'IR', 'CN', 'RU', 'KP', 'CU', 'SY', 'BY', 'MM', 'AF', 'SD', 'SS', 'VE', 'HK', 'MO',
-};
-bool _gemSkip(Server s) {
-  final c = (s.country ?? '').toUpperCase();
-  return c.isNotEmpty && _gemBlockedCc.contains(c);
-}
-
-Future<bool> _geminiApiOk({bool direct = true}) async {
-  final c = HttpClient()
-    ..findProxy = ((_) =>
-        (direct && !proxyMode) ? 'DIRECT' : 'PROXY 127.0.0.1:$httpProxyPort')
-    ..connectionTimeout = const Duration(seconds: 5);
-  try {
-    return await () async {
-      final req = await c.getUrl(Uri.parse(
-          'https://generativelanguage.googleapis.com/v1beta/models?key=location_check'));
-      req.headers.set('accept-language', 'en-US,en;q=0.9');
-      final res = await req.close();
-      final sb = StringBuffer();
-      await for (final chunk
-          in res.transform(Utf8Decoder(allowMalformed: true))) {
-        sb.write(chunk);
-        if (sb.length > 20000) break;
-      }
-      final b = sb.toString().toLowerCase();
-      if (b.contains('location is not supported') ||
-          b.contains('not supported for the api use') ||
-          b.contains('not available in your')) {
-        gemDefinite = true;
-        return false;
-      }
-      // reached Google and got a normal JSON error / answer about the key
-      return res.statusCode == 400 ||
-          res.statusCode == 403 ||
-          res.statusCode == 200;
-    }()
-        .timeout(const Duration(seconds: 10));
-  } catch (_swE) { _swl('_geminiApiOk#1', _swE);
-    return false;
-  } finally {
-    c.close(force: true);
-  }
-}
-
-Future<bool> _geminiWebOk({bool direct = true}) async {
-  final c = HttpClient()
-    ..findProxy = ((_) =>
-        (direct && !proxyMode) ? 'DIRECT' : 'PROXY 127.0.0.1:$httpProxyPort')
-    ..connectionTimeout = const Duration(seconds: 5);
-  try {
-    return await () async {
-      final req = await c.getUrl(Uri.parse('https://gemini.google.com/app'));
-      req.headers.set('user-agent',
-          'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36');
-      req.headers.set('accept-language', 'en-US,en;q=0.9');
-      final res = await req.close();
-      if (res.statusCode != 200) return false;
-      if (res.redirects.any((r) {
-        final l = r.location.toString().toLowerCase();
-        return l.contains('/faq') || l.contains('unsupported');
-      })) {
-        gemDefinite = true;
-        return false;
-      }
-      final sb = StringBuffer();
-      await for (final chunk
-          in res.transform(Utf8Decoder(allowMalformed: true))) {
-        sb.write(chunk);
-        if (sb.length > 200000) break;
-      }
-      final b = sb.toString().toLowerCase();
-      if (!b.contains('gemini')) return false;
-      const bad = [
-        "isn't supported in your country",
-        'not supported in your country',
-        "isn't available in your country",
-        'not available in your country',
-        'not available in your region',
-      ];
-      if (bad.any(b.contains)) {
-        gemDefinite = true;
-        return false;
-      }
-      return true;
-    }()
-        .timeout(const Duration(seconds: 12));
-  } catch (_swE) { _swl('_geminiWebOk#1', _swE);
-    return false;
-  } finally {
-    c.close(force: true);
-  }
-}
-
-Future<bool> geminiOpens({bool direct = true}) async {
-  gemDefinite = false;
-  // with the user's real API key the answer is exact: 200 = works,
-  // "location not supported" = does not
-  if (geminiKey.isNotEmpty) {
-    final st = await geminiApiStatus(direct: direct);
-    if (st != null) return st;
-  }
-  // otherwise: API location check first (cheap), then the web app
-  if (!await _geminiApiOk(direct: direct)) return false;
-  return _geminiWebOk(direct: direct);
-}
+// External AI-provider server checks are intentionally disabled.
+/// King VPN's assistant and pilot use only the locally installed King model.
+bool gemDefinite = true;
+bool _gemSkip(Server s) => true;
+Future<bool> geminiOpens({bool direct = true}) async => false;
 
 String buildPersonalLink(String host, String uuid) {
   final h = host.trim().replaceAll(RegExp(r'^https?://'), '').split('/').first;
@@ -6025,7 +5913,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         await _saveSettings();
         dbg('V8-FRESH: default settings applied');
       }
-      await loadGeminiPrefs(p);
+      await loadLocalAiPrefs(p);
       // FW-CAP-WARN: detect a saved fastWorkers/fwUser above the new cap BEFORE loadNumPrefs clamps it
       bool fwRawAbove32 = false;
       try {
@@ -6626,7 +6514,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (nationalMode) return;
       // بقیه‌ی اتصال‌ها و خلبان‌ها: بعد از ۴ ساعت هر دو قطع می‌شوند
       if (localPilotOn) stopLocalPilot();
-      if (aiSession) stopGrokPilot();
+      if (aiSession) stopKingPilot();
       if (connected || wantVpn || localPilotOn || aiSession) {
         await disconnect(keepPilot: false);
         _set('⏱ ۴ ساعت گذشت؛ اتصال و خلبان قطع شدند. برای ادامه دوباره «اتصال» را بزن (تبلیغ نمایش داده می‌شود)');
@@ -6871,7 +6759,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // can this server be a test candidate for the given row?
   bool _cand(Server s, String? row) {
     if (row == null) return true;
-    if (row == 'r:ai') return true; // every server is a Gemini candidate
+    if (row == 'r:ai') return false; // external AI-provider server row is disabled
     if (row == 'r:ip') return !s.link.startsWith('ss://'); // resolved to IP
     return inRowGid(s, row);
   }
@@ -9506,9 +9394,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 () => _applyProfile('turbo'), heavy: true),
             tile(Icons.network_check, 'اینترنت ضعیف / نت ملی',
                 'صبر بیشتر، تعویض کمتر', () => _applyProfile('weak'), heavy: true),
-            tile(Icons.auto_awesome, 'سرور AI (Gemini/Grok)',
-                'سرورهایی که API هوش مصنوعی را باز می‌کنند',
-                () => pickEngineThenStart(() => connectRow('r:ai')), heavy: true),
+            
           ]),
         ),
       ),
@@ -11000,7 +10886,7 @@ ListTile( // KINGEXTRAS row
           if (selCountry == null && protoSel.isEmpty) 'بدون محدودیت کشور و پروتکل',
         ].join(' • ');
         if (wantsConnect) {
-          if (aiSession) stopGrokPilot();
+          if (aiSession) stopKingPilot();
           await startLocalPilot();
           _set('فرمان به مغز خلبان ارسال شد • ' + applied);
         } else {
@@ -12237,7 +12123,7 @@ ListTile( // KINGEXTRAS row
           _set(abort
               ? 'لغو شد'
               : (only == null && row == 'r:ai')
-                  ? 'هیچ سروری که Gemini را باز کند پیدا نشد؛ بعداً دوباره امتحان کن یا حالت دیگری را بزن'
+                  ? 'هوش مصنوعی کینگ روی خود گوشی اجرا می‌شود و به سرور اختصاصی نیاز ندارد.'
                   : (only == null && row != null)
                   ? 'در این ردیف سرور سالمی پیدا نشد'
                   : 'هیچ سروری وصل نشد، دوباره تلاش کنید');
@@ -12269,7 +12155,7 @@ ListTile( // KINGEXTRAS row
     aiSession = false;
     aiLoop?.cancel();
     stopNetWatch();
-    stopGrokPilot();
+    stopKingPilot();
     // PILOTOFF: خاموش کردن اتصال توسط کاربر، خلبان محلی را هم خاموش می‌کند
     // (وگرنه خلبان بعد از قطع دوباره وصل می‌شد)
     if (localPilotOn) stopLocalPilot();
@@ -15294,7 +15180,7 @@ ListTile( // KINGEXTRAS row
     groups['f:mine'] = _mineList();
     titles['f:mine'] = '📌 کانفیگ‌های من';
     groups['r:ai'] = u.where((s) => s.ai == true && s.ping != null).toList();
-    titles['r:ai'] = '🤖 سرورهای مخصوص هوش مصنوعی (Gemini)';
+    titles['r:ai'] = 'هوش مصنوعی محلی کینگ (بدون سرور اختصاصی)';
     if (groupMode == 'country') {
       for (final s in u) {
         final c = s.country ?? '??';
