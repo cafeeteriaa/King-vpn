@@ -76,6 +76,10 @@ void main() {
       expect(safe, isNot(contains('abcDEF1234567890')));
       expect(safe, isNot(contains('refresh-secret-456')));
       expect(safe, isNot(contains('unquoted-authorization-secret-789')));
+      expect(safe, contains('"token":"[REDACTED]"'));
+      expect(safe, contains('"authorization":"[REDACTED]"'));
+      expect(safe, contains('"refresh_token":"[REDACTED]"'));
+      expect(safe, contains('Authorization: "[REDACTED]"'));
     });
 
     test('redacts standalone GitHub token formats', () {
