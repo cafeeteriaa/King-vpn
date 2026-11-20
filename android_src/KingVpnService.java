@@ -909,9 +909,10 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     }
 
     /**
-     * OK if any probe gets an HTTP answer through the tunnel. In national mode the
-     * international probe is skipped: it always fails there, which used to make the
-     * watchdog punish good national servers and switch between them forever.
+     * Validate the active data path with mode-specific evidence. National mode
+     * requires two independent domestic destinations; global mode accepts one
+     * international destination to tolerate regional blocking. Never mix evidence
+     * across a network-mode change.
      */
     private ProbeResult probeResult(boolean modeSnapshot) {
         ProbeResult worst = ProbeResult.HARD_FAIL;
