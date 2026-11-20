@@ -7886,7 +7886,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             dbg('ماتریس: ${s.name} با حالت «$vn» جواب داد');
             _set('پیدا شد • ${s.name} • حالت: $vn');
           }
-          natVarSet(s, v);
+          // Keep this as a candidate only. The active tunnel must confirm it.
+          natVarCandidateSet(s, v);
         }
         return d;
       }
@@ -8732,6 +8733,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   void _onConnected(Server s) {
+    // Promote a provisional matrix winner only after the caller has verified
+    // actual tunnel traffic and is committing this server as connected.
+    natVarCandidateConfirm(s);
     // NNIE: measure only this server's own start-to-data-plane verification time.
     final nnieElapsedMs = _nnieFinishAttempt(s);
     if (_listPartial) unawaited(_fetchFullListBg());
@@ -8913,6 +8917,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     // GUARD: در حالت عادی یادگیری نت ملی را پاک نکن (نسخه‌ی قدیمی این گارد را
     // داشت و با حذف آن، ladder حالت عادی variant ذخیره‌شده‌ی نت ملی را پاک می‌کرد).
+    natVarCandidateDiscard(s);
     if (nationalMode) natVar.remove(_nk(s));
     return false;
   }
@@ -9028,6 +9033,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // V8: pre-social-check removed (v2rayNG-style connect)
       _set('اتصال به ${s.name}...');
       if (!await _start(s)) {
+        natVarCandidateDiscard(s);
         _nnieClearAttempt(s);
         // CANCEL-NOPENALTY: the user (or an abort) stopped the connect, or the
         // VPN was not requested. That is not a fault of this server/config, so
@@ -9299,6 +9305,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             tunChecked = true;
             dbg('اتصال: ${s.name} با جایگزین ترافیک تونل OK (google + youtube)');
           } else {
+            natVarCandidateDiscard(s);
             siteSkips++;
             s.svc = 0;
             s.badAt = DateTime.now();

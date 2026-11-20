@@ -82,6 +82,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_dnsPickLastSucceeded = true;', picker)
         self.assertIn('_dnsPickLastSucceeded = false;', picker)
 
+    def test_nat_variant_winner_is_provisional_until_real_tunnel_confirmation(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        delay_start = main.index('Future<int?> _delayOf(')
+        delay_end = main.index('bool _lastDelayTimedOut', delay_start)
+        delay = main[delay_start:delay_end]
+        self.assertIn('natVarCandidateSet(s, v);', delay)
+        self.assertNotIn('natVarSet(s, v);', delay)
+        self.assertIn('void natVarCandidateConfirm(Server s)', nat)
+        self.assertIn('void natVarCandidateDiscard(Server s)', nat)
+        connected_start = main.index('void _onConnected(Server s)')
+        connected_end = main.index('Future<void> _', connected_start)
+        self.assertIn('natVarCandidateConfirm(s);', main[connected_start:connected_end])
+        self.assertIn('natVarCandidates[_nk(s)] ?? natVar[_nk(s)]', nat)
+
     def test_front_sni_candidates_are_hostnames_and_all_matrix_indices_are_valid(self):
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')

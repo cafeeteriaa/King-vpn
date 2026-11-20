@@ -791,7 +791,7 @@ List<int> _natOrder(Server s, {bool full = false}) {
   if (lvl < 1) lvl = 1;
   if (lvl > 10) lvl = 10;
   final f = _NatFacts(s);
-  final known = natVar[_nk(s)];
+  final known = natVarCandidates[_nk(s)] ?? natVar[_nk(s)];
   final cursor = _natCursor[_natCk(s)] ?? 0;
   final again = cursor > 0 && lvl >= 2;
   final out = <int>[];
@@ -1419,7 +1419,7 @@ int natSafeVariant(int v) {
 int natVarFor(Server s) {
   // NATONLYVAR: اتصال عادی هیچ حالتی (fp / Fragment / نردبان) ندارد؛ فقط نت ملی
   if (!nationalMode) return 0;
-  final rawV = natVar[_nk(s)] ?? 0;
+  final rawV = natVarCandidates[_nk(s)] ?? natVar[_nk(s)] ?? 0;
   final v = natSafeVariant(rawV);
   if (v <= 0) return 0;
   final x = _natSpecs[v];
@@ -1562,7 +1562,27 @@ final Map<int, int> natWinCount = {};
 
 String _nk(Server s) => '$natOpKey#${s.key}';
 
+// A core-delay winner is provisional until real Android TUN traffic passes.
+final Map<String, int> natVarCandidates = {};
+
+void natVarCandidateSet(Server s, int v) {
+  natVarCandidates[_nk(s)] = v;
+  while (natVarCandidates.length > 4000) {
+    natVarCandidates.remove(natVarCandidates.keys.first);
+  }
+}
+
+void natVarCandidateDiscard(Server s) {
+  natVarCandidates.remove(_nk(s));
+}
+
+void natVarCandidateConfirm(Server s) {
+  final candidate = natVarCandidates.remove(_nk(s));
+  if (candidate != null) natVarSet(s, candidate);
+}
+
 void natVarSet(Server s, int v) {
+  natVarCandidateDiscard(s);
   natVar.remove(_nk(s));
   natVar[_nk(s)] = v;
   final wk = '$natOpKey#$v';
