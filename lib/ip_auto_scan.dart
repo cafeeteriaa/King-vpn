@@ -369,7 +369,7 @@ extension IpAutoExt on _HomePageState {
     }.toList();
     final toTest = queued.take(_ipAutoCoreMax).toList();
     final remainingCandidates = queued.skip(toTest.length).toList();
-    say('${candidates.length} پورت باز (تست ${toTest.length} تای اول)؛ تست با هسته‌ی VPN...');
+    say('${queued.length} endpoint در صف (تست ${toTest.length} تای این اجرا)؛ تست با هسته‌ی VPN...');
     for (final c in toTest) {
       if (halted()) break;
       checked++;
