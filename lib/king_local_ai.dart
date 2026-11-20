@@ -1883,19 +1883,35 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
   }
 
   Future<void> dispose() async {
-    final engine = _engine;
-    final models = _models;
-    // Clear references before awaiting native teardown so repeated dispose
-    // calls cannot dispose the same native handles twice.
-    _engine = null;
-    _models = null;
-    _modelsInitialized = false;
+    // Serialize native teardown with generation requests. Disposing an engine
+    // while llama.cpp is streaming tokens can invalidate native handles mid-call.
+    final previous = _generationQueue;
+    final release = Completer<void>();
+    _generationQueue = release.future;
+    await previous;
+    if (_busy) {
+      release.complete();
+      throw StateError('Local AI is loading; retry disposal after it finishes.');
+    }
+    _busy = true;
     try {
-      if (engine != null) await engine.dispose();
+      final engine = _engine;
+      final models = _models;
+      // Clear references before awaiting native teardown so repeated dispose
+      // calls cannot dispose the same native handles twice.
+      _engine = null;
+      _models = null;
+      _modelsInitialized = false;
+      try {
+        if (engine != null) await engine.dispose();
+      } finally {
+        // ModelManager owns separate native/plugin resources. Always release
+        // them even if the inference engine's dispose throws.
+        if (models != null) await models.dispose();
+      }
     } finally {
-      // ModelManager owns separate native/plugin resources. Always release
-      // them even if the inference engine's dispose throws.
-      if (models != null) await models.dispose();
+      _busy = false;
+      release.complete();
     }
   }
 }

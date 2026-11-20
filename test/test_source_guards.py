@@ -447,6 +447,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         dispose_end = ai.index('\n  }', dispose_start)
         dispose_body = ai[dispose_start:dispose_end]
         self.assertIn('finally {', dispose_body)
+        self.assertIn('final previous = _generationQueue;', dispose_body)
+        self.assertIn('await previous;', dispose_body)
+        self.assertLess(dispose_body.index('await previous;'), dispose_body.index('if (_busy)'))
+        self.assertIn('_busy = true;', dispose_body)
+        self.assertIn('release.complete();', dispose_body)
         self.assertLess(dispose_body.index('engine.dispose()'), dispose_body.index('models.dispose()'))
         self.assertIn('sha256.bind(modelFile.openRead())', loader)
         self.assertIn('resolveSymbolicLinks()', loader)
