@@ -9030,6 +9030,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final pin = favs.containsKey(s.key);
       final badCfg = coreUnsupportedReason(s.link);
       if (badCfg != null) {
+        natVarCandidateDiscard(s);
         s.svc = 0;
         s.badAt = DateTime.now();
         dbg('ℹ ${s.name}: برای هسته ۳.۵.۰ پشتیبانی نمی‌شود ($badCfg) • بدون تست رد شد • سرور بعدی');
