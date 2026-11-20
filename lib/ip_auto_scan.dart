@@ -277,6 +277,12 @@ extension IpAutoExt on _HomePageState {
     final runNationalMode = nationalMode;
     bool halted() => _ipAutoHalt(modeSnapshot: runNationalMode);
     if (halted()) return false;
+    // Never run with stale preference state from the other network mode, or
+    // after a failed first load. This also protects the pending-core queue.
+    if (_ipAutoLoadedNat != runNationalMode) {
+      say('حافظه‌ی اسکن این حالت بارگذاری نشد؛ برای جلوگیری از اختلاط داده‌ها متوقف شد.');
+      return false;
+    }
 
     // A national scan uses the national hot-source/template pipeline; it must
     // not fetch or fall back to the global discovered-server pool.
