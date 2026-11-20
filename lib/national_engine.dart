@@ -267,7 +267,7 @@ class NatNetworkDiagnosis {
       _identityAtCheck = id.isNotEmpty ? id : null;
       dbg('NNIE-DIAG: ${natNetworkClassLabel(current)} '
           '(domesticTcp=${ev.domesticTcpOk} domesticDns=$domesticDnsOk '
-          'globalTcp=${ev.globalTcpOk} globalDns=${ev.globalDnsOk} poison=$poison)');
+          'globalTcp=${ev.globalTcpOk} globalDns=${ev.globalDnsOk})');
     } catch (e, st) {
       logError(e, st);
       current = NatNetworkClass.unknown;
