@@ -1758,7 +1758,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(connected_replacement.index('V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;'),
                         connected_replacement.index('makeDurationTimer('))
 
-        self.assertIn("        }\\n        }\\n    }\\n\\n    private String createNotificationChannelID", patch)
+        self.assertIn("        }\n        }\n    }\n\n    private String createNotificationChannelID", patch)
 
 
 
