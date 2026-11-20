@@ -1436,11 +1436,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         token_start = source.index('Future<void> _saveToken() async {')
         token_end = source.index('Future<void> _maybeAnalyzeInitialIdea() async {', token_start)
         token = source[token_start:token_end]
+        self.assertIn('if (!mounted) return;', token)
         self.assertIn('if (mounted) _tokenController.clear();', token)
+        self.assertLess(token.index('if (!mounted) return;', token.index('_reauthenticateOwnerForCodeChange')), token.index('_tokenController.text.trim();'))
         feature_start = source.index('Future<void> _submitFeatureRequest(')
         feature_end = source.index('Future<void> _loadModel() async {', feature_start)
         feature = source[feature_start:feature_end]
+        self.assertIn('if (!mounted) return;', feature)
         self.assertIn("result['status'] == 'review_pr_created' && mounted", feature)
+        self.assertLess(feature.index('if (!mounted) return;', feature.index('_reauthenticateOwnerForCodeChange')), feature.index('_featureRequestController.text.trim();'))
         self.assertIn('if (!mounted || _initialIdeaAnalysisSubmitted ||', source)
         self.assertIn('if (!mounted || _initialRequestSubmitted ||', source)
 
