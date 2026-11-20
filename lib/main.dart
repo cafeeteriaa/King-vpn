@@ -5047,6 +5047,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   DateTime lastFetchTry = DateTime.fromMillisecondsSinceEpoch(0);
   Timer? watch, tick, dropTimer, saveT;
   Timer? _natHotInitialTimer, _natHotRefreshTimer;
+  Timer? _networkAutoScanInitialTimer, _networkAutoScanPeriodicTimer;
+  bool _networkAutoScanRunning = false;
   // DROPDEFER: قطع هسته وسط تعویض را گم نمی‌کنیم؛ بعد از آزاد شدن busy/switching بررسی می‌شود
   bool _dropDeferred = false;
   // DROPFIX: هنگام توقف خودِ اپ (تست سرور، جستجو) رویداد DISCONNECTED طبیعی است
@@ -5522,6 +5524,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     v2ray.initialize().catchError(logError);
     Future.delayed(const Duration(seconds: 15), () => startAdopt = false);
     _init();
+    // Auto network learning is scheduled outside _natDetect: DNS and IP scans
+    // run sequentially, only while idle in the foreground, and obey their own
+    // persisted 6h/24h cooldowns.
+    _networkAutoScanInitialTimer = Timer(const Duration(seconds: 30), () {
+      if (mounted) unawaited(_runBackgroundNetworkScans());
+    });
+    _networkAutoScanPeriodicTimer = Timer.periodic(const Duration(minutes: 15), (_) {
+      if (mounted) unawaited(_runBackgroundNetworkScans());
+    });
     _inspectStart(); // INSPECTORPATCH
     // PERFPATCH: 5 s instead of 1 s (full page rebuild)
     tick = Timer.periodic(const Duration(seconds: 10), (_) {
@@ -5541,6 +5552,43 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     });
   }
 
+  bool _autoNetworkScanAllowed(bool modeSnapshot) =>
+      mounted &&
+      inForeground &&
+      !appGone &&
+      !abort &&
+      !wantVpn &&
+      !connected &&
+      !busy &&
+      !searching &&
+      !switching &&
+      nationalMode == modeSnapshot;
+
+  Future<void> _runBackgroundNetworkScans() async {
+    if (_networkAutoScanRunning) return;
+    final modeSnapshot = nationalMode;
+    if (!_autoNetworkScanAllowed(modeSnapshot) ||
+        dnsxManualBusy ||
+        _dnsxAutoBusy ||
+        ipAutoBusy ||
+        _natRangeScanBusy) {
+      return;
+    }
+    _networkAutoScanRunning = true;
+    try {
+      // DNS first, then IP: never let the DNS lock starve the IP queue.
+      await dnsxAutoPick(
+        stop: () => !_autoNetworkScanAllowed(modeSnapshot),
+      );
+      if (!_autoNetworkScanAllowed(modeSnapshot)) return;
+      if (modeSnapshot) await ipAutoBackground();
+    } catch (e, stk) {
+      logError(e, stk);
+    } finally {
+      _networkAutoScanRunning = false;
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState s) {
     if (s != AppLifecycleState.resumed) KingAiOwnerAuth.instance.lock();
@@ -5551,6 +5599,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     inForeground = s == AppLifecycleState.resumed;
     _appFg = inForeground;
+    if (s == AppLifecycleState.resumed) {
+      Future.delayed(const Duration(seconds: 5), () {
+        if (mounted) unawaited(_runBackgroundNetworkScans());
+      });
+    }
     if (s == AppLifecycleState.resumed && _pendingUpdateApkPath != null) {
       _updateChecked = false;
       unawaited(checkForUpdate());
@@ -5717,6 +5770,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _netWatchTimer?.cancel();
     _natHotInitialTimer?.cancel();
     _natHotRefreshTimer?.cancel();
+    _networkAutoScanInitialTimer?.cancel();
+    _networkAutoScanPeriodicTimer?.cancel();
     _personalPingT?.cancel();
     _dbgSaveT?.cancel();
     _dbgProbT?.cancel();
