@@ -2938,6 +2938,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('...ipAutoPendingCore.where((x) => !seen.contains(x))', run)
         self.assertIn('final remainingCandidates = queued.skip(toTest.length).toList();', run)
         self.assertIn('..addAll(remainingCandidates);', run)
+        self.assertIn('final drainingPending = ipAutoPendingCore.isNotEmpty;', run)
+        self.assertIn('if (drainingPending) break;', run)
+        self.assertIn('if (!drainingPending)', run)
 
 
 if __name__ == '__main__':
