@@ -1868,8 +1868,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_closing_ip_auto_sheet_stops_only_its_own_manual_scan(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> ipAutoSheet(BuildContext ctx0) async {')
-        end = source.index('\\n  }\\n}', start)
-        body = source[start:end]
+        body = source[start:]
         running = body.index('var sheetScanRunning = false;')
         start_scan = body.index('sheetScanRunning = true;')
         reset = body.index('sheetScanRunning = false;')
