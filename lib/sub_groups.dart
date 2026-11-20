@@ -126,7 +126,10 @@ extension SgrpExt on _HomePageState {
           ),
         ],
       ),
-    );
+    ).whenComplete(() {
+      nameC.dispose();
+      urlC.dispose();
+    });
   }
 
   Future<void> sgrpSheet(BuildContext ctx0) async {
