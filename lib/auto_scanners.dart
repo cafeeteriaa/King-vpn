@@ -256,5 +256,8 @@ Future<void> autoScanSheet(BuildContext context) async {
       );
     }),
   );
+  // Closing the dialog is also a cancellation request; do not leave background
+  // socket probes running after the user has dismissed the scanner.
+  _autoScanStop = true;
   open = false;
 }

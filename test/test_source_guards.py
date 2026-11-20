@@ -1970,6 +1970,35 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
+    def test_auto_scan_dialog_close_requests_cancellation(self):
+        auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        start = auto.index('Future<void> autoScanSheet(')
+        body = auto[start:]
+        close = body.index('await showDialog<void>(')
+        cancel = body.index('_autoScanStop = true;', close)
+        closed = body.index('open = false;', cancel)
+        self.assertLess(close, cancel)
+        self.assertLess(cancel, closed)
+
+    def test_dns_auto_persistence_waits_for_abort_safe_folder_write(self):
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        start = dns.index('Future<void> dnsxAutoPick(')
+        end = dns.index('extension DnsxExt', start)
+        body = dns[start:end]
+        abort = body.index('bool shouldAbort()')
+        folder_save = body.index('if (r.isNotEmpty) {')
+        saved = body.index('final saved = await goldAddDns(r, shouldAbort: shouldAbort);', folder_save)
+        saved_guard = body.index('if (!saved || shouldAbort()) return;', saved)
+        best = body.index("await p.setStringList('dnsx_best_v1_$sfx', best);")
+        mode_guard = body.index('if (shouldAbort()) return;', best)
+        last = body.index("await p.setInt('dnsx_at_v1_$sfx', now);", mode_guard)
+        self.assertLess(abort, folder_save)
+        self.assertLess(folder_save, saved)
+        self.assertLess(saved, saved_guard)
+        self.assertLess(saved_guard, best)
+        self.assertLess(best, mode_guard)
+        self.assertLess(mode_guard, last)
+
     def test_auto_scan_stop_never_persists_partial_results(self):
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
@@ -2029,7 +2058,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Future<void> manualRangeScan(')
         end = source.index('\n}', start)
         body = source[start:end]
-        wait = body.index('await natManualYield(shouldAbort: () => cancelled);')
+        wait = body.index('await natManualYield(shouldAbort: () => cancelled || !open);')
         before_scan = body.index('if (!cancelled) {', wait)
         scan = body.index('result = await natScanIps(', before_scan)
         after_scan = body.index('if (!cancelled) {', scan)

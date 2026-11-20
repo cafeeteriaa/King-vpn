@@ -318,12 +318,20 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
       stop: () => nationalMode != scanNationalMode || (stop?.call() ?? false),
     );
     // Discard partial or cross-mode results before writing anything.
-    if (nationalMode != scanNationalMode || (stop != null && stop())) return;
+    bool shouldAbort() =>
+        nationalMode != scanNationalMode || (stop?.call() ?? false);
+    if (shouldAbort()) return;
+    // Persist the shared DNS folder with the same cancellation/mode guard.
+    // Await it so a late preferences write cannot outlive this scan's validity.
+    if (r.isNotEmpty) {
+      final saved = await goldAddDns(r, shouldAbort: shouldAbort);
+      if (!saved || shouldAbort()) return;
+    }
     final best = [for (final e in r.take(4)) e.ip];
-    unawaited(goldAddDns(r)); // FOLDERALL
     await p.setStringList('dnsx_best_v1_$sfx', best);
+    if (shouldAbort()) return;
     await p.setInt('dnsx_at_v1_$sfx', now);
-    if (nationalMode == scanNationalMode) {
+    if (!shouldAbort()) {
       dnsxBestCache = best;
       _dnsxBestMode = scanNationalMode;
       dbg('DNSX خودکار: ${best.length} DNS سالم (${scanNationalMode ? 'نت ملی' : 'عادی'})');
