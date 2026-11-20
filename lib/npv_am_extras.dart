@@ -1811,6 +1811,7 @@ String goldInfo() {
 Future<void> goldShowList(BuildContext context) async {
   await goldLoad();
   var open = true;
+  var cancelled = false;
   var dnsBusy = false;
   var dnsStatus = '';
   await showDialog<void>(
@@ -1882,10 +1883,22 @@ Future<void> goldShowList(BuildContext context) async {
                           domains: dnsxFullDomains(),
                           gap: const Duration(milliseconds: 150),
                           onProgress: (d, t) => upd(() => dnsStatus = 'اسکن DNS: $d/$t'),
+                          stop: () => cancelled || !open,
                         );
-                        await goldAddDns(r);
-                        upd(() => dnsStatus =
-                            '${r.where((h) => h.okCount > 0).length} DNS سالم پیدا و ذخیره شد');
+                        if (cancelled || !open) {
+                          upd(() => dnsStatus = 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');
+                        } else {
+                          final saved = await goldAddDns(
+                            r,
+                            shouldAbort: () => cancelled || !open,
+                          );
+                          if (!saved && (cancelled || !open)) {
+                            upd(() => dnsStatus = 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');
+                          } else {
+                            upd(() => dnsStatus =
+                                '${r.where((h) => h.okCount > 0).length} DNS سالم پیدا و ذخیره شد');
+                          }
+                        }
                       } catch (e, stk) {
                         logError(e, stk);
                         upd(() => dnsStatus = 'خطا در اسکن DNS');
@@ -1942,6 +1955,7 @@ Future<void> goldShowList(BuildContext context) async {
     },
   );
   open = false;
+  cancelled = true;
 }
 
 Timer? _goldSaveT;

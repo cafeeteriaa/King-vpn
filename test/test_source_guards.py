@@ -2041,6 +2041,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('cancelled: () => cancelled,', body)
 
 
+    def test_global_folder_dns_scan_cancels_on_dialog_close(self):
+        source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> goldShowList(BuildContext context) async {')
+        end = source.index('Timer? _goldSaveT;', start)
+        dialog = source[start:end]
+        scan = dialog.index('final r = await dnsxScan(')
+        stop = dialog.index('stop: () => cancelled || !open,', scan)
+        guard = dialog.index('if (cancelled || !open)', stop)
+        save = dialog.index('shouldAbort: () => cancelled || !open,', guard)
+        close = dialog.index('cancelled = true;', save)
+        self.assertLess(scan, stop)
+        self.assertLess(stop, guard)
+        self.assertLess(guard, save)
+        self.assertLess(save, close)
+        self.assertIn('open = false;', dialog)
+
+
     def test_manual_dns_scan_does_not_persist_cancelled_partial_results(self):
         extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
