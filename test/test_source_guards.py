@@ -1182,6 +1182,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('coreController.getIsRunning()', failure)
         self.assertIn('coreController.stopLoop();', failure)
 
+    def test_plugin_start_requires_native_core_running_before_connected(self):
+        patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+        start = patch.index("exact_replace(core, '''            coreController.startLoop(config, tunFd);")
+        end = patch.index("'P1-34 verify native core running before connected'", start)
+        block = patch[start:end]
+        replacement_start = block.index("''', '''") + len("''', '''")
+        replacement = block[replacement_start:]
+        self.assertIn('if (!isV2rayCoreRunning())', replacement)
+        self.assertIn('return failStart("native core did not enter running state");', replacement)
+        self.assertLess(replacement.index('coreController.startLoop(config, tunFd);'),
+                        replacement.index('if (!isV2rayCoreRunning())'))
+        self.assertLess(replacement.index('if (!isV2rayCoreRunning())'),
+                        replacement.index('V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;'))
+        self.assertLess(replacement.index('V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;'),
+                        replacement.index('showNotification(v2rayConfig);'))
+
     def test_v2ray_connected_delay_handoff_is_process_safe(self):
         patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
         self.assertIn('P1-33 delay URL handoff and receiver-before-dispatch', patch)

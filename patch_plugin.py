@@ -615,6 +615,21 @@ exact_replace(core, '''        } catch (Exception e) {
 
     public void stopCore()''', 'P1-27 exception cleanup');
 
+# A native startLoop call can return without throwing while the controller is not
+# actually running. Never publish CONNECTED or report a successful service start
+# unless the core's own running state confirms that startup completed.
+exact_replace(core, '''            coreController.startLoop(config, tunFd);
+            V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;
+            if (isV2rayCoreRunning()) {
+                showNotification(v2rayConfig);
+            }''', '''            coreController.startLoop(config, tunFd);
+            if (!isV2rayCoreRunning()) {
+                return failStart("native core did not enter running state");
+            }
+            V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;
+            showNotification(v2rayConfig);''', 'P1-34 verify native core running before connected');
+
+
 # VPN service: promote before establishing TUN / starting Xray.
 exact_replace(vpn, '''            if (v2rayConfig == null) {
                 Log.w("V2rayVPNService", "V2RAY_CONFIG is null, cannot start service");
