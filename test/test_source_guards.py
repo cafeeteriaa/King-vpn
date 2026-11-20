@@ -455,7 +455,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_chat_speech_listener_stops_after_widget_disposal(self):
         source = (ROOT / 'lib' / 'king_chat_page.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> _listen() async {')
-        end = source.index('Future<void> _requestChatSpeechOnlineFallback()', start)
+        end = source.index('Future<void> _clearMemory() async {', start)
         listen = source[start:end]
         permission = listen.index('final permission = await Permission.microphone.request();')
         self.assertGreater(listen.index('if (!mounted) return;', permission), permission)
