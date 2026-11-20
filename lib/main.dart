@@ -8995,9 +8995,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // after an actual VPN interface is observed (never from stale state).
   Future<bool> _tunnelEndpointOpens(String url) async {
     if (proxyMode) return _siteOpens(url, viaCore: true);
-    if (await _coreProxyOpen(timeout: const Duration(milliseconds: 250))) {
-      return _siteOpens(url, viaCore: true);
+    if (await _coreProxyOpen(timeout: const Duration(milliseconds: 250)) &&
+        await _siteOpens(url, viaCore: true)) {
+      return true;
     }
+    // A live HTTP inbound can still be unusable while the TUN data plane is
+    // healthy. Retry directly only after observing the actual VPN interface.
     if (await _tunInterfaceObserved()) {
       return _siteOpens(url, viaCore: false);
     }
