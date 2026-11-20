@@ -716,13 +716,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 tun = fd;
             }
 
-            // SOCKETPROTECT: the service's own sockets must bypass the tunnel.
-            try {
-                protect((int) fd.getFd());
-            } catch (Throwable t) {
-                // Non-fatal; the core will still call onProtect() per socket
-                Log.w(TAG, "protect(tun fd) failed", t);
-            }
+            // The TUN descriptor is not a socket and must never be passed to
+            // VpnService.protect(int). libv2ray invokes onProtect() for each
+            // outbound socket before connecting, which is the correct bypass path.
 
             boolean ok;
             try {
