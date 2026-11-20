@@ -3002,6 +3002,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('stop: () => !_autoNetworkScanAllowed(modeSnapshot)', scheduler)
         self.assertIn('!wantVpn', scheduler)
         self.assertIn('!connected', scheduler)
+        self.assertIn("lastState != 'CONNECTED'", scheduler)
+        self.assertIn("lastState != 'CONNECTING'", scheduler)
         self.assertIn('!searching', scheduler)
         self.assertIn('warm == null', scheduler)
         self.assertIn('!_resBusy', scheduler)
