@@ -1182,6 +1182,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             self.assertNotIn('webview_flutter', source)
         self.assertIn("java-version: '21'", build)
         self.assertIn("java-version: '21'", release)
+        self.assertIn("--obfuscate --split-debug-info=build/symbols", release)
+        self.assertIn("king-vpn-signed-symbols-", release)
 
 
 if __name__ == '__main__':
