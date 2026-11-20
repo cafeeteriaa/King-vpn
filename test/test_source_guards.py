@@ -92,9 +92,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('natVarSet(s, v);', delay)
         self.assertIn('void natVarCandidateConfirm(Server s)', nat)
         self.assertIn('void natVarCandidateDiscard(Server s)', nat)
+        connect_start = main.index('Future<bool> _connectLoop(')
+        connect_end = main.index('void _onConnected(Server s)', connect_start)
+        connect = main[connect_start:connect_end]
+        self.assertIn('if (!tunOk)', connect)
+        self.assertIn('natVarCandidateDiscard(s);', connect)
+        self.assertIn('natVarCandidateConfirm(s);', connect)
+        self.assertLess(connect.index('natVarCandidateConfirm(s);'),
+                        connect.index("dbg('اتصال: ${s.name} ترافیک تونل OK"))
         connected_start = main.index('void _onConnected(Server s)')
         connected_end = main.index('Future<void> _', connected_start)
-        self.assertIn('natVarCandidateConfirm(s);', main[connected_start:connected_end])
+        self.assertNotIn('natVarCandidateConfirm(s);', main[connected_start:connected_end])
         self.assertIn('natVarCandidates[_nk(s)] ?? natVar[_nk(s)]', nat)
 
     def test_front_sni_candidates_are_hostnames_and_all_matrix_indices_are_valid(self):

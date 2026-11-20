@@ -8733,9 +8733,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   void _onConnected(Server s) {
-    // Promote a provisional matrix winner only after the caller has verified
-    // actual tunnel traffic and is committing this server as connected.
-    natVarCandidateConfirm(s);
     // NNIE: measure only this server's own start-to-data-plane verification time.
     final nnieElapsedMs = _nnieFinishAttempt(s);
     if (_listPartial) unawaited(_fetchFullListBg());
@@ -9289,6 +9286,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final tunOk = personalPingPassed || await _tunnelTrafficOk();
         if (abort) return false;
         if (!tunOk) {
+          natVarCandidateDiscard(s);
           // CACHEINVALID-TUN: variantی که از natVarNormal اومد، ترافیک تونل رد نکرد.
           if (!nationalMode) natVarNormal.remove(s.key); // NORMALKEY
           // NATTUN: در نت ملی، همان حالت‌های جایگزین را روی همین سرور با اتصال واقعی امتحان می‌کنیم.
@@ -9316,6 +9314,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             continue;
           }
         } else {
+          // Only the end-to-end data-plane check can persist a delay winner.
+          natVarCandidateConfirm(s);
           tunChecked = true;
           dbg('اتصال: ${s.name} ترافیک تونل OK (google + youtube)');
           // SUBSTPROJ: در نت ملی، پایه‌ی سالم هم یک بار جایگزین‌ها را با تونل می‌سنجد.
