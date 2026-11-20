@@ -37,6 +37,7 @@ class NatIpHit {
 /// بلوک CIDR مثل «5.160.0.0/16» را به فهرست IP تبدیل می‌کند.
 /// برای بلوک‌های بزرگ، فقط [maxPerBlock] آدرس پراکنده برمی‌گرداند.
 List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
+  if (maxPerBlock <= 0) return const [];
   final parts = cidr.trim().split('/');
   if (parts.length != 2) return const [];
   final octets = parts[0].split('.');
@@ -64,6 +65,7 @@ List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
 /// بازه‌ی خطی به شکل a.b.c.d-e.f.g.h (برای نوشته‌هایی که CIDR نیستند).
 /// بازه‌های بزرگ‌تر از maxCount به‌طور یکنواخت نمونه‌برداری می‌شوند.
 List<String> natExpandDash(String range, {int maxCount = 65536}) {
+  if (maxCount <= 0) return const [];
   final parts = range.trim().split('-');
   if (parts.length != 2) return const [];
   int? toInt(String ip) {

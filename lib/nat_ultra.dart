@@ -1875,6 +1875,7 @@ String _intToIp(int v) =>
     '${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}';
 
 List<String> natExpandAny(String item, {int maxPerBlock = 65536}) {
+  if (maxPerBlock <= 0) return const [];
   if (!item.contains('-')) return natExpandCidr(item, maxPerBlock: maxPerBlock);
   final parts = item.split('-');
   if (parts.length != 2) return const [];

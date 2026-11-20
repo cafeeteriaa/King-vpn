@@ -1865,5 +1865,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('ipAutoStopFlag = false;', source[load:start_scan])
 
 
+    def test_ip_range_expanders_reject_non_positive_limits(self):
+        scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn('if (maxPerBlock <= 0) return const [];', scan)
+        self.assertIn('if (maxCount <= 0) return const [];', scan)
+        start = ultra.index('List<String> natExpandAny(')
+        self.assertIn('if (maxPerBlock <= 0) return const [];', ultra[start:start + 180])
+
 if __name__ == '__main__':
     unittest.main()
