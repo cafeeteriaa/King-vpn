@@ -257,13 +257,18 @@ void main() {
       const id = 0x1234;
       final query = NatDnsWireProbe.buildQuery('google.com', id);
       final bytes = <int>[
-        ..._u16(id), ..._u16(0x8180), ..._u16(1), ..._u16(1),
+        ..._u16(id), ..._u16(0x8180), ..._u16(1), ..._u16(2),
         ..._u16(0), ..._u16(0), ...query.sublist(12),
       ];
-      // Answer owner points forward into its own RR instead of an earlier name.
-      final owner = bytes.length;
+      // The first answer points forward to the second answer's valid owner name.
+      // An unchecked parser would accept the first public A record as google.com.
+      final secondOwner = bytes.length + 16;
       bytes.addAll([
-        0xc0, (owner + 12) & 0xff, ..._u16(1), ..._u16(1),
+        0xc0, secondOwner & 0xff, ..._u16(1), ..._u16(1),
+        0, 0, 0, 60, ..._u16(4), 1, 1, 1, 1,
+      ]);
+      bytes.addAll([
+        0xc0, 0x0c, ..._u16(1), ..._u16(1),
         0, 0, 0, 60, ..._u16(4), 8, 8, 8, 8,
       ]);
       expect(
