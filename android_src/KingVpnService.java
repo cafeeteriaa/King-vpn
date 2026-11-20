@@ -374,10 +374,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             boolean connectedNow = connectFrom(0);
             // A user stop can arrive while the worker is waiting for native startCore.
             // Never emit a late CONNECTED/FAILED event after that cancellation.
-            if (stopping) {
-                stopEverything();
-                return;
-            }
+            if (stopping) return; // queued stop/destroy cleanup owns native teardown
             if (connectedNow) {
                 saveState();
                 startWatchdog(CHECK_EVERY_SEC);
@@ -400,10 +397,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             }
             startForegroundSafe(servers.get(currentIdx).remark);
             boolean connectedNow = connectFrom(currentIdx);
-            if (stopping) {
-                stopEverything();
-                return;
-            }
+            if (stopping) return; // queued stop/destroy cleanup owns native teardown
             if (connectedNow) {
                 saveState();
                 startWatchdog(CHECK_EVERY_SEC);
