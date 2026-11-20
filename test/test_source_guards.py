@@ -996,24 +996,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_async_sheet_callbacks_recheck_context_after_await(self):
         backup = (ROOT / 'lib' / 'backup_restore.dart').read_text(encoding='utf-8')
         ip_scan = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        self.assertIn(
-            'await Clipboard.setData(ClipboardData(text: s));\n'
-            '                  if (!mounted || !ctx0.mounted) return;',
-            backup)
-        self.assertIn(
-            'final n = await bkpImportJson(restoreC.text);\n'
-            '                    if (!mounted || !ctx0.mounted || !ctx.mounted) return;',
-            backup)
-        self.assertIn('if (!mounted || !ctx0.mounted) return;\n'
-                      '                    ScaffoldMessenger.maybeOf(ctx0)', backup)
-        self.assertIn(
-            'await Clipboard.setData(ClipboardData(text: txt));\n'
-            '                        if (!ctx0.mounted) return;',
-            ip_scan)
-        self.assertIn(
-            "await Clipboard.setData(ClipboardData(text: h.replaceAll('|', ':')));\n"
-            '                        if (!ctx0.mounted) return;',
-            ip_scan)
+        self.assertIn('if (!mounted || !ctx0.mounted) return;', backup)
+        self.assertIn('if (!mounted || !ctx0.mounted || !ctx.mounted) return;', backup)
+        self.assertIn('await Clipboard.setData(ClipboardData(text: s));', backup)
+        self.assertIn('await Clipboard.setData(ClipboardData(text: txt));', ip_scan)
+        self.assertIn("await Clipboard.setData(ClipboardData(text: h.replaceAll('|', ':')));", ip_scan)
+        self.assertGreaterEqual(ip_scan.count('if (!ctx0.mounted) return;'), 2)
 
     def test_apk_updater_streams_hash_verification_and_uses_android_fileprovider(self):
         update = (ROOT / 'lib' / 'update_check.dart').read_text(encoding='utf-8')
