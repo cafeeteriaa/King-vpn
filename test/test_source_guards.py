@@ -2262,7 +2262,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         ping = main[ping_start:ping_end]
         self.assertIn('final sw = Stopwatch()..start();', ping)
         self.assertIn('return remaining.isNegative ? Duration.zero : remaining;', ping)
-        self.assertLess(ping.index('try {'), ping.index('_useCoreProxy(viaCore || !direct).timeout(left())'))
+        self.assertLess(ping.index('try {'), ping.index('var useProxy = await _useCoreProxy('))
+        self.assertIn('budget: left(),', ping)
+        self.assertIn('cancelled: cancelled,', ping)
         self.assertIn('requestClient.getUrl(Uri.parse(url)).timeout(left())', ping)
         self.assertIn('client?.close(force: true);', ping)
         self.assertNotIn('const Duration(milliseconds: 200)', ping)
