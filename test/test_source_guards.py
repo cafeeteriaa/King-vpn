@@ -2243,6 +2243,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         body = source[start:end]
         self.assertIn('final scanClock = Stopwatch()..start();', body)
         self.assertIn('const scanBudget = Duration(seconds: 45);', body)
+        self.assertLess(body.index('final scanClock'), body.index('for (final entry in endpoints.entries)'))
+        lookup = body.index('await safeLookup(entry.key)')
+        lookup_guard = body.index('if (cancelled()) return const <String>[];', lookup)
+        self.assertLess(lookup, lookup_guard)
         scan = body.index('final hits = await natScanIps(')
         discard = body.index('if ((stop != null && stop()) || scanClock.elapsed >= scanBudget)', scan)
         append = body.index('out.add(', discard)

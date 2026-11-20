@@ -1944,13 +1944,20 @@ Future<List<String>> _natDomainFirst(List<Server> known,
     {required int conc, bool Function()? stop}) async {
   final out = <String>[];
   if (!kNatIpScanOn || known.isEmpty) return out;
+  // Bound endpoint collection, DNS resolution, and TCP probes together.
+  // Starting the monotonic clock only after DNS resolution allowed a slow
+  // resolver to keep this background phase alive far beyond its advertised cap.
+  const scanBudget = Duration(seconds: 45);
+  final scanClock = Stopwatch()..start();
+  bool expired() => scanClock.elapsed >= scanBudget;
+  bool cancelled() => (stop != null && stop()) || expired();
   try {
     // Only inspect hosts and ports explicitly present in the user's/current
     // server configurations. Do not scan unrelated public domains or all
     // 65,535 ports on third-party hosts.
     final endpoints = <String, Set<int>>{};
     for (final server in known.take(1200)) {
-      if (stop != null && stop()) break;
+      if (cancelled()) return const <String>[];
       final host = server.host.trim();
       final port = server.port;
       if (host.isEmpty || port <= 0 || port > 65535) continue;
@@ -1959,9 +1966,10 @@ Future<List<String>> _natDomainFirst(List<Server> known,
     natDomainHosts = endpoints.length;
     final resolved = <String, Set<int>>{};
     for (final entry in endpoints.entries) {
-      if (stop != null && stop()) break;
+      if (cancelled()) return const <String>[];
       final parsed = InternetAddress.tryParse(entry.key);
       final addresses = parsed == null ? await safeLookup(entry.key) : <InternetAddress>[parsed];
+      if (cancelled()) return const <String>[];
       for (final address in addresses) {
         if (address.type != InternetAddressType.IPv4) continue;
         (resolved[address.address] ??= <int>{}).addAll(entry.value);
@@ -1976,11 +1984,8 @@ Future<List<String>> _natDomainFirst(List<Server> known,
         (grouped[port] ??= <String>[]).add(entry.key);
       }
     }
-    // Use a monotonic clock: wall-clock corrections must not extend this scan.
-    const scanBudget = Duration(seconds: 45);
-    final scanClock = Stopwatch()..start();
     for (final entry in grouped.entries) {
-      if ((stop != null && stop()) || scanClock.elapsed >= scanBudget) {
+      if (cancelled()) {
         return const <String>[];
       }
       final hits = await natScanIps(
@@ -1994,7 +1999,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
       );
       // A cancelled or expired scan must not leak its partial hits to the
       // caller, which may otherwise persist them as newly discovered servers.
-      if ((stop != null && stop()) || scanClock.elapsed >= scanBudget) {
+      if (cancelled()) {
         return const <String>[];
       }
       for (final hit in hits) {
@@ -2002,7 +2007,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
         natDomainOpen = out.length;
       }
     }
-    if ((stop != null && stop()) || scanClock.elapsed >= scanBudget) {
+    if (cancelled()) {
       return const <String>[];
     }
   } catch (e, stk) {
