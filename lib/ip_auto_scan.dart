@@ -62,6 +62,8 @@ Future<void> ipAutoLoad() async {
     final loadedPending = savedPending
         .split('\n')
         .where(_ipAutoValidPending)
+        .toSet()
+        .toList();
     final c = p.getString(cursorKey);
     if (c != null && c.isNotEmpty) {
       try {
