@@ -1127,6 +1127,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("if (_busy) throw StateError('Local AI is already generating');", local)
 
 
+    def test_cloudflare_worker_buffers_fragmented_vless_headers(self):
+        source = (ROOT / 'lib' / 'king_extras2.dart').read_text(encoding='utf-8')
+        start = source.index("const String _kCfWorkerTemplate = r'''")
+        end = source.index('class CfDeployResult', start)
+        worker = source[start:end]
+        self.assertIn('let initialBuffer = new Uint8Array(0);', worker)
+        self.assertIn('function parseVlessHeader(buffer)', worker)
+        self.assertIn('if (buffer.length < 18) return null;', worker)
+        self.assertIn('VLESS request header can span multiple WebSocket frames.', worker)
+        self.assertIn("if (initialBuffer.length > 1024)", worker)
+        self.assertNotIn('if (chunk.length < 24)', worker)
+
+    def test_failed_plugin_start_stops_partially_running_core(self):
+        patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+        start = patch.index('private boolean failStart(String reason)')
+        end = patch.index('P1-27 start failure state and timer reset', start)
+        failure = patch[start:end]
+        self.assertIn('coreController.getIsRunning()', failure)
+        self.assertIn('coreController.stopLoop();', failure)
+
     def test_v2ray_connected_delay_handoff_is_process_safe(self):
         patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
         self.assertIn('P1-33 delay URL handoff and receiver-before-dispatch', patch)
