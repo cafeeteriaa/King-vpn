@@ -1683,6 +1683,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_updateChecked = false;', malformed_config)
         self.assertLess(malformed_config.index('_updateChecked = false;'), malformed_config.index('return;'))
 
+    def test_apk_update_download_has_a_total_deadline_and_idle_timeout(self):
+        update = (ROOT / 'lib' / 'update_check.dart').read_text(encoding='utf-8')
+        start = update.index('Future<void> _downloadAndInstallApk(')
+        end = update.index('Future<void> _continuePendingUpdateInstall()', start)
+        download = update[start:end]
+        self.assertIn('const totalDownloadBudget = Duration(minutes: 6);', download)
+        self.assertIn('final downloadClock = Stopwatch()..start();', download)
+        self.assertGreaterEqual(download.count('downloadClock.elapsed >= totalDownloadBudget'), 2)
+        self.assertIn('stream.timeout(const Duration(seconds: 45))', download)
+
     def test_apk_update_download_and_install_are_serialized(self):
         update = (ROOT / 'lib' / 'update_check.dart').read_text(encoding='utf-8')
         for guard in (

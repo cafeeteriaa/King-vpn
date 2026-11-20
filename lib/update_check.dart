@@ -172,7 +172,12 @@ extension UpdateCheck on _HomePageState {
       var currentUri = uri;
       http.StreamedResponse? streamed;
       const redirectStatuses = <int>{301, 302, 303, 307, 308};
+      const totalDownloadBudget = Duration(minutes: 6);
+      final downloadClock = Stopwatch()..start();
       for (var redirectCount = 0; redirectCount <= 5; redirectCount++) {
+        if (downloadClock.elapsed >= totalDownloadBudget) {
+          throw TimeoutException('APK download exceeded its total time budget');
+        }
         final request = http.Request('GET', currentUri)
           ..followRedirects = false
           ..headers.addAll(const {
@@ -210,6 +215,9 @@ extension UpdateCheck on _HomePageState {
         await for (final chunk in streamed.stream.timeout(
           const Duration(seconds: 45),
         )) {
+          if (downloadClock.elapsed >= totalDownloadBudget) {
+            throw TimeoutException('APK download exceeded its total time budget');
+          }
           received += chunk.length;
           if (received > 300 * 1024 * 1024) {
             throw StateError('APK exceeds the 300 MB safety limit');
