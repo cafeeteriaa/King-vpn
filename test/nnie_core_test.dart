@@ -255,22 +255,24 @@ void main() {
 
     test('rejects CNAME compression pointers that overrun RDLENGTH', () {
       const id = 0x1234;
-      final query = NatDnsWireProbe.buildQuery('google.com', id);
+      const domain = 'abcdefghijkl.com'; // 12-byte first label
+      final query = NatDnsWireProbe.buildQuery(domain, id);
       final bytes = <int>[
         ..._u16(id), ..._u16(0x8180), ..._u16(1), ..._u16(2),
         ..._u16(0), ..._u16(0), ...query.sublist(12),
       ];
-      // The CNAME claims a one-byte RDATA but its pointer consumes two bytes.
+      // The CNAME claims one RDATA byte, but its two-byte pointer refers
+      // backwards to the question. Its low byte then masquerades as the next
+      // RR's 12-byte owner label, so an unchecked parser would accept the A.
       bytes.addAll([
         0xc0, 0x0c, ..._u16(5), ..._u16(1), 0, 0, 0, 60, ..._u16(1),
         0xc0, 0x0c,
       ]);
       bytes.addAll([
-        0xc0, 0x0c, ..._u16(1), ..._u16(1),
-        0, 0, 0, 60, ..._u16(4), 8, 8, 8, 8,
+        ..._u16(1), ..._u16(1), 0, 0, 0, 60, ..._u16(4), 8, 8, 8, 8,
       ]);
       expect(
-        () => NatDnsWireProbe.parseResponse(bytes, id, 'google.com'),
+        () => NatDnsWireProbe.parseResponse(bytes, id, domain),
         throwsA(isA<FormatException>()),
       );
     });
