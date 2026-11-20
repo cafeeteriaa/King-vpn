@@ -244,6 +244,17 @@ class NatNetworkDiagnosis {
         final reach = await Future.wait(answered.map(_tcpOk));
         poison = reach.isNotEmpty && !reach.any((x) => x);
       }
+      // Interface identity can change while DNS/TCP probes are in flight
+      // (Wi-Fi <-> mobile, VPN handoff, or roaming). Never publish evidence
+      // collected across two different networks as the current route verdict.
+      final identityAfterProbe = await _identityHash();
+      if (identityAfterProbe != id) {
+        current = NatNetworkClass.unknown;
+        _checkedAt = null;
+        _identityAtCheck = null;
+        dbg('NNIE-DIAG: discarded probe results because the network changed');
+        return current;
+      }
       final ev = NatProbeEvidence(
         domesticDnsOk: domesticDnsOk,
         domesticTcpOk: domesticTcpOk,
@@ -318,6 +329,19 @@ class PilotNetworkProbe {
     final globalFuture = Future.wait(globalTargets.map(_probeHttps));
     final domestic = await domesticFuture;
     final global = await globalFuture;
+    // The route may have changed during the concurrent TLS checks. Discard
+    // that mixed snapshot instead of steering Smart Pilot with stale evidence.
+    final identityAfterProbe = await _networkIdentity();
+    if (identityAfterProbe != identity) {
+      _last = const NetworkEvidence(
+        domestic: LinkHealth.unknown,
+        global: LinkHealth.unknown,
+      );
+      _lastAt = null;
+      _lastIdentity = null;
+      dbg('PILOT-TLS-PROBE: discarded results because the network changed');
+      return _last;
+    }
     LinkHealth health(List<int?> samples) {
       final successes = samples.whereType<int>().length;
       if (successes >= 2) return LinkHealth.healthy;
