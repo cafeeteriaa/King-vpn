@@ -1331,6 +1331,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn(').whenComplete(restoreC.dispose);', backup)
 
 
+    def test_dialog_text_controllers_are_reused_and_disposed(self):
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        groups = (ROOT / 'lib' / 'sub_groups.dart').read_text(encoding='utf-8')
+        iran = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        npv = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        self.assertIn('extraC.dispose();', dns)
+        self.assertIn('nameC.dispose();', groups)
+        self.assertIn('urlC.dispose();', groups)
+        self.assertIn(').whenComplete(c.dispose);', iran)
+        self.assertIn('tokenC.dispose();', iran)
+        self.assertIn('taskC.dispose();', iran)
+        self.assertNotIn('TextEditingController(text: customDnsAddr)', npv)
+        self.assertIn('controller: customDnsC,', npv)
+        self.assertIn('customDnsC.dispose();', npv)
+        self.assertIn(').whenComplete(c.dispose);', npv)
+
+
     def test_update_check_retries_when_remote_config_is_not_a_map(self):
         update = (ROOT / 'lib' / 'update_check.dart').read_text(encoding='utf-8')
         start = update.index('final decoded = jsonDecode(response.body);')
