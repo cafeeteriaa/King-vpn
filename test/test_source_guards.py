@@ -1730,9 +1730,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('countDownTimer != this', patch)
         self.assertIn('V2RAY_STATE != AppConfigs.V2RAY_STATES.V2RAY_CONNECTED', patch)
         self.assertIn('V2RAY_STATE == AppConfigs.V2RAY_STATES.V2RAY_CONNECTED', patch)
-        finish = patch[patch.index('P1-37 finish callback is identity-safe and serialized')-1800:
-                       patch.index('P1-37 finish callback is identity-safe and serialized')]
+        finish_start = patch.index('public void onFinish() {\\n                synchronized (durationTimerLock)')
+        finish_end = patch.index('\\n            }\\n        }.start();', finish_start)
+        finish = patch[finish_start:finish_end]
         self.assertNotIn('countDownTimer.cancel();', finish)
+        self.assertIn('if (countDownTimer != this)', finish)
+        self.assertIn('countDownTimer = null;', finish)
         disconnect = patch[patch.index('P1-37 disconnect serializes timer cancellation and state change')-900:
                            patch.index('P1-37 disconnect serializes timer cancellation and state change')]
         self.assertIn('synchronized (durationTimerLock)', disconnect)
