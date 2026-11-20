@@ -58,9 +58,8 @@ import dev.amirzr.flutter_v2ray_client.v2ray.utils.V2rayConfig;
  *   • FIX: watchdog self-kill. When `starting` was true for longer than
  *     CHECK_EVERY_SEC (30 s), `checkOnce()` returned without rescheduling and
  *     the watchdog stopped permanently. Now it reschedules even while starting.
- *   • FIX: protect() every outbound socket of the core BEFORE startCore, so the
- *     VPN app's own traffic never loops back into the tunnel (route loop that
- *     makes apps show "connected" but with zero real throughput).
+ *   • FIX: libv2ray outbound sockets bypass the TUN through the listener's
+ *     onProtect() callback; the TUN descriptor itself is never protected as a socket.
  *   • FIX: startForeground() on Android 14+ can throw SecurityException if the
  *     declared foregroundServiceType is not honored. We now retry without the
  *     typed builder on failure, so the service still starts.
