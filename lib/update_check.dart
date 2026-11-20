@@ -37,7 +37,10 @@ extension UpdateCheck on _HomePageState {
         return;
       }
       final decoded = jsonDecode(response.body);
-      if (decoded is! Map) return;
+      if (decoded is! Map) {
+        _updateChecked = false;
+        return;
+      }
       final map = Map<String, dynamic>.from(decoded);
 
       final heal = map['heal'];
