@@ -217,6 +217,23 @@ void main() {
       expect(m.ewmaConnectMs, 0);
     });
 
+    test('success count is clamped to attempts for corrupted history', () {
+      final overReported = NatEndpointMemory.fromJson({'a': 4, 's': 99});
+      expect(overReported.attempts, 4);
+      expect(overReported.successes, 4);
+      expect(overReported.reliability, 1.0);
+
+      final withoutAttempts = NatEndpointMemory.fromJson({'a': 0, 's': 5});
+      expect(withoutAttempts.successes, 0);
+      expect(withoutAttempts.reliability, 0.0);
+
+      const invalidDirectValue = NatEndpointMemory(
+        attempts: 2, successes: 8, failStreak: 0,
+        ewmaConnectMs: 1000, lastSuccessMs: 1, stableSuccesses: 1,
+      );
+      expect(invalidDirectValue.reliability, 1.0);
+    });
+
     test('toJson and fromJson round-trip', () {
       const m = NatEndpointMemory(
         attempts: 7, successes: 5, failStreak: 1,

@@ -297,7 +297,7 @@ class NatEndpointMemory {
   final int lastSuccessMs;
   final int stableSuccesses;
 
-  double get reliability => attempts == 0 ? 0.0 : successes / attempts;
+  double get reliability => attempts <= 0 ? 0.0 : (successes / attempts).clamp(0.0, 1.0).toDouble();
   double get score {
     final speed = ewmaConnectMs <= 0 ? 0.0 : (1.0 - (ewmaConnectMs / 30000).clamp(0.0, 1.0)).toDouble();
     final ageHours = lastSuccessMs == 0
@@ -326,9 +326,13 @@ class NatEndpointMemory {
 
   factory NatEndpointMemory.fromJson(dynamic value) {
     final m = value is Map ? value : const <dynamic, dynamic>{};
+    final attempts = max(0, _i(m['a']));
+    // Stored data can be corrupted or edited. A success count greater than
+    // attempts would produce reliability above 100% and distort pilot ranking.
+    final successes = max(0, _i(m['s'])).clamp(0, attempts).toInt();
     return NatEndpointMemory(
-      attempts: max(0, _i(m['a'])),
-      successes: max(0, _i(m['s'])),
+      attempts: attempts,
+      successes: successes,
       failStreak: max(0, _i(m['f'])),
       ewmaConnectMs: max(0.0, _d(m['e'])),
       lastSuccessMs: max(0, _i(m['t'])),
