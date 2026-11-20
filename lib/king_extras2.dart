@@ -397,8 +397,6 @@ const UUID_HEX = 'YOUR_UUID_HEX';
 export default {
   async fetch(request) {
     const url = new URL(request.url);
-    // CFWSFIX: اتصال واقعی VPN روی مسیر «/?ed=2048» است، پس اول باید Upgrade به WebSocket را بررسی کنیم.
-    // قبلاً «/» زودتر جواب متنی 200 می‌داد و هیچ‌وقت WebSocket باز نمی‌شد.
     if (request.headers.get('Upgrade') !== 'websocket') {
       if (url.pathname === '/') return new Response('King VPN Auto Server', { status: 200 });
       return new Response('Expected websocket', { status: 426 });
@@ -411,6 +409,54 @@ export default {
 
     let remote = null;
     let writer = null;
+    let initialBuffer = new Uint8Array(0);
+
+    function parseVlessHeader(buffer) {
+      if (buffer.length < 18) return null;
+      const version = buffer[0];
+      if (version !== 0) throw new Error('Invalid VLESS version');
+
+      const optLen = buffer[17];
+      const commandIndex = 18 + optLen;
+      // command + port(2) + address type
+      if (buffer.length < commandIndex + 4) return null;
+
+      const command = buffer[commandIndex];
+      if (command !== 1) throw new Error('Only TCP is supported');
+
+      const port = (buffer[commandIndex + 1] << 8) | buffer[commandIndex + 2];
+      if (port < 1 || port > 65535) throw new Error('Invalid destination port');
+
+      const addrType = buffer[commandIndex + 3];
+      let p = commandIndex + 4;
+      let host = '';
+
+      if (addrType === 1) {
+        if (buffer.length < p + 4) return null;
+        host = Array.from(buffer.slice(p, p + 4)).join('.');
+        p += 4;
+      } else if (addrType === 2) {
+        if (buffer.length < p + 1) return null;
+        const len = buffer[p];
+        if (len < 1) throw new Error('Empty domain');
+        if (buffer.length < p + 1 + len) return null;
+        host = new TextDecoder().decode(buffer.slice(p + 1, p + 1 + len));
+        p += 1 + len;
+      } else if (addrType === 3) {
+        if (buffer.length < p + 16) return null;
+        const parts = [];
+        for (let i = 0; i < 8; i++) {
+          parts.push(((buffer[p + i * 2] << 8) | buffer[p + i * 2 + 1]).toString(16));
+        }
+        host = parts.join(':');
+        p += 16;
+      } else {
+        throw new Error('Bad address type');
+      }
+
+      if (!host) throw new Error('Empty destination host');
+      return { version, host, port, headerLength: p };
+    }
 
     server.addEventListener('close', () => {
       try { if (remote) remote.close(); } catch (_) {}
@@ -425,46 +471,26 @@ export default {
           return;
         }
 
-        if (chunk.length < 24) { server.close(1003, 'Invalid data'); return; }
+        // A VLESS request header can span multiple WebSocket frames.
+        const merged = new Uint8Array(initialBuffer.length + chunk.length);
+        merged.set(initialBuffer);
+        merged.set(chunk, initialBuffer.length);
+        initialBuffer = merged;
 
-        const version = chunk[0];
-        const uuid = Array.from(chunk.slice(1, 17)).map(b => b.toString(16).padStart(2, '0')).join('');
-        if (uuid !== UUID_HEX) { server.close(1008, 'Invalid UUID'); return; }
-
-        const optLen = chunk[17];
-        const cmd = chunk[18 + optLen];
-        if (cmd !== 1) { server.close(1003, 'Only TCP is supported'); return; }
-
-        const port = (chunk[19 + optLen] << 8) | chunk[20 + optLen];
-        const addrType = chunk[21 + optLen];
-        let p = 22 + optLen;
-        let host = '';
-
-        if (addrType === 1) {
-          host = Array.from(chunk.slice(p, p + 4)).join('.');
-          p += 4;
-        } else if (addrType === 2) {
-          const len = chunk[p];
-          host = new TextDecoder().decode(chunk.slice(p + 1, p + 1 + len));
-          p += 1 + len;
-        } else if (addrType === 3) {
-          const parts = [];
-          for (let i = 0; i < 8; i++) {
-            parts.push(((chunk[p + i * 2] << 8) | chunk[p + i * 2 + 1]).toString(16));
-          }
-          host = parts.join(':');
-          p += 16;
-        } else {
-          server.close(1003, 'Bad address type');
+        const parsed = parseVlessHeader(initialBuffer);
+        if (!parsed) {
+          // The largest legal VLESS header is well below this bound.
+          if (initialBuffer.length > 1024) throw new Error('VLESS header too large');
           return;
         }
 
-        remote = connect({ hostname: host, port: port });
+        const buffered = initialBuffer;
+        initialBuffer = new Uint8Array(0);
+        remote = connect({ hostname: parsed.host, port: parsed.port });
         writer = remote.writable.getWriter();
 
-        // VLESS response header, then the first payload that came with the request.
-        server.send(new Uint8Array([version, 0]));
-        const payload = chunk.slice(p);
+        server.send(new Uint8Array([parsed.version, 0]));
+        const payload = buffered.slice(parsed.headerLength);
         if (payload.length) await writer.write(payload);
 
         remote.readable.pipeTo(new WritableStream({
@@ -473,6 +499,7 @@ export default {
           try { server.close(1000, 'done'); } catch (_) {}
         });
       } catch (e) {
+        try { if (remote) remote.close(); } catch (_) {}
         try { server.close(1011, 'Connection failed'); } catch (_) {}
       }
     });
@@ -480,7 +507,7 @@ export default {
     return new Response(null, { status: 101, webSocket: client });
   },
 };
-''';
+'''
 
 class CfDeployResult {
   final String link;
