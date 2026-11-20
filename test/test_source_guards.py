@@ -1773,6 +1773,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("        }\n        }\n    }\n\n    private String createNotificationChannelID", patch)
 
 
+    def test_subscription_sheet_rechecks_context_after_async_work(self):
+        groups = (ROOT / 'lib' / 'sub_groups.dart').read_text(encoding='utf-8')
+        self.assertIn('if (!mounted || !ctx0.mounted) return;', groups)
+        self.assertIn('if (ctx.mounted) setS(() {});', groups)
+        self.assertIn('if (!d.mounted) return;', groups)
+        self.assertGreaterEqual(groups.count('if (!ctx.mounted) return;'), 3)
+        self.assertIn('if (ctx0.mounted) {', groups)
+        self.assertIn('await sgrpFetchOne(g);', groups)
+        self.assertIn('await sgrpRefreshAll(groups);', groups)
+
 
 if __name__ == '__main__':
     unittest.main()

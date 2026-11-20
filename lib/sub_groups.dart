@@ -119,6 +119,7 @@ extension SgrpExt on _HomePageState {
               final n = nameC.text.trim();
               groups.add(SgrpGroup(name: n.isEmpty ? u : n, url: u));
               await sgrpSave(groups);
+              if (!d.mounted) return;
               Navigator.pop(d);
               refresh();
             },
@@ -134,13 +135,15 @@ extension SgrpExt on _HomePageState {
 
   Future<void> sgrpSheet(BuildContext ctx0) async {
     final groups = await sgrpLoad();
-    if (!mounted) return;
+    if (!mounted || !ctx0.mounted) return;
     showModalBottomSheet(
       context: ctx0,
       isScrollControlled: true,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setS) {
-          void refresh() => setS(() {});
+          void refresh() {
+            if (ctx.mounted) setS(() {});
+          }
           return SafeArea(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(12),
@@ -181,10 +184,14 @@ extension SgrpExt on _HomePageState {
                                 label: const Text('به‌روزرسانی'),
                                 onPressed: () async {
                                   final n = await sgrpFetchOne(g);
+                                  if (!ctx.mounted) return;
                                   await sgrpSave(groups);
+                                  if (!ctx.mounted) return;
                                   refresh();
-                                  ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(
-                                      SnackBar(content: Text('$n کانفیگ دریافت شد')));
+                                  if (ctx0.mounted) {
+                                    ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(
+                                        SnackBar(content: Text('$n کانفیگ دریافت شد')));
+                                  }
                                 },
                               ),
                               TextButton.icon(
@@ -193,6 +200,7 @@ extension SgrpExt on _HomePageState {
                                 onPressed: () async {
                                   groups.remove(g);
                                   await sgrpSave(groups);
+                                  if (!ctx.mounted) return;
                                   refresh();
                                 },
                               ),
@@ -213,6 +221,7 @@ extension SgrpExt on _HomePageState {
                     label: const Text('به‌روزرسانی همه‌ی فعال‌ها'),
                     onPressed: () async {
                       await sgrpRefreshAll(groups);
+                      if (!ctx.mounted) return;
                       refresh();
                     },
                   ),
