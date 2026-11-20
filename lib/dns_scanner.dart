@@ -228,7 +228,9 @@ Future<DnsxHit?> dnsxProbe(String server,
           server,
           d,
           timeout: timeout,
+          cancelled: stop,
         )));
+    if (stop != null && stop()) return null;
     tested += part.length;
     for (final r in res) {
       if (r.ok) times.add(r.elapsedMs!);

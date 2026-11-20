@@ -2307,6 +2307,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(expiry, cursor)
         self.assertNotIn('DateTime.now().add(budget)', body)
 
+    def test_dns_wire_probe_cancellation_closes_pending_udp_work(self):
+        core = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
+        start = core.index('static Future<NatDnsProbeResult> probe(')
+        end = core.index('\n  }\n}', start)
+        probe = core[start:end]
+        self.assertIn('bool Function()? cancelled', probe)
+        self.assertIn('Timer.periodic(const Duration(milliseconds: 100)', probe)
+        self.assertIn('completer.completeError(const _NatDnsProbeCancelled())', probe)
+        self.assertIn('await subscription?.cancel();', probe)
+        self.assertIn('socket?.close();', probe)
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        self.assertIn('cancelled: stop,', dns)
+        self.assertIn('if (stop != null && stop()) return null;', dns)
+
     def test_nat_domain_first_discards_partial_results_after_cancel_or_deadline(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('Future<List<String>> _natDomainFirst(')

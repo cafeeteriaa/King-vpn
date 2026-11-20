@@ -97,6 +97,10 @@ class NatDnsProbeResult {
 /// Strict DNS-over-UDP A-query probe. It verifies transaction ID, QR/opcode,
 /// question name/type/class, response source IP/port, RCODE and public A answers.
 /// It is a resolver test only; it is NOT a test of the VPN server's reachability.
+class _NatDnsProbeCancelled implements Exception {
+  const _NatDnsProbeCancelled();
+}
+
 class NatDnsWireProbe {
   static List<int> buildQuery(String domain, int id) {
     final labels = domain.toLowerCase().replaceAll(RegExp(r'\.$'), '').split('.');
@@ -242,9 +246,15 @@ class NatDnsWireProbe {
   }
 
   static Future<NatDnsProbeResult> probe(String server, String domain,
-      {Duration timeout = const Duration(seconds: 2)}) async {
+      {Duration timeout = const Duration(seconds: 2),
+      bool Function()? cancelled}) async {
     RawDatagramSocket? socket;
+    StreamSubscription<RawSocketEvent>? subscription;
+    Timer? cancelWatcher;
     try {
+      if (cancelled?.call() ?? false) {
+        return NatDnsProbeResult(server, domain, null, error: 'cancelled');
+      }
       final target = InternetAddress.tryParse(server);
       if (target == null || target.type != InternetAddressType.IPv4) {
         throw const FormatException('Resolver must be IPv4');
@@ -255,7 +265,7 @@ class NatDnsWireProbe {
       final packet = buildQuery(domain, id);
       final sw = Stopwatch()..start();
       final completer = Completer<List<String>>();
-      final sub = s.listen((event) {
+      subscription = s.listen((event) {
         if (event != RawSocketEvent.read || completer.isCompleted) return;
         final dg = s.receive();
         if (dg == null) return;
@@ -267,14 +277,30 @@ class NatDnsWireProbe {
           // Ignore unrelated/malformed datagrams until timeout.
         }
       });
+      if (cancelled != null) {
+        cancelWatcher = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+          if (cancelled()) {
+            timer.cancel();
+            if (!completer.isCompleted) {
+              completer.completeError(const _NatDnsProbeCancelled());
+            }
+          }
+        });
+      }
       if (s.send(packet, target, 53) <= 0) throw const SocketException('DNS send failed');
       final ips = await completer.future.timeout(timeout);
       sw.stop();
-      await sub.cancel();
       return NatDnsProbeResult(server, domain, sw.elapsedMilliseconds, addresses: ips);
     } catch (e) {
-      return NatDnsProbeResult(server, domain, null, error: e.toString());
+      return NatDnsProbeResult(
+        server,
+        domain,
+        null,
+        error: e is _NatDnsProbeCancelled ? 'cancelled' : e.toString(),
+      );
     } finally {
+      cancelWatcher?.cancel();
+      await subscription?.cancel();
       socket?.close();
     }
   }

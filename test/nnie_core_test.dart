@@ -195,6 +195,16 @@ void main() {
           throwsA(isA<FormatException>()));
     });
 
+    test('pre-cancelled DNS probes return without opening a socket', () async {
+      final result = await NatDnsWireProbe.probe(
+        '127.0.0.1',
+        'example.com',
+        cancelled: () => true,
+      );
+      expect(result.ok, isFalse);
+      expect(result.error, 'cancelled');
+    });
+
     test('publicV4 rejects special-use ranges and accepts public addresses', () {
       expect(NatDnsWireProbe.publicV4([100, 64, 1, 1], 0), isFalse); // CGNAT
       expect(NatDnsWireProbe.publicV4([192, 168, 1, 1], 0), isFalse);
