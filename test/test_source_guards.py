@@ -1206,8 +1206,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("king-vpn-signed-symbols-", release)
 
 
-if __name__ == '__main__':
-    unittest.main()
 
 
     def test_backup_restore_bounds_and_validates_all_entries_before_writes(self):
@@ -1225,3 +1223,7 @@ if __name__ == '__main__':
         self.assertLess(importer.index('for (final entry in rawData.entries)'), importer.index('final p = await SharedPreferences.getInstance();'))
         self.assertIn('throw const FormatException', importer)
         self.assertIn('if (!ok)', importer)
+
+
+if __name__ == '__main__':
+    unittest.main()
