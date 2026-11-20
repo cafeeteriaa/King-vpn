@@ -2319,6 +2319,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(lookup, lookup_guard)
         self.assertIn('bool expired() => scanClock.elapsed >= scanBudget;', body)
         scan = body.index('final hits = await natScanIps(')
+        self.assertIn('cancelled: cancelled,', body)
         discard = body.index('if (cancelled())', scan)
         append = body.index('out.add(', discard)
         self.assertLess(scan, discard)

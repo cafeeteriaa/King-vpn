@@ -1995,7 +1995,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
         want: 50,
         budget: const Duration(seconds: 5),
         timeout: const Duration(milliseconds: 1200),
-        cancelled: stop,
+        cancelled: cancelled,
       );
       // A cancelled or expired scan must not leak its partial hits to the
       // caller, which may otherwise persist them as newly discovered servers.
