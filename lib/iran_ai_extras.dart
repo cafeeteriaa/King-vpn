@@ -411,6 +411,7 @@ extension HomeExtras on _HomePageState {
     Navigator.pop(ctx);
     _set('دریافت اشتراک...');
     final list = (await fetchSubscription(url)).take(300).toList();
+    if (!mounted) return;
     if (list.isEmpty) {
       _set('اشتراک خالی بود یا دریافت نشد');
       return;
@@ -1311,7 +1312,9 @@ extension HomeExtras on _HomePageState {
                   aiText.value = 'نام مالک، مخزن، شاخه اصلی و شرح مشکل را کامل کن.';
                   return;
                 }
-                if (!await KingLocalAi.instance.hasGitHubToken()) {
+                final hasToken = await KingLocalAi.instance.hasGitHubToken();
+                if (!ctx.mounted) return;
+                if (!hasToken) {
                   aiText.value = 'ابتدا توکن GitHub را در همین صفحه ذخیره کن.';
                   return;
                 }

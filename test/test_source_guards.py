@@ -1800,5 +1800,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertRegex(method, r'finally \{\s*dialogOpen = false;\s*out\.dispose\(\);\s*\}')
 
 
+    def test_subscription_import_stops_if_page_disposed_after_fetch(self):
+        source = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        self.assertRegex(
+            source,
+            r'final list = \\(await fetchSubscription\\(url\\)\\)\\.take\\(300\\)\\.toList\\(\\);\\s*if \\(!mounted\\) return;',
+        )
+
+    def test_ai_repair_checks_dialog_after_token_lookup(self):
+        source = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        self.assertRegex(
+            source,
+            r'final hasToken = await KingLocalAi\\.instance\\.hasGitHubToken\\(\\);\\s*if \\(!ctx\\.mounted\\) return;\\s*if \\(!hasToken\\)',
+        )
+
+
+
 if __name__ == '__main__':
     unittest.main()
