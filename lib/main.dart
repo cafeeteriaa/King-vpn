@@ -4151,20 +4151,35 @@ Future<bool> waitProxyPort(
 bool lastStartNoTunnel = false; // last _start failed because Android built no tunnel
 String kVpnLastStateTop = ''; // TUNSTATE-FIX: آینه‌ی سراسری lastState برای tunUp()
 String tunNames = ''; // interface names seen by the last tunUp() (diagnostics)
+bool _isTunnelInterfaceName(String name) {
+  final n = name.toLowerCase();
+  return n.startsWith('tun') ||
+      n.startsWith('ppp') ||
+      n.startsWith('vpn') ||
+      n.startsWith('utun') ||
+      n.contains('xray') ||
+      n.contains('v2ray');
+}
+
+// Unlike tunUp(), this strict check never infers a TUN from a stale CONNECTED
+// event. It is used only before a direct health probe to prevent bypass leaks.
+Future<bool> _tunInterfaceObserved() async {
+  try {
+    final interfaces = await NetworkInterface.list(includeLoopback: false);
+    tunNames = interfaces.map((i) => i.name).join(',');
+    return interfaces.any((i) => _isTunnelInterfaceName(i.name));
+  } catch (e, stk) {
+    logError(e, stk);
+    return false;
+  }
+}
+
 Future<bool?> tunUp() async {
   try {
     for (var attempt = 0; attempt < 5; attempt++) {
       final l = await NetworkInterface.list(includeLoopback: false);
       tunNames = l.map((i) => i.name).join(',');
-      final hasTunnel = l.any((i) {
-        final n = i.name.toLowerCase();
-        return n.startsWith('tun') ||
-            n.startsWith('ppp') ||
-            n.startsWith('vpn') ||
-            n.startsWith('utun') ||
-            n.contains('xray') ||
-            n.contains('v2ray');
-      });
+      final hasTunnel = l.any((i) => _isTunnelInterfaceName(i.name));
       if (hasTunnel) return true;
       if (attempt < 4) await Future.delayed(const Duration(milliseconds: 800));
     }
@@ -8975,6 +8990,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  // Prefer the local HTTP inbound when it is listening. Some TUN-only core
+  // configurations expose no HTTP inbound; direct app traffic is safe only
+  // after an actual VPN interface is observed (never from stale state).
+  Future<bool> _tunnelEndpointOpens(String url) async {
+    if (proxyMode) return _siteOpens(url, viaCore: true);
+    if (await _coreProxyOpen(timeout: const Duration(milliseconds: 250))) {
+      return _siteOpens(url, viaCore: true);
+    }
+    if (await _tunInterfaceObserved()) {
+      return _siteOpens(url, viaCore: false);
+    }
+    return false;
+  }
+
   // TUNCHK: ترافیک واقعی از داخل تونل (VPN) باید به مقصد متناسب با حالت شبکه برسد.
   // در حالت پروکسی تونلی وجود ندارد، پس بررسی انجام نمی‌شود.
   // FIX #12: national mode tests domestic destinations (international traffic is cut there);
@@ -8988,7 +9017,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final modeSnapshot = nationalMode;
     final urls = modeSnapshot ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
     final results = await Future.wait(urls.map((url) =>
-        _siteOpens(url, viaCore: true).timeout(
+        _tunnelEndpointOpens(url).timeout(
             const Duration(seconds: 8), onTimeout: () => false)));
     if (abort || !wantVpn || nationalMode != modeSnapshot) return false;
     final passed = results.where((ok) => ok).length;
@@ -9006,7 +9035,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final urls = modeSnapshot ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
     if (urls.length < 2) return false;
     final results = await Future.wait(urls.map((url) =>
-        _siteOpens(url, viaCore: true).timeout(
+        _tunnelEndpointOpens(url).timeout(
             const Duration(seconds: 8), onTimeout: () => false)));
     final passed = results.where((ok) => ok).length;
     // Do not count a five-minute stability sample if the user changed the
