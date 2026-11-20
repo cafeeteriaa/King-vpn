@@ -1709,9 +1709,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         disconnect_start = patch.index("exact_replace(core, '''    private void sendDisconnectedBroadCast() {")
         disconnect_end = patch.index("'P1-36 remove late duration ticker cancellation'", disconnect_start)
         disconnect = patch[disconnect_start:disconnect_end]
-        self.assertLess(disconnect.index('countDownTimer.cancel();'),
-                        disconnect.index('V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_DISCONNECTED;'))
-        self.assertIn('countDownTimer = null;', disconnect)
+        disconnect_replacement_start = disconnect.index("''', '''") + len("''', '''")
+        disconnect_replacement = disconnect[disconnect_replacement_start:]
+        self.assertLess(disconnect_replacement.index('countDownTimer.cancel();'),
+                        disconnect_replacement.index('V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_DISCONNECTED;'))
+        self.assertIn('countDownTimer = null;', disconnect_replacement)
 
 
 if __name__ == '__main__':
