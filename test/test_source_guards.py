@@ -2952,6 +2952,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         ping = dart[ping_start:ping_end]
         self.assertIn('if (!await _tunInterfaceObserved())', ping)
         self.assertIn("lastPingErr = 'VPN TUN interface not observed';", ping)
+        start_impl = dart.index('Future<bool> _startImpl(Server s,')
+        start_end = dart.index('bool _listPartial = false;', start_impl)
+        start_code = dart[start_impl:start_end]
+        self.assertIn("lastFail = 'اندروید رابط VPN را نساخت یا قابل مشاهده نیست';", start_code)
+        self.assertIn('lastStartNoTunnel = true;', start_code)
         self.assertIn('final results = await Future.wait(urls.map((url) =>', dart[dart.index('Future<bool> _tunnelTrafficOk()'):dart.index('Future<bool> _stableTunnelTrafficOk')])
 
     def test_ip_auto_scan_persists_unverified_core_candidates_before_advancing_cursor(self):
