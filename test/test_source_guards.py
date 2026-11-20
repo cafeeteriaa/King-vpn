@@ -1251,7 +1251,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             }"""
         self.assertIn(stop_cleanup, patch)
 
-        proxy_destroy_start = patch.index("exact_replace(proxy_svc, '''    @Override\\n    public void onDestroy()")
+        proxy_destroy_start = patch.index("exact_replace(proxy_svc, '''    @Override\n    public void onDestroy()")
         proxy_destroy_end = patch.index("'P1-29 proxy-only service cleanup helper')", proxy_destroy_start)
         proxy_destroy = patch[proxy_destroy_start:proxy_destroy_end]
         self.assertIn('isV2rayCoreRunning()', proxy_destroy)
