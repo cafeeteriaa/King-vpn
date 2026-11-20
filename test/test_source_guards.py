@@ -1840,7 +1840,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_dns_manual_scan_does_not_restart_after_sheet_closes_during_load(self):
         source = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
         start = source.index('void dnsxSheet(BuildContext ctx0)')
-        end = source.index('\\n  }\\n}', start)
+        end = source.index('\n  }\n}', start)
         method = source[start:end]
         self.assertIn('var sheetOpen = true;', method)
         load = method.index('final saved = await goldDnsList();')
