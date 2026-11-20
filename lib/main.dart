@@ -10311,9 +10311,13 @@ ListTile( // KINGEXTRAS row
       final req = await c
           .getUrl(Uri.parse(url))
           .timeout(const Duration(milliseconds: 3000));
+      req.followRedirects = false;
       final res = await req.close().timeout(const Duration(milliseconds: 3000));
-      // STATUSFIX: 403 از DPI یعنی «دنیا وصل است» نیست؛ فقط 2xx/3xx موفق است
-      return res.statusCode >= 200 && res.statusCode < 400;
+      // Reject captive-portal redirects; 204 endpoints must return the exact
+      // no-content signal, while ordinary homepage probes accept only 2xx.
+      final code = res.statusCode;
+      final expects204 = Uri.parse(url).path.endsWith('/generate_204');
+      return expects204 ? code == HttpStatus.noContent : code >= 200 && code < 300;
     } catch (e, stk) {
       logError(e, stk);
       return false;
