@@ -30,37 +30,127 @@ Future<String> bkpExportJson() async {
   });
 }
 
-/// متن پشتیبان را می‌خواند و مقادیر را در ذخیره‌ی برنامه می‌نویسد. تعداد موارد را برمی‌گرداند.
+// Backup input is untrusted. Validate the complete payload before touching preferences.
+const int _bkpMaxBytes = 2 * 1024 * 1024;
+const int _bkpMaxEntries = 500;
+const int _bkpMaxStringLength = 256 * 1024;
+const int _bkpMaxListItems = 500;
+const int _bkpMaxListItemLength = 16 * 1024;
+final RegExp _bkpAllowedKey = RegExp(r'^[A-Za-z0-9_.-]{1,128}$');
+final RegExp _bkpSensitiveKey = RegExp(
+    r'(token|secret|password|passwd|credential|api.?key|private.?key|auth.?key)',
+    caseSensitive: false);
+
+bool _bkpKeyAllowed(String key) =>
+    _bkpAllowedKey.hasMatch(key) && !_bkpSensitiveKey.hasMatch(key);
+
+Future<String> bkpExportJson() async {
+  final p = await SharedPreferences.getInstance();
+  final data = <String, Map<String, dynamic>>{};
+  for (final k in p.getKeys()) {
+    if (!_bkpKeyAllowed(k)) continue;
+    final v = p.get(k);
+    if (v is String && v.length <= _bkpMaxStringLength) {
+      data[k] = {'t': 's', 'v': v};
+    } else if (v is bool) {
+      data[k] = {'t': 'b', 'v': v};
+    } else if (v is int) {
+      data[k] = {'t': 'i', 'v': v};
+    } else if (v is double && v.isFinite) {
+      data[k] = {'t': 'd', 'v': v};
+    } else if (v is List &&
+        v.length <= _bkpMaxListItems &&
+        v.every((e) => e is String && e.length <= _bkpMaxListItemLength)) {
+      data[k] = {'t': 'l', 'v': v};
+    }
+    if (data.length > _bkpMaxEntries) {
+      throw const FormatException('تعداد تنظیمات برای پشتیبان بیش از حد مجاز است');
+    }
+  }
+  final encoded = JsonEncoder.withIndent('  ').convert({
+    'magic': kBkpMagic,
+    'at': DateTime.now().toIso8601String(),
+    'count': data.length,
+    'data': data,
+  });
+  if (utf8.encode(encoded).length > _bkpMaxBytes) {
+    throw const FormatException('حجم پشتیبان از حد مجاز بیشتر است');
+  }
+  return encoded;
+}
+
+/// Validate all entries before writing any preference.
 Future<int> bkpImportJson(String text) async {
-  final root = jsonDecode(text.trim());
-  if (root is! Map || root['magic'] != kBkpMagic || root['data'] is! Map) {
+  if (utf8.encode(text).length > _bkpMaxBytes) {
+    throw const FormatException('حجم متن پشتیبان بیش از حد مجاز است');
+  }
+  final decoded = jsonDecode(text);
+  if (decoded is! Map ||
+      decoded['magic'] != kBkpMagic ||
+      decoded['data'] is! Map) {
     throw const FormatException('این متن پشتیبان معتبر نیست');
   }
-  final p = await SharedPreferences.getInstance();
-  var n = 0;
-  final data = root['data'] as Map;
-  for (final e in data.entries) {
-    final item = e.value;
-    if (item is! Map) continue;
-    final k = e.key.toString();
-    final t = item['t'];
-    final v = item['v'];
-    if (t == 's' && v is String) {
-      await p.setString(k, v);
-    } else if (t == 'b' && v is bool) {
-      await p.setBool(k, v);
-    } else if (t == 'i' && v is int) {
-      await p.setInt(k, v);
-    } else if (t == 'd' && v is num) {
-      await p.setDouble(k, v.toDouble());
-    } else if (t == 'l' && v is List) {
-      await p.setStringList(k, v.map((x) => x.toString()).toList());
-    } else {
-      continue;
-    }
-    n++;
+  final rawData = decoded['data'] as Map;
+  if (rawData.isEmpty || rawData.length > _bkpMaxEntries) {
+    throw const FormatException('تعداد تنظیمات پشتیبان معتبر نیست');
   }
-  return n;
+  final declaredCount = decoded['count'];
+  if (declaredCount != null &&
+      (declaredCount is! int || declaredCount != rawData.length)) {
+    throw const FormatException('تعداد موارد پشتیبان با محتوای آن سازگار نیست');
+  }
+
+  final staged = <String, Object>{};
+  for (final entry in rawData.entries) {
+    if (entry.key is! String || entry.value is! Map) {
+      throw const FormatException('ساختار یکی از تنظیمات معتبر نیست');
+    }
+    final key = entry.key as String;
+    if (!_bkpKeyAllowed(key) || staged.containsKey(key)) {
+      throw const FormatException('کلید نامعتبر یا غیرمجاز در پشتیبان وجود دارد');
+    }
+    final item = entry.value as Map;
+    if (item.length != 2 || !item.containsKey('t') || !item.containsKey('v')) {
+      throw const FormatException('ساختار مقدار پشتیبان معتبر نیست');
+    }
+    final type = item['t'];
+    final value = item['v'];
+    if (type == 's' && value is String &&
+        value.length <= _bkpMaxStringLength) {
+      staged[key] = value;
+    } else if (type == 'b' && value is bool) {
+      staged[key] = value;
+    } else if (type == 'i' && value is int) {
+      staged[key] = value;
+    } else if (type == 'd' && value is num && value.isFinite) {
+      staged[key] = value.toDouble();
+    } else if (type == 'l' && value is List &&
+        value.length <= _bkpMaxListItems &&
+        value.every((x) => x is String && x.length <= _bkpMaxListItemLength)) {
+      staged[key] = List<String>.from(value);
+    } else {
+      throw const FormatException('نوع یا اندازهٔ یکی از مقادیر پشتیبان معتبر نیست');
+    }
+  }
+
+  // No preferences are changed until every key and value has passed validation.
+  final p = await SharedPreferences.getInstance();
+  for (final entry in staged.entries) {
+    final value = entry.value;
+    final ok = value is String
+        ? await p.setString(entry.key, value)
+        : value is bool
+            ? await p.setBool(entry.key, value)
+            : value is int
+                ? await p.setInt(entry.key, value)
+                : value is double
+                    ? await p.setDouble(entry.key, value)
+                    : value is List<String>
+                        ? await p.setStringList(entry.key, value)
+                        : false;
+    if (!ok) throw StateError('ذخیرهٔ تنظیم ناموفق بود');
+  }
+  return staged.length;
 }
 
 extension BkpExt on _HomePageState {
