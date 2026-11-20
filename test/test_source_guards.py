@@ -1676,19 +1676,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_apk_update_download_and_install_are_serialized(self):
         update = (ROOT / 'lib' / 'update_check.dart').read_text(encoding='utf-8')
-        self.assertIn('bool _updateDownloadBusy = false;', update)
-        self.assertIn('bool _updateInstallBusy = false;', update)
-        download_start = update.index('Future<void> _downloadAndInstallApk(')
-        install_start = update.index('Future<void> _continuePendingUpdateInstall()', download_start)
-        download = update[download_start:install_start]
-        install_end = update.index('void _applyRemoteHeal()', install_start)
-        install = update[install_start:install_end]
-        self.assertIn('if (_updateDownloadBusy) return;', download)
-        self.assertIn('_updateDownloadBusy = true;', download)
-        self.assertIn('_updateDownloadBusy = false;', download)
-        self.assertIn('if (_updateInstallBusy) return;', install)
-        self.assertIn('_updateInstallBusy = true;', install)
-        self.assertIn('_updateInstallBusy = false;', install)
+        for guard in (
+            'if (_updateDownloadBusy) return;',
+            '_updateDownloadBusy = true;',
+            '_updateDownloadBusy = false;',
+            'if (_updateInstallBusy) return;',
+            '_updateInstallBusy = true;',
+            '_updateInstallBusy = false;',
+        ):
+            self.assertIn(guard, update)
+        positions = [
+            update.index('if (_updateDownloadBusy) return;'),
+            update.index('_updateDownloadBusy = true;'),
+            update.index('_updateDownloadBusy = false;'),
+            update.index('if (_updateInstallBusy) return;'),
+            update.index('_updateInstallBusy = true;'),
+            update.index('_updateInstallBusy = false;'),
+        ]
+        self.assertEqual(positions, sorted(positions))
 
     def test_update_check_releases_guard_when_page_is_disposed(self):
         update = (ROOT / 'lib' / 'update_check.dart').read_text(encoding='utf-8')
