@@ -2027,5 +2027,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('cancelled: () => cancelled,', body)
 
 
+    def test_manual_dns_scan_does_not_persist_cancelled_partial_results(self):
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        helper_start = extras.index('Future<bool> goldAddDns(')
+        helper_end = extras.index('Future<void> goldMergeIps(', helper_start)
+        helper = extras[helper_start:helper_end]
+        prefs = helper.index('await SharedPreferences.getInstance();')
+        last_abort = helper.index('if (shouldAbort?.call() ?? false) return false;', prefs)
+        mutation = helper.index('_goldDns[h.ip] = h.avgMs;')
+        write = helper.index('return await _goldWrite(p);')
+        self.assertLess(prefs, last_abort)
+        self.assertLess(last_abort, mutation)
+        self.assertLess(mutation, write)
+        sheet = dns[dns.index('void dnsxSheet('):]
+        scan = sheet.index('r = await dnsxScan(')
+        guard = sheet.index('if (stopFlag || !sheetOpen)', scan)
+        save = sheet.index('goldAddDns(r, shouldAbort: () => stopFlag || !sheetOpen)', guard)
+        self.assertLess(scan, guard)
+        self.assertLess(guard, save)
+
+
 if __name__ == '__main__':
     unittest.main()

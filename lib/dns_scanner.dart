@@ -401,7 +401,14 @@ extension DnsxExt on _HomePageState {
                   total = t;
                 }),
               );
-              await goldAddDns(r); // FOLDERALL: همه‌ی حالت‌ها در پوشه
+              if (stopFlag || !sheetOpen) {
+                upd(() => note = 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد.');
+              } else {
+                final saved = await goldAddDns(r, shouldAbort: () => stopFlag || !sheetOpen);
+                if (!saved && (stopFlag || !sheetOpen)) {
+                  upd(() => note = 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد.');
+                }
+              } // FOLDERALL: فقط نتیجه‌ی کامل و لغونشده ذخیره می‌شود
             } catch (e, stk) {
               logError(e, stk);
             } finally {

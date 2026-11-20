@@ -1612,15 +1612,26 @@ Future<void> goldAddScan(String kind, List<String> items) async {
   await goldSave();
 }
 
-Future<void> goldAddDns(List<DnsxHit> hits) async {
+Future<bool> goldAddDns(List<DnsxHit> hits, {bool Function()? shouldAbort}) async {
+  if (hits.isEmpty || (shouldAbort?.call() ?? false)) return false;
   await goldLoad();
-  var changed = false;
-  for (final h in hits) {
-    if (h.okCount <= 0) continue;
-    _goldDns[h.ip] = h.avgMs;
-    changed = true;
+  if (shouldAbort?.call() ?? false) return false;
+  try {
+    final p = await SharedPreferences.getInstance();
+    // Last cancellation check before mutating shared DNS state.
+    if (shouldAbort?.call() ?? false) return false;
+    var changed = false;
+    for (final h in hits) {
+      if (h.okCount <= 0) continue;
+      _goldDns[h.ip] = h.avgMs;
+      changed = true;
+    }
+    if (!changed) return true;
+    return await _goldWrite(p);
+  } catch (e, stk) {
+    logError(e, stk);
+    return false;
   }
-  if (changed) await goldSave();
 }
 
 Future<void> goldMergeIps(List<CleanIp> res) async {
