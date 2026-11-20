@@ -2848,6 +2848,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('A public DNS answer combined with failed TCP/443 does NOT prove', diagnosis)
         self.assertNotIn('poison = reach.isNotEmpty', diagnosis)
         self.assertNotIn('dnsPoisonSuspected: poison', diagnosis)
+        self.assertNotIn('poison=$poison', diagnosis)
         self.assertIn('globalDnsOk: globalDnsOk', diagnosis)
         self.assertIn('globalTcpOk: globalTcpOk', diagnosis)
 
