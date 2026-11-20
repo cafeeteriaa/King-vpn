@@ -2817,5 +2817,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_lastIdentity = null;', pilot)
 
 
+    def test_stable_tunnel_evidence_is_discarded_after_network_mode_switch(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> _stableTunnelTrafficOk(Server server)')
+        end = source.index('// FIX #107:', start)
+        body = source[start:end]
+        snapshot = body.index('final modeSnapshot = nationalMode;')
+        probes = body.index('final results = await Future.wait(', snapshot)
+        mode_guard = body.index('nationalMode == modeSnapshot', probes)
+        passed = body.index('passed >= 2', mode_guard)
+        self.assertLess(snapshot, probes)
+        self.assertLess(probes, mode_guard)
+        self.assertLess(mode_guard, passed)
+
+
 if __name__ == '__main__':
     unittest.main()
