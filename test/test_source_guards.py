@@ -1348,6 +1348,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn(').whenComplete(c.dispose);', npv)
 
 
+    def test_backup_export_enforces_cumulative_budget_during_collection(self):
+        backup = (ROOT / 'lib' / 'backup_restore.dart').read_text(encoding='utf-8')
+        self.assertIn('void _bkpEnsureExportWithinBudget(', backup)
+        exporter_start = backup.index('Future<String> bkpExportJson() async {')
+        exporter_end = backup.index('Future<bool> _bkpWriteValue(', exporter_start)
+        exporter = backup[exporter_start:exporter_end]
+        self.assertIn('final timestamp = DateTime.now().toIso8601String();', exporter)
+        self.assertIn('_bkpEnsureExportWithinBudget(data, timestamp);', exporter)
+        self.assertLess(exporter.index('_bkpEnsureExportWithinBudget(data, timestamp);'),
+                        exporter.index('final encoded = JsonEncoder.withIndent'))
+        self.assertIn('const formattingReserve = 32 * 1024;', backup)
+        self.assertIn('_bkpMaxBytes - formattingReserve', backup)
+
     def test_ai_token_save_does_not_touch_disposed_controller(self):
         iran = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
         start = iran.index('Future<void> saveToken() async {')
