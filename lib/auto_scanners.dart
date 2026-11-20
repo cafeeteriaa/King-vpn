@@ -106,7 +106,10 @@ Future<void> autoScanRun(void Function(String) say) async {
     sniLoop:
     for (final d in kAutoSniDomains) {
       n++;
-      if (nationalMode) await natManualYield(); // NATQUOTA
+      if (nationalMode) {
+        await natManualYield(shouldAbort: () => _autoScanStop);
+        if (_autoScanStop) break sniLoop;
+      }
       var ok = false;
       for (final ip in ips) {
         if (_autoScanStop) break sniLoop;
@@ -130,7 +133,10 @@ Future<void> autoScanRun(void Function(String) say) async {
     portLoop:
     for (final p in kAutoPorts) {
       m++;
-      if (nationalMode) await natManualYield(); // NATQUOTA (مثل حلقه‌ی SNI)
+      if (nationalMode) {
+        await natManualYield(shouldAbort: () => _autoScanStop);
+        if (_autoScanStop) break portLoop;
+      }
       var ok = false;
       for (final ip in ips) {
         if (_autoScanStop) break portLoop;

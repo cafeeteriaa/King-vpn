@@ -253,7 +253,10 @@ Future<List<DnsxHit>> dnsxScan(List<String> list,
   final dnsBatch = limited ? kNatManualConc : 12; // DNS در هر دسته‌ی همزمان
   for (var i = 0; i < list.length; i += dnsBatch) {
     if (stop != null && stop()) break;
-    if (limited) await natManualYield();
+    if (limited) {
+      await natManualYield(shouldAbort: stop);
+      if (stop != null && stop()) break;
+    }
     final batch = list.sublist(i, min(i + dnsBatch, list.length));
     await Future.wait(batch.map((server) async {
       final hit =

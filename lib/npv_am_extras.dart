@@ -1561,9 +1561,10 @@ const int kNatManualConc = 3;
 // چون در نت ملی ساعت‌ها اجرا می‌شود و اسکن دستی را گرسنه نگه می‌دارد.
 bool Function()? natSearchBusyProbe; // توسط State در initState تنظیم می‌شود
 const Duration kNatYieldCap = Duration(minutes: 3); // هیچ اسکن دستی بیش از این صبر نمی‌کند
-Future<void> natManualYield() async {
+Future<void> natManualYield({bool Function()? shouldAbort}) async {
   final sw = Stopwatch()..start();
-  while (nationalMode &&
+  while (!(shouldAbort?.call() ?? false) &&
+      nationalMode &&
       (_natRangeScanBusy || (natSearchBusyProbe?.call() ?? false))) {
     if (sw.elapsed > kNatYieldCap) break;
     await Future.delayed(const Duration(milliseconds: 500));

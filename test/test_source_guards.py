@@ -1979,5 +1979,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(helper.index('if (shouldAbort?.call() ?? false) return false;'), helper.index('for (final entry in updates.entries)'))
 
 
+    def test_national_yield_wait_is_cancellable_for_manual_scans(self):
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        start = extras.index('Future<void> natManualYield(')
+        end = extras.index('// FOLDERALL:', start)
+        yield_body = extras[start:end]
+        self.assertIn('bool Function()? shouldAbort', yield_body)
+        self.assertIn('!(shouldAbort?.call() ?? false)', yield_body)
+        self.assertEqual(auto.count('natManualYield(shouldAbort: () => _autoScanStop)'), 2)
+        self.assertIn('if (_autoScanStop) break sniLoop;', auto)
+        self.assertIn('if (_autoScanStop) break portLoop;', auto)
+        self.assertIn('await natManualYield(shouldAbort: stop);', dns)
+        self.assertIn('if (stop != null && stop()) break;', dns)
+
+
 if __name__ == '__main__':
     unittest.main()
