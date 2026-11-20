@@ -93,6 +93,7 @@ jobs:
         working-directory: build_app
         env:
           CGO_LDFLAGS: "-Wl,-z,max-page-size=16384"
+          LINT_PRINT_STACKTRACE: "true"
         run: |
           set -o pipefail
           for attempt in 1 2 3; do
