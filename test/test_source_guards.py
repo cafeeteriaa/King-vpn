@@ -1257,7 +1257,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('isV2rayCoreRunning()', proxy_destroy)
         self.assertIn('V2rayCoreManager.getInstance().stopCore();', proxy_destroy)
         self.assertIn('stopForeground(true);', proxy_destroy)
-        proxy_on_destroy = proxy_destroy[proxy_destroy.index('public void onDestroy()'):]
+        old_destroy = proxy_destroy.index('public void onDestroy()')
+        new_destroy = proxy_destroy.index('public void onDestroy()', old_destroy + 1)
+        proxy_on_destroy = proxy_destroy[new_destroy:]
         self.assertLess(proxy_on_destroy.index('stopCore();'), proxy_on_destroy.index('stopForeground(true);'))
 
     def test_vpn_service_promotes_before_queuing_sticky_restart_or_stop(self):
