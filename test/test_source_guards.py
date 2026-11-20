@@ -79,6 +79,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('natIrDomains', domain_scan)
         self.assertNotIn('for (var p = 1; p < 65536; p++)', domain_scan)
 
+    def test_connection_fallback_keeps_plain_config_unmodified(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('final cfgTries = <String>[')
+        end = main.index('var usedFallback = false;', start)
+        candidates = main[start:end]
+        self.assertIn('.map((c) => withErrLog(sanitizeCfg(c))).toList();', candidates)
+        self.assertNotIn('withIranRouting(withNpvAmCore(c))', candidates)
+
     def test_connect_path_uses_mode_aware_tunnel_probe(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn('networkAware: true', main)

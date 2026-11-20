@@ -8414,7 +8414,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         cfg,
         if (base != cfg) base,
         if (chainCfg != null) chainCfg,
-      ].map((c) => withErrLog(sanitizeCfg(withIranRouting(withNpvAmCore(c))))).toList();
+      // Each candidate is already in its intended form: ownCfg/cfg are
+      // transformed by _reliableVpnCfg, base is deliberately the plain
+      // package config fallback, and chainCfg is built from transformed cfg.
+      // Re-applying the policy pipeline here duplicated routing rules and,
+      // worse, transformed the supposedly plain fallback as well.
+      ].map((c) => withErrLog(sanitizeCfg(c))).toList();
       var usedFallback = false;
       var trafficFailure = false;
       for (var ci = 0; ci < cfgTries.length; ci++) {
