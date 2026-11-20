@@ -1208,6 +1208,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
+    def test_connected_national_range_scan_is_bounded_and_cancellable(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<void> _natKeep()')
+        end = main.index('// NATIONALPATCH: is the international internet cut', start)
+        keep = main[start:end]
+        self.assertIn('maxAddrs: 2048', keep)
+        self.assertIn('conc: min(2, natAdaptiveWorkers())', keep)
+        self.assertIn('budget: const Duration(seconds: 90)', keep)
+        for condition in ('!mounted', '!connected', '!wantVpn', '!nationalMode',
+                          '!localPilotOn', 'appGone', 'abort'):
+            self.assertIn(condition, keep)
+        self.assertIn('Do not publish stale discoveries after the tunnel/pilot stops.', keep)
+
+
     def test_backup_restore_has_single_hardened_exporter(self):
         backup = (ROOT / 'lib' / 'backup_restore.dart').read_text(encoding='utf-8')
         self.assertEqual(backup.count('Future<String> bkpExportJson() async {'), 1)
