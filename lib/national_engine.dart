@@ -20,22 +20,33 @@ class NationalNetworkIntelligence {
   }
 
   static Future<void> _loadImpl() async {
+    var preferencesAvailable = false;
     try {
       final prefs = await SharedPreferences.getInstance();
+      preferencesAvailable = true;
       final raw = prefs.getString(_prefsKey);
       if (raw != null) {
         final decoded = jsonDecode(raw);
         if (decoded is Map) {
-          _memory = <String, NatEndpointMemory>{};
+          final restored = <String, NatEndpointMemory>{};
           for (final e in decoded.entries) {
-            if (e.key is String) _memory[e.key as String] = NatEndpointMemory.fromJson(e.value);
+            if (e.key is String) {
+              try {
+                restored[e.key as String] = NatEndpointMemory.fromJson(e.value);
+              } catch (e, st) {
+                logError(e, st);
+              }
+            }
           }
+          _memory = restored;
         }
       }
     } catch (e, st) {
+      // A temporary SharedPreferences failure must not permanently disable
+      // learned endpoint history for the lifetime of this process.
       logError(e, st);
     } finally {
-      _loaded = true;
+      _loaded = preferencesAvailable;
       _loading = null;
     }
   }
@@ -114,7 +125,17 @@ class NationalNetworkIntelligence {
     await _save();
   }
 
-  static Future<void> _save() async {
+  static Future<void> _save() {
+    // Serialize preference writes. Concurrent connect/failover callbacks must
+    // never let an older snapshot overwrite newer endpoint evidence.
+    final next = _saveQueue.then((_) => _saveImpl());
+    _saveQueue = next;
+    return next;
+  }
+
+  static Future<void> _saveQueue = Future<void>.value();
+
+  static Future<void> _saveImpl() async {
     try {
       // Keep most useful/recent entries; do not let history grow indefinitely.
       final entries = _memory.entries.toList()
