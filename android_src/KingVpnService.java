@@ -681,13 +681,13 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             if (!isCurrent(myAttempt)) {
                 // Superseded while startCore ran. We still hold coreLock, so no other
                 // attempt has touched the core; undo our own start and leave.
-                boolean stopped = !ok || stopCoreNow();
+                boolean stopped = stopCoreNow();
                 if (stopped) closeTun();
                 return false;
             }
             if (!ok) {
                 lastError = "core startCore returned false";
-                boolean stopped = !core.isV2rayCoreRunning() || stopCoreNow();
+                boolean stopped = stopCoreNow();
                 if (stopped) closeTun();
             }
             return ok;
