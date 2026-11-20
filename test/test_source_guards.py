@@ -1469,5 +1469,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (!mounted || _initialRequestSubmitted ||', source)
 
 
+    def test_chat_send_stops_after_disposal_before_controller_access(self):
+        source = (ROOT / 'lib' / 'king_chat_page.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> _send() async {')
+        end = source.index('void _handleSpeechResult', start)
+        send = source[start:end]
+        self.assertLess(send.index('if (!mounted) return;'),
+                        send.index('final prompt = _input.text.trim();'))
+        self.assertIn('if (mounted && (_speak || voice))', send)
+
+
 if __name__ == '__main__':
     unittest.main()
