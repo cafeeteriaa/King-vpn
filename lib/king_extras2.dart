@@ -765,6 +765,7 @@ class _CloudflareAutoDeployPageState extends State<CloudflareAutoDeployPage> {
       return;
     }
     await _saveToken(token); // CFTOKSAVE: حتی اگر ساخت ناموفق بود، توکن نگه داشته می‌شود
+    if (!mounted) return;
     setState(() {
       _deploying = true;
       _error = null;
@@ -787,6 +788,7 @@ class _CloudflareAutoDeployPageState extends State<CloudflareAutoDeployPage> {
       try {
         await addToPersonalFolder([r.link]);
       } catch (e) { errJournalAdd(e, kind: 'SILENT-LIB'); }
+      if (!mounted) return;
       setState(() => _link = r.link);
     } on TimeoutException {
       if (mounted) setState(() => _error = 'اتصال به Cloudflare زمان‌بر شد. دوباره تلاش کن.');
@@ -809,6 +811,7 @@ class _CloudflareAutoDeployPageState extends State<CloudflareAutoDeployPage> {
       return;
     }
     await _saveToken(token);
+    if (!mounted) return;
     setState(() {
       _deploying = true;
       _error = null;

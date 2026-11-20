@@ -1426,6 +1426,28 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn(').hasMatch(normalizedHost);\\n    if (normalizedHost.isEmpty', source)
 
 
+    def test_cloudflare_deploy_guards_state_after_async_token_and_folder_writes(self):
+        source = (ROOT / 'lib' / 'king_extras2.dart').read_text(encoding='utf-8')
+        deploy_start = source.index('Future<void> _deploy() async {')
+        batch_start = source.index('Future<void> _deployBatch() async {', deploy_start)
+        copy_start = source.index('Future<void> _copyLink() async {', batch_start)
+        deploy = source[deploy_start:batch_start]
+        batch = source[batch_start:copy_start]
+
+        for name, method in (('_deploy', deploy), ('_deployBatch', batch)):
+            saved = method.index('await _saveToken(token);')
+            guard = method.index('if (!mounted) return;', saved)
+            state = method.index('setState(() {', guard)
+            self.assertLess(saved, guard, name)
+            self.assertLess(guard, state, name)
+
+        folder_write = deploy.index('await addToPersonalFolder([r.link]);')
+        folder_guard = deploy.index('if (!mounted) return;', folder_write)
+        final_state = deploy.index('setState(() => _link = r.link);', folder_write)
+        self.assertLess(folder_write, folder_guard)
+        self.assertLess(folder_guard, final_state)
+
+
     def test_home_page_cancels_background_refresh_and_personal_watch_timers(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         init_start = source.index('void initState() {', source.index('class _HomePageState'))
