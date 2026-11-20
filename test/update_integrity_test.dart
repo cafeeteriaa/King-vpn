@@ -5,13 +5,20 @@ import 'package:king_vpn/update_integrity.dart';
 
 void main() {
   group('isAllowedUpdateDownloadUri', () {
-    test('accepts official HTTPS GitHub release hosts', () {
+    test('accepts only the official King VPN release APK URL', () {
+      expect(
+        isAllowedUpdateDownloadUri(Uri.parse(
+          'https://github.com/cafeeteriaa/King-vpn/releases/download/v1.2.3/king-vpn.apk',
+        )),
+        isTrue,
+      );
       for (final value in [
-        'https://github.com/owner/repo/releases/download/v1/app.apk',
+        'https://github.com/other/repo/releases/download/v1/app.apk',
+        'https://github.com/cafeeteriaa/King-vpn/releases/download/v1/app.apk',
         'https://release-assets.githubusercontent.com/assets/app.apk',
         'https://objects.githubusercontent.com/assets/app.apk',
       ]) {
-        expect(isAllowedUpdateDownloadUri(Uri.parse(value)), isTrue,
+        expect(isAllowedUpdateDownloadUri(Uri.parse(value)), isFalse,
             reason: value);
       }
     });
@@ -33,19 +40,19 @@ void main() {
 
   group('resolveAllowedUpdateRedirect', () {
     test('accepts HTTPS release hosts and safe relative redirects', () {
-      final current = Uri.parse('https://github.com/owner/repo/releases/download/v1/app.apk');
+      final current = Uri.parse('https://github.com/cafeeteriaa/King-vpn/releases/download/v1/king-vpn.apk');
       expect(
         resolveAllowedUpdateRedirect(current, 'https://release-assets.githubusercontent.com/assets/app.apk')?.host,
         'release-assets.githubusercontent.com',
       );
       expect(
-        resolveAllowedUpdateRedirect(current, '/owner/repo/releases/download/v2/app.apk')?.host,
+        resolveAllowedUpdateRedirect(current, '/cafeeteriaa/King-vpn/releases/download/v2/king-vpn.apk')?.host,
         'github.com',
       );
     });
 
     test('rejects untrusted, downgraded, missing and malformed redirects', () {
-      final current = Uri.parse('https://github.com/owner/repo/app.apk');
+      final current = Uri.parse('https://github.com/cafeeteriaa/King-vpn/releases/download/v1/king-vpn.apk');
       for (final location in [
         'https://github.com.evil.example/app.apk',
         'http://github.com/owner/repo/app.apk',
