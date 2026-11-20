@@ -718,7 +718,9 @@ exact_replace(vpn, '''    public void onRevoke() {
 
 # 7) Delay probe crosses the plugin's :RunSoLibV2RayDaemon process boundary.
 # Send the URL in the service Intent and register the receiver before dispatching.
-exact_replace(v2_ctrl, '''import android.os.Build;''', '''import android.os.Build;\n\nimport android.util.Log;''', 'P1-33 controller Log import');
+exact_replace(v2_ctrl, '''import android.os.Build;''', '''import android.os.Build;
+
+import android.util.Log;''', 'P1-33 controller Log import');
 
 exact_replace(v2_ctrl, '''        final long[] delay = { -1 };
 
