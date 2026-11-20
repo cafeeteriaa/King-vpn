@@ -2865,5 +2865,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('static Future<void> _saveImpl() async', body)
 
 
+    def test_native_vpn_protects_core_sockets_not_the_tun_descriptor(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertNotIn('protect((int) fd.getFd())', service)
+        listener = service[service.index('public boolean onProtect(int socket)'):]
+        self.assertIn('return protect(socket);', listener)
+        self.assertIn('The TUN descriptor is not a socket', service)
+
+
 if __name__ == '__main__':
     unittest.main()
