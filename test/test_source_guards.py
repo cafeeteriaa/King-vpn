@@ -1134,6 +1134,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         worker = source[start:end]
         self.assertIn('let initialBuffer = new Uint8Array(0);', worker)
         self.assertIn('function parseVlessHeader(buffer)', worker)
+        self.assertIn('if (uuid !== UUID_HEX) throw new Error(\'Invalid UUID\');', worker)
         self.assertIn('if (buffer.length < 18) return null;', worker)
         self.assertIn('VLESS request header can span multiple WebSocket frames.', worker)
         self.assertIn("if (initialBuffer.length > 1024)", worker)
