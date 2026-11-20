@@ -2904,5 +2904,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertGreaterEqual(body.count('natVarCandidateDiscard(s);'), 8)
 
 
+    def test_operator_change_invalidates_provisional_nat_variant_candidates(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('if (k != natOpKey)')
+        end = source.index('final Map<String, int> natWins', start)
+        body = source[start:end]
+        self.assertIn('natOpKey = k;', body)
+        self.assertIn('natVarCandidates.clear();', body)
+
+
 if __name__ == '__main__':
     unittest.main()
