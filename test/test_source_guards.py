@@ -2820,6 +2820,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('id.isNotEmpty && at != null', diagnosis)
         self.assertIn('_checkedAt = id.isNotEmpty ? DateTime.now() : null;', diagnosis)
         self.assertIn('_checkedAt = null;', diagnosis[diagnosis.index('} catch (e, st)'):])
+        identity_method = diagnosis[diagnosis.index('static Future<String> _identityHash()'):diagnosis.index('static Future<bool> _tcpOk')]
+        self.assertIn('$natOpKey|', identity_method)
+        pilot_identity = pilot[pilot.index('static Future<String> _networkIdentity()'):]
+        self.assertIn('$natOpKey|', pilot_identity)
 
 
     def test_stable_tunnel_evidence_is_discarded_after_network_mode_switch(self):
