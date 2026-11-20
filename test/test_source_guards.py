@@ -2041,17 +2041,55 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('cancelled: () => cancelled,', body)
 
 
-    def test_global_folder_dns_scan_cancels_on_dialog_close(self):
+    def test_manual_range_scan_close_cancels_scan_and_blocks_late_persistence(self):
+        source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> manualRangeScan(')
+        end = source.index('\n}', start)
+        body = source[start:end]
+        close = body.index('cancelled = true;', body.index("child: const Text('کپی IPها')"))
+        close_pop = body.index('Navigator.pop(ctx);', close)
+        completion = body.index('open = false;', body.index(').then((_) {'))
+        completion_cancel = body.index('cancelled = true;', completion)
+        scan = body.index('result = await natScanIps(')
+        stop = body.index('cancelled: () => cancelled || !open,', scan)
+        persist_guard = body.index('if (!cancelled && open)', scan)
+        persist = body.index('await goldMergeIps(', persist_guard)
+        abort = body.index('shouldAbort: () => cancelled || !open,', persist)
+        self.assertLess(close, close_pop)
+        self.assertLess(completion, completion_cancel)
+        self.assertLess(scan, stop)
+        self.assertLess(stop, persist_guard)
+        self.assertLess(persist_guard, persist)
+        self.assertLess(persist, abort)
+
+    def test_gold_merge_ips_checks_abort_after_preferences_before_cache_mutation(self):
+        source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> goldMergeIps(')
+        end = source.index('\nFuture<Map<String, int?>> _goldProbe', start)
+        body = source[start:end]
+        load = body.index('await goldLoad();')
+        prefs = body.index('await SharedPreferences.getInstance();')
+        abort = body.index('if (shouldAbort?.call() ?? false) return;', prefs)
+        mutation = body.index('_goldIps[c.ip] =')
+        write = body.index('await _goldWrite(p);')
+        self.assertLess(load, prefs)
+        self.assertLess(prefs, abort)
+        self.assertLess(abort, mutation)
+        self.assertLess(mutation, write)
+
+    def test_global_folder_dns_scan_cancels_on_dialog_close_and_yields_to_national_mode(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> goldShowList(BuildContext context) async {')
         end = source.index('Timer? _goldSaveT;', start)
         dialog = source[start:end]
         scan = dialog.index('final r = await dnsxScan(')
-        stop = dialog.index('stop: () => cancelled || !open,', scan)
+        manual = dialog.index('manual: true,', scan)
+        stop = dialog.index('stop: () => cancelled || !open,', manual)
         guard = dialog.index('if (cancelled || !open)', stop)
         save = dialog.index('shouldAbort: () => cancelled || !open,', guard)
         close = dialog.index('cancelled = true;', save)
-        self.assertLess(scan, stop)
+        self.assertLess(scan, manual)
+        self.assertLess(manual, stop)
         self.assertLess(stop, guard)
         self.assertLess(guard, save)
         self.assertLess(save, close)

@@ -1634,16 +1634,24 @@ Future<bool> goldAddDns(List<DnsxHit> hits, {bool Function()? shouldAbort}) asyn
   }
 }
 
-Future<void> goldMergeIps(List<CleanIp> res) async {
-  if (res.isEmpty) return;
+Future<void> goldMergeIps(
+  List<CleanIp> res, {
+  bool Function()? shouldAbort,
+}) async {
+  if (res.isEmpty || (shouldAbort?.call() ?? false)) return;
   await goldLoad();
+  if (shouldAbort?.call() ?? false) return;
+  final p = await SharedPreferences.getInstance();
+  // Check again after the asynchronous preferences lookup, immediately before
+  // mutating the shared cache so a closed dialog cannot persist stale results.
+  if (shouldAbort?.call() ?? false) return;
   final now = DateTime.now().millisecondsSinceEpoch;
   for (final c in res) {
     _goldIps[c.ip] = _GoldIp(c.ip, c.ms, c.port, now, now);
   }
   _goldTrimIps();
   _goldTop = null;
-  await goldSave();
+  await _goldWrite(p);
 }
 
 Future<Map<String, int?>> _goldProbe(List<String> ips) async {
@@ -1882,6 +1890,7 @@ Future<void> goldShowList(BuildContext context) async {
                           list,
                           domains: dnsxFullDomains(),
                           gap: const Duration(milliseconds: 150),
+                          manual: true,
                           onProgress: (d, t) => upd(() => dnsStatus = 'اسکن DNS: $d/$t'),
                           stop: () => cancelled || !open,
                         );
@@ -2067,17 +2076,23 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
               child: const Text('کپی IPها'),
             ),
           TextButton(
-            onPressed: () => Navigator.pop(ctx),
+            onPressed: () {
+              cancelled = true;
+              Navigator.pop(ctx);
+            },
             child: const Text('بستن'),
           ),
         ],
       );
     }),
-  ).then((_) => open = false);
+  ).then((_) {
+    open = false;
+    cancelled = true;
+  });
 
   try {
     if (nationalMode) {
-      await natManualYield(shouldAbort: () => cancelled);
+      await natManualYield(shouldAbort: () => cancelled || !open);
     }
     // Do not start a scan if the user cancelled while waiting for the national scan.
     if (!cancelled) {
@@ -2088,7 +2103,7 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
         // RANGEFIX: بازه‌ی کوچک ۲ دقیقه؛ بازه‌ی بزرگ (بیش از ۴۰۹۶ IP) ۸ دقیقه
         budget: Duration(minutes: userAddrs.length > 4096 ? 8 : 2),
         timeout: const Duration(milliseconds: 1500),
-        cancelled: () => cancelled,
+        cancelled: () => cancelled || !open,
         onProgress: (d, t, h) => upd(() {
           done = d;
           total = t;
@@ -2096,8 +2111,11 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
         }),
       );
       // Partial results remain visible, but a cancelled scan must not enter shared storage.
-      if (!cancelled) {
-        await goldMergeIps([for (final h in result) CleanIp(h.ip, h.ms, 443)]);
+      if (!cancelled && open) {
+        await goldMergeIps(
+          [for (final h in result) CleanIp(h.ip, h.ms, 443)],
+          shouldAbort: () => cancelled || !open,
+        );
       }
     }
   } catch (e, stk) {
