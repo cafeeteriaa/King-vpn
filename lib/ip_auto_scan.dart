@@ -241,7 +241,14 @@ Future<_IpAutoAddressBatch?> _ipAutoNextAddrs(
 extension IpAutoExt on _HomePageState {
   /// آیا اسکن باید همین الان متوقف شود (VPN وصل شد، یا برنامه مشغول اتصال است، یا کاربر توقف زد)
   bool _ipAutoHalt({bool? modeSnapshot}) =>
-      ipAutoStopFlag || connected || busy ||
+      ipAutoStopFlag ||
+      connected ||
+      wantVpn ||
+      busy ||
+      searching ||
+      abort ||
+      !inForeground ||
+      _natRangeScanBusy ||
       (modeSnapshot != null && nationalMode != modeSnapshot);
 
   /// نت ملی: اسکن IP خودکار بدون دکمه (هر ۲۴ ساعت، یا ۶ ساعت اگر نتیجه نداشت)، فقط وقتی VPN قطع است.
@@ -250,7 +257,7 @@ extension IpAutoExt on _HomePageState {
     final runNationalMode = nationalMode;
     if (!kNatIpScanOn || !runNationalMode) return;
     if (ipAutoBusy || dnsxManualBusy || _natRangeScanBusy || _dnsxAutoBusy) return;
-    if (connected || busy) return;
+    if (connected || wantVpn || busy || searching || abort || !inForeground) return;
 
     // Acquire both shared scan locks before the first await. Otherwise a manual
     // DNS/IP scan can start while preferences are loading and overlap this run.
@@ -294,7 +301,9 @@ extension IpAutoExt on _HomePageState {
     // نت ملی کاملاً خودکار است؛ دکمه‌ی دستی فقط برای حالت عادی است
     if (!kNatIpScanOn) return 'اسکن IP از تنظیم اصلی خاموش است.';
     if (ipAutoBusy || dnsxManualBusy) return 'اسکن دیگری در حال اجراست.';
-    if (connected || busy) return 'اول VPN را قطع کنید، بعد اسکن خودکار IP را اجرا کنید.';
+    if (connected || wantVpn || busy || searching || abort || !inForeground) {
+      return 'برای اسکن خودکار، VPN و جستجوی سرورها باید متوقف باشند و برنامه در پیش‌زمینه باشد.';
+    }
     if (nationalMode && _natRangeScanBusy) {
       return 'جستجوی نت ملی در حال اجراست؛ کمی صبر کنید.';
     }
