@@ -1709,7 +1709,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('totalDownloadBudget - downloadClock.elapsed', download)
         self.assertIn('client.send(request).timeout(requestTimeout)', download)
         self.assertIn('streamed.stream.timeout(streamIdleTimeout)', download)
-        self.assertIn('const Duration(seconds: 45)', download)
+        self.assertIn('const streamIdleTimeoutCap = Duration(seconds: 45);', download)
+        self.assertIn('remainingStreamBudget < streamIdleTimeoutCap', download)
 
     def test_apk_update_download_and_install_are_serialized(self):
         update = (ROOT / 'lib' / 'update_check.dart').read_text(encoding='utf-8')
