@@ -3003,6 +3003,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('!wantVpn', scheduler)
         self.assertIn('!connected', scheduler)
         self.assertIn('!searching', scheduler)
+        self.assertIn('!_resBusy', scheduler)
+        self.assertIn('!upBusy', scheduler)
+        self.assertIn('!_natKeepOn', scheduler)
         self.assertIn('Timer.periodic(const Duration(minutes: 15)', main)
         self.assertIn('_runBackgroundNetworkScans()', main[main.index('void didChangeAppLifecycleState(AppLifecycleState s)'):])
         self.assertIn('_networkAutoScanPeriodicTimer?.cancel()', main)
@@ -3015,6 +3018,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('searching', halt)
         self.assertIn('abort', halt)
         self.assertIn('!inForeground', halt)
+        self.assertIn('_resBusy', halt)
+        self.assertIn('upBusy', halt)
+        self.assertIn('_natKeepOn', halt)
+        self.assertIn('if (_dnsxAutoBusy)', source)
 
 if __name__ == '__main__':
     unittest.main()
