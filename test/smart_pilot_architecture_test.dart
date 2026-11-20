@@ -65,6 +65,22 @@ void main() {
       expect(report, contains('raw_config_links_exported'));
       expect(report, contains('credential_values_exported'));
     });
+    test('runtime journal stores bounded redacted exception messages', () {
+      final before = errJournal.length;
+      errJournalAdd(
+        StateError('token=journal-secret-123 ' + List<String>.filled(2000, 'x').join()),
+        kind: 'TEST-REDACTION',
+      );
+      expect(errJournal.length, greaterThan(before));
+      final entry = errJournal.last;
+      expect(entry.msg, isNot(contains('journal-secret-123')));
+      expect(entry.msg, contains('[REDACTED]'));
+      expect(entry.msg.length, lessThanOrEqualTo(1200));
+      expect(entry.where.length, lessThanOrEqualTo(600));
+      expect(entry.type.length, lessThanOrEqualTo(80));
+      expect(entry.tag.length, lessThanOrEqualTo(120));
+    });
+
     test('redacts quoted JSON credentials and bearer authorization values', () {
       const bearer = 'Bearer abcDEF1234567890._-+/=';
       final safe = redactSensitiveDiagnostic(
