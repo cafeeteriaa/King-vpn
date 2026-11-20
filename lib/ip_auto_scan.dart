@@ -249,6 +249,7 @@ extension IpAutoExt on _HomePageState {
       abort ||
       !inForeground ||
       _natRangeScanBusy ||
+      _hotBusy ||
       _resBusy ||
       upBusy ||
       _natKeepOn ||
@@ -261,7 +262,7 @@ extension IpAutoExt on _HomePageState {
     if (!kNatIpScanOn || !runNationalMode) return;
     if (ipAutoBusy || dnsxManualBusy || _natRangeScanBusy || _dnsxAutoBusy) return;
     if (connected || wantVpn || busy || searching || abort || !inForeground ||
-        _resBusy || upBusy || _natKeepOn) return;
+        _resBusy || upBusy || _natKeepOn || _hotBusy) return;
 
     // Acquire both shared scan locks before the first await. Otherwise a manual
     // DNS/IP scan can start while preferences are loading and overlap this run.
@@ -306,7 +307,7 @@ extension IpAutoExt on _HomePageState {
     if (!kNatIpScanOn) return 'اسکن IP از تنظیم اصلی خاموش است.';
     if (ipAutoBusy || dnsxManualBusy) return 'اسکن دیگری در حال اجراست.';
     if (connected || wantVpn || busy || searching || abort || !inForeground ||
-        _resBusy || upBusy || _natKeepOn || _natRangeScanBusy) {
+        _resBusy || upBusy || _natKeepOn || _natRangeScanBusy || _hotBusy) {
       return 'برای اسکن خودکار، VPN و جستجوی سرورها باید متوقف باشند و برنامه در پیش‌زمینه باشد.';
     }
     if (nationalMode && _natRangeScanBusy) {
