@@ -2873,5 +2873,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('The TUN descriptor is not a socket', service)
 
 
+    def test_background_alive_channel_only_disables_on_missing_plugin(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index("await bgChannel.invokeMethod<bool>('alive')")
+        end = source.index('if (alive == false', start)
+        body = source[start:end]
+        self.assertIn('if (e is MissingPluginException)', body)
+        self.assertIn('_bgAliveUnsupported = true;', body)
+        self.assertIn("_swl('_startWatch#alive', e);", body)
+
+
 if __name__ == '__main__':
     unittest.main()
