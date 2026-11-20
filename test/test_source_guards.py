@@ -1137,7 +1137,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         fn = source[start:end]
         self.assertIn("Uri.https('check-host.net', '/check-tcp'", fn)
         self.assertIn("Uri.https('check-host.net', '/check-result/$requestId')", fn)
-        self.assertIn("r'^[A-Za-z0-9_-]{1,128}
+        self.assertIn("RegExp(r'^[A-Za-z0-9_-]{1,128}$')", fn)
+        self.assertIn('hasMatch(requestId)', fn)
+        self.assertIn("'host': '$queryHost:$port'", fn)
+        self.assertIn('port > 65535', fn)
 
         start = source.index("const String _kCfWorkerTemplate = r'''")
         end = source.index('class CfDeployResult', start)
