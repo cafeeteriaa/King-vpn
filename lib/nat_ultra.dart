@@ -2296,27 +2296,34 @@ Future<List<String>> _natRangeScanStepBody({
   final nextNatRangeCursor = from + slice.length;
   final out = <String>[];
   final portList = natAutoPorts(seeds);
-  final perPort = Duration(
+  final perPortCap = Duration(
       milliseconds: max(20000, budget.inMilliseconds ~/ max(1, portList.length)));
-  final scanDeadline = DateTime.now().add(budget);
+  // A monotonic shared deadline prevents each port from consuming a fresh
+  // minimum budget and accidentally multiplying the requested scan duration.
+  final scanClock = Stopwatch()..start();
+  bool scanExpired() => scanClock.elapsed >= budget;
   for (final port in portList) {
     if (shouldAbort()) return const <String>[];
-    if (DateTime.now().isAfter(scanDeadline)) break;
+    final remainingBudget = budget - scanClock.elapsed;
+    if (remainingBudget <= Duration.zero) return const <String>[];
+    final portBudget = perPortCap < remainingBudget
+        ? perPortCap
+        : remainingBudget;
     final hits = await natScanIps(
       slice,
       port: port,
       concurrency: conc,
       want: 50,
-      budget: perPort,
+      budget: portBudget,
       timeout: const Duration(milliseconds: 1500),
       cancelled: shouldAbort,
     );
-    if (shouldAbort()) return const <String>[];
+    if (shouldAbort() || scanExpired()) return const <String>[];
     for (final hit in hits) {
       out.add('${hit.ip}|$port');
     }
   }
-  if (shouldAbort()) return const <String>[];
+  if (shouldAbort() || scanExpired()) return const <String>[];
 
   // Commit the address and configured-range cursors only after a non-cancelled run.
   _cfRangeCursors

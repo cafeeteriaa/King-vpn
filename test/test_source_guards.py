@@ -2241,6 +2241,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(stale_guard, insert)
         self.assertIn('return;', worker[stale_guard:insert])
 
+    def test_nat_range_scan_uses_one_monotonic_budget_across_ports(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('Future<List<String>> _natRangeScanStepBody(')
+        end = source.index('List<String> userListUrls', start)
+        body = source[start:end]
+        self.assertIn('final scanClock = Stopwatch()..start();', body)
+        self.assertIn('final remainingBudget = budget - scanClock.elapsed;', body)
+        self.assertIn('final portBudget = perPortCap < remainingBudget', body)
+        scan = body.index('final hits = await natScanIps(')
+        self.assertIn('budget: portBudget,', body[scan:scan + 500])
+        expiry = body.index('if (shouldAbort() || scanExpired()) return const <String>[];', scan)
+        cursor = body.index('_cfRangeCursors\n    ..clear()')
+        self.assertLess(scan, expiry)
+        self.assertLess(expiry, cursor)
+        self.assertNotIn('DateTime.now().add(budget)', body)
+
     def test_nat_domain_first_discards_partial_results_after_cancel_or_deadline(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('Future<List<String>> _natDomainFirst(')
