@@ -4165,21 +4165,23 @@ Future<int?> pingProxy(
     final remaining = total - sw.elapsed;
     return remaining.isNegative ? Duration.zero : remaining;
   }
-  var useProxy = await _useCoreProxy(viaCore || !direct).timeout(left());
-  // TUNPING: در حالت VPN (TUN) پورت HTTP هسته ممکن است اصلاً باز نشود؛ آن‌وقت
-  // پینگ همیشه شکست می‌خورد و سرور سالم «ترافیک صفر» حساب می‌شود.
-  // اگر پورت بسته است و حالت پروکسی نیست، از مسیر عادی (که TUN روی آن است) استفاده کن.
-  if (useProxy && !proxyMode &&
-      !await _coreProxyOpen().timeout(left())) {
-    useProxy = false;
-    dbg('پینگ: پورت HTTP هسته بسته است؛ پینگ از مسیر TUN انجام می‌شود');
-  }
-  final c = HttpClient()
-    ..findProxy = ((_) =>
-        useProxy ? 'PROXY 127.0.0.1:$httpProxyPort' : 'DIRECT')
-    ..connectionTimeout = total;
+  HttpClient? client;
   try {
-    final req = await c.getUrl(Uri.parse(url)).timeout(left());
+    var useProxy = await _useCoreProxy(viaCore || !direct).timeout(left());
+    // TUNPING: در حالت VPN (TUN) پورت HTTP هسته ممکن است اصلاً باز نشود؛ آن‌وقت
+    // پینگ همیشه شکست می‌خورد و سرور سالم «ترافیک صفر» حساب می‌شود.
+    // اگر پورت بسته است و حالت پروکسی نیست، از مسیر عادی (که TUN روی آن است) استفاده کن.
+    if (useProxy && !proxyMode &&
+        !await _coreProxyOpen().timeout(left())) {
+      useProxy = false;
+      dbg('پینگ: پورت HTTP هسته بسته است؛ پینگ از مسیر TUN انجام می‌شود');
+    }
+    final requestClient = HttpClient()
+      ..findProxy = ((_) =>
+          useProxy ? 'PROXY 127.0.0.1:$httpProxyPort' : 'DIRECT')
+      ..connectionTimeout = total;
+    client = requestClient;
+    final req = await requestClient.getUrl(Uri.parse(url)).timeout(left());
     // One monotonic budget covers proxy selection, connect, response, and drain.
     final res = await req.close().timeout(left());
     try {
@@ -4193,11 +4195,12 @@ Future<int?> pingProxy(
       return null;
     }
     return sw.elapsedMilliseconds;
-  } catch (e, jstk) { errJournalAdd(e, st: jstk);
+  } catch (e, jstk) {
+    errJournalAdd(e, st: jstk);
     lastPingErr = e.toString();
     return null;
   } finally {
-    c.close(force: true);
+    client?.close(force: true);
   }
 }
 
