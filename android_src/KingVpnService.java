@@ -256,7 +256,13 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // Android restarted the service (START_STICKY): promote immediately on the
             // main thread before queuing recovery, otherwise a busy worker can miss the
             // foreground-service deadline and Android may terminate the VPN process.
-            startForegroundSafe("در حال بازیابی اتصال…");
+            if (!startForegroundSafe("در حال بازیابی اتصال…")) {
+                lastError = "Unable to enter foreground mode during VPN service recovery";
+                Log.e(TAG, lastError);
+                requestStop();
+                submit(this::stopEverything);
+                return START_NOT_STICKY;
+            }
             // No Dart attempt is waiting for it, so its status uses attempt 0 (accepted by all).
             activeAttemptId = 0;
             submit(this::resumeSaved);
@@ -298,7 +304,14 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         activeAttemptId = intent.getIntExtra(EXTRA_ATTEMPT, 0);
         userStopped = false;
 
-        startForegroundSafe(first.remark);
+        if (!startForegroundSafe(first.remark)) {
+            lastError = "Unable to enter foreground mode; VPN startup was refused";
+            Log.e(TAG, lastError);
+            emit("FAILED", lastError, activeAttemptId);
+            requestStop();
+            submit(this::stopEverything);
+            return START_NOT_STICKY;
+        }
         final int attempt = activeAttemptId; // مشکل ۹: شناسه‌ی همین شروع، نه فیلد سراسری بعدی
         submit(() -> startFlow(first, backups, attempt));
         return START_STICKY;
@@ -883,14 +896,15 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
     }
 
-    private void startForegroundSafe(String remark) {
-        updateNotification(remark == null || remark.isEmpty() ? "متصل است" : remark);
+    private boolean startForegroundSafe(String remark) {
+        return updateNotification(remark == null || remark.isEmpty() ? "متصل است" : remark);
     }
 
-    private void updateNotification(String text) {
+    private boolean updateNotification(String text) {
         try {
             if (Build.VERSION.SDK_INT >= 26) {
                 NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                if (nm == null) throw new IllegalStateException("NotificationManager unavailable");
                 NotificationChannel ch = new NotificationChannel(
                         CHANNEL_ID, "King VPN", NotificationManager.IMPORTANCE_LOW);
                 nm.createNotificationChannel(ch);
@@ -913,8 +927,10 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
             // Plain startForeground: no typed variant, so no separate retry is needed.
             startForeground(NOTIF_ID, nb.build());
+            return true;
         } catch (Throwable e) {
-            Log.w(TAG, "foreground notification failed", e);
+            Log.e(TAG, "foreground notification failed", e);
+            return false;
         }
     }
 

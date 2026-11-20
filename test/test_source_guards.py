@@ -1231,6 +1231,30 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(restart.index('startForegroundSafe('), restart.index('submit(this::resumeSaved)'))
         self.assertLess(stop.index('startForegroundSafe('), stop.index('submit(this::stopEverything)'))
 
+    def test_vpn_service_refuses_start_when_foreground_promotion_fails(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = service.index('public int onStartCommand(Intent intent')
+        end = service.index('/** Runs a task on the single worker thread', start)
+        command = service[start:end]
+        restart = command[command.index('if (intent == null)'):command.index('String action = intent.getAction()')]
+        action_start = command[command.index('if (!ACTION_START.equals(action))'):]
+
+        self.assertIn('private boolean startForegroundSafe(String remark)', service)
+        self.assertIn('private boolean updateNotification(String text)', service)
+        self.assertIn('return true;', service[service.index('private boolean updateNotification'):])
+        self.assertIn('return false;', service[service.index('private boolean updateNotification'):])
+        self.assertLess(restart.index('if (!startForegroundSafe('), restart.index('submit(this::resumeSaved)'))
+        self.assertIn('requestStop();', restart)
+        self.assertIn('submit(this::stopEverything);', restart)
+        self.assertLess(action_start.index('if (!startForegroundSafe(first.remark))'),
+                        action_start.index('submit(() -> startFlow(first, backups, attempt))'))
+        failure = action_start[action_start.index('if (!startForegroundSafe(first.remark))'):
+                               action_start.index('final int attempt = activeAttemptId')]
+        self.assertIn('emit("FAILED", lastError, activeAttemptId);', failure)
+        self.assertIn('return START_NOT_STICKY;', failure)
+        self.assertIn('Unable to enter foreground mode', failure)
+
+
     def test_vpn_service_serializes_worker_submission_and_shutdown(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         submit_start = service.index('private void submit(Runnable r)')
