@@ -2242,7 +2242,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         compute = body.index('await compute(_genAddrsIso, args)')
         abort = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
         self.assertLess(compute, abort)
-        self.assertNotIn('ipAutoCursors', body)
+        self.assertNotIn('..clear()', body)
         self.assertNotIn('ipAutoPos =', body)
         self.assertIn('return _IpAutoAddressBatch(', body)
 
