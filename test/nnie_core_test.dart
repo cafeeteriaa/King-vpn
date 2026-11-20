@@ -253,6 +253,28 @@ void main() {
       );
     });
 
+    test('rejects CNAME compression pointers that overrun RDLENGTH', () {
+      const id = 0x1234;
+      final query = NatDnsWireProbe.buildQuery('google.com', id);
+      final bytes = <int>[
+        ..._u16(id), ..._u16(0x8180), ..._u16(1), ..._u16(2),
+        ..._u16(0), ..._u16(0), ...query.sublist(12),
+      ];
+      // The CNAME claims a one-byte RDATA but its pointer consumes two bytes.
+      bytes.addAll([
+        0xc0, 0x0c, ..._u16(5), ..._u16(1), 0, 0, 0, 60, ..._u16(1),
+        0xc0, 0x0c,
+      ]);
+      bytes.addAll([
+        0xc0, 0x0c, ..._u16(1), ..._u16(1),
+        0, 0, 0, 60, ..._u16(4), 8, 8, 8, 8,
+      ]);
+      expect(
+        () => NatDnsWireProbe.parseResponse(bytes, id, 'google.com'),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
     test('rejects forward DNS compression pointers', () {
       const id = 0x1234;
       final query = NatDnsWireProbe.buildQuery('google.com', id);
