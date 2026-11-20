@@ -10,7 +10,7 @@ String redactSensitiveDiagnostic(String input) {
   // Retain the key prefix so the sanitized diagnostic remains structurally useful.
   value = value.replaceAllMapped(
     RegExp(
-      r'''(["']?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|uuid|authorization)["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)''',
+      r'''(["']?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|session[_-]?token|client[_-]?secret|private[_-]?key|token|secret|password|uuid|authorization|cookie)["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|Bearer\s+[A-Za-z0-9._~+/=-]+|[^\s,;}\]]+)''',
       caseSensitive: false,
     ),
     (match) => '${match.group(1)}"[REDACTED]"',
