@@ -2788,5 +2788,34 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(guard, save)
 
 
+    def test_network_diagnosis_discards_evidence_when_interface_changes_mid_probe(self):
+        source = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        diagnosis_start = source.index('class NatNetworkDiagnosis')
+        pilot_start = source.index('class PilotNetworkProbe')
+        diagnosis = source[diagnosis_start:pilot_start]
+        identity = diagnosis.index('final id = await _identityHash();')
+        probes = diagnosis.index('final domesticF = Future.wait', identity)
+        recheck = diagnosis.index('final identityAfterProbe = await _identityHash();', probes)
+        classify = diagnosis.index('current = ev.classify();', recheck)
+        self.assertLess(identity, probes)
+        self.assertLess(probes, recheck)
+        self.assertLess(recheck, classify)
+        self.assertIn('if (identityAfterProbe != id)', diagnosis)
+        self.assertIn('_checkedAt = null;', diagnosis)
+        self.assertIn('_identityAtCheck = null;', diagnosis)
+
+        pilot = source[pilot_start:source.index('String natNetworkClassLabel', pilot_start)]
+        identity = pilot.index('final identity = await _networkIdentity();')
+        domestic = pilot.index('final domestic = await domesticFuture;', identity)
+        recheck = pilot.index('final identityAfterProbe = await _networkIdentity();', domestic)
+        publish = pilot.index('_last = NetworkEvidence(', recheck)
+        self.assertLess(identity, domestic)
+        self.assertLess(domestic, recheck)
+        self.assertLess(recheck, publish)
+        self.assertIn('if (identityAfterProbe != identity)', pilot)
+        self.assertIn('_lastAt = null;', pilot)
+        self.assertIn('_lastIdentity = null;', pilot)
+
+
 if __name__ == '__main__':
     unittest.main()
