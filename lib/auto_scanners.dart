@@ -88,10 +88,12 @@ Future<void> autoScanRun(void Function(String) say) async {
   final scanClock = Stopwatch()..start();
   bool timedOut() => scanClock.elapsed >= scanBudget;
   bool cancelled() =>
-      _autoScanStop || nationalMode != scanNationalMode || timedOut();
+      _autoScanStop || connected || nationalMode != scanNationalMode || timedOut();
   String cancellationMessage() => timedOut()
       ? 'مهلت سه‌دقیقه‌ای اسکن تمام شد؛ نتایج ناقص ذخیره نشد'
-      : 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد';
+      : (connected
+          ? 'با اتصال VPN، اسکن برای جلوگیری از تداخل متوقف شد؛ نتایج ناقص ذخیره نشد'
+          : 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');
   try {
     await goldLoad();
     if (cancelled()) {

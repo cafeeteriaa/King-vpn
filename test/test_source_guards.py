@@ -2404,6 +2404,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('shouldAbort: () => cancelled(),', body)
         self.assertNotIn('if (_autoScanStop)', body)
 
+    def test_auto_sni_scan_aborts_if_vpn_connects_mid_run(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> autoScanRun(')
+        end = source.index('Future<void> autoScanSheet(', start)
+        body = source[start:end]
+        self.assertIn('_autoScanStop || connected || nationalMode != scanNationalMode || timedOut();', body)
+        self.assertIn('با اتصال VPN، اسکن برای جلوگیری از تداخل متوقف شد', body)
+        self.assertIn('shouldAbort: () => cancelled(),', body)
+
     def test_dns_auto_scan_keeps_network_mode_snapshot_across_awaits(self):
         source = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> dnsxAutoPick(')
