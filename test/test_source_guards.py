@@ -10,7 +10,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = auto.index('Future<void> autoScanRun(')
         end = auto.index('Future<void> autoScanSheet(', start)
         body = auto[start:end]
-        connected_guard = body.index('if (connected)')
+        connected_guard = body.index('if (vpnActive() || vpnWanted())')
         lock = body.index('_autoScanRunning = true;')
         shared_lock = body.index('dnsxManualBusy = true;', lock)
         self.assertLess(connected_guard, lock)
