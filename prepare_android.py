@@ -276,9 +276,11 @@ elif proxy_service_name in m:
                 '\n            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"'
                 '\n                      android:value="local proxy core for the user"/>'
             ) + m[insert_at:]
+# VpnService must be exported for Android system binding. The signature-level
+# BIND_VPN_SERVICE permission prevents ordinary apps from binding this service.
 KSVC = ('<service android:name="com.kingvpn.king_vpn.KingVpnService"\n'
         '            android:permission="android.permission.BIND_VPN_SERVICE"\n'
-        '            android:exported="false"\n'
+        '            android:exported="true"\n'
         '            android:foregroundServiceType="specialUse">\n'
         '            <intent-filter><action android:name="android.net.VpnService"/></intent-filter>\n'
         '            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"\n'

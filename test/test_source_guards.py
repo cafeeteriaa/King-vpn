@@ -1422,6 +1422,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertEqual([], duplicates, f'duplicate test methods: {duplicates}')
 
 
+    def test_custom_vpn_service_is_system_bindable_but_permission_protected(self):
+        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        start = prepare.index('KSVC = (')
+        end = prepare.index("if 'com.kingvpn.king_vpn.KingVpnService'", start)
+        service = prepare[start:end]
+        self.assertIn('android.permission.BIND_VPN_SERVICE', service)
+        self.assertIn('android:exported="true"', service)
+
     def test_android_manifest_permissions_and_proxy_service_are_independently_idempotent(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         self.assertIn('for permission in required_permissions:', prepare)
