@@ -457,10 +457,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Future<void> _listen() async {')
         end = source.index('Future<void> _requestChatSpeechOnlineFallback()', start)
         listen = source[start:end]
-        self.assertIn('final permission = await Permission.microphone.request();\\n    if (!mounted) return;', listen)
-        self.assertIn('if (!mounted) return;\\n      }\\n      if (!_speechReady)', listen)
-        self.assertIn('final locales = await _speech.locales();\\n      if (!mounted) return;', listen)
-        self.assertIn('} catch (error) {\\n      if (!mounted) return;', listen)
+        permission = listen.index('final permission = await Permission.microphone.request();')
+        self.assertGreater(listen.index('if (!mounted) return;', permission), permission)
+        initialize = listen.index('_speechReady = await _speech.initialize(')
+        initialize_end = listen.index('if (!mounted) return;', initialize)
+        self.assertLess(initialize, initialize_end)
+        locales = listen.index('final locales = await _speech.locales();')
+        self.assertGreater(listen.index('if (!mounted) return;', locales), locales)
+        self.assertIn("} catch (error) {", listen)
+        self.assertGreater(listen.index('if (!mounted) return;', listen.index('} catch (error) {')), listen.index('} catch (error) {'))
+
 
     def test_king_voice_commands_support_persian_speech_service_fallback(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
