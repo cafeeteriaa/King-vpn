@@ -2941,6 +2941,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final drainingPending = ipAutoPendingCore.isNotEmpty;', run)
         self.assertIn('if (drainingPending) break;', run)
         self.assertIn('if (!drainingPending)', run)
+        self.assertIn('if (_ipAutoLoadedNat != runNationalMode)', run)
 
 
 if __name__ == '__main__':
