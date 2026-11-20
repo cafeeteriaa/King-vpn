@@ -161,14 +161,26 @@ jobs:
       - name: Build diagnostics for source repair
         if: failure()
         run: |
-          python3 tools/diagnose_build.py source-guard.log build_app/test.log build_app/analyze.log build_app/build.log --output repair-diagnostics.json || true
+          set +e
+          python3 tools/diagnose_build.py source-guard.log build_app/test.log build_app/analyze.log build_app/build.log --output repair-diagnostics.json
+          mkdir -p repair-evidence/lint
+          if [ -f build_app/build.log ]; then tail -n 350 build_app/build.log > repair-evidence/gradle-build-tail.txt; fi
+          if [ -f build_app/analyze.log ]; then tail -n 120 build_app/analyze.log > repair-evidence/dart-analyze-tail.txt; fi
+          find build_app/build_app build_app/android build_app/build -type f \\( -iname '*lint*' -o -path '*/reports/*' \\) -size -5M -print 2>/dev/null | head -n 80 | while IFS= read -r report; do
+            safe_name="$(printf '%s' "$report" | tr '/ ' '__')"
+            cp "$report" "repair-evidence/lint/$safe_name" 2>/dev/null || true
+          done
+          printf 'Run: %s\\nCommit: %s\\n' "$GITHUB_RUN_NUMBER" "$GITHUB_SHA" > repair-evidence/run.txt
+          exit 0
 
       - name: Upload repair diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: king-vpn-repair-diagnostics-${{ github.run_number }}
-          path: repair-diagnostics.json
+          path: |
+            repair-diagnostics.json
+            repair-evidence/
           if-no-files-found: ignore
           retention-days: 14
 
