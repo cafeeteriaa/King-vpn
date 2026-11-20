@@ -171,6 +171,7 @@ class _KingChatPageState extends State<KingChatPage> {
       return;
     }
     final permission = await Permission.microphone.request();
+    if (!mounted) return;
     if (!permission.isGranted) {
       if (mounted) setState(() => _notice = 'برای گفت‌وگوی صوتی اجازه میکروفون لازم است.');
       return;
@@ -196,6 +197,7 @@ class _KingChatPageState extends State<KingChatPage> {
             setState(() => _notice = 'تشخیص گفتار: ${error.errorMsg}');
           },
         );
+        if (!mounted) return;
       }
       if (!_speechReady) {
         setState(() => _notice =
@@ -203,6 +205,7 @@ class _KingChatPageState extends State<KingChatPage> {
         return;
       }
       final locales = await _speech.locales();
+      if (!mounted) return;
       final fa = locales.where((e) =>
           e.localeId.toLowerCase().replaceAll('_', '-').startsWith('fa'));
       _locale = fa.isNotEmpty ? fa.first.localeId : 'fa-IR';
@@ -215,6 +218,7 @@ class _KingChatPageState extends State<KingChatPage> {
           : 'ابتدا تشخیص گفتار فارسی روی خود دستگاه (آفلاین) فعال می‌شود.');
       await _startChatSpeech(onDevice: true);
     } catch (error) {
+      if (!mounted) return;
       if (_onDeviceSpeechAttempt && !_onlineSpeechFallbackAttempted) {
         _onDeviceSpeechAttempt = false;
         _onlineSpeechFallbackAttempted = true;
