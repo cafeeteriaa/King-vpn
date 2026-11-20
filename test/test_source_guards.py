@@ -2236,6 +2236,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(stale_guard, insert)
         self.assertIn('return;', worker[stale_guard:insert])
 
+    def test_nat_domain_first_discards_partial_results_after_cancel_or_deadline(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('Future<List<String>> _natDomainFirst(')
+        end = source.index('Future<List<String>> natDeviceHosts()', start)
+        body = source[start:end]
+        self.assertIn('final scanClock = Stopwatch()..start();', body)
+        self.assertIn('const scanBudget = Duration(seconds: 45);', body)
+        scan = body.index('final hits = await natScanIps(')
+        discard = body.index('if ((stop != null && stop()) || scanClock.elapsed >= scanBudget)', scan)
+        append = body.index('out.add(', discard)
+        self.assertLess(scan, discard)
+        self.assertLess(discard, append)
+        self.assertIn('return const <String>[];', body[discard:append])
+        self.assertGreaterEqual(body.count('scanClock.elapsed >= scanBudget'), 3)
+
     def test_nat_ip_scan_never_exceeds_requested_hit_limit_under_concurrency(self):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         start = source.index('Future<List<NatIpHit>> natScanIps(')

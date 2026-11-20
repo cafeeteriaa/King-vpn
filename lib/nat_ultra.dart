@@ -1976,10 +1976,13 @@ Future<List<String>> _natDomainFirst(List<Server> known,
         (grouped[port] ??= <String>[]).add(entry.key);
       }
     }
-    final deadline = DateTime.now().add(const Duration(seconds: 45));
+    // Use a monotonic clock: wall-clock corrections must not extend this scan.
+    const scanBudget = Duration(seconds: 45);
+    final scanClock = Stopwatch()..start();
     for (final entry in grouped.entries) {
-      if (stop != null && stop()) break;
-      if (DateTime.now().isAfter(deadline)) break;
+      if ((stop != null && stop()) || scanClock.elapsed >= scanBudget) {
+        return const <String>[];
+      }
       final hits = await natScanIps(
         entry.value,
         port: entry.key,
@@ -1989,10 +1992,18 @@ Future<List<String>> _natDomainFirst(List<Server> known,
         timeout: const Duration(milliseconds: 1200),
         cancelled: stop,
       );
+      // A cancelled or expired scan must not leak its partial hits to the
+      // caller, which may otherwise persist them as newly discovered servers.
+      if ((stop != null && stop()) || scanClock.elapsed >= scanBudget) {
+        return const <String>[];
+      }
       for (final hit in hits) {
         out.add('${hit.ip}|${entry.key}');
         natDomainOpen = out.length;
       }
+    }
+    if ((stop != null && stop()) || scanClock.elapsed >= scanBudget) {
+      return const <String>[];
     }
   } catch (e, stk) {
     logError(e, stk);
