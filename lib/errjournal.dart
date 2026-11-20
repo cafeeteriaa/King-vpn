@@ -36,7 +36,8 @@ String stackHead(StackTrace st) {
   }
 }
 
-const int kErrJournalMax = 100000;
+// Keep the in-memory journal bounded: each entry also retains its stack/tag/message.
+const int kErrJournalMax = 5000;
 const String kErrJournalPath =
     '/data/data/com.kingvpn.king_vpn/cache/errjournal.log';
 String errTag = ''; // نام بخش فعلی تست، تا معلوم شود خطا در کدام بخش افتاده
@@ -125,6 +126,11 @@ Future<List<InternetAddress>> safeLookup(String host,
   }
 }
 
+String _boundedJournalText(String input, int maxLength) {
+  final safe = redactSensitiveDiagnostic(input);
+  return safe.length <= maxLength ? safe : safe.substring(0, maxLength);
+}
+
 void errJournalAdd(Object e, {String kind = '', StackTrace? st}) {
   try {
     // NOISE: خطاهای تکراری و قابل‌انتظار فقط ۳۰۰ بار در هر نوع ثبت می‌شوند
@@ -136,19 +142,26 @@ void errJournalAdd(Object e, {String kind = '', StackTrace? st}) {
     }
     if (errJournal.length >= kErrJournalMax) errJournal.removeAt(0);
     final now = DateTime.now();
-    final k = kk.isNotEmpty ? kk : e.runtimeType.toString();
-    final where = st != null ? stackHead(st) : _whereHere();
-    errJournal.add(ErrEntry(now, k, e.toString(), where, errTag));
-    // روی دیسک هم ذخیره می‌شود تا با بسته شدن برنامه از بین نرود
-    // FREEZEFIX: disk write is async. The old sync version (existsSync /
-    // lengthSync / writeAsStringSync) blocked the UI thread on every error.
+    final rawKind = kk.isNotEmpty ? kk : e.runtimeType.toString();
+    final k = _boundedJournalText(rawKind, 80);
+    final where = _boundedJournalText(
+      st != null ? stackHead(st) : _whereHere(),
+      600,
+    );
+    final safeTag = _boundedJournalText(errTag, 120);
+    final safeMessage = _boundedJournalText(e.toString(), 1200);
+    errJournal.add(ErrEntry(now, k, safeMessage, where, safeTag));
+    // Persist only sanitized, bounded diagnostics; never write raw exception
+    // strings or configuration/credential material to the journal file.
     final line =
-        '${now.toIso8601String()} | $k | بخش: $errTag\nجای خطا: $where\n${e.toString()}\n\n';
+        '${now.toIso8601String()} | $k | بخش: $safeTag\nجای خطا: $where\n$safeMessage\n\n';
     _journalWrite = _journalWrite.then((_) async {
       try {
         final f = File(kErrJournalPath);
-        if (await f.exists() && await f.length() > 256 * 1024 * 1024) {
-          await f.rename('$kErrJournalPath.old');
+        if (await f.exists() && await f.length() > 16 * 1024 * 1024) {
+          final old = File('$kErrJournalPath.old');
+          if (await old.exists()) await old.delete();
+          await f.rename(old.path);
         }
         await f.writeAsString(line, mode: FileMode.append, flush: false);
       } catch (_) {}
