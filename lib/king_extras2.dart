@@ -415,6 +415,8 @@ export default {
       if (buffer.length < 18) return null;
       const version = buffer[0];
       if (version !== 0) throw new Error('Invalid VLESS version');
+      const uuid = Array.from(buffer.slice(1, 17)).map(b => b.toString(16).padStart(2, '0')).join('');
+      if (uuid !== UUID_HEX) throw new Error('Invalid UUID');
 
       const optLen = buffer[17];
       const commandIndex = 18 + optLen;
