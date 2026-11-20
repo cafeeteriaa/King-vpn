@@ -714,4 +714,99 @@ exact_replace(vpn, '''    public void onRevoke() {
         }
     }''', 'P1-30 VPN revoke always releases TUN/service');
 
+
+
+# 7) Delay probe crosses the plugin's :RunSoLibV2RayDaemon process boundary.
+# Send the URL in the service Intent and register the receiver before dispatching.
+exact_replace(v2_ctrl, '''        final long[] delay = { -1 };
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        check_delay.putExtra("COMMAND", AppConfigs.V2RAY_SERVICE_COMMANDS.MEASURE_DELAY);
+        context.startService(check_delay);
+        BroadcastReceiver receiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context arg0, Intent arg1) {
+                String delayString = arg1.getExtras().getString("DELAY");
+                delay[0] = Long.parseLong(delayString);
+                context.unregisterReceiver(this);
+                latch.countDown();
+            }
+        };
+
+        // Use package-specific intent filter to isolate broadcasts per app
+        String packageName = context.getPackageName();
+        IntentFilter delayIntentFilter = new IntentFilter(packageName + ".CONNECTED_V2RAY_SERVER_DELAY");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.registerReceiver(receiver, delayIntentFilter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            context.registerReceiver(receiver, delayIntentFilter);
+        }
+
+        try {
+            boolean received = latch.await(3000, TimeUnit.MILLISECONDS);
+            if (!received) {
+                return -1;
+            }
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        return delay[0];''', '''        final long[] delay = { -1 };
+        final CountDownLatch latch = new CountDownLatch(1);
+        check_delay.putExtra("COMMAND", AppConfigs.V2RAY_SERVICE_COMMANDS.MEASURE_DELAY);
+        check_delay.putExtra("DELAY_URL", AppConfigs.DELAY_URL);
+
+        BroadcastReceiver receiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context arg0, Intent arg1) {
+                String delayString = arg1.getStringExtra("DELAY");
+                try {
+                    if (delayString != null) delay[0] = Long.parseLong(delayString);
+                } catch (NumberFormatException e) {
+                    Log.w("V2rayController", "Invalid connected delay response", e);
+                } finally {
+                    latch.countDown();
+                }
+            }
+        };
+
+        // Register before dispatch so a fast service response cannot be missed.
+        String packageName = context.getPackageName();
+        IntentFilter delayIntentFilter = new IntentFilter(packageName + ".CONNECTED_V2RAY_SERVER_DELAY");
+        final boolean[] receiverRegistered = { false };
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.registerReceiver(receiver, delayIntentFilter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            context.registerReceiver(receiver, delayIntentFilter);
+        }
+        receiverRegistered[0] = true;
+
+        try {
+            context.startService(check_delay);
+            boolean received = latch.await(3000, TimeUnit.MILLISECONDS);
+            return received ? delay[0] : -1;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return -1;
+        } finally {
+            if (receiverRegistered[0]) {
+                try {
+                    context.unregisterReceiver(receiver);
+                } catch (IllegalArgumentException ignored) {
+                    // Receiver was already unregistered by Android during teardown.
+                }
+            }
+        }''', 'P1-33 delay URL handoff and receiver-before-dispatch');
+
+exact_replace(vpn, '''        } else if (startCommand.equals(AppConfigs.V2RAY_SERVICE_COMMANDS.MEASURE_DELAY)) {
+            new Thread(() -> {''', '''        } else if (startCommand.equals(AppConfigs.V2RAY_SERVICE_COMMANDS.MEASURE_DELAY)) {
+            // DELAY_URL is process-local; restore it from the Intent sent by the app process.
+            AppConfigs.DELAY_URL = intent.getStringExtra("DELAY_URL");
+            new Thread(() -> {''', 'P1-33 VPN service receives delay URL');
+
+exact_replace(proxy_svc, '''        } else if (startCommand.equals(AppConfigs.V2RAY_SERVICE_COMMANDS.MEASURE_DELAY)) {
+            new Thread(() -> {''', '''        } else if (startCommand.equals(AppConfigs.V2RAY_SERVICE_COMMANDS.MEASURE_DELAY)) {
+            // DELAY_URL is process-local; restore it from the Intent sent by the app process.
+            AppConfigs.DELAY_URL = intent.getStringExtra("DELAY_URL");
+            new Thread(() -> {''', 'P1-33 ProxyOnly service receives delay URL');
+
 print('patch_plugin.py finished OK')
