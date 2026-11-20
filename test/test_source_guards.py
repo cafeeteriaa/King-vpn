@@ -1873,5 +1873,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = ultra.index('List<String> natExpandAny(')
         self.assertIn('if (maxPerBlock <= 0) return const [];', ultra[start:start + 180])
 
+    def test_auto_tls_probes_bound_handshake_and_always_close_sockets(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        sni_start = source.index('Future<int?> _autoSniOk(')
+        alpn_start = source.index('Future<String?> _autoAlpnOk(', sni_start)
+        port_start = source.index('Future<bool> _autoPortOk(', alpn_start)
+        sni = source[sni_start:alpn_start]
+        alpn = source[alpn_start:port_start]
+        for body in (sni, alpn):
+            self.assertIn('.timeout(const Duration(seconds: 4))', body)
+            self.assertIn('finally', body)
+            self.assertIn('secure?.destroy()', body)
+            self.assertIn('raw?.destroy()', body)
+        tls_start = source.index('final tlsHits = <String>[];')
+        tls_end = source.index("await goldAddScan('tls'", tls_start)
+        self.assertIn('for (final ip in ips) {\\n        if (_autoScanStop) break;', source[tls_start:tls_end])
+
 if __name__ == '__main__':
     unittest.main()

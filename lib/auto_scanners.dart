@@ -23,30 +23,39 @@ bool _autoScanStop = false;
 // TLS با SNI مشخص: اگر هندشیک کامل شود، SNI برای آن IP قابل استفاده است
 Future<int?> _autoSniOk(String ip, int port, String sni) async {
   final sw = Stopwatch()..start();
+  Socket? raw;
+  SecureSocket? secure;
   try {
-    final raw = await Socket.connect(ip, port, timeout: const Duration(seconds: 4));
-    final s = await SecureSocket.secure(raw,
-        host: sni, onBadCertificate: (_) => true);
-    s.destroy();
+    raw = await Socket.connect(ip, port, timeout: const Duration(seconds: 4));
+    secure = await SecureSocket.secure(raw,
+        host: sni, onBadCertificate: (_) => true)
+        .timeout(const Duration(seconds: 4));
     return sw.elapsedMilliseconds;
   } catch (_) {
     return null;
+  } finally {
+    try { secure?.destroy(); } catch (e, st) { logError(e, st); }
+    try { raw?.destroy(); } catch (e, st) { logError(e, st); }
   }
 }
 
 // ALPN (پروتکل لایه‌ی TLS): خروجی خود نام پروتکل است، مثل h2 یا http/1.1
 Future<String?> _autoAlpnOk(String ip, String sni, String alpn) async {
+  Socket? raw;
+  SecureSocket? secure;
   try {
-    final raw = await Socket.connect(ip, 443, timeout: const Duration(seconds: 4));
-    final s = await SecureSocket.secure(raw,
+    raw = await Socket.connect(ip, 443, timeout: const Duration(seconds: 4));
+    secure = await SecureSocket.secure(raw,
         host: sni,
         supportedProtocols: [alpn],
-        onBadCertificate: (_) => true);
-    final sel = s.selectedProtocol;
-    s.destroy();
-    return sel;
+        onBadCertificate: (_) => true)
+        .timeout(const Duration(seconds: 4));
+    return secure.selectedProtocol;
   } catch (_) {
     return null;
+  } finally {
+    try { secure?.destroy(); } catch (e, st) { logError(e, st); }
+    try { raw?.destroy(); } catch (e, st) { logError(e, st); }
   }
 }
 
@@ -132,6 +141,7 @@ Future<void> autoScanRun(void Function(String) say) async {
       if (_autoScanStop) break;
       var ok = false;
       for (final ip in ips) {
+        if (_autoScanStop) break;
         final sel = await _autoAlpnOk(ip, tlsSni, alpn);
         if (sel != null && sel.isNotEmpty) {
           if (!tlsHits.contains(sel)) tlsHits.add(sel);
