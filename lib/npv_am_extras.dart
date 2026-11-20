@@ -1222,9 +1222,8 @@ extension NpvAmExtras on _HomePageState {
                     if (dnsProv == 'custom')
                       Padding(
                         padding: const EdgeInsets.only(top: 4),
-                        child: TextField(
-                          controller:
-                              TextEditingController(text: customDnsAddr),
+                        child: TextFormField(
+                          initialValue: customDnsAddr,
                           decoration: const InputDecoration(
                               hintText: 'مثلاً 1.1.1.1 یا https://dns.example/dns-query',
                               isDense: true),
@@ -1288,7 +1287,7 @@ extension NpvAmExtras on _HomePageState {
           ],
         ),
       ),
-    );
+    ).whenComplete(c.dispose);
   }
 
   void cleanIpDialog() {
