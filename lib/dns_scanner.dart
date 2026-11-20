@@ -425,10 +425,7 @@ extension DnsxExt on _HomePageState {
               } else if (r.isEmpty) {
                 upd(() => note = 'هیچ DNS ای جواب معتبر نداد.');
               } else {
-                final saved = await goldAddDns(
-                  r,
-                  shouldAbort: () => stopFlag || !sheetOpen,
-                );
+                final saved = await goldAddDns(r, shouldAbort: () => stopFlag || !sheetOpen);
                 if (!saved) {
                   upd(() => note = stopFlag || !sheetOpen
                       ? 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد.'
