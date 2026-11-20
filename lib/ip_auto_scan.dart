@@ -328,9 +328,15 @@ extension IpAutoExt on _HomePageState {
     final ports = natAutoPorts(pool).take(_ipAutoPorts).toList();
     if (ports.isEmpty) ports.add(443);
 
+    // Drain the durable core-verification queue before scanning another
+    // address batch. This bounds queue growth and prevents new discoveries
+    // from starving older TCP-positive endpoints.
+    final drainingPending = ipAutoPendingCore.isNotEmpty;
+
     // مرحله‌ی ۱: TCP روی همه‌ی آدرس‌ها
     final candidates = <String>[];
     for (final port in ports) {
+      if (drainingPending) break;
       if (halted()) break;
       say('بررسی TCP روی پورت $port (${addrs.length} آدرس)...');
       final hits = await natScanIps(
@@ -405,10 +411,14 @@ extension IpAutoExt on _HomePageState {
     ipAutoPendingCore
       ..clear()
       ..addAll(remainingCandidates);
-    ipAutoCursors
-      ..clear()
-      ..addAll(addressBatch.cursors);
-    ipAutoPos = addressBatch.nextPosition;
+    // While draining queued candidates, keep the address cursor unchanged.
+    // The next invocation starts a fresh TCP batch only after the queue empties.
+    if (!drainingPending) {
+      ipAutoCursors
+        ..clear()
+        ..addAll(addressBatch.cursors);
+      ipAutoPos = addressBatch.nextPosition;
+    }
     say('تمام شد: $found IP جدید در حالت ${runNationalMode ? 'نت ملی' : 'جهانی'}.');
     return true;
   }
