@@ -5559,6 +5559,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       !abort &&
       !wantVpn &&
       !connected &&
+      lastState != 'CONNECTED' &&
+      lastState != 'CONNECTING' &&
       !busy &&
       !searching &&
       warm == null &&
