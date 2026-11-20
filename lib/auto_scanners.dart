@@ -70,6 +70,12 @@ Future<bool> _autoPortOk(String ip, int port) async {
 }
 
 Future<void> autoScanRun(void Function(String) say) async {
+  // Scanning through an active VPN tunnel can produce misleading direct-IP results
+  // and compete with the live tunnel; keep diagnostics idle until it is disconnected.
+  if (connected) {
+    say('برای جلوگیری از اختلال، ابتدا VPN را قطع کنید');
+    return;
+  }
   if (_autoScanRunning || dnsxManualBusy || _dnsxAutoBusy || ipAutoBusy || _natRangeScanBusy) {
     say('اسکن دیگری در حال اجراست');
     return;

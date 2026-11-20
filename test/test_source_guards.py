@@ -5,6 +5,18 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KingVpnSourceGuardTests(unittest.TestCase):
+    def test_auto_sni_scan_refuses_to_compete_with_live_vpn(self):
+        auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        start = auto.index('Future<void> autoScanRun(')
+        end = auto.index('Future<void> autoScanSheet(', start)
+        body = auto[start:end]
+        connected_guard = body.index('if (connected)')
+        lock = body.index('_autoScanRunning = true;')
+        shared_lock = body.index('dnsxManualBusy = true;', lock)
+        self.assertLess(connected_guard, lock)
+        self.assertLess(lock, shared_lock)
+        self.assertIn('ابتدا VPN را قطع کنید', body[connected_guard:lock])
+
     def test_manual_auto_test_abort_finishes_exactly_once(self):
         source = (ROOT / 'lib' / 'auto_test.dart').read_text(encoding='utf-8')
         self.assertIn("await _atFinish(reason: 'توقف دستی');", source)
