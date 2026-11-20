@@ -100,8 +100,10 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     }
     try {
       await _ownerAuth.setInitialPassword(password);
-      _ownerPasswordController.clear();
-      _ownerConfirmController.clear();
+      if (mounted) {
+        _ownerPasswordController.clear();
+        _ownerConfirmController.clear();
+      }
       await _refreshOwnerState();
       if (mounted) setState(() => _output = 'رمز مالک روی همین دستگاه به‌صورت امن ثبت شد.');
       await _maybeSubmitInitialFeatureRequest();
@@ -135,8 +137,10 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     }
     try {
       await _ownerAuth.changePassword(password);
-      _ownerNewPasswordController.clear();
-      _ownerNewConfirmController.clear();
+      if (mounted) {
+        _ownerNewPasswordController.clear();
+        _ownerNewConfirmController.clear();
+      }
       await _refreshOwnerState();
       if (mounted) setState(() => _output = 'رمز مالک با موفقیت تغییر کرد.');
     } catch (error) {
@@ -196,7 +200,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     }
     await _run('ذخیره امن کلید', () async {
       await _ai.saveGitHubToken(token);
-      _tokenController.clear();
+      if (mounted) _tokenController.clear();
       await _refreshTokenState();
       return {'status': 'token_saved_securely', 'token_exposed': false};
     });
@@ -204,7 +208,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   }
 
   Future<void> _maybeAnalyzeInitialIdea() async {
-    if (_initialIdeaAnalysisSubmitted ||
+    if (!mounted || _initialIdeaAnalysisSubmitted ||
         (widget.initialIdeaAnalysis?.trim().length ?? 0) < 12 ||
         !_ownerAuth.hasActiveSession) {
       return;
@@ -293,7 +297,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   }
 
   Future<void> _maybeSubmitInitialFeatureRequest() async {
-    if (_initialRequestSubmitted ||
+    if (!mounted || _initialRequestSubmitted ||
         (widget.initialFeatureRequest?.trim().length ?? 0) < 12 ||
         !_ownerAuth.hasActiveSession) {
       return;
@@ -331,7 +335,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
         owner: _owner,
         repository: _repository,
       );
-      if (result['status'] == 'review_pr_created') {
+      if (result['status'] == 'review_pr_created' && mounted) {
         _featureRequestController.clear();
       }
       return result;
