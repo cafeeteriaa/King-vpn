@@ -8,12 +8,12 @@ String redactSensitiveDiagnostic(String input) {
   );
   // Support plain key=value logs and JSON/YAML-style quoted keys/values.
   // Retain the key prefix so the sanitized diagnostic remains structurally useful.
-  value = value.replaceAll(
+  value = value.replaceAllMapped(
     RegExp(
       r'''(["']?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|uuid|authorization)["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)''',
       caseSensitive: false,
     ),
-    r'$1"[REDACTED]"',
+    (match) => '${match.group(1)}"[REDACTED]"',
   );
   // Authorization headers and common GitHub credential formats can appear
   // without a nearby key=value label in exception messages.
@@ -25,9 +25,9 @@ String redactSensitiveDiagnostic(String input) {
     RegExp(r'\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b'),
     '[TOKEN_REDACTED]',
   );
-  value = value.replaceAll(
+  value = value.replaceAllMapped(
     RegExp(r'([?&](?:key|token|auth|password|uuid)=)[^&#\s]+', caseSensitive: false),
-    r'$1[REDACTED]',
+    (match) => '${match.group(1)}[REDACTED]',
   );
   value = value.replaceAll(
     RegExp(r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b', caseSensitive: false),
