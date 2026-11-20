@@ -36,6 +36,15 @@ String _ipAutoCursorKeyNow() => '${_ipAutoCursorKey}_${nationalMode ? 'nat' : 'g
 bool? _ipAutoLoadedNat;
 String _ipAutoModeName() => nationalMode ? 'نت ملی' : 'جهانی';
 
+bool _ipAutoValidPending(String value) {
+  final parts = value.split('|');
+  if (parts.length != 2) return false;
+  final address = InternetAddress.tryParse(parts[0]);
+  final port = int.tryParse(parts[1]);
+  return address?.type == InternetAddressType.IPv4 &&
+      port != null && port >= 1 && port <= 65535;
+}
+
 Future<void> ipAutoLoad() async {
   // Capture the mode and its storage keys before the first await. A mode
   // switch during preference I/O must never mix the two independent datasets.
@@ -52,7 +61,7 @@ Future<void> ipAutoLoad() async {
     final savedPending = p.getString(pendingKey) ?? '';
     final loadedPending = savedPending
         .split('\n')
-        .where((x) => RegExp(r'^\\d{1,3}(?:\\.\\d{1,3}){3}\\|\\d{1,5}
+        .where(_ipAutoValidPending)
     final c = p.getString(cursorKey);
     if (c != null && c.isNotEmpty) {
       try {
