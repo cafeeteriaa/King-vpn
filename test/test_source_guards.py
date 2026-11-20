@@ -452,6 +452,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('resolveSymbolicLinks()', loader)
         self.assertIn('repairFromFailedCiAutonomous(', worker)
 
+    def test_chat_speech_listener_stops_after_widget_disposal(self):
+        source = (ROOT / 'lib' / 'king_chat_page.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> _listen() async {')
+        end = source.index('Future<void> _requestChatSpeechOnlineFallback()', start)
+        listen = source[start:end]
+        self.assertIn('final permission = await Permission.microphone.request();\\n    if (!mounted) return;', listen)
+        self.assertIn('if (!mounted) return;\\n      }\\n      if (!_speechReady)', listen)
+        self.assertIn('final locales = await _speech.locales();\\n      if (!mounted) return;', listen)
+        self.assertIn('} catch (error) {\\n      if (!mounted) return;', listen)
+
     def test_king_voice_commands_support_persian_speech_service_fallback(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
@@ -1444,6 +1454,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         feature = source[feature_start:feature_end]
         self.assertIn('if (!mounted) return;', feature)
         self.assertIn("result['status'] == 'review_pr_created' && mounted", feature)
+        self.assertIn('return valid && mounted;', source)
+        analyze_start = source.index('Future<void> _analyzeFeatureRequest() async {')
+        analyze_end = source.index('Future<bool> _reauthenticateOwnerForCodeChange()', analyze_start)
+        self.assertIn('if (!mounted) return;', source[analyze_start:analyze_end])
         self.assertLess(feature.index('if (!mounted) return;', feature.index('_reauthenticateOwnerForCodeChange')), feature.index('_featureRequestController.text.trim();'))
         self.assertIn('if (!mounted || _initialIdeaAnalysisSubmitted ||', source)
         self.assertIn('if (!mounted || _initialRequestSubmitted ||', source)
