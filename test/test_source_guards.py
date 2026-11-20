@@ -1421,5 +1421,29 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_personalPingT?.cancel();', dispose)
 
 
+    def test_king_ai_console_guards_async_controller_access_after_dispose(self):
+        source = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
+        setup_start = source.index('Future<void> _setupOwnerPassword() async {')
+        setup_end = source.index('Future<void> _unlockOwner() async {', setup_start)
+        setup = source[setup_start:setup_end]
+        self.assertIn('if (mounted) {', setup)
+        self.assertLess(setup.index('if (mounted) {'), setup.index('_ownerPasswordController.clear();'))
+        change_start = source.index('Future<void> _changeOwnerPassword() async {')
+        change_end = source.index('Future<void> _lockOwner() async {', change_start)
+        change = source[change_start:change_end]
+        self.assertIn('if (mounted) {', change)
+        self.assertLess(change.index('if (mounted) {'), change.index('_ownerNewPasswordController.clear();'))
+        token_start = source.index('Future<void> _saveToken() async {')
+        token_end = source.index('Future<void> _maybeAnalyzeInitialIdea() async {', token_start)
+        token = source[token_start:token_end]
+        self.assertIn('if (mounted) _tokenController.clear();', token)
+        feature_start = source.index('Future<void> _submitFeatureRequest(')
+        feature_end = source.index('Future<void> _loadModel() async {', feature_start)
+        feature = source[feature_start:feature_end]
+        self.assertIn("result['status'] == 'review_pr_created' && mounted", feature)
+        self.assertIn('if (!mounted || _initialIdeaAnalysisSubmitted ||', source)
+        self.assertIn('if (!mounted || _initialRequestSubmitted ||', source)
+
+
 if __name__ == '__main__':
     unittest.main()
