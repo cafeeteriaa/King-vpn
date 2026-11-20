@@ -2926,6 +2926,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_ip_auto_scan_persists_unverified_core_candidates_before_advancing_cursor(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         self.assertIn("const String _ipAutoPendingKey = 'ipauto_pending_core_v1';", source)
+        self.assertIn("const String _ipAutoStateKey = 'ipauto_state_v1';", source)
+        self.assertIn("'version': 1,", source)
+        self.assertIn("final committed = await p.setString(stateKey, jsonEncode(checkpoint));", source)
+        self.assertIn("if (!committed) return;", source)
         self.assertIn('final List<String> ipAutoPendingCore = [];', source)
         self.assertIn('.where(_ipAutoValidPending)', source)
         save_start = source.index('Future<void> _ipAutoSave()')
