@@ -2279,6 +2279,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('microseconds: max(1, remaining.inMicroseconds ~/ 2)', connect)
         self.assertIn('cancelled: () => abort || !wantVpn,', connect)
         self.assertNotIn('DateTime.now().isBefore(verifyDeadline)', connect)
+        self.assertNotIn('pingSec', connect)
 
     def test_nat_range_scan_uses_one_monotonic_budget_across_ports(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')

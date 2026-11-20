@@ -9091,10 +9091,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         int? p;
         final pingT0 = DateTime.now(); // PINGLOGPATCH
         // National: more retries + longer waits — tunnel/DNS can be slow to settle
-        // PINGCAP: pingAny خودش تا ۵ آدرس را پشت‌سر‌هم امتحان می‌کند (هر کدام تا pingSec)؛ ۵ دور × ۵ آدرس × ۱۴ ثانیه
-        // در بدترین حالت ~۶ دقیقه قفل می‌کرد. حالا هر دور ۲ آدرس و حداکثر ۳ دور.
+        // PINGCAP: each round checks at most two URLs, with per-URL time
+        // derived from the remaining shared verification deadline.
         final pingTries = nationalMode || indestructibleMode ? 3 : 2;
-        final pingSec = nationalMode || indestructibleMode ? 10 : 7;
         var pingUsed = 0;
         // VERIFYCAP: فقط اتصال عادی/خلبان: کل مرحله‌ی تأیید تونل حداکثر ۲۵ ثانیه. نت ملی بدون محدودیت (دست نخورده)
         final verifyBudget = Duration(
