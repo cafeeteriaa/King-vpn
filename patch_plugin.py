@@ -550,6 +550,13 @@ exact_replace(core, '''    public boolean startCore(final V2rayConfig v2rayConfi
             return false;
         }''', '''    private boolean failStart(String reason) {
         Log.e(V2rayCoreManager.class.getSimpleName(), "startCore failed => " + reason);
+        try {
+            if (coreController != null && coreController.getIsRunning()) {
+                coreController.stopLoop();
+            }
+        } catch (Exception stopError) {
+            Log.w(V2rayCoreManager.class.getSimpleName(), "Failed to stop partially started core", stopError);
+        }
         if (countDownTimer != null) {
             countDownTimer.cancel();
             countDownTimer = null;
