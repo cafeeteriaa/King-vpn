@@ -67,6 +67,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertNotIn("import 'engine_registry.dart';", main)
 
+    def test_front_sni_candidates_are_hostnames_and_all_matrix_indices_are_valid(self):
+        nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn("'1.1.1.1'", nip)
+        self.assertIn('const [0, 2, 3, 6][sniIdx]', nat)
+        self.assertIn("_NatSpec('SNI>divar.ir', sniSwap: 6)", nat)
+        self.assertIn('if (sniIdx < 0 || sniIdx >= natFrontSnis.length) return cfg;', nat)
+
     def test_automatic_scan_is_not_a_subnet_or_all_port_sweep(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = nat.index('List<String> natSeedBlocks(')

@@ -247,11 +247,10 @@ const natFrontSnis = <String>[
   'cdnjs.cloudflare.com',    // 0
   'www.cloudflare.com',      // 1
   'speed.cloudflare.com',    // 2  ← قبلاً 3 بود، حالا 2
-  'one.one.one.one',         // 3  ← قبلاً 16 بود
-  '1.1.1.1',                 // 4  ← قبلاً 17 بود
-  'www.aparat.com',          // 5
-  'www.digikala.com',        // 6
-  'divar.ir',                // 7
+  'one.one.one.one',         // 3
+  'www.aparat.com',          // 4
+  'www.digikala.com',        // 5
+  'divar.ir',                // 6
 ];
 
 /// روی IP:port یک TLS با SNI داده‌شده کامل شود؟ برمی‌گرداند همان SNI یا null.

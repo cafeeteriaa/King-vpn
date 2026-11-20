@@ -195,7 +195,7 @@ const List<_NatSpec> _natBase = [
   _NatSpec('SNI>cdnjs', sniSwap: 0),
   _NatSpec('SNI>cloudflare', sniSwap: 2),
   _NatSpec('SNI>speed', sniSwap: 3),
-  _NatSpec('SNI>divar.ir', sniSwap: 7),
+  _NatSpec('SNI>divar.ir', sniSwap: 6),
 ];
 
 final List<_NatSpec> _natSpecs = [..._natBase, ..._natGenerate(), ..._natExtra];
@@ -334,7 +334,7 @@ List<_NatSpec> _natGenerate() {
 
   // V13: SNI-swap x fragment combos (bypass SNI + DPI in one shot).
   for (var sniIdx = 0; sniIdx < 4; sniIdx++) {
-    final realIdx = const [0, 2, 3, 10][sniIdx];
+    final realIdx = const [0, 2, 3, 6][sniIdx];
     for (var fi = 0; fi < _natFragBase.length; fi++) {
       add(_natMk(frag: fi, sniSwap: realIdx));
     }
