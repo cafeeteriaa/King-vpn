@@ -4079,9 +4079,13 @@ Future<bool> _siteOpens(String url, {bool viaCore = true}) async {
   try {
     final req =
         await c.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 7));
+    // Do not follow captive-portal/DPI redirects and mistake their landing page
+    // for successful tunnel traffic.
+    req.followRedirects = false;
     final res = await req.close().timeout(const Duration(seconds: 7));
-    // STATUSFIX: DPI ایرانی 403 برمی‌گرداند؛ هر status>0 را قبول نکن
-    return res.statusCode >= 200 && res.statusCode < 400;
+    final code = res.statusCode;
+    final expects204 = Uri.parse(url).path.endsWith('/generate_204');
+    return expects204 ? code == HttpStatus.noContent : code >= 200 && code < 300;
   } catch (_swE) { _swl('_siteOpens#1', _swE);
     return false;
   } finally {
@@ -4216,6 +4220,7 @@ Future<int?> pingProxy(
       });
     }
     final req = await requestClient.getUrl(Uri.parse(url)).timeout(left());
+    req.followRedirects = false;
     // One monotonic budget covers proxy selection, connect, response, and drain.
     final res = await req.close().timeout(left());
     try {
@@ -4223,9 +4228,12 @@ Future<int?> pingProxy(
     } catch (_) {
       // مهلت بدنه: کد وضعیت همین حالا معلوم است؛ پاسخ را با آن می‌سنجیم
     }
-    // STATUSFIX: پاسخ 403/DPI را پینگ موفق حساب نکن
-    if (res.statusCode < 200 || res.statusCode >= 400) {
-      lastPingErr = 'HTTP ${res.statusCode}';
+    // A 3xx redirect may be a captive portal or DPI landing page, not a
+    // working tunnel. Generate-204 endpoints must return the exact 204 signal.
+    final expects204 = Uri.parse(url).path.endsWith('/generate_204');
+    final code = res.statusCode;
+    if (expects204 ? code != HttpStatus.noContent : code < 200 || code >= 300) {
+      lastPingErr = 'HTTP $code';
       return null;
     }
     return sw.elapsedMilliseconds;
@@ -4283,6 +4291,7 @@ Future<bool> internetEndpointsOpen({bool direct = true}) async {
     try {
       final request = await client.getUrl(Uri.parse(endpoint))
           .timeout(const Duration(seconds: 7));
+      request.followRedirects = false;
       request.headers.set('user-agent',
           'KingVPN-Network-Probe/1.0');
       final response = await request.close()
