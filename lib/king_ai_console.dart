@@ -227,6 +227,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   }
 
   Future<void> _analyzeFeatureRequest() async {
+    if (!mounted) return;
     if (!_ownerAuth.hasActiveSession) {
       setState(() => _output = 'تحلیل ایده فقط برای مالک احراز هویت‌شده فعال است.');
       await _refreshOwnerState();
@@ -292,7 +293,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
               : 'رمز مالک نادرست است؛ درخواست کدنویسی لغو شد.';
         });
       }
-      return valid;
+      return valid && mounted;
     } finally {
       controller.dispose();
     }
