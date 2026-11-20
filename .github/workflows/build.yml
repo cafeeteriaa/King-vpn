@@ -102,13 +102,17 @@ jobs:
             if flutter build apk --release --obfuscate --split-debug-info=build/symbols --target-platform android-arm64 --split-per-abi 2>&1 | tee "$attempt_log" | tee -a build.log; then
               exit 0
             fi
-            if ! grep -Eq 'Could not (find|resolve) org[.]jetbrains[.]kotlin:|Received status code (429|5[0-9][0-9])' "$attempt_log"; then
+            if grep -Eq 'Error on ZipFile unknown archive|NDK.*(corrupt|not found)' "$attempt_log"; then
+              echo "Transient Android NDK archive failure; removing the incomplete NDK download before retry."
+              SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Android/Sdk}}"
+              rm -rf "$SDK_ROOT/ndk/28.2.13676358" "$SDK_ROOT/.temp"
+            elif ! grep -Eq 'Could not (find|resolve) org[.]jetbrains[.]kotlin:|Received status code (429|5[0-9][0-9])' "$attempt_log"; then
               echo "APK build failed for a non-transient reason; stopping retries."
               exit 1
             fi
             if [ "$attempt" -lt 3 ]; then
               delay=$((attempt * 30))
-              echo "Transient Maven/Kotlin resolution failure; retrying in ${delay}s without forcing dependency refresh."
+              echo "Transient dependency/toolchain resolution failure; retrying in ${delay}s."
               sleep "$delay"
             fi
           done
