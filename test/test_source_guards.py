@@ -1427,6 +1427,48 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Do not publish stale discoveries after the tunnel/pilot stops.', keep)
 
 
+    def test_nat_range_scan_discards_cancelled_batches_without_advancing_cursors(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = nat.index('Future<List<String>> _natRangeScanStepBody(')
+        end = nat.index('List<String> userListUrls = [];', start)
+        body = nat[start:end]
+        self.assertIn('final modeSnapshot = nationalMode;', body)
+        self.assertIn('bool shouldAbort() =>', body)
+        hot = body.index('await natHotNext(800, fetch: false)')
+        hot_guard = body.index('if (shouldAbort()) return const <String>[];', hot)
+        compute = body.index('await compute(_genAddrsIso, args)')
+        compute_guard = body.index('if (shouldAbort()) return const <String>[];', compute)
+        scan = body.index('await natScanIps(')
+        cancel = body.index('cancelled: shouldAbort,', scan)
+        scan_guard = body.index('if (shouldAbort()) return const <String>[];', scan)
+        cursor_commit = body.index('_cfRangeCursors\\n    ..clear()')
+        configured_commit = body.index('_natConfiguredRangeCursor = configuredBatch.nextCursor;')
+        self.assertLess(hot, hot_guard)
+        self.assertLess(compute, compute_guard)
+        self.assertLess(compute_guard, scan)
+        self.assertLess(cancel, scan_guard)
+        self.assertLess(scan_guard, cursor_commit)
+        self.assertLess(cursor_commit, configured_commit)
+        helper_start = nat.index('({List<String> addresses, int nextCursor}) _natConfiguredRangeBatch(')
+        helper_end = nat.index('Future<void> natRangesSave(', helper_start)
+        helper = nat[helper_start:helper_end]
+        self.assertIn('nextCursor: (start + count) % values.length', helper)
+        self.assertNotIn('SharedPreferences.getInstance()', helper)
+        scan_only_start = main.index('Future<void> _natScanOnly()')
+        scan_only_end = main.index('// NATFIRSTFAST:', scan_only_start)
+        scan_only = main[scan_only_start:scan_only_end]
+        self.assertIn('stop: () => abort || nationalMode != runNationalMode,', scan_only)
+        self.assertLess(scan_only.index('if (abort || nationalMode != runNationalMode) return;'),
+                        scan_only.index('await _natRangeAdd(ips);'))
+        escalate_start = main.index('Future<void> _natEscalate(int round)')
+        escalate_end = main.index('// CRITICAL for نت ملی: do NOT destroy existing configs.', escalate_start)
+        escalate = main[escalate_start:escalate_end]
+        self.assertIn('stop: () => abort || modeChanged(),', escalate)
+        self.assertIn('if (abort || modeChanged()) return;', escalate)
+        self.assertLess(escalate.index('if (abort || modeChanged()) return;', escalate.index('await natRangeScanStep(')),
+                        escalate.index('await _natRangeAdd(ips);'))
+
     def test_backup_restore_has_single_hardened_exporter(self):
         backup = (ROOT / 'lib' / 'backup_restore.dart').read_text(encoding='utf-8')
         self.assertEqual(backup.count('Future<String> bkpExportJson() async {'), 1)

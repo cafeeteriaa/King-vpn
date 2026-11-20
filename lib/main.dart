@@ -11351,14 +11351,16 @@ ListTile( // KINGEXTRAS row
 
   // اسکن IP بدون تغییر تنظیمات دیگر: در هر دور نت ملی اجرا می‌شود
   Future<void> _natScanOnly() async {
+    final runNationalMode = nationalMode;
     try {
-      if (!nationalMode || abort) return;
+      if (!runNationalMode || abort) return;
       final ips = await natRangeScanStep(
           known: [...pending, ...natRestPending],
           maxAddrs: 30000, // SCANCAP: قبلاً ۱۰۰ هزار با بودجه ۱۲ دقیقه
           conc: natAdaptiveWorkers(),
-          stop: () => abort,
+          stop: () => abort || nationalMode != runNationalMode,
           budget: const Duration(minutes: 3));
+      if (abort || nationalMode != runNationalMode) return;
       await _natRangeAdd(ips);
     } catch (e, stk) {
       logError(e, stk);
@@ -11387,6 +11389,9 @@ ListTile( // KINGEXTRAS row
     try {
       await _natDetect(); // what does the network look like now?
       if (!nationalMode && !indestructibleMode) return;
+      final runNationalMode = nationalMode;
+      bool modeChanged() => nationalMode != runNationalMode;
+      if (abort) return;
       natAll = true; // every source, skip none
       autoCycle = true;
       // NATULTRA: finite curated variants are tested in bounded batches; no random growth.
@@ -11397,31 +11402,39 @@ ListTile( // KINGEXTRAS row
       natWorkers = natAdaptiveWorkers(); // NATGATE: national matrix tests max 3
       _dohFail = 0;
       // NATSCAN: IP و دامنه‌ی سرورها قبل از تست سنگین بررسی می‌شوند
-      if (nationalMode) await _natMergeCache();
-      if (nationalMode) await _natMemoryReuse();
-      if (nationalMode) await _natPrescan();
+      if (runNationalMode) await _natMergeCache();
+      if (abort || modeChanged()) return;
+      if (runNationalMode) await _natMemoryReuse();
+      if (abort || modeChanged()) return;
+      if (runNationalMode) await _natPrescan();
+      if (abort || modeChanged()) return;
       // FREEZEFIX2: IP servers already found are tested first. The long scan
       // (up to 12 min) used to run before them, which is what looked like a freeze.
       // IPFIX: فقط IP های تازه‌ی همین prescan منتظر تست‌اند (نه همه‌ی IP های کانفیگ‌ها)
       final ipWaiting = [...pending, ...natRestPending]
           .any((s) => natFreshHosts.contains(s.host));
       // DOMAINALWAYS2: دامنه‌های .ir در هر دور اجرا می‌شوند (سقف ۳ دقیقه)
-      if (nationalMode && !abort && (round % 2 == 0)) {
+      if (runNationalMode && !abort && (round % 2 == 0)) {
         final domHits = await _natDomainFirst(
-            [...pending, ...natRestPending], conc: natAdaptiveWorkers(), stop: () => abort);
+            [...pending, ...natRestPending],
+            conc: natAdaptiveWorkers(),
+            stop: () => abort || modeChanged());
+        if (abort || modeChanged()) return;
         await _natRangeAdd(domHits);
       }
       final hasTpl = pending.isNotEmpty || natRestPending.isNotEmpty ||
           natTemplateSeeds.isNotEmpty || good.isNotEmpty;
-      if (nationalMode && !abort && !ipWaiting && pending.isEmpty && hasTpl) {
+      if (runNationalMode && !abort && !ipWaiting && pending.isEmpty && hasTpl) {
         final ips = await natRangeScanStep(
             known: [...pending, ...natRestPending],
             maxAddrs: 100000, // هر دور تا ۱۰۰ هزار آدرس
             conc: natAdaptiveWorkers(),
-            stop: () => abort,
+            stop: () => abort || modeChanged(),
             budget: const Duration(minutes: 3));
+        if (abort || modeChanged()) return;
         await _natRangeAdd(ips);
       }
+      if (abort || modeChanged()) return;
       // CRITICAL for نت ملی: do NOT destroy existing configs.
       // When international is cut, GitHub raw lists are mostly unreachable.
       // Clearing pending / forcing a full re-fetch left the app with an empty
