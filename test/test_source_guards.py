@@ -2234,19 +2234,30 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(save, unlock)
         self.assertIn('if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode))', body)
 
-    def test_ip_auto_address_generation_does_not_commit_after_stop(self):
+    def test_ip_auto_address_generation_stages_cursors_until_full_scan_succeeds(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        start = source.index('Future<List<String>> _ipAutoNextAddrs(')
+        start = source.index('Future<_IpAutoAddressBatch?> _ipAutoNextAddrs(')
         end = source.index('extension IpAutoExt', start)
         body = source[start:end]
         compute = body.index('await compute(_genAddrsIso, args)')
         abort = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
-        cursor_mutation = body.index('ipAutoCursors\n    ..clear()')
-        position_mutation = body.index('ipAutoPos = start + slice.length;')
         self.assertLess(compute, abort)
-        self.assertLess(abort, cursor_mutation)
-        self.assertLess(abort, position_mutation)
-        self.assertIn('bool Function()? shouldAbort', body)
+        self.assertNotIn('ipAutoCursors\\n    ..clear()', body)
+        self.assertNotIn('ipAutoPos =', body)
+        self.assertIn('return _IpAutoAddressBatch(', body)
+
+    def test_ip_auto_commits_address_cursors_only_after_uncancelled_scan(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> _ipAutoRunOnce(')
+        end = source.index('Future<void> ipAutoSheet(', start)
+        body = source[start:end]
+        completion = body.rindex("if (halted()) {")
+        commit = body.index('ipAutoCursors\\n      ..clear()', completion)
+        position = body.index('ipAutoPos = addressBatch.nextPosition;', completion)
+        self.assertLess(completion, commit)
+        self.assertLess(commit, position)
+        self.assertIn('addressBatch.cursors', body)
+        self.assertIn('addressBatch.nextPosition', body)
 
     def test_ip_auto_scan_aborts_when_network_mode_changes_mid_run(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')

@@ -118,7 +118,20 @@ List<String> _ipAutoBlocks(Iterable<Server> knownServers) {
   return ips.map((ip) => '$ip/32').toList(growable: false);
 }
 
-Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Function()? shouldAbort}) async {
+class _IpAutoAddressBatch {
+  const _IpAutoAddressBatch({
+    required this.addresses,
+    required this.cursors,
+    required this.nextPosition,
+  });
+
+  final List<String> addresses;
+  final Map<String, int> cursors;
+  final int nextPosition;
+}
+
+Future<_IpAutoAddressBatch?> _ipAutoNextAddrs(
+    Iterable<Server> knownServers, {bool Function()? shouldAbort}) async {
   // A mode switch while compute() is running must not apply stale cursors
   // or a stale batch position to the newly selected network mode.
   final modeSnapshot = nationalMode;
@@ -137,15 +150,22 @@ Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Funct
   }
   final all = (gen['addrs'] as List).cast<String>();
   final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);
-  ipAutoCursors
-    ..clear()
-    ..addAll(generatedCursors);
-  if (all.isEmpty) return const <String>[];
-  // فقط یک تکه‌ی _ipAutoBatch تایی در هر اجرا؛ جای فعلی ذخیره می‌شود تا اجرای بعدی ادامه دهد
+  if (all.isEmpty) {
+    return _IpAutoAddressBatch(
+      addresses: const <String>[],
+      cursors: generatedCursors,
+      nextPosition: startPosSnapshot,
+    );
+  }
+  // Stage both cursors. They are committed only after the entire TCP + core
+  // batch completes without cancellation, so a mid-run stop cannot skip hosts.
   final start = startPosSnapshot % all.length;
   final slice = all.skip(start).take(_ipAutoBatch).toList();
-  ipAutoPos = start + slice.length;
-  return slice;
+  return _IpAutoAddressBatch(
+    addresses: slice,
+    cursors: generatedCursors,
+    nextPosition: start + slice.length,
+  );
 }
 
 extension IpAutoExt on _HomePageState {
@@ -270,11 +290,12 @@ extension IpAutoExt on _HomePageState {
     }
     final tpl = pool.take(2).toList();
     say('ساخت آدرس‌ها...');
-    final addrs = await _ipAutoNextAddrs(
+    final addressBatch = await _ipAutoNextAddrs(
       runNationalMode ? const <Server>[] : [...good, ...pending, ...fetchedAll],
       shouldAbort: halted,
     );
-    if (halted()) return false;
+    if (addressBatch == null || halted()) return false;
+    final addrs = addressBatch.addresses;
     if (addrs.isEmpty) {
       say('آدرسی برای اسکن پیدا نشد.');
       return false;
@@ -346,6 +367,13 @@ extension IpAutoExt on _HomePageState {
       say('متوقف شد؛ نتایج این اجرا کامل نیستند.');
       return false;
     }
+    // Commit only after every selected address has completed its TCP and
+    // bounded core verification. Partial successful hits remain useful, but
+    // the address cursor must stay put so the unfinished batch is retried.
+    ipAutoCursors
+      ..clear()
+      ..addAll(addressBatch.cursors);
+    ipAutoPos = addressBatch.nextPosition;
     say('تمام شد: $found IP جدید در حالت ${runNationalMode ? 'نت ملی' : 'جهانی'}.');
     return true;
   }
