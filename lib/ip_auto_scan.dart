@@ -119,21 +119,28 @@ List<String> _ipAutoBlocks(Iterable<Server> knownServers) {
 }
 
 Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers) async {
+  // A mode switch while compute() is running must not apply stale cursors
+  // or a stale batch position to the newly selected network mode.
+  final modeSnapshot = nationalMode;
+  final startPosSnapshot = ipAutoPos;
+  final cursorSnapshot = Map<String, int>.of(ipAutoCursors);
   final args = <String, dynamic>{
     'cfIpsBatch': 0, // exact known endpoints only; no broad public CIDR scan
     'blocks': _ipAutoBlocks(knownServers),
-    'nationalMode': nationalMode,
+    'nationalMode': modeSnapshot,
     'liveRanges': <String>[],
-    'cursors': Map<String, int>.of(ipAutoCursors),
+    'cursors': cursorSnapshot,
   };
   final gen = await compute(_genAddrsIso, args);
+  if (nationalMode != modeSnapshot) return const <String>[];
   final all = (gen['addrs'] as List).cast<String>();
+  final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);
   ipAutoCursors
     ..clear()
-    ..addAll(Map<String, int>.from(gen['cursors'] as Map));
+    ..addAll(generatedCursors);
   if (all.isEmpty) return const <String>[];
   // فقط یک تکه‌ی _ipAutoBatch تایی در هر اجرا؛ جای فعلی ذخیره می‌شود تا اجرای بعدی ادامه دهد
-  final start = ipAutoPos % all.length;
+  final start = startPosSnapshot % all.length;
   final slice = all.skip(start).take(_ipAutoBatch).toList();
   ipAutoPos = start + slice.length;
   return slice;

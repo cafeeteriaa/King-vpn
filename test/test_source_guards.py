@@ -1930,5 +1930,30 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (nationalMode == scanNationalMode)', body)
         self.assertNotIn("nationalMode ? 'nat' : 'glob'", body)
 
+
+    def test_ip_auto_address_generation_does_not_apply_stale_mode_cursors(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<List<String>> _ipAutoNextAddrs(')
+        end = source.index('extension IpAutoExt', start)
+        body = source[start:end]
+        mode = body.index('final modeSnapshot = nationalMode;')
+        position = body.index('final startPosSnapshot = ipAutoPos;')
+        cursors = body.index('final cursorSnapshot = Map<String, int>.of(ipAutoCursors);')
+        compute = body.index('await compute(_genAddrsIso, args)')
+        guard = body.index('if (nationalMode != modeSnapshot) return const <String>[];')
+        mutation = body.index('ipAutoCursors\n    ..clear()')
+        generated = body.index("final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);")
+        update_pos = body.index('ipAutoPos = start + slice.length;')
+        self.assertLess(mode, compute)
+        self.assertLess(position, compute)
+        self.assertLess(cursors, compute)
+        self.assertLess(compute, guard)
+        self.assertLess(guard, generated)
+        self.assertLess(generated, mutation)
+        self.assertIn("'nationalMode': modeSnapshot", body)
+        self.assertIn('final start = startPosSnapshot % all.length;', body)
+        self.assertLess(mutation, update_pos)
+
+
 if __name__ == '__main__':
     unittest.main()
