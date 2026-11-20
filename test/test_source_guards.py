@@ -443,6 +443,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(loader.index('_busy = true;'), loader.index('await getApplicationSupportDirectory()'))
         self.assertIn('finally {', loader)
         self.assertIn('_busy = false;', loader)
+        dispose_start = ai.index('Future<void> dispose()')
+        dispose_end = ai.index('\\n  }', dispose_start)
+        dispose_body = ai[dispose_start:dispose_end]
+        self.assertIn('finally {', dispose_body)
+        self.assertLess(dispose_body.index('engine.dispose()'), dispose_body.index('models.dispose()'))
         self.assertIn('sha256.bind(modelFile.openRead())', loader)
         self.assertIn('resolveSymbolicLinks()', loader)
         self.assertIn('repairFromFailedCiAutonomous(', worker)
