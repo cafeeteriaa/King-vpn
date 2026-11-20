@@ -190,7 +190,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_connect_path_uses_mode_aware_tunnel_probe(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn('networkAware: true', main)
-        self.assertIn('final urls = nationalMode ? _tunnelTestUrlsNational', main)
+        self.assertIn('final urls = modeSnapshot ? _tunnelTestUrlsNational', main)
 
     def test_code_changes_are_pinned_to_the_official_repository(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
