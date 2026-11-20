@@ -1236,7 +1236,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             start = patch.index(label)
             block = patch[max(0, start - 1600):start]
             self.assertIn('if (!V2rayCoreManager.getInstance().promoteForStop(this))', block)
-            self.assertLess(block.index('promoteForStop(this)'), block.index('isV2rayCoreRunning()'))
+            promoted = block.index('promoteForStop(this)')
+            self.assertLess(promoted, block.index('isV2rayCoreRunning()', promoted))
 
         revoke_start = patch.index('public void onRevoke()')
         revoke_end = patch.index('# 7) Delay probe', revoke_start)
