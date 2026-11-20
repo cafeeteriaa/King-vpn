@@ -1405,5 +1405,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn(').hasMatch(normalizedHost);\\n    if (normalizedHost.isEmpty', source)
 
 
+    def test_home_page_cancels_background_refresh_and_personal_watch_timers(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        init_start = source.index('void initState() {', source.index('class _HomePageState'))
+        init_end = source.index('void dispose() {', init_start)
+        init = source[init_start:init_end]
+        dispose_start = source.index('void dispose() {', init_end)
+        dispose_end = source.index('Future<void> _runBusy(', dispose_start)
+        dispose = source[dispose_start:dispose_end]
+        self.assertIn('_natHotInitialTimer = Timer(', init)
+        self.assertIn('_natHotRefreshTimer = Timer.periodic(', init)
+        self.assertIn('if (mounted) unawaited(natHotEnsure());', init)
+        self.assertIn('_natHotInitialTimer?.cancel();', dispose)
+        self.assertIn('_natHotRefreshTimer?.cancel();', dispose)
+        self.assertIn('_personalPingT?.cancel();', dispose)
+
+
 if __name__ == '__main__':
     unittest.main()
