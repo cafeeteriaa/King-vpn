@@ -1472,7 +1472,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         exporter_end = backup.index('Future<bool> _bkpWriteValue(', exporter_start)
         exporter = backup[exporter_start:exporter_end]
         self.assertIn('final timestamp = DateTime.now().toIso8601String();', exporter)
-        self.assertIn('_bkpEnsureExportWithinBudget(data, timestamp);', exporter)
+        self.assertIn('_bkpEnsureExportWithinBudget(encodedEntryBytes);', exporter)
         self.assertLess(exporter.index('_bkpEnsureExportWithinBudget(encodedEntryBytes);'),
                         exporter.index('final encoded = JsonEncoder.withIndent'))
         self.assertIn('const formattingReserve = 32 * 1024;', backup)
