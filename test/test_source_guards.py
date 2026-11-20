@@ -1326,6 +1326,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (!ok)', importer)
 
 
+    def test_update_check_retries_when_remote_config_is_not_a_map(self):
+        update = (ROOT / 'lib' / 'update_check.dart').read_text(encoding='utf-8')
+        start = update.index('final decoded = jsonDecode(response.body);')
+        end = update.index('final map = Map<String, dynamic>.from(decoded);', start)
+        malformed_config = update[start:end]
+        self.assertIn('if (decoded is! Map)', malformed_config)
+        self.assertIn('_updateChecked = false;', malformed_config)
+        self.assertLess(malformed_config.index('_updateChecked = false;'), malformed_config.index('return;'))
+
     def test_king_extras2_has_one_complete_declaration_set(self):
         source = (ROOT / 'lib' / 'king_extras2.dart').read_text(encoding='utf-8')
         self.assertIn("import 'dart:io';", source)
