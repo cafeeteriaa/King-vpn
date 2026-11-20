@@ -1348,6 +1348,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn(').whenComplete(c.dispose);', npv)
 
 
+    def test_ai_token_save_does_not_touch_disposed_controller(self):
+        iran = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        start = iran.index('Future<void> saveToken() async {')
+        end = iran.index('Future<void> createRepair() async {', start)
+        save_token = iran[start:end]
+        self.assertIn('final token = tokenC.text;', save_token)
+        self.assertLess(save_token.index('if (!ctx.mounted) return;'),
+                        save_token.index('tokenC.clear();'))
+
+
     def test_update_check_retries_when_remote_config_is_not_a_map(self):
         update = (ROOT / 'lib' / 'update_check.dart').read_text(encoding='utf-8')
         start = update.index('final decoded = jsonDecode(response.body);')
