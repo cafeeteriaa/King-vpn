@@ -618,6 +618,37 @@ exact_replace(core, '''        } catch (Exception e) {
 # A native startLoop call can return without throwing while the controller is not
 # actually running. Never publish CONNECTED or report a successful service start
 # unless the core's own running state confirms that startup completed.
+# The duration ticker should wake once per second for a two-hour interval, not
+# restart every 7.2 seconds. Use elapsed-time boundaries so displayed time does
+# not roll over one second/minute early.
+exact_replace(core, '''        countDownTimer = new CountDownTimer(7200, 1000) {''',
+'''        countDownTimer = new CountDownTimer(7200L * 1000L, 1000L) {''',
+'P1-35 duration timer interval is two hours');
+
+exact_replace(core, '''                seconds++;
+                if (seconds == 59) {
+                    minutes++;
+                    seconds = 0;
+                }
+                if (minutes == 59) {
+                    minutes = 0;
+                    hours++;
+                }
+                if (hours == 23) {
+                    hours = 0;
+                }''', '''                seconds++;
+                if (seconds >= 60) {
+                    minutes++;
+                    seconds = 0;
+                }
+                if (minutes >= 60) {
+                    minutes = 0;
+                    hours++;
+                }
+                if (hours >= 24) {
+                    hours = 0;
+                }''', 'P1-35 duration clock uses full minute and day boundaries');
+
 exact_replace(core, '''            coreController.startLoop(config, tunFd);
             V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;
             if (isV2rayCoreRunning()) {

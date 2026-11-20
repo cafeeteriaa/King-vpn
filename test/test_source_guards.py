@@ -1198,6 +1198,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(replacement.index('V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;'),
                         replacement.index('showNotification(v2rayConfig);'))
 
+    def test_v2ray_duration_timer_interval_and_rollover_are_correct(self):
+        patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+        self.assertIn('P1-35 duration timer interval is two hours', patch)
+        self.assertIn('P1-35 duration clock uses full minute and day boundaries', patch)
+        timer_start = patch.index("exact_replace(core, '''        countDownTimer = new CountDownTimer(7200, 1000) {")
+        timer_end = patch.index("'P1-35 duration timer interval is two hours'", timer_start)
+        timer_block = patch[timer_start:timer_end]
+        self.assertIn('new CountDownTimer(7200L * 1000L, 1000L)', timer_block)
+
+        rollover_start = patch.index("exact_replace(core, '''                seconds++;", timer_end)
+        rollover_end = patch.index("'P1-35 duration clock uses full minute and day boundaries'", rollover_start)
+        rollover_block = patch[rollover_start:rollover_end]
+        replacement_start = rollover_block.index("''', '''") + len("''', '''")
+        rollover = rollover_block[replacement_start:]
+        self.assertIn('if (seconds >= 60)', rollover)
+        self.assertIn('if (minutes >= 60)', rollover)
+        self.assertIn('if (hours >= 24)', rollover)
+        self.assertNotIn('seconds == 59', rollover)
+        self.assertNotIn('minutes == 59', rollover)
+
     def test_v2ray_connected_delay_handoff_is_process_safe(self):
         patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
         self.assertIn('P1-33 delay URL handoff and receiver-before-dispatch', patch)
