@@ -2923,6 +2923,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         skip = body.index('continue;', bad_cfg)
         self.assertLess(discard, skip)
 
+    def test_tunnel_health_probes_reject_redirects_and_non_success_pages(self):
+        dart = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertIn('req.followRedirects = false;', dart)
+        self.assertIn('return expects204 ? code == HttpStatus.noContent : code >= 200 && code < 300;', dart)
+        self.assertIn('if (expects204 ? code != HttpStatus.noContent : code < 200 || code >= 300)', dart)
+        self.assertIn('request.followRedirects = false;', dart)
+        self.assertIn('c.setInstanceFollowRedirects(false);', native)
+        self.assertIn('url.endsWith("/generate_204")', native)
+        self.assertIn('code < 300', native)
+        self.assertNotIn('code < 500', native)
+
     def test_ip_auto_scan_persists_unverified_core_candidates_before_advancing_cursor(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         self.assertIn("const String _ipAutoPendingKey = 'ipauto_pending_core_v1';", source)
