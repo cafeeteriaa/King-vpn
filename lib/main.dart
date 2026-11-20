@@ -5561,6 +5561,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       !connected &&
       !busy &&
       !searching &&
+      warm == null &&
       !switching &&
       !_natRangeScanBusy &&
       !_resBusy &&
