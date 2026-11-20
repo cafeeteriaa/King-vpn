@@ -725,6 +725,16 @@ exact_replace(vpn, '''    public void onRevoke() {
 
 # 7) Delay probe crosses the plugin's :RunSoLibV2RayDaemon process boundary.
 # Send the URL in the service Intent and register the receiver before dispatching.
+exact_replace(v2_ctrl, '''        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.registerReceiver(receiver, delayIntentFilter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            context.registerReceiver(receiver, delayIntentFilter);
+        }''', '''        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(receiver, delayIntentFilter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            context.registerReceiver(receiver, delayIntentFilter);
+        }''', 'P1-33 use flagged receiver overload only on API 33+');
+
 exact_replace(v2_ctrl, '''import android.os.Build;''', '''import android.os.Build;
 
 import android.util.Log;''', 'P1-33 controller Log import');
