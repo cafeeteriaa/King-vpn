@@ -1971,12 +1971,27 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         helper_start = extras.index('Future<bool> goldAddScans(')
         helper_end = extras.index('Future<void> goldAddScan(', helper_start)
         helper = extras[helper_start:helper_end]
-        self.assertIn('for (final entry in updates.entries)', helper)
-        self.assertIn('await goldSave();', helper)
-        self.assertEqual(helper.count('await goldSave();'), 1)
-        self.assertIn('bool Function()? shouldAbort', helper)
-        self.assertLess(helper.index('await goldLoad();'), helper.index('if (shouldAbort?.call() ?? false) return false;'))
-        self.assertLess(helper.index('if (shouldAbort?.call() ?? false) return false;'), helper.index('for (final entry in updates.entries)'))
+        prefs = helper.index('final p = await SharedPreferences.getInstance();')
+        abort = helper.index('if (shouldAbort?.call() ?? false) return false;', prefs)
+        mutation = helper.index('for (final entry in updates.entries)')
+        write = helper.index('final write = _goldWrite(p);')
+        self.assertLess(prefs, abort)
+        self.assertLess(abort, mutation)
+        self.assertLess(mutation, write)
+        self.assertIn('return await write;', helper)
+        self.assertIn('return false;', helper[helper.index('catch (e, stk)'):])
+
+    def test_gold_write_serializes_shared_state_once_and_reuses_preferences(self):
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        start = extras.index('String _goldEncode()')
+        end = extras.index('void _goldTrimIps()', start)
+        persistence = extras[start:end]
+        self.assertIn('Future<bool> _goldWrite(SharedPreferences p)', persistence)
+        self.assertIn("p.setString('gold_v1', _goldEncode())", persistence)
+        save = persistence[persistence.index('Future<void> goldSave()'):]
+        self.assertIn('final p = await SharedPreferences.getInstance();', save)
+        self.assertIn('await _goldWrite(p);', save)
+        self.assertNotIn("await p.setString(", save)
 
 
     def test_national_yield_wait_is_cancellable_for_manual_scans(self):

@@ -1488,26 +1488,29 @@ Future<void> _goldLoadOnce() async {
   }
 }
 
+String _goldEncode() => jsonEncode({
+      'ips': [
+        for (final v in (_goldIps.values.toList()..sort((a, b) => a.ms.compareTo(b.ms))))
+          [v.ip, v.ms, v.port, v.okAt, v.testAt]
+      ],
+      'srv': [
+        for (final v in (_goldSrv.values.toList()..sort((a, b) => a.ping.compareTo(b.ping))))
+          [v.link, v.ping, v.okAt, v.testAt]
+      ],
+      'dns': [for (final e in _goldDns.entries) [e.key, e.value]],
+      'scan': _goldScan,
+      'day': _goldDay,
+      'cnt': _goldCnt,
+    });
+
+Future<bool> _goldWrite(SharedPreferences p) =>
+    p.setString('gold_v1', _goldEncode());
+
 Future<void> goldSave() async {
   await goldLoad();
   try {
     final p = await SharedPreferences.getInstance();
-    await p.setString(
-        'gold_v1',
-        jsonEncode({
-          'ips': [
-            for (final v in (_goldIps.values.toList()..sort((a, b) => a.ms.compareTo(b.ms))))
-              [v.ip, v.ms, v.port, v.okAt, v.testAt]
-          ],
-          'srv': [
-            for (final v in (_goldSrv.values.toList()..sort((a, b) => a.ping.compareTo(b.ping))))
-              [v.link, v.ping, v.okAt, v.testAt]
-          ],
-          'dns': [for (final e in _goldDns.entries) [e.key, e.value]],
-          'scan': _goldScan,
-          'day': _goldDay,
-          'cnt': _goldCnt,
-        }));
+    await _goldWrite(p);
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -1584,15 +1587,22 @@ Future<bool> goldAddScans(
 }) async {
   if (updates.isEmpty || (shouldAbort?.call() ?? false)) return false;
   await goldLoad();
-  // Loading may yield to the event loop; honor cancellation before mutating
-  // the shared scan cache or starting the persistent write.
   if (shouldAbort?.call() ?? false) return false;
-  for (final entry in updates.entries) {
-    final merged = {...(_goldScan[entry.key] ?? const <String>[]), ...entry.value};
-    _goldScan[entry.key] = merged.toList();
+  try {
+    final p = await SharedPreferences.getInstance();
+    // Last cancellation boundary: no shared state is changed before this check.
+    if (shouldAbort?.call() ?? false) return false;
+    for (final entry in updates.entries) {
+      final merged = {...(_goldScan[entry.key] ?? const <String>[]), ...entry.value};
+      _goldScan[entry.key] = merged.toList();
+    }
+    // Start persistence immediately after the synchronous cache update.
+    final write = _goldWrite(p);
+    return await write;
+  } catch (e, stk) {
+    logError(e, stk);
+    return false;
   }
-  await goldSave();
-  return true;
 }
 
 Future<void> goldAddScan(String kind, List<String> items) async {
