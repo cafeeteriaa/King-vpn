@@ -1964,14 +1964,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         body = auto[start:end]
         self.assertGreaterEqual(body.count("if (_autoScanStop) {"), 4)
         self.assertIn("say('اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');", body)
-        self.assertIn("await goldAddScans({'tls': tlsHits, 'sni': sniHits, 'port': portHits});", body)
+        self.assertIn("final saved = await goldAddScans(", body)
+        self.assertIn("shouldAbort: () => _autoScanStop", body)
+        self.assertIn("if (!saved)", body)
         self.assertNotIn("await goldAddScan('tls', tlsHits);", body)
-        helper_start = extras.index('Future<void> goldAddScans(')
+        helper_start = extras.index('Future<bool> goldAddScans(')
         helper_end = extras.index('Future<void> goldAddScan(', helper_start)
         helper = extras[helper_start:helper_end]
         self.assertIn('for (final entry in updates.entries)', helper)
         self.assertIn('await goldSave();', helper)
         self.assertEqual(helper.count('await goldSave();'), 1)
+        self.assertIn('bool Function()? shouldAbort', helper)
+        self.assertLess(helper.index('await goldLoad();'), helper.index('if (shouldAbort?.call() ?? false) return false;'))
+        self.assertLess(helper.index('if (shouldAbort?.call() ?? false) return false;'), helper.index('for (final entry in updates.entries)'))
 
 
 if __name__ == '__main__':

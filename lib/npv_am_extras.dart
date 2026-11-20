@@ -1577,14 +1577,21 @@ Future<List<String>> goldDnsList() async {
   return _goldDns.keys.toList();
 }
 
-Future<void> goldAddScans(Map<String, List<String>> updates) async {
-  if (updates.isEmpty) return;
+Future<bool> goldAddScans(
+  Map<String, List<String>> updates, {
+  bool Function()? shouldAbort,
+}) async {
+  if (updates.isEmpty || (shouldAbort?.call() ?? false)) return false;
   await goldLoad();
+  // Loading may yield to the event loop; honor cancellation before mutating
+  // the shared scan cache or starting the persistent write.
+  if (shouldAbort?.call() ?? false) return false;
   for (final entry in updates.entries) {
     final merged = {...(_goldScan[entry.key] ?? const <String>[]), ...entry.value};
     _goldScan[entry.key] = merged.toList();
   }
   await goldSave();
+  return true;
 }
 
 Future<void> goldAddScan(String kind, List<String> items) async {

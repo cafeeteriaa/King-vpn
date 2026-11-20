@@ -171,7 +171,14 @@ Future<void> autoScanRun(void Function(String) say) async {
       return;
     }
     // Commit the three result groups together only after every scan phase completes.
-    await goldAddScans({'tls': tlsHits, 'sni': sniHits, 'port': portHits});
+    final saved = await goldAddScans(
+      {'tls': tlsHits, 'sni': sniHits, 'port': portHits},
+      shouldAbort: () => _autoScanStop,
+    );
+    if (!saved) {
+      say('اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');
+      return;
+    }
     say('تمام شد: ${sniHits.length} SNI و ${portHits.length} پورت در پوشه‌ی جهانی ذخیره شد');
   } catch (e, stk) {
     logError(e, stk);
