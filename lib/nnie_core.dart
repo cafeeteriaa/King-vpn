@@ -83,7 +83,9 @@ class NatProbeEvidence {
       return NatNetworkClass.globalReachable;
     }
     if (domesticReachable && !globalReachable) {
-      return globalDnsOk
+      // One working international host means the route is partially reachable;
+      // do not mislabel it as a fully domestic-only network.
+      return globalDnsOk || (globalTcpSuccesses ?? 0) == 1
           ? NatNetworkClass.transportRestricted
           : NatNetworkClass.domesticOnlyLikely;
     }

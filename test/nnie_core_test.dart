@@ -146,6 +146,15 @@ void main() {
       expect(globalOnlyOne.classify(), NatNetworkClass.transportRestricted);
     });
 
+    test('one reachable global host prevents a domestic-only conclusion', () {
+      const ev = NatProbeEvidence(
+        domesticDnsOk: false, domesticTcpOk: true,
+        globalDnsOk: false, globalTcpOk: true, sampleCount: 10,
+        domesticTcpSuccesses: 2, globalTcpSuccesses: 1,
+      );
+      expect(ev.classify(), NatNetworkClass.transportRestricted);
+    });
+
     test('two independent domestic hosts are required for domestic-only classification', () {
       const ev = NatProbeEvidence(
         domesticDnsOk: false, domesticTcpOk: true,
