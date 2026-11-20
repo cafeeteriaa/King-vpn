@@ -2254,6 +2254,30 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(stale_guard, insert)
         self.assertIn('return;', worker[stale_guard:insert])
 
+    def test_tunnel_ping_respects_one_remaining_budget_and_cancellation(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        ping_start = main.index('Future<int?> pingProxy(')
+        ping_end = main.index('Future<int?> pingAny(', ping_start)
+        ping = main[ping_start:ping_end]
+        self.assertIn('final sw = Stopwatch()..start();', ping)
+        self.assertIn('return remaining.isNegative ? Duration.zero : remaining;', ping)
+        self.assertIn('_useCoreProxy(viaCore || !direct).timeout(left())', ping)
+        self.assertIn('c.getUrl(Uri.parse(url)).timeout(left())', ping)
+        self.assertNotIn('const Duration(milliseconds: 200)', ping)
+        any_start = ping_end
+        any_end = main.index('Future<bool> internetEndpointsOpen(', any_start)
+        any_ping = main[any_start:any_end]
+        self.assertIn('bool Function()? cancelled', any_ping)
+        self.assertGreaterEqual(any_ping.count('cancelled?.call() ?? false'), 2)
+        connect_start = main.index('Future<bool> _connectLoop(')
+        connect_end = main.index('Future<bool> ', connect_start + 20)
+        connect = main[connect_start:connect_end]
+        self.assertIn('final verifyClock = Stopwatch()..start();', connect)
+        self.assertIn('Duration verifyRemaining() => verifyBudget - verifyClock.elapsed;', connect)
+        self.assertIn('microseconds: max(1, remaining.inMicroseconds ~/ 2)', connect)
+        self.assertIn('cancelled: () => abort || !wantVpn,', connect)
+        self.assertNotIn('DateTime.now().isBefore(verifyDeadline)', connect)
+
     def test_nat_range_scan_uses_one_monotonic_budget_across_ports(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('Future<List<String>> _natRangeScanStepBody(')

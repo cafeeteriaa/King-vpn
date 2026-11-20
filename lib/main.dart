@@ -4159,11 +4159,18 @@ Future<int?> pingProxy(
     bool direct = false,
     bool viaCore = false,
     String url = delayTestUrl}) async {
-  var useProxy = await _useCoreProxy(viaCore || !direct);
+  if (total <= Duration.zero) return null;
+  final sw = Stopwatch()..start();
+  Duration left() {
+    final remaining = total - sw.elapsed;
+    return remaining.isNegative ? Duration.zero : remaining;
+  }
+  var useProxy = await _useCoreProxy(viaCore || !direct).timeout(left());
   // TUNPING: در حالت VPN (TUN) پورت HTTP هسته ممکن است اصلاً باز نشود؛ آن‌وقت
   // پینگ همیشه شکست می‌خورد و سرور سالم «ترافیک صفر» حساب می‌شود.
   // اگر پورت بسته است و حالت پروکسی نیست، از مسیر عادی (که TUN روی آن است) استفاده کن.
-  if (useProxy && !proxyMode && !await _coreProxyOpen()) {
+  if (useProxy && !proxyMode &&
+      !await _coreProxyOpen().timeout(left())) {
     useProxy = false;
     dbg('پینگ: پورت HTTP هسته بسته است؛ پینگ از مسیر TUN انجام می‌شود');
   }
@@ -4171,16 +4178,9 @@ Future<int?> pingProxy(
     ..findProxy = ((_) =>
         useProxy ? 'PROXY 127.0.0.1:$httpProxyPort' : 'DIRECT')
     ..connectionTimeout = total;
-  final sw = Stopwatch()..start();
   try {
-    final req = await c.getUrl(Uri.parse(url)).timeout(total);
-    // مشکل ۳: یک بودجه‌ی کلی برای کل مراحل، نه سه timeout مستقل
-    Duration left() {
-      final r = total - sw.elapsed;
-      return r > const Duration(milliseconds: 200)
-          ? r
-          : const Duration(milliseconds: 200);
-    }
+    final req = await c.getUrl(Uri.parse(url)).timeout(left());
+    // One monotonic budget covers proxy selection, connect, response, and drain.
     final res = await req.close().timeout(left());
     try {
       await res.drain<void>().timeout(left());
@@ -4208,14 +4208,17 @@ Future<int?> pingAny(
     bool direct = true,
     int tries = 5,
     bool viaCore = true,
-    bool networkAware = false}) async {
+    bool networkAware = false,
+    bool Function()? cancelled}) async {
   // Existing callers retain the global list. Watchdog callers can explicitly
   // use domestic endpoints when nationalMode is active.
   final urls = networkAware && nationalMode ? _tunnelTestUrlsNational : _pingUrls;
   final n = tries.clamp(1, urls.length);
   for (final u in urls.take(n)) {
+    if (cancelled?.call() ?? false) return null;
     final p = await pingProxy(
         total: total, direct: direct, viaCore: viaCore, url: u);
+    if (cancelled?.call() ?? false) return null;
     if (p != null) return p;
   }
   return null;
@@ -9091,17 +9094,37 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final pingSec = nationalMode || indestructibleMode ? 10 : 7;
         var pingUsed = 0;
         // VERIFYCAP: فقط اتصال عادی/خلبان: کل مرحله‌ی تأیید تونل حداکثر ۲۵ ثانیه. نت ملی بدون محدودیت (دست نخورده)
-        final verifyDeadline = pingT0.add(Duration(
+        final verifyBudget = Duration(
             seconds: nationalMode
                 ? kNatPingDeadlineSec // NATPINGCAP: نت ملی هم سقف دارد
-                : (s.personal ? 1 : 25))); // PERS1S: سرور شخصی ۱ ثانیه، بقیه ۲۵ ثانیه
-        for (var i = 0; i < pingTries && p == null && !abort && DateTime.now().isBefore(verifyDeadline); i++) {
+                : (s.personal ? 1 : 25)); // PERS1S: سرور شخصی ۱ ثانیه، بقیه ۲۵ ثانیه
+        final verifyClock = Stopwatch()..start();
+        Duration verifyRemaining() => verifyBudget - verifyClock.elapsed;
+        for (var i = 0;
+            i < pingTries &&
+                p == null &&
+                !abort &&
+                verifyRemaining() > Duration.zero;
+            i++) {
+          final remaining = verifyRemaining();
+          if (remaining <= Duration.zero) break;
+          final perEndpointBudget = Duration(
+              microseconds: max(1, remaining.inMicroseconds ~/ 2));
           pingUsed++;
           p = await pingAny(
-              total: Duration(seconds: pingSec), direct: true, tries: 2, networkAware: true);
-          if (p == null) {
-            await Future.delayed(Duration(
-                milliseconds: nationalMode ? 600 : 300));
+            total: perEndpointBudget,
+            direct: true,
+            tries: 2,
+            networkAware: true,
+            cancelled: () => abort || !wantVpn,
+          );
+          if (p == null && !abort && wantVpn) {
+            final pauseBudget = verifyRemaining();
+            if (pauseBudget > Duration.zero) {
+              await Future.delayed(pauseBudget < const Duration(milliseconds: 300)
+                  ? pauseBudget
+                  : const Duration(milliseconds: 300));
+            }
           }
         }
         // A cancelled connection is not evidence that this server is unhealthy.
@@ -9177,9 +9200,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // PINGRETRY: the first ping after connect is often slow while the tunnel
         // warms up (9346 ms seen in the logs); measure once more before judging
         if (p != null && p > badPingMs && !abort) {
-          await Future.delayed(const Duration(seconds: 3));
-          final p2 = await pingAny(total: Duration(seconds: pingSec), direct: true, tries: 2, networkAware: true);
-          if (p2 != null && p2 < p) p = p2;
+          final pauseBudget = verifyRemaining();
+          if (pauseBudget > Duration.zero) {
+            await Future.delayed(pauseBudget < const Duration(seconds: 3)
+                ? pauseBudget
+                : const Duration(seconds: 3));
+          }
+          final remaining = verifyRemaining();
+          if (remaining > Duration.zero && !abort && wantVpn) {
+            final perEndpointBudget = Duration(
+                microseconds: max(1, remaining.inMicroseconds ~/ 2));
+            final p2 = await pingAny(
+              total: perEndpointBudget,
+              direct: true,
+              tries: 2,
+              networkAware: true,
+              cancelled: () => abort || !wantVpn,
+            );
+            if (p2 != null && p2 < p) p = p2;
+          }
         }
         // BADPINGLOOP: connected but the ping through the tunnel is bad
         if (p > badPingMs && badPingRounds < badPingMaxRounds) {
