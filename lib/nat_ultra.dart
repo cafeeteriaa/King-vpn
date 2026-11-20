@@ -1549,6 +1549,9 @@ Future<void> natDetectOperator() async {
     final k = asn.isEmpty ? type : '$type|AS$asn';
     if (k != natOpKey) {
       natOpKey = k;
+      // A provisional winner belongs to the operator/network that produced
+      // its delay evidence. Never let it survive a carrier or Wi-Fi handoff.
+      natVarCandidates.clear();
       dbg('شبکه/اپراتور: $k');
     }
   } catch (e, stk) { logError(e, stk); }
