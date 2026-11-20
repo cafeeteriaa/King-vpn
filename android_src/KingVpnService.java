@@ -164,6 +164,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private final AtomicInteger inFlight = new AtomicInteger(0);
     /** True while a stopCore call is still running on its thread (it may hang). Core is fenced. */
     private volatile boolean coreStopping = false;
+    /** Close the TUN only after a timed-out native stop has actually returned. */
+    private boolean closeTunAfterCoreStop = false;
     /**
      * A native call (startCore/stopCore) that does not return cannot be killed from Java.
      * If one stays busy longer than HUNG_NATIVE_MS, the only real recovery is a fresh
@@ -551,11 +553,16 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * still running after STOP_CORE_WAIT_MS the core stays fenced (coreStopping) until
      * that call returns, and no start is allowed in the meantime.
      */
-    private void stopCoreNow() {
+    private boolean stopCoreNow() {
         V2rayCoreManager core = V2rayCoreManager.getInstance();
-        if (coreStopping) return;
-        if (!core.isV2rayCoreRunning()) return;
-        coreStopping = true;
+        synchronized (tunLock) {
+            if (coreStopping) {
+                closeTunAfterCoreStop = true;
+                return false;
+            }
+            if (!core.isV2rayCoreRunning()) return true;
+            coreStopping = true;
+        }
         Thread t = new Thread(() -> {
             try {
                 core.stopCore();
@@ -563,7 +570,14 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 Log.e(TAG, "stopCore failed", ex);
             } finally {
                 endNative();
-                coreStopping = false;
+                synchronized (tunLock) {
+                    coreStopping = false;
+                    if (closeTunAfterCoreStop) {
+                        closeQuietly(tun);
+                        tun = null;
+                        closeTunAfterCoreStop = false;
+                    }
+                }
             }
         });
         t.setDaemon(true);
@@ -574,8 +588,15 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
         }
-        if (coreStopping) {
-            Log.w(TAG, "stopCore still running; core stays fenced until it returns");
+        synchronized (tunLock) {
+            if (coreStopping) {
+                // The native core may still be using its TUN descriptor. Defer closing it
+                // to the stop thread instead of tearing the interface out from underneath it.
+                closeTunAfterCoreStop = true;
+                Log.w(TAG, "stopCore still running; TUN close deferred until native stop returns");
+                return false;
+            }
+            return true;
         }
     }
 
@@ -660,13 +681,14 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             if (!isCurrent(myAttempt)) {
                 // Superseded while startCore ran. We still hold coreLock, so no other
                 // attempt has touched the core; undo our own start and leave.
-                if (ok) stopCoreNow();
-                closeTun();
+                boolean stopped = !ok || stopCoreNow();
+                if (stopped) closeTun();
                 return false;
             }
             if (!ok) {
                 lastError = "core startCore returned false";
-                closeTun();
+                boolean stopped = !core.isV2rayCoreRunning() || stopCoreNow();
+                if (stopped) closeTun();
             }
             return ok;
         } finally {
@@ -951,8 +973,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             }
             if (locked) {
                 try {
-                    stopCoreNow();
-                    closeTun();
+                    boolean stopped = stopCoreNow();
+                    if (stopped) closeTun();
                 } catch (Exception e) {
                     Log.e(TAG, "stopEverything core stop failed", e);
                 } finally {

@@ -1362,6 +1362,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (fallbackStop) runFallback(this::stopEverything);', destroy)
 
 
+    def test_vpn_service_defers_tun_close_until_timed_out_native_stop_returns(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = service.index('private boolean stopCoreNow()')
+        end = service.index('/**\n     * Worker-side start of one attempt.', start)
+        stop = service[start:end]
+        self.assertIn('closeTunAfterCoreStop = true;', stop)
+        self.assertIn('closeQuietly(tun);', stop)
+        self.assertIn('return false;', stop)
+        self.assertLess(stop.index('core.stopCore();'), stop.index('if (closeTunAfterCoreStop)'))
+        stale = service[service.index('// Superseded while startCore ran'):service.index('return ok;', service.index('// Superseded while startCore ran'))]
+        self.assertIn('if (stopped) closeTun();', stale)
+        cleanup = service[service.index('private void stopEverything()'):service.index('private void closeTun()')]
+        self.assertIn('if (stopped) closeTun();', cleanup)
+
     def test_android_backup_excludes_vpn_credentials_and_local_ai_secrets(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         backup = (ROOT / 'android_src' / 'king_backup_rules.xml').read_text(encoding='utf-8')
