@@ -1326,5 +1326,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (!ok)', importer)
 
 
+    def test_king_extras2_has_one_complete_declaration_set(self):
+        source = (ROOT / 'lib' / 'king_extras2.dart').read_text(encoding='utf-8')
+        self.assertIn("import 'dart:io';", source)
+        for declaration in (
+            'class CheckHostResult',
+            'bool _checkHostNodeReached',
+            'class KingExtrasPage',
+            'Future<CfDeployResult> cloudflareAutoDeploy',
+            'class CloudflareAutoDeployPage',
+        ):
+            self.assertEqual(source.count(declaration), 1, declaration)
+        self.assertNotIn(').hasMatch(normalizedHost);\\n    if (normalizedHost.isEmpty', source)
+
+
 if __name__ == '__main__':
     unittest.main()
