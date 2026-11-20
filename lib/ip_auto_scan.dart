@@ -321,7 +321,7 @@ extension IpAutoExt on _HomePageState {
     );
     if (addressBatch == null || halted()) return false;
     final addrs = addressBatch.addresses;
-    if (addrs.isEmpty) {
+    if (addrs.isEmpty && ipAutoPendingCore.isEmpty) {
       say('آدرسی برای اسکن پیدا نشد.');
       return false;
     }
