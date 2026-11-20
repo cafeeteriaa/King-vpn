@@ -120,10 +120,12 @@ jobs:
           fi
           python3 tools/configure_release_signing.py "$GRADLE_APP"
 
-      - name: Build signed release APK
+      - name: Build and verify signed release APK
         working-directory: build_app
         env:
           CGO_LDFLAGS: "-Wl,-z,max-page-size=16384"
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
@@ -132,11 +134,41 @@ jobs:
             echo "::error::Release tag must be vMAJOR.MINOR.PATCH (for example v1.2.3)."
             exit 1
           fi
-          flutter build apk --release --obfuscate --split-debug-info=build/symbols --target-platform android-arm64 --split-per-abi \
-            --build-name "$VERSION" \
-            --build-number "$GITHUB_RUN_NUMBER" \
-            --dart-define=KING_APP_BUILD="$GITHUB_RUN_NUMBER"
-          test -s build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          APK="build/app/outputs/flutter-apk/app-arm64-v8a-release.apk"
+          for attempt in 1 2 3; do
+            echo "Signed APK build attempt ${attempt}/3"
+            attempt_log="signed-build-attempt-${attempt}.log"
+            if flutter build apk --release --obfuscate --split-debug-info=build/symbols --target-platform android-arm64 --split-per-abi \
+              --build-name "$VERSION" \
+              --build-number "$GITHUB_RUN_NUMBER" \
+              --dart-define=KING_APP_BUILD="$GITHUB_RUN_NUMBER" 2>&1 | tee "$attempt_log"; then
+              break
+            fi
+            if grep -Eq 'Error on ZipFile unknown archive|NDK.*(corrupt|not found)' "$attempt_log"; then
+              echo "Transient Android NDK archive failure; removing incomplete SDK files."
+              SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Android/Sdk}}"
+              rm -rf "$SDK_ROOT/ndk/28.2.13676358" "$SDK_ROOT/.temp"
+            elif ! grep -Eq 'Could not (find|resolve) org[.]jetbrains[.]kotlin:|Received status code (429|5[0-9][0-9])' "$attempt_log"; then
+              echo "Signed APK build failed for a non-transient reason; stopping retries."
+              exit 1
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              delay=$((attempt * 30))
+              echo "Transient Android toolchain/dependency failure; retrying in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+          test -s "$APK"
+          APKSIGNER="$(find "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          APK_SIGNATURE_REPORT="$("$APKSIGNER" verify --verbose --print-certs "$APK")"
+          printf '%s\n' "$APK_SIGNATURE_REPORT"
+          APK_CERT_SHA256="$(printf '%s\n' "$APK_SIGNATURE_REPORT" | sed -n 's/.*certificate SHA-256 digest: //p' | head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          KEY_CERT_SHA256="$(keytool -exportcert -keystore android/app/king-release.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" | sha256sum | awk '{print $1}')"
+          if [ -z "$APK_CERT_SHA256" ] || [ "$APK_CERT_SHA256" != "$KEY_CERT_SHA256" ]; then
+            echo "::error::APK signer certificate does not match the protected production keystore."
+            exit 1
+          fi
 
       - name: Upload Dart obfuscation symbols
         if: success()

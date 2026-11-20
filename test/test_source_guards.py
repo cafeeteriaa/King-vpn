@@ -1432,6 +1432,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn(r'r"<service\b(?=[^>]*android:name=', prepare)
         self.assertNotIn(r'\\n    ', prepare)
 
+    def test_signed_release_retries_only_transient_build_failures_and_verifies_signer(self):
+        release = (ROOT / '.github' / 'workflows' / 'signed-release.yml').read_text(encoding='utf-8')
+        self.assertIn('for attempt in 1 2 3;', release)
+        self.assertIn("Error on ZipFile unknown archive|NDK.*(corrupt|not found)", release)
+        self.assertIn('APK_SIGNATURE_REPORT="$("$APKSIGNER" verify --verbose --print-certs "$APK")"', release)
+        self.assertIn('KEY_CERT_SHA256="$(keytool -exportcert', release)
+        self.assertIn('APK_CERT_SHA256" != "$KEY_CERT_SHA256"', release)
+        self.assertIn('does not match the protected production keystore', release)
+
     def test_android_builds_include_required_webview_and_arm64_split(self):
         build = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
         release = (ROOT / '.github' / 'workflows' / 'signed-release.yml').read_text(encoding='utf-8')
