@@ -82,6 +82,25 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_dnsPickLastSucceeded = true;', picker)
         self.assertIn('_dnsPickLastSucceeded = false;', picker)
 
+    def test_native_start_and_resume_suppress_late_events_after_user_stop(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private void startFlow(')
+        end = source.index('private void resumeSaved()', start)
+        flow = source[start:end]
+        stop_guard = flow.index('if (stopping)', flow.index('boolean connectedNow = connectFrom(0);'))
+        connected_event = flow.index('emit("CONNECTED"', stop_guard)
+        failed_event = flow.index('emit("FAILED"', stop_guard)
+        self.assertLess(stop_guard, connected_event)
+        self.assertLess(stop_guard, failed_event)
+        self.assertIn('stopEverything();', flow[stop_guard:connected_event])
+        resume_start = source.index('private void resumeSaved()')
+        resume_end = source.index('private boolean connectFrom(', resume_start)
+        resume = source[resume_start:resume_end]
+        guard = resume.index('if (stopping)', resume.index('boolean connectedNow = connectFrom(currentIdx);'))
+        save = resume.index('saveState();', guard)
+        self.assertLess(guard, save)
+        self.assertIn('stopEverything();', resume[guard:save])
+
     def test_native_watchdog_requires_corroborated_domestic_evidence_and_mode_snapshot(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = service.index('private ProbeResult probeResult(boolean modeSnapshot)')

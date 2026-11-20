@@ -371,7 +371,14 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             currentIdx = 0; // جدید: new list starts at 0; a stale index from the last session was saved before
             fails = 0;      // جدید
             saveState(); // persist the pending list first, so a restart mid-connect can resume it
-            if (connectFrom(0)) {
+            boolean connectedNow = connectFrom(0);
+            // A user stop can arrive while the worker is waiting for native startCore.
+            // Never emit a late CONNECTED/FAILED event after that cancellation.
+            if (stopping) {
+                stopEverything();
+                return;
+            }
+            if (connectedNow) {
                 saveState();
                 startWatchdog(CHECK_EVERY_SEC);
                 emit("CONNECTED", "", attempt); // جدید
@@ -392,7 +399,12 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 return;
             }
             startForegroundSafe(servers.get(currentIdx).remark);
-            if (connectFrom(currentIdx)) {
+            boolean connectedNow = connectFrom(currentIdx);
+            if (stopping) {
+                stopEverything();
+                return;
+            }
+            if (connectedNow) {
                 saveState();
                 startWatchdog(CHECK_EVERY_SEC);
                 return;
