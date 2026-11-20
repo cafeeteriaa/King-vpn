@@ -1483,6 +1483,54 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(escalate.index('if (abort || modeChanged()) return;', escalate.index('await natRangeScanStep(')),
                         escalate.index('await _natRangeAdd(ips);'))
 
+    def test_connect_loop_cancellation_does_not_penalize_or_accept_server(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<bool> _connectLoop(')
+        end = main.index('// REAL speed test right after connecting', start)
+        body = main[start:end]
+        ping_loop = body.index('for (var i = 0; i < pingTries')
+        ping_guard = body.index('if (abort || !wantVpn) {', ping_loop)
+        ping_log = body.index('dbg(p == null', ping_loop)
+        self.assertLess(ping_guard, ping_log)
+        null_branch = body.index('if (p == null) {', ping_loop)
+        stop = body.index('await _stopV2();', null_branch)
+        stop_guard = body.index('if (abort || !wantVpn) {', stop)
+        ladder = body.index('final ladderOk = await _natLadder', null_branch)
+        ladder_guard = body.index('if (abort || !wantVpn) {', ladder)
+        connected = body.index('_onConnected(s);', ladder)
+        self.assertLess(stop, stop_guard)
+        self.assertLess(stop_guard, ladder)
+        self.assertLess(ladder, ladder_guard)
+        self.assertLess(ladder_guard, connected)
+        resolve = body.index('final ip1 = await resolveHostIp(s.host);', null_branch)
+        resolve_guard = body.index('if (abort || !wantVpn) {', resolve)
+        record = body.index('NationalNetworkIntelligence.record(', resolve)
+        bad_at = body.index('s.badAt = DateTime.now();', resolve)
+        self.assertLess(resolve, resolve_guard)
+        self.assertLess(resolve_guard, record)
+        self.assertLess(record, bad_at)
+        restore = body.index('if (!await _start(s)) {', body.index('if (!sub) {'))
+        restore_guard = body.index('if (abort || !wantVpn) {', restore)
+        restore_penalty = body.index('siteSkips++;', restore)
+        self.assertLess(restore_guard, restore_penalty)
+
+    def test_generated_android_host_installs_vpn_background_method_channel(self):
+        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        activity = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
+        self.assertIn("shutil.copy('android_src/MainActivity.kt', os.path.join(ka, 'MainActivity.kt'))", prepare)
+        self.assertIn('MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "vpn/bg")', activity)
+        self.assertIn('"vpnSettings" ->', activity)
+        self.assertIn('"alive" ->', activity)
+        self.assertIn('engineAttached && !isFinishing && !isDestroyed', activity)
+        self.assertIn('VPN_SETTINGS_UNAVAILABLE', activity)
+
+    def test_android_ndk_archive_failure_has_bounded_retry_and_cleanup(self):
+        workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
+        self.assertIn("grep -Eq 'Error on ZipFile unknown archive|NDK.*(corrupt|not found)'", workflow)
+        self.assertIn('rm -rf "$SDK_ROOT/ndk/28.2.13676358" "$SDK_ROOT/.temp"', workflow)
+        self.assertIn('for attempt in 1 2 3;', workflow)
+        self.assertIn('Transient Android NDK archive failure', workflow)
+
     def test_backup_restore_has_single_hardened_exporter(self):
         backup = (ROOT / 'lib' / 'backup_restore.dart').read_text(encoding='utf-8')
         self.assertEqual(backup.count('Future<String> bkpExportJson() async {'), 1)

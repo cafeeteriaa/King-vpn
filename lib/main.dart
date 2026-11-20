@@ -9104,6 +9104,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 milliseconds: nationalMode ? 600 : 300));
           }
         }
+        // A cancelled connection is not evidence that this server is unhealthy.
+        if (abort || !wantVpn) {
+          await _stopV2();
+          _nnieClearAttempt(s);
+          return false;
+        }
         personalPingPassed = p != null && s.personal;
         dbg(p == null
             ? 'اتصال: ${s.name} هسته CONNECTED ولی پینگ از تونل رد نشد '
@@ -9120,8 +9126,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // traffic: try the next ranked variants of the SAME server first
           if (!abort && wantVpn && _ladderUsedThisConnect < 2) {
             _ladderUsedThisConnect++;
-            if (await _natLadder(s,
-                socialGate: _tunnelTrafficOk, maxTries: 3)) {
+            final ladderOk = await _natLadder(s,
+                socialGate: _tunnelTrafficOk, maxTries: 3);
+            if (abort || !wantVpn) {
+              _nnieClearAttempt(s);
+              return false;
+            }
+            if (ladderOk) {
               _onConnected(s);
               return true;
             }
@@ -9129,18 +9140,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // Record a server-level failure only after the same-server
           // variant ladder also failed to pass real tunnel traffic. A core
           // CONNECTED state or a failed first variant alone is not enough.
-          if (!abort && wantVpn) {
-            final failedElapsedMs = _nnieFinishAttempt(s) ?? 0;
-            unawaited(NationalNetworkIntelligence.record(
-              endpointKey: NationalNetworkIntelligence.keyOfServer(s),
-              success: false,
-              elapsedMs: failedElapsedMs,
-              stableForFiveMinutes: false,
-            ));
-          } else {
+          if (abort || !wantVpn) {
             _nnieClearAttempt(s);
+            return false;
           }
           final ip1 = await resolveHostIp(s.host);
+          if (abort || !wantVpn) {
+            _nnieClearAttempt(s);
+            return false;
+          }
+          final failedElapsedMs = _nnieFinishAttempt(s) ?? 0;
+          unawaited(NationalNetworkIntelligence.record(
+            endpointKey: NationalNetworkIntelligence.keyOfServer(s),
+            success: false,
+            elapsedMs: failedElapsedMs,
+            stableForFiveMinutes: false,
+          ));
           dbg(configFailMsg(
             s.link,
             'پینگ از داخل تونل',
@@ -9214,6 +9229,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             if (!sub) {
               // جایگزینی نبود: پایه‌ی قبلاً سالم را دوباره بالا می‌آوریم
               if (!await _start(s)) {
+                if (abort || !wantVpn) {
+                  _nnieClearAttempt(s);
+                  return false;
+                }
                 siteSkips++;
                 s.svc = 0;
                 s.badAt = DateTime.now();
