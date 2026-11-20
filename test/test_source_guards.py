@@ -2815,6 +2815,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (identityAfterProbe != identity)', pilot)
         self.assertIn('_lastAt = null;', pilot)
         self.assertIn('_lastIdentity = null;', pilot)
+        self.assertIn('identity.isNotEmpty && lastAt != null', pilot)
+        self.assertIn('_lastAt = identity.isNotEmpty ? DateTime.now() : null;', pilot)
+        self.assertIn('id.isNotEmpty && at != null', diagnosis)
+        self.assertIn('_checkedAt = id.isNotEmpty ? DateTime.now() : null;', diagnosis)
+        self.assertIn('_checkedAt = null;', diagnosis[diagnosis.index('} catch (e, st)'):])
 
 
     def test_stable_tunnel_evidence_is_discarded_after_network_mode_switch(self):
