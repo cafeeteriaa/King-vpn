@@ -268,6 +268,9 @@ void main() {
         0xc0, 0x0c, ..._u16(5), ..._u16(1), 0, 0, 0, 60, ..._u16(1),
         0xc0, 0x0c,
       ]);
+      // The low pointer byte (0x0c) is also the next RR owner's first
+      // label length; append the rest of the queried name to make that RR valid.
+      bytes.addAll(query.sublist(13, 30));
       bytes.addAll([
         ..._u16(1), ..._u16(1), 0, 0, 0, 60, ..._u16(4), 8, 8, 8, 8,
       ]);
