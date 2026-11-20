@@ -1556,5 +1556,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
+    def test_personal_server_builder_points_to_local_king_ai(self):
+        source = (ROOT / 'lib' / 'king_extras2.dart').read_text(encoding='utf-8')
+        self.assertIn('هوش داخلی King AI', source)
+        self.assertIn('راهنمای داخل برنامه', source)
+        self.assertNotIn('هوش مصنوعی Claude', source)
+
+
 if __name__ == '__main__':
     unittest.main()

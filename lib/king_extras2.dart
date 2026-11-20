@@ -1079,7 +1079,7 @@ class _CloudflareAutoDeployPageState extends State<CloudflareAutoDeployPage> {
             ],
             const SizedBox(height: 16),
             const Text(
-              'اگر نتونستین انجام بدین از هوش مصنوعی Claude کمک بگیرین',
+              'اگر در انجام مراحل به مشکل خوردید، از راهنمای داخل برنامه و هوش داخلی King AI برای بررسی و عیب‌یابی کمک بگیرید.',
               style: TextStyle(color: Colors.white70, height: 1.6),
             ),
             const SizedBox(height: 24),
