@@ -1286,9 +1286,11 @@ extension HomeExtras on _HomePageState {
 
               Future<void> saveToken() async {
                 try {
-                  await KingLocalAi.instance.saveGitHubToken(tokenC.text);
+                  final token = tokenC.text;
+                  await KingLocalAi.instance.saveGitHubToken(token);
+                  if (!ctx.mounted) return;
                   tokenC.clear();
-                  if (ctx.mounted) setS(() => tokenSaved = true);
+                  setS(() => tokenSaved = true);
                   aiText.value = 'توکن GitHub به‌صورت امن روی همین گوشی ذخیره شد.';
                 } catch (e) {
                   aiText.value = 'ذخیره توکن انجام نشد: $e';
