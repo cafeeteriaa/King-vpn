@@ -180,9 +180,9 @@ extension IpAutoExt on _HomePageState {
       final gapMs = ipAutoHits.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
       if (now - last < gapMs) return;
 
-      await _ipAutoRunOnce((s) => ipAutoStatus = s);
-      // فقط اسکن کامل در همان حالت ذخیره می‌شود؛ تغییر حالت، اجرای فعلی را باطل می‌کند.
-      if (!_ipAutoHalt(modeSnapshot: runNationalMode)) {
+      final completed = await _ipAutoRunOnce((s) => ipAutoStatus = s);
+      // Failed, cancelled, or mode-switched scans must not consume the retry interval.
+      if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode)) {
         await p.setString(_ipAutoAtKey, now.toString());
       }
     } catch (e, stk) {
@@ -227,10 +227,10 @@ extension IpAutoExt on _HomePageState {
     }
   }
 
-  Future<void> _ipAutoRunOnce(void Function(String) say, {bool manual = false}) async {
+  Future<bool> _ipAutoRunOnce(void Function(String) say, {bool manual = false}) async {
     final runNationalMode = nationalMode;
     bool halted() => _ipAutoHalt(modeSnapshot: runNationalMode);
-    if (halted()) return;
+    if (halted()) return false;
 
     // A national scan uses the national hot-source/template pipeline; it must
     // not fetch or fall back to the global discovered-server pool.
@@ -239,7 +239,7 @@ extension IpAutoExt on _HomePageState {
       say('دریافت الگوهای مستقل نت ملی...');
       try {
         final nationalSeeds = await natHotNext(50, fetch: false);
-        if (halted()) return;
+        if (halted()) return false;
         if (nationalSeeds.isNotEmpty) {
           natTemplateSeeds = nationalSeeds.take(2).toList();
           pool = [...nationalSeeds, ...good, ...pending];
@@ -248,7 +248,7 @@ extension IpAutoExt on _HomePageState {
         }
       } catch (e, stk) {
         logError(e, stk);
-        if (halted()) return;
+        if (halted()) return false;
         pool = <Server>[...natTemplateSeeds, ...good, ...pending];
       }
     } else {
@@ -257,16 +257,16 @@ extension IpAutoExt on _HomePageState {
         pool = await fetchServers(stop: () => halted(), quickCap: 200);
       } catch (e, stk) {
         logError(e, stk);
-        if (halted()) return;
+        if (halted()) return false;
         pool = <Server>[];
       }
-      if (halted()) return;
+      if (halted()) return false;
       if (pool.isEmpty) pool = <Server>[...good, ...pending, ...fetchedAll];
     }
-    if (halted()) return;
+    if (halted()) return false;
     if (pool.isEmpty) {
       say('دریافت لیست سرورها ناموفق بود. اینترنت را بررسی کنید و دوباره اجرا کنید.');
-      return;
+      return false;
     }
     final tpl = pool.take(2).toList();
     say('ساخت آدرس‌ها...');
@@ -274,10 +274,10 @@ extension IpAutoExt on _HomePageState {
       runNationalMode ? const <Server>[] : [...good, ...pending, ...fetchedAll],
       shouldAbort: halted,
     );
-    if (halted()) return;
+    if (halted()) return false;
     if (addrs.isEmpty) {
       say('آدرسی برای اسکن پیدا نشد.');
-      return;
+      return false;
     }
     final ports = natAutoPorts(pool).take(_ipAutoPorts).toList();
     if (ports.isEmpty) ports.add(443);
@@ -296,7 +296,7 @@ extension IpAutoExt on _HomePageState {
         timeout: const Duration(milliseconds: 1500),
         cancelled: halted,
       );
-      if (halted()) return;
+      if (halted()) return false;
       for (final h in hits) {
         candidates.add('${h.ip}|$port');
       }
@@ -321,13 +321,13 @@ extension IpAutoExt on _HomePageState {
       final ipLink = _natSetPort(_natSetHost(tplSrv.link, ip, tplSrv.host), port);
       final s = Server(ipLink, tplSrv.name, ip, port);
       final firstOk = await _ipAutoCoreOk(s, url);
-      if (halted()) return;
+      if (halted()) return false;
       if (!firstOk) {
         say('تست $checked/${toTest.length} • جواب‌داده: $found');
         continue;
       }
       final secondOk = await _ipAutoCoreOk(s, url);
-      if (halted()) return;
+      if (halted()) return false;
       if (!secondOk) {
         say('تست $checked/${toTest.length} • جواب‌داده: $found');
         continue;
@@ -342,9 +342,12 @@ extension IpAutoExt on _HomePageState {
       }
       say('تست $checked/${toTest.length} • جواب‌داده: $found');
     }
-    say(ipAutoStopFlag
-        ? 'متوقف شد. $found IP جدید در حالت ${runNationalMode ? 'نت ملی' : 'جهانی'}.'
-        : 'تمام شد: $found IP جدید در حالت ${runNationalMode ? 'نت ملی' : 'جهانی'}.');
+    if (halted()) {
+      say('متوقف شد؛ نتایج این اجرا کامل نیستند.');
+      return false;
+    }
+    say('تمام شد: $found IP جدید در حالت ${runNationalMode ? 'نت ملی' : 'جهانی'}.');
+    return true;
   }
 
   Future<void> ipAutoSheet(BuildContext ctx0) async {

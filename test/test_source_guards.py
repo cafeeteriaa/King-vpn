@@ -1393,6 +1393,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('<device-transfer>', extraction)
         self.assertIn('<cloud-backup>', extraction)
 
+    def test_ip_auto_background_only_advances_retry_clock_after_complete_scan(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> _ipAutoRunOnce(')
+        end = source.index('Future<void> ipAutoSheet', start)
+        scan = source[start:end]
+        self.assertIn('if (halted()) return false;', scan)
+        self.assertIn('return true;', scan)
+        bg_start = source.index('Future<void> ipAutoBackground()')
+        bg_end = source.index('/// دلیل رد شدن شروع اسکن', bg_start)
+        background = source[bg_start:bg_end]
+        completed = background.index('final completed = await _ipAutoRunOnce(')
+        timestamp = background.index('await p.setString(_ipAutoAtKey, now.toString());')
+        self.assertIn('if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode))', background)
+        self.assertLess(completed, timestamp)
+
     def test_test_methods_are_unique(self):
         import ast
         source = Path(__file__).read_text(encoding='utf-8')
