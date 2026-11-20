@@ -217,28 +217,24 @@ def replace_function_braces(file_key, sig_regex, new_func, label):
 # ---- 1) AndroidManifest + native files ----
 mp = os.path.join(APP, 'android/app/src/main/AndroidManifest.xml')
 m = open(mp, encoding='utf-8').read()
-perms = ('<uses-permission android:name="android.permission.INTERNET"/>\n'
-         '    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n'
-         '    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>\n'
-         '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>\n'
-         '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>\n'
-         '    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>\n'
-         '    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n'
-         '    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>\n    ')
-if 'QUERY_ALL_PACKAGES' not in m:
-    m = m.replace('<application', perms + '<application', 1)
-if 'android.permission.RECORD_AUDIO' not in m:
-    m = m.replace(
-        '<application',
-        '    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <application',
-        1,
-    )
-if 'android.permission.REQUEST_INSTALL_PACKAGES' not in m:
-    m = m.replace(
-        '<application',
-        '    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>\n    <application',
-        1,
-    )
+required_permissions = (
+    'android.permission.INTERNET',
+    'android.permission.RECORD_AUDIO',
+    'android.permission.QUERY_ALL_PACKAGES',
+    'android.permission.FOREGROUND_SERVICE',
+    'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
+    'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+    'android.permission.POST_NOTIFICATIONS',
+    'android.permission.REQUEST_INSTALL_PACKAGES',
+)
+if '<application' not in m:
+    raise SystemExit('HARD FAIL: AndroidManifest.xml has no application element')
+# Add each permission independently. A partially pre-populated manifest must
+# not suppress unrelated permissions just because QUERY_ALL_PACKAGES exists.
+for permission in required_permissions:
+    if f'android:name="{permission}"' not in m:
+        declaration = f'    <uses-permission android:name="{permission}"/>\\n    '
+        m = m.replace('<application', declaration + '<application', 1)
 # speech_to_text uses Android's system recognizer. Keep recognition on-device
 # in Dart and declare package visibility for Android 11+ even when Flutter's
 # generated manifest already contains an unrelated <queries> block.
@@ -256,8 +252,30 @@ SVC = ('<service android:name="dev.amirzr.flutter_v2ray_client.v2ray.services.V2
        '            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"\n'
        '                      android:value="local proxy core for the user"/>\n'
        '        </service>\n    ')
-if 'foregroundServiceType' not in m and '</application>' in m:
+proxy_service_name = 'dev.amirzr.flutter_v2ray_client.v2ray.services.V2rayProxyOnlyService'
+if proxy_service_name not in m and '</application>' in m:
     m = m.replace('</application>', SVC + '</application>', 1)
+elif proxy_service_name in m:
+    # Scope the foreground-service check to this service. Another service's
+    # foregroundServiceType must not suppress the VPN plugin declaration.
+    service_match = re.search(
+        r'<service\\b(?=[^>]*android:name=["\\']' + re.escape(proxy_service_name) +
+        r'["\\'])[^>]*>',
+        m,
+        flags=re.DOTALL,
+    )
+    if service_match and 'android:foregroundServiceType=' not in service_match.group(0):
+        tag = service_match.group(0)
+        updated_tag = tag[:-1] + ' android:foregroundServiceType="specialUse">'
+        m = m[:service_match.start()] + updated_tag + m[service_match.end():]
+    if proxy_service_name in m and 'PROPERTY_SPECIAL_USE_FGS_SUBTYPE' not in m:
+        closing = re.search(r'</service>', m[service_match.end():] if service_match else m)
+        if closing and service_match:
+            insert_at = service_match.end() + closing.start()
+            m = m[:insert_at] + (
+                '\\n            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"'
+                '\\n                      android:value="local proxy core for the user"/>'
+            ) + m[insert_at:]
 KSVC = ('<service android:name="com.kingvpn.king_vpn.KingVpnService"\n'
         '            android:permission="android.permission.BIND_VPN_SERVICE"\n'
         '            android:exported="false"\n'

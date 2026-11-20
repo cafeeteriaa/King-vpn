@@ -1422,6 +1422,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertEqual([], duplicates, f'duplicate test methods: {duplicates}')
 
 
+    def test_android_manifest_permissions_and_proxy_service_are_independently_idempotent(self):
+        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        self.assertIn('for permission in required_permissions:', prepare)
+        self.assertIn('if f\'android:name="{permission}"\' not in m:', prepare)
+        self.assertNotIn("if 'QUERY_ALL_PACKAGES' not in m:", prepare)
+        self.assertIn("if proxy_service_name not in m and '</application>' in m:", prepare)
+        self.assertIn("if service_match and 'android:foregroundServiceType=' not in service_match.group(0):", prepare)
+
     def test_android_builds_include_required_webview_and_arm64_split(self):
         build = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
         release = (ROOT / '.github' / 'workflows' / 'signed-release.yml').read_text(encoding='utf-8')
