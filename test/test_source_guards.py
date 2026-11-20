@@ -1335,6 +1335,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_updateChecked = false;', malformed_config)
         self.assertLess(malformed_config.index('_updateChecked = false;'), malformed_config.index('return;'))
 
+    def test_update_check_releases_guard_when_page_is_disposed(self):
+        update = (ROOT / 'lib' / 'update_check.dart').read_text(encoding='utf-8')
+        start = update.index('Future<void> checkForUpdate()')
+        end = update.index('Future<void> _downloadAndInstallApk(', start)
+        check = update[start:end]
+        self.assertEqual(check.count('if (!mounted) {'), 2)
+        for block in check.split('if (!mounted) {')[1:]:
+            branch = block.split('}', 1)[0]
+            self.assertIn('_updateChecked = false;', branch)
+            self.assertIn('return;', branch)
+
     def test_king_extras2_has_one_complete_declaration_set(self):
         source = (ROOT / 'lib' / 'king_extras2.dart').read_text(encoding='utf-8')
         self.assertIn("import 'dart:io';", source)
