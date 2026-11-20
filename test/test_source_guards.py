@@ -1523,7 +1523,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_fresh_resources_clear_stops_after_disposal(self):
         source = (ROOT / 'lib' / 'fresh_resources_page.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> _clear() async {')
-        end = source.index('@override\\n  Widget build', start)
+        end = source.index('Widget build(BuildContext context)', start)
         method = source[start:end]
         accepted = method.index('final accepted = await showDialog<bool>(')
         first_guard = method.index('if (accepted != true || !mounted) return;', accepted)
