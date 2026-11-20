@@ -1394,12 +1394,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = service.index('/**\n     * Worker-side start of one attempt.', start)
         stop = service[start:end]
         self.assertIn('closeTunAfterCoreStop = true;', stop)
-        self.assertIn('core.isV2rayCoreRunning()', stop)
+        self.assertGreaterEqual(stop.count('core.isV2rayCoreRunning()'), 3)
         self.assertIn('if (!stillRunning && closeTunAfterCoreStop)', stop)
         self.assertIn('native core remains running; retaining TUN', stop)
         self.assertIn('could not verify native core stop; retaining TUN', stop)
+        self.assertIn('could not read core state before stop', stop)
+        self.assertIn('could not verify native core stop', stop)
         self.assertLess(stop.index('core.stopCore();'), stop.index('if (!stillRunning && closeTunAfterCoreStop)'))
-        self.assertLess(stop.index('if (coreStopping)'), stop.index('if (core.isV2rayCoreRunning())'))
+        self.assertLess(stop.index('if (coreStopping)'), stop.index('final boolean running;'))
 
     def test_android_backup_excludes_vpn_credentials_and_local_ai_secrets(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')

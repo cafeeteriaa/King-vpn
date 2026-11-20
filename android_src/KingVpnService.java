@@ -560,7 +560,16 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 closeTunAfterCoreStop = true;
                 return false;
             }
-            if (!core.isV2rayCoreRunning()) {
+            final boolean running;
+            try {
+                running = core.isV2rayCoreRunning();
+            } catch (Throwable stateError) {
+                closeTunAfterCoreStop = true;
+                lastError = "could not read core state before stop";
+                Log.e(TAG, lastError + "; retaining TUN", stateError);
+                return false;
+            }
+            if (!running) {
                 if (closeTunAfterCoreStop) {
                     closeQuietly(tun);
                     tun = null;
@@ -619,7 +628,16 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 Log.w(TAG, "stopCore still running; TUN close deferred until native stop returns");
                 return false;
             }
-            if (core.isV2rayCoreRunning()) {
+            final boolean stillRunning;
+            try {
+                stillRunning = core.isV2rayCoreRunning();
+            } catch (Throwable stateError) {
+                closeTunAfterCoreStop = true;
+                lastError = "could not verify native core stop";
+                Log.e(TAG, lastError + "; retaining TUN", stateError);
+                return false;
+            }
+            if (stillRunning) {
                 closeTunAfterCoreStop = true;
                 Log.e(TAG, "native core is still running after stop; TUN retained");
                 return false;
