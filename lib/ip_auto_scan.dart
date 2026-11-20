@@ -76,9 +76,12 @@ Future<void> ipAutoLoad() async {
     final savedHits = state != null && state['hits'] is List
         ? (state['hits'] as List).whereType<String>().join('\n')
         : (p.getString(hitsKey) ?? '');
-    final savedPos = state != null && state['position'] is num
-        ? (state['position'] as num).toInt()
+    final rawPosition = state != null && state['position'] is num
+        ? (state['position'] as num)
         : (int.tryParse(p.getString(posKey) ?? '') ?? 0);
+    final savedPos = rawPosition.isFinite && rawPosition >= 0 && rawPosition <= 0x7fffffff
+        ? rawPosition.toInt()
+        : 0;
     final pendingValues = state != null && state['pending'] is List
         ? (state['pending'] as List).whereType<String>()
         : (p.getString(pendingKey) ?? '').split('\n');
@@ -101,14 +104,15 @@ Future<void> ipAutoLoad() async {
             }
           })();
     for (final entry in cursorValues.entries) {
-      if (entry.value is num) {
-        loadedCursors['${entry.key}'] = (entry.value as num).toInt();
+      final value = entry.value;
+      if (value is num && value.isFinite && value >= 0 && value <= 0x7fffffff) {
+        loadedCursors['${entry.key}'] = value.toInt();
       }
     }
     if (nationalMode != loadNationalMode) return;
     ipAutoHits
       ..clear()
-      ..addAll(savedHits.split('\n').where((x) => x.contains('|')));
+      ..addAll(savedHits.split('\n').where(_ipAutoValidPending));
     ipAutoPendingCore
       ..clear()
       ..addAll(loadedPending);
