@@ -146,7 +146,7 @@ Future<_IpAutoAddressBatch?> _ipAutoNextAddrs(
   };
   final gen = await compute(_genAddrsIso, args);
   if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false)) {
-    return const <String>[];
+    return null;
   }
   final all = (gen['addrs'] as List).cast<String>();
   final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);
