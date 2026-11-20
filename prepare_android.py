@@ -332,19 +332,10 @@ for name in ('build.gradle', 'build.gradle.kts'):
         g = re.sub(r'compileSdk\s*=\s*\d+', 'compileSdk = 37', g)
         open(gp, 'w', encoding='utf-8').write(g)
 
-for name in ('build.gradle', 'build.gradle.kts'):
-    gp = os.path.join(APP, 'android/app', name)
-    if not os.path.exists(gp): continue
-    g = open(gp, encoding='utf-8').read()
-    if 'abiFilters' in g: continue
-    is_kts = name.endswith('.kts')
-    ndk_block = ('\n        ndk {\n            abiFilters += listOf("arm64-v8a")\n        }\n' if is_kts
-                 else '\n        ndk {\n            abiFilters "arm64-v8a"\n        }\n')
-    dc = re.search(r'defaultConfig\s*\{', g)
-    if dc:
-        g = g[:dc.end()] + ndk_block + g[dc.end():]
-        open(gp, 'w', encoding='utf-8').write(g)
-print('OK: Gradle')
+# Do not inject ndk.abiFilters when the Flutter build uses --split-per-abi.
+# AGP rejects the combination of ndk abiFilters and splits. The build command
+# already limits target-platform to android-arm64 and creates the matching APK.
+print('OK: Gradle (ABI selection is controlled by Flutter --target-platform/--split-per-abi)')
 
 # Flutter's Gradle plugin is an included build. Its settings are separate from
 # build_app/android/settings.gradle(.kts). The Flutter SDK settings file in
