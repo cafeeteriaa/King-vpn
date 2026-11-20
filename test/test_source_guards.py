@@ -1934,8 +1934,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         dns_lock = body.index('dnsxManualBusy = true;', lock)
         first_await = body.index('await ipAutoLoad();')
         prefs = body.index('await SharedPreferences.getInstance();')
-        load_guard = body.index('if (!nationalMode || _ipAutoHalt()) return;', first_await)
-        prefs_guard = body.index('if (!nationalMode || _ipAutoHalt()) return;', prefs)
+        load_guard = body.index('_ipAutoHalt(modeSnapshot: runNationalMode)', first_await)
+        prefs_guard = body.index('_ipAutoHalt(modeSnapshot: runNationalMode)', prefs)
         run = body.index('await _ipAutoRunOnce(')
         save = body.index('await _ipAutoSave();')
         unlock = body.index('ipAutoBusy = false;', save)
@@ -1947,7 +1947,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(prefs_guard, run)
         self.assertLess(run, save)
         self.assertLess(save, unlock)
-        self.assertIn('if (nationalMode && !_ipAutoHalt())', body)
+        self.assertIn('if (!_ipAutoHalt(modeSnapshot: runNationalMode))', body)
 
     def test_ip_auto_address_generation_does_not_commit_after_stop(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
@@ -2037,7 +2037,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         position = body.index('final startPosSnapshot = ipAutoPos;')
         cursors = body.index('final cursorSnapshot = Map<String, int>.of(ipAutoCursors);')
         compute = body.index('await compute(_genAddrsIso, args)')
-        guard = body.index('if (nationalMode != modeSnapshot) return const <String>[];')
+        guard = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
         mutation = body.index('ipAutoCursors\n    ..clear()')
         generated = body.index("final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);")
         update_pos = body.index('ipAutoPos = start + slice.length;')
