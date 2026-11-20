@@ -2930,6 +2930,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('return expects204 ? code == HttpStatus.noContent : code >= 200 && code < 300;', dart)
         self.assertIn('if (expects204 ? code != HttpStatus.noContent : code < 200 || code >= 300)', dart)
         self.assertIn('request.followRedirects = false;', dart)
+        nat_open_start = dart.index('Future<bool> _natOpen(String url)')
+        nat_open_end = dart.index('Future<void> _natDetect()', nat_open_start)
+        nat_open = dart[nat_open_start:nat_open_end]
+        self.assertIn('req.followRedirects = false;', nat_open)
+        self.assertIn('return expects204 ? code == HttpStatus.noContent : code >= 200 && code < 300;', nat_open)
         self.assertIn('c.setInstanceFollowRedirects(false);', native)
         self.assertIn('url.endsWith("/generate_204")', native)
         self.assertIn('code < 300', native)
