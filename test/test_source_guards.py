@@ -2883,5 +2883,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("_swl('_startWatch#alive', e);", body)
 
 
+    def test_native_watchdog_stops_after_mode_specific_probe_quorum(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = service.index('private ProbeResult probeResult(boolean modeSnapshot)')
+        end = service.index('private ProbeResult probeOne(String url)', start)
+        body = service[start:end]
+        self.assertIn('int required = modeSnapshot ? 2 : 1;', body)
+        self.assertIn('if (nationalMode != modeSnapshot) return ProbeResult.SOFT_FAIL;', body)
+        self.assertIn('if (passed >= required) return ProbeResult.OK;', body)
+        self.assertLess(body.index('nationalMode != modeSnapshot'), body.index('probeOne(u)'))
+
+
 if __name__ == '__main__':
     unittest.main()
