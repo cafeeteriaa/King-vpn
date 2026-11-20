@@ -69,10 +69,13 @@ Future<bool> _autoPortOk(String ip, int port) async {
   }
 }
 
-Future<void> autoScanRun(void Function(String) say) async {
+Future<void> autoScanRun(void Function(String) say,
+    {bool Function()? isVpnActive, bool Function()? isVpnWanted}) async {
+  bool vpnActive() => isVpnActive?.call() ?? false;
+  bool vpnWanted() => isVpnWanted?.call() ?? false;
   // Scanning through an active VPN tunnel can produce misleading direct-IP results
   // and compete with the live tunnel; keep diagnostics idle until it is disconnected.
-  if (connected) {
+  if (vpnActive() || vpnWanted()) {
     say('برای جلوگیری از اختلال، ابتدا VPN را قطع کنید');
     return;
   }
@@ -88,10 +91,10 @@ Future<void> autoScanRun(void Function(String) say) async {
   final scanClock = Stopwatch()..start();
   bool timedOut() => scanClock.elapsed >= scanBudget;
   bool cancelled() =>
-      _autoScanStop || connected || wantVpn || nationalMode != scanNationalMode || timedOut();
+      _autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode || timedOut();
   String cancellationMessage() => timedOut()
       ? 'مهلت سه‌دقیقه‌ای اسکن تمام شد؛ نتایج ناقص ذخیره نشد'
-      : (connected
+      : ((vpnActive() || vpnWanted())
           ? 'با شروع اتصال VPN، اسکن برای جلوگیری از تداخل متوقف شد؛ نتایج ناقص ذخیره نشد'
           : 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');
   try {
@@ -213,7 +216,8 @@ Future<void> autoScanRun(void Function(String) say) async {
   }
 }
 
-Future<void> autoScanSheet(BuildContext context) async {
+Future<void> autoScanSheet(BuildContext context,
+    {bool Function()? isVpnActive, bool Function()? isVpnWanted}) async {
   var status = _autoScanRunning ? 'در حال اجرا...' : 'آماده';
   var open = true;
   StateSetter? setS;

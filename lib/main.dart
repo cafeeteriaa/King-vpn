@@ -11316,7 +11316,7 @@ ListTile( // KINGEXTRAS row
           ((command.contains('ip') || command.contains('آی پی')) && command.contains('اسکن'))) {
         ipAutoSheet(context);
       } else if (!negatesScan && (command.contains('اسکن sni') || command.contains('اسکن پورت'))) {
-        autoScanSheet(context);
+        autoScanSheet(context, isVpnActive: () => connected, isVpnWanted: () => wantVpn);
       } else if (command.contains('ip تمیز') || command.contains('آی پی تمیز')) {
         cleanIpDialog();
       } else if (command.contains('پروکسی تلگرام')) {

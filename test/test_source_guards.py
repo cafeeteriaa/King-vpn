@@ -2399,7 +2399,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         first_await = body.index('await goldLoad();')
         self.assertLess(snapshot, first_await)
         self.assertIn('bool cancelled() =>', body)
-        self.assertIn('_autoScanStop || nationalMode != scanNationalMode || timedOut();', body)
+        self.assertIn('_autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode || timedOut();', body)
         self.assertIn('await goldAddScans(', body)
         self.assertIn('shouldAbort: () => cancelled(),', body)
         self.assertNotIn('if (_autoScanStop)', body)
@@ -2409,7 +2409,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Future<void> autoScanRun(')
         end = source.index('Future<void> autoScanSheet(', start)
         body = source[start:end]
-        self.assertIn('_autoScanStop || connected || wantVpn || nationalMode != scanNationalMode || timedOut();', body)
+        self.assertIn('_autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode || timedOut();', body)
         self.assertIn('با شروع اتصال VPN، اسکن برای جلوگیری از تداخل متوقف شد', body)
         self.assertIn('shouldAbort: () => cancelled(),', body)
 
