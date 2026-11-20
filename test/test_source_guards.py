@@ -2247,13 +2247,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         lookup = body.index('await safeLookup(entry.key)')
         lookup_guard = body.index('if (cancelled()) return const <String>[];', lookup)
         self.assertLess(lookup, lookup_guard)
+        self.assertIn('bool expired() => scanClock.elapsed >= scanBudget;', body)
         scan = body.index('final hits = await natScanIps(')
-        discard = body.index('if ((stop != null && stop()) || scanClock.elapsed >= scanBudget)', scan)
+        discard = body.index('if (cancelled())', scan)
         append = body.index('out.add(', discard)
         self.assertLess(scan, discard)
         self.assertLess(discard, append)
         self.assertIn('return const <String>[];', body[discard:append])
-        self.assertGreaterEqual(body.count('scanClock.elapsed >= scanBudget'), 3)
+        self.assertGreaterEqual(body.count('if (cancelled())'), 5)
 
     def test_nat_ip_scan_never_exceeds_requested_hit_limit_under_concurrency(self):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
