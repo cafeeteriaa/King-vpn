@@ -656,15 +656,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('widget.speakResponses', console)
         self.assertIn("setLanguage('fa-IR')", voice)
 
-    def test_flutter_artifact_path_matches_non_split_release_apk_build(self):
+    def test_flutter_artifact_path_matches_arm64_split_release_apk_build(self):
         workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
-        self.assertIn('flutter build apk --release --obfuscate --split-debug-info=build/symbols --target-platform android-arm64', workflow)
+        self.assertIn('flutter build apk --release --obfuscate --split-debug-info=build/symbols --target-platform android-arm64 --split-per-abi', workflow)
         self.assertIn('Upload Dart obfuscation symbols', workflow)
         self.assertIn('repair-evidence/gradle-build-tail.txt', workflow)
         self.assertIn('repair-evidence/lint/', workflow)
         self.assertIn('king-vpn-symbols-${{ github.run_number }}', workflow)
-        self.assertIn('build_app/build/app/outputs/flutter-apk/app-release.apk', workflow)
-        self.assertNotIn('app-arm64-v8a-release.apk', workflow)
+        self.assertIn('build_app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk', workflow)
         self.assertIn('Report optimized APK size', workflow)
         self.assertIn('king-vpn-arm64-release-${{ github.run_number }}', workflow)
         self.assertIn('king-vpn-full-source-${{ github.run_number }}.zip', workflow)
