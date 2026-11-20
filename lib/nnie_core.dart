@@ -183,24 +183,42 @@ class NatDnsWireProbe {
     var p = start;
     var resume = -1;
     var hops = 0;
+    var wireLength = 1; // Include the terminating root label.
+    var terminated = false;
+    final visited = <int>{};
     while (p < b.length && hops++ < 128) {
+      if (!visited.add(p)) {
+        throw const FormatException('DNS compression pointer loop');
+      }
       final n = b[p];
       if (n == 0) {
         if (resume < 0) resume = p + 1;
+        terminated = true;
         break;
       }
       if ((n & 0xc0) == 0xc0) {
         if (p + 1 >= b.length) throw const FormatException('Bad pointer');
         final ptr = ((n & 0x3f) << 8) | b[p + 1];
+        // RFC 1035 compression references an earlier name in this message.
+        // Reject header offsets, forward references and self-references.
+        if (ptr < 12 || ptr >= p) {
+          throw const FormatException('Invalid DNS compression pointer');
+        }
         if (resume < 0) resume = p + 2;
         p = ptr;
         continue;
       }
-      if (n > 63 || p + 1 + n > b.length) throw const FormatException('Bad label');
+      if ((n & 0xc0) != 0 || n > 63 || p + 1 + n > b.length) {
+        throw const FormatException('Bad label');
+      }
+      wireLength += n + 1;
+      if (wireLength > 255) throw const FormatException('DNS name too long');
       labels.add(ascii.decode(b.sublist(p + 1, p + 1 + n), allowInvalid: false).toLowerCase());
       p += n + 1;
     }
-    if (resume < 0) throw const FormatException('Unterminated name');
+    if (!terminated || resume < 0) {
+      throw const FormatException('Unterminated name');
+    }
     return labels.join('.');
   }
 
