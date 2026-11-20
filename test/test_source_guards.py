@@ -1324,6 +1324,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(importer.index('for (final entry in rawData.entries)'), importer.index('final p = await SharedPreferences.getInstance();'))
         self.assertIn('throw const FormatException', importer)
         self.assertIn('if (!ok)', importer)
+        self.assertIn('final previous = <String, Object?>{', importer)
+        self.assertIn('for (final key in attempted.reversed)', importer)
+        self.assertIn('rollbackFailures', importer)
+        self.assertIn('await _bkpWriteValue(p, entry.key, entry.value)', importer)
+        self.assertIn(').whenComplete(restoreC.dispose);', backup)
 
 
     def test_update_check_retries_when_remote_config_is_not_a_map(self):
