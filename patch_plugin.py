@@ -683,6 +683,99 @@ exact_replace(core, '''        if (countDownTimer != null) {
     private String createNotificationChannelID''', 'P1-36 remove late duration ticker cancellation');
 
 
+
+# P1-37: serialize duration timer callbacks and disconnect under one lock.
+exact_replace(core, '''    private CountDownTimer countDownTimer;''',
+'''    private CountDownTimer countDownTimer;
+    private final Object durationTimerLock = new Object();''',
+'P1-37 duration timer lifecycle lock');
+
+exact_replace(core, '''    private void makeDurationTimer(final Context context, final boolean enable_traffic_statics) {
+        countDownTimer = new CountDownTimer(7200L * 1000L, 1000L) {''',
+'''    private void makeDurationTimer(final Context context, final boolean enable_traffic_statics) {
+        synchronized (durationTimerLock) {
+            if (V2RAY_STATE != AppConfigs.V2RAY_STATES.V2RAY_CONNECTED ||
+                    !isV2rayCoreRunning()) {
+                return;
+            }
+            if (countDownTimer != null) {
+                countDownTimer.cancel();
+                countDownTimer = null;
+            }
+            countDownTimer = new CountDownTimer(7200L * 1000L, 1000L) {''',
+'P1-37 timer creation serialized and state-gated');
+
+exact_replace(core, '''            public void onTick(long millisUntilFinished) {
+
+                seconds++;''',
+'''            public void onTick(long millisUntilFinished) {
+                synchronized (durationTimerLock) {
+                    if (countDownTimer != this ||
+                            V2RAY_STATE != AppConfigs.V2RAY_STATES.V2RAY_CONNECTED ||
+                            !isV2rayCoreRunning()) {
+                        return;
+                    }
+                    seconds++;''',
+'P1-37 tick verifies timer identity and live connection');
+
+exact_replace(core, '''                } catch (Exception e) {
+                    Log.w("V2rayCoreManager", "Failed to send connection info broadcast", e);
+                }
+            }
+
+            public void onFinish() {
+                countDownTimer.cancel();
+                if (V2rayCoreManager.getInstance().isV2rayCoreRunning())
+                    makeDurationTimer(context, enable_traffic_statics);
+            }
+        }.start();
+    }
+
+    /**
+     * Parses''',
+'''                } catch (Exception e) {
+                    Log.w("V2rayCoreManager", "Failed to send connection info broadcast", e);
+                }
+                }
+            }
+
+            public void onFinish() {
+                synchronized (durationTimerLock) {
+                    if (countDownTimer != this) {
+                        return;
+                    }
+                    countDownTimer = null;
+                    if (V2RAY_STATE == AppConfigs.V2RAY_STATES.V2RAY_CONNECTED &&
+                            isV2rayCoreRunning()) {
+                        makeDurationTimer(context, enable_traffic_statics);
+                    }
+                }
+            }
+        }.start();
+        }
+    }
+
+    /**
+     * Parses''',
+'P1-37 finish callback is identity-safe and serialized');
+
+exact_replace(core, '''    private void sendDisconnectedBroadCast() {
+        if (countDownTimer != null) {
+            countDownTimer.cancel();
+            countDownTimer = null;
+        }
+        V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_DISCONNECTED;''',
+'''    private void sendDisconnectedBroadCast() {
+        synchronized (durationTimerLock) {
+            if (countDownTimer != null) {
+                countDownTimer.cancel();
+                countDownTimer = null;
+            }
+            V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_DISCONNECTED;
+        }''',
+'P1-37 disconnect serializes timer cancellation and state change');
+
+
 # VPN service: promote before establishing TUN / starting Xray.
 exact_replace(vpn, '''            if (v2rayConfig == null) {
                 Log.w("V2rayVPNService", "V2RAY_CONFIG is null, cannot start service");

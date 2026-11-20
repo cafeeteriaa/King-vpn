@@ -1716,5 +1716,30 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('countDownTimer = null;', disconnect_replacement)
 
 
+    def test_v2ray_duration_timer_callbacks_are_serialized_and_identity_safe(self):
+        patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+        for marker in (
+            'P1-37 duration timer lifecycle lock',
+            'P1-37 timer creation serialized and state-gated',
+            'P1-37 tick verifies timer identity and live connection',
+            'P1-37 finish callback is identity-safe and serialized',
+            'P1-37 disconnect serializes timer cancellation and state change',
+        ):
+            self.assertIn(marker, patch)
+        self.assertIn('private final Object durationTimerLock = new Object();', patch)
+        self.assertIn('countDownTimer != this', patch)
+        self.assertIn('V2RAY_STATE != AppConfigs.V2RAY_STATES.V2RAY_CONNECTED', patch)
+        self.assertIn('V2RAY_STATE == AppConfigs.V2RAY_STATES.V2RAY_CONNECTED', patch)
+        finish = patch[patch.index('P1-37 finish callback is identity-safe and serialized')-1800:
+                       patch.index('P1-37 finish callback is identity-safe and serialized')]
+        self.assertNotIn('countDownTimer.cancel();', finish)
+        disconnect = patch[patch.index('P1-37 disconnect serializes timer cancellation and state change')-900:
+                           patch.index('P1-37 disconnect serializes timer cancellation and state change')]
+        self.assertIn('synchronized (durationTimerLock)', disconnect)
+        self.assertLess(disconnect.index('countDownTimer.cancel();'),
+                        disconnect.index('V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_DISCONNECTED;'))
+
+
+
 if __name__ == '__main__':
     unittest.main()
