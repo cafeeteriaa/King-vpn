@@ -266,8 +266,11 @@ extension IpAutoExt on _HomePageState {
 
       final last = int.tryParse(p.getString(_ipAutoAtKey) ?? '') ?? 0;
       final now = DateTime.now().millisecondsSinceEpoch;
-      // اگر هنوز IP سالمی پیدا نشده، زودتر دوباره امتحان می‌شود (۶ ساعت)؛ وگرنه هر ۲۴ ساعت
-      final gapMs = ipAutoHits.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
+      // Empty result or a non-empty pending queue needs another bounded pass
+      // sooner; a queue must not wait 24h between batches.
+      final gapMs = ipAutoHits.isEmpty || ipAutoPendingCore.isNotEmpty
+          ? 6 * 3600 * 1000
+          : 24 * 3600 * 1000;
       if (now - last < gapMs) return;
 
       final completed = await _ipAutoRunOnce((s) => ipAutoStatus = s);
