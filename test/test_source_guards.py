@@ -1802,18 +1802,25 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_subscription_import_stops_if_page_disposed_after_fetch(self):
         source = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
-        self.assertRegex(
-            source,
-            r'final list = \\(await fetchSubscription\\(url\\)\\)\\.take\\(300\\)\\.toList\\(\\);\\s*if \\(!mounted\\) return;',
-        )
+        start = source.index('Future<void> importSubscription(BuildContext ctx, String url) async {')
+        end = source.index('void subDialog()', start)
+        method = source[start:end]
+        fetch = method.index('final list = (await fetchSubscription(url)).take(300).toList();')
+        guard = method.index('if (!mounted) return;', fetch)
+        mutation = method.index('favs[s.key] = s.link;', fetch)
+        self.assertLess(fetch, guard)
+        self.assertLess(guard, mutation)
 
     def test_ai_repair_checks_dialog_after_token_lookup(self):
         source = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
-        self.assertRegex(
-            source,
-            r'final hasToken = await KingLocalAi\\.instance\\.hasGitHubToken\\(\\);\\s*if \\(!ctx\\.mounted\\) return;\\s*if \\(!hasToken\\)',
-        )
-
+        start = source.index('Future<void> createRepair() async {')
+        end = source.index('setS(() => working = true);', start)
+        method = source[start:end]
+        lookup = method.index('final hasToken = await KingLocalAi.instance.hasGitHubToken();')
+        guard = method.index('if (!ctx.mounted) return;', lookup)
+        branch = method.index('if (!hasToken)', lookup)
+        self.assertLess(lookup, guard)
+        self.assertLess(guard, branch)
 
 
 if __name__ == '__main__':
