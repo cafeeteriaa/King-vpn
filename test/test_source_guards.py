@@ -1135,6 +1135,378 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("Uri.https('check-host.net', '/check-tcp'", fn)
         self.assertIn("Uri.https('check-host.net', '/check-result/$requestId')", fn)
         self.assertIn("RegExp(r'^[A-Za-z0-9_-]{1,128}
+        start = source.index("const String _kCfWorkerTemplate = r'''")
+        end = source.index('class CfDeployResult', start)
+        worker = source[start:end]
+        self.assertIn('let initialBuffer = new Uint8Array(0);', worker)
+        self.assertIn('function parseVlessHeader(buffer)', worker)
+        self.assertIn('if (uuid !== UUID_HEX) throw new Error(\'Invalid UUID\');', worker)
+        self.assertIn('if (buffer.length < 18) return null;', worker)
+        self.assertIn('VLESS request header can span multiple WebSocket frames.', worker)
+        self.assertIn("if (initialBuffer.length > 1024)", worker)
+        self.assertNotIn('if (chunk.length < 24)', worker)
+
+    def test_failed_plugin_start_stops_partially_running_core(self):
+        patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+        start = patch.index('private boolean failStart(String reason)')
+        end = patch.index('P1-27 start failure state and timer reset', start)
+        failure = patch[start:end]
+        self.assertIn('coreController.getIsRunning()', failure)
+        self.assertIn('coreController.stopLoop();', failure)
+
+    def test_v2ray_connected_delay_handoff_is_process_safe(self):
+        patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+        self.assertIn('P1-33 delay URL handoff and receiver-before-dispatch', patch)
+        self.assertIn('P1-33 VPN service receives delay URL', patch)
+        self.assertIn('P1-33 ProxyOnly service receives delay URL', patch)
+        self.assertIn('check_delay.putExtra("DELAY_URL", AppConfigs.DELAY_URL);', patch)
+        self.assertIn('Register before dispatch so a fast service response cannot be missed.', patch)
+        self.assertIn('P1-33 use flagged receiver overload only on API 33+', patch)
+        self.assertIn('Build.VERSION_CODES.TIRAMISU', patch)
+
+    def test_hot_cache_uses_shared_future_and_scoped_storage_permission(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn('Future<void>? _hotEnsureFuture;', source)
+        self.assertIn('await active;', source)
+        self.assertIn('Future<void> _natHotEnsureImpl({bool force = false}) async', source)
+        self.assertIn('final seenKeys = <String>{};', source)
+        self.assertIn('if (!seenKeys.add(cfg)) continue;', source)
+        fill_start = source.index('Future<void> hotAutoFill() async')
+        fill_end = source.index('Future<void> hotAutoStart()', fill_start)
+        self.assertNotIn('manageExternalStorage', source[fill_start:fill_end])
+        ensure_start = source.index('Future<void> natHotEnsure({bool force = false})')
+        ensure_end = source.index('Future<void> _natHotEnsureImpl', ensure_start)
+        self.assertNotIn('hotStorageAllow', source[ensure_start:ensure_end])
+        export_start = source.index('Future<void> hotExportToDownload() async')
+        export_end = source.index('List<String> natHotUrls()', export_start)
+        self.assertIn('await hotStorageAllow()', source[export_start:export_end])
+
+    def test_active_v2ray_plugin_lifecycle_patch_is_fail_closed(self):
+        patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+        self.assertIn('Lifecycle foreground promotion reports success/failure', patch)
+        self.assertIn('P1-27 start failure state and timer reset', patch)
+        self.assertIn('P1-31 VPN foreground before TUN/core startup', patch)
+        self.assertIn('P1-31 proxy foreground before core startup', patch)
+        self.assertIn("'P1-28 ' + svc_name + ' STOP always cleans up service'", patch)
+        self.assertIn("'P1-28 ' + svc_name + ' STOP always cleans up service'", patch)
+        self.assertIn('P1-30 VPN revoke always releases TUN/service', patch)
+        self.assertIn("src.replace('this.onDestroy();', 'stopAllProcess();')", patch)
+        self.assertIn('refusing to start core', patch)
+
+    def test_vpn_service_promotes_before_queuing_sticky_restart_or_stop(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = service.index('public int onStartCommand(Intent intent')
+        end = service.index('/** Runs a task on the single worker thread', start)
+        command = service[start:end]
+        restart = command[command.index('if (intent == null)'):command.index('String action = intent.getAction()')]
+        stop = command[command.index('if (ACTION_STOP.equals(action))'):command.index('if (!ACTION_START.equals(action))')]
+        self.assertLess(restart.index('startForegroundSafe('), restart.index('submit(this::resumeSaved)'))
+        self.assertLess(stop.index('startForegroundSafe('), stop.index('submit(this::stopEverything)'))
+
+    def test_vpn_service_serializes_worker_submission_and_shutdown(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        submit_start = service.index('private void submit(Runnable r)')
+        submit_end = service.index('/** Worker side of ACTION_START', submit_start)
+        submit = service[submit_start:submit_end]
+        self.assertIn('synchronized (workerLock)', submit)
+        self.assertIn('ex.execute(r)', submit)
+        self.assertIn('RejectedExecutionException', submit)
+        self.assertIn('worker unavailable; dropping task after shutdown', submit)
+        self.assertNotIn('runFallback(r)', submit)
+
+        destroy_start = service.index('public void onDestroy()')
+        destroy_end = service.index('private static String orEmpty', destroy_start)
+        destroy = service[destroy_start:destroy_end]
+        self.assertIn('synchronized (workerLock)', destroy)
+        self.assertIn('ex.execute(this::stopEverything)', destroy)
+        self.assertLess(destroy.index('ex.execute(this::stopEverything)'), destroy.index('ex.shutdown()'))
+        self.assertIn('if (fallbackStop) runFallback(this::stopEverything);', destroy)
+
+
+    def test_android_backup_excludes_vpn_credentials_and_local_ai_secrets(self):
+        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        backup = (ROOT / 'android_src' / 'king_backup_rules.xml').read_text(encoding='utf-8')
+        extraction = (ROOT / 'android_src' / 'king_data_extraction_rules.xml').read_text(encoding='utf-8')
+        self.assertIn("('allowBackup', 'false')", prepare)
+        self.assertIn("('fullBackupContent', 'false')", prepare)
+        self.assertIn("('dataExtractionRules', '@xml/king_data_extraction_rules')", prepare)
+        self.assertIn("king_backup_rules.xml", prepare)
+        self.assertIn("king_data_extraction_rules.xml", prepare)
+        for domain in ('root', 'file', 'database', 'sharedpref', 'external'):
+            self.assertIn(f'domain="{domain}" path="."', backup)
+            self.assertIn(f'domain="{domain}" path="."', extraction)
+        self.assertIn('<device-transfer>', extraction)
+        self.assertIn('<cloud-backup>', extraction)
+
+    def test_test_methods_are_unique(self):
+        import ast
+        source = Path(__file__).read_text(encoding='utf-8')
+        tree = ast.parse(source)
+        duplicates = []
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef):
+                names = [item.name for item in node.body
+                         if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+                         and item.name.startswith('test_')]
+                duplicates.extend(sorted({name for name in names if names.count(name) > 1}))
+        self.assertEqual([], duplicates, f'duplicate test methods: {duplicates}')
+
+
+    def test_android_builds_include_required_webview_and_arm64_split(self):
+        build = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
+        release = (ROOT / '.github' / 'workflows' / 'signed-release.yml').read_text(encoding='utf-8')
+        orchestrator = (ROOT / 'tools' / 'repair_orchestrator.py').read_text(encoding='utf-8')
+        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        for source in (build, release, orchestrator):
+            self.assertIn('webview_flutter', source)
+        self.assertNotIn('abiFilters += listOf', prepare)
+        self.assertNotIn('abiFilters "arm64-v8a"', prepare)
+        self.assertNotIn('armeabi-v7a', prepare)
+        self.assertIn('--split-per-abi', build)
+        self.assertIn('--split-per-abi', release)
+        self.assertIn('app-arm64-v8a-release.apk', build)
+        self.assertIn('app-arm64-v8a-release.apk', release)
+        self.assertIn("java-version: '21'", build)
+        self.assertIn("java-version: '21'", release)
+        self.assertIn("--obfuscate --split-debug-info=build/symbols", release)
+        self.assertIn("king-vpn-signed-symbols-", release)
+
+
+
+
+    def test_connected_national_range_scan_is_bounded_and_cancellable(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<void> _natKeep()')
+        end = main.index('// NATIONALPATCH: is the international internet cut', start)
+        keep = main[start:end]
+        self.assertIn('maxAddrs: 2048', keep)
+        self.assertIn('conc: min(2, natAdaptiveWorkers())', keep)
+        self.assertIn('budget: const Duration(seconds: 90)', keep)
+        for condition in ('!mounted', '!connected', '!wantVpn', '!nationalMode',
+                          '!localPilotOn', 'appGone', 'abort'):
+            self.assertIn(condition, keep)
+        self.assertIn('Do not publish stale discoveries after the tunnel/pilot stops.', keep)
+
+
+    def test_backup_restore_has_single_hardened_exporter(self):
+        backup = (ROOT / 'lib' / 'backup_restore.dart').read_text(encoding='utf-8')
+        self.assertEqual(backup.count('Future<String> bkpExportJson() async {'), 1)
+        exporter_start = backup.index('Future<String> bkpExportJson() async {')
+        importer_start = backup.index('Future<int> bkpImportJson(String text)')
+        exporter = backup[exporter_start:importer_start]
+        self.assertIn('_bkpKeyAllowed(k)', exporter)
+        self.assertIn('utf8.encode(encoded).length > _bkpMaxBytes', exporter)
+
+    def test_backup_restore_bounds_and_validates_all_entries_before_writes(self):
+        backup = (ROOT / 'lib' / 'backup_restore.dart').read_text(encoding='utf-8')
+        self.assertIn('const int _bkpMaxBytes = 2 * 1024 * 1024;', backup)
+        self.assertIn('const int _bkpMaxEntries = 500;', backup)
+        self.assertIn('final RegExp _bkpAllowedKey', backup)
+        self.assertIn('final RegExp _bkpSensitiveKey', backup)
+        self.assertIn('if (utf8.encode(text).length > _bkpMaxBytes)', backup)
+        self.assertIn('final staged = <String, Object>{};', backup)
+        self.assertIn('No preferences are changed until every key and value has passed validation.', backup)
+        import_start = backup.index('Future<int> bkpImportJson(String text)')
+        import_end = backup.index('extension BkpExt', import_start)
+        importer = backup[import_start:import_end]
+        self.assertLess(importer.index('for (final entry in rawData.entries)'), importer.index('final p = await SharedPreferences.getInstance();'))
+        self.assertIn('throw const FormatException', importer)
+        self.assertIn('if (!ok)', importer)
+
+
+if __name__ == '__main__':
+    unittest.main()
+)", fn)
+        self.assertIn('port > 65535', fn)
+        self.assertNotIn('host=$host:$port', fn)
+
+    def test_cloudflare_worker_buffers_fragmented_vless_headers(self):
+        source = (ROOT / 'lib' / 'king_extras2.dart').read_text(encoding='utf-8')
+        start = source.index("const String _kCfWorkerTemplate = r'''")
+        end = source.index('class CfDeployResult', start)
+        worker = source[start:end]
+        self.assertIn('let initialBuffer = new Uint8Array(0);', worker)
+        self.assertIn('function parseVlessHeader(buffer)', worker)
+        self.assertIn('if (uuid !== UUID_HEX) throw new Error(\'Invalid UUID\');', worker)
+        self.assertIn('if (buffer.length < 18) return null;', worker)
+        self.assertIn('VLESS request header can span multiple WebSocket frames.', worker)
+        self.assertIn("if (initialBuffer.length > 1024)", worker)
+        self.assertNotIn('if (chunk.length < 24)', worker)
+
+    def test_failed_plugin_start_stops_partially_running_core(self):
+        patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+        start = patch.index('private boolean failStart(String reason)')
+        end = patch.index('P1-27 start failure state and timer reset', start)
+        failure = patch[start:end]
+        self.assertIn('coreController.getIsRunning()', failure)
+        self.assertIn('coreController.stopLoop();', failure)
+
+    def test_v2ray_connected_delay_handoff_is_process_safe(self):
+        patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+        self.assertIn('P1-33 delay URL handoff and receiver-before-dispatch', patch)
+        self.assertIn('P1-33 VPN service receives delay URL', patch)
+        self.assertIn('P1-33 ProxyOnly service receives delay URL', patch)
+        self.assertIn('check_delay.putExtra("DELAY_URL", AppConfigs.DELAY_URL);', patch)
+        self.assertIn('Register before dispatch so a fast service response cannot be missed.', patch)
+        self.assertIn('P1-33 use flagged receiver overload only on API 33+', patch)
+        self.assertIn('Build.VERSION_CODES.TIRAMISU', patch)
+
+    def test_hot_cache_uses_shared_future_and_scoped_storage_permission(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn('Future<void>? _hotEnsureFuture;', source)
+        self.assertIn('await active;', source)
+        self.assertIn('Future<void> _natHotEnsureImpl({bool force = false}) async', source)
+        self.assertIn('final seenKeys = <String>{};', source)
+        self.assertIn('if (!seenKeys.add(cfg)) continue;', source)
+        fill_start = source.index('Future<void> hotAutoFill() async')
+        fill_end = source.index('Future<void> hotAutoStart()', fill_start)
+        self.assertNotIn('manageExternalStorage', source[fill_start:fill_end])
+        ensure_start = source.index('Future<void> natHotEnsure({bool force = false})')
+        ensure_end = source.index('Future<void> _natHotEnsureImpl', ensure_start)
+        self.assertNotIn('hotStorageAllow', source[ensure_start:ensure_end])
+        export_start = source.index('Future<void> hotExportToDownload() async')
+        export_end = source.index('List<String> natHotUrls()', export_start)
+        self.assertIn('await hotStorageAllow()', source[export_start:export_end])
+
+    def test_active_v2ray_plugin_lifecycle_patch_is_fail_closed(self):
+        patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+        self.assertIn('Lifecycle foreground promotion reports success/failure', patch)
+        self.assertIn('P1-27 start failure state and timer reset', patch)
+        self.assertIn('P1-31 VPN foreground before TUN/core startup', patch)
+        self.assertIn('P1-31 proxy foreground before core startup', patch)
+        self.assertIn("'P1-28 ' + svc_name + ' STOP always cleans up service'", patch)
+        self.assertIn("'P1-28 ' + svc_name + ' STOP always cleans up service'", patch)
+        self.assertIn('P1-30 VPN revoke always releases TUN/service', patch)
+        self.assertIn("src.replace('this.onDestroy();', 'stopAllProcess();')", patch)
+        self.assertIn('refusing to start core', patch)
+
+    def test_vpn_service_promotes_before_queuing_sticky_restart_or_stop(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = service.index('public int onStartCommand(Intent intent')
+        end = service.index('/** Runs a task on the single worker thread', start)
+        command = service[start:end]
+        restart = command[command.index('if (intent == null)'):command.index('String action = intent.getAction()')]
+        stop = command[command.index('if (ACTION_STOP.equals(action))'):command.index('if (!ACTION_START.equals(action))')]
+        self.assertLess(restart.index('startForegroundSafe('), restart.index('submit(this::resumeSaved)'))
+        self.assertLess(stop.index('startForegroundSafe('), stop.index('submit(this::stopEverything)'))
+
+    def test_vpn_service_serializes_worker_submission_and_shutdown(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        submit_start = service.index('private void submit(Runnable r)')
+        submit_end = service.index('/** Worker side of ACTION_START', submit_start)
+        submit = service[submit_start:submit_end]
+        self.assertIn('synchronized (workerLock)', submit)
+        self.assertIn('ex.execute(r)', submit)
+        self.assertIn('RejectedExecutionException', submit)
+        self.assertIn('worker unavailable; dropping task after shutdown', submit)
+        self.assertNotIn('runFallback(r)', submit)
+
+        destroy_start = service.index('public void onDestroy()')
+        destroy_end = service.index('private static String orEmpty', destroy_start)
+        destroy = service[destroy_start:destroy_end]
+        self.assertIn('synchronized (workerLock)', destroy)
+        self.assertIn('ex.execute(this::stopEverything)', destroy)
+        self.assertLess(destroy.index('ex.execute(this::stopEverything)'), destroy.index('ex.shutdown()'))
+        self.assertIn('if (fallbackStop) runFallback(this::stopEverything);', destroy)
+
+
+    def test_android_backup_excludes_vpn_credentials_and_local_ai_secrets(self):
+        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        backup = (ROOT / 'android_src' / 'king_backup_rules.xml').read_text(encoding='utf-8')
+        extraction = (ROOT / 'android_src' / 'king_data_extraction_rules.xml').read_text(encoding='utf-8')
+        self.assertIn("('allowBackup', 'false')", prepare)
+        self.assertIn("('fullBackupContent', 'false')", prepare)
+        self.assertIn("('dataExtractionRules', '@xml/king_data_extraction_rules')", prepare)
+        self.assertIn("king_backup_rules.xml", prepare)
+        self.assertIn("king_data_extraction_rules.xml", prepare)
+        for domain in ('root', 'file', 'database', 'sharedpref', 'external'):
+            self.assertIn(f'domain="{domain}" path="."', backup)
+            self.assertIn(f'domain="{domain}" path="."', extraction)
+        self.assertIn('<device-transfer>', extraction)
+        self.assertIn('<cloud-backup>', extraction)
+
+    def test_test_methods_are_unique(self):
+        import ast
+        source = Path(__file__).read_text(encoding='utf-8')
+        tree = ast.parse(source)
+        duplicates = []
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef):
+                names = [item.name for item in node.body
+                         if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+                         and item.name.startswith('test_')]
+                duplicates.extend(sorted({name for name in names if names.count(name) > 1}))
+        self.assertEqual([], duplicates, f'duplicate test methods: {duplicates}')
+
+
+    def test_android_builds_include_required_webview_and_arm64_split(self):
+        build = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
+        release = (ROOT / '.github' / 'workflows' / 'signed-release.yml').read_text(encoding='utf-8')
+        orchestrator = (ROOT / 'tools' / 'repair_orchestrator.py').read_text(encoding='utf-8')
+        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        for source in (build, release, orchestrator):
+            self.assertIn('webview_flutter', source)
+        self.assertNotIn('abiFilters += listOf', prepare)
+        self.assertNotIn('abiFilters "arm64-v8a"', prepare)
+        self.assertNotIn('armeabi-v7a', prepare)
+        self.assertIn('--split-per-abi', build)
+        self.assertIn('--split-per-abi', release)
+        self.assertIn('app-arm64-v8a-release.apk', build)
+        self.assertIn('app-arm64-v8a-release.apk', release)
+        self.assertIn("java-version: '21'", build)
+        self.assertIn("java-version: '21'", release)
+        self.assertIn("--obfuscate --split-debug-info=build/symbols", release)
+        self.assertIn("king-vpn-signed-symbols-", release)
+
+
+
+
+    def test_connected_national_range_scan_is_bounded_and_cancellable(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<void> _natKeep()')
+        end = main.index('// NATIONALPATCH: is the international internet cut', start)
+        keep = main[start:end]
+        self.assertIn('maxAddrs: 2048', keep)
+        self.assertIn('conc: min(2, natAdaptiveWorkers())', keep)
+        self.assertIn('budget: const Duration(seconds: 90)', keep)
+        for condition in ('!mounted', '!connected', '!wantVpn', '!nationalMode',
+                          '!localPilotOn', 'appGone', 'abort'):
+            self.assertIn(condition, keep)
+        self.assertIn('Do not publish stale discoveries after the tunnel/pilot stops.', keep)
+
+
+    def test_backup_restore_has_single_hardened_exporter(self):
+        backup = (ROOT / 'lib' / 'backup_restore.dart').read_text(encoding='utf-8')
+        self.assertEqual(backup.count('Future<String> bkpExportJson() async {'), 1)
+        exporter_start = backup.index('Future<String> bkpExportJson() async {')
+        importer_start = backup.index('Future<int> bkpImportJson(String text)')
+        exporter = backup[exporter_start:importer_start]
+        self.assertIn('_bkpKeyAllowed(k)', exporter)
+        self.assertIn('utf8.encode(encoded).length > _bkpMaxBytes', exporter)
+
+    def test_backup_restore_bounds_and_validates_all_entries_before_writes(self):
+        backup = (ROOT / 'lib' / 'backup_restore.dart').read_text(encoding='utf-8')
+        self.assertIn('const int _bkpMaxBytes = 2 * 1024 * 1024;', backup)
+        self.assertIn('const int _bkpMaxEntries = 500;', backup)
+        self.assertIn('final RegExp _bkpAllowedKey', backup)
+        self.assertIn('final RegExp _bkpSensitiveKey', backup)
+        self.assertIn('if (utf8.encode(text).length > _bkpMaxBytes)', backup)
+        self.assertIn('final staged = <String, Object>{};', backup)
+        self.assertIn('No preferences are changed until every key and value has passed validation.', backup)
+        import_start = backup.index('Future<int> bkpImportJson(String text)')
+        import_end = backup.index('extension BkpExt', import_start)
+        importer = backup[import_start:import_end]
+        self.assertLess(importer.index('for (final entry in rawData.entries)'), importer.index('final p = await SharedPreferences.getInstance();'))
+        self.assertIn('throw const FormatException', importer)
+        self.assertIn('if (!ok)', importer)
+
+
+if __name__ == '__main__':
+    unittest.main()
+).hasMatch(requestId)", fn)
+        self.assertIn("'host': '$queryHost:$port'", fn)
+        self.assertNotIn('host=$host:$port', fn)
+
         source = (ROOT / 'lib' / 'king_extras2.dart').read_text(encoding='utf-8')
         start = source.index("const String _kCfWorkerTemplate = r'''")
         end = source.index('class CfDeployResult', start)
