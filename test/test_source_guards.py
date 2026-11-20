@@ -3003,6 +3003,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('!wantVpn', scheduler)
         self.assertIn('!connected', scheduler)
         self.assertIn('!searching', scheduler)
+        self.assertIn('warm == null', scheduler)
         self.assertIn('!_resBusy', scheduler)
         self.assertIn('!upBusy', scheduler)
         self.assertIn('!_natKeepOn', scheduler)
