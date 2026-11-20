@@ -453,7 +453,7 @@ extension HomeExtras on _HomePageState {
           ],
         ),
       ),
-    );
+    ).whenComplete(c.dispose);
   }
 
   // فقط آمار کلی؛ آدرس سرور، لینک و UUID هرگز ارسال نمی‌شود
@@ -1285,9 +1285,10 @@ extension HomeExtras on _HomePageState {
               }
 
               Future<void> saveToken() async {
+                final token = tokenC.text;
+                tokenC.clear();
                 try {
-                  await KingLocalAi.instance.saveGitHubToken(tokenC.text);
-                  tokenC.clear();
+                  await KingLocalAi.instance.saveGitHubToken(token);
                   if (ctx.mounted) setS(() => tokenSaved = true);
                   aiText.value = 'توکن GitHub به‌صورت امن روی همین گوشی ذخیره شد.';
                 } catch (e) {
@@ -1468,7 +1469,13 @@ extension HomeExtras on _HomePageState {
           ),
         ),
       ),
-    );
+    ).whenComplete(() {
+      tokenC.dispose();
+      ownerC.dispose();
+      repoC.dispose();
+      branchC.dispose();
+      taskC.dispose();
+    });
   }
 
   // ---- خلبان محلی King Pro (داخل HomeExtras) ----
