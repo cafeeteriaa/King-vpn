@@ -5566,6 +5566,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       warm == null &&
       !switching &&
       !_natRangeScanBusy &&
+      !_hotBusy &&
       !_resBusy &&
       !upBusy &&
       !_natKeepOn &&
@@ -5579,6 +5580,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _dnsxAutoBusy ||
         ipAutoBusy ||
         _natRangeScanBusy ||
+        _hotBusy ||
         _resBusy ||
         upBusy ||
         _natKeepOn) {
