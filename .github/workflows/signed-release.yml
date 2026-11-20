@@ -135,6 +135,7 @@ jobs:
             exit 1
           fi
           APK="build/app/outputs/flutter-apk/app-arm64-v8a-release.apk"
+          built=false
           for attempt in 1 2 3; do
             echo "Signed APK build attempt ${attempt}/3"
             attempt_log="signed-build-attempt-${attempt}.log"
@@ -142,6 +143,7 @@ jobs:
               --build-name "$VERSION" \
               --build-number "$GITHUB_RUN_NUMBER" \
               --dart-define=KING_APP_BUILD="$GITHUB_RUN_NUMBER" 2>&1 | tee "$attempt_log"; then
+              built=true
               break
             fi
             if grep -Eq 'Error on ZipFile unknown archive|NDK.*(corrupt|not found)' "$attempt_log"; then
@@ -158,8 +160,13 @@ jobs:
               sleep "$delay"
             fi
           done
+          if [ "$built" != true ]; then
+            echo "::error::Signed APK build did not succeed after three attempts."
+            exit 1
+          fi
           test -s "$APK"
-          APKSIGNER="$(find "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Android/Sdk}}"
+          APKSIGNER="$(find "$SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           test -x "$APKSIGNER"
           APK_SIGNATURE_REPORT="$("$APKSIGNER" verify --verbose --print-certs "$APK")"
           printf '%s\n' "$APK_SIGNATURE_REPORT"
