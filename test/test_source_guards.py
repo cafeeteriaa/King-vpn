@@ -2958,6 +2958,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("if (!committed) return;", source)
         self.assertIn('final List<String> ipAutoPendingCore = [];', source)
         self.assertIn('.where(_ipAutoValidPending)', source)
+        self.assertIn('rawPosition.isFinite && rawPosition >= 0', source)
+        self.assertIn('value.isFinite && value >= 0', source)
         save_start = source.index('Future<void> _ipAutoSave()')
         save_end = source.index('/// خودکار فقط IPهای دقیق', save_start)
         save = source[save_start:save_end]
