@@ -2388,6 +2388,8 @@ Future<void> hotExportToDownload() async {
   try {
     final src = File(_hotPath());
     if (!src.existsSync()) return;
+    // Broad storage access is requested only for this explicit public Download export.
+    if (!await hotStorageAllow()) return;
     final v = Directory(hotVisibleDir);
     if (!v.existsSync()) v.createSync(recursive: true);
     final ts = DateTime.now().millisecondsSinceEpoch;
@@ -2468,9 +2470,24 @@ Future<List<String>> _hotFetchOne(String u) async {
   return out;
 }
 
+Future<void>? _hotEnsureFuture;
+
 Future<void> natHotEnsure({bool force = false}) async {
-  if (force) await hotStorageAllow();
-  if (_hotBusy) return;
+  final active = _hotEnsureFuture;
+  if (active != null) {
+    await active;
+    return;
+  }
+  final task = _natHotEnsureImpl(force: force);
+  _hotEnsureFuture = task;
+  try {
+    await task;
+  } finally {
+    if (identical(_hotEnsureFuture, task)) _hotEnsureFuture = null;
+  }
+}
+
+Future<void> _natHotEnsureImpl({bool force = false}) async {
   final f = File(_hotPath());
   try {
     final exists = f.existsSync() && f.lengthSync() > 0;
@@ -2513,7 +2530,7 @@ Future<void> natHotEnsure({bool force = false}) async {
       final sink = File(newPath).openWrite();
       try {
         var full = false;
-        final seenKeys = <int>{};
+        final seenKeys = <String>{};
         final mergeFrom = <String>[
           if (File(extraPath).existsSync()) extraPath,
           for (final i in mixed) parts[i],
@@ -2529,7 +2546,7 @@ Future<void> natHotEnsure({bool force = false}) async {
             if (line.isEmpty) continue;
             final tab = line.indexOf('\t');
             final cfg = tab >= 0 ? line.substring(tab + 1) : line;
-            if (!seenKeys.add(cfg.hashCode)) continue;
+            if (!seenKeys.add(cfg)) continue;
             final b = utf8.encode(line);
             sink.add(b);
             sink.add(const [10]);
@@ -2720,28 +2737,27 @@ Future<void> natMemLoad() async {
 }
 
 
-Future<void> hotStorageAllow() async {
+Future<bool> hotStorageAllow() async {
   try {
     final st = Permission.manageExternalStorage;
-    if (await st.isGranted) return;
-    await st.request();
-  } catch (e) { logError(e); }
+    if (await st.isGranted) return true;
+    return (await st.request()).isGranted;
+  } catch (e) {
+    logError(e);
+    return false;
+  }
 }
+
+// Internal cache is app-private; building it must not request all-files access.
 Future<void> hotAutoFill() async {
-  try {
-    if (!(await Permission.manageExternalStorage.isGranted)) return;
-  } catch (e) { logError(e); return; }
   await natHotEnsure();
 }
 Future<void> hotAutoStart() async {
-  try { WidgetsBinding.instance.addObserver(HotResumeWatcher()); } catch (e) { logError(e); }
   try {
-    final p = await SharedPreferences.getInstance();
-    if (!(p.getBool('hotAsked') ?? false)) {
-      await p.setBool('hotAsked', true);
-      await hotStorageAllow();
-    }
-  } catch (e) { logError(e); }
+    WidgetsBinding.instance.addObserver(HotResumeWatcher());
+  } catch (e) {
+    logError(e);
+  }
   await hotAutoFill();
 }
 class HotResumeWatcher extends WidgetsBindingObserver {
