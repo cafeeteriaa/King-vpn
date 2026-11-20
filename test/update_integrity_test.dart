@@ -15,6 +15,8 @@ void main() {
       for (final value in [
         'https://github.com/other/repo/releases/download/v1/app.apk',
         'https://github.com/cafeeteriaa/King-vpn/releases/download/v1/app.apk',
+        'https://github.com/cafeeteriaa/King-vpn/releases/download/v1/king-vpn.apk?download=1',
+        'https://github.com/cafeeteriaa/King-vpn/releases/download/v1/king-vpn.apk#fragment',
         'https://release-assets.githubusercontent.com/assets/app.apk',
         'https://objects.githubusercontent.com/assets/app.apk',
       ]) {

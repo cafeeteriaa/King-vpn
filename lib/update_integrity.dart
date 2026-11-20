@@ -2,15 +2,17 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 
-/// Only HTTPS downloads from the official GitHub release asset hosts are
-/// accepted. Explicit ports, credentials and lookalike suffix hosts fail closed.
+/// Initial downloads must be the exact APK asset in the official repository;
+/// GitHub's asset hosts are accepted only after a trusted release redirect.
 bool isAllowedUpdateDownloadUri(
   Uri uri, {
   bool allowReleaseAssetHosts = false,
 }) {
   if (uri.scheme.toLowerCase() != 'https' ||
       uri.userInfo.isNotEmpty ||
-      uri.port != 443) {
+      uri.port != 443 ||
+      uri.hasQuery ||
+      uri.hasFragment) {
     return false;
   }
 
