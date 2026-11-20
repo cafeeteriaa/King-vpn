@@ -70,11 +70,12 @@ Future<bool> _autoPortOk(String ip, int port) async {
 }
 
 Future<void> autoScanRun(void Function(String) say) async {
-  if (_autoScanRunning) {
-    say('اسکن در حال اجراست');
+  if (_autoScanRunning || dnsxManualBusy || _dnsxAutoBusy || ipAutoBusy || _natRangeScanBusy) {
+    say('اسکن دیگری در حال اجراست');
     return;
   }
   _autoScanRunning = true;
+  dnsxManualBusy = true;
   _autoScanStop = false;
   try {
     await goldLoad();
@@ -191,6 +192,7 @@ Future<void> autoScanRun(void Function(String) say) async {
     say('خطا در اسکن خودکار');
   } finally {
     _autoScanRunning = false;
+    dnsxManualBusy = false;
   }
 }
 

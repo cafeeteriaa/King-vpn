@@ -118,7 +118,7 @@ List<String> _ipAutoBlocks(Iterable<Server> knownServers) {
   return ips.map((ip) => '$ip/32').toList(growable: false);
 }
 
-Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers) async {
+Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Function()? shouldAbort}) async {
   // A mode switch while compute() is running must not apply stale cursors
   // or a stale batch position to the newly selected network mode.
   final modeSnapshot = nationalMode;
@@ -132,7 +132,9 @@ Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers) async {
     'cursors': cursorSnapshot,
   };
   final gen = await compute(_genAddrsIso, args);
-  if (nationalMode != modeSnapshot) return const <String>[];
+  if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false)) {
+    return const <String>[];
+  }
   final all = (gen['addrs'] as List).cast<String>();
   final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);
   ipAutoCursors
@@ -148,12 +150,15 @@ Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers) async {
 
 extension IpAutoExt on _HomePageState {
   /// آیا اسکن باید همین الان متوقف شود (VPN وصل شد، یا برنامه مشغول اتصال است، یا کاربر توقف زد)
-  bool _ipAutoHalt() => ipAutoStopFlag || connected || busy;
+  bool _ipAutoHalt({bool? modeSnapshot}) =>
+      ipAutoStopFlag || connected || busy ||
+      (modeSnapshot != null && nationalMode != modeSnapshot);
 
   /// نت ملی: اسکن IP خودکار بدون دکمه (هر ۲۴ ساعت، یا ۶ ساعت اگر نتیجه نداشت)، فقط وقتی VPN قطع است.
   /// نتایج در فهرست نت ملی ذخیره می‌شوند و هیچ صف یا بازه‌ی دیگری را تغییر نمی‌دهد.
   Future<void> ipAutoBackground() async {
-    if (!kNatIpScanOn || !nationalMode) return;
+    final runNationalMode = nationalMode;
+    if (!kNatIpScanOn || !runNationalMode) return;
     if (ipAutoBusy || dnsxManualBusy || _natRangeScanBusy || _dnsxAutoBusy) return;
     if (connected || busy) return;
 
@@ -164,10 +169,10 @@ extension IpAutoExt on _HomePageState {
     ipAutoStopFlag = false;
     try {
       await ipAutoLoad();
-      if (!nationalMode || _ipAutoHalt()) return;
+      if (_ipAutoHalt(modeSnapshot: runNationalMode)) return;
 
       final p = await SharedPreferences.getInstance();
-      if (!nationalMode || _ipAutoHalt()) return;
+      if (_ipAutoHalt(modeSnapshot: runNationalMode)) return;
 
       final last = int.tryParse(p.getString(_ipAutoAtKey) ?? '') ?? 0;
       final now = DateTime.now().millisecondsSinceEpoch;
@@ -176,8 +181,8 @@ extension IpAutoExt on _HomePageState {
       if (now - last < gapMs) return;
 
       await _ipAutoRunOnce((s) => ipAutoStatus = s);
-      // فقط اسکن کامل ذخیره می‌شود؛ اگر وسط کار متوقف شد، دفعه‌ی بعد دوباره امتحان می‌شود
-      if (nationalMode && !_ipAutoHalt()) {
+      // فقط اسکن کامل در همان حالت ذخیره می‌شود؛ تغییر حالت، اجرای فعلی را باطل می‌کند.
+      if (!_ipAutoHalt(modeSnapshot: runNationalMode)) {
         await p.setString(_ipAutoAtKey, now.toString());
       }
     } catch (e, stk) {
@@ -195,7 +200,7 @@ extension IpAutoExt on _HomePageState {
   String? _ipAutoRefusal() {
     // نت ملی کاملاً خودکار است؛ دکمه‌ی دستی فقط برای حالت عادی است
     if (!kNatIpScanOn) return 'اسکن IP از تنظیم اصلی خاموش است.';
-    if (ipAutoBusy) return 'اسکن در حال اجراست.';
+    if (ipAutoBusy || dnsxManualBusy) return 'اسکن دیگری در حال اجراست.';
     if (connected || busy) return 'اول VPN را قطع کنید، بعد اسکن خودکار IP را اجرا کنید.';
     if (nationalMode && _natRangeScanBusy) {
       return 'جستجوی نت ملی در حال اجراست؛ کمی صبر کنید.';
@@ -223,13 +228,18 @@ extension IpAutoExt on _HomePageState {
   }
 
   Future<void> _ipAutoRunOnce(void Function(String) say, {bool manual = false}) async {
+    final runNationalMode = nationalMode;
+    bool halted() => _ipAutoHalt(modeSnapshot: runNationalMode);
+    if (halted()) return;
+
     // A national scan uses the national hot-source/template pipeline; it must
     // not fetch or fall back to the global discovered-server pool.
     var pool = <Server>[];
-    if (nationalMode) {
+    if (runNationalMode) {
       say('دریافت الگوهای مستقل نت ملی...');
       try {
         final nationalSeeds = await natHotNext(50, fetch: false);
+        if (halted()) return;
         if (nationalSeeds.isNotEmpty) {
           natTemplateSeeds = nationalSeeds.take(2).toList();
           pool = [...nationalSeeds, ...good, ...pending];
@@ -238,18 +248,22 @@ extension IpAutoExt on _HomePageState {
         }
       } catch (e, stk) {
         logError(e, stk);
+        if (halted()) return;
         pool = <Server>[...natTemplateSeeds, ...good, ...pending];
       }
     } else {
       say('دریافت سرور نمونه از منابع جهانی...');
       try {
-        pool = await fetchServers(stop: () => _ipAutoHalt(), quickCap: 200);
+        pool = await fetchServers(stop: () => halted(), quickCap: 200);
       } catch (e, stk) {
         logError(e, stk);
+        if (halted()) return;
         pool = <Server>[];
       }
+      if (halted()) return;
       if (pool.isEmpty) pool = <Server>[...good, ...pending, ...fetchedAll];
     }
+    if (halted()) return;
     if (pool.isEmpty) {
       say('دریافت لیست سرورها ناموفق بود. اینترنت را بررسی کنید و دوباره اجرا کنید.');
       return;
@@ -257,7 +271,10 @@ extension IpAutoExt on _HomePageState {
     final tpl = pool.take(2).toList();
     say('ساخت آدرس‌ها...');
     final addrs = await _ipAutoNextAddrs(
-        nationalMode ? const <Server>[] : [...good, ...pending, ...fetchedAll]);
+      runNationalMode ? const <Server>[] : [...good, ...pending, ...fetchedAll],
+      shouldAbort: halted,
+    );
+    if (halted()) return;
     if (addrs.isEmpty) {
       say('آدرسی برای اسکن پیدا نشد.');
       return;
@@ -268,24 +285,25 @@ extension IpAutoExt on _HomePageState {
     // مرحله‌ی ۱: TCP روی همه‌ی آدرس‌ها
     final candidates = <String>[];
     for (final port in ports) {
-      if (_ipAutoHalt()) break;
+      if (halted()) break;
       say('بررسی TCP روی پورت $port (${addrs.length} آدرس)...');
       final hits = await natScanIps(
         addrs,
         port: port,
-        concurrency: (manual && nationalMode) ? kNatManualConc : _ipAutoConc,
+        concurrency: (manual && runNationalMode) ? kNatManualConc : _ipAutoConc,
         want: 300,
         budget: const Duration(minutes: 5),
         timeout: const Duration(milliseconds: 1500),
-        cancelled: () => _ipAutoHalt(),
+        cancelled: halted,
       );
+      if (halted()) return;
       for (final h in hits) {
         candidates.add('${h.ip}|$port');
       }
     }
 
     // مرحله‌ی ۲: تست واقعی با هسته‌ی VPN، دو بار پشت سر هم
-    final url = nationalMode ? _natTestUrls.first : delayTestUrl;
+    final url = runNationalMode ? _natTestUrls.first : delayTestUrl;
     final seen = ipAutoHits.toSet();
     final tplSrv = tpl.first;
     var found = 0;
@@ -294,7 +312,7 @@ extension IpAutoExt on _HomePageState {
     final toTest = candidates.take(_ipAutoCoreMax).toList();
     say('${candidates.length} پورت باز (تست ${toTest.length} تای اول)؛ تست با هسته‌ی VPN...');
     for (final c in toTest) {
-      if (_ipAutoHalt()) break;
+      if (halted()) break;
       checked++;
       if (seen.contains(c)) continue;
       final parts = c.split('|');
@@ -302,11 +320,15 @@ extension IpAutoExt on _HomePageState {
       final port = int.tryParse(parts[1]) ?? 443;
       final ipLink = _natSetPort(_natSetHost(tplSrv.link, ip, tplSrv.host), port);
       final s = Server(ipLink, tplSrv.name, ip, port);
-      if (!await _ipAutoCoreOk(s, url)) {
+      final firstOk = await _ipAutoCoreOk(s, url);
+      if (halted()) return;
+      if (!firstOk) {
         say('تست $checked/${toTest.length} • جواب‌داده: $found');
         continue;
       }
-      if (!await _ipAutoCoreOk(s, url)) {
+      final secondOk = await _ipAutoCoreOk(s, url);
+      if (halted()) return;
+      if (!secondOk) {
         say('تست $checked/${toTest.length} • جواب‌داده: $found');
         continue;
       }
@@ -321,8 +343,8 @@ extension IpAutoExt on _HomePageState {
       say('تست $checked/${toTest.length} • جواب‌داده: $found');
     }
     say(ipAutoStopFlag
-        ? 'متوقف شد. $found IP جدید در حالت ${_ipAutoModeName()}.'
-        : 'تمام شد: $found IP جدید در حالت ${_ipAutoModeName()}.');
+        ? 'متوقف شد. $found IP جدید در حالت ${runNationalMode ? 'نت ملی' : 'جهانی'}.'
+        : 'تمام شد: $found IP جدید در حالت ${runNationalMode ? 'نت ملی' : 'جهانی'}.');
   }
 
   Future<void> ipAutoSheet(BuildContext ctx0) async {
@@ -348,6 +370,7 @@ extension IpAutoExt on _HomePageState {
               ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(SnackBar(content: Text(why)));
               return;
             }
+            final runNationalMode = nationalMode;
             ipAutoBusy = true;
             sheetScanRunning = true;
             // تا این اسکن تمام نشده، اسکن DNS پس‌زمینه هم شروع نمی‌شود (جدا و بدون تداخل)
@@ -355,15 +378,22 @@ extension IpAutoExt on _HomePageState {
             ipAutoStopFlag = false;
             upd(() => ipAutoStatus = 'شروع...');
             try {
+              // The sheet may have stayed open while the user changed network mode.
+              await ipAutoLoad();
+              if (_ipAutoHalt(modeSnapshot: runNationalMode)) {
+                upd(() => ipAutoStatus = 'حالت شبکه تغییر کرد یا اسکن متوقف شد؛ دوباره شروع کن.');
+                return;
+              }
               await _ipAutoRunOnce((s) => upd(() => ipAutoStatus = s), manual: true);
             } catch (e, stk) {
               logError(e, stk);
               upd(() => ipAutoStatus = 'خطا: $e');
             } finally {
               sheetScanRunning = false;
+              // Keep the lock until the snapshot is persisted.
+              await _ipAutoSave();
               ipAutoBusy = false;
               dnsxManualBusy = false;
-              await _ipAutoSave();
               upd(() {});
             }
           }

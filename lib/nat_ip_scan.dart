@@ -155,7 +155,7 @@ Future<List<NatIpHit>> natScanIps(
   void Function(int done, int total, int hits)? onProgress,
   bool randomize = false,
 }) async {
-  if (ips.isEmpty) return <NatIpHit>[];
+  if (ips.isEmpty || want <= 0) return <NatIpHit>[];
 
   final effective = natAdaptiveConcurrency(concurrency);
   final deadline = DateTime.now().add(budget);
@@ -181,7 +181,9 @@ Future<List<NatIpHit>> natScanIps(
       final ip = source[idx];
 
       final ms = await natTcpProbe(ip, port, timeout);
-      if (ms != null) {
+      // Several workers may finish successful probes in the same event-loop turn.
+      // Enforce [want] at insertion time so concurrent completions cannot exceed it.
+      if (ms != null && hits.length < want) {
         hits.add(NatIpHit(ip, ms));
       }
 

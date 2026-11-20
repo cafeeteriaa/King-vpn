@@ -1949,6 +1949,64 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(save, unlock)
         self.assertIn('if (nationalMode && !_ipAutoHalt())', body)
 
+    def test_ip_auto_address_generation_does_not_commit_after_stop(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<List<String>> _ipAutoNextAddrs(')
+        end = source.index('extension IpAutoExt', start)
+        body = source[start:end]
+        compute = body.index('await compute(_genAddrsIso, args)')
+        abort = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
+        cursor_mutation = body.index('ipAutoCursors\n    ..clear()')
+        position_mutation = body.index('ipAutoPos = start + slice.length;')
+        self.assertLess(compute, abort)
+        self.assertLess(abort, cursor_mutation)
+        self.assertLess(abort, position_mutation)
+        self.assertIn('bool Function()? shouldAbort', body)
+
+    def test_ip_auto_scan_aborts_when_network_mode_changes_mid_run(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        self.assertIn('(modeSnapshot != null && nationalMode != modeSnapshot)', source)
+        start = source.index('Future<void> _ipAutoRunOnce(')
+        end = source.index('Future<void> ipAutoSheet(', start)
+        body = source[start:end]
+        self.assertIn('final runNationalMode = nationalMode;', body)
+        self.assertIn('bool halted() => _ipAutoHalt(modeSnapshot: runNationalMode);', body)
+        self.assertIn('shouldAbort: halted,', body)
+        self.assertIn('cancelled: halted,', body)
+        self.assertIn('if (halted()) return;', body)
+        self.assertIn('final url = runNationalMode ? _natTestUrls.first : delayTestUrl;', body)
+
+    def test_ip_auto_manual_scan_persists_before_releasing_shared_locks(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> start() async {', source.index('Future<void> ipAutoSheet('))
+        end = source.index('\n          }', start) + len('\n          }')
+        body = source[start:end]
+        save = body.index('await _ipAutoSave();')
+        ip_unlock = body.index('ipAutoBusy = false;')
+        dns_unlock = body.index('dnsxManualBusy = false;')
+        self.assertLess(save, ip_unlock)
+        self.assertLess(save, dns_unlock)
+        self.assertIn('await ipAutoLoad();', body)
+        self.assertIn('_ipAutoHalt(modeSnapshot: runNationalMode)', body)
+
+    def test_nat_ip_scan_never_exceeds_requested_hit_limit_under_concurrency(self):
+        source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<List<NatIpHit>> natScanIps(')
+        body = source[start:]
+        self.assertIn('if (ips.isEmpty || want <= 0) return <NatIpHit>[];', body)
+        self.assertIn('if (ms != null && hits.length < want)', body)
+
+    def test_auto_sni_scan_uses_shared_scanner_lock(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> autoScanRun(')
+        end = source.index('Future<void> autoScanSheet(', start)
+        body = source[start:end]
+        self.assertIn('dnsxManualBusy || _dnsxAutoBusy || ipAutoBusy || _natRangeScanBusy', body)
+        self.assertIn('dnsxManualBusy = true;', body)
+        self.assertIn('dnsxManualBusy = false;', body)
+        self.assertLess(body.index('dnsxManualBusy = true;'), body.index('await goldLoad();'))
+        self.assertLess(body.index('_autoScanRunning = false;'), body.index('dnsxManualBusy = false;'))
+
     def test_dns_auto_scan_keeps_network_mode_snapshot_across_awaits(self):
         source = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> dnsxAutoPick(')
