@@ -2994,6 +2994,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (saved && !_ipAutoHalt(modeSnapshot: runNationalMode))', background)
 
 
+    def test_opening_ip_auto_sheet_does_not_reload_state_during_active_scan(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        loader_start = source.index('Future<void> ipAutoLoad({bool skipIfBusy = false})')
+        loader_end = source.index('Future<bool> _ipAutoSave()', loader_start)
+        loader = source[loader_start:loader_end]
+        self.assertIn('if (skipIfBusy && ipAutoBusy) return;', loader)
+        self.assertIn('if ((skipIfBusy && ipAutoBusy) || nationalMode != loadNationalMode) return;', loader)
+        sheet_start = source.index('Future<void> ipAutoSheet(BuildContext ctx0)')
+        sheet = source[sheet_start:]
+        self.assertIn('await ipAutoLoad(skipIfBusy: true);', sheet)
+
+
     def test_background_network_scans_are_scheduled_sequentially_and_stop_for_vpn(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('Future<void> _runBackgroundNetworkScans()')
