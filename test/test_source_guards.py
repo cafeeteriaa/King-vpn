@@ -1453,6 +1453,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('APK_CERT_SHA256" != "$KEY_CERT_SHA256"', release)
         self.assertIn('does not match the protected production keystore', release)
 
+    def test_signed_release_does_not_persist_checkout_token_into_build_environment(self):
+        release = (ROOT / '.github' / 'workflows' / 'signed-release.yml').read_text(encoding='utf-8')
+        checkout = release[release.index('uses: actions/checkout@v4'):release.index('- name:', release.index('uses: actions/checkout@v4'))]
+        self.assertIn('persist-credentials: false', checkout)
+        self.assertIn('GH_TOKEN: ${{ github.token }}', release)
+        self.assertNotIn('GH_TOKEN:', checkout)
+
     def test_android_builds_include_required_webview_and_arm64_split(self):
         build = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
         release = (ROOT / '.github' / 'workflows' / 'signed-release.yml').read_text(encoding='utf-8')
