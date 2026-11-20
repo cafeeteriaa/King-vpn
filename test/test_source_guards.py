@@ -1127,6 +1127,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("if (_busy) throw StateError('Local AI is already generating');", local)
 
 
+    def test_active_v2ray_plugin_lifecycle_patch_is_fail_closed(self):
+        patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+        self.assertIn('Lifecycle foreground promotion reports success/failure', patch)
+        self.assertIn('P1-27 start failure state and timer reset', patch)
+        self.assertIn('P1-31 VPN foreground before TUN/core startup', patch)
+        self.assertIn('P1-31 proxy foreground before core startup', patch)
+        self.assertIn('P1-28 VPN STOP always cleans up service', patch)
+        self.assertIn('P1-28 ProxyOnly STOP always cleans up service', patch)
+        self.assertIn('P1-30 VPN revoke always releases TUN/service', patch)
+        self.assertIn("src.replace('this.onDestroy();', 'stopAllProcess();')", patch)
+        self.assertIn('refusing to start core', patch)
+
     def test_vpn_service_promotes_before_queuing_sticky_restart_or_stop(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = service.index('public int onStartCommand(Intent intent')
