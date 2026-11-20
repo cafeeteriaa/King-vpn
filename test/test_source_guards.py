@@ -2125,7 +2125,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('bool halted() => _ipAutoHalt(modeSnapshot: runNationalMode);', body)
         self.assertIn('shouldAbort: halted,', body)
         self.assertIn('cancelled: halted,', body)
-        self.assertIn('if (halted()) return;', body)
+        self.assertIn('if (halted()) return false;', body)
         self.assertIn('final url = runNationalMode ? _natTestUrls.first : delayTestUrl;', body)
 
     def test_ip_auto_manual_scan_persists_before_releasing_shared_locks(self):
@@ -2321,7 +2321,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         yield_body = extras[start:end]
         self.assertIn('bool Function()? shouldAbort', yield_body)
         self.assertIn('!(shouldAbort?.call() ?? false)', yield_body)
-        self.assertEqual(auto.count('natManualYield(shouldAbort: () => _autoScanStop)'), 2)
+        self.assertEqual(auto.count('natManualYield(shouldAbort: () => cancelled())'), 2)
         self.assertIn('if (_autoScanStop) break sniLoop;', auto)
         self.assertIn('if (_autoScanStop) break portLoop;', auto)
         self.assertIn('await natManualYield(shouldAbort: stop);', dns)
