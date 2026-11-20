@@ -9,6 +9,8 @@ const MethodChannel _kingUpdateChannel = MethodChannel('king/update');
 bool _updateChecked = false;
 String? _pendingUpdateApkPath;
 Map<String, dynamic> _remoteHeal = {};
+bool _updateDownloadBusy = false;
+bool _updateInstallBusy = false;
 
 extension UpdateCheck on _HomePageState {
   Future<int> _installedAppBuild() async {
@@ -147,10 +149,145 @@ extension UpdateCheck on _HomePageState {
       _set('❌ لینک آپدیت امن و معتبر نیست؛ دانلود متوقف شد');
       return;
     }
-    if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(sha256Expected)) {
+    if (!RegExp(r'^[0-9a-f]{64}
+    File? file;
+    try {
+      _set('⬇ در حال دانلود نسخه‌ی جدید...');
+      kingHealText.value = 'دانلود آپدیت...';
+      final temporary = await getTemporaryDirectory();
+      final updateDirectory = Directory('${temporary.path}/king_updates');
+      await updateDirectory.create(recursive: true);
+      file = File('${updateDirectory.path}/king-vpn-update.apk');
+
+      client = http.Client();
+      var currentUri = uri;
+      http.StreamedResponse? streamed;
+      const redirectStatuses = <int>{301, 302, 303, 307, 308};
+      for (var redirectCount = 0; redirectCount <= 5; redirectCount++) {
+        final request = http.Request('GET', currentUri)
+          ..followRedirects = false
+          ..headers.addAll(const {
+            'Accept': 'application/vnd.android.package-archive',
+            'User-Agent': 'KingVPN-Updater/1.0',
+          });
+        final response = await client.send(request)
+            .timeout(const Duration(minutes: 4));
+        if (redirectStatuses.contains(response.statusCode)) {
+          final location = response.headers['location'];
+          await response.stream.listen((_) {}).cancel();
+          final nextUri = resolveAllowedUpdateRedirect(currentUri, location);
+          if (nextUri == null) {
+            throw StateError('APK redirect has a missing or untrusted destination');
+          }
+          if (redirectCount == 5) {
+            throw StateError('APK redirect limit exceeded');
+          }
+          currentUri = nextUri;
+          continue;
+        }
+        streamed = response;
+        break;
+      }
+      if (streamed == null) {
+        throw StateError('APK download did not produce a response');
+      }
+      if (streamed.statusCode != 200) {
+        throw HttpException('APK download returned HTTP ${streamed.statusCode}');
+      }
+
+      final sink = file.openWrite();
+      var received = 0;
+      try {
+        await for (final chunk in streamed.stream.timeout(
+          const Duration(seconds: 45),
+        )) {
+          received += chunk.length;
+          if (received > 300 * 1024 * 1024) {
+            throw StateError('APK exceeds the 300 MB safety limit');
+          }
+          sink.add(chunk);
+        }
+        await sink.flush();
+      } finally {
+        await sink.close();
+        client.close();
+        client = null;
+      }
+      if (received == 0 || !await verifySha256File(file, sha256Expected)) {
+        throw StateError('APK SHA-256 mismatch or empty download');
+      }
+
+      _pendingUpdateApkPath = file.path;
+      _set('✅ فایل دریافت و اصالت آن تأیید شد؛ در حال بازکردن نصب‌کننده اندروید...');
+      kingHealText.value = 'APK تأیید شد — نصب‌کننده اندروید';
+      await _continuePendingUpdateInstall();
+    } catch (error, stack) {
+      logError(error, stack);
+      _set('❌ دریافت یا بررسی آپدیت ناموفق بود؛ نصب انجام نشد');
+      kingHealText.value = 'خطا در دریافت یا بررسی آپدیت';
+      if (file != null) {
+        try {
+          if (await file.exists()) await file.delete();
+        } catch (cleanupError, cleanupStack) {
+          logError(cleanupError, cleanupStack);
+        }
+      }
+    } finally {
+      client?.close();
+      _updateDownloadBusy = false;
+    }
+  }
+
+  Future<void> _continuePendingUpdateInstall() async {
+    if (_updateInstallBusy) return;
+    final path = _pendingUpdateApkPath;
+    if (path == null) return;
+    _updateInstallBusy = true;
+    try {
+      final result = await _kingUpdateChannel.invokeMethod<String>(
+        'installApk',
+        {'path': path},
+      );
+      if (result == 'permission_required') {
+        _updateChecked = false;
+        _set('برای نصب، اجازه «نصب برنامه‌های ناشناس» را برای King VPN فعال کن؛ بعد از برگشت، گزینه ادامه نصب را بزن.');
+      } else if (result == 'installer_opened') {
+        _set('نصب‌کننده اندروید باز شد؛ نصب نسخه جدید را تأیید کن.');
+      } else {
+        _set('وضعیت نصب آپدیت مشخص نیست؛ دوباره تلاش کن.');
+      }
+    } catch (error, stack) {
+      logError(error, stack);
+      _set('بازکردن نصب‌کننده اندروید ناموفق بود؛ فایل تأییدشده در حافظه موقت باقی ماند.');
+    } finally {
+      _updateInstallBusy = false;
+    }
+  }
+
+  void _applyRemoteHeal() {
+    try {
+      if (_remoteHeal['turboForce'] == true) {
+        turboSpeed = true;
+        muxEnabled = true;
+      }
+      final muxConcurrency = (_remoteHeal['muxConc'] as num?)?.toInt();
+      if (muxConcurrency != null && muxConcurrency >= 8) {
+        muxConc = muxConcurrency.clamp(8, 32);
+      }
+      dbg('ترمیم از راه دور اعمال شد: $_remoteHeal');
+    } catch (error, stack) {
+      logError(error, stack);
+    }
+  }
+}
+).hasMatch(sha256Expected)) {
       _set('❌ هش SHA-256 در منبع آپدیت معتبر نیست؛ نصب لغو شد');
       return;
     }
+    // A single deterministic temp path is used for the APK; serialize downloads
+    // so concurrent taps cannot truncate or interleave the file being verified.
+    if (_updateDownloadBusy) return;
+    _updateDownloadBusy = true;
 
     http.Client? client;
     File? file;
