@@ -155,36 +155,39 @@ empty changes list and explain what is missing.
   /// Loads only a model previously downloaded and verified in the foreground.
   /// A background worker must never start a 1.1 GB model download unexpectedly.
   Future<bool> loadInstalledModelForBackground() async {
-    if (_engine != null) return true;
     if (_busy) throw StateError('Local AI is already busy');
-    final root = await getApplicationSupportDirectory();
-    final marker = File('${root.path}/king_ai_model_ready.json');
-    if (!await marker.exists()) return false;
-    final decoded = jsonDecode(await marker.readAsString());
-    if (decoded is! Map ||
-        decoded['sha256'] != modelSha256 ||
-        decoded['sizeBytes'] != modelSizeBytes ||
-        decoded['path'] is! String) {
-      return false;
-    }
-    final modelFile = File(decoded['path'] as String);
-    if (!await modelFile.exists() ||
-        await modelFile.length() != modelSizeBytes) {
-      return false;
-    }
-    // A marker is metadata, not proof that the 1.1 GB model is still intact.
-    // Re-resolve the path inside app-private storage and verify the actual
-    // bytes before loading a background model after a reboot or file change.
-    final supportPath = await root.resolveSymbolicLinks();
-    final modelPath = await modelFile.resolveSymbolicLinks();
-    if (!modelPath.startsWith('${supportPath}${Platform.pathSeparator}')) {
-      return false;
-    }
-    final actualDigest = await sha256.bind(modelFile.openRead()).first;
-    if (actualDigest.toString() != modelSha256) return false;
-
+    // Acquire the instance lifecycle guard before asynchronous file I/O.
+    // Otherwise a concurrent loadModel() can pass its own _busy check while
+    // this method hashes the model, allowing two native engines to be loaded.
     _busy = true;
     try {
+      if (_engine != null) return true;
+      final root = await getApplicationSupportDirectory();
+      final marker = File('${root.path}/king_ai_model_ready.json');
+      if (!await marker.exists()) return false;
+      final decoded = jsonDecode(await marker.readAsString());
+      if (decoded is! Map ||
+          decoded['sha256'] != modelSha256 ||
+          decoded['sizeBytes'] != modelSizeBytes ||
+          decoded['path'] is! String) {
+        return false;
+      }
+      final modelFile = File(decoded['path'] as String);
+      if (!await modelFile.exists() ||
+          await modelFile.length() != modelSizeBytes) {
+        return false;
+      }
+      // A marker is metadata, not proof that the 1.1 GB model is still intact.
+      // Re-resolve the path inside app-private storage and verify the actual
+      // bytes before loading a background model after a reboot or file change.
+      final supportPath = await root.resolveSymbolicLinks();
+      final modelPath = await modelFile.resolveSymbolicLinks();
+      if (!modelPath.startsWith('${supportPath}${Platform.pathSeparator}')) {
+        return false;
+      }
+      final actualDigest = await sha256.bind(modelFile.openRead()).first;
+      if (actualDigest.toString() != modelSha256) return false;
+
       final support = await LocalInferenceFlutter.checkDeviceSupport();
       if (!support.isSupported) return false;
       final engine = LlamadartEngine(logLevel: EngineLogLevel.error);
