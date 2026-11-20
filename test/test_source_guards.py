@@ -2118,7 +2118,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_ip_auto_scan_aborts_when_network_mode_changes_mid_run(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         self.assertIn('(modeSnapshot != null && nationalMode != modeSnapshot)', source)
-        start = source.index('Future<void> _ipAutoRunOnce(')
+        start = source.index('Future<bool> _ipAutoRunOnce(')
         end = source.index('Future<void> ipAutoSheet(', start)
         body = source[start:end]
         self.assertIn('final runNationalMode = nationalMode;', body)
