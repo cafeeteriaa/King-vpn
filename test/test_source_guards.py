@@ -1852,5 +1852,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         cancel = method.index('stopFlag = true;', close)
         self.assertLess(close, cancel)
 
+    def test_opening_ip_auto_sheet_does_not_clear_active_scan_cancellation(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> ipAutoSheet(BuildContext ctx0) async {')
+        end = source.index('\\n  }\\n}', start)
+        method = source[start:end]
+        load = method.index('await ipAutoLoad();')
+        mounted = method.index('if (!ctx0.mounted) return;', load)
+        start_scan = method.index('Future<void> start() async {', mounted)
+        self.assertLess(load, mounted)
+        self.assertNotIn('ipAutoStopFlag = false;', method[:start_scan])
+        self.assertIn('ipAutoStopFlag = false;', method[start_scan:])
+
 if __name__ == '__main__':
     unittest.main()

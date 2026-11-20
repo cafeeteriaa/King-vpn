@@ -284,7 +284,6 @@ extension IpAutoExt on _HomePageState {
 
   Future<void> ipAutoSheet(BuildContext ctx0) async {
     await ipAutoLoad();
-    ipAutoStopFlag = false;
     if (!ctx0.mounted) return;
     showModalBottomSheet(
       context: ctx0,
