@@ -662,9 +662,9 @@ exact_replace(core, '''            coreController.startLoop(config, tunFd);
             showNotification(v2rayConfig);''', 'P1-34 verify native core running before connected');
 
 
-// Stop the duration ticker before publishing DISCONNECTED. Cancelling after
-// the broadcast leaves a small race in which onTick can publish stale CONNECTING
-// or CONNECTED state after the disconnect event.
+# Stop the duration ticker before publishing DISCONNECTED. Cancelling after
+# the broadcast leaves a small race in which onTick can publish stale CONNECTING
+# or CONNECTED state after the disconnect event.
 exact_replace(core, '''    private void sendDisconnectedBroadCast() {
         V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_DISCONNECTED;''', '''    private void sendDisconnectedBroadCast() {
         if (countDownTimer != null) {
