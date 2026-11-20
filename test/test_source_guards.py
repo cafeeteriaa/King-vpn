@@ -1871,7 +1871,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         body = source[start:]
         running = body.index('var sheetScanRunning = false;')
         start_scan = body.index('sheetScanRunning = true;')
-        reset = body.index('sheetScanRunning = false;')
+        reset = body.index('sheetScanRunning = false;', start_scan)
         close = body.index('if (sheetScanRunning) ipAutoStopFlag = true;')
         self.assertLess(running, start_scan)
         self.assertLess(start_scan, reset)
