@@ -260,7 +260,10 @@ Future<void> autoScanSheet(BuildContext context,
         ),
         actions: [
           TextButton(
-            onPressed: _autoScanRunning ? null : () => autoScanRun(say),
+            onPressed: _autoScanRunning
+                ? null
+                : () => autoScanRun(say,
+                    isVpnActive: isVpnActive, isVpnWanted: isVpnWanted),
             child: const Text('شروع'),
           ),
           TextButton(

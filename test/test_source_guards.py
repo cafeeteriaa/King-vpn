@@ -2404,6 +2404,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('shouldAbort: () => cancelled(),', body)
         self.assertNotIn('if (_autoScanStop)', body)
 
+    def test_auto_sni_sheet_forwards_live_vpn_state(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> autoScanSheet(')
+        body = source[start:]
+        self.assertIn('isVpnActive: isVpnActive, isVpnWanted: isVpnWanted', body)
+
     def test_auto_sni_scan_aborts_if_vpn_connects_mid_run(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> autoScanRun(')
