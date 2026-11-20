@@ -228,6 +228,50 @@ void main() {
       expect(() => NatDnsWireProbe.parseResponse([0, 1, 2], 1, 'google.com'),
           throwsA(isA<FormatException>()));
     });
+    test('rejects a cyclic CNAME compression pointer instead of accepting a fake A record', () {
+      const id = 0x1234;
+      final query = NatDnsWireProbe.buildQuery('google.com', id);
+      final bytes = <int>[
+        ..._u16(id), ..._u16(0x8180), ..._u16(1), ..._u16(2),
+        ..._u16(0), ..._u16(0), ...query.sublist(12),
+      ];
+      // First answer is CNAME google.com -> a compression pointer to itself.
+      final cnameRdata = bytes.length + 12;
+      bytes.addAll([
+        0xc0, 0x0c, ..._u16(5), ..._u16(1), 0, 0, 0, 60, ..._u16(2),
+        0xc0 | ((cnameRdata >> 8) & 0x3f), cnameRdata & 0xff,
+      ]);
+      // The malformed implementation used to resolve both names as "" and
+      // accept this unrelated public A record through an empty CNAME owner.
+      bytes.addAll([
+        0xc0 | ((cnameRdata >> 8) & 0x3f), cnameRdata & 0xff,
+        ..._u16(1), ..._u16(1), 0, 0, 0, 60, ..._u16(4), 8, 8, 8, 8,
+      ]);
+      expect(
+        () => NatDnsWireProbe.parseResponse(bytes, id, 'google.com'),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('rejects forward DNS compression pointers', () {
+      const id = 0x1234;
+      final query = NatDnsWireProbe.buildQuery('google.com', id);
+      final bytes = <int>[
+        ..._u16(id), ..._u16(0x8180), ..._u16(1), ..._u16(1),
+        ..._u16(0), ..._u16(0), ...query.sublist(12),
+      ];
+      // Answer owner points forward into its own RR instead of an earlier name.
+      final owner = bytes.length;
+      bytes.addAll([
+        0xc0, (owner + 12) & 0xff, ..._u16(1), ..._u16(1),
+        0, 0, 0, 60, ..._u16(4), 8, 8, 8, 8,
+      ]);
+      expect(
+        () => NatDnsWireProbe.parseResponse(bytes, id, 'google.com'),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
 
     test('pre-cancelled DNS probes return without opening a socket', () async {
       final result = await NatDnsWireProbe.probe(
