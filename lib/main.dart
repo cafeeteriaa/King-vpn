@@ -3981,10 +3981,12 @@ Future<void> pool<T>(
 // the tunnel works. Check whether the port is really open; if it is closed
 // and the VPN tunnel (tun0) is up, send the request normally (DIRECT): Android
 // then routes it through the tunnel, which is the real path of other apps.
-Future<bool> _coreProxyOpen() async {
+Future<bool> _coreProxyOpen(
+    {Duration timeout = const Duration(milliseconds: 300)}) async {
+  if (timeout <= Duration.zero) return false;
   try {
     final k = await Socket.connect('127.0.0.1', httpProxyPort,
-        timeout: const Duration(milliseconds: 300));
+        timeout: timeout);
     k.destroy();
     return true;
   } catch (_swE) {
@@ -3992,19 +3994,48 @@ Future<bool> _coreProxyOpen() async {
   }
 }
 
-Future<bool> _useCoreProxy(bool wantProxy) async {
+Future<bool> _useCoreProxy(
+  bool wantProxy, {
+  Duration? budget,
+  bool Function()? cancelled,
+}) async {
   if (proxyMode) return true;
   if (!wantProxy) return false;
-  if (await _coreProxyOpen()) return true;
-  // Port may appear a moment after CONNECTED (inbounds just bound)
-  for (var i = 0; i < 8; i++) {
-    await Future.delayed(const Duration(milliseconds: 200));
-    if (await _coreProxyOpen()) return true;
+  final clock = Stopwatch()..start();
+  Duration remaining() =>
+      budget == null ? const Duration(milliseconds: 300) : budget - clock.elapsed;
+  Future<bool> probe() async {
+    if (cancelled?.call() ?? false) return false;
+    final left = remaining();
+    if (budget != null && left <= Duration.zero) return false;
+    final timeout = budget == null
+        ? const Duration(milliseconds: 300)
+        : (left < const Duration(milliseconds: 300)
+            ? left
+            : const Duration(milliseconds: 300));
+    return _coreProxyOpen(timeout: timeout);
   }
-  // Still closed: still request PROXY so the check FAILS honestly
-  // (DIRECT from this app often bypasses the VPN on Android → false "OK"
-  // while Telegram/Instagram/YouTube stay blocked for the user).
-  return true;
+
+  if (await probe()) return true;
+  // Port may appear a moment after CONNECTED (inbounds just bound). A caller
+  // with a deadline never starts a probe or delay beyond its remaining budget.
+  for (var i = 0; i < 8; i++) {
+    if (cancelled?.call() ?? false) return false;
+    final left = budget == null
+        ? const Duration(milliseconds: 200)
+        : budget - clock.elapsed;
+    if (budget != null && left <= Duration.zero) break;
+    final pause = budget == null
+        ? const Duration(milliseconds: 200)
+        : (left < const Duration(milliseconds: 200)
+            ? left
+            : const Duration(milliseconds: 200));
+    await Future.delayed(pause);
+    if (await probe()) return true;
+  }
+  // Still closed: still request PROXY so the check FAILS honestly rather than
+  // accidentally using DIRECT and reporting false success outside the tunnel.
+  return !(cancelled?.call() ?? false);
 }
 
 // direct = true: no local proxy port, the request goes through the VPN tunnel
@@ -4158,7 +4189,8 @@ Future<int?> pingProxy(
     {Duration total = const Duration(seconds: 4),
     bool direct = false,
     bool viaCore = false,
-    String url = delayTestUrl}) async {
+    String url = delayTestUrl,
+    bool Function()? cancelled}) async {
   if (total <= Duration.zero) return null;
   final sw = Stopwatch()..start();
   Duration left() {
@@ -4166,21 +4198,43 @@ Future<int?> pingProxy(
     return remaining.isNegative ? Duration.zero : remaining;
   }
   HttpClient? client;
+  Timer? cancelWatcher;
   try {
-    var useProxy = await _useCoreProxy(viaCore || !direct).timeout(left());
+    if (cancelled?.call() ?? false) return null;
+    var useProxy = await _useCoreProxy(
+      viaCore || !direct,
+      budget: left(),
+      cancelled: cancelled,
+    );
+    if (cancelled?.call() ?? false) return null;
     // TUNPING: در حالت VPN (TUN) پورت HTTP هسته ممکن است اصلاً باز نشود؛ آن‌وقت
     // پینگ همیشه شکست می‌خورد و سرور سالم «ترافیک صفر» حساب می‌شود.
     // اگر پورت بسته است و حالت پروکسی نیست، از مسیر عادی (که TUN روی آن است) استفاده کن.
+    final proxyProbeBudget = left();
+    if (proxyProbeBudget <= Duration.zero) return null;
     if (useProxy && !proxyMode &&
-        !await _coreProxyOpen().timeout(left())) {
+        !await _coreProxyOpen(
+          timeout: proxyProbeBudget < const Duration(milliseconds: 300)
+              ? proxyProbeBudget
+              : const Duration(milliseconds: 300),
+        )) {
       useProxy = false;
       dbg('پینگ: پورت HTTP هسته بسته است؛ پینگ از مسیر TUN انجام می‌شود');
     }
+    if (cancelled?.call() ?? false) return null;
     final requestClient = HttpClient()
       ..findProxy = ((_) =>
           useProxy ? 'PROXY 127.0.0.1:$httpProxyPort' : 'DIRECT')
       ..connectionTimeout = total;
     client = requestClient;
+    if (cancelled != null) {
+      cancelWatcher = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+        if (cancelled()) {
+          timer.cancel();
+          requestClient.close(force: true);
+        }
+      });
+    }
     final req = await requestClient.getUrl(Uri.parse(url)).timeout(left());
     // One monotonic budget covers proxy selection, connect, response, and drain.
     final res = await req.close().timeout(left());
@@ -4200,6 +4254,7 @@ Future<int?> pingProxy(
     lastPingErr = e.toString();
     return null;
   } finally {
+    cancelWatcher?.cancel();
     client?.close(force: true);
   }
 }
@@ -4220,7 +4275,12 @@ Future<int?> pingAny(
   for (final u in urls.take(n)) {
     if (cancelled?.call() ?? false) return null;
     final p = await pingProxy(
-        total: total, direct: direct, viaCore: viaCore, url: u);
+      total: total,
+      direct: direct,
+      viaCore: viaCore,
+      url: u,
+      cancelled: cancelled,
+    );
     if (cancelled?.call() ?? false) return null;
     if (p != null) return p;
   }

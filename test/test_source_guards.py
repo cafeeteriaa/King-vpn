@@ -2278,6 +2278,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Duration verifyRemaining() => verifyBudget - verifyClock.elapsed;', connect)
         self.assertIn('microseconds: max(1, remaining.inMicroseconds ~/ 2)', connect)
         self.assertIn('cancelled: () => abort || !wantVpn,', connect)
+        self.assertIn('bool Function()? cancelled', ping)
+        self.assertIn('Timer.periodic(const Duration(milliseconds: 100)', ping)
+        self.assertIn('requestClient.close(force: true);', ping)
+        self.assertIn('budget: left(),', ping)
+        self.assertIn('cancelled: cancelled,', ping)
         self.assertNotIn('DateTime.now().isBefore(verifyDeadline)', connect)
         self.assertNotIn('pingSec', connect)
 
