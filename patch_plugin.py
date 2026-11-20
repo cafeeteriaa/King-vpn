@@ -589,8 +589,7 @@ exact_replace(core, '''    public boolean startCore(final V2rayConfig v2rayConfi
         if (!isLibV2rayCoreInitialized) {
             return failStart("LibV2rayCore is not initialized");
         }
-        makeDurationTimer(v2rayServicesListener.getService().getApplicationContext(),
-                v2rayConfig.ENABLE_TRAFFIC_STATICS);''', 'P1-27 start failure state and timer reset');
+        // Duration reporting starts only after the native core is confirmed running.''', 'P1-27 start failure state and timer reset');
 
 exact_replace(core, '''            if (coreController == null) {
                 Log.e(V2rayCoreManager.class.getSimpleName(), "startCore failed => coreController is null.");
@@ -658,7 +657,30 @@ exact_replace(core, '''            coreController.startLoop(config, tunFd);
                 return failStart("native core did not enter running state");
             }
             V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;
+            makeDurationTimer(v2rayServicesListener.getService().getApplicationContext(),
+                    v2rayConfig.ENABLE_TRAFFIC_STATICS);
             showNotification(v2rayConfig);''', 'P1-34 verify native core running before connected');
+
+
+// Stop the duration ticker before publishing DISCONNECTED. Cancelling after
+// the broadcast leaves a small race in which onTick can publish stale CONNECTING
+// or CONNECTED state after the disconnect event.
+exact_replace(core, ```    private void sendDisconnectedBroadCast() {
+        V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_DISCONNECTED;```, ```    private void sendDisconnectedBroadCast() {
+        if (countDownTimer != null) {
+            countDownTimer.cancel();
+            countDownTimer = null;
+        }
+        V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_DISCONNECTED;```, 'P1-36 cancel duration ticker before disconnect broadcast');
+
+exact_replace(core, ```        if (countDownTimer != null) {
+            countDownTimer.cancel();
+        }
+    }
+
+    private String createNotificationChannelID```, ```    }
+
+    private String createNotificationChannelID```, 'P1-36 remove late duration ticker cancellation');
 
 
 # VPN service: promote before establishing TUN / starting Xray.

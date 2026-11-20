@@ -1686,5 +1686,32 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('هوش مصنوعی Claude', source)
 
 
+    def test_v2ray_duration_ticker_starts_only_after_core_connects_and_stops_before_disconnect_broadcast(self):
+        patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+        self.assertIn('P1-36 cancel duration ticker before disconnect broadcast', patch)
+        self.assertIn('P1-36 remove late duration ticker cancellation', patch)
+
+        start_patch = patch.index("'P1-27 start failure state and timer reset'")
+        connected_patch = patch.index("'P1-34 verify native core running before connected'")
+        startup = patch[start_patch:connected_patch]
+        self.assertNotIn('makeDurationTimer(', startup)
+
+        connected_start = patch.rfind("exact_replace(core, '''            coreController.startLoop(config, tunFd);", 0, connected_patch)
+        connected_block = patch[connected_start:connected_patch]
+        self.assertLess(connected_block.index('if (!isV2rayCoreRunning())'),
+                        connected_block.index('V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;'))
+        self.assertLess(connected_block.index('V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;'),
+                        connected_block.index('makeDurationTimer('))
+        self.assertLess(connected_block.index('makeDurationTimer('),
+                        connected_block.index('showNotification(v2rayConfig);'))
+
+        disconnect_start = patch.index("exact_replace(core, ```    private void sendDisconnectedBroadCast() {")
+        disconnect_end = patch.index("'P1-36 remove late duration ticker cancellation'", disconnect_start)
+        disconnect = patch[disconnect_start:disconnect_end]
+        self.assertLess(disconnect.index('countDownTimer.cancel();'),
+                        disconnect.index('V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_DISCONNECTED;'))
+        self.assertIn('countDownTimer = null;', disconnect)
+
+
 if __name__ == '__main__':
     unittest.main()
