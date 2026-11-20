@@ -1713,6 +1713,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('const streamIdleTimeoutCap = Duration(seconds: 45);', download)
         self.assertIn('remainingStreamBudget < streamIdleTimeoutCap', download)
         self.assertIn('await iterator.cancel();', download)
+        self.assertLess(download.index('await iterator.cancel();'),
+                        download.index('await sink.close();'))
+        self.assertIn('client.close();', download)
 
     def test_apk_update_download_and_install_are_serialized(self):
         update = (ROOT / 'lib' / 'update_check.dart').read_text(encoding='utf-8')
@@ -2257,6 +2260,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(discard, append)
         self.assertIn('return const <String>[];', body[discard:append])
         self.assertGreaterEqual(body.count('if (cancelled())'), 5)
+        self.assertIn('if (cancelled()) return const <String>[];', body[body.index('} catch (e, stk)'):])
 
     def test_nat_ip_scan_never_exceeds_requested_hit_limit_under_concurrency(self):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')

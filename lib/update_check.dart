@@ -248,10 +248,16 @@ extension UpdateCheck on _HomePageState {
         }
         await sink.flush();
       } finally {
-        await iterator.cancel();
-        await sink.close();
-        client.close();
-        client = null;
+        try {
+          await iterator.cancel();
+        } finally {
+          try {
+            await sink.close();
+          } finally {
+            client.close();
+            client = null;
+          }
+        }
       }
       if (received == 0 || !await verifySha256File(file, sha256Expected)) {
         throw StateError('APK SHA-256 mismatch or empty download');

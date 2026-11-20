@@ -2013,6 +2013,9 @@ Future<List<String>> _natDomainFirst(List<Server> known,
   } catch (e, stk) {
     logError(e, stk);
   }
+  // Exceptions can race the deadline/cancel signal too; never return a partial
+  // result set once the caller has invalidated this discovery batch.
+  if (cancelled()) return const <String>[];
   return out;
 }
 
