@@ -217,23 +217,29 @@ extension UpdateCheck on _HomePageState {
         throw HttpException('APK download returned HTTP ${streamed.statusCode}');
       }
 
-      final remainingStreamBudget =
-          totalDownloadBudget - downloadClock.elapsed;
-      if (remainingStreamBudget <= Duration.zero) {
-        throw TimeoutException('APK download exceeded its total time budget');
-      }
       const streamIdleTimeoutCap = Duration(seconds: 45);
-      final streamIdleTimeout =
-          remainingStreamBudget < streamIdleTimeoutCap
-              ? remainingStreamBudget
-              : streamIdleTimeoutCap;
       final sink = file.openWrite();
+      final iterator = StreamIterator<List<int>>(streamed.stream);
       var received = 0;
       try {
-        await for (final chunk in streamed.stream.timeout(streamIdleTimeout)) {
+        while (true) {
+          // Recalculate the remaining total budget for every pending stream
+          // event; a fixed Stream.timeout would reset to 45s after each chunk
+          // and could let a slow trickle exceed the six-minute hard deadline.
+          final remainingStreamBudget =
+              totalDownloadBudget - downloadClock.elapsed;
+          if (remainingStreamBudget <= Duration.zero) {
+            throw TimeoutException('APK download exceeded its total time budget');
+          }
+          final streamWait = remainingStreamBudget < streamIdleTimeoutCap
+              ? remainingStreamBudget
+              : streamIdleTimeoutCap;
+          final hasChunk = await iterator.moveNext().timeout(streamWait);
+          if (!hasChunk) break;
           if (downloadClock.elapsed >= totalDownloadBudget) {
             throw TimeoutException('APK download exceeded its total time budget');
           }
+          final chunk = iterator.current;
           received += chunk.length;
           if (received > 300 * 1024 * 1024) {
             throw StateError('APK exceeds the 300 MB safety limit');
@@ -242,6 +248,7 @@ extension UpdateCheck on _HomePageState {
         }
         await sink.flush();
       } finally {
+        await iterator.cancel();
         await sink.close();
         client.close();
         client = null;
