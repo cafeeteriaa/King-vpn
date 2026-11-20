@@ -2321,7 +2321,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Timer.periodic(const Duration(milliseconds: 100)', probe)
         self.assertIn('completer.completeError(const _NatDnsProbeCancelled())', probe)
         self.assertIn('await subscription?.cancel();', probe)
-        self.assertIn('socket?.close();', probe)
+        self.assertIn('finally {\n        socket?.close();', probe)
         dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
         self.assertIn('cancelled: stop,', dns)
         self.assertIn('if (stop != null && stop()) return null;', dns)

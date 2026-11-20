@@ -300,8 +300,11 @@ class NatDnsWireProbe {
       );
     } finally {
       cancelWatcher?.cancel();
-      await subscription?.cancel();
-      socket?.close();
+      try {
+        await subscription?.cancel();
+      } finally {
+        socket?.close();
+      }
     }
   }
 }
