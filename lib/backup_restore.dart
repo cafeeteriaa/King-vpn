@@ -54,6 +54,17 @@ Future<String> bkpExportJson() async {
   return encoded;
 }
 
+Future<bool> _bkpWriteValue(
+    SharedPreferences preferences, String key, Object? value) async {
+  if (value == null) return preferences.remove(key);
+  if (value is String) return preferences.setString(key, value);
+  if (value is bool) return preferences.setBool(key, value);
+  if (value is int) return preferences.setInt(key, value);
+  if (value is double) return preferences.setDouble(key, value);
+  if (value is List<String>) return preferences.setStringList(key, value);
+  throw StateError('نوع مقدار تنظیم برای بازیابی پشتیبانی نمی‌شود');
+}
+
 /// Validate all entries before writing any preference.
 Future<int> bkpImportJson(String text) async {
   if (utf8.encode(text).length > _bkpMaxBytes) {
@@ -108,22 +119,33 @@ Future<int> bkpImportJson(String text) async {
     }
   }
 
-  // No preferences are changed until every key and value has passed validation.
+  // Snapshot every target key before the first write so a failed restore can roll back.
   final p = await SharedPreferences.getInstance();
-  for (final entry in staged.entries) {
-    final value = entry.value;
-    final ok = value is String
-        ? await p.setString(entry.key, value)
-        : value is bool
-            ? await p.setBool(entry.key, value)
-            : value is int
-                ? await p.setInt(entry.key, value)
-                : value is double
-                    ? await p.setDouble(entry.key, value)
-                    : value is List<String>
-                        ? await p.setStringList(entry.key, value)
-                        : false;
-    if (!ok) throw StateError('ذخیرهٔ تنظیم ناموفق بود');
+  final previous = <String, Object?>{
+    for (final key in staged.keys) key: p.get(key),
+  };
+  final attempted = <String>[];
+  try {
+    for (final entry in staged.entries) {
+      attempted.add(entry.key);
+      final ok = await _bkpWriteValue(p, entry.key, entry.value);
+      if (!ok) throw StateError('ذخیرهٔ تنظیم ناموفق بود');
+    }
+  } catch (_) {
+    var rollbackFailures = 0;
+    for (final key in attempted.reversed) {
+      try {
+        final restored = await _bkpWriteValue(p, key, previous[key]);
+        if (!restored) rollbackFailures++;
+      } catch (_) {
+        rollbackFailures++;
+      }
+    }
+    if (rollbackFailures > 0) {
+      throw StateError(
+          'بازیابی ناموفق شد و بازگردانی $rollbackFailures مورد نیز کامل نشد');
+    }
+    rethrow;
   }
   return staged.length;
 }
@@ -190,6 +212,6 @@ extension BkpExt on _HomePageState {
           ),
         ),
       ),
-    );
+    ).whenComplete(restoreC.dispose);
   }
 }
