@@ -1216,10 +1216,36 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('P1-31 VPN foreground before TUN/core startup', patch)
         self.assertIn('P1-31 proxy foreground before core startup', patch)
         self.assertIn("'P1-28 ' + svc_name + ' STOP always cleans up service'", patch)
-        self.assertIn("'P1-28 ' + svc_name + ' STOP always cleans up service'", patch)
         self.assertIn('P1-30 VPN revoke always releases TUN/service', patch)
         self.assertIn("src.replace('this.onDestroy();', 'stopAllProcess();')", patch)
         self.assertIn('refusing to start core', patch)
+
+        promote_start = patch.index('public boolean promoteForStop(Service service)')
+        promote_end = patch.index('Lifecycle foreground promotion reports success/failure', promote_start)
+        promote = patch[promote_start:promote_end]
+        self.assertIn('if (service == null) return false;', promote)
+        self.assertIn('if (nm == null) return false;', promote)
+        self.assertIn('service.startForeground(NOTIFICATION_ID, n);', promote)
+        self.assertIn('return true;', promote)
+        self.assertIn('return false;', promote)
+
+        for label in (
+            'P1-31 VPN foreground before TUN/core startup',
+            'P1-31 proxy foreground before core startup',
+        ):
+            start = patch.index(label)
+            block = patch[max(0, start - 1600):start]
+            self.assertIn('if (!V2rayCoreManager.getInstance().promoteForStop(this))', block)
+            self.assertLess(block.index('promoteForStop(this)'), block.index('isV2rayCoreRunning()'))
+
+        revoke_start = patch.index('public void onRevoke()')
+        revoke_end = patch.index('# 7) Delay probe', revoke_start)
+        revoke = patch[revoke_start:revoke_end]
+        self.assertIn('finally {', revoke)
+        self.assertIn('stopAllProcess();', revoke)
+
+        stop_cleanup = "finally {\\n                AppConfigs.V2RAY_CONFIG = null;\\n                stopAllProcess();\\n            }"
+        self.assertIn(stop_cleanup, patch)
 
     def test_vpn_service_promotes_before_queuing_sticky_restart_or_stop(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
