@@ -137,7 +137,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('void natVarCandidateConfirm(Server s)', nat)
         self.assertIn('void natVarCandidateDiscard(Server s)', nat)
         connect_start = main.index('Future<bool> _connectLoop(')
-        connect_end = main.index('void _onConnected(Server s)', connect_start)
+        connect_end = main.index('Future<void> _measureCurrent(', connect_start)
         connect = main[connect_start:connect_end]
         self.assertIn('if (!tunOk)', connect)
         self.assertIn('natVarCandidateDiscard(s);', connect)
@@ -1529,7 +1529,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('retaining current tunnel', watchdog)
         self.assertIn('if (active && !stopping) rescheduleNormal();', watchdog)
         self.assertLess(watchdog.index('catch (Throwable stateError)'),
-                        watchdog.index('ProbeResult pr = coreUp ? probeResult()'))
+                        watchdog.index('ProbeResult pr = coreUp ? probeResult(modeSnapshot)'))
 
     def test_vpn_service_defers_tun_close_until_native_stop_is_verified(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
