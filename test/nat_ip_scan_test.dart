@@ -31,6 +31,21 @@ void main() {
       expect(await natScanIps(['127.0.0.1'], port: 65536), isEmpty);
     });
 
+    test('adaptive concurrency always returns a bounded integer', () {
+      expect(natAdaptiveConcurrency(0), isA<int>());
+      expect(natAdaptiveConcurrency(0), inInclusiveRange(8, 64));
+      expect(natAdaptiveConcurrency(1), 1);
+      expect(natAdaptiveConcurrency(999999), lessThanOrEqualTo(256));
+    });
+
+    test('cancelled NAT scan exits without opening sockets', () async {
+      final result = await natScanIps(
+        ['127.0.0.1'],
+        cancelled: () => true,
+      );
+      expect(result, isEmpty);
+    });
+
     test('valid limits preserve expected expansion', () {
       expect(natExpandCidr('10.0.0.0/30', maxPerBlock: 4), hasLength(4));
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: 3), hasLength(3));
