@@ -1401,7 +1401,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = update.index('Future<void> checkForUpdate()')
         end = update.index('Future<void> _downloadAndInstallApk(', start)
         check = update[start:end]
-        self.assertEqual(check.count('if (!mounted) {'), 2)
+        self.assertEqual(check.count('if (!mounted) {'), 3)
+        response = check.index('final response = await http')
+        response_guard = check.index('if (!mounted) {', response)
+        remote_heal = check.index('_applyRemoteHeal();')
+        self.assertLess(response, response_guard)
+        self.assertLess(response_guard, remote_heal)
         for block in check.split('if (!mounted) {')[1:]:
             branch = block.split('}', 1)[0]
             self.assertIn('_updateChecked = false;', branch)

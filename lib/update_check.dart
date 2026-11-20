@@ -35,6 +35,10 @@ extension UpdateCheck on _HomePageState {
             'User-Agent': 'KingVPN-Updater/1.0',
           })
           .timeout(const Duration(seconds: 12));
+      if (!mounted) {
+        _updateChecked = false;
+        return;
+      }
       if (response.statusCode != 200) {
         _updateChecked = false;
         return;
