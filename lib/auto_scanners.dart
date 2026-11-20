@@ -77,9 +77,11 @@ Future<void> autoScanRun(void Function(String) say) async {
   _autoScanRunning = true;
   dnsxManualBusy = true;
   _autoScanStop = false;
+  final scanNationalMode = nationalMode;
+  bool cancelled() => _autoScanStop || nationalMode != scanNationalMode;
   try {
     await goldLoad();
-    if (_autoScanStop) {
+    if (cancelled()) {
       say('اسکن متوقف شد؛ هیچ نتیجه‌ای ذخیره نشد');
       return;
     }
@@ -108,12 +110,12 @@ Future<void> autoScanRun(void Function(String) say) async {
     for (final d in kAutoSniDomains) {
       n++;
       if (nationalMode) {
-        await natManualYield(shouldAbort: () => _autoScanStop);
-        if (_autoScanStop) break sniLoop;
+        await natManualYield(shouldAbort: () => cancelled());
+        if (cancelled()) break sniLoop;
       }
       var ok = false;
       for (final ip in ips) {
-        if (_autoScanStop) break sniLoop;
+        if (cancelled()) break sniLoop;
         if (await _autoSniOk(ip, 443, d) != null) {
           ok = true;
           break;
@@ -123,7 +125,7 @@ Future<void> autoScanRun(void Function(String) say) async {
       say('SNI $n/${kAutoSniDomains.length} • سالم: ${sniHits.length}');
     }
 
-    if (_autoScanStop) {
+    if (cancelled()) {
       say('اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');
       return;
     }
@@ -135,12 +137,12 @@ Future<void> autoScanRun(void Function(String) say) async {
     for (final p in kAutoPorts) {
       m++;
       if (nationalMode) {
-        await natManualYield(shouldAbort: () => _autoScanStop);
-        if (_autoScanStop) break portLoop;
+        await natManualYield(shouldAbort: () => cancelled());
+        if (cancelled()) break portLoop;
       }
       var ok = false;
       for (final ip in ips) {
-        if (_autoScanStop) break portLoop;
+        if (cancelled()) break portLoop;
         if (await _autoPortOk(ip, p)) {
           ok = true;
           break;
@@ -150,7 +152,7 @@ Future<void> autoScanRun(void Function(String) say) async {
       say('پورت $m/${kAutoPorts.length} • سالم: ${portHits.length}');
     }
 
-    if (_autoScanStop) {
+    if (cancelled()) {
       say('اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');
       return;
     }
@@ -159,10 +161,10 @@ Future<void> autoScanRun(void Function(String) say) async {
     final tlsHits = <String>[];
     final tlsSni = sniHits.isNotEmpty ? sniHits.first : 'www.google.com';
     for (final alpn in const ['h2', 'http/1.1']) {
-      if (_autoScanStop) break;
+      if (cancelled()) break;
       var ok = false;
       for (final ip in ips) {
-        if (_autoScanStop) break;
+        if (cancelled()) break;
         final sel = await _autoAlpnOk(ip, tlsSni, alpn);
         if (sel != null && sel.isNotEmpty) {
           if (!tlsHits.contains(sel)) tlsHits.add(sel);
@@ -173,14 +175,14 @@ Future<void> autoScanRun(void Function(String) say) async {
       if (ok) say('TLS: $alpn ✓');
     }
 
-    if (_autoScanStop) {
+    if (cancelled()) {
       say('اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');
       return;
     }
     // Commit the three result groups together only after every scan phase completes.
     final saved = await goldAddScans(
       {'tls': tlsHits, 'sni': sniHits, 'port': portHits},
-      shouldAbort: () => _autoScanStop,
+      shouldAbort: () => cancelled(),
     );
     if (!saved) {
       say('اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');

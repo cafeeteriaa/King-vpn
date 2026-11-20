@@ -2056,7 +2056,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         tls_end = source.index("await goldAddScans(", tls_start)
         tls = source[tls_start:tls_end]
         ip_loop = tls.index('for (final ip in ips) {')
-        stop_check = tls.index('if (_autoScanStop) break;', ip_loop)
+        stop_check = tls.index('if (cancelled()) break;', ip_loop)
         probe = tls.index('final sel = await _autoAlpnOk', ip_loop)
         self.assertLess(ip_loop, stop_check)
         self.assertLess(stop_check, probe)
@@ -2158,6 +2158,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('dnsxManualBusy = false;', body)
         self.assertLess(body.index('dnsxManualBusy = true;'), body.index('await goldLoad();'))
         self.assertLess(body.index('_autoScanRunning = false;'), body.index('dnsxManualBusy = false;'))
+
+    def test_auto_sni_scan_aborts_when_network_mode_changes_mid_run(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> autoScanRun(')
+        end = source.index('Future<void> autoScanSheet(', start)
+        body = source[start:end]
+        snapshot = body.index('final scanNationalMode = nationalMode;')
+        first_await = body.index('await goldLoad();')
+        self.assertLess(snapshot, first_await)
+        self.assertIn('bool cancelled() => _autoScanStop || nationalMode != scanNationalMode;', body)
+        self.assertIn('await goldAddScans(', body)
+        self.assertIn('shouldAbort: () => cancelled(),', body)
+        self.assertNotIn('if (_autoScanStop)', body)
 
     def test_dns_auto_scan_keeps_network_mode_snapshot_across_awaits(self):
         source = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
