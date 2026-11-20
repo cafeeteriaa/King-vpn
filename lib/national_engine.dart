@@ -209,7 +209,7 @@ class NatNetworkDiagnosis {
     try {
       final at = _checkedAt;
       final id = await _identityHash();
-      if (!force && at != null && id == _identityAtCheck &&
+      if (!force && id.isNotEmpty && at != null && id == _identityAtCheck &&
           DateTime.now().difference(at) < _ttl) {
         return current;
       }
@@ -248,7 +248,7 @@ class NatNetworkDiagnosis {
       // (Wi-Fi <-> mobile, VPN handoff, or roaming). Never publish evidence
       // collected across two different networks as the current route verdict.
       final identityAfterProbe = await _identityHash();
-      if (identityAfterProbe != id) {
+      if (id.isNotEmpty && identityAfterProbe != id) {
         current = NatNetworkClass.unknown;
         _checkedAt = null;
         _identityAtCheck = null;
@@ -267,14 +267,18 @@ class NatNetworkDiagnosis {
         globalTcpSuccesses: globalTcp.where((ok) => ok).length,
       );
       current = ev.classify();
-      _checkedAt = DateTime.now();
-      _identityAtCheck = id;
+      // If interface enumeration is unavailable, use this sample once but
+      // never cache it as belonging to an identifiable network.
+      _checkedAt = id.isNotEmpty ? DateTime.now() : null;
+      _identityAtCheck = id.isNotEmpty ? id : null;
       dbg('NNIE-DIAG: ${natNetworkClassLabel(current)} '
           '(domesticTcp=${ev.domesticTcpOk} domesticDns=$domesticDnsOk '
           'globalTcp=${ev.globalTcpOk} globalDns=${ev.globalDnsOk} poison=$poison)');
     } catch (e, st) {
       logError(e, st);
       current = NatNetworkClass.unknown;
+      _checkedAt = null;
+      _identityAtCheck = null;
     } finally {
       _running = false;
     }
@@ -321,7 +325,7 @@ class PilotNetworkProbe {
   static Future<NetworkEvidence> _refresh({required bool force}) async {
     final identity = await _networkIdentity();
     final lastAt = _lastAt;
-    if (!force && lastAt != null && identity == _lastIdentity &&
+    if (!force && identity.isNotEmpty && lastAt != null && identity == _lastIdentity &&
         DateTime.now().difference(lastAt) < const Duration(minutes: 2)) {
       return _last;
     }
@@ -332,7 +336,7 @@ class PilotNetworkProbe {
     // The route may have changed during the concurrent TLS checks. Discard
     // that mixed snapshot instead of steering Smart Pilot with stale evidence.
     final identityAfterProbe = await _networkIdentity();
-    if (identityAfterProbe != identity) {
+    if (identity.isNotEmpty && identityAfterProbe != identity) {
       _last = const NetworkEvidence(
         domestic: LinkHealth.unknown,
         global: LinkHealth.unknown,
@@ -360,8 +364,9 @@ class PilotNetworkProbe {
       domesticTlsReachabilityVerified: domestic.whereType<int>().length >= 2,
       globalTlsReachabilityVerified: global.whereType<int>().length >= 2,
     );
-    _lastAt = DateTime.now();
-    _lastIdentity = identity;
+    // An unknown interface identity is not a safe cache key.
+    _lastAt = identity.isNotEmpty ? DateTime.now() : null;
+    _lastIdentity = identity.isNotEmpty ? identity : null;
     dbg('PILOT-TLS-PROBE: domestic=${domestic.whereType<int>().length}/${domestic.length} '
         'global=${global.whereType<int>().length}/${global.length} '
         'latencyDomestic=${_median(domestic)}ms latencyGlobal=${_median(global)}ms');
