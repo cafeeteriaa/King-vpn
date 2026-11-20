@@ -507,7 +507,7 @@ export default {
     return new Response(null, { status: 101, webSocket: client });
   },
 };
-'''
+''';
 
 class CfDeployResult {
   final String link;
