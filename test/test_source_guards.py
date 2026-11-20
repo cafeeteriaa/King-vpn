@@ -1154,6 +1154,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('P1-33 ProxyOnly service receives delay URL', patch)
         self.assertIn('check_delay.putExtra("DELAY_URL", AppConfigs.DELAY_URL);', patch)
         self.assertIn('Register before dispatch so a fast service response cannot be missed.', patch)
+        self.assertIn('P1-33 use flagged receiver overload only on API 33+', patch)
+        self.assertIn('Build.VERSION_CODES.TIRAMISU', patch)
 
     def test_hot_cache_uses_shared_future_and_scoped_storage_permission(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
