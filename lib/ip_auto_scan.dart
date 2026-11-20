@@ -35,35 +35,66 @@ bool? _ipAutoLoadedNat;
 String _ipAutoModeName() => nationalMode ? 'نت ملی' : 'جهانی';
 
 Future<void> ipAutoLoad() async {
+  // Capture the mode and its storage keys before the first await. A mode
+  // switch during preference I/O must never mix the two independent datasets.
+  final loadNationalMode = nationalMode;
+  final hitsKey = loadNationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
+  final posKey = '${_ipAutoPosKey}_${loadNationalMode ? 'nat' : 'glob'}';
+  final cursorKey = '${_ipAutoCursorKey}_${loadNationalMode ? 'nat' : 'glob'}';
   try {
     final p = await SharedPreferences.getInstance();
-    final s = p.getString(_ipAutoKeyNow()) ?? '';
+    if (nationalMode != loadNationalMode) return;
+    final savedHits = p.getString(hitsKey) ?? '';
+    final savedPos = int.tryParse(p.getString(posKey) ?? '') ?? 0;
+    final loadedCursors = <String, int>{};
+    final c = p.getString(cursorKey);
+    if (c != null && c.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(c);
+        if (decoded is Map) {
+          for (final entry in decoded.entries) {
+            if (entry.value is num) {
+              loadedCursors['${entry.key}'] = (entry.value as num).toInt();
+            }
+          }
+        }
+      } catch (e, stk) {
+        logError(e, stk);
+      }
+    }
+    if (nationalMode != loadNationalMode) return;
     ipAutoHits
       ..clear()
-      ..addAll(s.split('\n').where((x) => x.contains('|')));
-    _ipAutoLoadedNat = nationalMode;
-    ipAutoPos = int.tryParse(p.getString(_ipAutoPosKeyNow()) ?? '') ?? 0;
-    final c = p.getString(_ipAutoCursorKeyNow());
-    if (c != null && c.isNotEmpty) {
-      final m = jsonDecode(c) as Map;
-      ipAutoCursors
-        ..clear()
-        ..addAll({for (final e in m.entries) '${e.key}': (e.value as num).toInt()});
-    }
+      ..addAll(savedHits.split('\n').where((x) => x.contains('|')));
+    ipAutoCursors
+      ..clear()
+      ..addAll(loadedCursors);
+    ipAutoPos = savedPos;
+    _ipAutoLoadedNat = loadNationalMode;
   } catch (e, stk) {
     logError(e, stk);
   }
 }
 
 Future<void> _ipAutoSave() async {
+  // Persist an immutable snapshot under the keys belonging to its captured mode.
+  final saveNationalMode = nationalMode;
+  if (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode) return;
+  final hits = List<String>.of(ipAutoHits);
+  final cursors = Map<String, int>.of(ipAutoCursors);
+  final position = ipAutoPos;
+  final hitsKey = saveNationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
+  final cursorKey = '${_ipAutoCursorKey}_${saveNationalMode ? 'nat' : 'glob'}';
+  final posKey = '${_ipAutoPosKey}_${saveNationalMode ? 'nat' : 'glob'}';
   try {
-    // IPAUTO-MODE: اگر حالت وسط کار عوض شده، فهرست حافظه مال حالت دیگری است؛ ذخیره نمی‌کنیم
-    // تا نتایج یک حالت در کلید حالت دیگر نریزد.
-    if (_ipAutoLoadedNat != null && _ipAutoLoadedNat != nationalMode) return;
     final p = await SharedPreferences.getInstance();
-    await p.setString(_ipAutoKeyNow(), ipAutoHits.join('\n'));
-    await p.setString(_ipAutoCursorKeyNow(), jsonEncode(ipAutoCursors));
-    await p.setString(_ipAutoPosKeyNow(), ipAutoPos.toString());
+    if (nationalMode != saveNationalMode ||
+        (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode)) {
+      return;
+    }
+    await p.setString(hitsKey, hits.join('\n'));
+    await p.setString(cursorKey, jsonEncode(cursors));
+    await p.setString(posKey, position.toString());
   } catch (e, stk) {
     logError(e, stk);
   }

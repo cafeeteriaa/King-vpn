@@ -1894,5 +1894,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(ip_loop, stop_check)
         self.assertLess(stop_check, probe)
 
+    def test_ip_auto_storage_load_and_save_are_mode_isolated_across_awaits(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        load_start = source.index('Future<void> ipAutoLoad() async {')
+        save_start = source.index('Future<void> _ipAutoSave() async {', load_start)
+        load = source[load_start:save_start]
+        save_end = source.index('/// خودکار فقط IPهای دقیق', save_start)
+        save = source[save_start:save_end]
+        self.assertLess(load.index('final loadNationalMode = nationalMode;'),
+                        load.index('await SharedPreferences.getInstance();'))
+        self.assertIn('if (nationalMode != loadNationalMode) return;', load)
+        self.assertIn('ipAutoCursors\n      ..clear()\n      ..addAll(loadedCursors);', load)
+        self.assertLess(save.index('final saveNationalMode = nationalMode;'),
+                        save.index('await SharedPreferences.getInstance();'))
+        self.assertIn('final hitsKey = saveNationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;', save)
+        self.assertIn('if (nationalMode != saveNationalMode ||', save)
+
 if __name__ == '__main__':
     unittest.main()
