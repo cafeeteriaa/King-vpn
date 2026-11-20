@@ -48,6 +48,13 @@ void main() {
         'release-assets.githubusercontent.com',
       );
       expect(
+        resolveAllowedUpdateRedirect(
+          current,
+          'https://release-assets.githubusercontent.com/assets/app.apk?token=temporary-signature',
+        )?.host,
+        'release-assets.githubusercontent.com',
+      );
+      expect(
         resolveAllowedUpdateRedirect(current, '/cafeeteriaa/King-vpn/releases/download/v2/king-vpn.apk')?.host,
         'github.com',
       );

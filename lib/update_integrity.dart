@@ -11,7 +11,6 @@ bool isAllowedUpdateDownloadUri(
   if (uri.scheme.toLowerCase() != 'https' ||
       uri.userInfo.isNotEmpty ||
       uri.port != 443 ||
-      uri.hasQuery ||
       uri.hasFragment) {
     return false;
   }
