@@ -1884,11 +1884,18 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
 
   Future<void> dispose() async {
     final engine = _engine;
-    _engine = null;
-    if (engine != null) await engine.dispose();
     final models = _models;
+    // Clear references before awaiting native teardown so repeated dispose
+    // calls cannot dispose the same native handles twice.
+    _engine = null;
     _models = null;
     _modelsInitialized = false;
-    if (models != null) await models.dispose();
+    try {
+      if (engine != null) await engine.dispose();
+    } finally {
+      // ModelManager owns separate native/plugin resources. Always release
+      // them even if the inference engine's dispose throws.
+      if (models != null) await models.dispose();
+    }
   }
 }
