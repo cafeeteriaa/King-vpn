@@ -44,6 +44,8 @@ class _KingChatPageState extends State<KingChatPage> {
   }
 
   Future<void> _send() async {
+    // Speech callbacks may arrive after the page has been disposed.
+    if (!mounted) return;
     final prompt = _input.text.trim();
     if (prompt.isEmpty || _busy) return;
     _input.clear();
@@ -54,7 +56,8 @@ class _KingChatPageState extends State<KingChatPage> {
     try {
       final answer = await KingLocalAi.instance.ask(prompt, maxTokens: 1400);
       _add(answer, true);
-      if (_speak || voice) {
+      // Do not start late audio if the chat page closed during local inference.
+      if (mounted && (_speak || voice)) {
         try {
           await KingVoiceOutput.instance.speakPersian(answer);
           if (!KingVoiceOutput.instance.femaleVoiceSelected && mounted) {
