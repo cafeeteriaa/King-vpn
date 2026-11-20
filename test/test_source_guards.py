@@ -90,16 +90,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         stop_guard = flow.index('if (stopping)', flow.index('boolean connectedNow = connectFrom(0);'))
         connected_event = flow.index('emit("CONNECTED"', stop_guard)
         failed_event = flow.index('emit("FAILED"', stop_guard)
+        connected_branch = flow.index('if (connectedNow)', stop_guard)
+        self.assertIn('if (stopping) return;', flow[stop_guard:connected_branch])
         self.assertLess(stop_guard, connected_event)
         self.assertLess(stop_guard, failed_event)
-        self.assertNotIn('emit("CONNECTED"', flow[stop_guard:connected_event])
         resume_start = source.index('private void resumeSaved()')
         resume_end = source.index('private boolean connectFrom(', resume_start)
         resume = source[resume_start:resume_end]
         guard = resume.index('if (stopping)', resume.index('boolean connectedNow = connectFrom(currentIdx);'))
-        save = resume.index('saveState();', guard)
-        self.assertLess(guard, save)
-        self.assertNotIn('saveState();', resume[guard:save])
+        connected_branch = resume.index('if (connectedNow)', guard)
+        self.assertIn('if (stopping) return;', resume[guard:connected_branch])
+        self.assertNotIn('saveState();', resume[guard:connected_branch])
 
     def test_native_watchdog_requires_corroborated_domestic_evidence_and_mode_snapshot(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
