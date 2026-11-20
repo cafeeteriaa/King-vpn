@@ -2836,5 +2836,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(mode_guard, passed)
 
 
+    def test_route_blocking_is_not_misreported_as_dns_poisoning(self):
+        source = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        start = source.index('class NatNetworkDiagnosis')
+        end = source.index('class PilotNetworkProbe', start)
+        diagnosis = source[start:end]
+        self.assertIn('A public DNS answer combined with failed TCP/443 does NOT prove', diagnosis)
+        self.assertNotIn('poison = reach.isNotEmpty', diagnosis)
+        self.assertNotIn('dnsPoisonSuspected: poison', diagnosis)
+        self.assertIn('globalDnsOk: globalDnsOk', diagnosis)
+        self.assertIn('globalTcpOk: globalTcpOk', diagnosis)
+
+
 if __name__ == '__main__':
     unittest.main()
