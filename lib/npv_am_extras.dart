@@ -1176,6 +1176,7 @@ List<Widget> npvAmSettingsItems(
 
 extension NpvAmExtras on _HomePageState {
   void npvAdvDialog() {
+    final customDnsC = TextEditingController(text: customDnsAddr);
     showDialog(
       context: context,
       builder: (ctx) => Directionality(
@@ -1223,8 +1224,7 @@ extension NpvAmExtras on _HomePageState {
                       Padding(
                         padding: const EdgeInsets.only(top: 4),
                         child: TextField(
-                          controller:
-                              TextEditingController(text: customDnsAddr),
+                          controller: customDnsC,
                           decoration: const InputDecoration(
                               hintText: 'مثلاً 1.1.1.1 یا https://dns.example/dns-query',
                               isDense: true),
@@ -1247,7 +1247,10 @@ extension NpvAmExtras on _HomePageState {
           },
         ),
       ),
-    ).then((_) => _saveSettings());
+    ).then((_) async {
+      customDnsC.dispose();
+      await _saveSettings();
+    });
   }
 
   // RELAY: UI dialog for the relay server (Multi-hop)
@@ -1288,7 +1291,7 @@ extension NpvAmExtras on _HomePageState {
           ],
         ),
       ),
-    );
+    ).whenComplete(c.dispose);
   }
 
   void cleanIpDialog() {
