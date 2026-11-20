@@ -1706,7 +1706,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('const totalDownloadBudget = Duration(minutes: 6);', download)
         self.assertIn('final downloadClock = Stopwatch()..start();', download)
         self.assertGreaterEqual(download.count('downloadClock.elapsed >= totalDownloadBudget'), 2)
-        self.assertIn('streamed.stream.timeout(', download)
+        self.assertIn('totalDownloadBudget - downloadClock.elapsed', download)
+        self.assertIn('client.send(request).timeout(requestTimeout)', download)
+        self.assertIn('streamed.stream.timeout(streamIdleTimeout)', download)
         self.assertIn('const Duration(seconds: 45)', download)
 
     def test_apk_update_download_and_install_are_serialized(self):

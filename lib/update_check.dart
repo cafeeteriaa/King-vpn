@@ -184,8 +184,16 @@ extension UpdateCheck on _HomePageState {
             'Accept': 'application/vnd.android.package-archive',
             'User-Agent': 'KingVPN-Updater/1.0',
           });
-        final response = await client.send(request)
-            .timeout(const Duration(minutes: 4));
+        final remainingRequestBudget =
+            totalDownloadBudget - downloadClock.elapsed;
+        if (remainingRequestBudget <= Duration.zero) {
+          throw TimeoutException('APK download exceeded its total time budget');
+        }
+        const requestTimeoutCap = Duration(minutes: 4);
+        final requestTimeout = remainingRequestBudget < requestTimeoutCap
+            ? remainingRequestBudget
+            : requestTimeoutCap;
+        final response = await client.send(request).timeout(requestTimeout);
         if (redirectStatuses.contains(response.statusCode)) {
           final location = response.headers['location'];
           await response.stream.listen((_) {}).cancel();
@@ -209,12 +217,20 @@ extension UpdateCheck on _HomePageState {
         throw HttpException('APK download returned HTTP ${streamed.statusCode}');
       }
 
+      final remainingStreamBudget =
+          totalDownloadBudget - downloadClock.elapsed;
+      if (remainingStreamBudget <= Duration.zero) {
+        throw TimeoutException('APK download exceeded its total time budget');
+      }
+      const streamIdleTimeoutCap = Duration(seconds: 45);
+      final streamIdleTimeout =
+          remainingStreamBudget < streamIdleTimeoutCap
+              ? remainingStreamBudget
+              : streamIdleTimeoutCap;
       final sink = file.openWrite();
       var received = 0;
       try {
-        await for (final chunk in streamed.stream.timeout(
-          const Duration(seconds: 45),
-        )) {
+        await for (final chunk in streamed.stream.timeout(streamIdleTimeout)) {
           if (downloadClock.elapsed >= totalDownloadBudget) {
             throw TimeoutException('APK download exceeded its total time budget');
           }
