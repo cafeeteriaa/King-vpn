@@ -8631,6 +8631,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           break; // this config variant has real outbound traffic
         }
 
+        // If the strict direct fallback could not observe a TUN, this is a
+        // device/core tunnel failure, not evidence against the server config.
+        if (!await _tunInterfaceObserved()) {
+          lastFail = 'اندروید رابط VPN را نساخت یا قابل مشاهده نیست';
+          lastStartNoTunnel = true;
+          await _stopCore();
+          return false;
+        }
+
         trafficFailure = true;
         _startNoTraffic = true;
         lastFail = 'وصل شد ولی اینترنت رد نشد (ترافیک تونل صفر)';
