@@ -2991,5 +2991,30 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('ipAutoHits.isEmpty || ipAutoPendingCore.isNotEmpty', background)
 
 
+    def test_background_network_scans_are_scheduled_sequentially_and_stop_for_vpn(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<void> _runBackgroundNetworkScans()')
+        end = main.index('void didChangeAppLifecycleState(AppLifecycleState s)', start)
+        scheduler = main[start:end]
+        dns = scheduler.index('await dnsxAutoPick(')
+        ip = scheduler.index('await ipAutoBackground()')
+        self.assertLess(dns, ip)
+        self.assertIn('stop: () => !_autoNetworkScanAllowed(modeSnapshot)', scheduler)
+        self.assertIn('!wantVpn', scheduler)
+        self.assertIn('!connected', scheduler)
+        self.assertIn('!searching', scheduler)
+        self.assertIn('Timer.periodic(const Duration(minutes: 15)', main)
+        self.assertIn('_runBackgroundNetworkScans()', main[main.index('void didChangeAppLifecycleState(AppLifecycleState s)'):])
+        self.assertIn('_networkAutoScanPeriodicTimer?.cancel()', main)
+
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        halt_start = source.index('bool _ipAutoHalt(')
+        halt_end = source.index('/// دلیل رد شدن شروع اسکن', halt_start)
+        halt = source[halt_start:halt_end]
+        self.assertIn('wantVpn', halt)
+        self.assertIn('searching', halt)
+        self.assertIn('abort', halt)
+        self.assertIn('!inForeground', halt)
+
 if __name__ == '__main__':
     unittest.main()
