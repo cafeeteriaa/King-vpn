@@ -130,6 +130,31 @@ void main() {
       expect(ev.classify(), NatNetworkClass.transportRestricted);
     });
 
+    test('one successful host is not enough to label a route group reachable', () {
+      const domesticOnlyOne = NatProbeEvidence(
+        domesticDnsOk: false, domesticTcpOk: true,
+        globalDnsOk: false, globalTcpOk: false, sampleCount: 10,
+        domesticTcpSuccesses: 1, globalTcpSuccesses: 0,
+      );
+      expect(domesticOnlyOne.classify(), NatNetworkClass.transportRestricted);
+
+      const globalOnlyOne = NatProbeEvidence(
+        domesticDnsOk: false, domesticTcpOk: false,
+        globalDnsOk: false, globalTcpOk: true, sampleCount: 10,
+        domesticTcpSuccesses: 0, globalTcpSuccesses: 1,
+      );
+      expect(globalOnlyOne.classify(), NatNetworkClass.transportRestricted);
+    });
+
+    test('two independent domestic hosts are required for domestic-only classification', () {
+      const ev = NatProbeEvidence(
+        domesticDnsOk: false, domesticTcpOk: true,
+        globalDnsOk: false, globalTcpOk: false, sampleCount: 10,
+        domesticTcpSuccesses: 2, globalTcpSuccesses: 0,
+      );
+      expect(ev.classify(), NatNetworkClass.domesticOnlyLikely);
+    });
+
     test('global TCP reachability is recognized even if domestic targets fail', () {
       const ev = NatProbeEvidence(
         domesticDnsOk: false, domesticTcpOk: false,

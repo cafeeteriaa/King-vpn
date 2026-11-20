@@ -252,6 +252,8 @@ class NatNetworkDiagnosis {
         dnsPoisonSuspected: poison,
         sampleCount: domesticTcp.length + globalTcp.length +
             globalDnsRes.length + domesticDnsRes.length,
+        domesticTcpSuccesses: domesticTcp.where((ok) => ok).length,
+        globalTcpSuccesses: globalTcp.where((ok) => ok).length,
       );
       current = ev.classify();
       _checkedAt = DateTime.now();

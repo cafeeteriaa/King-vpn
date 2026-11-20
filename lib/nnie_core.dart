@@ -48,6 +48,8 @@ class NatProbeEvidence {
     required this.globalTcpOk,
     this.dnsPoisonSuspected = false,
     this.sampleCount = 1,
+    this.domesticTcpSuccesses,
+    this.globalTcpSuccesses,
   });
 
   final bool domesticDnsOk;
@@ -57,26 +59,42 @@ class NatProbeEvidence {
   final bool dnsPoisonSuspected;
   final int sampleCount;
 
+  /// Optional per-group counts let production diagnosis require corroboration
+  /// from multiple independent hosts. Null preserves the legacy test/API form.
+  final int? domesticTcpSuccesses;
+  final int? globalTcpSuccesses;
+
   NatNetworkClass classify() {
     // DNS replies prove resolver availability only. They must never be used as
     // proof that a domestic or global data path is reachable.
     if (sampleCount < 2) return NatNetworkClass.unknown;
     if (dnsPoisonSuspected) return NatNetworkClass.dnsDegraded;
 
-    if (domesticTcpOk && globalTcpOk) {
+    // Production passes counts for two-host corroboration. A single successful
+    // TCP target is not enough to label an entire route group as reachable.
+    final domesticReachable = domesticTcpSuccesses == null
+        ? domesticTcpOk
+        : domesticTcpSuccesses! >= 2;
+    final globalReachable = globalTcpSuccesses == null
+        ? globalTcpOk
+        : globalTcpSuccesses! >= 2;
+
+    if (domesticReachable && globalReachable) {
       return NatNetworkClass.globalReachable;
     }
-    if (domesticTcpOk && !globalTcpOk) {
+    if (domesticReachable && !globalReachable) {
       return globalDnsOk
           ? NatNetworkClass.transportRestricted
           : NatNetworkClass.domesticOnlyLikely;
     }
-    if (!domesticTcpOk && globalTcpOk) {
+    if (!domesticReachable && globalReachable) {
       return NatNetworkClass.globalReachable;
     }
-    // DNS may work while TCP/443 is blocked on both route groups. Report a
-    // transport restriction, never "domestic only" or "global reachable".
-    if (domesticDnsOk || globalDnsOk) {
+    // DNS may work while TCP/443 is blocked, or only one host may respond.
+    // Report uncertainty/restriction rather than inferring a whole route group.
+    if (domesticDnsOk || globalDnsOk ||
+        (domesticTcpSuccesses ?? 0) == 1 ||
+        (globalTcpSuccesses ?? 0) == 1) {
       return NatNetworkClass.transportRestricted;
     }
     return NatNetworkClass.unknown;
