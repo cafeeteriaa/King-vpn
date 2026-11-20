@@ -669,6 +669,15 @@ exact_replace(proxy_svc, '''    @Override
 
     @Override
     public void onDestroy() {
+        // The proxy-only service shares its process with the native core. If Android
+        // destroys this service outside the normal STOP command, release the core too.
+        try {
+            if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {
+                V2rayCoreManager.getInstance().stopCore();
+            }
+        } catch (Exception e) {
+            Log.e("V2rayProxyOnlyService", "onDestroy core cleanup failed", e);
+        }
         try {
             stopForeground(true);
         } catch (Exception e) {

@@ -1251,6 +1251,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             }"""
         self.assertIn(stop_cleanup, patch)
 
+        proxy_destroy_start = patch.index("exact_replace(proxy_svc, '''    @Override\\n    public void onDestroy()")
+        proxy_destroy_end = patch.index("'P1-29 proxy-only service cleanup helper')", proxy_destroy_start)
+        proxy_destroy = patch[proxy_destroy_start:proxy_destroy_end]
+        self.assertIn('isV2rayCoreRunning()', proxy_destroy)
+        self.assertIn('V2rayCoreManager.getInstance().stopCore();', proxy_destroy)
+        self.assertIn('stopForeground(true);', proxy_destroy)
+        self.assertLess(proxy_destroy.index('stopCore();'), proxy_destroy.index('stopForeground(true);'))
+
     def test_vpn_service_promotes_before_queuing_sticky_restart_or_stop(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = service.index('public int onStartCommand(Intent intent')
