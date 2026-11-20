@@ -1174,5 +1174,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertEqual([], duplicates, f'duplicate test methods: {duplicates}')
 
 
+    def test_android_builds_do_not_pull_unused_webview_plugin(self):
+        build = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
+        release = (ROOT / '.github' / 'workflows' / 'signed-release.yml').read_text(encoding='utf-8')
+        orchestrator = (ROOT / 'tools' / 'repair_orchestrator.py').read_text(encoding='utf-8')
+        for source in (build, release, orchestrator):
+            self.assertNotIn('webview_flutter', source)
+        self.assertIn("java-version: '21'", build)
+        self.assertIn("java-version: '21'", release)
+
+
 if __name__ == '__main__':
     unittest.main()
