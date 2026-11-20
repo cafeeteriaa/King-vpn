@@ -313,7 +313,12 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       return;
     }
     _initialRequestSubmitted = true;
-    if (!await _reauthenticateOwnerForCodeChange()) return;
+    if (!await _reauthenticateOwnerForCodeChange()) {
+      // Cancellation or a failed fresh proof must not permanently consume the
+      // one-shot initial request; a later authenticated retry may submit it.
+      _initialRequestSubmitted = false;
+      return;
+    }
     await _submitFeatureRequest(ownerReauthenticated: true);
   }
 

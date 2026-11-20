@@ -1823,5 +1823,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(guard, branch)
 
 
+    def test_initial_feature_request_can_retry_after_reauthentication_cancel(self):
+        source = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> _maybeSubmitInitialFeatureRequest() async {')
+        end = source.index('Future<void> _submitFeatureRequest(', start)
+        method = source[start:end]
+        claimed = method.index('_initialRequestSubmitted = true;')
+        auth = method.index('if (!await _reauthenticateOwnerForCodeChange()) {', claimed)
+        reset = method.index('_initialRequestSubmitted = false;', auth)
+        submit = method.index('await _submitFeatureRequest(ownerReauthenticated: true);', auth)
+        self.assertLess(claimed, auth)
+        self.assertLess(auth, reset)
+        self.assertLess(reset, submit)
+
+
 if __name__ == '__main__':
     unittest.main()
