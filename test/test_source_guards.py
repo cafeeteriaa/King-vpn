@@ -1208,6 +1208,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
+    def test_backup_restore_has_single_hardened_exporter(self):
+        backup = (ROOT / 'lib' / 'backup_restore.dart').read_text(encoding='utf-8')
+        self.assertEqual(backup.count('Future<String> bkpExportJson() async {'), 1)
+        exporter_start = backup.index('Future<String> bkpExportJson() async {')
+        importer_start = backup.index('Future<int> bkpImportJson(String text)')
+        exporter = backup[exporter_start:importer_start]
+        self.assertIn('_bkpKeyAllowed(k)', exporter)
+        self.assertIn('utf8.encode(encoded).length > _bkpMaxBytes', exporter)
+
     def test_backup_restore_bounds_and_validates_all_entries_before_writes(self):
         backup = (ROOT / 'lib' / 'backup_restore.dart').read_text(encoding='utf-8')
         self.assertIn('const int _bkpMaxBytes = 2 * 1024 * 1024;', backup)
