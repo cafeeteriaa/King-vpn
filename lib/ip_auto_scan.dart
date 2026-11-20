@@ -321,6 +321,7 @@ extension IpAutoExt on _HomePageState {
   }
 
   Future<void> ipAutoSheet(BuildContext ctx0) async {
+    var sheetScanRunning = false;
     await ipAutoLoad();
     if (!ctx0.mounted) return;
     showModalBottomSheet(
@@ -343,6 +344,7 @@ extension IpAutoExt on _HomePageState {
               return;
             }
             ipAutoBusy = true;
+            sheetScanRunning = true;
             // تا این اسکن تمام نشده، اسکن DNS پس‌زمینه هم شروع نمی‌شود (جدا و بدون تداخل)
             dnsxManualBusy = true;
             ipAutoStopFlag = false;
@@ -353,6 +355,7 @@ extension IpAutoExt on _HomePageState {
               logError(e, stk);
               upd(() => ipAutoStatus = 'خطا: $e');
             } finally {
+              sheetScanRunning = false;
               ipAutoBusy = false;
               dnsxManualBusy = false;
               await _ipAutoSave();
@@ -430,8 +433,8 @@ extension IpAutoExt on _HomePageState {
         },
       ),
     ).then((_) {
-      // بستن شیت فقط اسکن دستی (حالت عادی) را متوقف می‌کند؛ اسکن خودکار نت ملی دست‌نخورده می‌ماند
-      if (!nationalMode) ipAutoStopFlag = true;
+      // Stop only the manual scan launched by this sheet; never cancel a background run.
+      if (sheetScanRunning) ipAutoStopFlag = true;
     });
   }
 }

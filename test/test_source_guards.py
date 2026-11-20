@@ -1865,6 +1865,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('ipAutoStopFlag = false;', source[load:start_scan])
 
 
+    def test_closing_ip_auto_sheet_stops_only_its_own_manual_scan(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> ipAutoSheet(BuildContext ctx0) async {')
+        end = source.index('\\n  }\\n}', start)
+        body = source[start:end]
+        running = body.index('var sheetScanRunning = false;')
+        start_scan = body.index('sheetScanRunning = true;')
+        reset = body.index('sheetScanRunning = false;')
+        close = body.index('if (sheetScanRunning) ipAutoStopFlag = true;')
+        self.assertLess(running, start_scan)
+        self.assertLess(start_scan, reset)
+        self.assertLess(reset, close)
+        self.assertNotIn('if (!nationalMode) ipAutoStopFlag = true;', body)
+
+
     def test_ip_range_expanders_reject_non_positive_limits(self):
         scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
