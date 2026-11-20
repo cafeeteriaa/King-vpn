@@ -2894,5 +2894,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(body.index('nationalMode != modeSnapshot'), body.index('probeOne(u)'))
 
 
+    def test_cancelled_connect_discards_provisional_nat_variant(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> _connectLoop(List<Server> list')
+        end = source.index('// REAL speed test right after connecting', start)
+        body = source[start:end]
+        self.assertIn('if (abort) { natVarCandidateDiscard(s); return false; }', body)
+        self.assertIn('if (abort || !wantVpn) { natVarCandidateDiscard(s); return false; }', body)
+        self.assertGreaterEqual(body.count('natVarCandidateDiscard(s);'), 8)
+
+
 if __name__ == '__main__':
     unittest.main()
