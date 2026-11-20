@@ -2853,5 +2853,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('globalTcpOk: globalTcpOk', diagnosis)
 
 
+    def test_nnie_history_retries_failed_preferences_load_and_serializes_saves(self):
+        source = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        start = source.index('class NationalNetworkIntelligence')
+        end = source.index('/// Multi-source reachability check', start)
+        body = source[start:end]
+        self.assertIn('var preferencesAvailable = false;', body)
+        self.assertIn('_loaded = preferencesAvailable;', body)
+        self.assertIn('static Future<void> _saveQueue = Future<void>.value();', body)
+        self.assertIn('final next = _saveQueue.then((_) => _saveImpl());', body)
+        self.assertIn('static Future<void> _saveImpl() async', body)
+
+
 if __name__ == '__main__':
     unittest.main()
