@@ -55,6 +55,7 @@ class _KingChatPageState extends State<KingChatPage> {
     setState(() { _busy = true; _notice = null; });
     try {
       final answer = await KingLocalAi.instance.ask(prompt, maxTokens: 1400);
+      if (!mounted) return;
       _add(answer, true);
       // Do not start late audio if the chat page closed during local inference.
       if (mounted && (_speak || voice)) {
@@ -95,7 +96,9 @@ class _KingChatPageState extends State<KingChatPage> {
       _voiceSubmitted = true;
       unawaited(Future<void>.delayed(
         const Duration(milliseconds: 250),
-        () => _send(),
+        () {
+          if (mounted) unawaited(_send());
+        },
       ));
     }
   }
