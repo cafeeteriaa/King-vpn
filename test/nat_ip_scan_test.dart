@@ -8,6 +8,17 @@ void main() {
       expect(natExpandCidr('10.0.0.0/24', maxPerBlock: -1), isEmpty);
     });
 
+    test('CIDR sampling never exceeds a non-divisible output limit', () {
+      final sampled24 = natExpandCidr('10.0.0.0/24', maxPerBlock: 100);
+      final sampled16 = natExpandCidr('10.1.0.0/16', maxPerBlock: 1000);
+      expect(sampled24, isNotEmpty);
+      expect(sampled24.length, lessThanOrEqualTo(100));
+      expect(sampled16, isNotEmpty);
+      expect(sampled16.length, lessThanOrEqualTo(1000));
+      expect(sampled24.toSet(), hasLength(sampled24.length));
+      expect(sampled16.toSet(), hasLength(sampled16.length));
+    });
+
     test('dash range expansion rejects non-positive output limits', () {
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: 0), isEmpty);
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: -1), isEmpty);

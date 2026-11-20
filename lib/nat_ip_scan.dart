@@ -53,7 +53,9 @@ List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   }
   final size = 1 << (32 - prefix);
   final start = base & ~(size - 1) & 0xFFFFFFFF;
-  final step = size > maxPerBlock ? size ~/ maxPerBlock : 1;
+  // Ceiling division is required: floor division can exceed maxPerBlock
+  // for non-divisible subnet sizes (e.g. /24 with a limit of 100 yields 128).
+  final step = size > maxPerBlock ? (size + maxPerBlock - 1) ~/ maxPerBlock : 1;
   final out = <String>[];
   for (var i = 0; i < size; i += step) {
     final v = start + i;
