@@ -476,6 +476,7 @@ extension DnsxExt on _HomePageState {
       ),
     ).then((_) {
       stopFlag = true;
+      extraC.dispose();
     });
   }
 }
