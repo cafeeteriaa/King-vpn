@@ -1442,7 +1442,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         scan = body.index('await natScanIps(')
         cancel = body.index('cancelled: shouldAbort,', scan)
         scan_guard = body.index('if (shouldAbort()) return const <String>[];', scan)
-        cursor_commit = body.index('_cfRangeCursors\\n    ..clear()')
+        cursor_commit = body.index('_cfRangeCursors\n    ..clear()')
         configured_commit = body.index('_natConfiguredRangeCursor = configuredBatch.nextCursor;')
         self.assertLess(hot, hot_guard)
         self.assertLess(compute, compute_guard)
