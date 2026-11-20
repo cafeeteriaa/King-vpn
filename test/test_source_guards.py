@@ -2965,13 +2965,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("const String _ipAutoStateKey = 'ipauto_state_v1';", source)
         self.assertIn("'version': 1,", source)
         self.assertIn("final committed = await p.setString(stateKey, jsonEncode(checkpoint));", source)
-        self.assertIn("if (!committed) return;", source)
-        self.assertIn("if (_ipAutoLoadedNat == null || _ipAutoLoadedNat != saveNationalMode) return;", source)
+        self.assertIn("if (!committed) return false;", source)
+        self.assertIn("if (_ipAutoLoadedNat == null || _ipAutoLoadedNat != saveNationalMode) return false;", source)
         self.assertIn('final List<String> ipAutoPendingCore = [];', source)
         self.assertIn('.where(_ipAutoValidPending)', source)
         self.assertIn('rawPosition.isFinite && rawPosition >= 0', source)
         self.assertIn('value.isFinite && value >= 0', source)
-        save_start = source.index('Future<void> _ipAutoSave()')
+        save_start = source.index('Future<bool> _ipAutoSave()')
         save_end = source.index('/// خودکار فقط IPهای دقیق', save_start)
         save = source[save_start:save_end]
         self.assertLess(save.index('await p.setString(pendingKey, pending.join'), save.index('await p.setString(posKey, position.toString())'))
@@ -2989,6 +2989,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         background_end = source.index('/// دلیل رد شدن شروع اسکن', background_start)
         background = source[background_start:background_end]
         self.assertIn('ipAutoHits.isEmpty || ipAutoPendingCore.isNotEmpty', background)
+        self.assertIn('final saved = await _ipAutoSave();', background)
+        self.assertLess(background.index('final saved = await _ipAutoSave();'), background.index('await p.setString(_ipAutoAtKey, now.toString())'))
+        self.assertIn('if (saved && !_ipAutoHalt(modeSnapshot: runNationalMode))', background)
 
 
     def test_background_network_scans_are_scheduled_sequentially_and_stop_for_vpn(self):
