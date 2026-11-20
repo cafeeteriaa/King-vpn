@@ -257,7 +257,14 @@ class NatDnsWireProbe {
       if (rd + rdlen > b.length) throw const FormatException('Bad RDATA length');
       records.add((owner: owner, type: type, cls: cls, rd: rd, rdlen: rdlen));
       if (type == 5 && cls == 1 && rdlen > 0) {
-        cnameTargets[owner] = _readName(b, rd);
+        final target = _readName(b, rd);
+        // A compressed or literal CNAME name must fit wholly inside RDLENGTH.
+        // Without this check a truncated pointer could borrow bytes from the
+        // next RR and fabricate a valid-looking alias chain.
+        if (_skipName(b, rd) != rd + rdlen) {
+          throw const FormatException('CNAME RDATA length mismatch');
+        }
+        cnameTargets[owner] = target;
       }
       p = rd + rdlen;
     }
