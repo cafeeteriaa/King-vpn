@@ -1910,5 +1910,25 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final hitsKey = saveNationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;', save)
         self.assertIn('if (nationalMode != saveNationalMode ||', save)
 
+    def test_dns_auto_scan_keeps_network_mode_snapshot_across_awaits(self):
+        source = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> dnsxAutoPick(')
+        end = source.index('extension DnsxExt', start)
+        body = source[start:end]
+        snapshot = body.index('final scanNationalMode = nationalMode;')
+        prefs = body.index('await SharedPreferences.getInstance();')
+        first_guard = body.index('if (nationalMode != scanNationalMode) return;')
+        saved_dns = body.index('final savedDns = await goldDnsList();')
+        second_guard = body.index('if (nationalMode != scanNationalMode) return;', first_guard + 1)
+        scan = body.index('final r = await dnsxScan(', saved_dns)
+        self.assertLess(snapshot, prefs)
+        self.assertLess(prefs, first_guard)
+        self.assertLess(saved_dns, second_guard)
+        self.assertLess(second_guard, scan)
+        self.assertIn('stop: () => nationalMode != scanNationalMode', body)
+        self.assertIn("await p.setStringList('dnsx_best_v1_$sfx', best);", body)
+        self.assertIn('if (nationalMode == scanNationalMode)', body)
+        self.assertNotIn("nationalMode ? 'nat' : 'glob'", body)
+
 if __name__ == '__main__':
     unittest.main()

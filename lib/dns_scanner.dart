@@ -282,13 +282,16 @@ bool dnsxManualBusy = false;
 Future<void> dnsxAutoPick({bool Function()? stop}) async {
   if (_dnsxAutoBusy || dnsxManualBusy) return;
   _dnsxAutoBusy = true;
+  // Snapshot the mode before the first await; never mix national/global scan state.
+  final scanNationalMode = nationalMode;
+  final sfx = scanNationalMode ? 'nat' : 'glob';
   try {
     final p = await SharedPreferences.getInstance();
-    // DNSMODE: نتیجه‌ی هر حالت (ملی/جهانی) کلید جدا دارد؛ قبلاً یک کلید مشترک بود و یکی دیگری را بازنویسی می‌کرد
-    final sfx = nationalMode ? 'nat' : 'glob';
-    if (_dnsxBestMode != nationalMode) {
+    if (nationalMode != scanNationalMode) return;
+    // DNSMODE: each network mode owns an independent cache and persistence key.
+    if (_dnsxBestMode != scanNationalMode) {
       dnsxBestCache = [];
-      _dnsxBestMode = nationalMode;
+      _dnsxBestMode = scanNationalMode;
     }
     final cached = p.get('dnsx_best_v1_$sfx');
     if (cached is List && dnsxBestCache.isEmpty) {
@@ -301,21 +304,27 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
     // اگر DNS سالمی نداریم، زودتر دوباره اسکن می‌شود (۶ ساعت)؛ وگرنه هر ۲۴ ساعت
     final gapMs = dnsxBestCache.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
     if (now - last < gapMs) return;
-    final list = {...(await goldDnsList()).take(40), ...(nationalMode ? kDnsxNationalDefaults : kDnsxDefaults)}.toList();
+    final savedDns = await goldDnsList();
+    if (nationalMode != scanNationalMode) return;
+    final list = {...savedDns.take(40), ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults)}.toList();
     // کامل: همه‌ی دامنه‌های پروژه، با فاصله‌ی ۱۵۰ میلی‌ثانیه بین بسته‌ها
     final r = await dnsxScan(
       list,
       domains: dnsxFullDomains(),
       gap: const Duration(milliseconds: 150),
-      stop: stop,
+      stop: () => nationalMode != scanNationalMode || (stop?.call() ?? false),
     );
-    // اگر وسط کار اتصال برقرار شد، نتیجه‌ی ناقص ذخیره نمی‌شود و اسکن بعدی دوباره انجام می‌شود
-    if (stop != null && stop()) return;
-    dnsxBestCache = [for (final e in r.take(4)) e.ip];
+    // Discard partial or cross-mode results before writing anything.
+    if (nationalMode != scanNationalMode || (stop != null && stop())) return;
+    final best = [for (final e in r.take(4)) e.ip];
     unawaited(goldAddDns(r)); // FOLDERALL
-    await p.setStringList('dnsx_best_v1_$sfx', dnsxBestCache);
+    await p.setStringList('dnsx_best_v1_$sfx', best);
     await p.setInt('dnsx_at_v1_$sfx', now);
-    dbg('DNSX خودکار: ${dnsxBestCache.length} DNS سالم (${nationalMode ? 'نت ملی' : 'عادی'})');
+    if (nationalMode == scanNationalMode) {
+      dnsxBestCache = best;
+      _dnsxBestMode = scanNationalMode;
+      dbg('DNSX خودکار: ${best.length} DNS سالم (${scanNationalMode ? 'نت ملی' : 'عادی'})');
+    }
   } catch (e, stk) {
     logError(e, stk);
   } finally {
