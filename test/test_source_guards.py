@@ -444,7 +444,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('finally {', loader)
         self.assertIn('_busy = false;', loader)
         dispose_start = ai.index('Future<void> dispose()')
-        dispose_end = ai.index('\\n  }', dispose_start)
+        dispose_end = ai.index('\n  }', dispose_start)
         dispose_body = ai[dispose_start:dispose_end]
         self.assertIn('finally {', dispose_body)
         self.assertLess(dispose_body.index('engine.dispose()'), dispose_body.index('models.dispose()'))
@@ -1173,7 +1173,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('P1-33 ProxyOnly service receives delay URL', patch)
         self.assertIn('check_delay.putExtra("DELAY_URL", AppConfigs.DELAY_URL);', patch)
         self.assertIn('Register before dispatch so a fast service response cannot be missed.', patch)
-        self.assertIn('P1-33 use flagged receiver overload only on API 33+', patch)
+        self.assertIn('if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)', patch)
         self.assertIn('Build.VERSION_CODES.TIRAMISU', patch)
 
     def test_hot_cache_uses_shared_future_and_scoped_storage_permission(self):
