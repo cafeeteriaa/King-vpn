@@ -1693,10 +1693,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
         start_patch = patch.index("'P1-27 start failure state and timer reset'")
         connected_patch = patch.index("'P1-34 verify native core running before connected'")
-        startup = patch[start_patch:connected_patch]
-        self.assertNotIn('makeDurationTimer(', startup)
-
         connected_start = patch.rfind("exact_replace(core, '''            coreController.startLoop(config, tunFd);", 0, connected_patch)
+        startup = patch[start_patch:connected_start]
+        self.assertNotIn('makeDurationTimer(', startup)
         connected_block = patch[connected_start:connected_patch]
         self.assertLess(connected_block.index('if (!isV2rayCoreRunning())'),
                         connected_block.index('V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;'))

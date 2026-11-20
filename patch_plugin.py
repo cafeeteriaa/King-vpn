@@ -665,22 +665,22 @@ exact_replace(core, '''            coreController.startLoop(config, tunFd);
 // Stop the duration ticker before publishing DISCONNECTED. Cancelling after
 // the broadcast leaves a small race in which onTick can publish stale CONNECTING
 // or CONNECTED state after the disconnect event.
-exact_replace(core, ```    private void sendDisconnectedBroadCast() {
-        V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_DISCONNECTED;```, ```    private void sendDisconnectedBroadCast() {
+exact_replace(core, '''    private void sendDisconnectedBroadCast() {
+        V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_DISCONNECTED;''', '''    private void sendDisconnectedBroadCast() {
         if (countDownTimer != null) {
             countDownTimer.cancel();
             countDownTimer = null;
         }
-        V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_DISCONNECTED;```, 'P1-36 cancel duration ticker before disconnect broadcast');
+        V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_DISCONNECTED;''', 'P1-36 cancel duration ticker before disconnect broadcast');
 
-exact_replace(core, ```        if (countDownTimer != null) {
+exact_replace(core, '''        if (countDownTimer != null) {
             countDownTimer.cancel();
         }
     }
 
-    private String createNotificationChannelID```, ```    }
+    private String createNotificationChannelID''', '''    }
 
-    private String createNotificationChannelID```, 'P1-36 remove late duration ticker cancellation');
+    private String createNotificationChannelID''', 'P1-36 remove late duration ticker cancellation');
 
 
 # VPN service: promote before establishing TUN / starting Xray.
