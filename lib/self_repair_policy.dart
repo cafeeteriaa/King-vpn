@@ -6,9 +6,24 @@ String redactSensitiveDiagnostic(String input) {
     RegExp(r'(?:vmess|vless|trojan|ss|socks5?|hysteria2|tuic|wireguard)://\S+', caseSensitive: false),
     '[CONFIG_REDACTED]',
   );
+  // Support plain key=value logs and JSON/YAML-style quoted keys/values.
+  // Retain the key prefix so the sanitized diagnostic remains structurally useful.
   value = value.replaceAll(
-    RegExp(r'(api[_-]?key|access[_-]?token|token|secret|password|uuid)\s*[:=]\s*[^\s,;]+', caseSensitive: false),
-    r'$1=[REDACTED]',
+    RegExp(
+      r'''(["']?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|uuid|authorization)["']?\s*[:=]\s*)["']?[^"'\s,;}\]]+["']?''',
+      caseSensitive: false,
+    ),
+    r'$1[REDACTED]',
+  );
+  // Authorization headers and common GitHub credential formats can appear
+  // without a nearby key=value label in exception messages.
+  value = value.replaceAll(
+    RegExp(r'\bBearer\s+[A-Za-z0-9._~+/=-]+', caseSensitive: false),
+    'Bearer [REDACTED]',
+  );
+  value = value.replaceAll(
+    RegExp(r'\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b'),
+    '[TOKEN_REDACTED]',
   );
   value = value.replaceAll(
     RegExp(r'([?&](?:key|token|auth|password|uuid)=)[^&#\s]+', caseSensitive: false),
