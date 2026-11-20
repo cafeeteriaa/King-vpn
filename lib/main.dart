@@ -9026,7 +9026,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     var siteSkips = 0; // SITEPRECHECK: servers skipped because no site opened
     var coreDownCount = 0, coreUpCount = 0; // CORE-SYSTEMIC: core up/down per run
     for (final s in list) {
-      if (abort) return false;
+      if (abort) { natVarCandidateDiscard(s); return false; }
       final pin = favs.containsKey(s.key);
       final badCfg = coreUnsupportedReason(s.link);
       if (badCfg != null) {
@@ -9046,6 +9046,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // VPN was not requested. That is not a fault of this server/config, so
         // it must NOT be blacklisted or reported as E-CONFIG-FAIL.
         if (abort || !wantVpn) {
+          natVarCandidateDiscard(s);
           lastFail = '';
           return false;
         }
@@ -9100,7 +9101,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // Give the Activity more time to come back (common after ad / screen)
           await Future.delayed(Duration(
               milliseconds: inForeground ? 800 : 1500));
-          if (abort) return false;
+          if (abort) { natVarCandidateDiscard(s); return false; }
           // up to 2 quiet retries (Activity may have resumed)
           var recovered = false;
           for (var r = 0; r < 2 && !recovered && !abort; r++) {
@@ -9189,6 +9190,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
         // A cancelled connection is not evidence that this server is unhealthy.
         if (abort || !wantVpn) {
+          natVarCandidateDiscard(s);
           await _stopV2();
           _nnieClearAttempt(s);
           return false;
@@ -9206,6 +9208,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // A stop can take long enough for the user to cancel. Do not launch
           // a same-server variant ladder after cancellation or disconnect intent.
           if (abort || !wantVpn) {
+          natVarCandidateDiscard(s);
             _nnieClearAttempt(s);
             return false;
           }
@@ -9218,6 +9221,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             final ladderOk = await _natLadder(s,
                 socialGate: _tunnelTrafficOk, maxTries: 3);
             if (abort || !wantVpn) {
+          natVarCandidateDiscard(s);
               _nnieClearAttempt(s);
               return false;
             }
@@ -9230,11 +9234,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // variant ladder also failed to pass real tunnel traffic. A core
           // CONNECTED state or a failed first variant alone is not enough.
           if (abort || !wantVpn) {
+          natVarCandidateDiscard(s);
             _nnieClearAttempt(s);
             return false;
           }
           final ip1 = await resolveHostIp(s.host);
           if (abort || !wantVpn) {
+          natVarCandidateDiscard(s);
             _nnieClearAttempt(s);
             return false;
           }
@@ -9294,7 +9300,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       var tunChecked = false;
       if (!abort && wantVpn) {
         final tunOk = personalPingPassed || await _tunnelTrafficOk();
-        if (abort) return false;
+        if (abort) { natVarCandidateDiscard(s); return false; }
         if (!tunOk) {
           natVarCandidateDiscard(s);
           // CACHEINVALID-TUN: variantی که از natVarNormal اومد، ترافیک تونل رد نکرد.
@@ -9307,7 +9313,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             await _stopV2();
             ladderOk = await _natLadder(s,
                 socialGate: _tunnelTrafficOk, maxTries: 3);
-            if (abort) return false;
+            if (abort) { natVarCandidateDiscard(s); return false; }
           }
           if (ladderOk) {
             tunChecked = true;
@@ -9334,11 +9340,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             natSubstSearched.add(s.key);
             await _stopV2();
             final sub = await _natLadder(s, socialGate: _tunnelTrafficOk);
-            if (abort) return false;
+            if (abort) { natVarCandidateDiscard(s); return false; }
             if (!sub) {
               // جایگزینی نبود: پایه‌ی قبلاً سالم را دوباره بالا می‌آوریم
               if (!await _start(s)) {
                 if (abort || !wantVpn) {
+          natVarCandidateDiscard(s);
                   _nnieClearAttempt(s);
                   return false;
                 }
@@ -9367,7 +9374,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             await waitProxyPort(
                 max: Duration(seconds: nationalMode ? 8 : 4));
           }
-          if (abort) return false;
+          if (abort) { natVarCandidateDiscard(s); return false; }
 
           Future<List<bool>> runSocial() async {
             try {
@@ -9382,7 +9389,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
 
           var r = await runSocial();
-          if (abort) return false;
+          if (abort) { natVarCandidateDiscard(s); return false; }
           bool tg = r[0] || r[1];
           bool yt = false;
           bool ig = false;
@@ -9429,7 +9436,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               win: const Duration(seconds: 2),
               total: Duration(seconds: nationalMode ? 10 : 6),
               viaCore: true);
-          if (abort) return false;
+          if (abort) { natVarCandidateDiscard(s); return false; }
           // فقط تلگرام باید از تونل باز شود
           // IPTEST: in national mode the server is accepted when YouTube or
           // Instagram opens through the tunnel (Telegram was too strict for IPs)
@@ -9454,7 +9461,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               'سرعت=${sp?.toStringAsFixed(2) ?? "-"} MB/s');
         }
       }
-      if (abort || !wantVpn) return false; // V8: abort guard
+      if (abort || !wantVpn) { natVarCandidateDiscard(s); return false; } // V8: abort guard
       _onConnected(s);
       return true;
     }
