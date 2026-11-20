@@ -8991,13 +8991,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // This also covers proxy mode: the core's local proxy is the measured data path.
   Future<bool> _stableTunnelTrafficOk(Server server) async {
     if (!connected || !identical(current, server)) return false;
-    final urls = nationalMode ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
+    final modeSnapshot = nationalMode;
+    final urls = modeSnapshot ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
     if (urls.length < 2) return false;
     final results = await Future.wait(urls.map((url) =>
         _siteOpens(url, viaCore: true).timeout(
             const Duration(seconds: 8), onTimeout: () => false)));
     final passed = results.where((ok) => ok).length;
-    return connected && identical(current, server) && passed >= 2;
+    // Do not count a five-minute stability sample if the user changed the
+    // national/global route while its end-to-end probes were still running.
+    return connected &&
+        identical(current, server) &&
+        nationalMode == modeSnapshot &&
+        passed >= 2;
   }
 
   // FIX #107: completes the connect waiter only when real traffic passes through the tunnel now.
