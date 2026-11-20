@@ -2193,6 +2193,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(body.index('dnsxManualBusy = true;'), body.index('await goldLoad();'))
         self.assertLess(body.index('_autoScanRunning = false;'), body.index('dnsxManualBusy = false;'))
 
+    def test_auto_sni_scan_has_a_hard_total_time_budget(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> autoScanRun(')
+        end = source.index('Future<void> autoScanSheet(', start)
+        body = source[start:end]
+        self.assertIn('const scanBudget = Duration(minutes: 3);', body)
+        self.assertIn('final scanClock = Stopwatch()..start();', body)
+        self.assertIn('bool timedOut() => scanClock.elapsed >= scanBudget;', body)
+        self.assertIn('|| timedOut();', body)
+        self.assertIn('shouldAbort: () => cancelled(),', body)
+        self.assertIn('مهلت سه‌دقیقه‌ای اسکن تمام شد', body)
+
     def test_auto_sni_scan_aborts_when_network_mode_changes_mid_run(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> autoScanRun(')

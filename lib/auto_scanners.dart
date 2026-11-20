@@ -78,11 +78,18 @@ Future<void> autoScanRun(void Function(String) say) async {
   dnsxManualBusy = true;
   _autoScanStop = false;
   final scanNationalMode = nationalMode;
-  bool cancelled() => _autoScanStop || nationalMode != scanNationalMode;
+  const scanBudget = Duration(minutes: 3);
+  final scanClock = Stopwatch()..start();
+  bool timedOut() => scanClock.elapsed >= scanBudget;
+  bool cancelled() =>
+      _autoScanStop || nationalMode != scanNationalMode || timedOut();
+  String cancellationMessage() => timedOut()
+      ? 'مهلت سه‌دقیقه‌ای اسکن تمام شد؛ نتایج ناقص ذخیره نشد'
+      : 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد';
   try {
     await goldLoad();
     if (cancelled()) {
-      say('اسکن متوقف شد؛ هیچ نتیجه‌ای ذخیره نشد');
+      say(cancellationMessage());
       return;
     }
     // GLOBALONLY: فقط IPهای تمیز پوشه‌ی جهانی. بازه‌های ISP نت ملی حذف شدند (جدایی از نت ملی).
@@ -126,7 +133,7 @@ Future<void> autoScanRun(void Function(String) say) async {
     }
 
     if (cancelled()) {
-      say('اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');
+      say(cancellationMessage());
       return;
     }
 
@@ -153,7 +160,7 @@ Future<void> autoScanRun(void Function(String) say) async {
     }
 
     if (cancelled()) {
-      say('اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');
+      say(cancellationMessage());
       return;
     }
 
@@ -176,7 +183,7 @@ Future<void> autoScanRun(void Function(String) say) async {
     }
 
     if (cancelled()) {
-      say('اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');
+      say(cancellationMessage());
       return;
     }
     // Commit the three result groups together only after every scan phase completes.
@@ -185,7 +192,7 @@ Future<void> autoScanRun(void Function(String) say) async {
       shouldAbort: () => cancelled(),
     );
     if (!saved) {
-      say('اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');
+      say(cancellationMessage());
       return;
     }
     say('تمام شد: ${sniHits.length} SNI و ${portHits.length} پورت در پوشه‌ی جهانی ذخیره شد');
