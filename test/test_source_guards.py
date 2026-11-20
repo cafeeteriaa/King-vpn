@@ -2163,6 +2163,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (elapsed.elapsed >= budget) return;', source)
         self.assertNotIn('DateTime.now().add(budget)', source)
 
+    def test_nat_ip_scan_discards_in_flight_results_after_cancellation(self):
+        source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> worker() async {')
+        end = source.index('\n  }', start)
+        worker = source[start:end]
+        probe = worker.index('final ms = await natTcpProbe(ip, port, timeout);')
+        stale_guard = worker.index('if (aborted() || elapsed.elapsed >= budget)', probe)
+        insert = worker.index('if (ms != null && hits.length < want)', stale_guard)
+        self.assertLess(probe, stale_guard)
+        self.assertLess(stale_guard, insert)
+        self.assertIn('return;', worker[stale_guard:insert])
+
     def test_nat_ip_scan_never_exceeds_requested_hit_limit_under_concurrency(self):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         start = source.index('Future<List<NatIpHit>> natScanIps(')

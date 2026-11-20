@@ -189,6 +189,13 @@ Future<List<NatIpHit>> natScanIps(
       final ip = source[idx];
 
       final ms = await natTcpProbe(ip, port, timeout);
+      // Do not publish a probe that completed after cancellation or the time budget.
+      // In-flight socket connects are bounded by [timeout], then discarded if stale.
+      if (aborted() || elapsed.elapsed >= budget) {
+        done++;
+        if (onProgress != null) onProgress(done, total, hits.length);
+        return;
+      }
       // Several workers may finish successful probes in the same event-loop turn.
       // Enforce [want] at insertion time so concurrent completions cannot exceed it.
       if (ms != null && hits.length < want) {
