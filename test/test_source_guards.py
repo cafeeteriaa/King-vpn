@@ -2280,10 +2280,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = auto.index('Future<void> autoScanRun(')
         end = auto.index('Future<void> autoScanSheet(', start)
         body = auto[start:end]
-        self.assertGreaterEqual(body.count("if (_autoScanStop) {"), 4)
+        self.assertGreaterEqual(body.count("if (cancelled()) {"), 4)
         self.assertIn("say('اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');", body)
         self.assertIn("final saved = await goldAddScans(", body)
-        self.assertIn("shouldAbort: () => _autoScanStop", body)
+        self.assertIn("shouldAbort: () => cancelled(),", body)
         self.assertIn("if (!saved)", body)
         self.assertNotIn("await goldAddScan('tls', tlsHits);", body)
         helper_start = extras.index('Future<bool> goldAddScans(')
