@@ -65,6 +65,23 @@ void main() {
       expect(report, contains('raw_config_links_exported'));
       expect(report, contains('credential_values_exported'));
     });
+    test('redacts quoted JSON credentials and bearer authorization values', () {
+      const bearer = 'Bearer abcDEF1234567890._-+/=';
+      final safe = redactSensitiveDiagnostic(
+        '{"token":"json-secret-123","authorization":"$bearer",'
+        '"refresh_token":"refresh-secret-456"}',
+      );
+      expect(safe, isNot(contains('json-secret-123')));
+      expect(safe, isNot(contains('abcDEF1234567890')));
+      expect(safe, isNot(contains('refresh-secret-456')));
+    });
+
+    test('redacts standalone GitHub token formats', () {
+      const token = 'ghp_abcdefghijklmnopqrstuvwxyz1234567890';
+      final safe = redactSensitiveDiagnostic('GitHub auth failed: $token');
+      expect(safe, isNot(contains(token)));
+      expect(safe, contains('[TOKEN_REDACTED]'));
+    });
   });
 
   group('Self repair safety', () {
