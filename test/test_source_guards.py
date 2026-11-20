@@ -2288,7 +2288,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_ip_auto_storage_load_and_save_are_mode_isolated_across_awaits(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         load_start = source.index('Future<void> ipAutoLoad() async {')
-        save_start = source.index('Future<void> _ipAutoSave() async {', load_start)
+        save_start = source.index('Future<bool> _ipAutoSave() async {', load_start)
         load = source[load_start:save_start]
         save_end = source.index('/// خودکار فقط IPهای دقیق', save_start)
         save = source[save_start:save_end]
