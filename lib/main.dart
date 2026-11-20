@@ -4001,37 +4001,22 @@ Future<bool> _useCoreProxy(
 }) async {
   if (proxyMode) return true;
   if (!wantProxy) return false;
-  final clock = Stopwatch()..start();
-  Duration remaining() =>
-      budget == null ? const Duration(milliseconds: 300) : budget - clock.elapsed;
-  Future<bool> probe() async {
-    if (cancelled?.call() ?? false) return false;
-    final left = remaining();
-    if (budget != null && left <= Duration.zero) return false;
-    final timeout = budget == null
-        ? const Duration(milliseconds: 300)
-        : (left < const Duration(milliseconds: 300)
-            ? left
-            : const Duration(milliseconds: 300));
-    return _coreProxyOpen(timeout: timeout);
+  if (cancelled?.call() ?? false) return false;
+  if (budget != null) {
+    // Ping probes have a strict per-endpoint deadline. Spend at most 150ms
+    // checking the local inbound, leaving the rest for a real outbound request.
+    final probeBudget = budget < const Duration(milliseconds: 150)
+        ? budget
+        : const Duration(milliseconds: 150);
+    if (probeBudget <= Duration.zero) return false;
+    return _coreProxyOpen(timeout: probeBudget);
   }
-
-  if (await probe()) return true;
-  // Port may appear a moment after CONNECTED (inbounds just bound). A caller
-  // with a deadline never starts a probe or delay beyond its remaining budget.
+  if (await _coreProxyOpen()) return true;
+  // Non-deadline callers may wait for a late inbound to bind after CONNECTED.
   for (var i = 0; i < 8; i++) {
     if (cancelled?.call() ?? false) return false;
-    final left = budget == null
-        ? const Duration(milliseconds: 200)
-        : budget - clock.elapsed;
-    if (budget != null && left <= Duration.zero) break;
-    final pause = budget == null
-        ? const Duration(milliseconds: 200)
-        : (left < const Duration(milliseconds: 200)
-            ? left
-            : const Duration(milliseconds: 200));
-    await Future.delayed(pause);
-    if (await probe()) return true;
+    await Future.delayed(const Duration(milliseconds: 200));
+    if (await _coreProxyOpen()) return true;
   }
   // Still closed: still request PROXY so the check FAILS honestly rather than
   // accidentally using DIRECT and reporting false success outside the tunnel.
@@ -4210,15 +4195,7 @@ Future<int?> pingProxy(
     // TUNPING: در حالت VPN (TUN) پورت HTTP هسته ممکن است اصلاً باز نشود؛ آن‌وقت
     // پینگ همیشه شکست می‌خورد و سرور سالم «ترافیک صفر» حساب می‌شود.
     // اگر پورت بسته است و حالت پروکسی نیست، از مسیر عادی (که TUN روی آن است) استفاده کن.
-    final proxyProbeBudget = left();
-    if (proxyProbeBudget <= Duration.zero) return null;
-    if (useProxy && !proxyMode &&
-        !await _coreProxyOpen(
-          timeout: proxyProbeBudget < const Duration(milliseconds: 300)
-              ? proxyProbeBudget
-              : const Duration(milliseconds: 300),
-        )) {
-      useProxy = false;
+    if (!useProxy && !proxyMode && (viaCore || !direct)) {
       dbg('پینگ: پورت HTTP هسته بسته است؛ پینگ از مسیر TUN انجام می‌شود');
     }
     if (cancelled?.call() ?? false) return null;
