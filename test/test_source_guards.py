@@ -1685,13 +1685,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             '_updateInstallBusy = false;',
         ):
             self.assertIn(guard, update)
+        download_start = update.index('Future<void> _downloadAndInstallApk(')
+        install_start = update.index('Future<void> _continuePendingUpdateInstall()', download_start)
         positions = [
-            update.index('if (_updateDownloadBusy) return;'),
-            update.index('_updateDownloadBusy = true;'),
-            update.index('_updateDownloadBusy = false;'),
-            update.index('if (_updateInstallBusy) return;'),
-            update.index('_updateInstallBusy = true;'),
-            update.index('_updateInstallBusy = false;'),
+            update.index('if (_updateDownloadBusy) return;', download_start),
+            update.index('_updateDownloadBusy = true;', download_start),
+            update.index('_updateDownloadBusy = false;', download_start),
+            update.index('if (_updateInstallBusy) return;', install_start),
+            update.index('_updateInstallBusy = true;', install_start),
+            update.index('_updateInstallBusy = false;', install_start),
         ]
         self.assertEqual(positions, sorted(positions))
 
@@ -2348,7 +2350,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = auto.index('Future<void> autoScanSheet(', start)
         body = auto[start:end]
         self.assertGreaterEqual(body.count("if (cancelled()) {"), 4)
-        self.assertIn("say('اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');", body)
+        self.assertIn('say(cancellationMessage());', body)
         self.assertIn("final saved = await goldAddScans(", body)
         self.assertIn("shouldAbort: () => cancelled(),", body)
         self.assertIn("if (!saved)", body)
