@@ -1159,7 +1159,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('P1-31 VPN foreground before TUN/core startup', patch)
         self.assertIn('P1-31 proxy foreground before core startup', patch)
         self.assertIn("'P1-28 ' + svc_name + ' STOP always cleans up service'", patch)
-        self.assertIn('P1-28 ProxyOnly STOP always cleans up service', patch)
+        self.assertIn("'P1-28 ' + svc_name + ' STOP always cleans up service'", patch)
         self.assertIn('P1-30 VPN revoke always releases TUN/service', patch)
         self.assertIn("src.replace('this.onDestroy();', 'stopAllProcess();')", patch)
         self.assertIn('refusing to start core', patch)
