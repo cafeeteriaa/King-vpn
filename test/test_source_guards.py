@@ -2939,6 +2939,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('url.endsWith("/generate_204")', native)
         self.assertIn('code < 300', native)
         self.assertNotIn('code < 500', native)
+        helper_start = dart.index('Future<bool> _tunnelEndpointOpens(String url)')
+        helper_end = dart.index('// TUNCHK:', helper_start)
+        helper = dart[helper_start:helper_end]
+        self.assertIn('if (await _tunInterfaceObserved())', helper)
+        self.assertIn('return _siteOpens(url, viaCore: false);', helper)
+        self.assertLess(helper.index('if (await _tunInterfaceObserved())'),
+                        helper.index('return _siteOpens(url, viaCore: false);'))
+        self.assertIn('bool _isTunnelInterfaceName(String name)', dart)
+        self.assertIn('final results = await Future.wait(urls.map((url) =>', dart[dart.index('Future<bool> _tunnelTrafficOk()'):dart.index('Future<bool> _stableTunnelTrafficOk')])
 
     def test_ip_auto_scan_persists_unverified_core_candidates_before_advancing_cursor(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
