@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import java.io.File
 import io.flutter.embedding.android.FlutterActivity
@@ -98,7 +99,7 @@ class MainActivity : FlutterActivity() {
                                 call.argument<Boolean>("national") ?: false)
                             i.putExtra(KingVpnService.EXTRA_ATTEMPT,
                                 call.argument<Int>("attempt") ?: 0)
-                            startForegroundService(i)
+                            ContextCompat.startForegroundService(this, i)
                             result.success(true)
                         }
                         "stop" -> {

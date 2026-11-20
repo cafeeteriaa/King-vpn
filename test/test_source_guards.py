@@ -1569,6 +1569,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         restore_penalty = body.index('siteSkips++;', restore)
         self.assertLess(restore_guard, restore_penalty)
 
+    def test_vpn_service_start_is_compatible_with_pre_oreo_android(self):
+        activity = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
+        self.assertIn('import androidx.core.content.ContextCompat', activity)
+        self.assertIn('ContextCompat.startForegroundService(this, i)', activity)
+        self.assertNotIn('startForegroundService(i)', activity)
+
     def test_generated_android_host_installs_vpn_background_method_channel(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         activity = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
