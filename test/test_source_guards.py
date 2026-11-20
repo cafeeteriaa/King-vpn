@@ -1479,5 +1479,27 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (mounted && (_speak || voice))', send)
 
 
+    def test_chat_send_stops_after_disposal_during_local_inference(self):
+        source = (ROOT / 'lib' / 'king_chat_page.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> _send() async {')
+        end = source.index('void _handleSpeechResult', start)
+        send = source[start:end]
+        inference = send.index('final answer = await KingLocalAi.instance.ask(prompt, maxTokens: 1400);')
+        disposed_guard = send.index('if (!mounted) return;', inference)
+        add_answer = send.index('_add(answer, true);', inference)
+        voice_output = send.index('KingVoiceOutput.instance.speakPersian(answer)')
+        self.assertLess(inference, disposed_guard)
+        self.assertLess(disposed_guard, add_answer)
+        self.assertLess(disposed_guard, voice_output)
+
+    def test_delayed_speech_send_is_cancelled_after_chat_disposal(self):
+        source = (ROOT / 'lib' / 'king_chat_page.dart').read_text(encoding='utf-8')
+        start = source.index('void _handleSpeechResult(dynamic result)')
+        end = source.index('Future<void> _startChatSpeech(', start)
+        handler = source[start:end]
+        self.assertIn('if (mounted) unawaited(_send());', handler)
+        self.assertIn('Duration(milliseconds: 250)', handler)
+
+
 if __name__ == '__main__':
     unittest.main()
