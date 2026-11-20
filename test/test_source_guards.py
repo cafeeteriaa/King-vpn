@@ -1127,7 +1127,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('synchronized (workerLock)', submit)
         self.assertIn('ex.execute(r)', submit)
         self.assertIn('RejectedExecutionException', submit)
-        self.assertIn('runFallback(r)', submit)
+        self.assertIn('worker unavailable; dropping task after shutdown', submit)
+        self.assertNotIn('runFallback(r)', submit)
 
         destroy_start = service.index('public void onDestroy()')
         destroy_end = service.index('private static String orEmpty', destroy_start)
