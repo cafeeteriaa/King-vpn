@@ -308,16 +308,20 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private void submit(Runnable r) {
         synchronized (workerLock) {
             ExecutorService ex = worker;
-            if (ex != null && !ex.isShutdown()) {
-                try {
-                    ex.execute(r);
-                    return;
-                } catch (java.util.concurrent.RejectedExecutionException e) {
-                    Log.w(TAG, "worker rejected a task during shutdown; using fallback", e);
-                }
+            if (ex == null || ex.isShutdown()) {
+                // onDestroy() owns the one final cleanup task. Never run a start/resume
+                // task on an ad-hoc thread after the serialized worker has been detached.
+                Log.w(TAG, "worker unavailable; dropping task after shutdown");
+                return;
+            }
+            try {
+                ex.execute(r);
+            } catch (java.util.concurrent.RejectedExecutionException e) {
+                // Shutdown cleanup is scheduled explicitly by onDestroy(); running this
+                // arbitrary task concurrently could restart the VPN after destruction.
+                Log.w(TAG, "worker rejected task; service shutdown owns cleanup", e);
             }
         }
-        runFallback(r);
     }
 
     /** Last-resort daemon execution when the service worker is already unavailable. */
