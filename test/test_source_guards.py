@@ -67,6 +67,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertNotIn("import 'engine_registry.dart';", main)
 
+    def test_dns_auto_cache_is_network_operator_aware_and_discards_stale_probes(self):
+        source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        key_start = source.index('Future<String> _dnsNetworkKey()')
+        key_end = source.index('const _fragLenOpts', key_start)
+        network_key = source[key_start:key_end]
+        self.assertIn('$natOpKey', network_key)
+        pick_start = source.index('Future<String> pickBestDns(')
+        pick_end = source.index('const _lanCidrs', pick_start)
+        picker = source[pick_start:pick_end]
+        self.assertIn('final networkAfterProbe = await _dnsNetworkKey();', picker)
+        self.assertIn('if (networkAfterProbe != networkKey)', picker)
+        self.assertIn('const Duration(seconds: 45)', picker)
+        self.assertIn('_dnsPickLastSucceeded = true;', picker)
+        self.assertIn('_dnsPickLastSucceeded = false;', picker)
+
     def test_front_sni_candidates_are_hostnames_and_all_matrix_indices_are_valid(self):
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
