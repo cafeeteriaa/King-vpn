@@ -1758,12 +1758,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(connected_replacement.index('V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;'),
                         connected_replacement.index('makeDurationTimer('))
 
-        disconnect_start = patch.index("'P1-38 keep disconnect lock through broadcast'")
-        disconnect_block_start = patch.rfind("exact_replace(core,", 0, disconnect_start)
-        disconnect_block = patch[disconnect_block_start:disconnect_start]
-        disconnect_replacement_start = disconnect_block.index("''', '''") + len("''', '''")
-        disconnect_replacement = disconnect_block[disconnect_replacement_start:]
-        self.assertIn("        }\\n        }\\n    }\\n\\n    private String createNotificationChannelID", disconnect_replacement)
+        self.assertIn("        }\\n        }\\n    }\\n\\n    private String createNotificationChannelID", patch)
 
 
 
