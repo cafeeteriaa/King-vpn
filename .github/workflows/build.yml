@@ -128,7 +128,7 @@ jobs:
           echo "- Size: ${MIB} MiB (${BYTES} bytes)" >> "$GITHUB_STEP_SUMMARY"
           echo "- SHA-256: ${SHA}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Signing: generated Flutter debug key; not a production-signed release" >> "$GITHUB_STEP_SUMMARY"
-          printf 'APK_SIZE_BYTES=%s\\nAPK_SIZE_MIB=%s\\nAPK_SHA256=%s\\n' "$BYTES" "$MIB" "$SHA" > apk-size-report.txt
+          printf 'APK_SIZE_BYTES=%s\nAPK_SIZE_MIB=%s\nAPK_SHA256=%s\n' "$BYTES" "$MIB" "$SHA" > apk-size-report.txt
 
       - name: Upload Dart obfuscation symbols
         if: success()
@@ -166,11 +166,11 @@ jobs:
           mkdir -p repair-evidence/lint
           if [ -f build_app/build.log ]; then tail -n 350 build_app/build.log > repair-evidence/gradle-build-tail.txt; fi
           if [ -f build_app/analyze.log ]; then tail -n 120 build_app/analyze.log > repair-evidence/dart-analyze-tail.txt; fi
-          find build_app/build_app build_app/android build_app/build -type f \\( -iname '*lint*' -o -path '*/reports/*' \\) -size -5M -print 2>/dev/null | head -n 80 | while IFS= read -r report; do
+          find build_app/build_app build_app/android build_app/build -type f \( -iname '*lint*' -o -path '*/reports/*' \) -size -5M -print 2>/dev/null | head -n 80 | while IFS= read -r report; do
             safe_name="$(printf '%s' "$report" | tr '/ ' '__')"
             cp "$report" "repair-evidence/lint/$safe_name" 2>/dev/null || true
           done
-          printf 'Run: %s\\nCommit: %s\\n' "$GITHUB_RUN_NUMBER" "$GITHUB_SHA" > repair-evidence/run.txt
+          printf 'Run: %s\nCommit: %s\n' "$GITHUB_RUN_NUMBER" "$GITHUB_SHA" > repair-evidence/run.txt
           exit 0
 
       - name: Upload repair diagnostics
