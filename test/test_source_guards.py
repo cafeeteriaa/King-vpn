@@ -1941,7 +1941,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(second_guard, scan)
         self.assertIn('stop: () => nationalMode != scanNationalMode', body)
         self.assertIn("await p.setStringList('dnsx_best_v1_$sfx', best);", body)
-        self.assertIn('if (nationalMode == scanNationalMode)', body)
+        self.assertIn('if (!shouldAbort())', body)
         self.assertNotIn("nationalMode ? 'nat' : 'glob'", body)
 
 
@@ -1979,6 +1979,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         closed = body.index('open = false;', cancel)
         self.assertLess(close, cancel)
         self.assertLess(cancel, closed)
+
+    def test_dns_probe_checks_cancellation_after_inter_batch_delay(self):
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        start = dns.index('Future<DnsxHit?> dnsxProbe(')
+        end = dns.index('Future<List<DnsxHit>> dnsxScan(', start)
+        body = dns[start:end]
+        delay = body.index('await Future.delayed(gap);')
+        stop = body.index('if (stop != null && stop()) break;', delay)
+        batch = body.index('final part = list.sublist(', stop)
+        self.assertLess(delay, stop)
+        self.assertLess(stop, batch)
 
     def test_dns_auto_persistence_waits_for_abort_safe_folder_write(self):
         dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
@@ -2061,13 +2072,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         wait = body.index('await natManualYield(shouldAbort: () => cancelled || !open);')
         before_scan = body.index('if (!cancelled) {', wait)
         scan = body.index('result = await natScanIps(', before_scan)
-        after_scan = body.index('if (!cancelled) {', scan)
+        after_scan = body.index('if (!cancelled && open)', scan)
         persist = body.index('await goldMergeIps(', after_scan)
         self.assertLess(wait, before_scan)
         self.assertLess(before_scan, scan)
         self.assertLess(scan, after_scan)
         self.assertLess(after_scan, persist)
-        self.assertIn('cancelled: () => cancelled,', body)
+        self.assertIn('cancelled: () => cancelled || !open,', body)
 
 
     def test_manual_range_scan_close_cancels_scan_and_blocks_late_persistence(self):

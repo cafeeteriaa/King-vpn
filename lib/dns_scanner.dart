@@ -219,6 +219,8 @@ Future<DnsxHit?> dnsxProbe(String server,
     if (stop != null && stop()) break;
     // فاصله بین بسته‌ها: اسکن پس‌زمینه بار ناگهانی روی اتصال نمی‌گذارد
     if (i > 0 && gap > Duration.zero) await Future.delayed(gap);
+    // Cancellation may arrive while waiting between DNS batches.
+    if (stop != null && stop()) break;
     final part = list.sublist(i, min(i + chunk, list.length));
     // NNIE: strict response validation includes transaction ID, QR/opcode,
     // question/type/class, source IP/port, RCODE and usable A answer.
