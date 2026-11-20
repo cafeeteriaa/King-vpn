@@ -109,7 +109,7 @@ Future<void> autoScanRun(void Function(String) say) async {
     sniLoop:
     for (final d in kAutoSniDomains) {
       n++;
-      if (nationalMode) {
+      if (scanNationalMode) {
         await natManualYield(shouldAbort: () => cancelled());
         if (cancelled()) break sniLoop;
       }
@@ -136,7 +136,7 @@ Future<void> autoScanRun(void Function(String) say) async {
     portLoop:
     for (final p in kAutoPorts) {
       m++;
-      if (nationalMode) {
+      if (scanNationalMode) {
         await natManualYield(shouldAbort: () => cancelled());
         if (cancelled()) break portLoop;
       }

@@ -2148,6 +2148,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('await ipAutoLoad();', body)
         self.assertIn('_ipAutoHalt(modeSnapshot: runNationalMode)', body)
 
+    def test_nat_ip_scan_uses_monotonic_budget_and_integer_concurrency(self):
+        source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        self.assertIn('(cores * 4).clamp(16, 256).toInt()', source)
+        self.assertIn('(cores * 2).clamp(8, 64).toInt()', source)
+        self.assertIn('port < 1 || port > 65535', source)
+        self.assertIn('final elapsed = Stopwatch()..start();', source)
+        self.assertIn('if (elapsed.elapsed >= budget) return;', source)
+        self.assertNotIn('DateTime.now().add(budget)', source)
+
     def test_nat_ip_scan_never_exceeds_requested_hit_limit_under_concurrency(self):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         start = source.index('Future<List<NatIpHit>> natScanIps(')

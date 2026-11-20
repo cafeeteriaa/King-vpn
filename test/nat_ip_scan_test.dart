@@ -24,6 +24,13 @@ void main() {
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: -1), isEmpty);
     });
 
+    test('NAT scan rejects invalid budgets, timeouts, and ports without probing', () async {
+      expect(await natScanIps(['127.0.0.1'], budget: Duration.zero), isEmpty);
+      expect(await natScanIps(['127.0.0.1'], timeout: Duration.zero), isEmpty);
+      expect(await natScanIps(['127.0.0.1'], port: 0), isEmpty);
+      expect(await natScanIps(['127.0.0.1'], port: 65536), isEmpty);
+    });
+
     test('valid limits preserve expected expansion', () {
       expect(natExpandCidr('10.0.0.0/30', maxPerBlock: 4), hasLength(4));
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: 3), hasLength(3));

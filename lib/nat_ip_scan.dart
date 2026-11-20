@@ -128,11 +128,11 @@ int natAdaptiveConcurrency(int requested) {
   }
   // Safe ceiling: 4 × CPU cores. 8-core phone → 32. 4-core → 16. 2-core → 8.
   // Absolute ceiling: 256 (never reasonable on a phone, but respected if asked).
-  final safeMax = (cores * 4).clamp(16, 256);
+  final safeMax = (cores * 4).clamp(16, 256).toInt();
   if (requested <= 0) {
-    return (cores * 2).clamp(8, 64);
+    return (cores * 2).clamp(8, 64).toInt();
   }
-  return requested.clamp(1, safeMax);
+  return requested.clamp(1, safeMax).toInt();
 }
 
 /// اسکن هم‌زمان فهرست IP. وقتی [want] آدرس سالم پیدا شد، یا [budget] تمام شد،
@@ -159,8 +159,14 @@ Future<List<NatIpHit>> natScanIps(
 }) async {
   if (ips.isEmpty || want <= 0) return <NatIpHit>[];
 
+  if (budget <= Duration.zero || timeout <= Duration.zero ||
+      port < 1 || port > 65535) {
+    return <NatIpHit>[];
+  }
+
   final effective = natAdaptiveConcurrency(concurrency);
-  final deadline = DateTime.now().add(budget);
+  // Stopwatch is monotonic; wall-clock changes must not extend or truncate a scan.
+  final elapsed = Stopwatch()..start();
   final hits = <NatIpHit>[];
 
   // Optional shuffle so the same subnet is not hit first on every run.
@@ -176,7 +182,7 @@ Future<List<NatIpHit>> natScanIps(
     while (true) {
       if (hits.length >= want) return;
       if (aborted()) return;
-      if (DateTime.now().isAfter(deadline)) return;
+      if (elapsed.elapsed >= budget) return;
 
       final idx = next++;
       if (idx >= source.length) return;
