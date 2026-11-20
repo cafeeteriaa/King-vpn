@@ -4046,7 +4046,9 @@ Future<double?> measure(
   try {
     return await () async {
       final req = await c.getUrl(Uri.parse(url));
+      req.followRedirects = false;
       final res = await req.close();
+      if (res.statusCode < 200 || res.statusCode >= 300) return null;
       var bytes = 0;
       final sw = Stopwatch()..start();
       await for (final chunk in res) {
