@@ -1547,7 +1547,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         compute_guard = body.index('if (shouldAbort()) return const <String>[];', compute)
         scan = body.index('await natScanIps(')
         cancel = body.index('cancelled: shouldAbort,', scan)
-        scan_guard = body.index('if (shouldAbort()) return const <String>[];', scan)
+        scan_guard = body.index('if (shouldAbort() || scanExpired()) return const <String>[];', scan)
         cursor_commit = body.index('_cfRangeCursors\n    ..clear()')
         configured_commit = body.index('_natConfiguredRangeCursor = configuredBatch.nextCursor;')
         self.assertLess(hot, hot_guard)
@@ -1580,7 +1580,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = main.index('Future<bool> _connectLoop(')
         end = main.index('// REAL speed test right after connecting', start)
         body = main[start:end]
-        ping_loop = body.index('for (var i = 0; i < pingTries')
+        verify = body.index('final verifyBudget')
+        ping_loop = body.index('for (var i = 0;', verify)
         ping_guard = body.index('if (abort || !wantVpn) {', ping_loop)
         ping_log = body.index('dbg(p == null', ping_loop)
         self.assertLess(ping_guard, ping_log)
