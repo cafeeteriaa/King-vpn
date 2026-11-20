@@ -1208,3 +1208,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+    def test_backup_restore_bounds_and_validates_all_entries_before_writes(self):
+        backup = (ROOT / 'lib' / 'backup_restore.dart').read_text(encoding='utf-8')
+        self.assertIn('const int _bkpMaxBytes = 2 * 1024 * 1024;', backup)
+        self.assertIn('const int _bkpMaxEntries = 500;', backup)
+        self.assertIn('final RegExp _bkpAllowedKey', backup)
+        self.assertIn('final RegExp _bkpSensitiveKey', backup)
+        self.assertIn('if (utf8.encode(text).length > _bkpMaxBytes)', backup)
+        self.assertIn('final staged = <String, Object>{};', backup)
+        self.assertIn('No preferences are changed until every key and value has passed validation.', backup)
+        import_start = backup.index('Future<int> bkpImportJson(String text)')
+        import_end = backup.index('extension BkpExt', import_start)
+        importer = backup[import_start:import_end]
+        self.assertLess(importer.index('for (final entry in rawData.entries)'), importer.index('final p = await SharedPreferences.getInstance();'))
+        self.assertIn('throw const FormatException', importer)
+        self.assertIn('if (!ok)', importer)
