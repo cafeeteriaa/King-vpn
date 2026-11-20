@@ -233,7 +233,7 @@ if '<application' not in m:
 # not suppress unrelated permissions just because QUERY_ALL_PACKAGES exists.
 for permission in required_permissions:
     if f'android:name="{permission}"' not in m:
-        declaration = f'    <uses-permission android:name="{permission}"/>\\n    '
+        declaration = f'    <uses-permission android:name="{permission}"/>\n    '
         m = m.replace('<application', declaration + '<application', 1)
 # speech_to_text uses Android's system recognizer. Keep recognition on-device
 # in Dart and declare package visibility for Android 11+ even when Flutter's
@@ -259,8 +259,8 @@ elif proxy_service_name in m:
     # Scope the foreground-service check to this service. Another service's
     # foregroundServiceType must not suppress the VPN plugin declaration.
     service_match = re.search(
-        r'<service\\b(?=[^>]*android:name=["\\']' + re.escape(proxy_service_name) +
-        r'["\\'])[^>]*>',
+        r"<service\b(?=[^>]*android:name=['\"]" + re.escape(proxy_service_name) +
+        r"['\"])[^>]*>",
         m,
         flags=re.DOTALL,
     )
@@ -273,8 +273,8 @@ elif proxy_service_name in m:
         if closing and service_match:
             insert_at = service_match.end() + closing.start()
             m = m[:insert_at] + (
-                '\\n            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"'
-                '\\n                      android:value="local proxy core for the user"/>'
+                '\n            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"'
+                '\n                      android:value="local proxy core for the user"/>'
             ) + m[insert_at:]
 KSVC = ('<service android:name="com.kingvpn.king_vpn.KingVpnService"\n'
         '            android:permission="android.permission.BIND_VPN_SERVICE"\n'
