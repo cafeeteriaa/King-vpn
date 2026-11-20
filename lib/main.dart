@@ -13913,8 +13913,15 @@ ListTile( // KINGEXTRAS row
       try {
         final alive = _bgAliveUnsupported
             ? null
-            : await bgChannel.invokeMethod<bool>('alive').catchError((e) {
-                _bgAliveUnsupported = true; // ALIVEONCE
+            : await bgChannel.invokeMethod<bool>('alive').catchError((Object e) {
+                // Only a genuinely absent native handler is a permanent
+                // compatibility signal. A transient PlatformException must
+                // not silently disable all future lifecycle checks.
+                if (e is MissingPluginException) {
+                  _bgAliveUnsupported = true; // ALIVEONCE
+                } else {
+                  _swl('_startWatch#alive', e);
+                }
                 return null;
               });
         if (alive == false && !appGone && !(wantVpn || connected)) {
