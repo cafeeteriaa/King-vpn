@@ -560,7 +560,14 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 closeTunAfterCoreStop = true;
                 return false;
             }
-            if (!core.isV2rayCoreRunning()) return true;
+            if (!core.isV2rayCoreRunning()) {
+                if (closeTunAfterCoreStop) {
+                    closeQuietly(tun);
+                    tun = null;
+                    closeTunAfterCoreStop = false;
+                }
+                return true;
+            }
             coreStopping = true;
         }
         Thread t = new Thread(() -> {
@@ -570,16 +577,32 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 Log.e(TAG, "stopCore failed", ex);
             } finally {
                 endNative();
+                final boolean stillRunning;
+                try {
+                    stillRunning = core.isV2rayCoreRunning();
+                } catch (Throwable checkError) {
+                    Log.e(TAG, "could not verify native core stop; retaining TUN", checkError);
+                    synchronized (tunLock) {
+                        coreStopping = false;
+                        closeTunAfterCoreStop = true;
+                    }
+                    return;
+                }
                 synchronized (tunLock) {
                     coreStopping = false;
-                    if (closeTunAfterCoreStop) {
+                    if (!stillRunning && closeTunAfterCoreStop) {
                         closeQuietly(tun);
                         tun = null;
                         closeTunAfterCoreStop = false;
+                    } else if (stillRunning) {
+                        // stopCore() may throw or return while the native process is alive.
+                        // Keep both the descriptor and the deferred-close marker for retry.
+                        closeTunAfterCoreStop = true;
+                        Log.e(TAG, "native core remains running; retaining TUN until a verified stop");
                     }
                 }
             }
-        });
+        }, "KingVpnCoreStop");
         t.setDaemon(true);
         beginNative("stopCore");
         t.start();
@@ -595,6 +618,16 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 closeTunAfterCoreStop = true;
                 Log.w(TAG, "stopCore still running; TUN close deferred until native stop returns");
                 return false;
+            }
+            if (core.isV2rayCoreRunning()) {
+                closeTunAfterCoreStop = true;
+                Log.e(TAG, "native core is still running after stop; TUN retained");
+                return false;
+            }
+            if (closeTunAfterCoreStop) {
+                closeQuietly(tun);
+                tun = null;
+                closeTunAfterCoreStop = false;
             }
             return true;
         }
