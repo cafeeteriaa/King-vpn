@@ -1925,6 +1925,30 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final hitsKey = saveNationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;', save)
         self.assertIn('if (nationalMode != saveNationalMode ||', save)
 
+    def test_ip_auto_background_acquires_shared_locks_before_async_work(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> ipAutoBackground() async {')
+        end = source.index('/// دلیل رد شدن شروع اسکن', start)
+        body = source[start:end]
+        lock = body.index('ipAutoBusy = true;')
+        dns_lock = body.index('dnsxManualBusy = true;', lock)
+        first_await = body.index('await ipAutoLoad();')
+        prefs = body.index('await SharedPreferences.getInstance();')
+        load_guard = body.index('if (!nationalMode || _ipAutoHalt()) return;', first_await)
+        prefs_guard = body.index('if (!nationalMode || _ipAutoHalt()) return;', prefs)
+        run = body.index('await _ipAutoRunOnce(')
+        save = body.index('await _ipAutoSave();')
+        unlock = body.index('ipAutoBusy = false;', save)
+        self.assertLess(lock, first_await)
+        self.assertLess(dns_lock, first_await)
+        self.assertLess(first_await, load_guard)
+        self.assertLess(load_guard, prefs)
+        self.assertLess(prefs, prefs_guard)
+        self.assertLess(prefs_guard, run)
+        self.assertLess(run, save)
+        self.assertLess(save, unlock)
+        self.assertIn('if (nationalMode && !_ipAutoHalt())', body)
+
     def test_dns_auto_scan_keeps_network_mode_snapshot_across_awaits(self):
         source = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> dnsxAutoPick(')

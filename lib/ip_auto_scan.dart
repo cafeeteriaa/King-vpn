@@ -153,36 +153,41 @@ extension IpAutoExt on _HomePageState {
   /// نت ملی: اسکن IP خودکار بدون دکمه (هر ۲۴ ساعت، یا ۶ ساعت اگر نتیجه نداشت)، فقط وقتی VPN قطع است.
   /// نتایج در فهرست نت ملی ذخیره می‌شوند و هیچ صف یا بازه‌ی دیگری را تغییر نمی‌دهد.
   Future<void> ipAutoBackground() async {
+    if (!kNatIpScanOn || !nationalMode) return;
+    if (ipAutoBusy || dnsxManualBusy || _natRangeScanBusy || _dnsxAutoBusy) return;
+    if (connected || busy) return;
+
+    // Acquire both shared scan locks before the first await. Otherwise a manual
+    // DNS/IP scan can start while preferences are loading and overlap this run.
+    ipAutoBusy = true;
+    dnsxManualBusy = true;
+    ipAutoStopFlag = false;
     try {
-      if (!kNatIpScanOn) return; // shared master switch applies to every IP scanner
-      if (!nationalMode) return;
-      if (ipAutoBusy || dnsxManualBusy || _natRangeScanBusy || _dnsxAutoBusy) return;
-      if (connected || busy) return;
       await ipAutoLoad();
+      if (!nationalMode || _ipAutoHalt()) return;
+
       final p = await SharedPreferences.getInstance();
+      if (!nationalMode || _ipAutoHalt()) return;
+
       final last = int.tryParse(p.getString(_ipAutoAtKey) ?? '') ?? 0;
       final now = DateTime.now().millisecondsSinceEpoch;
       // اگر هنوز IP سالمی پیدا نشده، زودتر دوباره امتحان می‌شود (۶ ساعت)؛ وگرنه هر ۲۴ ساعت
       final gapMs = ipAutoHits.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
       if (now - last < gapMs) return;
-      ipAutoBusy = true;
-      dnsxManualBusy = true;
-      ipAutoStopFlag = false;
-      try {
-        await _ipAutoRunOnce((s) => ipAutoStatus = s);
-        // فقط اسکن کامل ذخیره می‌شود؛ اگر وسط کار متوقف شد، دفعه‌ی بعد دوباره امتحان می‌شود
-        if (!_ipAutoHalt()) {
-          await p.setString(_ipAutoAtKey, now.toString());
-        }
-      } catch (e, stk) {
-        logError(e, stk);
-      } finally {
-        ipAutoBusy = false;
-        dnsxManualBusy = false;
-        await _ipAutoSave();
+
+      await _ipAutoRunOnce((s) => ipAutoStatus = s);
+      // فقط اسکن کامل ذخیره می‌شود؛ اگر وسط کار متوقف شد، دفعه‌ی بعد دوباره امتحان می‌شود
+      if (nationalMode && !_ipAutoHalt()) {
+        await p.setString(_ipAutoAtKey, now.toString());
       }
     } catch (e, stk) {
       logError(e, stk);
+    } finally {
+      // Persist while the locks are still held so another scan cannot mutate
+      // the shared result lists before their snapshot is taken.
+      await _ipAutoSave();
+      ipAutoBusy = false;
+      dnsxManualBusy = false;
     }
   }
 
