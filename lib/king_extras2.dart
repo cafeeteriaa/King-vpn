@@ -77,7 +77,23 @@ Future<CheckHostResult?> checkHostTcp(
         : rawHost;
     final ip = InternetAddress.tryParse(normalizedHost);
     final validDomain = RegExp(
-      r'^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*
+      r'^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$',
+    ).hasMatch(normalizedHost);
+    if (normalizedHost.isEmpty ||
+        (ip == null && !validDomain) ||
+        port < 1 ||
+        port > 65535 ||
+        maxNodes < 1 ||
+        maxNodes > 50) {
+      return null;
+    }
+    final queryHost = ip?.type == InternetAddressType.IPv6
+        ? '[$normalizedHost]'
+        : normalizedHost;
+    final submitUri = Uri.https('check-host.net', '/check-tcp', {
+      'host': '$queryHost:$port',
+      'max_nodes': '$maxNodes',
+    });
     final submitRes = await http
         .get(submitUri, headers: const {'Accept': 'application/json'})
         .timeout(const Duration(seconds: 10));
@@ -88,7 +104,9 @@ Future<CheckHostResult?> checkHostTcp(
     final nodesField = submitJson['nodes'];
     final totalNodes = nodesField is Map ? nodesField.length : maxNodes;
     if (requestId == null ||
-        !RegExp(r'^[A-Za-z0-9_-]{1,128}
+        !RegExp(r'^[A-Za-z0-9_-]{1,128}$').hasMatch(requestId)) {
+      return null;
+    }
 
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
