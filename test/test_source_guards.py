@@ -82,6 +82,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_dnsPickLastSucceeded = true;', picker)
         self.assertIn('_dnsPickLastSucceeded = false;', picker)
 
+    def test_native_watchdog_requires_corroborated_domestic_evidence_and_mode_snapshot(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = service.index('private ProbeResult probeResult(boolean modeSnapshot)')
+        end = service.index('private ProbeResult probeOne(', start)
+        probe = service[start:end]
+        self.assertIn('int required = modeSnapshot ? 2 : 1;', probe)
+        self.assertIn('passed >= required', probe)
+        self.assertIn('DOMESTIC_PROBE_URLS', probe)
+        watchdog = service[service.index('private void checkOnce()'):start]
+        self.assertIn('final boolean modeSnapshot = nationalMode;', watchdog)
+        self.assertIn('probeResult(modeSnapshot)', watchdog)
+        self.assertIn('if (nationalMode != modeSnapshot)', watchdog)
+        self.assertIn('rescheduleNormal();', watchdog)
+
     def test_national_tunnel_acceptance_requires_multiple_independent_destinations(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = source.index('Future<bool> _tunnelTrafficOk()')

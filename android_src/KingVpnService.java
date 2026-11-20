@@ -802,10 +802,16 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             }
             return;
         }
-        ProbeResult pr = coreUp ? probeResult() : ProbeResult.HARD_FAIL;
+        final boolean modeSnapshot = nationalMode;
+        ProbeResult pr = coreUp ? probeResult(modeSnapshot) : ProbeResult.HARD_FAIL;
 
         synchronized (lock) {
             if (!active || stopping) return;
+            if (nationalMode != modeSnapshot) {
+                // Do not apply evidence collected for a network mode that is no longer active.
+                rescheduleNormal();
+                return;
+            }
             if (isStarting()) {
                 rescheduleNormal();
                 return;
@@ -895,15 +901,19 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * international probe is skipped: it always fails there, which used to make the
      * watchdog punish good national servers and switch between them forever.
      */
-    private ProbeResult probeResult() {
+    private ProbeResult probeResult(boolean modeSnapshot) {
         ProbeResult worst = ProbeResult.HARD_FAIL;
-        String[] urls = nationalMode ? DOMESTIC_PROBE_URLS : INTERNATIONAL_PROBE_URLS;
+        String[] urls = modeSnapshot ? DOMESTIC_PROBE_URLS : INTERNATIONAL_PROBE_URLS;
+        int passed = 0;
         for (String u : urls) {
             ProbeResult r = probeOne(u);
-            if (r == ProbeResult.OK) return ProbeResult.OK;
-            if (r == ProbeResult.SOFT_FAIL) worst = ProbeResult.SOFT_FAIL;
+            if (r == ProbeResult.OK) passed++;
+            else if (r == ProbeResult.SOFT_FAIL) worst = ProbeResult.SOFT_FAIL;
         }
-        return worst;
+        // Match Dart's end-to-end gate: domestic mode needs two independent
+        // destinations; global mode tolerates one reachable international host.
+        int required = modeSnapshot ? 2 : 1;
+        return passed >= required ? ProbeResult.OK : worst;
     }
 
     private ProbeResult probeOne(String url) {
