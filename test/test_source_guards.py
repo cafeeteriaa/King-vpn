@@ -1342,7 +1342,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn(').whenComplete(c.dispose);', iran)
         self.assertIn('tokenC.dispose();', iran)
         self.assertIn('taskC.dispose();', iran)
-        self.assertNotIn('TextEditingController(text: customDnsAddr)', npv)
+        self.assertNotRegex(npv, r'controller:\s*TextEditingController\(text: customDnsAddr\)')
         self.assertIn('controller: customDnsC,', npv)
         self.assertIn('customDnsC.dispose();', npv)
         self.assertIn(').whenComplete(c.dispose);', npv)
