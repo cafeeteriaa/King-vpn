@@ -2923,6 +2923,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         skip = body.index('continue;', bad_cfg)
         self.assertLess(discard, skip)
 
+    def test_ip_auto_scan_persists_unverified_core_candidates_before_advancing_cursor(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        self.assertIn("const String _ipAutoPendingKey = 'ipauto_pending_core_v1';", source)
+        self.assertIn('final List<String> ipAutoPendingCore = [];', source)
+        self.assertIn('.where(_ipAutoValidPending)', source)
+        save_start = source.index('Future<void> _ipAutoSave()')
+        save_end = source.index('/// خودکار فقط IPهای دقیق', save_start)
+        save = source[save_start:save_end]
+        self.assertLess(save.index('await p.setString(pendingKey, pending.join'), save.index('await p.setString(posKey, position.toString())'))
+        run_start = source.index('Future<bool> _ipAutoRunOnce(')
+        run_end = source.index('Future<void> ipAutoSheet', run_start)
+        run = source[run_start:run_end]
+        self.assertIn('...ipAutoPendingCore.where((x) => !seen.contains(x))', run)
+        self.assertIn('final remainingCandidates = queued.skip(toTest.length).toList();', run)
+        self.assertIn('..addAll(remainingCandidates);', run)
+
 
 if __name__ == '__main__':
     unittest.main()
