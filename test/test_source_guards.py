@@ -1127,6 +1127,31 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("if (_busy) throw StateError('Local AI is already generating');", local)
 
 
+    def test_v2ray_connected_delay_handoff_is_process_safe(self):
+        patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+        self.assertIn('P1-33 delay URL handoff and receiver-before-dispatch', patch)
+        self.assertIn('P1-33 VPN service receives delay URL', patch)
+        self.assertIn('P1-33 ProxyOnly service receives delay URL', patch)
+        self.assertIn('check_delay.putExtra("DELAY_URL", AppConfigs.DELAY_URL);', patch)
+        self.assertIn('Register before dispatch so a fast service response cannot be missed.', patch)
+
+    def test_hot_cache_uses_shared_future_and_scoped_storage_permission(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn('Future<void>? _hotEnsureFuture;', source)
+        self.assertIn('await active;', source)
+        self.assertIn('Future<void> _natHotEnsureImpl({bool force = false}) async', source)
+        self.assertIn('final seenKeys = <String>{};', source)
+        self.assertIn('if (!seenKeys.add(cfg)) continue;', source)
+        fill_start = source.index('Future<void> hotAutoFill() async')
+        fill_end = source.index('Future<void> hotAutoStart()', fill_start)
+        self.assertNotIn('manageExternalStorage', source[fill_start:fill_end])
+        ensure_start = source.index('Future<void> natHotEnsure({bool force = false})')
+        ensure_end = source.index('Future<void> _natHotEnsureImpl', ensure_start)
+        self.assertNotIn('hotStorageAllow', source[ensure_start:ensure_end])
+        export_start = source.index('Future<void> hotExportToDownload() async')
+        export_end = source.index('List<String> natHotUrls()', export_start)
+        self.assertIn('await hotStorageAllow()', source[export_start:export_end])
+
     def test_active_v2ray_plugin_lifecycle_patch_is_fail_closed(self):
         patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
         self.assertIn('Lifecycle foreground promotion reports success/failure', patch)
