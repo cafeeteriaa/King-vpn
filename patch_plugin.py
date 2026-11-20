@@ -1009,15 +1009,3 @@ exact_replace(core, '''        }
 
     private String createNotificationChannelID''',
 'P1-38 keep disconnect lock through broadcast');
-
-exact_replace(core, '''            V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;
-            makeDurationTimer(v2rayServicesListener.getService().getApplicationContext(),
-                    v2rayConfig.ENABLE_TRAFFIC_STATICS);
-            showNotification(v2rayConfig);''',
-'''            synchronized (durationTimerLock) {
-                V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;
-                makeDurationTimer(v2rayServicesListener.getService().getApplicationContext(),
-                        v2rayConfig.ENABLE_TRAFFIC_STATICS);
-            }
-            showNotification(v2rayConfig);''',
-'P1-38 serialize connected state and timer start');

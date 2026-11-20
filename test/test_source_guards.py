@@ -1746,9 +1746,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_v2ray_connection_and_disconnect_broadcast_share_one_lifecycle_lock(self):
         patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
         self.assertIn('P1-38 keep disconnect lock through broadcast', patch)
-        self.assertIn('P1-38 serialize connected state and timer start', patch)
 
-        connected_start = patch.index("'P1-38 serialize connected state and timer start'")
+        connected_start = patch.index("'P1-34 verify native core running before connected'")
         connected_block_start = patch.rfind("exact_replace(core,", 0, connected_start)
         connected_block = patch[connected_block_start:connected_start]
         self.assertIn('synchronized (durationTimerLock)', connected_block)
@@ -1760,9 +1759,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         disconnect_start = patch.index("'P1-38 keep disconnect lock through broadcast'")
         disconnect_block_start = patch.rfind("exact_replace(core,", 0, disconnect_start)
         disconnect_block = patch[disconnect_block_start:disconnect_start]
-        self.assertIn('        }\\n    }', disconnect_block)
-        self.assertLess(disconnect_block.index('        }\\n    }'),
-                        disconnect_block.index('private String createNotificationChannelID'))
+        self.assertIn("'''        }\\n        }\\n    }\\n\\n    private String createNotificationChannelID'''", disconnect_block)
 
 
 
