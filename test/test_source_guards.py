@@ -2966,6 +2966,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("'version': 1,", source)
         self.assertIn("final committed = await p.setString(stateKey, jsonEncode(checkpoint));", source)
         self.assertIn("if (!committed) return;", source)
+        self.assertIn("if (_ipAutoLoadedNat == null || _ipAutoLoadedNat != saveNationalMode) return;", source)
         self.assertIn('final List<String> ipAutoPendingCore = [];', source)
         self.assertIn('.where(_ipAutoValidPending)', source)
         self.assertIn('rawPosition.isFinite && rawPosition >= 0', source)
