@@ -938,9 +938,15 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             c.setUseCaches(false);
             c.setInstanceFollowRedirects(false);
             c.setRequestProperty("User-Agent", "Mozilla/5.0");
-            // Any real HTTP answer (2xx, 3xx, even 403) proves the request went through the tunnel.
+            // A redirect may lead to a captive portal, and 403/4xx may be a
+            // DPI block page. Neither proves the requested destination works.
+            // Match Dart: generate_204 endpoints require the exact 204 signal;
+            // domestic homepage probes accept only a direct 2xx response.
             int code = c.getResponseCode();
-            return (code >= 200 && code < 500) ? ProbeResult.OK : ProbeResult.SOFT_FAIL;
+            boolean expects204 = url.endsWith("/generate_204");
+            boolean healthy = expects204 ? code == HttpURLConnection.HTTP_NO_CONTENT
+                    : (code >= 200 && code < 300);
+            return healthy ? ProbeResult.OK : ProbeResult.SOFT_FAIL;
         } catch (ConnectException | NoRouteToHostException e) {
             // جدید: the core is running (checked before probing), so a refused connection to the
             // local port means only that this config has no HTTP inbound. That must not switch
