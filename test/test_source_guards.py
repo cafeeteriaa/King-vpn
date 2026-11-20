@@ -1473,10 +1473,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         exporter = backup[exporter_start:exporter_end]
         self.assertIn('final timestamp = DateTime.now().toIso8601String();', exporter)
         self.assertIn('_bkpEnsureExportWithinBudget(data, timestamp);', exporter)
-        self.assertLess(exporter.index('_bkpEnsureExportWithinBudget(data, timestamp);'),
+        self.assertLess(exporter.index('_bkpEnsureExportWithinBudget(encodedEntryBytes);'),
                         exporter.index('final encoded = JsonEncoder.withIndent'))
         self.assertIn('const formattingReserve = 32 * 1024;', backup)
-        self.assertIn('_bkpMaxBytes - formattingReserve', backup)
+        self.assertIn('const envelopeReserve = 512;', backup)
+        self.assertIn('encodedEntryBytes += utf8.encode(jsonEncode({k: entry})).length;', exporter)
+        self.assertIn('_bkpMaxBytes - formattingReserve - envelopeReserve', backup)
 
     def test_ai_token_save_does_not_touch_disposed_controller(self):
         iran = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')

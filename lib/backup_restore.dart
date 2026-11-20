@@ -19,18 +19,14 @@ final RegExp _bkpSensitiveKey = RegExp(
 bool _bkpKeyAllowed(String key) =>
     _bkpAllowedKey.hasMatch(key) && !_bkpSensitiveKey.hasMatch(key);
 
-// Check a compact representation while collecting entries. The final pretty
-// JSON adds whitespace, so reserve a small fixed margin for that formatting.
-void _bkpEnsureExportWithinBudget(
-    Map<String, Map<String, dynamic>> data, String timestamp) {
+// Each entry is measured once as it is collected. Summing these encoded
+// entry sizes is a conservative upper bound for the compact data object;
+// reserve space for the envelope and pretty-print whitespace.
+void _bkpEnsureExportWithinBudget(int encodedEntryBytes) {
   const formattingReserve = 32 * 1024;
-  final compact = jsonEncode({
-    'magic': kBkpMagic,
-    'at': timestamp,
-    'count': data.length,
-    'data': data,
-  });
-  if (utf8.encode(compact).length > _bkpMaxBytes - formattingReserve) {
+  const envelopeReserve = 512;
+  if (encodedEntryBytes >
+      _bkpMaxBytes - formattingReserve - envelopeReserve) {
     throw const FormatException('حجم پشتیبان از حد مجاز بیشتر است');
   }
 }
@@ -39,6 +35,7 @@ Future<String> bkpExportJson() async {
   final p = await SharedPreferences.getInstance();
   final timestamp = DateTime.now().toIso8601String();
   final data = <String, Map<String, dynamic>>{};
+  var encodedEntryBytes = 0;
   for (final k in p.getKeys()) {
     if (!_bkpKeyAllowed(k)) continue;
     final v = p.get(k);
@@ -58,8 +55,13 @@ Future<String> bkpExportJson() async {
     if (data.length > _bkpMaxEntries) {
       throw const FormatException('تعداد تنظیمات برای پشتیبان بیش از حد مجاز است');
     }
-    // Enforce the cumulative byte budget before retaining more entries.
-    _bkpEnsureExportWithinBudget(data, timestamp);
+    // Measure only the new entry: avoid re-encoding the entire accumulated
+    // backup on every iteration (quadratic work for large preference sets).
+    final entry = data[k];
+    if (entry != null) {
+      encodedEntryBytes += utf8.encode(jsonEncode({k: entry})).length;
+      _bkpEnsureExportWithinBudget(encodedEntryBytes);
+    }
   }
   final encoded = JsonEncoder.withIndent('  ').convert({
     'magic': kBkpMagic,
