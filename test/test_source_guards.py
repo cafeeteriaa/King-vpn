@@ -1706,7 +1706,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(connected_replacement.index('makeDurationTimer('),
                         connected_replacement.index('showNotification(v2rayConfig);'))
 
-        disconnect_start = patch.index("exact_replace(core, ```    private void sendDisconnectedBroadCast() {")
+        disconnect_start = patch.index("exact_replace(core, '''    private void sendDisconnectedBroadCast() {")
         disconnect_end = patch.index("'P1-36 remove late duration ticker cancellation'", disconnect_start)
         disconnect = patch[disconnect_start:disconnect_end]
         self.assertLess(disconnect.index('countDownTimer.cancel();'),
