@@ -356,7 +356,10 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
         (_atSubstName, _atSubstBudget, _atItemSubst),
       ];
       for (final s in steps) {
-        if (_abortRequested) return _atFinish(reason: 'توقف دستی');
+        if (_abortRequested) {
+          await _atFinish(reason: 'توقف دستی');
+          return;
+        }
         if (_atCanRun(s.$1, s.$2)) await s.$3();
       }
 

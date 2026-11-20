@@ -5,6 +5,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KingVpnSourceGuardTests(unittest.TestCase):
+    def test_manual_auto_test_abort_finishes_exactly_once(self):
+        source = (ROOT / 'lib' / 'auto_test.dart').read_text(encoding='utf-8')
+        self.assertIn("await _atFinish(reason: 'توقف دستی');", source)
+        self.assertNotIn("return _atFinish(reason: 'توقف دستی');", source)
+
+    def test_pilot_engine_extension_uses_throttled_state_update(self):
+        source = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        start = source.index('void applyPilotEngine(String e)')
+        end = source.index('String _engineLabel', start)
+        method = source[start:end]
+        self.assertIn('_set(', method)
+        self.assertNotIn('setState(', method)
+
     def test_smart_pilot_code_requests_go_only_to_owner_console(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('Future<void> _runSmartCommand')

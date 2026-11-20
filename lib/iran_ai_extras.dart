@@ -771,7 +771,7 @@ extension HomeExtras on _HomePageState {
     pilotEngine = 'v2ray';
     proto = 'all';
     connRow = null;
-    if (mounted) setState(() {});
+    // _set owns the throttled UI refresh; extension methods must not call setState.
     _set(e == 'v2ray'
         ? 'موتور اجرایی V2Ray انتخاب شد.'
         : 'در این نسخه فقط موتور اجرایی V2Ray فعال است.');
