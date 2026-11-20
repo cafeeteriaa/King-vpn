@@ -724,16 +724,8 @@ exact_replace(vpn, '''    public void onRevoke() {
 
 
 # 7) Delay probe crosses the plugin's :RunSoLibV2RayDaemon process boundary.
-# Send the URL in the service Intent and register the receiver before dispatching.
-exact_replace(v2_ctrl, '''        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.registerReceiver(receiver, delayIntentFilter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            context.registerReceiver(receiver, delayIntentFilter);
-        }''', '''        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(receiver, delayIntentFilter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            context.registerReceiver(receiver, delayIntentFilter);
-        }''', 'P1-33 use flagged receiver overload only on API 33+');
+# The complete function replacement below handles receiver registration and
+# uses the API-33 flagged overload only where Android requires it.
 
 exact_replace(v2_ctrl, '''import android.os.Build;''', '''import android.os.Build;
 
@@ -794,7 +786,7 @@ exact_replace(v2_ctrl, '''        final long[] delay = { -1 };
         String packageName = context.getPackageName();
         IntentFilter delayIntentFilter = new IntentFilter(packageName + ".CONNECTED_V2RAY_SERVER_DELAY");
         final boolean[] receiverRegistered = { false };
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             context.registerReceiver(receiver, delayIntentFilter, Context.RECEIVER_NOT_EXPORTED);
         } else {
             context.registerReceiver(receiver, delayIntentFilter);
