@@ -504,7 +504,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('_runSmartCommand(', voice)
         self.assertIn('speech_to_text:^7.4.0', workflow)
         self.assertIn('android.permission.RECORD_AUDIO', prepare)
-        self.assertIn("if 'android.permission.RECORD_AUDIO' not in m:", prepare)
+        self.assertIn("'android.permission.RECORD_AUDIO',", prepare)
+        self.assertIn('for permission in required_permissions:', prepare)
         self.assertIn('android.speech.RecognitionService', prepare)
         self.assertIn("if 'android.speech.RecognitionService' not in m:", prepare)
         self.assertIn("if '<queries>' in m:", prepare)
@@ -2098,7 +2099,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(prefs_guard, run)
         self.assertLess(run, save)
         self.assertLess(save, unlock)
-        self.assertIn('if (!_ipAutoHalt(modeSnapshot: runNationalMode))', body)
+        self.assertIn('if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode))', body)
 
     def test_ip_auto_address_generation_does_not_commit_after_stop(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
