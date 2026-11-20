@@ -2913,5 +2913,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('natVarCandidates.clear();', body)
 
 
+    def test_unsupported_config_discards_provisional_nat_variant(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> _connectLoop(List<Server> list')
+        end = source.index('// REAL speed test right after connecting', start)
+        body = source[start:end]
+        bad_cfg = body.index('if (badCfg != null)')
+        discard = body.index('natVarCandidateDiscard(s);', bad_cfg)
+        skip = body.index('continue;', bad_cfg)
+        self.assertLess(discard, skip)
+
+
 if __name__ == '__main__':
     unittest.main()
