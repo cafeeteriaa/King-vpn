@@ -175,7 +175,9 @@ class NatNetworkDiagnosis {
       final parts = <String>[
         for (final i in ifs) for (final a in i.addresses) '${i.name}=${a.address}',
       ]..sort();
-      return sha256.convert(utf8.encode(parts.join(';'))).toString();
+      // Operator identity matters even when two carriers reuse the same
+      // private interface address and Android interface name.
+      return sha256.convert(utf8.encode('$natOpKey|${parts.join(';')}')).toString();
     } catch (_) {
       return '';
     }
@@ -392,7 +394,9 @@ class PilotNetworkProbe {
           for (final address in item.addresses)
             '${item.name}=${address.address}',
       ]..sort();
-      return sha256.convert(utf8.encode(values.join(';'))).toString();
+      // Include the active operator to avoid reusing a route verdict after
+      // a SIM/carrier handoff that happens to retain the same local address.
+      return sha256.convert(utf8.encode('$natOpKey|${values.join(';')}')).toString();
     } catch (_) {
       return '';
     }
