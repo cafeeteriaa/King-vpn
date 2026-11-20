@@ -119,6 +119,7 @@ Future<int> bkpImportJson(String text) async {
     }
   }
 
+  // No preferences are changed until every key and value has passed validation.
   // Snapshot every target key before the first write so a failed restore can roll back.
   final p = await SharedPreferences.getInstance();
   final previous = <String, Object?>{
