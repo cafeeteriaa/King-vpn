@@ -4969,6 +4969,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   DateTime lastUpgrade = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime lastFetchTry = DateTime.fromMillisecondsSinceEpoch(0);
   Timer? watch, tick, dropTimer, saveT;
+  Timer? _natHotInitialTimer, _natHotRefreshTimer;
   // DROPDEFER: قطع هسته وسط تعویض را گم نمی‌کنیم؛ بعد از آزاد شدن busy/switching بررسی می‌شود
   bool _dropDeferred = false;
   // DROPFIX: هنگام توقف خودِ اپ (تست سرور، جستجو) رویداد DISCONNECTED طبیعی است
@@ -5332,8 +5333,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     // پوشه‌ی منابع تازه خودکار است: چند ثانیه بعد از باز شدن و بعد هر ساعت
     // چک می‌شود؛ اگر ۴۸ ساعت گذشته باشد، کانفیگ‌ها از نو دانلود می‌شوند
-    Future.delayed(const Duration(seconds: 20), () => unawaited(natHotEnsure()));
-    Timer.periodic(const Duration(hours: 1), (_) => unawaited(natHotEnsure()));
+    _natHotInitialTimer = Timer(const Duration(seconds: 20), () {
+      if (mounted) unawaited(natHotEnsure());
+    });
+    _natHotRefreshTimer = Timer.periodic(const Duration(hours: 1), (_) {
+      if (mounted) unawaited(natHotEnsure());
+    });
     // native side (MainActivity patch in the workflow) tells us the screen /
     // activity was destroyed (app swiped away from the recent apps)
     bgChannel.setMethodCallHandler((call) async {
@@ -5633,6 +5638,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     aiLoop?.cancel();
     localPilotLoop?.cancel();
     _netWatchTimer?.cancel();
+    _natHotInitialTimer?.cancel();
+    _natHotRefreshTimer?.cancel();
+    _personalPingT?.cancel();
     _dbgSaveT?.cancel();
     _dbgProbT?.cancel();
     unawaited(_smartSpeech.cancel());
