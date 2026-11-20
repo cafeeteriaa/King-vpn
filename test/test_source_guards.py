@@ -79,6 +79,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('natIrDomains', domain_scan)
         self.assertNotIn('for (var p = 1; p < 65536; p++)', domain_scan)
 
+    def test_reliable_config_applies_route_only_preference_to_all_inbounds(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('String _reliableVpnCfg(String cfg)')
+        end = main.index('// completes when the VPN tunnel reports CONNECTED', start)
+        builder = main[start:end]
+        self.assertIn("sniffing['routeOnly'] = routeOnly;", builder)
+        self.assertEqual(builder.count("'routeOnly': routeOnly"), 2)
+        self.assertNotIn("'routeOnly': true", builder)
+
     def test_connection_fallback_keeps_plain_config_unmodified(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('final cfgTries = <String>[')

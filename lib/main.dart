@@ -2884,13 +2884,16 @@ String _reliableVpnCfg(String cfg) {
       if (p == httpProxyPort || p == 10809) hasHttp = true;
       if (p == 10808 || proto.contains('socks')) hasSocks = true;
       final sn = ib['sniffing'];
-      if (sn is! Map || sn['enabled'] != true) {
-        ib['sniffing'] = {
-          'enabled': true,
-          'destOverride': ['http', 'tls'],
-          'routeOnly': true,
-        };
+      final sniffing = sn is Map
+          ? Map<String, dynamic>.from(sn)
+          : <String, dynamic>{};
+      sniffing['enabled'] = true;
+      if (sniffing['destOverride'] is! List) {
+        sniffing['destOverride'] = <String>['http', 'tls'];
       }
+      // Keep the user's RouteOnly preference consistent on every inbound.
+      sniffing['routeOnly'] = routeOnly;
+      ib['sniffing'] = sniffing;
     }
     if (!hasSocks) {
       inbounds.add({
@@ -2902,7 +2905,7 @@ String _reliableVpnCfg(String cfg) {
         'sniffing': {
           'enabled': true,
           'destOverride': ['http', 'tls'],
-          'routeOnly': true,
+          'routeOnly': routeOnly,
         },
       });
     }
@@ -2916,7 +2919,7 @@ String _reliableVpnCfg(String cfg) {
         'sniffing': {
           'enabled': true,
           'destOverride': ['http', 'tls'],
-          'routeOnly': true,
+          'routeOnly': routeOnly,
         },
       });
     }
