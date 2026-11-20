@@ -2484,20 +2484,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         cursors = body.index('final cursorSnapshot = Map<String, int>.of(ipAutoCursors);')
         compute = body.index('await compute(_genAddrsIso, args)')
         guard = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
-        mutation = body.index('ipAutoCursors\n    ..clear()')
         generated = body.index("final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);")
-        update_pos = body.index('ipAutoPos = start + slice.length;')
         self.assertLess(mode, compute)
         self.assertLess(position, compute)
         self.assertLess(cursors, compute)
         self.assertLess(compute, guard)
         self.assertLess(guard, generated)
-        self.assertLess(generated, mutation)
-        self.assertIn("'nationalMode': modeSnapshot", body)
-        self.assertIn('final start = startPosSnapshot % all.length;', body)
-        self.assertLess(mutation, update_pos)
-
-
+        self.assertNotIn('..clear()', body)
+        self.assertNotIn('ipAutoPos =', body)
+        self.assertIn('return _IpAutoAddressBatch(', body)
 
     def test_auto_scan_dialog_close_requests_cancellation(self):
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
