@@ -1283,7 +1283,8 @@ extension NpvAmExtras on _HomePageState {
               onPressed: () async {
                 relayServerUrl = c.text.trim();
                 await _saveSettings();
-                if (mounted) Navigator.pop(ctx);
+                if (!mounted || !ctx.mounted) return;
+                Navigator.pop(ctx);
                 _set(relayServerUrl.isEmpty ? 'سرور واسط پاک شد' : 'سرور واسط ذخیره شد');
               },
               child: const Text('ذخیره'),

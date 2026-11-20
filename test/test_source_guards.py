@@ -1783,6 +1783,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('await sgrpFetchOne(g);', groups)
         self.assertIn('await sgrpRefreshAll(groups);', groups)
 
+    def test_relay_dialog_checks_dialog_context_after_save(self):
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        self.assertRegex(
+            extras,
+            r'await _saveSettings\(\);\s*if \(!mounted \|\| !ctx\.mounted\) return;\s*Navigator\.pop\(ctx\);',
+        )
+
+    def test_network_diagnostic_disposes_notifier_and_guards_late_results(self):
+        diag = (ROOT / 'lib' / 'net_diag.dart').read_text(encoding='utf-8')
+        method = diag[diag.index('Future<void> netDiagDialog()'): ]
+        self.assertIn('var dialogOpen = true;', method)
+        self.assertIn('if (!mounted) return;\n      var res = t;', method)
+        self.assertIn('if (dialogOpen) out.value = res;', method)
+        self.assertIn("if (dialogOpen) out.value = 'خطا: $e';", method)
+        self.assertRegex(method, r'finally \{\s*dialogOpen = false;\s*out\.dispose\(\);\s*\}')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -324,7 +324,9 @@ extension NetDiagExt on _HomePageState {
       return;
     }
     final out = ValueNotifier<String>('در حال تست... (حدود ۱۰ ثانیه)');
+    var dialogOpen = true;
     unawaited(netDiagnose().then((t) async {
+      if (!mounted) return;
       var res = t;
       final v = lastNetVerdict;
       if (autoNetOn && v != null) {
@@ -338,11 +340,12 @@ extension NetDiagExt on _HomePageState {
           res = '$t\n🤖 حالت شبکه خودکار است و تنظیمات فعلی با این شبکه جور است؛ چیزی عوض نشد.';
         }
       }
-      out.value = res;
+      if (dialogOpen) out.value = res;
     }).catchError((e) {
-      out.value = 'خطا: $e';
+      if (dialogOpen) out.value = 'خطا: $e';
     }));
-    await showDialog<void>(
+    try {
+      await showDialog<void>(
       context: context,
       builder: (ctx) => Directionality(
         textDirection: TextDirection.rtl,
@@ -368,6 +371,10 @@ extension NetDiagExt on _HomePageState {
           ],
         ),
       ),
-    );
+      );
+    } finally {
+      dialogOpen = false;
+      out.dispose();
+    }
   }
 }
