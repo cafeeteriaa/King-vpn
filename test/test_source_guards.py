@@ -1312,6 +1312,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         proxy_on_destroy = proxy_destroy[new_destroy:]
         self.assertLess(proxy_on_destroy.index('stopCore();'), proxy_on_destroy.index('stopForeground(true);'))
 
+    def test_vpn_notification_stop_uses_foreground_pending_intent_on_android_o_plus(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertIn('PendingIntent.getForegroundService(this, 1, stop, flags)', service)
+        self.assertIn('PendingIntent.getService(this, 1, stop, flags)', service)
+        self.assertIn('Build.VERSION.SDK_INT >= Build.VERSION_CODES.O', service)
+        stop = service[service.index('if (ACTION_STOP.equals(action))'):
+                       service.index('if (!ACTION_START.equals(action))')]
+        self.assertLess(stop.index('startForegroundSafe('), stop.index('requestStop()'))
+
     def test_vpn_service_promotes_before_queuing_sticky_restart_or_stop(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = service.index('public int onStartCommand(Intent intent')

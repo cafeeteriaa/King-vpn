@@ -977,7 +977,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             stop.setAction(ACTION_STOP);
             int flags = PendingIntent.FLAG_UPDATE_CURRENT
                     | (Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0);
-            PendingIntent stopPi = PendingIntent.getService(this, 1, stop, flags);
+            PendingIntent stopPi = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                    ? PendingIntent.getForegroundService(this, 1, stop, flags)
+                    : PendingIntent.getService(this, 1, stop, flags);
             nb.addAction(0, "قطع", stopPi); // جدید
 
             // Plain startForeground: no typed variant, so no separate retry is needed.
