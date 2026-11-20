@@ -338,8 +338,8 @@ for name in ('build.gradle', 'build.gradle.kts'):
     g = open(gp, encoding='utf-8').read()
     if 'abiFilters' in g: continue
     is_kts = name.endswith('.kts')
-    ndk_block = ('\n        ndk {\n            abiFilters += listOf("arm64-v8a", "armeabi-v7a")\n        }\n' if is_kts
-                 else '\n        ndk {\n            abiFilters "arm64-v8a", "armeabi-v7a"\n        }\n')
+    ndk_block = ('\n        ndk {\n            abiFilters += listOf("arm64-v8a")\n        }\n' if is_kts
+                 else '\n        ndk {\n            abiFilters "arm64-v8a"\n        }\n')
     dc = re.search(r'defaultConfig\s*\{', g)
     if dc:
         g = g[:dc.end()] + ndk_block + g[dc.end():]

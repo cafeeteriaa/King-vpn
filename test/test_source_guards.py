@@ -1174,12 +1174,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertEqual([], duplicates, f'duplicate test methods: {duplicates}')
 
 
-    def test_android_builds_do_not_pull_unused_webview_plugin(self):
+    def test_android_builds_include_required_webview_and_arm64_split(self):
         build = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
         release = (ROOT / '.github' / 'workflows' / 'signed-release.yml').read_text(encoding='utf-8')
         orchestrator = (ROOT / 'tools' / 'repair_orchestrator.py').read_text(encoding='utf-8')
+        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         for source in (build, release, orchestrator):
-            self.assertNotIn('webview_flutter', source)
+            self.assertIn('webview_flutter', source)
+        self.assertIn('abiFilters += listOf("arm64-v8a")', prepare)
+        self.assertNotIn('armeabi-v7a', prepare)
+        self.assertIn('--split-per-abi', build)
+        self.assertIn('--split-per-abi', release)
+        self.assertIn('app-arm64-v8a-release.apk', build)
+        self.assertIn('app-arm64-v8a-release.apk', release)
         self.assertIn("java-version: '21'", build)
         self.assertIn("java-version: '21'", release)
         self.assertIn("--obfuscate --split-debug-info=build/symbols", release)
