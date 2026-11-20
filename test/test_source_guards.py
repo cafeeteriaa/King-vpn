@@ -1375,6 +1375,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (fallbackStop) runFallback(this::stopEverything);', destroy)
 
 
+    def test_vpn_watchdog_survives_core_state_query_exceptions(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = service.index('private void checkOnce()')
+        end = service.index('private void rescheduleNormal()', start)
+        watchdog = service[start:end]
+        self.assertIn('try {', watchdog)
+        self.assertIn('coreUp = core.isV2rayCoreRunning();', watchdog)
+        self.assertIn('catch (Throwable stateError)', watchdog)
+        self.assertIn('retaining current tunnel', watchdog)
+        self.assertIn('if (active && !stopping) rescheduleNormal();', watchdog)
+        self.assertLess(watchdog.index('catch (Throwable stateError)'),
+                        watchdog.index('ProbeResult pr = coreUp ? probeResult()'))
+
     def test_vpn_service_defers_tun_close_until_native_stop_is_verified(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = service.index('private boolean stopCoreNow()')

@@ -772,7 +772,18 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         // The probe does network I/O (several seconds at worst). It runs OUTSIDE the
         // lock, so a stop request or a server switch is never blocked behind it.
         V2rayCoreManager core = V2rayCoreManager.getInstance();
-        boolean coreUp = core.isV2rayCoreRunning();
+        final boolean coreUp;
+        try {
+            coreUp = core.isV2rayCoreRunning();
+        } catch (Throwable stateError) {
+            // A transient JNI/state-query failure must not kill the scheduled watchdog.
+            // Keep the current TUN and retry on the next tick; never fail over on unknown state.
+            Log.e(TAG, "watchdog could not read core state; retaining current tunnel", stateError);
+            synchronized (lock) {
+                if (active && !stopping) rescheduleNormal();
+            }
+            return;
+        }
         ProbeResult pr = coreUp ? probeResult() : ProbeResult.HARD_FAIL;
 
         synchronized (lock) {
