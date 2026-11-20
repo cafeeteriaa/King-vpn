@@ -906,16 +906,25 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private ProbeResult probeResult(boolean modeSnapshot) {
         ProbeResult worst = ProbeResult.HARD_FAIL;
         String[] urls = modeSnapshot ? DOMESTIC_PROBE_URLS : INTERNATIONAL_PROBE_URLS;
-        int passed = 0;
-        for (String u : urls) {
-            ProbeResult r = probeOne(u);
-            if (r == ProbeResult.OK) passed++;
-            else if (r == ProbeResult.SOFT_FAIL) worst = ProbeResult.SOFT_FAIL;
-        }
         // Match Dart's end-to-end gate: domestic mode needs two independent
         // destinations; global mode tolerates one reachable international host.
         int required = modeSnapshot ? 2 : 1;
-        return passed >= required ? ProbeResult.OK : worst;
+        int passed = 0;
+        for (String u : urls) {
+            // A mode switch invalidates this sample. checkOnce() rechecks the
+            // snapshot under lock and schedules a fresh probe for the new mode.
+            if (nationalMode != modeSnapshot) return ProbeResult.SOFT_FAIL;
+            ProbeResult r = probeOne(u);
+            if (r == ProbeResult.OK) {
+                passed++;
+                // Stop as soon as the required independent evidence is present;
+                // a third domestic request cannot improve this health decision.
+                if (passed >= required) return ProbeResult.OK;
+            } else if (r == ProbeResult.SOFT_FAIL) {
+                worst = ProbeResult.SOFT_FAIL;
+            }
+        }
+        return worst;
     }
 
     private ProbeResult probeOne(String url) {
