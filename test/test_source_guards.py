@@ -2800,7 +2800,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(identity, probes)
         self.assertLess(probes, recheck)
         self.assertLess(recheck, classify)
-        self.assertIn('if (identityAfterProbe != id)', diagnosis)
+        self.assertIn('if (id.isNotEmpty && identityAfterProbe != id)', diagnosis)
         self.assertIn('_checkedAt = null;', diagnosis)
         self.assertIn('_identityAtCheck = null;', diagnosis)
 
@@ -2812,7 +2812,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(identity, domestic)
         self.assertLess(domestic, recheck)
         self.assertLess(recheck, publish)
-        self.assertIn('if (identityAfterProbe != identity)', pilot)
+        self.assertIn('if (identity.isNotEmpty && identityAfterProbe != identity)', pilot)
         self.assertIn('_lastAt = null;', pilot)
         self.assertIn('_lastIdentity = null;', pilot)
         self.assertIn('identity.isNotEmpty && lastAt != null', pilot)
