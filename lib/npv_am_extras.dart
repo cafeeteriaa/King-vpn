@@ -1577,6 +1577,16 @@ Future<List<String>> goldDnsList() async {
   return _goldDns.keys.toList();
 }
 
+Future<void> goldAddScans(Map<String, List<String>> updates) async {
+  if (updates.isEmpty) return;
+  await goldLoad();
+  for (final entry in updates.entries) {
+    final merged = {...(_goldScan[entry.key] ?? const <String>[]), ...entry.value};
+    _goldScan[entry.key] = merged.toList();
+  }
+  await goldSave();
+}
+
 Future<void> goldAddScan(String kind, List<String> items) async {
   await goldLoad();
   final merged = {...(_goldScan[kind] ?? const <String>[]), ...items};

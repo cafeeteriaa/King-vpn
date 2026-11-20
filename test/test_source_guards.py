@@ -1955,5 +1955,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(mutation, update_pos)
 
 
+
+    def test_auto_scan_stop_never_persists_partial_results(self):
+        auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        start = auto.index('Future<void> autoScanRun(')
+        end = auto.index('Future<void> autoScanSheet(', start)
+        body = auto[start:end]
+        self.assertGreaterEqual(body.count("if (_autoScanStop) {"), 4)
+        self.assertIn("say('اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');", body)
+        self.assertIn("await goldAddScans({'tls': tlsHits, 'sni': sniHits, 'port': portHits});", body)
+        self.assertNotIn("await goldAddScan('tls', tlsHits);", body)
+        helper_start = extras.index('Future<void> goldAddScans(')
+        helper_end = extras.index('Future<void> goldAddScan(', helper_start)
+        helper = extras[helper_start:helper_end]
+        self.assertIn('for (final entry in updates.entries)', helper)
+        self.assertIn('await goldSave();', helper)
+        self.assertEqual(helper.count('await goldSave();'), 1)
+
+
 if __name__ == '__main__':
     unittest.main()

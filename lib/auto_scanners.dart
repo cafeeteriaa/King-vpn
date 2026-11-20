@@ -78,6 +78,10 @@ Future<void> autoScanRun(void Function(String) say) async {
   _autoScanStop = false;
   try {
     await goldLoad();
+    if (_autoScanStop) {
+      say('اسکن متوقف شد؛ هیچ نتیجه‌ای ذخیره نشد');
+      return;
+    }
     // GLOBALONLY: فقط IPهای تمیز پوشه‌ی جهانی. بازه‌های ISP نت ملی حذف شدند (جدایی از نت ملی).
     // اگر پوشه‌ی جهانی هنوز خالی است، از بازه‌های CDN (Cloudflare) نمونه‌برداری می‌شود، نه ISP داخلی.
     // FOLDERALL: IPهای پوشه اول؛ در نت ملی IPهای ISP داخلی هم اضافه می‌شود (بهینه برای نت ملی)
@@ -115,6 +119,11 @@ Future<void> autoScanRun(void Function(String) say) async {
       say('SNI $n/${kAutoSniDomains.length} • سالم: ${sniHits.length}');
     }
 
+    if (_autoScanStop) {
+      say('اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');
+      return;
+    }
+
     // پورت: خروجی خود شماره‌ی پورت است. هر پورت یک بار؛ به محض یک IP سالم، همان پورت ثبت می‌شود
     final portHits = <String>[];
     var m = 0;
@@ -132,6 +141,11 @@ Future<void> autoScanRun(void Function(String) say) async {
       }
       if (ok) portHits.add('$p');
       say('پورت $m/${kAutoPorts.length} • سالم: ${portHits.length}');
+    }
+
+    if (_autoScanStop) {
+      say('اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');
+      return;
     }
 
     // TLS/ALPN: خروجی نام پروتکل‌های TLS است؛ روی اولین دامنه‌ی سالم (یا پیش‌فرض) تست می‌شود
@@ -152,9 +166,12 @@ Future<void> autoScanRun(void Function(String) say) async {
       if (ok) say('TLS: $alpn ✓');
     }
 
-    await goldAddScan('tls', tlsHits);
-    await goldAddScan('sni', sniHits);
-    await goldAddScan('port', portHits);
+    if (_autoScanStop) {
+      say('اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');
+      return;
+    }
+    // Commit the three result groups together only after every scan phase completes.
+    await goldAddScans({'tls': tlsHits, 'sni': sniHits, 'port': portHits});
     say('تمام شد: ${sniHits.length} SNI و ${portHits.length} پورت در پوشه‌ی جهانی ذخیره شد');
   } catch (e, stk) {
     logError(e, stk);
