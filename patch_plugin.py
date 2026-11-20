@@ -656,9 +656,11 @@ exact_replace(core, '''            coreController.startLoop(config, tunFd);
             if (!isV2rayCoreRunning()) {
                 return failStart("native core did not enter running state");
             }
-            V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;
-            makeDurationTimer(v2rayServicesListener.getService().getApplicationContext(),
-                    v2rayConfig.ENABLE_TRAFFIC_STATICS);
+            synchronized (durationTimerLock) {
+                V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;
+                makeDurationTimer(v2rayServicesListener.getService().getApplicationContext(),
+                        v2rayConfig.ENABLE_TRAFFIC_STATICS);
+            }
             showNotification(v2rayConfig);''', 'P1-34 verify native core running before connected');
 
 
@@ -772,7 +774,7 @@ exact_replace(core, '''    private void sendDisconnectedBroadCast() {
                 countDownTimer = null;
             }
             V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_DISCONNECTED;
-        }''',
+''',
 'P1-37 disconnect serializes timer cancellation and state change');
 
 
@@ -993,3 +995,29 @@ exact_replace(proxy_svc, '''        } else if (startCommand.equals(AppConfigs.V2
             new Thread(() -> {''', 'P1-33 ProxyOnly service receives delay URL');
 
 print('patch_plugin.py finished OK')
+
+
+# P1-38: hold the shared lifecycle lock until the full DISCONNECTED broadcast
+# completes, and serialize CONNECTED state publication with timer creation.
+exact_replace(core, '''        }
+    }
+
+    private String createNotificationChannelID''',
+'''        }
+        }
+    }
+
+    private String createNotificationChannelID''',
+'P1-38 keep disconnect lock through broadcast');
+
+exact_replace(core, '''            V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;
+            makeDurationTimer(v2rayServicesListener.getService().getApplicationContext(),
+                    v2rayConfig.ENABLE_TRAFFIC_STATICS);
+            showNotification(v2rayConfig);''',
+'''            synchronized (durationTimerLock) {
+                V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;
+                makeDurationTimer(v2rayServicesListener.getService().getApplicationContext(),
+                        v2rayConfig.ENABLE_TRAFFIC_STATICS);
+            }
+            showNotification(v2rayConfig);''',
+'P1-38 serialize connected state and timer start');
