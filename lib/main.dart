@@ -4216,11 +4216,16 @@ Future<int?> pingProxy(
       cancelled: cancelled,
     );
     if (cancelled?.call() ?? false) return null;
-    // TUNPING: در حالت VPN (TUN) پورت HTTP هسته ممکن است اصلاً باز نشود؛ آن‌وقت
-    // پینگ همیشه شکست می‌خورد و سرور سالم «ترافیک صفر» حساب می‌شود.
-    // اگر پورت بسته است و حالت پروکسی نیست، از مسیر عادی (که TUN روی آن است) استفاده کن.
+    // TUNPING: when the local HTTP inbound is absent, DIRECT is safe only
+    // if Android actually exposes this app's VPN interface. A stale CONNECTED
+    // callback must never turn ordinary internet into a false tunnel success.
     if (!useProxy && !proxyMode && (viaCore || !direct)) {
-      dbg('پینگ: پورت HTTP هسته بسته است؛ پینگ از مسیر TUN انجام می‌شود');
+      if (!await _tunInterfaceObserved()) {
+        lastPingErr = 'VPN TUN interface not observed';
+        return null;
+      }
+      if (cancelled?.call() ?? false) return null;
+      dbg('پینگ: پورت HTTP هسته بسته است؛ پینگ از TUN مشاهده‌شده انجام می‌شود');
     }
     if (cancelled?.call() ?? false) return null;
     final requestClient = HttpClient()
