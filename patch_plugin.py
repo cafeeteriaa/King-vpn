@@ -490,4 +490,228 @@ exact_replace(core, '''                public boolean protect(long fd) {
                     return false;
                 }''', 'V3 #49 protector fails when service is missing')
 
+
+
+# 6) Lifecycle hardening for the active 3.5.0 plugin services.
+# Promote before any TUN/core work, and make every stop/failure release the service.
+# The generic notification is replaced by the rich connection notification after startup.
+exact_replace(core, '''    public void promoteForStop(Service service) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                NotificationManager nm = (NotificationManager) service.getSystemService(Context.NOTIFICATION_SERVICE);
+                if (nm != null) {
+                    NotificationChannel ch = new NotificationChannel(
+                            STOP_CHANNEL_ID, "VPN", NotificationManager.IMPORTANCE_MIN);
+                    nm.createNotificationChannel(ch);
+                }
+            }
+            Notification n = new NotificationCompat.Builder(service, STOP_CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.ic_lock_lock)
+                    .setContentTitle("VPN")
+                    .setPriority(NotificationCompat.PRIORITY_MIN)
+                    .setOngoing(true)
+                    .build();
+            service.startForeground(NOTIFICATION_ID, n);
+        } catch (Exception e) {
+            Log.w("V2rayCoreManager", "promoteForStop failed", e);
+        }
+    }''', '''    public boolean promoteForStop(Service service) {
+        try {
+            if (service == null) return false;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                NotificationManager nm = (NotificationManager) service.getSystemService(Context.NOTIFICATION_SERVICE);
+                if (nm == null) return false;
+                NotificationChannel ch = new NotificationChannel(
+                        STOP_CHANNEL_ID, "VPN", NotificationManager.IMPORTANCE_MIN);
+                nm.createNotificationChannel(ch);
+            }
+            Notification n = new NotificationCompat.Builder(service, STOP_CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.ic_lock_lock)
+                    .setContentTitle("VPN")
+                    .setPriority(NotificationCompat.PRIORITY_MIN)
+                    .setOngoing(true)
+                    .build();
+            service.startForeground(NOTIFICATION_ID, n);
+            return true;
+        } catch (Exception e) {
+            Log.e("V2rayCoreManager", "Foreground promotion failed", e);
+            return false;
+        }
+    }''', 'Lifecycle foreground promotion reports success/failure');
+
+# StartCore: reject invalid state before timer creation; all failed starts reset state/timer.
+exact_replace(core, '''    public boolean startCore(final V2rayConfig v2rayConfig, int tunFd) {
+        makeDurationTimer(v2rayServicesListener.getService().getApplicationContext(),
+                v2rayConfig.ENABLE_TRAFFIC_STATICS);
+        V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTING;
+        if (!isLibV2rayCoreInitialized) {
+            Log.e(V2rayCoreManager.class.getSimpleName(),
+                    "startCore failed => LibV2rayCore should be initialize before start.");
+            return false;
+        }''', '''    private boolean failStart(String reason) {
+        Log.e(V2rayCoreManager.class.getSimpleName(), "startCore failed => " + reason);
+        if (countDownTimer != null) {
+            countDownTimer.cancel();
+            countDownTimer = null;
+        }
+        V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_DISCONNECTED;
+        SERVICE_DURATION = "00:00:00";
+        seconds = 0;
+        minutes = 0;
+        hours = 0;
+        uploadSpeed = 0;
+        downloadSpeed = 0;
+        try {
+            sendDisconnectedBroadCast();
+        } catch (Exception e) {
+            Log.w("V2rayCoreManager", "Failed to publish failed-start state", e);
+        }
+        return false;
+    }
+
+    public boolean startCore(final V2rayConfig v2rayConfig, int tunFd) {
+        if (v2rayConfig == null || v2rayServicesListener == null ||
+                v2rayServicesListener.getService() == null) {
+            return failStart("missing config or service listener");
+        }
+        if (countDownTimer != null) {
+            countDownTimer.cancel();
+            countDownTimer = null;
+        }
+        V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTING;
+        if (!isLibV2rayCoreInitialized) {
+            return failStart("LibV2rayCore is not initialized");
+        }
+        makeDurationTimer(v2rayServicesListener.getService().getApplicationContext(),
+                v2rayConfig.ENABLE_TRAFFIC_STATICS);''', 'P1-27 start failure state and timer reset');
+
+exact_replace(core, '''            if (coreController == null) {
+                Log.e(V2rayCoreManager.class.getSimpleName(), "startCore failed => coreController is null.");
+                return false;
+            }''', '''            if (coreController == null) {
+                return failStart("coreController is null");
+            }''', 'P1-27 null core controller cleanup');
+
+exact_replace(core, '''        } catch (Exception e) {
+            Log.e(V2rayCoreManager.class.getSimpleName(), "startCore failed =>", e);
+            return false;
+        }
+        return true;
+    }
+
+    public void stopCore()''', '''        } catch (Exception e) {
+            Log.e(V2rayCoreManager.class.getSimpleName(), "startCore failed =>", e);
+            return failStart("core startup exception");
+        }
+        return true;
+    }
+
+    public void stopCore()''', 'P1-27 exception cleanup');
+
+# VPN service: promote before establishing TUN / starting Xray.
+exact_replace(vpn, '''            if (v2rayConfig == null) {
+                Log.w("V2rayVPNService", "V2RAY_CONFIG is null, cannot start service");
+                this.onDestroy();
+                return START_NOT_STICKY;
+            }
+            if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {''', '''            if (v2rayConfig == null) {
+                Log.w("V2rayVPNService", "V2RAY_CONFIG is null, cannot start service");
+                stopAllProcess();
+                return START_NOT_STICKY;
+            }
+            if (!V2rayCoreManager.getInstance().promoteForStop(this)) {
+                Log.e("V2rayVPNService", "Foreground promotion failed; refusing to start core");
+                stopAllProcess();
+                return START_NOT_STICKY;
+            }
+            if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {''', 'P1-31 VPN foreground before TUN/core startup');
+
+# Proxy-only service: add an idempotent cleanup helper and promote before core startup.
+exact_replace(proxy_svc, '''            if (v2rayConfig == null) {
+                Log.w("V2rayProxyOnlyService", "V2RAY_CONFIG is null, cannot start service");
+                this.onDestroy();
+                return START_NOT_STICKY;
+            }
+            if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {''', '''            if (v2rayConfig == null) {
+                Log.w("V2rayProxyOnlyService", "V2RAY_CONFIG is null, cannot start service");
+                stopAllProcess();
+                return START_NOT_STICKY;
+            }
+            if (!V2rayCoreManager.getInstance().promoteForStop(this)) {
+                Log.e("V2rayProxyOnlyService", "Foreground promotion failed; refusing to start core");
+                stopAllProcess();
+                return START_NOT_STICKY;
+            }
+            if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {''', 'P1-31 proxy foreground before core startup');
+
+exact_replace(proxy_svc, '''    @Override
+    public void onDestroy() {
+        super.onDestroy();
+    }''', '''    private void stopAllProcess() {
+        try {
+            stopForeground(true);
+        } catch (Exception e) {
+            Log.w("V2rayProxyOnlyService", "stopForeground cleanup failed", e);
+        }
+        try {
+            stopSelf();
+        } catch (Exception e) {
+            Log.w("V2rayProxyOnlyService", "stopSelf cleanup failed", e);
+        }
+    }
+
+    @Override
+    public void onDestroy() {
+        try {
+            stopForeground(true);
+        } catch (Exception e) {
+            Log.w("V2rayProxyOnlyService", "onDestroy foreground cleanup failed", e);
+        }
+        super.onDestroy();
+    }''', 'P1-29 proxy-only service cleanup helper');
+
+# Do not invoke lifecycle callbacks directly; request normal service shutdown instead.
+def replace_all_service_calls(path, label):
+    src = open(path, encoding='utf-8').read()
+    count = src.count('this.onDestroy();')
+    if count == 0:
+        if 'stopAllProcess();' in src:
+            print('OK: ' + label + ' (already applied)')
+            return
+        print('ERROR: ' + label + ': expected onDestroy calls not found')
+        sys.exit(1)
+    open(path, 'w', encoding='utf-8').write(src.replace('this.onDestroy();', 'stopAllProcess();'))
+    print('OK: ' + label + ' (' + str(count) + ' call sites)')
+
+replace_all_service_calls(vpn, 'P1-29 VPN direct onDestroy calls replaced')
+replace_all_service_calls(proxy_svc, 'P1-29 proxy direct onDestroy calls replaced');
+
+# STOP must release the service even when the native core is already down.
+for svc_path, svc_name in ((vpn, 'VPN'), (proxy_svc, 'ProxyOnly')):
+    exact_replace(svc_path, '''            V2rayCoreManager.getInstance().stopCore();
+            AppConfigs.V2RAY_CONFIG = null;''', '''            try {
+                V2rayCoreManager.getInstance().stopCore();
+            } finally {
+                AppConfigs.V2RAY_CONFIG = null;
+                stopAllProcess();
+            }
+            return START_NOT_STICKY;''', 'P1-28 ' + svc_name + ' STOP always cleans up service');
+
+# VPN permission revocation must always close the TUN and stop the service.
+exact_replace(vpn, '''    public void onRevoke() {
+        try {
+            V2rayCoreManager.getInstance().stopCore();
+        } catch (Exception e) {
+            stopAllProcess();
+        }
+    }''', '''    public void onRevoke() {
+        try {
+            V2rayCoreManager.getInstance().stopCore();
+        } catch (Exception e) {
+            Log.w("V2rayVPNService", "Core stop failed after VPN permission revoke", e);
+        } finally {
+            stopAllProcess();
+        }
+    }''', 'P1-30 VPN revoke always releases TUN/service');
+
 print('patch_plugin.py finished OK')
