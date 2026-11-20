@@ -2051,22 +2051,30 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
   ).then((_) => open = false);
 
   try {
-    if (nationalMode) await natManualYield(); // NATQUOTA: قبل از شروع صبر می‌کند تا جستجوی بازه‌ی نت ملی تمام شود
-    result = await natScanIps(
-      addrs,
-      want: 1000,
-      concurrency: nationalMode ? kNatManualConc : natAdaptiveWorkers(),
-      // RANGEFIX: بازه‌ی کوچک ۲ دقیقه؛ بازه‌ی بزرگ (بیش از ۴۰۹۶ IP) ۸ دقیقه
-      budget: Duration(minutes: userAddrs.length > 4096 ? 8 : 2),
-      timeout: const Duration(milliseconds: 1500),
-      cancelled: () => cancelled,
-      onProgress: (d, t, h) => upd(() {
-        done = d;
-        total = t;
-        hitsCount = h;
-      }),
-    );
-    await goldMergeIps([for (final h in result) CleanIp(h.ip, h.ms, 443)]); // FOLDERALL
+    if (nationalMode) {
+      await natManualYield(shouldAbort: () => cancelled);
+    }
+    // Do not start a scan if the user cancelled while waiting for the national scan.
+    if (!cancelled) {
+      result = await natScanIps(
+        addrs,
+        want: 1000,
+        concurrency: nationalMode ? kNatManualConc : natAdaptiveWorkers(),
+        // RANGEFIX: بازه‌ی کوچک ۲ دقیقه؛ بازه‌ی بزرگ (بیش از ۴۰۹۶ IP) ۸ دقیقه
+        budget: Duration(minutes: userAddrs.length > 4096 ? 8 : 2),
+        timeout: const Duration(milliseconds: 1500),
+        cancelled: () => cancelled,
+        onProgress: (d, t, h) => upd(() {
+          done = d;
+          total = t;
+          hitsCount = h;
+        }),
+      );
+      // Partial results remain visible, but a cancelled scan must not enter shared storage.
+      if (!cancelled) {
+        await goldMergeIps([for (final h in result) CleanIp(h.ip, h.ms, 443)]);
+      }
+    }
   } catch (e, stk) {
     logError(e, stk);
   }

@@ -2010,5 +2010,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (stop != null && stop()) break;', dns)
 
 
+    def test_manual_range_scan_honors_cancel_during_national_yield(self):
+        source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> manualRangeScan(')
+        end = source.index('\n}', start)
+        body = source[start:end]
+        wait = body.index('await natManualYield(shouldAbort: () => cancelled);')
+        before_scan = body.index('if (!cancelled) {', wait)
+        scan = body.index('result = await natScanIps(', before_scan)
+        after_scan = body.index('if (!cancelled) {', scan)
+        persist = body.index('await goldMergeIps(', after_scan)
+        self.assertLess(wait, before_scan)
+        self.assertLess(before_scan, scan)
+        self.assertLess(scan, after_scan)
+        self.assertLess(after_scan, persist)
+        self.assertIn('cancelled: () => cancelled,', body)
+
+
 if __name__ == '__main__':
     unittest.main()
