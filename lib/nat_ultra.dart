@@ -2297,7 +2297,7 @@ Future<List<String>> _natRangeScanStepBody({
   final out = <String>[];
   final portList = natAutoPorts(seeds);
   final perPortCap = Duration(
-      milliseconds: max(20000, budget.inMilliseconds ~/ max(1, portList.length)));
+      milliseconds: max(20000, budget.inMilliseconds ~/ max(1, portList.length)).toInt());
   // A monotonic shared deadline prevents each port from consuming a fresh
   // minimum budget and accidentally multiplying the requested scan duration.
   final scanClock = Stopwatch()..start();

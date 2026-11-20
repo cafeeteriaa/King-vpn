@@ -2278,7 +2278,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         connect = main[connect_start:connect_end]
         self.assertIn('final verifyClock = Stopwatch()..start();', connect)
         self.assertIn('Duration verifyRemaining() => verifyBudget - verifyClock.elapsed;', connect)
-        self.assertIn('microseconds: max(1, remaining.inMicroseconds ~/ 2)', connect)
+        self.assertIn('microseconds: max(1, remaining.inMicroseconds ~/ 2).toInt()', connect)
         self.assertIn('cancelled: () => abort || !wantVpn,', connect)
         self.assertIn('bool Function()? cancelled', ping)
         self.assertIn('Timer.periodic(const Duration(milliseconds: 100)', ping)
@@ -2298,6 +2298,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final scanClock = Stopwatch()..start();', body)
         self.assertIn('final remainingBudget = budget - scanClock.elapsed;', body)
         self.assertIn('final portBudget = perPortCap < remainingBudget', body)
+        self.assertIn('milliseconds: max(20000, budget.inMilliseconds ~/ max(1, portList.length)).toInt()', body)
         scan = body.index('final hits = await natScanIps(')
         self.assertIn('budget: portBudget,', body[scan:scan + 500])
         expiry = body.index('if (shouldAbort() || scanExpired()) return const <String>[];', scan)

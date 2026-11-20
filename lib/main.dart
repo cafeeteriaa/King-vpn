@@ -9148,7 +9148,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           final remaining = verifyRemaining();
           if (remaining <= Duration.zero) break;
           final perEndpointBudget = Duration(
-              microseconds: max(1, remaining.inMicroseconds ~/ 2));
+              microseconds: max(1, remaining.inMicroseconds ~/ 2).toInt());
           pingUsed++;
           p = await pingAny(
             total: perEndpointBudget,
