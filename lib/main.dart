@@ -8971,16 +8971,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<bool> _tunnelTrafficOk() async {
     if (proxyMode) return true;
     await Future.delayed(const Duration(seconds: 2));
-    // TUNFIX: viaCore true = the core's outbound, which is what must be measured. The app is NOT
-    // excluded from its own tunnel (FIX #49, KingVpnService.java), so DIRECT requests also pass
-    // the TUN; viaCore is therefore the explicit choice for the server check.
-    final urls = nationalMode ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
-    for (final u in urls) {
-      final ok = await _siteOpens(u, viaCore: true)
-          .timeout(const Duration(seconds: 8), onTimeout: () => false);
-      if (ok) return true;
-    }
-    return false;
+    // TUNFIX: viaCore measures the core's actual outbound data path.
+    // National-mode acceptance requires two independent domestic destinations:
+    // one reachable site alone is weak evidence and can be a transient false pass.
+    final modeSnapshot = nationalMode;
+    final urls = modeSnapshot ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
+    final results = await Future.wait(urls.map((url) =>
+        _siteOpens(url, viaCore: true).timeout(
+            const Duration(seconds: 8), onTimeout: () => false)));
+    if (abort || !wantVpn || nationalMode != modeSnapshot) return false;
+    final passed = results.where((ok) => ok).length;
+    final required = modeSnapshot ? 2 : 1;
+    dbg('تأیید ترافیک تونل: ${modeSnapshot ? "ملی" : "جهانی"} • '
+        '$passed/${urls.length} مقصد • حداقل $required');
+    return passed >= required;
   }
 
   // Stable history requires a fresh multi-destination check through the active core.

@@ -82,6 +82,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_dnsPickLastSucceeded = true;', picker)
         self.assertIn('_dnsPickLastSucceeded = false;', picker)
 
+    def test_national_tunnel_acceptance_requires_multiple_independent_destinations(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> _tunnelTrafficOk()')
+        end = source.index('Future<bool> _stableTunnelTrafficOk', start)
+        body = source[start:end]
+        self.assertIn('Future.wait(urls.map', body)
+        self.assertIn('final required = modeSnapshot ? 2 : 1;', body)
+        self.assertIn('nationalMode != modeSnapshot', body)
+        self.assertIn('return passed >= required;', body)
+        self.assertNotIn('if (ok) return true;', body)
+
     def test_nat_variant_winner_is_provisional_until_real_tunnel_confirmation(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
