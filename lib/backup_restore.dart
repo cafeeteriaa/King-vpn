@@ -198,7 +198,7 @@ extension BkpExt on _HomePageState {
                 onPressed: () async {
                   final s = await bkpExportJson();
                   await Clipboard.setData(ClipboardData(text: s));
-                  if (!mounted) return;
+                  if (!mounted || !ctx0.mounted) return;
                   ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(
                       SnackBar(content: Text('پشتیبان کپی شد (${s.length} کاراکتر)')));
                 },
@@ -218,13 +218,13 @@ extension BkpExt on _HomePageState {
                 onPressed: () async {
                   try {
                     final n = await bkpImportJson(restoreC.text);
-                    if (!mounted) return;
+                    if (!mounted || !ctx0.mounted || !ctx.mounted) return;
                     ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(SnackBar(
                         content: Text(
                             '$n مورد بازیابی شد. برای اعمال کامل، برنامه را ببندید و دوباره باز کنید.')));
                     Navigator.pop(ctx);
                   } catch (e) {
-                    if (!mounted) return;
+                    if (!mounted || !ctx0.mounted) return;
                     ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(
                         SnackBar(content: Text('بازیابی انجام نشد: $e')));
                   }

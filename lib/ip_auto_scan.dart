@@ -367,6 +367,7 @@ extension IpAutoExt on _HomePageState {
                       onPressed: () async {
                         final txt = ipAutoHits.map((x) => x.replaceAll('|', ':')).join('\n');
                         await Clipboard.setData(ClipboardData(text: txt));
+                        if (!ctx0.mounted) return;
                         ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(SnackBar(
                             content: Text('${ipAutoHits.length} IP کپی شد')));
                       },
@@ -380,6 +381,7 @@ extension IpAutoExt on _HomePageState {
                       title: Text(h.replaceAll('|', ':')),
                       onTap: () async {
                         await Clipboard.setData(ClipboardData(text: h.replaceAll('|', ':')));
+                        if (!ctx0.mounted) return;
                         ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(SnackBar(
                             content: Text('${h.replaceAll('|', ':')} کپی شد')));
                       },
