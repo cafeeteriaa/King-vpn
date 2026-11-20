@@ -1501,5 +1501,43 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Duration(milliseconds: 250)', handler)
 
 
+    def test_fresh_resources_refresh_checks_mounted_before_set_state(self):
+        source = (ROOT / 'lib' / 'fresh_resources_page.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> _refresh() async {')
+        end = source.index('Future<void> _importText()', start)
+        refresh = source[start:end]
+        self.assertLess(refresh.index('if (!mounted) return;'),
+                        refresh.index('setState(() => _busy = true);'))
+
+    def test_fresh_resources_import_stops_after_disposal(self):
+        source = (ROOT / 'lib' / 'fresh_resources_page.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> _importText() async {')
+        end = source.index('Future<void> _copyAll()', start)
+        method = source[start:end]
+        merge = method.index('final total = await FreshResourceStore.merge')
+        guard = method.index('if (!mounted) return;', merge)
+        clear = method.index('_importController.clear();', merge)
+        self.assertLess(merge, guard)
+        self.assertLess(guard, clear)
+
+    def test_fresh_resources_clear_stops_after_disposal(self):
+        source = (ROOT / 'lib' / 'fresh_resources_page.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> _clear() async {')
+        end = source.index('@override\\n  Widget build', start)
+        method = source[start:end]
+        accepted = method.index('final accepted = await showDialog<bool>(')
+        first_guard = method.index('if (accepted != true || !mounted) return;', accepted)
+        clear = method.index('await FreshResourceStore.clear();', first_guard)
+        second_guard = method.index('if (!mounted) return;', clear)
+        refresh = method.index('await _refresh();', second_guard)
+        final_guard = method.index('if (!mounted) return;', refresh)
+        self.assertLess(accepted, first_guard)
+        self.assertLess(first_guard, clear)
+        self.assertLess(clear, second_guard)
+        self.assertLess(second_guard, refresh)
+        self.assertLess(refresh, final_guard)
+
+
+
 if __name__ == '__main__':
     unittest.main()

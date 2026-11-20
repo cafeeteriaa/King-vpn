@@ -32,6 +32,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
   }
 
   Future<void> _refresh() async {
+    if (!mounted) return;
     setState(() => _busy = true);
     try {
       final values = await Future.wait<Object>([
@@ -60,6 +61,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
         .where((value) => value.trim().isNotEmpty);
     try {
       final total = await FreshResourceStore.merge(incoming, source: 'manual-import');
+      if (!mounted) return;
       _importController.clear();
       await _refresh();
       if (mounted) {
@@ -88,10 +90,12 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
         ],
       ),
     );
-    if (accepted != true) return;
+    if (accepted != true || !mounted) return;
     await FreshResourceStore.clear();
+    if (!mounted) return;
     await _refresh();
-    if (mounted) setState(() => _message = 'پوشه منابع تازه پاک شد.');
+    if (!mounted) return;
+    setState(() => _message = 'پوشه منابع تازه پاک شد.');
   }
 
   @override
