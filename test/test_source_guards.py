@@ -440,6 +440,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         loader = ai[load_start:load_end]
         self.assertIn('decoded[\'sha256\'] != modelSha256', loader)
         self.assertIn('decoded[\'sizeBytes\'] != modelSizeBytes', loader)
+        self.assertLess(loader.index('_busy = true;'), loader.index('await getApplicationSupportDirectory()'))
+        self.assertIn('finally:', loader)
+        self.assertIn('_busy = false;', loader)
         self.assertIn('sha256.bind(modelFile.openRead())', loader)
         self.assertIn('resolveSymbolicLinks()', loader)
         self.assertIn('repairFromFailedCiAutonomous(', worker)
