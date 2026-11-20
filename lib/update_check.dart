@@ -25,7 +25,10 @@ extension UpdateCheck on _HomePageState {
     _updateChecked = true;
     try {
       await Future.delayed(const Duration(seconds: 2));
-      if (!mounted) return;
+      if (!mounted) {
+        _updateChecked = false;
+        return;
+      }
       final response = await http
           .get(Uri.parse(updateConfigUrl), headers: const {
             'Accept': 'application/json',
@@ -62,7 +65,10 @@ extension UpdateCheck on _HomePageState {
       if (!force && currentBuild >= latest && _pendingUpdateApkPath == null) {
         return;
       }
-      if (!mounted) return;
+      if (!mounted) {
+        _updateChecked = false;
+        return;
+      }
 
       await showDialog<void>(
         context: context,
