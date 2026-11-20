@@ -2232,7 +2232,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_opening_ip_auto_sheet_does_not_clear_active_scan_cancellation(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         sheet = source.index('Future<void> ipAutoSheet(BuildContext ctx0) async {')
-        load = source.index('await ipAutoLoad();', sheet)
+        load = source.index('await ipAutoLoad(skipIfBusy: true);', sheet)
         mounted = source.index('if (!ctx0.mounted) return;', load)
         start_scan = source.index('Future<void> start() async {', mounted)
         reset = source.index('ipAutoStopFlag = false;', start_scan)
@@ -2287,7 +2287,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_ip_auto_storage_load_and_save_are_mode_isolated_across_awaits(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        load_start = source.index('Future<void> ipAutoLoad() async {')
+        load_start = source.index('Future<void> ipAutoLoad({bool skipIfBusy = false}) async {')
         save_start = source.index('Future<bool> _ipAutoSave() async {', load_start)
         load = source[load_start:save_start]
         save_end = source.index('/// خودکار فقط IPهای دقیق', save_start)
