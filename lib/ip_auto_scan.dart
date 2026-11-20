@@ -13,6 +13,7 @@ const String _ipAutoKeyGlob = 'ipauto_glob_v1';
 const String _ipAutoCursorKey = 'ipauto_cursor_v1';
 const String _ipAutoPosKey = 'ipauto_pos_v1'; // جای فعلی در فهرست آدرس‌ها
 const String _ipAutoPendingKey = 'ipauto_pending_core_v1'; // endpointهای TCP بازِ منتظر تأیید هسته
+const String _ipAutoStateKey = 'ipauto_state_v1'; // snapshot اتمی وضعیت هر حالت شبکه
 const int _ipAutoBatch = 6000; // آدرس در هر اجرا
 const int _ipAutoMaxHits = 1000; // سقف نتایج ذخیره‌شده
 const int _ipAutoPorts = 5; // بیشترین پورت برای TCP
@@ -56,28 +57,52 @@ Future<void> ipAutoLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
     if (nationalMode != loadNationalMode) return;
-    final savedHits = p.getString(hitsKey) ?? '';
-    final savedPos = int.tryParse(p.getString(posKey) ?? '') ?? 0;
-    final savedPending = p.getString(pendingKey) ?? '';
-    final loadedPending = savedPending
-        .split('\n')
+    // A single preference value is the authoritative checkpoint. Separate
+    // writes to hits/cursors/position can be interrupted and create a mixed
+    // checkpoint; retain the legacy keys only as a migration fallback.
+    final stateKey = '${_ipAutoStateKey}_${loadNationalMode ? 'nat' : 'glob'}';
+    Map<String, dynamic>? state;
+    final encodedState = p.getString(stateKey);
+    if (encodedState != null && encodedState.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(encodedState);
+        if (decoded is Map && decoded['version'] == 1) {
+          state = Map<String, dynamic>.from(decoded);
+        }
+      } catch (e, stk) {
+        logError(e, stk);
+      }
+    }
+    final savedHits = state != null && state['hits'] is List
+        ? (state['hits'] as List).whereType<String>().join('\n')
+        : (p.getString(hitsKey) ?? '');
+    final savedPos = state != null && state['position'] is num
+        ? (state['position'] as num).toInt()
+        : (int.tryParse(p.getString(posKey) ?? '') ?? 0);
+    final pendingValues = state != null && state['pending'] is List
+        ? (state['pending'] as List).whereType<String>()
+        : (p.getString(pendingKey) ?? '').split('\n');
+    final loadedPending = pendingValues
         .where(_ipAutoValidPending)
         .toSet()
         .toList();
     final loadedCursors = <String, int>{};
-    final c = p.getString(cursorKey);
-    if (c != null && c.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(c);
-        if (decoded is Map) {
-          for (final entry in decoded.entries) {
-            if (entry.value is num) {
-              loadedCursors['${entry.key}'] = (entry.value as num).toInt();
+    final cursorValues = state != null && state['cursors'] is Map
+        ? state['cursors'] as Map
+        : (() {
+            final raw = p.getString(cursorKey);
+            if (raw == null || raw.isEmpty) return <dynamic, dynamic>{};
+            try {
+              final decoded = jsonDecode(raw);
+              return decoded is Map ? decoded : <dynamic, dynamic>{};
+            } catch (e, stk) {
+              logError(e, stk);
+              return <dynamic, dynamic>{};
             }
-          }
-        }
-      } catch (e, stk) {
-        logError(e, stk);
+          })();
+    for (final entry in cursorValues.entries) {
+      if (entry.value is num) {
+        loadedCursors['${entry.key}'] = (entry.value as num).toInt();
       }
     }
     if (nationalMode != loadNationalMode) return;
@@ -115,9 +140,22 @@ Future<void> _ipAutoSave() async {
         (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode)) {
       return;
     }
+    final stateKey = '${_ipAutoStateKey}_${saveNationalMode ? 'nat' : 'glob'}';
+    final checkpoint = <String, dynamic>{
+      'version': 1,
+      'hits': hits,
+      'pending': pending,
+      'cursors': cursors,
+      'position': position,
+    };
+    // Commit the whole scan checkpoint with one preference write. If it fails,
+    // the previous checkpoint remains authoritative and the address batch is
+    // safely repeated instead of silently losing unverified endpoints/results.
+    final committed = await p.setString(stateKey, jsonEncode(checkpoint));
+    if (!committed) return;
+    // Best-effort legacy mirrors for older app builds; new builds always load
+    // the atomic checkpoint first.
     await p.setString(hitsKey, hits.join('\n'));
-    // Persist pending endpoints before advancing the address cursor. A crash
-    // between these writes may repeat a batch, but can never silently skip it.
     await p.setString(pendingKey, pending.join('\n'));
     await p.setString(cursorKey, jsonEncode(cursors));
     await p.setString(posKey, position.toString());
