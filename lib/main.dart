@@ -9120,6 +9120,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 '• ${s.name} • tun: $tunNames');
         if (p == null) {
           await _stopV2();
+          // A stop can take long enough for the user to cancel. Do not launch
+          // a same-server variant ladder after cancellation or disconnect intent.
+          if (abort || !wantVpn) {
+            _nnieClearAttempt(s);
+            return false;
+          }
           // CACHEINVALID-PING: variantی که از natVarNormal اومد، ping از تونل رد نکرد.
           if (!nationalMode) natVarNormal.remove(s.key); // NORMALKEY
           // NATLADDER: the variant that passed the core test carried no real
