@@ -1980,6 +1980,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(close, cancel)
         self.assertLess(cancel, closed)
 
+    def test_manual_dns_sheet_acquires_scan_lock_before_async_load(self):
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        start = dns.index('Future<void> start() async {', dns.index('extension DnsxExt'))
+        end = dns.index('          return SafeArea(', start)
+        body = dns[start:end]
+        guard = body.index('if (running || dnsxManualBusy || _dnsxAutoBusy)')
+        lock = body.index('dnsxManualBusy = true;', guard)
+        await_load = body.index('await goldDnsList();', lock)
+        scan = body.index('r = await dnsxScan(', await_load)
+        unlock = body.index('dnsxManualBusy = false;', scan)
+        self.assertLess(guard, lock)
+        self.assertLess(lock, await_load)
+        self.assertLess(await_load, scan)
+        self.assertLess(scan, unlock)
+        self.assertIn('stop: () => stopFlag || !sheetOpen,', body)
+
     def test_dns_probe_checks_cancellation_after_inter_batch_delay(self):
         dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
         start = dns.index('Future<DnsxHit?> dnsxProbe(')

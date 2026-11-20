@@ -372,40 +372,49 @@ extension DnsxExt on _HomePageState {
           }
 
           Future<void> start() async {
-            // نت ملی: اسکن دستی DNS کاملاً جداست و در این حالت اجرا نمی‌شود تا اتصال و
-            // اسکن خودکار مختل نشوند. اسکن دستی را در حالت عادی اجرا کنید.
+            // Acquire the manual-scan lock synchronously before the first await.
+            // This closes the race with background DNS scans and repeated taps.
+            if (running || dnsxManualBusy || _dnsxAutoBusy) {
+              upd(() => note = 'یک اسکن DNS دیگر در حال اجراست؛ کمی صبر کنید.');
+              return;
+            }
             if (connected) {
               upd(() => note = 'اول VPN را قطع کنید، بعد اسکن دستی را اجرا کنید.');
               return;
             }
-            final extra = extraC.text
-                .split(RegExp(r'[\s,]+'))
-                .map((s) => s.trim())
-                .where((s) =>
-                    s.isNotEmpty &&
-                    InternetAddress.tryParse(s)?.type ==
-                        InternetAddressType.IPv4)
-                .toList();
-            final saved = await goldDnsList();
-            if (!mounted || !sheetOpen) return;
-            final list = {...saved, ...kDnsxDefaults, ...kDnsxNationalDefaults, ...extra}
-                .toList();
+            dnsxManualBusy = true;
+            stopFlag = false;
             upd(() {
               running = true;
-              stopFlag = false;
               done = 0;
-              total = list.length;
+              total = 0;
               results = [];
-              note = '';
+              note = 'در حال آماده‌سازی اسکن...';
             });
-            dnsxManualBusy = true;
             List<DnsxHit> r = const <DnsxHit>[];
             try {
+              final extra = extraC.text
+                  .split(RegExp(r'[\s,]+'))
+                  .map((s) => s.trim())
+                  .where((s) =>
+                      s.isNotEmpty &&
+                      InternetAddress.tryParse(s)?.type ==
+                          InternetAddressType.IPv4)
+                  .toList();
+              final saved = await goldDnsList();
+              if (!mounted || !sheetOpen) return;
+              if (stopFlag) {
+                upd(() => note = 'اسکن متوقف شد؛ نتایج ذخیره نشد.');
+                return;
+              }
+              final list = {...saved, ...kDnsxDefaults, ...kDnsxNationalDefaults, ...extra}
+                  .toList();
+              upd(() => total = list.length);
               r = await dnsxScan(
                 list,
                 domains: dnsxFullDomains(),
                 manual: true,
-                stop: () => stopFlag,
+                stop: () => stopFlag || !sheetOpen,
                 onProgress: (d, t) => upd(() {
                   done = d;
                   total = t;
@@ -413,23 +422,31 @@ extension DnsxExt on _HomePageState {
               );
               if (stopFlag || !sheetOpen) {
                 upd(() => note = 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد.');
+              } else if (r.isEmpty) {
+                upd(() => note = 'هیچ DNS ای جواب معتبر نداد.');
               } else {
-                final saved = await goldAddDns(r, shouldAbort: () => stopFlag || !sheetOpen);
-                if (!saved && (stopFlag || !sheetOpen)) {
-                  upd(() => note = 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد.');
+                final saved = await goldAddDns(
+                  r,
+                  shouldAbort: () => stopFlag || !sheetOpen,
+                );
+                if (!saved) {
+                  upd(() => note = stopFlag || !sheetOpen
+                      ? 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد.'
+                      : 'ذخیره نتایج DNS ناموفق بود.');
+                } else {
+                  upd(() => note = '${r.length} DNS سالم پیدا و ذخیره شد.');
                 }
-              } // FOLDERALL: فقط نتیجه‌ی کامل و لغونشده ذخیره می‌شود
+              }
             } catch (e, stk) {
               logError(e, stk);
+              upd(() => note = 'خطا در اسکن DNS');
             } finally {
-              // حتی اگر خطایی بیاید، قفل آزاد می‌شود تا اسکن خودکار بی‌دلیل قفل نماند
               dnsxManualBusy = false;
+              upd(() {
+                running = false;
+                results = r;
+              });
             }
-            upd(() {
-              running = false;
-              results = r;
-              note = r.isEmpty ? 'هیچ DNS ای جواب معتبر نداد.' : '${r.length} DNS سالم پیدا شد.';
-            });
           }
 
           return SafeArea(
