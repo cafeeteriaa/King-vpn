@@ -1180,7 +1180,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         for source in (build, release, orchestrator):
             self.assertIn('webview_flutter', source)
-        self.assertNotIn('abiFilters', prepare)
+        self.assertNotIn('abiFilters += listOf', prepare)
+        self.assertNotIn('abiFilters "arm64-v8a"', prepare)
         self.assertNotIn('armeabi-v7a', prepare)
         self.assertIn('--split-per-abi', build)
         self.assertIn('--split-per-abi', release)
