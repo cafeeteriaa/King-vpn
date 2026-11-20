@@ -233,17 +233,10 @@ class NatNetworkDiagnosis {
       final globalDnsOk = globalDnsRes.any((x) => x.ok);
       final domesticTcpOk = domesticTcp.any((x) => x);
       final globalTcpOk = globalTcp.any((x) => x);
-      // DNS poisoning / blockpage check: a resolver returned a public A answer,
-      // yet none of the answered addresses accepts TCP/443, while domestic hosts
-      // do. That is the typical signature of an injected answer, not a live Google.
-      var poison = false;
-      if (globalDnsOk && !globalTcpOk && domesticTcpOk) {
-        final answered = [
-          for (final r in globalDnsRes) if (r.ok) ...r.addresses,
-        ].toSet().take(2).toList();
-        final reach = await Future.wait(answered.map(_tcpOk));
-        poison = reach.isNotEmpty && !reach.any((x) => x);
-      }
+      // A public DNS answer combined with failed TCP/443 does NOT prove DNS
+      // poisoning: a carrier may simply block the destination transport. Keep
+      // that evidence in the transportRestricted classifier; only set
+      // dnsPoisonSuspected when a future probe can independently prove injection.
       // Interface identity can change while DNS/TCP probes are in flight
       // (Wi-Fi <-> mobile, VPN handoff, or roaming). Never publish evidence
       // collected across two different networks as the current route verdict.
@@ -260,7 +253,6 @@ class NatNetworkDiagnosis {
         domesticTcpOk: domesticTcpOk,
         globalDnsOk: globalDnsOk,
         globalTcpOk: globalTcpOk,
-        dnsPoisonSuspected: poison,
         sampleCount: domesticTcp.length + globalTcp.length +
             globalDnsRes.length + domesticDnsRes.length,
         domesticTcpSuccesses: domesticTcp.where((ok) => ok).length,
