@@ -192,8 +192,16 @@ class MainActivity : FlutterActivity() {
                     when (call.method) {
                         "installApk" -> {
                             val path = call.argument<String>("path")?.trim().orEmpty()
-                            val apk = File(path)
-                            if (!apk.isFile || !apk.name.endsWith(".apk", ignoreCase = true)) {
+                            val apk = File(path).canonicalFile
+                            val expectedUpdateDir = File(cacheDir, "king_updates").canonicalFile
+                            val apkSize = apk.length()
+                            // The method channel is an internal trust boundary: only accept the
+                            // exact app-private cache asset that Dart just SHA-256 verified.
+                            // Never let an arbitrary local path be handed to Android's installer.
+                            if (!apk.isFile ||
+                                apk.parentFile != expectedUpdateDir ||
+                                apk.name != "king-vpn-update.apk" ||
+                                apkSize !in 1L..(300L * 1024L * 1024L)) {
                                 result.error("UPDATE_APK_INVALID", "Verified APK file is missing or invalid", null)
                                 return@setMethodCallHandler
                             }

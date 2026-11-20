@@ -1048,6 +1048,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
                         audit.index('loadInstalledModelForBackground()'))
 
 
+    def test_native_apk_installer_accepts_only_the_verified_private_cache_asset(self):
+        native = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
+        start = native.index('"installApk" -> {')
+        end = native.index('else -> result.notImplemented()', start)
+        installer = native[start:end]
+        self.assertIn('File(path).canonicalFile', installer)
+        self.assertIn('File(cacheDir, "king_updates").canonicalFile', installer)
+        self.assertIn('apk.parentFile != expectedUpdateDir', installer)
+        self.assertIn('apk.name != "king-vpn-update.apk"', installer)
+        self.assertIn('apkSize !in 1L..(300L * 1024L * 1024L)', installer)
+        self.assertLess(installer.index('apk.parentFile != expectedUpdateDir'),
+                        installer.index('FileProvider.getUriForFile'))
+
     def test_generated_fileprovider_manifest_uses_real_xml_newlines(self):
         source = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         start = source.index('UPDATE_PROVIDER =')
