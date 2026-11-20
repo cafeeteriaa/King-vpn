@@ -126,12 +126,12 @@ Future<void> ipAutoLoad() async {
   }
 }
 
-Future<void> _ipAutoSave() async {
+Future<bool> _ipAutoSave() async {
   // Persist an immutable snapshot under the keys belonging to its captured mode.
   final saveNationalMode = nationalMode;
   // Never overwrite a mode's persisted checkpoint when loading failed or was
   // interrupted by a mode switch. Only save a dataset proven to belong here.
-  if (_ipAutoLoadedNat == null || _ipAutoLoadedNat != saveNationalMode) return;
+  if (_ipAutoLoadedNat == null || _ipAutoLoadedNat != saveNationalMode) return false;
   final hits = List<String>.of(ipAutoHits);
   final cursors = Map<String, int>.of(ipAutoCursors);
   final pending = List<String>.of(ipAutoPendingCore);
@@ -144,7 +144,7 @@ Future<void> _ipAutoSave() async {
     final p = await SharedPreferences.getInstance();
     if (nationalMode != saveNationalMode ||
         (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode)) {
-      return;
+      return false;
     }
     final stateKey = '${_ipAutoStateKey}_${saveNationalMode ? 'nat' : 'glob'}';
     final checkpoint = <String, dynamic>{
@@ -158,15 +158,17 @@ Future<void> _ipAutoSave() async {
     // the previous checkpoint remains authoritative and the address batch is
     // safely repeated instead of silently losing unverified endpoints/results.
     final committed = await p.setString(stateKey, jsonEncode(checkpoint));
-    if (!committed) return;
+    if (!committed) return false;
     // Best-effort legacy mirrors for older app builds; new builds always load
     // the atomic checkpoint first.
     await p.setString(hitsKey, hits.join('\n'));
     await p.setString(pendingKey, pending.join('\n'));
     await p.setString(cursorKey, jsonEncode(cursors));
     await p.setString(posKey, position.toString());
+    return true;
   } catch (e, stk) {
     logError(e, stk);
+    return false;
   }
 }
 
@@ -286,9 +288,13 @@ extension IpAutoExt on _HomePageState {
       if (now - last < gapMs) return;
 
       final completed = await _ipAutoRunOnce((s) => ipAutoStatus = s);
-      // Failed, cancelled, or mode-switched scans must not consume the retry interval.
+      // Advance the retry clock only after the atomic scan checkpoint is durable.
+      // A crash between checkpoint and timestamp merely repeats safe work.
       if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode)) {
-        await p.setString(_ipAutoAtKey, now.toString());
+        final saved = await _ipAutoSave();
+        if (saved && !_ipAutoHalt(modeSnapshot: runNationalMode)) {
+          await p.setString(_ipAutoAtKey, now.toString());
+        }
       }
     } catch (e, stk) {
       logError(e, stk);
