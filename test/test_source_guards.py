@@ -1697,12 +1697,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         startup = patch[start_patch:connected_start]
         self.assertNotIn('makeDurationTimer(', startup)
         connected_block = patch[connected_start:connected_patch]
-        self.assertLess(connected_block.index('if (!isV2rayCoreRunning())'),
-                        connected_block.index('V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;'))
-        self.assertLess(connected_block.index('V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;'),
-                        connected_block.index('makeDurationTimer('))
-        self.assertLess(connected_block.index('makeDurationTimer('),
-                        connected_block.index('showNotification(v2rayConfig);'))
+        replacement_start = connected_block.index("''', '''") + len("''', '''")
+        connected_replacement = connected_block[replacement_start:]
+        self.assertLess(connected_replacement.index('if (!isV2rayCoreRunning())'),
+                        connected_replacement.index('V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;'))
+        self.assertLess(connected_replacement.index('V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;'),
+                        connected_replacement.index('makeDurationTimer('))
+        self.assertLess(connected_replacement.index('makeDurationTimer('),
+                        connected_replacement.index('showNotification(v2rayConfig);'))
 
         disconnect_start = patch.index("exact_replace(core, ```    private void sendDisconnectedBroadCast() {")
         disconnect_end = patch.index("'P1-36 remove late duration ticker cancellation'", disconnect_start)
