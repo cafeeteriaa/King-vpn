@@ -327,6 +327,7 @@ extension DnsxExt on _HomePageState {
   void dnsxSheet(BuildContext ctx0) {
     var running = false;
     var stopFlag = false;
+    var sheetOpen = true;
     var done = 0;
     var total = 0;
     var results = <DnsxHit>[];
@@ -363,7 +364,9 @@ extension DnsxExt on _HomePageState {
                     InternetAddress.tryParse(s)?.type ==
                         InternetAddressType.IPv4)
                 .toList();
-            final list = {...await goldDnsList(), ...kDnsxDefaults, ...kDnsxNationalDefaults, ...extra}
+            final saved = await goldDnsList();
+            if (!mounted || !sheetOpen) return;
+            final list = {...saved, ...kDnsxDefaults, ...kDnsxNationalDefaults, ...extra}
                 .toList();
             upd(() {
               running = true;
@@ -475,6 +478,7 @@ extension DnsxExt on _HomePageState {
         },
       ),
     ).then((_) {
+      sheetOpen = false;
       stopFlag = true;
       extraC.dispose();
     });
