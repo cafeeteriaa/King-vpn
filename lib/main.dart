@@ -5562,6 +5562,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       !busy &&
       !searching &&
       !switching &&
+      !_natRangeScanBusy &&
+      !_resBusy &&
+      !upBusy &&
+      !_natKeepOn &&
       nationalMode == modeSnapshot;
 
   Future<void> _runBackgroundNetworkScans() async {
@@ -5571,7 +5575,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         dnsxManualBusy ||
         _dnsxAutoBusy ||
         ipAutoBusy ||
-        _natRangeScanBusy) {
+        _natRangeScanBusy ||
+        _resBusy ||
+        upBusy ||
+        _natKeepOn) {
       return;
     }
     _networkAutoScanRunning = true;
