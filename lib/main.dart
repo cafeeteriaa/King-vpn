@@ -10084,9 +10084,26 @@ ListTile( // KINGEXTRAS row
             unawaited(() async {
               final ips = await natRangeScanStep(
                   known: [...pending, ...natRestPending],
-                  maxAddrs: 100000, // LEVELADDR: هر سطح ۱۰۰ هزار آدرس
-                  conc: natAdaptiveWorkers());
-              await _natRangeAdd(ips);
+                  maxAddrs: 2048, // NATBG-BUDGET: اسکن پس‌زمینه‌ی متصل سبک و مرحله‌ای است
+                  conc: min(2, natAdaptiveWorkers()),
+                  stop: () => !mounted ||
+                      !connected ||
+                      !wantVpn ||
+                      !nationalMode ||
+                      !localPilotOn ||
+                      appGone ||
+                      abort,
+                  budget: const Duration(seconds: 90));
+              // Do not publish stale discoveries after the tunnel/pilot stops.
+              if (mounted &&
+                  connected &&
+                  wantVpn &&
+                  nationalMode &&
+                  localPilotOn &&
+                  !appGone &&
+                  !abort) {
+                await _natRangeAdd(ips);
+              }
             }());
           }
           // NATBG: while connected the background search is deeper (more
