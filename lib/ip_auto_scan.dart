@@ -129,7 +129,9 @@ Future<void> ipAutoLoad() async {
 Future<void> _ipAutoSave() async {
   // Persist an immutable snapshot under the keys belonging to its captured mode.
   final saveNationalMode = nationalMode;
-  if (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode) return;
+  // Never overwrite a mode's persisted checkpoint when loading failed or was
+  // interrupted by a mode switch. Only save a dataset proven to belong here.
+  if (_ipAutoLoadedNat == null || _ipAutoLoadedNat != saveNationalMode) return;
   final hits = List<String>.of(ipAutoHits);
   final cursors = Map<String, int>.of(ipAutoCursors);
   final pending = List<String>.of(ipAutoPendingCore);
