@@ -1730,8 +1730,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('countDownTimer != this', patch)
         self.assertIn('V2RAY_STATE != AppConfigs.V2RAY_STATES.V2RAY_CONNECTED', patch)
         self.assertIn('V2RAY_STATE == AppConfigs.V2RAY_STATES.V2RAY_CONNECTED', patch)
-        finish_start = patch.index('public void onFinish() {\\n                synchronized (durationTimerLock)')
-        finish_end = patch.index('\\n            }\\n        }.start();', finish_start)
+        finish_start = patch.index('public void onFinish() {\n                synchronized (durationTimerLock)')
+        finish_end = patch.index('\n            }\n        }.start();', finish_start)
         finish = patch[finish_start:finish_end]
         self.assertNotIn('countDownTimer.cancel();', finish)
         self.assertIn('if (countDownTimer != this)', finish)
