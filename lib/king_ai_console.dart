@@ -191,7 +191,9 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   }
 
   Future<void> _saveToken() async {
+    if (!mounted) return;
     if (_ownerConfigured && !await _reauthenticateOwnerForCodeChange()) return;
+    if (!mounted) return;
 
     final token = _tokenController.text.trim();
     if (token.isEmpty) {
@@ -315,6 +317,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   }
 
   Future<void> _submitFeatureRequest({bool ownerReauthenticated = false}) async {
+    if (!mounted) return;
     if (!_ownerAuth.hasActiveSession) {
       setState(() => _output = 'برای افزودن قابلیت، احراز هویت مالک لازم است.');
       await _refreshOwnerState();
@@ -324,6 +327,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
         !await _reauthenticateOwnerForCodeChange()) {
       return;
     }
+    if (!mounted) return;
     final task = _featureRequestController.text.trim();
     if (task.length < 12) {
       setState(() => _output = 'درخواست قابلیت را دقیق‌تر بنویس (حداقل ۱۲ نویسه).');
