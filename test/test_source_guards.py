@@ -1539,5 +1539,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
+    def test_help_page_describes_local_ai_without_obsolete_external_providers(self):
+        source = (ROOT / 'lib' / 'help_page.dart').read_text(encoding='utf-8')
+        for obsolete in ('Gemini', 'Grok', 'Claude', 'DeepSeek', 'x.ai',
+                         'anthropic.com', 'deepseek.com', 'کلید Gemini'):
+            self.assertNotIn(obsolete, source)
+        self.assertIn('هوش داخلی King AI', source)
+        self.assertIn('مدل نصب‌شده روی دستگاه', source)
+        self.assertIn('کلید API، اشتراک پولی یا سرویس هوش مصنوعی بیرونی لازم نیست', source)
+        self.assertIn('سرورهای دارای دسترسی وب', source)
+
+
+
 if __name__ == '__main__':
     unittest.main()
