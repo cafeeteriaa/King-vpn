@@ -997,21 +997,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         backup = (ROOT / 'lib' / 'backup_restore.dart').read_text(encoding='utf-8')
         ip_scan = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         self.assertIn(
-            'await Clipboard.setData(ClipboardData(text: s));\\n'
+            'await Clipboard.setData(ClipboardData(text: s));\n'
             '                  if (!mounted || !ctx0.mounted) return;',
             backup)
         self.assertIn(
-            'final n = await bkpImportJson(restoreC.text);\\n'
+            'final n = await bkpImportJson(restoreC.text);\n'
             '                    if (!mounted || !ctx0.mounted || !ctx.mounted) return;',
             backup)
-        self.assertIn('if (!mounted || !ctx0.mounted) return;\\n'
+        self.assertIn('if (!mounted || !ctx0.mounted) return;\n'
                       '                    ScaffoldMessenger.maybeOf(ctx0)', backup)
         self.assertIn(
-            'await Clipboard.setData(ClipboardData(text: txt));\\n'
+            'await Clipboard.setData(ClipboardData(text: txt));\n'
             '                        if (!ctx0.mounted) return;',
             ip_scan)
         self.assertIn(
-            "await Clipboard.setData(ClipboardData(text: h.replaceAll('|', ':')));\\n"
+            "await Clipboard.setData(ClipboardData(text: h.replaceAll('|', ':')));\n"
             '                        if (!ctx0.mounted) return;',
             ip_scan)
 
