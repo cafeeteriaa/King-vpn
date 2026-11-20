@@ -46,7 +46,9 @@ bool _ipAutoValidPending(String value) {
       port != null && port >= 1 && port <= 65535;
 }
 
-Future<void> ipAutoLoad() async {
+Future<void> ipAutoLoad({bool skipIfBusy = false}) async {
+  // UI refreshes must not replace the in-memory checkpoint while a scan owns it.
+  if (skipIfBusy && ipAutoBusy) return;
   // Capture the mode and its storage keys before the first await. A mode
   // switch during preference I/O must never mix the two independent datasets.
   final loadNationalMode = nationalMode;
@@ -56,7 +58,8 @@ Future<void> ipAutoLoad() async {
   final pendingKey = '${_ipAutoPendingKey}_${loadNationalMode ? 'nat' : 'glob'}';
   try {
     final p = await SharedPreferences.getInstance();
-    if (nationalMode != loadNationalMode) return;
+    // A scan may have acquired the lock while this UI read was awaiting storage.
+    if ((skipIfBusy && ipAutoBusy) || nationalMode != loadNationalMode) return;
     // A single preference value is the authoritative checkpoint. Separate
     // writes to hits/cursors/position can be interrupted and create a mixed
     // checkpoint; retain the legacy keys only as a migration fallback.
@@ -500,7 +503,7 @@ extension IpAutoExt on _HomePageState {
 
   Future<void> ipAutoSheet(BuildContext ctx0) async {
     var sheetScanRunning = false;
-    await ipAutoLoad();
+    await ipAutoLoad(skipIfBusy: true);
     if (!ctx0.mounted) return;
     showModalBottomSheet(
       context: ctx0,
