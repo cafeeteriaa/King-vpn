@@ -89,7 +89,7 @@ jobs:
           set -o pipefail
           flutter analyze --no-fatal-warnings --no-fatal-infos 2>&1 | tee analyze.log
 
-      - name: Build debug APK (unsigned)
+      - name: Build optimized Android release-mode APK (arm64)
         working-directory: build_app
         env:
           CGO_LDFLAGS: "-Wl,-z,max-page-size=16384"
@@ -98,7 +98,7 @@ jobs:
           for attempt in 1 2 3; do
             echo "APK build attempt ${attempt}/3"
             attempt_log="build-attempt-${attempt}.log"
-            if flutter build apk --debug --target-platform android-arm64 2>&1 | tee "$attempt_log" | tee -a build.log; then
+            if flutter build apk --release --target-platform android-arm64 2>&1 | tee "$attempt_log" | tee -a build.log; then
               exit 0
             fi
             if ! grep -Eq 'Could not (find|resolve) org[.]jetbrains[.]kotlin:|Received status code (429|5[0-9][0-9])' "$attempt_log"; then
@@ -113,6 +113,22 @@ jobs:
           done
           echo "APK build still blocked after three transient-resolution attempts."
           exit 1
+
+      - name: Report optimized APK size
+        if: success()
+        run: |
+          set -euo pipefail
+          APK="build_app/build/app/outputs/flutter-apk/app-release.apk"
+          test -s "$APK"
+          BYTES="$(stat -c '%s' "$APK")"
+          MIB="$(awk -v bytes="$BYTES" 'BEGIN { printf "%.2f", bytes / 1048576 }')"
+          SHA="$(sha256sum "$APK" | awk '{print $1}')"
+          echo "### King VPN optimized APK" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Variant: Android release mode, arm64-v8a only" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Size: ${MIB} MiB (${BYTES} bytes)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- SHA-256: ${SHA}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Signing: generated Flutter debug key; not a production-signed release" >> "$GITHUB_STEP_SUMMARY"
+          printf 'APK_SIZE_BYTES=%s\\nAPK_SIZE_MIB=%s\\nAPK_SHA256=%s\\n' "$BYTES" "$MIB" "$SHA" > apk-size-report.txt
 
       - name: Package complete source and generated Flutter project
         if: success()
@@ -150,7 +166,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: king-vpn-debug-${{ github.run_number }}
-          path: build_app/build/app/outputs/flutter-apk/app-debug.apk
+          name: king-vpn-arm64-release-${{ github.run_number }}
+          path: build_app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 14
