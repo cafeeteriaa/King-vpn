@@ -5,31 +5,6 @@ part of 'main.dart';
 // کلیدهای امنیتی در flutter_secure_storage هستند و عمداً در پشتیبان نمی‌آیند.
 const String kBkpMagic = 'king_backup_v1';
 
-Future<String> bkpExportJson() async {
-  final p = await SharedPreferences.getInstance();
-  final data = <String, Map<String, dynamic>>{};
-  for (final k in p.getKeys()) {
-    final v = p.get(k);
-    if (v is String) {
-      data[k] = {'t': 's', 'v': v};
-    } else if (v is bool) {
-      data[k] = {'t': 'b', 'v': v};
-    } else if (v is int) {
-      data[k] = {'t': 'i', 'v': v};
-    } else if (v is double) {
-      data[k] = {'t': 'd', 'v': v};
-    } else if (v is List) {
-      data[k] = {'t': 'l', 'v': v.map((e) => e.toString()).toList()};
-    }
-  }
-  return JsonEncoder.withIndent('  ').convert({
-    'magic': kBkpMagic,
-    'at': DateTime.now().toIso8601String(),
-    'count': data.length,
-    'data': data,
-  });
-}
-
 // Backup input is untrusted. Validate the complete payload before touching preferences.
 const int _bkpMaxBytes = 2 * 1024 * 1024;
 const int _bkpMaxEntries = 500;
