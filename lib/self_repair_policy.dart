@@ -13,7 +13,7 @@ String redactSensitiveDiagnostic(String input) {
       r'''(["']?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|uuid|authorization)["']?\s*[:=]\s*)["']?[^"'\s,;}\]]+["']?''',
       caseSensitive: false,
     ),
-    r'$1[REDACTED]',
+    r'$1"[REDACTED]"',
   );
   // Authorization headers and common GitHub credential formats can appear
   // without a nearby key=value label in exception messages.
