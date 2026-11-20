@@ -69,11 +69,13 @@ void main() {
       const bearer = 'Bearer abcDEF1234567890._-+/=';
       final safe = redactSensitiveDiagnostic(
         '{"token":"json-secret-123","authorization":"$bearer",'
-        '"refresh_token":"refresh-secret-456"}',
+        '"refresh_token":"refresh-secret-456"} '
+        'Authorization: Bearer unquoted-authorization-secret-789',
       );
       expect(safe, isNot(contains('json-secret-123')));
       expect(safe, isNot(contains('abcDEF1234567890')));
       expect(safe, isNot(contains('refresh-secret-456')));
+      expect(safe, isNot(contains('unquoted-authorization-secret-789')));
     });
 
     test('redacts standalone GitHub token formats', () {
