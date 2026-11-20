@@ -453,7 +453,7 @@ extension HomeExtras on _HomePageState {
           ],
         ),
       ),
-    );
+    ).whenComplete(c.dispose);
   }
 
   // فقط آمار کلی؛ آدرس سرور، لینک و UUID هرگز ارسال نمی‌شود
@@ -1468,7 +1468,13 @@ extension HomeExtras on _HomePageState {
           ),
         ),
       ),
-    );
+    ).whenComplete(() {
+      tokenC.dispose();
+      ownerC.dispose();
+      repoC.dispose();
+      branchC.dispose();
+      taskC.dispose();
+    });
   }
 
   // ---- خلبان محلی King Pro (داخل HomeExtras) ----
