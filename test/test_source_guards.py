@@ -1750,16 +1750,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         connected_start = patch.index("'P1-34 verify native core running before connected'")
         connected_block_start = patch.rfind("exact_replace(core,", 0, connected_start)
         connected_block = patch[connected_block_start:connected_start]
-        self.assertIn('synchronized (durationTimerLock)', connected_block)
-        self.assertLess(connected_block.index('synchronized (durationTimerLock)'),
-                        connected_block.index('V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;'))
-        self.assertLess(connected_block.index('V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;'),
-                        connected_block.index('makeDurationTimer('))
+        connected_replacement_start = connected_block.index("''', '''") + len("''', '''")
+        connected_replacement = connected_block[connected_replacement_start:]
+        self.assertIn('synchronized (durationTimerLock)', connected_replacement)
+        self.assertLess(connected_replacement.index('synchronized (durationTimerLock)'),
+                        connected_replacement.index('V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;'))
+        self.assertLess(connected_replacement.index('V2RAY_STATE = AppConfigs.V2RAY_STATES.V2RAY_CONNECTED;'),
+                        connected_replacement.index('makeDurationTimer('))
 
         disconnect_start = patch.index("'P1-38 keep disconnect lock through broadcast'")
         disconnect_block_start = patch.rfind("exact_replace(core,", 0, disconnect_start)
         disconnect_block = patch[disconnect_block_start:disconnect_start]
-        self.assertIn("'''        }\\n        }\\n    }\\n\\n    private String createNotificationChannelID'''", disconnect_block)
+        disconnect_replacement_start = disconnect_block.index("''', '''") + len("''', '''")
+        disconnect_replacement = disconnect_block[disconnect_replacement_start:]
+        self.assertIn("        }\\n        }\\n    }\\n\\n    private String createNotificationChannelID", disconnect_replacement)
 
 
 
