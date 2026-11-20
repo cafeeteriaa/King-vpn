@@ -1245,7 +1245,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('finally {', revoke)
         self.assertIn('stopAllProcess();', revoke)
 
-        stop_cleanup = "finally {\\n                AppConfigs.V2RAY_CONFIG = null;\\n                stopAllProcess();\\n            }"
+        stop_cleanup = """finally {
+                AppConfigs.V2RAY_CONFIG = null;
+                stopAllProcess();
+            }"""
         self.assertIn(stop_cleanup, patch)
 
     def test_vpn_service_promotes_before_queuing_sticky_restart_or_stop(self):
