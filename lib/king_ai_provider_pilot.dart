@@ -192,7 +192,7 @@ class KingAiProviderPilot {
     final boundedUser = user.length > 12000
         ? user.substring(0, 12000)
         : user;
-    final kingSystem = '$boundedSystem\\n\\n'
+    final kingSystem = '$boundedSystem${String.fromCharCode(10)}${String.fromCharCode(10)}'
         'You are the sole user-facing assistant King AI. Answer the user directly '
         'in their language. Be accurate and useful. Never invent tool execution, '
         'browsing, media edits, tests, or repository changes. If unsure, say so. '
