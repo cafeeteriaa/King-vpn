@@ -37,14 +37,7 @@ String _ipAutoCursorKeyNow() => '${_ipAutoCursorKey}_${nationalMode ? 'nat' : 'g
 bool? _ipAutoLoadedNat;
 String _ipAutoModeName() => nationalMode ? 'نت ملی' : 'جهانی';
 
-bool _ipAutoValidPending(String value) {
-  final parts = value.split('|');
-  if (parts.length != 2) return false;
-  final address = InternetAddress.tryParse(parts[0]);
-  final port = int.tryParse(parts[1]);
-  return address?.type == InternetAddressType.IPv4 &&
-      port != null && port >= 1 && port <= 65535;
-}
+bool _ipAutoValidPending(String value) => natIsIpPortCandidate(value);
 
 Future<void> ipAutoLoad({bool skipIfBusy = false}) async {
   // UI refreshes must not replace the in-memory checkpoint while a scan owns it.
@@ -195,7 +188,7 @@ List<String> _ipAutoBlocks(Iterable<Server> knownServers) {
       if (server.isIp) ips.add(server.host);
     }
   }
-  return ips.map((ip) => '$ip/32').toList(growable: false);
+  return ips.map(natExactHostCidr).whereType<String>().toList(growable: false);
 }
 
 class _IpAutoAddressBatch {
