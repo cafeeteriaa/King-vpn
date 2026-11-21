@@ -2412,6 +2412,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         primary = save.index("await p.setString(stateKey, jsonEncode(checkpoint))")
         mirror_try = save.index('try {', primary)
         mirror_write = save.index("await p.setString(hitsKey")
+        self.assertIn(r"hits.join('\\n')", save)
         mirror_catch = save.index('} catch (e, stk)', mirror_write)
         success = save.index('return true;', mirror_catch)
         self.assertLess(primary, mirror_try)
