@@ -3452,5 +3452,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('rescheduleNormal();', stale)
         self.assertIn('return;', stale)
 
+
+    def test_tls_diagnostics_do_not_accept_invalid_certificates(self):
+        scanners = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        diagnostics = (ROOT / 'lib' / 'net_diag.dart').read_text(encoding='utf-8')
+        sni_start = scanners.index('Future<int?> _autoSniOk(')
+        alpn_start = scanners.index('Future<String?> _autoAlpnOk(', sni_start)
+        port_start = scanners.index('Future<bool> _autoPortOk(', alpn_start)
+        for body in (scanners[sni_start:alpn_start], scanners[alpn_start:port_start]):
+            self.assertNotIn('onBadCertificate', body)
+        tls_start = diagnostics.index('Future<_DiagItem> _diagTls(')
+        tls_end = diagnostics.index('Future<String> netDiagnose()', tls_start)
+        self.assertNotIn('onBadCertificate', diagnostics[tls_start:tls_end])
+
+
 if __name__ == '__main__':
     unittest.main()
