@@ -94,8 +94,8 @@ class NatDnsProbeResult {
   bool get ok => elapsedMs != null && addresses.isNotEmpty;
 }
 
-/// Strict DNS-over-UDP A-query probe. It verifies transaction ID, QR/opcode,
-/// question name/type/class, response source IP/port, RCODE and public A answers.
+/// Strict DNS-over-UDP A/AAAA probe. It verifies transaction ID, QR/opcode,
+/// question name/type/class, response source IP/port, RCODE and public answers.
 /// It is a resolver test only; it is NOT a test of the VPN server's reachability.
 class _NatDnsProbeCancelled implements Exception {
   const _NatDnsProbeCancelled();
@@ -320,10 +320,15 @@ class NatDnsWireProbe {
         return NatDnsProbeResult(server, domain, null, error: 'cancelled');
       }
       final target = InternetAddress.tryParse(server);
-      if (target == null || target.type != InternetAddressType.IPv4) {
-        throw const FormatException('Resolver must be IPv4');
+      if (target == null ||
+          (target.type != InternetAddressType.IPv4 &&
+              target.type != InternetAddressType.IPv6)) {
+        throw const FormatException('Resolver must be an IPv4 or IPv6 address');
       }
-      final s = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0).timeout(timeout);
+      final bindAddress = target.type == InternetAddressType.IPv6
+          ? InternetAddress.anyIPv6
+          : InternetAddress.anyIPv4;
+      final s = await RawDatagramSocket.bind(bindAddress, 0).timeout(timeout);
       socket = s;
       final id = Random.secure().nextInt(0x10000);
       final packet = buildQuery(domain, id, type: type);
