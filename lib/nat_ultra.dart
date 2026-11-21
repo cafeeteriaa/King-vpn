@@ -2040,7 +2040,7 @@ String _natBigIntToIpv6(BigInt value) {
     16,
     (i) => ((value >> ((15 - i) * 8)) & BigInt.from(255)).toInt(),
   );
-  return InternetAddress.fromRawAddress(bytes).address;
+  return InternetAddress.fromRawAddress(Uint8List.fromList(bytes)).address;
 }
 
 List<String> natExpandAny(String item, {int maxPerBlock = 65536}) {

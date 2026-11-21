@@ -4113,7 +4113,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (aborted() || clock.elapsed >= budget) return;', scan)
         self.assertIn('List<String> nipExpandIpv6Cidr(', source)
         self.assertIn('address.type != InternetAddressType.IPv6', source)
-        self.assertIn('InternetAddress.fromRawAddress(bytes)', source)
+        self.assertIn('InternetAddress.fromRawAddress(Uint8List.fromList(bytes))', source)
         self.assertIn('Socket.connect(address, port, timeout: const Duration(milliseconds: 2000))', source)
 
     def test_nip_cidr_expansion_bounds_caller_supplied_limit(self):
