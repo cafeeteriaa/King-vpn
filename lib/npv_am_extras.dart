@@ -182,11 +182,17 @@ Future<String> pickBestDns({bool force = false}) async {
     'adguard':
         'https://94.140.14.14/dns-query?name=google.com&type=A',
   };
-  const ipProbes = <String, String>{
-    'opendns': '208.67.222.222',
-    'shecan': '178.22.122.100',
-    'electro': '78.157.42.100',
-    'radar': '10.202.10.10',
+  // Probe both address families independently. IPv6-only access must not
+  // leave auto DNS stuck on a resolver reachable only over IPv4.
+  const ipProbes = <String, List<String>>{
+    'cloudflare': ['1.1.1.1', '2606:4700:4700::1111'],
+    'google': ['8.8.8.8', '2001:4860:4860::8888'],
+    'quad9': ['9.9.9.9', '2620:fe::fe'],
+    'opendns': ['208.67.222.222', '2620:119:35::35'],
+    'adguard': ['94.140.14.14', '2a10:50c0::ad1:ff'],
+    'shecan': ['178.22.122.100'],
+    'electro': ['78.157.42.100'],
+    'radar': ['10.202.10.10'],
   };
 
   String best = dnsProvActive.isNotEmpty ? dnsProvActive : 'cloudflare';
@@ -198,10 +204,10 @@ Future<String> pickBestDns({bool force = false}) async {
       ? const <String, String>{}
       : dohProbes;
   final selectedIpProbes = nationalMode
-      ? const <String, String>{
-          'shecan': '178.22.122.100',
-          'electro': '78.157.42.100',
-          'radar': '10.202.10.10',
+      ? const <String, List<String>>{
+          'shecan': ['178.22.122.100'],
+          'electro': ['78.157.42.100'],
+          'radar': ['10.202.10.10'],
         }
       : ipProbes;
 
@@ -215,8 +221,11 @@ Future<String> pickBestDns({bool force = false}) async {
       }
     }),
     ...selectedIpProbes.entries.map((e) async {
-      final ms = await _probeDnsIp(e.value);
-      if (ms != null && ms < bestMs) {
+      final samples = await Future.wait(e.value.map(_probeDnsIp));
+      final valid = samples.whereType<int>().toList();
+      if (valid.isEmpty) return;
+      final ms = valid.reduce((a, b) => a < b ? a : b);
+      if (ms < bestMs) {
         bestMs = ms;
         best = e.key;
         foundValidResolver = true;
