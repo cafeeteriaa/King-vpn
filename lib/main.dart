@@ -11185,19 +11185,32 @@ ListTile( // KINGEXTRAS row
     for (final source in raw.split(String.fromCharCode(10))) {
       final line = source.trim();
       if (line.isEmpty) continue;
-      final cidr = RegExp(r'^([0-9.]+)/([0-9]{1,2})$').firstMatch(line);
-      if (cidr != null) {
-        final base = _pilotIpNumber(cidr.group(1)!);
-        final prefix = int.tryParse(cidr.group(2)!);
-        if (base == null || prefix == null || prefix < 24 || prefix > 32) continue;
-        final mask = (0xffffffff << (32 - prefix)) & 0xffffffff;
-        final network = base & mask;
-        final count = 1 << (32 - prefix);
-        for (var i = 0; i < count && out.length < 256; i++) {
-          out.add(_pilotIpText(network + i));
+      final slash = line.lastIndexOf('/');
+      if (slash > 0) {
+        final address = InternetAddress.tryParse(line.substring(0, slash).trim());
+        final prefix = int.tryParse(line.substring(slash + 1).trim());
+        if (address == null || prefix == null) continue;
+        if (address.type == InternetAddressType.IPv4) {
+          final base = _pilotIpNumber(address.address);
+          if (base == null || prefix < 24 || prefix > 32) continue;
+          final mask = (0xffffffff << (32 - prefix)) & 0xffffffff;
+          final network = base & mask;
+          final count = 1 << (32 - prefix);
+          for (var i = 0; i < count && out.length < 256; i++) {
+            out.add(_pilotIpText(network + i));
+          }
+        } else if (address.type == InternetAddressType.IPv6 &&
+            prefix >= 120 && prefix <= 128) {
+          out.addAll(nipExpandIpv6Cidr(line,
+              maxPerBlock: min(256 - out.length, 256)));
         }
-      } else if (_pilotIpNumber(line) != null) {
-        out.add(line);
+      } else {
+        final address = InternetAddress.tryParse(line);
+        if (address != null &&
+            (address.type == InternetAddressType.IPv4 ||
+                address.type == InternetAddressType.IPv6)) {
+          out.add(address.address);
+        }
       }
       if (out.length >= 256) break;
     }
@@ -11209,14 +11222,22 @@ ListTile( // KINGEXTRAS row
         .map((v) => v.trim()).where((v) => v.isNotEmpty).toList();
     if (lines.isEmpty) return false;
     for (final line in lines) {
-      final cidr = RegExp(r'^([0-9.]+)/([0-9]{1,2})$').firstMatch(line);
-      if (cidr == null) {
-        if (_pilotIpNumber(line) == null) return false;
+      final slash = line.lastIndexOf('/');
+      if (slash <= 0) {
+        final ip = InternetAddress.tryParse(line);
+        if (ip == null ||
+            (ip.type != InternetAddressType.IPv4 &&
+                ip.type != InternetAddressType.IPv6)) return false;
         continue;
       }
-      final base = _pilotIpNumber(cidr.group(1)!);
-      final prefix = int.tryParse(cidr.group(2)!);
-      if (base == null || prefix == null || prefix < 24 || prefix > 32) {
+      final ip = InternetAddress.tryParse(line.substring(0, slash).trim());
+      final prefix = int.tryParse(line.substring(slash + 1).trim());
+      if (ip == null || prefix == null) return false;
+      if (ip.type == InternetAddressType.IPv4) {
+        if (prefix < 24 || prefix > 32) return false;
+      } else if (ip.type == InternetAddressType.IPv6) {
+        if (prefix < 120 || prefix > 128) return false;
+      } else {
         return false;
       }
     }
@@ -11231,12 +11252,12 @@ ListTile( // KINGEXTRAS row
     await showDialog<void>(context: context, builder: (ctx) => AlertDialog(
       title: const Text('بازه‌های مستقل IP خلبان'),
       content: TextField(controller: c, minLines: 3, maxLines: 8,
-        decoration: const InputDecoration(hintText: 'هر خط یک IPv4 یا CIDR از /24 تا /32؛ نمونه: 1.2.3.0/24')),
+        decoration: const InputDecoration(hintText: 'هر خط یک IPv4/IPv6 یا CIDR؛ IPv4 از /24 تا /32 و IPv6 از /120 تا /128')),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('بستن')),
         FilledButton(onPressed: () async {
           if (!_pilotRangesValid(c.text)) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('یکی از بازه‌ها نامعتبر است؛ هر خط باید IPv4 یا CIDR معتبر /24 تا /32 باشد.')));
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('یکی از بازه‌ها نامعتبر است؛ IPv4 باید /24 تا /32 و IPv6 باید /120 تا /128 باشد.')));
             return;
           }
           _pilotRanges = c.text.split(String.fromCharCode(10)).map((v) => v.trim()).where((v) => v.isNotEmpty).toList();
@@ -11269,7 +11290,11 @@ ListTile( // KINGEXTRAS row
         final result = await Future.wait(batch.map((host) async {
           Socket? socket;
           try {
-            socket = await Socket.connect(host, 443, timeout: const Duration(milliseconds: 900));
+            final address = InternetAddress.tryParse(host);
+            if (address == null ||
+                (address.type != InternetAddressType.IPv4 &&
+                    address.type != InternetAddressType.IPv6)) return null;
+            socket = await Socket.connect(address, 443, timeout: const Duration(milliseconds: 900));
             return host;
           } catch (_) { return null; }
           finally { socket?.destroy(); }

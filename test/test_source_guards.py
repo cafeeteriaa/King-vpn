@@ -4166,5 +4166,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('address.type != InternetAddressType.IPv6', domain_scan)
 
 
+
+    def test_smart_pilot_manual_ip_ranges_accept_bounded_ipv4_and_ipv6(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('List<String> _pilotExpandRanges(String raw)')
+        end = source.index('Future<void> _pilotRangesDialog', start)
+        block = source[start:end]
+        self.assertIn('prefix >= 120 && prefix <= 128', block)
+        self.assertIn('nipExpandIpv6Cidr(line', block)
+        self.assertIn('address.type == InternetAddressType.IPv6', block)
+        self.assertIn('out.length < 256', block)
+        self.assertIn('InternetAddressType.IPv6', block)
+        scan_start = source.index('Future<void> _pilotScanOnly()')
+        scan_end = source.index('Future<void> ', scan_start + 20)
+        scan = source[scan_start:scan_end]
+        self.assertIn('InternetAddress.tryParse(host)', scan)
+        self.assertIn('Socket.connect(address, 443', scan)
+
+
 if __name__ == '__main__':
     unittest.main()
