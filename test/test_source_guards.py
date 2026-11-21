@@ -3512,7 +3512,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('followRedirects = false', fetch)
         self.assertIn('streamed.statusCode != 200', fetch)
         self.assertIn('2 * 1024 * 1024', fetch)
-        self.assertIn('streamed.stream.timeout', fetch)
+        self.assertIn('streamed.stream', fetch)
+        self.assertIn('.timeout(const Duration(seconds: 20))', fetch)
         self.assertIn("uri.scheme != 'https'", groups)
         self.assertNotIn("startsWith('http://')", groups)
 
