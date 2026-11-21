@@ -8954,7 +8954,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // FIX #12: national mode tests domestic destinations (international traffic is cut there);
   // global mode tests only international ones, so a domestic site cannot pass a dead tunnel.
   Future<bool> _tunnelTrafficOk() async {
-    if (proxyMode) return true;
+    // PROXYVERIFY: proxy mode must prove traffic through the local core too.
+    // Returning true from the mode flag alone can mark a dead tunnel as connected.
     await Future.delayed(const Duration(seconds: 2));
     // TUNFIX: viaCore true = the core's outbound, which is what must be measured. The app is NOT
     // excluded from its own tunnel (FIX #49, KingVpnService.java), so DIRECT requests also pass
