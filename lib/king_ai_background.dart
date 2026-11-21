@@ -74,8 +74,7 @@ void kingAiBackgroundDispatcher() {
         final pilot = KingAiProviderPilot.instance;
         if (!await pilot.cloudEnabled) return true;
         final configured = await pilot.configuredProviders();
-        final hasFreeHelper = configured[KingAiProvider.gemini] == true ||
-            configured[KingAiProvider.groq] == true ||
+        final hasFreeHelper = configured[KingAiProvider.groq] == true ||
             configured[KingAiProvider.openRouter] == true;
         if (!hasFreeHelper) return true;
       }
@@ -239,8 +238,7 @@ class KingAiBackgroundSupervisor {
       throw StateError('Enable King AI cloud helpers before scheduling background repair.');
     }
     final configured = await pilot.configuredProviders();
-    if (configured[KingAiProvider.gemini] != true &&
-        configured[KingAiProvider.groq] != true &&
+    if (configured[KingAiProvider.groq] != true &&
         configured[KingAiProvider.openRouter] != true) {
       throw StateError('Configure at least one approved free-tier coding helper first.');
     }
@@ -289,8 +287,7 @@ class KingAiBackgroundSupervisor {
       throw StateError('Enable King AI cloud helpers before starting low-resource autonomous maintenance.');
     }
     final configured = await pilot.configuredProviders();
-    final hasFreeHelper = configured[KingAiProvider.gemini] == true ||
-        configured[KingAiProvider.groq] == true ||
+    final hasFreeHelper = configured[KingAiProvider.groq] == true ||
         configured[KingAiProvider.openRouter] == true;
     if (!hasFreeHelper) {
       throw StateError('Configure at least one approved free-tier King AI helper first.');
