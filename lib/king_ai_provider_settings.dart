@@ -13,12 +13,8 @@ class KingAiProviderSettingsCard extends StatefulWidget {
 
 class _KingAiProviderSettingsCardState
     extends State<KingAiProviderSettingsCard> {
-  final _gemini = TextEditingController();
   final _groq = TextEditingController();
-  final _mistral = TextEditingController();
   final _openRouter = TextEditingController();
-  final _cloudflareToken = TextEditingController();
-  final _cloudflareAccount = TextEditingController();
 
   bool _enabled = false;
   bool _loading = true;
@@ -34,12 +30,8 @@ class _KingAiProviderSettingsCardState
 
   @override
   void dispose() {
-    _gemini.dispose();
     _groq.dispose();
-    _mistral.dispose();
     _openRouter.dispose();
-    _cloudflareToken.dispose();
-    _cloudflareAccount.dispose();
     super.dispose();
   }
 
@@ -68,11 +60,8 @@ class _KingAiProviderSettingsCardState
     try {
       final pilot = KingAiProviderPilot.instance;
       final values = <KingAiProvider, String>{
-        KingAiProvider.gemini: _gemini.text,
         KingAiProvider.groq: _groq.text,
-        KingAiProvider.mistral: _mistral.text,
         KingAiProvider.openRouter: _openRouter.text,
-        KingAiProvider.cloudflare: _cloudflareToken.text,
       };
       var submittedKey = false;
       for (final entry in values.entries) {
@@ -81,16 +70,12 @@ class _KingAiProviderSettingsCardState
           submittedKey = true;
         }
       }
-      if (_cloudflareAccount.text.trim().isNotEmpty) {
-        await pilot.saveCloudflareAccountId(_cloudflareAccount.text);
-      }
       // Entering and saving a key is the user's explicit opt-in to internal
       // assistance. The switch remains available to pause cloud delegation.
       final nextEnabled = submittedKey ? true : _enabled;
       await pilot.setCloudEnabled(nextEnabled);
       for (final controller in [
-        _gemini, _groq, _mistral, _openRouter,
-        _cloudflareToken, _cloudflareAccount,
+        _groq, _openRouter,
       ]) {
         controller.clear();
       }
@@ -179,7 +164,8 @@ class _KingAiProviderSettingsCardState
 
   @override
   Widget build(BuildContext context) {
-    final count = _configured.values.where((value) => value).length;
+    final count = [KingAiProvider.groq, KingAiProvider.openRouter]
+        .where((provider) => _configured[provider] == true).length;
     return Card(
       child: ExpansionTile(
         leading: const Icon(Icons.hub_outlined),
@@ -192,7 +178,7 @@ class _KingAiProviderSettingsCardState
           const Align(
             alignment: Alignment.centerRight,
             child: Text(
-              'این سرویس‌ها صفحه چت جداگانه ندارند. فقط King AI آن‌ها را پشت‌صحنه و برای گرفتن نظر تخصصی، بازبینی پاسخ، کمک برنامه‌نویسی و طراحی کارهای چندرسانه‌ای فراخوانی می‌کند؛ پاسخ نهایی را خود King AI می‌سازد.',
+              'این مسیرها صفحه چت جداگانه ندارند. King AI فقط برای مشاوره متنی و بازبینی کد از مسیرهای رایگانِ فعال‌شده استفاده می‌کند؛ پاسخ نهایی و تصمیم‌ها متعلق به خود King AI است.',
             ),
           ),
           const SizedBox(height: 8),
@@ -201,27 +187,12 @@ class _KingAiProviderSettingsCardState
             value: _enabled,
             onChanged: _loading || _saving ? null : _setEnabled,
             title: const Text('اجازه مشاوره داخلی King AI با همکاران ابری'),
-            subtitle: const Text('خاموش باشد، فقط مدل محلی استفاده می‌شود.'),
+            subtitle: const Text('خاموش باشد، فقط مدل محلیِ در صورت بارگذاری‌شده استفاده می‌شود.'),
           ),
-          _keyField('کلید Gemini', _gemini, KingAiProvider.gemini,
-              hint: 'Google AI Studio → Get API key'),
           _keyField('کلید Groq', _groq, KingAiProvider.groq,
               hint: 'Groq Console → API Keys'),
-          _keyField('کلید Mistral', _mistral, KingAiProvider.mistral,
-              hint: 'Mistral La Plateforme → API keys'),
           _keyField('کلید OpenRouter', _openRouter, KingAiProvider.openRouter,
               hint: 'OpenRouter → Keys؛ مسیر رایگان'),
-          _keyField('توکن Cloudflare Workers AI', _cloudflareToken,
-              KingAiProvider.cloudflare),
-          TextField(
-            controller: _cloudflareAccount,
-            decoration: InputDecoration(
-              labelText: 'Cloudflare Account ID',
-              hintText: _configured[KingAiProvider.cloudflare] == true
-                  ? 'شناسه حساب ذخیره شده؛ برای جایگزینی وارد کن'
-                  : 'شناسه ۳۲ رقمی حساب',
-            ),
-          ),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
