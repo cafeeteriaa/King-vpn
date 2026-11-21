@@ -432,13 +432,15 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * flags and cancels the running attempt. The real work runs on the worker.
      */
     private void requestStop(int startId) {
-        latestStopRequestId = startId;
-        userStopped = true;
-        stopping = true;
-        active = false;
-        retryWaiting = false;
-        // Supersede whatever attempt is running. It can no longer act on the core.
-        attemptSeq.incrementAndGet();
+        synchronized (startLifecycleLock) {
+            latestStopRequestId = startId;
+            userStopped = true;
+            stopping = true;
+            active = false;
+            retryWaiting = false;
+            // Supersede whatever attempt is running. It can no longer act on the core.
+            attemptSeq.incrementAndGet();
+        }
     }
 
     /** Try each server starting at [first]; the first one that comes up wins. */
@@ -565,13 +567,17 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         if (!recovering.compareAndSet(false, true)) return;
         Log.e(TAG, what + " has not returned after " + (HUNG_NATIVE_MS / 1000)
                 + "s; restarting the VPN process");
-        try {
-            if (userStopped) clearState();
-            else saveState();
-        } catch (Throwable t) {
-            Log.w(TAG, "state save before restart failed", t);
+        synchronized (startLifecycleLock) {
+            // Linearize the stop-vs-recovery decision with every stop request. If Stop
+            // wins the lock, its cleared state is committed before this process exits.
+            try {
+                if (userStopped) clearState();
+                else saveState();
+            } catch (Throwable t) {
+                Log.w(TAG, "state save before restart failed", t);
+            }
+            android.os.Process.killProcess(android.os.Process.myPid());
         }
-        android.os.Process.killProcess(android.os.Process.myPid());
     }
 
     /**
