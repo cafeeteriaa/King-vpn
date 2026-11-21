@@ -1774,7 +1774,8 @@ Future<void> natIpMemLoad() async {
             final port = portValue is num ? portValue.toInt() : 0;
             final timestamp = timeValue is num ? timeValue.toInt() : 0;
             if (address == null ||
-                address.type != InternetAddressType.IPv4 ||
+                (address.type != InternetAddressType.IPv4 &&
+                    address.type != InternetAddressType.IPv6) ||
                 port < 1 ||
                 port > 65535 ||
                 timestamp < cutoff ||
