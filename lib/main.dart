@@ -2978,8 +2978,11 @@ String _reliableVpnCfg(String cfg) {
     for (final entry in resolverEntries) {
       final candidate =
           entry is Map ? (entry['address']?.toString() ?? '') : entry.toString();
+      final uri = Uri.tryParse(candidate);
+      // A DoH URL's host is not necessarily running plaintext DNS on port 53.
+      if (uri?.scheme == 'https' || uri?.scheme == 'http') continue;
       final directIp = InternetAddress.tryParse(candidate);
-      final uriIp = Uri.tryParse(candidate)?.host;
+      final uriIp = uri?.host;
       final parsedIp = directIp ?? (uriIp == null || uriIp.isEmpty
           ? null
           : InternetAddress.tryParse(uriIp));
