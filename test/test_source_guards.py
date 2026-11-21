@@ -1364,7 +1364,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_generated_fileprovider_manifest_uses_real_xml_newlines(self):
         source = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         start = source.index('UPDATE_PROVIDER =')
-        end = source.index("if 'androidx.core.content.FileProvider'", start)
+        end = source.index('String _testCfg(String cfg)', start)
         provider = source[start:end]
         self.assertIn(r'FileProvider"\n', provider)
         self.assertNotIn(r'FileProvider"\\n', provider)
