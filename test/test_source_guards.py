@@ -2335,6 +2335,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(scan, expiry)
         self.assertLess(expiry, cursor)
         self.assertNotIn('DateTime.now().add(budget)', body)
+        self.assertIn('return natFinalizePartialScan(out, cancelled: false);', body)
+        hot_fetch_start = source.index('Future<List<String>> _hotFetchOne(')
+        hot_fetch_end = source.index('Future<void>? _hotEnsureFuture', hot_fetch_start)
+        self.assertIn('return out;', source[hot_fetch_start:hot_fetch_end])
+        self.assertNotIn('shouldAbort()', source[hot_fetch_start:hot_fetch_end])
 
     def test_dns_wire_probe_cancellation_closes_pending_udp_work(self):
         core = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')

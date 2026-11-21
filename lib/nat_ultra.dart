@@ -2349,7 +2349,7 @@ Future<List<String>> _natRangeScanStepBody({
   natTemplateSeeds = seeds.take(2).toList();
   natRandomLast = 0;
   natIpScanned += slice.length;
-  return out;
+  return natFinalizePartialScan(out, cancelled: false);
 }
 
 List<String> userListUrls = [];
@@ -2525,7 +2525,7 @@ Future<List<String>> _hotFetchOne(String u) async {
   } catch (e, stk) {
     logError(e, stk);
   }
-  return natFinalizePartialScan(out, cancelled: shouldAbort());
+  return out;
 }
 
 Future<void>? _hotEnsureFuture;
