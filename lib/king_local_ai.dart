@@ -24,6 +24,7 @@ class KingLocalAi {
 
   static const String _repositoryOwner = 'cafeeteriaa';
   static const String _repositoryName = 'King-vpn';
+  static const String _developmentBaseBranch = 'work/national-network-evidence';
 
   static const String modelId = 'qwen25-coder-15b-q4km-v1';
   static const String modelUrl =
@@ -994,6 +995,27 @@ state limitations. Never claim execution or validation without actual evidence.
     }
   }
 
+  static void _validateDevelopmentBaseBranch(String branch) {
+    final normalized = branch.trim().toLowerCase();
+    final allowedNamespace = normalized.startsWith('work/') ||
+        normalized.startsWith('king-ai/') ||
+        normalized == 'develop' ||
+        normalized.startsWith('develop/') ||
+        normalized == 'development' ||
+        normalized.startsWith('development/');
+    if (branch != branch.trim() ||
+        normalized.isEmpty ||
+        const {'main', 'master', 'trunk'}.contains(normalized) ||
+        !allowedNamespace ||
+        normalized.contains('..') ||
+        normalized.contains('//') ||
+        normalized.endsWith('/')) {
+      throw ArgumentError(
+        'King AI code changes must target a validated development branch, never a protected default branch.',
+      );
+    }
+  }
+
   Future<Map<String, dynamic>> _github(
     String method,
     String path, {
@@ -1630,7 +1652,7 @@ state limitations. Never claim execution or validation without actual evidence.
     final context = await readRepositoryContext(
       owner: owner,
       repository: repository,
-      baseBranch: 'main',
+      baseBranch: _developmentBaseBranch,
       task: task,
     );
     if (context.isEmpty) {
@@ -1688,7 +1710,7 @@ state limitations. Never claim execution or validation without actual evidence.
     final url = await _createRepairPullRequest(
       owner: owner,
       repository: repository,
-      baseBranch: 'main',
+      baseBranch: _developmentBaseBranch,
       title: 'Iran network reliability maintenance candidate',
       summary: '${proposal['summary']}\n\n'
           'King AI autonomous audit. Evidence was limited to repository source; '
@@ -1934,6 +1956,7 @@ state limitations. Never claim execution or validation without actual evidence.
     required String baseBranch,
     required String task,
   }) async {
+    _validateDevelopmentBaseBranch(baseBranch);
     final repo = '${Uri.encodeComponent(owner)}/${Uri.encodeComponent(repository)}';
     final ref = await _github('GET', '/repos/$repo/git/ref/heads/${Uri.encodeComponent(baseBranch)}');
     final commitSha = (ref['object'] as Map)['sha'] as String;
@@ -1988,6 +2011,7 @@ state limitations. Never claim execution or validation without actual evidence.
     required String summary,
     required Map<String, String> changes,
   }) async {
+    _validateDevelopmentBaseBranch(baseBranch);
     if (!KingAiOwnerAuth.instance.hasActiveSession) {
       throw StateError('Owner authentication is required to create a code-change PR.');
     }
@@ -2009,6 +2033,7 @@ state limitations. Never claim execution or validation without actual evidence.
     required String summary,
     required Map<String, String> changes,
   }) async {
+    _validateDevelopmentBaseBranch(baseBranch);
     _requireKingRepository(owner, repository);
     await _requireRepositoryOwnerIdentity();
     _rejectSecrets(title);
@@ -2066,7 +2091,7 @@ state limitations. Never claim execution or validation without actual evidence.
   }
 
   /// Owner-only natural-language feature proposal. It creates a review-only
-  /// pull request against main and never writes directly to the default branch.
+  /// pull request against the validated development branch, never the default branch.
   Future<Map<String, Object?>> createOwnerFeatureProposal({
     required String task,
     required String owner,
@@ -2098,7 +2123,7 @@ state limitations. Never claim execution or validation without actual evidence.
     final context = await readRepositoryContext(
       owner: owner,
       repository: repository,
-      baseBranch: 'main',
+      baseBranch: _developmentBaseBranch,
       task: request,
     );
     if (context.isEmpty) {
@@ -2116,7 +2141,7 @@ state limitations. Never claim execution or validation without actual evidence.
     final url = await createRepairPullRequest(
       owner: owner,
       repository: repository,
-      baseBranch: 'main',
+      baseBranch: _developmentBaseBranch,
       title: 'Owner feature request',
       summary: proposal['summary'] as String,
       changes: changes,
