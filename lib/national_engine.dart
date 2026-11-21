@@ -392,6 +392,14 @@ class PilotNetworkProbe {
       domesticTlsReachabilityVerified: domestic.whereType<int>().length >= 2,
       globalTlsReachabilityVerified: global.whereType<int>().length >= 2,
     );
+    // Persist only complete, identity-verified snapshots. The history stores
+    // coarse interface type + ASN, never addresses or tunnel credentials.
+    if (identity.isNotEmpty) {
+      unawaited(PilotRouteHistory.record(
+        networkGroup: natOpKey,
+        evidence: _last,
+      ));
+    }
     // An unknown interface identity is not a safe cache key.
     _lastAt = identity.isNotEmpty ? DateTime.now() : null;
     _lastIdentity = identity.isNotEmpty ? identity : null;
