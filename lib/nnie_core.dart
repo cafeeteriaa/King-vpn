@@ -163,6 +163,7 @@ class NatDnsWireProbe {
     var p = start;
     var resume = -1;
     var hops = 0;
+    final visitedPointers = <int>{};
     while (p < b.length && hops++ < 128) {
       final n = b[p];
       if (n == 0) {
@@ -172,6 +173,11 @@ class NatDnsWireProbe {
       if ((n & 0xc0) == 0xc0) {
         if (p + 1 >= b.length) throw const FormatException('Bad pointer');
         final ptr = ((n & 0x3f) << 8) | b[p + 1];
+        // RFC 1035 compression pointers refer to an earlier offset. Reject
+        // out-of-range, forward, and cyclic pointers instead of following them.
+        if (ptr >= p || ptr >= b.length || !visitedPointers.add(ptr)) {
+          throw const FormatException('Invalid DNS compression pointer');
+        }
         if (resume < 0) resume = p + 2;
         p = ptr;
         continue;
