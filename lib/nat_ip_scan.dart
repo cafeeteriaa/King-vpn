@@ -1,4 +1,5 @@
 // NAT IP SCAN ==============================================================
+import 'dart:typed_data';
 // اسکن سریع آدرس‌های IP برای پیدا کردن سرورهای قابل‌دسترس در نت ملی.
 // فقط اتصال TCP می‌زند؛ یعنی هنوز تایید نمی‌کند که VPN کار می‌کند،
 // فقط می‌گوید آن آدرس و پورت جواب می‌دهد. تایید نهایی را موتور اصلی انجام می‌دهد.
@@ -106,7 +107,7 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
       value >>= 8;
     }
     out.add(InternetAddress.fromRawAddress(
-      bytes,
+      Uint8List.fromList(bytes),
       type: InternetAddressType.IPv6,
     ).address);
   }
