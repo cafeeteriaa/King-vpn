@@ -49,18 +49,25 @@ class NatProbeEvidence {
     required this.globalTcpOk,
     this.dnsPoisonSuspected = false,
     this.sampleCount = 1,
+    this.globalIpv4TcpOk = false,
     this.globalIpv6TcpOk = false,
   });
 
   final bool domesticDnsOk;
   final bool domesticTcpOk;
   final bool globalDnsOk;
+  /// Reachability through a hostname; the OS may select either IP family.
   final bool globalTcpOk;
   final bool dnsPoisonSuspected;
+
+  /// Number of independent TCP endpoint attempts in this diagnosis round.
+  /// DNS resolver/query counts are deliberately excluded.
   final int sampleCount;
 
-  /// Explicit TCP/443 reachability to a literal global IPv6 address returned
-  /// by AAAA DNS. Kept separate from generic hostname TCP evidence.
+  /// Explicit TCP/443 reachability to a literal global A-record address.
+  final bool globalIpv4TcpOk;
+
+  /// Explicit TCP/443 reachability to a literal global AAAA-record address.
   final bool globalIpv6TcpOk;
 
   NatNetworkClass classify() {
@@ -68,16 +75,17 @@ class NatProbeEvidence {
     // proof that a domestic or global data path is reachable.
     if (sampleCount < 2) return NatNetworkClass.unknown;
     if (dnsPoisonSuspected) return NatNetworkClass.dnsDegraded;
+    final globalDataPathOk = globalTcpOk || globalIpv4TcpOk || globalIpv6TcpOk;
 
-    if (domesticTcpOk && globalTcpOk) {
+    if (domesticTcpOk && globalDataPathOk) {
       return NatNetworkClass.globalReachable;
     }
-    if (domesticTcpOk && !globalTcpOk) {
+    if (domesticTcpOk && !globalDataPathOk) {
       return globalDnsOk
           ? NatNetworkClass.transportRestricted
           : NatNetworkClass.domesticOnlyLikely;
     }
-    if (!domesticTcpOk && globalTcpOk) {
+    if (!domesticTcpOk && globalDataPathOk) {
       return NatNetworkClass.globalReachable;
     }
     // DNS may work while TCP/443 is blocked on both route groups. Report a
