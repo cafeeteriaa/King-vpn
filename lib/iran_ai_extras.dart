@@ -175,7 +175,7 @@ Future<void> loadLocalAiPrefs(SharedPreferences prefs) async {
 Future<String> aiAsk(String prompt) async {
   aiProvider = 'local';
   aiLastProvider = 'King Local AI (on-device)';
-  return KingLocalAi.instance.ask(prompt);
+  return KingLocalAi.instance.askLocalOnly(prompt);
 }
 
 // پاسخ محلی King را به متن و تنظیمات پیشنهادی جدا می‌کند
