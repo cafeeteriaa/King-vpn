@@ -67,6 +67,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertNotIn("import 'engine_registry.dart';", main)
 
+    def test_national_dns_config_prioritizes_the_selected_validated_domestic_provider(self):
+        source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        self.assertIn("const {'shecan', 'electro', 'radar'}", source)
+        self.assertIn("? dnsProvActive", source)
+        self.assertIn(": 'shecan';", source)
+        self.assertIn("_dnsUrls[nationalAutoProvider] ?? _dnsUrls['shecan']!", source)
+
     def test_dns_auto_resolver_probe_uses_one_stable_route_mode_snapshot(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         probe_start = source.index('Future<int?> _probeDnsIp(')
