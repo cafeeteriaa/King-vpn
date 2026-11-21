@@ -509,6 +509,14 @@ class PilotNetworkProbe {
       domesticTlsReachabilityVerified: domestic.whereType<int>().length >= 2,
       globalTlsReachabilityVerified: global.whereType<int>().length >= 2,
     );
+    // Persist only complete, identity-verified snapshots. The history key is
+    // coarse interface type + public ASN, never a device address or SIM ID.
+    if (identity.isNotEmpty) {
+      unawaited(PilotRouteHistory.record(
+        networkGroup: natOpKey,
+        evidence: _last,
+      ));
+    }
     // Persist only complete, identity-verified snapshots. The history stores
     // coarse interface type + ASN, never addresses or tunnel credentials.
     if (identity.isNotEmpty) {
