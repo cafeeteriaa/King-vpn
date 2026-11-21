@@ -1227,6 +1227,14 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             b.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);
             b.addRoute("::", 0);
             b.addRoute("0.0.0.0", 0);
+            // Only transformed VPN profiles carry the matching Xray DNS-outbound
+            // + port-53 hijack rule. Plain fallback profiles intentionally retain
+            // Android's underlying DNS configuration and must not use these IPs.
+            final String fullConfig = cfg.V2RAY_FULL_JSON_CONFIG;
+            if (fullConfig != null && fullConfig.contains("\"king-vpn-dns-hijack\"")) {
+                b.addDnsServer("26.26.26.2");
+                b.addDnsServer("fd00:1:fd00:1:fd00:1:fd00:2");
+            }
             // FIX #49: the app is NOT excluded from the tunnel. Its own requests (e.g. the ASN
             // lookup in nat_ultra.dart, which uses DIRECT) must go through the VPN, otherwise they
             // show the real IP. Only the core's outbound sockets are exempt, via protect() in onProtect.
