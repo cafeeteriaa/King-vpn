@@ -555,6 +555,7 @@ extension HomeExtras on _HomePageState {
         'latency=${evidence.globalLatencyMs ?? -1}ms '
         'confidence=${evidence.confidence.toStringAsFixed(2)}');
     sb.writeln('National diagnosis: ${natNetworkClassLabel(NatNetworkDiagnosis.current)}');
+    sb.writeln('IP-family evidence: this probe does not isolate IPv4 from IPv6; do not infer either family is working or supported from domestic/global TLS results.');
     final routeHistory = PilotRouteHistory.forNetwork(PilotRouteHistory.currentGroup);
     if (routeHistory != null) {
       sb.writeln('Persistent route history for current network group: '
@@ -562,7 +563,7 @@ extension HomeExtras on _HomePageState {
           'domestic=${routeHistory['domesticSuccesses']}/${routeHistory['domesticSamples']} '
           'global=${routeHistory['globalSuccesses']}/${routeHistory['globalSamples']} '
           'domesticOnly=${routeHistory['domesticOnly']} '
-          'globalOnly=${routeHistory['globalOnly']} dualStack=${routeHistory['dualStack']} '
+          'globalOnly=${routeHistory['globalOnly']} domesticAndGlobal=${routeHistory['domesticAndGlobal'] ?? routeHistory['dualStack']} '
           'domesticLatencyEwmaMs=${routeHistory['domesticLatencyEwmaMs'] ?? -1} '
           'globalLatencyEwmaMs=${routeHistory['globalLatencyEwmaMs'] ?? -1}');
     }
@@ -2572,7 +2573,7 @@ extension HomeExtras on _HomePageState {
       final modeLabel = switch (evidence.mode) {
         DetectedNetworkMode.domesticOnly => 'فقط مسیر داخلی تأیید شد',
         DetectedNetworkMode.globalOnly => 'مسیر جهانی تأیید شد',
-        DetectedNetworkMode.dualStack => 'مسیر داخلی و جهانی هر دو در دسترس‌اند',
+        DetectedNetworkMode.domesticAndGlobal => 'مسیر داخلی و جهانی هر دو در دسترس‌اند',
         DetectedNetworkMode.offline => 'هیچ مسیر آزمایشی پاسخ نداد',
         DetectedNetworkMode.unknown => 'شواهد کافی نیست؛ حالت قبلی حفظ شد',
       };
@@ -2583,7 +2584,7 @@ extension HomeExtras on _HomePageState {
       return switch (evidence.mode) {
         DetectedNetworkMode.domesticOnly => NatNetworkClass.domesticOnlyLikely,
         DetectedNetworkMode.globalOnly ||
-        DetectedNetworkMode.dualStack => NatNetworkClass.globalReachable,
+        DetectedNetworkMode.domesticAndGlobal => NatNetworkClass.globalReachable,
         DetectedNetworkMode.offline => NatNetworkClass.transportRestricted,
         DetectedNetworkMode.unknown => NatNetworkClass.unknown,
       };

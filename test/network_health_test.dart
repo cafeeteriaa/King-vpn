@@ -30,6 +30,20 @@ void main() {
       expect(evidence.confidence, lessThan(1));
     });
 
+    test('both endpoint groups are named domesticAndGlobal, not IPv4/IPv6 dual stack', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.healthy,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 3,
+        globalSuccesses: 3,
+        domesticTlsReachabilityVerified: true,
+        globalTlsReachabilityVerified: true,
+      );
+      expect(evidence.mode, DetectedNetworkMode.domesticAndGlobal);
+    });
+
     test('failed attempts do not inflate reachability confidence', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.unreachable,
