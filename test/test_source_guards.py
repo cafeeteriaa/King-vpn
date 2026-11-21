@@ -1442,6 +1442,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('KingAiProvider.gemini', background)
         self.assertIn('KingAiProvider.groq', background)
         self.assertIn('KingAiProvider.openRouter', background)
+        supervisor_start = background.index('static Future<void> enable(int pullNumber)')
+        supervisor_end = background.index('static Future<void> enableAutonomousMaintenance()', supervisor_start)
+        scheduled_enable = background[supervisor_start:supervisor_end]
+        self.assertIn('pilot.cloudEnabled', scheduled_enable)
+        self.assertIn('configuredProviders()', scheduled_enable)
+        self.assertIn('WorkManager executes in a separate isolate/process lifecycle', background)
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
         feature_start = ai.index('Future<Map<String, Object?>> createOwnerFeatureProposal(')
         feature_end = ai.index('Future<void> dispose()', feature_start)
