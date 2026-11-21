@@ -4097,6 +4097,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = source.index('// completes when the VPN tunnel reports CONNECTED', start)
         body = source[start:end]
         self.assertIn("if (j['outbounds'] is! List || (j['outbounds'] as List).isEmpty)", body)
+        self.assertIn("InternetAddress.tryParse(candidate)", body)
+        self.assertIn("'rewriteAddress': dnsRewriteAddress", body)
+        self.assertIn("'rewritePort': 53", body)
+        self.assertIn("'qType': '1,28'", body)
+        self.assertIn("'action': 'direct'", body)
         self.assertIn("'protocol': 'dns'", body)
         self.assertIn("'network': 'tcp,udp'", body)
         self.assertIn("'port': '53'", body)
