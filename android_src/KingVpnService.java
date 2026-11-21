@@ -358,7 +358,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     /** Worker side of ACTION_START: builds the list and connects. */
     private void startFlow(Srv first, List<Srv> backups, int attempt, int startId) {
         synchronized (lock) {
-            if (stopping) return; // a stop request arrived first
+            if (stopping || startId != latestStartId) return; // a stop or newer start superseded this request
             // جدید: without the user's VPN consent, establish() fails for every server one by one.
             // Check once here and report a single clear error instead.
             if (VpnService.prepare(this) != null) {
@@ -383,7 +383,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             boolean connectedNow = connectFrom(0);
             // A user stop can arrive while the worker is waiting for native startCore.
             // Never emit a late CONNECTED/FAILED event after that cancellation.
-            if (stopping) return; // queued stop/destroy cleanup owns native teardown
+            if (stopping || startId != latestStartId) return; // queued stop or newer start owns teardown
             if (connectedNow) {
                 saveState();
                 startWatchdog(CHECK_EVERY_SEC);
@@ -406,7 +406,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             }
             startForegroundSafe(servers.get(currentIdx).remark);
             boolean connectedNow = connectFrom(currentIdx);
-            if (stopping) return; // queued stop/destroy cleanup owns native teardown
+            if (stopping || startId != latestStartId) return; // queued stop or newer start owns teardown
             if (connectedNow) {
                 saveState();
                 startWatchdog(CHECK_EVERY_SEC);
