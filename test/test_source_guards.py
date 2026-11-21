@@ -3102,5 +3102,31 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_natKeepOn', halt)
         self.assertIn('if (_dnsxAutoBusy)', source)
 
+
+    def test_native_service_stale_stop_cannot_tear_down_a_newer_start(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertIn('private volatile int latestStartId = 0;', source)
+        stop_app = source[source.index('public void stopFromApp()'):source.index('private static class Srv')]
+        self.assertIn('final int stopStartId = latestStartId;', stop_app)
+        self.assertIn('stopEverything(stopStartId)', stop_app)
+        start = source[source.index('public int onStartCommand('):source.index('private void submit(')]
+        self.assertIn('latestStartId = startId;', start)
+        self.assertIn('stopping = false;', start)
+        self.assertIn('startFlow(first, backups, attempt, startId)', start)
+        stop_start = source.index('private void stopEverything(int expectedStartId)')
+        stop_end = source.index('private void closeTun()', stop_start)
+        stop = source[stop_start:stop_end]
+        self.assertIn('if (expectedStartId != latestStartId) return;', stop)
+        self.assertIn('stopSelfResult(expectedStartId);', stop)
+        self.assertNotIn('stopSelf();', stop)
+        flow_start = source.index('private void startFlow(')
+        flow_end = source.index('private void resumeSaved(', flow_start)
+        self.assertIn('stopEverything(startId);', source[flow_start:flow_end])
+        resume_start = flow_end
+        resume_end = source.index('private void requestStop()', resume_start)
+        resume = source[resume_start:resume_end]
+        self.assertIn('startId != latestStartId', resume)
+        self.assertIn('stopEverything(startId);', resume)
+
 if __name__ == '__main__':
     unittest.main()
