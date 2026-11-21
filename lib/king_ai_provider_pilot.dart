@@ -300,7 +300,7 @@ class KingAiProviderPilot {
     }
     final uri = Uri.https(
       'api.cloudflare.com',
-      '/client/v4/accounts/$account/ai/run/@cf/meta/llama-3.1-8b-instruct',
+      '/client/v4/accounts/$account/ai/run/@cf/google/gemma-4-26b-a4b-it',
     );
     final response = await _client.post(
       uri,
