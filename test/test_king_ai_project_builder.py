@@ -86,5 +86,42 @@ class KingAiProjectBuilderGuards(unittest.TestCase):
         self.assertIn("'create an app'", ai[start:end])
 
 
+    def test_standalone_project_generation_requires_owner_and_fresh_password_proof(self):
+        console = (ROOT / "lib" / "king_ai_console.dart").read_text(encoding="utf-8")
+        start = console.index("Future<void> _createStandaloneProject()")
+        end = console.index("Future<void> _submitFeatureRequest", start)
+        method = console[start:end]
+        self.assertIn("_requireOwnerSession('ساخت اپلیکیشن')", method)
+        self.assertIn("_reauthenticateOwnerForCodeChange()", method)
+        self.assertLess(method.index("_requireOwnerSession("),
+                        method.index("KingAiProjectBuilder.instance.buildProject("))
+        self.assertLess(method.index("_reauthenticateOwnerForCodeChange()"),
+                        method.index("KingAiProjectBuilder.instance.buildProject("))
+        button_start = console.index("label: const Text('ساخت اپلیکیشن مستقل و ارسال ZIP')")
+        button = console[button_start - 300:button_start]
+        self.assertIn("_ownerUnlocked", button)
+
+    def test_owner_session_duration_text_matches_two_minute_policy(self):
+        console = (ROOT / "lib" / "king_ai_console.dart").read_text(encoding="utf-8")
+        auth = (ROOT / "lib" / "king_ai_owner_auth.dart").read_text(encoding="utf-8")
+        self.assertIn("sessionLifetime = Duration(minutes: 2)", auth)
+        self.assertIn("دسترسی مالک فعال است (حداکثر ۲ دقیقه).", console)
+        self.assertNotIn("دسترسی مالک فعال است (حداکثر ۱۵ دقیقه).", console)
+
+
+    def test_initial_project_request_runs_after_model_and_owner_reauthentication(self):
+        console = (ROOT / "lib" / "king_ai_console.dart").read_text(encoding="utf-8")
+        self.assertIn("bool _initialProjectRequestSubmitted = false;", console)
+        start = console.index("Future<void> _maybeCreateInitialProject()")
+        end = console.index("Future<void> _createStandaloneProject", start)
+        flow = console[start:end]
+        self.assertIn("widget.initialProjectRequest?.trim().length", flow)
+        self.assertIn("_ownerAuth.hasActiveSession", flow)
+        self.assertIn("_ai.isLoaded", flow)
+        self.assertIn("_reauthenticateOwnerForCodeChange()", flow)
+        self.assertIn("_createStandaloneProject(ownerReauthenticated: true)", flow)
+        self.assertIn("_maybeCreateInitialProject();", console)
+
+
 if __name__ == "__main__":
     unittest.main()
