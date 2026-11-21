@@ -4091,6 +4091,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("d['servers'] = merged;", global_block)
         self.assertNotIn("d['servers'] = <dynamic>[", global_block)
 
+    def test_plugin_tun_inbound_patch_preserves_king_dns_hijack(self):
+        patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+        self.assertIn("utilities = find_java('Utilities.java')", patch)
+        self.assertIn('"king-vpn-dns-hijack".equals(rule.optString("ruleTag"))', patch)
+        self.assertIn("P1 DNS: preserve King VPN DNS hijack before plugin fallback", patch)
+
     def test_reliable_config_hijacks_udp_and_tcp_dns_into_xray_builtin_resolver(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = source.index('String _reliableVpnCfg(String cfg)')
