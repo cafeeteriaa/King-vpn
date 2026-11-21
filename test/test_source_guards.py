@@ -4567,6 +4567,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         pilot = (ROOT / 'lib' / 'king_ai_provider_pilot.dart').read_text(encoding='utf-8')
         local = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
         self.assertIn('Future<String?> consultKing(', pilot)
+        self.assertIn('const freeCandidates = <KingAiProvider>{', pilot)
+        self.assertIn('freeCandidates.contains(provider)', pilot)
         self.assertNotIn('Future<String> ask(', pilot)
         self.assertIn('You are NOT the user\'s chat assistant', pilot)
         self.assertIn('final localDraft = await _generateLocalOnly(', local)
