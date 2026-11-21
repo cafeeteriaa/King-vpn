@@ -4,7 +4,6 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'king_ai_console.dart';
 import 'king_local_ai.dart';
-import 'king_ai_provider_pilot.dart';
 import 'king_voice_output.dart';
 
 class KingChatPage extends StatefulWidget {
@@ -17,14 +16,6 @@ class _KingChatPageState extends State<KingChatPage> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
   final _speech = stt.SpeechToText();
-  final _geminiKeyController = TextEditingController();
-  final _groqKeyController = TextEditingController();
-  final _mistralKeyController = TextEditingController();
-  final _openRouterKeyController = TextEditingController();
-  final _cloudflareTokenController = TextEditingController();
-  final _cloudflareAccountController = TextEditingController();
-  bool _cloudEnabled = false;
-  Map<KingAiProvider, bool> _providerConfigured = <KingAiProvider, bool>{};
   final List<Map<String, Object>> _messages = [
     {'text': 'سلام! من کینگ هستم. هر موضوعی دوست داری مطرح کن؛ می‌توانیم گفت‌وگو کنیم، سؤال حل کنیم یا چیزی یاد بگیریم.', 'king': true},
   ];
@@ -35,20 +26,8 @@ class _KingChatPageState extends State<KingChatPage> {
   String? _notice, _locale;
 
   @override
-  void initState() {
-    super.initState();
-    unawaited(_loadProviderSettings());
-  }
-
-  @override
   void dispose() {
     _input.dispose();
-    _geminiKeyController.dispose();
-    _groqKeyController.dispose();
-    _mistralKeyController.dispose();
-    _openRouterKeyController.dispose();
-    _cloudflareTokenController.dispose();
-    _cloudflareAccountController.dispose();
     _scroll.dispose();
     unawaited(_speech.cancel());
     unawaited(KingVoiceOutput.instance.stop());
@@ -75,15 +54,9 @@ class _KingChatPageState extends State<KingChatPage> {
     _add(prompt, false);
     setState(() { _busy = true; _notice = null; });
     try {
-      final answer = await KingAiProviderPilot.instance.ask(
-        prompt,
-        localFallback: () => KingLocalAi.instance.ask(prompt, maxTokens: 1400),
-      );
+      final answer = await KingLocalAi.instance.ask(prompt, maxTokens: 1400);
       if (!mounted) return;
       _add(answer, true);
-      if (mounted) {
-        setState(() => _notice = 'پاسخ از ${KingAiProviderPilot.instance.lastUsedProvider} دریافت شد.');
-      }
       // Do not start late audio if the chat page closed during local inference.
       if (mounted && (_speak || voice)) {
         try {
@@ -267,248 +240,6 @@ class _KingChatPageState extends State<KingChatPage> {
     }
   }
 
-  Future<void> _loadProviderSettings() async {
-    try {
-      final pilot = KingAiProviderPilot.instance;
-      final enabled = await pilot.cloudEnabled;
-      final configured = await pilot.configuredProviders();
-      if (!mounted) return;
-      setState(() {
-        _cloudEnabled = enabled;
-        _providerConfigured = configured;
-      });
-    } catch (error) {
-      if (mounted) setState(() => _notice = 'بارگذاری تنظیمات هوش مصنوعی ناموفق بود: $error');
-    }
-  }
-
-  Future<void> _saveProviderSettings() async {
-    final pilot = KingAiProviderPilot.instance;
-    try {
-      final entries = <KingAiProvider, String>{
-        KingAiProvider.gemini: _geminiKeyController.text,
-        KingAiProvider.groq: _groqKeyController.text,
-        KingAiProvider.mistral: _mistralKeyController.text,
-        KingAiProvider.openRouter: _openRouterKeyController.text,
-        KingAiProvider.cloudflare: _cloudflareTokenController.text,
-      };
-      for (final entry in entries.entries) {
-        if (entry.value.trim().isNotEmpty) {
-          await pilot.saveKey(entry.key, entry.value);
-        }
-      }
-      if (_cloudflareAccountController.text.trim().isNotEmpty) {
-        await pilot.saveCloudflareAccountId(_cloudflareAccountController.text);
-      }
-      await pilot.setCloudEnabled(_cloudEnabled);
-      for (final controller in [
-        _geminiKeyController,
-        _groqKeyController,
-        _mistralKeyController,
-        _openRouterKeyController,
-        _cloudflareTokenController,
-        _cloudflareAccountController,
-      ]) {
-        controller.clear();
-      }
-      await _loadProviderSettings();
-      if (mounted) {
-        setState(() => _notice =
-            'کلیدها در حافظه امن Android ذخیره شدند. وضعیت اتصال ابری: '
-            '${_cloudEnabled ? 'فعال' : 'خاموش'}؛ برای اعمال، پیام بعدی را بفرست.');
-      }
-    } catch (error) {
-      if (mounted) setState(() => _notice = 'ذخیره تنظیمات انجام نشد: $error');
-    }
-  }
-
-  Future<void> _setCloudEnabled(bool value) async {
-    setState(() => _cloudEnabled = value);
-    try {
-      await KingAiProviderPilot.instance.setCloudEnabled(value);
-      if (mounted) {
-        setState(() => _notice = value
-            ? 'هوش ابری فعال شد؛ متن پیام‌های بعدی ممکن است به ارائه‌دهنده‌های انتخاب‌شده ارسال شود.'
-            : 'هوش ابری خاموش شد؛ پاسخ‌گویی فقط از مسیر مدل محلی انجام می‌شود.');
-      }
-    } catch (error) {
-      if (mounted) setState(() => _notice = 'تغییر وضعیت هوش ابری ناموفق بود: $error');
-    }
-  }
-
-  Future<void> _clearProviderKeys() async {
-    final accepted = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          title: const Text('حذف کلیدهای هوش مصنوعی؟'),
-          content: const Text('همه کلیدهای Gemini، Groq، Mistral، OpenRouter و Cloudflare از حافظه امن گوشی پاک می‌شوند و هوش ابری خاموش خواهد شد.'),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('انصراف')),
-            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('حذف کلیدها')),
-          ],
-        ),
-      ),
-    );
-    if (accepted != true || !mounted) return;
-    try {
-      for (final provider in KingAiProvider.values) {
-        await KingAiProviderPilot.instance.clearKey(provider);
-      }
-      await KingAiProviderPilot.instance.setCloudEnabled(false);
-      await _loadProviderSettings();
-      if (mounted) setState(() {
-        _cloudEnabled = false;
-        _notice = 'همه کلیدهای ارائه‌دهندگان از حافظه امن حذف شدند.';
-      });
-    } catch (error) {
-      if (mounted) setState(() => _notice = 'حذف کلیدها ناموفق بود: $error');
-    }
-  }
-
-  Widget _providerKeyField({
-    required String label,
-    required TextEditingController controller,
-    required bool configured,
-    String? hint,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: TextField(
-        controller: controller,
-        obscureText: true,
-        autocorrect: false,
-        enableSuggestions: false,
-        decoration: InputDecoration(
-          labelText: label,
-          hintText: configured ? 'کلید ذخیره شده؛ برای جایگزینی کلید جدید وارد کن' : (hint ?? 'کلید API را وارد کن'),
-          suffixIcon: Icon(
-            configured ? Icons.verified_user_outlined : Icons.key_outlined,
-            color: configured ? Colors.green : null,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildProjectGuide(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      margin: const EdgeInsets.fromLTRB(10, 4, 10, 8),
-      child: ExpansionTile(
-        leading: const Icon(Icons.menu_book_outlined),
-        title: const Text('راهنمای کامل King VPN و King AI'),
-        subtitle: const Text('معرفی اجزای پروژه، خلبان‌ها و محل واردکردن کلیدهای API'),
-        children: [
-          ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(context).height * .48,
-            ),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('۱) King VPN چیست؟', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 4),
-                  const Text('King VPN یک برنامه اندرویدی Flutter/Dart است. مسیر VPN موجود بر پایه هسته Xray/V2Ray نگهداری می‌شود. هدف اصلی، اتصال پایدار به اینترنت داخلی و جهانی، پشتیبانی IPv4 و IPv6، مدیریت DNS و مسیریابی، تشخیص خرابی مسیر و بازیابی امن اتصال است.'),
-                  const SizedBox(height: 10),
-                  const Text('۲) خلبان هوشمند شبکه (VPN Smart Pilot)', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 4),
-                  const Text('این خلبان مستقل از سرویس‌های ابری کار می‌کند. شواهد شبکه داخلی و جهانی را جداگانه می‌سنجد، از نمونه‌های متعدد و بررسی TLS استفاده می‌کند و در صورت ناقص یا متناقض بودن شواهد، بی‌دلیل مسیر فعال را عوض نمی‌کند. تصمیم‌های اتصال، انتخاب مسیر، failover و سلامت تونل نباید به Gemini یا هیچ API خارجی وابسته شوند.'),
-                  const SizedBox(height: 10),
-                  const Text('۳) مغز محلی King AI', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 4),
-                  const Text('مدل محلی Qwen روی خود گوشی اجرا می‌شود و مسیر پایه برای گفت‌وگو و کار آفلاین است. حافظه گفت‌وگو در فضای امن دستگاه نگهداری می‌شود. اگر اینترنت یا APIها قطع شوند، قابلیت‌های محلیِ آماده همچنان قابل استفاده‌اند.'),
-                  const SizedBox(height: 10),
-                  const Text('۴) خلبان هوش مصنوعی ارائه‌دهندگان', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 4),
-                  const Text('این خلبان جدا از VPN Smart Pilot است. بر اساس نوع درخواست، ابتدا ارائه‌دهنده مناسب را امتحان می‌کند؛ اگر سهمیه تمام شده باشد یا سرویس پاسخ ندهد، به ارائه‌دهنده بعدی و در نهایت مدل محلی برمی‌گردد. فقط کلیدهایی استفاده می‌شوند که خودت وارد کرده‌ای و گزینه هوش ابری را روشن کرده‌ای.'),
-                  const SizedBox(height: 10),
-                  const Text('۵) کلیدهای API را دقیقاً کجا وارد کنم؟', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 4),
-                  const Text('همین راهنما زیر کادر نوشتن پیام قرار دارد. این بخش را باز کن، کلید هر سرویس را در کادر همان سرویس بچسبان، در صورت استفاده از Cloudflare شناسه حساب را هم وارد کن، سپس «ذخیره امن کلیدها» را بزن. کلیدها در Android Secure Storage ذخیره می‌شوند و پس از ذخیره، کادرها خالی می‌شوند. هیچ کلیدی را داخل چت، فایل Dart، APK یا GitHub قرار نده.'),
-                  const SizedBox(height: 10),
-                  const Text('راهنمای دریافت کلیدها', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 4),
-                  const Text('• Gemini: از Google AI Studio بخش Get API key.\n• Groq: از Groq Console بخش API Keys.\n• Mistral: از Mistral La Plateforme بخش API keys.\n• OpenRouter: از صفحه Keys در OpenRouter؛ فقط مدل‌هایی که شناسه آن‌ها به :free ختم می‌شود یا مسیر رایگان رسمی را انتخاب کن.\n• Cloudflare: از داشبورد Cloudflare یک API Token با مجوز لازم Workers AI بساز و Account ID را از صفحه حساب بردار.'),
-                  const SizedBox(height: 10),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    value: _cloudEnabled,
-                    onChanged: _setCloudEnabled,
-                    title: const Text('اجازه استفاده از ارائه‌دهندگان ابری رایگان'),
-                    subtitle: const Text('با روشن‌کردن این گزینه، متن درخواست‌ها برای سرویس‌های دارای کلید ارسال می‌شود.'),
-                  ),
-                  _providerKeyField(
-                    label: 'کلید Gemini',
-                    controller: _geminiKeyController,
-                    configured: _providerConfigured[KingAiProvider.gemini] == true,
-                    hint: 'کلید Google AI Studio',
-                  ),
-                  _providerKeyField(
-                    label: 'کلید Groq',
-                    controller: _groqKeyController,
-                    configured: _providerConfigured[KingAiProvider.groq] == true,
-                  ),
-                  _providerKeyField(
-                    label: 'کلید Mistral',
-                    controller: _mistralKeyController,
-                    configured: _providerConfigured[KingAiProvider.mistral] == true,
-                  ),
-                  _providerKeyField(
-                    label: 'کلید OpenRouter',
-                    controller: _openRouterKeyController,
-                    configured: _providerConfigured[KingAiProvider.openRouter] == true,
-                  ),
-                  _providerKeyField(
-                    label: 'توکن Cloudflare Workers AI',
-                    controller: _cloudflareTokenController,
-                    configured: _providerConfigured[KingAiProvider.cloudflare] == true,
-                  ),
-                  _providerKeyField(
-                    label: 'Cloudflare Account ID',
-                    controller: _cloudflareAccountController,
-                    configured: _providerConfigured[KingAiProvider.cloudflare] == true,
-                    hint: 'شناسه ۳۲ رقمی حساب Cloudflare',
-                  ),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      FilledButton.icon(
-                        onPressed: _busy ? null : _saveProviderSettings,
-                        icon: const Icon(Icons.save_outlined),
-                        label: const Text('ذخیره امن کلیدها'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: _busy ? null : _clearProviderKeys,
-                        icon: const Icon(Icons.delete_outline),
-                        label: const Text('حذف همه کلیدها'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  const Text('۶) محدودیت رایگان و حریم خصوصی', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 4),
-                  const Text('رایگان‌بودن به معنی نامحدودبودن نیست؛ هر سرویس سقف درخواست، توکن یا سهمیه روزانه دارد و ممکن است شرایطش را تغییر دهد. در نسخه فعلی این اتصال، APIها برای گفت‌وگوی متنی استفاده می‌شوند؛ تولید و ویرایش تصویر یا ویدئو خودکار از این کلیدها تضمین نمی‌شود و بعضی مدل‌های تولید تصویر/ویدئو پولی هستند. Gemini Free Tier ممکن است محتوای ارسالی را برای بهبود سرویس‌های Google استفاده کند؛ اطلاعات محرمانه، رمزها، کلیدها و کانفیگ‌های خصوصی VPN را برای مدل ابری نفرست.'),
-                  const SizedBox(height: 10),
-                  const Text('۷) توسعه‌دهنده و امنیت پروژه', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 4),
-                  const Text('تغییر سورس King VPN فقط از مسیر توسعه‌دهنده و پس از احراز هویت مالک مجاز است. خلبان ارائه‌دهندگان فقط پاسخ تولید می‌کند و دسترسی نوشتن به GitHub، فایل‌های پروژه یا تنظیمات VPN ندارد. پیشنهادهای کد باید از مسیر مالک، شاخه مستقل، تست، تحلیل ایستا و Pull Request قابل بازبینی عبور کنند؛ ادغام خودکار در main مجاز نیست.'),
-                  const SizedBox(height: 10),
-                  Text('وضعیت ذخیره کلیدها: ${_providerConfigured.values.where((value) => value).length} ارائه‌دهنده از ۵ ارائه‌دهنده کلید کامل دارد. گزینه هوش ابری ${_cloudEnabled ? 'روشن' : 'خاموش'} است.',
-                      style: theme.textTheme.bodySmall),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _clearMemory() async {
     final accepted = await showDialog<bool>(
       context: context,
@@ -612,37 +343,31 @@ class _KingChatPageState extends State<KingChatPage> {
                 child: Text(_notice!, style: Theme.of(context).textTheme.bodySmall)),
           SafeArea(
             top: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 8, 10, 4),
-                  child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                    IconButton.filledTonal(
-                      tooltip: _listening ? 'توقف ضبط' : 'صحبت کن',
-                      onPressed: _busy ? null : _listen,
-                      icon: Icon(_listening ? Icons.mic : Icons.mic_none,
-                          color: _listening ? Colors.redAccent : null),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: TextField(
-                        controller: _input, minLines: 1, maxLines: 5,
-                        textInputAction: TextInputAction.send,
-                        onSubmitted: (_) => _send(),
-                        decoration: InputDecoration(
-                          hintText: 'هر چیزی دوست داری از کینگ بپرس...',
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(22)),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    IconButton.filled(onPressed: _busy ? null : _send, icon: const Icon(Icons.send_rounded)),
-                  ]),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                IconButton.filledTonal(
+                  tooltip: _listening ? 'توقف ضبط' : 'صحبت کن',
+                  onPressed: _busy ? null : _listen,
+                  icon: Icon(_listening ? Icons.mic : Icons.mic_none,
+                      color: _listening ? Colors.redAccent : null),
                 ),
-                _buildProjectGuide(context),
-              ],
+                const SizedBox(width: 6),
+                Expanded(
+                  child: TextField(
+                    controller: _input, minLines: 1, maxLines: 5,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _send(),
+                    decoration: InputDecoration(
+                      hintText: 'هر چیزی دوست داری از کینگ بپرس...',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(22)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                IconButton.filled(onPressed: _busy ? null : _send, icon: const Icon(Icons.send_rounded)),
+              ]),
             ),
           ),
         ]),
