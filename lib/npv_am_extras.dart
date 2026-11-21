@@ -1130,23 +1130,39 @@ String withNpvAmCore(String cfg) {
           : (customDnsList() ?? _dnsUrls[effectiveDnsProv()] ?? _dnsUrls['cloudflare']!);
       final ips = <dynamic>[];
       final doh = <dynamic>[];
-      void addResolver(String value) {
+      final structured = <dynamic>[];
+      final resolverKeys = <String>{};
+      void addResolver(dynamic raw) {
+        // Xray supports object-form DNS servers (address, port, domains,
+        // expectIPs, etc.). Keep these objects intact instead of turning
+        // Map.toString() into an invalid resolver address.
+        if (raw is Map) {
+          final key = jsonEncode(raw);
+          if (resolverKeys.add(key)) {
+            structured.add(Map<String, dynamic>.from(raw));
+          }
+          return;
+        }
+        final value = raw.toString().trim();
+        if (value.isEmpty) return;
+        final key = value.toLowerCase();
+        if (!resolverKeys.add(key)) return;
         if (value.startsWith('https://')) {
-          if (!doh.contains(value)) doh.add(value);
-        } else if (!ips.contains(value)) {
+          doh.add(value);
+        } else {
           ips.add(value);
         }
       }
       // National: Iranian resolvers first, imported/custom and global fallback later.
-      for (final value in first) { addResolver(value.toString()); }
+      for (final value in first) { addResolver(value); }
       final existingServers = d['servers'];
       if (existingServers is List) {
-        for (final value in existingServers) { addResolver(value.toString()); }
+        for (final value in existingServers) { addResolver(value); }
       }
       for (final entry in _dnsUrls.entries) {
         for (final value in entry.value) { addResolver(value); }
       }
-      d['servers'] = [...ips, ...doh];
+      d['servers'] = [...ips, ...doh, ...structured];
       d['queryStrategy'] = 'UseIP';
       j['dns'] = d;
       final rt = j['routing'] is Map ? j['routing'] as Map : <String, dynamic>{};
