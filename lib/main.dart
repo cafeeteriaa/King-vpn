@@ -17234,7 +17234,7 @@ List<Server> _natDomesticFirst(List<Server> list) {
 List<Server> _natDomesticFirstKeepWinners(List<Server> list) =>
     _natDomesticFirst(list);
 
-// رتبه نت ملی: برندگان قبلی > منبع ایران‌محور > Reality > IR > CDN
+// رتبه نت ملی: ترافیک ملی تأییدشده > ASN ایران > Reality > CDN؛ برچسب منبع/کشور امتیاز نمی‌دهد.
 // فیکس ۹: نتیجه روی خود Server کش می‌شود تا در sort هزاران سرور، toLowerCase + چندین contains
 // دوباره و دوباره اجرا نشود. natGood مدام تغییر می‌کند پس همیشه زنده چک می‌شود؛ بقیه‌ی منطق
 // (همان بدنه‌ی قبلی) در _natRankCompute است.
@@ -17253,14 +17253,12 @@ int _natRank(Server s) {
   return r;
 }
 
-int _natRankCompute(Server s) {
-  if (natGood.contains(s.key)) return 5;
-  if (_natSrc(s)) return 4;
-  if (s.reality) return 3;
-  if (s.country == 'IR' || _natIsIranAsnIp(s.host)) return 2;
-  if (s.cdn) return 1;
-  return 0;
-}
+int _natRankCompute(Server s) => natDomesticCandidateRank(
+      verifiedNational: natGood.contains(s.key),
+      iranAsnAddress: _natIsIranAsnIp(s.host),
+      reality: s.reality,
+      cdn: s.cdn,
+    );
 
 Future<void> _natAdd(Server s) async {
   natGood.add(s.key); // FOLDERONLY: the folder keeps them, no file
