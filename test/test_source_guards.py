@@ -3158,7 +3158,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (expectedStartId == latestStartId)', cleanup)
         self.assertIn('latestStopRequestId == expectedStartId', cleanup)
         self.assertIn('stopSelfResult(expectedStartId);', cleanup)
-        self.assertNotIn('stopping = false;', cleanup)
+        self.assertIn('if (expectedStartId != latestStartId', cleanup)
+        self.assertIn('&& latestStopRequestId == expectedStartId)', cleanup)
+        self.assertIn('stopping = false;', cleanup)
 
 if __name__ == '__main__':
     unittest.main()
