@@ -667,8 +667,21 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             }
         }, "KingVpnCoreStop");
         t.setDaemon(true);
-        beginNative("stopCore");
-        t.start();
+        try {
+            // If the watchdog or worker thread cannot be created (for example under
+            // memory pressure), do not leave the core permanently marked as stopping.
+            beginNative("stopCore");
+            t.start();
+        } catch (Throwable startError) {
+            endNative();
+            synchronized (tunLock) {
+                coreStopping = false;
+                // The core may still be live; keep its TUN until a later verified stop.
+                closeTunAfterCoreStop = true;
+            }
+            Log.e(TAG, "could not launch native core stop worker; retaining TUN", startError);
+            return false;
+        }
         try {
             t.join(STOP_CORE_WAIT_MS);
         } catch (InterruptedException ie) {
