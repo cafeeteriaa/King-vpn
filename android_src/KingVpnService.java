@@ -21,6 +21,7 @@ import java.net.InetSocketAddress;
 import java.net.NoRouteToHostException;
 import java.net.Proxy;
 import java.net.SocketTimeoutException;
+import java.net.Socket;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -1151,8 +1152,30 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         return worst;
     }
 
+    /** Check the loopback listener separately from the remote destination.
+     * A failed local preflight is missing evidence; after a successful preflight,
+     * a failed request is evidence that the proxy could not reach its destination.
+     */
+    private boolean isLocalHttpInboundAvailable() {
+        Socket socket = null;
+        try {
+            socket = new Socket();
+            socket.connect(new InetSocketAddress("127.0.0.1", LOCAL_HTTP_PORT),
+                    CHECK_TIMEOUT_MS);
+            return true;
+        } catch (Exception e) {
+            return false;
+        } finally {
+            if (socket != null) {
+                try { socket.close(); } catch (Exception ignored) {}
+            }
+        }
+    }
+
     private ProbeResult probeOne(String url) {
         HttpURLConnection c = null;
+        // Do not mistake a missing local inbound for a failed remote tunnel.
+        if (!isLocalHttpInboundAvailable()) return ProbeResult.INCONCLUSIVE;
         try {
             Proxy p = new Proxy(Proxy.Type.HTTP,
                     new InetSocketAddress("127.0.0.1", LOCAL_HTTP_PORT));
@@ -1171,10 +1194,12 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             boolean healthy = expects204 ? code == HttpURLConnection.HTTP_NO_CONTENT
                     : (code >= 200 && code < 300);
             return healthy ? ProbeResult.OK : ProbeResult.SOFT_FAIL;
-        } catch (ConnectException | NoRouteToHostException e) {
-            // The refused socket is the loopback HTTP inbound, not proof that the
-            // remote VPN path is broken. Treat it as missing evidence, not a failure.
-            return ProbeResult.INCONCLUSIVE;
+        } catch (ConnectException | NoRouteToHostException | SocketTimeoutException e) {
+            // The local listener was reachable immediately before the request.
+            // Recheck it to cover a shutdown race; otherwise the failure belongs
+            // to the proxied destination path and is valid negative evidence.
+            return isLocalHttpInboundAvailable()
+                    ? ProbeResult.SOFT_FAIL : ProbeResult.INCONCLUSIVE;
         } catch (Exception e) {
             return ProbeResult.SOFT_FAIL;
         } finally {
