@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../lib/network_health.dart';
 
 void main() {
@@ -178,4 +179,63 @@ void main() {
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.offline);
     });
   });
+  group('Persistent domestic/global route history', () {
+    TestWidgetsFlutterBinding.ensureInitialized();
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      await PilotRouteHistory.resetForTesting();
+    });
+
+    test('stores aggregate evidence by coarse network group', () async {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 3,
+        globalSuccesses: 0,
+        domesticLatencyMs: 145,
+        domesticTlsReachabilityVerified: true,
+      );
+      await PilotRouteHistory.record(
+        networkGroup: 'mob|AS12345',
+        evidence: evidence,
+      );
+      final saved = PilotRouteHistory.forNetwork('mob|AS12345');
+      expect(saved?['observations'], 1);
+      expect(saved?['domesticSuccesses'], 3);
+      expect(saved?['globalSamples'], 3);
+      expect(saved?['domesticOnly'], 1);
+      expect(saved?['domesticLatencyEwmaMs'], 145.0);
+    });
+
+    test('rejects incomplete samples and identifying network labels', () async {
+      const incomplete = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 1,
+        globalSamples: 3,
+        domesticSuccesses: 1,
+      );
+      await PilotRouteHistory.record(
+        networkGroup: 'mob|AS12345',
+        evidence: incomplete,
+      );
+      const complete = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 2,
+      );
+      await PilotRouteHistory.record(
+        networkGroup: 'mob|AS12345|subscriber=private',
+        evidence: complete,
+      );
+      expect(PilotRouteHistory.forNetwork('mob|AS12345'), isNull);
+      expect(PilotRouteHistory.forNetwork('mob|AS12345|subscriber=private'), isNull);
+    });
+  });
+
 }
