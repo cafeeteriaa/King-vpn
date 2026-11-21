@@ -4347,11 +4347,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         aggregate_end = source.index('private ProbeResult probeOne(String url)', aggregate_start)
         aggregate = source[aggregate_start:aggregate_end]
         self.assertIn('ProbeResult worst = ProbeResult.INCONCLUSIVE;', aggregate)
-        self.assertIn('private boolean isLocalHttpInboundAvailable()', probe)
+        self.assertIn('private boolean isLocalHttpInboundAvailable()', source)
+        self.assertIn('socket.connect(new InetSocketAddress("127.0.0.1", LOCAL_HTTP_PORT)', source)
         self.assertIn('if (!isLocalHttpInboundAvailable()) return ProbeResult.INCONCLUSIVE;', probe)
         self.assertIn('return isLocalHttpInboundAvailable()', probe)
         self.assertIn('? ProbeResult.SOFT_FAIL : ProbeResult.INCONCLUSIVE;', probe)
-        self.assertIn('socket.connect(new InetSocketAddress("127.0.0.1", LOCAL_HTTP_PORT)', probe)
 
 
     def test_plain_fallback_keeps_native_watchdog_http_inbound_without_policy_rewrite(self):
