@@ -4068,6 +4068,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
                         arm.index('NationalNetworkIntelligence.armStable('))
 
 
+    def test_active_plugin_ipv6_route_setup_fails_closed(self):
+        patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+        self.assertIn('P1 IPv6 route must fail closed', patch)
+        self.assertIn('builder.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);', patch)
+        self.assertIn('builder.addRoute("::", 0);', patch)
+        self.assertIn('IPv6 route setup failed; refusing a partial VPN', patch)
+        # The catch must abort VPN establishment, not merely log and continue.
+        start = patch.index('P1 IPv6 route must fail closed')
+        block = patch[start:patch.index('FIX #49: the app is not excluded', start)]
+        self.assertIn('return false;', block)
+
     def test_vpn_establish_fails_closed_when_ipv6_route_cannot_be_installed(self):
         source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = source.index('private ParcelFileDescriptor establish(V2rayConfig cfg)')
