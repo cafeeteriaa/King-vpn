@@ -468,7 +468,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             int idx = (first + k) % n;
             Srv s = servers.get(idx);
             Log.i(TAG, "starting server " + idx + "/" + n + " " + s.remark);
-            if (bringUpWithTimeout(s)) {
+            if (bringUpWithTimeout(s, expectedStartId)) {
                 if (stopping || expectedStartId != latestStartId) return false;
                 currentIdx = idx;
                 fails = 0;
@@ -489,7 +489,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * afterwards. There is no join-and-continue: the next attempt does not start
      * the core until it holds coreLock, which the orphan releases only when it is done.
      */
-    private boolean bringUpWithTimeout(Srv s) {
+    private boolean bringUpWithTimeout(Srv s, int expectedStartId) {
         final int myAttempt = attemptSeq.incrementAndGet();
         final boolean[] result = {false};
         final Object waitLock = new Object();
@@ -523,7 +523,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         synchronized (waitLock) {
             long deadline = System.currentTimeMillis() + BRING_UP_TIMEOUT_MS;
             while (!done[0]) {
-                if (stopping) break; // جدید: a Stop cancels this wait at once instead of up to 20 s
+                // Stop and a newer ACTION_START both cancel this wait. Do not let a
+                // superseded config occupy the serialized worker until the 20 s timeout.
+                if (stopping || expectedStartId != latestStartId) break;
                 long remaining = deadline - System.currentTimeMillis();
                 if (remaining <= 0) break;
                 try {
@@ -533,17 +535,21 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                     break;
                 }
             }
-            if (done[0]) return result[0];
+            if (done[0]) {
+                return result[0] && !stopping && expectedStartId == latestStartId;
+            }
         }
-        // Not finished: either a Stop arrived or the timeout expired. Supersede this attempt
-        // BEFORE reporting, so that if it returns later from startCore it sees it is stale.
-        attemptSeq.incrementAndGet();
-        if (stopping) {
-            lastError = "stopped by user"; // جدید
-            Log.i(TAG, lastError + " for " + s.remark);
-        } else {
+        // A stop/new start already advanced the attempt generation. Only a genuine
+        // timeout may advance it here; a stale worker must not invalidate a newer start.
+        if (expectedStartId == latestStartId && !stopping) {
+            attemptSeq.incrementAndGet();
             lastError = "bringUp timed out after " + (BRING_UP_TIMEOUT_MS / 1000) + "s";
             Log.e(TAG, lastError + " for " + s.remark);
+        } else if (stopping) {
+            lastError = "stopped by user";
+            Log.i(TAG, lastError + " for " + s.remark);
+        } else {
+            Log.i(TAG, "discarding superseded VPN attempt for " + s.remark);
         }
         return false;
     }

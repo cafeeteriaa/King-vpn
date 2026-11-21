@@ -144,6 +144,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (stopping || expectedStartId != latestStartId) return;', retry)
 
 
+
+    def test_superseded_native_start_does_not_wait_for_old_bringup_timeout(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertIn('private boolean bringUpWithTimeout(Srv s, int expectedStartId)', source)
+        start = source.index('private boolean bringUpWithTimeout(')
+        end = source.index('private static void closeQuietly', start)
+        attempt = source[start:end]
+        self.assertIn('expectedStartId != latestStartId', attempt)
+        self.assertIn('if (done[0]) {', attempt)
+        self.assertIn('return result[0] && !stopping && expectedStartId == latestStartId;', attempt)
+        self.assertIn('if (expectedStartId == latestStartId && !stopping)', attempt)
+        self.assertNotIn('attemptSeq.incrementAndGet();\n        if (stopping)', attempt)
+
+
     def test_native_watchdog_and_delayed_retry_are_bound_to_their_start_generation(self):
         source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = source.index('private void checkOnce()')
