@@ -4528,6 +4528,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('brief.substring(0, index)', brief)
         self.assertIn('3200', brief)
 
+    def test_vpn_smart_pilot_remains_local_and_never_calls_cloud_helpers(self):
+        local = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        start = local.index('Future<String> askPilot(')
+        end = local.index('Future<String> generateProjectText(', start)
+        pilot = local[start:end]
+        self.assertIn('engine.generate(', pilot)
+        self.assertNotIn('consultKing(', pilot)
+        self.assertNotIn('KingAiProviderPilot', pilot)
+        ordinary = local[local.index('Future<String> _generateWithSystemPrompt('):
+                        local.index('Future<String> _generateLocalOnly(', local.index('Future<String> _generateWithSystemPrompt('))]
+        self.assertIn('consultKing(', ordinary)
+
     def test_provider_helpers_cannot_control_vpn_or_claim_tool_execution(self):
         pilot = (ROOT / 'lib' / 'king_ai_provider_pilot.dart').read_text(encoding='utf-8')
         self.assertIn('Do not claim you ran code, tests, builds, media edits or network measurements.', pilot)
