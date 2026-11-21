@@ -2,6 +2,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:king_vpn/nat_ip_scan.dart';
 
 void main() {
+  group('dual-stack scanner endpoint helpers', () {
+    test('exact host CIDR preserves IPv4 and IPv6 as single hosts', () {
+      expect(natExactHostCidr('192.0.2.8'), '192.0.2.8/32');
+      expect(natExactHostCidr('2001:db8::8'), '2001:db8::8/128');
+      expect(natExactHostCidr('not-an-ip'), isNull);
+    });
+    test('persisted scanner endpoints accept valid IPv4 and IPv6 only', () {
+      expect(natIsIpPortCandidate('192.0.2.8|443'), isTrue);
+      expect(natIsIpPortCandidate('2001:db8::8|443'), isTrue);
+      expect(natIsIpPortCandidate('2001:db8::8|0'), isFalse);
+      expect(natIsIpPortCandidate('example.com|443'), isFalse);
+      expect(natIsIpPortCandidate('192.0.2.8|70000'), isFalse);
+    });
+  });
+
   group('IP range expansion limits', () {
     test('CIDR expansion rejects non-positive output limits', () {
       expect(natExpandCidr('10.0.0.0/24', maxPerBlock: 0), isEmpty);
