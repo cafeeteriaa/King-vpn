@@ -1439,6 +1439,7 @@ int natVarFor(Server s) {
   final rawV = natVar[_nk(s)] ?? 0;
   final v = natSafeVariant(rawV);
   if (v <= 0) return 0;
+  if (!_natAppliesF(_NatFacts(s), v)) return 0;
   final x = _natSpecs[v];
   if (x.noise) return 0;
   if (x.mode != null && !x.mode!.startsWith('kcp:')) return 0;
