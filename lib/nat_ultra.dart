@@ -2562,19 +2562,30 @@ Future<T> _hotSerialize<T>(Future<T> Function() action) {
 }
 
 Future<void>? _hotEnsureFuture;
+bool _hotEnsureRunningForce = false;
 
 Future<void> natHotEnsure({bool force = false}) async {
   final active = _hotEnsureFuture;
   if (active != null) {
+    // A forced refresh must not be swallowed by an ordinary refresh already
+    // in flight. If the active operation is itself forced, joining it is enough.
+    final activeWasForced = _hotEnsureRunningForce;
     await active;
+    if (force && !activeWasForced) {
+      await natHotEnsure(force: true);
+    }
     return;
   }
   final task = _hotSerialize<void>(() => _natHotEnsureImpl(force: force));
   _hotEnsureFuture = task;
+  _hotEnsureRunningForce = force;
   try {
     await task;
   } finally {
-    if (identical(_hotEnsureFuture, task)) _hotEnsureFuture = null;
+    if (identical(_hotEnsureFuture, task)) {
+      _hotEnsureFuture = null;
+      _hotEnsureRunningForce = false;
+    }
   }
 }
 
