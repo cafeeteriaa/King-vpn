@@ -3,6 +3,31 @@ import '../lib/network_health.dart';
 
 void main() {
   group('Smart Pilot route policy', () {
+    test('IPv4 and IPv6 reachability are reported independently', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.unknown,
+        global: LinkHealth.healthy,
+        globalIpv4Samples: 3,
+        globalIpv4DnsSuccesses: 2,
+        globalIpv4TcpSuccesses: 1,
+        globalIpv6Samples: 3,
+        globalIpv6DnsSuccesses: 2,
+      );
+      expect(evidence.ipv4Reachability, IpFamilyReachability.tcpReachable);
+      expect(evidence.ipv6Reachability, IpFamilyReachability.dnsOnly);
+      // Family diagnostics do not silently force a route strategy.
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
+    });
+
+    test('missing family evidence stays unknown rather than blocked', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.unknown,
+        global: LinkHealth.unknown,
+      );
+      expect(evidence.ipv4Reachability, IpFamilyReachability.unknown);
+      expect(evidence.ipv6Reachability, IpFamilyReachability.unknown);
+    });
+
     test('confidence reaches 1.0 when all six dedicated probes are verified', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.healthy,

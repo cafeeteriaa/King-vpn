@@ -5,6 +5,10 @@ enum DetectedNetworkMode { unknown, domesticOnly, globalOnly, dualStack, offline
 /// Internal route selected by the single Smart Pilot controller.
 enum PilotNetworkStrategy { domestic, global, preserve, offline }
 
+/// Family-specific reachability is diagnostic only: missing evidence is unknown,
+/// never proof that the IP family is blocked.
+enum IpFamilyReachability { unknown, dnsOnly, tcpReachable }
+
 class NetworkEvidence {
   const NetworkEvidence({
     required this.domestic,
@@ -17,6 +21,12 @@ class NetworkEvidence {
     this.globalLatencyMs,
     this.domesticTlsReachabilityVerified = false,
     this.globalTlsReachabilityVerified = false,
+    this.globalIpv4Samples = 0,
+    this.globalIpv4DnsSuccesses = 0,
+    this.globalIpv4TcpSuccesses = 0,
+    this.globalIpv6Samples = 0,
+    this.globalIpv6DnsSuccesses = 0,
+    this.globalIpv6TcpSuccesses = 0,
   });
 
   final LinkHealth domestic;
@@ -29,6 +39,25 @@ class NetworkEvidence {
   final int? globalLatencyMs;
   final bool domesticTlsReachabilityVerified;
   final bool globalTlsReachabilityVerified;
+
+  /// Counts only the global targets explicitly resolved/tested per family.
+  final int globalIpv4Samples;
+  final int globalIpv4DnsSuccesses;
+  final int globalIpv4TcpSuccesses;
+  final int globalIpv6Samples;
+  final int globalIpv6DnsSuccesses;
+  final int globalIpv6TcpSuccesses;
+
+  IpFamilyReachability get ipv4Reachability =>
+      _familyReachability(globalIpv4DnsSuccesses, globalIpv4TcpSuccesses);
+  IpFamilyReachability get ipv6Reachability =>
+      _familyReachability(globalIpv6DnsSuccesses, globalIpv6TcpSuccesses);
+
+  static IpFamilyReachability _familyReachability(int dnsSuccesses, int tcpSuccesses) {
+    if (tcpSuccesses > 0) return IpFamilyReachability.tcpReachable;
+    if (dnsSuccesses > 0) return IpFamilyReachability.dnsOnly;
+    return IpFamilyReachability.unknown;
+  }
 
   DetectedNetworkMode get mode {
     if (domestic == LinkHealth.unknown && global == LinkHealth.unknown) {

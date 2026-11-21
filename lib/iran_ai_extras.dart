@@ -520,6 +520,12 @@ extension HomeExtras on _HomePageState {
         'verified=${evidence.globalTlsReachabilityVerified} '
         'latency=${evidence.globalLatencyMs ?? -1}ms '
         'confidence=${evidence.confidence.toStringAsFixed(2)}');
+    sb.writeln('Global IP-family TCP evidence (diagnostic only): '
+        'IPv4 dns=${evidence.globalIpv4DnsSuccesses}/${evidence.globalIpv4Samples} '
+        'tcp=${evidence.globalIpv4TcpSuccesses} ${evidence.ipv4Reachability.name}; '
+        'IPv6 dns=${evidence.globalIpv6DnsSuccesses}/${evidence.globalIpv6Samples} '
+        'tcp=${evidence.globalIpv6TcpSuccesses} ${evidence.ipv6Reachability.name}. '
+        'Unknown means unverified, not blocked.');
     sb.writeln('National diagnosis: ${natNetworkClassLabel(NatNetworkDiagnosis.current)}');
     if (c != null) {
       final history = NationalNetworkIntelligence.memoryFor(

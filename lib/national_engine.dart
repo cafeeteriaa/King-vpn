@@ -346,9 +346,18 @@ class NatNetworkDiagnosis {
   }
 }
 
+/// Result of a literal-IP family probe. DNS success is kept separate from
+/// TCP/443 success; a resolver answer alone is not path reachability.
+class _PilotIpProbe {
+  const _PilotIpProbe({required this.dnsOk, this.tcpMs});
+  final bool dnsOk;
+  final int? tcpMs;
+}
+
 /// Dedicated Smart Pilot link scanner. Its target inventory and results are
 /// independent from the general DNS/IP/SNI scanners and their user-defined ranges.
-/// It verifies TLS handshakes to a small fixed HTTPS endpoint set; it never sweeps subnets.
+/// It verifies TLS host reachability plus literal IPv4/IPv6 TCP/443 separately;
+/// it never sweeps subnets and never treats missing family evidence as blocked.
 class PilotNetworkProbe {
   static const List<String> domesticTargets = <String>[
     'www.aparat.com',
@@ -391,8 +400,14 @@ class PilotNetworkProbe {
     }
     final domesticFuture = Future.wait(domesticTargets.map(_probeHttps));
     final globalFuture = Future.wait(globalTargets.map(_probeHttps));
+    final ipv4Future = Future.wait(globalTargets.map(
+        (host) => _probeIpFamily(host, InternetAddressType.IPv4)));
+    final ipv6Future = Future.wait(globalTargets.map(
+        (host) => _probeIpFamily(host, InternetAddressType.IPv6)));
     final domestic = await domesticFuture;
     final global = await globalFuture;
+    final ipv4 = await ipv4Future;
+    final ipv6 = await ipv6Future;
     LinkHealth health(List<int?> samples) {
       final successes = samples.whereType<int>().length;
       if (successes >= 2) return LinkHealth.healthy;
@@ -410,13 +425,49 @@ class PilotNetworkProbe {
       globalLatencyMs: _median(global),
       domesticTlsReachabilityVerified: domestic.whereType<int>().length >= 2,
       globalTlsReachabilityVerified: global.whereType<int>().length >= 2,
+      globalIpv4Samples: ipv4.length,
+      globalIpv4DnsSuccesses: ipv4.where((sample) => sample.dnsOk).length,
+      globalIpv4TcpSuccesses: ipv4.where((sample) => sample.tcpMs != null).length,
+      globalIpv6Samples: ipv6.length,
+      globalIpv6DnsSuccesses: ipv6.where((sample) => sample.dnsOk).length,
+      globalIpv6TcpSuccesses: ipv6.where((sample) => sample.tcpMs != null).length,
     );
     _lastAt = DateTime.now();
     _lastIdentity = identity;
     dbg('PILOT-TLS-PROBE: domestic=${domestic.whereType<int>().length}/${domestic.length} '
         'global=${global.whereType<int>().length}/${global.length} '
-        'latencyDomestic=${_median(domestic)}ms latencyGlobal=${_median(global)}ms');
+        'latencyDomestic=${_median(domestic)}ms latencyGlobal=${_median(global)}ms '
+        'v4Dns=${_last.globalIpv4DnsSuccesses}/${_last.globalIpv4Samples} '
+        'v4Tcp=${_last.globalIpv4TcpSuccesses} '
+        'v6Dns=${_last.globalIpv6DnsSuccesses}/${_last.globalIpv6Samples} '
+        'v6Tcp=${_last.globalIpv6TcpSuccesses}');
     return _last;
+  }
+
+  static Future<_PilotIpProbe> _probeIpFamily(
+      String host, InternetAddressType type) async {
+    List<InternetAddress> addresses;
+    try {
+      addresses = await InternetAddress.lookup(host, type: type).timeout(_timeout);
+    } catch (_) {
+      return const _PilotIpProbe(dnsOk: false);
+    }
+    if (addresses.isEmpty) return const _PilotIpProbe(dnsOk: false);
+    // Limit per hostname to two returned addresses to bound probe cost.
+    for (final address in addresses.take(2)) {
+      final watch = Stopwatch()..start();
+      Socket? socket;
+      try {
+        socket = await Socket.connect(address, 443, timeout: _timeout);
+        watch.stop();
+        return _PilotIpProbe(dnsOk: true, tcpMs: watch.elapsedMilliseconds);
+      } catch (_) {
+        // Try at most one alternate address from this same family.
+      } finally {
+        socket?.destroy();
+      }
+    }
+    return const _PilotIpProbe(dnsOk: true);
   }
 
   static Future<int?> _probeHttps(String host) async {
