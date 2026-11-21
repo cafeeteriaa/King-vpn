@@ -3197,8 +3197,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         recovery_start = source.index('private void recoverWedgedCore(')
         recovery_end = source.index('private boolean stopCoreNow()', recovery_start)
         recovery = source[recovery_start:recovery_end]
+        self.assertIn('synchronized (startLifecycleLock)', recovery)
         self.assertLess(recovery.index('clearState()'), recovery.index('Process.killProcess('))
         self.assertLess(recovery.index('saveState()'), recovery.index('Process.killProcess('))
+
+        stop_start = source.index('private void requestStop(int startId)')
+        stop_end = source.index('private boolean connectFrom(', stop_start)
+        stop = source[stop_start:stop_end]
+        self.assertIn('synchronized (startLifecycleLock)', stop)
+        self.assertIn('latestStopRequestId = startId;', stop)
 
 if __name__ == '__main__':
     unittest.main()
