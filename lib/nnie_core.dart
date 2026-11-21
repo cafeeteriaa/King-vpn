@@ -419,6 +419,58 @@ class NatDnsWireProbe {
   }
 }
 
+
+/// Fast membership index for IPv4 CIDR inventories such as Iranian ISP ASN
+/// ranges. It is classification-only: it never scans or probes the ranges.
+class NatIpv4CidrIndex {
+  NatIpv4CidrIndex(Iterable<String> cidrs) {
+    for (final raw in cidrs) {
+      final parts = raw.trim().split('/');
+      if (parts.length != 2) continue;
+      final address = InternetAddress.tryParse(parts[0]);
+      final prefix = int.tryParse(parts[1]);
+      if (address == null ||
+          address.type != InternetAddressType.IPv4 ||
+          prefix == null ||
+          prefix < 0 ||
+          prefix > 32) {
+        continue;
+      }
+      final bytes = address.rawAddress;
+      final value = (bytes[0] << 24) |
+          (bytes[1] << 16) |
+          (bytes[2] << 8) |
+          bytes[3];
+      final mask = prefix == 0 ? 0 : (0xffffffff << (32 - prefix)) & 0xffffffff;
+      _ranges.add((value & mask, (value & mask) | (~mask & 0xffffffff)));
+    }
+    _ranges.sort((a, b) => a.$1.compareTo(b.$1));
+  }
+
+  final List<(int, int)> _ranges = <(int, int)>[];
+
+  bool contains(String address) {
+    final parsed = InternetAddress.tryParse(address.trim());
+    if (parsed == null || parsed.type != InternetAddressType.IPv4) return false;
+    final b = parsed.rawAddress;
+    final value = (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3];
+    var low = 0;
+    var high = _ranges.length - 1;
+    while (low <= high) {
+      final mid = low + ((high - low) >> 1);
+      final range = _ranges[mid];
+      if (value < range.$1) {
+        high = mid - 1;
+      } else if (value > range.$2) {
+        low = mid + 1;
+      } else {
+        return true;
+      }
+    }
+    return false;
+  }
+}
+
 class NatEndpointMemory {
   const NatEndpointMemory({
     required this.attempts,
