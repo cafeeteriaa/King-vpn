@@ -3844,5 +3844,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
                         body.index('_delayGate.run'))
 
 
+    def test_live_quiet_wait_tracks_reconnect_deadline_updates(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> _waitLiveQuiet()')
+        end = source.index('Future<int?> _delayOnce', start)
+        body = source[start:end]
+        loop = body.index('while (connected && wantVpn)')
+        deadline = body.index('final until = _liveQuietUntil;')
+        self.assertGreater(deadline, loop)
+        self.assertIn('DateTime.now().isBefore(until)', body)
+
+
 if __name__ == '__main__':
     unittest.main()

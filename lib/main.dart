@@ -8006,9 +8006,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   // LIVEQUIET جدید: تست هسته فقط بعد از پایان پنجره‌ی آرامش، و فقط وقتی تونل زنده است
   Future<void> _waitLiveQuiet() async {
-    final until = _liveQuietUntil;
-    if (until == null || !connected || !wantVpn) return;
-    while (connected && wantVpn && DateTime.now().isBefore(until)) {
+    // Re-read the deadline on every pass: a reconnect can extend the quiet
+    // window while an earlier background probe is already waiting here.
+    while (connected && wantVpn) {
+      final until = _liveQuietUntil;
+      if (until == null || !DateTime.now().isBefore(until)) return;
       await Future<void>.delayed(const Duration(milliseconds: 500));
     }
   }
