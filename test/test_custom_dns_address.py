@@ -30,3 +30,4 @@ class CustomDnsAddressTests(unittest.TestCase):
         self.assertIn("uri.userInfo.isEmpty", body)
         self.assertIn("uri.fragment.isEmpty", body)
         self.assertIn("uri.port >= 1", body)
+        self.assertIn("RegExp(r'\\s')", body)
