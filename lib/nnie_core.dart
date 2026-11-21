@@ -515,6 +515,22 @@ List<T> natPrioritizeDomesticEvidence<T>(
   return List<T>.unmodifiable([...verified, ...iranAsn, ...remaining]);
 }
 
+/// Evidence-only score for national-mode candidate ordering.
+/// Source names and country labels are intentionally not inputs: they are
+/// metadata, not proof of local hosting or successful national traffic.
+int natDomesticCandidateRank({
+  required bool verifiedNational,
+  required bool iranAsnAddress,
+  required bool reality,
+  required bool cdn,
+}) {
+  if (verifiedNational) return 5;
+  if (iranAsnAddress) return 4;
+  if (reality) return 3;
+  if (cdn) return 1;
+  return 0;
+}
+
 class NatEndpointMemory {
   const NatEndpointMemory({
     required this.attempts,

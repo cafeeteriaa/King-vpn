@@ -94,6 +94,24 @@ void main() {
       );
       expect(ordered, [3, 1, 4, 2, 5]);
     });
+
+    test('candidate rank uses evidence tiers, not geo/source metadata', () {
+      expect(natDomesticCandidateRank(
+        verifiedNational: true, iranAsnAddress: true, reality: true, cdn: true,
+      ), 5);
+      expect(natDomesticCandidateRank(
+        verifiedNational: false, iranAsnAddress: true, reality: true, cdn: true,
+      ), 4);
+      expect(natDomesticCandidateRank(
+        verifiedNational: false, iranAsnAddress: false, reality: true, cdn: true,
+      ), 3);
+      expect(natDomesticCandidateRank(
+        verifiedNational: false, iranAsnAddress: false, reality: false, cdn: true,
+      ), 1);
+      expect(natDomesticCandidateRank(
+        verifiedNational: false, iranAsnAddress: false, reality: false, cdn: false,
+      ), 0);
+    });
   });
 
   group('NatProbeEvidence.classify', () {
