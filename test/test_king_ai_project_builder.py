@@ -55,6 +55,7 @@ class KingAiProjectBuilderGuards(unittest.TestCase):
         console = (ROOT / "lib" / "king_ai_console.dart").read_text(encoding="utf-8")
         self.assertIn("final projectRequest =", main)
         self.assertIn("اپلیکیشن بساز", main)
+        self.assertIn("(اپلیکیشن|اپ|برنامه|پروژه).{0,50}(بساز|ایجاد کن|درست کن|طراحی کن|بنویس)", main)
         self.assertIn("create an app", main)
         self.assertIn("initialProjectRequest: projectRequest ? command : null", main)
         self.assertIn("initialFeatureRequest: projectRequest ? null : command", main)
