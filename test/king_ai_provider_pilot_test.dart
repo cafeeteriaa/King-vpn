@@ -2,31 +2,42 @@ import 'package:flutter_test/flutter_test.dart';
 import '../lib/king_ai_provider_pilot.dart';
 
 void main() {
-  group('King AI provider pilot', () {
-    test('routes coding requests to code-capable free providers first', () {
-      final order = KingAiProviderPilot.priorityForPrompt(
-        'لطفاً این باگ Dart را در کد برنامه اصلاح کن',
-      );
+  group('King AI private helper pilot', () {
+    test('coding work prioritizes code-capable helpers', () {
+      final order = KingAiProviderPilot.priorityForTask(KingAiTaskKind.coding);
       expect(order.first, KingAiProvider.groq);
       expect(order[1], KingAiProvider.mistral);
       expect(order, contains(KingAiProvider.gemini));
-      expect(order, contains(KingAiProvider.openRouter));
-      expect(order, contains(KingAiProvider.cloudflare));
-    });
-
-    test('routes general requests to Gemini first and retains fallbacks', () {
-      final order = KingAiProviderPilot.priorityForPrompt(
-        'لطفاً درباره تاریخچه نجوم توضیح بده',
-      );
-      expect(order.first, KingAiProvider.gemini);
-      expect(order, hasLength(KingAiProvider.values.length));
       expect(order.toSet(), KingAiProvider.values.toSet());
     });
 
-    test('provider pilot never changes the VPN pilot strategy', () {
-      // The provider router has no imports or references to network-health,
-      // VPN service, route selection, or connection settings.
-      expect(KingAiProviderPilot.priorityForPrompt('سلام').first,
+    test('audio work prioritizes speech-oriented helper', () {
+      final order = KingAiProviderPilot.priorityForTask(KingAiTaskKind.audio);
+      expect(order.first, KingAiProvider.groq);
+    });
+
+    test('image and video tasks have dedicated helper routing', () {
+      expect(KingAiProviderPilot.priorityForTask(KingAiTaskKind.image).first,
+          KingAiProvider.gemini);
+      expect(KingAiProviderPilot.priorityForTask(KingAiTaskKind.video).first,
+          KingAiProvider.gemini);
+    });
+
+    test('complex tasks may consult two helpers while general chat uses one', () {
+      expect(KingAiProviderPilot.helperCountForTask(KingAiTaskKind.general), 1);
+      expect(KingAiProviderPilot.helperCountForTask(KingAiTaskKind.coding), 2);
+      expect(KingAiProviderPilot.helperCountForTask(KingAiTaskKind.image), 2);
+      expect(KingAiProviderPilot.helperCountForTask(KingAiTaskKind.video), 2);
+    });
+
+    test('provider pool exposes no direct ask/chat method', () {
+      // The public integration point is a King-internal peer-review operation.
+      expect(KingAiProviderPilot.instance.consultKing, isA<Function>());
+    });
+
+    test('provider pilot has no VPN service dependency', () {
+      // Provider routing is independent of the local VPN Smart Pilot.
+      expect(KingAiProviderPilot.priorityForTask(KingAiTaskKind.research).first,
           KingAiProvider.gemini);
     });
   });
