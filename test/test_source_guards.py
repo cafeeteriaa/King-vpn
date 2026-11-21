@@ -1358,6 +1358,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertEqual(local.count('engine.generate('), 2)
         self.assertNotIn("if (_busy) throw StateError('Local AI is already generating');", local)
 
+    def test_local_model_download_uses_the_shared_lifecycle_guard(self):
+        local = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        download_start = local.index('Future<String> downloadModel(')
+        download_end = local.index('Future<String> _downloadModelUnlocked(', download_start)
+        download = local[download_start:download_end]
+        self.assertIn("if (_busy) throw StateError('Local AI is already busy');", download)
+        self.assertLess(download.index('_busy = true;'), download.index('_downloadModelUnlocked('))
+        self.assertIn('finally {', download)
+        self.assertIn('_busy = false;', download)
+        unlocked_start = download_end
+        unlocked_end = local.index('Future<void> loadModel(', unlocked_start)
+        unlocked = local[unlocked_start:unlocked_end]
+        self.assertIn('await manager.init();', unlocked)
+        load_start = unlocked_end
+        load_end = local.index('Future<String> askPilot(', load_start)
+        loader = local[load_start:load_end]
+        self.assertIn('_busy = true;', loader)
+        self.assertIn('_downloadModelUnlocked(onProgress: onProgress)', loader)
+        self.assertNotIn('downloadModel(onProgress: onProgress)', loader)
+
 
     def test_check_host_inputs_are_validated_and_query_encoded(self):
         source = (ROOT / 'lib' / 'king_extras2.dart').read_text(encoding='utf-8')

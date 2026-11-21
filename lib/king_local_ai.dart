@@ -230,7 +230,24 @@ empty changes list and explain what is missing.
 
   /// Downloads the exact pinned model and verifies GGUF magic, byte size and
   /// SHA-256 through local_inference before it can be loaded.
+  ///
+  /// ModelManager initialization and installation are not safe to run beside
+  /// model loading or background verification. Claim the shared lifecycle guard
+  /// before the first await so every entry point observes the same ownership.
   Future<String> downloadModel({void Function(double progress)? onProgress}) async {
+    if (_busy) throw StateError('Local AI is already busy');
+    _busy = true;
+    try {
+      return await _downloadModelUnlocked(onProgress: onProgress);
+    } finally {
+      _busy = false;
+    }
+  }
+
+  /// Caller must hold [_busy] for the full operation.
+  Future<String> _downloadModelUnlocked({
+    void Function(double progress)? onProgress,
+  }) async {
     final manager = await _modelManager();
     if (!_modelsInitialized) {
       await manager.init();
@@ -252,7 +269,7 @@ empty changes list and explain what is missing.
       if (!support.isSupported) {
         throw UnsupportedError('این دستگاه برای اجرای مدل محلی پشتیبانی نمی‌شود: ${support.problem}');
       }
-      final path = await downloadModel(onProgress: onProgress);
+      final path = await _downloadModelUnlocked(onProgress: onProgress);
       final engine = LlamadartEngine(logLevel: EngineLogLevel.error);
       try {
         final loadOptions = await LocalInferenceFlutter.platformLoadOptions();
