@@ -196,6 +196,10 @@ class NatNetworkDiagnosis {
       final parts = <String>[
         for (final i in ifs) for (final a in i.addresses) '${i.name}=${a.address}',
       ]..sort();
+      // No enumerated interface address means there is no reliable network
+      // identity. A hash of only the operator (or an empty string) would be
+      // reused across unrelated networks and must never become a cache key.
+      if (parts.isEmpty) return '';
       // Operator identity matters even when two carriers reuse the same
       // private interface address and Android interface name.
       return sha256.convert(utf8.encode('$natOpKey|${parts.join(';')}')).toString();
@@ -415,6 +419,9 @@ class PilotNetworkProbe {
           for (final address in item.addresses)
             '${item.name}=${address.address}',
       ]..sort();
+      // Without interface addresses the operator alone is not a unique
+      // network identity, so disable caching until a real identity is visible.
+      if (values.isEmpty) return '';
       // Include the active operator to avoid reusing a route verdict after
       // a SIM/carrier handoff that happens to retain the same local address.
       return sha256.convert(utf8.encode('$natOpKey|${values.join(';')}')).toString();

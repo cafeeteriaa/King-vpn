@@ -2941,8 +2941,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_checkedAt = id.isNotEmpty ? DateTime.now() : null;', diagnosis)
         self.assertIn('_checkedAt = null;', diagnosis[diagnosis.index('} catch (e, st)'):])
         identity_method = diagnosis[diagnosis.index('static Future<String> _identityHash()'):diagnosis.index('static Future<bool> _tcpOk')]
+        self.assertIn('if (parts.isEmpty) return \'\';', identity_method)
         self.assertIn('$natOpKey|', identity_method)
         pilot_identity = pilot[pilot.index('static Future<String> _networkIdentity()'):]
+        self.assertIn('if (values.isEmpty) return \'\';', pilot_identity)
         self.assertIn('$natOpKey|', pilot_identity)
 
 
