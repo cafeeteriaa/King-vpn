@@ -14,11 +14,13 @@ class KingAiConsolePage extends StatefulWidget {
   const KingAiConsolePage({
     super.key,
     this.initialFeatureRequest,
+    this.initialProjectRequest,
     this.initialIdeaAnalysis,
     this.speakResponses = false,
   });
 
   final String? initialFeatureRequest;
+  final String? initialProjectRequest;
   final String? initialIdeaAnalysis;
   final bool speakResponses;
 
@@ -50,7 +52,8 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   @override
   void initState() {
     super.initState();
-    _featureRequestController.text = widget.initialIdeaAnalysis ?? widget.initialFeatureRequest ?? '';
+    _featureRequestController.text = widget.initialProjectRequest ??
+        widget.initialIdeaAnalysis ?? widget.initialFeatureRequest ?? '';
     _refreshTokenState();
     _refreshOwnerState();
   }
