@@ -7,7 +7,7 @@ import 'package:http/http.dart' as http;
 /// Providers are internal tools, never independent chat assistants.
 enum KingAiTaskKind { general, coding, image, video, audio, research }
 
-enum KingAiProvider { gemini, groq, mistral, openRouter, cloudflare }
+enum KingAiProvider { groq, mistral, openRouter, cloudflare }
 
 class KingAiProviderPilot {
   KingAiProviderPilot._();
@@ -15,7 +15,7 @@ class KingAiProviderPilot {
   static final KingAiProviderPilot instance = KingAiProviderPilot._();
 
   static const String _enabledKey = 'king_ai_cloud_providers_enabled_v1';
-  static const String _geminiKey = 'king_ai_provider_gemini_key_v1';
+  // Legacy Gemini key is ignored and purged; Gemini is not an allowed provider.
   static const String _groqKey = 'king_ai_provider_groq_key_v1';
   static const String _mistralKey = 'king_ai_provider_mistral_key_v1';
   static const String _openRouterKey = 'king_ai_provider_openrouter_key_v1';
@@ -35,7 +35,6 @@ class KingAiProviderPilot {
   List<String> get lastConsultedProviders => List.unmodifiable(_lastConsulted);
 
   static const Map<KingAiProvider, String> labels = {
-    KingAiProvider.gemini: 'Google Gemini',
     KingAiProvider.groq: 'Groq',
     KingAiProvider.mistral: 'Mistral',
     KingAiProvider.openRouter: 'OpenRouter',
@@ -47,19 +46,16 @@ class KingAiProviderPilot {
       KingAiTaskKind.coding => const [
           KingAiProvider.groq,
           KingAiProvider.mistral,
-          KingAiProvider.gemini,
           KingAiProvider.openRouter,
           KingAiProvider.cloudflare,
         ],
       KingAiTaskKind.image => const [
-          KingAiProvider.gemini,
           KingAiProvider.openRouter,
           KingAiProvider.cloudflare,
           KingAiProvider.mistral,
           KingAiProvider.groq,
         ],
       KingAiTaskKind.video => const [
-          KingAiProvider.gemini,
           KingAiProvider.openRouter,
           KingAiProvider.mistral,
           KingAiProvider.cloudflare,
@@ -67,20 +63,17 @@ class KingAiProviderPilot {
         ],
       KingAiTaskKind.audio => const [
           KingAiProvider.groq,
-          KingAiProvider.gemini,
           KingAiProvider.mistral,
           KingAiProvider.openRouter,
           KingAiProvider.cloudflare,
         ],
       KingAiTaskKind.research => const [
-          KingAiProvider.gemini,
           KingAiProvider.mistral,
           KingAiProvider.groq,
           KingAiProvider.openRouter,
           KingAiProvider.cloudflare,
         ],
       KingAiTaskKind.general => const [
-          KingAiProvider.gemini,
           KingAiProvider.groq,
           KingAiProvider.mistral,
           KingAiProvider.openRouter,
@@ -100,8 +93,8 @@ class KingAiProviderPilot {
   }
 
   Future<Map<KingAiProvider, bool>> configuredProviders() async {
+    await _secure.delete(key: 'king_ai_provider_gemini_key_v1');
     final values = await Future.wait([
-      _secure.read(key: _geminiKey),
       _secure.read(key: _groqKey),
       _secure.read(key: _mistralKey),
       _secure.read(key: _openRouterKey),
@@ -109,11 +102,10 @@ class KingAiProviderPilot {
       _secure.read(key: _cloudflareAccountKey),
     ]);
     return {
-      KingAiProvider.gemini: _present(values[0]),
-      KingAiProvider.groq: _present(values[1]),
-      KingAiProvider.mistral: _present(values[2]),
-      KingAiProvider.openRouter: _present(values[3]),
-      KingAiProvider.cloudflare: _present(values[4]) && _present(values[5]),
+      KingAiProvider.groq: _present(values[0]),
+      KingAiProvider.mistral: _present(values[1]),
+      KingAiProvider.openRouter: _present(values[2]),
+      KingAiProvider.cloudflare: _present(values[3]) && _present(values[4]),
     };
   }
 
@@ -126,7 +118,6 @@ class KingAiProviderPilot {
       throw ArgumentError('فرمت کلید معتبر نیست.');
     }
     final storageKey = switch (provider) {
-      KingAiProvider.gemini => _geminiKey,
       KingAiProvider.groq => _groqKey,
       KingAiProvider.mistral => _mistralKey,
       KingAiProvider.openRouter => _openRouterKey,
@@ -145,7 +136,6 @@ class KingAiProviderPilot {
 
   Future<void> clearKey(KingAiProvider provider) async {
     final storageKey = switch (provider) {
-      KingAiProvider.gemini => _geminiKey,
       KingAiProvider.groq => _groqKey,
       KingAiProvider.mistral => _mistralKey,
       KingAiProvider.openRouter => _openRouterKey,
@@ -173,7 +163,6 @@ class KingAiProviderPilot {
     if (!await cloudEnabled) return null;
     final configured = await configuredProviders();
     const freeCandidates = <KingAiProvider>{
-      KingAiProvider.gemini,
       KingAiProvider.groq,
       KingAiProvider.openRouter,
     };
@@ -307,7 +296,6 @@ Return a concise expert peer review for the local King AI:
     String systemPrompt = _consultantSystemPrompt,
   }) async {
     return switch (provider) {
-      KingAiProvider.gemini => _gemini(prompt, systemPrompt),
       KingAiProvider.groq => _openAiCompatible(
           provider,
           'https://api.groq.com/openai/v1/chat/completions',
@@ -331,52 +319,6 @@ Return a concise expert peer review for the local King AI:
         ),
       KingAiProvider.cloudflare => _cloudflare(prompt, systemPrompt),
     };
-  }
-
-  Future<String> _gemini(String prompt, String systemPrompt) async {
-    final key = await _secure.read(key: _geminiKey);
-    if (!_present(key)) throw StateError('Gemini key missing');
-    final uri = Uri.https(
-      'generativelanguage.googleapis.com',
-      '/v1beta/models/gemini-2.5-flash-lite:generateContent',
-    );
-    final response = await _client.post(
-      uri,
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': key!,
-      },
-      body: jsonEncode({
-        'system_instruction': {
-          'parts': [
-            {'text': systemPrompt}
-          ]
-        },
-        'contents': [
-          {
-            'role': 'user',
-            'parts': [
-              {'text': prompt}
-            ]
-          }
-        ],
-        'generationConfig': {'maxOutputTokens': 1200, 'temperature': 0.25},
-      }),
-    ).timeout(_timeout);
-    final data = _decodeResponse(response);
-    final candidates = data['candidates'];
-    if (candidates is! List || candidates.isEmpty) {
-      throw const FormatException('Gemini returned no candidate');
-    }
-    final content = candidates.first is Map
-        ? (candidates.first as Map)['content']
-        : null;
-    final parts = content is Map ? content['parts'] : null;
-    if (parts is! List) throw const FormatException('Gemini response malformed');
-    return parts.whereType<Map>()
-        .map((part) => part['text']?.toString() ?? '')
-        .where((text) => text.isNotEmpty)
-        .join('\n');
   }
 
   Future<String> _openAiCompatible(
