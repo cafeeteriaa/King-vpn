@@ -2250,8 +2250,12 @@ List<String> natSeedBlocks(List<String> hosts) {
   final seen = <String>{};
   for (final host in hosts) {
     final parsed = InternetAddress.tryParse(host.trim());
-    if (parsed == null || parsed.type != InternetAddressType.IPv4) continue;
-    final cidr = '${parsed.address}/32';
+    if (parsed == null ||
+        (parsed.type != InternetAddressType.IPv4 &&
+            parsed.type != InternetAddressType.IPv6)) continue;
+    final cidr = parsed.type == InternetAddressType.IPv4
+        ? '${parsed.address}/32'
+        : '${parsed.address}/128';
     if (seen.add(cidr)) out.add(cidr);
   }
   return out;
@@ -2321,39 +2325,77 @@ List<String> _getCfIps({
 
 // Cursor-aware expansion so large CIDR catalogs are covered fairly across runs.
 (List<String>, int) _natExpandAnyCursor(String item, int cursor, int maxPerBlock) {
+  if (maxPerBlock <= 0) return (<String>[], cursor);
   String? startIp;
   int span = 0;
+  BigInt? ipv6Start;
+  BigInt? ipv6Span;
   if (item.contains('/')) {
     final parts = item.split('/');
     if (parts.length != 2) return (<String>[], 0);
     final ip = InternetAddress.tryParse(parts[0].trim());
     final prefix = int.tryParse(parts[1]);
-    if (ip == null || ip.type != InternetAddressType.IPv4 || prefix == null || prefix < 8 || prefix > 32) {
+    if (ip == null || prefix == null) return (<String>[], 0);
+    if (ip.type == InternetAddressType.IPv4) {
+      if (prefix < 8 || prefix > 32) return (<String>[], 0);
+      final base = _ipToInt(ip.address) & (0xffffffff << (32 - prefix));
+      span = 1 << (32 - prefix);
+      startIp = _intToIp(base);
+    } else if (ip.type == InternetAddressType.IPv6) {
+      if (prefix < 0 || prefix > 128) return (<String>[], 0);
+      ipv6Span = BigInt.one << (128 - prefix);
+      final raw = _natIpv6ToBigInt(ip.rawAddress);
+      ipv6Start = (raw ~/ ipv6Span) * ipv6Span;
+    } else {
       return (<String>[], 0);
     }
-    final base = _ipToInt(ip.address) & (0xffffffff << (32 - prefix));
-    span = 1 << (32 - prefix);
-    startIp = _intToIp(base);
   } else if (item.contains('-')) {
     final parts = item.split('-');
     if (parts.length != 2) return (<String>[], 0);
     final a = InternetAddress.tryParse(parts[0].trim());
     final b = InternetAddress.tryParse(parts[1].trim());
-    if (a == null || b == null || a.type != InternetAddressType.IPv4 || b.type != InternetAddressType.IPv4) {
+    if (a == null || b == null || a.type != b.type) return (<String>[], 0);
+    if (a.type == InternetAddressType.IPv4) {
+      final first = _ipToInt(a.address), last = _ipToInt(b.address);
+      final low = min(first, last);
+      span = (max(first, last) - low) + 1;
+      startIp = _intToIp(low);
+    } else if (a.type == InternetAddressType.IPv6) {
+      final first = _natIpv6ToBigInt(a.rawAddress);
+      final last = _natIpv6ToBigInt(b.rawAddress);
+      ipv6Start = min(first, last);
+      ipv6Span = (max(first, last) - min(first, last)) + BigInt.one;
+    } else {
       return (<String>[], 0);
     }
-    final first = _ipToInt(a.address);
-    final last = _ipToInt(b.address);
-    final low = min(first, last);
-    span = (max(first, last) - low) + 1;
-    startIp = _intToIp(low);
   } else {
     final ip = InternetAddress.tryParse(item.trim());
-    if (ip == null || ip.type != InternetAddressType.IPv4) return (<String>[], 0);
-    startIp = ip.address;
-    span = 1;
+    if (ip == null) return (<String>[], 0);
+    if (ip.type == InternetAddressType.IPv4) {
+      startIp = ip.address;
+      span = 1;
+    } else if (ip.type == InternetAddressType.IPv6) {
+      ipv6Start = _natIpv6ToBigInt(ip.rawAddress);
+      ipv6Span = BigInt.one;
+    } else {
+      return (<String>[], 0);
+    }
   }
-  if (span <= 0) return (<String>[], 0);
+  if (ipv6Start != null && ipv6Span != null) {
+    if (ipv6Span <= BigInt.zero) return (<String>[], 0);
+    final count = min(maxPerBlock, ipv6Span > BigInt.from(maxPerBlock)
+        ? maxPerBlock
+        : ipv6Span.toInt());
+    final offset = BigInt.from(max(0, cursor)) % ipv6Span;
+    final out = <String>[];
+    for (var i = 0; i < count; i++) {
+      out.add(_natBigIntToIpv6(
+          ipv6Start + ((offset + BigInt.from(i)) % ipv6Span)));
+    }
+    final next = (max(0, cursor) + count) & 0x7fffffffffffffff;
+    return (out, next);
+  }
+  if (span <= 0 || startIp == null) return (<String>[], 0);
   final base = _ipToInt(startIp);
   final offset = cursor % span;
   final count = min(maxPerBlock, span);
@@ -2364,11 +2406,6 @@ List<String> _getCfIps({
   return (out, (offset + count) % span);
 }
 
-// فیکس ۳: ساخت رشته‌های IP (صدها هزار تا چند میلیون) از ترد UI به isolate منتقل شد.
-// args: {cfIpsBatch:int, blocks:List<String>, nationalMode:bool,
-//        liveRanges:List<String>, cursors:Map<String,int>}
-// خروجی: {'addrs': List<String>, 'cursors': Map<String,int>} — cursor به‌روزشده باید
-// به ترد اصلی برگردد چون isolate نسخه‌ی کپی را تغییر می‌دهد (بدون آن اسکن هر دور از اول شروع می‌شد).
 Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   final int cfIpsBatch = args['cfIpsBatch'] as int;
   final List<String> blocks = List<String>.from(args['blocks'] as List);
