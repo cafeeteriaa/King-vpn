@@ -144,7 +144,7 @@ void main() {
         globalDnsOk: true, globalTcpOk: false,
         globalIpv4DnsOk: false, globalIpv6DnsOk: true, sampleCount: 4,
       );
-      expect(ipv6Only.ipv4Reachability, NatIpFamilyReachability.tcpBlocked);
+      expect(ipv6Only.ipv4Reachability, NatIpFamilyReachability.unknown);
       expect(ipv6Only.ipv6Reachability, NatIpFamilyReachability.dnsOnly);
     });
 
