@@ -4564,4 +4564,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('public void stopCore(boolean stopService)', patch)
         self.assertIn('if (stopService && v2rayServicesListener != null)', patch)
         self.assertIn('V2rayCoreManager.getInstance().stopCore(false);', patch)
+        self.assertIn('def exact_replace_after(path, scope_anchor, old, new, label):', patch)
+        self.assertIn('suppressServiceShutdownCallback = true;', patch)
+        self.assertIn('if (!suppressServiceShutdownCallback && v2rayServicesListener != null)', patch)
+        self.assertIn('P1-41 shutdown callback respects intentional core restart', patch)
 
