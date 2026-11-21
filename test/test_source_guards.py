@@ -3221,6 +3221,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('latestStopRequestId = startId;', stop)
 
 
+
+    def test_native_stop_watchdog_covers_post_stop_state_verification(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private boolean stopCoreNow()')
+        end = source.index('private boolean awaitCoreStopped(', start)
+        body = source[start:end]
+        thread_start = body.index('Thread t = new Thread(() -> {')
+        thread_end = body.index('}, "KingVpnCoreStop");', thread_start)
+        worker = body[thread_start:thread_end]
+        self.assertIn('core.stopCore();', worker)
+        self.assertIn('stillRunning = core.isV2rayCoreRunning();', worker)
+        self.assertIn('finally {\n                endNative();\n            }', worker)
+        self.assertLess(worker.index('core.stopCore();'), worker.index('stillRunning = core.isV2rayCoreRunning();'))
+        self.assertLess(worker.index('stillRunning = core.isV2rayCoreRunning();'), worker.index('endNative();'))
+
+
     def test_native_new_start_waits_for_previous_async_core_stop(self):
         source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         helper_start = source.index('private boolean awaitCoreStopped(')
