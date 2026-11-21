@@ -25,6 +25,23 @@ import 'dart:math';
 import 'errjournal.dart';
 import 'nnie_core.dart'; // natStableSort
 
+/// Returns an exact-host CIDR for either supported IP family.
+String? natExactHostCidr(String raw) {
+  final address = InternetAddress.tryParse(raw.trim());
+  if (address == null) return null;
+  if (address.type == InternetAddressType.IPv4) return '${address.address}/32';
+  if (address.type == InternetAddressType.IPv6) return '${address.address}/128';
+  return null;
+}
+
+/// Validates a persisted scanner endpoint without excluding IPv6 literals.
+bool natIsIpPortCandidate(String raw) {
+  final parts = raw.split('|');
+  if (parts.length != 2 || natExactHostCidr(parts[0]) == null) return false;
+  final port = int.tryParse(parts[1]);
+  return port != null && port >= 1 && port <= 65535;
+}
+
 class NatIpHit {
   final String ip;
   final int ms;
