@@ -557,6 +557,8 @@ class _NatFacts {
       xh,
       grpc,
       vmess,
+      vless,
+      trojan,
       hasClean;
   final int port;
   _NatFacts(Server s)
@@ -572,6 +574,8 @@ class _NatFacts {
         xh = s.net == 'xhttp' || s.net == 'splithttp',
         grpc = s.net == 'grpc',
         vmess = s.link.toLowerCase().startsWith('vmess://'),
+        vless = s.link.toLowerCase().startsWith('vless://'),
+        trojan = s.link.toLowerCase().startsWith('trojan://'),
         hasClean = cleanIps.isNotEmpty,
         port = s.port;
 }
@@ -637,7 +641,13 @@ bool _natAppliesF(_NatFacts f, int v) {
   if (x.clean && !(f.sec && !f.reality && f.hasClean && f.cdnLike)) {
     return false;
   }
-  if (x.mux) return false;
+  // Mux is an opt-in ladder variant only for supported proxy schemes.
+  // Avoid stacking it on gRPC/xHTTP (already multiplexed transports) or REALITY.
+  if (x.mux &&
+      (!(f.ss || f.vmess || f.vless || f.trojan) ||
+          f.grpc || f.xh || f.reality)) {
+    return false;
+  }
   if (x.noise) return false;
   if (x.mode != null && (!x.mode!.startsWith('kcp:') || f.reality)) return false;
   if (x.doh != null && f.isIp) return false;
@@ -782,7 +792,7 @@ bool _natIsSlowHeavy(int v) {
   final base = v % _natCodeBase;
   if (base <= 0 || base >= _natSpecs.length) return false;
   final x = _natSpecs[base];
-  return x.mode != null && x.mode!.startsWith('kcp:');
+  return x.mux || (x.mode != null && x.mode!.startsWith('kcp:'));
 }
 
 List<int> _natOrder(Server s, {bool full = false}) {
@@ -1264,6 +1274,13 @@ String _natMux(String cfg, [int n = 0]) {
     if (o == null) return cfg;
     if (_isWorkerOutbound(o)) return cfg; // MUXWORKER
     if (RegExp(r'"flow"\s*:\s*"xtls').hasMatch(cfg)) return cfg;
+    final st = o['streamSettings'];
+    if (st is Map) {
+      final network = (st['network'] ?? '').toString().toLowerCase();
+      if (network == 'grpc' || network == 'xhttp' || network == 'splithttp') {
+        return cfg; // transport already multiplexes streams
+      }
+    }
     o['mux'] = {'enabled': true, 'concurrency': n > 0 ? n : 16};
     return jsonEncode(j);
   } catch (e, stk) {
@@ -1423,7 +1440,7 @@ int natVarFor(Server s) {
   final v = natSafeVariant(rawV);
   if (v <= 0) return 0;
   final x = _natSpecs[v];
-  if (x.mux || x.noise) return 0;
+  if (x.noise) return 0;
   if (x.mode != null && !x.mode!.startsWith('kcp:')) return 0;
   return v;
 }
@@ -1432,7 +1449,8 @@ bool natIsHeavy(int v) {
   final base = v % _natCodeBase;
   if (base <= 0 || base >= _natSpecs.length) return false;
   final x = _natSpecs[base];
-  return x.frag != null || x.noise || (x.mode != null && x.mode!.startsWith('kcp:'));
+  return x.frag != null || x.mux || x.noise ||
+      (x.mode != null && x.mode!.startsWith('kcp:'));
 }
 
 int? natSpeedVariant(Server s, {int prefer = 0}) {
