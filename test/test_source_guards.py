@@ -4173,6 +4173,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('queryType: queryType', core)
         self.assertIn('InternetAddressType.IPv6', scanner)
         self.assertIn('2606:4700:4700::1111', scanner)
+        self.assertIn('2001:4860:4860::8888', scanner)
+        self.assertIn('parsedIp.type == InternetAddressType.IPv6', extras)
 
     def test_dns_scanner_checks_both_a_and_aaaa_records(self):
         source = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
@@ -4184,9 +4186,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final good = familyResults.where((result) => result.ok)', probe)
         self.assertIn('tested += part.length;', probe)
         self.assertIn('if (result != null) times.add(result.elapsedMs!);', probe)
-
-        self.assertIn('2001:4860:4860::8888', scanner)
-        self.assertIn('parsedIp.type == InternetAddressType.IPv6', extras)
 
 
     def test_national_configured_ranges_keep_ipv4_and_ipv6_families(self):
