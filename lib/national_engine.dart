@@ -258,7 +258,7 @@ class NatNetworkDiagnosis {
       final domesticDnsOk = domesticDnsRes.any((x) => x.ok);
       final globalDnsOk = globalDnsRes.any((x) => x.ok);
       final domesticTcpOk = domesticTcp.any((x) => x);
-      final globalTcpOk = globalTcp.any((x) => x);
+      final globalHostTcpOk = globalTcp.any((x) => x);
       // Verify the IPv6 data path using literal AAAA answers. DNS success
       // alone is not evidence that IPv6 TCP traffic can pass.
       final ipv6Candidates = <String>{
@@ -270,6 +270,9 @@ class NatNetworkDiagnosis {
       }.take(2).toList();
       final globalIpv6TcpOk = ipv6Candidates.isNotEmpty &&
           (await Future.wait(ipv6Candidates.map(_tcpOkIpv6))).any((ok) => ok);
+      // Either an HTTPS hostname connection or explicit IPv6 literal TCP
+      // success is sufficient evidence of a reachable global data path.
+      final globalTcpOk = globalHostTcpOk || globalIpv6TcpOk;
       // DNS poisoning / blockpage check: a resolver returned a public A answer,
       // yet none of the answered addresses accepts TCP/443, while domestic hosts
       // do. That is the typical signature of an injected answer, not a live Google.
