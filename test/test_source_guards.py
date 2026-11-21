@@ -3002,8 +3002,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (skipIfBusy && ipAutoBusy) return;', loader)
         self.assertIn('if ((skipIfBusy && ipAutoBusy) || nationalMode != loadNationalMode) return;', loader)
         sheet_start = source.index('Future<void> ipAutoSheet(BuildContext ctx0)')
-        sheet = source[sheet_start:]
+        sheet_end = source.index('Future<void> ipAutoLoad(', sheet_start)
+        sheet = source[sheet_start:sheet_end]
         self.assertIn('await ipAutoLoad(skipIfBusy: true);', sheet)
+        start = sheet[sheet.index('Future<void> start() async {'):]
+        load = start.index('await ipAutoLoad(skipIfBusy: true);')
+        lock = start.index('ipAutoBusy = true;')
+        run = start.index('await _ipAutoRunOnce(')
+        self.assertLess(load, lock)
+        self.assertLess(lock, run)
+        self.assertIn('final retryWhy = _ipAutoRefusal();', start)
+        self.assertIn('nationalMode != runNationalMode', start)
+        self.assertNotIn('await ipAutoLoad();', start)
 
 
     def test_background_network_scans_are_scheduled_sequentially_and_stop_for_vpn(self):
