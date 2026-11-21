@@ -23,6 +23,8 @@ import java.net.SocketTimeoutException;
 import java.net.Socket;
 import java.net.SocketException;
 import java.net.URL;
+import java.net.UnknownHostException;
+import javax.net.ssl.SSLException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -1194,6 +1196,11 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             boolean healthy = expects204 ? code == HttpURLConnection.HTTP_NO_CONTENT
                     : (code >= 200 && code < 300);
             return healthy ? ProbeResult.OK : ProbeResult.SOFT_FAIL;
+        } catch (UnknownHostException | SSLException e) {
+            // DNS resolution and TLS negotiation can fail independently of the
+            // tunnel (resolver outage, filtering, certificate/clock problems).
+            // They are not sufficient evidence for an automatic server switch.
+            return ProbeResult.INCONCLUSIVE;
         } catch (SocketException | NoRouteToHostException | SocketTimeoutException e) {
             // The local listener was reachable immediately before the request.
             // Recheck it to cover a shutdown race; otherwise the failure belongs
@@ -1201,7 +1208,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             return isLocalHttpInboundAvailable()
                     ? ProbeResult.SOFT_FAIL : ProbeResult.INCONCLUSIVE;
         } catch (Exception e) {
-            return ProbeResult.SOFT_FAIL;
+            // Unexpected probe/runtime failures are not proof of a dead route.
+            return ProbeResult.INCONCLUSIVE;
         } finally {
             if (c != null) c.disconnect();
         }
