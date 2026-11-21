@@ -1763,32 +1763,33 @@ Future<void> natIpMemLoad() async {
       try {
         final decoded = jsonDecode(raw);
         if (decoded is List) {
-        final now = DateTime.now().millisecondsSinceEpoch;
-        final cutoff = now - const Duration(days: 14).inMilliseconds;
-        final seen = <String>{};
-        for (final item in decoded.take(_ipMemMax * 4)) {
-          if (item is! Map) continue;
-          final address = InternetAddress.tryParse('${item['ip'] ?? ''}');
-          final portValue = item['port'];
-          final timeValue = item['t'];
-          final port = portValue is num ? portValue.toInt() : 0;
-          final timestamp = timeValue is num ? timeValue.toInt() : 0;
-          if (address == null ||
-              address.type != InternetAddressType.IPv4 ||
-              port < 1 ||
-              port > 65535 ||
-              timestamp < cutoff ||
-              timestamp > now + const Duration(days: 1).inMilliseconds) {
-            continue;
+          final now = DateTime.now().millisecondsSinceEpoch;
+          final cutoff = now - const Duration(days: 14).inMilliseconds;
+          final seen = <String>{};
+          for (final item in decoded.take(_ipMemMax * 4)) {
+            if (item is! Map) continue;
+            final address = InternetAddress.tryParse('${item['ip'] ?? ''}');
+            final portValue = item['port'];
+            final timeValue = item['t'];
+            final port = portValue is num ? portValue.toInt() : 0;
+            final timestamp = timeValue is num ? timeValue.toInt() : 0;
+            if (address == null ||
+                address.type != InternetAddressType.IPv4 ||
+                port < 1 ||
+                port > 65535 ||
+                timestamp < cutoff ||
+                timestamp > now + const Duration(days: 1).inMilliseconds) {
+              continue;
+            }
+            final key = '${address.address}:$port';
+            if (!seen.add(key)) continue;
+            natIpMem.add({
+              'ip': address.address,
+              'port': port,
+              't': timestamp,
+            });
+            if (natIpMem.length >= _ipMemMax) break;
           }
-          final key = '${address.address}:$port';
-          if (!seen.add(key)) continue;
-          natIpMem.add({
-            'ip': address.address,
-            'port': port,
-            't': timestamp,
-          });
-          if (natIpMem.length >= _ipMemMax) break;
         }
       } catch (e, stk) {
         logError(e, stk);
