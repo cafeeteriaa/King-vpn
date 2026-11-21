@@ -105,7 +105,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('private void startFlow(')
         end = source.index('private void resumeSaved(int startId)', start)
         flow = source[start:end]
-        stop_guard = flow.index('if (stopping || startId != latestStartId)', flow.index('boolean connectedNow = connectFrom(0);'))
+        stop_guard = flow.index('if (stopping || startId != latestStartId)', flow.index('boolean connectedNow = connectFrom(0, startId);'))
         connected_event = flow.index('emit("CONNECTED"', stop_guard)
         failed_event = flow.index('emit("FAILED"', stop_guard)
         connected_branch = flow.index('if (connectedNow)', stop_guard)
@@ -115,7 +115,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         resume_start = source.index('private void resumeSaved(int startId)')
         resume_end = source.index('private boolean connectFrom(', resume_start)
         resume = source[resume_start:resume_end]
-        guard = resume.index('if (stopping || startId != latestStartId)', resume.index('boolean connectedNow = connectFrom(currentIdx);'))
+        guard = resume.index('if (stopping || startId != latestStartId)', resume.index('boolean connectedNow = connectFrom(currentIdx, startId);'))
         connected_branch = resume.index('if (connectedNow)', guard)
         self.assertIn('if (stopping || startId != latestStartId) return;', resume[guard:connected_branch])
         self.assertNotIn('saveState();', resume[guard:connected_branch])
@@ -3574,7 +3574,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_native_vpn_attempt_worker_launch_is_failure_guarded(self):
         source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
-        start = source.index('private boolean bringUpWithTimeout(Srv s)')
+        start = source.index('private boolean bringUpWithTimeout(Srv s, int expectedStartId)')
         end = source.index('private static void closeQuietly', start)
         body = source[start:end]
         declaration = body.index('Thread attemptThread;')
