@@ -5546,6 +5546,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     unawaited(_loadSmartCommandFilters());
     natSearchBusyProbe = () => busy || searching; // NATQUOTA-2: برای سهمیه‌ی اسکنرهای دستی نت ملی
     unawaited(NationalNetworkIntelligence.load()); // NNIE: حافظه‌ی شبکه، بدون تأخیر در UI
+    unawaited(PilotRouteHistory.loadForCurrentNetwork()); // Persisted route learning, non-blocking.
     // KING-AI-KNOWLEDGE: daily foreground refresh from Google-discovered,
     // allowlisted official documentation. This stores research notes, not weights.
     Future.delayed(const Duration(seconds: 30), () {
