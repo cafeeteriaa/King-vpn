@@ -88,7 +88,7 @@ class KingAiProjectBuilderGuards(unittest.TestCase):
 
     def test_standalone_project_generation_requires_owner_and_fresh_password_proof(self):
         console = (ROOT / "lib" / "king_ai_console.dart").read_text(encoding="utf-8")
-        start = console.index("Future<void> _createStandaloneProject()")
+        start = console.index("Future<void> _createStandaloneProject({bool ownerReauthenticated = false})")
         end = console.index("Future<void> _submitFeatureRequest", start)
         method = console[start:end]
         self.assertIn("_requireOwnerSession('ساخت اپلیکیشن')", method)
