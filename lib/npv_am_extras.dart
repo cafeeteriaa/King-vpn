@@ -31,6 +31,11 @@ Future<String> _dnsNetworkKey() async {
       if (ips.isNotEmpty) rows.add('${iface.name}:${ips.join(',')}');
     }
     rows.sort();
+    // An empty interface snapshot is not a stable network identity. Do not
+    // let DNS/DoH caches treat "no visible interface" as a reusable network.
+    if (rows.isEmpty) {
+      return '${nationalMode ? 'nat' : 'global'}|$natOpKey|unknown';
+    }
     return '${nationalMode ? 'nat' : 'global'}|$natOpKey|${rows.join('|')}';
   } catch (_) {
     return '${nationalMode ? 'nat' : 'global'}|$natOpKey|unknown';

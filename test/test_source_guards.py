@@ -73,6 +73,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         key_end = source.index('const _fragLenOpts', key_start)
         network_key = source[key_start:key_end]
         self.assertIn('$natOpKey', network_key)
+        self.assertIn('if (rows.isEmpty)', network_key)
+        self.assertIn("|unknown';", network_key)
         pick_start = source.index('Future<String> pickBestDns(')
         pick_end = source.index('const _lanCidrs', pick_start)
         picker = source[pick_start:pick_end]
