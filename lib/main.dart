@@ -2928,9 +2928,12 @@ String _reliableVpnCfg(String cfg) {
     // Native Android TUN sends ordinary UDP/TCP DNS packets to this dedicated
     // Xray DNS outbound. Its default A/AAAA handling imports queries into the
     // built-in DNS module, which then uses the resolver list above.
-    final outbounds = j['outbounds'] is List
-        ? List<dynamic>.from(j['outbounds'] as List)
-        : <dynamic>[];
+    // A malformed profile without a real outbound cannot safely receive
+    // a DNS route: the DNS outbound must never become the accidental default.
+    if (j['outbounds'] is! List || (j['outbounds'] as List).isEmpty) {
+      return cfg;
+    }
+    final outbounds = List<dynamic>.from(j['outbounds'] as List);
     final usedOutboundTags = <String>{};
     for (final outbound in outbounds) {
       if (outbound is Map && outbound['tag'] != null) {
