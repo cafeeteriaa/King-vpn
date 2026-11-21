@@ -182,6 +182,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * and resumeSaved() reconnects from the saved list.
      */
     private static final long HUNG_NATIVE_MS = 45_000L;
+    private final Object nativeLock = new Object();
     private final AtomicLong nativeToken = new AtomicLong(0);
     private volatile boolean nativeBusy = false;
     private final AtomicBoolean recovering = new AtomicBoolean(false);
@@ -542,22 +543,29 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     /** Marks a native call as in progress and arms a watcher for it. */
     private void beginNative(final String what) {
-        final long token = nativeToken.incrementAndGet();
-        nativeBusy = true;
+        final long token;
+        synchronized (nativeLock) {
+            token = nativeToken.incrementAndGet();
+            nativeBusy = true;
+        }
         Thread w = new Thread(() -> {
             try {
                 Thread.sleep(HUNG_NATIVE_MS);
             } catch (InterruptedException ie) {
                 return;
             }
-            if (nativeBusy && nativeToken.get() == token) recoverWedgedCore(what);
+            recoverWedgedCore(what, token);
         }, "king-native-watch");
         w.setDaemon(true);
         w.start();
     }
 
     private void endNative() {
-        nativeBusy = false;
+        synchronized (nativeLock) {
+            nativeBusy = false;
+            // Invalidate a watchdog that woke at the same moment the call returned.
+            nativeToken.incrementAndGet();
+        }
     }
 
     /**
@@ -565,20 +573,25 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * Android restarts the service fresh (START_STICKY). If the user asked to stop, the
      * saved state is cleared so the restart does not reconnect.
      */
-    private void recoverWedgedCore(String what) {
-        if (!recovering.compareAndSet(false, true)) return;
-        Log.e(TAG, what + " has not returned after " + (HUNG_NATIVE_MS / 1000)
-                + "s; restarting the VPN process");
-        synchronized (startLifecycleLock) {
-            // Linearize the stop-vs-recovery decision with every stop request. If Stop
-            // wins the lock, its cleared state is committed before this process exits.
-            try {
-                if (userStopped) clearState();
-                else saveState();
-            } catch (Throwable t) {
-                Log.w(TAG, "state save before restart failed", t);
+    private void recoverWedgedCore(String what, long expectedToken) {
+        // endNative() and the watchdog decision share this lock. A call that returned
+        // just as the watchdog woke must never trigger an unnecessary process restart.
+        synchronized (nativeLock) {
+            if (!nativeBusy || nativeToken.get() != expectedToken) return;
+            if (!recovering.compareAndSet(false, true)) return;
+            Log.e(TAG, what + " has not returned after " + (HUNG_NATIVE_MS / 1000)
+                    + "s; restarting the VPN process");
+            synchronized (startLifecycleLock) {
+                // Linearize the stop-vs-recovery decision with every stop request. If Stop
+                // wins the lock, its cleared state is committed before this process exits.
+                try {
+                    if (userStopped) clearState();
+                    else saveState();
+                } catch (Throwable t) {
+                    Log.w(TAG, "state save before restart failed", t);
+                }
+                android.os.Process.killProcess(android.os.Process.myPid());
             }
-            android.os.Process.killProcess(android.os.Process.myPid());
         }
     }
 
