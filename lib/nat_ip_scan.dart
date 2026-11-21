@@ -161,7 +161,8 @@ int natAdaptiveConcurrency(int requested) {
 /// IMPROVEMENTS:
 ///   • Concurrency is clamped by [natAdaptiveConcurrency] — never too small,
 ///     never device-crushing.
-///   • Live cancellation: in-flight probes exit as soon as cancelled() is true.
+///   • Cooperative cancellation between probes; in-flight connects are bounded
+///     by [timeout] and their results are discarded after cancellation.
 ///   • Progress reporting via [onProgress] (called every few completions).
 ///   • Optional [randomize] to shuffle the scan order.
 ///   • No artificial caps on the caller's intent.
@@ -221,7 +222,8 @@ Future<List<NatIpHit>> natScanIps(
 
       final ms = await natTcpProbe(ip, port, timeout);
       // Do not publish a probe that completed after cancellation or the time budget.
-      // In-flight socket connects are bounded by [timeout], then discarded if stale.
+      // In-flight socket connects cannot be force-cancelled here; they remain
+      // bounded by [timeout], then their results are discarded if stale.
       if (aborted() || elapsed.elapsed >= budget) {
         done++;
         if (onProgress != null) onProgress(done, total, hits.length);
