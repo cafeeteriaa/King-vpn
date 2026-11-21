@@ -1180,7 +1180,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = extras.index('void aiShow(', start)
         dispatcher = extras[start:end]
         self.assertIn("aiProvider = 'local';", dispatcher)
-        self.assertIn('KingLocalAi.instance.ask(prompt)', dispatcher)
+        self.assertIn('KingLocalAi.instance.askLocalOnly(prompt)', dispatcher)
         self.assertNotIn('geminiAsk(', dispatcher)
         self.assertNotIn('grokAsk(', dispatcher)
 
@@ -1206,7 +1206,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         for legacy_key in ('gem_key', 'grok_key', 'claude_key', 'openai_key', 'deepseek_key'):
             self.assertIn(legacy_key, extras)  # deleted from both prefs and secure storage
         self.assertIn('aiAsk(aiPrompt())', extras)
-        self.assertIn('KingLocalAi.instance.ask(prompt)', extras)
+        self.assertIn('KingLocalAi.instance.askLocalOnly(prompt)', extras)
 
 
     def test_unified_pilot_starts_and_stops_local_king_advisory_safely(self):
