@@ -555,7 +555,7 @@ extension HomeExtras on _HomePageState {
         'latency=${evidence.globalLatencyMs ?? -1}ms '
         'confidence=${evidence.confidence.toStringAsFixed(2)}');
     sb.writeln('National diagnosis: ${natNetworkClassLabel(NatNetworkDiagnosis.current)}');
-    final routeHistory = PilotRouteHistory.forNetwork(natOpKey);
+    final routeHistory = PilotRouteHistory.forNetwork(PilotRouteHistory.currentGroup);
     if (routeHistory != null) {
       sb.writeln('Persistent route history for current network group: '
           'observations=${routeHistory['observations']} '
