@@ -4557,3 +4557,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+    def test_plugin_core_restart_does_not_stop_active_service(self):
+        patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+        self.assertIn('P1-40 stopCore supports non-destructive restart', patch)
+        self.assertIn('P1-40 stopCore only tears down service for explicit stop', patch)
+        self.assertIn('P1-40 VPN restart keeps service alive', patch)
+        self.assertIn('P1-40 proxy restart keeps service alive', patch)
+        self.assertIn('public void stopCore(boolean stopService)', patch)
+        self.assertIn('if (stopService && v2rayServicesListener != null)', patch)
+        self.assertIn('V2rayCoreManager.getInstance().stopCore(false);', patch)
