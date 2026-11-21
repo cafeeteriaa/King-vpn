@@ -3987,6 +3987,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         ):
             self.assertIn('${x.' + field + '}', signature, field)
 
+    def test_nat_sni_variant_labels_match_front_sni_indices(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        start = nat.index('// V13: SNI swap variants')
+        end = nat.index('];', start)
+        variants = nat[start:end]
+        self.assertIn("_NatSpec('SNI>cdnjs', sniSwap: 0)", variants)
+        self.assertIn("_NatSpec('SNI>cloudflare', sniSwap: 1)", variants)
+        self.assertIn("_NatSpec('SNI>speed', sniSwap: 2)", variants)
+        self.assertIn("_NatSpec('SNI>divar.ir', sniSwap: 6)", variants)
+        self.assertIn("'www.cloudflare.com',      // 1", nip)
+        self.assertIn("'speed.cloudflare.com',    // 2", nip)
+
+
 if __name__ == '__main__':
     unittest.main()
 

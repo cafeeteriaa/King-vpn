@@ -193,8 +193,8 @@ const List<_NatSpec> _natBase = [
   _NatSpec('آدرس دیگر + Fragment خیلی ریز', other: true, frag: 3),
   // V13: SNI swap variants (CDN bypass by masking SNI, keeping Host header).
   _NatSpec('SNI>cdnjs', sniSwap: 0),
-  _NatSpec('SNI>cloudflare', sniSwap: 2),
-  _NatSpec('SNI>speed', sniSwap: 3),
+  _NatSpec('SNI>cloudflare', sniSwap: 1),
+  _NatSpec('SNI>speed', sniSwap: 2),
   _NatSpec('SNI>divar.ir', sniSwap: 6),
 ];
 
