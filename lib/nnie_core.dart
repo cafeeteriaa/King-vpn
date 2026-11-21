@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 enum NatNetworkClass {
   globalReachable,
@@ -301,7 +302,8 @@ class NatDnsWireProbe {
           throw const FormatException('Non-public/blockpage AAAA answer for queried name');
         }
         ips.add(InternetAddress.fromRawAddress(
-          b.sublist(rr.rd, rr.rd + 16), type: InternetAddressType.IPv6,
+          Uint8List.fromList(b.sublist(rr.rd, rr.rd + 16)),
+          type: InternetAddressType.IPv6,
         ).address);
       }
     }
