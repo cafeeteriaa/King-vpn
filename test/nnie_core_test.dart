@@ -130,6 +130,42 @@ void main() {
       expect(ev.classify(), NatNetworkClass.transportRestricted);
     });
 
+    test('literal IPv4 evidence independently proves a global data path', () {
+      const ev = NatProbeEvidence(
+        domesticDnsOk: false, domesticTcpOk: false,
+        globalDnsOk: true, globalTcpOk: false,
+        globalIpv4TcpOk: true, sampleCount: 4,
+      );
+      expect(ev.classify(), NatNetworkClass.globalReachable);
+    });
+
+    test('literal IPv6 evidence independently proves a global data path', () {
+      const ev = NatProbeEvidence(
+        domesticDnsOk: false, domesticTcpOk: false,
+        globalDnsOk: true, globalTcpOk: false,
+        globalIpv6TcpOk: true, sampleCount: 4,
+      );
+      expect(ev.classify(), NatNetworkClass.globalReachable);
+    });
+
+    test('IPv4 success does not set the IPv6 evidence field', () {
+      const ev = NatProbeEvidence(
+        domesticDnsOk: false, domesticTcpOk: true,
+        globalDnsOk: true, globalTcpOk: false,
+        globalIpv4TcpOk: true, globalIpv6TcpOk: false, sampleCount: 4,
+      );
+      expect(ev.globalIpv4TcpOk, isTrue);
+      expect(ev.globalIpv6TcpOk, isFalse);
+    });
+
+    test('DNS query volume does not change the independent TCP sample count', () {
+      const oneEndpoint = NatProbeEvidence(
+        domesticDnsOk: true, domesticTcpOk: true,
+        globalDnsOk: true, globalTcpOk: false, sampleCount: 1,
+      );
+      expect(oneEndpoint.classify(), NatNetworkClass.unknown);
+    });
+
     test('global TCP reachability is recognized even if domestic targets fail', () {
       const ev = NatProbeEvidence(
         domesticDnsOk: false, domesticTcpOk: false,
