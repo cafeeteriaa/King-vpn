@@ -525,6 +525,18 @@ extension IpAutoExt on _HomePageState {
               return;
             }
             final runNationalMode = nationalMode;
+            // Load the selected mode's checkpoint before taking the scan lock.
+            // A background scan may win this await; in that case the second
+            // refusal check below prevents us from replacing its live state.
+            await ipAutoLoad(skipIfBusy: true);
+            if (!ctx.mounted) return;
+            final retryWhy = _ipAutoRefusal();
+            if (retryWhy != null || nationalMode != runNationalMode) {
+              ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(SnackBar(
+                content: Text(retryWhy ?? 'حالت شبکه تغییر کرد؛ دوباره شروع کن.'),
+              ));
+              return;
+            }
             ipAutoBusy = true;
             sheetScanRunning = true;
             // تا این اسکن تمام نشده، اسکن DNS پس‌زمینه هم شروع نمی‌شود (جدا و بدون تداخل)
@@ -532,12 +544,6 @@ extension IpAutoExt on _HomePageState {
             ipAutoStopFlag = false;
             upd(() => ipAutoStatus = 'شروع...');
             try {
-              // The sheet may have stayed open while the user changed network mode.
-              await ipAutoLoad();
-              if (_ipAutoHalt(modeSnapshot: runNationalMode)) {
-                upd(() => ipAutoStatus = 'حالت شبکه تغییر کرد یا اسکن متوقف شد؛ دوباره شروع کن.');
-                return;
-              }
               await _ipAutoRunOnce((s) => upd(() => ipAutoStatus = s), manual: true);
             } catch (e, stk) {
               logError(e, stk);
