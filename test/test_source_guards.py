@@ -2541,6 +2541,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('if (!nationalMode) ipAutoStopFlag = true;', body)
 
 
+    def test_nat_ip_scan_uses_ip_literals_without_system_dns(self):
+        scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        parse_start = scan.index('InternetAddress? _natParseIpLiteral(')
+        probe_start = scan.index('Future<int?> natTcpProbe(', parse_start)
+        probe_end = scan.index('/// Clamp a user-supplied', probe_start)
+        parser = scan[parse_start:probe_start]
+        probe = scan[probe_start:probe_end]
+        self.assertIn('InternetAddress.tryParse(value.trim())', parser)
+        self.assertIn('InternetAddressType.IPv4', parser)
+        self.assertIn('InternetAddressType.IPv6', parser)
+        self.assertIn('Socket.connect(address, port, timeout: timeout)', probe)
+        self.assertNotIn('Socket.connect(ip, port', probe)
+        scan_start = scan.index('Future<List<NatIpHit>> natScanIps(')
+        scan_body = scan[scan_start:]
+        self.assertIn('_natParseIpLiteral(raw)', scan_body)
+        self.assertIn('seen.add(address.address)', scan_body)
+
     def test_ip_range_expanders_reject_non_positive_limits(self):
         scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')

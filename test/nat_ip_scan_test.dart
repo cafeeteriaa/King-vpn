@@ -31,7 +31,7 @@ void main() {
       expect(await natScanIps(['127.0.0.1'], port: 65536), isEmpty);
     });
 
-    test('NAT scanner rejects hostnames instead of invoking system DNS', () async {
+    test('NAT scanner returns no hits for hostname-only input', () async {
       expect(
         await natScanIps(['localhost', 'example.com']),
         isEmpty,
@@ -40,15 +40,6 @@ void main() {
         await natTcpProbe('localhost', 443, const Duration(seconds: 1)),
         isNull,
       );
-    });
-
-    test('NAT scanner canonicalizes and deduplicates literal IP candidates', () async {
-      // A cancelled scan validates and normalizes input without opening sockets.
-      final result = await natScanIps(
-        ['127.0.0.1', ' 127.0.0.1 ', 'not-an-ip'],
-        cancelled: () => true,
-      );
-      expect(result, isEmpty);
     });
 
     test('adaptive concurrency always returns a bounded integer', () {
