@@ -12,6 +12,9 @@ class AndroidTunDnsPatchTests(unittest.TestCase):
         self.assertIn('"protocol", "dns"', source)
         self.assertIn('"king-dns-hijack"', source)
         self.assertIn('"outboundTag", dnsOutboundTag', source)
+        self.assertIn('startsWith("king-dns-hijack")', source)
+        self.assertIn("boolean hasDnsRoute = false;", source)
+        self.assertIn("if (!hasDnsRoute)", source)
 
     def test_android_dns_packets_are_not_routed_direct_by_patch(self):
         source = (ROOT / "patch_plugin.py").read_text(encoding="utf-8")
