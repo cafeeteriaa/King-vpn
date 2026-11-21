@@ -302,6 +302,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('natIrDomains', domain_scan)
         self.assertNotIn('for (var p = 1; p < 65536; p++)', domain_scan)
 
+    def test_reliable_config_preserves_iranian_geoip_resolution_strategy(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('String _reliableVpnCfg(String cfg)')
+        end = main.index('// completes when the VPN tunnel reports CONNECTED', start)
+        builder = main[start:end]
+        self.assertIn('if (iranRoute && iranGeoip)', builder)
+        self.assertIn("rt['domainStrategy'] = 'IPIfNonMatch';", builder)
+        self.assertIn("rt['domainStrategy'] ??= 'AsIs';", builder)
+
     def test_reliable_config_applies_route_only_preference_to_all_inbounds(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('String _reliableVpnCfg(String cfg)')
