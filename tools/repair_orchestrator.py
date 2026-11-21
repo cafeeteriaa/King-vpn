@@ -30,9 +30,12 @@ DEPENDENCIES = [
 ]
 
 
-def run(command: list[str], cwd: Path, timeout: int = 1800) -> None:
+def run(command: list[str], cwd: Path, timeout: int = 1800, extra_env=None) -> None:
     print('+', ' '.join(command), flush=True)
-    subprocess.run(command, cwd=cwd, check=True, timeout=timeout)
+    env = os.environ.copy()
+    if extra_env:
+        env.update(extra_env)
+    subprocess.run(command, cwd=cwd, check=True, timeout=timeout, env=env)
 
 
 def verify(patch_file: Path, output_patch: Path) -> dict:
@@ -83,7 +86,8 @@ def verify(patch_file: Path, output_patch: Path) -> dict:
         run(['flutter', 'test'], build_app, timeout=900)
         run(['flutter', 'analyze', '--no-fatal-warnings', '--no-fatal-infos'], build_app, timeout=900)
         run(['flutter', 'build', 'apk', '--debug', '--target-platform', 'android-arm64'],
-            build_app, timeout=1800)
+            build_app, timeout=1800,
+            extra_env={'CGO_LDFLAGS': '-Wl,-z,max-page-size=16384'})
 
     output_patch.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(patch_file, output_patch)
