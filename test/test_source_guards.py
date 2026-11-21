@@ -1623,6 +1623,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         fetch = refresh.index('await pool<int>')
         self.assertLess(cleanup, fetch)
         self.assertIn('await File(path).delete();', refresh[cleanup:fetch])
+        self.assertIn('if (await stalePart.exists()) rethrow;', refresh[cleanup:fetch])
         fill_start = source.index('Future<void> hotAutoFill() async')
         fill_end = source.index('Future<void> hotAutoStart()', fill_start)
         self.assertNotIn('manageExternalStorage', source[fill_start:fill_end])

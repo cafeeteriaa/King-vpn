@@ -2641,10 +2641,13 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
     // A previous interrupted refresh may have left partial source files behind.
     // Remove them before fetching so a failed/empty source can never reuse stale configs.
     for (final path in [...parts, extraPath]) {
+      final stalePart = File(path);
       try {
-        await File(path).delete();
+        await stalePart.delete();
       } on FileSystemException {
-        // Missing temporary files are the normal first-run case.
+        // Ignore only the expected "already absent" case. A stale file that
+        // cannot be removed must abort the refresh rather than be merged.
+        if (await stalePart.exists()) rethrow;
       }
     }
     try {
