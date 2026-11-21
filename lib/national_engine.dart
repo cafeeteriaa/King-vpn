@@ -185,7 +185,39 @@ class PilotRouteHistory {
   static Future<void> _writeQueue = Future<void>.value();
 
   static bool _validGroup(String value) =>
-      RegExp(r'^(wifi|mob|net)\\|[a-z0-9_-]{1,24}
+      RegExp(r'^(wifi|mob|net)\\|[a-z0-9_-]{1,24}$').hasMatch(value);
+
+  /// Builds a deliberately coarse group from the active physical interface
+  /// and the app's existing operator label. No address or device identifier
+  /// enters the persistent key.
+  static Future<String> networkGroup() async {
+    var kind = 'net';
+    try {
+      final interfaces = await NetworkInterface.list(includeLoopback: false);
+      final names = interfaces.map((item) => item.name.toLowerCase()).toList();
+      if (names.any((name) => name.startsWith('wlan') || name.startsWith('wifi'))) {
+        kind = 'wifi';
+      } else if (names.any((name) =>
+          name.startsWith('rmnet') ||
+          name.startsWith('ccmni') ||
+          name.startsWith('wwan') ||
+          name.startsWith('pdp') ||
+          name.startsWith('cell'))) {
+        kind = 'mob';
+      }
+    } catch (_) {
+      // Unknown interface is grouped conservatively as "net".
+    }
+    final operator = natOpKey.trim().toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9_-]'), '');
+    final label = operator.isEmpty
+        ? 'unknown'
+        : operator.substring(0, operator.length.clamp(0, 24).toInt());
+    return '$kind|$label';
+  }
+
+  static String get currentGroup => _activeGroup;
+  static Map<String, Object?>? forNetwork(String group) => _entries[group];
   static Future<void> load() async {
     if (_loaded) return;
     _loading ??= _loadImpl();
