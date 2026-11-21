@@ -852,7 +852,6 @@ Future<int?> _cfProbeMs(String ip, Duration t) async {
     raw = await Socket.connect(ip, 443, timeout: t);
     k = await SecureSocket.secure(raw,
             host: 'cloudflare.com',
-            onBadCertificate: (_) => true,
             supportedProtocols: const ['http/1.1'])
         .timeout(t);
     k.write(
@@ -891,29 +890,54 @@ Future<void> _doRefreshClean() async {
   try {
     cleanIpStatus = 'در حال جمع‌آوری IP...';
     cleanTick.value++;
+
+    // GOLD FIRST: نتیجه‌های تأییدشده‌ی قبلی را قبل از اسکن تازه حفظ کن.
+    await goldLoad();
+    final previous = List<CleanIp>.of(cleanIps);
     final c = await _cleanCandidates();
+    if (c.isEmpty) {
+      cleanIpStatus = 'کاندیدای تازه‌ای پیدا نشد؛ IPهای قبلی حفظ شدند';
+      return;
+    }
+
     final res = <CleanIp>[];
     var done = 0;
+    // هر probe خودش timeout محدود دارد؛ timeout بیرونیِ pool حذف شده تا
+    // Future.timeout باعث ذخیره‌ی نتیجه‌ی ناقص و ادامه‌ی بی‌نظارت workerها نشود.
     await pool<String>(c, 20, (ip) async {
       if (res.length >= 20) return;
       final ms = await _cfProbeMs(ip, const Duration(milliseconds: 3500));
       done++;
       if (ms != null) res.add(CleanIp(ip, ms));
-      if (done % 5 == 0) {
+      if (done % 5 == 0 || done == c.length) {
         cleanIpStatus = 'در حال تست... $done از ${c.length} • ${res.length} سالم';
         cleanTick.value++;
       }
-      await Future.delayed(const Duration(milliseconds: 20));
-    }).timeout(const Duration(seconds: 40), onTimeout: () {});
-    res.sort((a, b) => a.ms.compareTo(b.ms));
-    cleanIps = res.take(20).toList();
-    cleanIpsAt = DateTime.now();
-    cleanIpStatus = '${cleanIps.length} IP سالم از ${c.length} تست';
-    await _saveCleanIps();
-    await goldMergeIps(res);
+    });
+
+    // نتیجه‌ی خالی/ناموفق نباید فهرست سالم قبلی را پاک کند.
+    final merged = <String, CleanIp>{};
+    for (final item in [...res, ...previous, ...goldIpList()]) {
+      final key = '${item.ip}:${item.port}';
+      final old = merged[key];
+      if (old == null || item.ms < old.ms) merged[key] = item;
+    }
+    final ranked = merged.values.toList()
+      ..sort((a, b) => a.ms.compareTo(b.ms));
+    if (res.isNotEmpty) {
+      cleanIps = ranked.take(20).toList();
+      cleanIpsAt = DateTime.now();
+      await _saveCleanIps();
+      await goldMergeIps(res);
+    } else {
+      cleanIps = ranked.take(20).toList();
+    }
+    cleanIpStatus = res.isEmpty
+        ? 'IP تازه‌ای تأیید نشد؛ ${cleanIps.length} IP قبلی حفظ شد'
+        : '${res.length} IP تازه تأیید شد؛ مجموع ذخیره‌شده: ${cleanIps.length}';
   } catch (e, stk) {
     logError(e, stk);
-    cleanIpStatus = 'خطا در دریافت IP';
+    cleanIpStatus = 'خطا در دریافت IP؛ فهرست قبلی حفظ شد';
   }
   cleanTick.value++;
 }
