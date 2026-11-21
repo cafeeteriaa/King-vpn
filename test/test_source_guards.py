@@ -4542,7 +4542,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         app_block = patch[app_start:app_end]
         replacement = app_block.split("''', '''", 1)[1]
         self.assertNotIn("addDisallowedApplication(getPackageName())", replacement)
-        self.assertIn("The app is NOT excluded from the tunnel", replacement)
+        self.assertIn("the app is NOT excluded from the tunnel", replacement)
         self.assertIn("BLOCKED_APPS", patch)
 
         # Returning true without calling Android protect(fd) is unsafe: it can leave
