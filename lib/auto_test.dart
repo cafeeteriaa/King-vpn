@@ -770,7 +770,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     if (l.contains('allowInsecure=1') ||
         l.contains('allowInsecure=true') ||
         l.contains('insecure=1')) {
-      notes.add('allowInsecure دارد؛ هسته‌ی ۳.۵.۰ (Xray v26.9.9) این گزینه را حذف کرده → با نسخه‌ی ۳.۴.۱ امتحان کن');
+      notes.add('کانفیگ درخواست غیرفعال‌کردن اعتبارسنجی گواهی TLS را دارد؛ Xray 26.9.9 این گزینه را حذف می‌کند و اعتبارسنجی را ناامن نمی‌کند. نسخه قدیمی‌تر نصب نکن؛ گواهی و SNI سرور را اصلاح کن یا از ارائه‌دهنده کانفیگ معتبر بگیر.');
     }
     if (l.startsWith('vless://') && !s.tls && s.isIp) {
       notes.add('VLESS بدون TLS به IP عمومی؛ هسته‌ی ۳.۵.۰ این را رد می‌کند');
