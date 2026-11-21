@@ -4080,6 +4080,30 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('ipv6 sinkhole not supported', body)
         self.assertNotIn('catch (Exception e)', body[:body.index('} catch (Exception e)')])
 
+    def test_reliable_config_hijacks_udp_and_tcp_dns_into_xray_builtin_resolver(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('String _reliableVpnCfg(String cfg)')
+        end = source.index('// completes when the VPN tunnel reports CONNECTED', start)
+        body = source[start:end]
+        self.assertIn("'protocol': 'dns'", body)
+        self.assertIn("'network': 'tcp,udp'", body)
+        self.assertIn("'port': '53'", body)
+        self.assertIn("'ruleTag': 'king-vpn-dns-hijack'", body)
+        self.assertIn("rules.insert(0,", body)
+        self.assertIn("d['queryStrategy'] = 'UseIP';", body)
+        self.assertIn("d['servers'] = <String>['1.1.1.1', '8.8.8.8'];", body)
+
+    def test_android_uses_synthetic_dns_only_when_xray_hijack_rule_is_present(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private ParcelFileDescriptor establish(V2rayConfig cfg)')
+        end = source.index('/** جدید: wires libv2ray', start)
+        body = source[start:end]
+        guard = body.index('fullConfig.contains("\\"king-vpn-dns-hijack\\"")')
+        ipv4 = body.index('b.addDnsServer("26.26.26.2");')
+        ipv6 = body.index('b.addDnsServer("fd00:1:fd00:1:fd00:1:fd00:2");')
+        self.assertLess(guard, ipv4)
+        self.assertLess(ipv4, ipv6)
+
     def test_ipv4_ipv6_routes_reach_the_active_native_core_and_dns_queries_both_families(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         activity = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
