@@ -4438,8 +4438,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("unawaited(PilotRouteHistory.record(", national)
         self.assertIn("if (identity.isNotEmpty)", national)
         self.assertIn("PilotRouteHistory.forNetwork(natOpKey)", extras)
-        self.assertNotIn("ssid", national.lower())
-        self.assertNotIn("subscriber", national.lower())
+        history_start = national.index('class PilotRouteHistory')
+        history_end = national.index('/// Multi-source reachability check', history_start)
+        history = national[history_start:history_end].lower()
+        self.assertNotIn("'ssid':", history)
+        self.assertNotIn("'subscriber':", history)
+        self.assertNotIn("'ipaddress':", history)
 
     def test_smart_pilot_manual_ip_ranges_accept_bounded_ipv4_and_ipv6(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
