@@ -67,6 +67,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertNotIn("import 'engine_registry.dart';", main)
 
+    def test_dns_auto_resolver_probe_uses_one_stable_route_mode_snapshot(self):
+        source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        probe_start = source.index('Future<int?> _probeDnsIp(')
+        probe_end = source.index('Future<String> pickBestDns(', probe_start)
+        probe = source[probe_start:probe_end]
+        self.assertIn('required bool nationalModeSnapshot', probe)
+        self.assertIn("nationalModeSnapshot ? 'nic.ir' : 'google.com'", probe)
+        picker_start = source.index('Future<String> pickBestDns(')
+        picker_end = source.index('const _lanCidrs', picker_start)
+        picker = source[picker_start:picker_end]
+        self.assertIn('final modeSnapshot = nationalMode;', picker)
+        self.assertIn('if (nationalMode != modeSnapshot) return dnsProvActive;', picker)
+        self.assertIn('final selectedIpProbes = modeSnapshot', picker)
+        self.assertIn('nationalModeSnapshot: modeSnapshot', picker)
+        self.assertIn('if (networkAfterProbe != networkKey)', picker)
+
     def test_dns_auto_cache_is_network_operator_aware_and_discards_stale_probes(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         key_start = source.index('Future<String> _dnsNetworkKey()')
