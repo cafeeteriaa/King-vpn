@@ -780,42 +780,36 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('KingAiBackgroundSupervisor.initialize()', main)
         self.assertNotIn('cancelAll()', main)
 
-    def test_background_supervisor_apis_exist_and_verify_installed_model(self):
+    def test_background_supervisor_uses_cloud_helpers_without_loading_local_models(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
         worker = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
+        providers = (ROOT / 'lib' / 'king_ai_provider_pilot.dart').read_text(encoding='utf-8')
         for method in (
             'setBackgroundRepairPullNumber',
             'getBackgroundRepairPullNumber',
             'clearBackgroundRepairPullNumber',
             'setBackgroundAutoDiscovery',
             'isBackgroundAutoDiscoveryEnabled',
-            'loadInstalledModelForBackground',
             'findOpenPullRequestWithCiFailures',
             'findOpenPullRequestForHeadBranch',
         ):
             self.assertIn(f'{method}(', ai)
             self.assertIn(f'.{method}(', worker)
-        load_start = ai.index('Future<bool> loadInstalledModelForBackground()')
-        load_end = ai.index('Future<ModelManager> _modelManager()', load_start)
-        loader = ai[load_start:load_end]
-        self.assertIn('decoded[\'sha256\'] != modelSha256', loader)
-        self.assertIn('decoded[\'sizeBytes\'] != modelSizeBytes', loader)
-        self.assertLess(loader.index('_busy = true;'), loader.index('await getApplicationSupportDirectory()'))
-        self.assertIn('finally {', loader)
-        self.assertIn('_busy = false;', loader)
-        dispose_start = ai.index('Future<void> dispose()')
-        dispose_end = ai.index('\n  }', dispose_start)
-        dispose_body = ai[dispose_start:dispose_end]
-        self.assertIn('finally {', dispose_body)
-        self.assertIn('final previous = _generationQueue;', dispose_body)
-        self.assertIn('await previous;', dispose_body)
-        self.assertLess(dispose_body.index('await previous;'), dispose_body.index('if (_busy)'))
-        self.assertIn('_busy = true;', dispose_body)
-        self.assertIn('release.complete();', dispose_body)
-        self.assertLess(dispose_body.index('engine.dispose()'), dispose_body.index('models.dispose()'))
-        self.assertIn('sha256.bind(modelFile.openRead())', loader)
-        self.assertIn('resolveSymbolicLinks()', loader)
+        self.assertIn('respondForKing(', providers)
+        self.assertIn('cloudEnabled', worker)
+        self.assertIn('configuredProviders()', worker)
+        self.assertIn('createAutonomousMaintenanceProposal(', worker)
+        self.assertNotIn('.loadInstalledModelForBackground(', worker)
+        self.assertIn('loadInstalledModelForBackground()', ai)
+        self.assertIn('sha256.bind(modelFile.openRead())', ai)
+        self.assertIn('resolveSymbolicLinks()', ai)
         self.assertIn('repairFromFailedCiAutonomous(', worker)
+        audit_start = ai.index('Future<Map<String, Object?>> createAutonomousMaintenanceProposal(')
+        audit_end = ai.index('static const Set<String> _researchHosts', audit_start)
+        audit = ai[audit_start:audit_end]
+        self.assertIn('providerPilot.cloudEnabled', audit)
+        self.assertIn('configuredHelpers[KingAiProvider.gemini]', audit)
+        self.assertIn('hasGitHubToken()', audit)
 
     def test_chat_speech_listener_stops_after_widget_disposal(self):
         source = (ROOT / 'lib' / 'king_chat_page.dart').read_text(encoding='utf-8')
