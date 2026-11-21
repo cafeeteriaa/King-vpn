@@ -3855,5 +3855,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('DateTime.now().isBefore(until)', body)
 
 
+    def test_native_core_lifecycle_fence_is_process_wide(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertIn('private static final ReentrantLock coreLock = new ReentrantLock();', source)
+        self.assertIn('private static volatile boolean coreStopping = false;', source)
+        start = source.index('private Boolean readCoreRunningWithWatchdog')
+        end = source.index('private boolean stopCoreNow', start)
+        body = source[start:end]
+        self.assertIn('if (coreStopping) return null;', body)
+
+
 if __name__ == '__main__':
     unittest.main()

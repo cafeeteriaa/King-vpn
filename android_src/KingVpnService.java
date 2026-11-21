@@ -165,13 +165,13 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     // is still the newest (isCurrent). So an orphaned attempt can never touch the
     // core once it has been superseded, however long it lives: it either never
     // gets the lock and bails out, or it cleans up its own result before releasing.
-    private final ReentrantLock coreLock = new ReentrantLock();
+    private static final ReentrantLock coreLock = new ReentrantLock();
     /** Every new attempt, every stop and every timeout increments this. */
     private final AtomicInteger attemptSeq = new AtomicInteger(0);
     /** bringUp calls that have not returned yet, orphans included. */
     private final AtomicInteger inFlight = new AtomicInteger(0);
     /** True while a stopCore call is still running on its thread (it may hang). Core is fenced. */
-    private volatile boolean coreStopping = false;
+    private static volatile boolean coreStopping = false;
     /** Close the TUN only after a timed-out native stop has actually returned. */
     private boolean closeTunAfterCoreStop = false;
     /**
