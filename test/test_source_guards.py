@@ -3419,7 +3419,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (!beginNative(operation))', helper)
         self.assertIn('coreLock.unlock();', helper)
         self.assertIn('return core.isV2rayCoreRunning();', helper)
-        self.assertIn('finally {\n            endNative();\n        }', helper)
+        self.assertIn('finally {\n                endNative();\n            }', helper)
 
         stop_start = service.index('private boolean stopCoreNow()')
         stop_end = service.index('private boolean awaitCoreStopped(', stop_start)
