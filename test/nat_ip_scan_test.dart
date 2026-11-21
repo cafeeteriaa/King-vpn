@@ -25,6 +25,18 @@ void main() {
       expect(cursor, 4);
     });
 
+    test('normalizes negative cursors before indexing configured ranges', () {
+      final ranges = ['a', 'b', 'c', 'd'];
+      final result = natConfiguredRangeBatch(
+        ranges: ranges,
+        cursor: -1,
+        limit: 2,
+        expand: (range, _) => [range],
+      );
+      expect(result.addresses, ['d', 'a']);
+      expect(result.nextCursor, 1);
+    });
+
     test('distributes a bounded budget across all ranges and deduplicates', () {
       final result = natConfiguredRangeBatch(
         ranges: ['a', 'b', 'c'],

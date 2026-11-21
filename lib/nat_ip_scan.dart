@@ -105,7 +105,9 @@ List<String> natExpandDash(String range, {int maxCount = 65536}) {
   if (limit <= 0 || ranges.isEmpty) {
     return (addresses: const <String>[], nextCursor: cursor);
   }
-  final start = cursor % ranges.length;
+  // Dart's remainder keeps the dividend's sign; normalize persisted/corrupt
+  // negative cursors into the valid range before indexing the inventory.
+  final start = ((cursor % ranges.length) + ranges.length) % ranges.length;
   final rangeCount = min(ranges.length, limit);
   final basePerRange = limit ~/ rangeCount;
   final extra = limit % rangeCount;
