@@ -17206,13 +17206,19 @@ bool _natSrc(Server s) {
       u.contains('delta-kronecker');
 }
 
+// Iranian ISP/datacenter ASN ranges are used only to classify already-known
+// server endpoints. They are never expanded into a broad unsolicited scan.
+final NatIpv4CidrIndex _iranIspIpv4Index = NatIpv4CidrIndex(kIrIspRanges);
+
+bool _natIsIranAsnIp(String host) => _iranIspIpv4Index.contains(host);
+
 // NNIE-DOM: وقتی جهانی قطع و ملی باز است، سرورهای ایران‌محور جلو می‌روند.
 // تفکیک صریح و پایدار است (List.sort در Dart پایدار نیست).
 List<Server> _natDomesticFirst(List<Server> list) {
   final dom = <Server>[];
   final rest = <Server>[];
   for (final s in list) {
-    (s.country == 'IR' || _natSrc(s) ? dom : rest).add(s);
+    (s.country == 'IR' || _natSrc(s) || _natIsIranAsnIp(s.host) ? dom : rest).add(s);
   }
   return [...dom, ...rest];
 }
@@ -17253,7 +17259,7 @@ int _natRankCompute(Server s) {
   if (natGood.contains(s.key)) return 5;
   if (_natSrc(s)) return 4;
   if (s.reality) return 3;
-  if (s.country == 'IR') return 2;
+  if (s.country == 'IR' || _natIsIranAsnIp(s.host)) return 2;
   if (s.cdn) return 1;
   return 0;
 }
