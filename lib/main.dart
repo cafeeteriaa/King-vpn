@@ -5470,7 +5470,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           !connSig!.isCompleted) {
         if (_staleCoreMayBeUp) {
           // FIX #107: this CONNECTED may come from the old core; prove it with traffic first
-          _verifyPendingConnect(connSig!);
+          final verifyGeneration = _connGen;
+          final verifyCompleter = connSig!;
+          unawaited(_verifyPendingConnect(verifyCompleter, verifyGeneration));
         } else {
           connSig!.complete(true);
         }
@@ -9137,14 +9139,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   // FIX #107: completes the connect waiter only when real traffic passes through the tunnel now.
   // A pass clears the stale-core flag, because the connection is now proven.
-  Future<void> _verifyPendingConnect(Completer<bool> c) async {
+  Future<void> _verifyPendingConnect(
+      Completer<bool> c, int expectedGeneration) async {
     final ok = await _tunnelTrafficOk();
+    // A stop/reconnect may replace the waiter while the traffic probe is in flight.
+    // Never let an old verification clear the stale-core fence for a newer attempt.
+    if (expectedGeneration != _connGen ||
+        !identical(connSig, c) ||
+        c.isCompleted ||
+        !_staleCoreMayBeUp) {
+      return;
+    }
     if (!ok) {
       dbg('CONNECTED ignored: traffic not through the tunnel yet (possible stale core)');
       return;
     }
     _staleCoreMayBeUp = false;
-    if (!c.isCompleted) c.complete(true);
+    c.complete(true);
   }
 
   // [trust] = the server was already tested: skip the extra verification.

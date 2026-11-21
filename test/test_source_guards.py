@@ -3865,6 +3865,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (coreStopping) return null;', body)
 
 
+    def test_stale_connected_probe_cannot_complete_a_replaced_waiter(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        listener = source[source.index('if (st.state == \'CONNECTED\' &&', source.index('downSig!.complete(true);')):]
+        listener = listener[:listener.index('// DROPDEFER')]
+        self.assertIn('final verifyGeneration = _connGen;', listener)
+        self.assertIn('final verifyCompleter = connSig!;', listener)
+        self.assertIn('_verifyPendingConnect(verifyCompleter, verifyGeneration)', listener)
+        start = source.index('Future<void> _verifyPendingConnect(')
+        end = source.index('// [trust] =', start)
+        verify = source[start:end]
+        self.assertIn('expectedGeneration != _connGen', verify)
+        self.assertIn('!identical(connSig, c)', verify)
+        self.assertIn('c.isCompleted', verify)
+        self.assertLess(verify.index('expectedGeneration != _connGen'),
+                        verify.index('_staleCoreMayBeUp = false;'))
+        self.assertIn('c.complete(true);', verify)
+
+
     def test_native_core_initialization_failure_remains_retryable(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         wire_start = service.index('private boolean wireCoreOnce()')
