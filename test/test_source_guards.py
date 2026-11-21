@@ -4123,9 +4123,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final step = size > limit ? (size + limit - 1) ~/ limit : 1;', body)
 
 
-if __name__ == '__main__':
-    unittest.main()
-
 
     def test_dns_probe_and_manual_scanner_accept_ipv4_and_ipv6_resolvers(self):
         core = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
@@ -4139,3 +4136,6 @@ if __name__ == '__main__':
         self.assertIn('2606:4700:4700::1111', scanner)
         self.assertIn('2001:4860:4860::8888', scanner)
         self.assertIn('parsedIp.type == InternetAddressType.IPv6', extras)
+
+if __name__ == '__main__':
+    unittest.main()
