@@ -2404,6 +2404,34 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('addressBatch.cursors', body)
         self.assertIn('addressBatch.nextPosition', body)
 
+    def test_ip_auto_save_treats_legacy_mirrors_as_best_effort_after_atomic_commit(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> _ipAutoSave()')
+        end = source.index('/// خودکار فقط IPهای دقیق', start)
+        save = source[start:end]
+        primary = save.index("await p.setString(stateKey, jsonEncode(checkpoint))")
+        mirror_try = save.index('try {', primary)
+        mirror_write = save.index("await p.setString(hitsKey")
+        mirror_catch = save.index('} catch (e, stk)', mirror_write)
+        success = save.index('return true;', mirror_catch)
+        self.assertLess(primary, mirror_try)
+        self.assertLess(mirror_try, mirror_write)
+        self.assertLess(mirror_write, mirror_catch)
+        self.assertLess(mirror_catch, success)
+
+    def test_ip_auto_scan_rolls_back_advanced_cursor_when_atomic_checkpoint_fails(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> _ipAutoRunOnce(')
+        end = source.index('Future<void> ipAutoSheet(', start)
+        scan = source[start:end]
+        self.assertIn('final previousPending = List<String>.of(ipAutoPendingCore);', scan)
+        self.assertIn('final previousCursors = Map<String, int>.of(ipAutoCursors);', scan)
+        self.assertIn('final previousPosition = ipAutoPos;', scan)
+        self.assertIn('final checkpointSaved = await _ipAutoSave();', scan)
+        failure = scan.index('if (!checkpointSaved)')
+        self.assertLess(failure, scan.index('ipAutoPos = previousPosition;', failure))
+        self.assertIn('ipAutoCursors\n            ..clear()\n            ..addAll(previousCursors);', scan)
+
     def test_national_hot_source_reads_and_rebuilds_share_one_serial_queue(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         self.assertIn('Future<void> _hotIoQueue = Future<void>.value();', source)

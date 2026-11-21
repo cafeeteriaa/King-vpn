@@ -162,12 +162,17 @@ Future<bool> _ipAutoSave() async {
     // safely repeated instead of silently losing unverified endpoints/results.
     final committed = await p.setString(stateKey, jsonEncode(checkpoint));
     if (!committed) return false;
-    // Best-effort legacy mirrors for older app builds; new builds always load
-    // the atomic checkpoint first.
-    await p.setString(hitsKey, hits.join('\n'));
-    await p.setString(pendingKey, pending.join('\n'));
-    await p.setString(cursorKey, jsonEncode(cursors));
-    await p.setString(posKey, position.toString());
+    // The single checkpoint above is authoritative. Legacy mirrors are only
+    // migration aids: their failure must not report a failed transaction after
+    // the new checkpoint has already committed successfully.
+    try {
+      await p.setString(hitsKey, hits.join('\\n'));
+      await p.setString(pendingKey, pending.join('\\n'));
+      await p.setString(cursorKey, jsonEncode(cursors));
+      await p.setString(posKey, position.toString());
+    } catch (e, stk) {
+      logError(e, stk);
+    }
     return true;
   } catch (e, stk) {
     logError(e, stk);
@@ -410,6 +415,12 @@ extension IpAutoExt on _HomePageState {
     // address batch. This bounds queue growth and prevents new discoveries
     // from starving older TCP-positive endpoints.
     final drainingPending = ipAutoPendingCore.isNotEmpty;
+    // Keep the in-memory cursor/queue aligned with the authoritative durable
+    // checkpoint. If that write fails, retain successful hits but retry the
+    // same address batch and pending candidates on the next run.
+    final previousPending = List<String>.of(ipAutoPendingCore);
+    final previousCursors = Map<String, int>.of(ipAutoCursors);
+    final previousPosition = ipAutoPos;
 
     // مرحله‌ی ۱: TCP روی همه‌ی آدرس‌ها
     final candidates = <String>[];
@@ -496,6 +507,26 @@ extension IpAutoExt on _HomePageState {
         ..clear()
         ..addAll(addressBatch.cursors);
       ipAutoPos = addressBatch.nextPosition;
+    }
+    // Do not report a completed scan or keep an advanced in-memory cursor
+    // unless the atomic checkpoint is durable. Successful hits remain useful,
+    // but the same address batch is retried if persistence fails.
+    final checkpointSaved = await _ipAutoSave();
+    if (!checkpointSaved) {
+      if (nationalMode == runNationalMode &&
+          _ipAutoLoadedNat == runNationalMode) {
+        ipAutoPendingCore
+          ..clear()
+          ..addAll(previousPending);
+        if (!drainingPending) {
+          ipAutoCursors
+            ..clear()
+            ..addAll(previousCursors);
+          ipAutoPos = previousPosition;
+        }
+      }
+      say('ذخیره‌ی نتیجه کامل نشد؛ آدرس‌ها برای تلاش بعدی حفظ شدند.');
+      return false;
     }
     say('تمام شد: $found IP جدید در حالت ${runNationalMode ? 'نت ملی' : 'جهانی'}.');
     return true;
