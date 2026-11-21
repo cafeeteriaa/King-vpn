@@ -1179,12 +1179,12 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             b.setSession(cfg.REMARK.isEmpty() ? "King VPN" : cfg.REMARK);
             b.setMtu(MTU);
             b.addAddress("26.26.26.1", 30);
-            try {
-                b.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);
-                b.addRoute("::", 0);
-            } catch (Exception e) {
-                Log.w(TAG, "ipv6 sinkhole not supported", e);
-            }
+            // IPv6 is part of the VPN security boundary. Never silently omit its
+            // default route: doing so would let IPv6 traffic escape outside the tunnel.
+            // If this platform cannot establish the IPv6 interface and route, fail
+            // the whole TUN setup rather than expose a partially protected VPN.
+            b.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);
+            b.addRoute("::", 0);
             b.addRoute("0.0.0.0", 0);
             // FIX #49: the app is NOT excluded from the tunnel. Its own requests (e.g. the ASN
             // lookup in nat_ultra.dart, which uses DIRECT) must go through the VPN, otherwise they

@@ -3991,6 +3991,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
                         arm.index('NationalNetworkIntelligence.armStable('))
 
 
+    def test_vpn_establish_fails_closed_when_ipv6_route_cannot_be_installed(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private ParcelFileDescriptor establish(V2rayConfig cfg)')
+        end = source.index('/** جدید: wires libv2ray', start)
+        body = source[start:end]
+        self.assertIn('b.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);', body)
+        self.assertIn('b.addRoute("::", 0);', body)
+        self.assertIn('b.addRoute("0.0.0.0", 0);', body)
+        self.assertLess(body.index('b.addRoute("::", 0);'),
+                        body.index('b.addRoute("0.0.0.0", 0);'))
+        self.assertNotIn('ipv6 sinkhole not supported', body)
+        self.assertNotIn('catch (Exception e)', body[:body.index('} catch (Exception e)')])
+
     def test_native_core_initialization_failure_remains_retryable(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         wire_start = service.index('private boolean wireCoreOnce()')
