@@ -259,7 +259,7 @@ Future<String?> nipFrontProbe(String ip, int port, String sni) async {
   SecureSocket? sec;
   try {
     raw = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 2000));
-    sec = await SecureSocket.secure(raw, host: sni, onBadCertificate: (_) => true)
+    sec = await SecureSocket.secure(raw, host: sni)
         .timeout(const Duration(seconds: 3));
     return sni;
   } catch (_) {
