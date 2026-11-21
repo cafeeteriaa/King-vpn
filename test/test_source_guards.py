@@ -3415,7 +3415,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         helper_start = service.index('private Boolean readCoreRunningWithWatchdog(')
         helper_end = service.index('private boolean stopCoreNow()', helper_start)
         helper = service[helper_start:helper_end]
+        self.assertIn('if (!coreLock.tryLock()) return null;', helper)
         self.assertIn('if (!beginNative(operation))', helper)
+        self.assertIn('coreLock.unlock();', helper)
         self.assertIn('return core.isV2rayCoreRunning();', helper)
         self.assertIn('finally {\n            endNative();\n        }', helper)
 
