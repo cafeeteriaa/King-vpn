@@ -209,7 +209,7 @@ class NatNetworkDiagnosis {
     try {
       final at = _checkedAt;
       final id = await _identityHash();
-      if (!force && at != null && id == _identityAtCheck &&
+      if (!force && id.isNotEmpty && at != null && id == _identityAtCheck &&
           DateTime.now().difference(at) < _ttl) {
         return current;
       }
@@ -308,7 +308,7 @@ class PilotNetworkProbe {
   static Future<NetworkEvidence> _refresh({required bool force}) async {
     final identity = await _networkIdentity();
     final lastAt = _lastAt;
-    if (!force && lastAt != null && identity == _lastIdentity &&
+    if (!force && identity.isNotEmpty && lastAt != null && identity == _lastIdentity &&
         DateTime.now().difference(lastAt) < const Duration(minutes: 2)) {
       return _last;
     }
