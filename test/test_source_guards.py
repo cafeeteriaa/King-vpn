@@ -2674,5 +2674,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(guard, save)
 
 
+    def test_national_ip_success_is_saved_as_a_domestic_winner(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('void _onConnected(Server s)')
+        end = main.index('s.miss = 0;', start)
+        body = main[start:end]
+        ip_start = body.index('if (InternetAddress.tryParse(s.host) != null)')
+        ip_end = body.index('} else if (nationalMode)', ip_start)
+        ip_branch = body[ip_start:ip_end]
+        self.assertIn('unawaited(natIpMemSave(s.host, s.port));', ip_branch)
+        self.assertIn('if (nationalMode)', ip_branch)
+        national_guard = ip_branch.index('if (nationalMode)')
+        winner_save = ip_branch.index('unawaited(natDomMemSave(s.host, s.port));')
+        self.assertLess(national_guard, winner_save)
+
+
 if __name__ == '__main__':
     unittest.main()
