@@ -231,17 +231,18 @@ class KingAiBackgroundSupervisor {
     if (!await ai.hasGitHubToken()) {
       throw StateError('GitHub owner token must be configured first.');
     }
-    if (!ai.isLoaded) {
-      final pilot = KingAiProviderPilot.instance;
-      if (!await pilot.cloudEnabled) {
-        throw StateError('Load the optional local model or enable King AI cloud helpers first.');
-      }
-      final configured = await pilot.configuredProviders();
-      if (configured[KingAiProvider.gemini] != true &&
-          configured[KingAiProvider.groq] != true &&
-          configured[KingAiProvider.openRouter] != true) {
-        throw StateError('Configure at least one approved free-tier coding helper first.');
-      }
+    // WorkManager executes in a separate isolate/process lifecycle; an
+    // in-memory foreground model is not available there. Require a configured
+    // free cloud helper for scheduled work instead of waking up to no-op.
+    final pilot = KingAiProviderPilot.instance;
+    if (!await pilot.cloudEnabled) {
+      throw StateError('Enable King AI cloud helpers before scheduling background repair.');
+    }
+    final configured = await pilot.configuredProviders();
+    if (configured[KingAiProvider.gemini] != true &&
+        configured[KingAiProvider.groq] != true &&
+        configured[KingAiProvider.openRouter] != true) {
+      throw StateError('Configure at least one approved free-tier coding helper first.');
     }
     await KingLocalAi.instance.setBackgroundAutoDiscovery(false);
     await KingLocalAi.instance.setBackgroundRepairPullNumber(pullNumber);
