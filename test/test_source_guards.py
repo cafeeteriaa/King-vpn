@@ -3133,5 +3133,25 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('startId != latestStartId', resume)
         self.assertIn('stopEverything(startId);', resume)
 
+
+    def test_native_stale_stop_preserves_newer_start_and_stop_request(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertIn('private final Object startLifecycleLock = new Object();', source)
+        self.assertIn('private volatile int latestStopRequestId = -1;', source)
+        start = source[source.index('public int onStartCommand('):source.index('private void submit(')]
+        self.assertIn('synchronized (startLifecycleLock)', start)
+        self.assertIn('latestStartId = startId;', start)
+        stop_start = source.index('private void requestStop(int startId)')
+        stop_end = source.index('private boolean connectFrom(', stop_start)
+        self.assertIn('latestStopRequestId = startId;', source[stop_start:stop_end])
+        cleanup_start = source.index('private void stopEverything(int expectedStartId)')
+        cleanup_end = source.index('private void closeTun()', cleanup_start)
+        cleanup = source[cleanup_start:cleanup_end]
+        self.assertIn('synchronized (startLifecycleLock)', cleanup)
+        self.assertIn('if (expectedStartId == latestStartId)', cleanup)
+        self.assertIn('latestStopRequestId == expectedStartId', cleanup)
+        self.assertIn('stopSelfResult(expectedStartId);', cleanup)
+        self.assertNotIn('stopping = false;', cleanup)
+
 if __name__ == '__main__':
     unittest.main()
