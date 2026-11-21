@@ -3435,5 +3435,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('readCoreRunningWithWatchdog(core, "start-final-state-check")', await_body)
         self.assertIn('readCoreRunningWithWatchdog(core, "health-watchdog-state")', check)
 
+
+    def test_native_health_probe_discards_results_from_superseded_core_attempt(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private void checkOnce()')
+        end = source.index('private void rescheduleNormal()', start)
+        check = source[start:end]
+        snapshot = check.index('final int healthAttempt = attemptSeq.get();')
+        native_read = check.index('readCoreRunningWithWatchdog(core, "health-watchdog-state")')
+        probe = check.index('ProbeResult pr = coreUp ? probeResult(modeSnapshot) : ProbeResult.HARD_FAIL;')
+        guard = check.index('if (attemptSeq.get() != healthAttempt)')
+        self.assertLess(snapshot, native_read)
+        self.assertLess(native_read, probe)
+        self.assertLess(probe, guard)
+        stale = check[guard:check.index('if (nationalMode != modeSnapshot)', guard)]
+        self.assertIn('rescheduleNormal();', stale)
+        self.assertIn('return;', stale)
+
 if __name__ == '__main__':
     unittest.main()
