@@ -1767,10 +1767,8 @@ Future<void> natIpMemLoad() async {
           .millisecondsSinceEpoch;
       natIpMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
     }
-    natRanges = (p.getString(_rangeKey) ?? '')
-        .split(RegExp(r'[\r\n,; ]+'))
-        .where((x) => x.contains('/') || x.contains('-'))
-        .toList();
+    natRanges = _natNormalizeConfiguredRanges(
+        (p.getString(_rangeKey) ?? '').split(RegExp(r'[\\r\\n,; ]+')));
     _natConfiguredRangeCursor = (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
   } catch (e, stk) {
     logError(e, stk);
@@ -1831,17 +1829,65 @@ Future<void> natIpMemSave(String ip, int port) async {
 }
 
 
+/// Parse, canonicalize, deduplicate and cap user-configured IPv4 ranges.
+List<String> _natNormalizeConfiguredRanges(Iterable<String> values) {
+  final seen = <String>{};
+  final out = <String>[];
+  for (final value in values) {
+    final raw = value.trim();
+    String? normalized;
+    if (raw.contains('/')) {
+      final parts = raw.split('/');
+      if (parts.length != 2) continue;
+      final ip = InternetAddress.tryParse(parts[0].trim());
+      final prefix = int.tryParse(parts[1].trim());
+      if (ip == null ||
+          ip.type != InternetAddressType.IPv4 ||
+          prefix == null ||
+          prefix < 8 ||
+          prefix > 32) {
+        continue;
+      }
+      final mask = (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF;
+      normalized = '${_intToIp(_ipToInt(ip.address) & mask)}/$prefix';
+    } else if (raw.contains('-')) {
+      final parts = raw.split('-');
+      if (parts.length != 2) continue;
+      final first = InternetAddress.tryParse(parts[0].trim());
+      final last = InternetAddress.tryParse(parts[1].trim());
+      if (first == null ||
+          last == null ||
+          first.type != InternetAddressType.IPv4 ||
+          last.type != InternetAddressType.IPv4) {
+        continue;
+      }
+      final a = _ipToInt(first.address);
+      final b = _ipToInt(last.address);
+      normalized = a <= b
+          ? '${first.address}-${last.address}'
+          : '${last.address}-${first.address}';
+    }
+    if (normalized == null || !seen.add(normalized)) continue;
+    out.add(normalized);
+    if (out.length >= 128) break;
+  }
+  return out;
+}
+
 /// Next bounded sample from the National Net engine's own user-configured
 /// ranges. This cursor and range inventory are not shared with generic scanners.
 ({List<String> addresses, int nextCursor}) _natConfiguredRangeBatch(int limit) {
   if (limit <= 0 || natRanges.isEmpty) {
     return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
   }
+  // Bound synchronous work even when configured ranges overlap heavily.
+  final candidateCap = min(limit * 4, 131072);
   final candidates = <String>{};
   for (final range in natRanges.take(128)) {
-    final remaining = limit * 4 - candidates.length;
+    final remaining = candidateCap - candidates.length;
     if (remaining <= 0) break;
-    candidates.addAll(natExpandAny(range, maxPerBlock: remaining));
+    final generated = natExpandAny(range, maxPerBlock: min(1024, remaining));
+    candidates.addAll(generated);
   }
   if (candidates.isEmpty) {
     return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
@@ -1857,14 +1903,12 @@ Future<void> natIpMemSave(String ip, int port) async {
 }
 
 Future<void> natRangesSave(String text) async {
-  natRanges = text
-      .split(RegExp(r'[\r\n,; ]+'))
-      .where((x) => x.contains('/') || x.contains('-'))
-      .toList();
+  natRanges = _natNormalizeConfiguredRanges(
+      text.split(RegExp(r'[\\r\\n,; ]+')));
   _natConfiguredRangeCursor = 0;
   try {
     final p = await SharedPreferences.getInstance();
-    await p.setString(_rangeKey, natRanges.join('\n'));
+    await p.setString(_rangeKey, natRanges.join('\\n'));
     await p.setInt('natConfiguredRangeCursor', 0);
   } catch (e, stk) {
     logError(e, stk);

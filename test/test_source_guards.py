@@ -1914,6 +1914,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Do not publish stale discoveries after the tunnel/pilot stops.', keep)
 
 
+    def test_configured_nat_ranges_are_normalized_and_sync_expansion_is_bounded(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        normalize_start = nat.index('List<String> _natNormalizeConfiguredRanges(')
+        normalize_end = nat.index("/// Next bounded sample", normalize_start)
+        normalize = nat[normalize_start:normalize_end]
+        self.assertIn('InternetAddressType.IPv4', normalize)
+        self.assertIn('prefix < 8', normalize)
+        self.assertIn('prefix > 32', normalize)
+        self.assertIn('if (out.length >= 128) break;', normalize)
+        self.assertIn('_natNormalizeConfiguredRanges(', nat[nat.index('Future<void> natRangesSave'):])
+        batch_start = nat.index('({List<String> addresses, int nextCursor}) _natConfiguredRangeBatch(')
+        batch_end = nat.index('Future<void> natRangesSave(', batch_start)
+        batch = nat[batch_start:batch_end]
+        self.assertIn('final candidateCap = min(limit * 4, 131072);', batch)
+        self.assertIn('min(1024, remaining)', batch)
+        self.assertIn('natRanges.take(128)', batch)
+
     def test_nat_range_scan_discards_cancelled_batches_without_advancing_cursors(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
