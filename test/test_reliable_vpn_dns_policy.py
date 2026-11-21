@@ -23,7 +23,7 @@ class ReliableVpnDnsPolicyTests(unittest.TestCase):
         body = source[start:end]
         self.assertIn("customDnsList() ??", body)
         self.assertIn("effectiveDnsProv()", body)
-        self.assertIn("d['servers'] = [...ips, ...doh];", body)
+        self.assertIn("d['servers'] = servers;", body)
 
     def test_national_mode_does_not_append_global_or_imported_dns_servers(self):
         source = (ROOT / "lib" / "npv_am_extras.dart").read_text(encoding="utf-8")
@@ -35,3 +35,14 @@ class ReliableVpnDnsPolicyTests(unittest.TestCase):
         self.assertIn("..._dnsUrls['radar']!", body)
         self.assertIn("if (!nationalMode)", body)
         self.assertIn("final existingServers = d['servers'];", body)
+
+    def test_selected_doh_keeps_priority_over_ip_fallbacks(self):
+        source = (ROOT / "lib" / "npv_am_extras.dart").read_text(encoding="utf-8")
+        start = source.index("String withNpvAmCore(String cfg)")
+        end = source.index("List<Widget> npvAmSettingsItems(", start)
+        body = source[start:end]
+        self.assertIn("final servers = <dynamic>[];", body)
+        self.assertIn("if (!servers.contains(value)) servers.add(value);", body)
+        self.assertIn("d['servers'] = servers;", body)
+        self.assertNotIn("final ips = <dynamic>[];", body)
+        self.assertNotIn("final doh = <dynamic>[];", body)
