@@ -3948,7 +3948,8 @@ final Stopwatch natVerifyClock = Stopwatch();
 const int kMaxZeroTrafficPerServer = 2;
 
 Future<void> pool<T>(
-    List<T> items, int workers, Future<void> Function(T) fn) async {
+    List<T> items, int workers, Future<void> Function(T) fn,
+    {bool Function()? shouldStop}) async {
   // Safer index-based pool: a shared Iterator can theoretically skip an item
   // if two workers call moveNext before either yields (rare but possible under
   // heavy microtask pressure). An atomic index eliminates that.
@@ -3963,7 +3964,7 @@ Future<void> pool<T>(
     var n = 0;
     while (true) {
       final i = next++;
-      if (i >= items.length || poolStop) break; // ABORTPOOL
+      if (i >= items.length || (shouldStop?.call() ?? poolStop)) break; // ABORTPOOL
       try {
         await fn(items[i]);
       } catch (e, stk) {

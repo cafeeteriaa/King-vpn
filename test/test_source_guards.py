@@ -2631,6 +2631,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(failure, scan.index('ipAutoPos = previousPosition;', failure))
         self.assertIn('ipAutoCursors\n            ..clear()\n            ..addAll(previousCursors);', scan)
 
+    def test_hot_cache_fetch_uses_operation_local_cancellation(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        pool_start = main.index('Future<void> pool<T>(')
+        pool_end = main.index('// FIXTUNNEL:', pool_start)
+        pool = main[pool_start:pool_end]
+        self.assertIn('{bool Function()? shouldStop}', pool)
+        self.assertIn('(shouldStop?.call() ?? poolStop)', pool)
+
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> _natHotEnsureImpl(')
+        end = source.index('bool natHotReady()', start)
+        refresh = source[start:end]
+        self.assertIn('shouldStop: () => sw.elapsed > natHotFetchDeadline', refresh)
+
     def test_national_hot_source_reads_and_rebuilds_share_one_serial_queue(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         self.assertIn('Future<void> _hotIoQueue = Future<void>.value();', source)

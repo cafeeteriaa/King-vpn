@@ -2657,7 +2657,7 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
         final lines = await _hotFetchOne(urls[i]);
         if (lines.isEmpty) return;
         await File(parts[i]).writeAsString(lines.join('\n'), flush: true);
-      });
+      }, shouldStop: () => sw.elapsed > natHotFetchDeadline);
       final extraSrc = natExtraSource?.call() ?? const <Server>[];
       if (extraSrc.isNotEmpty) {
         final ex = [
