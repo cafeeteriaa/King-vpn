@@ -11395,7 +11395,13 @@ ListTile( // KINGEXTRAS row
       final clearFilters = RegExp(r'(پاک کردن فیلتر|حذف محدودیت|ریست فیلتر)').hasMatch(command);
       final allCountries = RegExp(r'(همه کشورها|تمام کشورها)').hasMatch(command);
       final allProtocols = RegExp(r'(همه پروتکل|تمام پروتکل)').hasMatch(command);
-      final codeRequest = !KingCommandSafety.isQuestionRequest(command) && RegExp(
+      final projectRequest = !KingCommandSafety.isQuestionRequest(command) && RegExp(
+        r'(اپلیکیشن بساز|اپلیکیشن ایجاد کن|اپ بساز|برنامه جدید بساز|برنامه بساز|پروژه بساز|'
+        r'برنامه اندروید بساز|اپلیکیشن اندروید بساز|create an app|create app|build an app|make an app|'
+        r'generate application|create a project|build a project)',
+        caseSensitive: false,
+      ).hasMatch(normalizedCommand);
+      final codeRequest = projectRequest || (!KingCommandSafety.isQuestionRequest(command) && RegExp(
         r'(کدنویسی کن|برنامه نویسی کن|کد بنویس|کدشو بنویس|کد تولید کن|کد جدید بنویس|کد رو بنویس|کد را بنویس|'
         r'کد رو اصلاح|کد را اصلاح|سورس رو تغییر|سورس را تغییر|برنامه رو تغییر|'
         r'برنامه را تغییر|به برنامه اضافه|قابلیت بساز|قابلیت اضافه کن|'
@@ -11406,7 +11412,7 @@ ListTile( // KINGEXTRAS row
         r'(اینترنت ایران|نت ملی).{0,30}(قابلیت.{0,12}(اضافه کن|بساز|ایجاد کن)|امکانات.{0,12}(اضافه کن|بساز)|کدنویسی کن|سورس را تغییر بده|کد بنویس)|'
         r'(نت ملی|اینترنت ایران).{0,40}(بهینه|ارتقا|بروز|به روز|خودکار|هوشمند|توسعه|تقویت).{0,12}(کن|کنید|بده|بساز)|'
         r'(بهینه|ارتقا|بروز|به روز|خودکار|هوشمند|توسعه|تقویت).{0,30}(نت ملی|اینترنت ایران).{0,12}(کن|کنید|بده|بساز))',
-      ).hasMatch(command);
+      ).hasMatch(command));
 
       final analysisOnlyRequest = RegExp(
         r'((ایده|پیشنهاد|فکر).{0,45}(تحلیل|بررسی|نظرت)|'
@@ -11446,8 +11452,11 @@ ListTile( // KINGEXTRAS row
         _set('چشم رئیس؛ ایده را فقط تحلیل می‌کنم و بدون دستور جداگانهٔ تو هیچ سورس یا کدی را تغییر نمی‌دهم.');
       } else if (codeRequest) {
         unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
-          builder: (_) => KingAiConsolePage(initialFeatureRequest: command,
-              speakResponses: voiceResponse),
+          builder: (_) => KingAiConsolePage(
+            initialProjectRequest: projectRequest ? command : null,
+            initialFeatureRequest: projectRequest ? null : command,
+            speakResponses: voiceResponse,
+          ),
         )));
         _set('چشم رئیس؛ فقط مالک اصلی پس از احراز هویت می‌تواند درخواست تغییر کد را ثبت کند. کینگ آن را تحلیل می‌کند و تغییرات را فقط در شاخهٔ بازبینی‌شونده آماده می‌کند.');
       } else if (statusRequest) {
