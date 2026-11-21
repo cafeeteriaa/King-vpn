@@ -150,7 +150,12 @@ class NatNetworkDiagnosis {
   static const Duration _ttl = Duration(minutes: 10);
   static const List<String> _domesticHosts = <String>['www.aparat.com', 'www.digikala.com'];
   static const List<String> _globalHosts = <String>['www.google.com', 'www.cloudflare.com'];
-  static const List<String> _globalResolvers = <String>['8.8.8.8', '1.1.1.1'];
+  // Include independent IPv4 and IPv6 resolver endpoints. A AAAA query over
+  // an IPv6 UDP socket is needed to observe whether the network carries IPv6 DNS.
+  static const List<String> _globalResolvers = <String>[
+    '8.8.8.8', '1.1.1.1',
+    '2001:4860:4860::8888', '2606:4700:4700::1111',
+  ];
   // Dedicated domestic DNS probes belong to this engine; they do not reuse
   // the general-purpose DNS scanner, its ranges, or its cached IP inventory.
   static const List<String> _domesticResolvers = <String>[
