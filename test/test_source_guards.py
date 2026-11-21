@@ -3207,5 +3207,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('synchronized (startLifecycleLock)', stop)
         self.assertIn('latestStopRequestId = startId;', stop)
 
+
+    def test_native_new_start_waits_for_previous_async_core_stop(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        helper_start = source.index('private boolean awaitCoreStopped(')
+        helper_end = source.index('private boolean bringUp(', helper_start)
+        helper = source[helper_start:helper_end]
+        self.assertIn('while (coreStopping)', helper)
+        self.assertIn('Thread.sleep(50L)', helper)
+        self.assertIn('BRING_UP_TIMEOUT_MS', helper)
+        self.assertIn('if (!isCurrent(myAttempt)) return false;', helper)
+        self.assertIn('if (!coreStopping && running) stopCoreNow();', helper)
+        self.assertIn('!core.isV2rayCoreRunning()', helper)
+
+        start = source.index('private boolean bringUp(Srv s, int myAttempt)')
+        end = source.index('private void startWatchdog(', start)
+        bring_up = source[start:end]
+        self.assertIn('if (!awaitCoreStopped(core, myAttempt)) return false;', bring_up)
+        self.assertNotIn('if (coreStopping || core.isV2rayCoreRunning())', bring_up)
+
 if __name__ == '__main__':
     unittest.main()
