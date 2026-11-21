@@ -134,6 +134,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     };
 
     private final Object lock = new Object();
+    // Prevent a watchdog tick racing service destruction and creating a new executor.
+    private final Object schedulerLock = new Object();
+    private volatile boolean destroyed = false;
     private final List<Srv> servers = new ArrayList<>();
     private ParcelFileDescriptor tun = null;
     // جدید: ONE scheduler for the whole service (was a new executor per tick, never closed)
@@ -756,20 +759,27 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     /** جدید: schedules one task on the single shared scheduler, replacing any pending tick. */
     private void scheduleTask(Runnable task, int delaySec) {
-        stopWatchdog();
-        ScheduledExecutorService s = scheduler;
-        if (s == null || s.isShutdown()) {
-            s = Executors.newSingleThreadScheduledExecutor();
-            scheduler = s;
+        synchronized (schedulerLock) {
+            if (destroyed || stopping) return;
+            ScheduledFuture<?> previous = watchdogTask;
+            watchdogTask = null;
+            if (previous != null) previous.cancel(false);
+            ScheduledExecutorService s = scheduler;
+            if (s == null || s.isShutdown()) {
+                s = Executors.newSingleThreadScheduledExecutor();
+                scheduler = s;
+            }
+            watchdogTask = s.schedule(task, delaySec, TimeUnit.SECONDS);
         }
-        watchdogTask = s.schedule(task, delaySec, TimeUnit.SECONDS);
     }
 
     /** جدید: cancels the pending tick. The scheduler thread is reused, never leaked. */
     private void stopWatchdog() {
-        ScheduledFuture<?> f = watchdogTask;
-        watchdogTask = null;
-        if (f != null) f.cancel(false);
+        synchronized (schedulerLock) {
+            ScheduledFuture<?> f = watchdogTask;
+            watchdogTask = null;
+            if (f != null) f.cancel(false);
+        }
     }
 
     /**
@@ -1213,10 +1223,18 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     @Override
     public void onDestroy() {
         if (instance == this) instance = null; // جدید
-        stopWatchdog();
+        ScheduledExecutorService sch;
+        synchronized (schedulerLock) {
+            // Publish destruction before detaching the executor. A checkOnce()
+            // already outside the service lock must not recreate the scheduler.
+            destroyed = true;
+            ScheduledFuture<?> pendingWatchdog = watchdogTask;
+            watchdogTask = null;
+            if (pendingWatchdog != null) pendingWatchdog.cancel(false);
+            sch = scheduler;
+            scheduler = null;
+        }
         requestStop();
-        ScheduledExecutorService sch = scheduler; // جدید: close the scheduler thread for good
-        scheduler = null;
         if (sch != null) sch.shutdownNow();
         // The core must stop so its local ports are released. Run it on the worker; shutdown()
         // still runs queued tasks, so this does not block the main thread.
