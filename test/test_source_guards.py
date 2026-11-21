@@ -320,8 +320,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         for phrase in ('کد رو اصلاح', 'سورس رو تغییر', 'برنامه را تغییر', 'قابلیت بساز'):
             self.assertIn(phrase, ai)
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
-        code_start = main.index('final codeRequest = !KingCommandSafety.isQuestionRequest(command) && RegExp(')
-        code_end = main.index(').hasMatch(command);', code_start)
+        code_start = main.index('final codeRequest = projectRequest || (!KingCommandSafety.isQuestionRequest(command) && RegExp(')
+        code_end = main.index(').hasMatch(command));', code_start)
         self.assertIn('کدشو بنویس', main[code_start:code_end])
         self.assertIn('قابلیت اضافه', main[code_start:code_end])
         self.assertIn('!KingCommandSafety.isQuestionRequest(command)', main[code_start:code_end])
@@ -462,7 +462,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_national_network_optimization_requests_enter_owner_code_flow(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn("r'(نت ملی|اینترنت ایران).{0,40}(بهینه|ارتقا|بروز|به روز|خودکار|هوشمند|توسعه|تقویت).{0,12}(کن|کنید|بده|بساز)|'", main)
-        self.assertIn("KingAiConsolePage(initialFeatureRequest: command", main)
+        self.assertIn("initialFeatureRequest: projectRequest ? null : command", main)
 
     def test_daily_autonomous_source_audit_is_owner_enabled_and_review_only(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
@@ -670,7 +670,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("import 'king_ai_console.dart';", main)
         self.assertIn("import 'king_ai_owner_auth.dart';", main)
         self.assertIn('const KingAiConsolePage()', main)
-        self.assertIn('final codeRequest = !KingCommandSafety.isQuestionRequest(command) && RegExp(', main)
+        self.assertIn('final codeRequest = projectRequest || (!KingCommandSafety.isQuestionRequest(command) && RegExp(', main)
         self.assertIn('if (codeRequest)', main)
         self.assertIn('KingAiOwnerAuth.instance.lock()', main)
         self.assertIn('KingAiOwnerAuth.instance.hasActiveSession', extras)
@@ -828,8 +828,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_national_runtime_optimization_is_not_misclassified_as_code(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
-        start = main.index('final codeRequest = !KingCommandSafety.isQuestionRequest(command) && RegExp(')
-        end = main.index(').hasMatch(command);', start)
+        start = main.index('final codeRequest = projectRequest || (!KingCommandSafety.isQuestionRequest(command) && RegExp(')
+        end = main.index(').hasMatch(command));', start)
         code_request = main[start:end]
         self.assertIn('(کل اپ|کل برنامه|کل پروژه)', code_request)
         self.assertIn('قابلیت.{0,12}(اضافه کن|بساز|ایجاد کن)', code_request)
@@ -841,7 +841,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         voice = (ROOT / 'lib' / 'king_voice_output.dart').read_text(encoding='utf-8')
         self.assertIn('if (voiceResponse) await _speakSmartCommandResponse(voiceReply ?? status)', main)
         self.assertIn('onChanged: (_) => _smartSpeechVoiceInput = false', main)
-        self.assertIn('initialFeatureRequest: command', main)
+        self.assertIn('initialFeatureRequest: projectRequest ? null : command', main)
         self.assertIn('speakResponses: voiceResponse', main)
         self.assertIn('widget.initialFeatureRequest', console)
         self.assertIn('widget.speakResponses', console)
