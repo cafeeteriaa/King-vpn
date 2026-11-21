@@ -267,6 +267,21 @@ void main() {
           throwsA(isA<FormatException>()));
     });
 
+    test('rejects an expanded DNS name longer than 255 octets', () {
+      final bytes = <int>[
+        ..._u16(0x1234), ..._u16(0x8180), ..._u16(1), ..._u16(0),
+        ..._u16(0), ..._u16(0),
+        ...List<int>.generate(4, (_) => 63).expand((length) => [
+          length, ...List<int>.filled(length, 97),
+        ]),
+        0, 0, 1, 0, 1,
+      ];
+      expect(
+        () => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
     test('pre-cancelled DNS probes return without opening a socket', () async {
       final result = await NatDnsWireProbe.probe(
         '127.0.0.1',
