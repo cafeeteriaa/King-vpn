@@ -4018,6 +4018,27 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final step = size > limit ? (size + limit - 1) ~/ limit : 1;', source)
         self.assertIn("text.split(RegExp(r'[\\r\\n\\s]+'))", source)
 
+    def test_ripe_cidr_sources_are_validated_deduplicated_and_bounded(self):
+        source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('List<String> _nipNormalizeIpv4Cidrs(')
+        end = source.index('/// فهرست بلوک‌های IPv4 ایران', start)
+        helper = source[start:end]
+        self.assertIn('InternetAddress.tryParse(parts[0].trim())', helper)
+        self.assertIn('address.type != InternetAddressType.IPv4', helper)
+        self.assertIn('prefix < 8', helper)
+        self.assertIn('prefix > 32', helper)
+        self.assertIn('if (!seen.add(normalized)) continue;', helper)
+        self.assertIn('final limit = min(maxEntries, 4096);', helper)
+        country = source[source.index('Future<List<String>> nipIranCidrs()'):
+                         source.index('/// همان کانفیگ سرور')]
+        self.assertIn('_nipNormalizeIpv4Cidrs(raw)', country)
+        asn_start = source.index('Future<List<String>> nipAsnPrefixes(String ip)')
+        asn_end = source.index('// FRONTSNI', asn_start)
+        asn = source[asn_start:asn_end]
+        self.assertIn('_nipNormalizeIpv4Cidrs(cached, maxEntries: 2048)', asn)
+        self.assertIn('_nipNormalizeIpv4Cidrs(rawPrefixes, maxEntries: 2048)', asn)
+        self.assertIn('if (rawPrefixes.length >= 4096) break;', asn)
+
     def test_nip_cidr_expansion_bounds_caller_supplied_limit(self):
         source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         start = source.index('List<String> nipExpandCidr(')

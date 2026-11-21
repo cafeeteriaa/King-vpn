@@ -85,11 +85,51 @@ Future<List<NipHit>> nipScan(
   return hits;
 }
 
+/// Normalize and bound untrusted IPv4 CIDR lists before caching or expanding them.
+List<String> _nipNormalizeIpv4Cidrs(Iterable<dynamic> values,
+    {int maxEntries = 4096}) {
+  if (maxEntries <= 0) return const [];
+  final limit = min(maxEntries, 4096);
+  final seen = <String>{};
+  final out = <String>[];
+  for (final value in values) {
+    final parts = value.toString().trim().split('/');
+    if (parts.length != 2) continue;
+    final address = InternetAddress.tryParse(parts[0].trim());
+    final prefix = int.tryParse(parts[1].trim());
+    if (address == null ||
+        address.type != InternetAddressType.IPv4 ||
+        prefix == null ||
+        prefix < 8 ||
+        prefix > 32) {
+      continue;
+    }
+    var base = 0;
+    for (final octet in address.rawAddress) {
+      base = (base << 8) | octet;
+    }
+    final size = 1 << (32 - prefix);
+    final network = base & ~(size - 1) & 0xFFFFFFFF;
+    final normalized =
+        '${(network >> 24) & 255}.${(network >> 16) & 255}.${(network >> 8) & 255}.${network & 255}/$prefix';
+    if (!seen.add(normalized)) continue;
+    out.add(normalized);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 /// فهرست بلوک‌های IPv4 ایران از RIPE (یک بار دانلود و بعد کش).
 Future<List<String>> nipIranCidrs() async {
   final p = await SharedPreferences.getInstance();
   final cached = p.getStringList('plus_ir_cidr');
-  if (cached != null && cached.isNotEmpty) return cached;
+  if (cached != null && cached.isNotEmpty) {
+    final safe = _nipNormalizeIpv4Cidrs(cached);
+    if (safe.length != cached.length) {
+      await p.setStringList('plus_ir_cidr', safe);
+    }
+    return safe;
+  }
   final c = HttpClient()..connectionTimeout = const Duration(seconds: 10);
   try {
     final req = await c
@@ -97,10 +137,11 @@ Future<List<String>> nipIranCidrs() async {
             'https://stat.ripe.net/data/country-resource-list/data.json?resource=IR'))
         .timeout(const Duration(seconds: 15));
     final res = await req.close().timeout(const Duration(seconds: 20));
+    if (res.statusCode != HttpStatus.ok) return const [];
     final body = await res.transform(utf8.decoder).join();
     final j = jsonDecode(body);
     final raw = (j['data']['resources']['ipv4'] as List?) ?? const [];
-    final list = raw.map((e) => '$e').where((e) => e.contains('/')).toList();
+    final list = _nipNormalizeIpv4Cidrs(raw);
     if (list.isNotEmpty) await p.setStringList('plus_ir_cidr', list);
     return list;
   } catch (_) {
@@ -215,7 +256,13 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
   final prefs = await SharedPreferences.getInstance();
   final cacheKey = 'nip_asn_v1_$ip';
   final cached = prefs.getStringList(cacheKey);
-  if (cached != null && cached.isNotEmpty) return cached;
+  if (cached != null && cached.isNotEmpty) {
+    final safe = _nipNormalizeIpv4Cidrs(cached, maxEntries: 2048);
+    if (safe.length != cached.length) {
+      await prefs.setStringList(cacheKey, safe);
+    }
+    return safe;
+  }
   // NATOPT: RIPE خارج از کشور است. وقتی جهانی قطع است فقط کش معتبر است؛ شبکه نمی‌زنیم.
   if (NatNetworkDiagnosis.preferDomestic) return const [];
   // NATOPT: شکست اخیر را ۱۵ دقیقه به خاطر می‌سپاریم تا هر دور جستجو ۳ بار ۱۲ ثانیه تایم‌اوت نخورد.
@@ -232,7 +279,7 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
       return const [];
     }
     final asns = ((jsonDecode(r.body)['data']?['asns']) as List?) ?? const [];
-    final out = <String>[];
+    final rawPrefixes = <dynamic>[];
     for (final a in asns.take(2)) {
       final rr = await http
           .get(Uri.parse('https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS$a'))
@@ -240,10 +287,14 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
       if (rr.statusCode != 200) continue;
       final prefixes = ((jsonDecode(rr.body)['data']?['prefixes']) as List?) ?? const [];
       for (final pe in prefixes) {
-        final pr = '${pe['prefix']}';
-        if (pr.contains('/') && !pr.contains(':')) out.add(pr);
+        if (pe is Map && pe['prefix'] != null) {
+          rawPrefixes.add(pe['prefix']);
+          if (rawPrefixes.length >= 4096) break;
+        }
       }
+      if (rawPrefixes.length >= 4096) break;
     }
+    final out = _nipNormalizeIpv4Cidrs(rawPrefixes, maxEntries: 2048);
     if (out.isNotEmpty) {
       await prefs.setStringList(cacheKey, out);
     } else {
