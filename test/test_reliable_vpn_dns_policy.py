@@ -24,3 +24,14 @@ class ReliableVpnDnsPolicyTests(unittest.TestCase):
         self.assertIn("customDnsList() ??", body)
         self.assertIn("effectiveDnsProv()", body)
         self.assertIn("d['servers'] = [...ips, ...doh];", body)
+
+    def test_national_mode_does_not_append_global_or_imported_dns_servers(self):
+        source = (ROOT / "lib" / "npv_am_extras.dart").read_text(encoding="utf-8")
+        start = source.index("String withNpvAmCore(String cfg)")
+        end = source.index("List<Widget> npvAmSettingsItems(", start)
+        body = source[start:end]
+        self.assertIn("..._dnsUrls['shecan']!", body)
+        self.assertIn("..._dnsUrls['electro']!", body)
+        self.assertIn("..._dnsUrls['radar']!", body)
+        self.assertIn("if (!nationalMode)", body)
+        self.assertIn("final existingServers = d['servers'];", body)
