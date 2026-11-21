@@ -115,8 +115,9 @@ evidence-gated runtime tuning remain separate work items.
 WorkManager is best-effort. Android may defer or skip jobs because of Doze,
 battery, network, OEM restrictions or user force-stop. A six-hour cadence is a
 requested interval, not an exact timer or an always-on daemon. Background
-workers never download the large local model; they use only a previously
-downloaded and integrity-verified model.
+workers never download or load the large local model. They use configured
+cloud helpers when available; otherwise the maintenance attempt exits without
+starting local inference or triggering a model download.
 
 ## Model learning versus conversation memory
 
