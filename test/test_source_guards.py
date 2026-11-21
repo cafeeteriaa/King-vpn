@@ -4145,15 +4145,40 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(marker, ipv4)
         self.assertLess(ipv4, ipv6)
 
-    def test_ipv4_ipv6_routes_reach_the_active_native_core_and_dns_queries_both_families(self):
+    def test_runtime_selects_the_plugin_as_the_active_vpn_backend(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        own = (ROOT / 'lib' / 'own_vpn.dart').read_text(encoding='utf-8')
+
+        # The custom KingVpnService is an opt-in alternate backend, not the
+        # current production path. Keep the test suite honest about that switch.
+        self.assertIn('const bool kOwnVpnService = false;', own)
+        start = main.index("if (kOwnVpnService)", main.index("V2RAY-START"))
+        end = main.index("// the core must report CONNECTED", start)
+        branch = main[start:end]
+        self.assertIn("await ownVpnStart(", branch)
+        self.assertIn("await v2ray.startV2Ray(", branch)
+        self.assertIn("proxyOnly: false", branch)
+        self.assertIn("blockedApps: bypassApps.isEmpty ? null : bypassApps", branch)
+        self.assertLess(branch.index("if (kOwnVpnService)"),
+                        branch.index("await v2ray.startV2Ray("))
+
+    def test_custom_king_vpn_service_ipv4_ipv6_guards_are_not_mislabeled_as_active(self):
+        own = (ROOT / 'lib' / 'own_vpn.dart').read_text(encoding='utf-8')
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertIn('const bool kOwnVpnService = false;', own)
+        self.assertIn('private ParcelFileDescriptor establish(V2rayConfig cfg)', service)
+        self.assertIn('b.addRoute("0.0.0.0", 0);', service)
+        self.assertIn('b.addRoute("::", 0);', service)
+
+    def test_custom_king_vpn_service_supports_ipv4_ipv6_and_dns_queries_both_families(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         activity = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
 
-        # The generated Android manifest registers the custom VpnService, and
-        # the actual Flutter start channel targets that service (not the plugin's
-        # independent V2rayVPNService implementation).
+        # This verifies the opt-in custom backend only. The runtime backend switch
+        # is false by default; test_runtime_selects_the_plugin_as_the_active_vpn_backend
+        # separately verifies the currently active plugin path.
         self.assertIn('com.kingvpn.king_vpn.KingVpnService', prepare)
         self.assertIn('Intent(this, KingVpnService::class.java)', activity)
         self.assertIn('KingVpnService.ACTION_START', activity)
