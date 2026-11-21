@@ -412,7 +412,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         synchronized (lock) {
             if (stopping || startId != latestStartId) return;
             if (!loadState()) {
-                stopSelfResult(startId);
+                // A sticky restart with missing/corrupt state must also release the
+                // foreground notification and clear the unusable checkpoint.
+                stopEverything(startId);
                 return;
             }
             startForegroundSafe(servers.get(currentIdx).remark);
