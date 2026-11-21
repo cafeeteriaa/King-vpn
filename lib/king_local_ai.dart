@@ -1604,8 +1604,7 @@ state limitations. Never claim execution or validation without actual evidence.
       return {'status': 'cloud_helpers_disabled'};
     }
     final configuredHelpers = await providerPilot.configuredProviders();
-    if (configuredHelpers[KingAiProvider.gemini] != true &&
-        configuredHelpers[KingAiProvider.groq] != true &&
+    if (configuredHelpers[KingAiProvider.groq] != true &&
         configuredHelpers[KingAiProvider.openRouter] != true) {
       return {'status': 'no_approved_free_helper_configured'};
     }
@@ -2111,8 +2110,7 @@ state limitations. Never claim execution or validation without actual evidence.
         throw StateError('Enable King AI cloud helpers or load the optional local coding model first.');
       }
       final configured = await pilot.configuredProviders();
-      if (configured[KingAiProvider.gemini] != true &&
-          configured[KingAiProvider.groq] != true &&
+      if (configured[KingAiProvider.groq] != true &&
           configured[KingAiProvider.openRouter] != true) {
         throw StateError('Configure at least one approved free-tier coding helper first.');
       }
