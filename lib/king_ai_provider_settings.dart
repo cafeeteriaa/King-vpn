@@ -74,15 +74,21 @@ class _KingAiProviderSettingsCardState
         KingAiProvider.openRouter: _openRouter.text,
         KingAiProvider.cloudflare: _cloudflareToken.text,
       };
+      var submittedKey = false;
       for (final entry in values.entries) {
         if (entry.value.trim().isNotEmpty) {
           await pilot.saveKey(entry.key, entry.value);
+          submittedKey = true;
         }
       }
       if (_cloudflareAccount.text.trim().isNotEmpty) {
         await pilot.saveCloudflareAccountId(_cloudflareAccount.text);
+        submittedKey = true;
       }
-      await pilot.setCloudEnabled(_enabled);
+      // Entering and saving a key is the user's explicit opt-in to internal
+      // assistance. The switch remains available to pause cloud delegation.
+      final nextEnabled = submittedKey ? true : _enabled;
+      await pilot.setCloudEnabled(nextEnabled);
       for (final controller in [
         _gemini, _groq, _mistral, _openRouter,
         _cloudflareToken, _cloudflareAccount,
@@ -93,7 +99,10 @@ class _KingAiProviderSettingsCardState
       if (!mounted) return;
       setState(() {
         _configured = configured;
-        _message = 'کلیدها در حافظه امن دستگاه ذخیره شدند. King AI از آن‌ها فقط برای مشاوره داخلی استفاده می‌کند.';
+        _enabled = nextEnabled;
+        _message = nextEnabled
+            ? 'کلیدها امن ذخیره شدند و مشاوره داخلی King AI فعال شد. برای توقف، کلید مشاوره را خاموش کن.'
+            : 'کلیدها در حافظه امن ذخیره شدند؛ مشاوره ابری خاموش است.';
       });
     } catch (error) {
       if (mounted) setState(() => _message = 'ذخیره تنظیمات ناموفق بود: $error');
