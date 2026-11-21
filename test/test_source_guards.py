@@ -2373,8 +2373,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         dns_unlock = body.index('dnsxManualBusy = false;')
         self.assertLess(save, ip_unlock)
         self.assertLess(save, dns_unlock)
-        self.assertIn('await ipAutoLoad();', body)
-        self.assertIn('_ipAutoHalt(modeSnapshot: runNationalMode)', body)
+        self.assertIn('await ipAutoLoad(skipIfBusy: true);', body)
+        load = body.index('await ipAutoLoad(skipIfBusy: true);')
+        lock = body.index('ipAutoBusy = true;')
+        run = body.index('await _ipAutoRunOnce(')
+        self.assertLess(load, lock)
+        self.assertLess(lock, run)
+        self.assertIn('final retryWhy = _ipAutoRefusal();', body)
+        self.assertIn('nationalMode != runNationalMode', body)
 
     def test_nat_ip_scan_uses_monotonic_budget_and_integer_concurrency(self):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
@@ -3002,8 +3008,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (skipIfBusy && ipAutoBusy) return;', loader)
         self.assertIn('if ((skipIfBusy && ipAutoBusy) || nationalMode != loadNationalMode) return;', loader)
         sheet_start = source.index('Future<void> ipAutoSheet(BuildContext ctx0)')
-        sheet_end = source.index('Future<void> ipAutoLoad(', sheet_start)
-        sheet = source[sheet_start:sheet_end]
+        sheet = source[sheet_start:]
         self.assertIn('await ipAutoLoad(skipIfBusy: true);', sheet)
         start = sheet[sheet.index('Future<void> start() async {'):]
         load = start.index('await ipAutoLoad(skipIfBusy: true);')
