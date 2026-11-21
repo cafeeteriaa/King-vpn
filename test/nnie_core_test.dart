@@ -200,6 +200,7 @@ void main() {
         ..._u16(0x1234), ..._u16(0x8180), ..._u16(1), ..._u16(1),
         ..._u16(0), ..._u16(0),
         0xc0, 0x0c, // QNAME points to itself at offset 12
+        0, 1, 0, 1, // QTYPE=A, QCLASS=IN (reach the name parser)
       ];
       expect(() => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
           throwsA(isA<FormatException>()));
