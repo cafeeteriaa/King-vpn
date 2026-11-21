@@ -118,7 +118,8 @@ List<String>? customDnsList() {
       uri.fragment.isEmpty &&
       uri.port >= 1 &&
       uri.port <= 65535 &&
-      !a.contains(RegExp(r'[\\s\\u0000-\\u001f]'));
+      !a.contains(RegExp(String.raw`\s`)) &&
+      !a.contains(RegExp(String.raw`[\x00-\x1f]`));
   if (dohOk) return [a];
   return null;
 }
