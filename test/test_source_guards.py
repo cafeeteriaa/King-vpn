@@ -146,6 +146,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
+
+    def test_native_stop_request_cannot_cancel_a_newer_start(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private void requestStop(int startId)')
+        end = source.index('private boolean connectFrom(', start)
+        stop = source[start:end]
+        lifecycle = stop.index('synchronized (startLifecycleLock)')
+        stale_check = stop.index('if (startId != latestStartId)', lifecycle)
+        mutation = stop.index('latestStopRequestId = startId;', stale_check)
+        self.assertLess(lifecycle, stale_check)
+        self.assertLess(stale_check, mutation)
+        self.assertIn('ignoring stale stop request', stop)
+        self.assertLess(stale_check, stop.index('attemptSeq.incrementAndGet();'))
+
+
     def test_native_timeout_generation_check_is_atomic_with_start_and_stop(self):
         source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = source.index('private boolean bringUpWithTimeout(')

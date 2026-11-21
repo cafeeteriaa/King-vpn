@@ -450,6 +450,14 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      */
     private void requestStop(int startId) {
         synchronized (startLifecycleLock) {
+            // onStartCommand publishes startId before foreground setup. A newer start
+            // may arrive before this deferred stop is requested; an obsolete stop must
+            // never cancel that newer configuration.
+            if (startId != latestStartId) {
+                Log.i(TAG, "ignoring stale stop request " + startId
+                        + "; current start is " + latestStartId);
+                return;
+            }
             latestStopRequestId = startId;
             userStopped = true;
             stopping = true;
