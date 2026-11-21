@@ -1768,7 +1768,7 @@ Future<void> natIpMemLoad() async {
       natIpMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
     }
     natRanges = _natNormalizeConfiguredRanges(
-        (p.getString(_rangeKey) ?? '').split(RegExp(r'[\\r\\n,; ]+')));
+        (p.getString(_rangeKey) ?? '').split(RegExp(r'[\r\n,; ]+')));
     _natConfiguredRangeCursor = (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
   } catch (e, stk) {
     logError(e, stk);
@@ -1904,11 +1904,11 @@ List<String> _natNormalizeConfiguredRanges(Iterable<String> values) {
 
 Future<void> natRangesSave(String text) async {
   natRanges = _natNormalizeConfiguredRanges(
-      text.split(RegExp(r'[\\r\\n,; ]+')));
+      text.split(RegExp(r'[\r\n,; ]+')));
   _natConfiguredRangeCursor = 0;
   try {
     final p = await SharedPreferences.getInstance();
-    await p.setString(_rangeKey, natRanges.join('\\n'));
+    await p.setString(_rangeKey, natRanges.join('\n'));
     await p.setInt('natConfiguredRangeCursor', 0);
   } catch (e, stk) {
     logError(e, stk);

@@ -1924,6 +1924,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('prefix > 32', normalize)
         self.assertIn('if (out.length >= 128) break;', normalize)
         self.assertIn('_natNormalizeConfiguredRanges(', nat[nat.index('Future<void> natRangesSave'):])
+        self.assertIn("RegExp(r'[\\\\r\\\\n,; ]+')", nat[nat.index('Future<void> natRangesSave'):])
+        self.assertIn("natRanges.join('\\\\n')", nat[nat.index('Future<void> natRangesSave'):])
         batch_start = nat.index('({List<String> addresses, int nextCursor}) _natConfiguredRangeBatch(')
         batch_end = nat.index('Future<void> natRangesSave(', batch_start)
         batch = nat[batch_start:batch_end]
