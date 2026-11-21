@@ -131,6 +131,10 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * domestic site answering through a dead tunnel cannot mark the server as healthy.
      */
     private static final String[] INTERNATIONAL_PROBE_URLS = {
+            // Keep independent provider families first: Google + gstatic share
+            // infrastructure and must not be the only evidence for global reachability.
+            "https://www.cloudflare.com/cdn-cgi/trace",
+            "https://github.com/robots.txt",
             "https://www.google.com/generate_204",
             "https://www.gstatic.com/generate_204",
     };

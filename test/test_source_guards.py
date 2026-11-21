@@ -4493,6 +4493,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('INTERNATIONAL_PROBE_URLS', probe)
         self.assertIn('if (passed >= required) return ProbeResult.OK;', probe)
 
+    def test_vpn_global_watchdog_probes_independent_provider_families(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private static final String[] INTERNATIONAL_PROBE_URLS')
+        end = source.index('};', start)
+        urls = source[start:end]
+        self.assertIn('www.cloudflare.com/cdn-cgi/trace', urls)
+        self.assertIn('github.com/robots.txt', urls)
+        self.assertIn('www.google.com/generate_204', urls)
+        self.assertIn('www.gstatic.com/generate_204', urls)
+        # One independent success is still enough; diversity is fallback coverage,
+        # not a requirement that every provider be reachable on a restricted network.
+        probe_start = source.index('private ProbeResult probeResult(boolean modeSnapshot)')
+        probe_end = source.index('private boolean isLocalHttpInboundAvailable()', probe_start)
+        probe = source[probe_start:probe_end]
+        self.assertIn('int required = modeSnapshot ? 2 : 1;', probe)
+        self.assertIn('if (passed >= required) return ProbeResult.OK;', probe)
+
     def test_vpn_watchdog_does_not_accept_redirects_or_non_success_status_as_health(self):
         source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = source.index('private ProbeResult probeOne(String url)')
