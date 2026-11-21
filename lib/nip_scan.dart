@@ -127,15 +127,23 @@ Future<List<NipHit>> nipScan(
   }
 
   final seen = <String>{};
-  final candidates = <String>[];
+  final v4Candidates = <String>[];
+  final v6Candidates = <String>[];
   for (final raw in ips) {
     final address = InternetAddress.tryParse(raw.trim());
-    if (address != null &&
-        (address.type == InternetAddressType.IPv4 ||
-            address.type == InternetAddressType.IPv6) &&
-        seen.add(address.address)) {
-      candidates.add(address.address);
+    if (address == null || !seen.add(address.address)) continue;
+    if (address.type == InternetAddressType.IPv4) {
+      v4Candidates.add(address.address);
+    } else if (address.type == InternetAddressType.IPv6) {
+      v6Candidates.add(address.address);
     }
+  }
+  // Interleave address families so a large fast IPv4 batch cannot starve
+  // IPv6 candidates when the caller only wants a small number of hits.
+  final candidates = <String>[];
+  for (var i = 0; i < max(v4Candidates.length, v6Candidates.length); i++) {
+    if (i < v4Candidates.length) candidates.add(v4Candidates[i]);
+    if (i < v6Candidates.length) candidates.add(v6Candidates[i]);
   }
   if (candidates.isEmpty) return <NipHit>[];
 
