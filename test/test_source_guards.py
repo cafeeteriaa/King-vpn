@@ -3179,5 +3179,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('stopping = false;', remainder)
         self.assertNotIn('userStopped = false;', remainder)
 
+
+    def test_native_recovery_checkpoint_is_committed_before_process_kill(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        save_start = source.index('private void saveState()')
+        save_end = source.index('private boolean loadState()', save_start)
+        save = source[save_start:save_end]
+        self.assertIn('.commit();', save)
+        self.assertNotIn('.apply();', save)
+
+        clear_start = source.index('private void clearState()')
+        clear_end = source.index('private int getScore(', clear_start)
+        clear = source[clear_start:clear_end]
+        self.assertIn('.clear().commit();', clear)
+        self.assertNotIn('.clear().apply();', clear)
+
+        recovery_start = source.index('private void recoverWedgedCore(')
+        recovery_end = source.index('private boolean stopCoreNow()', recovery_start)
+        recovery = source[recovery_start:recovery_end]
+        self.assertLess(recovery.index('clearState()'), recovery.index('Process.killProcess('))
+        self.assertLess(recovery.index('saveState()'), recovery.index('Process.killProcess('))
+
 if __name__ == '__main__':
     unittest.main()
