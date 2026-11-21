@@ -76,7 +76,7 @@ List<String> nipExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
       16,
       (i) => ((value >> ((15 - i) * 8)) & BigInt.from(255)).toInt(),
     );
-    out.add(InternetAddress.fromRawAddress(Uint8List.fromList(bytes)).address);
+    out.add(InternetAddress.fromRawAddress(bytes).address);
   }
   return out;
 }

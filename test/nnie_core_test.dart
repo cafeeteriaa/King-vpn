@@ -23,7 +23,7 @@ List<int> _response({
   for (final label in qname.split('.')) {
     out..add(label.length)..addAll(label.codeUnits);
   }
-  out.addAll([0, 0, (qtype >> 8) & 255, qtype & 255, 0, 1]); // root, QTYPE, QCLASS=IN
+  out.addAll([0, (qtype >> 8) & 255, qtype & 255, 0, 1]); // root, QTYPE, QCLASS=IN
   if (an > 0) {
     out.addAll([
       0xc0, 0x0c, // name: pointer to the question name
@@ -198,7 +198,7 @@ void main() {
     test('buildQuery can request AAAA without changing the A default', () {
       final q = NatDnsWireProbe.buildQuery('google.com', 0x1234, queryType: 28);
       expect(q.sublist(q.length - 4), [0, 28, 0, 1]);
-      expect(NatDnsWireProbe.buildQuery('google.com', 0x1234).sublist(-4), [0, 1, 0, 1]);
+      expect(NatDnsWireProbe.buildQuery('google.com', 0x1234).sublist(NatDnsWireProbe.buildQuery('google.com', 0x1234).length - 4), [0, 1, 0, 1]);
     });
 
     test('accepts public global-unicast AAAA answer', () {
