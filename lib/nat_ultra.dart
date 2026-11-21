@@ -2295,16 +2295,20 @@ Future<List<String>> _natRangeScanStepBody({
   final portList = natAutoPorts(seeds);
   // A monotonic shared deadline is divided among ports still waiting.
   // If a port finds enough hits early, its unused share flows to later ports.
-  // This prevents a 20-second minimum from starving the fallback-port tail.
+  // Deadline exhaustion is a valid partial completion: retain prior hits.
+  // Explicit cancellation is different and invalidates the entire scan.
   final scanClock = Stopwatch()..start();
   bool scanExpired() => scanClock.elapsed >= budget;
+  var attemptedPort = false;
   for (var portIndex = 0; portIndex < portList.length; portIndex++) {
     final port = portList[portIndex];
     if (shouldAbort()) return const <String>[];
     final remainingBudget = budget - scanClock.elapsed;
-    if (remainingBudget <= Duration.zero) return const <String>[];
+    if (remainingBudget <= Duration.zero) break;
     final remainingPorts = portList.length - portIndex;
     final portBudget = natFairPortBudget(remainingBudget, remainingPorts);
+    if (portBudget <= Duration.zero) break;
+    attemptedPort = true;
     final hits = await natScanIps(
       slice,
       port: port,
@@ -2314,12 +2318,16 @@ Future<List<String>> _natRangeScanStepBody({
       timeout: const Duration(milliseconds: 1500),
       cancelled: shouldAbort,
     );
-    if (shouldAbort() || scanExpired()) return const <String>[];
+    if (shouldAbort()) return const <String>[];
     for (final hit in hits) {
       out.add('${hit.ip}|$port');
     }
+    // Keep this port's completed hits, then stop if the shared deadline elapsed.
+    if (scanExpired()) break;
   }
-  if (shouldAbort() || scanExpired()) return const <String>[];
+  if (shouldAbort()) return const <String>[];
+  // Do not advance round-robin cursors when no port received any scan time.
+  if (!attemptedPort) return const <String>[];
 
   // Commit the address and configured-range cursors only after a non-cancelled run.
   _cfRangeCursors
@@ -2517,7 +2525,7 @@ Future<List<String>> _hotFetchOne(String u) async {
   } catch (e, stk) {
     logError(e, stk);
   }
-  return out;
+  return natFinalizePartialScan(out, cancelled: shouldAbort());
 }
 
 Future<void>? _hotEnsureFuture;

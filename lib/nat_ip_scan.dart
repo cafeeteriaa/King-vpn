@@ -301,3 +301,11 @@ Future<List<NatIpHit>> natScanIps(
   if (onProgress != null) onProgress(done, total, hits.length);
   return hits;
 }
+
+/// Finalizes a scan without discarding completed hits on deadline exhaustion.
+/// Explicit cancellation invalidates the whole operation; a normal deadline
+/// merely stops further work and keeps the completed, independently verified hits.
+List<T> natFinalizePartialScan<T>(
+  Iterable<T> completedHits, {
+  required bool cancelled,
+}) => cancelled ? <T>[] : List<T>.unmodifiable(completedHits);

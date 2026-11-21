@@ -27,6 +27,24 @@ void main() {
     });
   });
 
+  group('partial scan result finalization', () {
+    test('preserves completed hits when the deadline ends the scan', () {
+      final hits = ['192.0.2.10|443', '192.0.2.11|8443'];
+      final result = natFinalizePartialScan(hits, cancelled: false);
+      expect(result, hits);
+      expect(result, isA<List<String>>());
+      expect(() => result.add('192.0.2.12|443'), throwsUnsupportedError);
+    });
+
+    test('discards all results only for explicit cancellation', () {
+      final result = natFinalizePartialScan(
+        ['192.0.2.10|443'],
+        cancelled: true,
+      );
+      expect(result, isEmpty);
+    });
+  });
+
   group('fair scan-port deadline allocation', () {
     test('shares the remaining deadline across every untested port', () {
       final share = natFairPortBudget(
