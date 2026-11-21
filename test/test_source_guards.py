@@ -3270,5 +3270,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(recovery.index('nativeToken.get() != expectedToken'),
                         recovery.index('recovering.compareAndSet(false, true)'))
 
+
+    def test_sticky_state_loader_filters_empty_or_invalid_server_entries(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private boolean loadState()')
+        end = source.index('private void clearState()', start)
+        loader = source[start:end]
+        self.assertIn('JSONObject o = arr.optJSONObject(i);', loader)
+        self.assertIn('if (o == null) continue;', loader)
+        self.assertIn('String config = o.optString("config", "").trim();', loader)
+        self.assertIn('if (config.isEmpty()) continue;', loader)
+        self.assertIn('if (servers.isEmpty()) return false;', loader)
+        self.assertIn('Math.min(sp.getInt("idx", 0), servers.size() - 1)', loader)
+
 if __name__ == '__main__':
     unittest.main()
