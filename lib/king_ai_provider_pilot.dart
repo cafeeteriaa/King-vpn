@@ -174,7 +174,6 @@ class KingAiProviderPilot {
     final configured = await configuredProviders();
     final candidates = priorityForTask(taskKind)
         .where((provider) => configured[provider] == true)
-        .take(helperCountForTask(taskKind))
         .toList();
     if (candidates.isEmpty) return null;
 
@@ -211,6 +210,7 @@ Return a concise expert peer review for the local King AI:
     final reviews = <String>[];
     final used = <String>[];
     for (final provider in candidates) {
+      if (used.length >= helperCountForTask(taskKind)) break;
       try {
         final review = await _complete(provider, delegatedPrompt);
         final safe = _redact(review.trim());
@@ -235,6 +235,9 @@ Return a concise expert peer review for the local King AI:
         .replaceAll(RegExp(r'(api[_-]?key|token|authorization|client[_-]?secret)\s*[:=]\s*\S+', caseSensitive: false), '[REDACTED_SECRET]')
         .replaceAll(RegExp(r'Bearer\s+[A-Za-z0-9._~+/-]+=*', caseSensitive: false), 'Bearer [REDACTED]')
         .replaceAll(RegExp(r'gh[pousr]_[A-Za-z0-9]{20,}'), '[REDACTED_GITHUB_TOKEN]')
+        .replaceAll(RegExp(r'AIza[0-9A-Za-z_-]{30,}'), '[REDACTED_GOOGLE_KEY]')
+        .replaceAll(RegExp(r'sk-or-v1-[A-Za-z0-9_-]{20,}'), '[REDACTED_OPENROUTER_KEY]')
+        .replaceAll(RegExp(r'gsk_[A-Za-z0-9]{20,}'), '[REDACTED_GROQ_KEY]')
         .replaceAll(RegExp(r'-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----'), '[REDACTED_PRIVATE_KEY]')
         .replaceAll(RegExp(r'(?:vless|vmess|trojan|ss)://\S+', caseSensitive: false), '[REDACTED_PRIVATE_VPN_CONFIG]');
   }
