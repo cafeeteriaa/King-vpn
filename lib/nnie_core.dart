@@ -113,10 +113,15 @@ class NatDnsWireProbe {
       0x00, 0x01, // QDCOUNT=1
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
+    var expandedNameLength = 1; // terminating root label
     for (final label in labels) {
       final bytes = ascii.encode(label);
       if (bytes.isEmpty || bytes.length > 63) {
         throw FormatException('Invalid DNS label');
+      }
+      expandedNameLength += bytes.length + 1;
+      if (expandedNameLength > 255) {
+        throw const FormatException('DNS name exceeds 255 octets');
       }
       out..add(bytes.length)..addAll(bytes);
     }
