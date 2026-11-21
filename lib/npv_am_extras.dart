@@ -1127,7 +1127,7 @@ String withNpvAmCore(String cfg) {
           ips.add(value);
         }
       }
-      // National: Iranian resolvers first, imported/custom and global fallback later.
+      // National mode uses only the domestic resolver set; global mode keeps fallbacks.
       for (final value in first) { addResolver(value.toString()); }
       if (!nationalMode) {
         // Global mode may use the imported config's DNS and provider fallbacks.
