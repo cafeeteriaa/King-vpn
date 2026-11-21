@@ -731,9 +731,28 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
         ? prompt.substring(0, 18000)
         : prompt;
 
-    // King always drafts locally first. Cloud providers are private reviewers,
-    // never alternate chat destinations; they receive a bounded task brief and
-    // King's draft, not conversation history or raw repository source files.
+    // Prefer local inference when the owner explicitly installed and loaded
+    // the optional model. Otherwise use King's private free API pool so ordinary
+    // chat does not require a 1.1 GB model download or local CPU/RAM inference.
+    // Provider APIs remain internal: King owns the prompt, routing and final UI.
+    if (_engine == null) {
+      final cloudAnswer = await KingAiProviderPilot.instance.respondForKing(
+        taskKind: _classifyHelperTask(_buildHelperTaskBrief(safePrompt)),
+        systemPrompt: systemPrompt,
+        userPrompt: safePrompt,
+        maxOutputTokens: maxTokens,
+      );
+      if (cloudAnswer != null && cloudAnswer.trim().isNotEmpty) {
+        return cloudAnswer;
+      }
+      throw StateError(
+        'برای چت کم‌مصرف، یک کلید از همکاران رایگان King AI را در پنل وارد و مشاوره را فعال کن؛ '
+        'یا در صورت تمایل مدل محلی را جداگانه نصب کن. هیچ سرویس پولی خودکار فعال نمی‌شود.',
+      );
+    }
+
+    // When the optional local model is already loaded, preserve the existing
+    // local-first + private peer-review + local synthesis path.
     final localDraft = await _generateLocalOnly(
       safePrompt,
       systemPrompt,
