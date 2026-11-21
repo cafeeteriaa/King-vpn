@@ -422,39 +422,65 @@ exact_replace(utils, '''            boolean hasDnsRule = false;
                 outbounds = new JSONArray();
                 json.put("outbounds", outbounds);
             }
-            String dnsOutboundTag = "king-dns-hijack";
-            int dnsSuffix = 1;
-            boolean tagTaken;
-            do {
-                tagTaken = false;
-                for (int i = 0; i < outbounds.length(); i++) {
-                    JSONObject outbound = outbounds.optJSONObject(i);
-                    if (outbound != null && dnsOutboundTag.equals(outbound.optString("tag", ""))) {
-                        tagTaken = true;
-                        break;
-                    }
+            String dnsOutboundTag = null;
+            for (int i = 0; i < outbounds.length(); i++) {
+                JSONObject outbound = outbounds.optJSONObject(i);
+                if (outbound != null &&
+                        "dns".equalsIgnoreCase(outbound.optString("protocol", "")) &&
+                        outbound.optString("tag", "").startsWith("king-dns-hijack")) {
+                    dnsOutboundTag = outbound.optString("tag");
+                    break;
                 }
-                if (tagTaken) {
-                    dnsOutboundTag = "king-dns-hijack-" + dnsSuffix++;
-                }
-            } while (tagTaken);
-            outbounds.put(new JSONObject()
-                    .put("tag", dnsOutboundTag)
-                    .put("protocol", "dns")
-                    .put("settings", new JSONObject()));
-
-            // First-match routing: DNS packets from the VPN TUN enter Xray's
-            // built-in DNS engine, which then follows the configured servers
-            // (DoH/custom/domestic) instead of leaking directly to the OS DNS.
-            JSONArray newRules = new JSONArray();
-            newRules.put(new JSONObject()
-                    .put("type", "field")
-                    .put("port", "53")
-                    .put("outboundTag", dnsOutboundTag));
-            for (int i = 0; i < rules.length(); i++) {
-                newRules.put(rules.get(i));
             }
-            routing.put("rules", newRules);
+            if (dnsOutboundTag == null || dnsOutboundTag.isEmpty()) {
+                String candidate = "king-dns-hijack";
+                int dnsSuffix = 1;
+                boolean tagTaken;
+                do {
+                    tagTaken = false;
+                    for (int i = 0; i < outbounds.length(); i++) {
+                        JSONObject outbound = outbounds.optJSONObject(i);
+                        if (outbound != null && candidate.equals(outbound.optString("tag", ""))) {
+                            tagTaken = true;
+                            break;
+                        }
+                    }
+                    if (tagTaken) {
+                        candidate = "king-dns-hijack-" + dnsSuffix++;
+                    }
+                } while (tagTaken);
+                dnsOutboundTag = candidate;
+                outbounds.put(new JSONObject()
+                        .put("tag", dnsOutboundTag)
+                        .put("protocol", "dns")
+                        .put("settings", new JSONObject()));
+            }
+
+            // ensureTunInbound runs in both V2rayVPNService and startCore; keep
+            // the DNS outbound/rule idempotent across those two invocations.
+            boolean hasDnsRoute = false;
+            for (int i = 0; i < rules.length(); i++) {
+                JSONObject rule = rules.optJSONObject(i);
+                if (rule != null &&
+                        dnsOutboundTag.equals(rule.optString("outboundTag", "")) &&
+                        String.valueOf(rule.opt("port")).contains("53")) {
+                    hasDnsRoute = true;
+                    break;
+                }
+            }
+            if (!hasDnsRoute) {
+                // First-match routing: TUN DNS enters Xray's built-in DNS engine,
+                // which follows configured DoH/custom/domestic servers.
+                JSONArray newRules = new JSONArray();
+                newRules.put(new JSONObject()
+                        .put("type", "field")
+                        .put("port", "53")
+                        .put("outboundTag", dnsOutboundTag));
+                for (int i = 0; i < rules.length(); i++) {
+                    newRules.put(rules.get(i));
+                }
+                routing.put("rules", newRules);
+            }
 ''', 'P1-DNS route Android TUN DNS through Xray DNS outbound');
 
 exact_replace(utils, '''            if (!dns.has("queryStrategy")) {
