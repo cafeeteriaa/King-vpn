@@ -4,6 +4,7 @@ import 'king_local_ai.dart';
 import 'king_ai_console.dart';
 import 'king_chat_page.dart';
 import 'king_ai_background.dart';
+import 'king_ai_provider_pilot.dart';
 import 'king_ai_owner_auth.dart';
 import 'king_command_safety.dart';
 import 'fresh_resource_store.dart';
@@ -5545,6 +5546,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     unawaited(_loadSmartCommandFilters());
     natSearchBusyProbe = () => busy || searching; // NATQUOTA-2: برای سهمیه‌ی اسکنرهای دستی نت ملی
     unawaited(NationalNetworkIntelligence.load()); // NNIE: حافظه‌ی شبکه، بدون تأخیر در UI
+    unawaited(PilotRouteHistory.loadForCurrentNetwork()); // Persisted route learning, non-blocking.
     // KING-AI-KNOWLEDGE: daily foreground refresh from Google-discovered,
     // allowlisted official documentation. This stores research notes, not weights.
     Future.delayed(const Duration(seconds: 30), () {

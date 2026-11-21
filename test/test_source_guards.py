@@ -585,9 +585,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         feature = ai[feature_start:feature_end]
         self.assertIn('hasActiveSession', feature)
         self.assertIn("'status': 'owner_auth_required'", feature)
-        self.assertIn("baseBranch: 'main'", feature)
+        self.assertIn("baseBranch: _developmentBaseBranch", feature)
+        self.assertIn("_developmentBaseBranch = 'work/national-network-evidence'", ai)
+        self.assertIn("static void _validateDevelopmentBaseBranch(String branch)", ai)
+        self.assertIn("const {'main', 'master', 'trunk'}.contains(normalized)", ai)
+        self.assertIn("_validateDevelopmentBaseBranch(baseBranch)", public_create)
+        self.assertNotIn("baseBranch: 'main'", ai)
         console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
         self.assertIn('createOwnerFeatureProposal(', console)
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn("import 'king_ai_provider_pilot.dart';", main)
         self.assertIn('maxLength: 128', console)
         self.assertIn('_rejectSecrets(summary)', ai)
 
@@ -619,10 +626,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('hasActiveSession', manual)
         self.assertIn("'status': 'owner_auth_required'", manual)
         self.assertIn('repairFromFailedCiAutonomous(', worker)
-        missing_model = worker[worker.index('if (!loaded) {'):worker.index('final result = await ai.repairFromFailedCiAutonomous', worker.index('if (!loaded) {'))]
-        self.assertIn('cancelByTag(_tag)', missing_model)
-        self.assertIn('clearBackgroundRepairPullNumber()', missing_model)
-        self.assertIn('setBackgroundAutoDiscovery(false)', missing_model)
+        self.assertNotIn('.loadInstalledModelForBackground(', worker)
+        self.assertIn('cloud-first helper route', worker)
+        self.assertIn('repairFromFailedCiAutonomous(', worker)
         self.assertIn('_ownerAuth.setInitialPassword(password)', console)
         self.assertIn('_ownerAuth.authenticate(password)', console)
         self.assertIn('if (!_ownerAuth.hasActiveSession)', console)
@@ -780,42 +786,36 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('KingAiBackgroundSupervisor.initialize()', main)
         self.assertNotIn('cancelAll()', main)
 
-    def test_background_supervisor_apis_exist_and_verify_installed_model(self):
+    def test_background_supervisor_uses_cloud_helpers_without_loading_local_models(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
         worker = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
+        providers = (ROOT / 'lib' / 'king_ai_provider_pilot.dart').read_text(encoding='utf-8')
         for method in (
             'setBackgroundRepairPullNumber',
             'getBackgroundRepairPullNumber',
             'clearBackgroundRepairPullNumber',
             'setBackgroundAutoDiscovery',
             'isBackgroundAutoDiscoveryEnabled',
-            'loadInstalledModelForBackground',
             'findOpenPullRequestWithCiFailures',
             'findOpenPullRequestForHeadBranch',
         ):
             self.assertIn(f'{method}(', ai)
             self.assertIn(f'.{method}(', worker)
-        load_start = ai.index('Future<bool> loadInstalledModelForBackground()')
-        load_end = ai.index('Future<ModelManager> _modelManager()', load_start)
-        loader = ai[load_start:load_end]
-        self.assertIn('decoded[\'sha256\'] != modelSha256', loader)
-        self.assertIn('decoded[\'sizeBytes\'] != modelSizeBytes', loader)
-        self.assertLess(loader.index('_busy = true;'), loader.index('await getApplicationSupportDirectory()'))
-        self.assertIn('finally {', loader)
-        self.assertIn('_busy = false;', loader)
-        dispose_start = ai.index('Future<void> dispose()')
-        dispose_end = ai.index('\n  }', dispose_start)
-        dispose_body = ai[dispose_start:dispose_end]
-        self.assertIn('finally {', dispose_body)
-        self.assertIn('final previous = _generationQueue;', dispose_body)
-        self.assertIn('await previous;', dispose_body)
-        self.assertLess(dispose_body.index('await previous;'), dispose_body.index('if (_busy)'))
-        self.assertIn('_busy = true;', dispose_body)
-        self.assertIn('release.complete();', dispose_body)
-        self.assertLess(dispose_body.index('engine.dispose()'), dispose_body.index('models.dispose()'))
-        self.assertIn('sha256.bind(modelFile.openRead())', loader)
-        self.assertIn('resolveSymbolicLinks()', loader)
+        self.assertIn('respondForKing(', providers)
+        self.assertIn('cloudEnabled', worker)
+        self.assertIn('configuredProviders()', worker)
+        self.assertIn('createAutonomousMaintenanceProposal(', worker)
+        self.assertNotIn('.loadInstalledModelForBackground(', worker)
+        self.assertIn('loadInstalledModelForBackground()', ai)
+        self.assertIn('sha256.bind(modelFile.openRead())', ai)
+        self.assertIn('resolveSymbolicLinks()', ai)
         self.assertIn('repairFromFailedCiAutonomous(', worker)
+        audit_start = ai.index('Future<Map<String, Object?>> createAutonomousMaintenanceProposal(')
+        audit_end = ai.index('static const Set<String> _researchHosts', audit_start)
+        audit = ai[audit_start:audit_end]
+        self.assertIn('providerPilot.cloudEnabled', audit)
+        self.assertNotIn('KingAiProvider.gemini', audit)
+        self.assertIn('hasGitHubToken()', audit)
 
     def test_chat_speech_listener_stops_after_widget_disposal(self):
         source = (ROOT / 'lib' / 'king_chat_page.dart').read_text(encoding='utf-8')
@@ -1427,9 +1427,43 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('return true;', audit)
         self.assertLess(audit.index('isBackgroundAutoDiscoveryEnabled()'),
                         audit.index('hasGitHubToken()'))
-        self.assertLess(audit.index('hasGitHubToken()'),
-                        audit.index('loadInstalledModelForBackground()'))
+        self.assertIn('hasGitHubToken()', audit)
+        self.assertNotIn('loadInstalledModelForBackground()', audit)
+        self.assertIn('KingAiProviderPilot', background)
+        self.assertIn('await ai.createAutonomousMaintenanceProposal(', background)
 
+    def test_owner_repair_and_autonomous_maintenance_do_not_require_local_model(self):
+        console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
+        background = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
+        repair_start = console.index('Future<void> _repair()')
+        repair_end = console.index('Future<void> _enableBackground()', repair_start)
+        self.assertNotIn('_ai.isLoaded', console[repair_start:repair_end])
+        enable_start = console.index('Future<void> _enableBackground()')
+        enable_end = console.index('Future<void> _enableAutomaticDiscovery()', enable_start)
+        self.assertNotIn('_ai.isLoaded', console[enable_start:enable_end])
+        auto_start = console.index('Future<void> _enableAutomaticDiscovery()')
+        auto_end = console.index('Future<void> _disableBackground()', auto_start)
+        self.assertNotIn('_ai.isLoaded', console[auto_start:auto_end])
+        self.assertIn('if (!ai.isLoaded)', background)
+        self.assertIn('pilot.cloudEnabled', background)
+        self.assertNotIn('KingAiProvider.gemini', background)
+        self.assertIn('KingAiProvider.groq', background)
+        self.assertIn('KingAiProvider.openRouter', background)
+        supervisor_start = background.index('static Future<void> enable(int pullNumber)')
+        supervisor_end = background.index('static Future<void> enableAutonomousMaintenance()', supervisor_start)
+        scheduled_enable = background[supervisor_start:supervisor_end]
+        self.assertIn('pilot.cloudEnabled', scheduled_enable)
+        self.assertIn('configuredProviders()', scheduled_enable)
+        self.assertIn('WorkManager executes in a separate isolate/process lifecycle', background)
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        feature_start = ai.index('Future<Map<String, Object?>> createOwnerFeatureProposal(')
+        feature_end = ai.index('Future<void> dispose()', feature_start)
+        feature = ai[feature_start:feature_end]
+        self.assertIn('pilot.cloudEnabled', feature)
+        self.assertNotIn('KingAiProvider.gemini', feature)
+        self.assertIn('KingAiProvider.groq', feature)
+        self.assertIn('KingAiProvider.openRouter', feature)
+        self.assertNotIn('Load the local coding model before submitting', feature)
 
     def test_native_apk_installer_accepts_only_the_verified_private_cache_asset(self):
         native = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
@@ -4399,6 +4433,30 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
+    def test_smart_pilot_persists_bounded_privacy_safe_route_history(self):
+        national = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        self.assertIn('class PilotRouteHistory', national)
+        self.assertIn("pilot_route_history_v1", national)
+        self.assertIn('static Future<void> record(', national)
+        self.assertIn("evidence.domesticSamples < 3", national)
+        self.assertIn("evidence.globalSamples < 3", national)
+        self.assertIn("static bool _validGroup(String value)", national)
+        self.assertIn("unawaited(PilotRouteHistory.record(", national)
+        self.assertIn("if (identity.isNotEmpty)", national)
+        self.assertIn("PilotRouteHistory.forNetwork(PilotRouteHistory.currentGroup)", extras)
+        self.assertIn('loadForCurrentNetwork()', national)
+        self.assertIn('PilotRouteHistory.loadForCurrentNetwork()', main)
+        self.assertIn("static Future<String> networkGroup()", national)
+        self.assertIn("_activeGroup = networkGroup", national)
+        history_start = national.index('class PilotRouteHistory')
+        history_end = national.index('/// Multi-source reachability check', history_start)
+        history = national[history_start:history_end].lower()
+        self.assertNotIn("'ssid':", history)
+        self.assertNotIn("'subscriber':", history)
+        self.assertNotIn("'ipaddress':", history)
+
     def test_smart_pilot_manual_ip_ranges_accept_bounded_ipv4_and_ipv6(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = source.index('List<String> _pilotExpandRanges(String raw)')
@@ -4501,14 +4559,33 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('KingAiProviderSettingsCard', chat)
         self.assertNotIn('TextEditingController _geminiKeyController', chat)
         self.assertIn('KingAiProviderSettingsCard()', console)
+        self.assertNotIn('KingAiProvider.gemini', settings)
+        self.assertNotIn('کلید Gemini', settings)
+        self.assertNotIn('Cloudflare Workers AI', settings)
+        self.assertNotIn('کلید Mistral', settings)
         self.assertIn('pilot.saveKey(entry.key, entry.value)', settings)
         self.assertIn('Secure Storage', settings)
         self.assertIn('فقط King AI', settings)
 
     def test_external_providers_are_private_reviewers_and_local_king_synthesizes(self):
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        repair_start = extras.index('Future<void> createRepair() async {')
+        repair_end = extras.index('return SingleChildScrollView(', repair_start)
+        repair_flow = extras[repair_start:repair_end]
+        self.assertNotIn('loadModel()', repair_flow)
+        self.assertIn('KingAiProvider.groq', repair_flow)
+        self.assertIn('KingAiProvider.openRouter', repair_flow)
+        self.assertIn("TextEditingController(text: 'work/national-network-evidence')", extras)
+        provider_pilot = (ROOT / 'lib' / 'king_ai_provider_pilot.dart').read_text(encoding='utf-8')
+        self.assertNotIn('KingAiProvider.gemini', provider_pilot)
+        self.assertNotIn('generativelanguage.googleapis.com', provider_pilot)
+        self.assertIn("king_ai_provider_gemini_key_v1", provider_pilot)
+        self.assertIn("_secure.delete(key: 'king_ai_provider_gemini_key_v1')", provider_pilot)
         pilot = (ROOT / 'lib' / 'king_ai_provider_pilot.dart').read_text(encoding='utf-8')
         local = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
         self.assertIn('Future<String?> consultKing(', pilot)
+        self.assertIn('const freeCandidates = <KingAiProvider>{', pilot)
+        self.assertIn('freeCandidates.contains(provider)', pilot)
         self.assertNotIn('Future<String> ask(', pilot)
         self.assertIn('You are NOT the user\'s chat assistant', pilot)
         self.assertIn('final localDraft = await _generateLocalOnly(', local)

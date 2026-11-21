@@ -173,6 +173,160 @@ class NationalNetworkIntelligence {
   }
 }
 
+/// Bounded persistent route evidence grouped by coarse interface and
+/// normalized operator label. No IP, SSID, SIM ID, tunnel link or credential
+/// is written to this history.
+class PilotRouteHistory {
+  static const String _prefsKey = 'pilot_route_history_v1';
+  static const int _maxGroups = 64;
+  static final Map<String, Map<String, Object?>> _entries = {};
+  static String _activeGroup = '';
+  static bool _loaded = false;
+  static Future<void>? _loading;
+  static Future<void> _writeQueue = Future<void>.value();
+
+  static bool _validGroup(String value) {
+    final parts = value.split('|');
+    return parts.length == 2 &&
+        const ['wifi', 'mob', 'net'].contains(parts[0]) &&
+        RegExp(r'^[a-z0-9_-]{1,24}$').hasMatch(parts[1]);
+  }
+
+  /// Uses interface *names* only to classify Wi-Fi/mobile/other.
+  /// The app's existing operator label is normalized before persistence.
+  static Future<String> networkGroup() async {
+    var kind = 'net';
+    try {
+      final interfaces = await NetworkInterface.list(includeLoopback: false);
+      final names = interfaces.map((item) => item.name.toLowerCase()).toList();
+      if (names.any((name) => name.startsWith('wlan') || name.startsWith('wifi'))) {
+        kind = 'wifi';
+      } else if (names.any((name) =>
+          name.startsWith('rmnet') ||
+          name.startsWith('ccmni') ||
+          name.startsWith('wwan') ||
+          name.startsWith('pdp') ||
+          name.startsWith('cell'))) {
+        kind = 'mob';
+      }
+    } catch (_) {
+      // Unknown interface is grouped conservatively as "net".
+    }
+    final operator = natOpKey.trim().toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9_-]'), '');
+    final label = operator.isEmpty
+        ? 'unknown'
+        : operator.substring(0, operator.length.clamp(0, 24).toInt());
+    return '$kind|$label';
+  }
+
+  static String get currentGroup => _activeGroup;
+  /// Loads persisted aggregates without delaying app startup or VPN setup.
+  static Future<void> loadForCurrentNetwork() async {
+    await load();
+    _activeGroup = await networkGroup();
+  }
+
+  static Map<String, Object?>? forNetwork(String group) => _entries[group];
+
+  static Future<void> load() async {
+    if (_loaded) return;
+    _loading ??= _loadImpl();
+    await _loading;
+  }
+
+  static Future<void> _loadImpl() async {
+    var available = false;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      available = true;
+      final raw = prefs.getString(_prefsKey);
+      if (raw != null) {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          for (final item in decoded.entries) {
+            if (item.key is! String ||
+                !_validGroup(item.key as String) ||
+                item.value is! Map) continue;
+            final value = <String, Object?>{};
+            (item.value as Map).forEach((key, rawValue) {
+              if (key is String && rawValue is num) value[key] = rawValue;
+            });
+            _entries[item.key as String] = value;
+          }
+        }
+      }
+    } catch (e, st) {
+      logError(e, st);
+    } finally {
+      _loaded = available;
+      _loading = null;
+    }
+  }
+
+  static Future<void> record({
+    required String networkGroup,
+    required NetworkEvidence evidence,
+  }) {
+    if (!_validGroup(networkGroup)) return Future<void>.value();
+    _activeGroup = networkGroup;
+    if (evidence.domesticSamples < 3 ||
+        evidence.globalSamples < 3 ||
+        evidence.domesticSuccesses < 0 ||
+        evidence.globalSuccesses < 0 ||
+        evidence.domesticSuccesses > evidence.domesticSamples ||
+        evidence.globalSuccesses > evidence.globalSamples) {
+      return Future<void>.value();
+    }
+    final next = _writeQueue.then((_) async {
+      await load();
+      final old = _entries[networkGroup] ?? <String, Object?>{};
+      int count(String key) {
+        final value = old[key];
+        return value is num ? value.toInt().clamp(0, 1000000).toInt() : 0;
+      }
+      double? ewma(String key, int? sample) {
+        final previous = old[key];
+        final prior = previous is num ? previous.toDouble() : null;
+        if (sample == null || sample < 0 || sample > 60000) return prior;
+        return prior == null ? sample.toDouble() : prior * 0.75 + sample * 0.25;
+      }
+      final mode = evidence.mode.name;
+      _entries[networkGroup] = <String, Object?>{
+        'observations': (count('observations') + 1).clamp(0, 1000000),
+        'domesticSamples': (count('domesticSamples') + evidence.domesticSamples).clamp(0, 1000000),
+        'domesticSuccesses': (count('domesticSuccesses') + evidence.domesticSuccesses).clamp(0, 1000000),
+        'globalSamples': (count('globalSamples') + evidence.globalSamples).clamp(0, 1000000),
+        'globalSuccesses': (count('globalSuccesses') + evidence.globalSuccesses).clamp(0, 1000000),
+        'domesticLatencyEwmaMs': ewma('domesticLatencyEwmaMs', evidence.domesticLatencyMs),
+        'globalLatencyEwmaMs': ewma('globalLatencyEwmaMs', evidence.globalLatencyMs),
+        'domesticOnly': (count('domesticOnly') + (mode == 'domesticOnly' ? 1 : 0)).clamp(0, 1000000),
+        'globalOnly': (count('globalOnly') + (mode == 'globalOnly' ? 1 : 0)).clamp(0, 1000000),
+        'dualStack': (count('dualStack') + (mode == 'dualStack' ? 1 : 0)).clamp(0, 1000000),
+        'offline': (count('offline') + (mode == 'offline' ? 1 : 0)).clamp(0, 1000000),
+        'unknown': (count('unknown') + (mode == 'unknown' ? 1 : 0)).clamp(0, 1000000),
+        'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+      };
+      final ordered = _entries.entries.toList()
+        ..sort((a, b) => ((b.value['updatedAtMs'] as num?)?.toInt() ?? 0)
+            .compareTo((a.value['updatedAtMs'] as num?)?.toInt() ?? 0));
+      if (ordered.length > _maxGroups) {
+        _entries
+          ..clear()
+          ..addEntries(ordered.take(_maxGroups));
+      }
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_prefsKey, jsonEncode(_entries));
+      } catch (e, st) {
+        logError(e, st);
+      }
+    });
+    _writeQueue = next.catchError((Object _) {});
+    return next;
+  }
+}
+
 /// Multi-source reachability check (NNIE section A). Advisory only: it never
 /// disables the VPN, never changes user settings and never blocks a connect.
 /// Caller must run it while the tunnel is down, otherwise probes go through it.
@@ -392,6 +546,18 @@ class PilotNetworkProbe {
       domesticTlsReachabilityVerified: domestic.whereType<int>().length >= 2,
       globalTlsReachabilityVerified: global.whereType<int>().length >= 2,
     );
+    // Persist one complete, identity-verified snapshot under a coarse
+    // physical-interface/operator group; raw interface addresses stay transient.
+    if (identity.isNotEmpty) {
+      final group = await PilotRouteHistory.networkGroup();
+      // History is advisory; never hold up VPN connection decisions on disk I/O.
+      unawaited(PilotRouteHistory.record(
+        networkGroup: group,
+        evidence: _last,
+      ).catchError((Object error, StackTrace stack) {
+        logError(error, stack);
+      }));
+    }
     // An unknown interface identity is not a safe cache key.
     _lastAt = identity.isNotEmpty ? DateTime.now() : null;
     _lastIdentity = identity.isNotEmpty ? identity : null;

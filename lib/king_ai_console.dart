@@ -10,7 +10,7 @@ import 'king_ai_owner_auth.dart';
 import 'king_voice_output.dart';
 import 'king_ai_provider_settings.dart';
 
-/// In-app control surface for the local coding model and guarded GitHub PR workflow.
+/// In-app control surface for King AI's optional local model and guarded GitHub PR workflow.
 class KingAiConsolePage extends StatefulWidget {
   const KingAiConsolePage({
     super.key,
@@ -49,7 +49,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   bool _busy = false;
   bool _hasToken = false;
   double? _progress;
-  String _output = 'کلید GitHub را ذخیره و مدل محلی را بارگذاری کن.';
+  String _output = 'کلید GitHub مالک و یک مسیر مجاز King AI را آماده کن؛ مدل محلی اختیاری است.';
 
   @override
   void initState() {
@@ -228,13 +228,6 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
         !_ownerAuth.hasActiveSession) {
       return;
     }
-    if (!_ai.isLoaded) {
-      if (mounted) {
-        setState(() => _output =
-            'ایده مالک محفوظ است. برای تحلیل محلی، ابتدا مدل کینگ را بارگذاری کن.');
-      }
-      return;
-    }
     _initialIdeaAnalysisSubmitted = true;
     await _analyzeFeatureRequest();
   }
@@ -256,8 +249,8 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   }
 
   /// A direct owner request sent from the command bar is carried into this
-  /// secure console. Once the owner session, GitHub token and local model are
-  /// ready, submit it automatically instead of making the owner press a second
+  /// secure console. Once the owner session and GitHub token are ready, submit
+  /// it automatically through the configured local or cloud-first King engine instead of making the owner press a second
   /// button. No request is submitted before authentication.
   /// A warm owner session alone is not enough to authorize a source write.
   /// Require a fresh password proof for every user-originated code request.
@@ -318,10 +311,10 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
         !_ownerAuth.hasActiveSession) {
       return;
     }
-    if (!_hasToken || !_ai.isLoaded) {
+    if (!_hasToken) {
       if (mounted) {
         setState(() => _output =
-            'درخواست مالک محفوظ است. برای اجرای خودکار، اتصال GitHub و بارگذاری مدل محلی را کامل کن.');
+            'درخواست مالک محفوظ است. ابتدا اتصال GitHub مالک را کامل کن؛ برای اجرای کم‌مصرف نیازی به دانلود مدل محلی نیست.');
       }
       return;
     }
@@ -449,10 +442,6 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       setState(() => _output = 'شماره Pull Request معتبر نیست.');
       return;
     }
-    if (!_ai.isLoaded) {
-      setState(() => _output = 'ابتدا مدل محلی را بارگذاری کن.');
-      return;
-    }
     await _run('تحلیل و پیشنهاد اصلاح در شاخه مستقل', () => _ai.repairFromFailedCi(
       owner: _owner, repository: _repository, pullNumber: number,
     ));
@@ -466,8 +455,8 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       setState(() => _output = 'شماره Pull Request معتبر نیست.');
       return;
     }
-    if (!_hasToken || !_ai.isLoaded) {
-      setState(() => _output = 'برای فعال‌سازی پس‌زمینه، ابتدا GitHub را متصل و مدل را در حالت foreground بارگذاری کن.');
+    if (!_hasToken) {
+      setState(() => _output = 'برای فعال‌سازی پس‌زمینه، ابتدا GitHub مالک را متصل کن.');
       return;
     }
     await _run('فعال‌سازی ترمیم خودکار پس‌زمینه', () async {
@@ -486,8 +475,8 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   Future<void> _enableAutomaticDiscovery() async {
     if (!await _reauthenticateOwnerForCodeChange()) return;
 
-    if (!_hasToken || !_ai.isLoaded) {
-      setState(() => _output = 'برای کشف و ترمیم خودکار، ابتدا GitHub را متصل و مدل محلی را در حالت foreground بارگذاری کن.');
+    if (!_hasToken) {
+      setState(() => _output = 'برای کشف و ترمیم خودکار، ابتدا GitHub مالک را متصل کن.');
       return;
     }
     await _run('فعال‌سازی کشف خودکار PRهای دارای خطای CI', () async {
@@ -641,7 +630,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
                 const Divider(height: 24),
                 const Text('درخواست قابلیت از مالک', style: TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 6),
-                const Text('این مسیر فقط پس از احراز هویت مالک فعال می‌شود. کینگ کد را با مدل محلی پیشنهاد می‌دهد و فقط یک Pull Request برای بازبینی می‌سازد؛ هیچ تغییری مستقیم روی main اعمال نمی‌شود.'),
+                const Text('این مسیر فقط پس از احراز هویت دوباره مالک فعال می‌شود. King AI با مدل محلی یا همکار ابری مجاز، تغییرات محدود را پیشنهاد می‌دهد و فقط یک Pull Request برای بازبینی می‌سازد؛ هیچ تغییری مستقیم روی main اعمال نمی‌شود.'),
                 TextField(
                   controller: _featureRequestController,
                   minLines: 2,

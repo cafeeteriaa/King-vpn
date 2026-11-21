@@ -6,6 +6,7 @@ import 'package:workmanager/workmanager.dart';
 import 'king_local_ai.dart';
 import 'king_ai_autonomy_policy.dart';
 import 'king_ai_owner_auth.dart';
+import 'king_ai_provider_pilot.dart';
 
 const String _taskName = 'kingAiCiRepair';
 const String _uniqueName = 'king-ai-ci-repair-periodic';
@@ -26,8 +27,8 @@ const String _researchQuery =
     'Android VPNService network changes DoH TLS SNI Xray V2Ray sing-box '
     'Cloudflare tunnel DNS security Flutter Dart performance official docs';
 
-/// WorkManager entry point. The model is loaded only from a foreground-verified
-/// local file; this worker never downloads the 1.1 GB model in the background.
+/// WorkManager entry point. Background jobs use configured cloud helpers and
+/// never download or load the optional 1.1 GB local model.
 @pragma('vm:entry-point')
 void kingAiBackgroundDispatcher() {
   Workmanager().executeTask((task, inputData) async {
@@ -55,8 +56,8 @@ void kingAiBackgroundDispatcher() {
         // owner has disabled autonomous maintenance.
         if (!await ai.isBackgroundAutoDiscoveryEnabled()) return true;
         if (!await ai.hasGitHubToken()) return true;
-        final loaded = await ai.loadInstalledModelForBackground();
-        if (!loaded) return true;
+        // Cloud-first maintenance uses configured free API helpers. Never
+        // download or load the optional 1.1 GB local model in a background job.
         await ai.createAutonomousMaintenanceProposal(
           owner: 'cafeeteriaa',
           repository: 'King-vpn',
@@ -68,6 +69,14 @@ void kingAiBackgroundDispatcher() {
         await ai.clearBackgroundRepairPullNumber();
         await ai.setBackgroundAutoDiscovery(false);
         return true;
+      }
+      if (!ai.isLoaded) {
+        final pilot = KingAiProviderPilot.instance;
+        if (!await pilot.cloudEnabled) return true;
+        final configured = await pilot.configuredProviders();
+        final hasFreeHelper = configured[KingAiProvider.groq] == true ||
+            configured[KingAiProvider.openRouter] == true;
+        if (!hasFreeHelper) return true;
       }
 
       final autoDiscovery = await ai.isBackgroundAutoDiscoveryEnabled();
@@ -110,17 +119,8 @@ void kingAiBackgroundDispatcher() {
       }
       if (report['hasFailures'] != true) return true;
 
-      final loaded = await ai.loadInstalledModelForBackground();
-      if (!loaded) {
-        // No silent model download and no repeated 15-minute wakeups when the
-        // installed model is missing or fails integrity verification. Stop the
-        // schedule; the owner can reinstall/verify the model and re-enable it.
-        await Workmanager().cancelByTag(_tag);
-        await ai.clearBackgroundRepairPullNumber();
-        await ai.setBackgroundAutoDiscovery(false);
-        return true;
-      }
-
+      // CI repair proposals use King's private cloud-first helper route
+      // when no optional local model is installed. No model download/load here.
       final result = await ai.repairFromFailedCiAutonomous(
         owner: 'cafeeteriaa',
         repository: 'King-vpn',
@@ -226,6 +226,22 @@ class KingAiBackgroundSupervisor {
   static Future<void> enable(int pullNumber) async {
     _requireOwnerSession();
     if (pullNumber < 1) throw ArgumentError.value(pullNumber, 'pullNumber');
+    final ai = KingLocalAi.instance;
+    if (!await ai.hasGitHubToken()) {
+      throw StateError('GitHub owner token must be configured first.');
+    }
+    // WorkManager executes in a separate isolate/process lifecycle; an
+    // in-memory foreground model is not available there. Require a configured
+    // free cloud helper for scheduled work instead of waking up to no-op.
+    final pilot = KingAiProviderPilot.instance;
+    if (!await pilot.cloudEnabled) {
+      throw StateError('Enable King AI cloud helpers before scheduling background repair.');
+    }
+    final configured = await pilot.configuredProviders();
+    if (configured[KingAiProvider.groq] != true &&
+        configured[KingAiProvider.openRouter] != true) {
+      throw StateError('Configure at least one approved free-tier coding helper first.');
+    }
     await KingLocalAi.instance.setBackgroundAutoDiscovery(false);
     await KingLocalAi.instance.setBackgroundRepairPullNumber(pullNumber);
     await _scheduleSupervisor();
@@ -262,11 +278,21 @@ class KingAiBackgroundSupervisor {
   /// CI-repair PRs when evidence supports a fix. It never merges or publishes.
   static Future<void> enableAutonomousMaintenance() async {
     _requireOwnerSession();
-    if (!await KingLocalAi.instance.hasGitHubToken() ||
-        !KingLocalAi.instance.isLoaded) {
-      throw StateError('GitHub token and the verified local model must be ready first.');
+    final ai = KingLocalAi.instance;
+    if (!await ai.hasGitHubToken()) {
+      throw StateError('GitHub owner token must be configured first.');
     }
-    await KingLocalAi.instance.setBackgroundAutoDiscovery(true);
+    final pilot = KingAiProviderPilot.instance;
+    if (!await pilot.cloudEnabled) {
+      throw StateError('Enable King AI cloud helpers before starting low-resource autonomous maintenance.');
+    }
+    final configured = await pilot.configuredProviders();
+    final hasFreeHelper = configured[KingAiProvider.groq] == true ||
+        configured[KingAiProvider.openRouter] == true;
+    if (!hasFreeHelper) {
+      throw StateError('Configure at least one approved free-tier King AI helper first.');
+    }
+    await ai.setBackgroundAutoDiscovery(true);
     await KingLocalAi.instance.clearBackgroundRepairPullNumber();
     await _scheduleSupervisor();
     await _scheduleAutonomousAudit();

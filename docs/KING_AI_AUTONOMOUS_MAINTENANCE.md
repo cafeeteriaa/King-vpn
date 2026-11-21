@@ -27,8 +27,11 @@ Android resource limits or owner security.
 
 The owner must unlock the device-local owner console and explicitly enable
 continuous maintenance. The opt-in flag is stored in secure storage. The
-feature also requires the verified local coding model and a GitHub token whose
-identity is verified as the repository owner.
+feature requires a GitHub token whose identity is verified as the
+repository owner and either the optional integrity-verified local coding model
+or the enabled private cloud-helper pool with at least one configured approved
+free-tier coding provider. Cloud-first maintenance does not download or load
+the local model in the background; the local model remains optional.
 
 When enabled:
 
@@ -36,6 +39,8 @@ When enabled:
   lib/ or test/ files, with a strict attempt budget and duplicate-patch guard.
 - The supervisor checks selected pull requests for CI failures on a best-effort
   15-minute schedule and may prepare bounded follow-up repair pull requests.
+  When the local model is not loaded, the repair path uses King's private
+  cloud-first free-helper route; providers remain hidden behind King AI.
 - Candidate changes are isolated in draft pull requests. They are not merged,
   published or silently installed. owner review and green CI remain required.
 - A user-requested source change, CI repair, or maintenance-policy action
@@ -97,7 +102,10 @@ commands. They cannot submit code requests or enable background maintenance.
 The national/global pilot probes measure the current route and are useful for
 connection decisions, but their results are currently transient. The scheduled
 source audit inspects repository context; it does not yet consume a persistent,
-carrier-labelled history of live Iranian-network observations. It must never
+carrier-labelled history of live Iranian-network observations. Its proposal
+uses the same cloud-first coding route when the local model is not loaded,
+subject to path allowlists, context limits, secret checks, duplicate-patch
+guards and draft-PR-only policy. It must never
 claim that one probe characterizes all Iranian carriers or that source research
 proves real-world connectivity. Persistent network-evidence learning and
 evidence-gated runtime tuning remain separate work items.
@@ -107,8 +115,9 @@ evidence-gated runtime tuning remain separate work items.
 WorkManager is best-effort. Android may defer or skip jobs because of Doze,
 battery, network, OEM restrictions or user force-stop. A six-hour cadence is a
 requested interval, not an exact timer or an always-on daemon. Background
-workers never download the large local model; they use only a previously
-downloaded and integrity-verified model.
+workers never download or load the large local model. They use configured
+cloud helpers when available; otherwise the maintenance attempt exits without
+starting local inference or triggering a model download.
 
 ## Model learning versus conversation memory
 
