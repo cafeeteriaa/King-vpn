@@ -91,6 +91,12 @@ class NatProbeEvidence {
           : NatNetworkClass.domesticOnlyLikely;
     }
     if (!domesticReachable && globalReachable) {
+      // A single domestic TCP success (or DNS-only response) contradicts a
+      // confident global-only verdict. Mirror the domestic-reachable branch:
+      // preserve uncertainty when the opposite route has partial evidence.
+      if (domesticDnsOk || (domesticTcpSuccesses ?? 0) == 1) {
+        return NatNetworkClass.transportRestricted;
+      }
       return NatNetworkClass.globalReachable;
     }
     // DNS may work while TCP/443 is blocked, or only one host may respond.
