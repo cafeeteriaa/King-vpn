@@ -1874,31 +1874,40 @@ List<String> _natNormalizeConfiguredRanges(Iterable<String> values) {
       if (parts.length != 2) continue;
       final ip = InternetAddress.tryParse(parts[0].trim());
       final prefix = int.tryParse(parts[1].trim());
-      if (ip == null ||
-          ip.type != InternetAddressType.IPv4 ||
-          prefix == null ||
-          prefix < 8 ||
-          prefix > 32) {
+      if (ip == null || prefix == null) continue;
+      if (ip.type == InternetAddressType.IPv4) {
+        if (prefix < 8 || prefix > 32) continue;
+        final mask = (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF;
+        normalized = '${_intToIp(_ipToInt(ip.address) & mask)}/$prefix';
+      } else if (ip.type == InternetAddressType.IPv6) {
+        if (prefix < 0 || prefix > 128) continue;
+        final network = nipExpandIpv6Cidr('${ip.address}/$prefix', maxPerBlock: 1);
+        if (network.isEmpty) continue;
+        normalized = '${network.first}/$prefix';
+      } else {
         continue;
       }
-      final mask = (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF;
-      normalized = '${_intToIp(_ipToInt(ip.address) & mask)}/$prefix';
     } else if (raw.contains('-')) {
       final parts = raw.split('-');
       if (parts.length != 2) continue;
       final first = InternetAddress.tryParse(parts[0].trim());
       final last = InternetAddress.tryParse(parts[1].trim());
-      if (first == null ||
-          last == null ||
-          first.type != InternetAddressType.IPv4 ||
-          last.type != InternetAddressType.IPv4) {
+      if (first == null || last == null || first.type != last.type) continue;
+      if (first.type == InternetAddressType.IPv4) {
+        final a = _ipToInt(first.address);
+        final b = _ipToInt(last.address);
+        normalized = a <= b
+            ? '${first.address}-${last.address}'
+            : '${last.address}-${first.address}';
+      } else if (first.type == InternetAddressType.IPv6) {
+        final a = _natIpv6ToBigInt(first.rawAddress);
+        final b = _natIpv6ToBigInt(last.rawAddress);
+        normalized = a <= b
+            ? '${first.address}-${last.address}'
+            : '${last.address}-${first.address}';
+      } else {
         continue;
       }
-      final a = _ipToInt(first.address);
-      final b = _ipToInt(last.address);
-      normalized = a <= b
-          ? '${first.address}-${last.address}'
-          : '${last.address}-${first.address}';
     }
     if (normalized == null || !seen.add(normalized)) continue;
     out.add(normalized);
@@ -2018,34 +2027,74 @@ int _ipToInt(String ip) {
 String _intToIp(int v) =>
     '${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}';
 
+BigInt _natIpv6ToBigInt(List<int> bytes) {
+  var value = BigInt.zero;
+  for (final byte in bytes) {
+    value = (value << 8) | BigInt.from(byte);
+  }
+  return value;
+}
+
+String _natBigIntToIpv6(BigInt value) {
+  final bytes = List<int>.generate(
+    16,
+    (i) => ((value >> ((15 - i) * 8)) & BigInt.from(255)).toInt(),
+  );
+  return InternetAddress.fromRawAddress(bytes).address;
+}
+
 List<String> natExpandAny(String item, {int maxPerBlock = 65536}) {
   if (maxPerBlock <= 0) return const [];
-  if (!item.contains('-')) return natExpandCidr(item, maxPerBlock: maxPerBlock);
+  final limit = min(maxPerBlock, 65536);
+  if (!item.contains('-')) {
+    final parts = item.split('/');
+    if (parts.length == 2) {
+      final address = InternetAddress.tryParse(parts[0].trim());
+      if (address?.type == InternetAddressType.IPv6) {
+        return nipExpandIpv6Cidr(item, maxPerBlock: limit);
+      }
+    }
+    return natExpandCidr(item, maxPerBlock: limit);
+  }
   final parts = item.split('-');
   if (parts.length != 2) return const [];
   final a = InternetAddress.tryParse(parts[0].trim());
   final b = InternetAddress.tryParse(parts[1].trim());
-  if (a == null || b == null ||
-      a.type != InternetAddressType.IPv4 ||
-      b.type != InternetAddressType.IPv4) {
-    return const [];
+  if (a == null || b == null || a.type != b.type) return const [];
+  if (a.type == InternetAddressType.IPv4) {
+    var start = _ipToInt(a.address);
+    var end = _ipToInt(b.address);
+    if (end < start) {
+      final t = start;
+      start = end;
+      end = t;
+    }
+    final out = <String>[];
+    final count = end - start + 1;
+    final step = count > limit ? (count + limit - 1) ~/ limit : 1;
+    for (var v = start; v <= end && out.length < limit; v += step) {
+      out.add(_intToIp(v));
+    }
+    return out;
   }
-  var start = _ipToInt(a.address);
-  var end = _ipToInt(b.address);
-  if (end < start) {
-    final t = start;
-    start = end;
-    end = t;
+  if (a.type == InternetAddressType.IPv6) {
+    var start = _natIpv6ToBigInt(a.rawAddress);
+    var end = _natIpv6ToBigInt(b.rawAddress);
+    if (end < start) {
+      final t = start;
+      start = end;
+      end = t;
+    }
+    final count = end - start + BigInt.one;
+    final cap = BigInt.from(limit);
+    final step = count > cap ? (count + cap - BigInt.one) ~/ cap : BigInt.one;
+    final out = <String>[];
+    for (var value = start; value <= end && out.length < limit; value += step) {
+      out.add(_natBigIntToIpv6(value));
+    }
+    return out;
   }
-  final out = <String>[];
-  final count = end - start + 1;
-  final step = count > maxPerBlock
-      ? (count + maxPerBlock - 1) ~/ maxPerBlock
-      : 1;
-  for (var v = start; v <= end && out.length < maxPerBlock; v += step) {
-    out.add(_intToIp(v));
-  }
-  return out;
+  return const [];
 }
 
 const List<String> natIranDnsHosts = [

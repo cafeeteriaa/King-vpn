@@ -4140,5 +4140,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('2001:4860:4860::8888', scanner)
         self.assertIn('parsedIp.type == InternetAddressType.IPv6', extras)
 
+
+    def test_national_configured_ranges_keep_ipv4_and_ipv6_families(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        normalizer_start = source.index('List<String> _natNormalizeConfiguredRanges(')
+        normalizer_end = source.index('/// Next bounded sample', normalizer_start)
+        normalizer = source[normalizer_start:normalizer_end]
+        expand_start = source.index('BigInt _natIpv6ToBigInt(')
+        expand_end = source.index('const List<String> natIranDnsHosts', expand_start)
+        expander = source[expand_start:expand_end]
+        self.assertIn('ip.type == InternetAddressType.IPv6', normalizer)
+        self.assertIn('nipExpandIpv6Cidr', normalizer)
+        self.assertIn('first.type == InternetAddressType.IPv6', normalizer)
+        self.assertIn('InternetAddress.fromRawAddress(bytes)', expander)
+        self.assertIn('nipExpandIpv6Cidr(item, maxPerBlock: limit)', expander)
+        self.assertIn('a.type == InternetAddressType.IPv4', expander)
+        self.assertIn('a.type == InternetAddressType.IPv6', expander)
+
+
 if __name__ == '__main__':
     unittest.main()
