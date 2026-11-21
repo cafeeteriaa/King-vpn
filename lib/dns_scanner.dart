@@ -229,18 +229,36 @@ Future<DnsxHit?> dnsxProbe(String server,
     // Cancellation may arrive while waiting between DNS batches.
     if (stop != null && stop()) break;
     final part = list.sublist(i, min(i + chunk, list.length));
-    // NNIE: strict response validation includes transaction ID, QR/opcode,
-    // question/type/class, source IP/port, RCODE and usable A answer.
-    final res = await Future.wait(part.map((d) => NatDnsWireProbe.probe(
+    // Test both address families. A domain counts once when either its A
+    // or AAAA answer is a usable public address; this keeps the 25% threshold
+    // domain-based instead of rewarding domains that publish both families.
+    // NNIE validates transaction ID, question/type/class, source tuple,
+    // RCODE, CNAME ownership and public address ranges for each response.
+    final res = await Future.wait(part.map((domain) async {
+      final familyResults = await Future.wait([
+        NatDnsWireProbe.probe(
           server,
-          d,
+          domain,
           timeout: timeout,
           cancelled: stop,
-        )));
+          queryType: 1,
+        ),
+        NatDnsWireProbe.probe(
+          server,
+          domain,
+          timeout: timeout,
+          cancelled: stop,
+          queryType: 28,
+        ),
+      ]);
+      final good = familyResults.where((result) => result.ok).toList()
+        ..sort((a, b) => a.elapsedMs!.compareTo(b.elapsedMs!));
+      return good.isEmpty ? null : good.first;
+    }));
     if (stop != null && stop()) return null;
     tested += part.length;
-    for (final r in res) {
-      if (r.ok) times.add(r.elapsedMs!);
+    for (final result in res) {
+      if (result != null) times.add(result.elapsedMs!);
     }
   }
   // ملاک: حداقل ۲۵٪ از دامنه‌هایی که واقعاً سنجیده شدند باید جواب بدهند
