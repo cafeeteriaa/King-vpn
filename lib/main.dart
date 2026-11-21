@@ -15911,7 +15911,7 @@ ListTile( // KINGEXTRAS row
                     sw('حالت فوق‌العاده (ماتریس حالت‌ها)', ultraMode,
                         (v) { _markUserTouched(const ['ultraMode']); ultraMode = v; },
                         sub:
-                            'حتی در اتصال عادی هر سرور با ده‌ها حالت (Fragment، fingerprint، ALPN، DNS، Mux، Noise، پورت CDN، IP تمیز و ...) تست می‌شود — هیچ اپ تجاری این کار را نمی‌کند'),
+                            'فقط حالت‌های سازگار با نوع کانفیگ بررسی می‌شوند؛ بعضی گزینه‌ها مثل Mux و Noise تا تأیید سازگاری و عبور واقعی ترافیک کنار گذاشته شده‌اند'),
                     sw('حالت شکست‌ناپذیر (جستجوی بی‌نهایت)', indestructibleMode,
                         (v) { _markUserTouched(const ['indestructibleMode']); indestructibleMode = v; },
                         sub:
@@ -15919,7 +15919,7 @@ ListTile( // KINGEXTRAS row
                     sw('توربو سرعت بعد از اتصال', turboSpeed,
                         (v) { _markUserTouched(const ['turboSpeed']); turboSpeed = v; },
                         sub:
-                            'بعد از وصل شدن، Fragment/Noise خاموش و Mux با concurrency بالا روشن می‌شود؛ چند حالت سبک تست می‌شود و سرعت واقعی اندازه‌گیری می‌شود تا دانلود چند برابر شود'),
+                            'بعد از وصل شدن، سرعت واقعی اندازه‌گیری و مسیر رتبه‌بندی می‌شود؛ Fragment/Noise پرهزینه خاموش می‌مانند. Mux در این نسخه فعال نیست و تا آزمون سازگاری و throughput روشن نمی‌شود'),
                     sw('فقط از منابع سالم سرور بردار', onlyHealthySrc,
                         (v) { _markUserTouched(const ['onlyHealthySrc']); onlyHealthySrc = v; }),
                     sw('اتصال با IP (حل دامنه با DoH)', ipMode,
