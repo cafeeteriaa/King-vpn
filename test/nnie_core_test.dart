@@ -177,6 +177,21 @@ void main() {
       expect(NatDnsWireProbe.publicV6([
         0x20, 0x01, 0x0d, 0xb8, ...List<int>.filled(12, 0),
       ], 0), isFalse);
+      expect(NatDnsWireProbe.publicV6([
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+      ], 0), isFalse); // loopback
+      expect(NatDnsWireProbe.publicV6([
+        0xfe, 0x80, ...List<int>.filled(14, 0x01),
+      ], 0), isFalse); // link-local
+      expect(NatDnsWireProbe.publicV6([
+        0xff, 0x02, ...List<int>.filled(14, 0x01),
+      ], 0), isFalse); // multicast
+      expect(NatDnsWireProbe.publicV6([
+        0x20, 0x01, 0, 1, ...List<int>.filled(12, 0x01),
+      ], 0), isFalse); // IANA special-purpose block
+      expect(NatDnsWireProbe.publicV6([
+        0x3f, 0xff, 0, 0, ...List<int>.filled(12, 0x01),
+      ], 0), isFalse); // documentation
     });
 
     test('accepts a valid public AAAA answer', () {
