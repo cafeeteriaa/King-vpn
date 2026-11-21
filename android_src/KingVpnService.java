@@ -539,13 +539,23 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 return result[0] && !stopping && expectedStartId == latestStartId;
             }
         }
-        // A stop/new start already advanced the attempt generation. Only a genuine
-        // timeout may advance it here; a stale worker must not invalidate a newer start.
-        if (expectedStartId == latestStartId && !stopping) {
-            attemptSeq.incrementAndGet();
+        // Linearize timeout invalidation with ACTION_START and ACTION_STOP. Without
+        // this lifecycle lock, a new start could publish its ID between the check and
+        // increment below, letting an old timeout invalidate the new attempt.
+        boolean timeoutOwned = false;
+        boolean stopOwned = false;
+        synchronized (startLifecycleLock) {
+            if (expectedStartId == latestStartId && !stopping) {
+                attemptSeq.incrementAndGet();
+                timeoutOwned = true;
+            } else if (stopping) {
+                stopOwned = true;
+            }
+        }
+        if (timeoutOwned) {
             lastError = "bringUp timed out after " + (BRING_UP_TIMEOUT_MS / 1000) + "s";
             Log.e(TAG, lastError + " for " + s.remark);
-        } else if (stopping) {
+        } else if (stopOwned) {
             lastError = "stopped by user";
             Log.i(TAG, lastError + " for " + s.remark);
         } else {
