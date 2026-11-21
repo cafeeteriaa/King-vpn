@@ -4435,6 +4435,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('INTERNATIONAL_PROBE_URLS', probe)
         self.assertIn('if (passed >= required) return ProbeResult.OK;', probe)
 
+    def test_active_flutter_global_tunnel_checks_use_independent_provider_families(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('const _tunnelTestUrlsGlobal = [')
+        end = main.index('];', start)
+        urls = main[start:end]
+        self.assertIn('www.google.com/generate_204', urls)
+        self.assertIn('www.gstatic.com/generate_204', urls)
+        self.assertIn('www.cloudflare.com/cdn-cgi/trace', urls)
+        self.assertIn('github.com/robots.txt', urls)
+        traffic_start = main.index('Future<bool> _tunnelTrafficOk()')
+        traffic_end = main.index('Future<bool> _stableTunnelTrafficOk', traffic_start)
+        traffic = main[traffic_start:traffic_end]
+        self.assertIn('_tunnelTestUrlsGlobal', traffic)
+        self.assertIn('if (ok) return true;', traffic)
+        stable_start = main.index('Future<bool> _stableTunnelTrafficOk')
+        stable_end = main.index('Future<void> _verifyPendingConnect', stable_start)
+        stable = main[stable_start:stable_end]
+        self.assertIn('passed >= 2', stable)
+        self.assertIn('_tunnelTestUrlsGlobal', stable)
+
     def test_vpn_global_watchdog_probes_independent_provider_families(self):
         source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = source.index('private static final String[] INTERNATIONAL_PROBE_URLS')
