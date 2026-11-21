@@ -156,7 +156,8 @@ void main() {
     });
 
     test('buildQuery rejects a name longer than the DNS 255-octet limit', () {
-      final labels = List<String>.filled(4, 'a' * 63);
+      final label = List<String>.filled(63, 'a').join();
+      final labels = List<String>.filled(4, label);
       expect(
         () => NatDnsWireProbe.buildQuery(labels.join('.'), 0x1234),
         throwsA(isA<FormatException>()),
