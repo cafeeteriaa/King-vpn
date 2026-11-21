@@ -2353,11 +2353,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Future<void> _send() async {')
         end = source.index('void _handleSpeechResult', start)
         send = source[start:end]
-        inference = send.index('final answer = await KingLocalAi.instance.ask(prompt, maxTokens: 1400);')
+        inference = send.index('final answer = await KingAiProviderPilot.instance.ask(')
+        local_fallback = send.index(
+            'localFallback: () => KingLocalAi.instance.ask(prompt, maxTokens: 1400),',
+            inference,
+        )
         disposed_guard = send.index('if (!mounted) return;', inference)
         add_answer = send.index('_add(answer, true);', inference)
         voice_output = send.index('KingVoiceOutput.instance.speakPersian(answer)')
-        self.assertLess(inference, disposed_guard)
+        self.assertLess(inference, local_fallback)
+        self.assertLess(local_fallback, disposed_guard)
         self.assertLess(disposed_guard, add_answer)
         self.assertLess(disposed_guard, voice_output)
 
