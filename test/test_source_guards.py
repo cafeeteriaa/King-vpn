@@ -286,6 +286,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('await _storage.write(key: _verifierKey, value: oldVerifier);', rotation)
         self.assertIn('Owner credential storage is incomplete', rotation)
 
+    def test_owner_lock_invalidates_in_flight_authentication_and_password_rotation(self):
+        auth = (ROOT / 'lib' / 'king_ai_owner_auth.dart').read_text(encoding='utf-8')
+        self.assertIn('int _sessionGeneration = 0;', auth)
+        lock_start = auth.index('void lock()')
+        lock_end = auth.index('Future<void> _requireRepositoryOwnerIdentity()', lock_start)
+        self.assertIn('_sessionGeneration++;', auth[lock_start:lock_end])
+        for signature, end_marker in [
+            ('Future<void> setInitialPassword(', '/// Password changes'),
+            ('Future<void> changePassword(', 'Future<bool> authenticate('),
+            ('Future<bool> authenticate(', 'void lock()'),
+        ]:
+            start = auth.index(signature)
+            end = auth.index(end_marker, start)
+            method = auth[start:end]
+            self.assertIn('final sessionGeneration = _sessionGeneration;', method)
+            if signature.startswith('Future<bool> authenticate'):
+                self.assertIn('if (sessionGeneration != _sessionGeneration) return false;', method)
+            else:
+                self.assertIn('sessionGeneration == _sessionGeneration', method)
+
     def test_owner_auth_rejects_corrupt_or_truncated_stored_credentials(self):
         auth = (ROOT / 'lib' / 'king_ai_owner_auth.dart').read_text(encoding='utf-8')
         start = auth.index('Future<bool> authenticate(String password)')

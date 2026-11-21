@@ -39,6 +39,8 @@ class KingAiOwnerAuth {
 
   Stopwatch? _sessionClock;
   bool _operationBusy = false;
+  // Invalidates authentication work that began before the app was backgrounded.
+  int _sessionGeneration = 0;
 
   Future<bool> get isConfigured async =>
       (await _storage.read(key: _saltKey)) != null &&
@@ -56,6 +58,7 @@ class KingAiOwnerAuth {
   Future<void> setInitialPassword(String password) async {
     if (_operationBusy) throw StateError('Owner authentication is busy.');
     _operationBusy = true;
+    final sessionGeneration = _sessionGeneration;
     try {
       if (await isConfigured) {
         throw StateError('Owner password is already configured.');
@@ -66,6 +69,7 @@ class KingAiOwnerAuth {
       _validatePassword(password);
       final salt = _randomBytes(16);
       final verifier = await _derive(password, salt);
+      if (sessionGeneration != _sessionGeneration) return;
       // Write the verifier first and the salt last; both are required for the
       // configured marker. Roll back partial state if secure storage fails.
       try {
@@ -78,7 +82,9 @@ class KingAiOwnerAuth {
       }
       await _storage.delete(key: _failuresKey);
       await _storage.delete(key: _lockUntilKey);
-      _sessionClock = Stopwatch()..start();
+      if (sessionGeneration == _sessionGeneration) {
+        _sessionClock = Stopwatch()..start();
+      }
     } finally {
       _operationBusy = false;
     }
@@ -88,6 +94,7 @@ class KingAiOwnerAuth {
   Future<void> changePassword(String password) async {
     if (_operationBusy) throw StateError('Owner authentication is busy.');
     _operationBusy = true;
+    final sessionGeneration = _sessionGeneration;
     try {
       if (!hasActiveSession) {
         throw StateError('Owner authentication is required.');
@@ -101,6 +108,9 @@ class KingAiOwnerAuth {
       }
       final salt = _randomBytes(16);
       final verifier = await _derive(password, salt);
+      if (sessionGeneration != _sessionGeneration) {
+        throw StateError('Owner session expired during password change.');
+      }
       // Rotate both values as one logical transaction. If either secure-store
       // write fails, restore the previous pair rather than bricking owner access.
       try {
@@ -117,7 +127,9 @@ class KingAiOwnerAuth {
       }
       await _storage.delete(key: _failuresKey);
       await _storage.delete(key: _lockUntilKey);
-      _sessionClock = Stopwatch()..start();
+      if (sessionGeneration == _sessionGeneration) {
+        _sessionClock = Stopwatch()..start();
+      }
     } finally {
       _operationBusy = false;
     }
@@ -126,6 +138,7 @@ class KingAiOwnerAuth {
   Future<bool> authenticate(String password) async {
     if (_operationBusy) return false;
     _operationBusy = true;
+    final sessionGeneration = _sessionGeneration;
     try {
       if (!await isConfigured) return false;
 
@@ -161,6 +174,7 @@ class KingAiOwnerAuth {
       if (_constantTimeEquals(actual, expected)) {
         await _storage.delete(key: _failuresKey);
         await _storage.delete(key: _lockUntilKey);
+        if (sessionGeneration != _sessionGeneration) return false;
         _sessionClock = Stopwatch()..start();
         return true;
       }
@@ -184,7 +198,10 @@ class KingAiOwnerAuth {
     }
   }
 
-  void lock() => _sessionClock = null;
+  void lock() {
+    _sessionGeneration++;
+    _sessionClock = null;
+  }
 
   Future<void> _requireRepositoryOwnerIdentity() async {
     final token = await _storage.read(key: 'king_ai_github_token');
