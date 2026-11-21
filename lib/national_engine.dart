@@ -218,12 +218,18 @@ class NatNetworkDiagnosis {
       // waits the full timeout), so the caller's deadline usually expired first.
       final domesticF = Future.wait(_domesticHosts.map(_tcpOk));
       final globalF = Future.wait(_globalHosts.map(_tcpOk));
-      final globalDnsF = Future.wait(
-          _globalResolvers.map((r) => NatDnsWireProbe.probe(r, 'google.com')));
+      // Query both address families through each resolver. DNS A success
+      // must not hide an IPv6-only failure (or vice versa).
+      final globalDnsF = Future.wait([
+        for (final resolver in _globalResolvers)
+          for (final type in const <int>[1, 28])
+            NatDnsWireProbe.probe(resolver, 'google.com', type: type),
+      ]);
       final domesticDnsF = Future.wait([
         for (final resolver in _domesticResolvers)
           for (final domain in _domesticDnsNames)
-            NatDnsWireProbe.probe(resolver, domain),
+            for (final type in const <int>[1, 28])
+              NatDnsWireProbe.probe(resolver, domain, type: type),
       ]);
       final domesticTcp = await domesticF;
       final globalTcp = await globalF;
