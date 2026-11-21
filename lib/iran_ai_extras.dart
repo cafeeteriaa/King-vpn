@@ -555,6 +555,7 @@ extension HomeExtras on _HomePageState {
         'latency=${evidence.globalLatencyMs ?? -1}ms '
         'confidence=${evidence.confidence.toStringAsFixed(2)}');
     sb.writeln('National diagnosis: ${natNetworkClassLabel(NatNetworkDiagnosis.current)}');
+    sb.writeln('IP-family evidence: this probe does not isolate IPv4 from IPv6; do not infer either family is working or supported from domestic/global TLS results.');
     final routeHistory = PilotRouteHistory.forNetwork(PilotRouteHistory.currentGroup);
     if (routeHistory != null) {
       sb.writeln('Persistent route history for current network group: '
