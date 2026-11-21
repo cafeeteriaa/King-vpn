@@ -629,11 +629,15 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
         Thread t = new Thread(() -> {
             try {
-                core.stopCore();
-            } catch (Throwable ex) {
-                Log.e(TAG, "stopCore failed", ex);
-            } finally {
-                endNative();
+                try {
+                    core.stopCore();
+                } catch (Throwable ex) {
+                    Log.e(TAG, "stopCore failed", ex);
+                }
+
+                // Keep the native watchdog armed through the post-stop state query too.
+                // Some plugin/core implementations perform JNI work in this getter; if it
+                // wedges, ending the watchdog before this call would leave shutdown stuck.
                 final boolean stillRunning;
                 try {
                     stillRunning = core.isV2rayCoreRunning();
@@ -658,6 +662,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                         Log.e(TAG, "native core remains running; retaining TUN until a verified stop");
                     }
                 }
+            } finally {
+                endNative();
             }
         }, "KingVpnCoreStop");
         t.setDaemon(true);
