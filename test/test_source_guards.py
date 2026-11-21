@@ -4350,5 +4350,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('The refused socket is the loopback HTTP inbound', probe)
 
 
+    def test_plain_fallback_keeps_native_watchdog_http_inbound_without_policy_rewrite(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        helper_start = source.index('String _withVpnHealthHttpInbound(String cfg)')
+        helper_end = source.index('// Real-VPN config:', helper_start)
+        helper = source[helper_start:helper_end]
+        self.assertIn("'listen': '127.0.0.1'", helper)
+        self.assertIn("'port': httpProxyPort", helper)
+        self.assertIn("'protocol': 'http'", helper)
+        self.assertIn('if (portOccupied) return cfg;', helper)
+        self.assertIn("if (base != cfg) _withVpnHealthHttpInbound(base)", source)
+        # The fallback is still not passed through the DNS/routing policy pipeline.
+        cfg_list_start = source.index('final cfgTries = <String>[')
+        cfg_list_end = source.index('].map((c) => withErrLog', cfg_list_start)
+        cfg_list = source[cfg_list_start:cfg_list_end]
+        self.assertIn('_withVpnHealthHttpInbound(base)', cfg_list)
+        self.assertNotIn('_reliableVpnCfg(base)', cfg_list)
+
+
 if __name__ == '__main__':
     unittest.main()
