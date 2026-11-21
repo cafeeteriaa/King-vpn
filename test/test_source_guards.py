@@ -3144,6 +3144,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         stop_start = source.index('private void requestStop(int startId)')
         stop_end = source.index('private boolean connectFrom(', stop_start)
         self.assertIn('latestStopRequestId = startId;', source[stop_start:stop_end])
+        stop_app = source[source.index('public void stopFromApp()'):source.index('private static class Srv')]
+        self.assertIn('synchronized (startLifecycleLock)', stop_app)
+        self.assertIn('requestStop(stopStartId);', stop_app)
+        revoke = source[source.index('public void onRevoke()'):source.index('public void onDestroy()')]
+        self.assertIn('synchronized (startLifecycleLock)', revoke)
+        self.assertIn('requestStop(revokeStartId);', revoke)
+
         cleanup_start = source.index('private void stopEverything(int expectedStartId)')
         cleanup_end = source.index('private void closeTun()', cleanup_start)
         cleanup = source[cleanup_start:cleanup_end]
