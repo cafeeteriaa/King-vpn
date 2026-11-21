@@ -3524,6 +3524,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         lookup = source[start:end]
         self.assertIn("uri.scheme != 'https'", lookup)
         self.assertIn('req.followRedirects = false;', lookup)
+        self.assertIn('maxAsnResponseBytes = 256 * 1024', lookup)
+        self.assertIn('res.timeout(const Duration(seconds: 3))', lookup)
+        self.assertIn('responseBytes.length + chunk.length', lookup)
+        self.assertNotIn('transform(utf8.decoder).join()', lookup)
         self.assertNotIn('http://ip-api.com', source)
 
 
