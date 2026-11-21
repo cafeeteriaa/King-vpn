@@ -151,9 +151,20 @@ Future<int?> _probeDoh(String url, {String expectedDomain = 'google.com'}) async
 
 Future<int?> _probeDnsIp(String ip) async {
   final domain = nationalMode ? 'nic.ir' : 'google.com';
+  final address = InternetAddress.tryParse(ip);
+  if (address == null ||
+      (address.type != InternetAddressType.IPv4 &&
+          address.type != InternetAddressType.IPv6)) {
+    return null;
+  }
+  // Match the DNS answer family to the resolver transport family. In
+  // particular, an IPv6 resolver must prove that it can return a usable AAAA
+  // answer; merely receiving an A answer over an IPv6 socket is insufficient.
+  final queryType = address.type == InternetAddressType.IPv6 ? 28 : 1;
   final result = await NatDnsWireProbe.probe(
     ip,
     domain,
+    type: queryType,
     timeout: const Duration(seconds: 2),
   );
   return result.ok ? result.elapsedMs : null;
