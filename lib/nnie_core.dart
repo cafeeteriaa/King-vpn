@@ -175,7 +175,10 @@ class NatDnsWireProbe {
         final ptr = ((n & 0x3f) << 8) | b[p + 1];
         // RFC 1035 compression pointers refer to an earlier offset. Reject
         // out-of-range, forward, and cyclic pointers instead of following them.
-        if (ptr >= p || ptr >= b.length || !visitedPointers.add(ptr)) {
+        // DNS names cannot point into the 12-byte message header: only
+        // previously encoded domain-name data is a valid compression target.
+        if (ptr < 12 || ptr >= p || ptr >= b.length ||
+            !visitedPointers.add(ptr)) {
           throw const FormatException('Invalid DNS compression pointer');
         }
         if (resume < 0) resume = p + 2;
