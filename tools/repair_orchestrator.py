@@ -100,7 +100,7 @@ def verify(patch_file: Path, output_patch: Path) -> dict:
         'status': 'verified',
         'source_tree_modified': False,
         'patch_exported': str(output_patch),
-        'checks': ['patch_gate', 'python_tests', 'flutter_test', 'flutter_analyze', 'android_arm64_debug_build'],
+        'checks': ['patch_gate', 'python_tests', 'flutter_test', 'flutter_analyze', 'android_arm64_release_build'],
         'device_tested': False,
     }
 
