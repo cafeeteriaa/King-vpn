@@ -1121,8 +1121,12 @@ String withNpvAmCore(String cfg) {
     j['outbounds'] = outs;
     if (secureDns) {
       final d = j['dns'] is Map ? j['dns'] as Map : <String, dynamic>{};
+      final nationalAutoProvider = const {'shecan', 'electro', 'radar'}
+              .contains(dnsProvActive)
+          ? dnsProvActive
+          : 'shecan';
       final first = nationalMode
-          ? (_dnsUrls['shecan'] ?? _dnsUrls['electro']!)
+          ? (_dnsUrls[nationalAutoProvider] ?? _dnsUrls['shecan']!)
           : (customDnsList() ?? _dnsUrls[effectiveDnsProv()] ?? _dnsUrls['cloudflare']!);
       final ips = <dynamic>[];
       final doh = <dynamic>[];
