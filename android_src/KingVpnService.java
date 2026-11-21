@@ -362,9 +362,17 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     /** Last-resort daemon execution when the service worker is already unavailable. */
     private void runFallback(Runnable r) {
-        Thread t = new Thread(r, "KingVpnService-fallback");
-        t.setDaemon(true);
-        t.start();
+        try {
+            Thread t = new Thread(r, "KingVpnService-fallback");
+            t.setDaemon(true);
+            t.start();
+        } catch (Throwable launchError) {
+            // Thread creation/start can fail under memory or thread-resource pressure.
+            // Do not let a last-resort cleanup launch crash the service teardown path.
+            lastError = "could not launch VPN cleanup fallback: "
+                    + launchError.getClass().getSimpleName();
+            Log.e(TAG, lastError, launchError);
+        }
     }
 
     /** Worker side of ACTION_START: builds the list and connects. */
