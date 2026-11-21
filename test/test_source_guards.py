@@ -1551,28 +1551,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = service.index('private void checkOnce()')
         end = service.index('private void rescheduleNormal()', start)
         watchdog = service[start:end]
-        self.assertIn('try {', watchdog)
-        self.assertIn('coreUp = core.isV2rayCoreRunning();', watchdog)
-        self.assertIn('catch (Throwable stateError)', watchdog)
-        self.assertIn('retaining current tunnel', watchdog)
+        self.assertIn('readCoreRunningWithWatchdog(core, "health-watchdog-state")', watchdog)
+        self.assertIn('if (coreState == null)', watchdog)
+        self.assertIn('retaining it and retry', watchdog)
         self.assertIn('if (active && !stopping) rescheduleNormal();', watchdog)
-        self.assertLess(watchdog.index('catch (Throwable stateError)'),
+        self.assertLess(watchdog.index('if (coreState == null)'),
                         watchdog.index('ProbeResult pr = coreUp ? probeResult(modeSnapshot)'))
 
     def test_vpn_service_defers_tun_close_until_native_stop_is_verified(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = service.index('private boolean stopCoreNow()')
-        end = service.index('/**\n     * Worker-side start of one attempt.', start)
+        end = service.index('/**\\n     * Worker-side start of one attempt.', start)
         stop = service[start:end]
         self.assertIn('closeTunAfterCoreStop = true;', stop)
-        self.assertGreaterEqual(stop.count('core.isV2rayCoreRunning()'), 3)
+        self.assertEqual(stop.count('core.isV2rayCoreRunning()'), 1)
+        self.assertIn('readCoreRunningWithWatchdog(core, "stopCore-preflight")', stop)
         self.assertIn('if (!stillRunning && closeTunAfterCoreStop)', stop)
         self.assertIn('native core remains running; retaining TUN', stop)
         self.assertIn('could not verify native core stop; retaining TUN', stop)
-        self.assertIn('could not read core state before stop', stop)
-        self.assertIn('could not verify native core stop', stop)
         self.assertLess(stop.index('core.stopCore();'), stop.index('if (!stillRunning && closeTunAfterCoreStop)'))
-        self.assertLess(stop.index('if (coreStopping)'), stop.index('final boolean running;'))
+        self.assertLess(stop.index('if (coreStopping)'), stop.index('final Boolean runningState'))
 
     def test_android_backup_excludes_vpn_credentials_and_local_ai_secrets(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
@@ -3410,6 +3408,30 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         bring = source[bring_start:bring_end]
         self.assertIn('if (!beginNative("startCore"))', bring)
         self.assertIn('refusing unmonitored core start', bring)
+
+
+    def test_every_native_core_state_query_requires_watchdog(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        helper_start = service.index('private Boolean readCoreRunningWithWatchdog(')
+        helper_end = service.index('private boolean stopCoreNow()', helper_start)
+        helper = service[helper_start:helper_end]
+        self.assertIn('if (!beginNative(operation))', helper)
+        self.assertIn('return core.isV2rayCoreRunning();', helper)
+        self.assertIn('finally {\\n            endNative();\\n        }', helper)
+
+        stop_start = service.index('private boolean stopCoreNow()')
+        stop_end = service.index('private boolean awaitCoreStopped(', stop_start)
+        stop = service[stop_start:stop_end]
+        await_start = service.index('private boolean awaitCoreStopped(')
+        await_end = service.index('private boolean bringUp(', await_start)
+        await = service[await_start:await_end]
+        check_start = service.index('private void checkOnce()')
+        check_end = service.index('private void rescheduleNormal()', check_start)
+        check = service[check_start:check_end]
+        self.assertIn('readCoreRunningWithWatchdog(core, "stopCore-preflight")', stop)
+        self.assertIn('readCoreRunningWithWatchdog(core, "start-preflight")', await)
+        self.assertIn('readCoreRunningWithWatchdog(core, "start-final-state-check")', await)
+        self.assertIn('readCoreRunningWithWatchdog(core, "health-watchdog-state")', check)
 
 if __name__ == '__main__':
     unittest.main()
