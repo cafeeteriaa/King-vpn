@@ -160,6 +160,41 @@ void main() {
       expect(NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'), ['8.8.8.8']);
     });
 
+    test('buildQuery supports AAAA records', () {
+      final query = NatDnsWireProbe.buildQuery('google.com', 0x1234, type: 28);
+      expect(query.sublist(query.length - 4), [0, 28, 0, 1]);
+    });
+
+    test('publicV6 accepts global unicast and rejects special-use ranges', () {
+      expect(NatDnsWireProbe.publicV6([
+        0x20, 0x01, 0x48, 0x60, 0x48, 0x60, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0x88,
+      ], 0), isTrue);
+      expect(NatDnsWireProbe.publicV6(List<int>.filled(16, 0), 0), isFalse);
+      expect(NatDnsWireProbe.publicV6([
+        0xfc, ...List<int>.filled(15, 0x01),
+      ], 0), isFalse);
+      expect(NatDnsWireProbe.publicV6([
+        0x20, 0x01, 0x0d, 0xb8, ...List<int>.filled(12, 0),
+      ], 0), isFalse);
+    });
+
+    test('accepts a valid public AAAA answer', () {
+      final out = <int>[
+        ..._u16(0x1234), ..._u16(0x8180), ..._u16(1), ..._u16(1),
+        ..._u16(0), ..._u16(0),
+        6, 103, 111, 111, 103, 108, 101, 3, 99, 111, 109, 0,
+        0, 28, 0, 1,
+        0xc0, 0x0c, 0, 28, 0, 1, 0, 0, 0, 60, 0, 16,
+        0x20, 0x01, 0x48, 0x60, 0x48, 0x60, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0x88,
+      ];
+      expect(
+        NatDnsWireProbe.parseResponse(out, 0x1234, 'google.com', type: 28),
+        ['2001:4860:4860::88'],
+      );
+    });
+
     test('rejects a mismatched transaction ID', () {
       final bytes = _response(id: 0x0001, rdata: [8, 8, 8, 8]);
       expect(() => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
