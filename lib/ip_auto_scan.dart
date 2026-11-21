@@ -167,7 +167,7 @@ Future<bool> _ipAutoSave() async {
     // the new checkpoint has already committed successfully.
     try {
       await p.setString(hitsKey, hits.join('\n'));
-      await p.setString(pendingKey, pending.join('\\n'));
+      await p.setString(pendingKey, pending.join('\n'));
       await p.setString(cursorKey, jsonEncode(cursors));
       await p.setString(posKey, position.toString());
     } catch (e, stk) {
