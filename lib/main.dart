@@ -2816,6 +2816,41 @@ void logError(Object e, [StackTrace? st]) {
   errorLog.value = e.toString();
 }
 
+// The deliberately plain fallback still needs the native watchdog's local HTTP
+// inbound. Add only this loopback listener; do not alter DNS, routing, or outbounds.
+String _withVpnHealthHttpInbound(String cfg) {
+  try {
+    final j = jsonDecode(cfg);
+    if (j is! Map<String, dynamic>) return cfg;
+    final raw = j['inbounds'];
+    final inbounds = raw is List
+        ? List<dynamic>.from(raw)
+        : <dynamic>[];
+    // Never create a duplicate port binding. If another protocol owns 10809,
+    // leave the fallback untouched; the native probe will report no evidence.
+    final portOccupied = inbounds.any(
+        (ib) => ib is Map && ib['port'] == httpProxyPort);
+    if (portOccupied) return cfg;
+    inbounds.add({
+      'tag': 'king-health-http-in',
+      'listen': '127.0.0.1',
+      'port': httpProxyPort,
+      'protocol': 'http',
+      'settings': <String, dynamic>{},
+      'sniffing': {
+        'enabled': true,
+        'destOverride': <String>['http', 'tls'],
+        'routeOnly': routeOnly,
+      },
+    });
+    j['inbounds'] = inbounds;
+    return jsonEncode(j);
+  } catch (e, stk) {
+    logError(e, stk);
+    return cfg;
+  }
+}
+
 // Real-VPN config: keep the delay-test config as close as possible.
 // Only ensure DNS + sniffing are sane. Under national mode we MUST preserve
 // Iranian / operator DNS that the matrix found (overwriting with 1.1.1.1/8.8.8.8
@@ -8521,7 +8556,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final cfgTries = <String>[
         if (ownCfg != null) ownCfg,
         cfg,
-        if (base != cfg) base,
+        // Preserve the plain fallback's routing/DNS/outbounds, but keep the
+        // local HTTP listener required by the native in-tunnel watchdog.
+        if (base != cfg) _withVpnHealthHttpInbound(base),
         if (chainCfg != null) chainCfg,
       // Each candidate is already in its intended form: ownCfg/cfg are
       // transformed by _reliableVpnCfg, base is deliberately the plain
