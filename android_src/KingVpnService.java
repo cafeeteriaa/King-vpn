@@ -229,8 +229,11 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     /** جدید: stop requested by the app while it is in the background. */
     public void stopFromApp() {
-        final int stopStartId = latestStartId;
-        requestStop(stopStartId);
+        final int stopStartId;
+        synchronized (startLifecycleLock) {
+            stopStartId = latestStartId;
+            requestStop(stopStartId);
+        }
         submit(() -> stopEverything(stopStartId));
     }
 
@@ -1253,8 +1256,11 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     @Override
     public void onRevoke() {
         // Another VPN took over: stop our core and free the TUN, without blocking the main thread.
-        final int revokeStartId = latestStartId;
-        requestStop(revokeStartId);
+        final int revokeStartId;
+        synchronized (startLifecycleLock) {
+            revokeStartId = latestStartId;
+            requestStop(revokeStartId);
+        }
         submit(() -> stopEverything(revokeStartId));
     }
 
@@ -1272,7 +1278,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             sch = scheduler;
             scheduler = null;
         }
-        requestStop(latestStartId);
+        synchronized (startLifecycleLock) {
+            requestStop(latestStartId);
+        }
         if (sch != null) sch.shutdownNow();
         // The core must stop so its local ports are released. Run it on the worker; shutdown()
         // still runs queued tasks, so this does not block the main thread.
