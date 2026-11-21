@@ -306,6 +306,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             else:
                 self.assertIn('sessionGeneration == _sessionGeneration', method)
 
+        enrollment = auth[auth.index('Future<void> setInitialPassword('):auth.index('/// Password changes')]
+        rotation = auth[auth.index('Future<void> changePassword('):auth.index('Future<bool> authenticate(')]
+        self.assertIn('Owner enrollment was cancelled by app backgrounding.', enrollment)
+        self.assertIn('Owner password change was cancelled by app backgrounding.', rotation)
+        self.assertIn('await _storage.delete(key: _saltKey);', enrollment)
+        self.assertIn('await _storage.write(key: _saltKey, value: oldSalt);', rotation)
+
     def test_owner_auth_rejects_corrupt_or_truncated_stored_credentials(self):
         auth = (ROOT / 'lib' / 'king_ai_owner_auth.dart').read_text(encoding='utf-8')
         start = auth.index('Future<bool> authenticate(String password)')

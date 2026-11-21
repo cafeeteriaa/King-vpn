@@ -75,6 +75,9 @@ class KingAiOwnerAuth {
       try {
         await _storage.write(key: _verifierKey, value: base64Encode(verifier));
         await _storage.write(key: _saltKey, value: base64Encode(salt));
+        if (sessionGeneration != _sessionGeneration) {
+          throw StateError('Owner enrollment was cancelled by app backgrounding.');
+        }
       } catch (_) {
         await _storage.delete(key: _saltKey);
         await _storage.delete(key: _verifierKey);
@@ -116,6 +119,9 @@ class KingAiOwnerAuth {
       try {
         await _storage.write(key: _verifierKey, value: base64Encode(verifier));
         await _storage.write(key: _saltKey, value: base64Encode(salt));
+        if (sessionGeneration != _sessionGeneration) {
+          throw StateError('Owner password change was cancelled by app backgrounding.');
+        }
       } catch (_) {
         try {
           await _storage.write(key: _saltKey, value: oldSalt);
