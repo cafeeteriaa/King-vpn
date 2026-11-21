@@ -510,6 +510,28 @@ exact_replace(vpn, '''        if (host.contains(":")) {
             }
         }''', 'P1-DNS reject malformed IPv6 resolver literals');
 
+exact_replace(vpn, '''        // Force IPv4 path: sinkhole IPv6 so apps don't bypass a broken dual-stack route.
+        try {
+            builder.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);
+            builder.addRoute("::", 0);
+        } catch (Exception e) {
+            Log.w("V2rayVPNService", "IPv6 sinkhole not supported", e);
+        }
+''', '''        // Route IPv6 into the native TUN as well as IPv4. This confirms only
+        // Android route installation; end-to-end IPv6 still requires core and
+        // remote-server support and must be verified by a tunnel traffic probe.
+        boolean ipv6TunRouteInstalled = false;
+        try {
+            builder.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);
+            builder.addRoute("::", 0);
+            ipv6TunRouteInstalled = true;
+            Log.i("V2rayVPNService", "IPv6 default route installed on native TUN");
+        } catch (Exception e) {
+            Log.e("V2rayVPNService",
+                    "IPv6 default route unavailable; check for physical-network fallback", e);
+        }
+''', 'P1-IPV6 report Android IPv6 TUN route installation');
+
 # 4a) #56 + #8: the stop button targets the running service class, and uses the stop intent.
 exact_replace(core, '''        Intent stopIntent;
         if (AppConfigs.V2RAY_CONNECTION_MODE == AppConfigs.V2RAY_CONNECTION_MODES.PROXY_ONLY) {
