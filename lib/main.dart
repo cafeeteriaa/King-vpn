@@ -2879,9 +2879,17 @@ String _reliableVpnCfg(String cfg) {
         '78.157.42.101', '10.202.10.10', '10.202.10.11',
       ];
       final existingList = existing is List ? existing : const <dynamic>[];
+      // withNpvAmCore() places the validated auto-selected domestic resolver
+      // first. Preserve that choice through the final real-VPN config pass,
+      // while retaining the complete domestic fallback set behind it.
+      final domesticSet =
+          domesticFirst.map((value) => value.toString().toLowerCase()).toSet();
+      final preferredDomestic = existingList
+          .where((item) => domesticSet.contains(item.toString().trim().toLowerCase()))
+          .toList();
       final merged = <dynamic>[];
       final seenDns = <String>{};
-      for (final item in [...domesticFirst, ...existingList]) {
+      for (final item in [...preferredDomestic, ...domesticFirst, ...existingList]) {
         final value = item.toString().trim();
         if (!secureDns && value.toLowerCase().startsWith('https://')) continue;
         if (value.isNotEmpty && seenDns.add(value.toLowerCase())) merged.add(item);
