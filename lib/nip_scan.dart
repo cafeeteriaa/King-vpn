@@ -314,18 +314,29 @@ Future<void> natRelayHostsSave(String text) async {
 }
 
 Future<String?> nipResolve(String host) async {
+  // This resolver feeds RIPE ASN discovery, whose prefix normalizer is IPv4-only.
+  // Do not let a preferred AAAA answer silently suppress a usable A answer.
+  bool ipv4(String? value) {
+    final address = value == null ? null : InternetAddress.tryParse(value);
+    return address != null && address.type == InternetAddressType.IPv4;
+  }
+
   // NATOPT: وقتی جهانی قطع است، DoH (سرویس خارجی) بی‌فایده و کند است؛ مستقیم DNS سیستم.
   if (!NatNetworkDiagnosis.preferDomestic) {
-    // DNSDOH: اول DoH (در نت ملی DNS معمولی جواب بسته می‌دهد)
+    // DNSDOH: اول DoH (در نت ملی DNS معمولی جواب می‌دهد)
     final d = await dohResolve(host);
-    if (d != null) return d;
+    if (ipv4(d)) return d;
   }
   try {
-    final l = await InternetAddress.lookup(host).timeout(const Duration(seconds: 5));
-    return l.isEmpty ? null : l.first.address;
+    final results = await InternetAddress.lookup(host)
+        .timeout(const Duration(seconds: 5));
+    for (final address in results) {
+      if (address.type == InternetAddressType.IPv4) return address.address;
+    }
   } catch (_) {
     return null;
   }
+  return null;
 }
 
 /// بلوک‌های هاست یک IP را برای نت ملی ذخیره می‌کند (کلید: IP).
@@ -346,6 +357,11 @@ final Map<String, DateTime> _asnFailAt = <String, DateTime>{};
 
 /// بلوک‌های IPv4 اعلام‌شده‌ی شرکت هاست همان IP (از RIPE Stat).
 Future<List<String>> nipAsnPrefixes(String ip) async {
+  // RIPE ASN prefix discovery and its cache are intentionally IPv4-only.
+  final parsedIp = InternetAddress.tryParse(ip);
+  if (parsedIp == null || parsedIp.type != InternetAddressType.IPv4) {
+    return const [];
+  }
   final prefs = await SharedPreferences.getInstance();
   final cacheKey = 'nip_asn_v1_$ip';
   final cached = prefs.getStringList(cacheKey);

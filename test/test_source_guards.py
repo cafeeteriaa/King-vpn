@@ -4176,6 +4176,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('2001:4860:4860::8888', scanner)
         self.assertIn('parsedIp.type == InternetAddressType.IPv6', extras)
 
+    def test_ripe_asn_discovery_stays_ipv4_only_even_when_dns_prefers_aaaa(self):
+        source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        resolve_start = source.index('Future<String?> nipResolve(')
+        resolve_end = source.index('/// بلوک‌های هاست', resolve_start)
+        resolver = source[resolve_start:resolve_end]
+        self.assertIn('address.type == InternetAddressType.IPv4', resolver)
+        self.assertIn('for (final address in results)', resolver)
+        asn_start = source.index('Future<List<String>> nipAsnPrefixes(')
+        asn_end = source.index('// FRONTSNI:', asn_start)
+        asn = source[asn_start:asn_end]
+        self.assertIn('InternetAddress.tryParse(ip)', asn)
+        self.assertIn('parsedIp.type != InternetAddressType.IPv4', asn)
+        self.assertIn('return const [];', asn)
+
     def test_dns_scanner_checks_both_a_and_aaaa_records(self):
         source = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
         start = source.index('Future<DnsxHit?> dnsxProbe(')
