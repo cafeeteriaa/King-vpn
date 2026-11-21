@@ -329,6 +329,11 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   }
 
   Future<void> _createStandaloneProject() async {
+    if (!await _requireOwnerSession('ساخت اپلیکیشن')) return;
+    // Project generation writes source files and a ZIP, so require a fresh
+    // owner proof for this exact user-originated code-generation request.
+    if (!await _reauthenticateOwnerForCodeChange()) return;
+    if (!mounted) return;
     final request = _featureRequestController.text.trim();
     if (request.length < 12) {
       setState(() => _output = 'شرح پروژه را دقیق‌تر بنویس (حداقل ۱۲ نویسه).');
@@ -530,7 +535,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
                 const SizedBox(height: 6),
                 Text(!_ownerConfigured
                     ? 'رمز مالک هنوز روی این دستگاه تعیین نشده است.'
-                    : (_ownerUnlocked ? 'دسترسی مالک فعال است (حداکثر ۱۵ دقیقه).' : 'دسترسی مالک قفل است.')),
+                    : (_ownerUnlocked ? 'دسترسی مالک فعال است (حداکثر ۲ دقیقه).' : 'دسترسی مالک قفل است.')),
                 TextField(
                   controller: _ownerPasswordController,
                   obscureText: true,
@@ -641,7 +646,9 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
-                    onPressed: _busy || !_ai.isLoaded ? null : _createStandaloneProject,
+                    onPressed: _busy || !_ownerUnlocked || !_ai.isLoaded
+                        ? null
+                        : _createStandaloneProject,
                     icon: const Icon(Icons.archive_outlined),
                     label: const Text('ساخت اپلیکیشن مستقل و ارسال ZIP'),
                   ),
