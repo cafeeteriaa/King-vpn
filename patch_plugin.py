@@ -379,6 +379,91 @@ def exact_replace(path, old, new, label):
 
 v2_ctrl = find_java('V2rayController.java')
 proxy_svc = find_java('V2rayProxyOnlyService.java')
+utils = find_java('Utilities.java')
+
+
+# P1-DNS: Android system DNS packets entering the native TUN must be sent to
+# Xray's DNS outbound (whose default A/AAAA action imports them into the built-in
+# DNS module). Never send port 53 directly: that bypasses the selected DoH/DNS
+# policy and can expose queried hostnames outside the tunnel.
+exact_replace(utils, ```            boolean hasDnsRule = false;
+            for (int i = 0; i < rules.length(); i++) {
+                JSONObject rule = rules.optJSONObject(i);
+                if (rule == null) {
+                    continue;
+                }
+                String port = String.valueOf(rule.opt("port"));
+                if ("direct".equals(rule.optString("outboundTag")) && port.contains("853")) {
+                    hasDnsRule = true;
+                    break;
+                }
+            }
+            if (!hasDnsRule) {
+                JSONArray newRules = new JSONArray();
+                newRules.put(new JSONObject()
+                        .put("type", "field")
+                        .put("port", "53,853")
+                        .put("outboundTag", "direct"));
+                newRules.put(new JSONObject()
+                        .put("type", "field")
+                        .put("ip", new JSONArray()
+                                .put("1.1.1.1")
+                                .put("1.0.0.1")
+                                .put("8.8.8.8")
+                                .put("8.8.4.4"))
+                        .put("outboundTag", "direct"));
+                for (int i = 0; i < rules.length(); i++) {
+                    newRules.put(rules.get(i));
+                }
+                routing.put("rules", newRules);
+            }
+```, ```            JSONArray outbounds = json.optJSONArray("outbounds");
+            if (outbounds == null) {
+                outbounds = new JSONArray();
+                json.put("outbounds", outbounds);
+            }
+            String dnsOutboundTag = "king-dns-hijack";
+            int dnsSuffix = 1;
+            boolean tagTaken;
+            do {
+                tagTaken = false;
+                for (int i = 0; i < outbounds.length(); i++) {
+                    JSONObject outbound = outbounds.optJSONObject(i);
+                    if (outbound != null && dnsOutboundTag.equals(outbound.optString("tag", ""))) {
+                        tagTaken = true;
+                        break;
+                    }
+                }
+                if (tagTaken) {
+                    dnsOutboundTag = "king-dns-hijack-" + dnsSuffix++;
+                }
+            } while (tagTaken);
+            outbounds.put(new JSONObject()
+                    .put("tag", dnsOutboundTag)
+                    .put("protocol", "dns")
+                    .put("settings", new JSONObject()));
+
+            // First-match routing: DNS packets from the VPN TUN enter Xray's
+            // built-in DNS engine, which then follows the configured servers
+            // (DoH/custom/domestic) instead of leaking directly to the OS DNS.
+            JSONArray newRules = new JSONArray();
+            newRules.put(new JSONObject()
+                    .put("type", "field")
+                    .put("port", "53")
+                    .put("outboundTag", dnsOutboundTag));
+            for (int i = 0; i < rules.length(); i++) {
+                newRules.put(rules.get(i));
+            }
+            routing.put("rules", newRules);
+```, 'P1-DNS route Android TUN DNS through Xray DNS outbound');
+
+exact_replace(utils, ```            if (!dns.has("queryStrategy")) {
+                dns.put("queryStrategy", "UseIPv4");
+            }
+```, ```            if (!dns.has("queryStrategy")) {
+                dns.put("queryStrategy", "UseIP");
+            }
+```, 'P1-DNS default resolver strategy supports IPv4 and IPv6');
 
 # 4a) #56 + #8: the stop button targets the running service class, and uses the stop intent.
 exact_replace(core, '''        Intent stopIntent;
