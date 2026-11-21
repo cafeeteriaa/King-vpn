@@ -286,6 +286,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('await _storage.write(key: _verifierKey, value: oldVerifier);', rotation)
         self.assertIn('Owner credential storage is incomplete', rotation)
 
+    def test_owner_auth_rejects_corrupt_or_truncated_stored_credentials(self):
+        auth = (ROOT / 'lib' / 'king_ai_owner_auth.dart').read_text(encoding='utf-8')
+        start = auth.index('Future<bool> authenticate(String password)')
+        end = auth.index('void lock()', start)
+        authenticate = auth[start:end]
+        self.assertIn('on FormatException', authenticate)
+        self.assertIn('salt.length != 16 || expected.length != 32', authenticate)
+        self.assertIn('_sessionClock = null;', authenticate)
+        self.assertIn('return false;', authenticate)
+
     def test_local_model_prompt_uses_real_chat_template_newlines(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
         start = ai.index('final generation = engine.generate(', ai.index('Future<String> _generateWithSystemPrompt'))

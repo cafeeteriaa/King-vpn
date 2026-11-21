@@ -140,8 +140,23 @@ class KingAiOwnerAuth {
       final verifierRaw = await _storage.read(key: _verifierKey);
       if (saltRaw == null || verifierRaw == null) return false;
 
-      final salt = base64Decode(saltRaw);
-      final expected = base64Decode(verifierRaw);
+      // Secure storage can be restored from an incomplete backup or contain
+      // malformed values. Treat invalid credential material as a failed,
+      // locked-out-safe authentication attempt rather than leaking a decode/KDF
+      // exception into the UI or accepting a truncated verifier.
+      late final List<int> salt;
+      late final List<int> expected;
+      try {
+        salt = base64Decode(saltRaw);
+        expected = base64Decode(verifierRaw);
+      } on FormatException {
+        _sessionClock = null;
+        return false;
+      }
+      if (salt.length != 16 || expected.length != 32) {
+        _sessionClock = null;
+        return false;
+      }
       final actual = await _derive(password, salt);
       if (_constantTimeEquals(actual, expected)) {
         await _storage.delete(key: _failuresKey);
