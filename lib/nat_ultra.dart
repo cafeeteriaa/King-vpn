@@ -2363,8 +2363,10 @@ List<String> _getCfIps({
     } else if (a.type == InternetAddressType.IPv6) {
       final first = _natIpv6ToBigInt(a.rawAddress);
       final last = _natIpv6ToBigInt(b.rawAddress);
-      ipv6Start = min(first, last);
-      ipv6Span = (max(first, last) - min(first, last)) + BigInt.one;
+      final low = first <= last ? first : last;
+      final high = first >= last ? first : last;
+      ipv6Start = low;
+      ipv6Span = (high - low) + BigInt.one;
     } else {
       return (<String>[], 0);
     }
