@@ -49,5 +49,26 @@ class KingAiProjectBuilderGuards(unittest.TestCase):
         self.assertIn("File(zipPath).exists()", console)
 
 
+    def test_natural_language_app_requests_open_zip_builder_not_repository_pr(self):
+        main = (ROOT / "lib" / "main.dart").read_text(encoding="utf-8")
+        console = (ROOT / "lib" / "king_ai_console.dart").read_text(encoding="utf-8")
+        self.assertIn("final projectRequest =", main)
+        self.assertIn("اپلیکیشن بساز", main)
+        self.assertIn("create an app", main)
+        self.assertIn("initialProjectRequest: projectRequest ? command : null", main)
+        self.assertIn("initialFeatureRequest: projectRequest ? null : command", main)
+        self.assertIn("this.initialProjectRequest", console)
+        self.assertIn("widget.initialProjectRequest ??", console)
+        self.assertIn("Future<void> _maybeSubmitInitialFeatureRequest()", console)
+
+    def test_project_generation_phrases_are_classified_as_code_requests_in_chat(self):
+        ai = (ROOT / "lib" / "king_local_ai.dart").read_text(encoding="utf-8")
+        start = ai.index("bool _looksLikeCodeGenerationRequest")
+        end = ai.index("final List<String> _conversationTurns", start)
+        self.assertIn("'اپلیکیشن بساز'", ai[start:end])
+        self.assertIn("'پروژه بساز'", ai[start:end])
+        self.assertIn("'create an app'", ai[start:end])
+
+
 if __name__ == "__main__":
     unittest.main()
