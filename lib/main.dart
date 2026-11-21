@@ -2919,8 +2919,22 @@ String _reliableVpnCfg(String cfg) {
     }
     // If the profile has no upstream resolver, do not let Xray fall back to
     // Android's resolver after Android itself is pointed at the synthetic TUN DNS.
-    if (!nationalMode && (d['servers'] is! List || (d['servers'] as List).isEmpty)) {
-      d['servers'] = <String>['1.1.1.1', '8.8.8.8'];
+    if (!nationalMode) {
+      // Keep a numeric fallback even when the imported profile only contains
+      // hostname-based or DoH resolvers; DNS-out direct fallback must not recurse
+      // through Android's synthetic resolver address.
+      final globalServers = d['servers'] is List
+          ? List<dynamic>.from(d['servers'] as List)
+          : <dynamic>[];
+      final globalKeys = globalServers
+          .map((item) => item is Map
+              ? jsonEncode(item)
+              : item.toString().trim().toLowerCase())
+          .toSet();
+      for (final fallback in ['1.1.1.1', '8.8.8.8']) {
+        if (globalKeys.add(fallback)) globalServers.add(fallback);
+      }
+      d['servers'] = globalServers;
     }
     // UseIP = هم IPv4 و هم IPv6 (هر کدام در دسترس باشد)
     d['queryStrategy'] = 'UseIP';
@@ -2957,10 +2971,38 @@ String _reliableVpnCfg(String cfg) {
     while (usedOutboundTags.contains(dnsOutboundTag)) {
       dnsOutboundTag = 'king-dns-out-${dnsTagSuffix++}';
     }
+    String? dnsRewriteAddress;
+    final resolverEntries = d['servers'] is List
+        ? d['servers'] as List
+        : const <dynamic>[];
+    for (final entry in resolverEntries) {
+      final candidate =
+          entry is Map ? (entry['address']?.toString() ?? '') : entry.toString();
+      final directIp = InternetAddress.tryParse(candidate);
+      final uriIp = Uri.tryParse(candidate)?.host;
+      final parsedIp = directIp ?? (uriIp == null || uriIp.isEmpty
+          ? null
+          : InternetAddress.tryParse(uriIp));
+      if (parsedIp != null) {
+        dnsRewriteAddress = parsedIp.address;
+        break;
+      }
+    }
+    dnsRewriteAddress ??= nationalMode ? '178.22.122.100' : '1.1.1.1';
     outbounds.add({
       'tag': dnsOutboundTag,
       'protocol': 'dns',
-      'settings': <String, dynamic>{},
+      'settings': {
+        'rewriteAddress': dnsRewriteAddress,
+        'rewritePort': 53,
+        // Xray's built-in DNS module currently handles A/AAAA. Keep other
+        // record types working by forwarding them to a numeric resolver instead
+        // of returning an empty NOERROR response or looping to the TUN DNS IP.
+        'rules': [
+          {'action': 'hijack', 'qType': '1,28'},
+          {'action': 'direct'},
+        ],
+      },
     });
     j['outbounds'] = outbounds;
     final rules = rt['rules'] is List
