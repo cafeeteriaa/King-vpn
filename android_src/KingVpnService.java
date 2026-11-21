@@ -1161,10 +1161,13 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 arr.put(o);
             }
             SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
-            sp.edit().putString("list", arr.toString())
+            // This state is the recovery checkpoint used after a wedged native call.
+            // apply() can be lost if recoverWedgedCore kills the process immediately.
+            boolean committed = sp.edit().putString("list", arr.toString())
                     .putInt("idx", currentIdx)
                     .putBoolean("national", nationalMode)
-                    .apply();
+                    .commit();
+            if (!committed) Log.e(TAG, "saveState could not commit recovery checkpoint");
         } catch (Exception e) {
             Log.w(TAG, "saveState failed", e);
         }
@@ -1195,7 +1198,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     private void clearState() {
         try {
-            getSharedPreferences(PREFS, MODE_PRIVATE).edit().clear().apply();
+            boolean committed = getSharedPreferences(PREFS, MODE_PRIVATE).edit().clear().commit();
+            if (!committed) Log.e(TAG, "clearState could not commit stop checkpoint");
         } catch (Exception ignored) {
         }
     }
