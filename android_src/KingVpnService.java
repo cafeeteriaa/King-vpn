@@ -1126,7 +1126,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * across a network-mode change.
      */
     private ProbeResult probeResult(boolean modeSnapshot) {
-        ProbeResult worst = ProbeResult.HARD_FAIL;
+        // No usable sample is inconclusive unless at least one destination
+        // provides concrete negative evidence (SOFT_FAIL).
+        ProbeResult worst = ProbeResult.INCONCLUSIVE;
         String[] urls = modeSnapshot ? DOMESTIC_PROBE_URLS : INTERNATIONAL_PROBE_URLS;
         // Match Dart's end-to-end gate: domestic mode needs two independent
         // destinations; global mode tolerates one reachable international host.
