@@ -4116,6 +4116,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('InternetAddress.fromRawAddress(Uint8List.fromList(bytes))', source)
         self.assertIn('Socket.connect(address, port, timeout: const Duration(milliseconds: 2000))', source)
 
+    def test_shared_nip_cidr_expander_dispatches_ipv6_without_breaking_ipv4(self):
+        source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('List<String> nipExpandCidr(')
+        end = source.index('/// گسترش محدود CIDR برای IPv6', start)
+        helper = source[start:end]
+        self.assertIn('InternetAddress.tryParse(parts[0].trim())', helper)
+        self.assertIn('parsed?.type == InternetAddressType.IPv6', helper)
+        self.assertIn('return nipExpandIpv6Cidr(cidr, maxPerBlock: maxPerBlock);', helper)
+        self.assertIn('final limit = min(maxPerBlock, 65536);', helper)
+        self.assertIn('prefix < 8 || prefix > 32', helper)
+
     def test_nip_cidr_expansion_bounds_caller_supplied_limit(self):
         source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         start = source.index('List<String> nipExpandCidr(')
