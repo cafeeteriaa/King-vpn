@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import 'king_ai_background.dart';
 import 'king_ai_owner_auth.dart';
 import 'king_voice_output.dart';
+import 'king_ai_provider_settings.dart';
 
 /// In-app control surface for the local coding model and guarded GitHub PR workflow.
 class KingAiConsolePage extends StatefulWidget {
@@ -555,6 +556,8 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
                 )),
               ]),
             )),
+            const SizedBox(height: 10),
+            const KingAiProviderSettingsCard(),
             const SizedBox(height: 10),
             Card(child: Padding(
               padding: const EdgeInsets.all(14),
