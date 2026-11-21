@@ -22,7 +22,10 @@ class AndroidTunDnsPatchTests(unittest.TestCase):
         end = source.index("# 4a)", start)
         patch = source[start:end]
         self.assertIn('.put("port", "53")', patch)
-        self.assertNotIn('.put("port", "53,853")\n                        .put("outboundTag", "direct")', patch)
+        route_start = patch.index("// First-match routing:")
+        route_body = patch[route_start:]
+        self.assertNotIn('.put("port", "53,853")', route_body)
+        self.assertIn("boolean hasDnsRoute = false;", patch)
         self.assertIn("'P1-DNS route Android TUN DNS through Xray DNS outbound'", patch)
 
     def test_plugin_default_dns_strategy_preserves_dual_stack(self):
