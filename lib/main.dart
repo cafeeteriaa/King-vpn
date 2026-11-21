@@ -2905,6 +2905,11 @@ String _reliableVpnCfg(String cfg) {
         'https://9.9.9.9/dns-query', 'https://dns.adguard-dns.com/dns-query',
       ];
     }
+    // If the profile has no upstream resolver, do not let Xray fall back to
+    // Android's resolver after Android itself is pointed at the synthetic TUN DNS.
+    if (!nationalMode && (d['servers'] is! List || (d['servers'] as List).isEmpty)) {
+      d['servers'] = <String>['1.1.1.1', '8.8.8.8'];
+    }
     // UseIP = هم IPv4 و هم IPv6 (هر کدام در دسترس باشد)
     d['queryStrategy'] = 'UseIP';
     j['dns'] = d;
@@ -2919,6 +2924,43 @@ String _reliableVpnCfg(String cfg) {
     } else {
       rt['domainStrategy'] ??= 'AsIs';
     }
+
+    // Native Android TUN sends ordinary UDP/TCP DNS packets to this dedicated
+    // Xray DNS outbound. Its default A/AAAA handling imports queries into the
+    // built-in DNS module, which then uses the resolver list above.
+    final outbounds = j['outbounds'] is List
+        ? List<dynamic>.from(j['outbounds'] as List)
+        : <dynamic>[];
+    final usedOutboundTags = <String>{};
+    for (final outbound in outbounds) {
+      if (outbound is Map && outbound['tag'] != null) {
+        usedOutboundTags.add(outbound['tag'].toString());
+      }
+    }
+    var dnsOutboundTag = 'king-dns-out';
+    var dnsTagSuffix = 1;
+    while (usedOutboundTags.contains(dnsOutboundTag)) {
+      dnsOutboundTag = 'king-dns-out-${dnsTagSuffix++}';
+    }
+    outbounds.add({
+      'tag': dnsOutboundTag,
+      'protocol': 'dns',
+      'settings': <String, dynamic>{},
+    });
+    j['outbounds'] = outbounds;
+    final rules = rt['rules'] is List
+        ? List<dynamic>.from(rt['rules'] as List)
+        : <dynamic>[];
+    rules.removeWhere((rule) =>
+        rule is Map && rule['ruleTag'] == 'king-vpn-dns-hijack');
+    rules.insert(0, {
+      'type': 'field',
+      'network': 'tcp,udp',
+      'port': '53',
+      'outboundTag': dnsOutboundTag,
+      'ruleTag': 'king-vpn-dns-hijack',
+    });
+    rt['rules'] = rules;
     j['routing'] = rt;
     // Keep local SOCKS/HTTP so post-connect social checks (TG/IG/YT) go through
     // the REAL core path — not the app's direct network (often bypasses VPN).
