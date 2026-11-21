@@ -70,10 +70,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_national_dns_config_prioritizes_the_selected_validated_domestic_provider(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
-        self.assertIn("const {'shecan', 'electro', 'radar'}", source)
-        self.assertIn("? dnsProvActive", source)
-        self.assertIn(": 'shecan';", source)
+        self.assertIn("const domesticProviders = {'shecan', 'electro', 'radar'};", source)
+        self.assertIn("? dnsProv", source)
+        self.assertIn(": 'shecan');", source)
         self.assertIn("_dnsUrls[nationalAutoProvider] ?? _dnsUrls['shecan']!", source)
+        self.assertIn("final nationalCustom = dnsProv == 'custom' ? customDnsList() : null;", source)
+        self.assertIn('...?nationalCustom', source)
         start = main.index('String _reliableVpnCfg(String cfg)')
         end = main.index('// completes when the VPN tunnel reports CONNECTED', start)
         builder = main[start:end]
