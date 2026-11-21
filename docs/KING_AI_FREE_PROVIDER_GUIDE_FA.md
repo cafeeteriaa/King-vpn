@@ -59,6 +59,13 @@
 - Cloudflare model catalog: https://developers.cloudflare.com/ai/models/
 - Cloudflare pricing: https://developers.cloudflare.com/workers-ai/platform/pricing/
 
+### سرویس‌های رایگان آزمایشی که عمداً در مسیر پیش‌فرض نیستند
+
+- **Cohere Trial:** کلید آزمایشی رایگان دارد، اما محدود به ۱٬۰۰۰ فراخوانی در ماه است و برای ارزیابی/نمونه‌سازی تعریف شده؛ کلید Production شرایط و قیمت جداگانه دارد. بنابراین آن را به‌عنوان سرویس دائمیِ رایگان برای کاربران برنامه فعال نکرده‌ایم.
+- **NVIDIA NIM API Catalog:** دسترسی Developer Program برای نمونه‌سازی، توسعه و آزمایش رایگان است؛ طبق FAQ رسمی NVIDIA، استفاده production به مجوز NVIDIA AI Enterprise نیاز دارد. به همین دلیل در مسیر runtime کاربران King VPN قرار نگرفته است.
+
+منابع رسمی: Cohere Rate Limits https://docs.cohere.com/v2/docs/rate-limits و NVIDIA NIM FAQ https://docs.api.nvidia.com/nim/docs/product
+
 ## کلیدها را کجا وارد کنم؟
 
 در برنامه King VPN وارد صفحه **«هوش مصنوعی داخلی کینگ»** شو. کارت **«همکاران هوش مصنوعی King AI»** را باز کن. کلید هر سرویس را فقط در فیلد مربوط به همان سرویس قرار بده؛ برای Cloudflare توکن و Account ID لازم است. سپس **«ذخیره امن کلیدها»** را بزن.
