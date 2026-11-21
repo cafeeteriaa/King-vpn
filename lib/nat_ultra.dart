@@ -644,8 +644,7 @@ bool _natAppliesF(_NatFacts f, int v) {
   // Mux is an opt-in ladder variant only for supported proxy schemes.
   // Avoid stacking it on gRPC/xHTTP (already multiplexed transports) or REALITY.
   if (x.mux &&
-      (!(f.ss || f.vmess || f.vless || f.trojan) ||
-          f.grpc || f.xh || f.reality)) {
+      (!(f.vmess || f.vless) || f.grpc || f.xh || f.reality)) {
     return false;
   }
   if (x.noise) return false;
