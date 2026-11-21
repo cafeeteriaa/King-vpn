@@ -3287,7 +3287,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = service.index('private ProbeResult probeOne(String url)', start)
         body = service[start:end]
         self.assertIn('int required = modeSnapshot ? 2 : 1;', body)
-        self.assertIn('if (nationalMode != modeSnapshot) return ProbeResult.SOFT_FAIL;', body)
+        self.assertIn('if (nationalMode != modeSnapshot) return ProbeResult.INCONCLUSIVE;', body)
         self.assertIn('if (passed >= required) return ProbeResult.OK;', body)
         self.assertLess(body.index('nationalMode != modeSnapshot'), body.index('probeOne(u)'))
 
