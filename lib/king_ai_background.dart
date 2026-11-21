@@ -70,6 +70,15 @@ void kingAiBackgroundDispatcher() {
         await ai.setBackgroundAutoDiscovery(false);
         return true;
       }
+      if (!ai.isLoaded) {
+        final pilot = KingAiProviderPilot.instance;
+        if (!await pilot.cloudEnabled) return true;
+        final configured = await pilot.configuredProviders();
+        final hasFreeHelper = configured[KingAiProvider.gemini] == true ||
+            configured[KingAiProvider.groq] == true ||
+            configured[KingAiProvider.openRouter] == true;
+        if (!hasFreeHelper) return true;
+      }
 
       final autoDiscovery = await ai.isBackgroundAutoDiscoveryEnabled();
       var pullNumber = await ai.getBackgroundRepairPullNumber();
@@ -218,6 +227,22 @@ class KingAiBackgroundSupervisor {
   static Future<void> enable(int pullNumber) async {
     _requireOwnerSession();
     if (pullNumber < 1) throw ArgumentError.value(pullNumber, 'pullNumber');
+    final ai = KingLocalAi.instance;
+    if (!await ai.hasGitHubToken()) {
+      throw StateError('GitHub owner token must be configured first.');
+    }
+    if (!ai.isLoaded) {
+      final pilot = KingAiProviderPilot.instance;
+      if (!await pilot.cloudEnabled) {
+        throw StateError('Load the optional local model or enable King AI cloud helpers first.');
+      }
+      final configured = await pilot.configuredProviders();
+      if (configured[KingAiProvider.gemini] != true &&
+          configured[KingAiProvider.groq] != true &&
+          configured[KingAiProvider.openRouter] != true) {
+        throw StateError('Configure at least one approved free-tier coding helper first.');
+      }
+    }
     await KingLocalAi.instance.setBackgroundAutoDiscovery(false);
     await KingLocalAi.instance.setBackgroundRepairPullNumber(pullNumber);
     await _scheduleSupervisor();
