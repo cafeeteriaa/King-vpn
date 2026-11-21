@@ -109,7 +109,9 @@ List<String>? customDnsList() {
   if (effectiveDnsProv() != 'custom') return null;
   final a = customDnsAddr.trim();
   final parsedIp = InternetAddress.tryParse(a);
-  final ipOk = parsedIp != null && parsedIp.type == InternetAddressType.IPv4;
+  final ipOk = parsedIp != null &&
+      (parsedIp.type == InternetAddressType.IPv4 ||
+          parsedIp.type == InternetAddressType.IPv6);
   if (a.startsWith('https://') || ipOk) return [a];
   return null;
 }
