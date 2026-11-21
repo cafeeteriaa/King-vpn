@@ -167,9 +167,23 @@ class NatDnsWireProbe {
     if (p < 0 || p + 16 > b.length) return false;
     // Only global-unicast 2000::/3 answers are considered usable public IPv6.
     if ((b[p] & 0xe0) != 0x20) return false;
-    // Documentation prefix 2001:db8::/32 must never count as a healthy answer.
-    if (b[p] == 0x20 && b[p + 1] == 0x01 &&
-        b[p + 2] == 0x0d && b[p + 3] == 0xb8) return false;
+    // Exclude well-known special-purpose/documentation ranges inside 2000::/3:
+    // 2001:2::/48 benchmarking, 2001:10::/28 and 2001:20::/28 ORCHID,
+    // 2001:db8::/32 documentation, 2002::/16 deprecated 6to4, and 3fff::/20
+    // documentation. These must not be mistaken for working public DNS answers.
+    if (b[p] == 0x20 && b[p + 1] == 0x01) {
+      if (b[p + 2] == 0x00 && b[p + 3] == 0x02 &&
+          b[p + 4] == 0x00 && b[p + 5] == 0x00) return false;
+      if (b[p + 2] == 0x00 &&
+          ((b[p + 3] & 0xf0) == 0x10 || (b[p + 3] & 0xf0) == 0x20)) {
+        return false;
+      }
+      if (b[p + 2] == 0x0d && b[p + 3] == 0xb8) return false;
+    }
+    if (b[p] == 0x20 && b[p + 1] == 0x02) return false;
+    if (b[p] == 0x3f && b[p + 1] == 0xff && (b[p + 2] & 0xf0) == 0) {
+      return false;
+    }
     return true;
   }
 

@@ -227,6 +227,25 @@ void main() {
       }
     });
 
+    test('rejects special-purpose IPv6 ranges inside global-unicast space', () {
+      for (final address in [
+        [0x20, 0x01, 0x00, 0x02, 0, 0, ...List<int>.filled(10, 0)], // benchmarking
+        [0x20, 0x01, 0x00, 0x10, ...List<int>.filled(12, 0)], // ORCHID
+        [0x20, 0x01, 0x00, 0x20, ...List<int>.filled(12, 0)], // ORCHIDv2
+        [0x20, 0x02, ...List<int>.filled(14, 0)], // 6to4
+        [0x3f, 0xff, 0x00, ...List<int>.filled(13, 0)], // documentation
+      ]) {
+        expect(NatDnsWireProbe.publicV6(address, 0), isFalse);
+      }
+      expect(
+        NatDnsWireProbe.publicV6(
+          [0x26, 0x06, 0x47, 0, ...List<int>.filled(12, 0)],
+          0,
+        ),
+        isTrue,
+      );
+    });
+
     test('rejects a mismatched transaction ID', () {
       final bytes = _response(id: 0x0001, rdata: [8, 8, 8, 8]);
       expect(() => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
