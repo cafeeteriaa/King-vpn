@@ -3226,5 +3226,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (!awaitCoreStopped(core, myAttempt)) return false;', bring_up)
         self.assertNotIn('if (coreStopping || core.isV2rayCoreRunning())', bring_up)
 
+
+    def test_sticky_restart_invalid_state_releases_foreground_service(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        resume_start = source.index('private void resumeSaved(int startId)')
+        resume_end = source.index('private void requestStop(int startId)', resume_start)
+        resume = source[resume_start:resume_end]
+        invalid = resume[resume.index('if (!loadState())'):resume.index('startForegroundSafe(')]
+        self.assertIn('stopEverything(startId);', invalid)
+        self.assertNotIn('stopSelfResult(startId);', invalid)
+
+        cleanup_start = source.index('private void stopEverything(int expectedStartId)')
+        cleanup_end = source.index('private void closeTun()', cleanup_start)
+        cleanup = source[cleanup_start:cleanup_end]
+        self.assertIn('clearState();', cleanup)
+        self.assertIn('stopForeground(true);', cleanup)
+        self.assertIn('stopSelfResult(expectedStartId);', cleanup)
+
 if __name__ == '__main__':
     unittest.main()
