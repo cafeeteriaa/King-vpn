@@ -172,7 +172,7 @@ class _KingAiProviderSettingsCardState
         title: const Text('همکاران هوش مصنوعی King AI'),
         subtitle: Text(_loading
             ? 'در حال خواندن تنظیمات...'
-            : '$count از ۵ سرویس کلید دارد؛ ${_enabled ? 'مشاوره فعال' : 'مشاوره خاموش'}'),
+            : '$count از ۲ مسیر رایگان کلید دارد؛ ${_enabled ? 'مشاوره فعال' : 'مشاوره خاموش'}'),
         childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
         children: [
           const Align(
