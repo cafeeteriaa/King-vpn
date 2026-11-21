@@ -4554,9 +4554,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("return true;", protect_replacement)
 
 
-if __name__ == '__main__':
-    unittest.main()
-
 
     def test_plugin_core_restart_does_not_stop_active_service(self):
         patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
@@ -4567,3 +4564,4 @@ if __name__ == '__main__':
         self.assertIn('public void stopCore(boolean stopService)', patch)
         self.assertIn('if (stopService && v2rayServicesListener != null)', patch)
         self.assertIn('V2rayCoreManager.getInstance().stopCore(false);', patch)
+
