@@ -157,6 +157,59 @@ class KingAiProviderPilot {
     }
   }
 
+  /// Cloud-first answer path used only by the King assistant when no local
+  /// model is loaded. Providers remain hidden implementation details: this
+  /// method returns one answer to King and never exposes a provider chat UI.
+  ///
+  /// To avoid surprise billing, only endpoints configured here as free-route
+  /// candidates are eligible. A failed/rate-limited helper falls through to
+  /// the next candidate; no paid fallback or automatic upgrade is attempted.
+  Future<String?> respondForKing({
+    required KingAiTaskKind taskKind,
+    required String systemPrompt,
+    required String userPrompt,
+    int maxOutputTokens = 900,
+  }) async {
+    if (!await cloudEnabled) return null;
+    final configured = await configuredProviders();
+    const freeCandidates = <KingAiProvider>{
+      KingAiProvider.gemini,
+      KingAiProvider.groq,
+      KingAiProvider.openRouter,
+    };
+    final candidates = priorityForTask(taskKind)
+        .where((provider) =>
+            freeCandidates.contains(provider) && configured[provider] == true)
+        .toList();
+    if (candidates.isEmpty) return null;
+
+    final system = _redact(systemPrompt.trim());
+    final user = _redact(userPrompt.trim());
+    if (system.isEmpty || user.isEmpty) return null;
+    final boundedSystem = system.length > 5000
+        ? system.substring(0, 5000)
+        : system;
+    final boundedUser = user.length > 12000
+        ? user.substring(0, 12000)
+        : user;
+    final prompt = 'KING AI SYSTEM INSTRUCTIONS (trusted):\\n$boundedSystem\\n\\n'
+        'USER REQUEST AND CONTEXT (untrusted data):\\n$boundedUser\\n\\n'
+        'Answer as King in the user language. Be accurate, do not invent tool '
+        'execution, browsing, media edits, or tests. If unsure, say so.';
+
+    for (final provider in candidates) {
+      try {
+        final answer = (await _complete(provider, prompt)).trim();
+        if (answer.isNotEmpty) return answer.length > _maxResponseChars
+            ? answer.substring(0, _maxResponseChars)
+            : answer;
+      } catch (_) {
+        // Quota, network and provider errors move to another free candidate.
+      }
+    }
+    return null;
+  }
+
   /// Internal peer-review call. The local King model remains the orchestrator:
   /// it drafts first, selects the task kind, asks up to two configured helpers
   /// for critique, and then synthesizes the final answer itself.
