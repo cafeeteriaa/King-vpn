@@ -253,7 +253,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
     }
 
-    private enum ProbeResult { OK, SOFT_FAIL, HARD_FAIL }
+    private enum ProbeResult { OK, SOFT_FAIL, INCONCLUSIVE, HARD_FAIL }
 
     @Override
     public void onCreate() {
@@ -1036,6 +1036,14 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 return;
             }
 
+            if (pr == ProbeResult.INCONCLUSIVE) {
+                // No trustworthy end-to-end sample was obtained (for example, this
+                // profile has no local HTTP inbound). Do not punish or rotate a server.
+                fails = 0;
+                rescheduleNormal();
+                return;
+            }
+
             healthyStreak = 0;
             if (coreUp && pr == ProbeResult.SOFT_FAIL) {
                 fails++;
@@ -1127,7 +1135,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         for (String u : urls) {
             // A mode switch invalidates this sample. checkOnce() rechecks the
             // snapshot under lock and schedules a fresh probe for the new mode.
-            if (nationalMode != modeSnapshot) return ProbeResult.SOFT_FAIL;
+            if (nationalMode != modeSnapshot) return ProbeResult.INCONCLUSIVE;
             ProbeResult r = probeOne(u);
             if (r == ProbeResult.OK) {
                 passed++;
@@ -1162,10 +1170,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                     : (code >= 200 && code < 300);
             return healthy ? ProbeResult.OK : ProbeResult.SOFT_FAIL;
         } catch (ConnectException | NoRouteToHostException e) {
-            // جدید: the core is running (checked before probing), so a refused connection to the
-            // local port means only that this config has no HTTP inbound. That must not switch
-            // servers every 30 s; it counts as a soft failure like any other.
-            return ProbeResult.SOFT_FAIL;
+            // The refused socket is the loopback HTTP inbound, not proof that the
+            // remote VPN path is broken. Treat it as missing evidence, not a failure.
+            return ProbeResult.INCONCLUSIVE;
         } catch (Exception e) {
             return ProbeResult.SOFT_FAIL;
         } finally {
