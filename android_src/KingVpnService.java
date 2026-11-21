@@ -685,6 +685,52 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     }
 
     /**
+     * Wait for an earlier asynchronous stop to finish before reusing the singleton core.
+     * stopCoreNow() is deliberately bounded, so a stop can outlive its initial 3 s join.
+     * Starting a new core during that window can make every server in the new attempt fail.
+     */
+    private boolean awaitCoreStopped(V2rayCoreManager core, int myAttempt) {
+        final long deadline = System.currentTimeMillis() + BRING_UP_TIMEOUT_MS;
+        for (int cycle = 0; cycle < 2; cycle++) {
+            if (!isCurrent(myAttempt)) return false;
+            final boolean running;
+            try {
+                running = core.isV2rayCoreRunning();
+            } catch (Throwable stateError) {
+                lastError = "could not read core state before start";
+                Log.e(TAG, lastError, stateError);
+                return false;
+            }
+            if (!coreStopping && !running) return true;
+            if (!coreStopping && running) stopCoreNow();
+
+            while (coreStopping) {
+                if (!isCurrent(myAttempt)) return false;
+                if (System.currentTimeMillis() >= deadline) {
+                    lastError = "previous core stop did not finish before startup deadline";
+                    Log.e(TAG, lastError);
+                    return false;
+                }
+                try {
+                    Thread.sleep(50L);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+        }
+        if (!isCurrent(myAttempt) || coreStopping) return false;
+        try {
+            if (!core.isV2rayCoreRunning()) return true;
+        } catch (Throwable stateError) {
+            Log.e(TAG, "could not verify previous core stop", stateError);
+        }
+        lastError = "core still busy from a previous attempt";
+        Log.e(TAG, lastError);
+        return false;
+    }
+
+    /**
      * Worker-side start of one attempt. Everything that touches the shared core or the
      * TUN happens here, under coreLock, and only while this attempt is current.
      */
@@ -705,28 +751,10 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             cfg.ENABLE_TRAFFIC_STATICS = true;
 
             V2rayCoreManager core = V2rayCoreManager.getInstance();
-            // جدید: setUpListener() here rebuilt the CoreController, so the running core was
-            // orphaned (isV2rayCoreRunning() read false on the new one, ports stayed bound).
-            // Only the listener reference is updated now; the controller is never replaced.
+            // setUpListener() here rebuilt the CoreController in older revisions and could
+            // orphan the running core. Update only the listener; never replace its controller.
             core.v2rayServicesListener = this;
-            if (core.isV2rayCoreRunning()) {
-                stopCoreNow();
-                // Poll briefly until the core reports stopped (its flag may lag the call).
-                long until = System.currentTimeMillis() + 1500L;
-                while (core.isV2rayCoreRunning() && !coreStopping
-                        && System.currentTimeMillis() < until) {
-                    try { Thread.sleep(50); } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                }
-            }
-            // Refuse to start on a core that is still shutting down or still running.
-            if (coreStopping || core.isV2rayCoreRunning()) {
-                lastError = "core still busy from a previous attempt";
-                Log.e(TAG, lastError);
-                return false;
-            }
+            if (!awaitCoreStopped(core, myAttempt)) return false;
 
             closeTun();
             ParcelFileDescriptor fd = establish(cfg);
