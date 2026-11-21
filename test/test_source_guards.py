@@ -4016,6 +4016,32 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('ipv6 sinkhole not supported', body)
         self.assertNotIn('catch (Exception e)', body[:body.index('} catch (Exception e)')])
 
+    def test_ipv4_ipv6_routes_reach_the_active_native_core_and_dns_queries_both_families(self):
+        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        activity = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+
+        # The generated Android manifest registers the custom VpnService, and
+        # the actual Flutter start channel targets that service (not the plugin's
+        # independent V2rayVPNService implementation).
+        self.assertIn('com.kingvpn.king_vpn.KingVpnService', prepare)
+        self.assertIn('Intent(this, KingVpnService::class.java)', activity)
+        self.assertIn('KingVpnService.ACTION_START', activity)
+
+        # Both address families are installed on the TUN descriptor that is
+        # passed directly into the active libv2ray core.
+        establish_start = service.index('private ParcelFileDescriptor establish(V2rayConfig cfg)')
+        establish_end = service.index('/** جدید: wires libv2ray', establish_start)
+        establish = service[establish_start:establish_end]
+        self.assertIn('b.addRoute("0.0.0.0", 0);', establish)
+        self.assertIn('b.addRoute("::", 0);', establish)
+        self.assertIn('b.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);', establish)
+        self.assertIn('ok = core.startCore(cfg, fd.getFd());', service)
+
+        # Xray's UseIP DNS strategy requests both A and AAAA records.
+        self.assertIn("d['queryStrategy'] = 'UseIP';", main)
+
     def test_native_core_initialization_failure_remains_retryable(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         wire_start = service.index('private boolean wireCoreOnce()')
