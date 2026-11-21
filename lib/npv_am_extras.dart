@@ -247,7 +247,9 @@ Future<String> pickBestDns({bool force = false}) async {
   if (foundValidResolver) dnsProvActive = best;
   else dbg('DNS auto: no resolver returned a validated answer; keeping previous provider=$dnsProvActive');
   _dnsPickNetworkKey = networkKey;
-  _dnsPickAt = DateTime.now();
+  // Cache only a verified selection. A failed probe must be retried on the
+  // next connection attempt instead of pinning a stale resolver for 10 min.
+  _dnsPickAt = foundValidResolver ? DateTime.now() : null;
   return dnsProvActive;
 }
 
