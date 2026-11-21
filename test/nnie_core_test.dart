@@ -165,6 +165,15 @@ void main() {
       expect(ev.classify(), NatNetworkClass.domesticOnlyLikely);
     });
 
+    test('one reachable domestic host prevents a global-only conclusion', () {
+      const ev = NatProbeEvidence(
+        domesticDnsOk: false, domesticTcpOk: true,
+        globalDnsOk: false, globalTcpOk: true, sampleCount: 10,
+        domesticTcpSuccesses: 1, globalTcpSuccesses: 2,
+      );
+      expect(ev.classify(), NatNetworkClass.transportRestricted);
+    });
+
     test('global TCP reachability is recognized even if domestic targets fail', () {
       const ev = NatProbeEvidence(
         domesticDnsOk: false, domesticTcpOk: false,
