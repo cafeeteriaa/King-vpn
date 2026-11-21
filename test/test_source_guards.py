@@ -4343,6 +4343,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         probe_end = source.index('private ParcelFileDescriptor establish', probe_start)
         probe = source[probe_start:probe_end]
         self.assertIn('return ProbeResult.INCONCLUSIVE;', probe)
+        aggregate_start = source.index('private ProbeResult probeResult(boolean modeSnapshot)')
+        aggregate_end = source.index('private ProbeResult probeOne(String url)', aggregate_start)
+        aggregate = source[aggregate_start:aggregate_end]
+        self.assertIn('ProbeResult worst = ProbeResult.INCONCLUSIVE;', aggregate)
         self.assertIn('The refused socket is the loopback HTTP inbound', probe)
 
 
