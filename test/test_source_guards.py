@@ -3310,7 +3310,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         self.assertIn('private final Object nativeLock = new Object();', source)
 
-        begin_start = source.index('private void beginNative(')
+        begin_start = source.index('private boolean beginNative(')
         begin_end = source.index('private void endNative()', begin_start)
         begin = source[begin_start:begin_end]
         self.assertIn('synchronized (nativeLock)', begin)
