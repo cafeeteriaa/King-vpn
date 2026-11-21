@@ -3243,5 +3243,32 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('stopForeground(true);', cleanup)
         self.assertIn('stopSelfResult(expectedStartId);', cleanup)
 
+
+    def test_native_hang_watchdog_cannot_kill_after_native_call_returns(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertIn('private final Object nativeLock = new Object();', source)
+
+        begin_start = source.index('private void beginNative(')
+        begin_end = source.index('private void endNative()', begin_start)
+        begin = source[begin_start:begin_end]
+        self.assertIn('synchronized (nativeLock)', begin)
+        self.assertIn('nativeBusy = true;', begin)
+        self.assertIn('recoverWedgedCore(what, token);', begin)
+
+        end_start = source.index('private void endNative()')
+        end_end = source.index('private void recoverWedgedCore(', end_start)
+        end = source[end_start:end_end]
+        self.assertIn('synchronized (nativeLock)', end)
+        self.assertIn('nativeBusy = false;', end)
+        self.assertIn('nativeToken.incrementAndGet();', end)
+
+        recovery_start = source.index('private void recoverWedgedCore(String what, long expectedToken)')
+        recovery_end = source.index('private boolean stopCoreNow()', recovery_start)
+        recovery = source[recovery_start:recovery_end]
+        self.assertIn('synchronized (nativeLock)', recovery)
+        self.assertIn('if (!nativeBusy || nativeToken.get() != expectedToken) return;', recovery)
+        self.assertLess(recovery.index('nativeToken.get() != expectedToken'),
+                        recovery.index('recovering.compareAndSet(false, true)'))
+
 if __name__ == '__main__':
     unittest.main()
