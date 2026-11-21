@@ -85,7 +85,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_native_start_and_resume_suppress_late_events_after_user_stop(self):
         source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = source.index('private void startFlow(')
-        end = source.index('private void resumeSaved()', start)
+        end = source.index('private void resumeSaved(int startId)', start)
         flow = source[start:end]
         stop_guard = flow.index('if (stopping)', flow.index('boolean connectedNow = connectFrom(0);'))
         connected_event = flow.index('emit("CONNECTED"', stop_guard)
@@ -1494,7 +1494,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         command = service[start:end]
         restart = command[command.index('if (intent == null)'):command.index('String action = intent.getAction()')]
         stop = command[command.index('if (ACTION_STOP.equals(action))'):command.index('if (!ACTION_START.equals(action))')]
-        self.assertLess(restart.index('startForegroundSafe('), restart.index('submit(this::resumeSaved)'))
+        self.assertLess(restart.index('startForegroundSafe('), restart.index('submit(() -> resumeSaved(startId))'))
         self.assertLess(stop.index('startForegroundSafe('), stop.index('submit(this::stopEverything)'))
 
     def test_vpn_service_refuses_start_when_foreground_promotion_fails(self):
@@ -1509,7 +1509,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('private boolean updateNotification(String text)', service)
         self.assertIn('return true;', service[service.index('private boolean updateNotification'):])
         self.assertIn('return false;', service[service.index('private boolean updateNotification'):])
-        self.assertLess(restart.index('if (!startForegroundSafe('), restart.index('submit(this::resumeSaved)'))
+        self.assertLess(restart.index('if (!startForegroundSafe('), restart.index('submit(() -> resumeSaved(startId))'))
         self.assertIn('requestStop();', restart)
         self.assertIn('submit(this::stopEverything);', restart)
         self.assertLess(action_start.index('if (!startForegroundSafe(first.remark))'),
