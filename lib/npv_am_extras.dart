@@ -103,7 +103,11 @@ List<String>? customDnsList() {
   if (effectiveDnsProv() != 'custom') return null;
   final a = customDnsAddr.trim();
   final parsedIp = InternetAddress.tryParse(a);
-  final ipOk = parsedIp != null && parsedIp.type == InternetAddressType.IPv4;
+  // Custom DNS accepts either address family. Reject malformed literals while
+  // preserving HTTPS DoH endpoints; Xray's UseIP strategy can query A and AAAA.
+  final ipOk = parsedIp != null &&
+      (parsedIp.type == InternetAddressType.IPv4 ||
+          parsedIp.type == InternetAddressType.IPv6);
   if (a.startsWith('https://') || ipOk) return [a];
   return null;
 }
@@ -1226,7 +1230,7 @@ extension NpvAmExtras on _HomePageState {
                         child: TextField(
                           controller: customDnsC,
                           decoration: const InputDecoration(
-                              hintText: 'مثلاً 1.1.1.1 یا https://dns.example/dns-query',
+                              hintText: 'مثلاً 1.1.1.1 یا 2606:4700:4700::1111 یا https://dns.example/dns-query',
                               isDense: true),
                           onChanged: (v) => customDnsAddr = v,
                         ),
