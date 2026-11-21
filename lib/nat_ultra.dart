@@ -1510,8 +1510,17 @@ Future<String?> _natAsnFrom(String url, String field) async {
     req.followRedirects = false;
     final res = await req.close().timeout(const Duration(seconds: 3));
     if (res.statusCode != HttpStatus.ok) return null;
-    final body =
-        await res.transform(utf8.decoder).join().timeout(const Duration(seconds: 3));
+    // The provider is external and optional. Bound the response before decoding
+    // so a compromised endpoint cannot turn a tiny ASN lookup into memory pressure.
+    const maxAsnResponseBytes = 256 * 1024;
+    final responseBytes = <int>[];
+    await for (final chunk in res.timeout(const Duration(seconds: 3))) {
+      if (responseBytes.length + chunk.length > maxAsnResponseBytes) {
+        return null;
+      }
+      responseBytes.addAll(chunk);
+    }
+    final body = utf8.decode(responseBytes, allowMalformed: true);
     final t = body.trimLeft();
     if (!t.startsWith('{')) return null;
     final j = jsonDecode(t);
