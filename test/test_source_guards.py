@@ -4098,10 +4098,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('private ParcelFileDescriptor establish(V2rayConfig cfg)')
         end = source.index('/** جدید: wires libv2ray', start)
         body = source[start:end]
-        guard = body.index('fullConfig.contains("\\"king-vpn-dns-hijack\\"")')
+        guard = body.index('fullConfig.contains(')
+        marker = body.index('king-vpn-dns-hijack', guard)
         ipv4 = body.index('b.addDnsServer("26.26.26.2");')
         ipv6 = body.index('b.addDnsServer("fd00:1:fd00:1:fd00:1:fd00:2");')
-        self.assertLess(guard, ipv4)
+        self.assertLess(guard, marker)
+        self.assertLess(marker, ipv4)
         self.assertLess(ipv4, ipv6)
 
     def test_ipv4_ipv6_routes_reach_the_active_native_core_and_dns_queries_both_families(self):
