@@ -386,7 +386,7 @@ utils = find_java('Utilities.java')
 # Xray's DNS outbound (whose default A/AAAA action imports them into the built-in
 # DNS module). Never send port 53 directly: that bypasses the selected DoH/DNS
 # policy and can expose queried hostnames outside the tunnel.
-exact_replace(utils, ```            boolean hasDnsRule = false;
+exact_replace(utils, '''            boolean hasDnsRule = false;
             for (int i = 0; i < rules.length(); i++) {
                 JSONObject rule = rules.optJSONObject(i);
                 if (rule == null) {
@@ -417,7 +417,7 @@ exact_replace(utils, ```            boolean hasDnsRule = false;
                 }
                 routing.put("rules", newRules);
             }
-```, ```            JSONArray outbounds = json.optJSONArray("outbounds");
+''', '''            JSONArray outbounds = json.optJSONArray("outbounds");
             if (outbounds == null) {
                 outbounds = new JSONArray();
                 json.put("outbounds", outbounds);
@@ -455,15 +455,15 @@ exact_replace(utils, ```            boolean hasDnsRule = false;
                 newRules.put(rules.get(i));
             }
             routing.put("rules", newRules);
-```, 'P1-DNS route Android TUN DNS through Xray DNS outbound');
+''', 'P1-DNS route Android TUN DNS through Xray DNS outbound');
 
-exact_replace(utils, ```            if (!dns.has("queryStrategy")) {
+exact_replace(utils, '''            if (!dns.has("queryStrategy")) {
                 dns.put("queryStrategy", "UseIPv4");
             }
-```, ```            if (!dns.has("queryStrategy")) {
+''', '''            if (!dns.has("queryStrategy")) {
                 dns.put("queryStrategy", "UseIP");
             }
-```, 'P1-DNS default resolver strategy supports IPv4 and IPv6');
+''', 'P1-DNS default resolver strategy supports IPv4 and IPv6');
 
 # 4a) #56 + #8: the stop button targets the running service class, and uses the stop intent.
 exact_replace(core, '''        Intent stopIntent;
