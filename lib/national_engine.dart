@@ -196,6 +196,21 @@ class NatNetworkDiagnosis {
     }
   }
 
+  /// Tests IPv4 directly; the literal address prevents fallback to IPv6.
+  static Future<bool> _tcpOkIpv4(String address) async {
+    final target = InternetAddress.tryParse(address);
+    if (target == null || target.type != InternetAddressType.IPv4) return false;
+    try {
+      final socket = await Socket.connect(
+        target, 443, timeout: const Duration(seconds: 3),
+      );
+      socket.destroy();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Tests IPv6 directly; the literal address prevents fallback to IPv4.
   static Future<bool> _tcpOkIpv6(String address) async {
     final target = InternetAddress.tryParse(address);
@@ -259,8 +274,15 @@ class NatNetworkDiagnosis {
       final globalDnsOk = globalDnsRes.any((x) => x.ok);
       final domesticTcpOk = domesticTcp.any((x) => x);
       final globalHostTcpOk = globalTcp.any((x) => x);
-      // Verify the IPv6 data path using literal AAAA answers. DNS success
-      // alone is not evidence that IPv6 TCP traffic can pass.
+      // Verify each IP family independently using literal DNS answers.
+      // A literal socket target cannot silently fall back to the other family.
+      final ipv4Candidates = <String>{
+        for (final result in globalDnsRes)
+          if (result.ok)
+            for (final address in result.addresses)
+              if (InternetAddress.tryParse(address)?.type == InternetAddressType.IPv4)
+                address,
+      }.take(2).toList();
       final ipv6Candidates = <String>{
         for (final result in globalDnsRes)
           if (result.ok)
@@ -268,11 +290,13 @@ class NatNetworkDiagnosis {
               if (InternetAddress.tryParse(address)?.type == InternetAddressType.IPv6)
                 address,
       }.take(2).toList();
+      final globalIpv4TcpOk = ipv4Candidates.isNotEmpty &&
+          (await Future.wait(ipv4Candidates.map(_tcpOkIpv4))).any((ok) => ok);
       final globalIpv6TcpOk = ipv6Candidates.isNotEmpty &&
           (await Future.wait(ipv6Candidates.map(_tcpOkIpv6))).any((ok) => ok);
-      // Either an HTTPS hostname connection or explicit IPv6 literal TCP
-      // success is sufficient evidence of a reachable global data path.
-      final globalTcpOk = globalHostTcpOk || globalIpv6TcpOk;
+      // Preserve hostname evidence, but also retain explicit family-specific
+      // results so an IPv4 success cannot masquerade as IPv6 availability.
+      final globalTcpOk = globalHostTcpOk || globalIpv4TcpOk || globalIpv6TcpOk;
       // DNS poisoning / blockpage check: a resolver returned a public A answer,
       // yet none of the answered addresses accepts TCP/443, while domestic hosts
       // do. That is the typical signature of an injected answer, not a live Google.
@@ -288,11 +312,13 @@ class NatNetworkDiagnosis {
         domesticDnsOk: domesticDnsOk,
         domesticTcpOk: domesticTcpOk,
         globalDnsOk: globalDnsOk,
-        globalTcpOk: globalTcpOk,
+        globalTcpOk: globalHostTcpOk,
+        globalIpv4TcpOk: globalIpv4TcpOk,
         globalIpv6TcpOk: globalIpv6TcpOk,
         dnsPoisonSuspected: poison,
-        sampleCount: domesticTcp.length + globalTcp.length +
-            globalDnsRes.length + domesticDnsRes.length,
+        // Count independent TCP endpoint attempts only; repeated DNS queries
+        // must not inflate the classifier's minimum-evidence guard.
+        sampleCount: domesticTcp.length + globalTcp.length,
       );
       current = ev.classify();
       _checkedAt = DateTime.now();
