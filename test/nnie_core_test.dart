@@ -483,11 +483,23 @@ void main() {
       expect(index.contains('not-an-ip'), isFalse);
     });
 
-    test('supports a full IPv4 range and a single-host /32', () {
-      final index = NatIpv4CidrIndex(['0.0.0.0/0', '203.0.113.9/32']);
-      expect(index.contains('8.8.8.8'), isTrue);
-      expect(index.contains('203.0.113.9'), isTrue);
-      expect(index.contains('203.0.113.10'), isTrue);
+    test('merges overlapping ranges and supports a full IPv4 range', () {
+      final overlapping = NatIpv4CidrIndex([
+        '10.0.0.0/8',
+        '10.10.0.0/16',
+        '10.20.0.0/16',
+      ]);
+      expect(overlapping.contains('10.30.1.1'), isTrue);
+      expect(overlapping.contains('11.0.0.1'), isFalse);
+
+      final allIpv4 = NatIpv4CidrIndex(['0.0.0.0/0']);
+      expect(allIpv4.contains('8.8.8.8'), isTrue);
+    });
+
+    test('matches only the exact address in a /32 range', () {
+      final single = NatIpv4CidrIndex(['203.0.113.9/32']);
+      expect(single.contains('203.0.113.9'), isTrue);
+      expect(single.contains('203.0.113.10'), isFalse);
     });
   });
 
