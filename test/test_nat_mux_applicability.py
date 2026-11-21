@@ -15,15 +15,15 @@ class NatMuxApplicabilityTests(unittest.TestCase):
         facts_end = self.source.index("const Set<String> _natRetiredNames", facts_start)
         facts = self.source[facts_start:facts_end]
         self.assertIn("vless,", facts)
-        self.assertIn("trojan,", facts)
         self.assertIn("vless = s.link.toLowerCase().startsWith('vless://')", facts)
-        self.assertIn("trojan = s.link.toLowerCase().startsWith('trojan://')", facts)
 
         applies_start = self.source.index("bool _natAppliesF")
         applies_end = self.source.index("bool _natChangesAddr", applies_start)
         applies = self.source[applies_start:applies_end]
         self.assertNotIn("if (x.mux) return false;", applies)
-        self.assertIn("f.ss || f.vmess || f.vless || f.trojan", applies)
+        self.assertIn("f.vmess || f.vless", applies)
+        self.assertNotIn("f.ss ||", applies)
+        self.assertNotIn("f.trojan", applies)
         self.assertIn("f.grpc || f.xh || f.reality", applies)
 
     def test_mux_builder_preserves_worker_xtls_and_transport_guards(self):
