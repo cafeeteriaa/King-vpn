@@ -228,13 +228,6 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
         !_ownerAuth.hasActiveSession) {
       return;
     }
-    if (!_ai.isLoaded) {
-      if (mounted) {
-        setState(() => _output =
-            'ایده مالک محفوظ است. برای تحلیل محلی، ابتدا مدل کینگ را بارگذاری کن.');
-      }
-      return;
-    }
     _initialIdeaAnalysisSubmitted = true;
     await _analyzeFeatureRequest();
   }
@@ -318,10 +311,10 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
         !_ownerAuth.hasActiveSession) {
       return;
     }
-    if (!_hasToken || !_ai.isLoaded) {
+    if (!_hasToken) {
       if (mounted) {
         setState(() => _output =
-            'درخواست مالک محفوظ است. برای اجرای خودکار، اتصال GitHub و بارگذاری مدل محلی را کامل کن.');
+            'درخواست مالک محفوظ است. ابتدا اتصال GitHub مالک را کامل کن؛ برای اجرای کم‌مصرف نیازی به دانلود مدل محلی نیست.');
       }
       return;
     }
