@@ -3450,6 +3450,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
+    def test_native_start_waits_for_stop_worker_before_state_probe(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private boolean awaitCoreStopped(')
+        end = source.index('private boolean bringUp(', start)
+        wait = source[start:end]
+        self.assertLess(wait.index('while (coreStopping)'),
+                        wait.index('readCoreRunningWithWatchdog(core, "start-preflight")'))
+        self.assertIn('previous core stop did not finish before startup deadline', wait)
+
     def test_native_state_probe_does_not_overlap_an_active_stop_core_call(self):
         source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = source.index('private Boolean readCoreRunningWithWatchdog(')

@@ -812,6 +812,22 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         final long deadline = System.currentTimeMillis() + BRING_UP_TIMEOUT_MS;
         for (int cycle = 0; cycle < 2; cycle++) {
             if (!isCurrent(myAttempt)) return false;
+            // A prior bounded stop may still be finishing on its native worker.
+            // Wait for its completion before querying the singleton core again.
+            while (coreStopping) {
+                if (!isCurrent(myAttempt)) return false;
+                if (System.currentTimeMillis() >= deadline) {
+                    lastError = "previous core stop did not finish before startup deadline";
+                    Log.e(TAG, lastError);
+                    return false;
+                }
+                try {
+                    Thread.sleep(50L);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
             final Boolean runningState =
                     readCoreRunningWithWatchdog(core, "start-preflight");
             if (runningState == null) return false;
