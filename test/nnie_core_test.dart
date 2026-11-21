@@ -152,7 +152,7 @@ void main() {
       final q = NatDnsWireProbe.buildQuery('google.com', 0x1234);
       expect(q.sublist(0, 2), [0x12, 0x34]); // transaction ID
       expect(q[12], 6); // "google"
-      expect(q.length, 12 + 7 + 4 + 1 + 4); // header + labels + root + type/class
+      expect(q.length, 12 + 7 + 4 + 4); // header + labels + root/type/class
     });
 
     test('buildQuery rejects a name longer than the DNS 255-octet limit', () {
