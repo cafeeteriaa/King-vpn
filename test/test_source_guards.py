@@ -3466,5 +3466,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('onBadCertificate', diagnostics[tls_start:tls_end])
 
 
+
+    def test_tls_scanners_and_nat_variants_preserve_certificate_validation(self):
+        nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        npv = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn('onBadCertificate: (_) => true', nip)
+        self.assertNotIn('onBadCertificate: (_) => true', npv)
+        self.assertNotIn('onBadCertificate: (_) => true', main)
+        self.assertIn("tls['allowInsecure'] = false;", ultra)
+        self.assertNotIn("tls['allowInsecure'] = true;", ultra)
+
+
 if __name__ == '__main__':
     unittest.main()
