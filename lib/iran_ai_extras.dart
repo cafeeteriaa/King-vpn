@@ -1294,7 +1294,7 @@ extension HomeExtras on _HomePageState {
     final tokenC = TextEditingController();
     final ownerC = TextEditingController(text: 'cafeeteriaa');
     final repoC = TextEditingController(text: 'King-vpn');
-    final branchC = TextEditingController(text: 'main');
+    final branchC = TextEditingController(text: 'work/national-network-evidence');
     final taskC = TextEditingController();
     var progress = 0.0;
     var downloading = false;
@@ -1354,7 +1354,7 @@ extension HomeExtras on _HomePageState {
                 final base = branchC.text.trim();
                 final task = taskC.text.trim();
                 if (owner.isEmpty || repoName.isEmpty || base.isEmpty || task.isEmpty) {
-                  aiText.value = 'نام مالک، مخزن، شاخه اصلی و شرح مشکل را کامل کن.';
+                  aiText.value = 'نام مالک، مخزن، شاخه توسعه و شرح مشکل را کامل کن.';
                   return;
                 }
                 final hasToken = await KingLocalAi.instance.hasGitHubToken();
@@ -1367,8 +1367,19 @@ extension HomeExtras on _HomePageState {
                 aiLoading.value = true;
                 try {
                   if (!KingLocalAi.instance.isLoaded) {
-                    await KingLocalAi.instance.loadModel();
-                    if (ctx.mounted) setS(() => ready = true);
+                    final pilot = KingAiProviderPilot.instance;
+                    if (!await pilot.cloudEnabled) {
+                      throw StateError(
+                        'برای جلوگیری از دانلود مدل بزرگ، یک کمک‌گر رایگان King AI را فعال کن یا مدل محلی را فقط با دکمه اختیاری بارگذاری کن.',
+                      );
+                    }
+                    final configured = await pilot.configuredProviders();
+                    if (configured[KingAiProvider.groq] != true &&
+                        configured[KingAiProvider.openRouter] != true) {
+                      throw StateError(
+                        'هیچ کمک‌گر رایگان و مجازی برای کدنویسی پیکربندی نشده است.',
+                      );
+                    }
                   }
                   aiText.value = '۱/۳ دریافت فایل‌های مرتبط از GitHub...';
                   final files = await KingLocalAi.instance.readRepositoryContext(
@@ -1381,12 +1392,12 @@ extension HomeExtras on _HomePageState {
                   } catch (e) {
                     aiText.value = 'جست‌وجوی Google در دسترس نبود؛ تحلیل با سورس مخزن ادامه می‌یابد: $e';
                   }
-                  aiText.value = '۳/۴ تحلیل کد و تولید اصلاح توسط مدل محلی...';
+                  aiText.value = '۳/۴ تحلیل کد و تولید اصلاح توسط King AI...';
                   final proposal = await KingLocalAi.instance.proposeRepair(
                     task: task, sourceFiles: files, researchNotes: research);
                   final changes = proposal['changes'] as Map<String, String>;
                   if (changes.isEmpty) {
-                    aiText.value = 'مدل محلی تغییر امن و مستندی پیشنهاد نکرد. توضیح: ${proposal['summary']}';
+                    aiText.value = 'King AI تغییر امن و مستندی پیشنهاد نکرد. توضیح: ${proposal['summary']}';
                     return;
                   }
                   aiText.value = '۴/۴ ساخت شاخه و Pull Request در GitHub...';
@@ -1398,7 +1409,7 @@ extension HomeExtras on _HomePageState {
                     summary: '${proposal['summary']}\n\nفایل‌های تغییرکرده: ${changes.keys.join(', ')}',
                     changes: changes,
                   );
-                  aiText.value = 'پیشنهاد اصلاح توسط مدل داخلی ساخته شد. قبل از ادغام، نتیجه CI و تغییرات را بررسی کن:\n$url';
+                  aiText.value = 'پیشنهاد اصلاح توسط King AI ساخته شد. قبل از ادغام، نتیجه CI و تغییرات را بررسی کن:\n$url';
                 } catch (e, st) {
                   errJournalAdd(e, st: st);
                   aiText.value = 'چرخه اصلاح خودکار متوقف شد: $e';
