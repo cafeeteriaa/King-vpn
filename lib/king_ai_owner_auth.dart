@@ -177,6 +177,9 @@ class KingAiOwnerAuth {
         return false;
       }
       final actual = await _derive(password, salt);
+      // App backgrounding invalidates this operation. Check before either
+      // success cleanup or failure counters mutate persistent auth state.
+      if (sessionGeneration != _sessionGeneration) return false;
       if (_constantTimeEquals(actual, expected)) {
         await _storage.delete(key: _failuresKey);
         await _storage.delete(key: _lockUntilKey);

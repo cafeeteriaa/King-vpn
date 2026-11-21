@@ -3686,5 +3686,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (_conversationMemoryLoaded) return;', loader)
 
 
+    def test_owner_auth_cancellation_precedes_persistent_auth_state_mutation(self):
+        source = (ROOT / 'lib' / 'king_ai_owner_auth.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> authenticate(String password) async {')
+        end = source.index('void lock()', start)
+        auth = source[start:end]
+        derived = auth.index('final actual = await _derive(password, salt);')
+        cancelled = auth.index('if (sessionGeneration != _sessionGeneration) return false;', derived)
+        success_cleanup = auth.index("await _storage.delete(key: _failuresKey);", derived)
+        failure_counter = auth.index("await _storage.write(key: _failuresKey, value: failures.toString());", derived)
+        self.assertLess(derived, cancelled)
+        self.assertLess(cancelled, success_cleanup)
+        self.assertLess(cancelled, failure_counter)
+
+
 if __name__ == '__main__':
     unittest.main()
