@@ -4329,5 +4329,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('c.disconnect();', probe)
 
 
+    def test_vpn_watchdog_treats_missing_local_http_inbound_as_inconclusive(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertIn('private enum ProbeResult { OK, SOFT_FAIL, INCONCLUSIVE, HARD_FAIL }', source)
+        check_start = source.index('private void checkOnce()')
+        probe_start = source.index('private ProbeResult probeResult(boolean modeSnapshot)')
+        check = source[check_start:probe_start]
+        self.assertIn('if (pr == ProbeResult.INCONCLUSIVE)', check)
+        inconclusive = check[check.index('if (pr == ProbeResult.INCONCLUSIVE)'):check.index('healthyStreak = 0;', check.index('if (pr == ProbeResult.INCONCLUSIVE)'))]
+        self.assertIn('fails = 0;', inconclusive)
+        self.assertIn('rescheduleNormal();', inconclusive)
+        probe_start = source.index('private ProbeResult probeOne(String url)')
+        probe_end = source.index('private ParcelFileDescriptor establish', probe_start)
+        probe = source[probe_start:probe_end]
+        self.assertIn('return ProbeResult.INCONCLUSIVE;', probe)
+        self.assertIn('The refused socket is the loopback HTTP inbound', probe)
+
+
 if __name__ == '__main__':
     unittest.main()
