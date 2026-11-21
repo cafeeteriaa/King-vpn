@@ -268,7 +268,7 @@ class NatNetworkDiagnosis {
       // (Wi-Fi <-> mobile, VPN handoff, or roaming). Never publish evidence
       // collected across two different networks as the current route verdict.
       final identityAfterProbe = await _identityHash();
-      if (id.isNotEmpty && identityAfterProbe != id) {
+      if (identityAfterProbe != id) {
         current = NatNetworkClass.unknown;
         _checkedAt = null;
         _identityAtCheck = null;
@@ -355,7 +355,7 @@ class PilotNetworkProbe {
     // The route may have changed during the concurrent TLS checks. Discard
     // that mixed snapshot instead of steering Smart Pilot with stale evidence.
     final identityAfterProbe = await _networkIdentity();
-    if (identity.isNotEmpty && identityAfterProbe != identity) {
+    if (identityAfterProbe != identity) {
       _last = const NetworkEvidence(
         domestic: LinkHealth.unknown,
         global: LinkHealth.unknown,
