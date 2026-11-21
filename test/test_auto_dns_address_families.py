@@ -37,3 +37,10 @@ class AutoDnsAddressFamilyTests(unittest.TestCase):
         body = source[start:end]
         self.assertIn("InternetAddressType.IPv6 ? 28 : 1", body)
         self.assertIn("type: queryType", body)
+
+    def test_failed_auto_probe_is_not_cached_for_ten_minutes(self):
+        source = (ROOT / "lib" / "npv_am_extras.dart").read_text(encoding="utf-8")
+        start = source.index("Future<String> pickBestDns(")
+        end = source.index("const _lanCidrs", start)
+        body = source[start:end]
+        self.assertIn("_dnsPickAt = foundValidResolver ? DateTime.now() : null;", body)
