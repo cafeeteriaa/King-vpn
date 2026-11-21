@@ -27,8 +27,8 @@ const String _researchQuery =
     'Android VPNService network changes DoH TLS SNI Xray V2Ray sing-box '
     'Cloudflare tunnel DNS security Flutter Dart performance official docs';
 
-/// WorkManager entry point. The model is loaded only from a foreground-verified
-/// local file; this worker never downloads the 1.1 GB model in the background.
+/// WorkManager entry point. Background jobs use configured cloud helpers and
+/// never download or load the optional 1.1 GB local model.
 @pragma('vm:entry-point')
 void kingAiBackgroundDispatcher() {
   Workmanager().executeTask((task, inputData) async {
