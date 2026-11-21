@@ -4448,7 +4448,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         traffic_end = main.index('Future<bool> _stableTunnelTrafficOk', traffic_start)
         traffic = main[traffic_start:traffic_end]
         self.assertIn('_tunnelTestUrlsGlobal', traffic)
-        self.assertIn('if (ok) return true;', traffic)
+        self.assertIn('final modeSnapshot = nationalMode;', traffic)
+        self.assertIn('final required = modeSnapshot ? 2 : 1;', traffic)
+        self.assertIn('return passed >= required;', traffic)
+        self.assertIn('_tunnelEndpointOpens(url)', traffic)
         stable_start = main.index('Future<bool> _stableTunnelTrafficOk')
         stable_end = main.index('Future<void> _verifyPendingConnect', stable_start)
         stable = main[stable_start:stable_end]
