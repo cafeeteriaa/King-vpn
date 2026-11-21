@@ -8,14 +8,15 @@
 //     device-safe range. Never too small, never CPU-crushing.
 //   • Guaranteed socket cleanup: every Socket is destroyed in a finally block,
 //     so slow/timed-out probes never leak file descriptors.
-//   • Live cancellation: in-flight workers exit as soon as cancelled() returns
-//     true — no waiting for individual timeouts.
+//   • Cooperative cancellation: workers stop before another probe and discard
+//     stale results after an in-flight connect completes; each connect is
+//     bounded by its per-probe timeout.
 //   • Progress callbacks: optional onProgress(done, total, hits) for live UI.
 //   • Optional randomize: shuffle the candidate list to avoid hitting the same
 //     subnet first every run.
 //   • Timeout accuracy: the Stopwatch is stopped exactly when the connect
-//     returns, not after potential catch/finally work.
-//   • No artificial caps: the caller controls want/budget/concurrency. We
+//   • Caller controls want/budget; concurrency is clamped to a device-safe
+//     range to prevent excessive socket and memory pressure.
 //     only enforce a device-safe ceiling for concurrency to prevent OOM.
 
 import 'dart:async';
