@@ -134,14 +134,13 @@ extension KingHealEngine on _HomePageState {
       _healPhase = _HealPhase.verify;
       await Future.delayed(const Duration(seconds: 2));
       final stillBad = await _healSense();
-      // Core CONNECTED is not proof of repair. Require traffic through the
-      // active tunnel, using domestic endpoints in nationalMode and global
-      // endpoints otherwise. Proxy-only mode has no TUN data-plane to verify.
+      // Core CONNECTED is not proof of repair. Require real traffic through
+      // the active core path in both TUN and local-proxy modes. _tunnelTrafficOk
+      // uses viaCore=true, so proxy mode is checked through the local core
+      // instead of trusting the CONNECTED state alone.
       final bool dataPlaneOk;
       if (!wantVpn) {
         dataPlaneOk = true;
-      } else if (proxyMode) {
-        dataPlaneOk = connected && lastState == 'CONNECTED';
       } else {
         dataPlaneOk = connected &&
             await _tunnelTrafficOk().timeout(
