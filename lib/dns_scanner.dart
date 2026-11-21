@@ -7,14 +7,21 @@ part of 'main.dart';
 const List<String> kDnsxDefaults = [
   '8.8.8.8',
   '8.8.4.4',
+  '2001:4860:4860::8888',
+  '2001:4860:4860::8844',
   '1.1.1.1',
   '1.0.0.1',
+  '2606:4700:4700::1111',
+  '2606:4700:4700::1001',
   '9.9.9.9',
   '149.112.112.112',
+  '2620:fe::fe',
+  '2620:fe::9',
   '208.67.222.222',
   '208.67.220.220',
   '94.140.14.14',
   '94.140.15.15',
+  '2a10:50c0::ad1:ff',
 ];
 
 // DNSهای داخلی که از قبل در پروژه (npv_am_extras.dart) آمده‌اند
@@ -400,8 +407,10 @@ extension DnsxExt on _HomePageState {
                   .map((s) => s.trim())
                   .where((s) =>
                       s.isNotEmpty &&
-                      InternetAddress.tryParse(s)?.type ==
-                          InternetAddressType.IPv4)
+                      (InternetAddress.tryParse(s)?.type ==
+                              InternetAddressType.IPv4 ||
+                          InternetAddress.tryParse(s)?.type ==
+                              InternetAddressType.IPv6))
                   .toList();
               final saved = await goldDnsList();
               if (!mounted || !sheetOpen) return;
@@ -467,7 +476,7 @@ extension DnsxExt on _HomePageState {
                     controller: extraC,
                     maxLines: 2,
                     decoration: const InputDecoration(
-                        labelText: 'DNS دلخواه (IPv4، با فاصله یا کاما)',
+                        labelText: 'DNS دلخواه (IPv4 یا IPv6، با فاصله یا کاما)',
                         border: OutlineInputBorder()),
                   ),
                   const SizedBox(height: 8),

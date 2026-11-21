@@ -4110,7 +4110,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (aborted() || clock.elapsed >= budget) return;', scan)
         self.assertIn('List<String> nipExpandIpv6Cidr(', source)
         self.assertIn('address.type != InternetAddressType.IPv6', source)
-        self.assertIn('InternetAddress.fromRawAddress(Uint8List.fromList(bytes))', source)
+        self.assertIn('InternetAddress.fromRawAddress(bytes)', source)
         self.assertIn('Socket.connect(address, port, timeout: const Duration(milliseconds: 2000))', source)
 
     def test_nip_cidr_expansion_bounds_caller_supplied_limit(self):
@@ -4126,3 +4126,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 if __name__ == '__main__':
     unittest.main()
 
+
+    def test_dns_probe_and_manual_scanner_accept_ipv4_and_ipv6_resolvers(self):
+        core = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
+        scanner = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        self.assertIn('InternetAddress.anyIPv6', core)
+        self.assertIn('InternetAddress.anyIPv4', core)
+        self.assertIn('queryType = 1', core)
+        self.assertIn('queryType: queryType', core)
+        self.assertIn('InternetAddressType.IPv6', scanner)
+        self.assertIn('2606:4700:4700::1111', scanner)
+        self.assertIn('2001:4860:4860::8888', scanner)
+        self.assertIn('parsedIp.type == InternetAddressType.IPv6', extras)

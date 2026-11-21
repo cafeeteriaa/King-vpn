@@ -1504,7 +1504,7 @@ final Map<String, DateTime> _natAsnTry = {};
 Future<String> _natNetType() async {
   try {
     final l = await NetworkInterface.list(
-        includeLoopback: false, type: InternetAddressType.IPv4);
+        includeLoopback: false);
     var wifi = false, mob = false;
     for (final i in l) {
       if (i.addresses.isEmpty) continue;
