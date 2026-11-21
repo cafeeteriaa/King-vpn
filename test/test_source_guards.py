@@ -350,7 +350,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = nat.index('List<String> natSeedBlocks(')
         end = nat.index('\nint natMemQueued', start)
         seed_block = nat[start:end]
-        self.assertIn("'${parsed.address}/32'", seed_block)
+        self.assertIn("InternetAddressType.IPv6", seed_block)
+        self.assertIn("parsed.address}/128", seed_block)
         domain_start = nat.index('Future<List<String>> _natDomainFirst(')
         domain_end = nat.index('\nFuture<List<String>> natDeviceHosts()', domain_start)
         domain_scan = nat[domain_start:domain_end]
