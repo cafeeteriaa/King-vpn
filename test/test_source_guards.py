@@ -4493,6 +4493,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('INTERNATIONAL_PROBE_URLS', probe)
         self.assertIn('if (passed >= required) return ProbeResult.OK;', probe)
 
+    def test_turbo_ui_does_not_claim_mux_is_enabled(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn('Mux در این نسخه فعال نیست', source)
+        self.assertIn('تا آزمون سازگاری و throughput روشن نمی‌شود', source)
+        self.assertIn('Mux و Noise تا تأیید سازگاری', source)
+        # Keep the safety gate explicit: unsupported variants must not enter
+        # the connection matrix merely because the UI calls the mode "turbo".
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn('if (x.mux) return false;', ultra)
+        self.assertIn('if (x.noise) return false;', ultra)
+
     def test_vpn_global_watchdog_probes_independent_provider_families(self):
         source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = source.index('private static final String[] INTERNATIONAL_PROBE_URLS')
