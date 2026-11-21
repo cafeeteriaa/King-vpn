@@ -1230,15 +1230,19 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             JSONArray arr = new JSONArray(raw);
             servers.clear();
             for (int i = 0; i < arr.length(); i++) {
-                JSONObject o = arr.getJSONObject(i);
-                servers.add(new Srv(o.optString("config"), o.optString("remark"),
+                JSONObject o = arr.optJSONObject(i);
+                if (o == null) continue;
+                String config = o.optString("config", "").trim();
+                if (config.isEmpty()) continue;
+                servers.add(new Srv(config, o.optString("remark"),
                         o.optString("addr"), o.optString("port")));
             }
+            if (servers.isEmpty()) return false;
             currentIdx = Math.max(0, Math.min(sp.getInt("idx", 0), servers.size() - 1));
             listExhaustedStreak = 0;
             healthyStreak = 0;
             nationalMode = sp.getBoolean("national", false);
-            return !servers.isEmpty();
+            return true;
         } catch (Exception e) {
             Log.w(TAG, "loadState failed", e);
             return false;
