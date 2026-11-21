@@ -768,9 +768,9 @@ state limitations. Never claim execution or validation without actual evidence.
         throw StateError('مدل هوش مصنوعی داخلی هنوز آماده نیست؛ ابتدا آن را از تنظیمات دانلود و بارگذاری کن.');
       }
       final generation = engine.generate(
-        '<|im_start|>system\\n$systemPrompt<|im_end|>\\n'
-        '<|im_start|>user\\n$prompt<|im_end|>\\n'
-        '<|im_start|>assistant\\n',
+        '<|im_start|>system\n$systemPrompt<|im_end|>\n'
+        '<|im_start|>user\n$prompt<|im_end|>\n'
+        '<|im_start|>assistant\n',
         GenerationOptions(
           sampling: SamplingOptions(maxTokens: maxTokens),
           stop: const ['<|im_end|>'],
