@@ -482,11 +482,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_local_model_prompt_uses_real_chat_template_newlines(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
-        start = ai.index('final generation = engine.generate(', ai.index('Future<String> _generateWithSystemPrompt'))
+        start = ai.index('final generation = engine.generate(', ai.index('Future<String> _generateLocalOnly'))
         end = ai.index('GenerationOptions(', start)
         template = ai[start:end]
         self.assertIn("'<|im_start|>system\\n$systemPrompt", template)
-        self.assertIn("'<|im_start|>user\\n$safePrompt", template)
+        self.assertIn("'<|im_start|>user\\n$prompt", template)
         self.assertNotIn('\\\\n', template)
 
     def test_github_token_is_verified_as_repository_owner_before_use(self):
