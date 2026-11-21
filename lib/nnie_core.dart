@@ -156,6 +156,12 @@ class NatDnsWireProbe {
     if ((a[0] & 0xe0) != 0x20) return false;
     if (a[0] == 0x20 && a[1] == 0x01 &&
         a[2] == 0x0d && a[3] == 0xb8) return false; // 2001:db8::/32
+    // Exclude the IANA 2001:0000::/23 special-purpose block (Teredo,
+    // benchmarking and other protocol assignments), not just documentation.
+    if (a[0] == 0x20 && a[1] == 0x01 && a[2] <= 0x01) return false;
+    if (a[0] == 0x3f && a[1] == 0xff && (a[2] & 0xf0) == 0x00) {
+      return false; // 3fff::/20 documentation
+    }
     return true;
   }
 
@@ -284,7 +290,7 @@ class NatDnsWireProbe {
         ).address);
       }
     }
-    if (ips.isEmpty) throw const FormatException('No usable A answer for queried name');
+    if (ips.isEmpty) throw FormatException('No usable ${type == 1 ? 'A' : 'AAAA'} answer for queried name');
     return ips;
   }
 
