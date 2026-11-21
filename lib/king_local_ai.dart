@@ -1572,8 +1572,18 @@ state limitations. Never claim execution or validation without actual evidence.
     if (!await isBackgroundAutoDiscoveryEnabled()) {
       return {'status': 'autonomous_maintenance_not_enabled'};
     }
-    if (!isLoaded || !await hasGitHubToken()) {
-      return {'status': 'model_or_owner_repository_token_unavailable'};
+    if (!await hasGitHubToken()) {
+      return {'status': 'owner_repository_token_unavailable'};
+    }
+    final providerPilot = KingAiProviderPilot.instance;
+    if (!await providerPilot.cloudEnabled) {
+      return {'status': 'cloud_helpers_disabled'};
+    }
+    final configuredHelpers = await providerPilot.configuredProviders();
+    if (configuredHelpers[KingAiProvider.gemini] != true &&
+        configuredHelpers[KingAiProvider.groq] != true &&
+        configuredHelpers[KingAiProvider.openRouter] != true) {
+      return {'status': 'no_approved_free_helper_configured'};
     }
 
     final root = await getApplicationSupportDirectory();
