@@ -13,7 +13,7 @@ class KingAiProjectBuilder {
   static const int _maxProjectBytes = 200000;
   static const Set<String> _extensions = {
     '.dart', '.yaml', '.yml', '.md', '.json', '.xml', '.kt', '.java',
-    '.gradle', '.properties', '.txt', '.html', '.css', '.js', '.ts',
+    '.gradle', '.kts', '.properties', '.txt', '.html', '.css', '.js', '.ts',
     '.py', '.toml', '.sh',
   };
 
