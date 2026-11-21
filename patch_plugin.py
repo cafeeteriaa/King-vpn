@@ -490,6 +490,22 @@ for svc_path, svc_name in ((vpn, 'VPN'), (proxy_svc, 'ProxyOnly')):
             V2rayCoreManager.getInstance().stopCore();''', f'V3 #86 {svc_name} STOP promotes')
 
 
+exact_replace(vpn, '''        // Force IPv4 path: sinkhole IPv6 so apps don't bypass a broken dual-stack route.
+        try {
+            builder.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);
+            builder.addRoute("::", 0);
+        } catch (Exception e) {
+            Log.w("V2rayVPNService", "IPv6 sinkhole not supported", e);
+        }''', '''        // IPv4 and IPv6 must both be captured by the native TUN. A partial route
+        // would silently leak IPv6 outside the VPN, so refuse to establish it.
+        try {
+            builder.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);
+            builder.addRoute("::", 0);
+        } catch (Exception e) {
+            Log.e("V2rayVPNService", "IPv6 route setup failed; refusing a partial VPN", e);
+            return false;
+        }''', 'P1 IPv6 route must fail closed');
+
 # 5) FIX #49: the app is not excluded from the VPN (its own requests must go through the tunnel).
 #    Only the core's outbound sockets are exempt, through protect() (see the protector below).
 exact_replace(vpn, '''        // Keep this process outside the VPN so outbound sockets don't loop.
