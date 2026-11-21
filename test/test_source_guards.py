@@ -4559,6 +4559,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('فقط King AI', settings)
 
     def test_external_providers_are_private_reviewers_and_local_king_synthesizes(self):
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        repair_start = extras.index('Future<void> createRepair() async {')
+        repair_end = extras.index('return SingleChildScrollView(', repair_start)
+        repair_flow = extras[repair_start:repair_end]
+        self.assertNotIn('loadModel()', repair_flow)
+        self.assertIn('KingAiProvider.groq', repair_flow)
+        self.assertIn('KingAiProvider.openRouter', repair_flow)
+        self.assertIn("TextEditingController(text: 'work/national-network-evidence')", extras)
         provider_pilot = (ROOT / 'lib' / 'king_ai_provider_pilot.dart').read_text(encoding='utf-8')
         self.assertNotIn('KingAiProvider.gemini', provider_pilot)
         self.assertNotIn('generativelanguage.googleapis.com', provider_pilot)
