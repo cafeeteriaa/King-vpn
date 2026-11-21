@@ -340,6 +340,40 @@ empty changes list and explain what is missing.
     });
   }
 
+  /// Generates one source artifact for an independent user project.
+  /// This path writes only to an app-private workspace; it never writes to GitHub.
+  Future<String> generateProjectText({
+    required String prompt,
+    int maxTokens = 2048,
+  }) async {
+    if (!isLoaded) {
+      throw StateError('ابتدا مدل کدنویسی محلی King را بارگذاری کن.');
+    }
+    if (prompt.trim().isEmpty || prompt.length > 12000) {
+      throw ArgumentError('Project generation prompt must contain 1..12000 characters.');
+    }
+    if (maxTokens < 128 || maxTokens > 2048) {
+      throw ArgumentError.value(maxTokens, 'maxTokens', 'Must be between 128 and 2048');
+    }
+    const projectSystemPrompt = '''
+You are King, a local software project source generator.
+Generate one complete, useful, internally consistent source file for the user's
+project. The requested file path and purpose are supplied by the caller.
+Return source text only: no Markdown fences, no explanations, no fake test claims.
+Do not include credentials, API keys, private keys, or hidden telemetry.
+Prefer offline-first behavior and free/open-source dependencies. Do not invent
+package APIs; use stable, commonly available APIs. Add clear error handling,
+input validation and comments for non-obvious logic. Keep the file complete,
+not a sketch or pseudocode. If a dependency is needed, declare it in the
+project manifest file rather than assuming it exists.
+''';
+    return _generateWithSystemPrompt(
+      prompt,
+      projectSystemPrompt,
+      maxTokens: maxTokens,
+    );
+  }
+
   bool _looksLikeCodeGenerationRequest(String prompt) {
     final q = prompt.toLowerCase()
         .replaceAll('ي', 'ی')
