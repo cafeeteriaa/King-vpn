@@ -1519,6 +1519,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('emit("FAILED", lastError, activeAttemptId);', failure)
         self.assertIn('return START_NOT_STICKY;', failure)
         self.assertIn('Unable to enter foreground mode', failure)
+        empty_config = action_start[action_start.index('if (json == null || json.isEmpty())'):
+                                    action_start.index('Srv first = new Srv(')]
+        self.assertIn('submit(() -> stopEverything(startId));', empty_config)
+        self.assertNotIn('submit(this::stopEverything);', action_start)
+
 
 
     def test_vpn_service_serializes_worker_submission_and_shutdown(self):
