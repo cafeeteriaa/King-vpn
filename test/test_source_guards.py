@@ -4025,7 +4025,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         body = source[start:end]
         self.assertIn('if (maxPerBlock <= 0) return const [];', body)
         self.assertIn('final limit = min(maxPerBlock, 65536);', body)
-        self.assertIn('final step = size > limit ? size ~/ limit : 1;', body)
+        self.assertIn('final step = size > limit ? (size + limit - 1) ~/ limit : 1;', body)
 
 
 if __name__ == '__main__':
