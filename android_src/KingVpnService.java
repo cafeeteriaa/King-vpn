@@ -614,7 +614,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 // Linearize the stop-vs-recovery decision with every stop request. If Stop
                 // wins the lock, its cleared state is committed before this process exits.
                 try {
-                    if (userStopped) clearState();
+                    if (userStopped || stopping) clearState();
                     else saveState();
                 } catch (Throwable t) {
                     Log.w(TAG, "state save before restart failed", t);
