@@ -656,8 +656,8 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
   Future<String> _askCoding(String prompt, {int maxTokens = 768}) =>
       _generateWithSystemPrompt(prompt, _systemPrompt, maxTokens: maxTokens);
 
-  KingAiTaskKind _classifyHelperTask(String prompt, String systemPrompt) {
-    final value = '$systemPrompt\\n$prompt'.toLowerCase();
+  KingAiTaskKind _classifyHelperTask(String prompt) {
+    final value = prompt.toLowerCase();
     if (RegExp(r'(flutter|dart|python|javascript|typescript|کد|کدنویسی|باگ|سورس|pull request|compile|debug)')
         .hasMatch(value)) {
       return KingAiTaskKind.coding;
@@ -724,7 +724,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     String? peerReviews;
     try {
       peerReviews = await KingAiProviderPilot.instance.consultKing(
-        taskKind: _classifyHelperTask(safePrompt, systemPrompt),
+        taskKind: _classifyHelperTask(_buildHelperTaskBrief(safePrompt)),
         taskBrief: _buildHelperTaskBrief(safePrompt),
         localDraft: localDraft,
       );
