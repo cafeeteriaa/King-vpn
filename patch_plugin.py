@@ -376,6 +376,22 @@ def exact_replace(path, old, new, label):
     open(path, 'w', encoding='utf-8').write(src.replace(old, new, 1))
     print(f'OK: {label}')
 
+# The plugin's ensureTunInbound() prepends a direct DNS bypass for ports 53/853
+# unless it sees an existing direct-853 rule. Our own port-53 DNS outbound rule
+# must be recognized, otherwise the plugin's prepended rule shadows DNS hijack.
+utilities = find_java('Utilities.java')
+exact_replace(utilities, '''                String port = String.valueOf(rule.opt("port"));
+                if ("direct".equals(rule.optString("outboundTag")) && port.contains("853")) {
+                    hasDnsRule = true;
+                    break;
+                }''', '''                String port = String.valueOf(rule.opt("port"));
+                boolean hasKingDnsHijack = "king-vpn-dns-hijack".equals(rule.optString("ruleTag"));
+                if (hasKingDnsHijack ||
+                        ("direct".equals(rule.optString("outboundTag")) && port.contains("853"))) {
+                    hasDnsRule = true;
+                    break;
+                }''', 'P1 DNS: preserve King VPN DNS hijack before plugin fallback')
+
 
 # Initialization failures must escape the plugin's internal catch block so the
 # owning service can keep coreWired=false and retry on the next connection attempt.
