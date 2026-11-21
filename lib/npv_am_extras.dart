@@ -20,6 +20,7 @@ String dnsProv = 'auto';
 String dnsProvActive = 'cloudflare';
 DateTime? _dnsPickAt;
 String? _dnsPickNetworkKey;
+bool _dnsPickLastSucceeded = false;
 
 Future<String> _dnsNetworkKey() async {
   try {
@@ -30,9 +31,14 @@ Future<String> _dnsNetworkKey() async {
       if (ips.isNotEmpty) rows.add('${iface.name}:${ips.join(',')}');
     }
     rows.sort();
-    return '${nationalMode ? 'nat' : 'global'}|${rows.join('|')}';
+    // An empty interface snapshot is not a stable network identity. Do not
+    // let DNS/DoH caches treat "no visible interface" as a reusable network.
+    if (rows.isEmpty) {
+      return '${nationalMode ? 'nat' : 'global'}|$natOpKey|unknown';
+    }
+    return '${nationalMode ? 'nat' : 'global'}|$natOpKey|${rows.join('|')}';
   } catch (_) {
-    return '${nationalMode ? 'nat' : 'global'}|unknown';
+    return '${nationalMode ? 'nat' : 'global'}|$natOpKey|unknown';
   }
 }
 const _fragLenOpts = <String>['100-200', '50-100', '10-30'];
@@ -103,7 +109,9 @@ List<String>? customDnsList() {
   if (effectiveDnsProv() != 'custom') return null;
   final a = customDnsAddr.trim();
   final parsedIp = InternetAddress.tryParse(a);
-  final ipOk = parsedIp != null && parsedIp.type == InternetAddressType.IPv4;
+  final ipOk = parsedIp != null &&
+      (parsedIp.type == InternetAddressType.IPv4 ||
+          parsedIp.type == InternetAddressType.IPv6);
   if (a.startsWith('https://') || ipOk) return [a];
   return null;
 }
@@ -163,11 +171,15 @@ Future<String> pickBestDns({bool force = false}) async {
   final networkKey = await _dnsNetworkKey();
   if (_dnsPickNetworkKey != networkKey) {
     _dnsPickAt = null;
+    _dnsPickLastSucceeded = false;
     _dnsPickNetworkKey = networkKey;
   }
+  final cacheTtl = _dnsPickLastSucceeded
+      ? const Duration(minutes: 10)
+      : const Duration(seconds: 45);
   if (!force &&
       _dnsPickAt != null &&
-      DateTime.now().difference(_dnsPickAt!) < const Duration(minutes: 10)) {
+      DateTime.now().difference(_dnsPickAt!) < cacheTtl) {
     return dnsProvActive;
   }
 
@@ -220,8 +232,22 @@ Future<String> pickBestDns({bool force = false}) async {
     }),
   ]);
 
-  if (foundValidResolver) dnsProvActive = best;
-  else dbg('DNS auto: no resolver returned a validated answer; keeping previous provider=$dnsProvActive');
+  // The interface/operator/mode can change while parallel resolver probes
+  // are in flight. Never apply a result measured on the previous network.
+  final networkAfterProbe = await _dnsNetworkKey();
+  if (networkAfterProbe != networkKey) {
+    _dnsPickAt = null;
+    _dnsPickLastSucceeded = false;
+    _dnsPickNetworkKey = networkAfterProbe;
+    return dnsProvActive;
+  }
+  if (foundValidResolver) {
+    dnsProvActive = best;
+    _dnsPickLastSucceeded = true;
+  } else {
+    _dnsPickLastSucceeded = false;
+    dbg('DNS auto: no resolver returned a validated answer; keeping previous provider=$dnsProvActive');
+  }
   _dnsPickNetworkKey = networkKey;
   _dnsPickAt = DateTime.now();
   return dnsProvActive;
@@ -814,7 +840,6 @@ Future<int?> _cfProbeMs(String ip, Duration t) async {
     raw = await Socket.connect(ip, 443, timeout: t);
     k = await SecureSocket.secure(raw,
             host: 'cloudflare.com',
-            onBadCertificate: (_) => true,
             supportedProtocols: const ['http/1.1'])
         .timeout(t);
     k.write(

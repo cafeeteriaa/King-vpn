@@ -39,6 +39,8 @@ class KingAiOwnerAuth {
 
   Stopwatch? _sessionClock;
   bool _operationBusy = false;
+  // Invalidates authentication work that began before the app was backgrounded.
+  int _sessionGeneration = 0;
 
   Future<bool> get isConfigured async =>
       (await _storage.read(key: _saltKey)) != null &&
@@ -56,6 +58,7 @@ class KingAiOwnerAuth {
   Future<void> setInitialPassword(String password) async {
     if (_operationBusy) throw StateError('Owner authentication is busy.');
     _operationBusy = true;
+    final sessionGeneration = _sessionGeneration;
     try {
       if (await isConfigured) {
         throw StateError('Owner password is already configured.');
@@ -66,11 +69,15 @@ class KingAiOwnerAuth {
       _validatePassword(password);
       final salt = _randomBytes(16);
       final verifier = await _derive(password, salt);
+      if (sessionGeneration != _sessionGeneration) return;
       // Write the verifier first and the salt last; both are required for the
       // configured marker. Roll back partial state if secure storage fails.
       try {
         await _storage.write(key: _verifierKey, value: base64Encode(verifier));
         await _storage.write(key: _saltKey, value: base64Encode(salt));
+        if (sessionGeneration != _sessionGeneration) {
+          throw StateError('Owner enrollment was cancelled by app backgrounding.');
+        }
       } catch (_) {
         await _storage.delete(key: _saltKey);
         await _storage.delete(key: _verifierKey);
@@ -78,7 +85,9 @@ class KingAiOwnerAuth {
       }
       await _storage.delete(key: _failuresKey);
       await _storage.delete(key: _lockUntilKey);
-      _sessionClock = Stopwatch()..start();
+      if (sessionGeneration == _sessionGeneration) {
+        _sessionClock = Stopwatch()..start();
+      }
     } finally {
       _operationBusy = false;
     }
@@ -88,6 +97,7 @@ class KingAiOwnerAuth {
   Future<void> changePassword(String password) async {
     if (_operationBusy) throw StateError('Owner authentication is busy.');
     _operationBusy = true;
+    final sessionGeneration = _sessionGeneration;
     try {
       if (!hasActiveSession) {
         throw StateError('Owner authentication is required.');
@@ -101,11 +111,17 @@ class KingAiOwnerAuth {
       }
       final salt = _randomBytes(16);
       final verifier = await _derive(password, salt);
+      if (sessionGeneration != _sessionGeneration) {
+        throw StateError('Owner session expired during password change.');
+      }
       // Rotate both values as one logical transaction. If either secure-store
       // write fails, restore the previous pair rather than bricking owner access.
       try {
         await _storage.write(key: _verifierKey, value: base64Encode(verifier));
         await _storage.write(key: _saltKey, value: base64Encode(salt));
+        if (sessionGeneration != _sessionGeneration) {
+          throw StateError('Owner password change was cancelled by app backgrounding.');
+        }
       } catch (_) {
         try {
           await _storage.write(key: _saltKey, value: oldSalt);
@@ -117,7 +133,9 @@ class KingAiOwnerAuth {
       }
       await _storage.delete(key: _failuresKey);
       await _storage.delete(key: _lockUntilKey);
-      _sessionClock = Stopwatch()..start();
+      if (sessionGeneration == _sessionGeneration) {
+        _sessionClock = Stopwatch()..start();
+      }
     } finally {
       _operationBusy = false;
     }
@@ -126,6 +144,7 @@ class KingAiOwnerAuth {
   Future<bool> authenticate(String password) async {
     if (_operationBusy) return false;
     _operationBusy = true;
+    final sessionGeneration = _sessionGeneration;
     try {
       if (!await isConfigured) return false;
 
@@ -140,20 +159,42 @@ class KingAiOwnerAuth {
       final verifierRaw = await _storage.read(key: _verifierKey);
       if (saltRaw == null || verifierRaw == null) return false;
 
-      final salt = base64Decode(saltRaw);
-      final expected = base64Decode(verifierRaw);
+      // Secure storage can be restored from an incomplete backup or contain
+      // malformed values. Treat invalid credential material as a failed,
+      // locked-out-safe authentication attempt rather than leaking a decode/KDF
+      // exception into the UI or accepting a truncated verifier.
+      late final List<int> salt;
+      late final List<int> expected;
+      try {
+        salt = base64Decode(saltRaw);
+        expected = base64Decode(verifierRaw);
+      } on FormatException {
+        _sessionClock = null;
+        return false;
+      }
+      if (salt.length != 16 || expected.length != 32) {
+        _sessionClock = null;
+        return false;
+      }
       final actual = await _derive(password, salt);
+      // App backgrounding invalidates this operation. Check before either
+      // success cleanup or failure counters mutate persistent auth state.
+      if (sessionGeneration != _sessionGeneration) return false;
       if (_constantTimeEquals(actual, expected)) {
         await _storage.delete(key: _failuresKey);
+        if (sessionGeneration != _sessionGeneration) return false;
         await _storage.delete(key: _lockUntilKey);
+        if (sessionGeneration != _sessionGeneration) return false;
         _sessionClock = Stopwatch()..start();
         return true;
       }
 
       final previous =
           int.tryParse(await _storage.read(key: _failuresKey) ?? '') ?? 0;
+      if (sessionGeneration != _sessionGeneration) return false;
       final failures = previous + 1;
       await _storage.write(key: _failuresKey, value: failures.toString());
+      if (sessionGeneration != _sessionGeneration) return false;
       if (failures >= _maxFailuresBeforeLock) {
         final exponent = (failures - _maxFailuresBeforeLock).clamp(0, 10);
         final seconds = min(3600, 30 * (1 << exponent));
@@ -169,7 +210,10 @@ class KingAiOwnerAuth {
     }
   }
 
-  void lock() => _sessionClock = null;
+  void lock() {
+    _sessionGeneration++;
+    _sessionClock = null;
+  }
 
   Future<void> _requireRepositoryOwnerIdentity() async {
     final token = await _storage.read(key: 'king_ai_github_token');

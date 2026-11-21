@@ -67,6 +67,229 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertNotIn("import 'engine_registry.dart';", main)
 
+    def test_dns_auto_cache_is_network_operator_aware_and_discards_stale_probes(self):
+        source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        key_start = source.index('Future<String> _dnsNetworkKey()')
+        key_end = source.index('const _fragLenOpts', key_start)
+        network_key = source[key_start:key_end]
+        self.assertIn('$natOpKey', network_key)
+        self.assertIn('if (rows.isEmpty)', network_key)
+        self.assertIn("|unknown';", network_key)
+        pick_start = source.index('Future<String> pickBestDns(')
+        pick_end = source.index('const _lanCidrs', pick_start)
+        picker = source[pick_start:pick_end]
+        self.assertIn('final networkAfterProbe = await _dnsNetworkKey();', picker)
+        self.assertIn('if (networkAfterProbe != networkKey)', picker)
+        self.assertIn('const Duration(seconds: 45)', picker)
+        self.assertIn('_dnsPickLastSucceeded = true;', picker)
+        self.assertIn('_dnsPickLastSucceeded = false;', picker)
+
+    def test_nat_doh_cache_is_bound_to_network_operator_and_route_mode(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> natDohUsable(')
+        end = source.index('String _natApplyTweaks(', start)
+        probe = source[start:end]
+        self.assertIn('final networkKey = await _dnsNetworkKey();', probe)
+        self.assertIn("final cacheableNetwork = !networkKey.endsWith('|unknown');", probe)
+        self.assertIn('_dohPreNetworkKey[v] == networkKey', probe)
+        self.assertIn('final modeSnapshot = nationalMode;', probe)
+        self.assertIn('final expectedDomain = modeSnapshot ?', probe)
+        self.assertIn('final networkKeyAfter = await _dnsNetworkKey();', probe)
+        self.assertIn('if (gen != _dohGen || networkKeyAfter != networkKey) return false;', probe)
+        clear_start = source.index('void natDohCacheClear()')
+        clear_end = source.index('Future<bool> natDohUsable(', clear_start)
+        self.assertIn('_dohPreNetworkKey.clear();', source[clear_start:clear_end])
+
+    def test_native_start_and_resume_suppress_late_events_after_user_stop(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private void startFlow(')
+        end = source.index('private void resumeSaved(int startId)', start)
+        flow = source[start:end]
+        stop_guard = flow.index('if (stopping || startId != latestStartId)', flow.index('boolean connectedNow = connectFrom(0, startId);'))
+        connected_event = flow.index('emit("CONNECTED"', stop_guard)
+        failed_event = flow.index('emit("FAILED"', stop_guard)
+        connected_branch = flow.index('if (connectedNow)', stop_guard)
+        self.assertIn('if (stopping || startId != latestStartId) return;', flow[stop_guard:connected_branch])
+        self.assertLess(stop_guard, connected_event)
+        self.assertLess(stop_guard, failed_event)
+        resume_start = source.index('private void resumeSaved(int startId)')
+        resume_end = source.index('private boolean connectFrom(', resume_start)
+        resume = source[resume_start:resume_end]
+        guard = resume.index('if (stopping || startId != latestStartId)', resume.index('boolean connectedNow = connectFrom(currentIdx, startId);'))
+        connected_branch = resume.index('if (connectedNow)', guard)
+        self.assertIn('if (stopping || startId != latestStartId) return;', resume[guard:connected_branch])
+        self.assertNotIn('saveState();', resume[guard:connected_branch])
+
+
+
+    def test_new_native_start_invalidates_previous_watchdog_and_retry_work(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        on_start = source.index('public int onStartCommand(')
+        on_start_end = source.index('private void submit(', on_start)
+        start = source[on_start:on_start_end]
+        self.assertIn('attemptSeq.incrementAndGet();', start)
+        self.assertIn('active = false;', start)
+        self.assertIn('retryWaiting = false;', start)
+
+        connect_start = source.index('private boolean connectFrom(int first, int expectedStartId)')
+        connect_end = source.index('private boolean bringUpWithTimeout(', connect_start)
+        connect = source[connect_start:connect_end]
+        self.assertIn('expectedStartId != latestStartId', connect)
+        self.assertIn('if (stopping || expectedStartId != latestStartId) return false;', connect)
+
+        retry_start = source.index('private void retryWholeListNow(')
+        retry_end = source.index('private ProbeResult probeResult(', retry_start)
+        retry = source[retry_start:retry_end]
+        self.assertIn('connectFrom(0, expectedStartId)', retry)
+        self.assertIn('if (stopping || expectedStartId != latestStartId) return;', retry)
+
+
+
+
+
+    def test_native_stop_request_cannot_cancel_a_newer_start(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private void requestStop(int startId)')
+        end = source.index('private boolean connectFrom(', start)
+        stop = source[start:end]
+        lifecycle = stop.index('synchronized (startLifecycleLock)')
+        stale_check = stop.index('if (startId != latestStartId)', lifecycle)
+        mutation = stop.index('latestStopRequestId = startId;', stale_check)
+        self.assertLess(lifecycle, stale_check)
+        self.assertLess(stale_check, mutation)
+        self.assertIn('ignoring stale stop request', stop)
+        self.assertLess(stale_check, stop.index('attemptSeq.incrementAndGet();'))
+
+
+    def test_native_timeout_generation_check_is_atomic_with_start_and_stop(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private boolean bringUpWithTimeout(')
+        end = source.index('private static void closeQuietly', start)
+        attempt = source[start:end]
+        lock = attempt.index('synchronized (startLifecycleLock)')
+        check = attempt.index('if (expectedStartId == latestStartId && !stopping)', lock)
+        increment = attempt.index('attemptSeq.incrementAndGet();', check)
+        self.assertLess(lock, check)
+        self.assertLess(check, increment)
+        self.assertIn('boolean timeoutOwned = false;', attempt)
+        self.assertIn('else if (stopping)', attempt)
+        self.assertIn('discarding superseded VPN attempt', attempt)
+
+
+    def test_superseded_native_start_does_not_wait_for_old_bringup_timeout(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertIn('private boolean bringUpWithTimeout(Srv s, int expectedStartId)', source)
+        start = source.index('private boolean bringUpWithTimeout(')
+        end = source.index('private static void closeQuietly', start)
+        attempt = source[start:end]
+        self.assertIn('expectedStartId != latestStartId', attempt)
+        self.assertIn('if (done[0]) {', attempt)
+        self.assertIn('return result[0] && !stopping && expectedStartId == latestStartId;', attempt)
+        self.assertIn('if (expectedStartId == latestStartId && !stopping)', attempt)
+        self.assertNotIn('attemptSeq.incrementAndGet();\n        if (stopping)', attempt)
+
+
+    def test_native_watchdog_and_delayed_retry_are_bound_to_their_start_generation(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private void checkOnce()')
+        end = source.index('private void rescheduleNormal()', start)
+        watchdog = source[start:end]
+        self.assertIn('final int healthStartId;', watchdog)
+        self.assertIn('healthStartId = latestStartId;', watchdog)
+        self.assertIn('if (latestStartId != healthStartId) return;', watchdog)
+
+        retry_start = source.index('private void retryWholeListLater()')
+        retry_end = source.index('private ProbeResult probeResult(', retry_start)
+        retry = source[retry_start:retry_end]
+        self.assertIn('final int retryStartId = latestStartId;', retry)
+        self.assertIn('final int retryAttempt = attemptSeq.get();', retry)
+        self.assertIn('retryWholeListNow(retryStartId, retryAttempt)', retry)
+        self.assertIn('private void retryWholeListNow(int expectedStartId, int expectedAttempt)', retry)
+        self.assertIn('expectedStartId != latestStartId', retry)
+        self.assertIn('expectedAttempt != attemptSeq.get()', retry)
+        flow_start = source.index('private void startFlow(')
+        flow_end = source.index('private void resumeSaved(', flow_start)
+        self.assertIn('retryWaiting = false;', source[flow_start:flow_end])
+
+
+    def test_native_watchdog_scheduler_cannot_be_resurrected_after_destroy(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertIn('private final Object schedulerLock = new Object();', source)
+        self.assertIn('private volatile boolean destroyed = false;', source)
+        destroy_start = source.index('public void onDestroy()')
+        destroy_end = source.index('private static String orEmpty', destroy_start)
+        destroy = source[destroy_start:destroy_end]
+        self.assertIn('synchronized (schedulerLock)', destroy)
+        self.assertIn('destroyed = true;', destroy)
+        self.assertLess(destroy.index('destroyed = true;'), destroy.index('scheduler = null;'))
+        schedule_start = source.index('private void scheduleTask(')
+        schedule_end = source.index('private void stopWatchdog()', schedule_start)
+        schedule = source[schedule_start:schedule_end]
+        self.assertIn('synchronized (schedulerLock)', schedule)
+        self.assertIn('if (destroyed || stopping) return;', schedule)
+        self.assertLess(schedule.index('if (destroyed || stopping) return;'),
+                        schedule.index('s.schedule(task, delaySec, TimeUnit.SECONDS)'))
+        stop_start = schedule_end
+        stop_end = source.index('private void checkOnce()', stop_start)
+        self.assertIn('synchronized (schedulerLock)', source[stop_start:stop_end])
+
+
+    def test_native_watchdog_requires_corroborated_domestic_evidence_and_mode_snapshot(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = service.index('private ProbeResult probeResult(boolean modeSnapshot)')
+        end = service.index('private ProbeResult probeOne(', start)
+        probe = service[start:end]
+        self.assertIn('int required = modeSnapshot ? 2 : 1;', probe)
+        self.assertIn('passed >= required', probe)
+        self.assertIn('DOMESTIC_PROBE_URLS', probe)
+        watchdog = service[service.index('private void checkOnce()'):start]
+        self.assertIn('final boolean modeSnapshot = nationalMode;', watchdog)
+        self.assertIn('probeResult(modeSnapshot)', watchdog)
+        self.assertIn('if (nationalMode != modeSnapshot)', watchdog)
+        self.assertIn('rescheduleNormal();', watchdog)
+
+    def test_national_tunnel_acceptance_requires_multiple_independent_destinations(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> _tunnelTrafficOk()')
+        end = source.index('Future<bool> _stableTunnelTrafficOk', start)
+        body = source[start:end]
+        self.assertIn('Future.wait(urls.map', body)
+        self.assertIn('final required = modeSnapshot ? 2 : 1;', body)
+        self.assertIn('nationalMode != modeSnapshot', body)
+        self.assertIn('return passed >= required;', body)
+        self.assertNotIn('if (ok) return true;', body)
+
+    def test_nat_variant_winner_is_provisional_until_real_tunnel_confirmation(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        delay_start = main.index('Future<int?> _delayOf(')
+        delay_end = main.index('bool _lastDelayTimedOut', delay_start)
+        delay = main[delay_start:delay_end]
+        self.assertIn('natVarCandidateSet(s, v);', delay)
+        self.assertNotIn('natVarSet(s, v);', delay)
+        self.assertIn('void natVarCandidateConfirm(Server s)', nat)
+        self.assertIn('void natVarCandidateDiscard(Server s)', nat)
+        connect_start = main.index('Future<bool> _connectLoop(')
+        connect_end = main.index('Future<void> _measureCurrent(', connect_start)
+        connect = main[connect_start:connect_end]
+        self.assertIn('if (!tunOk)', connect)
+        self.assertIn('natVarCandidateDiscard(s);', connect)
+        self.assertIn('natVarCandidateConfirm(s);', connect)
+        self.assertLess(connect.index('natVarCandidateConfirm(s);'),
+                        connect.index("dbg('اتصال: ${s.name} ترافیک تونل OK"))
+        connected_start = main.index('void _onConnected(Server s)')
+        connected_end = main.index('Future<void> _', connected_start)
+        self.assertNotIn('natVarCandidateConfirm(s);', main[connected_start:connected_end])
+        self.assertIn('natVarCandidates[_nk(s)] ?? natVar[_nk(s)]', nat)
+
+    def test_front_sni_candidates_are_hostnames_and_all_matrix_indices_are_valid(self):
+        nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn("'1.1.1.1'", nip)
+        self.assertIn('const [0, 2, 3, 6][sniIdx]', nat)
+        self.assertIn("_NatSpec('SNI>divar.ir', sniSwap: 6)", nat)
+        self.assertIn('if (sniIdx < 0 || sniIdx >= natFrontSnis.length) return cfg;', nat)
+
     def test_automatic_scan_is_not_a_subnet_or_all_port_sweep(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = nat.index('List<String> natSeedBlocks(')
@@ -79,10 +302,27 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('natIrDomains', domain_scan)
         self.assertNotIn('for (var p = 1; p < 65536; p++)', domain_scan)
 
+    def test_reliable_config_applies_route_only_preference_to_all_inbounds(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('String _reliableVpnCfg(String cfg)')
+        end = main.index('// completes when the VPN tunnel reports CONNECTED', start)
+        builder = main[start:end]
+        self.assertIn("sniffing['routeOnly'] = routeOnly;", builder)
+        self.assertEqual(builder.count("'routeOnly': routeOnly"), 2)
+        self.assertNotIn("'routeOnly': true", builder)
+
+    def test_connection_fallback_keeps_plain_config_unmodified(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('final cfgTries = <String>[')
+        end = main.index('var usedFallback = false;', start)
+        candidates = main[start:end]
+        self.assertIn('.map((c) => withErrLog(sanitizeCfg(c))).toList();', candidates)
+        self.assertNotIn('withIranRouting(withNpvAmCore(c))', candidates)
+
     def test_connect_path_uses_mode_aware_tunnel_probe(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn('networkAware: true', main)
-        self.assertIn('final urls = nationalMode ? _tunnelTestUrlsNational', main)
+        self.assertIn('final urls = modeSnapshot ? _tunnelTestUrlsNational', main)
 
     def test_code_changes_are_pinned_to_the_official_repository(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
@@ -138,6 +378,43 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('await _storage.write(key: _verifierKey, value: oldVerifier);', rotation)
         self.assertIn('Owner credential storage is incomplete', rotation)
 
+    def test_owner_lock_invalidates_in_flight_authentication_and_password_rotation(self):
+        auth = (ROOT / 'lib' / 'king_ai_owner_auth.dart').read_text(encoding='utf-8')
+        self.assertIn('int _sessionGeneration = 0;', auth)
+        lock_start = auth.index('void lock()')
+        lock_end = auth.index('Future<void> _requireRepositoryOwnerIdentity()', lock_start)
+        self.assertIn('_sessionGeneration++;', auth[lock_start:lock_end])
+        for signature, end_marker in [
+            ('Future<void> setInitialPassword(', '/// Password changes'),
+            ('Future<void> changePassword(', 'Future<bool> authenticate('),
+            ('Future<bool> authenticate(', 'void lock()'),
+        ]:
+            start = auth.index(signature)
+            end = auth.index(end_marker, start)
+            method = auth[start:end]
+            self.assertIn('final sessionGeneration = _sessionGeneration;', method)
+            if signature.startswith('Future<bool> authenticate'):
+                self.assertIn('if (sessionGeneration != _sessionGeneration) return false;', method)
+            else:
+                self.assertIn('sessionGeneration == _sessionGeneration', method)
+
+        enrollment = auth[auth.index('Future<void> setInitialPassword('):auth.index('/// Password changes')]
+        rotation = auth[auth.index('Future<void> changePassword('):auth.index('Future<bool> authenticate(')]
+        self.assertIn('Owner enrollment was cancelled by app backgrounding.', enrollment)
+        self.assertIn('Owner password change was cancelled by app backgrounding.', rotation)
+        self.assertIn('await _storage.delete(key: _saltKey);', enrollment)
+        self.assertIn('await _storage.write(key: _saltKey, value: oldSalt);', rotation)
+
+    def test_owner_auth_rejects_corrupt_or_truncated_stored_credentials(self):
+        auth = (ROOT / 'lib' / 'king_ai_owner_auth.dart').read_text(encoding='utf-8')
+        start = auth.index('Future<bool> authenticate(String password)')
+        end = auth.index('void lock()', start)
+        authenticate = auth[start:end]
+        self.assertIn('on FormatException', authenticate)
+        self.assertIn('salt.length != 16 || expected.length != 32', authenticate)
+        self.assertIn('_sessionClock = null;', authenticate)
+        self.assertIn('return false;', authenticate)
+
     def test_local_model_prompt_uses_real_chat_template_newlines(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
         start = ai.index('final generation = engine.generate(', ai.index('Future<String> _generateWithSystemPrompt'))
@@ -190,8 +467,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         for phrase in ('کد رو اصلاح', 'سورس رو تغییر', 'برنامه را تغییر', 'قابلیت بساز'):
             self.assertIn(phrase, ai)
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
-        code_start = main.index('final codeRequest = !KingCommandSafety.isQuestionRequest(command) && RegExp(')
-        code_end = main.index(').hasMatch(command);', code_start)
+        code_start = main.index('final codeRequest = projectRequest || (!KingCommandSafety.isQuestionRequest(command) && RegExp(')
+        code_end = main.index(').hasMatch(command));', code_start)
         self.assertIn('کدشو بنویس', main[code_start:code_end])
         self.assertIn('قابلیت اضافه', main[code_start:code_end])
         self.assertIn('!KingCommandSafety.isQuestionRequest(command)', main[code_start:code_end])
@@ -332,7 +609,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_national_network_optimization_requests_enter_owner_code_flow(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn("r'(نت ملی|اینترنت ایران).{0,40}(بهینه|ارتقا|بروز|به روز|خودکار|هوشمند|توسعه|تقویت).{0,12}(کن|کنید|بده|بساز)|'", main)
-        self.assertIn("KingAiConsolePage(initialFeatureRequest: command", main)
+        self.assertIn("initialFeatureRequest: projectRequest ? null : command", main)
 
     def test_daily_autonomous_source_audit_is_owner_enabled_and_review_only(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
@@ -540,7 +817,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("import 'king_ai_console.dart';", main)
         self.assertIn("import 'king_ai_owner_auth.dart';", main)
         self.assertIn('const KingAiConsolePage()', main)
-        self.assertIn('final codeRequest = !KingCommandSafety.isQuestionRequest(command) && RegExp(', main)
+        self.assertIn('final codeRequest = projectRequest || (!KingCommandSafety.isQuestionRequest(command) && RegExp(', main)
         self.assertIn('if (codeRequest)', main)
         self.assertIn('KingAiOwnerAuth.instance.lock()', main)
         self.assertIn('KingAiOwnerAuth.instance.hasActiveSession', extras)
@@ -614,7 +891,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('natRanges', pilot_scan)
         self.assertNotIn('abort', pilot_scan)
         self.assertIn('_pilotRangeCancelRequested', pilot_scan)
-        self.assertIn('Socket.connect(host, 443', pilot_scan)
+        self.assertIn('InternetAddress.tryParse(host)', pilot_scan)
+        self.assertIn('address.type != InternetAddressType.IPv4', pilot_scan)
+        self.assertIn('address.type != InternetAddressType.IPv6', pilot_scan)
+        self.assertIn('Socket.connect(address, 443', pilot_scan)
         self.assertIn('_pilotRangesDialog(context)', main)
         self.assertIn('_pilotScanOnly()', main)
         self.assertIn('_smartCountryCode(command)', main)
@@ -698,8 +978,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_national_runtime_optimization_is_not_misclassified_as_code(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
-        start = main.index('final codeRequest = !KingCommandSafety.isQuestionRequest(command) && RegExp(')
-        end = main.index(').hasMatch(command);', start)
+        start = main.index('final codeRequest = projectRequest || (!KingCommandSafety.isQuestionRequest(command) && RegExp(')
+        end = main.index(').hasMatch(command));', start)
         code_request = main[start:end]
         self.assertIn('(کل اپ|کل برنامه|کل پروژه)', code_request)
         self.assertIn('قابلیت.{0,12}(اضافه کن|بساز|ایجاد کن)', code_request)
@@ -711,7 +991,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         voice = (ROOT / 'lib' / 'king_voice_output.dart').read_text(encoding='utf-8')
         self.assertIn('if (voiceResponse) await _speakSmartCommandResponse(voiceReply ?? status)', main)
         self.assertIn('onChanged: (_) => _smartSpeechVoiceInput = false', main)
-        self.assertIn('initialFeatureRequest: command', main)
+        self.assertIn('initialFeatureRequest: projectRequest ? null : command', main)
         self.assertIn('speakResponses: voiceResponse', main)
         self.assertIn('widget.initialFeatureRequest', console)
         self.assertIn('widget.speakResponses', console)
@@ -995,11 +1275,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         national = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn('Future<bool> Function() verifyStableTraffic', national)
-        self.assertIn('if (await verifyStableTraffic()) await recordStable(endpointKey);', national)
+        self.assertIn('if (await verifyStableTraffic()) {', national)
+        self.assertIn('await recordStable(endpointKey, stillValid: stillValid);', national)
+        stable_record_start = national.index('static Future<void> recordStable(')
+        stable_record_end = national.index('static Future<void> _save()', stable_record_start)
+        stable_record = national[stable_record_start:stable_record_end]
+        self.assertIn('await load();', stable_record)
+        self.assertIn('if (stillValid != null && !stillValid()) return;', stable_record)
         self.assertIn('Future<bool> _stableTunnelTrafficOk(Server server)', main)
         self.assertIn('_siteOpens(url, viaCore: true)', main)
         self.assertIn('passed >= 2', main)
-        self.assertIn('() => _stableTunnelTrafficOk(s)', main)
+        stable_start = main.index('final nnieGeneration = _connGen;')
+        stable_end = main.index('if (mounted) setState(() {})', stable_start)
+        stable_probe = main[stable_start:stable_end]
+        self.assertIn('NationalNetworkIntelligence.armStable(', stable_probe)
+        self.assertIn('final trafficOk = await _stableTunnelTrafficOk(s);', stable_probe)
+        self.assertIn('return trafficOk &&', stable_probe)
+        post_probe = stable_probe.index('final trafficOk = await _stableTunnelTrafficOk(s);')
+        self.assertGreater(stable_probe.index('nnieGeneration == _connGen', post_probe),
+                           post_probe)
+        self.assertIn('identical(s, current)', stable_probe)
 
 
     def test_every_privileged_code_operation_requires_fresh_owner_proof(self):
@@ -1200,6 +1495,45 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertEqual(local.count('engine.generate('), 2)
         self.assertNotIn("if (_busy) throw StateError('Local AI is already generating');", local)
 
+    def test_local_chat_turns_and_memory_clear_are_serialized_as_one_transaction(self):
+        local = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        self.assertIn('Future<void> _conversationQueue = Future<void>.value();', local)
+        self.assertIn('Future<T> _runSerializedConversation<T>', local)
+        ask_start = local.index('Future<String> ask(String prompt,')
+        ask_end = local.index('Future<String> _askConversationTurn(', ask_start)
+        public_ask = local[ask_start:ask_end]
+        self.assertIn('_runSerializedConversation(() => _askConversationTurn(', public_ask)
+        turn_start = ask_end
+        turn_end = local.index('/// Private coding entry point.', turn_start)
+        turn = local[turn_start:turn_end]
+        self.assertLess(turn.index('await _loadConversationMemory();'), turn.index('final history ='))
+        self.assertLess(turn.index('await _saveConversationMemory();'), turn.index('return answer;'))
+        clear_start = local.index('Future<void> clearConversationMemory()')
+        clear_end = local.index('bool _needsLiveResearch(', clear_start)
+        clear = local[clear_start:clear_end]
+        self.assertIn('_runSerializedConversation(() async {', clear)
+        self.assertIn('_conversationTurns.clear();', clear)
+
+    def test_local_model_download_uses_the_shared_lifecycle_guard(self):
+        local = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        download_start = local.index('Future<String> downloadModel(')
+        download_end = local.index('Future<String> _downloadModelUnlocked(', download_start)
+        download = local[download_start:download_end]
+        self.assertIn("if (_busy) throw StateError('Local AI is already busy');", download)
+        self.assertLess(download.index('_busy = true;'), download.index('_downloadModelUnlocked('))
+        self.assertIn('finally {', download)
+        self.assertIn('_busy = false;', download)
+        unlocked_start = download_end
+        unlocked_end = local.index('Future<void> loadModel(', unlocked_start)
+        unlocked = local[unlocked_start:unlocked_end]
+        self.assertIn('await manager.init();', unlocked)
+        load_start = unlocked_end
+        load_end = local.index('Future<String> askPilot(', load_start)
+        loader = local[load_start:load_end]
+        self.assertIn('_busy = true;', loader)
+        self.assertIn('_downloadModelUnlocked(onProgress: onProgress)', loader)
+        self.assertNotIn('downloadModel(onProgress: onProgress)', loader)
+
 
     def test_check_host_inputs_are_validated_and_query_encoded(self):
         source = (ROOT / 'lib' / 'king_extras2.dart').read_text(encoding='utf-8')
@@ -1285,6 +1619,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Future<void> _natHotEnsureImpl({bool force = false}) async', source)
         self.assertIn('final seenKeys = <String>{};', source)
         self.assertIn('if (!seenKeys.add(cfg)) continue;', source)
+        impl_start = source.index('Future<void> _natHotEnsureImpl({bool force = false}) async')
+        impl_end = source.index('bool natHotReady()', impl_start)
+        refresh = source[impl_start:impl_end]
+        cleanup = refresh.index('for (final path in [...parts, extraPath])')
+        fetch = refresh.index('await pool<int>')
+        self.assertLess(cleanup, fetch)
+        self.assertIn('final stalePart = File(path);', refresh[cleanup:fetch])
+        self.assertIn('await stalePart.delete();', refresh[cleanup:fetch])
+        self.assertIn('if (await stalePart.exists()) rethrow;', refresh[cleanup:fetch])
         fill_start = source.index('Future<void> hotAutoFill() async')
         fill_end = source.index('Future<void> hotAutoStart()', fill_start)
         self.assertNotIn('manageExternalStorage', source[fill_start:fill_end])
@@ -1303,7 +1646,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('P1-31 proxy foreground before core startup', patch)
         self.assertIn("'P1-28 ' + svc_name + ' STOP always cleans up service'", patch)
         self.assertIn('P1-30 VPN revoke always releases TUN/service', patch)
-        self.assertIn("src.replace('this.onDestroy();', 'stopAllProcess();')", patch)
+        self.assertIn("src.replace('this.onDestroy();', 'stopCoreAndReleaseService();')", patch)
+        self.assertIn('P1-39 stop native core before invalid-start TUN cleanup', patch)
+        self.assertIn('Failed to stop core before releasing TUN', patch)
+        self.assertIn('Failed to stop core before service cleanup', patch)
         self.assertIn('refusing to start core', patch)
 
         promote_start = patch.index('public boolean promoteForStop(Service service)')
@@ -1355,40 +1701,45 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Build.VERSION.SDK_INT >= Build.VERSION_CODES.O', service)
         stop = service[service.index('if (ACTION_STOP.equals(action))'):
                        service.index('if (!ACTION_START.equals(action))')]
-        self.assertLess(stop.index('startForegroundSafe('), stop.index('requestStop()'))
+        self.assertLess(stop.index('startForegroundSafe('), stop.index('requestStop(startId)'))
 
     def test_vpn_service_promotes_before_queuing_sticky_restart_or_stop(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = service.index('public int onStartCommand(Intent intent')
         end = service.index('/** Runs a task on the single worker thread', start)
         command = service[start:end]
-        restart = command[command.index('if (intent == null)'):command.index('String action = intent.getAction()')]
+        restart = command[command.index('if (intent == null)'):command.index('if (ACTION_STOP.equals(action))')]
         stop = command[command.index('if (ACTION_STOP.equals(action))'):command.index('if (!ACTION_START.equals(action))')]
-        self.assertLess(restart.index('startForegroundSafe('), restart.index('submit(this::resumeSaved)'))
-        self.assertLess(stop.index('startForegroundSafe('), stop.index('submit(this::stopEverything)'))
+        self.assertLess(restart.index('startForegroundSafe('), restart.index('submit(() -> resumeSaved(startId))'))
+        self.assertLess(stop.index('startForegroundSafe('), stop.index('submit(() -> stopEverything(startId))'))
 
     def test_vpn_service_refuses_start_when_foreground_promotion_fails(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = service.index('public int onStartCommand(Intent intent')
         end = service.index('/** Runs a task on the single worker thread', start)
         command = service[start:end]
-        restart = command[command.index('if (intent == null)'):command.index('String action = intent.getAction()')]
+        restart = command[command.index('if (intent == null)'):command.index('if (ACTION_STOP.equals(action))')]
         action_start = command[command.index('if (!ACTION_START.equals(action))'):]
 
         self.assertIn('private boolean startForegroundSafe(String remark)', service)
         self.assertIn('private boolean updateNotification(String text)', service)
         self.assertIn('return true;', service[service.index('private boolean updateNotification'):])
         self.assertIn('return false;', service[service.index('private boolean updateNotification'):])
-        self.assertLess(restart.index('if (!startForegroundSafe('), restart.index('submit(this::resumeSaved)'))
-        self.assertIn('requestStop();', restart)
-        self.assertIn('submit(this::stopEverything);', restart)
+        self.assertLess(restart.index('if (!startForegroundSafe('), restart.index('submit(() -> resumeSaved(startId))'))
+        self.assertIn('requestStop(startId);', restart)
+        self.assertIn('submit(() -> stopEverything(startId));', restart)
         self.assertLess(action_start.index('if (!startForegroundSafe(first.remark))'),
-                        action_start.index('submit(() -> startFlow(first, backups, attempt))'))
+                        action_start.index('submit(() -> startFlow(first, backups, attempt, startId))'))
         failure = action_start[action_start.index('if (!startForegroundSafe(first.remark))'):
                                action_start.index('final int attempt = activeAttemptId')]
         self.assertIn('emit("FAILED", lastError, activeAttemptId);', failure)
         self.assertIn('return START_NOT_STICKY;', failure)
         self.assertIn('Unable to enter foreground mode', failure)
+        empty_config = action_start[action_start.index('if (json == null || json.isEmpty())'):
+                                    action_start.index('Srv first = new Srv(')]
+        self.assertIn('submit(() -> stopEverything(startId));', empty_config)
+        self.assertNotIn('submit(this::stopEverything);', action_start)
+
 
 
     def test_vpn_service_serializes_worker_submission_and_shutdown(self):
@@ -1416,13 +1767,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = service.index('private void checkOnce()')
         end = service.index('private void rescheduleNormal()', start)
         watchdog = service[start:end]
-        self.assertIn('try {', watchdog)
-        self.assertIn('coreUp = core.isV2rayCoreRunning();', watchdog)
-        self.assertIn('catch (Throwable stateError)', watchdog)
-        self.assertIn('retaining current tunnel', watchdog)
+        self.assertIn('readCoreRunningWithWatchdog(core, "health-watchdog-state")', watchdog)
+        self.assertIn('if (coreState == null)', watchdog)
+        self.assertIn('Unknown native state is not evidence of a broken tunnel.', watchdog)
         self.assertIn('if (active && !stopping) rescheduleNormal();', watchdog)
-        self.assertLess(watchdog.index('catch (Throwable stateError)'),
-                        watchdog.index('ProbeResult pr = coreUp ? probeResult()'))
+        self.assertLess(watchdog.index('if (coreState == null)'),
+                        watchdog.index('ProbeResult pr = coreUp ? probeResult(modeSnapshot)'))
 
     def test_vpn_service_defers_tun_close_until_native_stop_is_verified(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
@@ -1430,14 +1780,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = service.index('/**\n     * Worker-side start of one attempt.', start)
         stop = service[start:end]
         self.assertIn('closeTunAfterCoreStop = true;', stop)
-        self.assertGreaterEqual(stop.count('core.isV2rayCoreRunning()'), 3)
-        self.assertIn('if (!stillRunning && closeTunAfterCoreStop)', stop)
+        self.assertEqual(stop.count('core.isV2rayCoreRunning()'), 1)
+        self.assertIn('readCoreRunningWithWatchdog(core, "stopCore-preflight")', stop)
+        self.assertIn('boolean verified = false;', stop)
+        self.assertIn('verified = !stillRunning;', stop)
+        self.assertIn('if (verified && closeTunAfterCoreStop)', stop)
+        self.assertIn('else if (!verified || stillRunning)', stop)
         self.assertIn('native core remains running; retaining TUN', stop)
         self.assertIn('could not verify native core stop; retaining TUN', stop)
-        self.assertIn('could not read core state before stop', stop)
-        self.assertIn('could not verify native core stop', stop)
-        self.assertLess(stop.index('core.stopCore();'), stop.index('if (!stillRunning && closeTunAfterCoreStop)'))
-        self.assertLess(stop.index('if (coreStopping)'), stop.index('final boolean running;'))
+        self.assertLess(stop.index('core.stopCore();'), stop.index('verified = !stillRunning;'))
+        self.assertLess(stop.index('endNative();'), stop.index('coreStopping = false;'))
+        self.assertLess(stop.index('if (coreStopping)'), stop.index('final Boolean runningState'))
 
     def test_android_backup_excludes_vpn_credentials_and_local_ai_secrets(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
@@ -1527,6 +1880,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         for source in (build, release, orchestrator):
             self.assertIn('webview_flutter', source)
+        self.assertIn('package_info_plus', build)
+        self.assertIn('package_info_plus', release)
+        self.assertIn('package_info_plus', orchestrator)
+        self.assertIn("CGO_LDFLAGS", orchestrator)
+        self.assertIn("max-page-size=16384", orchestrator)
+        self.assertIn("'--release'", orchestrator)
+        self.assertIn("'--obfuscate'", orchestrator)
+        self.assertIn("'--split-per-abi'", orchestrator)
         self.assertNotIn('abiFilters += listOf', prepare)
         self.assertNotIn('abiFilters "arm64-v8a"', prepare)
         self.assertNotIn('armeabi-v7a', prepare)
@@ -1555,6 +1916,41 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             self.assertIn(condition, keep)
         self.assertIn('Do not publish stale discoveries after the tunnel/pilot stops.', keep)
 
+
+    def test_nat_ip_memory_cache_is_validated_deduplicated_and_capped(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = nat.index('Future<void> natIpMemLoad() async {')
+        end = nat.index('const String _domMemKey', start)
+        loader = nat[start:end]
+        self.assertIn('decoded.take(_ipMemMax * 4)', loader)
+        self.assertIn('address.type != InternetAddressType.IPv4', loader)
+        self.assertIn('port < 1', loader)
+        self.assertIn('port > 65535', loader)
+        self.assertIn('timestamp < cutoff', loader)
+        self.assertIn('if (!seen.add(key)) continue;', loader)
+        self.assertIn('if (natIpMem.length >= _ipMemMax) break;', loader)
+        self.assertIn('await p.setString(_ipMemKey, jsonEncode(natIpMem));', loader)
+        self.assertIn('final decoded = jsonDecode(raw);', loader)
+        self.assertIn('catch (e, stk)', loader)
+
+    def test_configured_nat_ranges_are_normalized_and_sync_expansion_is_bounded(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        normalize_start = nat.index('List<String> _natNormalizeConfiguredRanges(')
+        normalize_end = nat.index("/// Next bounded sample", normalize_start)
+        normalize = nat[normalize_start:normalize_end]
+        self.assertIn('InternetAddressType.IPv4', normalize)
+        self.assertIn('prefix < 8', normalize)
+        self.assertIn('prefix > 32', normalize)
+        self.assertIn('if (out.length >= 128) break;', normalize)
+        self.assertIn('_natNormalizeConfiguredRanges(', nat[nat.index('Future<void> natRangesSave'):])
+        self.assertIn("RegExp(r'[\\r\\n,; ]+')", nat[nat.index('Future<void> natRangesSave'):])
+        self.assertIn("natRanges.join('\\n')", nat[nat.index('Future<void> natRangesSave'):])
+        batch_start = nat.index('({List<String> addresses, int nextCursor}) _natConfiguredRangeBatch(')
+        batch_end = nat.index('Future<void> natRangesSave(', batch_start)
+        batch = nat[batch_start:batch_end]
+        self.assertIn('final candidateCap = min(limit * 4, 131072);', batch)
+        self.assertIn('min(1024, remaining)', batch)
+        self.assertIn('natRanges.take(128)', batch)
 
     def test_nat_range_scan_discards_cancelled_batches_without_advancing_cursors(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
@@ -2124,7 +2520,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_opening_ip_auto_sheet_does_not_clear_active_scan_cancellation(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         sheet = source.index('Future<void> ipAutoSheet(BuildContext ctx0) async {')
-        load = source.index('await ipAutoLoad();', sheet)
+        load = source.index('await ipAutoLoad(skipIfBusy: true);', sheet)
         mounted = source.index('if (!ctx0.mounted) return;', load)
         start_scan = source.index('Future<void> start() async {', mounted)
         reset = source.index('ipAutoStopFlag = false;', start_scan)
@@ -2147,6 +2543,32 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(reset, close)
         self.assertNotIn('if (!nationalMode) ipAutoStopFlag = true;', body)
 
+
+    def test_nat_cidr_expansion_supports_bounded_ipv6_with_bigint(self):
+        source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        self.assertIn('return natExpandIpv6Cidr(cidr, maxPerBlock: limit);', source)
+        self.assertIn('List<String> natExpandIpv6Cidr(', source)
+        self.assertIn('InternetAddressType.IPv6', source)
+        self.assertIn('BigInt.one << hostBits', source)
+        self.assertIn('final limit = min(maxPerBlock, 65536);', source)
+        self.assertIn('InternetAddress.fromRawAddress(', source)
+
+    def test_nat_ip_scan_uses_ip_literals_without_system_dns(self):
+        scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        parse_start = scan.index('InternetAddress? _natParseIpLiteral(')
+        probe_start = scan.index('Future<int?> natTcpProbe(', parse_start)
+        probe_end = scan.index('/// Clamp a user-supplied', probe_start)
+        parser = scan[parse_start:probe_start]
+        probe = scan[probe_start:probe_end]
+        self.assertIn('InternetAddress.tryParse(value.trim())', parser)
+        self.assertIn('InternetAddressType.IPv4', parser)
+        self.assertIn('InternetAddressType.IPv6', parser)
+        self.assertIn('Socket.connect(address, port, timeout: timeout)', probe)
+        self.assertNotIn('Socket.connect(ip, port', probe)
+        scan_start = scan.index('Future<List<NatIpHit>> natScanIps(')
+        scan_body = scan[scan_start:]
+        self.assertIn('_natParseIpLiteral(raw)', scan_body)
+        self.assertIn('seen.add(address.address)', scan_body)
 
     def test_ip_range_expanders_reject_non_positive_limits(self):
         scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
@@ -2179,8 +2601,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_ip_auto_storage_load_and_save_are_mode_isolated_across_awaits(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        load_start = source.index('Future<void> ipAutoLoad() async {')
-        save_start = source.index('Future<void> _ipAutoSave() async {', load_start)
+        load_start = source.index('Future<void> ipAutoLoad({bool skipIfBusy = false}) async {')
+        save_start = source.index('Future<bool> _ipAutoSave() async {', load_start)
         load = source[load_start:save_start]
         save_end = source.index('/// خودکار فقط IPهای دقیق', save_start)
         save = source[save_start:save_end]
@@ -2217,19 +2639,106 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(save, unlock)
         self.assertIn('if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode))', body)
 
-    def test_ip_auto_address_generation_does_not_commit_after_stop(self):
+    def test_ip_auto_address_generation_stages_cursors_until_full_scan_succeeds(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        start = source.index('Future<List<String>> _ipAutoNextAddrs(')
+        start = source.index('Future<_IpAutoAddressBatch?> _ipAutoNextAddrs(')
         end = source.index('extension IpAutoExt', start)
         body = source[start:end]
         compute = body.index('await compute(_genAddrsIso, args)')
         abort = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
-        cursor_mutation = body.index('ipAutoCursors\n    ..clear()')
-        position_mutation = body.index('ipAutoPos = start + slice.length;')
         self.assertLess(compute, abort)
-        self.assertLess(abort, cursor_mutation)
-        self.assertLess(abort, position_mutation)
-        self.assertIn('bool Function()? shouldAbort', body)
+        self.assertNotIn('..clear()', body)
+        self.assertNotIn('ipAutoPos =', body)
+        self.assertIn('return _IpAutoAddressBatch(', body)
+
+    def test_ip_auto_commits_address_cursors_only_after_uncancelled_scan(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> _ipAutoRunOnce(')
+        end = source.index('Future<void> ipAutoSheet(', start)
+        body = source[start:end]
+        completion = body.rindex("if (halted()) {")
+        commit = body.index('ipAutoCursors', completion)
+        position = body.index('ipAutoPos = addressBatch.nextPosition;', completion)
+        self.assertLess(completion, commit)
+        self.assertLess(commit, position)
+        self.assertIn('addressBatch.cursors', body)
+        self.assertIn('addressBatch.nextPosition', body)
+
+    def test_ip_auto_save_treats_legacy_mirrors_as_best_effort_after_atomic_commit(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> _ipAutoSave()')
+        end = source.index('/// خودکار فقط IPهای دقیق', start)
+        save = source[start:end]
+        primary = save.index("await p.setString(stateKey, jsonEncode(checkpoint))")
+        mirror_try = save.index('try {', primary)
+        mirror_write = save.index("await p.setString(hitsKey")
+        self.assertIn(r"hits.join('\n')", save)
+        self.assertIn(r"pending.join('\n')", save)
+        self.assertNotIn(r"pending.join('\\n')", save)
+        mirror_catch = save.index('} catch (e, stk)', mirror_write)
+        success = save.index('return true;', mirror_catch)
+        self.assertLess(primary, mirror_try)
+        self.assertLess(mirror_try, mirror_write)
+        self.assertLess(mirror_write, mirror_catch)
+        self.assertLess(mirror_catch, success)
+
+    def test_ip_auto_scan_rolls_back_advanced_cursor_when_atomic_checkpoint_fails(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> _ipAutoRunOnce(')
+        end = source.index('Future<void> ipAutoSheet(', start)
+        scan = source[start:end]
+        self.assertIn('final previousPending = List<String>.of(ipAutoPendingCore);', scan)
+        self.assertIn('final previousCursors = Map<String, int>.of(ipAutoCursors);', scan)
+        self.assertIn('final previousPosition = ipAutoPos;', scan)
+        self.assertIn('final checkpointSaved = await _ipAutoSave();', scan)
+        failure = scan.index('if (!checkpointSaved)')
+        self.assertLess(failure, scan.index('ipAutoPos = previousPosition;', failure))
+        self.assertIn('ipAutoCursors\n            ..clear()\n            ..addAll(previousCursors);', scan)
+
+    def test_hot_cache_fetch_uses_operation_local_cancellation(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        pool_start = main.index('Future<void> pool<T>(')
+        pool_end = main.index('// FIXTUNNEL:', pool_start)
+        pool = main[pool_start:pool_end]
+        self.assertIn('{bool Function()? shouldStop}', pool)
+        self.assertIn('(shouldStop?.call() ?? poolStop)', pool)
+
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> _natHotEnsureImpl(')
+        end = source.index('bool natHotReady()', start)
+        refresh = source[start:end]
+        self.assertIn('shouldStop: () => sw.elapsed > natHotFetchDeadline', refresh)
+
+    def test_national_hot_source_reads_and_rebuilds_share_one_serial_queue(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn('Future<void> _hotIoQueue = Future<void>.value();', source)
+        self.assertIn('Future<T> _hotSerialize<T>(Future<T> Function() action)', source)
+        ensure_start = source.index('Future<void> natHotEnsure({bool force = false})')
+        ensure_end = source.index('Future<void> _natHotEnsureImpl(', ensure_start)
+        ensure = source[ensure_start:ensure_end]
+        self.assertIn('_hotSerialize<void>(() => _natHotEnsureImpl(force: force))', ensure)
+        next_start = source.index('Future<List<Server>> natHotNext(')
+        impl_start = source.index('Future<List<Server>> _natHotNextImpl(', next_start)
+        next_wrapper = source[next_start:impl_start]
+        self.assertIn('_hotSerialize<List<Server>>(', next_wrapper)
+        impl_end = source.index('const String kNatMemKey', impl_start)
+        impl = source[impl_start:impl_end]
+        self.assertIn('return await _natHotNextImpl(n, fetch: false, retried: true);', impl)
+        self.assertNotIn('return natHotNext(', impl)
+
+
+    def test_national_hot_source_forced_refresh_is_not_swallowed_by_active_refresh(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        ensure_start = source.index('Future<void> natHotEnsure({bool force = false})')
+        ensure_end = source.index('Future<void> _natHotEnsureImpl(', ensure_start)
+        ensure = source[ensure_start:ensure_end]
+        self.assertIn('bool _hotEnsureRunningForce = false;', source)
+        self.assertIn('final activeWasForced = _hotEnsureRunningForce;', ensure)
+        self.assertIn('if (force && !activeWasForced)', ensure)
+        self.assertIn('await natHotEnsure(force: true);', ensure)
+        self.assertIn('_hotEnsureRunningForce = force;', ensure)
+        self.assertIn('_hotEnsureRunningForce = false;', ensure)
+
 
     def test_ip_auto_scan_aborts_when_network_mode_changes_mid_run(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
@@ -2254,8 +2763,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         dns_unlock = body.index('dnsxManualBusy = false;')
         self.assertLess(save, ip_unlock)
         self.assertLess(save, dns_unlock)
-        self.assertIn('await ipAutoLoad();', body)
-        self.assertIn('_ipAutoHalt(modeSnapshot: runNationalMode)', body)
+        self.assertIn('await ipAutoLoad(skipIfBusy: true);', body)
+        load = body.index('await ipAutoLoad(skipIfBusy: true);')
+        lock = body.index('ipAutoBusy = true;')
+        run = body.index('await _ipAutoRunOnce(')
+        self.assertLess(load, lock)
+        self.assertLess(lock, run)
+        self.assertIn('final retryWhy = _ipAutoRefusal();', body)
+        self.assertIn('nationalMode != runNationalMode', body)
 
     def test_nat_ip_scan_uses_monotonic_budget_and_integer_concurrency(self):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
@@ -2448,7 +2963,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_ip_auto_address_generation_does_not_apply_stale_mode_cursors(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        start = source.index('Future<List<String>> _ipAutoNextAddrs(')
+        start = source.index('Future<_IpAutoAddressBatch?> _ipAutoNextAddrs(')
         end = source.index('extension IpAutoExt', start)
         body = source[start:end]
         mode = body.index('final modeSnapshot = nationalMode;')
@@ -2456,20 +2971,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         cursors = body.index('final cursorSnapshot = Map<String, int>.of(ipAutoCursors);')
         compute = body.index('await compute(_genAddrsIso, args)')
         guard = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
-        mutation = body.index('ipAutoCursors\n    ..clear()')
         generated = body.index("final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);")
-        update_pos = body.index('ipAutoPos = start + slice.length;')
         self.assertLess(mode, compute)
         self.assertLess(position, compute)
         self.assertLess(cursors, compute)
         self.assertLess(compute, guard)
         self.assertLess(guard, generated)
-        self.assertLess(generated, mutation)
-        self.assertIn("'nationalMode': modeSnapshot", body)
-        self.assertIn('final start = startPosSnapshot % all.length;', body)
-        self.assertLess(mutation, update_pos)
-
-
+        self.assertNotIn('..clear()', body)
+        self.assertNotIn('ipAutoPos =', body)
+        self.assertIn('return _IpAutoAddressBatch(', body)
 
     def test_auto_scan_dialog_close_requests_cancellation(self):
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
@@ -2672,6 +3182,1095 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         save = sheet.index('goldAddDns(r, shouldAbort: () => stopFlag || !sheetOpen)', guard)
         self.assertLess(scan, guard)
         self.assertLess(guard, save)
+
+
+    def test_network_diagnosis_discards_evidence_when_interface_changes_mid_probe(self):
+        source = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        diagnosis_start = source.index('class NatNetworkDiagnosis')
+        pilot_start = source.index('class PilotNetworkProbe')
+        diagnosis = source[diagnosis_start:pilot_start]
+        identity = diagnosis.index('final id = await _identityHash();')
+        probes = diagnosis.index('final domesticF = Future.wait', identity)
+        recheck = diagnosis.index('final identityAfterProbe = await _identityHash();', probes)
+        classify = diagnosis.index('current = ev.classify();', recheck)
+        self.assertLess(identity, probes)
+        self.assertLess(probes, recheck)
+        self.assertLess(recheck, classify)
+        self.assertIn('if (identityAfterProbe != id)', diagnosis)
+        self.assertIn('_checkedAt = null;', diagnosis)
+        self.assertIn('_identityAtCheck = null;', diagnosis)
+
+        pilot = source[pilot_start:source.index('String natNetworkClassLabel', pilot_start)]
+        identity = pilot.index('final identity = await _networkIdentity();')
+        domestic = pilot.index('final domestic = await domesticFuture;', identity)
+        recheck = pilot.index('final identityAfterProbe = await _networkIdentity();', domestic)
+        publish = pilot.index('_last = NetworkEvidence(', recheck)
+        self.assertLess(identity, domestic)
+        self.assertLess(domestic, recheck)
+        self.assertLess(recheck, publish)
+        self.assertIn('if (identityAfterProbe != identity)', pilot)
+        self.assertIn('_lastAt = null;', pilot)
+        self.assertIn('_lastIdentity = null;', pilot)
+        self.assertIn('identity.isNotEmpty && lastAt != null', pilot)
+        self.assertIn('_lastAt = identity.isNotEmpty ? DateTime.now() : null;', pilot)
+        self.assertIn('id.isNotEmpty && at != null', diagnosis)
+        self.assertIn('_checkedAt = id.isNotEmpty ? DateTime.now() : null;', diagnosis)
+        self.assertIn('_checkedAt = null;', diagnosis[diagnosis.index('} catch (e, st)'):])
+        identity_method = diagnosis[diagnosis.index('static Future<String> _identityHash()'):diagnosis.index('static Future<bool> _tcpOk')]
+        self.assertIn('if (parts.isEmpty) return \'\';', identity_method)
+        self.assertIn('$natOpKey|', identity_method)
+        pilot_identity = pilot[pilot.index('static Future<String> _networkIdentity()'):]
+        self.assertIn('if (values.isEmpty) return \'\';', pilot_identity)
+        self.assertIn('$natOpKey|', pilot_identity)
+
+
+    def test_stable_tunnel_evidence_is_discarded_after_network_mode_switch(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> _stableTunnelTrafficOk(Server server)')
+        end = source.index('// FIX #107:', start)
+        body = source[start:end]
+        snapshot = body.index('final modeSnapshot = nationalMode;')
+        probes = body.index('final results = await Future.wait(', snapshot)
+        mode_guard = body.index('nationalMode == modeSnapshot', probes)
+        passed = body.index('passed >= 2', mode_guard)
+        self.assertLess(snapshot, probes)
+        self.assertLess(probes, mode_guard)
+        self.assertLess(mode_guard, passed)
+
+
+    def test_route_blocking_is_not_misreported_as_dns_poisoning(self):
+        source = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        start = source.index('class NatNetworkDiagnosis')
+        end = source.index('class PilotNetworkProbe', start)
+        diagnosis = source[start:end]
+        self.assertIn('A public DNS answer combined with failed TCP/443 does NOT prove', diagnosis)
+        self.assertNotIn('poison = reach.isNotEmpty', diagnosis)
+        self.assertNotIn('dnsPoisonSuspected: poison', diagnosis)
+        self.assertNotIn('poison=$poison', diagnosis)
+        self.assertIn('globalDnsOk: globalDnsOk', diagnosis)
+        self.assertIn('globalTcpOk: globalTcpOk', diagnosis)
+
+
+    def test_nnie_history_retries_failed_preferences_load_and_serializes_saves(self):
+        source = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        start = source.index('class NationalNetworkIntelligence')
+        end = source.index('/// Multi-source reachability check', start)
+        body = source[start:end]
+        self.assertIn('var preferencesAvailable = false;', body)
+        self.assertIn('_loaded = preferencesAvailable;', body)
+        self.assertIn('static Future<void> _saveQueue = Future<void>.value();', body)
+        self.assertIn('final next = _saveQueue.then((_) => _saveImpl());', body)
+        self.assertIn('static Future<void> _saveImpl() async', body)
+
+
+    def test_native_vpn_protects_core_sockets_not_the_tun_descriptor(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertNotIn('protect((int) fd.getFd())', service)
+        listener = service[service.index('public boolean onProtect(int socket)'):]
+        self.assertIn('return protect(socket);', listener)
+        self.assertIn('The TUN descriptor is not a socket', service)
+
+
+    def test_background_alive_channel_only_disables_on_missing_plugin(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index("await bgChannel.invokeMethod<bool>('alive')")
+        end = source.index('if (alive == false', start)
+        body = source[start:end]
+        self.assertIn('if (e is MissingPluginException)', body)
+        self.assertIn('_bgAliveUnsupported = true;', body)
+        self.assertIn("_swl('_startWatch#alive', e);", body)
+
+
+    def test_native_watchdog_stops_after_mode_specific_probe_quorum(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = service.index('private ProbeResult probeResult(boolean modeSnapshot)')
+        end = service.index('private ProbeResult probeOne(String url)', start)
+        body = service[start:end]
+        self.assertIn('int required = modeSnapshot ? 2 : 1;', body)
+        self.assertIn('if (nationalMode != modeSnapshot) return ProbeResult.SOFT_FAIL;', body)
+        self.assertIn('if (passed >= required) return ProbeResult.OK;', body)
+        self.assertLess(body.index('nationalMode != modeSnapshot'), body.index('probeOne(u)'))
+
+
+    def test_cancelled_connect_discards_provisional_nat_variant(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> _connectLoop(List<Server> list')
+        end = source.index('// REAL speed test right after connecting', start)
+        body = source[start:end]
+        self.assertIn('if (abort) { natVarCandidateDiscard(s); return false; }', body)
+        self.assertIn('if (abort || !wantVpn) { natVarCandidateDiscard(s); return false; }', body)
+        self.assertGreaterEqual(body.count('natVarCandidateDiscard(s);'), 8)
+
+
+    def test_operator_change_invalidates_provisional_nat_variant_candidates(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('if (k != natOpKey)')
+        end = source.index('final Map<String, int> natWins', start)
+        body = source[start:end]
+        self.assertIn('natOpKey = k;', body)
+        self.assertIn('natVarCandidates.clear();', body)
+
+
+    def test_unsupported_config_discards_provisional_nat_variant(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> _connectLoop(List<Server> list')
+        end = source.index('// REAL speed test right after connecting', start)
+        body = source[start:end]
+        bad_cfg = body.index('if (badCfg != null)')
+        discard = body.index('natVarCandidateDiscard(s);', bad_cfg)
+        skip = body.index('continue;', bad_cfg)
+        self.assertLess(discard, skip)
+
+    def test_tunnel_health_probes_reject_redirects_and_non_success_pages(self):
+        dart = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertIn('req.followRedirects = false;', dart)
+        self.assertIn('return expects204 ? code == HttpStatus.noContent : code >= 200 && code < 300;', dart)
+        self.assertIn('if (expects204 ? code != HttpStatus.noContent : code < 200 || code >= 300)', dart)
+        self.assertIn('request.followRedirects = false;', dart)
+        nat_open_start = dart.index('Future<bool> _natOpen(String url)')
+        nat_open_end = dart.index('Future<void> _natDetect()', nat_open_start)
+        nat_open = dart[nat_open_start:nat_open_end]
+        self.assertIn('req.followRedirects = false;', nat_open)
+        self.assertIn('return expects204 ? code == HttpStatus.noContent : code >= 200 && code < 300;', nat_open)
+        self.assertIn('c.setInstanceFollowRedirects(false);', native)
+        self.assertIn('url.endsWith("/generate_204")', native)
+        self.assertIn('code < 300', native)
+        self.assertNotIn('code < 500', native)
+        helper_start = dart.index('Future<bool> _tunnelEndpointOpens(String url)')
+        helper_end = dart.index('// TUNCHK:', helper_start)
+        helper = dart[helper_start:helper_end]
+        self.assertIn('if (await _tunInterfaceObserved())', helper)
+        self.assertIn('return _siteOpens(url, viaCore: false);', helper)
+        self.assertLess(helper.index('if (await _tunInterfaceObserved())'),
+                        helper.index('return _siteOpens(url, viaCore: false);'))
+        self.assertIn('bool _isTunnelInterfaceName(String name)', dart)
+        ping_start = dart.index('Future<int?> pingProxy(')
+        ping_end = dart.index('Future<int?> pingAny(', ping_start)
+        ping = dart[ping_start:ping_end]
+        self.assertIn('if (!await _tunInterfaceObserved())', ping)
+        self.assertIn("lastPingErr = 'VPN TUN interface not observed';", ping)
+        start_impl = dart.index('Future<bool> _startImpl(Server s,')
+        start_end = dart.index('bool _listPartial = false;', start_impl)
+        start_code = dart[start_impl:start_end]
+        self.assertIn("lastFail = 'اندروید رابط VPN را نساخت یا قابل مشاهده نیست';", start_code)
+        self.assertIn('lastStartNoTunnel = true;', start_code)
+        self.assertIn('final results = await Future.wait(urls.map((url) =>', dart[dart.index('Future<bool> _tunnelTrafficOk()'):dart.index('Future<bool> _stableTunnelTrafficOk')])
+
+    def test_ip_auto_scan_persists_unverified_core_candidates_before_advancing_cursor(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        self.assertIn("const String _ipAutoPendingKey = 'ipauto_pending_core_v1';", source)
+        self.assertIn("const String _ipAutoStateKey = 'ipauto_state_v1';", source)
+        self.assertIn("'version': 1,", source)
+        self.assertIn("final committed = await p.setString(stateKey, jsonEncode(checkpoint));", source)
+        self.assertIn("if (!committed) return false;", source)
+        self.assertIn("if (_ipAutoLoadedNat == null || _ipAutoLoadedNat != saveNationalMode) return false;", source)
+        self.assertIn('final List<String> ipAutoPendingCore = [];', source)
+        self.assertIn('.where(_ipAutoValidPending)', source)
+        self.assertIn('rawPosition.isFinite && rawPosition >= 0', source)
+        self.assertIn('value.isFinite && value >= 0', source)
+        save_start = source.index('Future<bool> _ipAutoSave()')
+        save_end = source.index('/// خودکار فقط IPهای دقیق', save_start)
+        save = source[save_start:save_end]
+        self.assertLess(save.index('await p.setString(pendingKey, pending.join'), save.index('await p.setString(posKey, position.toString())'))
+        run_start = source.index('Future<bool> _ipAutoRunOnce(')
+        run_end = source.index('Future<void> ipAutoSheet', run_start)
+        run = source[run_start:run_end]
+        self.assertIn('...ipAutoPendingCore.where((x) => !seen.contains(x))', run)
+        self.assertIn('final remainingCandidates = queued.skip(toTest.length).toList();', run)
+        self.assertIn('..addAll(remainingCandidates);', run)
+        self.assertIn('final drainingPending = ipAutoPendingCore.isNotEmpty;', run)
+        self.assertIn('if (drainingPending) break;', run)
+        self.assertIn('if (!drainingPending)', run)
+        self.assertIn('if (_ipAutoLoadedNat != runNationalMode)', run)
+        background_start = source.index('Future<void> ipAutoBackground()')
+        background_end = source.index('/// دلیل رد شدن شروع اسکن', background_start)
+        background = source[background_start:background_end]
+        self.assertIn('ipAutoHits.isEmpty || ipAutoPendingCore.isNotEmpty', background)
+        self.assertIn('final saved = await _ipAutoSave();', background)
+        self.assertLess(background.index('final saved = await _ipAutoSave();'), background.index('await p.setString(_ipAutoAtKey, now.toString())'))
+        self.assertIn('if (saved && !_ipAutoHalt(modeSnapshot: runNationalMode))', background)
+
+
+    def test_opening_ip_auto_sheet_does_not_reload_state_during_active_scan(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        loader_start = source.index('Future<void> ipAutoLoad({bool skipIfBusy = false})')
+        loader_end = source.index('Future<bool> _ipAutoSave()', loader_start)
+        loader = source[loader_start:loader_end]
+        self.assertIn('if (skipIfBusy && ipAutoBusy) return;', loader)
+        self.assertIn('if ((skipIfBusy && ipAutoBusy) || nationalMode != loadNationalMode) return;', loader)
+        sheet_start = source.index('Future<void> ipAutoSheet(BuildContext ctx0)')
+        sheet = source[sheet_start:]
+        self.assertIn('await ipAutoLoad(skipIfBusy: true);', sheet)
+        start = sheet[sheet.index('Future<void> start() async {'):]
+        load = start.index('await ipAutoLoad(skipIfBusy: true);')
+        lock = start.index('ipAutoBusy = true;')
+        run = start.index('await _ipAutoRunOnce(')
+        self.assertLess(load, lock)
+        self.assertLess(lock, run)
+        self.assertIn('final retryWhy = _ipAutoRefusal();', start)
+        self.assertIn('nationalMode != runNationalMode', start)
+        self.assertNotIn('await ipAutoLoad();', start)
+
+
+    def test_background_network_scans_are_scheduled_sequentially_and_stop_for_vpn(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<void> _runBackgroundNetworkScans()')
+        end = main.index('void didChangeAppLifecycleState(AppLifecycleState s)', start)
+        scheduler = main[start:end]
+        dns = scheduler.index('await dnsxAutoPick(')
+        ip = scheduler.index('await ipAutoBackground()')
+        self.assertLess(dns, ip)
+        self.assertIn('stop: () => !_autoNetworkScanAllowed(modeSnapshot)', scheduler)
+        self.assertIn('if (!_autoNetworkScanAllowed(modeSnapshot)', scheduler)
+        allowed_start = main.index('bool _autoNetworkScanAllowed(bool modeSnapshot)')
+        allowed_end = main.index('Future<void> _runBackgroundNetworkScans()', allowed_start)
+        allowed = main[allowed_start:allowed_end]
+        self.assertIn('!wantVpn', allowed)
+        self.assertIn('!connected', allowed)
+        self.assertIn("lastState != 'CONNECTED'", allowed)
+        self.assertIn("lastState != 'CONNECTING'", allowed)
+        self.assertIn('!searching', allowed)
+        self.assertIn('warm == null', allowed)
+        self.assertIn('!_resBusy', allowed)
+        self.assertIn('!_hotBusy', allowed)
+        self.assertIn('!upBusy', allowed)
+        self.assertIn('!_natKeepOn', allowed)
+        self.assertIn('Timer.periodic(const Duration(minutes: 15)', main)
+        self.assertIn('_runBackgroundNetworkScans()', main[main.index('void didChangeAppLifecycleState(AppLifecycleState s)'):])
+        self.assertIn('_networkAutoScanPeriodicTimer?.cancel()', main)
+
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        halt_start = source.index('bool _ipAutoHalt(')
+        halt_end = source.index('/// دلیل رد شدن شروع اسکن', halt_start)
+        halt = source[halt_start:halt_end]
+        self.assertIn('wantVpn', halt)
+        self.assertIn('searching', halt)
+        self.assertIn('abort', halt)
+        self.assertIn('!inForeground', halt)
+        self.assertIn('_resBusy', halt)
+        self.assertIn('_hotBusy', halt)
+        self.assertIn('upBusy', halt)
+        self.assertIn('_natKeepOn', halt)
+        self.assertIn('if (_dnsxAutoBusy)', source)
+
+
+    def test_native_service_stale_stop_cannot_tear_down_a_newer_start(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertIn('private volatile int latestStartId = 0;', source)
+        stop_app = source[source.index('public void stopFromApp()'):source.index('private static class Srv')]
+        self.assertIn('stopStartId = latestStartId;', stop_app)
+        self.assertIn('stopEverything(stopStartId)', stop_app)
+        start = source[source.index('public int onStartCommand('):source.index('private void submit(')]
+        self.assertIn('latestStartId = startId;', start)
+        self.assertIn('stopping = false;', start)
+        self.assertIn('startFlow(first, backups, attempt, startId)', start)
+        stop_start = source.index('private void stopEverything(int expectedStartId)')
+        stop_end = source.index('private void closeTun()', stop_start)
+        stop = source[stop_start:stop_end]
+        self.assertIn('if (expectedStartId != latestStartId) return;', stop)
+        self.assertIn('stopSelfResult(expectedStartId);', stop)
+        self.assertNotIn('stopSelf();', stop)
+        flow_start = source.index('private void startFlow(')
+        flow_end = source.index('private void resumeSaved(', flow_start)
+        self.assertIn('stopEverything(startId);', source[flow_start:flow_end])
+        resume_start = flow_end
+        resume_end = source.index('private void requestStop(int startId)', resume_start)
+        resume = source[resume_start:resume_end]
+        self.assertIn('startId != latestStartId', resume)
+        self.assertIn('stopEverything(startId);', resume)
+
+
+    def test_native_stale_stop_preserves_newer_start_and_stop_request(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertIn('private final Object startLifecycleLock = new Object();', source)
+        self.assertIn('private volatile int latestStopRequestId = -1;', source)
+        start = source[source.index('public int onStartCommand('):source.index('private void submit(')]
+        self.assertIn('synchronized (startLifecycleLock)', start)
+        self.assertIn('latestStartId = startId;', start)
+        stop_start = source.index('private void requestStop(int startId)')
+        stop_end = source.index('private boolean connectFrom(', stop_start)
+        self.assertIn('latestStopRequestId = startId;', source[stop_start:stop_end])
+        stop_app = source[source.index('public void stopFromApp()'):source.index('private static class Srv')]
+        self.assertIn('synchronized (startLifecycleLock)', stop_app)
+        self.assertIn('requestStop(stopStartId);', stop_app)
+        revoke = source[source.index('public void onRevoke()'):source.index('public void onDestroy()')]
+        self.assertIn('synchronized (startLifecycleLock)', revoke)
+        self.assertIn('requestStop(revokeStartId);', revoke)
+
+        cleanup_start = source.index('private void stopEverything(int expectedStartId)')
+        cleanup_end = source.index('private void closeTun()', cleanup_start)
+        cleanup = source[cleanup_start:cleanup_end]
+        self.assertIn('synchronized (startLifecycleLock)', cleanup)
+        self.assertIn('if (expectedStartId == latestStartId)', cleanup)
+        self.assertIn('latestStopRequestId == expectedStartId', cleanup)
+        self.assertIn('stopSelfResult(expectedStartId);', cleanup)
+        self.assertIn('if (expectedStartId != latestStartId', cleanup)
+        self.assertIn('&& latestStopRequestId == expectedStartId)', cleanup)
+        self.assertIn('stopping = false;', cleanup)
+
+
+    def test_native_start_reset_is_atomic_with_start_id_publication(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source[source.index('public int onStartCommand('):source.index('private void submit(')]
+        self.assertIn('String action = intent == null ? null : intent.getAction();', start)
+        lifecycle_start = start.index('synchronized (startLifecycleLock)')
+        lifecycle_end = start.index('// Keep this method short:', lifecycle_start)
+        lifecycle = start[lifecycle_start:lifecycle_end]
+        self.assertIn('latestStartId = startId;', lifecycle)
+        self.assertIn('if (intent == null || ACTION_START.equals(action))', lifecycle)
+        self.assertIn('stopping = false;', lifecycle)
+        self.assertIn('userStopped = false;', lifecycle)
+        # No later reset may erase a concurrent stop request after the lock is released.
+        remainder = start[lifecycle_end:]
+        self.assertNotIn('stopping = false;', remainder)
+        self.assertNotIn('userStopped = false;', remainder)
+
+
+    def test_native_recovery_checkpoint_is_committed_before_process_kill(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        save_start = source.index('private void saveState()')
+        save_end = source.index('private boolean loadState()', save_start)
+        save = source[save_start:save_end]
+        self.assertIn('.commit();', save)
+        self.assertNotIn('.apply();', save)
+
+        clear_start = source.index('private void clearState()')
+        clear_end = source.index('private int getScore(', clear_start)
+        clear = source[clear_start:clear_end]
+        self.assertIn('.clear().commit();', clear)
+        self.assertNotIn('.clear().apply();', clear)
+
+        recovery_start = source.index('private void recoverWedgedCore(')
+        recovery_end = source.index('private boolean stopCoreNow()', recovery_start)
+        recovery = source[recovery_start:recovery_end]
+        self.assertIn('synchronized (startLifecycleLock)', recovery)
+        self.assertLess(recovery.index('clearState()'), recovery.index('Process.killProcess('))
+        self.assertLess(recovery.index('saveState()'), recovery.index('Process.killProcess('))
+
+        stop_start = source.index('private void requestStop(int startId)')
+        stop_end = source.index('private boolean connectFrom(', stop_start)
+        stop = source[stop_start:stop_end]
+        self.assertIn('synchronized (startLifecycleLock)', stop)
+        self.assertIn('latestStopRequestId = startId;', stop)
+
+
+
+    def test_native_start_waits_for_stop_worker_before_state_probe(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private boolean awaitCoreStopped(')
+        end = source.index('private boolean bringUp(', start)
+        wait = source[start:end]
+        self.assertLess(wait.index('while (coreStopping)'),
+                        wait.index('readCoreRunningWithWatchdog(core, "start-preflight")'))
+        self.assertIn('previous core stop did not finish before startup deadline', wait)
+
+    def test_native_state_probe_does_not_overlap_an_active_stop_core_call(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private Boolean readCoreRunningWithWatchdog(')
+        end = source.index('private boolean stopCoreNow()', start)
+        probe = source[start:end]
+        self.assertIn('if (!coreLock.tryLock()) return null;', probe)
+        self.assertIn('if (coreStopping) return null;', probe)
+        self.assertLess(probe.index('if (!coreLock.tryLock())'),
+                        probe.index('if (coreStopping)'))
+        self.assertLess(probe.index('if (coreStopping)'),
+                        probe.index('if (!beginNative(operation))'))
+
+    def test_native_stop_thread_construction_is_inside_failure_guard(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private boolean stopCoreNow()')
+        end = source.index('private boolean awaitCoreStopped(', start)
+        stop = source[start:end]
+        thread_decl = stop.index('Thread t;')
+        guarded_start = stop.index('try {', thread_decl)
+        construction = stop.index('t = new Thread(() -> {', guarded_start)
+        launch = stop.index('if (!beginNative("stopCore"))', construction)
+        catch = stop.index('} catch (Throwable startError)', launch)
+        self.assertLess(guarded_start, construction)
+        self.assertLess(construction, launch)
+        self.assertLess(launch, catch)
+        recovery = stop[catch:stop.index('try {\n            t.join', catch)]
+        self.assertIn('coreStopping = false;', recovery)
+        self.assertIn('closeTunAfterCoreStop = true;', recovery)
+
+
+    def test_native_stop_worker_start_failure_releases_core_fence_and_keeps_tun(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private boolean stopCoreNow()')
+        end = source.index('private boolean awaitCoreStopped(', start)
+        stop = source[start:end]
+        launch = stop.index('if (!beginNative("stopCore"))')
+        catch = stop.index('} catch (Throwable startError)', launch)
+        recovery = stop[catch:stop.index('try {\n            t.join', catch)]
+        self.assertIn('endNative();', recovery)
+        self.assertIn('coreStopping = false;', recovery)
+        self.assertIn('closeTunAfterCoreStop = true;', recovery)
+        self.assertIn('return false;', recovery)
+        self.assertLess(recovery.index('endNative();'), recovery.index('coreStopping = false;'))
+
+
+    def test_native_stop_watchdog_covers_post_stop_state_verification(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private boolean stopCoreNow()')
+        end = source.index('private boolean awaitCoreStopped(', start)
+        body = source[start:end]
+        thread_start = body.index('t = new Thread(() -> {')
+        thread_end = body.index('}, "KingVpnCoreStop");', thread_start)
+        worker = body[thread_start:thread_end]
+        self.assertIn('core.stopCore();', worker)
+        self.assertIn('stillRunning = core.isV2rayCoreRunning();', worker)
+        self.assertIn('finally {\n                // Do not publish coreStopping=false', worker)
+        self.assertLess(worker.index('core.stopCore();'), worker.index('stillRunning = core.isV2rayCoreRunning();'))
+        self.assertLess(worker.index('stillRunning = core.isV2rayCoreRunning();'), worker.index('endNative();'))
+        self.assertLess(worker.index('endNative();'), worker.index('coreStopping = false;'))
+        self.assertIn('stopVerified[0] = verified;', worker)
+
+
+    def test_native_new_start_waits_for_previous_async_core_stop(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        helper_start = source.index('private boolean awaitCoreStopped(')
+        helper_end = source.index('private boolean bringUp(', helper_start)
+        helper = source[helper_start:helper_end]
+        self.assertIn('while (coreStopping)', helper)
+        self.assertIn('Thread.sleep(50L)', helper)
+        self.assertIn('BRING_UP_TIMEOUT_MS', helper)
+        self.assertIn('if (!isCurrent(myAttempt)) return false;', helper)
+        self.assertIn('if (!coreStopping && running) stopCoreNow();', helper)
+        self.assertIn('readCoreRunningWithWatchdog(core, "start-final-state-check")', helper)
+
+        start = source.index('private boolean bringUp(Srv s, int myAttempt)')
+        end = source.index('private void startWatchdog(', start)
+        bring_up = source[start:end]
+        self.assertIn('if (!awaitCoreStopped(core, myAttempt)) return false;', bring_up)
+        self.assertNotIn('if (coreStopping || core.isV2rayCoreRunning())', bring_up)
+
+
+    def test_sticky_restart_invalid_state_releases_foreground_service(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        resume_start = source.index('private void resumeSaved(int startId)')
+        resume_end = source.index('private void requestStop(int startId)', resume_start)
+        resume = source[resume_start:resume_end]
+        invalid = resume[resume.index('if (!loadState())'):resume.index('startForegroundSafe(')]
+        self.assertIn('stopEverything(startId);', invalid)
+        self.assertNotIn('stopSelfResult(startId);', invalid)
+
+        cleanup_start = source.index('private void stopEverything(int expectedStartId)')
+        cleanup_end = source.index('private void closeTun()', cleanup_start)
+        cleanup = source[cleanup_start:cleanup_end]
+        self.assertIn('clearState();', cleanup)
+        self.assertIn('stopForeground(true);', cleanup)
+        self.assertIn('stopSelfResult(expectedStartId);', cleanup)
+
+
+    def test_native_hang_watchdog_cannot_kill_after_native_call_returns(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertIn('private final Object nativeLock = new Object();', source)
+
+        begin_start = source.index('private boolean beginNative(')
+        begin_end = source.index('private void endNative()', begin_start)
+        begin = source[begin_start:begin_end]
+        self.assertIn('synchronized (nativeLock)', begin)
+        self.assertIn('nativeBusy = true;', begin)
+        self.assertIn('recoverWedgedCore(what, token);', begin)
+
+        end_start = source.index('private void endNative()')
+        end_end = source.index('private void recoverWedgedCore(', end_start)
+        end = source[end_start:end_end]
+        self.assertIn('synchronized (nativeLock)', end)
+        self.assertIn('nativeBusy = false;', end)
+        self.assertIn('nativeToken.incrementAndGet();', end)
+
+        recovery_start = source.index('private void recoverWedgedCore(String what, long expectedToken)')
+        recovery_end = source.index('private boolean stopCoreNow()', recovery_start)
+        recovery = source[recovery_start:recovery_end]
+        self.assertIn('synchronized (nativeLock)', recovery)
+        self.assertIn('if (!nativeBusy || nativeToken.get() != expectedToken) return;', recovery)
+        self.assertLess(recovery.index('nativeToken.get() != expectedToken'),
+                        recovery.index('recovering.compareAndSet(false, true)'))
+
+
+    def test_sticky_state_loader_filters_empty_or_invalid_server_entries(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private boolean loadState()')
+        end = source.index('private void clearState()', start)
+        loader = source[start:end]
+        self.assertIn('JSONObject o = arr.optJSONObject(i);', loader)
+        self.assertIn('if (o == null) continue;', loader)
+        self.assertIn('String config = o.optString("config", "").trim();', loader)
+        self.assertIn('if (config.isEmpty()) continue;', loader)
+        self.assertIn('if (servers.isEmpty()) return false;', loader)
+        self.assertIn('Math.min(sp.getInt("idx", 0), servers.size() - 1)', loader)
+
+
+    def test_native_stop_waiter_uses_worker_verification_without_unwatched_jni(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private boolean stopCoreNow()')
+        end = source.index('private boolean awaitCoreStopped(', start)
+        stop = source[start:end]
+        self.assertIn('final boolean[] stopVerified = {false};', stop)
+        self.assertIn('verified = !stillRunning;', stop)
+        self.assertIn('stopVerified[0] = verified;', stop)
+        self.assertLess(stop.index('endNative();'), stop.index('stopVerified[0] = verified;'))
+        join = stop.index('t.join(STOP_CORE_WAIT_MS);')
+        waiter = stop[join:]
+        self.assertIn('if (!stopVerified[0])', waiter)
+        self.assertNotIn('core.isV2rayCoreRunning()', waiter)
+
+
+    def test_native_vpn_attempt_worker_launch_is_failure_guarded(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private boolean bringUpWithTimeout(Srv s, int expectedStartId)')
+        end = source.index('private static void closeQuietly', start)
+        body = source[start:end]
+        declaration = body.index('Thread attemptThread;')
+        guard = body.index('try {', declaration)
+        construction = body.index('attemptThread = new Thread(() -> {', guard)
+        launch = body.index('attemptThread.start();', construction)
+        catch = body.index('} catch (Throwable launchError)', launch)
+        self.assertLess(guard, construction)
+        self.assertLess(construction, launch)
+        self.assertLess(launch, catch)
+        recovery = body[catch:body.index('synchronized (waitLock)', catch)]
+        self.assertIn('lastError = "could not launch VPN attempt worker:', recovery)
+        self.assertIn('return false;', recovery)
+
+
+    def test_native_final_cleanup_fallback_thread_launch_is_failure_guarded(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private void runFallback(Runnable r)')
+        end = source.index('private void startFlow(', start)
+        fallback = source[start:end]
+        self.assertIn('new Thread(r, "KingVpnService-fallback")', fallback)
+        self.assertIn('t.setDaemon(true);', fallback)
+        self.assertIn('t.start();', fallback)
+        self.assertIn('catch (Throwable launchError)', fallback)
+        self.assertIn('could not launch VPN cleanup fallback:', fallback)
+        self.assertIn('Log.e(TAG, lastError, launchError);', fallback)
+
+
+    def test_native_core_calls_are_refused_when_watchdog_cannot_start(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        begin = source[source.index('private boolean beginNative('):source.index('private void endNative()')]
+        self.assertIn('catch (Throwable launchError)', begin)
+        self.assertIn('nativeBusy = false;', begin)
+        self.assertIn('nativeToken.incrementAndGet();', begin)
+        self.assertIn('return false;', begin)
+
+        stop_start = source.index('private boolean stopCoreNow()')
+        stop_end = source.index('private boolean awaitCoreStopped(', stop_start)
+        stop = source[stop_start:stop_end]
+        self.assertIn('if (!beginNative("stopCore"))', stop)
+        self.assertIn('native watchdog unavailable', stop)
+
+        bring_start = source.index('private boolean bringUp(Srv s, int myAttempt)')
+        bring_end = source.index('private void startWatchdog(', bring_start)
+        bring = source[bring_start:bring_end]
+        self.assertIn('if (!beginNative("startCore"))', bring)
+        self.assertIn('refusing unmonitored core start', bring)
+
+
+    def test_every_native_core_state_query_requires_watchdog(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        helper_start = service.index('private Boolean readCoreRunningWithWatchdog(')
+        helper_end = service.index('private boolean stopCoreNow()', helper_start)
+        helper = service[helper_start:helper_end]
+        self.assertIn('if (!coreLock.tryLock()) return null;', helper)
+        self.assertIn('if (!beginNative(operation))', helper)
+        self.assertIn('coreLock.unlock();', helper)
+        self.assertIn('return core.isV2rayCoreRunning();', helper)
+        self.assertIn('finally {\n                endNative();\n            }', helper)
+
+        stop_start = service.index('private boolean stopCoreNow()')
+        stop_end = service.index('private boolean awaitCoreStopped(', stop_start)
+        stop = service[stop_start:stop_end]
+        await_start = service.index('private boolean awaitCoreStopped(')
+        await_end = service.index('private boolean bringUp(', await_start)
+        await_body = service[await_start:await_end]
+        check_start = service.index('private void checkOnce()')
+        check_end = service.index('private void rescheduleNormal()', check_start)
+        check = service[check_start:check_end]
+        self.assertIn('readCoreRunningWithWatchdog(core, "stopCore-preflight")', stop)
+        self.assertIn('readCoreRunningWithWatchdog(core, "start-preflight")', await_body)
+        self.assertIn('readCoreRunningWithWatchdog(core, "start-final-state-check")', await_body)
+        self.assertIn('readCoreRunningWithWatchdog(core, "health-watchdog-state")', check)
+
+
+    def test_native_health_probe_discards_results_from_superseded_core_attempt(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private void checkOnce()')
+        end = source.index('private void rescheduleNormal()', start)
+        check = source[start:end]
+        snapshot = check.index('final int healthAttempt = attemptSeq.get();')
+        native_read = check.index('readCoreRunningWithWatchdog(core, "health-watchdog-state")')
+        probe = check.index('ProbeResult pr = coreUp ? probeResult(modeSnapshot) : ProbeResult.HARD_FAIL;')
+        guard = check.index('if (attemptSeq.get() != healthAttempt)')
+        self.assertLess(snapshot, native_read)
+        self.assertLess(native_read, probe)
+        self.assertLess(probe, guard)
+        stale = check[guard:check.index('if (nationalMode != modeSnapshot)', guard)]
+        self.assertIn('rescheduleNormal();', stale)
+        self.assertIn('return;', stale)
+
+
+    def test_tls_diagnostics_do_not_accept_invalid_certificates(self):
+        scanners = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        diagnostics = (ROOT / 'lib' / 'net_diag.dart').read_text(encoding='utf-8')
+        sni_start = scanners.index('Future<int?> _autoSniOk(')
+        alpn_start = scanners.index('Future<String?> _autoAlpnOk(', sni_start)
+        port_start = scanners.index('Future<bool> _autoPortOk(', alpn_start)
+        for body in (scanners[sni_start:alpn_start], scanners[alpn_start:port_start]):
+            self.assertNotIn('onBadCertificate', body)
+        tls_start = diagnostics.index('Future<_DiagItem> _diagTls(')
+        tls_end = diagnostics.index('Future<String> netDiagnose()', tls_start)
+        self.assertNotIn('onBadCertificate', diagnostics[tls_start:tls_end])
+
+
+
+    def test_tls_scanners_and_nat_variants_preserve_certificate_validation(self):
+        nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        npv = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn('onBadCertificate: (_) => true', nip)
+        self.assertNotIn('onBadCertificate: (_) => true', npv)
+        self.assertNotIn('onBadCertificate: (_) => true', main)
+        self.assertIn("tls['allowInsecure'] = false;", ultra)
+        self.assertNotIn("tls['allowInsecure'] = true;", ultra)
+
+
+
+    def test_native_hang_recovery_does_not_restore_checkpoint_during_teardown(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private void recoverWedgedCore(String what, long expectedToken)')
+        end = source.index('private Boolean readCoreRunningWithWatchdog(', start)
+        recovery = source[start:end]
+        self.assertIn('if (userStopped || stopping) clearState();', recovery)
+        self.assertIn('else saveState();', recovery)
+
+
+
+    def test_subscription_urls_require_https_and_have_bounded_non_redirecting_reads(self):
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        groups = (ROOT / 'lib' / 'sub_groups.dart').read_text(encoding='utf-8')
+        start = extras.index('Future<List<Server>> fetchSubscription(String url)')
+        end = extras.index('// ======================= بخش‌های رابط', start)
+        fetch = extras[start:end]
+        self.assertIn("uri.scheme != 'https'", fetch)
+        self.assertIn('uri.userInfo.isNotEmpty', fetch)
+        self.assertIn('followRedirects = false', fetch)
+        self.assertIn('streamed.statusCode != 200', fetch)
+        self.assertIn('2 * 1024 * 1024', fetch)
+        self.assertIn('streamed.stream', fetch)
+        self.assertIn('.timeout(const Duration(seconds: 20))', fetch)
+        self.assertIn("uri.scheme != 'https'", groups)
+        self.assertNotIn("startsWith('http://')", groups)
+
+    def test_operator_asn_lookups_require_https_and_do_not_follow_redirects(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('Future<String?> _natAsnFrom(')
+        end = source.index('Future<void> natDetectOperator()', start)
+        lookup = source[start:end]
+        self.assertIn("uri.scheme != 'https'", lookup)
+        self.assertIn('req.followRedirects = false;', lookup)
+        self.assertIn('maxAsnResponseBytes = 256 * 1024', lookup)
+        self.assertIn('res.timeout(const Duration(seconds: 3))', lookup)
+        self.assertIn('responseBytes.length + chunk.length', lookup)
+        self.assertNotIn('transform(utf8.decoder).join()', lookup)
+        self.assertNotIn('http://ip-api.com', source)
+
+
+
+    def test_process_exit_diagnostics_do_not_skip_records_after_display_limit(self):
+        source = (ROOT / 'android_src' / 'KingDiag.java').read_text(encoding='utf-8')
+        start = source.index('public static String lastExits(Context ctx)')
+        end = source.index('private static void nativeHints(', start)
+        body = source[start:end]
+        self.assertIn('Collections.sort(ordered', body)
+        self.assertIn('if (shown >= 5) break;', body)
+        self.assertIn('processedThrough = ts;', body)
+        self.assertIn('writeSeen(app, processedThrough)', body)
+        self.assertNotIn('if (shown >= 5) continue;', body)
+        self.assertNotIn('newest > seen', body)
+
+
+    def test_conversation_memory_retries_after_transient_secure_storage_read_failure(self):
+        source = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> _loadConversationMemory() async {')
+        end = source.index('Future<void> _saveConversationMemory()', start)
+        loader = source[start:end]
+        read = loader.index('encoded = await _secure.read(key: _conversationMemoryKey);')
+        retry_return = loader.index('return;', read)
+        loaded = loader.index('_conversationMemoryLoaded = true;', read)
+        self.assertLess(read, retry_return)
+        self.assertLess(retry_return, loaded)
+        self.assertIn('transient secure-storage failure', loader)
+        self.assertIn('if (_conversationMemoryLoaded) return;', loader)
+
+
+    def test_owner_auth_cancellation_precedes_persistent_auth_state_mutation(self):
+        source = (ROOT / 'lib' / 'king_ai_owner_auth.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> authenticate(String password) async {')
+        end = source.index('void lock()', start)
+        auth = source[start:end]
+        derived = auth.index('final actual = await _derive(password, salt);')
+        cancelled = auth.index('if (sessionGeneration != _sessionGeneration) return false;', derived)
+        success_cleanup = auth.index("await _storage.delete(key: _failuresKey);", derived)
+        failure_counter = auth.index("await _storage.write(key: _failuresKey, value: failures.toString());", derived)
+        self.assertLess(derived, cancelled)
+        self.assertLess(cancelled, success_cleanup)
+        self.assertLess(cancelled, failure_counter)
+        failure_read = auth.index("await _storage.read(key: _failuresKey)", cancelled)
+        failure_read_guard = auth.index("if (sessionGeneration != _sessionGeneration) return false;", failure_read)
+        failure_write = auth.index("await _storage.write(key: _failuresKey", failure_read)
+        self.assertLess(failure_read, failure_read_guard)
+        self.assertLess(failure_read_guard, failure_write)
+        failure_write_guard = auth.index("if (sessionGeneration != _sessionGeneration) return false;", failure_write)
+        lock_write = auth.index("await _storage.write(key: _lockUntilKey", failure_write)
+        self.assertLess(failure_write, failure_write_guard)
+        self.assertLess(failure_write_guard, lock_write)
+        success_delete_guard = auth.index("if (sessionGeneration != _sessionGeneration) return false;", success_cleanup)
+        lock_delete = auth.index("await _storage.delete(key: _lockUntilKey);", success_cleanup)
+        self.assertLess(success_cleanup, success_delete_guard)
+        self.assertLess(success_delete_guard, lock_delete)
+
+
+    def test_service_capability_probe_respects_live_vpn_quiet_window(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('Future<int> _svcOf(Server s)')
+        end = source.index('String _testCfg(String cfg)', start)
+        body = source[start:end]
+        self.assertIn('await _waitLiveQuiet();', body)
+        self.assertLess(body.index('await _waitLiveQuiet();'),
+                        body.index('_delayGate.run'))
+
+
+    def test_live_quiet_wait_tracks_reconnect_deadline_updates(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> _waitLiveQuiet()')
+        end = source.index('Future<int?> _delayOnce', start)
+        body = source[start:end]
+        loop = body.index('while (connected && wantVpn)')
+        deadline = body.index('final until = _liveQuietUntil;')
+        self.assertGreater(deadline, loop)
+        self.assertIn('DateTime.now().isBefore(until)', body)
+
+
+    def test_native_core_lifecycle_fence_is_process_wide(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertIn('private static final ReentrantLock coreLock = new ReentrantLock();', source)
+        self.assertIn('private static volatile boolean coreStopping = false;', source)
+        start = source.index('private Boolean readCoreRunningWithWatchdog')
+        end = source.index('private boolean stopCoreNow', start)
+        body = source[start:end]
+        self.assertIn('if (coreStopping) return null;', body)
+
+
+    def test_stale_connected_probe_cannot_complete_a_replaced_waiter(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        listener = source[source.index('if (st.state == \'CONNECTED\' &&', source.index('downSig!.complete(true);')):]
+        listener = listener[:listener.index('// DROPDEFER')]
+        self.assertIn('final verifyGeneration = _connGen;', listener)
+        self.assertIn('final verifyCompleter = connSig!;', listener)
+        self.assertIn('_verifyPendingConnect(verifyCompleter, verifyGeneration)', listener)
+        start = source.index('Future<void> _verifyPendingConnect(')
+        end = source.index('// [trust] =', start)
+        verify = source[start:end]
+        self.assertIn('expectedGeneration != _connGen', verify)
+        self.assertIn('!identical(connSig, c)', verify)
+        self.assertIn('c.isCompleted', verify)
+        self.assertLess(verify.index('expectedGeneration != _connGen'),
+                        verify.index('_staleCoreMayBeUp = false;'))
+        self.assertIn('c.complete(true);', verify)
+
+
+    def test_nnie_stability_probe_is_bound_to_connection_generation(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('final nnieGeneration = _connGen;')
+        end = source.index('if (mounted) setState(() {});', start)
+        arm = source[start:end]
+        self.assertIn('nnieGeneration == _connGen', arm)
+        self.assertIn('_stableTunnelTrafficOk(s)', arm)
+        self.assertIn('stillValid: () =>', arm)
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        stable_start = engine.index('static Future<void> recordStable(')
+        stable_end = engine.index('static Future<void> _save()', stable_start)
+        stable = engine[stable_start:stable_end]
+        self.assertIn('if (stillValid != null && !stillValid()) return;', stable)
+        self.assertLess(stable.index('await load();'),
+                        stable.index('if (stillValid != null && !stillValid()) return;'))
+        self.assertLess(arm.index('final nnieGeneration = _connGen;'),
+                        arm.index('NationalNetworkIntelligence.armStable('))
+
+
+    def test_vpn_establish_fails_closed_when_ipv6_route_cannot_be_installed(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private ParcelFileDescriptor establish(V2rayConfig cfg)')
+        end = source.index('/** جدید: wires libv2ray', start)
+        body = source[start:end]
+        self.assertIn('b.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);', body)
+        self.assertIn('b.addRoute("::", 0);', body)
+        self.assertIn('b.addRoute("0.0.0.0", 0);', body)
+        self.assertLess(body.index('b.addRoute("::", 0);'),
+                        body.index('b.addRoute("0.0.0.0", 0);'))
+        self.assertNotIn('ipv6 sinkhole not supported', body)
+        self.assertNotIn('catch (Exception e)', body[:body.index('} catch (Exception e)')])
+
+    def test_native_core_initialization_failure_remains_retryable(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        wire_start = service.index('private boolean wireCoreOnce()')
+        wire_end = service.index('private void cancelPluginNotification()', wire_start)
+        wire = service[wire_start:wire_end]
+        self.assertIn('if (coreWired) return true;', wire)
+        self.assertIn('V2rayCoreManager.getInstance().setUpListener(this);', wire)
+        self.assertLess(wire.index('setUpListener(this);'), wire.index('coreWired = true;'))
+        self.assertIn('catch (Throwable initError)', wire)
+        self.assertIn('coreWired = false;', wire)
+        bring_start = service.index('private boolean bringUp(Srv s, int myAttempt)')
+        bring_end = service.index('private void startWatchdog(', bring_start)
+        bring = service[bring_start:bring_end]
+        self.assertIn('if (!wireCoreOnce()) return false;', bring)
+        patcher = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+        self.assertIn('VPNRACE_INIT_RETHROW', patcher)
+        self.assertIn('throw new IllegalStateException("V2Ray core initialization failed", e);', patcher)
+
+
+
+
+    def test_nat_variant_growth_is_unique_and_bounded(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('int natGrow(int n)')
+        end = source.index('List<String>? _natNamesC', start)
+        grow = source[start:end]
+        self.assertIn('if (n <= 0 || _natSpecs.length >= natMaxVariants) return 0;', grow)
+        self.assertIn('final target = min(n, natMaxVariants - _natSpecs.length);', grow)
+        self.assertIn('Set<String>? _natGrowSignatures;', source)
+        self.assertIn('if (!signatures.add(_natSig(spec))) continue;', grow)
+        self.assertNotIn('_natSpecs.length > 500000', grow)
+
+    def test_nat_variant_signature_includes_all_socket_dimensions(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('String _natSig(_NatSpec x)')
+        end = source.index('_NatSpec _natMk(', start)
+        signature = source[start:end]
+        # Every _NatSpec field that can alter the generated link or core config
+        # must participate in identity; otherwise distinct variants collapse.
+        for field in (
+            'other', 'fp', 'alpn', 'frag', 'port', 'portIdx', 'clean',
+            'cleanIdx', 'mux', 'muxN', 'sniHost', 'v4', 'tfo', 'ed',
+            'edN', 'noise', 'noiseK', 'nodelay', 'doh', 'mode', 'keep',
+            'mss', 'sniSwap',
+        ):
+            self.assertIn('${x.' + field + '}', signature, field)
+
+    def test_nat_sni_variant_labels_match_front_sni_indices(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        start = nat.index('// V13: SNI swap variants')
+        end = nat.index('];', start)
+        variants = nat[start:end]
+        self.assertIn("_NatSpec('SNI>cdnjs', sniSwap: 0)", variants)
+        self.assertIn("_NatSpec('SNI>cloudflare', sniSwap: 1)", variants)
+        self.assertIn("_NatSpec('SNI>speed', sniSwap: 2)", variants)
+        self.assertIn("_NatSpec('SNI>divar.ir', sniSwap: 6)", variants)
+        self.assertIn("'www.cloudflare.com',      // 1", nip)
+        self.assertIn("'speed.cloudflare.com',    // 2", nip)
+
+
+    def test_user_relay_hosts_are_normalized_deduplicated_and_bounded(self):
+        source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('List<String> _nipNormalizeRelayHosts(')
+        end = source.index('Future<String?> nipResolve(', start)
+        helper = source[start:end]
+        self.assertIn('InternetAddress.tryParse(raw)', helper)
+        self.assertIn('final normalized = parsed.address;', helper)
+        self.assertIn('if (!seen.add(normalized)) continue;', helper)
+        self.assertIn('if (out.length >= 64) break;', helper)
+        self.assertIn('_nipNormalizeRelayHosts(', helper)
+        self.assertIn("p.setStringList('nat_relay_hosts', natRelayHosts)", helper)
+
+    def test_nip_cidr_expansion_uses_ceiling_step_and_relay_whitespace_regex(self):
+        source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        self.assertIn('final step = size > limit ? (size + limit - 1) ~/ limit : 1;', source)
+        self.assertIn("text.split(RegExp(r'[\\r\\n\\s]+'))", source)
+
+    def test_ripe_cidr_sources_are_validated_deduplicated_and_bounded(self):
+        source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('List<String> _nipNormalizeIpv4Cidrs(')
+        end = source.index('/// فهرست بلوک‌های IPv4 ایران', start)
+        helper = source[start:end]
+        self.assertIn('InternetAddress.tryParse(parts[0].trim())', helper)
+        self.assertIn('address.type != InternetAddressType.IPv4', helper)
+        self.assertIn('prefix < 8', helper)
+        self.assertIn('prefix > 32', helper)
+        self.assertIn('if (!seen.add(normalized)) continue;', helper)
+        self.assertIn('final limit = min(maxEntries, 4096);', helper)
+        country = source[source.index('Future<List<String>> nipIranCidrs()'):
+                         source.index('/// همان کانفیگ سرور')]
+        self.assertIn('_nipNormalizeIpv4Cidrs(raw)', country)
+        asn_start = source.index('Future<List<String>> nipAsnPrefixes(String ip)')
+        asn_end = source.index('// FRONTSNI', asn_start)
+        asn = source[asn_start:asn_end]
+        self.assertIn('_nipNormalizeIpv4Cidrs(cached, maxEntries: 2048)', asn)
+        self.assertIn('_nipNormalizeIpv4Cidrs(rawPrefixes, maxEntries: 2048)', asn)
+        self.assertIn('if (rawPrefixes.length >= 4096) break;', asn)
+
+    def test_nip_tcp_scan_accepts_ipv4_and_ipv6_literals_and_cleans_sockets(self):
+        source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        probe_start = source.index('Future<int?> nipTcpProbe(')
+        scan_start = source.index('Future<List<NipHit>> nipScan(', probe_start)
+        scan_end = source.index('/// Normalize and bound untrusted IPv4 CIDR lists', scan_start)
+        probe = source[probe_start:scan_start]
+        scan = source[scan_start:scan_end]
+        self.assertIn('InternetAddress.tryParse(ip.trim())', probe)
+        self.assertIn('address.type != InternetAddressType.IPv4', probe)
+        self.assertIn('address.type != InternetAddressType.IPv6', probe)
+        self.assertIn('Socket.connect(address, port, timeout: timeout)', probe)
+        self.assertIn('finally {', probe)
+        self.assertIn('socket?.destroy();', probe)
+        self.assertIn('address.type == InternetAddressType.IPv4', scan)
+        self.assertIn('address.type == InternetAddressType.IPv6', scan)
+        self.assertIn('v4Candidates', scan)
+        self.assertIn('v6Candidates', scan)
+        self.assertIn('Interleave address families', scan)
+        self.assertIn('seen.add(address.address)', scan)
+        self.assertIn('final clock = Stopwatch()..start();', scan)
+        self.assertIn('if (aborted() || clock.elapsed >= budget) return;', scan)
+        self.assertIn('List<String> nipExpandIpv6Cidr(', source)
+        self.assertIn('address.type != InternetAddressType.IPv6', source)
+        self.assertIn('InternetAddress.fromRawAddress(Uint8List.fromList(bytes))', source)
+        self.assertIn('Socket.connect(address, port, timeout: const Duration(milliseconds: 2000))', source)
+
+    def test_shared_nip_cidr_expander_dispatches_ipv6_without_breaking_ipv4(self):
+        source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('List<String> nipExpandCidr(')
+        end = source.index('/// گسترش محدود CIDR برای IPv6', start)
+        helper = source[start:end]
+        self.assertIn('InternetAddress.tryParse(parts[0].trim())', helper)
+        self.assertIn('parsed?.type == InternetAddressType.IPv6', helper)
+        self.assertIn('return nipExpandIpv6Cidr(cidr, maxPerBlock: maxPerBlock);', helper)
+        self.assertIn('final limit = min(maxPerBlock, 65536);', helper)
+        self.assertIn('prefix < 8 || prefix > 32', helper)
+
+    def test_nip_cidr_expansion_bounds_caller_supplied_limit(self):
+        source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('List<String> nipExpandCidr(')
+        end = source.index('/// اتصال TCP', start)
+        body = source[start:end]
+        self.assertIn('if (maxPerBlock <= 0) return const [];', body)
+        self.assertIn('final limit = min(maxPerBlock, 65536);', body)
+        self.assertIn('final step = size > limit ? (size + limit - 1) ~/ limit : 1;', body)
+
+
+
+    def test_dns_probe_and_manual_scanner_accept_ipv4_and_ipv6_resolvers(self):
+        core = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
+        scanner = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        self.assertIn('InternetAddress.anyIPv6', core)
+        self.assertIn('InternetAddress.anyIPv4', core)
+        self.assertIn('queryType = 1', core)
+        self.assertIn('queryType: queryType', core)
+        self.assertIn('InternetAddressType.IPv6', scanner)
+        self.assertIn('2606:4700:4700::1111', scanner)
+        self.assertIn('2001:4860:4860::8888', scanner)
+        self.assertIn('parsedIp.type == InternetAddressType.IPv6', extras)
+
+    def test_nat_prescan_tries_bounded_ipv4_and_ipv6_answers(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> _natPrescan()')
+        end = source.index('Future<void> _natMemoryReuse()', start)
+        body = source[start:end]
+        self.assertIn('final ipOf = <String, List<String>>{}', body)
+        self.assertIn('.map((a) => a.address)', body)
+        self.assertIn('.take(8)', body)
+        self.assertIn('for (final ip in ipOf[s.host]!)', body)
+        self.assertIn('if (natIpDeadRun.contains', body)
+        self.assertIn('if (res[k])', body)
+
+    def test_network_fingerprint_is_stable_across_dns_answer_order(self):
+        source = (ROOT / 'lib' / 'ultimate_extras.dart').read_text(encoding='utf-8')
+        start = source.index('Future<String> _netFingerprint()')
+        end = source.index('extension UltimateExt', start)
+        body = source[start:end]
+        self.assertIn('.toSet().toList()..sort()', body)
+        self.assertIn("ips.join(',')", body)
+
+    def test_server_probe_rejects_non_global_addresses_in_both_families(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('bool _privateIp(InternetAddress a)')
+        end = source.index('int byPing(', start)
+        helper = source[start:end]
+        self.assertIn('NatDnsWireProbe.publicV4(b, 0)', helper)
+        self.assertIn('NatDnsWireProbe.publicV6(b, 0)', helper)
+
+    def test_ripe_asn_discovery_stays_ipv4_only_even_when_dns_prefers_aaaa(self):
+        source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        resolve_start = source.index('Future<String?> nipResolve(')
+        resolve_end = source.index('/// بلوک‌های هاست', resolve_start)
+        resolver = source[resolve_start:resolve_end]
+        self.assertIn('address.type == InternetAddressType.IPv4', resolver)
+        self.assertIn('for (final address in results)', resolver)
+        asn_start = source.index('Future<List<String>> nipAsnPrefixes(')
+        asn_end = source.index('// FRONTSNI:', asn_start)
+        asn = source[asn_start:asn_end]
+        self.assertIn('InternetAddress.tryParse(ip)', asn)
+        self.assertIn('parsedIp.type != InternetAddressType.IPv4', asn)
+        self.assertIn('return const [];', asn)
+
+    def test_dns_scanner_checks_both_a_and_aaaa_records(self):
+        source = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        start = source.index('Future<DnsxHit?> dnsxProbe(')
+        end = source.index('/// اسکن گروهی', start)
+        probe = source[start:end]
+        self.assertIn('queryType: 1,', probe)
+        self.assertIn('queryType: 28,', probe)
+        self.assertIn('final good = familyResults.where((result) => result.ok)', probe)
+        self.assertIn('tested += part.length;', probe)
+        self.assertIn('if (result != null) times.add(result.elapsedMs!);', probe)
+
+
+    def test_national_configured_ranges_keep_ipv4_and_ipv6_families(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        normalizer_start = source.index('List<String> _natNormalizeConfiguredRanges(')
+        normalizer_end = source.index('/// Next bounded sample', normalizer_start)
+        normalizer = source[normalizer_start:normalizer_end]
+        expand_start = source.index('BigInt _natIpv6ToBigInt(')
+        expand_end = source.index('const List<String> natIranDnsHosts', expand_start)
+        expander = source[expand_start:expand_end]
+        self.assertIn('ip.type == InternetAddressType.IPv6', normalizer)
+        self.assertIn('nipExpandIpv6Cidr', normalizer)
+        self.assertIn('first.type == InternetAddressType.IPv6', normalizer)
+        self.assertIn('InternetAddress.fromRawAddress(Uint8List.fromList(bytes))', expander)
+        self.assertIn('nipExpandIpv6Cidr(item, maxPerBlock: limit)', expander)
+        self.assertIn('a.type == InternetAddressType.IPv4', expander)
+        self.assertIn('a.type == InternetAddressType.IPv6', expander)
+        memory_start = source.index('Future<void> natIpMemLoad()')
+        memory_end = source.index('const String _domMemKey', memory_start)
+        memory = source[memory_start:memory_end]
+        self.assertIn('address.type != InternetAddressType.IPv6', memory)
+        domain_start = source.index('Future<List<String>> _natDomainFirst(')
+        domain_end = source.index('Future<List<String>> natDeviceHosts()', domain_start)
+        domain_scan = source[domain_start:domain_end]
+        self.assertIn('address.type != InternetAddressType.IPv6', domain_scan)
+
+
+
+    def test_smart_pilot_manual_ip_ranges_accept_bounded_ipv4_and_ipv6(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('List<String> _pilotExpandRanges(String raw)')
+        end = source.index('Future<void> _pilotRangesDialog', start)
+        block = source[start:end]
+        self.assertIn('prefix >= 120 && prefix <= 128', block)
+        self.assertIn('nipExpandIpv6Cidr(line', block)
+        self.assertIn('address.type == InternetAddressType.IPv6', block)
+        self.assertIn('out.length < 256', block)
+        self.assertIn('InternetAddressType.IPv6', block)
+        scan_start = source.index('Future<void> _pilotScanOnly()')
+        scan_end = source.index('Future<void> ', scan_start + 20)
+        scan = source[scan_start:scan_end]
+        self.assertIn('InternetAddress.tryParse(host)', scan)
+        self.assertIn('Socket.connect(address, 443', scan)
 
 
 if __name__ == '__main__':

@@ -28,7 +28,7 @@ Future<int?> _autoSniOk(String ip, int port, String sni) async {
   try {
     raw = await Socket.connect(ip, port, timeout: const Duration(seconds: 4));
     secure = await SecureSocket.secure(raw,
-        host: sni, onBadCertificate: (_) => true)
+        host: sni)
         .timeout(const Duration(seconds: 4));
     return sw.elapsedMilliseconds;
   } catch (_) {
@@ -47,8 +47,7 @@ Future<String?> _autoAlpnOk(String ip, String sni, String alpn) async {
     raw = await Socket.connect(ip, 443, timeout: const Duration(seconds: 4));
     secure = await SecureSocket.secure(raw,
         host: sni,
-        supportedProtocols: [alpn],
-        onBadCertificate: (_) => true)
+        supportedProtocols: [alpn])
         .timeout(const Duration(seconds: 4));
     return secure.selectedProtocol;
   } catch (_) {

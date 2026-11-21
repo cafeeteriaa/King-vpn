@@ -193,9 +193,9 @@ const List<_NatSpec> _natBase = [
   _NatSpec('آدرس دیگر + Fragment خیلی ریز', other: true, frag: 3),
   // V13: SNI swap variants (CDN bypass by masking SNI, keeping Host header).
   _NatSpec('SNI>cdnjs', sniSwap: 0),
-  _NatSpec('SNI>cloudflare', sniSwap: 2),
-  _NatSpec('SNI>speed', sniSwap: 3),
-  _NatSpec('SNI>divar.ir', sniSwap: 7),
+  _NatSpec('SNI>cloudflare', sniSwap: 1),
+  _NatSpec('SNI>speed', sniSwap: 2),
+  _NatSpec('SNI>divar.ir', sniSwap: 6),
 ];
 
 final List<_NatSpec> _natSpecs = [..._natBase, ..._natGenerate(), ..._natExtra];
@@ -221,7 +221,7 @@ const List<_NatSpec> _natExtra = [
 String _natSig(_NatSpec x) =>
     '${x.fp}|${x.alpn}|${x.frag}|${x.other}|${x.port}|${x.portIdx}|${x.clean}|'
     '${x.cleanIdx}|${x.mux}|${x.muxN}|${x.sniHost}|${x.v4}|${x.tfo}|${x.ed}|'
-    '${x.edN}|${x.noise}|${x.noiseK}|${x.nodelay}|${x.doh}|${x.mode}|${x.keep}|${x.sniSwap}';
+    '${x.edN}|${x.noise}|${x.noiseK}|${x.nodelay}|${x.doh}|${x.mode}|${x.keep}|${x.mss}|${x.sniSwap}';
 
 _NatSpec _natMk(
     {String? fp,
@@ -334,7 +334,7 @@ List<_NatSpec> _natGenerate() {
 
   // V13: SNI-swap x fragment combos (bypass SNI + DPI in one shot).
   for (var sniIdx = 0; sniIdx < 4; sniIdx++) {
-    final realIdx = const [0, 2, 3, 10][sniIdx];
+    final realIdx = const [0, 2, 3, 6][sniIdx];
     for (var fi = 0; fi < _natFragBase.length; fi++) {
       add(_natMk(frag: fi, sniSwap: realIdx));
     }
@@ -423,13 +423,23 @@ List<_NatSpec> _natGenerate() {
 }
 
 int _natGrowCounter = 0;
+Set<String>? _natGrowSignatures;
+
 int natGrow(int n) {
-  if (_natSpecs.length > 500000) return 0;
+  if (n <= 0 || _natSpecs.length >= natMaxVariants) return 0;
+  // Keep generated variants unique. Repeated random entries were previously
+  // appended forever (up to 500k), bloating rank maps and slowing every sort.
+  final signatures = _natGrowSignatures ??= {
+    for (final spec in _natSpecs) _natSig(spec),
+  };
+  final target = min(n, natMaxVariants - _natSpecs.length);
   final rnd = Random(DateTime.now().millisecondsSinceEpoch + _natGrowCounter++);
   var added = 0;
+  var attempts = 0;
+  final maxAttempts = target * 12;
   const fps = ['chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge', 'random', 'qq', '360', 'hellogolang', 'hellochrome', 'hellofirefox', 'hellosafari', 'helloios', 'helloandroid', 'helloedge', 'hello360', 'helloqq', 'hellorandomized', 'hellorandomizedalpn', 'hellorandomizednoalpn'];
   const alpns = <String?>[null, 'h2', 'http/1.1', 'h2,http/1.1'];
-  for (var i = 0; i < n; i++) {
+  while (added < target && attempts++ < maxAttempts) {
     final fp = fps[rnd.nextInt(fps.length)];
     final alpn = alpns[rnd.nextInt(alpns.length)];
     final frag = rnd.nextInt(_natFrags.length);
@@ -437,22 +447,27 @@ int natGrow(int n) {
     final portIdx = port ? rnd.nextInt(_natCfPorts.length) : null;
     final clean = rnd.nextBool();
     final cleanIdx = clean ? rnd.nextInt(10) : null;
-    // DNSNAT: جایگزین‌ها از DNSهای سالم اسکن (اگر هست) انتخاب می‌شوند
-    // نیمی از انتخاب‌ها از DNSهای اسکن‌شده و نیمی از لیست ثابت، تا تنوع حفظ شود
+    // DNSNAT: prefer healthy scanned resolvers when available, while retaining
+    // fixed fallback resolvers for diversity.
     final dnsPool = (dnsxBestCache.isNotEmpty && rnd.nextBool()) ? dnsxBestCache : _natDnsList;
     final doh = rnd.nextBool() ? dnsPool[rnd.nextInt(dnsPool.length)] : null;
     final v4 = rnd.nextBool();
     final tfo = rnd.nextBool();
     final keep = rnd.nextBool() ? rnd.nextInt(30) + 1 : null;
     final sniSwap = rnd.nextBool() ? rnd.nextInt(natFrontSnis.length) : null;
-    _natSpecs.add(_natMk(
+    final spec = _natMk(
       fp: fp, alpn: alpn, frag: frag, port: port, portIdx: portIdx,
       clean: clean, cleanIdx: cleanIdx, v4: v4, tfo: tfo, keep: keep, doh: doh,
       sniSwap: sniSwap,
-    ));
+    );
+    if (!signatures.add(_natSig(spec))) continue;
+    _natSpecs.add(spec);
     added++;
   }
-  if (added > 0) { _natNamesC = null; _natGenRankKey = ''; }
+  if (added > 0) {
+    _natNamesC = null;
+    _natGenRankKey = '';
+  }
   return added;
 }
 
@@ -791,7 +806,7 @@ List<int> _natOrder(Server s, {bool full = false}) {
   if (lvl < 1) lvl = 1;
   if (lvl > 10) lvl = 10;
   final f = _NatFacts(s);
-  final known = natVar[_nk(s)];
+  final known = natVarCandidates[_nk(s)] ?? natVar[_nk(s)];
   final cursor = _natCursor[_natCk(s)] ?? 0;
   final again = cursor > 0 && lvl >= 2;
   final out = <int>[];
@@ -1060,41 +1075,57 @@ String _natLinkFor(Server s, int v, {bool reuse = false}) {
 
 final Map<int, bool> dohPreOk = {};
 final Map<int, DateTime> _dohPreAt = {};
+final Map<int, String> _dohPreNetworkKey = {};
 int _dohGen = 0; // نسل کش: هر تغییر شبکه آن را بالا می‌برد
 // نتیجه‌ی probe به شبکه‌ی فعلی وابسته است؛ با تغییر شبکه باید پاک شود.
 void natDohCacheClear() {
   _dohGen++;
   dohPreOk.clear();
   _dohPreAt.clear();
+  _dohPreNetworkKey.clear();
 }
 Future<bool> natDohUsable(int v) async {
   if (v < 0 || v >= _natSpecs.length) return false;
   final doh = _natSpecs[v].doh;
   if (doh == null) return true;
+
+  // Bind each cached answer to the physical interface, operator and route mode.
+  // A mode switch can happen without the normal network watcher running.
+  final networkKey = await _dnsNetworkKey();
+  final cacheableNetwork = !networkKey.endsWith('|unknown');
   final cached = dohPreOk[v];
   final at = _dohPreAt[v];
-  if (cached != null &&
+  if (cacheableNetwork &&
+      cached != null &&
+      _dohPreNetworkKey[v] == networkKey &&
       at != null &&
       DateTime.now().difference(at) < const Duration(minutes: 10)) {
     return cached;
   }
+
   var host = doh;
   final u = Uri.tryParse(doh);
   if (u != null && u.hasAuthority) host = u.host;
-  final gen = _dohGen; // نسل قبل از probe گرفته می‌شود
+  final gen = _dohGen;
+  final modeSnapshot = nationalMode;
   // A TCP-open port or successful TLS handshake is not proof of DoH.
-  // Require a valid DNS-over-HTTPS JSON response for a mode-appropriate name.
+  // Require a valid DNS-over-HTTPS JSON response for the captured route mode.
+  final expectedDomain = modeSnapshot ? 'nic.ir' : 'google.com';
   final path = (u?.path.isNotEmpty ?? false) ? u!.path : '/dns-query';
   final query = Uri.https(host, path, <String, String>{
-    'name': nationalMode ? 'nic.ir' : 'google.com',
+    'name': expectedDomain,
     'type': 'A',
   }).toString();
-  final ms = await _probeDoh(query, expectedDomain: nationalMode ? 'nic.ir' : 'google.com');
+  final ms = await _probeDoh(query, expectedDomain: expectedDomain);
   final ok = ms != null;
-  // ج-۱: اگر در این فاصله شبکه عوض شده، نتیجه مربوط به شبکه‌ی قبلی است؛ ننویس
-  if (gen == _dohGen) {
+
+  // Do not publish a probe measured across an interface/operator/mode switch.
+  final networkKeyAfter = await _dnsNetworkKey();
+  if (gen != _dohGen || networkKeyAfter != networkKey) return false;
+  if (cacheableNetwork) {
     dohPreOk[v] = ok;
     _dohPreAt[v] = DateTime.now();
+    _dohPreNetworkKey[v] = networkKey;
   }
   return ok;
 }
@@ -1405,7 +1436,7 @@ String _natSmartSni(String cfg, Server s, {bool forceAll = false}) {
       if (tls is! Map) continue;
       if (tlsHasEch(tls)) continue;
       tls['serverName'] = 'cdnjs.cloudflare.com';
-      tls['allowInsecure'] = true;
+      tls['allowInsecure'] = false;
     }
     return jsonEncode(j);
   } catch (_) { return cfg; }
@@ -1419,7 +1450,7 @@ int natSafeVariant(int v) {
 int natVarFor(Server s) {
   // NATONLYVAR: اتصال عادی هیچ حالتی (fp / Fragment / نردبان) ندارد؛ فقط نت ملی
   if (!nationalMode) return 0;
-  final rawV = natVar[_nk(s)] ?? 0;
+  final rawV = natVarCandidates[_nk(s)] ?? natVar[_nk(s)] ?? 0;
   final v = natSafeVariant(rawV);
   if (v <= 0) return 0;
   final x = _natSpecs[v];
@@ -1473,7 +1504,7 @@ final Map<String, DateTime> _natAsnTry = {};
 Future<String> _natNetType() async {
   try {
     final l = await NetworkInterface.list(
-        includeLoopback: false, type: InternetAddressType.IPv4);
+        includeLoopback: false);
     var wifi = false, mob = false;
     for (final i in l) {
       if (i.addresses.isEmpty) continue;
@@ -1494,15 +1525,33 @@ Future<String> _natNetType() async {
 }
 
 Future<String?> _natAsnFrom(String url, String field) async {
+  final uri = Uri.tryParse(url);
+  if (uri == null ||
+      uri.scheme != 'https' ||
+      uri.host.isEmpty ||
+      uri.userInfo.isNotEmpty) {
+    return null;
+  }
   final c = HttpClient()
     ..findProxy = ((_) => 'DIRECT')
     ..connectionTimeout = const Duration(seconds: 3);
   try {
-    final req =
-        await c.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 3));
+    final req = await c.getUrl(uri).timeout(const Duration(seconds: 3));
+    // ASN providers are optional diagnostics; do not follow a downgrade redirect.
+    req.followRedirects = false;
     final res = await req.close().timeout(const Duration(seconds: 3));
-    final body =
-        await res.transform(utf8.decoder).join().timeout(const Duration(seconds: 3));
+    if (res.statusCode != HttpStatus.ok) return null;
+    // The provider is external and optional. Bound the response before decoding
+    // so a compromised endpoint cannot turn a tiny ASN lookup into memory pressure.
+    const maxAsnResponseBytes = 256 * 1024;
+    final responseBytes = <int>[];
+    await for (final chunk in res.timeout(const Duration(seconds: 3))) {
+      if (responseBytes.length + chunk.length > maxAsnResponseBytes) {
+        return null;
+      }
+      responseBytes.addAll(chunk);
+    }
+    final body = utf8.decode(responseBytes, allowMalformed: true);
     final t = body.trimLeft();
     if (!t.startsWith('{')) return null;
     final j = jsonDecode(t);
@@ -1528,7 +1577,6 @@ Future<void> natDetectOperator() async {
     if (stale) {
       _natAsnTry[type] = DateTime.now();
       final r = await Future.wait([
-        _natAsnFrom('http://ip-api.com/json/?fields=as', 'as'),
         _natAsnFrom('https://ipinfo.io/json', 'org'),
         _natAsnFrom('https://api.ip.sb/geoip', 'asn'),
       ]);
@@ -1549,6 +1597,9 @@ Future<void> natDetectOperator() async {
     final k = asn.isEmpty ? type : '$type|AS$asn';
     if (k != natOpKey) {
       natOpKey = k;
+      // A provisional winner belongs to the operator/network that produced
+      // its delay evidence. Never let it survive a carrier or Wi-Fi handoff.
+      natVarCandidates.clear();
       dbg('شبکه/اپراتور: $k');
     }
   } catch (e, stk) { logError(e, stk); }
@@ -1562,7 +1613,27 @@ final Map<int, int> natWinCount = {};
 
 String _nk(Server s) => '$natOpKey#${s.key}';
 
+// A core-delay winner is provisional until real Android TUN traffic passes.
+final Map<String, int> natVarCandidates = {};
+
+void natVarCandidateSet(Server s, int v) {
+  natVarCandidates[_nk(s)] = v;
+  while (natVarCandidates.length > 4000) {
+    natVarCandidates.remove(natVarCandidates.keys.first);
+  }
+}
+
+void natVarCandidateDiscard(Server s) {
+  natVarCandidates.remove(_nk(s));
+}
+
+void natVarCandidateConfirm(Server s) {
+  final candidate = natVarCandidates.remove(_nk(s));
+  if (candidate != null) natVarSet(s, candidate);
+}
+
 void natVarSet(Server s, int v) {
+  natVarCandidateDiscard(s);
   natVar.remove(_nk(s));
   natVar[_nk(s)] = v;
   final wk = '$natOpKey#$v';
@@ -1686,21 +1757,53 @@ Set<String> natIpMemHosts() => {for (final e in natIpMem) '${e['ip']}'};
 Future<void> natIpMemLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
-    final s = p.getString(_ipMemKey);
-    if (s != null) {
-      natIpMem
-        ..clear()
-        ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
-      final cutoff = DateTime.now()
-          .subtract(const Duration(days: 14))
-          .millisecondsSinceEpoch;
-      natIpMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
+    final raw = p.getString(_ipMemKey);
+    natIpMem.clear();
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          final now = DateTime.now().millisecondsSinceEpoch;
+          final cutoff = now - const Duration(days: 14).inMilliseconds;
+          final seen = <String>{};
+          for (final item in decoded.take(_ipMemMax * 4)) {
+            if (item is! Map) continue;
+            final address = InternetAddress.tryParse('${item['ip'] ?? ''}');
+            final portValue = item['port'];
+            final timeValue = item['t'];
+            final port = portValue is num ? portValue.toInt() : 0;
+            final timestamp = timeValue is num ? timeValue.toInt() : 0;
+            if (address == null ||
+                (address.type != InternetAddressType.IPv4 &&
+                    address.type != InternetAddressType.IPv6) ||
+                port < 1 ||
+                port > 65535 ||
+                timestamp < cutoff ||
+                timestamp > now + const Duration(days: 1).inMilliseconds) {
+              continue;
+            }
+            final key = '${address.address}:$port';
+            if (!seen.add(key)) continue;
+            natIpMem.add({
+              'ip': address.address,
+              'port': port,
+              't': timestamp,
+            });
+            if (natIpMem.length >= _ipMemMax) break;
+          }
+        }
+      } catch (e, stk) {
+        logError(e, stk);
+      }
     }
-    natRanges = (p.getString(_rangeKey) ?? '')
-        .split(RegExp(r'[\r\n,; ]+'))
-        .where((x) => x.contains('/') || x.contains('-'))
-        .toList();
-    _natConfiguredRangeCursor = (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
+    // Rewrite stale or malformed cache once, keeping future reads bounded.
+    if (raw != null && jsonEncode(natIpMem) != raw) {
+      await p.setString(_ipMemKey, jsonEncode(natIpMem));
+    }
+    natRanges = _natNormalizeConfiguredRanges(
+        (p.getString(_rangeKey) ?? '').split(RegExp(r'[\r\n,; ]+')));
+    _natConfiguredRangeCursor =
+        (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -1760,17 +1863,74 @@ Future<void> natIpMemSave(String ip, int port) async {
 }
 
 
+/// Parse, canonicalize, deduplicate and cap user-configured IPv4 ranges.
+List<String> _natNormalizeConfiguredRanges(Iterable<String> values) {
+  final seen = <String>{};
+  final out = <String>[];
+  for (final value in values) {
+    final raw = value.trim();
+    String? normalized;
+    if (raw.contains('/')) {
+      final parts = raw.split('/');
+      if (parts.length != 2) continue;
+      final ip = InternetAddress.tryParse(parts[0].trim());
+      final prefix = int.tryParse(parts[1].trim());
+      if (ip == null || prefix == null) continue;
+      if (ip.type == InternetAddressType.IPv4) {
+        if (prefix < 8 || prefix > 32) continue;
+        final mask = (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF;
+        normalized = '${_intToIp(_ipToInt(ip.address) & mask)}/$prefix';
+      } else if (ip.type == InternetAddressType.IPv6) {
+        if (prefix < 0 || prefix > 128) continue;
+        final network = nipExpandIpv6Cidr('${ip.address}/$prefix', maxPerBlock: 1);
+        if (network.isEmpty) continue;
+        normalized = '${network.first}/$prefix';
+      } else {
+        continue;
+      }
+    } else if (raw.contains('-')) {
+      final parts = raw.split('-');
+      if (parts.length != 2) continue;
+      final first = InternetAddress.tryParse(parts[0].trim());
+      final last = InternetAddress.tryParse(parts[1].trim());
+      if (first == null || last == null || first.type != last.type) continue;
+      if (first.type == InternetAddressType.IPv4) {
+        final a = _ipToInt(first.address);
+        final b = _ipToInt(last.address);
+        normalized = a <= b
+            ? '${first.address}-${last.address}'
+            : '${last.address}-${first.address}';
+      } else if (first.type == InternetAddressType.IPv6) {
+        final a = _natIpv6ToBigInt(first.rawAddress);
+        final b = _natIpv6ToBigInt(last.rawAddress);
+        normalized = a <= b
+            ? '${first.address}-${last.address}'
+            : '${last.address}-${first.address}';
+      } else {
+        continue;
+      }
+    }
+    if (normalized == null || !seen.add(normalized)) continue;
+    out.add(normalized);
+    if (out.length >= 128) break;
+  }
+  return out;
+}
+
 /// Next bounded sample from the National Net engine's own user-configured
 /// ranges. This cursor and range inventory are not shared with generic scanners.
 ({List<String> addresses, int nextCursor}) _natConfiguredRangeBatch(int limit) {
   if (limit <= 0 || natRanges.isEmpty) {
     return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
   }
+  // Bound synchronous work even when configured ranges overlap heavily.
+  final candidateCap = min(limit * 4, 131072);
   final candidates = <String>{};
   for (final range in natRanges.take(128)) {
-    final remaining = limit * 4 - candidates.length;
+    final remaining = candidateCap - candidates.length;
     if (remaining <= 0) break;
-    candidates.addAll(natExpandAny(range, maxPerBlock: remaining));
+    final generated = natExpandAny(range, maxPerBlock: min(1024, remaining));
+    candidates.addAll(generated);
   }
   if (candidates.isEmpty) {
     return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
@@ -1786,10 +1946,8 @@ Future<void> natIpMemSave(String ip, int port) async {
 }
 
 Future<void> natRangesSave(String text) async {
-  natRanges = text
-      .split(RegExp(r'[\r\n,; ]+'))
-      .where((x) => x.contains('/') || x.contains('-'))
-      .toList();
+  natRanges = _natNormalizeConfiguredRanges(
+      text.split(RegExp(r'[\r\n,; ]+')));
   _natConfiguredRangeCursor = 0;
   try {
     final p = await SharedPreferences.getInstance();
@@ -1870,34 +2028,74 @@ int _ipToInt(String ip) {
 String _intToIp(int v) =>
     '${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}';
 
+BigInt _natIpv6ToBigInt(List<int> bytes) {
+  var value = BigInt.zero;
+  for (final byte in bytes) {
+    value = (value << 8) | BigInt.from(byte);
+  }
+  return value;
+}
+
+String _natBigIntToIpv6(BigInt value) {
+  final bytes = List<int>.generate(
+    16,
+    (i) => ((value >> ((15 - i) * 8)) & BigInt.from(255)).toInt(),
+  );
+  return InternetAddress.fromRawAddress(Uint8List.fromList(bytes)).address;
+}
+
 List<String> natExpandAny(String item, {int maxPerBlock = 65536}) {
   if (maxPerBlock <= 0) return const [];
-  if (!item.contains('-')) return natExpandCidr(item, maxPerBlock: maxPerBlock);
+  final limit = min(maxPerBlock, 65536);
+  if (!item.contains('-')) {
+    final parts = item.split('/');
+    if (parts.length == 2) {
+      final address = InternetAddress.tryParse(parts[0].trim());
+      if (address?.type == InternetAddressType.IPv6) {
+        return nipExpandIpv6Cidr(item, maxPerBlock: limit);
+      }
+    }
+    return natExpandCidr(item, maxPerBlock: limit);
+  }
   final parts = item.split('-');
   if (parts.length != 2) return const [];
   final a = InternetAddress.tryParse(parts[0].trim());
   final b = InternetAddress.tryParse(parts[1].trim());
-  if (a == null || b == null ||
-      a.type != InternetAddressType.IPv4 ||
-      b.type != InternetAddressType.IPv4) {
-    return const [];
+  if (a == null || b == null || a.type != b.type) return const [];
+  if (a.type == InternetAddressType.IPv4) {
+    var start = _ipToInt(a.address);
+    var end = _ipToInt(b.address);
+    if (end < start) {
+      final t = start;
+      start = end;
+      end = t;
+    }
+    final out = <String>[];
+    final count = end - start + 1;
+    final step = count > limit ? (count + limit - 1) ~/ limit : 1;
+    for (var v = start; v <= end && out.length < limit; v += step) {
+      out.add(_intToIp(v));
+    }
+    return out;
   }
-  var start = _ipToInt(a.address);
-  var end = _ipToInt(b.address);
-  if (end < start) {
-    final t = start;
-    start = end;
-    end = t;
+  if (a.type == InternetAddressType.IPv6) {
+    var start = _natIpv6ToBigInt(a.rawAddress);
+    var end = _natIpv6ToBigInt(b.rawAddress);
+    if (end < start) {
+      final t = start;
+      start = end;
+      end = t;
+    }
+    final count = end - start + BigInt.one;
+    final cap = BigInt.from(limit);
+    final step = count > cap ? (count + cap - BigInt.one) ~/ cap : BigInt.one;
+    final out = <String>[];
+    for (var value = start; value <= end && out.length < limit; value += step) {
+      out.add(_natBigIntToIpv6(value));
+    }
+    return out;
   }
-  final out = <String>[];
-  final count = end - start + 1;
-  final step = count > maxPerBlock
-      ? (count + maxPerBlock - 1) ~/ maxPerBlock
-      : 1;
-  for (var v = start; v <= end && out.length < maxPerBlock; v += step) {
-    out.add(_intToIp(v));
-  }
-  return out;
+  return const [];
 }
 
 const List<String> natIranDnsHosts = [
@@ -1971,7 +2169,8 @@ Future<List<String>> _natDomainFirst(List<Server> known,
       final addresses = parsed == null ? await safeLookup(entry.key) : <InternetAddress>[parsed];
       if (cancelled()) return const <String>[];
       for (final address in addresses) {
-        if (address.type != InternetAddressType.IPv4) continue;
+        if (address.type != InternetAddressType.IPv4 &&
+            address.type != InternetAddressType.IPv6) continue;
         (resolved[address.address] ??= <int>{}).addAll(entry.value);
       }
     }
@@ -2524,20 +2723,45 @@ Future<List<String>> _hotFetchOne(String u) async {
   return out;
 }
 
+// The hot-file index and cursor are shared by every national-source consumer.
+// Serialize rebuilds and reads so concurrent callers cannot interleave seek/read
+// operations or reset the cursor while another reader is consuming the old index.
+Future<void> _hotIoQueue = Future<void>.value();
+
+Future<T> _hotSerialize<T>(Future<T> Function() action) {
+  final result = _hotIoQueue.then((_) => action());
+  _hotIoQueue = result.then<void>(
+    (_) {},
+    onError: (Object error, StackTrace stack) {},
+  );
+  return result;
+}
+
 Future<void>? _hotEnsureFuture;
+bool _hotEnsureRunningForce = false;
 
 Future<void> natHotEnsure({bool force = false}) async {
   final active = _hotEnsureFuture;
   if (active != null) {
+    // A forced refresh must not be swallowed by an ordinary refresh already
+    // in flight. If the active operation is itself forced, joining it is enough.
+    final activeWasForced = _hotEnsureRunningForce;
     await active;
+    if (force && !activeWasForced) {
+      await natHotEnsure(force: true);
+    }
     return;
   }
-  final task = _natHotEnsureImpl(force: force);
+  final task = _hotSerialize<void>(() => _natHotEnsureImpl(force: force));
   _hotEnsureFuture = task;
+  _hotEnsureRunningForce = force;
   try {
     await task;
   } finally {
-    if (identical(_hotEnsureFuture, task)) _hotEnsureFuture = null;
+    if (identical(_hotEnsureFuture, task)) {
+      _hotEnsureFuture = null;
+      _hotEnsureRunningForce = false;
+    }
   }
 }
 
@@ -2557,6 +2781,18 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
     final parts = [for (var i = 0; i < urls.length; i++) '$dir/hot_part_$i.txt'];
     final extraPath = '$dir/hot_part_extra.txt';
     final sw = Stopwatch()..start();
+    // A previous interrupted refresh may have left partial source files behind.
+    // Remove them before fetching so a failed/empty source can never reuse stale configs.
+    for (final path in [...parts, extraPath]) {
+      final stalePart = File(path);
+      try {
+        await stalePart.delete();
+      } on FileSystemException {
+        // Ignore only the expected "already absent" case. A stale file that
+        // cannot be removed must abort the refresh rather than be merged.
+        if (await stalePart.exists()) rethrow;
+      }
+    }
     try {
       await pool<int>([for (var i = 0; i < urls.length; i++) i], fetchWorkers,
           (i) async {
@@ -2564,7 +2800,7 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
         final lines = await _hotFetchOne(urls[i]);
         if (lines.isEmpty) return;
         await File(parts[i]).writeAsString(lines.join('\n'), flush: true);
-      });
+      }, shouldStop: () => sw.elapsed > natHotFetchDeadline);
       final extraSrc = natExtraSource?.call() ?? const <Server>[];
       if (extraSrc.isNotEmpty) {
         final ex = [
@@ -2710,9 +2946,17 @@ Future<_HotIdx?> _hotLoad() async {
 }
 
 Future<List<Server>> natHotNext(int n,
-    {bool fetch = true, bool retried = false}) async {
+    {bool fetch = true, bool retried = false}) {
+  if (n <= 0) return Future<List<Server>>.value(const <Server>[]);
+  // Queue the refresh first so a read never races an atomic file replacement.
+  if (fetch) unawaited(natHotEnsure());
+  return _hotSerialize<List<Server>>(
+      () => _natHotNextImpl(n, fetch: false, retried: retried));
+}
+
+Future<List<Server>> _natHotNextImpl(int n,
+    {bool fetch = false, bool retried = false}) async {
   try {
-    if (fetch) unawaited(natHotEnsure());
     final h = await _hotLoad();
     if (h == null) return const [];
     final lines = h.offs.length - 1;
@@ -2725,7 +2969,7 @@ Future<List<Server>> natHotNext(int n,
       if (await raf.length() != h.offs.last) {
         _hot = null; // ایندکس قدیمی را دور بریز
         if (retried) return const [];
-        return natHotNext(n, fetch: false, retried: true);
+        return await _natHotNextImpl(n, fetch: false, retried: true);
       }
       var read = 0;
       while (out.length < n && read < lines) {

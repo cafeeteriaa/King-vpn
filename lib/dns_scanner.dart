@@ -7,14 +7,21 @@ part of 'main.dart';
 const List<String> kDnsxDefaults = [
   '8.8.8.8',
   '8.8.4.4',
+  '2001:4860:4860::8888',
+  '2001:4860:4860::8844',
   '1.1.1.1',
   '1.0.0.1',
+  '2606:4700:4700::1111',
+  '2606:4700:4700::1001',
   '9.9.9.9',
   '149.112.112.112',
+  '2620:fe::fe',
+  '2620:fe::9',
   '208.67.222.222',
   '208.67.220.220',
   '94.140.14.14',
   '94.140.15.15',
+  '2a10:50c0::ad1:ff',
 ];
 
 // DNSهای داخلی که از قبل در پروژه (npv_am_extras.dart) آمده‌اند
@@ -222,18 +229,36 @@ Future<DnsxHit?> dnsxProbe(String server,
     // Cancellation may arrive while waiting between DNS batches.
     if (stop != null && stop()) break;
     final part = list.sublist(i, min(i + chunk, list.length));
-    // NNIE: strict response validation includes transaction ID, QR/opcode,
-    // question/type/class, source IP/port, RCODE and usable A answer.
-    final res = await Future.wait(part.map((d) => NatDnsWireProbe.probe(
+    // Test both address families. A domain counts once when either its A
+    // or AAAA answer is a usable public address; this keeps the 25% threshold
+    // domain-based instead of rewarding domains that publish both families.
+    // NNIE validates transaction ID, question/type/class, source tuple,
+    // RCODE, CNAME ownership and public address ranges for each response.
+    final res = await Future.wait(part.map((domain) async {
+      final familyResults = await Future.wait([
+        NatDnsWireProbe.probe(
           server,
-          d,
+          domain,
           timeout: timeout,
           cancelled: stop,
-        )));
+          queryType: 1,
+        ),
+        NatDnsWireProbe.probe(
+          server,
+          domain,
+          timeout: timeout,
+          cancelled: stop,
+          queryType: 28,
+        ),
+      ]);
+      final good = familyResults.where((result) => result.ok).toList()
+        ..sort((a, b) => a.elapsedMs!.compareTo(b.elapsedMs!));
+      return good.isEmpty ? null : good.first;
+    }));
     if (stop != null && stop()) return null;
     tested += part.length;
-    for (final r in res) {
-      if (r.ok) times.add(r.elapsedMs!);
+    for (final result in res) {
+      if (result != null) times.add(result.elapsedMs!);
     }
   }
   // ملاک: حداقل ۲۵٪ از دامنه‌هایی که واقعاً سنجیده شدند باید جواب بدهند
@@ -400,8 +425,10 @@ extension DnsxExt on _HomePageState {
                   .map((s) => s.trim())
                   .where((s) =>
                       s.isNotEmpty &&
-                      InternetAddress.tryParse(s)?.type ==
-                          InternetAddressType.IPv4)
+                      (InternetAddress.tryParse(s)?.type ==
+                              InternetAddressType.IPv4 ||
+                          InternetAddress.tryParse(s)?.type ==
+                              InternetAddressType.IPv6))
                   .toList();
               final saved = await goldDnsList();
               if (!mounted || !sheetOpen) return;
@@ -467,7 +494,7 @@ extension DnsxExt on _HomePageState {
                     controller: extraC,
                     maxLines: 2,
                     decoration: const InputDecoration(
-                        labelText: 'DNS دلخواه (IPv4، با فاصله یا کاما)',
+                        labelText: 'DNS دلخواه (IPv4 یا IPv6، با فاصله یا کاما)',
                         border: OutlineInputBorder()),
                   ),
                   const SizedBox(height: 8),

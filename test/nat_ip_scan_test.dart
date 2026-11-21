@@ -19,6 +19,31 @@ void main() {
       expect(sampled16.toSet(), hasLength(sampled16.length));
     });
 
+    test('IPv6 CIDR dispatch expands a small subnet without losing IPv4 behavior', () {
+      expect(
+        natExpandCidr('2001:db8::1/126'),
+        ['2001:db8::', '2001:db8::1', '2001:db8::2', '2001:db8::3'],
+      );
+      expect(natExpandCidr('10.0.0.0/30'), [
+        '10.0.0.0', '10.0.0.1', '10.0.0.2', '10.0.0.3',
+      ]);
+    });
+
+    test('IPv6 CIDR sampling stays bounded for very large prefixes', () {
+      final sampled = natExpandCidr('2001:4860::/32', maxPerBlock: 17);
+      expect(sampled, hasLength(17));
+      expect(sampled.toSet(), hasLength(17));
+      expect(sampled.every((ip) => ip.contains(':')), isTrue);
+      expect(natExpandCidr('::/0', maxPerBlock: 8), hasLength(8));
+    });
+
+    test('IPv6 CIDR helper rejects malformed and non-IPv6 inputs', () {
+      expect(natExpandIpv6Cidr('10.0.0.0/24'), isEmpty);
+      expect(natExpandIpv6Cidr('2001:db8::/129'), isEmpty);
+      expect(natExpandIpv6Cidr('2001:db8::/64', maxPerBlock: 0), isEmpty);
+      expect(natExpandIpv6Cidr('not-an-ip/64'), isEmpty);
+    });
+
     test('dash range expansion rejects non-positive output limits', () {
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: 0), isEmpty);
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: -1), isEmpty);
@@ -29,6 +54,17 @@ void main() {
       expect(await natScanIps(['127.0.0.1'], timeout: Duration.zero), isEmpty);
       expect(await natScanIps(['127.0.0.1'], port: 0), isEmpty);
       expect(await natScanIps(['127.0.0.1'], port: 65536), isEmpty);
+    });
+
+    test('NAT scanner returns no hits for hostname-only input', () async {
+      expect(
+        await natScanIps(['localhost', 'example.com']),
+        isEmpty,
+      );
+      expect(
+        await natTcpProbe('localhost', 443, const Duration(seconds: 1)),
+        isNull,
+      );
     });
 
     test('adaptive concurrency always returns a bounded integer', () {
@@ -44,6 +80,16 @@ void main() {
         cancelled: () => true,
       );
       expect(result, isEmpty);
+    });
+
+    test('CIDR and dash expansion clamp excessive caller limits', () {
+      final cidr = natExpandCidr('10.0.0.0/8', maxPerBlock: 999999999);
+      final dash = natExpandDash(
+        '0.0.0.0-255.255.255.255',
+        maxCount: 999999999,
+      );
+      expect(cidr, hasLength(65536));
+      expect(dash, hasLength(65536));
     });
 
     test('valid limits preserve expected expansion', () {

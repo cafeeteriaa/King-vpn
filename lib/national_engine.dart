@@ -20,22 +20,33 @@ class NationalNetworkIntelligence {
   }
 
   static Future<void> _loadImpl() async {
+    var preferencesAvailable = false;
     try {
       final prefs = await SharedPreferences.getInstance();
+      preferencesAvailable = true;
       final raw = prefs.getString(_prefsKey);
       if (raw != null) {
         final decoded = jsonDecode(raw);
         if (decoded is Map) {
-          _memory = <String, NatEndpointMemory>{};
+          final restored = <String, NatEndpointMemory>{};
           for (final e in decoded.entries) {
-            if (e.key is String) _memory[e.key as String] = NatEndpointMemory.fromJson(e.value);
+            if (e.key is String) {
+              try {
+                restored[e.key as String] = NatEndpointMemory.fromJson(e.value);
+              } catch (e, st) {
+                logError(e, st);
+              }
+            }
           }
+          _memory = restored;
         }
       }
     } catch (e, st) {
+      // A temporary SharedPreferences failure must not permanently disable
+      // learned endpoint history for the lifetime of this process.
       logError(e, st);
     } finally {
-      _loaded = true;
+      _loaded = preferencesAvailable;
       _loading = null;
     }
   }
@@ -87,14 +98,17 @@ class NationalNetworkIntelligence {
   /// traffic verification. A CONNECTED state alone is not stable-traffic proof.
   static void armStable(
     String endpointKey,
-    Future<bool> Function() verifyStableTraffic,
-  ) {
+    Future<bool> Function() verifyStableTraffic, {
+    bool Function()? stillValid,
+  }) {
     _stableTimer?.cancel();
     _stableTimer = Timer(const Duration(minutes: 5), () {
       _stableTimer = null;
       unawaited(() async {
         try {
-          if (await verifyStableTraffic()) await recordStable(endpointKey);
+          if (await verifyStableTraffic()) {
+            await recordStable(endpointKey, stillValid: stillValid);
+          }
         } catch (_) {
           // Missing probe evidence is never counted as a successful stable run.
         }
@@ -102,8 +116,14 @@ class NationalNetworkIntelligence {
     });
   }
 
-  static Future<void> recordStable(String endpointKey) async {
+  static Future<void> recordStable(
+    String endpointKey, {
+    bool Function()? stillValid,
+  }) async {
     await load();
+    // load() awaits persistent storage. The connection may have changed while
+    // waiting, so validate once more immediately before mutating the evidence.
+    if (stillValid != null && !stillValid()) return;
     final old = _memory[endpointKey];
     if (old == null) return; // only extend entries that already have a real success
     _memory[endpointKey] = NatEndpointMemory(
@@ -114,7 +134,17 @@ class NationalNetworkIntelligence {
     await _save();
   }
 
-  static Future<void> _save() async {
+  static Future<void> _save() {
+    // Serialize preference writes. Concurrent connect/failover callbacks must
+    // never let an older snapshot overwrite newer endpoint evidence.
+    final next = _saveQueue.then((_) => _saveImpl());
+    _saveQueue = next;
+    return next;
+  }
+
+  static Future<void> _saveQueue = Future<void>.value();
+
+  static Future<void> _saveImpl() async {
     try {
       // Keep most useful/recent entries; do not let history grow indefinitely.
       final entries = _memory.entries.toList()
@@ -175,7 +205,13 @@ class NatNetworkDiagnosis {
       final parts = <String>[
         for (final i in ifs) for (final a in i.addresses) '${i.name}=${a.address}',
       ]..sort();
-      return sha256.convert(utf8.encode(parts.join(';'))).toString();
+      // No enumerated interface address means there is no reliable network
+      // identity. A hash of only the operator (or an empty string) would be
+      // reused across unrelated networks and must never become a cache key.
+      if (parts.isEmpty) return '';
+      // Operator identity matters even when two carriers reuse the same
+      // private interface address and Android interface name.
+      return sha256.convert(utf8.encode('$natOpKey|${parts.join(';')}')).toString();
     } catch (_) {
       return '';
     }
@@ -209,7 +245,7 @@ class NatNetworkDiagnosis {
     try {
       final at = _checkedAt;
       final id = await _identityHash();
-      if (!force && at != null && id == _identityAtCheck &&
+      if (!force && id.isNotEmpty && at != null && id == _identityAtCheck &&
           DateTime.now().difference(at) < _ttl) {
         return current;
       }
@@ -233,35 +269,44 @@ class NatNetworkDiagnosis {
       final globalDnsOk = globalDnsRes.any((x) => x.ok);
       final domesticTcpOk = domesticTcp.any((x) => x);
       final globalTcpOk = globalTcp.any((x) => x);
-      // DNS poisoning / blockpage check: a resolver returned a public A answer,
-      // yet none of the answered addresses accepts TCP/443, while domestic hosts
-      // do. That is the typical signature of an injected answer, not a live Google.
-      var poison = false;
-      if (globalDnsOk && !globalTcpOk && domesticTcpOk) {
-        final answered = [
-          for (final r in globalDnsRes) if (r.ok) ...r.addresses,
-        ].toSet().take(2).toList();
-        final reach = await Future.wait(answered.map(_tcpOk));
-        poison = reach.isNotEmpty && !reach.any((x) => x);
+      // A public DNS answer combined with failed TCP/443 does NOT prove DNS
+      // poisoning: a carrier may simply block the destination transport. Keep
+      // that evidence in the transportRestricted classifier; only set
+      // dnsPoisonSuspected when a future probe can independently prove injection.
+      // Interface identity can change while DNS/TCP probes are in flight
+      // (Wi-Fi <-> mobile, VPN handoff, or roaming). Never publish evidence
+      // collected across two different networks as the current route verdict.
+      final identityAfterProbe = await _identityHash();
+      if (identityAfterProbe != id) {
+        current = NatNetworkClass.unknown;
+        _checkedAt = null;
+        _identityAtCheck = null;
+        dbg('NNIE-DIAG: discarded probe results because the network changed');
+        return current;
       }
       final ev = NatProbeEvidence(
         domesticDnsOk: domesticDnsOk,
         domesticTcpOk: domesticTcpOk,
         globalDnsOk: globalDnsOk,
         globalTcpOk: globalTcpOk,
-        dnsPoisonSuspected: poison,
         sampleCount: domesticTcp.length + globalTcp.length +
             globalDnsRes.length + domesticDnsRes.length,
+        domesticTcpSuccesses: domesticTcp.where((ok) => ok).length,
+        globalTcpSuccesses: globalTcp.where((ok) => ok).length,
       );
       current = ev.classify();
-      _checkedAt = DateTime.now();
-      _identityAtCheck = id;
+      // If interface enumeration is unavailable, use this sample once but
+      // never cache it as belonging to an identifiable network.
+      _checkedAt = id.isNotEmpty ? DateTime.now() : null;
+      _identityAtCheck = id.isNotEmpty ? id : null;
       dbg('NNIE-DIAG: ${natNetworkClassLabel(current)} '
           '(domesticTcp=${ev.domesticTcpOk} domesticDns=$domesticDnsOk '
-          'globalTcp=${ev.globalTcpOk} globalDns=${ev.globalDnsOk} poison=$poison)');
+          'globalTcp=${ev.globalTcpOk} globalDns=${ev.globalDnsOk})');
     } catch (e, st) {
       logError(e, st);
       current = NatNetworkClass.unknown;
+      _checkedAt = null;
+      _identityAtCheck = null;
     } finally {
       _running = false;
     }
@@ -308,7 +353,7 @@ class PilotNetworkProbe {
   static Future<NetworkEvidence> _refresh({required bool force}) async {
     final identity = await _networkIdentity();
     final lastAt = _lastAt;
-    if (!force && lastAt != null && identity == _lastIdentity &&
+    if (!force && identity.isNotEmpty && lastAt != null && identity == _lastIdentity &&
         DateTime.now().difference(lastAt) < const Duration(minutes: 2)) {
       return _last;
     }
@@ -316,6 +361,19 @@ class PilotNetworkProbe {
     final globalFuture = Future.wait(globalTargets.map(_probeHttps));
     final domestic = await domesticFuture;
     final global = await globalFuture;
+    // The route may have changed during the concurrent TLS checks. Discard
+    // that mixed snapshot instead of steering Smart Pilot with stale evidence.
+    final identityAfterProbe = await _networkIdentity();
+    if (identityAfterProbe != identity) {
+      _last = const NetworkEvidence(
+        domestic: LinkHealth.unknown,
+        global: LinkHealth.unknown,
+      );
+      _lastAt = null;
+      _lastIdentity = null;
+      dbg('PILOT-TLS-PROBE: discarded results because the network changed');
+      return _last;
+    }
     LinkHealth health(List<int?> samples) {
       final successes = samples.whereType<int>().length;
       if (successes >= 2) return LinkHealth.healthy;
@@ -334,8 +392,9 @@ class PilotNetworkProbe {
       domesticTlsReachabilityVerified: domestic.whereType<int>().length >= 2,
       globalTlsReachabilityVerified: global.whereType<int>().length >= 2,
     );
-    _lastAt = DateTime.now();
-    _lastIdentity = identity;
+    // An unknown interface identity is not a safe cache key.
+    _lastAt = identity.isNotEmpty ? DateTime.now() : null;
+    _lastIdentity = identity.isNotEmpty ? identity : null;
     dbg('PILOT-TLS-PROBE: domestic=${domestic.whereType<int>().length}/${domestic.length} '
         'global=${global.whereType<int>().length}/${global.length} '
         'latencyDomestic=${_median(domestic)}ms latencyGlobal=${_median(global)}ms');
@@ -369,7 +428,12 @@ class PilotNetworkProbe {
           for (final address in item.addresses)
             '${item.name}=${address.address}',
       ]..sort();
-      return sha256.convert(utf8.encode(values.join(';'))).toString();
+      // Without interface addresses the operator alone is not a unique
+      // network identity, so disable caching until a real identity is visible.
+      if (values.isEmpty) return '';
+      // Include the active operator to avoid reusing a route verdict after
+      // a SIM/carrier handoff that happens to retain the same local address.
+      return sha256.convert(utf8.encode('$natOpKey|${values.join(';')}')).toString();
     } catch (_) {
       return '';
     }

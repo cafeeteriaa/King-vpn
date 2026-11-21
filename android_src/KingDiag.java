@@ -16,6 +16,7 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -288,16 +289,21 @@ public final class KingDiag {
             if (am == null) return "";
             List<ApplicationExitInfo> l = am.getHistoricalProcessExitReasons(null, 0, 12);
             if (l == null) return "";
+            // Android returns recent exits first, but sort explicitly so the
+            // persisted cursor always describes a contiguous processed prefix.
+            List<ApplicationExitInfo> ordered = new ArrayList<ApplicationExitInfo>(l);
+            Collections.sort(ordered, (a, b) ->
+                    Long.compare(b.getTimestamp(), a.getTimestamp()));
             Context app = appCtx(ctx);
             long seen = readSeen(app);
-            long newest = seen;
+            long processedThrough = seen;
             long now = System.currentTimeMillis();
             int shown = 0;
-            for (ApplicationExitInfo i : l) {
+            for (ApplicationExitInfo i : ordered) {
                 long ts = i.getTimestamp();
-                if (ts > newest) newest = ts;
-                if (shown >= 5) continue; // keep looking only to find the newest timestamp
-                if (ts <= seen) continue; // already reported by an earlier start
+                if (ts <= seen) break; // this and all older records were already processed
+                if (shown >= 5) break; // leave older records for the next report
+                processedThrough = ts;
                 int r = i.getReason();
                 long ageMin = (now - ts) / 60000L;
                 if (ageMin > 24 * 60) continue;
@@ -318,7 +324,7 @@ public final class KingDiag {
                     anrHints(sb, i, shown);
                 }
             }
-            if (newest > seen) writeSeen(app, newest);
+            if (processedThrough > seen) writeSeen(app, processedThrough);
         } catch (Throwable t) {
             sb.append("PROC-EXIT0 ").append(clip(String.valueOf(t), 200)).append('\n');
         }
