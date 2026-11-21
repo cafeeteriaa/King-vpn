@@ -1553,7 +1553,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         watchdog = service[start:end]
         self.assertIn('readCoreRunningWithWatchdog(core, "health-watchdog-state")', watchdog)
         self.assertIn('if (coreState == null)', watchdog)
-        self.assertIn('retaining it and retry', watchdog)
+        self.assertIn('Unknown native state is not evidence of a broken tunnel.', watchdog)
         self.assertIn('if (active && !stopping) rescheduleNormal();', watchdog)
         self.assertLess(watchdog.index('if (coreState == null)'),
                         watchdog.index('ProbeResult pr = coreUp ? probeResult(modeSnapshot)'))
