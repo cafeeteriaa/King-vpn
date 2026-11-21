@@ -47,8 +47,7 @@ Future<String?> _autoAlpnOk(String ip, String sni, String alpn) async {
     raw = await Socket.connect(ip, 443, timeout: const Duration(seconds: 4));
     secure = await SecureSocket.secure(raw,
         host: sni,
-        supportedProtocols: [alpn],
-        )
+        supportedProtocols: [alpn])
         .timeout(const Duration(seconds: 4));
     return secure.selectedProtocol;
   } catch (_) {
