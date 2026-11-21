@@ -1280,7 +1280,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         stable_end = main.index('if (mounted) setState(() {})', stable_start)
         stable_probe = main[stable_start:stable_end]
         self.assertIn('NationalNetworkIntelligence.armStable(', stable_probe)
-        self.assertIn('nnieGeneration == _connGen && _stableTunnelTrafficOk(s)', stable_probe)
+        self.assertIn('final trafficOk = await _stableTunnelTrafficOk(s);', stable_probe)
+        self.assertIn('return trafficOk &&', stable_probe)
+        post_probe = stable_probe.index('final trafficOk = await _stableTunnelTrafficOk(s);')
+        self.assertGreater(stable_probe.index('nnieGeneration == _connGen', post_probe),
+                           post_probe)
+        self.assertIn('identical(s, current)', stable_probe)
 
 
     def test_every_privileged_code_operation_requires_fresh_owner_proof(self):

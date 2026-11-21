@@ -8913,8 +8913,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // A reconnect may reuse the same Server object; bind the five-minute proof
     // to this exact connection generation so an interrupted run cannot count.
     final nnieGeneration = _connGen;
-    NationalNetworkIntelligence.armStable(
-        nnieKey, () => nnieGeneration == _connGen && _stableTunnelTrafficOk(s));
+    NationalNetworkIntelligence.armStable(nnieKey, () async {
+      if (nnieGeneration != _connGen || !connected || !identical(s, current)) {
+        return false;
+      }
+      final trafficOk = await _stableTunnelTrafficOk(s);
+      // The probe itself awaits network I/O. Revalidate afterward so a
+      // reconnect during that probe cannot credit the previous endpoint run.
+      return trafficOk &&
+          nnieGeneration == _connGen &&
+          connected &&
+          identical(s, current);
+    });
     if (mounted) setState(() {});
     if (mounted) uiJoinPrompt(context);
     _set(_connStatus());
