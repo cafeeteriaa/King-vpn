@@ -4090,7 +4090,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_nipNormalizeIpv4Cidrs(rawPrefixes, maxEntries: 2048)', asn)
         self.assertIn('if (rawPrefixes.length >= 4096) break;', asn)
 
-    def test_nip_tcp_scan_accepts_only_ipv4_literals_and_cleans_sockets(self):
+    def test_nip_tcp_scan_accepts_ipv4_and_ipv6_literals_and_cleans_sockets(self):
         source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         probe_start = source.index('Future<int?> nipTcpProbe(')
         scan_start = source.index('Future<List<NipHit>> nipScan(', probe_start)
@@ -4099,13 +4099,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         scan = source[scan_start:scan_end]
         self.assertIn('InternetAddress.tryParse(ip.trim())', probe)
         self.assertIn('address.type != InternetAddressType.IPv4', probe)
+        self.assertIn('address.type != InternetAddressType.IPv6', probe)
         self.assertIn('Socket.connect(address, port, timeout: timeout)', probe)
         self.assertIn('finally {', probe)
         self.assertIn('socket?.destroy();', probe)
         self.assertIn('address.type == InternetAddressType.IPv4', scan)
+        self.assertIn('address.type == InternetAddressType.IPv6', scan)
         self.assertIn('seen.add(address.address)', scan)
         self.assertIn('final clock = Stopwatch()..start();', scan)
         self.assertIn('if (aborted() || clock.elapsed >= budget) return;', scan)
+        self.assertIn('List<String> nipExpandIpv6Cidr(', source)
+        self.assertIn('address.type != InternetAddressType.IPv6', source)
+        self.assertIn('InternetAddress.fromRawAddress(Uint8List.fromList(bytes))', source)
+        self.assertIn('Socket.connect(address, port, timeout: const Duration(milliseconds: 2000))', source)
 
     def test_nip_cidr_expansion_bounds_caller_supplied_limit(self):
         source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')

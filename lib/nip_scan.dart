@@ -40,11 +40,53 @@ List<String> nipExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   return out;
 }
 
+/// گسترش محدود CIDR برای IPv6؛ برای بلوک‌های بزرگ، نمونه‌برداری یکنواخت انجام می‌شود.
+List<String> nipExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
+  if (maxPerBlock <= 0) return const [];
+  final limit = min(maxPerBlock, 65536);
+  final parts = cidr.trim().split('/');
+  if (parts.length != 2) return const [];
+  final address = InternetAddress.tryParse(parts[0].trim());
+  final prefix = int.tryParse(parts[1].trim());
+  if (address == null ||
+      address.type != InternetAddressType.IPv6 ||
+      prefix == null ||
+      prefix < 0 ||
+      prefix > 128) {
+    return const [];
+  }
+
+  var base = BigInt.zero;
+  for (final byte in address.rawAddress) {
+    base = (base << 8) | BigInt.from(byte);
+  }
+  final hostBits = 128 - prefix;
+  final size = BigInt.one << hostBits;
+  final mask = ((BigInt.one << 128) - BigInt.one) ^ (size - BigInt.one);
+  final network = base & mask;
+  final step = size > BigInt.from(limit)
+      ? (size + BigInt.from(limit) - BigInt.one) ~/ BigInt.from(limit)
+      : BigInt.one;
+  final out = <String>[];
+  for (var offset = BigInt.zero;
+      offset < size && out.length < limit;
+      offset += step) {
+    final value = network + offset;
+    final bytes = List<int>.generate(
+      16,
+      (i) => ((value >> ((15 - i) * 8)) & BigInt.from(255)).toInt(),
+    );
+    out.add(InternetAddress.fromRawAddress(Uint8List.fromList(bytes)).address);
+  }
+  return out;
+}
+
 /// اتصال TCP به ip:port. اگر جواب داد زمان پاسخ (ms) را برمی‌گرداند، وگرنه null.
 Future<int?> nipTcpProbe(String ip, int port, Duration timeout) async {
   final address = InternetAddress.tryParse(ip.trim());
   if (address == null ||
-      address.type != InternetAddressType.IPv4 ||
+      (address.type != InternetAddressType.IPv4 &&
+          address.type != InternetAddressType.IPv6) ||
       port < 1 ||
       port > 65535 ||
       timeout <= Duration.zero) {
@@ -65,7 +107,7 @@ Future<int?> nipTcpProbe(String ip, int port, Duration timeout) async {
   }
 }
 
-/// اسکن هم‌زمان؛ فقط IPv4 literal پذیرفته می‌شود تا اسکن باعث DNS سیستم نشود.
+/// اسکن هم‌زمان IPv4/IPv6؛ فقط IP literal پذیرفته می‌شود تا DNS سیستم دور زده نشود.
 Future<List<NipHit>> nipScan(
   List<String> ips, {
   int port = 443,
@@ -89,7 +131,8 @@ Future<List<NipHit>> nipScan(
   for (final raw in ips) {
     final address = InternetAddress.tryParse(raw.trim());
     if (address != null &&
-        address.type == InternetAddressType.IPv4 &&
+        (address.type == InternetAddressType.IPv4 ||
+            address.type == InternetAddressType.IPv6) &&
         seen.add(address.address)) {
       candidates.add(address.address);
     }
@@ -364,7 +407,13 @@ Future<String?> nipFrontProbe(String ip, int port, String sni) async {
   Socket? raw;
   SecureSocket? sec;
   try {
-    raw = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 2000));
+    final address = InternetAddress.tryParse(ip.trim());
+    if (address == null ||
+        (address.type != InternetAddressType.IPv4 &&
+            address.type != InternetAddressType.IPv6)) {
+      return null;
+    }
+    raw = await Socket.connect(address, port, timeout: const Duration(milliseconds: 2000));
     sec = await SecureSocket.secure(raw, host: sni)
         .timeout(const Duration(seconds: 3));
     return sni;
