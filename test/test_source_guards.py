@@ -102,6 +102,28 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (stopping) return;', resume[guard:connected_branch])
         self.assertNotIn('saveState();', resume[guard:connected_branch])
 
+    def test_native_watchdog_scheduler_cannot_be_resurrected_after_destroy(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertIn('private final Object schedulerLock = new Object();', source)
+        self.assertIn('private volatile boolean destroyed = false;', source)
+        destroy_start = source.index('public void onDestroy()')
+        destroy_end = source.index('private static String orEmpty', destroy_start)
+        destroy = source[destroy_start:destroy_end]
+        self.assertIn('synchronized (schedulerLock)', destroy)
+        self.assertIn('destroyed = true;', destroy)
+        self.assertLess(destroy.index('destroyed = true;'), destroy.index('scheduler = null;'))
+        schedule_start = source.index('private void scheduleTask(')
+        schedule_end = source.index('private void stopWatchdog()', schedule_start)
+        schedule = source[schedule_start:schedule_end]
+        self.assertIn('synchronized (schedulerLock)', schedule)
+        self.assertIn('if (destroyed || stopping) return;', schedule)
+        self.assertLess(schedule.index('if (destroyed || stopping) return;'),
+                        schedule.index('s.schedule(task, delaySec, TimeUnit.SECONDS)'))
+        stop_start = schedule_end
+        stop_end = source.index('private void checkOnce()', stop_start)
+        self.assertIn('synchronized (schedulerLock)', source[stop_start:stop_end])
+
+
     def test_native_watchdog_requires_corroborated_domestic_evidence_and_mode_snapshot(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = service.index('private ProbeResult probeResult(boolean modeSnapshot)')
