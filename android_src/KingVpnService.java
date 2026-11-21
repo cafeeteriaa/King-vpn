@@ -624,6 +624,23 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
     }
 
+    /** Reads native core state only while a process watchdog is armed. */
+    private Boolean readCoreRunningWithWatchdog(V2rayCoreManager core, String operation) {
+        if (!beginNative(operation)) {
+            lastError = "native watchdog unavailable; refusing unmonitored core state query";
+            return null;
+        }
+        try {
+            return core.isV2rayCoreRunning();
+        } catch (Throwable stateError) {
+            lastError = "could not read native core state: " + operation;
+            Log.e(TAG, lastError, stateError);
+            return null;
+        } finally {
+            endNative();
+        }
+    }
+
     /**
      * Stops the core if it is running. Caller must hold coreLock. The stop runs on its
      * own thread so that a hung native call cannot block shutdown forever. If it is
@@ -637,15 +654,15 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 closeTunAfterCoreStop = true;
                 return false;
             }
-            final boolean running;
-            try {
-                running = core.isV2rayCoreRunning();
-            } catch (Throwable stateError) {
+            final Boolean runningState =
+                    readCoreRunningWithWatchdog(core, "stopCore-preflight");
+            if (runningState == null) {
                 closeTunAfterCoreStop = true;
-                lastError = "could not read core state before stop";
-                Log.e(TAG, lastError + "; retaining TUN", stateError);
+                lastError = "could not verify core state before stop; retaining TUN";
+                Log.e(TAG, lastError);
                 return false;
             }
+            final boolean running = runningState;
             if (!running) {
                 if (closeTunAfterCoreStop) {
                     closeQuietly(tun);
@@ -754,14 +771,10 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         final long deadline = System.currentTimeMillis() + BRING_UP_TIMEOUT_MS;
         for (int cycle = 0; cycle < 2; cycle++) {
             if (!isCurrent(myAttempt)) return false;
-            final boolean running;
-            try {
-                running = core.isV2rayCoreRunning();
-            } catch (Throwable stateError) {
-                lastError = "could not read core state before start";
-                Log.e(TAG, lastError, stateError);
-                return false;
-            }
+            final Boolean runningState =
+                    readCoreRunningWithWatchdog(core, "start-preflight");
+            if (runningState == null) return false;
+            final boolean running = runningState;
             if (!coreStopping && !running) return true;
             if (!coreStopping && running) stopCoreNow();
 
@@ -781,11 +794,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             }
         }
         if (!isCurrent(myAttempt) || coreStopping) return false;
-        try {
-            if (!core.isV2rayCoreRunning()) return true;
-        } catch (Throwable stateError) {
-            Log.e(TAG, "could not verify previous core stop", stateError);
-        }
+        final Boolean stillRunning =
+                readCoreRunningWithWatchdog(core, "start-final-state-check");
+        if (stillRunning != null && !stillRunning) return true;
         lastError = "core still busy from a previous attempt";
         Log.e(TAG, lastError);
         return false;
@@ -919,18 +930,15 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         // The probe does network I/O (several seconds at worst). It runs OUTSIDE the
         // lock, so a stop request or a server switch is never blocked behind it.
         V2rayCoreManager core = V2rayCoreManager.getInstance();
-        final boolean coreUp;
-        try {
-            coreUp = core.isV2rayCoreRunning();
-        } catch (Throwable stateError) {
-            // A transient JNI/state-query failure must not kill the scheduled watchdog.
-            // Keep the current TUN and retry on the next tick; never fail over on unknown state.
-            Log.e(TAG, "watchdog could not read core state; retaining current tunnel", stateError);
+        final Boolean coreState = readCoreRunningWithWatchdog(core, "health-watchdog-state");
+        if (coreState == null) {
+            // Unknown native state is not evidence of a broken tunnel. Retain it and retry.
             synchronized (lock) {
                 if (active && !stopping) rescheduleNormal();
             }
             return;
         }
+        final boolean coreUp = coreState;
         final boolean modeSnapshot = nationalMode;
         ProbeResult pr = coreUp ? probeResult(modeSnapshot) : ProbeResult.HARD_FAIL;
 
