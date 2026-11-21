@@ -108,7 +108,18 @@ List<String>? customDnsList() {
   final ipOk = parsedIp != null &&
       (parsedIp.type == InternetAddressType.IPv4 ||
           parsedIp.type == InternetAddressType.IPv6);
-  if (a.startsWith('https://') || ipOk) return [a];
+  if (ipOk) return [a];
+  final uri = Uri.tryParse(a);
+  final dohOk = uri != null &&
+      uri.scheme.toLowerCase() == 'https' &&
+      uri.hasAuthority &&
+      uri.host.isNotEmpty &&
+      uri.userInfo.isEmpty &&
+      uri.fragment.isEmpty &&
+      uri.port >= 1 &&
+      uri.port <= 65535 &&
+      !a.contains(RegExp(r'[\\s\\u0000-\\u001f]'));
+  if (dohOk) return [a];
   return null;
 }
 
