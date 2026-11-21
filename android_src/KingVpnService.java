@@ -480,23 +480,30 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         final Object waitLock = new Object();
         final boolean[] done = {false};
 
-        Thread attemptThread = new Thread(() -> {
-            boolean ok = false;
-            try {
-                ok = bringUp(s, myAttempt);
-            } catch (Throwable t) {
-                Log.e(TAG, "bringUp threw", t);
-                lastError = "bringUp: " + t.getMessage();
-            } finally {
-                synchronized (waitLock) {
-                    result[0] = ok;
-                    done[0] = true;
-                    waitLock.notifyAll();
+        Thread attemptThread;
+        try {
+            attemptThread = new Thread(() -> {
+                boolean ok = false;
+                try {
+                    ok = bringUp(s, myAttempt);
+                } catch (Throwable t) {
+                    Log.e(TAG, "bringUp threw", t);
+                    lastError = "bringUp: " + t.getMessage();
+                } finally {
+                    synchronized (waitLock) {
+                        result[0] = ok;
+                        done[0] = true;
+                        waitLock.notifyAll();
+                    }
                 }
-            }
-        });
-        attemptThread.setDaemon(true);
-        attemptThread.start();
+            });
+            attemptThread.setDaemon(true);
+            attemptThread.start();
+        } catch (Throwable launchError) {
+            lastError = "could not launch VPN attempt worker: " + launchError.getMessage();
+            Log.e(TAG, lastError, launchError);
+            return false;
+        }
 
         synchronized (waitLock) {
             long deadline = System.currentTimeMillis() + BRING_UP_TIMEOUT_MS;
