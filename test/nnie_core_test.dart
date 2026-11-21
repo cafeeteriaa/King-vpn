@@ -195,6 +195,16 @@ void main() {
           throwsA(isA<FormatException>()));
     });
 
+    test('rejects a self-referencing DNS compression pointer', () {
+      final bytes = <int>[
+        ..._u16(0x1234), ..._u16(0x8180), ..._u16(1), ..._u16(1),
+        ..._u16(0), ..._u16(0),
+        0xc0, 0x0c, // QNAME points to itself at offset 12
+      ];
+      expect(() => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
+          throwsA(isA<FormatException>()));
+    });
+
     test('pre-cancelled DNS probes return without opening a socket', () async {
       final result = await NatDnsWireProbe.probe(
         '127.0.0.1',
