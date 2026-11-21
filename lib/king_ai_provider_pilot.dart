@@ -29,6 +29,9 @@ class KingAiProviderPilot {
 
   final FlutterSecureStorage _secure = const FlutterSecureStorage();
   final http.Client _client = http.Client();
+  String _lastUsedProvider = 'مدل محلی';
+
+  String get lastUsedProvider => _lastUsedProvider;
 
   static const Map<KingAiProvider, String> labels = {
     KingAiProvider.gemini: 'Google Gemini',
@@ -138,7 +141,10 @@ class KingAiProviderPilot {
     if (safePrompt.isEmpty || safePrompt.length > _maxPromptChars) {
       throw ArgumentError('متن درخواست باید بین ۱ تا $_maxPromptChars نویسه باشد.');
     }
-    if (!await cloudEnabled) return localFallback();
+    if (!await cloudEnabled) {
+      _lastUsedProvider = 'مدل محلی';
+      return localFallback();
+    }
 
     final configured = await configuredProviders();
     final errors = <String>[];
@@ -146,7 +152,10 @@ class KingAiProviderPilot {
       if (configured[provider] != true) continue;
       try {
         final answer = await _complete(provider, safePrompt);
-        if (answer.trim().isNotEmpty) return answer.trim();
+        if (answer.trim().isNotEmpty) {
+          _lastUsedProvider = labels[provider] ?? 'سرویس ابری';
+          return answer.trim();
+        }
       } catch (error) {
         errors.add('${labels[provider]}: ${_safeError(error)}');
       }
@@ -154,6 +163,7 @@ class KingAiProviderPilot {
 
     // Provider failure must never disable the on-device assistant.
     try {
+      _lastUsedProvider = 'مدل محلی (بازگشت پس از خطای سرویس ابری)';
       return await localFallback();
     } catch (error) {
       final details = errors.isEmpty ? '' : '\n' + errors.join('\n');
@@ -273,7 +283,7 @@ class KingAiProviderPilot {
           {'role': 'user', 'content': prompt},
         ],
         'temperature': 0.35,
-        'max_tokens': 1400,
+        if (provider == KingAiProvider.groq) 'max_completion_tokens': 1400 else 'max_tokens': 1400,
       }),
     ).timeout(_timeout);
     final data = _decodeResponse(response);
