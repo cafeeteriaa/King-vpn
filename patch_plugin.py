@@ -1135,13 +1135,7 @@ exact_replace(core, '''                    try {
 
 
 exact_replace(core, '''                if (coreController != null) {
-                    boolean previousSuppress = suppressServiceShutdownCallback;
-                    suppressServiceShutdownCallback = true;
-                    try {
-                        coreController.stopLoop();
-                    } finally {
-                        suppressServiceShutdownCallback = previousSuppress;
-                    }
+                    coreController.stopLoop();
                 }
                 v2rayServicesListener.stopService();
                 Log.e(V2rayCoreManager.class.getSimpleName(), "stopCore success => v2ray core stopped.");''', '''                if (coreController != null) {
