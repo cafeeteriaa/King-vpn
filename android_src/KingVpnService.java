@@ -389,6 +389,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 return;
             }
             stopWatchdog();
+            retryWaiting = false;
             listExhaustedStreak = 0;
             healthyStreak = 0;
             servers.clear();
@@ -926,8 +927,12 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * the actual probe.
      */
     private void checkOnce() {
+        final int healthStartId;
         synchronized (lock) {
             if (!active || stopping) return;
+            // A probe already in flight belongs to the Android start that launched it.
+            // A fresh start can supersede it before its worker reaches connectFrom().
+            healthStartId = latestStartId;
             if (isStarting()) {
                 // A server is starting right now; skip the probe but keep alive.
                 rescheduleNormal();
@@ -953,6 +958,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
         synchronized (lock) {
             if (!active || stopping) return;
+            if (latestStartId != healthStartId) return;
             if (attemptSeq.get() != healthAttempt) {
                 // A previous tunnel's delayed probe must not fail over a replacement server.
                 rescheduleNormal();
@@ -1027,16 +1033,22 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         listExhaustedStreak++;
         active = false;
         retryWaiting = true;
+        final int retryStartId = latestStartId;
+        final int retryAttempt = attemptSeq.get();
         lastError = "all servers down; retrying in " + delay + "s";
         Log.w(TAG, lastError);
         updateNotification("در حال تلاش برای اتصال مجدد… (" + delay + "s)");
-        scheduleTask(this::retryWholeListNow, delay);
+        scheduleTask(() -> retryWholeListNow(retryStartId, retryAttempt), delay);
     }
 
-    private void retryWholeListNow() {
+    private void retryWholeListNow(int expectedStartId, int expectedAttempt) {
         synchronized (lock) {
+            // A delayed retry may already be dequeued when stopWatchdog() cancels it.
+            // Bind it to both the Android start and native attempt that scheduled it.
+            if (stopping || expectedStartId != latestStartId
+                    || expectedAttempt != attemptSeq.get()) return;
             retryWaiting = false;
-            if (stopping || servers.isEmpty()) return;
+            if (servers.isEmpty()) return;
             Log.i(TAG, "retrying full server list after backoff");
             if (connectFrom(0)) {
                 saveState();

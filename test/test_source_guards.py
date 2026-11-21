@@ -120,6 +120,30 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (stopping || startId != latestStartId) return;', resume[guard:connected_branch])
         self.assertNotIn('saveState();', resume[guard:connected_branch])
 
+
+    def test_native_watchdog_and_delayed_retry_are_bound_to_their_start_generation(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private void checkOnce()')
+        end = source.index('private void rescheduleNormal()', start)
+        watchdog = source[start:end]
+        self.assertIn('final int healthStartId;', watchdog)
+        self.assertIn('healthStartId = latestStartId;', watchdog)
+        self.assertIn('if (latestStartId != healthStartId) return;', watchdog)
+
+        retry_start = source.index('private void retryWholeListLater()')
+        retry_end = source.index('private ProbeResult probeResult(', retry_start)
+        retry = source[retry_start:retry_end]
+        self.assertIn('final int retryStartId = latestStartId;', retry)
+        self.assertIn('final int retryAttempt = attemptSeq.get();', retry)
+        self.assertIn('retryWholeListNow(retryStartId, retryAttempt)', retry)
+        self.assertIn('private void retryWholeListNow(int expectedStartId, int expectedAttempt)', retry)
+        self.assertIn('expectedStartId != latestStartId', retry)
+        self.assertIn('expectedAttempt != attemptSeq.get()', retry)
+        flow_start = source.index('private void startFlow(')
+        flow_end = source.index('private void resumeSaved(', flow_start)
+        self.assertIn('retryWaiting = false;', source[flow_start:flow_end])
+
+
     def test_native_watchdog_scheduler_cannot_be_resurrected_after_destroy(self):
         source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         self.assertIn('private final Object schedulerLock = new Object();', source)
