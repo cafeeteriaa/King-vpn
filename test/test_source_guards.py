@@ -4085,6 +4085,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('String _reliableVpnCfg(String cfg)')
         end = source.index('// completes when the VPN tunnel reports CONNECTED', start)
         body = source[start:end]
+        self.assertIn("if (j['outbounds'] is! List || (j['outbounds'] as List).isEmpty)", body)
         self.assertIn("'protocol': 'dns'", body)
         self.assertIn("'network': 'tcp,udp'", body)
         self.assertIn("'port': '53'", body)
