@@ -3358,5 +3358,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (!stopVerified[0])', waiter)
         self.assertNotIn('core.isV2rayCoreRunning()', waiter)
 
+
+    def test_native_vpn_attempt_worker_launch_is_failure_guarded(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private boolean bringUpWithTimeout(Srv s)')
+        end = source.index('private static void closeQuietly', start)
+        body = source[start:end]
+        declaration = body.index('Thread attemptThread;')
+        guard = body.index('try {', declaration)
+        construction = body.index('attemptThread = new Thread(() -> {', guard)
+        launch = body.index('attemptThread.start();', construction)
+        catch = body.index('} catch (Throwable launchError)', launch)
+        self.assertLess(guard, construction)
+        self.assertLess(construction, launch)
+        self.assertLess(launch, catch)
+        recovery = body[catch:body.index('synchronized (waitLock)', catch)]
+        self.assertIn('lastError = "could not launch VPN attempt worker:', recovery)
+        self.assertIn('return false;', recovery)
+
 if __name__ == '__main__':
     unittest.main()
