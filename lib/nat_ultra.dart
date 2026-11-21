@@ -221,7 +221,7 @@ const List<_NatSpec> _natExtra = [
 String _natSig(_NatSpec x) =>
     '${x.fp}|${x.alpn}|${x.frag}|${x.other}|${x.port}|${x.portIdx}|${x.clean}|'
     '${x.cleanIdx}|${x.mux}|${x.muxN}|${x.sniHost}|${x.v4}|${x.tfo}|${x.ed}|'
-    '${x.edN}|${x.noise}|${x.noiseK}|${x.nodelay}|${x.doh}|${x.mode}|${x.keep}|${x.sniSwap}';
+    '${x.edN}|${x.noise}|${x.noiseK}|${x.nodelay}|${x.doh}|${x.mode}|${x.keep}|${x.mss}|${x.sniSwap}';
 
 _NatSpec _natMk(
     {String? fp,

@@ -3972,6 +3972,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (!signatures.add(_natSig(spec))) continue;', grow)
         self.assertNotIn('_natSpecs.length > 500000', grow)
 
+    def test_nat_variant_signature_includes_all_socket_dimensions(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('String _natSig(_NatSpec x)')
+        end = source.index('_NatSpec _natMk(', start)
+        signature = source[start:end]
+        self.assertIn('${x.mss}', signature)
+        self.assertIn('${x.keep}', signature)
+        self.assertIn('${x.sniSwap}', signature)
+
 if __name__ == '__main__':
     unittest.main()
 
