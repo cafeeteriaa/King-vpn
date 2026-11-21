@@ -29,3 +29,11 @@ class AutoDnsAddressFamilyTests(unittest.TestCase):
         national = body[body.index("final selectedIpProbes"):body.index("await Future.wait")]
         self.assertIn("'shecan': ['178.22.122.100']", national)
         self.assertNotIn("2606:4700:4700::1111", national)
+
+    def test_ipv6_resolvers_must_return_aaaa_records(self):
+        source = (ROOT / "lib" / "npv_am_extras.dart").read_text(encoding="utf-8")
+        start = source.index("Future<int?> _probeDnsIp(String ip)")
+        end = source.index("Future<String> pickBestDns(", start)
+        body = source[start:end]
+        self.assertIn("InternetAddressType.IPv6 ? 28 : 1", body)
+        self.assertIn("type: queryType", body)
