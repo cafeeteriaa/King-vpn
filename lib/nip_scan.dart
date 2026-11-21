@@ -42,18 +42,30 @@ List<String> nipExpandCidr(String cidr, {int maxPerBlock = 4096}) {
 
 /// اتصال TCP به ip:port. اگر جواب داد زمان پاسخ (ms) را برمی‌گرداند، وگرنه null.
 Future<int?> nipTcpProbe(String ip, int port, Duration timeout) async {
+  final address = InternetAddress.tryParse(ip.trim());
+  if (address == null ||
+      address.type != InternetAddressType.IPv4 ||
+      port < 1 ||
+      port > 65535 ||
+      timeout <= Duration.zero) {
+    return null;
+  }
   final sw = Stopwatch()..start();
+  Socket? socket;
   try {
-    final s = await Socket.connect(ip, port, timeout: timeout);
+    socket = await Socket.connect(address, port, timeout: timeout);
     sw.stop();
-    s.destroy();
     return sw.elapsedMilliseconds;
   } catch (_) {
     return null;
+  } finally {
+    try {
+      socket?.destroy();
+    } catch (_) {}
   }
 }
 
-/// اسکن هم‌زمان. با رسیدن به [want] نتیجه، یا پایان [budget]، یا [cancelled] = true متوقف می‌شود.
+/// اسکن هم‌زمان؛ فقط IPv4 literal پذیرفته می‌شود تا اسکن باعث DNS سیستم نشود.
 Future<List<NipHit>> nipScan(
   List<String> ips, {
   int port = 443,
@@ -63,23 +75,48 @@ Future<List<NipHit>> nipScan(
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
 }) async {
+  if (ips.isEmpty ||
+      want <= 0 ||
+      budget <= Duration.zero ||
+      timeout <= Duration.zero ||
+      port < 1 ||
+      port > 65535) {
+    return <NipHit>[];
+  }
+
+  final seen = <String>{};
+  final candidates = <String>[];
+  for (final raw in ips) {
+    final address = InternetAddress.tryParse(raw.trim());
+    if (address != null &&
+        address.type == InternetAddressType.IPv4 &&
+        seen.add(address.address)) {
+      candidates.add(address.address);
+    }
+  }
+  if (candidates.isEmpty) return <NipHit>[];
+
   final hits = <NipHit>[];
-  final deadline = DateTime.now().add(budget);
+  final clock = Stopwatch()..start();
   var next = 0;
+
+  bool aborted() => cancelled?.call() ?? false;
 
   Future<void> worker() async {
     while (true) {
-      if (hits.length >= want) return;
-      if (cancelled != null && cancelled()) return;
-      if (DateTime.now().isAfter(deadline)) return;
-      if (next >= ips.length) return;
-      final ip = ips[next++];
+      if (hits.length >= want || aborted() || clock.elapsed >= budget) return;
+      final index = next++;
+      if (index >= candidates.length) return;
+      final ip = candidates[index];
       final ms = await nipTcpProbe(ip, port, timeout);
-      if (ms != null) hits.add(NipHit(ip, ms));
+      if (aborted() || clock.elapsed >= budget) return;
+      if (ms != null && hits.length < want) {
+        hits.add(NipHit(ip, ms));
+      }
     }
   }
 
-  final n = min(concurrency.clamp(1, 16), max(ips.length, 1));
+  final n = min(concurrency.clamp(1, 16), candidates.length);
   await Future.wait(List.generate(n, (_) => worker()));
   natStableSort(hits, (a, b) => a.ms.compareTo(b.ms));
   return hits;
