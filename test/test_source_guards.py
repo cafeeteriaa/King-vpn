@@ -2544,6 +2544,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('if (!nationalMode) ipAutoStopFlag = true;', body)
 
 
+    def test_nat_cidr_expansion_supports_bounded_ipv6_with_bigint(self):
+        source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        self.assertIn('return natExpandIpv6Cidr(cidr, maxPerBlock: limit);', source)
+        self.assertIn('List<String> natExpandIpv6Cidr(', source)
+        self.assertIn('InternetAddressType.IPv6', source)
+        self.assertIn('BigInt.one << hostBits', source)
+        self.assertIn('final limit = min(maxPerBlock, 65536);', source)
+        self.assertIn('InternetAddress.fromRawAddress(', source)
+
     def test_nat_ip_scan_uses_ip_literals_without_system_dns(self):
         scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         parse_start = scan.index('InternetAddress? _natParseIpLiteral(')

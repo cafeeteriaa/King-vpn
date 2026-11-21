@@ -40,6 +40,10 @@ List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   final limit = min(maxPerBlock, 65536);
   final parts = cidr.trim().split('/');
   if (parts.length != 2) return const [];
+  final parsedAddress = InternetAddress.tryParse(parts[0].trim());
+  if (parsedAddress?.type == InternetAddressType.IPv6) {
+    return natExpandIpv6Cidr(cidr, maxPerBlock: limit);
+  }
   final octets = parts[0].split('.');
   final prefix = int.tryParse(parts[1].trim());
   if (octets.length != 4 || prefix == null || prefix < 8 || prefix > 32) {
@@ -60,6 +64,51 @@ List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   for (var i = 0; i < size; i += step) {
     final v = start + i;
     out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
+  }
+  return out;
+}
+
+/// Expand an IPv6 CIDR using bounded BigInt arithmetic.
+///
+/// Unlike IPv4, IPv6 address spaces cannot be represented by a Dart int.
+/// Sampling is deterministic, evenly spaced, and capped to avoid allocating
+/// an unbounded list for broad prefixes such as ::/0.
+List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
+  if (maxPerBlock <= 0) return const [];
+  final limit = min(maxPerBlock, 65536);
+  final parts = cidr.trim().split('/');
+  if (parts.length != 2) return const [];
+  final address = InternetAddress.tryParse(parts[0].trim());
+  final prefix = int.tryParse(parts[1].trim());
+  if (address == null ||
+      address.type != InternetAddressType.IPv6 ||
+      prefix == null ||
+      prefix < 0 ||
+      prefix > 128) {
+    return const [];
+  }
+
+  var base = BigInt.zero;
+  for (final byte in address.rawAddress) {
+    base = (base << 8) | BigInt.from(byte);
+  }
+  final hostBits = 128 - prefix;
+  final size = BigInt.one << hostBits;
+  final start = (base ~/ size) * size;
+  final cap = BigInt.from(limit);
+  final step = size > cap ? (size + cap - BigInt.one) ~/ cap : BigInt.one;
+  final out = <String>[];
+  for (var offset = BigInt.zero; offset < size; offset += step) {
+    var value = start + offset;
+    final bytes = List<int>.filled(16, 0);
+    for (var i = 15; i >= 0; i--) {
+      bytes[i] = (value & BigInt.from(255)).toInt();
+      value >>= 8;
+    }
+    out.add(InternetAddress.fromRawAddress(
+      bytes,
+      type: InternetAddressType.IPv6,
+    ).address);
   }
   return out;
 }
