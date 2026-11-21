@@ -18,6 +18,9 @@ class AndroidTunDnsPatchTests(unittest.TestCase):
         self.assertIn("InetAddress.getByName(host) instanceof Inet6Address", source)
         self.assertIn("import java.net.Inet6Address;", source)
         self.assertIn("import java.net.InetAddress;", source)
+        self.assertIn("IPv6 default route installed on native TUN", source)
+        self.assertIn("IPv6 default route unavailable; check for physical-network fallback", source)
+        self.assertIn("end-to-end IPv6 still requires core and", source)
 
     def test_android_dns_packets_are_not_routed_direct_by_patch(self):
         source = (ROOT / "patch_plugin.py").read_text(encoding="utf-8")
