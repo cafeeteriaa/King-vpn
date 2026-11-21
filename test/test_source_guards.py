@@ -3222,6 +3222,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
+    def test_native_stop_worker_start_failure_releases_core_fence_and_keeps_tun(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private boolean stopCoreNow()')
+        end = source.index('private boolean awaitCoreStopped(', start)
+        stop = source[start:end]
+        launch = stop.index('beginNative("stopCore");')
+        catch = stop.index('} catch (Throwable startError)', launch)
+        recovery = stop[catch:stop.index('try {\n            t.join', catch)]
+        self.assertIn('endNative();', recovery)
+        self.assertIn('coreStopping = false;', recovery)
+        self.assertIn('closeTunAfterCoreStop = true;', recovery)
+        self.assertIn('return false;', recovery)
+        self.assertLess(recovery.index('endNative();'), recovery.index('coreStopping = false;'))
+
+
     def test_native_stop_watchdog_covers_post_stop_state_verification(self):
         source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = source.index('private boolean stopCoreNow()')
