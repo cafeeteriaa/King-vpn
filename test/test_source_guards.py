@@ -3834,5 +3834,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(success_delete_guard, lock_delete)
 
 
+    def test_service_capability_probe_respects_live_vpn_quiet_window(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('Future<int> _svcOf(Server s)')
+        end = source.index('// one ping through the core\'s own delay test.', start)
+        body = source[start:end]
+        self.assertIn('await _waitLiveQuiet();', body)
+        self.assertLess(body.index('await _waitLiveQuiet();'),
+                        body.index('_delayGate.run'))
+
+
 if __name__ == '__main__':
     unittest.main()

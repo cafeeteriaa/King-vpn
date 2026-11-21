@@ -7876,6 +7876,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<int> _svcOf(Server s) async {
     var m = 0;
     const urls = [delayTestUrl]; // V2RAYNG: real ping through the outbound
+    // LIVEQUIET: this helper also invokes getServerDelay on the shared core.
+    // Keep it out of the 90 s post-connect window just like _delayOnce().
+    await _waitLiveQuiet();
     try {
       final cfg = buildCoreConfig(s.useLink);
       final rs = await Future.wait(urls.map((u) => _delayGate.run<dynamic>(() => v2ray
