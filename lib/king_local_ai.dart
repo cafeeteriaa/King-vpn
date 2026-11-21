@@ -447,9 +447,17 @@ project manifest file rather than assuming it exists.
   /// through flutter_secure_storage. It is not used to train or upload the model.
   Future<void> _loadConversationMemory() async {
     if (_conversationMemoryLoaded) return;
+    String? encoded;
+    try {
+      encoded = await _secure.read(key: _conversationMemoryKey);
+    } catch (_) {
+      // A transient secure-storage failure is not a completed load. Leave the
+      // flag false so a later conversation can retry instead of losing memory
+      // for the rest of this process.
+      return;
+    }
     _conversationMemoryLoaded = true;
     try {
-      final encoded = await _secure.read(key: _conversationMemoryKey);
       if (encoded == null || encoded.isEmpty) return;
       final decoded = jsonDecode(encoded);
       if (decoded is! List) return;
@@ -464,7 +472,7 @@ project manifest file rather than assuming it exists.
       // remain in secure storage after the stronger redactor is introduced.
       await _saveConversationMemory();
     } catch (_) {
-      // Corrupt or unavailable secure memory must never block conversation.
+      // Corrupt stored data must never block conversation or retry forever.
     }
   }
 

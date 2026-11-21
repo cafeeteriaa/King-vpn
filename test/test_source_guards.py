@@ -3672,5 +3672,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('newest > seen', body)
 
 
+    def test_conversation_memory_retries_after_transient_secure_storage_read_failure(self):
+        source = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> _loadConversationMemory() async {')
+        end = source.index('Future<void> _saveConversationMemory()', start)
+        loader = source[start:end]
+        read = loader.index('encoded = await _secure.read(key: _conversationMemoryKey);')
+        retry_return = loader.index('return;', read)
+        loaded = loader.index('_conversationMemoryLoaded = true;', read)
+        self.assertLess(read, retry_return)
+        self.assertLess(retry_return, loaded)
+        self.assertIn('transient secure-storage failure', loader)
+        self.assertIn('if (_conversationMemoryLoaded) return;', loader)
+
+
 if __name__ == '__main__':
     unittest.main()
