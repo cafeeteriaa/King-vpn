@@ -292,6 +292,9 @@ class PilotRouteHistory {
         return prior == null ? sample.toDouble() : prior * 0.75 + sample * 0.25;
       }
       final mode = evidence.mode.name;
+      // Migrate the old ambiguous `dualStack` counter. It represented
+      // domestic + global reachability, not IPv4 + IPv6 capability.
+      final bothReachable = mode == 'domesticAndGlobal' || mode == 'dualStack';
       _entries[networkGroup] = <String, Object?>{
         'observations': (count('observations') + 1).clamp(0, 1000000),
         'domesticSamples': (count('domesticSamples') + evidence.domesticSamples).clamp(0, 1000000),
@@ -302,7 +305,7 @@ class PilotRouteHistory {
         'globalLatencyEwmaMs': ewma('globalLatencyEwmaMs', evidence.globalLatencyMs),
         'domesticOnly': (count('domesticOnly') + (mode == 'domesticOnly' ? 1 : 0)).clamp(0, 1000000),
         'globalOnly': (count('globalOnly') + (mode == 'globalOnly' ? 1 : 0)).clamp(0, 1000000),
-        'dualStack': (count('dualStack') + (mode == 'dualStack' ? 1 : 0)).clamp(0, 1000000),
+        'domesticAndGlobal': (count('domesticAndGlobal') + count('dualStack') + (bothReachable ? 1 : 0)).clamp(0, 1000000),
         'offline': (count('offline') + (mode == 'offline' ? 1 : 0)).clamp(0, 1000000),
         'unknown': (count('unknown') + (mode == 'unknown' ? 1 : 0)).clamp(0, 1000000),
         'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
