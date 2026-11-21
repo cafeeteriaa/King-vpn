@@ -3426,13 +3426,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         stop = service[stop_start:stop_end]
         await_start = service.index('private boolean awaitCoreStopped(')
         await_end = service.index('private boolean bringUp(', await_start)
-        await = service[await_start:await_end]
+        await_body = service[await_start:await_end]
         check_start = service.index('private void checkOnce()')
         check_end = service.index('private void rescheduleNormal()', check_start)
         check = service[check_start:check_end]
         self.assertIn('readCoreRunningWithWatchdog(core, "stopCore-preflight")', stop)
-        self.assertIn('readCoreRunningWithWatchdog(core, "start-preflight")', await)
-        self.assertIn('readCoreRunningWithWatchdog(core, "start-final-state-check")', await)
+        self.assertIn('readCoreRunningWithWatchdog(core, "start-preflight")', await_body)
+        self.assertIn('readCoreRunningWithWatchdog(core, "start-final-state-check")', await_body)
         self.assertIn('readCoreRunningWithWatchdog(core, "health-watchdog-state")', check)
 
 if __name__ == '__main__':
