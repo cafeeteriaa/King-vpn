@@ -97,11 +97,28 @@ List<String> natExpandDash(String range, {int maxCount = 65536}) {
 
 /// اتصال TCP به ip:port. اگر جواب داد زمان پاسخ را برمی‌گرداند، وگرنه null.
 /// تضمین: سوکت در هر حالتی (موفق، خطا، تایم‌اوت) بسته می‌شود.
+InternetAddress? _natParseIpLiteral(String value) {
+  final address = InternetAddress.tryParse(value.trim());
+  if (address == null) return null;
+  if (address.type != InternetAddressType.IPv4 &&
+      address.type != InternetAddressType.IPv6) {
+    return null;
+  }
+  return address;
+}
+
 Future<int?> natTcpProbe(String ip, int port, Duration timeout) async {
+  final address = _natParseIpLiteral(ip);
+  if (address == null ||
+      port < 1 ||
+      port > 65535 ||
+      timeout <= Duration.zero) {
+    return null;
+  }
   final sw = Stopwatch()..start();
   Socket? s;
   try {
-    s = await Socket.connect(ip, port, timeout: timeout);
+    s = await Socket.connect(address, port, timeout: timeout);
     sw.stop();
     return sw.elapsedMilliseconds;
   } catch (e) {
@@ -172,7 +189,19 @@ Future<List<NatIpHit>> natScanIps(
   final hits = <NatIpHit>[];
 
   // Optional shuffle so the same subnet is not hit first on every run.
-  final source = randomize ? (List<String>.of(ips)..shuffle(Random())) : ips;
+  // Only literal IP addresses are accepted. Passing hostnames to Socket.connect
+  // would trigger system DNS and leak scan targets outside the selected route.
+  final seen = <String>{};
+  final candidates = <String>[];
+  for (final raw in ips) {
+    final address = _natParseIpLiteral(raw);
+    if (address != null && seen.add(address.address)) {
+      candidates.add(address.address);
+    }
+  }
+  if (candidates.isEmpty) return <NatIpHit>[];
+  final source =
+      randomize ? (List<String>.of(candidates)..shuffle(Random())) : candidates;
 
   var next = 0;
   var done = 0;
