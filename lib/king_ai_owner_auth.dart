@@ -182,6 +182,7 @@ class KingAiOwnerAuth {
       if (sessionGeneration != _sessionGeneration) return false;
       if (_constantTimeEquals(actual, expected)) {
         await _storage.delete(key: _failuresKey);
+        if (sessionGeneration != _sessionGeneration) return false;
         await _storage.delete(key: _lockUntilKey);
         if (sessionGeneration != _sessionGeneration) return false;
         _sessionClock = Stopwatch()..start();
@@ -190,8 +191,10 @@ class KingAiOwnerAuth {
 
       final previous =
           int.tryParse(await _storage.read(key: _failuresKey) ?? '') ?? 0;
+      if (sessionGeneration != _sessionGeneration) return false;
       final failures = previous + 1;
       await _storage.write(key: _failuresKey, value: failures.toString());
+      if (sessionGeneration != _sessionGeneration) return false;
       if (failures >= _maxFailuresBeforeLock) {
         final exponent = (failures - _maxFailuresBeforeLock).clamp(0, 10);
         final seconds = min(3600, 30 * (1 << exponent));

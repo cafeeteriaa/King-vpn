@@ -3698,6 +3698,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(derived, cancelled)
         self.assertLess(cancelled, success_cleanup)
         self.assertLess(cancelled, failure_counter)
+        failure_read = auth.index("await _storage.read(key: _failuresKey)", cancelled)
+        failure_read_guard = auth.index("if (sessionGeneration != _sessionGeneration) return false;", failure_read)
+        failure_write = auth.index("await _storage.write(key: _failuresKey", failure_read)
+        self.assertLess(failure_read, failure_read_guard)
+        self.assertLess(failure_read_guard, failure_write)
+        failure_write_guard = auth.index("if (sessionGeneration != _sessionGeneration) return false;", failure_write)
+        lock_write = auth.index("await _storage.write(key: _lockUntilKey", failure_write)
+        self.assertLess(failure_write, failure_write_guard)
+        self.assertLess(failure_write_guard, lock_write)
+        success_delete_guard = auth.index("if (sessionGeneration != _sessionGeneration) return false;", success_cleanup)
+        lock_delete = auth.index("await _storage.delete(key: _lockUntilKey);", success_cleanup)
+        self.assertLess(success_cleanup, success_delete_guard)
+        self.assertLess(success_delete_guard, lock_delete)
 
 
 if __name__ == '__main__':
