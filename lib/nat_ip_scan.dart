@@ -165,7 +165,7 @@ int natAdaptiveConcurrency(int requested) {
 ///     by [timeout] and their results are discarded after cancellation.
 ///   • Progress reporting via [onProgress] (called every few completions).
 ///   • Optional [randomize] to shuffle the scan order.
-///   • No artificial caps on the caller's intent.
+///   • Caller controls the result target and time budget; worker concurrency is bounded.
 Future<List<NatIpHit>> natScanIps(
   List<String> ips, {
   int port = 443,
