@@ -593,6 +593,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("baseBranch: 'main'", ai)
         console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
         self.assertIn('createOwnerFeatureProposal(', console)
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn("import 'king_ai_provider_pilot.dart';", main)
         self.assertIn('maxLength: 128', console)
         self.assertIn('_rejectSecrets(summary)', ai)
 
