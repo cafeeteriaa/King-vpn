@@ -372,17 +372,19 @@ Future<List<Server>> fetchSubscription(String url) async {
     if (declaredLength != null && declaredLength > maxSubscriptionBytes) {
       return [];
     }
-    final builder = BytesBuilder(copy: false);
+    final bodyBuffer = StringBuffer();
     var receivedBytes = 0;
-    await for (final chunk in streamed.stream.timeout(const Duration(seconds: 20))) {
-      receivedBytes += chunk.length;
+    await for (final textChunk in streamed.stream
+        .timeout(const Duration(seconds: 20))
+        .transform(utf8.decoder)) {
+      receivedBytes += utf8.encode(textChunk).length;
       if (receivedBytes > maxSubscriptionBytes) {
         client.close();
         return [];
       }
-      builder.add(chunk);
+      bodyBuffer.write(textChunk);
     }
-    var body = utf8.decode(builder.takeBytes(), allowMalformed: true).trim();
+    var body = bodyBuffer.toString().trim();
     if (!body.contains('://')) {
       try {
         body = utf8.decode(base64
