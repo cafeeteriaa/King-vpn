@@ -491,6 +491,25 @@ exact_replace(utils, '''            if (!dns.has("queryStrategy")) {
             }
 ''', 'P1-DNS default resolver strategy supports IPv4 and IPv6');
 
+exact_replace(vpn, '''import android.util.Log;''', '''import android.util.Log;
+
+import java.net.Inet6Address;
+import java.net.InetAddress;''', 'P1-DNS strict IPv6 DNS address parsing');
+
+exact_replace(vpn, '''        if (host.contains(":")) {
+            return host.matches("^[0-9a-fA-F:]+$") && host.split(":").length >= 3;
+        }''', '''        if (host.contains(":")) {
+            if (!host.matches("^[0-9a-fA-F:]+$")) {
+                return false;
+            }
+            try {
+                // A colon-containing literal is parsed locally; no hostname lookup occurs.
+                return InetAddress.getByName(host) instanceof Inet6Address;
+            } catch (Exception e) {
+                return false;
+            }
+        }''', 'P1-DNS reject malformed IPv6 resolver literals');
+
 # 4a) #56 + #8: the stop button targets the running service class, and uses the stop intent.
 exact_replace(core, '''        Intent stopIntent;
         if (AppConfigs.V2RAY_CONNECTION_MODE == AppConfigs.V2RAY_CONNECTION_MODES.PROXY_ONLY) {
