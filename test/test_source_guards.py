@@ -3162,5 +3162,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('&& latestStopRequestId == expectedStartId)', cleanup)
         self.assertIn('stopping = false;', cleanup)
 
+
+    def test_native_start_reset_is_atomic_with_start_id_publication(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source[source.index('public int onStartCommand('):source.index('private void submit(')]
+        self.assertIn('String action = intent == null ? null : intent.getAction();', start)
+        lifecycle_start = start.index('synchronized (startLifecycleLock)')
+        lifecycle_end = start.index('// Keep this method short:', lifecycle_start)
+        lifecycle = start[lifecycle_start:lifecycle_end]
+        self.assertIn('latestStartId = startId;', lifecycle)
+        self.assertIn('if (intent == null || ACTION_START.equals(action))', lifecycle)
+        self.assertIn('stopping = false;', lifecycle)
+        self.assertIn('userStopped = false;', lifecycle)
+        # No later reset may erase a concurrent stop request after the lock is released.
+        remainder = start[lifecycle_end:]
+        self.assertNotIn('stopping = false;', remainder)
+        self.assertNotIn('userStopped = false;', remainder)
+
 if __name__ == '__main__':
     unittest.main()
