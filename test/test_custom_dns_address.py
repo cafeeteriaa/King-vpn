@@ -13,7 +13,7 @@ class CustomDnsAddressTests(unittest.TestCase):
         validator = source[start:end]
         self.assertIn("InternetAddressType.IPv4", validator)
         self.assertIn("InternetAddressType.IPv6", validator)
-        self.assertIn("a.startsWith('https://')", validator)
+        self.assertIn("uri.scheme.toLowerCase() == 'https'", validator)
 
     def test_custom_dns_ui_documents_ipv6_literal_input(self):
         source = (ROOT / "lib" / "npv_am_extras.dart").read_text(encoding="utf-8")
