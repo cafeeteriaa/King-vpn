@@ -423,13 +423,23 @@ List<_NatSpec> _natGenerate() {
 }
 
 int _natGrowCounter = 0;
+Set<String>? _natGrowSignatures;
+
 int natGrow(int n) {
-  if (_natSpecs.length > 500000) return 0;
+  if (n <= 0 || _natSpecs.length >= natMaxVariants) return 0;
+  // Keep generated variants unique. Repeated random entries were previously
+  // appended forever (up to 500k), bloating rank maps and slowing every sort.
+  final signatures = _natGrowSignatures ??= {
+    for (final spec in _natSpecs) _natSig(spec),
+  };
+  final target = min(n, natMaxVariants - _natSpecs.length);
   final rnd = Random(DateTime.now().millisecondsSinceEpoch + _natGrowCounter++);
   var added = 0;
+  var attempts = 0;
+  final maxAttempts = target * 12;
   const fps = ['chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge', 'random', 'qq', '360', 'hellogolang', 'hellochrome', 'hellofirefox', 'hellosafari', 'helloios', 'helloandroid', 'helloedge', 'hello360', 'helloqq', 'hellorandomized', 'hellorandomizedalpn', 'hellorandomizednoalpn'];
   const alpns = <String?>[null, 'h2', 'http/1.1', 'h2,http/1.1'];
-  for (var i = 0; i < n; i++) {
+  while (added < target && attempts++ < maxAttempts) {
     final fp = fps[rnd.nextInt(fps.length)];
     final alpn = alpns[rnd.nextInt(alpns.length)];
     final frag = rnd.nextInt(_natFrags.length);
@@ -437,22 +447,27 @@ int natGrow(int n) {
     final portIdx = port ? rnd.nextInt(_natCfPorts.length) : null;
     final clean = rnd.nextBool();
     final cleanIdx = clean ? rnd.nextInt(10) : null;
-    // DNSNAT: جایگزین‌ها از DNSهای سالم اسکن (اگر هست) انتخاب می‌شوند
-    // نیمی از انتخاب‌ها از DNSهای اسکن‌شده و نیمی از لیست ثابت، تا تنوع حفظ شود
+    // DNSNAT: prefer healthy scanned resolvers when available, while retaining
+    // fixed fallback resolvers for diversity.
     final dnsPool = (dnsxBestCache.isNotEmpty && rnd.nextBool()) ? dnsxBestCache : _natDnsList;
     final doh = rnd.nextBool() ? dnsPool[rnd.nextInt(dnsPool.length)] : null;
     final v4 = rnd.nextBool();
     final tfo = rnd.nextBool();
     final keep = rnd.nextBool() ? rnd.nextInt(30) + 1 : null;
     final sniSwap = rnd.nextBool() ? rnd.nextInt(natFrontSnis.length) : null;
-    _natSpecs.add(_natMk(
+    final spec = _natMk(
       fp: fp, alpn: alpn, frag: frag, port: port, portIdx: portIdx,
       clean: clean, cleanIdx: cleanIdx, v4: v4, tfo: tfo, keep: keep, doh: doh,
       sniSwap: sniSwap,
-    ));
+    );
+    if (!signatures.add(_natSig(spec))) continue;
+    _natSpecs.add(spec);
     added++;
   }
-  if (added > 0) { _natNamesC = null; _natGenRankKey = ''; }
+  if (added > 0) {
+    _natNamesC = null;
+    _natGenRankKey = '';
+  }
   return added;
 }
 
