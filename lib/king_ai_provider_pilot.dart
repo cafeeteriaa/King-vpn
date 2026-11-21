@@ -220,8 +220,16 @@ class KingAiProviderPilot {
     if (!await cloudEnabled) return null;
 
     final configured = await configuredProviders();
+    // Automatic peer review is restricted to free-tier routes. Mistral and
+    // Cloudflare remain configurable but are never invoked automatically,
+    // avoiding unexpected metered usage.
+    const freeCandidates = <KingAiProvider>{
+      KingAiProvider.groq,
+      KingAiProvider.openRouter,
+    };
     final candidates = priorityForTask(taskKind)
-        .where((provider) => configured[provider] == true)
+        .where((provider) =>
+            freeCandidates.contains(provider) && configured[provider] == true)
         .toList();
     if (candidates.isEmpty) return null;
 
