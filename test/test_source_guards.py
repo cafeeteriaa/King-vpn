@@ -812,7 +812,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         audit_end = ai.index('static const Set<String> _researchHosts', audit_start)
         audit = ai[audit_start:audit_end]
         self.assertIn('providerPilot.cloudEnabled', audit)
-        self.assertIn('configuredHelpers[KingAiProvider.gemini]', audit)
+        self.assertNotIn('KingAiProvider.gemini', audit)
         self.assertIn('hasGitHubToken()', audit)
 
     def test_chat_speech_listener_stops_after_widget_disposal(self):
@@ -1444,7 +1444,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('_ai.isLoaded', console[auto_start:auto_end])
         self.assertIn('if (!ai.isLoaded)', background)
         self.assertIn('pilot.cloudEnabled', background)
-        self.assertIn('KingAiProvider.gemini', background)
+        self.assertNotIn('KingAiProvider.gemini', background)
         self.assertIn('KingAiProvider.groq', background)
         self.assertIn('KingAiProvider.openRouter', background)
         supervisor_start = background.index('static Future<void> enable(int pullNumber)')
@@ -1458,7 +1458,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         feature_end = ai.index('Future<void> dispose()', feature_start)
         feature = ai[feature_start:feature_end]
         self.assertIn('pilot.cloudEnabled', feature)
-        self.assertIn('KingAiProvider.gemini', feature)
+        self.assertNotIn('KingAiProvider.gemini', feature)
         self.assertIn('KingAiProvider.groq', feature)
         self.assertIn('KingAiProvider.openRouter', feature)
         self.assertNotIn('Load the local coding model before submitting', feature)
@@ -4559,6 +4559,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('فقط King AI', settings)
 
     def test_external_providers_are_private_reviewers_and_local_king_synthesizes(self):
+        provider_pilot = (ROOT / 'lib' / 'king_ai_provider_pilot.dart').read_text(encoding='utf-8')
+        self.assertNotIn('KingAiProvider.gemini', provider_pilot)
+        self.assertNotIn('generativelanguage.googleapis.com', provider_pilot)
+        self.assertIn("king_ai_provider_gemini_key_v1", provider_pilot)
+        self.assertIn("_secure.delete(key: 'king_ai_provider_gemini_key_v1')", provider_pilot)
         pilot = (ROOT / 'lib' / 'king_ai_provider_pilot.dart').read_text(encoding='utf-8')
         local = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
         self.assertIn('Future<String?> consultKing(', pilot)
