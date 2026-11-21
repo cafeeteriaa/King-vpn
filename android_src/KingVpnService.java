@@ -17,7 +17,6 @@ import org.json.JSONObject;
 
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
-import java.net.NoRouteToHostException;
 import java.net.Proxy;
 import java.net.SocketTimeoutException;
 import java.net.Socket;
@@ -1201,7 +1200,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // tunnel (resolver outage, filtering, certificate/clock problems).
             // They are not sufficient evidence for an automatic server switch.
             return ProbeResult.INCONCLUSIVE;
-        } catch (SocketException | NoRouteToHostException | SocketTimeoutException e) {
+        } catch (SocketException | SocketTimeoutException e) {
             // The local listener was reachable immediately before the request.
             // Recheck it to cover a shutdown race; otherwise the failure belongs
             // to the proxied destination path and is valid negative evidence.
