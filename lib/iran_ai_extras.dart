@@ -562,7 +562,7 @@ extension HomeExtras on _HomePageState {
           'domestic=${routeHistory['domesticSuccesses']}/${routeHistory['domesticSamples']} '
           'global=${routeHistory['globalSuccesses']}/${routeHistory['globalSamples']} '
           'domesticOnly=${routeHistory['domesticOnly']} '
-          'globalOnly=${routeHistory['globalOnly']} dualStack=${routeHistory['dualStack']} '
+          'globalOnly=${routeHistory['globalOnly']} domesticAndGlobal=${routeHistory['domesticAndGlobal'] ?? routeHistory['dualStack']} '
           'domesticLatencyEwmaMs=${routeHistory['domesticLatencyEwmaMs'] ?? -1} '
           'globalLatencyEwmaMs=${routeHistory['globalLatencyEwmaMs'] ?? -1}');
     }
@@ -2572,7 +2572,7 @@ extension HomeExtras on _HomePageState {
       final modeLabel = switch (evidence.mode) {
         DetectedNetworkMode.domesticOnly => 'فقط مسیر داخلی تأیید شد',
         DetectedNetworkMode.globalOnly => 'مسیر جهانی تأیید شد',
-        DetectedNetworkMode.dualStack => 'مسیر داخلی و جهانی هر دو در دسترس‌اند',
+        DetectedNetworkMode.domesticAndGlobal => 'مسیر داخلی و جهانی هر دو در دسترس‌اند',
         DetectedNetworkMode.offline => 'هیچ مسیر آزمایشی پاسخ نداد',
         DetectedNetworkMode.unknown => 'شواهد کافی نیست؛ حالت قبلی حفظ شد',
       };
