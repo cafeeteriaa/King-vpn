@@ -619,10 +619,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('hasActiveSession', manual)
         self.assertIn("'status': 'owner_auth_required'", manual)
         self.assertIn('repairFromFailedCiAutonomous(', worker)
-        missing_model = worker[worker.index('if (!loaded) {'):worker.index('final result = await ai.repairFromFailedCiAutonomous', worker.index('if (!loaded) {'))]
-        self.assertIn('cancelByTag(_tag)', missing_model)
-        self.assertIn('clearBackgroundRepairPullNumber()', missing_model)
-        self.assertIn('setBackgroundAutoDiscovery(false)', missing_model)
+        self.assertNotIn('.loadInstalledModelForBackground(', worker)
+        self.assertIn('cloud-first helper route', worker)
+        self.assertIn('repairFromFailedCiAutonomous(', worker)
         self.assertIn('_ownerAuth.setInitialPassword(password)', console)
         self.assertIn('_ownerAuth.authenticate(password)', console)
         self.assertIn('if (!_ownerAuth.hasActiveSession)', console)
@@ -1422,7 +1421,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(audit.index('isBackgroundAutoDiscoveryEnabled()'),
                         audit.index('hasGitHubToken()'))
         self.assertLess(audit.index('hasGitHubToken()'),
-                        audit.index('loadInstalledModelForBackground()'))
+                        audit.index('createAutonomousMaintenanceProposal('))
+        self.assertNotIn('loadInstalledModelForBackground()', audit)
+        self.assertIn('KingAiProviderPilot', background)
 
 
     def test_native_apk_installer_accepts_only_the_verified_private_cache_asset(self):
