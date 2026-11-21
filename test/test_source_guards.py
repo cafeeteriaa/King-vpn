@@ -1420,10 +1420,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('return true;', audit)
         self.assertLess(audit.index('isBackgroundAutoDiscoveryEnabled()'),
                         audit.index('hasGitHubToken()'))
-        self.assertLess(audit.index('hasGitHubToken()'),
-                        audit.index('createAutonomousMaintenanceProposal('))
+        self.assertIn('hasGitHubToken()', audit)
         self.assertNotIn('loadInstalledModelForBackground()', audit)
         self.assertIn('KingAiProviderPilot', background)
+        self.assertIn('await ai.createAutonomousMaintenanceProposal(', background)
 
 
     def test_native_apk_installer_accepts_only_the_verified_private_cache_asset(self):
