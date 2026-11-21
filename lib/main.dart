@@ -11397,8 +11397,10 @@ ListTile( // KINGEXTRAS row
       final allProtocols = RegExp(r'(همه پروتکل|تمام پروتکل)').hasMatch(command);
       final projectRequest = !KingCommandSafety.isQuestionRequest(command) && RegExp(
         r'(اپلیکیشن بساز|اپلیکیشن ایجاد کن|اپ بساز|برنامه جدید بساز|برنامه بساز|پروژه بساز|'
+        r'(اپلیکیشن|اپ|برنامه|پروژه).{0,50}(بساز|ایجاد کن|درست کن|طراحی کن|بنویس)|'
+        r'(بساز|ایجاد کن|درست کن|طراحی کن).{0,30}(اپلیکیشن|اپ|برنامه|پروژه)|'
         r'برنامه اندروید بساز|اپلیکیشن اندروید بساز|create an app|create app|build an app|make an app|'
-        r'generate application|create a project|build a project)',
+        r'make me an app|build me an app|create me an app|generate application|create a project|build a project)',
         caseSensitive: false,
       ).hasMatch(normalizedCommand);
       final codeRequest = projectRequest || (!KingCommandSafety.isQuestionRequest(command) && RegExp(
