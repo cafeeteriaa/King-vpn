@@ -128,6 +128,40 @@ List<String> natExpandDash(String range, {int maxCount = 65536}) {
   );
 }
 
+/// Rank scan ports using the complete known-server inventory and learned successes.
+/// Learned endpoints carry extra weight, while common fallback ports remain available.
+List<int> natRankPorts({
+  required Iterable<int> knownPorts,
+  Iterable<int> rememberedPorts = const <int>[],
+  required List<int> commonPorts,
+  int preferredCount = 10,
+}) {
+  if (preferredCount <= 0) {
+    return List<int>.unmodifiable(
+        commonPorts.where((port) => port > 0 && port < 65536).toSet());
+  }
+  final scores = <int, int>{};
+  void add(Iterable<int> ports, int weight) {
+    for (final port in ports) {
+      if (port > 0 && port < 65536) {
+        scores[port] = (scores[port] ?? 0) + weight;
+      }
+    }
+  }
+  // Do not truncate knownPorts: later sources may contain useful port evidence.
+  add(knownPorts, 1);
+  add(rememberedPorts, 5);
+  final ranked = natStableSorted<int>(
+    scores.keys,
+    (a, b) => scores[b]!.compareTo(scores[a]!),
+  );
+  final out = <int>[...ranked.take(preferredCount)];
+  for (final port in commonPorts) {
+    if (port > 0 && port < 65536 && !out.contains(port)) out.add(port);
+  }
+  return List<int>.unmodifiable(out);
+}
+
 /// اتصال TCP به ip:port. اگر جواب داد زمان پاسخ را برمی‌گرداند، وگرنه null.
 /// تضمین: سوکت در هر حالتی (موفق، خطا، تایم‌اوت) بسته می‌شود.
 Future<int?> natTcpProbe(String ip, int port, Duration timeout) async {

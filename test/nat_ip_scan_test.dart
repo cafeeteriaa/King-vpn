@@ -2,6 +2,31 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:king_vpn/nat_ip_scan.dart';
 
 void main() {
+  group('automatic scan port ranking', () {
+    test('uses port evidence beyond the first 100 known servers', () {
+      final earlyPorts = List<int>.generate(100, (index) => 1000 + index);
+      final laterPorts = List<int>.filled(8, 9443);
+      final ports = natRankPorts(
+        knownPorts: [...earlyPorts, ...laterPorts],
+        commonPorts: const [443, 80],
+      );
+      expect(ports.first, 9443);
+      expect(ports, containsAll([443, 80]));
+    });
+
+    test('weights remembered successful ports and rejects invalid ports', () {
+      final ports = natRankPorts(
+        knownPorts: [8443, 443, 443],
+        rememberedPorts: [8443, 8443, -1, 65536],
+        commonPorts: const [443, 80, 443, 0],
+      );
+      expect(ports.take(2), [8443, 443]);
+      expect(ports.where((port) => port == 443), hasLength(1));
+      expect(ports, isNot(contains(-1)));
+      expect(ports, isNot(contains(65536)));
+    });
+  });
+
   group('configured National Net range scheduling', () {
     test('round-robins across the complete inventory beyond 128 ranges', () {
       final ranges = List<String>.generate(300, (i) => 'range-$i');

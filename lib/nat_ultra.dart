@@ -1813,23 +1813,12 @@ const List<int> natCommonPorts = [
   8444, 9443, 4443, 5443, 6443, 7443, 10443, 2222, 8000, 8008, 8888, 3128, 1080,
 ];
 
-List<int> natAutoPorts(List<Server> known) {
-  final cnt = <int, int>{};
-  for (final s in known.take(100)) { // فیکس ۱۸: قبلاً کل known (تا ۳۰۰۰ سرور)
-    if (s.port > 0 && s.port < 65536) cnt[s.port] = (cnt[s.port] ?? 0) + 1;
-  }
-  for (final e in natIpMem) {
-    final p = (e['port'] as num?)?.toInt() ?? 0;
-    if (p > 0 && p < 65536) cnt[p] = (cnt[p] ?? 0) + 5;
-  }
-  final ports = natStableSorted<int>(
-      cnt.keys, (x, y) => cnt[y]! - cnt[x]!);
-  final out = <int>[...ports.take(10)];
-  for (final p in natCommonPorts) {
-    if (!out.contains(p)) out.add(p);
-  }
-  return out;
-}
+List<int> natAutoPorts(List<Server> known) => natRankPorts(
+      knownPorts: known.map((server) => server.port),
+      rememberedPorts: natIpMem.map(
+          (entry) => (entry['port'] as num?)?.toInt() ?? 0),
+      commonPorts: natCommonPorts,
+    );
 
 List<int>? _ipTriple(String host) {
   final p = host.split('.');
