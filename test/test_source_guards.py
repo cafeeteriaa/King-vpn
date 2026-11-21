@@ -3228,7 +3228,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         thread_decl = stop.index('Thread t;')
         guarded_start = stop.index('try {', thread_decl)
         construction = stop.index('t = new Thread(() -> {', guarded_start)
-        launch = stop.index('beginNative("stopCore");', construction)
+        launch = stop.index('if (!beginNative("stopCore"))', construction)
         catch = stop.index('} catch (Throwable startError)', launch)
         self.assertLess(guarded_start, construction)
         self.assertLess(construction, launch)
@@ -3243,7 +3243,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('private boolean stopCoreNow()')
         end = source.index('private boolean awaitCoreStopped(', start)
         stop = source[start:end]
-        launch = stop.index('beginNative("stopCore");')
+        launch = stop.index('if (!beginNative("stopCore"))')
         catch = stop.index('} catch (Throwable startError)', launch)
         recovery = stop[catch:stop.index('try {\n            t.join', catch)]
         self.assertIn('endNative();', recovery)
