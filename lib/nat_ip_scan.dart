@@ -162,6 +162,17 @@ List<int> natRankPorts({
   return List<int>.unmodifiable(out);
 }
 
+
+/// Share the remaining scan deadline fairly among ports that have not run yet.
+/// Early exits naturally return their unused time to the next port.
+Duration natFairPortBudget(Duration remaining, int remainingPorts) {
+  if (remaining <= Duration.zero || remainingPorts <= 0) {
+    return Duration.zero;
+  }
+  final shareMicros = remaining.inMicroseconds ~/ remainingPorts;
+  return Duration(microseconds: shareMicros > 0 ? shareMicros : 1);
+}
+
 /// اتصال TCP به ip:port. اگر جواب داد زمان پاسخ را برمی‌گرداند، وگرنه null.
 /// تضمین: سوکت در هر حالتی (موفق، خطا، تایم‌اوت) بسته می‌شود.
 Future<int?> natTcpProbe(String ip, int port, Duration timeout) async {

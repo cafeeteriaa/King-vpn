@@ -27,6 +27,42 @@ void main() {
     });
   });
 
+  group('fair scan-port deadline allocation', () {
+    test('shares the remaining deadline across every untested port', () {
+      final share = natFairPortBudget(
+        const Duration(minutes: 2),
+        36,
+      );
+      expect(share.inMilliseconds, 3333);
+      expect(
+        share * 36,
+        lessThanOrEqualTo(const Duration(minutes: 2)),
+      );
+    });
+
+    test('gives later ports the full time released by an early result', () {
+      expect(
+        natFairPortBudget(const Duration(seconds: 47), 1),
+        const Duration(seconds: 47),
+      );
+      expect(
+        natFairPortBudget(const Duration(seconds: 40), 4),
+        const Duration(seconds: 10),
+      );
+    });
+
+    test('returns zero for exhausted deadlines or no remaining ports', () {
+      expect(
+        natFairPortBudget(Duration.zero, 3),
+        Duration.zero,
+      );
+      expect(
+        natFairPortBudget(const Duration(seconds: 2), 0),
+        Duration.zero,
+      );
+    });
+  });
+
   group('configured National Net range scheduling', () {
     test('round-robins across the complete inventory beyond 128 ranges', () {
       final ranges = List<String>.generate(300, (i) => 'range-$i');

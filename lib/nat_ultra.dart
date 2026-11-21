@@ -2293,19 +2293,18 @@ Future<List<String>> _natRangeScanStepBody({
   final nextNatRangeCursor = from + slice.length;
   final out = <String>[];
   final portList = natAutoPorts(seeds);
-  final perPortCap = Duration(
-      milliseconds: max(20000, budget.inMilliseconds ~/ max(1, portList.length)).toInt());
-  // A monotonic shared deadline prevents each port from consuming a fresh
-  // minimum budget and accidentally multiplying the requested scan duration.
+  // A monotonic shared deadline is divided among ports still waiting.
+  // If a port finds enough hits early, its unused share flows to later ports.
+  // This prevents a 20-second minimum from starving the fallback-port tail.
   final scanClock = Stopwatch()..start();
   bool scanExpired() => scanClock.elapsed >= budget;
-  for (final port in portList) {
+  for (var portIndex = 0; portIndex < portList.length; portIndex++) {
+    final port = portList[portIndex];
     if (shouldAbort()) return const <String>[];
     final remainingBudget = budget - scanClock.elapsed;
     if (remainingBudget <= Duration.zero) return const <String>[];
-    final portBudget = perPortCap < remainingBudget
-        ? perPortCap
-        : remainingBudget;
+    final remainingPorts = portList.length - portIndex;
+    final portBudget = natFairPortBudget(remainingBudget, remainingPorts);
     final hits = await natScanIps(
       slice,
       port: port,
