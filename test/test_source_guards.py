@@ -4501,7 +4501,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('KingAiProviderSettingsCard', chat)
         self.assertNotIn('TextEditingController _geminiKeyController', chat)
         self.assertIn('KingAiProviderSettingsCard()', console)
-        self.assertIn('KingAiProviderPilot.instance.saveKey', settings)
+        self.assertIn('pilot.saveKey(entry.key, entry.value)', settings)
         self.assertIn('Secure Storage', settings)
         self.assertIn('فقط King AI', settings)
 
