@@ -109,5 +109,19 @@ class KingAiProjectBuilderGuards(unittest.TestCase):
         self.assertNotIn("دسترسی مالک فعال است (حداکثر ۱۵ دقیقه).", console)
 
 
+    def test_initial_project_request_runs_after_model_and_owner_reauthentication(self):
+        console = (ROOT / "lib" / "king_ai_console.dart").read_text(encoding="utf-8")
+        self.assertIn("bool _initialProjectRequestSubmitted = false;", console)
+        start = console.index("Future<void> _maybeCreateInitialProject()")
+        end = console.index("Future<void> _createStandaloneProject", start)
+        flow = console[start:end]
+        self.assertIn("widget.initialProjectRequest?.trim().length", flow)
+        self.assertIn("_ownerAuth.hasActiveSession", flow)
+        self.assertIn("_ai.isLoaded", flow)
+        self.assertIn("_reauthenticateOwnerForCodeChange()", flow)
+        self.assertIn("_createStandaloneProject(ownerReauthenticated: true)", flow)
+        self.assertIn("_maybeCreateInitialProject();", console)
+
+
 if __name__ == "__main__":
     unittest.main()
