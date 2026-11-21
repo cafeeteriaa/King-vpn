@@ -142,20 +142,35 @@ String? nipSwapLink(Server t, String ip) {
 List<String> natRelayHosts = <String>[];
 
 // RELAYHOSTS: واسط‌های IP که کاربر اضافه می‌کند
+// Keep persisted/user-entered relay lists bounded and deterministic.
+List<String> _nipNormalizeRelayHosts(Iterable<String> values) {
+  final seen = <String>{};
+  final out = <String>[];
+  for (final value in values) {
+    final raw = value.trim();
+    final parsed = InternetAddress.tryParse(raw);
+    if (parsed == null) continue;
+    final normalized = parsed.address;
+    if (!seen.add(normalized)) continue;
+    out.add(normalized);
+    if (out.length >= 64) break;
+  }
+  return out;
+}
+
 Future<void> natRelayHostsLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
-    natRelayHosts = p.getStringList('nat_relay_hosts') ?? <String>[];
+    natRelayHosts = _nipNormalizeRelayHosts(
+        p.getStringList('nat_relay_hosts') ?? const <String>[]);
   } catch (e, st) {
     logError(e, st);
   }
 }
 
 Future<void> natRelayHostsSave(String text) async {
-  natRelayHosts = text
-      .split(RegExp(r'[\r\n\s]+'))
-      .where((x) => InternetAddress.tryParse(x) != null)
-      .toList();
+  natRelayHosts = _nipNormalizeRelayHosts(
+      text.split(RegExp(r'[\\r\\n\\s]+')));
   try {
     final p = await SharedPreferences.getInstance();
     await p.setStringList('nat_relay_hosts', natRelayHosts);

@@ -4001,6 +4001,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("'speed.cloudflare.com',    // 2", nip)
 
 
+    def test_user_relay_hosts_are_normalized_deduplicated_and_bounded(self):
+        source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('List<String> _nipNormalizeRelayHosts(')
+        end = source.index('Future<String?> nipResolve(', start)
+        helper = source[start:end]
+        self.assertIn('InternetAddress.tryParse(raw)', helper)
+        self.assertIn('final normalized = parsed.address;', helper)
+        self.assertIn('if (!seen.add(normalized)) continue;', helper)
+        self.assertIn('if (out.length >= 64) break;', helper)
+        self.assertIn('_nipNormalizeRelayHosts(', helper)
+        self.assertIn("p.setStringList('nat_relay_hosts', natRelayHosts)", helper)
+
     def test_nip_cidr_expansion_bounds_caller_supplied_limit(self):
         source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         start = source.index('List<String> nipExpandCidr(')
