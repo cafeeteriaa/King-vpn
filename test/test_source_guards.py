@@ -4435,6 +4435,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_smart_pilot_persists_bounded_privacy_safe_route_history(self):
         national = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
         self.assertIn('class PilotRouteHistory', national)
         self.assertIn("pilot_route_history_v1", national)
