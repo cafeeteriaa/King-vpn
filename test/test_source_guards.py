@@ -1442,6 +1442,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('KingAiProvider.gemini', background)
         self.assertIn('KingAiProvider.groq', background)
         self.assertIn('KingAiProvider.openRouter', background)
+        ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        feature_start = ai.index('Future<Map<String, Object?>> createOwnerFeatureProposal(')
+        feature_end = ai.index('Future<void> dispose()', feature_start)
+        feature = ai[feature_start:feature_end]
+        self.assertIn('pilot.cloudEnabled', feature)
+        self.assertIn('KingAiProvider.gemini', feature)
+        self.assertIn('KingAiProvider.groq', feature)
+        self.assertIn('KingAiProvider.openRouter', feature)
+        self.assertNotIn('Load the local coding model before submitting', feature)
 
     def test_native_apk_installer_accepts_only_the_verified_private_cache_asset(self):
         native = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
