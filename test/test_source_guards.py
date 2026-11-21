@@ -91,7 +91,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         connected_event = flow.index('emit("CONNECTED"', stop_guard)
         failed_event = flow.index('emit("FAILED"', stop_guard)
         connected_branch = flow.index('if (connectedNow)', stop_guard)
-        self.assertIn('if (stopping) return;', flow[stop_guard:connected_branch])
+        self.assertIn('if (stopping || startId != latestStartId) return;', flow[stop_guard:connected_branch])
         self.assertLess(stop_guard, connected_event)
         self.assertLess(stop_guard, failed_event)
         resume_start = source.index('private void resumeSaved(int startId)')
@@ -99,7 +99,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         resume = source[resume_start:resume_end]
         guard = resume.index('if (stopping)', resume.index('boolean connectedNow = connectFrom(currentIdx);'))
         connected_branch = resume.index('if (connectedNow)', guard)
-        self.assertIn('if (stopping) return;', resume[guard:connected_branch])
+        self.assertIn('if (stopping || startId != latestStartId) return;', resume[guard:connected_branch])
         self.assertNotIn('saveState();', resume[guard:connected_branch])
 
     def test_native_watchdog_scheduler_cannot_be_resurrected_after_destroy(self):
