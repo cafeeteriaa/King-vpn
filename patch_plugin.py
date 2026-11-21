@@ -520,11 +520,9 @@ exact_replace(vpn, '''        // Force IPv4 path: sinkhole IPv6 so apps don't by
 ''', '''        // Route IPv6 into the native TUN as well as IPv4. This confirms only
         // Android route installation; end-to-end IPv6 still requires core and
         // remote-server support and must be verified by a tunnel traffic probe.
-        boolean ipv6TunRouteInstalled = false;
         try {
             builder.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);
             builder.addRoute("::", 0);
-            ipv6TunRouteInstalled = true;
             Log.i("V2rayVPNService", "IPv6 default route installed on native TUN");
         } catch (Exception e) {
             Log.e("V2rayVPNService",
