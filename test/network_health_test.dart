@@ -61,6 +61,8 @@ void main() {
         global: LinkHealth.unreachable,
         domesticSamples: 3,
         globalSamples: 3,
+        domesticSuccesses: 2,
+        globalSuccesses: 0,
         domesticLatencyMs: 140,
         domesticTlsReachabilityVerified: true,
       );
@@ -73,6 +75,8 @@ void main() {
         global: LinkHealth.healthy,
         domesticSamples: 3,
         globalSamples: 3,
+        domesticSuccesses: 0,
+        globalSuccesses: 2,
         globalLatencyMs: 190,
         globalTlsReachabilityVerified: true,
       );
@@ -85,12 +89,40 @@ void main() {
         global: LinkHealth.healthy,
         domesticSamples: 3,
         globalSamples: 3,
+        domesticSuccesses: 3,
+        globalSuccesses: 3,
         domesticLatencyMs: 120,
         globalLatencyMs: 280,
         domesticTlsReachabilityVerified: true,
         globalTlsReachabilityVerified: true,
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.domestic);
+    });
+
+    test('rejects healthy verdict without successful TLS quorum', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 0,
+        globalSuccesses: 0,
+        domesticTlsReachabilityVerified: false,
+      );
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
+    });
+
+    test('rejects unreachable verdict with contradictory successful probes', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 3,
+        globalSuccesses: 1,
+        domesticTlsReachabilityVerified: true,
+      );
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
     });
 
     test('preserves strategy when latency difference is insignificant', () {
