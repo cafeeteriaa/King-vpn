@@ -3278,7 +3278,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('BRING_UP_TIMEOUT_MS', helper)
         self.assertIn('if (!isCurrent(myAttempt)) return false;', helper)
         self.assertIn('if (!coreStopping && running) stopCoreNow();', helper)
-        self.assertIn('!core.isV2rayCoreRunning()', helper)
+        self.assertIn('readCoreRunningWithWatchdog(core, "start-final-state-check")', helper)
 
         start = source.index('private boolean bringUp(Srv s, int myAttempt)')
         end = source.index('private void startWatchdog(', start)
