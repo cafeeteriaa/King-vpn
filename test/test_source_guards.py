@@ -1492,7 +1492,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = service.index('public int onStartCommand(Intent intent')
         end = service.index('/** Runs a task on the single worker thread', start)
         command = service[start:end]
-        restart = command[command.index('if (intent == null)'):command.index('String action = intent.getAction()')]
+        restart = command[command.index('if (intent == null)'):command.index('if (ACTION_STOP.equals(action))')]
         stop = command[command.index('if (ACTION_STOP.equals(action))'):command.index('if (!ACTION_START.equals(action))')]
         self.assertLess(restart.index('startForegroundSafe('), restart.index('submit(() -> resumeSaved(startId))'))
         self.assertLess(stop.index('startForegroundSafe('), stop.index('submit(() -> stopEverything(startId))'))
@@ -1502,7 +1502,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = service.index('public int onStartCommand(Intent intent')
         end = service.index('/** Runs a task on the single worker thread', start)
         command = service[start:end]
-        restart = command[command.index('if (intent == null)'):command.index('String action = intent.getAction()')]
+        restart = command[command.index('if (intent == null)'):command.index('if (ACTION_STOP.equals(action))')]
         action_start = command[command.index('if (!ACTION_START.equals(action))'):]
 
         self.assertIn('private boolean startForegroundSafe(String remark)', service)
