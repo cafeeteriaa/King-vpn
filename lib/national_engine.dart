@@ -196,6 +196,21 @@ class NatNetworkDiagnosis {
     }
   }
 
+  /// Tests IPv6 directly; the literal address prevents fallback to IPv4.
+  static Future<bool> _tcpOkIpv6(String address) async {
+    final target = InternetAddress.tryParse(address);
+    if (target == null || target.type != InternetAddressType.IPv6) return false;
+    try {
+      final socket = await Socket.connect(
+        target, 443, timeout: const Duration(seconds: 3),
+      );
+      socket.destroy();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// True when the national network is up but the international one is cut.
   /// Read by the search ordering (main.dart): Iran-hosted sources go first.
   static bool get preferDomestic =>
@@ -244,6 +259,17 @@ class NatNetworkDiagnosis {
       final globalDnsOk = globalDnsRes.any((x) => x.ok);
       final domesticTcpOk = domesticTcp.any((x) => x);
       final globalTcpOk = globalTcp.any((x) => x);
+      // Verify the IPv6 data path using literal AAAA answers. DNS success
+      // alone is not evidence that IPv6 TCP traffic can pass.
+      final ipv6Candidates = <String>{
+        for (final result in globalDnsRes)
+          if (result.ok)
+            for (final address in result.addresses)
+              if (InternetAddress.tryParse(address)?.type == InternetAddressType.IPv6)
+                address,
+      }.take(2).toList();
+      final globalIpv6TcpOk = ipv6Candidates.isNotEmpty &&
+          (await Future.wait(ipv6Candidates.map(_tcpOkIpv6))).any((ok) => ok);
       // DNS poisoning / blockpage check: a resolver returned a public A answer,
       // yet none of the answered addresses accepts TCP/443, while domestic hosts
       // do. That is the typical signature of an injected answer, not a live Google.
@@ -260,6 +286,7 @@ class NatNetworkDiagnosis {
         domesticTcpOk: domesticTcpOk,
         globalDnsOk: globalDnsOk,
         globalTcpOk: globalTcpOk,
+        globalIpv6TcpOk: globalIpv6TcpOk,
         dnsPoisonSuspected: poison,
         sampleCount: domesticTcp.length + globalTcp.length +
             globalDnsRes.length + domesticDnsRes.length,
