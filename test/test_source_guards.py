@@ -585,7 +585,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         feature = ai[feature_start:feature_end]
         self.assertIn('hasActiveSession', feature)
         self.assertIn("'status': 'owner_auth_required'", feature)
-        self.assertIn("baseBranch: 'main'", feature)
+        self.assertIn("baseBranch: _developmentBaseBranch", feature)
+        self.assertIn("_developmentBaseBranch = 'work/national-network-evidence'", ai)
+        self.assertIn("static void _validateDevelopmentBaseBranch(String branch)", ai)
+        self.assertIn("const {'main', 'master', 'trunk'}.contains(normalized)", ai)
+        self.assertIn("_validateDevelopmentBaseBranch(baseBranch)", public_create)
+        self.assertNotIn("baseBranch: 'main'", ai)
         console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
         self.assertIn('createOwnerFeatureProposal(', console)
         self.assertIn('maxLength: 128', console)
