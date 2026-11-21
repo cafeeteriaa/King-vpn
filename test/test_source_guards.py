@@ -1663,6 +1663,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('package_info_plus', build)
         self.assertIn('package_info_plus', release)
         self.assertIn('package_info_plus', orchestrator)
+        self.assertIn("CGO_LDFLAGS", orchestrator)
+        self.assertIn("max-page-size=16384", orchestrator)
         self.assertNotIn('abiFilters += listOf', prepare)
         self.assertNotIn('abiFilters "arm64-v8a"', prepare)
         self.assertNotIn('armeabi-v7a', prepare)
