@@ -15,7 +15,7 @@ enum NatNetworkClass {
 }
 
 /// Address-family evidence is independent: IPv4 success cannot prove IPv6.
-enum NatIpFamilyReachability { unknown, dnsOnly, tcpReachable, tcpBlocked }
+enum NatIpFamilyReachability { unknown, dnsOnly, tcpReachable }
 
 
 enum NatAttemptStage { quick, alternate, expensive }
@@ -91,7 +91,9 @@ class NatProbeEvidence {
   static NatIpFamilyReachability _familyReachability(bool dnsOk, bool tcpOk) {
     if (tcpOk) return NatIpFamilyReachability.tcpReachable;
     if (dnsOk) return NatIpFamilyReachability.dnsOnly;
-    return NatIpFamilyReachability.tcpBlocked;
+    // No public answer means this family was not verified; it is not proof
+    // that the network blocks the family.
+    return NatIpFamilyReachability.unknown;
   }
 
   NatNetworkClass classify() {
