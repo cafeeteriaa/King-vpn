@@ -3345,5 +3345,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (servers.isEmpty()) return false;', loader)
         self.assertIn('Math.min(sp.getInt("idx", 0), servers.size() - 1)', loader)
 
+
+    def test_native_stop_waiter_uses_worker_verification_without_unwatched_jni(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private boolean stopCoreNow()')
+        end = source.index('private boolean awaitCoreStopped(', start)
+        stop = source[start:end]
+        self.assertIn('final boolean[] stopVerified = {false};', stop)
+        self.assertIn('stopVerified[0] = !stillRunning;', stop)
+        join = stop.index('t.join(STOP_CORE_WAIT_MS);')
+        waiter = stop[join:]
+        self.assertIn('if (!stopVerified[0])', waiter)
+        self.assertNotIn('core.isV2rayCoreRunning()', waiter)
+
 if __name__ == '__main__':
     unittest.main()
