@@ -82,6 +82,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_dnsPickLastSucceeded = true;', picker)
         self.assertIn('_dnsPickLastSucceeded = false;', picker)
 
+    def test_nat_doh_cache_is_bound_to_network_operator_and_route_mode(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> natDohUsable(')
+        end = source.index('String _natApplyTweaks(', start)
+        probe = source[start:end]
+        self.assertIn('final networkKey = await _dnsNetworkKey();', probe)
+        self.assertIn("final cacheableNetwork = !networkKey.endsWith('|unknown');", probe)
+        self.assertIn('_dohPreNetworkKey[v] == networkKey', probe)
+        self.assertIn('final modeSnapshot = nationalMode;', probe)
+        self.assertIn('final expectedDomain = modeSnapshot ?', probe)
+        self.assertIn('final networkKeyAfter = await _dnsNetworkKey();', probe)
+        self.assertIn('if (gen != _dohGen || networkKeyAfter != networkKey) return false;', probe)
+        clear_start = source.index('void natDohCacheClear()')
+        clear_end = source.index('Future<bool> natDohUsable(', clear_start)
+        self.assertIn('_dohPreNetworkKey.clear();', source[clear_start:clear_end])
+
     def test_native_start_and_resume_suppress_late_events_after_user_stop(self):
         source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = source.index('private void startFlow(')

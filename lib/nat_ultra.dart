@@ -1060,41 +1060,57 @@ String _natLinkFor(Server s, int v, {bool reuse = false}) {
 
 final Map<int, bool> dohPreOk = {};
 final Map<int, DateTime> _dohPreAt = {};
+final Map<int, String> _dohPreNetworkKey = {};
 int _dohGen = 0; // نسل کش: هر تغییر شبکه آن را بالا می‌برد
 // نتیجه‌ی probe به شبکه‌ی فعلی وابسته است؛ با تغییر شبکه باید پاک شود.
 void natDohCacheClear() {
   _dohGen++;
   dohPreOk.clear();
   _dohPreAt.clear();
+  _dohPreNetworkKey.clear();
 }
 Future<bool> natDohUsable(int v) async {
   if (v < 0 || v >= _natSpecs.length) return false;
   final doh = _natSpecs[v].doh;
   if (doh == null) return true;
+
+  // Bind each cached answer to the physical interface, operator and route mode.
+  // A mode switch can happen without the normal network watcher running.
+  final networkKey = await _dnsNetworkKey();
+  final cacheableNetwork = !networkKey.endsWith('|unknown');
   final cached = dohPreOk[v];
   final at = _dohPreAt[v];
-  if (cached != null &&
+  if (cacheableNetwork &&
+      cached != null &&
+      _dohPreNetworkKey[v] == networkKey &&
       at != null &&
       DateTime.now().difference(at) < const Duration(minutes: 10)) {
     return cached;
   }
+
   var host = doh;
   final u = Uri.tryParse(doh);
   if (u != null && u.hasAuthority) host = u.host;
-  final gen = _dohGen; // نسل قبل از probe گرفته می‌شود
+  final gen = _dohGen;
+  final modeSnapshot = nationalMode;
   // A TCP-open port or successful TLS handshake is not proof of DoH.
-  // Require a valid DNS-over-HTTPS JSON response for a mode-appropriate name.
+  // Require a valid DNS-over-HTTPS JSON response for the captured route mode.
+  final expectedDomain = modeSnapshot ? 'nic.ir' : 'google.com';
   final path = (u?.path.isNotEmpty ?? false) ? u!.path : '/dns-query';
   final query = Uri.https(host, path, <String, String>{
-    'name': nationalMode ? 'nic.ir' : 'google.com',
+    'name': expectedDomain,
     'type': 'A',
   }).toString();
-  final ms = await _probeDoh(query, expectedDomain: nationalMode ? 'nic.ir' : 'google.com');
+  final ms = await _probeDoh(query, expectedDomain: expectedDomain);
   final ok = ms != null;
-  // ج-۱: اگر در این فاصله شبکه عوض شده، نتیجه مربوط به شبکه‌ی قبلی است؛ ننویس
-  if (gen == _dohGen) {
+
+  // Do not publish a probe measured across an interface/operator/mode switch.
+  final networkKeyAfter = await _dnsNetworkKey();
+  if (gen != _dohGen || networkKeyAfter != networkKey) return false;
+  if (cacheableNetwork) {
     dohPreOk[v] = ok;
     _dohPreAt[v] = DateTime.now();
+    _dohPreNetworkKey[v] = networkKey;
   }
   return ok;
 }
