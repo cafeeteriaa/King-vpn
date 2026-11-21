@@ -121,6 +121,29 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('saveState();', resume[guard:connected_branch])
 
 
+
+    def test_new_native_start_invalidates_previous_watchdog_and_retry_work(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        on_start = source.index('public int onStartCommand(')
+        on_start_end = source.index('private void submit(', on_start)
+        start = source[on_start:on_start_end]
+        self.assertIn('attemptSeq.incrementAndGet();', start)
+        self.assertIn('active = false;', start)
+        self.assertIn('retryWaiting = false;', start)
+
+        connect_start = source.index('private boolean connectFrom(int first, int expectedStartId)')
+        connect_end = source.index('private boolean bringUpWithTimeout(', connect_start)
+        connect = source[connect_start:connect_end]
+        self.assertIn('expectedStartId != latestStartId', connect)
+        self.assertIn('if (stopping || expectedStartId != latestStartId) return false;', connect)
+
+        retry_start = source.index('private void retryWholeListNow(')
+        retry_end = source.index('private ProbeResult probeResult(', retry_start)
+        retry = source[retry_start:retry_end]
+        self.assertIn('connectFrom(0, expectedStartId)', retry)
+        self.assertIn('if (stopping || expectedStartId != latestStartId) return;', retry)
+
+
     def test_native_watchdog_and_delayed_retry_are_bound_to_their_start_generation(self):
         source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = source.index('private void checkOnce()')

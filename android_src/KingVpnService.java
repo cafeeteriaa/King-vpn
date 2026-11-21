@@ -271,6 +271,11 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // Publish a new start and clear the previous cancellation atomically.
             // A concurrent app stop after this block must remain authoritative.
             if (intent == null || ACTION_START.equals(action)) {
+                // A new start supersedes every in-flight health probe, retry and native
+                // attempt from the previous config before its worker task is queued.
+                attemptSeq.incrementAndGet();
+                active = false;
+                retryWaiting = false;
                 stopping = false;
                 userStopped = false;
             }
@@ -401,7 +406,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             currentIdx = 0; // جدید: new list starts at 0; a stale index from the last session was saved before
             fails = 0;      // جدید
             saveState(); // persist the pending list first, so a restart mid-connect can resume it
-            boolean connectedNow = connectFrom(0);
+            boolean connectedNow = connectFrom(0, startId);
             // A user stop can arrive while the worker is waiting for native startCore.
             // Never emit a late CONNECTED/FAILED event after that cancellation.
             if (stopping || startId != latestStartId) return; // queued stop or newer start owns teardown
@@ -428,7 +433,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 return;
             }
             startForegroundSafe(servers.get(currentIdx).remark);
-            boolean connectedNow = connectFrom(currentIdx);
+            boolean connectedNow = connectFrom(currentIdx, startId);
             if (stopping || startId != latestStartId) return; // queued stop or newer start owns teardown
             if (connectedNow) {
                 saveState();
@@ -456,14 +461,15 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     }
 
     /** Try each server starting at [first]; the first one that comes up wins. */
-    private boolean connectFrom(int first) {
+    private boolean connectFrom(int first, int expectedStartId) {
         int n = servers.size();
         for (int k = 0; k < n; k++) {
-            if (stopping) return false; // جدید: a Stop stops the list walk at once; no next server starts
+            if (stopping || expectedStartId != latestStartId) return false; // جدید: a Stop stops the list walk at once; no next server starts
             int idx = (first + k) % n;
             Srv s = servers.get(idx);
             Log.i(TAG, "starting server " + idx + "/" + n + " " + s.remark);
             if (bringUpWithTimeout(s)) {
+                if (stopping || expectedStartId != latestStartId) return false;
                 currentIdx = idx;
                 fails = 0;
                 healthyStreak = 0;
@@ -1009,7 +1015,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             }
             Log.w(TAG, "switching to next server");
             int next = (currentIdx + 1) % servers.size();
-            if (connectFrom(next)) {
+            if (connectFrom(next, healthStartId)) {
                 saveState();
                 rescheduleNormal();
             } else {
@@ -1050,7 +1056,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             retryWaiting = false;
             if (servers.isEmpty()) return;
             Log.i(TAG, "retrying full server list after backoff");
-            if (connectFrom(0)) {
+            if (connectFrom(0, expectedStartId)) {
+                if (stopping || expectedStartId != latestStartId) return;
                 saveState();
                 rescheduleNormal();
             } else {
