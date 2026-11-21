@@ -3479,5 +3479,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("tls['allowInsecure'] = true;", ultra)
 
 
+
+    def test_native_hang_recovery_does_not_restore_checkpoint_during_teardown(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private void recoverWedgedCore(String what, long expectedToken)')
+        end = source.index('private Boolean readCoreRunningWithWatchdog(', start)
+        recovery = source[start:end]
+        self.assertIn('if (userStopped || stopping) clearState();', recovery)
+        self.assertIn('else saveState();', recovery)
+
+
 if __name__ == '__main__':
     unittest.main()
