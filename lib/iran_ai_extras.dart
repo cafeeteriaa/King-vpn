@@ -555,6 +555,17 @@ extension HomeExtras on _HomePageState {
         'latency=${evidence.globalLatencyMs ?? -1}ms '
         'confidence=${evidence.confidence.toStringAsFixed(2)}');
     sb.writeln('National diagnosis: ${natNetworkClassLabel(NatNetworkDiagnosis.current)}');
+    final routeHistory = PilotRouteHistory.forNetwork(natOpKey);
+    if (routeHistory != null) {
+      sb.writeln('Persistent route history for current network group: '
+          'observations=${routeHistory['observations']} '
+          'domestic=${routeHistory['domesticSuccesses']}/${routeHistory['domesticSamples']} '
+          'global=${routeHistory['globalSuccesses']}/${routeHistory['globalSamples']} '
+          'domesticOnly=${routeHistory['domesticOnly']} '
+          'globalOnly=${routeHistory['globalOnly']} dualStack=${routeHistory['dualStack']} '
+          'domesticLatencyEwmaMs=${routeHistory['domesticLatencyEwmaMs'] ?? -1} '
+          'globalLatencyEwmaMs=${routeHistory['globalLatencyEwmaMs'] ?? -1}');
+    }
     if (c != null) {
       final history = NationalNetworkIntelligence.memoryFor(
           NationalNetworkIntelligence.keyOfServer(c));
