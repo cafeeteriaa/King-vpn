@@ -43,6 +43,7 @@ class NatMuxApplicabilityTests(unittest.TestCase):
         nat_var_for = self.source[start:end]
         self.assertNotIn("x.mux", nat_var_for)
         self.assertIn("if (x.noise) return 0;", nat_var_for)
+        self.assertIn("_natAppliesF(_NatFacts(s), v)", nat_var_for)
 
         heavy_start = self.source.index("bool natIsHeavy(")
         heavy_end = self.source.index("int? natSpeedVariant", heavy_start)
