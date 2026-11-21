@@ -272,6 +272,12 @@ class NatNetworkDiagnosis {
       final domesticDnsRes = await domesticDnsF;
       final domesticDnsOk = domesticDnsRes.any((x) => x.ok);
       final globalDnsOk = globalDnsRes.any((x) => x.ok);
+      final globalIpv4DnsOk = globalDnsRes.any((result) =>
+          result.ok && result.addresses.any((address) =>
+              InternetAddress.tryParse(address)?.type == InternetAddressType.IPv4));
+      final globalIpv6DnsOk = globalDnsRes.any((result) =>
+          result.ok && result.addresses.any((address) =>
+              InternetAddress.tryParse(address)?.type == InternetAddressType.IPv6));
       final domesticTcpOk = domesticTcp.any((x) => x);
       final globalHostTcpOk = globalTcp.any((x) => x);
       // Verify each IP family independently using literal DNS answers.
@@ -313,6 +319,8 @@ class NatNetworkDiagnosis {
         domesticTcpOk: domesticTcpOk,
         globalDnsOk: globalDnsOk,
         globalTcpOk: globalHostTcpOk,
+        globalIpv4DnsOk: globalIpv4DnsOk,
+        globalIpv6DnsOk: globalIpv6DnsOk,
         globalIpv4TcpOk: globalIpv4TcpOk,
         globalIpv6TcpOk: globalIpv6TcpOk,
         dnsPoisonSuspected: poison,
@@ -325,7 +333,9 @@ class NatNetworkDiagnosis {
       _identityAtCheck = id;
       dbg('NNIE-DIAG: ${natNetworkClassLabel(current)} '
           '(domesticTcp=${ev.domesticTcpOk} domesticDns=$domesticDnsOk '
-          'globalTcp=${ev.globalTcpOk} globalDns=${ev.globalDnsOk} poison=$poison)');
+          'globalTcp=${ev.globalTcpOk} globalDns=${ev.globalDnsOk} '
+          'v4Dns=${ev.globalIpv4DnsOk} v4Tcp=${ev.globalIpv4TcpOk} '
+          'v6Dns=${ev.globalIpv6DnsOk} v6Tcp=${ev.globalIpv6TcpOk} poison=$poison)');
     } catch (e, st) {
       logError(e, st);
       current = NatNetworkClass.unknown;
