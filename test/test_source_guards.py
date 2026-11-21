@@ -4442,7 +4442,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("evidence.domesticSamples < 3", national)
         self.assertIn("evidence.globalSamples < 3", national)
         self.assertIn("static bool _validGroup(String value)", national)
-        self.assertIn("await PilotRouteHistory.record(", national)
+        self.assertIn("unawaited(PilotRouteHistory.record(", national)
         self.assertIn("if (identity.isNotEmpty)", national)
         self.assertIn("PilotRouteHistory.forNetwork(PilotRouteHistory.currentGroup)", extras)
         self.assertIn("static Future<String> networkGroup()", national)
