@@ -3961,6 +3961,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
+    def test_nat_variant_growth_is_unique_and_bounded(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('int natGrow(int n)')
+        end = source.index('List<String>? _natNamesC', start)
+        grow = source[start:end]
+        self.assertIn('if (n <= 0 || _natSpecs.length >= natMaxVariants) return 0;', grow)
+        self.assertIn('final target = min(n, natMaxVariants - _natSpecs.length);', grow)
+        self.assertIn('Set<String>? _natGrowSignatures;', source)
+        self.assertIn('if (!signatures.add(_natSig(spec))) continue;', grow)
+        self.assertNotIn('_natSpecs.length > 500000', grow)
+
+if __name__ == '__main__':
+    unittest.main()
+
 if __name__ == '__main__':
     unittest.main()
     def test_nat_variant_growth_is_unique_and_bounded(self):
