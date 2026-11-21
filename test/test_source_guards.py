@@ -4152,7 +4152,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('ip.type == InternetAddressType.IPv6', normalizer)
         self.assertIn('nipExpandIpv6Cidr', normalizer)
         self.assertIn('first.type == InternetAddressType.IPv6', normalizer)
-        self.assertIn('InternetAddress.fromRawAddress(bytes)', expander)
+        self.assertIn('InternetAddress.fromRawAddress(Uint8List.fromList(bytes))', expander)
         self.assertIn('nipExpandIpv6Cidr(item, maxPerBlock: limit)', expander)
         self.assertIn('a.type == InternetAddressType.IPv4', expander)
         self.assertIn('a.type == InternetAddressType.IPv6', expander)
