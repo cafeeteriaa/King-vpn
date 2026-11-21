@@ -85,9 +85,14 @@ def verify(patch_file: Path, output_patch: Path) -> dict:
                 pass
         run(['flutter', 'test'], build_app, timeout=900)
         run(['flutter', 'analyze', '--no-fatal-warnings', '--no-fatal-infos'], build_app, timeout=900)
-        run(['flutter', 'build', 'apk', '--debug', '--target-platform', 'android-arm64'],
+        run(['flutter', 'build', 'apk', '--release', '--obfuscate',
+             '--split-debug-info=build/symbols', '--target-platform', 'android-arm64',
+             '--split-per-abi'],
             build_app, timeout=1800,
-            extra_env={'CGO_LDFLAGS': '-Wl,-z,max-page-size=16384'})
+            extra_env={
+                'CGO_LDFLAGS': '-Wl,-z,max-page-size=16384',
+                'LINT_PRINT_STACKTRACE': 'true',
+            })
 
     output_patch.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(patch_file, output_patch)
