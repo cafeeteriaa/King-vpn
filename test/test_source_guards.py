@@ -3390,5 +3390,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('could not launch VPN cleanup fallback:', fallback)
         self.assertIn('Log.e(TAG, lastError, launchError);', fallback)
 
+
+    def test_native_core_calls_are_refused_when_watchdog_cannot_start(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        begin = source[source.index('private boolean beginNative('):source.index('private void endNative()')]
+        self.assertIn('catch (Throwable launchError)', begin)
+        self.assertIn('nativeBusy = false;', begin)
+        self.assertIn('nativeToken.incrementAndGet();', begin)
+        self.assertIn('return false;', begin)
+
+        stop_start = source.index('private boolean stopCoreNow()')
+        stop_end = source.index('private boolean awaitCoreStopped(', stop_start)
+        stop = source[stop_start:stop_end]
+        self.assertIn('if (!beginNative("stopCore"))', stop)
+        self.assertIn('native watchdog unavailable', stop)
+
+        bring_start = source.index('private boolean bringUp(Srv s, int myAttempt)')
+        bring_end = source.index('private void startWatchdog(', bring_start)
+        bring = source[bring_start:bring_end]
+        self.assertIn('if (!beginNative("startCore"))', bring)
+        self.assertIn('refusing unmonitored core start', bring)
+
 if __name__ == '__main__':
     unittest.main()
