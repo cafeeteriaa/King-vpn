@@ -3514,9 +3514,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         worker = body[thread_start:thread_end]
         self.assertIn('core.stopCore();', worker)
         self.assertIn('stillRunning = core.isV2rayCoreRunning();', worker)
-        self.assertIn('finally {\n                endNative();\n            }', worker)
+        self.assertIn('finally {\n                // Do not publish coreStopping=false', worker)
         self.assertLess(worker.index('core.stopCore();'), worker.index('stillRunning = core.isV2rayCoreRunning();'))
         self.assertLess(worker.index('stillRunning = core.isV2rayCoreRunning();'), worker.index('endNative();'))
+        self.assertLess(worker.index('endNative();'), worker.index('coreStopping = false;'))
+        self.assertIn('stopVerified[0] = verified;', worker)
 
 
     def test_native_new_start_waits_for_previous_async_core_stop(self):

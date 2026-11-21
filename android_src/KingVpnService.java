@@ -720,6 +720,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         Thread t;
         try {
             t = new Thread(() -> {
+            boolean verified = false;
+            boolean stillRunning = true;
             try {
                 try {
                     core.stopCore();
@@ -730,33 +732,32 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 // Keep the native watchdog armed through the post-stop state query too.
                 // Some plugin/core implementations perform JNI work in this getter; if it
                 // wedges, ending the watchdog before this call would leave shutdown stuck.
-                final boolean stillRunning;
                 try {
                     stillRunning = core.isV2rayCoreRunning();
+                    verified = !stillRunning;
                 } catch (Throwable checkError) {
                     Log.e(TAG, "could not verify native core stop; retaining TUN", checkError);
-                    synchronized (tunLock) {
-                        coreStopping = false;
-                        closeTunAfterCoreStop = true;
-                    }
-                    return;
                 }
+            } finally {
+                // Do not publish coreStopping=false until endNative has invalidated the
+                // watchdog token. Otherwise a new state query/start can race this finally
+                // block and have its watchdog invalidated by this older stop worker.
+                endNative();
                 synchronized (tunLock) {
                     coreStopping = false;
-                    stopVerified[0] = !stillRunning;
-                    if (!stillRunning && closeTunAfterCoreStop) {
+                    stopVerified[0] = verified;
+                    if (verified && closeTunAfterCoreStop) {
                         closeQuietly(tun);
                         tun = null;
                         closeTunAfterCoreStop = false;
-                    } else if (stillRunning) {
-                        // stopCore() may throw or return while the native process is alive.
-                        // Keep both the descriptor and the deferred-close marker for retry.
+                    } else if (!verified || stillRunning) {
+                        // An unverified or still-live core keeps its TUN until a later stop.
                         closeTunAfterCoreStop = true;
-                        Log.e(TAG, "native core remains running; retaining TUN until a verified stop");
+                        if (verified) {
+                            Log.e(TAG, "native core remains running; retaining TUN until a verified stop");
+                        }
                     }
                 }
-            } finally {
-                endNative();
             }
             }, "KingVpnCoreStop");
             t.setDaemon(true);
