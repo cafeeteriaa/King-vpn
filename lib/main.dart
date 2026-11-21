@@ -8910,7 +8910,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       elapsedMs: nnieElapsedMs ?? max(0, s.ping ?? 0),
       stableForFiveMinutes: false,
     ));
-    NationalNetworkIntelligence.armStable(nnieKey, () => _stableTunnelTrafficOk(s));
+    // A reconnect may reuse the same Server object; bind the five-minute proof
+    // to this exact connection generation so an interrupted run cannot count.
+    final nnieGeneration = _connGen;
+    NationalNetworkIntelligence.armStable(
+        nnieKey, () => nnieGeneration == _connGen && _stableTunnelTrafficOk(s));
     if (mounted) setState(() {});
     if (mounted) uiJoinPrompt(context);
     _set(_connStatus());

@@ -3883,6 +3883,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('c.complete(true);', verify)
 
 
+    def test_nnie_stability_probe_is_bound_to_connection_generation(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('final nnieGeneration = _connGen;')
+        end = source.index('if (mounted) setState(() {});', start)
+        arm = source[start:end]
+        self.assertIn('nnieGeneration == _connGen', arm)
+        self.assertIn('_stableTunnelTrafficOk(s)', arm)
+        self.assertLess(arm.index('final nnieGeneration = _connGen;'),
+                        arm.index('NationalNetworkIntelligence.armStable('))
+
+
     def test_native_core_initialization_failure_remains_retryable(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         wire_start = service.index('private boolean wireCoreOnce()')
