@@ -627,7 +627,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             }
             coreStopping = true;
         }
-        Thread t = new Thread(() -> {
+        Thread t;
+        try {
+            t = new Thread(() -> {
             try {
                 try {
                     core.stopCore();
@@ -665,11 +667,10 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             } finally {
                 endNative();
             }
-        }, "KingVpnCoreStop");
-        t.setDaemon(true);
-        try {
-            // If the watchdog or worker thread cannot be created (for example under
-            // memory pressure), do not leave the core permanently marked as stopping.
+            }, "KingVpnCoreStop");
+            t.setDaemon(true);
+            // If either thread cannot be created/started, restore the fence and retain
+            // the TUN descriptor until a later verified stop.
             beginNative("stopCore");
             t.start();
         } catch (Throwable startError) {
