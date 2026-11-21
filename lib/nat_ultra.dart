@@ -1760,8 +1760,9 @@ Future<void> natIpMemLoad() async {
     final raw = p.getString(_ipMemKey);
     natIpMem.clear();
     if (raw != null && raw.isNotEmpty) {
-      final decoded = jsonDecode(raw);
-      if (decoded is List) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
         final now = DateTime.now().millisecondsSinceEpoch;
         final cutoff = now - const Duration(days: 14).inMilliseconds;
         final seen = <String>{};
@@ -1789,6 +1790,8 @@ Future<void> natIpMemLoad() async {
           });
           if (natIpMem.length >= _ipMemMax) break;
         }
+      } catch (e, stk) {
+        logError(e, stk);
       }
     }
     // Rewrite stale or malformed cache once, keeping future reads bounded.

@@ -1927,6 +1927,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (!seen.add(key)) continue;', loader)
         self.assertIn('if (natIpMem.length >= _ipMemMax) break;', loader)
         self.assertIn('await p.setString(_ipMemKey, jsonEncode(natIpMem));', loader)
+        self.assertIn('try {\\n        final decoded = jsonDecode(raw);', loader)
+        self.assertIn('catch (e, stk) {\\n        logError(e, stk);', loader)
 
     def test_configured_nat_ranges_are_normalized_and_sync_expansion_is_bounded(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
