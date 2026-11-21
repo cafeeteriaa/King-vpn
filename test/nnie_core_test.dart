@@ -229,6 +229,7 @@ void main() {
 
     test('rejects special-purpose IPv6 ranges inside global-unicast space', () {
       for (final address in [
+        [0x20, 0x01, 0x00, 0x00, ...List<int>.filled(12, 0)], // Teredo
         [0x20, 0x01, 0x00, 0x02, 0, 0, ...List<int>.filled(10, 0)], // benchmarking
         [0x20, 0x01, 0x00, 0x10, ...List<int>.filled(12, 0)], // ORCHID
         [0x20, 0x01, 0x00, 0x20, ...List<int>.filled(12, 0)], // ORCHIDv2

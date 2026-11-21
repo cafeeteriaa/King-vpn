@@ -172,6 +172,8 @@ class NatDnsWireProbe {
     // 2001:db8::/32 documentation, 2002::/16 deprecated 6to4, and 3fff::/20
     // documentation. These must not be mistaken for working public DNS answers.
     if (b[p] == 0x20 && b[p + 1] == 0x01) {
+      // 2001:0000::/32 is the deprecated Teredo transition prefix.
+      if (b[p + 2] == 0x00 && b[p + 3] == 0x00) return false;
       if (b[p + 2] == 0x00 && b[p + 3] == 0x02 &&
           b[p + 4] == 0x00 && b[p + 5] == 0x00) return false;
       if (b[p + 2] == 0x00 &&
