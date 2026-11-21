@@ -300,7 +300,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // kills the process with ForegroundServiceDidNotStartInTimeException.
             updateNotification("خطا: تنظیمات سرور خالی است");
             requestStop();
-            submit(this::stopEverything);
+            submit(() -> stopEverything(startId));
             return START_NOT_STICKY;
         }
 
@@ -320,7 +320,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             Log.e(TAG, lastError);
             emit("FAILED", lastError, activeAttemptId);
             requestStop();
-            submit(this::stopEverything);
+            submit(() -> stopEverything(startId));
             return START_NOT_STICKY;
         }
         final int attempt = activeAttemptId; // مشکل ۹: شناسه‌ی همین شروع، نه فیلد سراسری بعدی
@@ -1232,8 +1232,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     @Override
     public void onRevoke() {
         // Another VPN took over: stop our core and free the TUN, without blocking the main thread.
+        final int revokeStartId = latestStartId;
         requestStop();
-        submit(this::stopEverything);
+        submit(() -> stopEverything(revokeStartId));
     }
 
     @Override
