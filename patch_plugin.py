@@ -1081,3 +1081,35 @@ exact_replace(core, '''        }
 
     private String createNotificationChannelID''',
 'P1-38 keep disconnect lock through broadcast');
+
+
+// P1-40: restarting an already-running core from START_SERVICE must not call
+// stopSelf() through the service listener. stopCore() keeps its normal shutdown
+// semantics by default; restart paths explicitly stop only the native loop.
+exact_replace(core, ```    public void stopCore() {```, ```    public void stopCore() {
+        stopCore(true);
+    }
+
+    public void stopCore(boolean stopService) {```,
+'P1-40 stopCore supports non-destructive restart');
+
+exact_replace(core, ```                v2rayServicesListener.stopService();```, ```                if (stopService && v2rayServicesListener != null) {
+                    v2rayServicesListener.stopService();
+                }```,
+'P1-40 stopCore only tears down service for explicit stop');
+
+exact_replace(vpn, ```            if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {
+                V2rayCoreManager.getInstance().stopCore();
+            }```, ```            if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {
+                // Replacing a server must not stop this Service while this START command is running.
+                V2rayCoreManager.getInstance().stopCore(false);
+            }```,
+'P1-40 VPN restart keeps service alive');
+
+exact_replace(proxy_svc, ```            if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {
+                V2rayCoreManager.getInstance().stopCore();
+            }```, ```            if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {
+                // Replacing a server must not stop this Service while this START command is running.
+                V2rayCoreManager.getInstance().stopCore(false);
+            }```,
+'P1-40 proxy restart keeps service alive');
