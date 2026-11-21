@@ -83,7 +83,6 @@ class _KingAiProviderSettingsCardState
       }
       if (_cloudflareAccount.text.trim().isNotEmpty) {
         await pilot.saveCloudflareAccountId(_cloudflareAccount.text);
-        submittedKey = true;
       }
       // Entering and saving a key is the user's explicit opt-in to internal
       // assistance. The switch remains available to pause cloud delegation.
