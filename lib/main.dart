@@ -4,6 +4,7 @@ import 'king_local_ai.dart';
 import 'king_ai_console.dart';
 import 'king_chat_page.dart';
 import 'king_ai_background.dart';
+import 'king_ai_provider_pilot.dart';
 import 'king_ai_owner_auth.dart';
 import 'king_command_safety.dart';
 import 'fresh_resource_store.dart';
