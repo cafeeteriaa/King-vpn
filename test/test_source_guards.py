@@ -4176,6 +4176,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('2001:4860:4860::8888', scanner)
         self.assertIn('parsedIp.type == InternetAddressType.IPv6', extras)
 
+    def test_nat_prescan_tries_bounded_ipv4_and_ipv6_answers(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> _natPrescan()')
+        end = source.index('Future<void> _natMemoryReuse()', start)
+        body = source[start:end]
+        self.assertIn('final ipOf = <String, List<String>>{}', body)
+        self.assertIn('.map((a) => a.address)', body)
+        self.assertIn('.take(8)', body)
+        self.assertIn('for (final ip in ipOf[s.host]!)', body)
+        self.assertIn('if (natIpDeadRun.contains', body)
+        self.assertIn('if (res[k])', body)
+
+    def test_network_fingerprint_is_stable_across_dns_answer_order(self):
+        source = (ROOT / 'lib' / 'ultimate_extras.dart').read_text(encoding='utf-8')
+        start = source.index('Future<String> _netFingerprint()')
+        end = source.index('extension UltimateExt', start)
+        body = source[start:end]
+        self.assertIn('.toSet().toList()..sort()', body)
+        self.assertIn("ips.join(',')", body)
+
     def test_server_probe_rejects_non_global_addresses_in_both_families(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = source.index('bool _privateIp(InternetAddress a)')

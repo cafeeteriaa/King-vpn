@@ -10709,16 +10709,27 @@ ListTile( // KINGEXTRAS row
       const checkCap = 400; // فیکس ۱۹: قبلاً ۳۰۰۰؛ بقیه در overflow می‌روند و دور بعد بررسی می‌شوند
       final overflow = cands.length > checkCap ? cands.sublist(checkCap) : <Server>[];
       if (cands.length > checkCap) cands.removeRange(checkCap, cands.length);
-      final ipOf = <String, String>{};
+      // Keep a bounded set of A and AAAA answers for each hostname. A failed
+      // first-family TCP attempt must not hide a reachable address in the other family.
+      final ipOf = <String, List<String>>{};
       for (final h in {for (final s in cands) if (s.host.isNotEmpty) s.host}) {
         if (InternetAddress.tryParse(h) != null) {
-          ipOf[h] = h;
+          ipOf[h] = [h];
           continue;
         }
         final r = await safeLookup(h);
-        if (r.isNotEmpty) ipOf[h] = r.first.address;
+        if (r.isNotEmpty) {
+          ipOf[h] = r
+              .map((a) => a.address)
+              .toSet()
+              .take(8)
+              .toList(growable: false);
+        }
       }
-      final targets = [for (final s in cands) if (ipOf.containsKey(s.host)) s];
+      final targets = [
+        for (final s in cands)
+          if (ipOf[s.host]?.isNotEmpty ?? false) s
+      ];
       final ok = <Server>[];
       const batch = 20;
       final deadline = DateTime.now().add(const Duration(seconds: 90));
@@ -10727,15 +10738,21 @@ ListTile( // KINGEXTRAS row
           i += batch) {
         final chunk = targets.sublist(i, min(i + batch, targets.length));
         _set('نت ملی: بررسی IP ${i + chunk.length}/${targets.length}...');
-        final res = await Future.wait(chunk.map((s) => natTcpProbe(
-            ipOf[s.host]!, s.port, const Duration(milliseconds: 1500))));
+        final res = await Future.wait(chunk.map((s) async {
+          if (natIpDeadRun.contains('${s.host}|${s.port}')) return false;
+          for (final ip in ipOf[s.host]!) {
+            if (await natTcpProbe(
+                    ip, s.port, const Duration(milliseconds: 1500)) !=
+                null) {
+              return true;
+            }
+          }
+          return false;
+        }));
         natIpScanned += chunk.length;
-        // DEADSKIP: IPهایی که در همین نشست رد شده‌اند دوباره تست نمی‌شوند
         for (var k = 0; k < chunk.length; k++) {
-          final s = chunk[k];
-          if (natIpDeadRun.contains('${s.host}|${s.port}')) continue;
-          if (res[k] != null) {
-            ok.add(s);
+          if (res[k]) {
+            ok.add(chunk[k]);
             natIpFound++;
           }
         }

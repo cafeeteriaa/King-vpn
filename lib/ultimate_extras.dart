@@ -64,8 +64,11 @@ Future<String> _netFingerprint() async {
       if (r.isEmpty) continue;
       // Only the addresses go into the fingerprint, so the host that answered does not
       // change the value by itself.
-      final ips = r.map((e) => e.address).join(',');
-      return '${nationalMode ? 'N' : 'G'}|$ips';
+      // DNS answer ordering is not stable; canonicalize both A and AAAA answers
+      // so resolver rotation alone does not look like a network change.
+      final ips = r.map((e) => e.address).toSet().toList()..sort();
+      if (ips.isEmpty) continue;
+      return '${nationalMode ? 'N' : 'G'}|${ips.join(',')}';
     } catch (e, stk) {
       logError(e, stk);
     }
