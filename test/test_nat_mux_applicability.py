@@ -35,7 +35,7 @@ class NatMuxApplicabilityTests(unittest.TestCase):
         self.assertIn("network == 'grpc'", body)
         self.assertIn("network == 'xhttp'", body)
         self.assertIn("network == 'splithttp'", body)
-        self.assertIn("'mux': {'enabled': true", body)
+        self.assertIn("o['mux'] = {'enabled': true", body)
 
     def test_mux_winner_can_be_reused_but_is_not_a_speed_variant(self):
         start = self.source.index("int natVarFor(")
