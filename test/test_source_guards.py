@@ -4075,8 +4075,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('builder.addRoute("::", 0);', patch)
         self.assertIn('IPv6 route setup failed; refusing a partial VPN', patch)
         # The catch must abort VPN establishment, not merely log and continue.
-        start = patch.index("exact_replace(vpn, '''        // IPv4 and IPv6 must both be captured")
-        end = patch.index("P1 IPv6 route must fail closed", start)
+        start = patch.index("exact_replace(vpn, '''        // Force IPv4 path")
+        end = patch.index("'P1 IPv6 route must fail closed');", start)
         block = patch[start:end]
         self.assertIn('return false;', block)
 
