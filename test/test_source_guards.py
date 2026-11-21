@@ -4109,7 +4109,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("'ruleTag': 'king-vpn-dns-hijack'", body)
         self.assertIn("rules.insert(0,", body)
         self.assertIn("d['queryStrategy'] = 'UseIP';", body)
-        self.assertIn("d['servers'] = <String>['1.1.1.1', '8.8.8.8'];", body)
+        self.assertIn("for (final fallback in ['1.1.1.1', '8.8.8.8'])", body)
+        self.assertIn("globalServers.add(fallback)", body)
+        self.assertIn("d['servers'] = globalServers;", body)
 
     def test_android_uses_synthetic_dns_only_when_xray_hijack_rule_is_present(self):
         source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
