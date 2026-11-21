@@ -1364,7 +1364,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_generated_fileprovider_manifest_uses_real_xml_newlines(self):
         source = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         start = source.index('UPDATE_PROVIDER =')
-        end = source.index('String _testCfg(String cfg)', start)
+        end = source.index("if 'androidx.core.content.FileProvider'", start)
         provider = source[start:end]
         self.assertIn(r'FileProvider"\n', provider)
         self.assertNotIn(r'FileProvider"\\n', provider)
@@ -3837,7 +3837,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_service_capability_probe_respects_live_vpn_quiet_window(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = source.index('Future<int> _svcOf(Server s)')
-        end = source.index('// one ping through the core\'s own delay test.', start)
+        end = source.index('String _testCfg(String cfg)', start)
         body = source[start:end]
         self.assertIn('await _waitLiveQuiet();', body)
         self.assertLess(body.index('await _waitLiveQuiet();'),
