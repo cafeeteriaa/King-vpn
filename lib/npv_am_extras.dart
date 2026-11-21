@@ -1112,7 +1112,11 @@ String withNpvAmCore(String cfg) {
     if (secureDns) {
       final d = j['dns'] is Map ? j['dns'] as Map : <String, dynamic>{};
       final first = nationalMode
-          ? (_dnsUrls['shecan'] ?? _dnsUrls['electro']!)
+          ? <String>[
+              ..._dnsUrls['shecan']!,
+              ..._dnsUrls['electro']!,
+              ..._dnsUrls['radar']!,
+            ]
           : (customDnsList() ?? _dnsUrls[effectiveDnsProv()] ?? _dnsUrls['cloudflare']!);
       final ips = <dynamic>[];
       final doh = <dynamic>[];
@@ -1125,12 +1129,18 @@ String withNpvAmCore(String cfg) {
       }
       // National: Iranian resolvers first, imported/custom and global fallback later.
       for (final value in first) { addResolver(value.toString()); }
-      final existingServers = d['servers'];
-      if (existingServers is List) {
-        for (final value in existingServers) { addResolver(value.toString()); }
-      }
-      for (final entry in _dnsUrls.entries) {
-        for (final value in entry.value) { addResolver(value); }
+      if (!nationalMode) {
+        // Global mode may use the imported config's DNS and provider fallbacks.
+        // National mode is deliberately domestic-only: never append global
+        // resolvers or imported unknown DNS endpoints that can leak queries
+        // outside the domestic resolver set or stall on unreachable servers.
+        final existingServers = d['servers'];
+        if (existingServers is List) {
+          for (final value in existingServers) { addResolver(value.toString()); }
+        }
+        for (final entry in _dnsUrls.entries) {
+          for (final value in entry.value) { addResolver(value); }
+        }
       }
       d['servers'] = [...ips, ...doh];
       d['queryStrategy'] = 'UseIP';
