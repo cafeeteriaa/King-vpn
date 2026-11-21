@@ -936,6 +936,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
         // The probe does network I/O (several seconds at worst). It runs OUTSIDE the
         // lock, so a stop request or a server switch is never blocked behind it.
+        // Bind the delayed network probe to the core/server generation it observed.
+        final int healthAttempt = attemptSeq.get();
         V2rayCoreManager core = V2rayCoreManager.getInstance();
         final Boolean coreState = readCoreRunningWithWatchdog(core, "health-watchdog-state");
         if (coreState == null) {
@@ -951,6 +953,11 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
         synchronized (lock) {
             if (!active || stopping) return;
+            if (attemptSeq.get() != healthAttempt) {
+                // A previous tunnel's delayed probe must not fail over a replacement server.
+                rescheduleNormal();
+                return;
+            }
             if (nationalMode != modeSnapshot) {
                 // Do not apply evidence collected for a network mode that is no longer active.
                 rescheduleNormal();
