@@ -3260,7 +3260,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('private boolean stopCoreNow()')
         end = source.index('private boolean awaitCoreStopped(', start)
         body = source[start:end]
-        thread_start = body.index('Thread t = new Thread(() -> {')
+        thread_start = body.index('t = new Thread(() -> {')
         thread_end = body.index('}, "KingVpnCoreStop");', thread_start)
         worker = body[thread_start:thread_end]
         self.assertIn('core.stopCore();', worker)
