@@ -377,6 +377,19 @@ def exact_replace(path, old, new, label):
     print(f'OK: {label}')
 
 
+# Initialization failures must escape the plugin's internal catch block so the
+# owning service can keep coreWired=false and retry on the next connection attempt.
+exact_replace(core, '''        } catch (Exception e) {
+            Log.e(V2rayCoreManager.class.getSimpleName(), "setUpListener failed => ", e);
+            isLibV2rayCoreInitialized = false;
+        }''', '''        } catch (Exception e) {
+            Log.e(V2rayCoreManager.class.getSimpleName(), "setUpListener failed => ", e);
+            isLibV2rayCoreInitialized = false;
+            // VPNRACE_INIT_RETHROW: do not let the service cache a failed initialization.
+            throw new IllegalStateException("V2Ray core initialization failed", e);
+        }''', 'P1: surface V2Ray core initialization failures for retry');
+
+
 v2_ctrl = find_java('V2rayController.java')
 proxy_svc = find_java('V2rayProxyOnlyService.java')
 

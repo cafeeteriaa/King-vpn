@@ -3865,5 +3865,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (coreStopping) return null;', body)
 
 
+    def test_native_core_initialization_failure_remains_retryable(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        wire_start = service.index('private boolean wireCoreOnce()')
+        wire_end = service.index('private void cancelPluginNotification()', wire_start)
+        wire = service[wire_start:wire_end]
+        self.assertIn('if (coreWired) return true;', wire)
+        self.assertIn('V2rayCoreManager.getInstance().setUpListener(this);', wire)
+        self.assertLess(wire.index('setUpListener(this);'), wire.index('coreWired = true;'))
+        self.assertIn('catch (Throwable initError)', wire)
+        self.assertIn('coreWired = false;', wire)
+        bring_start = service.index('private boolean bringUp(Srv s, int myAttempt)')
+        bring_end = service.index('private void startWatchdog(', bring_start)
+        bring = service[bring_start:bring_end]
+        self.assertIn('if (!wireCoreOnce()) return false;', bring)
+        patcher = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+        self.assertIn('VPNRACE_INIT_RETHROW', patcher)
+        self.assertIn('throw new IllegalStateException("V2Ray core initialization failed", e);', patcher)
+
+
+
+
 if __name__ == '__main__':
     unittest.main()

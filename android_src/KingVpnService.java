@@ -880,9 +880,10 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             cfg.NOTIFICATION_DISCONNECT_BUTTON_NAME = "قطع";
             cfg.ENABLE_TRAFFIC_STATICS = true;
 
+            if (!wireCoreOnce()) return false;
             V2rayCoreManager core = V2rayCoreManager.getInstance();
-            // setUpListener() here rebuilt the CoreController in older revisions and could
-            // orphan the running core. Update only the listener; never replace its controller.
+            // The process-wide controller is initialized once; only its listener is
+            // rebound to this service instance. Never replace the active controller.
             core.v2rayServicesListener = this;
             if (!awaitCoreStopped(core, myAttempt)) return false;
 
@@ -1197,11 +1198,22 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     }
 
     /** جدید: wires libv2ray exactly once per process. */
-    private void wireCoreOnce() {
+    private boolean wireCoreOnce() {
         synchronized (KingVpnService.class) {
-            if (coreWired) return;
-            V2rayCoreManager.getInstance().setUpListener(this);
-            coreWired = true;
+            if (coreWired) return true;
+            try {
+                V2rayCoreManager.getInstance().setUpListener(this);
+                coreWired = true;
+                return true;
+            } catch (Throwable initError) {
+                // The plugin 3.5.0 implementation can swallow initialization failures;
+                // the build-time patch makes them observable so a later attempt can retry.
+                coreWired = false;
+                lastError = "V2Ray core initialization failed: "
+                        + initError.getClass().getSimpleName();
+                Log.e(TAG, lastError, initError);
+                return false;
+            }
         }
     }
 
