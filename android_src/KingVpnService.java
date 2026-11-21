@@ -15,13 +15,13 @@ import android.util.Log;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.net.ConnectException;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.NoRouteToHostException;
 import java.net.Proxy;
 import java.net.SocketTimeoutException;
 import java.net.Socket;
+import java.net.SocketException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -1194,7 +1194,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             boolean healthy = expects204 ? code == HttpURLConnection.HTTP_NO_CONTENT
                     : (code >= 200 && code < 300);
             return healthy ? ProbeResult.OK : ProbeResult.SOFT_FAIL;
-        } catch (ConnectException | NoRouteToHostException | SocketTimeoutException e) {
+        } catch (SocketException | NoRouteToHostException | SocketTimeoutException e) {
             // The local listener was reachable immediately before the request.
             // Recheck it to cover a shutdown race; otherwise the failure belongs
             // to the proxied destination path and is valid negative evidence.
