@@ -81,6 +81,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('domesticSet.contains(item.toString().trim().toLowerCase())', builder)
         self.assertIn('[...preferredDomestic, ...domesticFirst, ...existingList]', builder)
 
+    def test_national_dns_honors_manual_domestic_and_custom_resolvers(self):
+        source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        start = source.index('if (secureDns) {', source.index('String withNpvAmCore'))
+        end = source.index("d['queryStrategy']", start)
+        dns_builder = source[start:end]
+        self.assertIn("dnsProv != 'auto'", dns_builder)
+        self.assertIn('domesticProviders.contains(dnsProv)', dns_builder)
+        self.assertIn("final nationalCustom = dnsProv == 'custom' ? customDnsList() : null;", dns_builder)
+        self.assertIn('...?nationalCustom', dns_builder)
+        self.assertIn('...(_dnsUrls[nationalAutoProvider] ?? _dnsUrls[\'shecan\']!)', dns_builder)
+
     def test_npv_core_preserves_structured_xray_dns_server_entries(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         start = source.index('void addResolver(dynamic raw)')
