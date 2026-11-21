@@ -41,6 +41,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   final TextEditingController _featureRequestController = TextEditingController();
   final KingAiOwnerAuth _ownerAuth = KingAiOwnerAuth.instance;
   bool _initialRequestSubmitted = false;
+  bool _initialProjectRequestSubmitted = false;
   bool _initialIdeaAnalysisSubmitted = false;
   bool _ownerConfigured = false;
   bool _ownerUnlocked = false;
@@ -92,6 +93,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       if (_ownerAuth.hasActiveSession) {
         await _maybeAnalyzeInitialIdea();
         await _maybeSubmitInitialFeatureRequest();
+        await _maybeCreateInitialProject();
       }
     } catch (error) {
       if (mounted) setState(() => _output = 'خطا در بررسی وضعیت مالک: $error');
@@ -113,6 +115,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       await _refreshOwnerState();
       if (mounted) setState(() => _output = 'رمز مالک روی همین دستگاه به‌صورت امن ثبت شد.');
       await _maybeSubmitInitialFeatureRequest();
+      await _maybeCreateInitialProject();
     } catch (error) {
       if (mounted) setState(() => _output = 'ثبت رمز مالک انجام نشد: $error');
     }
@@ -129,7 +132,10 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
             ? 'دسترسی مالک برای حداکثر ۲ دقیقه فعال شد.'
             : 'احراز هویت ناموفق بود یا موقتاً قفل شده است.');
       }
-      if (accepted) await _maybeSubmitInitialFeatureRequest();
+      if (accepted) {
+        await _maybeSubmitInitialFeatureRequest();
+        await _maybeCreateInitialProject();
+      }
     } catch (error) {
       if (mounted) setState(() => _output = 'احراز هویت انجام نشد: $error');
     }
@@ -328,11 +334,32 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     await _submitFeatureRequest(ownerReauthenticated: true);
   }
 
-  Future<void> _createStandaloneProject() async {
+  Future<void> _maybeCreateInitialProject() async {
+    if (!mounted || _initialProjectRequestSubmitted ||
+        (widget.initialProjectRequest?.trim().length ?? 0) < 12 ||
+        !_ownerAuth.hasActiveSession) {
+      return;
+    }
+    if (!_ai.isLoaded) {
+      if (mounted) {
+        setState(() => _output =
+            'درخواست ساخت پروژه محفوظ است. ابتدا مدل محلی کینگ را بارگذاری کن.');
+      }
+      return;
+    }
+    _initialProjectRequestSubmitted = true;
+    if (!await _reauthenticateOwnerForCodeChange()) {
+      _initialProjectRequestSubmitted = false;
+      return;
+    }
+    await _createStandaloneProject(ownerReauthenticated: true);
+  }
+
+  Future<void> _createStandaloneProject({bool ownerReauthenticated = false}) async {
     if (!await _requireOwnerSession('ساخت اپلیکیشن')) return;
     // Project generation writes source files and a ZIP, so require a fresh
     // owner proof for this exact user-originated code-generation request.
-    if (!await _reauthenticateOwnerForCodeChange()) return;
+    if (!ownerReauthenticated && !await _reauthenticateOwnerForCodeChange()) return;
     if (!mounted) return;
     final request = _featureRequestController.text.trim();
     if (request.length < 12) {
@@ -398,6 +425,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     if (mounted) setState(() => _progress = null);
     await _maybeAnalyzeInitialIdea();
     await _maybeSubmitInitialFeatureRequest();
+    await _maybeCreateInitialProject();
   }
 
   int? get _pullNumber => int.tryParse(_pullController.text.trim());
