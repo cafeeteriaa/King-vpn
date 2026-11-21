@@ -557,22 +557,36 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     }
 
     /** Marks a native call as in progress and arms a watcher for it. */
-    private void beginNative(final String what) {
+    private boolean beginNative(final String what) {
         final long token;
         synchronized (nativeLock) {
             token = nativeToken.incrementAndGet();
             nativeBusy = true;
         }
-        Thread w = new Thread(() -> {
-            try {
-                Thread.sleep(HUNG_NATIVE_MS);
-            } catch (InterruptedException ie) {
-                return;
+        try {
+            Thread w = new Thread(() -> {
+                try {
+                    Thread.sleep(HUNG_NATIVE_MS);
+                } catch (InterruptedException ie) {
+                    return;
+                }
+                recoverWedgedCore(what, token);
+            }, "king-native-watch");
+            w.setDaemon(true);
+            w.start();
+            return true;
+        } catch (Throwable launchError) {
+            synchronized (nativeLock) {
+                if (nativeToken.get() == token) {
+                    nativeBusy = false;
+                    nativeToken.incrementAndGet();
+                }
             }
-            recoverWedgedCore(what, token);
-        }, "king-native-watch");
-        w.setDaemon(true);
-        w.start();
+            lastError = "could not launch native watchdog: "
+                    + launchError.getClass().getSimpleName();
+            Log.e(TAG, lastError, launchError);
+            return false;
+        }
     }
 
     private void endNative() {
@@ -690,7 +704,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             t.setDaemon(true);
             // If either thread cannot be created/started, restore the fence and retain
             // the TUN descriptor until a later verified stop.
-            beginNative("stopCore");
+            if (!beginNative("stopCore")) {
+                throw new IllegalStateException("native watchdog unavailable");
+            }
             t.start();
         } catch (Throwable startError) {
             endNative();
@@ -822,8 +838,12 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
             boolean ok;
             try {
-                beginNative("startCore");
-                ok = core.startCore(cfg, fd.getFd());
+                if (!beginNative("startCore")) {
+                    lastError = "native watchdog unavailable; refusing unmonitored core start";
+                    ok = false;
+                } else {
+                    ok = core.startCore(cfg, fd.getFd());
+                }
             } catch (Throwable t) {
                 Log.e(TAG, "startCore threw", t);
                 lastError = "startCore: " + t.getMessage();
