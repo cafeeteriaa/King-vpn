@@ -10,7 +10,7 @@ import 'king_ai_owner_auth.dart';
 import 'king_voice_output.dart';
 import 'king_ai_provider_settings.dart';
 
-/// In-app control surface for the local coding model and guarded GitHub PR workflow.
+/// In-app control surface for King AI's optional local model and guarded GitHub PR workflow.
 class KingAiConsolePage extends StatefulWidget {
   const KingAiConsolePage({
     super.key,
@@ -49,7 +49,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   bool _busy = false;
   bool _hasToken = false;
   double? _progress;
-  String _output = 'کلید GitHub را ذخیره و مدل محلی را بارگذاری کن.';
+  String _output = 'کلید GitHub مالک و یک مسیر مجاز King AI را آماده کن؛ مدل محلی اختیاری است.';
 
   @override
   void initState() {
@@ -630,7 +630,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
                 const Divider(height: 24),
                 const Text('درخواست قابلیت از مالک', style: TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 6),
-                const Text('این مسیر فقط پس از احراز هویت مالک فعال می‌شود. کینگ کد را با مدل محلی پیشنهاد می‌دهد و فقط یک Pull Request برای بازبینی می‌سازد؛ هیچ تغییری مستقیم روی main اعمال نمی‌شود.'),
+                const Text('این مسیر فقط پس از احراز هویت دوباره مالک فعال می‌شود. King AI با مدل محلی یا همکار ابری مجاز، تغییرات محدود را پیشنهاد می‌دهد و فقط یک Pull Request برای بازبینی می‌سازد؛ هیچ تغییری مستقیم روی main اعمال نمی‌شود.'),
                 TextField(
                   controller: _featureRequestController,
                   minLines: 2,
