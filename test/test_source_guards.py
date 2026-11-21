@@ -1436,6 +1436,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("src.replace('this.onDestroy();', 'stopCoreAndReleaseService();')", patch)
         self.assertIn('P1-39 stop native core before invalid-start TUN cleanup', patch)
         self.assertIn('Failed to stop core before releasing TUN', patch)
+        self.assertIn('Failed to stop core before service cleanup', patch)
         self.assertIn('refusing to start core', patch)
 
         promote_start = patch.index('public boolean promoteForStop(Service service)')
