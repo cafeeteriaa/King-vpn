@@ -1358,6 +1358,25 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertEqual(local.count('engine.generate('), 2)
         self.assertNotIn("if (_busy) throw StateError('Local AI is already generating');", local)
 
+    def test_local_chat_turns_and_memory_clear_are_serialized_as_one_transaction(self):
+        local = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        self.assertIn('Future<void> _conversationQueue = Future<void>.value();', local)
+        self.assertIn('Future<T> _runSerializedConversation<T>', local)
+        ask_start = local.index('Future<String> ask(String prompt,')
+        ask_end = local.index('Future<String> _askConversationTurn(', ask_start)
+        public_ask = local[ask_start:ask_end]
+        self.assertIn('_runSerializedConversation(() => _askConversationTurn(', public_ask)
+        turn_start = ask_end
+        turn_end = local.index('/// Private coding entry point.', turn_start)
+        turn = local[turn_start:turn_end]
+        self.assertLess(turn.index('await _loadConversationMemory();'), turn.index('final history ='))
+        self.assertLess(turn.index('await _saveConversationMemory();'), turn.index('return answer;'))
+        clear_start = local.index('Future<void> clearConversationMemory()')
+        clear_end = local.index('bool _needsLiveResearch(', clear_start)
+        clear = local[clear_start:clear_end]
+        self.assertIn('_runSerializedConversation(() async {', clear)
+        self.assertIn('_conversationTurns.clear();', clear)
+
     def test_local_model_download_uses_the_shared_lifecycle_guard(self):
         local = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
         download_start = local.index('Future<String> downloadModel(')
