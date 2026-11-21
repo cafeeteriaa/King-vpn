@@ -137,6 +137,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     // Prevent a watchdog tick racing service destruction and creating a new executor.
     private final Object schedulerLock = new Object();
     private volatile boolean destroyed = false;
+    /** Latest Android start request; stale asynchronous stop work must not stop a newer start. */
+    private volatile int latestStartId = 0;
     private final List<Srv> servers = new ArrayList<>();
     private ParcelFileDescriptor tun = null;
     // جدید: ONE scheduler for the whole service (was a new executor per tick, never closed)
@@ -223,8 +225,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     /** جدید: stop requested by the app while it is in the background. */
     public void stopFromApp() {
+        final int stopStartId = latestStartId;
         requestStop();
-        submit(this::stopEverything);
+        submit(() -> stopEverything(stopStartId));
     }
 
     private static class Srv {
@@ -254,6 +257,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        latestStartId = startId;
         // Keep this method short: it runs on the main thread, and the system
         // expects a foreground service to be promoted within a few seconds.
         if (intent == null) {
@@ -264,12 +268,14 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 lastError = "Unable to enter foreground mode during VPN service recovery";
                 Log.e(TAG, lastError);
                 requestStop();
-                submit(this::stopEverything);
+                submit(() -> stopEverything(startId));
                 return START_NOT_STICKY;
             }
             // No Dart attempt is waiting for it, so its status uses attempt 0 (accepted by all).
             activeAttemptId = 0;
-            submit(this::resumeSaved);
+            stopping = false;
+            userStopped = false;
+            submit(() -> resumeSaved(startId));
             return START_STICKY;
         }
         String action = intent.getAction();
@@ -278,13 +284,14 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // same deadline before asynchronous shutdown work is queued.
             startForegroundSafe("در حال قطع اتصال…");
             requestStop();
-            submit(this::stopEverything);
+            submit(() -> stopEverything(startId));
             return START_NOT_STICKY;
         }
         if (!ACTION_START.equals(action)) {
             return START_NOT_STICKY;
         }
-
+        // A fresh start supersedes a previously queued stop for an older startId.
+        stopping = false;
         String json = intent.getStringExtra(EXTRA_CONFIG);
         if (json == null || json.isEmpty()) {
             Log.e(TAG, "start without config");
@@ -317,7 +324,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             return START_NOT_STICKY;
         }
         final int attempt = activeAttemptId; // مشکل ۹: شناسه‌ی همین شروع، نه فیلد سراسری بعدی
-        submit(() -> startFlow(first, backups, attempt));
+        submit(() -> startFlow(first, backups, attempt, startId));
         return START_STICKY;
     }
 
@@ -349,7 +356,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     }
 
     /** Worker side of ACTION_START: builds the list and connects. */
-    private void startFlow(Srv first, List<Srv> backups, int attempt) {
+    private void startFlow(Srv first, List<Srv> backups, int attempt, int startId) {
         synchronized (lock) {
             if (stopping) return; // a stop request arrived first
             // جدید: without the user's VPN consent, establish() fails for every server one by one.
@@ -358,7 +365,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 lastError = "VPN permission not granted";
                 Log.e(TAG, lastError);
                 emit("FAILED", lastError, attempt); // جدید
-                stopEverything();
+                stopEverything(startId);
                 return;
             }
             stopWatchdog();
@@ -385,16 +392,16 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 lastError = "no server could be started";
                 Log.e(TAG, lastError);
                 emit("FAILED", lastError, attempt); // جدید
-                stopEverything();
+                stopEverything(startId);
             }
         }
     }
 
-    private void resumeSaved() {
+    private void resumeSaved(int startId) {
         synchronized (lock) {
-            if (stopping) return;
+            if (stopping || startId != latestStartId) return;
             if (!loadState()) {
-                stopSelf();
+                stopSelfResult(startId);
                 return;
             }
             startForegroundSafe(servers.get(currentIdx).remark);
@@ -405,7 +412,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 startWatchdog(CHECK_EVERY_SEC);
                 return;
             }
-            stopEverything();
+            stopEverything(startId);
         }
     }
 
@@ -1058,7 +1065,14 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     }
 
     private void stopEverything() {
+        stopEverything(latestStartId);
+    }
+
+    private void stopEverything(int expectedStartId) {
         synchronized (lock) {
+            // A newer Android start command owns the service now. Do not let an older
+            // queued stop tear down its tunnel, clear its saved state, or stop the service.
+            if (expectedStartId != latestStartId) return;
             // Supersede every attempt first: a stale one that returns later does nothing.
             stopping = true;
             attemptSeq.incrementAndGet();
@@ -1094,7 +1108,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 stopForeground(true);
             } catch (Exception ignored) {
             }
-            stopSelf();
+            // stopSelfResult refuses to stop the service if Android has already delivered
+            // a newer start command, closing the final race with startId delivery.
+            stopSelfResult(expectedStartId);
             stopping = false;
             emit("STOPPED", "", -1); // جدید: با هیچ تلاشی تطابق ندارد
         }
