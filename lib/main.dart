@@ -2896,7 +2896,10 @@ String _reliableVpnCfg(String cfg) {
       }
       d['servers'] = merged;
     } else if (secureDns && !ultraMode && !indestructibleMode) {
-      d['servers'] = <dynamic>[
+      // withNpvAmCore() puts the selected provider/custom resolver first.
+      // Preserve that order instead of replacing it with a hard-coded list.
+      final existingList = existing is List ? existing : const <dynamic>[];
+      final globalFallbacks = <dynamic>[
         '1.1.1.1', '1.0.0.1', '8.8.8.8', '8.8.4.4',
         '9.9.9.9', '149.112.112.112', '208.67.222.222',
         '208.67.220.220', '94.140.14.14', '94.140.15.15',
@@ -2904,6 +2907,15 @@ String _reliableVpnCfg(String cfg) {
         'https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query',
         'https://9.9.9.9/dns-query', 'https://dns.adguard-dns.com/dns-query',
       ];
+      final merged = <dynamic>[];
+      final seen = <String>{};
+      for (final item in [...existingList, ...globalFallbacks]) {
+        final key = item is Map
+            ? jsonEncode(item)
+            : item.toString().trim().toLowerCase();
+        if (key.isNotEmpty && seen.add(key)) merged.add(item);
+      }
+      d['servers'] = merged;
     }
     // If the profile has no upstream resolver, do not let Xray fall back to
     // Android's resolver after Android itself is pointed at the synthetic TUN DNS.
