@@ -5,7 +5,7 @@
 //
 // IMPROVEMENTS over previous version:
 //   • Adaptive concurrency: based on Platform.numberOfProcessors, clamped to
-//     device-safe range. Never too small, never CPU-crushing.
+//     a device-safe range.
 //   • Guaranteed socket cleanup: every Socket is destroyed in a finally block,
 //     so slow/timed-out probes never leak file descriptors.
 //   • Cooperative cancellation: workers stop before another probe and discard
@@ -14,10 +14,8 @@
 //   • Progress callbacks: optional onProgress(done, total, hits) for live UI.
 //   • Optional randomize: shuffle the candidate list to avoid hitting the same
 //     subnet first every run.
-//   • Timeout accuracy: the Stopwatch is stopped exactly when the connect
-//   • Caller controls want/budget; concurrency is clamped to a device-safe
-//     range to prevent excessive socket and memory pressure.
-//     only enforce a device-safe ceiling for concurrency to prevent OOM.
+//   • Monotonic timeout measurement; caller controls result target and budget,
+//     while worker concurrency is clamped to a device-safe range.
 
 import 'dart:async';
 import 'dart:io';
