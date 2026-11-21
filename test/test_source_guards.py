@@ -94,7 +94,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (stopping) return;', flow[stop_guard:connected_branch])
         self.assertLess(stop_guard, connected_event)
         self.assertLess(stop_guard, failed_event)
-        resume_start = source.index('private void resumeSaved()')
+        resume_start = source.index('private void resumeSaved(int startId)')
         resume_end = source.index('private boolean connectFrom(', resume_start)
         resume = source[resume_start:resume_end]
         guard = resume.index('if (stopping)', resume.index('boolean connectedNow = connectFrom(currentIdx);'))
