@@ -3450,6 +3450,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
+    def test_native_state_probe_does_not_overlap_an_active_stop_core_call(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private Boolean readCoreRunningWithWatchdog(')
+        end = source.index('private boolean stopCoreNow()', start)
+        probe = source[start:end]
+        self.assertIn('if (!coreLock.tryLock()) return null;', probe)
+        self.assertIn('if (coreStopping) return null;', probe)
+        self.assertLess(probe.index('if (!coreLock.tryLock())'),
+                        probe.index('if (coreStopping)'))
+        self.assertLess(probe.index('if (coreStopping)'),
+                        probe.index('if (!beginNative(operation))'))
+
     def test_native_stop_thread_construction_is_inside_failure_guard(self):
         source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = source.index('private boolean stopCoreNow()')

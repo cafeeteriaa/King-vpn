@@ -661,6 +661,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         // start/stop owns the core; never let two native calls overwrite the watchdog token.
         if (!coreLock.tryLock()) return null;
         try {
+            // A stopCore worker runs outside coreLock after its bounded join expires.
+            // Do not issue a concurrent JNI state query while that native stop is active.
+            if (coreStopping) return null;
             if (!beginNative(operation)) {
                 lastError = "native watchdog unavailable; refusing unmonitored core state query";
                 return null;
