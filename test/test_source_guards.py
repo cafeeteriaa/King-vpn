@@ -1561,7 +1561,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_vpn_service_defers_tun_close_until_native_stop_is_verified(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = service.index('private boolean stopCoreNow()')
-        end = service.index('/**\\n     * Worker-side start of one attempt.', start)
+        end = service.index('/**\n     * Worker-side start of one attempt.', start)
         stop = service[start:end]
         self.assertIn('closeTunAfterCoreStop = true;', stop)
         self.assertEqual(stop.count('core.isV2rayCoreRunning()'), 1)
