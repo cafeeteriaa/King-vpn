@@ -544,10 +544,14 @@ class PilotNetworkProbe {
     // physical-interface/operator group; raw interface addresses stay transient.
     if (identity.isNotEmpty) {
       final group = await PilotRouteHistory.networkGroup();
-      unawaited(PilotRouteHistory.record(
-        networkGroup: group,
-        evidence: _last,
-      ));
+      try {
+        await PilotRouteHistory.record(
+          networkGroup: group,
+          evidence: _last,
+        );
+      } catch (e, st) {
+        logError(e, st);
+      }
     }
     // An unknown interface identity is not a safe cache key.
     _lastAt = identity.isNotEmpty ? DateTime.now() : null;
