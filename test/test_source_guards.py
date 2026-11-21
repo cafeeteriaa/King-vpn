@@ -1755,10 +1755,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('closeTunAfterCoreStop = true;', stop)
         self.assertEqual(stop.count('core.isV2rayCoreRunning()'), 1)
         self.assertIn('readCoreRunningWithWatchdog(core, "stopCore-preflight")', stop)
-        self.assertIn('if (!stillRunning && closeTunAfterCoreStop)', stop)
+        self.assertIn('boolean verified = false;', stop)
+        self.assertIn('verified = !stillRunning;', stop)
+        self.assertIn('if (verified && closeTunAfterCoreStop)', stop)
+        self.assertIn('else if (!verified || stillRunning)', stop)
         self.assertIn('native core remains running; retaining TUN', stop)
         self.assertIn('could not verify native core stop; retaining TUN', stop)
-        self.assertLess(stop.index('core.stopCore();'), stop.index('if (!stillRunning && closeTunAfterCoreStop)'))
+        self.assertLess(stop.index('core.stopCore();'), stop.index('verified = !stillRunning;'))
+        self.assertLess(stop.index('endNative();'), stop.index('coreStopping = false;'))
         self.assertLess(stop.index('if (coreStopping)'), stop.index('final Boolean runningState'))
 
     def test_android_backup_excludes_vpn_credentials_and_local_ai_secrets(self):
@@ -3603,7 +3607,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = source.index('private boolean awaitCoreStopped(', start)
         stop = source[start:end]
         self.assertIn('final boolean[] stopVerified = {false};', stop)
-        self.assertIn('stopVerified[0] = !stillRunning;', stop)
+        self.assertIn('verified = !stillRunning;', stop)
+        self.assertIn('stopVerified[0] = verified;', stop)
+        self.assertLess(stop.index('endNative();'), stop.index('stopVerified[0] = verified;'))
         join = stop.index('t.join(STOP_CORE_WAIT_MS);')
         waiter = stop[join:]
         self.assertIn('if (!stopVerified[0])', waiter)
