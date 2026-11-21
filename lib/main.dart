@@ -3807,7 +3807,7 @@ Future<int?> probe(Server s) async {
     final name = s.sni.isNotEmpty ? s.sni : s.host;
     if (s.tls && probeTls) {
       final sec = await SecureSocket.secure(sock,
-              host: name, onBadCertificate: (_) => true)
+              host: name)
           .timeout(tcpTimeout);
       sec.destroy();
     } else {
