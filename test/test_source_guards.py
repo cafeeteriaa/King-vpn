@@ -4068,6 +4068,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
                         arm.index('NationalNetworkIntelligence.armStable('))
 
 
+    def test_active_plugin_ipv6_route_setup_fails_closed(self):
+        patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+        self.assertIn('P1 IPv6 route must fail closed', patch)
+        self.assertIn('builder.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);', patch)
+        self.assertIn('builder.addRoute("::", 0);', patch)
+        self.assertIn('IPv6 route setup failed; refusing a partial VPN', patch)
+        # The catch must abort VPN establishment, not merely log and continue.
+        start = patch.index("exact_replace(vpn, '''        // Force IPv4 path")
+        end = patch.index("'P1 IPv6 route must fail closed');", start)
+        block = patch[start:end]
+        self.assertIn('return false;', block)
+
     def test_vpn_establish_fails_closed_when_ipv6_route_cannot_be_installed(self):
         source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = source.index('private ParcelFileDescriptor establish(V2rayConfig cfg)')
@@ -4133,15 +4145,40 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(marker, ipv4)
         self.assertLess(ipv4, ipv6)
 
-    def test_ipv4_ipv6_routes_reach_the_active_native_core_and_dns_queries_both_families(self):
+    def test_runtime_selects_the_plugin_as_the_active_vpn_backend(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        own = (ROOT / 'lib' / 'own_vpn.dart').read_text(encoding='utf-8')
+
+        # The custom KingVpnService is an opt-in alternate backend, not the
+        # current production path. Keep the test suite honest about that switch.
+        self.assertIn('const bool kOwnVpnService = false;', own)
+        start = main.index("if (kOwnVpnService)", main.index("V2RAY-START"))
+        end = main.index("// the core must report CONNECTED", start)
+        branch = main[start:end]
+        self.assertIn("await ownVpnStart(", branch)
+        self.assertIn("await v2ray.startV2Ray(", branch)
+        self.assertIn("proxyOnly: false", branch)
+        self.assertIn("blockedApps: bypassApps.isEmpty ? null : bypassApps", branch)
+        self.assertLess(branch.index("if (kOwnVpnService)"),
+                        branch.index("await v2ray.startV2Ray("))
+
+    def test_custom_king_vpn_service_ipv4_ipv6_guards_are_not_mislabeled_as_active(self):
+        own = (ROOT / 'lib' / 'own_vpn.dart').read_text(encoding='utf-8')
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertIn('const bool kOwnVpnService = false;', own)
+        self.assertIn('private ParcelFileDescriptor establish(V2rayConfig cfg)', service)
+        self.assertIn('b.addRoute("0.0.0.0", 0);', service)
+        self.assertIn('b.addRoute("::", 0);', service)
+
+    def test_custom_king_vpn_service_supports_ipv4_ipv6_and_dns_queries_both_families(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         activity = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
 
-        # The generated Android manifest registers the custom VpnService, and
-        # the actual Flutter start channel targets that service (not the plugin's
-        # independent V2rayVPNService implementation).
+        # This verifies the opt-in custom backend only. The runtime backend switch
+        # is false by default; test_runtime_selects_the_plugin_as_the_active_vpn_backend
+        # separately verifies the currently active plugin path.
         self.assertIn('com.kingvpn.king_vpn.KingVpnService', prepare)
         self.assertIn('Intent(this, KingVpnService::class.java)', activity)
         self.assertIn('KingVpnService.ACTION_START', activity)
@@ -4493,5 +4530,42 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('_reliableVpnCfg(base)', cfg_list)
 
 
-if __name__ == '__main__':
-    unittest.main()
+
+    def test_active_plugin_routes_app_traffic_and_fails_closed_on_unprotected_core_socket(self):
+        patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+
+        # The plugin's old self-exclusion bypassed VPN for requests issued by King VPN
+        # itself (including direct-IP/ASN diagnostics). Only BLOCKED_APPS should remain
+        # excluded; core sockets are separately exempted through VpnService.protect().
+        app_start = patch.index("exact_replace(vpn, '''        // Keep this process outside the VPN")
+        app_end = patch.index("'V3 #49 do not exclude app from VPN')", app_start)
+        app_block = patch[app_start:app_end]
+        replacement = app_block.split("''', '''", 1)[1]
+        self.assertNotIn("addDisallowedApplication(getPackageName())", replacement)
+        self.assertIn("the app is NOT excluded from the tunnel", replacement)
+
+        # Returning true without calling Android protect(fd) is unsafe: it can leave
+        # the core socket inside the TUN and create a routing loop.
+        protect_start = patch.index("exact_replace(core, '''                public boolean protect(long fd)")
+        protect_end = patch.index("'V3 #49 protector fails when service is missing')", protect_start)
+        protect_block = patch[protect_start:protect_end]
+        protect_replacement = protect_block.split("''', '''", 1)[1]
+        self.assertIn("return false;", protect_replacement)
+        self.assertNotIn("return true;", protect_replacement)
+
+
+
+    def test_plugin_core_restart_does_not_stop_active_service(self):
+        patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+        self.assertIn('P1-40 stopCore supports non-destructive restart', patch)
+        self.assertIn('P1-41 suppress shutdown callback during explicit stopCore', patch)
+        self.assertIn('P1-40 VPN restart keeps service alive', patch)
+        self.assertIn('P1-40 proxy restart keeps service alive', patch)
+        self.assertIn('public void stopCore(boolean stopService)', patch)
+        self.assertIn('if (stopService && v2rayServicesListener != null)', patch)
+        self.assertIn('V2rayCoreManager.getInstance().stopCore(false);', patch)
+        self.assertIn('def exact_replace_after(path, scope_anchor, old, new, label):', patch)
+        self.assertIn('suppressServiceShutdownCallback = true;', patch)
+        self.assertIn('if (!suppressServiceShutdownCallback && v2rayServicesListener != null)', patch)
+        self.assertIn('P1-41 shutdown callback respects intentional core restart', patch)
+

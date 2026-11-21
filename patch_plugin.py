@@ -376,6 +376,25 @@ def exact_replace(path, old, new, label):
     open(path, 'w', encoding='utf-8').write(src.replace(old, new, 1))
     print(f'OK: {label}')
 
+def exact_replace_after(path, scope_anchor, old, new, label):
+    """Replace the first exact block after a unique method/branch anchor."""
+    src = open(path, encoding='utf-8').read()
+    if new in src:
+        print(f'OK: {label} (already applied)')
+        return
+    scope = src.find(scope_anchor)
+    if scope < 0:
+        print(f'ERROR: {label}: scope anchor not found')
+        sys.exit(1)
+    index = src.find(old, scope)
+    if index < 0:
+        print(f'ERROR: {label}: replacement block not found after scope')
+        show_context(src[scope:], old[:40])
+        sys.exit(1)
+    updated = src[:index] + src[index:].replace(old, new, 1)
+    open(path, 'w', encoding='utf-8').write(updated)
+    print(f'OK: {label}')
+
 # The plugin's ensureTunInbound() prepends a direct DNS bypass for ports 53/853
 # unless it sees an existing direct-853 rule. Our own port-53 DNS outbound rule
 # must be recognized, otherwise the plugin's prepended rule shadows DNS hijack.
@@ -489,6 +508,22 @@ for svc_path, svc_name in ((vpn, 'VPN'), (proxy_svc, 'ProxyOnly')):
             V2rayCoreManager.getInstance().promoteForStop(this);
             V2rayCoreManager.getInstance().stopCore();''', f'V3 #86 {svc_name} STOP promotes')
 
+
+exact_replace(vpn, '''        // Force IPv4 path: sinkhole IPv6 so apps don't bypass a broken dual-stack route.
+        try {
+            builder.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);
+            builder.addRoute("::", 0);
+        } catch (Exception e) {
+            Log.w("V2rayVPNService", "IPv6 sinkhole not supported", e);
+        }''', '''        // IPv4 and IPv6 must both be captured by the native TUN. A partial route
+        // would silently leak IPv6 outside the VPN, so refuse to establish it.
+        try {
+            builder.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);
+            builder.addRoute("::", 0);
+        } catch (Exception e) {
+            Log.e("V2rayVPNService", "IPv6 route setup failed; refusing a partial VPN", e);
+            return false;
+        }''', 'P1 IPv6 route must fail closed');
 
 # 5) FIX #49: the app is not excluded from the VPN (its own requests must go through the tunnel).
 #    Only the core's outbound sockets are exempt, through protect() (see the protector below).
@@ -1065,3 +1100,71 @@ exact_replace(core, '''        }
 
     private String createNotificationChannelID''',
 'P1-38 keep disconnect lock through broadcast');
+
+
+# P1-40: restarting an already-running core from START_SERVICE must not call
+# stopSelf() through the service listener. stopCore() keeps normal shutdown
+# semantics by default; restart paths explicitly stop only the native loop.
+# Preserve V2rayConfig.BLOCKED_APPS handling in the upstream VPN builder.
+exact_replace(core, '''    public void stopCore() {''', '''    public void stopCore() {
+        stopCore(true);
+    }
+
+    public void stopCore(boolean stopService) {''',
+
+'P1-40 stopCore supports non-destructive restart');
+
+# StopLoop invokes CoreCallbackHandler.shutdown() synchronously. Suppress that
+# callback's service teardown during intentional restarts; stopCore() performs
+# the one explicit service teardown only when stopService=true.
+exact_replace(core, '''    private CoreController coreController;''', '''    private CoreController coreController;
+    private volatile boolean suppressServiceShutdownCallback = false;''',
+'P1-41 shutdown callback suppression state');
+
+exact_replace(core, '''                    try {
+                        v2rayServicesListener.stopService();
+                        /* VPNRACE: keep the reference */
+                        return 0;
+                    } catch (Exception e) {''', '''                    try {
+                        if (!suppressServiceShutdownCallback && v2rayServicesListener != null) {
+                            v2rayServicesListener.stopService();
+                        }
+                        return 0;
+                    } catch (Exception e) {''',
+'P1-41 shutdown callback respects intentional core restart');
+
+
+exact_replace(core, '''                if (coreController != null) {
+                    coreController.stopLoop();
+                }
+                v2rayServicesListener.stopService();
+                Log.e(V2rayCoreManager.class.getSimpleName(), "stopCore success => v2ray core stopped.");''', '''                if (coreController != null) {
+                    boolean previousSuppress = suppressServiceShutdownCallback;
+                    suppressServiceShutdownCallback = true;
+                    try {
+                        coreController.stopLoop();
+                    } finally {
+                        suppressServiceShutdownCallback = previousSuppress;
+                    }
+                }
+                if (stopService && v2rayServicesListener != null) {
+                    v2rayServicesListener.stopService();
+                }
+                Log.e(V2rayCoreManager.class.getSimpleName(), "stopCore success => v2ray core stopped.");''',
+'P1-41 suppress shutdown callback during explicit stopCore');
+
+exact_replace_after(vpn, "if (startCommand.equals(AppConfigs.V2RAY_SERVICE_COMMANDS.START_SERVICE))", '''            if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {
+                V2rayCoreManager.getInstance().stopCore();
+            }''', '''            if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {
+                // Replacing a server must not stop this Service while this START command is running.
+                V2rayCoreManager.getInstance().stopCore(false);
+            }''',
+'P1-40 VPN restart keeps service alive');
+
+exact_replace_after(proxy_svc, "if (startCommand.equals(AppConfigs.V2RAY_SERVICE_COMMANDS.START_SERVICE))", '''            if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {
+                V2rayCoreManager.getInstance().stopCore();
+            }''', '''            if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {
+                // Replacing a server must not stop this Service while this START command is running.
+                V2rayCoreManager.getInstance().stopCore(false);
+            }''',
+'P1-40 proxy restart keeps service alive');
