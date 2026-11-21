@@ -1093,9 +1093,17 @@ exact_replace(core, ```    public void stopCore() {```, ```    public void stopC
     public void stopCore(boolean stopService) {```,
 'P1-40 stopCore supports non-destructive restart');
 
-exact_replace(core, ```                v2rayServicesListener.stopService();```, ```                if (stopService && v2rayServicesListener != null) {
+exact_replace(core, ```                if (coreController != null) {
+                    coreController.stopLoop();
+                }
+                v2rayServicesListener.stopService();
+                Log.e(V2rayCoreManager.class.getSimpleName(), "stopCore success => v2ray core stopped.");```, ```                if (coreController != null) {
+                    coreController.stopLoop();
+                }
+                if (stopService && v2rayServicesListener != null) {
                     v2rayServicesListener.stopService();
-                }```,
+                }
+                Log.e(V2rayCoreManager.class.getSimpleName(), "stopCore success => v2ray core stopped.");```,
 'P1-40 stopCore only tears down service for explicit stop');
 
 exact_replace(vpn, ```            if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {
