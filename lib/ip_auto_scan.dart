@@ -166,7 +166,7 @@ Future<bool> _ipAutoSave() async {
     // migration aids: their failure must not report a failed transaction after
     // the new checkpoint has already committed successfully.
     try {
-      await p.setString(hitsKey, hits.join('\\n'));
+      await p.setString(hitsKey, hits.join('\n'));
       await p.setString(pendingKey, pending.join('\\n'));
       await p.setString(cursorKey, jsonEncode(cursors));
       await p.setString(posKey, position.toString());
