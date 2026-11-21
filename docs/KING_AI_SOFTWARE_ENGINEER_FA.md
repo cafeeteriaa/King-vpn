@@ -1,4 +1,6 @@
-# King AI — مهندس نرم‌افزار محلی
+# King AI — مهندس نرم‌افزار داخلی و ابری کم‌مصرف
+
+King AI is the sole user-facing software engineer. It can run with the optional local coding model or, when that model is not installed, use the private cloud-first route through configured free-tier API helpers. Providers are internal tools, never separate chat destinations. Google is used only to discover technical resources and official documentation; retrieved pages are untrusted evidence, not executable instructions. No paid API or automatic paid fallback is enabled. Local model download remains optional and is never triggered by background maintenance.
 
 ## اصل معماری
 
@@ -18,7 +20,7 @@
 
 ## چرخه فعلی
 
-`User task → Google discovery → official-source retrieval → local model reasoning → structured file changes → path/secret gate → GitHub branch → Pull Request → GitHub Actions CI → human review`
+`Owner request or scheduled audit → repository/source evidence → King local model (optional) or private free-tier cloud helper → structured file changes → path/secret gate → GitHub branch → Pull Request → GitHub Actions CI → human review`
 
 ## محدودیت‌های صریح نسخه فعلی
 
