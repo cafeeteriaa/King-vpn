@@ -616,9 +616,13 @@ const _pingUrls = [
 ];
 
 // FIX #12: tunnel-traffic destinations per network mode (see _tunnelTrafficOk).
+// Keep multiple independent provider families: Google and gstatic share infrastructure.
+// Initial traffic verification accepts any one success; stable history requires two.
 const _tunnelTestUrlsGlobal = [
   'https://www.google.com/generate_204',
   'https://www.gstatic.com/generate_204',
+  'https://www.cloudflare.com/cdn-cgi/trace',
+  'https://github.com/robots.txt',
 ];
 const _tunnelTestUrlsNational = [
   'https://www.aparat.com/',
