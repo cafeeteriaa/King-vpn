@@ -528,7 +528,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         proposal_end = ai.index('Future<Map<String, Object?>> repairFromFailedCi({', proposal_start)
         self.assertIn('await _askCoding(', ai[proposal_start:proposal_end])
         extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
-        self.assertIn('return KingLocalAi.instance.ask(prompt);', extras)
+        self.assertIn('return KingLocalAi.instance.askLocalOnly(prompt);', extras)
         for phrase in ('کد رو اصلاح', 'سورس رو تغییر', 'برنامه را تغییر', 'قابلیت بساز'):
             self.assertIn(phrase, ai)
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
@@ -4536,6 +4536,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('engine.generate(', pilot)
         self.assertNotIn('consultKing(', pilot)
         self.assertNotIn('KingAiProviderPilot', pilot)
+        local_only = local[local.index('Future<String> askLocalOnly('):
+                           local.index('Future<String> _askConversationTurn(', local.index('Future<String> askLocalOnly('))]
+        self.assertIn('allowCloudHelpers: false', local_only)
+        self.assertIn('if (!allowCloudHelpers) return localDraft;', local)
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        self.assertIn('return KingLocalAi.instance.askLocalOnly(prompt);', extras)
         ordinary = local[local.index('Future<String> _generateWithSystemPrompt('):
                         local.index('Future<String> _generateLocalOnly(', local.index('Future<String> _generateWithSystemPrompt('))]
         self.assertIn('consultKing(', ordinary)
