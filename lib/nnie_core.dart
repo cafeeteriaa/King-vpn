@@ -445,6 +445,20 @@ class NatIpv4CidrIndex {
       _ranges.add((value & mask, (value & mask) | (~mask & 0xffffffff)));
     }
     _ranges.sort((a, b) => a.$1.compareTo(b.$1));
+    if (_ranges.length > 1) {
+      final merged = <(int, int)>[];
+      for (final range in _ranges) {
+        if (merged.isEmpty || range.$1 > merged.last.$2 + 1) {
+          merged.add(range);
+        } else {
+          final previous = merged.removeLast();
+          merged.add((previous.$1, max(previous.$2, range.$2)));
+        }
+      }
+      _ranges
+        ..clear()
+        ..addAll(merged);
+    }
   }
 
   final List<(int, int)> _ranges = <(int, int)>[];
