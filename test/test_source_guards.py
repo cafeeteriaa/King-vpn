@@ -1495,7 +1495,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         restart = command[command.index('if (intent == null)'):command.index('String action = intent.getAction()')]
         stop = command[command.index('if (ACTION_STOP.equals(action))'):command.index('if (!ACTION_START.equals(action))')]
         self.assertLess(restart.index('startForegroundSafe('), restart.index('submit(() -> resumeSaved(startId))'))
-        self.assertLess(stop.index('startForegroundSafe('), stop.index('submit(this::stopEverything)'))
+        self.assertLess(stop.index('startForegroundSafe('), stop.index('submit(() -> stopEverything(startId))'))
 
     def test_vpn_service_refuses_start_when_foreground_promotion_fails(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
@@ -1511,7 +1511,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('return false;', service[service.index('private boolean updateNotification'):])
         self.assertLess(restart.index('if (!startForegroundSafe('), restart.index('submit(() -> resumeSaved(startId))'))
         self.assertIn('requestStop();', restart)
-        self.assertIn('submit(this::stopEverything);', restart)
+        self.assertIn('submit(() -> stopEverything(startId));', restart)
         self.assertLess(action_start.index('if (!startForegroundSafe(first.remark))'),
                         action_start.index('submit(() -> startFlow(first, backups, attempt))'))
         failure = action_start[action_start.index('if (!startForegroundSafe(first.remark))'):
