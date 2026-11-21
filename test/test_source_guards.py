@@ -4001,6 +4001,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("'speed.cloudflare.com',    // 2", nip)
 
 
+    def test_nip_cidr_expansion_bounds_caller_supplied_limit(self):
+        source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('List<String> nipExpandCidr(')
+        end = source.index('/// اتصال TCP', start)
+        body = source[start:end]
+        self.assertIn('if (maxPerBlock <= 0) return const [];', body)
+        self.assertIn('final limit = min(maxPerBlock, 65536);', body)
+        self.assertIn('final step = size > limit ? size ~/ limit : 1;', body)
+
+
 if __name__ == '__main__':
     unittest.main()
 
