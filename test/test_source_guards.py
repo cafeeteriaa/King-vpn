@@ -4445,6 +4445,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("unawaited(PilotRouteHistory.record(", national)
         self.assertIn("if (identity.isNotEmpty)", national)
         self.assertIn("PilotRouteHistory.forNetwork(PilotRouteHistory.currentGroup)", extras)
+        self.assertIn('loadForCurrentNetwork()', national)
+        self.assertIn('PilotRouteHistory.loadForCurrentNetwork()', main)
         self.assertIn("static Future<String> networkGroup()", national)
         self.assertIn("_activeGroup = networkGroup", national)
         history_start = national.index('class PilotRouteHistory')
