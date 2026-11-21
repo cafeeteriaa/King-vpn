@@ -3977,22 +3977,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('String _natSig(_NatSpec x)')
         end = source.index('_NatSpec _natMk(', start)
         signature = source[start:end]
-        self.assertIn('${x.mss}', signature)
-        self.assertIn('${x.keep}', signature)
-        self.assertIn('${x.sniSwap}', signature)
+        # Every _NatSpec field that can alter the generated link or core config
+        # must participate in identity; otherwise distinct variants collapse.
+        for field in (
+            'other', 'fp', 'alpn', 'frag', 'port', 'portIdx', 'clean',
+            'cleanIdx', 'mux', 'muxN', 'sniHost', 'v4', 'tfo', 'ed',
+            'edN', 'noise', 'noiseK', 'nodelay', 'doh', 'mode', 'keep',
+            'mss', 'sniSwap',
+        ):
+            self.assertIn('${x.' + field + '}', signature, field)
 
 if __name__ == '__main__':
     unittest.main()
 
-if __name__ == '__main__':
-    unittest.main()
-    def test_nat_variant_growth_is_unique_and_bounded(self):
-        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
-        start = source.index('int natGrow(int n)')
-        end = source.index('List<String>? _natNamesC', start)
-        grow = source[start:end]
-        self.assertIn('if (n <= 0 || _natSpecs.length >= natMaxVariants) return 0;', grow)
-        self.assertIn('final target = min(n, natMaxVariants - _natSpecs.length);', grow)
-        self.assertIn('Set<String>? _natGrowSignatures;', source)
-        self.assertIn('if (!signatures.add(_natSig(spec))) continue;', grow)
-        self.assertNotIn('_natSpecs.length > 500000', grow)
