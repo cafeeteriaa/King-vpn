@@ -153,8 +153,11 @@ Future<int?> _probeDoh(String url, {String expectedDomain = 'google.com'}) async
   }
 }
 
-Future<int?> _probeDnsIp(String ip) async {
-  final domain = nationalMode ? 'nic.ir' : 'google.com';
+Future<int?> _probeDnsIp(
+  String ip, {
+  required bool nationalModeSnapshot,
+}) async {
+  final domain = nationalModeSnapshot ? 'nic.ir' : 'google.com';
   final result = await NatDnsWireProbe.probe(
     ip,
     domain,
@@ -168,7 +171,10 @@ Future<String> pickBestDns({bool force = false}) async {
     dnsProvActive = dnsProv;
     return dnsProv;
   }
+  final modeSnapshot = nationalMode;
   final networkKey = await _dnsNetworkKey();
+  // The mode can change while the interface snapshot is being collected.
+  if (nationalMode != modeSnapshot) return dnsProvActive;
   if (_dnsPickNetworkKey != networkKey) {
     _dnsPickAt = null;
     _dnsPickLastSucceeded = false;
@@ -202,10 +208,10 @@ Future<String> pickBestDns({bool force = false}) async {
   var foundValidResolver = false;
   // During a domestic-only outage do not spend the first DNS-selection window
   // on global DoH endpoints. Probe only domestic resolvers with a real .ir query.
-  final selectedDohProbes = nationalMode
+  final selectedDohProbes = modeSnapshot
       ? const <String, String>{}
       : dohProbes;
-  final selectedIpProbes = nationalMode
+  final selectedIpProbes = modeSnapshot
       ? const <String, String>{
           'shecan': '178.22.122.100',
           'electro': '78.157.42.100',
@@ -223,7 +229,10 @@ Future<String> pickBestDns({bool force = false}) async {
       }
     }),
     ...selectedIpProbes.entries.map((e) async {
-      final ms = await _probeDnsIp(e.value);
+      final ms = await _probeDnsIp(
+        e.value,
+        nationalModeSnapshot: modeSnapshot,
+      );
       if (ms != null && ms < bestMs) {
         bestMs = ms;
         best = e.key;
