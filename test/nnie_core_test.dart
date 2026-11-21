@@ -155,6 +155,14 @@ void main() {
       expect(q.length, 12 + 7 + 4 + 1 + 4); // header + labels + root + type/class
     });
 
+    test('buildQuery rejects a name longer than the DNS 255-octet limit', () {
+      final labels = List<String>.filled(4, 'a' * 63);
+      expect(
+        () => NatDnsWireProbe.buildQuery(labels.join('.'), 0x1234),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
     test('accepts a valid public A answer', () {
       final bytes = _response(id: 0x1234, rdata: [8, 8, 8, 8]);
       expect(NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'), ['8.8.8.8']);
