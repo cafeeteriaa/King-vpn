@@ -81,6 +81,9 @@ class _KingChatPageState extends State<KingChatPage> {
       );
       if (!mounted) return;
       _add(answer, true);
+      if (mounted) {
+        setState(() => _notice = 'پاسخ از ${KingAiProviderPilot.instance.lastUsedProvider} دریافت شد.');
+      }
       // Do not start late audio if the chat page closed during local inference.
       if (mounted && (_speak || voice)) {
         try {
