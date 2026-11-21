@@ -264,8 +264,15 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        String action = intent == null ? null : intent.getAction();
         synchronized (startLifecycleLock) {
             latestStartId = startId;
+            // Publish a new start and clear the previous cancellation atomically.
+            // A concurrent app stop after this block must remain authoritative.
+            if (intent == null || ACTION_START.equals(action)) {
+                stopping = false;
+                userStopped = false;
+            }
         }
         // Keep this method short: it runs on the main thread, and the system
         // expects a foreground service to be promoted within a few seconds.
@@ -282,12 +289,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             }
             // No Dart attempt is waiting for it, so its status uses attempt 0 (accepted by all).
             activeAttemptId = 0;
-            stopping = false;
-            userStopped = false;
             submit(() -> resumeSaved(startId));
             return START_STICKY;
         }
-        String action = intent.getAction();
         if (ACTION_STOP.equals(action)) {
             // ACTION_STOP may itself arrive through startForegroundService; satisfy the
             // same deadline before asynchronous shutdown work is queued.
@@ -299,8 +303,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         if (!ACTION_START.equals(action)) {
             return START_NOT_STICKY;
         }
-        // A fresh start supersedes a previously queued stop for an older startId.
-        stopping = false;
+        // A fresh start supersedes an older stop in the lifecycle-locked block above.
         String json = intent.getStringExtra(EXTRA_CONFIG);
         if (json == null || json.isEmpty()) {
             Log.e(TAG, "start without config");
@@ -322,7 +325,6 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         sortByScoreDesc(backups);
         nationalMode = intent.getBooleanExtra(EXTRA_NATIONAL, false);
         activeAttemptId = intent.getIntExtra(EXTRA_ATTEMPT, 0);
-        userStopped = false;
 
         if (!startForegroundSafe(first.remark)) {
             lastError = "Unable to enter foreground mode; VPN startup was refused";
