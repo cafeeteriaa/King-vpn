@@ -2350,6 +2350,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('addressBatch.cursors', body)
         self.assertIn('addressBatch.nextPosition', body)
 
+    def test_national_hot_source_reads_and_rebuilds_share_one_serial_queue(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn('Future<void> _hotIoQueue = Future<void>.value();', source)
+        self.assertIn('Future<T> _hotSerialize<T>(Future<T> Function() action)', source)
+        ensure_start = source.index('Future<void> natHotEnsure({bool force = false})')
+        ensure_end = source.index('Future<void> _natHotEnsureImpl(', ensure_start)
+        ensure = source[ensure_start:ensure_end]
+        self.assertIn('_hotSerialize<void>(() => _natHotEnsureImpl(force: force))', ensure)
+        next_start = source.index('Future<List<Server>> natHotNext(')
+        impl_start = source.index('Future<List<Server>> _natHotNextImpl(', next_start)
+        next_wrapper = source[next_start:impl_start]
+        self.assertIn('_hotSerialize<List<Server>>(', next_wrapper)
+        impl_end = source.index('const String kNatMemKey', impl_start)
+        impl = source[impl_start:impl_end]
+        self.assertIn('return await _natHotNextImpl(n, fetch: false, retried: true);', impl)
+        self.assertNotIn('return natHotNext(', impl)
+
+
     def test_ip_auto_scan_aborts_when_network_mode_changes_mid_run(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         self.assertIn('(modeSnapshot != null && nationalMode != modeSnapshot)', source)
