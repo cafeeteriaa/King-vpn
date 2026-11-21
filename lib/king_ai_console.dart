@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'king_local_ai.dart';
+import 'king_ai_project_builder.dart';
+import 'package:share_plus/share_plus.dart';
 import 'king_ai_background.dart';
 import 'king_ai_owner_auth.dart';
 import 'king_voice_output.dart';
@@ -11,11 +14,13 @@ class KingAiConsolePage extends StatefulWidget {
   const KingAiConsolePage({
     super.key,
     this.initialFeatureRequest,
+    this.initialProjectRequest,
     this.initialIdeaAnalysis,
     this.speakResponses = false,
   });
 
   final String? initialFeatureRequest;
+  final String? initialProjectRequest;
   final String? initialIdeaAnalysis;
   final bool speakResponses;
 
@@ -47,7 +52,8 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   @override
   void initState() {
     super.initState();
-    _featureRequestController.text = widget.initialIdeaAnalysis ?? widget.initialFeatureRequest ?? '';
+    _featureRequestController.text = widget.initialProjectRequest ??
+        widget.initialIdeaAnalysis ?? widget.initialFeatureRequest ?? '';
     _refreshTokenState();
     _refreshOwnerState();
   }
@@ -320,6 +326,31 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       return;
     }
     await _submitFeatureRequest(ownerReauthenticated: true);
+  }
+
+  Future<void> _createStandaloneProject() async {
+    final request = _featureRequestController.text.trim();
+    if (request.length < 12) {
+      setState(() => _output = 'شرح پروژه را دقیق‌تر بنویس (حداقل ۱۲ نویسه).');
+      return;
+    }
+    await _run('ساخت پروژه مستقل با مدل محلی و بسته‌بندی ZIP', () async {
+      final result = await KingAiProjectBuilder.instance.buildProject(
+        request: request,
+        onProgress: (message) {
+          if (mounted) setState(() => _output = message);
+        },
+      );
+      final zipPath = result['zipPath']?.toString() ?? '';
+      if (zipPath.isEmpty || !await File(zipPath).exists()) {
+        throw StateError('فایل ZIP خروجی ایجاد یا تأیید نشد.');
+      }
+      await Share.shareXFiles(
+        [XFile(zipPath)],
+        text: 'پروژه ساخته‌شده توسط King AI: ' + (result['name'] ?? '').toString(),
+      );
+      return result;
+    });
   }
 
   Future<void> _submitFeatureRequest({bool ownerReauthenticated = false}) async {
@@ -604,6 +635,15 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
                         ? null
                         : _submitFeatureRequest,
                     child: const Text('ساخت پیشنهاد کد و Pull Request'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _busy || !_ai.isLoaded ? null : _createStandaloneProject,
+                    icon: const Icon(Icons.archive_outlined),
+                    label: const Text('ساخت اپلیکیشن مستقل و ارسال ZIP'),
                   ),
                 ),
                 const SizedBox(height: 12),

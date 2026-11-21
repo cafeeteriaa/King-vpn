@@ -1,22 +1,22 @@
 // NAT IP SCAN ==============================================================
+import 'dart:typed_data';
 // اسکن سریع آدرس‌های IP برای پیدا کردن سرورهای قابل‌دسترس در نت ملی.
 // فقط اتصال TCP می‌زند؛ یعنی هنوز تایید نمی‌کند که VPN کار می‌کند،
 // فقط می‌گوید آن آدرس و پورت جواب می‌دهد. تایید نهایی را موتور اصلی انجام می‌دهد.
 //
 // IMPROVEMENTS over previous version:
 //   • Adaptive concurrency: based on Platform.numberOfProcessors, clamped to
-//     device-safe range. Never too small, never CPU-crushing.
+//     a device-safe range.
 //   • Guaranteed socket cleanup: every Socket is destroyed in a finally block,
 //     so slow/timed-out probes never leak file descriptors.
-//   • Live cancellation: in-flight workers exit as soon as cancelled() returns
-//     true — no waiting for individual timeouts.
+//   • Cooperative cancellation: workers stop before another probe and discard
+//     stale results after an in-flight connect completes; each connect is
+//     bounded by its per-probe timeout.
 //   • Progress callbacks: optional onProgress(done, total, hits) for live UI.
 //   • Optional randomize: shuffle the candidate list to avoid hitting the same
 //     subnet first every run.
-//   • Timeout accuracy: the Stopwatch is stopped exactly when the connect
-//     returns, not after potential catch/finally work.
-//   • No artificial caps: the caller controls want/budget/concurrency. We
-//     only enforce a device-safe ceiling for concurrency to prevent OOM.
+//   • Monotonic timeout measurement; caller controls result target and budget,
+//     while worker concurrency is clamped to a device-safe range.
 
 import 'dart:async';
 import 'dart:io';
@@ -24,6 +24,23 @@ import 'dart:math';
 
 import 'errjournal.dart';
 import 'nnie_core.dart'; // natStableSort
+
+/// Returns an exact-host CIDR for either supported IP family.
+String? natExactHostCidr(String raw) {
+  final address = InternetAddress.tryParse(raw.trim());
+  if (address == null) return null;
+  if (address.type == InternetAddressType.IPv4) return '${address.address}/32';
+  if (address.type == InternetAddressType.IPv6) return '${address.address}/128';
+  return null;
+}
+
+/// Validates a persisted scanner endpoint without excluding IPv6 literals.
+bool natIsIpPortCandidate(String raw) {
+  final parts = raw.split('|');
+  if (parts.length != 2 || natExactHostCidr(parts[0]) == null) return false;
+  final port = int.tryParse(parts[1]);
+  return port != null && port >= 1 && port <= 65535;
+}
 
 class NatIpHit {
   final String ip;
@@ -38,8 +55,13 @@ class NatIpHit {
 /// برای بلوک‌های بزرگ، فقط [maxPerBlock] آدرس پراکنده برمی‌گرداند.
 List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   if (maxPerBlock <= 0) return const [];
+  final limit = min(maxPerBlock, 65536);
   final parts = cidr.trim().split('/');
   if (parts.length != 2) return const [];
+  final parsedAddress = InternetAddress.tryParse(parts[0].trim());
+  if (parsedAddress?.type == InternetAddressType.IPv6) {
+    return natExpandIpv6Cidr(cidr, maxPerBlock: limit);
+  }
   final octets = parts[0].split('.');
   final prefix = int.tryParse(parts[1].trim());
   if (octets.length != 4 || prefix == null || prefix < 8 || prefix > 32) {
@@ -55,7 +77,7 @@ List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   final start = base & ~(size - 1) & 0xFFFFFFFF;
   // Ceiling division is required: floor division can exceed maxPerBlock
   // for non-divisible subnet sizes (e.g. /24 with a limit of 100 yields 128).
-  final step = size > maxPerBlock ? (size + maxPerBlock - 1) ~/ maxPerBlock : 1;
+  final step = size > limit ? (size + limit - 1) ~/ limit : 1;
   final out = <String>[];
   for (var i = 0; i < size; i += step) {
     final v = start + i;
@@ -64,10 +86,56 @@ List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   return out;
 }
 
+/// Expand an IPv6 CIDR using bounded BigInt arithmetic.
+///
+/// Unlike IPv4, IPv6 address spaces cannot be represented by a Dart int.
+/// Sampling is deterministic, evenly spaced, and capped to avoid allocating
+/// an unbounded list for broad prefixes such as ::/0.
+List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
+  if (maxPerBlock <= 0) return const [];
+  final limit = min(maxPerBlock, 65536);
+  final parts = cidr.trim().split('/');
+  if (parts.length != 2) return const [];
+  final address = InternetAddress.tryParse(parts[0].trim());
+  final prefix = int.tryParse(parts[1].trim());
+  if (address == null ||
+      address.type != InternetAddressType.IPv6 ||
+      prefix == null ||
+      prefix < 0 ||
+      prefix > 128) {
+    return const [];
+  }
+
+  var base = BigInt.zero;
+  for (final byte in address.rawAddress) {
+    base = (base << 8) | BigInt.from(byte);
+  }
+  final hostBits = 128 - prefix;
+  final size = BigInt.one << hostBits;
+  final start = (base ~/ size) * size;
+  final cap = BigInt.from(limit);
+  final step = size > cap ? (size + cap - BigInt.one) ~/ cap : BigInt.one;
+  final out = <String>[];
+  for (var offset = BigInt.zero; offset < size; offset += step) {
+    var value = start + offset;
+    final bytes = List<int>.filled(16, 0);
+    for (var i = 15; i >= 0; i--) {
+      bytes[i] = (value & BigInt.from(255)).toInt();
+      value >>= 8;
+    }
+    out.add(InternetAddress.fromRawAddress(
+      Uint8List.fromList(bytes),
+      type: InternetAddressType.IPv6,
+    ).address);
+  }
+  return out;
+}
+
 /// بازه‌ی خطی به شکل a.b.c.d-e.f.g.h (برای نوشته‌هایی که CIDR نیستند).
 /// بازه‌های بزرگ‌تر از maxCount به‌طور یکنواخت نمونه‌برداری می‌شوند.
 List<String> natExpandDash(String range, {int maxCount = 65536}) {
   if (maxCount <= 0) return const [];
+  final limit = min(maxCount, 65536);
   final parts = range.trim().split('-');
   if (parts.length != 2) return const [];
   int? toInt(String ip) {
@@ -85,7 +153,7 @@ List<String> natExpandDash(String range, {int maxCount = 65536}) {
   final b = toInt(parts[1]);
   if (a == null || b == null || b < a) return const [];
   final count = b - a + 1;
-  final step = count > maxCount ? (count + maxCount - 1) ~/ maxCount : 1; // مشکل ۱۵: سقف رعایت شود
+  final step = count > limit ? (count + limit - 1) ~/ limit : 1; // مشکل ۱۵: سقف رعایت شود
   final out = <String>[];
   for (var v = a; v <= b; v += step) {
     out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
@@ -95,11 +163,28 @@ List<String> natExpandDash(String range, {int maxCount = 65536}) {
 
 /// اتصال TCP به ip:port. اگر جواب داد زمان پاسخ را برمی‌گرداند، وگرنه null.
 /// تضمین: سوکت در هر حالتی (موفق، خطا، تایم‌اوت) بسته می‌شود.
+InternetAddress? _natParseIpLiteral(String value) {
+  final address = InternetAddress.tryParse(value.trim());
+  if (address == null) return null;
+  if (address.type != InternetAddressType.IPv4 &&
+      address.type != InternetAddressType.IPv6) {
+    return null;
+  }
+  return address;
+}
+
 Future<int?> natTcpProbe(String ip, int port, Duration timeout) async {
+  final address = _natParseIpLiteral(ip);
+  if (address == null ||
+      port < 1 ||
+      port > 65535 ||
+      timeout <= Duration.zero) {
+    return null;
+  }
   final sw = Stopwatch()..start();
   Socket? s;
   try {
-    s = await Socket.connect(ip, port, timeout: timeout);
+    s = await Socket.connect(address, port, timeout: timeout);
     sw.stop();
     return sw.elapsedMilliseconds;
   } catch (e) {
@@ -142,10 +227,11 @@ int natAdaptiveConcurrency(int requested) {
 /// IMPROVEMENTS:
 ///   • Concurrency is clamped by [natAdaptiveConcurrency] — never too small,
 ///     never device-crushing.
-///   • Live cancellation: in-flight probes exit as soon as cancelled() is true.
+///   • Cooperative cancellation between probes; in-flight connects are bounded
+///     by [timeout] and their results are discarded after cancellation.
 ///   • Progress reporting via [onProgress] (called every few completions).
 ///   • Optional [randomize] to shuffle the scan order.
-///   • No artificial caps on the caller's intent.
+///   • Caller controls the result target and time budget; worker concurrency is bounded.
 Future<List<NatIpHit>> natScanIps(
   List<String> ips, {
   int port = 443,
@@ -170,7 +256,19 @@ Future<List<NatIpHit>> natScanIps(
   final hits = <NatIpHit>[];
 
   // Optional shuffle so the same subnet is not hit first on every run.
-  final source = randomize ? (List<String>.of(ips)..shuffle(Random())) : ips;
+  // Only literal IP addresses are accepted. Passing hostnames to Socket.connect
+  // would trigger system DNS and leak scan targets outside the selected route.
+  final seen = <String>{};
+  final candidates = <String>[];
+  for (final raw in ips) {
+    final address = _natParseIpLiteral(raw);
+    if (address != null && seen.add(address.address)) {
+      candidates.add(address.address);
+    }
+  }
+  if (candidates.isEmpty) return <NatIpHit>[];
+  final source =
+      randomize ? (List<String>.of(candidates)..shuffle(Random())) : candidates;
 
   var next = 0;
   var done = 0;
@@ -190,7 +288,8 @@ Future<List<NatIpHit>> natScanIps(
 
       final ms = await natTcpProbe(ip, port, timeout);
       // Do not publish a probe that completed after cancellation or the time budget.
-      // In-flight socket connects are bounded by [timeout], then discarded if stale.
+      // In-flight socket connects cannot be force-cancelled here; they remain
+      // bounded by [timeout], then their results are discarded if stale.
       if (aborted() || elapsed.elapsed >= budget) {
         done++;
         if (onProgress != null) onProgress(done, total, hits.length);

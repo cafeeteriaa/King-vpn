@@ -15,6 +15,7 @@ List<int> _response({
   String qname = 'google.com',
   required List<int> rdata,
   int an = 1,
+  int qtype = 1,
 }) {
   final out = <int>[
     ..._u16(id), ..._u16(flags), ..._u16(1), ..._u16(an), ..._u16(0), ..._u16(0),
@@ -22,11 +23,11 @@ List<int> _response({
   for (final label in qname.split('.')) {
     out..add(label.length)..addAll(label.codeUnits);
   }
-  out.addAll([0, 0, 1, 0, 1]); // root, QTYPE=A, QCLASS=IN
+  out.addAll([0, (qtype >> 8) & 255, qtype & 255, 0, 1]); // root, QTYPE, QCLASS=IN
   if (an > 0) {
     out.addAll([
       0xc0, 0x0c, // name: pointer to the question name
-      ..._u16(1), ..._u16(1), // TYPE=A, CLASS=IN
+      ..._u16(qtype), ..._u16(1), // TYPE, CLASS=IN
       0, 0, 0, 60, // TTL
       ..._u16(rdata.length), ...rdata,
     ]);
@@ -130,6 +131,49 @@ void main() {
       expect(ev.classify(), NatNetworkClass.transportRestricted);
     });
 
+    test('one successful host is not enough to label a route group reachable', () {
+      const domesticOnlyOne = NatProbeEvidence(
+        domesticDnsOk: false, domesticTcpOk: true,
+        globalDnsOk: false, globalTcpOk: false, sampleCount: 10,
+        domesticTcpSuccesses: 1, globalTcpSuccesses: 0,
+      );
+      expect(domesticOnlyOne.classify(), NatNetworkClass.transportRestricted);
+
+      const globalOnlyOne = NatProbeEvidence(
+        domesticDnsOk: false, domesticTcpOk: false,
+        globalDnsOk: false, globalTcpOk: true, sampleCount: 10,
+        domesticTcpSuccesses: 0, globalTcpSuccesses: 1,
+      );
+      expect(globalOnlyOne.classify(), NatNetworkClass.transportRestricted);
+    });
+
+    test('one reachable global host prevents a domestic-only conclusion', () {
+      const ev = NatProbeEvidence(
+        domesticDnsOk: false, domesticTcpOk: true,
+        globalDnsOk: false, globalTcpOk: true, sampleCount: 10,
+        domesticTcpSuccesses: 2, globalTcpSuccesses: 1,
+      );
+      expect(ev.classify(), NatNetworkClass.transportRestricted);
+    });
+
+    test('two independent domestic hosts are required for domestic-only classification', () {
+      const ev = NatProbeEvidence(
+        domesticDnsOk: false, domesticTcpOk: true,
+        globalDnsOk: false, globalTcpOk: false, sampleCount: 10,
+        domesticTcpSuccesses: 2, globalTcpSuccesses: 0,
+      );
+      expect(ev.classify(), NatNetworkClass.domesticOnlyLikely);
+    });
+
+    test('one reachable domestic host prevents a global-only conclusion', () {
+      const ev = NatProbeEvidence(
+        domesticDnsOk: false, domesticTcpOk: true,
+        globalDnsOk: false, globalTcpOk: true, sampleCount: 10,
+        domesticTcpSuccesses: 1, globalTcpSuccesses: 2,
+      );
+      expect(ev.classify(), NatNetworkClass.transportRestricted);
+    });
+
     test('global TCP reachability is recognized even if domestic targets fail', () {
       const ev = NatProbeEvidence(
         domesticDnsOk: false, domesticTcpOk: false,
@@ -158,6 +202,58 @@ void main() {
     test('accepts a valid public A answer', () {
       final bytes = _response(id: 0x1234, rdata: [8, 8, 8, 8]);
       expect(NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'), ['8.8.8.8']);
+    });
+
+    test('buildQuery can request AAAA without changing the A default', () {
+      final q = NatDnsWireProbe.buildQuery('google.com', 0x1234, queryType: 28);
+      expect(q.sublist(q.length - 4), [0, 28, 0, 1]);
+      expect(NatDnsWireProbe.buildQuery('google.com', 0x1234).sublist(NatDnsWireProbe.buildQuery('google.com', 0x1234).length - 4), [0, 1, 0, 1]);
+    });
+
+    test('accepts public global-unicast AAAA answer', () {
+      final bytes = _response(
+        id: 0x1234,
+        qtype: 28,
+        rdata: [0x26, 0x06, 0x47, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x11],
+      );
+      expect(
+        NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com', queryType: 28),
+        ['2606:4700::11'],
+      );
+    });
+
+    test('rejects non-global and documentation AAAA answers', () {
+      for (final address in [
+        [0xfe, 0x80, ...List<int>.filled(14, 0)],
+        [0xfc, 0, ...List<int>.filled(14, 0)],
+        [0x20, 0x01, 0x0d, 0xb8, ...List<int>.filled(12, 0)],
+      ]) {
+        final bytes = _response(id: 0x1234, qtype: 28, rdata: address);
+        expect(
+          () => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com', queryType: 28),
+          throwsA(isA<FormatException>()),
+        );
+      }
+    });
+
+    test('rejects special-purpose IPv6 ranges inside global-unicast space', () {
+      for (final address in [
+        [0x20, 0x01, 0x00, 0x00, ...List<int>.filled(12, 0)], // Teredo
+        [0x20, 0x01, 0x00, 0x02, 0, 0, ...List<int>.filled(10, 0)], // benchmarking
+        [0x20, 0x01, 0x00, 0x10, ...List<int>.filled(12, 0)], // ORCHID
+        [0x20, 0x01, 0x00, 0x20, ...List<int>.filled(12, 0)], // ORCHIDv2
+        [0x20, 0x02, ...List<int>.filled(14, 0)], // 6to4
+        [0x3f, 0xff, 0x00, ...List<int>.filled(13, 0)], // documentation
+      ]) {
+        expect(NatDnsWireProbe.publicV6(address, 0), isFalse);
+      }
+      expect(
+        NatDnsWireProbe.publicV6(
+          [0x26, 0x06, 0x47, 0, ...List<int>.filled(12, 0)],
+          0,
+        ),
+        isTrue,
+      );
     });
 
     test('rejects a mismatched transaction ID', () {
@@ -194,6 +290,82 @@ void main() {
       expect(() => NatDnsWireProbe.parseResponse([0, 1, 2], 1, 'google.com'),
           throwsA(isA<FormatException>()));
     });
+    test('rejects a cyclic CNAME compression pointer instead of accepting a fake A record', () {
+      const id = 0x1234;
+      final query = NatDnsWireProbe.buildQuery('google.com', id);
+      final bytes = <int>[
+        ..._u16(id), ..._u16(0x8180), ..._u16(1), ..._u16(2),
+        ..._u16(0), ..._u16(0), ...query.sublist(12),
+      ];
+      // First answer is CNAME google.com -> a compression pointer to itself.
+      final cnameRdata = bytes.length + 12;
+      bytes.addAll([
+        0xc0, 0x0c, ..._u16(5), ..._u16(1), 0, 0, 0, 60, ..._u16(2),
+        0xc0 | ((cnameRdata >> 8) & 0x3f), cnameRdata & 0xff,
+      ]);
+      // The malformed implementation used to resolve both names as "" and
+      // accept this unrelated public A record through an empty CNAME owner.
+      bytes.addAll([
+        0xc0 | ((cnameRdata >> 8) & 0x3f), cnameRdata & 0xff,
+        ..._u16(1), ..._u16(1), 0, 0, 0, 60, ..._u16(4), 8, 8, 8, 8,
+      ]);
+      expect(
+        () => NatDnsWireProbe.parseResponse(bytes, id, 'google.com'),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('rejects CNAME compression pointers that overrun RDLENGTH', () {
+      const id = 0x1234;
+      const domain = 'abcdefghijkl.com'; // 12-byte first label
+      final query = NatDnsWireProbe.buildQuery(domain, id);
+      final bytes = <int>[
+        ..._u16(id), ..._u16(0x8180), ..._u16(1), ..._u16(2),
+        ..._u16(0), ..._u16(0), ...query.sublist(12),
+      ];
+      // The CNAME claims one RDATA byte, but its two-byte pointer refers
+      // backwards to the question. Its low byte then masquerades as the next
+      // RR's 12-byte owner label, so an unchecked parser would accept the A.
+      bytes.addAll([
+        0xc0, 0x0c, ..._u16(5), ..._u16(1), 0, 0, 0, 60, ..._u16(1),
+        0xc0, 0x0c,
+      ]);
+      // The low pointer byte (0x0c) is also the next RR owner's first
+      // label length; append the rest of the queried name to make that RR valid.
+      bytes.addAll(query.sublist(13, 30));
+      bytes.addAll([
+        ..._u16(1), ..._u16(1), 0, 0, 0, 60, ..._u16(4), 8, 8, 8, 8,
+      ]);
+      expect(
+        () => NatDnsWireProbe.parseResponse(bytes, id, domain),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('rejects forward DNS compression pointers', () {
+      const id = 0x1234;
+      final query = NatDnsWireProbe.buildQuery('google.com', id);
+      final bytes = <int>[
+        ..._u16(id), ..._u16(0x8180), ..._u16(1), ..._u16(2),
+        ..._u16(0), ..._u16(0), ...query.sublist(12),
+      ];
+      // The first answer points forward to the second answer's valid owner name.
+      // An unchecked parser would accept the first public A record as google.com.
+      final secondOwner = bytes.length + 16;
+      bytes.addAll([
+        0xc0, secondOwner & 0xff, ..._u16(1), ..._u16(1),
+        0, 0, 0, 60, ..._u16(4), 1, 1, 1, 1,
+      ]);
+      bytes.addAll([
+        0xc0, 0x0c, ..._u16(1), ..._u16(1),
+        0, 0, 0, 60, ..._u16(4), 8, 8, 8, 8,
+      ]);
+      expect(
+        () => NatDnsWireProbe.parseResponse(bytes, id, 'google.com'),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
 
     test('pre-cancelled DNS probes return without opening a socket', () async {
       final result = await NatDnsWireProbe.probe(

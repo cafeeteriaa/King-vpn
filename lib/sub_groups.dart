@@ -115,7 +115,9 @@ extension SgrpExt on _HomePageState {
           TextButton(
             onPressed: () async {
               final u = urlC.text.trim();
-              if (!u.startsWith('http://') && !u.startsWith('https://')) return;
+              final uri = Uri.tryParse(u);
+              if (uri == null || uri.scheme != 'https' ||
+                  uri.host.isEmpty || uri.userInfo.isNotEmpty) return;
               final n = nameC.text.trim();
               groups.add(SgrpGroup(name: n.isEmpty ? u : n, url: u));
               await sgrpSave(groups);

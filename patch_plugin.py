@@ -376,6 +376,35 @@ def exact_replace(path, old, new, label):
     open(path, 'w', encoding='utf-8').write(src.replace(old, new, 1))
     print(f'OK: {label}')
 
+# The plugin's ensureTunInbound() prepends a direct DNS bypass for ports 53/853
+# unless it sees an existing direct-853 rule. Our own port-53 DNS outbound rule
+# must be recognized, otherwise the plugin's prepended rule shadows DNS hijack.
+utilities = find_java('Utilities.java')
+exact_replace(utilities, '''                String port = String.valueOf(rule.opt("port"));
+                if ("direct".equals(rule.optString("outboundTag")) && port.contains("853")) {
+                    hasDnsRule = true;
+                    break;
+                }''', '''                String port = String.valueOf(rule.opt("port"));
+                boolean hasKingDnsHijack = "king-vpn-dns-hijack".equals(rule.optString("ruleTag"));
+                if (hasKingDnsHijack ||
+                        ("direct".equals(rule.optString("outboundTag")) && port.contains("853"))) {
+                    hasDnsRule = true;
+                    break;
+                }''', 'P1 DNS: preserve King VPN DNS hijack before plugin fallback')
+
+
+# Initialization failures must escape the plugin's internal catch block so the
+# owning service can keep coreWired=false and retry on the next connection attempt.
+exact_replace(core, '''        } catch (Exception e) {
+            Log.e(V2rayCoreManager.class.getSimpleName(), "setUpListener failed => ", e);
+            isLibV2rayCoreInitialized = false;
+        }''', '''        } catch (Exception e) {
+            Log.e(V2rayCoreManager.class.getSimpleName(), "setUpListener failed => ", e);
+            isLibV2rayCoreInitialized = false;
+            // VPNRACE_INIT_RETHROW: do not let the service cache a failed initialization.
+            throw new IllegalStateException("V2Ray core initialization failed", e);
+        }''', 'P1: surface V2Ray core initialization failures for retry');
+
 
 v2_ctrl = find_java('V2rayController.java')
 proxy_svc = find_java('V2rayProxyOnlyService.java')
@@ -796,6 +825,21 @@ exact_replace(vpn, '''            if (v2rayConfig == null) {
             }
             if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {''', 'P1-31 VPN foreground before TUN/core startup');
 
+exact_replace(vpn, '''    private void stopAllProcess() {''', '''    private void stopCoreAndReleaseService() {
+        try {
+            if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {
+                V2rayCoreManager.getInstance().stopCore();
+            }
+        } catch (Exception e) {
+            Log.e("V2rayVPNService", "Failed to stop core before releasing TUN", e);
+        } finally {
+            stopAllProcess();
+        }
+    }
+
+    private void stopAllProcess() {''',
+'P1-39 stop native core before invalid-start TUN cleanup');
+
 # Proxy-only service: add an idempotent cleanup helper and promote before core startup.
 exact_replace(proxy_svc, '''            if (v2rayConfig == null) {
                 Log.w("V2rayProxyOnlyService", "V2RAY_CONFIG is null, cannot start service");
@@ -817,7 +861,19 @@ exact_replace(proxy_svc, '''            if (v2rayConfig == null) {
 exact_replace(proxy_svc, '''    @Override
     public void onDestroy() {
         super.onDestroy();
-    }''', '''    private void stopAllProcess() {
+    }''', '''    private void stopCoreAndReleaseService() {
+        try {
+            if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {
+                V2rayCoreManager.getInstance().stopCore();
+            }
+        } catch (Exception e) {
+            Log.e("V2rayProxyOnlyService", "Failed to stop core before service cleanup", e);
+        } finally {
+            stopAllProcess();
+        }
+    }
+
+    private void stopAllProcess() {
         try {
             stopForeground(true);
         } catch (Exception e) {
@@ -854,12 +910,12 @@ def replace_all_service_calls(path, label):
     src = open(path, encoding='utf-8').read()
     count = src.count('this.onDestroy();')
     if count == 0:
-        if 'stopAllProcess();' in src:
+        if 'stopCoreAndReleaseService();' in src:
             print('OK: ' + label + ' (already applied)')
             return
         print('ERROR: ' + label + ': expected onDestroy calls not found')
         sys.exit(1)
-    open(path, 'w', encoding='utf-8').write(src.replace('this.onDestroy();', 'stopAllProcess();'))
+    open(path, 'w', encoding='utf-8').write(src.replace('this.onDestroy();', 'stopCoreAndReleaseService();'))
     print('OK: ' + label + ' (' + str(count) + ' call sites)')
 
 replace_all_service_calls(vpn, 'P1-29 VPN direct onDestroy calls replaced')

@@ -26,13 +26,16 @@ spec.loader.exec_module(patch_gate)
 DEPENDENCIES = [
     'http', 'flutter_v2ray_client:3.5.0', 'installed_apps:1.6.0',
     'permission_handler', 'workmanager', 'url_launcher',
-    'webview_flutter', 'crypto:^3.0.3', 'flutter_secure_storage:^9.2.2', 'local_inference:0.1.1', 'local_inference_flutter:0.1.1', 'path_provider', 'speech_to_text:^7.4.0', 'cryptography:^2.7.0', 'flutter_tts:^4.2.3',
+    'webview_flutter', 'crypto:^3.0.3', 'flutter_secure_storage:^9.2.2', 'local_inference:0.1.1', 'local_inference_flutter:0.1.1', 'path_provider', 'package_info_plus', 'speech_to_text:^7.4.0', 'cryptography:^2.7.0', 'flutter_tts:^4.2.3',
 ]
 
 
-def run(command: list[str], cwd: Path, timeout: int = 1800) -> None:
+def run(command: list[str], cwd: Path, timeout: int = 1800, extra_env=None) -> None:
     print('+', ' '.join(command), flush=True)
-    subprocess.run(command, cwd=cwd, check=True, timeout=timeout)
+    env = os.environ.copy()
+    if extra_env:
+        env.update(extra_env)
+    subprocess.run(command, cwd=cwd, check=True, timeout=timeout, env=env)
 
 
 def verify(patch_file: Path, output_patch: Path) -> dict:
@@ -82,8 +85,14 @@ def verify(patch_file: Path, output_patch: Path) -> dict:
                 pass
         run(['flutter', 'test'], build_app, timeout=900)
         run(['flutter', 'analyze', '--no-fatal-warnings', '--no-fatal-infos'], build_app, timeout=900)
-        run(['flutter', 'build', 'apk', '--debug', '--target-platform', 'android-arm64'],
-            build_app, timeout=1800)
+        run(['flutter', 'build', 'apk', '--release', '--obfuscate',
+             '--split-debug-info=build/symbols', '--target-platform', 'android-arm64',
+             '--split-per-abi'],
+            build_app, timeout=1800,
+            extra_env={
+                'CGO_LDFLAGS': '-Wl,-z,max-page-size=16384',
+                'LINT_PRINT_STACKTRACE': 'true',
+            })
 
     output_patch.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(patch_file, output_patch)
@@ -91,7 +100,7 @@ def verify(patch_file: Path, output_patch: Path) -> dict:
         'status': 'verified',
         'source_tree_modified': False,
         'patch_exported': str(output_patch),
-        'checks': ['patch_gate', 'python_tests', 'flutter_test', 'flutter_analyze', 'android_arm64_debug_build'],
+        'checks': ['patch_gate', 'python_tests', 'flutter_test', 'flutter_analyze', 'android_arm64_release_build'],
         'device_tested': False,
     }
 

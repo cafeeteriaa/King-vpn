@@ -16,6 +16,7 @@ import 'package:flutter/foundation.dart' show compute, ValueListenable;
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_v2ray_client/flutter_v2ray.dart';
@@ -2815,6 +2816,41 @@ void logError(Object e, [StackTrace? st]) {
   errorLog.value = e.toString();
 }
 
+// The deliberately plain fallback still needs the native watchdog's local HTTP
+// inbound. Add only this loopback listener; do not alter DNS, routing, or outbounds.
+String _withVpnHealthHttpInbound(String cfg) {
+  try {
+    final j = jsonDecode(cfg);
+    if (j is! Map<String, dynamic>) return cfg;
+    final raw = j['inbounds'];
+    final inbounds = raw is List
+        ? List<dynamic>.from(raw)
+        : <dynamic>[];
+    // Never create a duplicate port binding. If another protocol owns 10809,
+    // leave the fallback untouched; the native probe will report no evidence.
+    final portOccupied = inbounds.any(
+        (ib) => ib is Map && ib['port'] == httpProxyPort);
+    if (portOccupied) return cfg;
+    inbounds.add({
+      'tag': 'king-health-http-in',
+      'listen': '127.0.0.1',
+      'port': httpProxyPort,
+      'protocol': 'http',
+      'settings': <String, dynamic>{},
+      'sniffing': {
+        'enabled': true,
+        'destOverride': <String>['http', 'tls'],
+        'routeOnly': routeOnly,
+      },
+    });
+    j['inbounds'] = inbounds;
+    return jsonEncode(j);
+  } catch (e, stk) {
+    logError(e, stk);
+    return cfg;
+  }
+}
+
 // Real-VPN config: keep the delay-test config as close as possible.
 // Only ensure DNS + sniffing are sane. Under national mode we MUST preserve
 // Iranian / operator DNS that the matrix found (overwriting with 1.1.1.1/8.8.8.8
@@ -2843,16 +2879,27 @@ String _reliableVpnCfg(String cfg) {
         '78.157.42.101', '10.202.10.10', '10.202.10.11',
       ];
       final existingList = existing is List ? existing : const <dynamic>[];
+      // withNpvAmCore() places the validated auto-selected domestic resolver
+      // first. Preserve that choice through the final real-VPN config pass,
+      // while retaining the complete domestic fallback set behind it.
+      final domesticSet =
+          domesticFirst.map((value) => value.toString().toLowerCase()).toSet();
+      final preferredDomestic = existingList
+          .where((item) => domesticSet.contains(item.toString().trim().toLowerCase()))
+          .toList();
       final merged = <dynamic>[];
       final seenDns = <String>{};
-      for (final item in [...domesticFirst, ...existingList]) {
+      for (final item in [...preferredDomestic, ...domesticFirst, ...existingList]) {
         final value = item.toString().trim();
         if (!secureDns && value.toLowerCase().startsWith('https://')) continue;
         if (value.isNotEmpty && seenDns.add(value.toLowerCase())) merged.add(item);
       }
       d['servers'] = merged;
     } else if (secureDns && !ultraMode && !indestructibleMode) {
-      d['servers'] = <dynamic>[
+      // withNpvAmCore() puts the selected provider/custom resolver first.
+      // Preserve that order instead of replacing it with a hard-coded list.
+      final existingList = existing is List ? existing : const <dynamic>[];
+      final globalFallbacks = <dynamic>[
         '1.1.1.1', '1.0.0.1', '8.8.8.8', '8.8.4.4',
         '9.9.9.9', '149.112.112.112', '208.67.222.222',
         '208.67.220.220', '94.140.14.14', '94.140.15.15',
@@ -2860,6 +2907,34 @@ String _reliableVpnCfg(String cfg) {
         'https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query',
         'https://9.9.9.9/dns-query', 'https://dns.adguard-dns.com/dns-query',
       ];
+      final merged = <dynamic>[];
+      final seen = <String>{};
+      for (final item in [...existingList, ...globalFallbacks]) {
+        final key = item is Map
+            ? jsonEncode(item)
+            : item.toString().trim().toLowerCase();
+        if (key.isNotEmpty && seen.add(key)) merged.add(item);
+      }
+      d['servers'] = merged;
+    }
+    // If the profile has no upstream resolver, do not let Xray fall back to
+    // Android's resolver after Android itself is pointed at the synthetic TUN DNS.
+    if (!nationalMode) {
+      // Keep a numeric fallback even when the imported profile only contains
+      // hostname-based or DoH resolvers; DNS-out direct fallback must not recurse
+      // through Android's synthetic resolver address.
+      final globalServers = d['servers'] is List
+          ? List<dynamic>.from(d['servers'] as List)
+          : <dynamic>[];
+      final globalKeys = globalServers
+          .map((item) => item is Map
+              ? jsonEncode(item)
+              : item.toString().trim().toLowerCase())
+          .toSet();
+      for (final fallback in ['1.1.1.1', '8.8.8.8']) {
+        if (globalKeys.add(fallback)) globalServers.add(fallback);
+      }
+      d['servers'] = globalServers;
     }
     // UseIP = هم IPv4 و هم IPv6 (هر کدام در دسترس باشد)
     d['queryStrategy'] = 'UseIP';
@@ -2867,7 +2942,85 @@ String _reliableVpnCfg(String cfg) {
     final rt = j['routing'] is Map
         ? Map<String, dynamic>.from(j['routing'] as Map)
         : <String, dynamic>{};
-    rt['domainStrategy'] = 'AsIs';
+    // Preserve the IP lookup required by the optional Iranian GeoIP rule.
+    // withIranRouting() sets IPIfNonMatch when both switches are enabled; an
+    // unconditional AsIs here silently disabled that rule for domain traffic.
+    if (iranRoute && iranGeoip) {
+      rt['domainStrategy'] = 'IPIfNonMatch';
+    } else {
+      rt['domainStrategy'] ??= 'AsIs';
+    }
+
+    // Native Android TUN sends ordinary UDP/TCP DNS packets to this dedicated
+    // Xray DNS outbound. Its default A/AAAA handling imports queries into the
+    // built-in DNS module, which then uses the resolver list above.
+    // A malformed profile without a real outbound cannot safely receive
+    // a DNS route: the DNS outbound must never become the accidental default.
+    if (j['outbounds'] is! List || (j['outbounds'] as List).isEmpty) {
+      return cfg;
+    }
+    final outbounds = List<dynamic>.from(j['outbounds'] as List);
+    final usedOutboundTags = <String>{};
+    for (final outbound in outbounds) {
+      if (outbound is Map && outbound['tag'] != null) {
+        usedOutboundTags.add(outbound['tag'].toString());
+      }
+    }
+    var dnsOutboundTag = 'king-dns-out';
+    var dnsTagSuffix = 1;
+    while (usedOutboundTags.contains(dnsOutboundTag)) {
+      dnsOutboundTag = 'king-dns-out-${dnsTagSuffix++}';
+    }
+    String? dnsRewriteAddress;
+    final resolverEntries = d['servers'] is List
+        ? d['servers'] as List
+        : const <dynamic>[];
+    for (final entry in resolverEntries) {
+      final candidate =
+          entry is Map ? (entry['address']?.toString() ?? '') : entry.toString();
+      final uri = Uri.tryParse(candidate);
+      // A DoH URL's host is not necessarily running plaintext DNS on port 53.
+      if (uri?.scheme == 'https' || uri?.scheme == 'http') continue;
+      final directIp = InternetAddress.tryParse(candidate);
+      final uriIp = uri?.host;
+      final parsedIp = directIp ?? (uriIp == null || uriIp.isEmpty
+          ? null
+          : InternetAddress.tryParse(uriIp));
+      if (parsedIp != null) {
+        dnsRewriteAddress = parsedIp.address;
+        break;
+      }
+    }
+    dnsRewriteAddress ??= nationalMode ? '178.22.122.100' : '1.1.1.1';
+    outbounds.add({
+      'tag': dnsOutboundTag,
+      'protocol': 'dns',
+      'settings': {
+        'rewriteAddress': dnsRewriteAddress,
+        'rewritePort': 53,
+        // Xray's built-in DNS module currently handles A/AAAA. Keep other
+        // record types working by forwarding them to a numeric resolver instead
+        // of returning an empty NOERROR response or looping to the TUN DNS IP.
+        'rules': [
+          {'action': 'hijack', 'qType': '1,28'},
+          {'action': 'direct'},
+        ],
+      },
+    });
+    j['outbounds'] = outbounds;
+    final rules = rt['rules'] is List
+        ? List<dynamic>.from(rt['rules'] as List)
+        : <dynamic>[];
+    rules.removeWhere((rule) =>
+        rule is Map && rule['ruleTag'] == 'king-vpn-dns-hijack');
+    rules.insert(0, {
+      'type': 'field',
+      'network': 'tcp,udp',
+      'port': '53',
+      'outboundTag': dnsOutboundTag,
+      'ruleTag': 'king-vpn-dns-hijack',
+    });
+    rt['rules'] = rules;
     j['routing'] = rt;
     // Keep local SOCKS/HTTP so post-connect social checks (TG/IG/YT) go through
     // the REAL core path — not the app's direct network (often bypasses VPN).
@@ -2884,13 +3037,16 @@ String _reliableVpnCfg(String cfg) {
       if (p == httpProxyPort || p == 10809) hasHttp = true;
       if (p == 10808 || proto.contains('socks')) hasSocks = true;
       final sn = ib['sniffing'];
-      if (sn is! Map || sn['enabled'] != true) {
-        ib['sniffing'] = {
-          'enabled': true,
-          'destOverride': ['http', 'tls'],
-          'routeOnly': true,
-        };
+      final sniffing = sn is Map
+          ? Map<String, dynamic>.from(sn)
+          : <String, dynamic>{};
+      sniffing['enabled'] = true;
+      if (sniffing['destOverride'] is! List) {
+        sniffing['destOverride'] = <String>['http', 'tls'];
       }
+      // Keep the user's RouteOnly preference consistent on every inbound.
+      sniffing['routeOnly'] = routeOnly;
+      ib['sniffing'] = sniffing;
     }
     if (!hasSocks) {
       inbounds.add({
@@ -2902,7 +3058,7 @@ String _reliableVpnCfg(String cfg) {
         'sniffing': {
           'enabled': true,
           'destOverride': ['http', 'tls'],
-          'routeOnly': true,
+          'routeOnly': routeOnly,
         },
       });
     }
@@ -2916,7 +3072,7 @@ String _reliableVpnCfg(String cfg) {
         'sniffing': {
           'enabled': true,
           'destOverride': ['http', 'tls'],
-          'routeOnly': true,
+          'routeOnly': routeOnly,
         },
       });
     }
@@ -3763,12 +3919,10 @@ class Server {
 bool _privateIp(InternetAddress a) {
   if (a.isLoopback || a.isLinkLocal || a.isMulticast) return true;
   final b = a.rawAddress;
-  if (b.length == 4) {
-    if (b[0] == 10 || b[0] == 0) return true;
-    if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) return true;
-    if (b[0] == 192 && b[1] == 168) return true;
-    if (b[0] == 100 && b[1] >= 64 && b[1] <= 127) return true;
-  }
+  // Treat every non-global/special-purpose IPv6 address as non-routable for
+  // public server probes, matching the strict AAAA validation used by NNIE.
+  if (b.length == 16 && !NatDnsWireProbe.publicV6(b, 0)) return true;
+  if (b.length == 4 && !NatDnsWireProbe.publicV4(b, 0)) return true;
   return false;
 }
 
@@ -3804,7 +3958,7 @@ Future<int?> probe(Server s) async {
     final name = s.sni.isNotEmpty ? s.sni : s.host;
     if (s.tls && probeTls) {
       final sec = await SecureSocket.secure(sock,
-              host: name, onBadCertificate: (_) => true)
+              host: name)
           .timeout(tcpTimeout);
       sec.destroy();
     } else {
@@ -3945,7 +4099,8 @@ final Stopwatch natVerifyClock = Stopwatch();
 const int kMaxZeroTrafficPerServer = 2;
 
 Future<void> pool<T>(
-    List<T> items, int workers, Future<void> Function(T) fn) async {
+    List<T> items, int workers, Future<void> Function(T) fn,
+    {bool Function()? shouldStop}) async {
   // Safer index-based pool: a shared Iterator can theoretically skip an item
   // if two workers call moveNext before either yields (rare but possible under
   // heavy microtask pressure). An atomic index eliminates that.
@@ -3960,7 +4115,7 @@ Future<void> pool<T>(
     var n = 0;
     while (true) {
       final i = next++;
-      if (i >= items.length || poolStop) break; // ABORTPOOL
+      if (i >= items.length || (shouldStop?.call() ?? poolStop)) break; // ABORTPOOL
       try {
         await fn(items[i]);
       } catch (e, stk) {
@@ -4043,7 +4198,9 @@ Future<double?> measure(
   try {
     return await () async {
       final req = await c.getUrl(Uri.parse(url));
+      req.followRedirects = false;
       final res = await req.close();
+      if (res.statusCode < 200 || res.statusCode >= 300) return null;
       var bytes = 0;
       final sw = Stopwatch()..start();
       await for (final chunk in res) {
@@ -4076,9 +4233,13 @@ Future<bool> _siteOpens(String url, {bool viaCore = true}) async {
   try {
     final req =
         await c.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 7));
+    // Do not follow captive-portal/DPI redirects and mistake their landing page
+    // for successful tunnel traffic.
+    req.followRedirects = false;
     final res = await req.close().timeout(const Duration(seconds: 7));
-    // STATUSFIX: DPI ایرانی 403 برمی‌گرداند؛ هر status>0 را قبول نکن
-    return res.statusCode >= 200 && res.statusCode < 400;
+    final code = res.statusCode;
+    final expects204 = Uri.parse(url).path.endsWith('/generate_204');
+    return expects204 ? code == HttpStatus.noContent : code >= 200 && code < 300;
   } catch (_swE) { _swl('_siteOpens#1', _swE);
     return false;
   } finally {
@@ -4142,20 +4303,35 @@ Future<bool> waitProxyPort(
 bool lastStartNoTunnel = false; // last _start failed because Android built no tunnel
 String kVpnLastStateTop = ''; // TUNSTATE-FIX: آینه‌ی سراسری lastState برای tunUp()
 String tunNames = ''; // interface names seen by the last tunUp() (diagnostics)
+bool _isTunnelInterfaceName(String name) {
+  final n = name.toLowerCase();
+  return n.startsWith('tun') ||
+      n.startsWith('ppp') ||
+      n.startsWith('vpn') ||
+      n.startsWith('utun') ||
+      n.contains('xray') ||
+      n.contains('v2ray');
+}
+
+// Unlike tunUp(), this strict check never infers a TUN from a stale CONNECTED
+// event. It is used only before a direct health probe to prevent bypass leaks.
+Future<bool> _tunInterfaceObserved() async {
+  try {
+    final interfaces = await NetworkInterface.list(includeLoopback: false);
+    tunNames = interfaces.map((i) => i.name).join(',');
+    return interfaces.any((i) => _isTunnelInterfaceName(i.name));
+  } catch (e, stk) {
+    logError(e, stk);
+    return false;
+  }
+}
+
 Future<bool?> tunUp() async {
   try {
     for (var attempt = 0; attempt < 5; attempt++) {
       final l = await NetworkInterface.list(includeLoopback: false);
       tunNames = l.map((i) => i.name).join(',');
-      final hasTunnel = l.any((i) {
-        final n = i.name.toLowerCase();
-        return n.startsWith('tun') ||
-            n.startsWith('ppp') ||
-            n.startsWith('vpn') ||
-            n.startsWith('utun') ||
-            n.contains('xray') ||
-            n.contains('v2ray');
-      });
+      final hasTunnel = l.any((i) => _isTunnelInterfaceName(i.name));
       if (hasTunnel) return true;
       if (attempt < 4) await Future.delayed(const Duration(milliseconds: 800));
     }
@@ -4192,11 +4368,16 @@ Future<int?> pingProxy(
       cancelled: cancelled,
     );
     if (cancelled?.call() ?? false) return null;
-    // TUNPING: در حالت VPN (TUN) پورت HTTP هسته ممکن است اصلاً باز نشود؛ آن‌وقت
-    // پینگ همیشه شکست می‌خورد و سرور سالم «ترافیک صفر» حساب می‌شود.
-    // اگر پورت بسته است و حالت پروکسی نیست، از مسیر عادی (که TUN روی آن است) استفاده کن.
+    // TUNPING: when the local HTTP inbound is absent, DIRECT is safe only
+    // if Android actually exposes this app's VPN interface. A stale CONNECTED
+    // callback must never turn ordinary internet into a false tunnel success.
     if (!useProxy && !proxyMode && (viaCore || !direct)) {
-      dbg('پینگ: پورت HTTP هسته بسته است؛ پینگ از مسیر TUN انجام می‌شود');
+      if (!await _tunInterfaceObserved()) {
+        lastPingErr = 'VPN TUN interface not observed';
+        return null;
+      }
+      if (cancelled?.call() ?? false) return null;
+      dbg('پینگ: پورت HTTP هسته بسته است؛ پینگ از TUN مشاهده‌شده انجام می‌شود');
     }
     if (cancelled?.call() ?? false) return null;
     final requestClient = HttpClient()
@@ -4213,6 +4394,7 @@ Future<int?> pingProxy(
       });
     }
     final req = await requestClient.getUrl(Uri.parse(url)).timeout(left());
+    req.followRedirects = false;
     // One monotonic budget covers proxy selection, connect, response, and drain.
     final res = await req.close().timeout(left());
     try {
@@ -4220,9 +4402,12 @@ Future<int?> pingProxy(
     } catch (_) {
       // مهلت بدنه: کد وضعیت همین حالا معلوم است؛ پاسخ را با آن می‌سنجیم
     }
-    // STATUSFIX: پاسخ 403/DPI را پینگ موفق حساب نکن
-    if (res.statusCode < 200 || res.statusCode >= 400) {
-      lastPingErr = 'HTTP ${res.statusCode}';
+    // A 3xx redirect may be a captive portal or DPI landing page, not a
+    // working tunnel. Generate-204 endpoints must return the exact 204 signal.
+    final expects204 = Uri.parse(url).path.endsWith('/generate_204');
+    final code = res.statusCode;
+    if (expects204 ? code != HttpStatus.noContent : code < 200 || code >= 300) {
+      lastPingErr = 'HTTP $code';
       return null;
     }
     return sw.elapsedMilliseconds;
@@ -4280,6 +4465,7 @@ Future<bool> internetEndpointsOpen({bool direct = true}) async {
     try {
       final request = await client.getUrl(Uri.parse(endpoint))
           .timeout(const Duration(seconds: 7));
+      request.followRedirects = false;
       request.headers.set('user-agent',
           'KingVPN-Network-Probe/1.0');
       final response = await request.close()
@@ -5013,6 +5199,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   DateTime lastFetchTry = DateTime.fromMillisecondsSinceEpoch(0);
   Timer? watch, tick, dropTimer, saveT;
   Timer? _natHotInitialTimer, _natHotRefreshTimer;
+  Timer? _networkAutoScanInitialTimer, _networkAutoScanPeriodicTimer;
+  bool _networkAutoScanRunning = false;
   // DROPDEFER: قطع هسته وسط تعویض را گم نمی‌کنیم؛ بعد از آزاد شدن busy/switching بررسی می‌شود
   bool _dropDeferred = false;
   // DROPFIX: هنگام توقف خودِ اپ (تست سرور، جستجو) رویداد DISCONNECTED طبیعی است
@@ -5434,7 +5622,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           !connSig!.isCompleted) {
         if (_staleCoreMayBeUp) {
           // FIX #107: this CONNECTED may come from the old core; prove it with traffic first
-          _verifyPendingConnect(connSig!);
+          final verifyGeneration = _connGen;
+          final verifyCompleter = connSig!;
+          unawaited(_verifyPendingConnect(verifyCompleter, verifyGeneration));
         } else {
           connSig!.complete(true);
         }
@@ -5488,6 +5678,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     v2ray.initialize().catchError(logError);
     Future.delayed(const Duration(seconds: 15), () => startAdopt = false);
     _init();
+    // Auto network learning is scheduled outside _natDetect: DNS and IP scans
+    // run sequentially, only while idle in the foreground, and obey their own
+    // persisted 6h/24h cooldowns.
+    _networkAutoScanInitialTimer = Timer(const Duration(seconds: 30), () {
+      if (mounted) unawaited(_runBackgroundNetworkScans());
+    });
+    _networkAutoScanPeriodicTimer = Timer.periodic(const Duration(minutes: 15), (_) {
+      if (mounted) unawaited(_runBackgroundNetworkScans());
+    });
     _inspectStart(); // INSPECTORPATCH
     // PERFPATCH: 5 s instead of 1 s (full page rebuild)
     tick = Timer.periodic(const Duration(seconds: 10), (_) {
@@ -5507,6 +5706,55 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     });
   }
 
+  bool _autoNetworkScanAllowed(bool modeSnapshot) =>
+      mounted &&
+      inForeground &&
+      !appGone &&
+      !abort &&
+      !wantVpn &&
+      !connected &&
+      lastState != 'CONNECTED' &&
+      lastState != 'CONNECTING' &&
+      !busy &&
+      !searching &&
+      warm == null &&
+      !switching &&
+      !_natRangeScanBusy &&
+      !_hotBusy &&
+      !_resBusy &&
+      !upBusy &&
+      !_natKeepOn &&
+      nationalMode == modeSnapshot;
+
+  Future<void> _runBackgroundNetworkScans() async {
+    if (_networkAutoScanRunning) return;
+    final modeSnapshot = nationalMode;
+    if (!_autoNetworkScanAllowed(modeSnapshot) ||
+        dnsxManualBusy ||
+        _dnsxAutoBusy ||
+        ipAutoBusy ||
+        _natRangeScanBusy ||
+        _hotBusy ||
+        _resBusy ||
+        upBusy ||
+        _natKeepOn) {
+      return;
+    }
+    _networkAutoScanRunning = true;
+    try {
+      // DNS first, then IP: never let the DNS lock starve the IP queue.
+      await dnsxAutoPick(
+        stop: () => !_autoNetworkScanAllowed(modeSnapshot),
+      );
+      if (!_autoNetworkScanAllowed(modeSnapshot)) return;
+      if (modeSnapshot) await ipAutoBackground();
+    } catch (e, stk) {
+      logError(e, stk);
+    } finally {
+      _networkAutoScanRunning = false;
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState s) {
     if (s != AppLifecycleState.resumed) KingAiOwnerAuth.instance.lock();
@@ -5517,6 +5765,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     inForeground = s == AppLifecycleState.resumed;
     _appFg = inForeground;
+    if (s == AppLifecycleState.resumed) {
+      Future.delayed(const Duration(seconds: 5), () {
+        if (mounted) unawaited(_runBackgroundNetworkScans());
+      });
+    }
     if (s == AppLifecycleState.resumed && _pendingUpdateApkPath != null) {
       _updateChecked = false;
       unawaited(checkForUpdate());
@@ -5683,6 +5936,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _netWatchTimer?.cancel();
     _natHotInitialTimer?.cancel();
     _natHotRefreshTimer?.cancel();
+    _networkAutoScanInitialTimer?.cancel();
+    _networkAutoScanPeriodicTimer?.cancel();
     _personalPingT?.cancel();
     _dbgSaveT?.cancel();
     _dbgProbT?.cancel();
@@ -7775,6 +8030,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<int> _svcOf(Server s) async {
     var m = 0;
     const urls = [delayTestUrl]; // V2RAYNG: real ping through the outbound
+    // LIVEQUIET: this helper also invokes getServerDelay on the shared core.
+    // Keep it out of the 90 s post-connect window just like _delayOnce().
+    await _waitLiveQuiet();
     try {
       final cfg = buildCoreConfig(s.useLink);
       final rs = await Future.wait(urls.map((u) => _delayGate.run<dynamic>(() => v2ray
@@ -7883,7 +8141,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             dbg('ماتریس: ${s.name} با حالت «$vn» جواب داد');
             _set('پیدا شد • ${s.name} • حالت: $vn');
           }
-          natVarSet(s, v);
+          // Keep this as a candidate only. The active tunnel must confirm it.
+          natVarCandidateSet(s, v);
         }
         return d;
       }
@@ -7901,9 +8160,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   // LIVEQUIET جدید: تست هسته فقط بعد از پایان پنجره‌ی آرامش، و فقط وقتی تونل زنده است
   Future<void> _waitLiveQuiet() async {
-    final until = _liveQuietUntil;
-    if (until == null || !connected || !wantVpn) return;
-    while (connected && wantVpn && DateTime.now().isBefore(until)) {
+    // Re-read the deadline on every pass: a reconnect can extend the quiet
+    // window while an earlier background probe is already waiting here.
+    while (connected && wantVpn) {
+      final until = _liveQuietUntil;
+      if (until == null || !DateTime.now().isBefore(until)) return;
       await Future<void>.delayed(const Duration(milliseconds: 500));
     }
   }
@@ -8412,9 +8673,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final cfgTries = <String>[
         if (ownCfg != null) ownCfg,
         cfg,
-        if (base != cfg) base,
+        // Preserve the plain fallback's routing/DNS/outbounds, but keep the
+        // local HTTP listener required by the native in-tunnel watchdog.
+        if (base != cfg) _withVpnHealthHttpInbound(base),
         if (chainCfg != null) chainCfg,
-      ].map((c) => withErrLog(sanitizeCfg(withIranRouting(withNpvAmCore(c))))).toList();
+      // Each candidate is already in its intended form: ownCfg/cfg are
+      // transformed by _reliableVpnCfg, base is deliberately the plain
+      // package config fallback, and chainCfg is built from transformed cfg.
+      // Re-applying the policy pipeline here duplicated routing rules and,
+      // worse, transformed the supposedly plain fallback as well.
+      ].map((c) => withErrLog(sanitizeCfg(c))).toList();
       var usedFallback = false;
       var trafficFailure = false;
       for (var ci = 0; ci < cfgTries.length; ci++) {
@@ -8589,6 +8857,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (earlyPing != null) {
           trafficFailure = false;
           break; // this config variant has real outbound traffic
+        }
+
+        // If the strict direct fallback could not observe a TUN, this is a
+        // device/core tunnel failure, not evidence against the server config.
+        if (!await _tunInterfaceObserved()) {
+          lastFail = 'اندروید رابط VPN را نساخت یا قابل مشاهده نیست';
+          lastStartNoTunnel = true;
+          await _stopCore();
+          return false;
         }
 
         trafficFailure = true;
@@ -8787,7 +9064,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       elapsedMs: nnieElapsedMs ?? max(0, s.ping ?? 0),
       stableForFiveMinutes: false,
     ));
-    NationalNetworkIntelligence.armStable(nnieKey, () => _stableTunnelTrafficOk(s));
+    // A reconnect may reuse the same Server object; bind the five-minute proof
+    // to this exact connection generation so an interrupted run cannot count.
+    final nnieGeneration = _connGen;
+    NationalNetworkIntelligence.armStable(nnieKey, () async {
+      if (nnieGeneration != _connGen || !connected || !identical(s, current)) {
+        return false;
+      }
+      final trafficOk = await _stableTunnelTrafficOk(s);
+      // The probe itself awaits network I/O. Revalidate afterward so a
+      // reconnect during that probe cannot credit the previous endpoint run.
+      return trafficOk &&
+          nnieGeneration == _connGen &&
+          connected &&
+          identical(s, current);
+    }, stillValid: () =>
+        nnieGeneration == _connGen && connected && identical(s, current));
     if (mounted) setState(() {});
     if (mounted) uiJoinPrompt(context);
     _set(_connStatus());
@@ -8905,6 +9197,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     // GUARD: در حالت عادی یادگیری نت ملی را پاک نکن (نسخه‌ی قدیمی این گارد را
     // داشت و با حذف آن، ladder حالت عادی variant ذخیره‌شده‌ی نت ملی را پاک می‌کرد).
+    natVarCandidateDiscard(s);
     if (nationalMode) natVar.remove(_nk(s));
     return false;
   }
@@ -8954,6 +9247,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  // Prefer the local HTTP inbound when it is listening. Some TUN-only core
+  // configurations expose no HTTP inbound; direct app traffic is safe only
+  // after an actual VPN interface is observed (never from stale state).
+  Future<bool> _tunnelEndpointOpens(String url) async {
+    if (proxyMode) return _siteOpens(url, viaCore: true);
+    if (await _coreProxyOpen(timeout: const Duration(milliseconds: 250)) &&
+        await _siteOpens(url, viaCore: true)) {
+      return true;
+    }
+    // A live HTTP inbound can still be unusable while the TUN data plane is
+    // healthy. Retry directly only after observing the actual VPN interface.
+    if (await _tunInterfaceObserved()) {
+      return _siteOpens(url, viaCore: false);
+    }
+    return false;
+  }
+
   // TUNCHK: ترافیک واقعی از داخل تونل (VPN) باید به مقصد متناسب با حالت شبکه برسد.
   // در حالت پروکسی تونلی وجود ندارد، پس بررسی انجام نمی‌شود.
   // FIX #12: national mode tests domestic destinations (international traffic is cut there);
@@ -8961,41 +9271,60 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<bool> _tunnelTrafficOk() async {
     if (proxyMode) return true;
     await Future.delayed(const Duration(seconds: 2));
-    // TUNFIX: viaCore true = the core's outbound, which is what must be measured. The app is NOT
-    // excluded from its own tunnel (FIX #49, KingVpnService.java), so DIRECT requests also pass
-    // the TUN; viaCore is therefore the explicit choice for the server check.
-    final urls = nationalMode ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
-    for (final u in urls) {
-      final ok = await _siteOpens(u, viaCore: true)
-          .timeout(const Duration(seconds: 8), onTimeout: () => false);
-      if (ok) return true;
-    }
-    return false;
+    // TUNFIX: viaCore measures the core's actual outbound data path.
+    // National-mode acceptance requires two independent domestic destinations:
+    // one reachable site alone is weak evidence and can be a transient false pass.
+    final modeSnapshot = nationalMode;
+    final urls = modeSnapshot ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
+    final results = await Future.wait(urls.map((url) =>
+        _tunnelEndpointOpens(url).timeout(
+            const Duration(seconds: 8), onTimeout: () => false)));
+    if (abort || !wantVpn || nationalMode != modeSnapshot) return false;
+    final passed = results.where((ok) => ok).length;
+    final required = modeSnapshot ? 2 : 1;
+    dbg('تأیید ترافیک تونل: ${modeSnapshot ? "ملی" : "جهانی"} • '
+        '$passed/${urls.length} مقصد • حداقل $required');
+    return passed >= required;
   }
 
   // Stable history requires a fresh multi-destination check through the active core.
   // This also covers proxy mode: the core's local proxy is the measured data path.
   Future<bool> _stableTunnelTrafficOk(Server server) async {
     if (!connected || !identical(current, server)) return false;
-    final urls = nationalMode ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
+    final modeSnapshot = nationalMode;
+    final urls = modeSnapshot ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
     if (urls.length < 2) return false;
     final results = await Future.wait(urls.map((url) =>
-        _siteOpens(url, viaCore: true).timeout(
+        _tunnelEndpointOpens(url).timeout(
             const Duration(seconds: 8), onTimeout: () => false)));
     final passed = results.where((ok) => ok).length;
-    return connected && identical(current, server) && passed >= 2;
+    // Do not count a five-minute stability sample if the user changed the
+    // national/global route while its end-to-end probes were still running.
+    return connected &&
+        identical(current, server) &&
+        nationalMode == modeSnapshot &&
+        passed >= 2;
   }
 
   // FIX #107: completes the connect waiter only when real traffic passes through the tunnel now.
   // A pass clears the stale-core flag, because the connection is now proven.
-  Future<void> _verifyPendingConnect(Completer<bool> c) async {
+  Future<void> _verifyPendingConnect(
+      Completer<bool> c, int expectedGeneration) async {
     final ok = await _tunnelTrafficOk();
+    // A stop/reconnect may replace the waiter while the traffic probe is in flight.
+    // Never let an old verification clear the stale-core fence for a newer attempt.
+    if (expectedGeneration != _connGen ||
+        !identical(connSig, c) ||
+        c.isCompleted ||
+        !_staleCoreMayBeUp) {
+      return;
+    }
     if (!ok) {
       dbg('CONNECTED ignored: traffic not through the tunnel yet (possible stale core)');
       return;
     }
     _staleCoreMayBeUp = false;
-    if (!c.isCompleted) c.complete(true);
+    c.complete(true);
   }
 
   // [trust] = the server was already tested: skip the extra verification.
@@ -9006,10 +9335,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     var siteSkips = 0; // SITEPRECHECK: servers skipped because no site opened
     var coreDownCount = 0, coreUpCount = 0; // CORE-SYSTEMIC: core up/down per run
     for (final s in list) {
-      if (abort) return false;
+      if (abort) { natVarCandidateDiscard(s); return false; }
       final pin = favs.containsKey(s.key);
       final badCfg = coreUnsupportedReason(s.link);
       if (badCfg != null) {
+        natVarCandidateDiscard(s);
         s.svc = 0;
         s.badAt = DateTime.now();
         dbg('ℹ ${s.name}: برای هسته ۳.۵.۰ پشتیبانی نمی‌شود ($badCfg) • بدون تست رد شد • سرور بعدی');
@@ -9020,11 +9350,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // V8: pre-social-check removed (v2rayNG-style connect)
       _set('اتصال به ${s.name}...');
       if (!await _start(s)) {
+        natVarCandidateDiscard(s);
         _nnieClearAttempt(s);
         // CANCEL-NOPENALTY: the user (or an abort) stopped the connect, or the
         // VPN was not requested. That is not a fault of this server/config, so
         // it must NOT be blacklisted or reported as E-CONFIG-FAIL.
         if (abort || !wantVpn) {
+          natVarCandidateDiscard(s);
           lastFail = '';
           return false;
         }
@@ -9079,7 +9411,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // Give the Activity more time to come back (common after ad / screen)
           await Future.delayed(Duration(
               milliseconds: inForeground ? 800 : 1500));
-          if (abort) return false;
+          if (abort) { natVarCandidateDiscard(s); return false; }
           // up to 2 quiet retries (Activity may have resumed)
           var recovered = false;
           for (var r = 0; r < 2 && !recovered && !abort; r++) {
@@ -9168,6 +9500,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
         // A cancelled connection is not evidence that this server is unhealthy.
         if (abort || !wantVpn) {
+          natVarCandidateDiscard(s);
           await _stopV2();
           _nnieClearAttempt(s);
           return false;
@@ -9185,6 +9518,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // A stop can take long enough for the user to cancel. Do not launch
           // a same-server variant ladder after cancellation or disconnect intent.
           if (abort || !wantVpn) {
+          natVarCandidateDiscard(s);
             _nnieClearAttempt(s);
             return false;
           }
@@ -9197,6 +9531,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             final ladderOk = await _natLadder(s,
                 socialGate: _tunnelTrafficOk, maxTries: 3);
             if (abort || !wantVpn) {
+          natVarCandidateDiscard(s);
               _nnieClearAttempt(s);
               return false;
             }
@@ -9209,11 +9544,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // variant ladder also failed to pass real tunnel traffic. A core
           // CONNECTED state or a failed first variant alone is not enough.
           if (abort || !wantVpn) {
+          natVarCandidateDiscard(s);
             _nnieClearAttempt(s);
             return false;
           }
           final ip1 = await resolveHostIp(s.host);
           if (abort || !wantVpn) {
+          natVarCandidateDiscard(s);
             _nnieClearAttempt(s);
             return false;
           }
@@ -9273,8 +9610,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       var tunChecked = false;
       if (!abort && wantVpn) {
         final tunOk = personalPingPassed || await _tunnelTrafficOk();
-        if (abort) return false;
+        if (abort) { natVarCandidateDiscard(s); return false; }
         if (!tunOk) {
+          natVarCandidateDiscard(s);
           // CACHEINVALID-TUN: variantی که از natVarNormal اومد، ترافیک تونل رد نکرد.
           if (!nationalMode) natVarNormal.remove(s.key); // NORMALKEY
           // NATTUN: در نت ملی، همان حالت‌های جایگزین را روی همین سرور با اتصال واقعی امتحان می‌کنیم.
@@ -9285,12 +9623,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             await _stopV2();
             ladderOk = await _natLadder(s,
                 socialGate: _tunnelTrafficOk, maxTries: 3);
-            if (abort) return false;
+            if (abort) { natVarCandidateDiscard(s); return false; }
           }
           if (ladderOk) {
             tunChecked = true;
             dbg('اتصال: ${s.name} با جایگزین ترافیک تونل OK (google + youtube)');
           } else {
+            natVarCandidateDiscard(s);
             siteSkips++;
             s.svc = 0;
             s.badAt = DateTime.now();
@@ -9301,6 +9640,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             continue;
           }
         } else {
+          // Only the end-to-end data-plane check can persist a delay winner.
+          natVarCandidateConfirm(s);
           tunChecked = true;
           dbg('اتصال: ${s.name} ترافیک تونل OK (google + youtube)');
           // SUBSTPROJ: در نت ملی، پایه‌ی سالم هم یک بار جایگزین‌ها را با تونل می‌سنجد.
@@ -9309,11 +9650,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             natSubstSearched.add(s.key);
             await _stopV2();
             final sub = await _natLadder(s, socialGate: _tunnelTrafficOk);
-            if (abort) return false;
+            if (abort) { natVarCandidateDiscard(s); return false; }
             if (!sub) {
               // جایگزینی نبود: پایه‌ی قبلاً سالم را دوباره بالا می‌آوریم
               if (!await _start(s)) {
                 if (abort || !wantVpn) {
+          natVarCandidateDiscard(s);
                   _nnieClearAttempt(s);
                   return false;
                 }
@@ -9342,7 +9684,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             await waitProxyPort(
                 max: Duration(seconds: nationalMode ? 8 : 4));
           }
-          if (abort) return false;
+          if (abort) { natVarCandidateDiscard(s); return false; }
 
           Future<List<bool>> runSocial() async {
             try {
@@ -9357,7 +9699,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
 
           var r = await runSocial();
-          if (abort) return false;
+          if (abort) { natVarCandidateDiscard(s); return false; }
           bool tg = r[0] || r[1];
           bool yt = false;
           bool ig = false;
@@ -9404,7 +9746,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               win: const Duration(seconds: 2),
               total: Duration(seconds: nationalMode ? 10 : 6),
               viaCore: true);
-          if (abort) return false;
+          if (abort) { natVarCandidateDiscard(s); return false; }
           // فقط تلگرام باید از تونل باز شود
           // IPTEST: in national mode the server is accepted when YouTube or
           // Instagram opens through the tunnel (Telegram was too strict for IPs)
@@ -9429,7 +9771,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               'سرعت=${sp?.toStringAsFixed(2) ?? "-"} MB/s');
         }
       }
-      if (abort || !wantVpn) return false; // V8: abort guard
+      if (abort || !wantVpn) { natVarCandidateDiscard(s); return false; } // V8: abort guard
       _onConnected(s);
       return true;
     }
@@ -10267,9 +10609,13 @@ ListTile( // KINGEXTRAS row
       final req = await c
           .getUrl(Uri.parse(url))
           .timeout(const Duration(milliseconds: 3000));
+      req.followRedirects = false;
       final res = await req.close().timeout(const Duration(milliseconds: 3000));
-      // STATUSFIX: 403 از DPI یعنی «دنیا وصل است» نیست؛ فقط 2xx/3xx موفق است
-      return res.statusCode >= 200 && res.statusCode < 400;
+      // Reject captive-portal redirects; 204 endpoints must return the exact
+      // no-content signal, while ordinary homepage probes accept only 2xx.
+      final code = res.statusCode;
+      final expects204 = Uri.parse(url).path.endsWith('/generate_204');
+      return expects204 ? code == HttpStatus.noContent : code >= 200 && code < 300;
     } catch (e, stk) {
       logError(e, stk);
       return false;
@@ -10517,16 +10863,27 @@ ListTile( // KINGEXTRAS row
       const checkCap = 400; // فیکس ۱۹: قبلاً ۳۰۰۰؛ بقیه در overflow می‌روند و دور بعد بررسی می‌شوند
       final overflow = cands.length > checkCap ? cands.sublist(checkCap) : <Server>[];
       if (cands.length > checkCap) cands.removeRange(checkCap, cands.length);
-      final ipOf = <String, String>{};
+      // Keep a bounded set of A and AAAA answers for each hostname. A failed
+      // first-family TCP attempt must not hide a reachable address in the other family.
+      final ipOf = <String, List<String>>{};
       for (final h in {for (final s in cands) if (s.host.isNotEmpty) s.host}) {
         if (InternetAddress.tryParse(h) != null) {
-          ipOf[h] = h;
+          ipOf[h] = [h];
           continue;
         }
         final r = await safeLookup(h);
-        if (r.isNotEmpty) ipOf[h] = r.first.address;
+        if (r.isNotEmpty) {
+          ipOf[h] = r
+              .map((a) => a.address)
+              .toSet()
+              .take(8)
+              .toList(growable: false);
+        }
       }
-      final targets = [for (final s in cands) if (ipOf.containsKey(s.host)) s];
+      final targets = [
+        for (final s in cands)
+          if (ipOf[s.host]?.isNotEmpty ?? false) s
+      ];
       final ok = <Server>[];
       const batch = 20;
       final deadline = DateTime.now().add(const Duration(seconds: 90));
@@ -10535,15 +10892,21 @@ ListTile( // KINGEXTRAS row
           i += batch) {
         final chunk = targets.sublist(i, min(i + batch, targets.length));
         _set('نت ملی: بررسی IP ${i + chunk.length}/${targets.length}...');
-        final res = await Future.wait(chunk.map((s) => natTcpProbe(
-            ipOf[s.host]!, s.port, const Duration(milliseconds: 1500))));
+        final res = await Future.wait(chunk.map((s) async {
+          if (natIpDeadRun.contains('${s.host}|${s.port}')) return false;
+          for (final ip in ipOf[s.host]!) {
+            if (await natTcpProbe(
+                    ip, s.port, const Duration(milliseconds: 1500)) !=
+                null) {
+              return true;
+            }
+          }
+          return false;
+        }));
         natIpScanned += chunk.length;
-        // DEADSKIP: IPهایی که در همین نشست رد شده‌اند دوباره تست نمی‌شوند
         for (var k = 0; k < chunk.length; k++) {
-          final s = chunk[k];
-          if (natIpDeadRun.contains('${s.host}|${s.port}')) continue;
-          if (res[k] != null) {
-            ok.add(s);
+          if (res[k]) {
+            ok.add(chunk[k]);
             natIpFound++;
           }
         }
@@ -10991,19 +11354,32 @@ ListTile( // KINGEXTRAS row
     for (final source in raw.split(String.fromCharCode(10))) {
       final line = source.trim();
       if (line.isEmpty) continue;
-      final cidr = RegExp(r'^([0-9.]+)/([0-9]{1,2})$').firstMatch(line);
-      if (cidr != null) {
-        final base = _pilotIpNumber(cidr.group(1)!);
-        final prefix = int.tryParse(cidr.group(2)!);
-        if (base == null || prefix == null || prefix < 24 || prefix > 32) continue;
-        final mask = (0xffffffff << (32 - prefix)) & 0xffffffff;
-        final network = base & mask;
-        final count = 1 << (32 - prefix);
-        for (var i = 0; i < count && out.length < 256; i++) {
-          out.add(_pilotIpText(network + i));
+      final slash = line.lastIndexOf('/');
+      if (slash > 0) {
+        final address = InternetAddress.tryParse(line.substring(0, slash).trim());
+        final prefix = int.tryParse(line.substring(slash + 1).trim());
+        if (address == null || prefix == null) continue;
+        if (address.type == InternetAddressType.IPv4) {
+          final base = _pilotIpNumber(address.address);
+          if (base == null || prefix < 24 || prefix > 32) continue;
+          final mask = (0xffffffff << (32 - prefix)) & 0xffffffff;
+          final network = base & mask;
+          final count = 1 << (32 - prefix);
+          for (var i = 0; i < count && out.length < 256; i++) {
+            out.add(_pilotIpText(network + i));
+          }
+        } else if (address.type == InternetAddressType.IPv6 &&
+            prefix >= 120 && prefix <= 128) {
+          out.addAll(nipExpandIpv6Cidr(line,
+              maxPerBlock: min(256 - out.length, 256)));
         }
-      } else if (_pilotIpNumber(line) != null) {
-        out.add(line);
+      } else {
+        final address = InternetAddress.tryParse(line);
+        if (address != null &&
+            (address.type == InternetAddressType.IPv4 ||
+                address.type == InternetAddressType.IPv6)) {
+          out.add(address.address);
+        }
       }
       if (out.length >= 256) break;
     }
@@ -11015,14 +11391,22 @@ ListTile( // KINGEXTRAS row
         .map((v) => v.trim()).where((v) => v.isNotEmpty).toList();
     if (lines.isEmpty) return false;
     for (final line in lines) {
-      final cidr = RegExp(r'^([0-9.]+)/([0-9]{1,2})$').firstMatch(line);
-      if (cidr == null) {
-        if (_pilotIpNumber(line) == null) return false;
+      final slash = line.lastIndexOf('/');
+      if (slash <= 0) {
+        final ip = InternetAddress.tryParse(line);
+        if (ip == null ||
+            (ip.type != InternetAddressType.IPv4 &&
+                ip.type != InternetAddressType.IPv6)) return false;
         continue;
       }
-      final base = _pilotIpNumber(cidr.group(1)!);
-      final prefix = int.tryParse(cidr.group(2)!);
-      if (base == null || prefix == null || prefix < 24 || prefix > 32) {
+      final ip = InternetAddress.tryParse(line.substring(0, slash).trim());
+      final prefix = int.tryParse(line.substring(slash + 1).trim());
+      if (ip == null || prefix == null) return false;
+      if (ip.type == InternetAddressType.IPv4) {
+        if (prefix < 24 || prefix > 32) return false;
+      } else if (ip.type == InternetAddressType.IPv6) {
+        if (prefix < 120 || prefix > 128) return false;
+      } else {
         return false;
       }
     }
@@ -11037,12 +11421,12 @@ ListTile( // KINGEXTRAS row
     await showDialog<void>(context: context, builder: (ctx) => AlertDialog(
       title: const Text('بازه‌های مستقل IP خلبان'),
       content: TextField(controller: c, minLines: 3, maxLines: 8,
-        decoration: const InputDecoration(hintText: 'هر خط یک IPv4 یا CIDR از /24 تا /32؛ نمونه: 1.2.3.0/24')),
+        decoration: const InputDecoration(hintText: 'هر خط یک IPv4/IPv6 یا CIDR؛ IPv4 از /24 تا /32 و IPv6 از /120 تا /128')),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('بستن')),
         FilledButton(onPressed: () async {
           if (!_pilotRangesValid(c.text)) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('یکی از بازه‌ها نامعتبر است؛ هر خط باید IPv4 یا CIDR معتبر /24 تا /32 باشد.')));
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('یکی از بازه‌ها نامعتبر است؛ IPv4 باید /24 تا /32 و IPv6 باید /120 تا /128 باشد.')));
             return;
           }
           _pilotRanges = c.text.split(String.fromCharCode(10)).map((v) => v.trim()).where((v) => v.isNotEmpty).toList();
@@ -11075,7 +11459,11 @@ ListTile( // KINGEXTRAS row
         final result = await Future.wait(batch.map((host) async {
           Socket? socket;
           try {
-            socket = await Socket.connect(host, 443, timeout: const Duration(milliseconds: 900));
+            final address = InternetAddress.tryParse(host);
+            if (address == null ||
+                (address.type != InternetAddressType.IPv4 &&
+                    address.type != InternetAddressType.IPv6)) return null;
+            socket = await Socket.connect(address, 443, timeout: const Duration(milliseconds: 900));
             return host;
           } catch (_) { return null; }
           finally { socket?.destroy(); }
@@ -11234,7 +11622,15 @@ ListTile( // KINGEXTRAS row
       final clearFilters = RegExp(r'(پاک کردن فیلتر|حذف محدودیت|ریست فیلتر)').hasMatch(command);
       final allCountries = RegExp(r'(همه کشورها|تمام کشورها)').hasMatch(command);
       final allProtocols = RegExp(r'(همه پروتکل|تمام پروتکل)').hasMatch(command);
-      final codeRequest = !KingCommandSafety.isQuestionRequest(command) && RegExp(
+      final projectRequest = !KingCommandSafety.isQuestionRequest(command) && RegExp(
+        r'(اپلیکیشن بساز|اپلیکیشن ایجاد کن|اپ بساز|برنامه جدید بساز|برنامه بساز|پروژه بساز|'
+        r'(اپلیکیشن|اپ|برنامه|پروژه).{0,50}(بساز|ایجاد کن|درست کن|طراحی کن|بنویس)|'
+        r'(بساز|ایجاد کن|درست کن|طراحی کن).{0,30}(اپلیکیشن|اپ|برنامه|پروژه)|'
+        r'برنامه اندروید بساز|اپلیکیشن اندروید بساز|create an app|create app|build an app|make an app|'
+        r'make me an app|build me an app|create me an app|generate application|create a project|build a project)',
+        caseSensitive: false,
+      ).hasMatch(normalizedCommand);
+      final codeRequest = projectRequest || (!KingCommandSafety.isQuestionRequest(command) && RegExp(
         r'(کدنویسی کن|برنامه نویسی کن|کد بنویس|کدشو بنویس|کد تولید کن|کد جدید بنویس|کد رو بنویس|کد را بنویس|'
         r'کد رو اصلاح|کد را اصلاح|سورس رو تغییر|سورس را تغییر|برنامه رو تغییر|'
         r'برنامه را تغییر|به برنامه اضافه|قابلیت بساز|قابلیت اضافه کن|'
@@ -11245,7 +11641,7 @@ ListTile( // KINGEXTRAS row
         r'(اینترنت ایران|نت ملی).{0,30}(قابلیت.{0,12}(اضافه کن|بساز|ایجاد کن)|امکانات.{0,12}(اضافه کن|بساز)|کدنویسی کن|سورس را تغییر بده|کد بنویس)|'
         r'(نت ملی|اینترنت ایران).{0,40}(بهینه|ارتقا|بروز|به روز|خودکار|هوشمند|توسعه|تقویت).{0,12}(کن|کنید|بده|بساز)|'
         r'(بهینه|ارتقا|بروز|به روز|خودکار|هوشمند|توسعه|تقویت).{0,30}(نت ملی|اینترنت ایران).{0,12}(کن|کنید|بده|بساز))',
-      ).hasMatch(command);
+      ).hasMatch(command));
 
       final analysisOnlyRequest = RegExp(
         r'((ایده|پیشنهاد|فکر).{0,45}(تحلیل|بررسی|نظرت)|'
@@ -11285,8 +11681,11 @@ ListTile( // KINGEXTRAS row
         _set('چشم رئیس؛ ایده را فقط تحلیل می‌کنم و بدون دستور جداگانهٔ تو هیچ سورس یا کدی را تغییر نمی‌دهم.');
       } else if (codeRequest) {
         unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
-          builder: (_) => KingAiConsolePage(initialFeatureRequest: command,
-              speakResponses: voiceResponse),
+          builder: (_) => KingAiConsolePage(
+            initialProjectRequest: projectRequest ? command : null,
+            initialFeatureRequest: projectRequest ? null : command,
+            speakResponses: voiceResponse,
+          ),
         )));
         _set('چشم رئیس؛ فقط مالک اصلی پس از احراز هویت می‌تواند درخواست تغییر کد را ثبت کند. کینگ آن را تحلیل می‌کند و تغییرات را فقط در شاخهٔ بازبینی‌شونده آماده می‌کند.');
       } else if (statusRequest) {
@@ -13888,8 +14287,15 @@ ListTile( // KINGEXTRAS row
       try {
         final alive = _bgAliveUnsupported
             ? null
-            : await bgChannel.invokeMethod<bool>('alive').catchError((e) {
-                _bgAliveUnsupported = true; // ALIVEONCE
+            : await bgChannel.invokeMethod<bool>('alive').catchError((Object e) {
+                // Only a genuinely absent native handler is a permanent
+                // compatibility signal. A transient PlatformException must
+                // not silently disable all future lifecycle checks.
+                if (e is MissingPluginException) {
+                  _bgAliveUnsupported = true; // ALIVEONCE
+                } else {
+                  _swl('_startWatch#alive', e);
+                }
                 return null;
               });
         if (alive == false && !appGone && !(wantVpn || connected)) {

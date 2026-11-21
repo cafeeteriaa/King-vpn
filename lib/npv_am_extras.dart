@@ -20,6 +20,7 @@ String dnsProv = 'auto';
 String dnsProvActive = 'cloudflare';
 DateTime? _dnsPickAt;
 String? _dnsPickNetworkKey;
+bool _dnsPickLastSucceeded = false;
 
 Future<String> _dnsNetworkKey() async {
   try {
@@ -30,9 +31,14 @@ Future<String> _dnsNetworkKey() async {
       if (ips.isNotEmpty) rows.add('${iface.name}:${ips.join(',')}');
     }
     rows.sort();
-    return '${nationalMode ? 'nat' : 'global'}|${rows.join('|')}';
+    // An empty interface snapshot is not a stable network identity. Do not
+    // let DNS/DoH caches treat "no visible interface" as a reusable network.
+    if (rows.isEmpty) {
+      return '${nationalMode ? 'nat' : 'global'}|$natOpKey|unknown';
+    }
+    return '${nationalMode ? 'nat' : 'global'}|$natOpKey|${rows.join('|')}';
   } catch (_) {
-    return '${nationalMode ? 'nat' : 'global'}|unknown';
+    return '${nationalMode ? 'nat' : 'global'}|$natOpKey|unknown';
   }
 }
 const _fragLenOpts = <String>['100-200', '50-100', '10-30'];
@@ -103,7 +109,9 @@ List<String>? customDnsList() {
   if (effectiveDnsProv() != 'custom') return null;
   final a = customDnsAddr.trim();
   final parsedIp = InternetAddress.tryParse(a);
-  final ipOk = parsedIp != null && parsedIp.type == InternetAddressType.IPv4;
+  final ipOk = parsedIp != null &&
+      (parsedIp.type == InternetAddressType.IPv4 ||
+          parsedIp.type == InternetAddressType.IPv6);
   if (a.startsWith('https://') || ipOk) return [a];
   return null;
 }
@@ -145,8 +153,11 @@ Future<int?> _probeDoh(String url, {String expectedDomain = 'google.com'}) async
   }
 }
 
-Future<int?> _probeDnsIp(String ip) async {
-  final domain = nationalMode ? 'nic.ir' : 'google.com';
+Future<int?> _probeDnsIp(
+  String ip, {
+  required bool nationalModeSnapshot,
+}) async {
+  final domain = nationalModeSnapshot ? 'nic.ir' : 'google.com';
   final result = await NatDnsWireProbe.probe(
     ip,
     domain,
@@ -160,14 +171,21 @@ Future<String> pickBestDns({bool force = false}) async {
     dnsProvActive = dnsProv;
     return dnsProv;
   }
+  final modeSnapshot = nationalMode;
   final networkKey = await _dnsNetworkKey();
+  // The mode can change while the interface snapshot is being collected.
+  if (nationalMode != modeSnapshot) return dnsProvActive;
   if (_dnsPickNetworkKey != networkKey) {
     _dnsPickAt = null;
+    _dnsPickLastSucceeded = false;
     _dnsPickNetworkKey = networkKey;
   }
+  final cacheTtl = _dnsPickLastSucceeded
+      ? const Duration(minutes: 10)
+      : const Duration(seconds: 45);
   if (!force &&
       _dnsPickAt != null &&
-      DateTime.now().difference(_dnsPickAt!) < const Duration(minutes: 10)) {
+      DateTime.now().difference(_dnsPickAt!) < cacheTtl) {
     return dnsProvActive;
   }
 
@@ -190,10 +208,10 @@ Future<String> pickBestDns({bool force = false}) async {
   var foundValidResolver = false;
   // During a domestic-only outage do not spend the first DNS-selection window
   // on global DoH endpoints. Probe only domestic resolvers with a real .ir query.
-  final selectedDohProbes = nationalMode
+  final selectedDohProbes = modeSnapshot
       ? const <String, String>{}
       : dohProbes;
-  final selectedIpProbes = nationalMode
+  final selectedIpProbes = modeSnapshot
       ? const <String, String>{
           'shecan': '178.22.122.100',
           'electro': '78.157.42.100',
@@ -211,7 +229,10 @@ Future<String> pickBestDns({bool force = false}) async {
       }
     }),
     ...selectedIpProbes.entries.map((e) async {
-      final ms = await _probeDnsIp(e.value);
+      final ms = await _probeDnsIp(
+        e.value,
+        nationalModeSnapshot: modeSnapshot,
+      );
       if (ms != null && ms < bestMs) {
         bestMs = ms;
         best = e.key;
@@ -220,8 +241,22 @@ Future<String> pickBestDns({bool force = false}) async {
     }),
   ]);
 
-  if (foundValidResolver) dnsProvActive = best;
-  else dbg('DNS auto: no resolver returned a validated answer; keeping previous provider=$dnsProvActive');
+  // The interface/operator/mode can change while parallel resolver probes
+  // are in flight. Never apply a result measured on the previous network.
+  final networkAfterProbe = await _dnsNetworkKey();
+  if (networkAfterProbe != networkKey) {
+    _dnsPickAt = null;
+    _dnsPickLastSucceeded = false;
+    _dnsPickNetworkKey = networkAfterProbe;
+    return dnsProvActive;
+  }
+  if (foundValidResolver) {
+    dnsProvActive = best;
+    _dnsPickLastSucceeded = true;
+  } else {
+    _dnsPickLastSucceeded = false;
+    dbg('DNS auto: no resolver returned a validated answer; keeping previous provider=$dnsProvActive');
+  }
   _dnsPickNetworkKey = networkKey;
   _dnsPickAt = DateTime.now();
   return dnsProvActive;
@@ -814,7 +849,6 @@ Future<int?> _cfProbeMs(String ip, Duration t) async {
     raw = await Socket.connect(ip, 443, timeout: t);
     k = await SecureSocket.secure(raw,
             host: 'cloudflare.com',
-            onBadCertificate: (_) => true,
             supportedProtocols: const ['http/1.1'])
         .timeout(t);
     k.write(
@@ -1087,28 +1121,58 @@ String withNpvAmCore(String cfg) {
     j['outbounds'] = outs;
     if (secureDns) {
       final d = j['dns'] is Map ? j['dns'] as Map : <String, dynamic>{};
+      const domesticProviders = {'shecan', 'electro', 'radar'};
+      // A manually selected domestic provider must not be replaced by the
+      // stale auto-selection cache. In auto mode, use only a validated
+      // domestic result; otherwise fall back to Shecan.
+      final nationalAutoProvider = dnsProv != 'auto' &&
+              domesticProviders.contains(dnsProv)
+          ? dnsProv
+          : (domesticProviders.contains(dnsProvActive)
+              ? dnsProvActive
+              : 'shecan');
+      final nationalCustom = dnsProv == 'custom' ? customDnsList() : null;
       final first = nationalMode
-          ? (_dnsUrls['shecan'] ?? _dnsUrls['electro']!)
+          ? <String>[
+              ...(_dnsUrls[nationalAutoProvider] ?? _dnsUrls['shecan']!),
+              ...?nationalCustom,
+            ]
           : (customDnsList() ?? _dnsUrls[effectiveDnsProv()] ?? _dnsUrls['cloudflare']!);
       final ips = <dynamic>[];
       final doh = <dynamic>[];
-      void addResolver(String value) {
+      final structured = <dynamic>[];
+      final resolverKeys = <String>{};
+      void addResolver(dynamic raw) {
+        // Xray supports object-form DNS servers (address, port, domains,
+        // expectIPs, etc.). Keep these objects intact instead of turning
+        // Map.toString() into an invalid resolver address.
+        if (raw is Map) {
+          final key = jsonEncode(raw);
+          if (resolverKeys.add(key)) {
+            structured.add(Map<String, dynamic>.from(raw));
+          }
+          return;
+        }
+        final value = raw.toString().trim();
+        if (value.isEmpty) return;
+        final key = value.toLowerCase();
+        if (!resolverKeys.add(key)) return;
         if (value.startsWith('https://')) {
-          if (!doh.contains(value)) doh.add(value);
-        } else if (!ips.contains(value)) {
+          doh.add(value);
+        } else {
           ips.add(value);
         }
       }
       // National: Iranian resolvers first, imported/custom and global fallback later.
-      for (final value in first) { addResolver(value.toString()); }
+      for (final value in first) { addResolver(value); }
       final existingServers = d['servers'];
       if (existingServers is List) {
-        for (final value in existingServers) { addResolver(value.toString()); }
+        for (final value in existingServers) { addResolver(value); }
       }
       for (final entry in _dnsUrls.entries) {
         for (final value in entry.value) { addResolver(value); }
       }
-      d['servers'] = [...ips, ...doh];
+      d['servers'] = [...ips, ...doh, ...structured];
       d['queryStrategy'] = 'UseIP';
       j['dns'] = d;
       final rt = j['routing'] is Map ? j['routing'] as Map : <String, dynamic>{};

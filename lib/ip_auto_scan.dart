@@ -12,6 +12,8 @@ const String _ipAutoKeyNat = 'ipauto_nat_v1';
 const String _ipAutoKeyGlob = 'ipauto_glob_v1';
 const String _ipAutoCursorKey = 'ipauto_cursor_v1';
 const String _ipAutoPosKey = 'ipauto_pos_v1'; // جای فعلی در فهرست آدرس‌ها
+const String _ipAutoPendingKey = 'ipauto_pending_core_v1'; // endpointهای TCP بازِ منتظر تأیید هسته
+const String _ipAutoStateKey = 'ipauto_state_v1'; // snapshot اتمی وضعیت هر حالت شبکه
 const int _ipAutoBatch = 6000; // آدرس در هر اجرا
 const int _ipAutoMaxHits = 1000; // سقف نتایج ذخیره‌شده
 const int _ipAutoPorts = 5; // بیشترین پورت برای TCP
@@ -23,6 +25,7 @@ bool ipAutoBusy = false;
 bool ipAutoStopFlag = false;
 String ipAutoStatus = '';
 final List<String> ipAutoHits = []; // به شکل «ip|port»
+final List<String> ipAutoPendingCore = []; // کاندیداهای تأییدنشده؛ از دست نروند
 final Map<String, int> ipAutoCursors = {};
 int ipAutoPos = 0;
 
@@ -34,38 +37,81 @@ String _ipAutoCursorKeyNow() => '${_ipAutoCursorKey}_${nationalMode ? 'nat' : 'g
 bool? _ipAutoLoadedNat;
 String _ipAutoModeName() => nationalMode ? 'نت ملی' : 'جهانی';
 
-Future<void> ipAutoLoad() async {
+bool _ipAutoValidPending(String value) => natIsIpPortCandidate(value);
+
+Future<void> ipAutoLoad({bool skipIfBusy = false}) async {
+  // UI refreshes must not replace the in-memory checkpoint while a scan owns it.
+  if (skipIfBusy && ipAutoBusy) return;
   // Capture the mode and its storage keys before the first await. A mode
   // switch during preference I/O must never mix the two independent datasets.
   final loadNationalMode = nationalMode;
   final hitsKey = loadNationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
   final posKey = '${_ipAutoPosKey}_${loadNationalMode ? 'nat' : 'glob'}';
   final cursorKey = '${_ipAutoCursorKey}_${loadNationalMode ? 'nat' : 'glob'}';
+  final pendingKey = '${_ipAutoPendingKey}_${loadNationalMode ? 'nat' : 'glob'}';
   try {
     final p = await SharedPreferences.getInstance();
-    if (nationalMode != loadNationalMode) return;
-    final savedHits = p.getString(hitsKey) ?? '';
-    final savedPos = int.tryParse(p.getString(posKey) ?? '') ?? 0;
-    final loadedCursors = <String, int>{};
-    final c = p.getString(cursorKey);
-    if (c != null && c.isNotEmpty) {
+    // A scan may have acquired the lock while this UI read was awaiting storage.
+    if ((skipIfBusy && ipAutoBusy) || nationalMode != loadNationalMode) return;
+    // A single preference value is the authoritative checkpoint. Separate
+    // writes to hits/cursors/position can be interrupted and create a mixed
+    // checkpoint; retain the legacy keys only as a migration fallback.
+    final stateKey = '${_ipAutoStateKey}_${loadNationalMode ? 'nat' : 'glob'}';
+    Map<String, dynamic>? state;
+    final encodedState = p.getString(stateKey);
+    if (encodedState != null && encodedState.isNotEmpty) {
       try {
-        final decoded = jsonDecode(c);
-        if (decoded is Map) {
-          for (final entry in decoded.entries) {
-            if (entry.value is num) {
-              loadedCursors['${entry.key}'] = (entry.value as num).toInt();
-            }
-          }
+        final decoded = jsonDecode(encodedState);
+        if (decoded is Map && decoded['version'] == 1) {
+          state = Map<String, dynamic>.from(decoded);
         }
       } catch (e, stk) {
         logError(e, stk);
       }
     }
+    final savedHits = state != null && state['hits'] is List
+        ? (state['hits'] as List).whereType<String>().join('\n')
+        : (p.getString(hitsKey) ?? '');
+    final rawPosition = state != null && state['position'] is num
+        ? (state['position'] as num)
+        : (int.tryParse(p.getString(posKey) ?? '') ?? 0);
+    final savedPos = rawPosition.isFinite && rawPosition >= 0 && rawPosition <= 0x7fffffff
+        ? rawPosition.toInt()
+        : 0;
+    final pendingValues = state != null && state['pending'] is List
+        ? (state['pending'] as List).whereType<String>()
+        : (p.getString(pendingKey) ?? '').split('\n');
+    final loadedPending = pendingValues
+        .where(_ipAutoValidPending)
+        .toSet()
+        .toList();
+    final loadedCursors = <String, int>{};
+    final cursorValues = state != null && state['cursors'] is Map
+        ? state['cursors'] as Map
+        : (() {
+            final raw = p.getString(cursorKey);
+            if (raw == null || raw.isEmpty) return <dynamic, dynamic>{};
+            try {
+              final decoded = jsonDecode(raw);
+              return decoded is Map ? decoded : <dynamic, dynamic>{};
+            } catch (e, stk) {
+              logError(e, stk);
+              return <dynamic, dynamic>{};
+            }
+          })();
+    for (final entry in cursorValues.entries) {
+      final value = entry.value;
+      if (value is num && value.isFinite && value >= 0 && value <= 0x7fffffff) {
+        loadedCursors['${entry.key}'] = value.toInt();
+      }
+    }
     if (nationalMode != loadNationalMode) return;
     ipAutoHits
       ..clear()
-      ..addAll(savedHits.split('\n').where((x) => x.contains('|')));
+      ..addAll(savedHits.split('\n').where(_ipAutoValidPending));
+    ipAutoPendingCore
+      ..clear()
+      ..addAll(loadedPending);
     ipAutoCursors
       ..clear()
       ..addAll(loadedCursors);
@@ -76,27 +122,54 @@ Future<void> ipAutoLoad() async {
   }
 }
 
-Future<void> _ipAutoSave() async {
+Future<bool> _ipAutoSave() async {
   // Persist an immutable snapshot under the keys belonging to its captured mode.
   final saveNationalMode = nationalMode;
-  if (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode) return;
+  // Never overwrite a mode's persisted checkpoint when loading failed or was
+  // interrupted by a mode switch. Only save a dataset proven to belong here.
+  if (_ipAutoLoadedNat == null || _ipAutoLoadedNat != saveNationalMode) return false;
   final hits = List<String>.of(ipAutoHits);
   final cursors = Map<String, int>.of(ipAutoCursors);
+  final pending = List<String>.of(ipAutoPendingCore);
   final position = ipAutoPos;
   final hitsKey = saveNationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
   final cursorKey = '${_ipAutoCursorKey}_${saveNationalMode ? 'nat' : 'glob'}';
   final posKey = '${_ipAutoPosKey}_${saveNationalMode ? 'nat' : 'glob'}';
+  final pendingKey = '${_ipAutoPendingKey}_${saveNationalMode ? 'nat' : 'glob'}';
   try {
     final p = await SharedPreferences.getInstance();
     if (nationalMode != saveNationalMode ||
         (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode)) {
-      return;
+      return false;
     }
-    await p.setString(hitsKey, hits.join('\n'));
-    await p.setString(cursorKey, jsonEncode(cursors));
-    await p.setString(posKey, position.toString());
+    final stateKey = '${_ipAutoStateKey}_${saveNationalMode ? 'nat' : 'glob'}';
+    final checkpoint = <String, dynamic>{
+      'version': 1,
+      'hits': hits,
+      'pending': pending,
+      'cursors': cursors,
+      'position': position,
+    };
+    // Commit the whole scan checkpoint with one preference write. If it fails,
+    // the previous checkpoint remains authoritative and the address batch is
+    // safely repeated instead of silently losing unverified endpoints/results.
+    final committed = await p.setString(stateKey, jsonEncode(checkpoint));
+    if (!committed) return false;
+    // The single checkpoint above is authoritative. Legacy mirrors are only
+    // migration aids: their failure must not report a failed transaction after
+    // the new checkpoint has already committed successfully.
+    try {
+      await p.setString(hitsKey, hits.join('\n'));
+      await p.setString(pendingKey, pending.join('\n'));
+      await p.setString(cursorKey, jsonEncode(cursors));
+      await p.setString(posKey, position.toString());
+    } catch (e, stk) {
+      logError(e, stk);
+    }
+    return true;
   } catch (e, stk) {
     logError(e, stk);
+    return false;
   }
 }
 
@@ -115,10 +188,23 @@ List<String> _ipAutoBlocks(Iterable<Server> knownServers) {
       if (server.isIp) ips.add(server.host);
     }
   }
-  return ips.map((ip) => '$ip/32').toList(growable: false);
+  return ips.map(natExactHostCidr).whereType<String>().toList(growable: false);
 }
 
-Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Function()? shouldAbort}) async {
+class _IpAutoAddressBatch {
+  const _IpAutoAddressBatch({
+    required this.addresses,
+    required this.cursors,
+    required this.nextPosition,
+  });
+
+  final List<String> addresses;
+  final Map<String, int> cursors;
+  final int nextPosition;
+}
+
+Future<_IpAutoAddressBatch?> _ipAutoNextAddrs(
+    Iterable<Server> knownServers, {bool Function()? shouldAbort}) async {
   // A mode switch while compute() is running must not apply stale cursors
   // or a stale batch position to the newly selected network mode.
   final modeSnapshot = nationalMode;
@@ -133,25 +219,43 @@ Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Funct
   };
   final gen = await compute(_genAddrsIso, args);
   if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false)) {
-    return const <String>[];
+    return null;
   }
   final all = (gen['addrs'] as List).cast<String>();
   final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);
-  ipAutoCursors
-    ..clear()
-    ..addAll(generatedCursors);
-  if (all.isEmpty) return const <String>[];
-  // فقط یک تکه‌ی _ipAutoBatch تایی در هر اجرا؛ جای فعلی ذخیره می‌شود تا اجرای بعدی ادامه دهد
+  if (all.isEmpty) {
+    return _IpAutoAddressBatch(
+      addresses: const <String>[],
+      cursors: generatedCursors,
+      nextPosition: startPosSnapshot,
+    );
+  }
+  // Stage both cursors. They are committed only after the entire TCP + core
+  // batch completes without cancellation, so a mid-run stop cannot skip hosts.
   final start = startPosSnapshot % all.length;
   final slice = all.skip(start).take(_ipAutoBatch).toList();
-  ipAutoPos = start + slice.length;
-  return slice;
+  return _IpAutoAddressBatch(
+    addresses: slice,
+    cursors: generatedCursors,
+    nextPosition: start + slice.length,
+  );
 }
 
 extension IpAutoExt on _HomePageState {
   /// آیا اسکن باید همین الان متوقف شود (VPN وصل شد، یا برنامه مشغول اتصال است، یا کاربر توقف زد)
   bool _ipAutoHalt({bool? modeSnapshot}) =>
-      ipAutoStopFlag || connected || busy ||
+      ipAutoStopFlag ||
+      connected ||
+      wantVpn ||
+      busy ||
+      searching ||
+      abort ||
+      !inForeground ||
+      _natRangeScanBusy ||
+      _hotBusy ||
+      _resBusy ||
+      upBusy ||
+      _natKeepOn ||
       (modeSnapshot != null && nationalMode != modeSnapshot);
 
   /// نت ملی: اسکن IP خودکار بدون دکمه (هر ۲۴ ساعت، یا ۶ ساعت اگر نتیجه نداشت)، فقط وقتی VPN قطع است.
@@ -160,7 +264,8 @@ extension IpAutoExt on _HomePageState {
     final runNationalMode = nationalMode;
     if (!kNatIpScanOn || !runNationalMode) return;
     if (ipAutoBusy || dnsxManualBusy || _natRangeScanBusy || _dnsxAutoBusy) return;
-    if (connected || busy) return;
+    if (connected || wantVpn || busy || searching || abort || !inForeground ||
+        _resBusy || upBusy || _natKeepOn || _hotBusy) return;
 
     // Acquire both shared scan locks before the first await. Otherwise a manual
     // DNS/IP scan can start while preferences are loading and overlap this run.
@@ -176,14 +281,21 @@ extension IpAutoExt on _HomePageState {
 
       final last = int.tryParse(p.getString(_ipAutoAtKey) ?? '') ?? 0;
       final now = DateTime.now().millisecondsSinceEpoch;
-      // اگر هنوز IP سالمی پیدا نشده، زودتر دوباره امتحان می‌شود (۶ ساعت)؛ وگرنه هر ۲۴ ساعت
-      final gapMs = ipAutoHits.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
+      // Empty result or a non-empty pending queue needs another bounded pass
+      // sooner; a queue must not wait 24h between batches.
+      final gapMs = ipAutoHits.isEmpty || ipAutoPendingCore.isNotEmpty
+          ? 6 * 3600 * 1000
+          : 24 * 3600 * 1000;
       if (now - last < gapMs) return;
 
       final completed = await _ipAutoRunOnce((s) => ipAutoStatus = s);
-      // Failed, cancelled, or mode-switched scans must not consume the retry interval.
+      // Advance the retry clock only after the atomic scan checkpoint is durable.
+      // A crash between checkpoint and timestamp merely repeats safe work.
       if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode)) {
-        await p.setString(_ipAutoAtKey, now.toString());
+        final saved = await _ipAutoSave();
+        if (saved && !_ipAutoHalt(modeSnapshot: runNationalMode)) {
+          await p.setString(_ipAutoAtKey, now.toString());
+        }
       }
     } catch (e, stk) {
       logError(e, stk);
@@ -201,11 +313,14 @@ extension IpAutoExt on _HomePageState {
     // نت ملی کاملاً خودکار است؛ دکمه‌ی دستی فقط برای حالت عادی است
     if (!kNatIpScanOn) return 'اسکن IP از تنظیم اصلی خاموش است.';
     if (ipAutoBusy || dnsxManualBusy) return 'اسکن دیگری در حال اجراست.';
-    if (connected || busy) return 'اول VPN را قطع کنید، بعد اسکن خودکار IP را اجرا کنید.';
+    if (connected || wantVpn || busy || searching || abort || !inForeground ||
+        _resBusy || upBusy || _natKeepOn || _natRangeScanBusy || _hotBusy) {
+      return 'برای اسکن خودکار، VPN و جستجوی سرورها باید متوقف باشند و برنامه در پیش‌زمینه باشد.';
+    }
     if (nationalMode && _natRangeScanBusy) {
       return 'جستجوی نت ملی در حال اجراست؛ کمی صبر کنید.';
     }
-    if (nationalMode && _dnsxAutoBusy) {
+    if (_dnsxAutoBusy) {
       return 'اسکن DNS پس‌زمینه در حال اجراست؛ کمی صبر کنید.';
     }
     return null;
@@ -231,6 +346,12 @@ extension IpAutoExt on _HomePageState {
     final runNationalMode = nationalMode;
     bool halted() => _ipAutoHalt(modeSnapshot: runNationalMode);
     if (halted()) return false;
+    // Never run with stale preference state from the other network mode, or
+    // after a failed first load. This also protects the pending-core queue.
+    if (_ipAutoLoadedNat != runNationalMode) {
+      say('حافظه‌ی اسکن این حالت بارگذاری نشد؛ برای جلوگیری از اختلاط داده‌ها متوقف شد.');
+      return false;
+    }
 
     // A national scan uses the national hot-source/template pipeline; it must
     // not fetch or fall back to the global discovered-server pool.
@@ -270,21 +391,34 @@ extension IpAutoExt on _HomePageState {
     }
     final tpl = pool.take(2).toList();
     say('ساخت آدرس‌ها...');
-    final addrs = await _ipAutoNextAddrs(
+    final addressBatch = await _ipAutoNextAddrs(
       runNationalMode ? const <Server>[] : [...good, ...pending, ...fetchedAll],
       shouldAbort: halted,
     );
-    if (halted()) return false;
-    if (addrs.isEmpty) {
+    if (addressBatch == null || halted()) return false;
+    final addrs = addressBatch.addresses;
+    if (addrs.isEmpty && ipAutoPendingCore.isEmpty) {
       say('آدرسی برای اسکن پیدا نشد.');
       return false;
     }
     final ports = natAutoPorts(pool).take(_ipAutoPorts).toList();
     if (ports.isEmpty) ports.add(443);
 
+    // Drain the durable core-verification queue before scanning another
+    // address batch. This bounds queue growth and prevents new discoveries
+    // from starving older TCP-positive endpoints.
+    final drainingPending = ipAutoPendingCore.isNotEmpty;
+    // Keep the in-memory cursor/queue aligned with the authoritative durable
+    // checkpoint. If that write fails, retain successful hits but retry the
+    // same address batch and pending candidates on the next run.
+    final previousPending = List<String>.of(ipAutoPendingCore);
+    final previousCursors = Map<String, int>.of(ipAutoCursors);
+    final previousPosition = ipAutoPos;
+
     // مرحله‌ی ۱: TCP روی همه‌ی آدرس‌ها
     final candidates = <String>[];
     for (final port in ports) {
+      if (drainingPending) break;
       if (halted()) break;
       say('بررسی TCP روی پورت $port (${addrs.length} آدرس)...');
       final hits = await natScanIps(
@@ -308,9 +442,16 @@ extension IpAutoExt on _HomePageState {
     final tplSrv = tpl.first;
     var found = 0;
     var checked = 0;
-    // سقف تست هسته در هر اجرا، تا زمان اجرا از حد نگذرد (بقیه در اجرای بعدی از آدرس‌های تازه می‌آیند)
-    final toTest = candidates.take(_ipAutoCoreMax).toList();
-    say('${candidates.length} پورت باز (تست ${toTest.length} تای اول)؛ تست با هسته‌ی VPN...');
+    // Keep every TCP-positive endpoint in a durable queue. The core-test cap
+    // limits work per run, not discovery: excess candidates must survive until
+    // a later run instead of being lost when the address cursor advances.
+    final queued = <String>{
+      ...ipAutoPendingCore.where((x) => !seen.contains(x)),
+      ...candidates.where((x) => !seen.contains(x)),
+    }.toList();
+    final toTest = queued.take(_ipAutoCoreMax).toList();
+    final remainingCandidates = queued.skip(toTest.length).toList();
+    say('${queued.length} endpoint در صف (تست ${toTest.length} تای این اجرا)؛ تست با هسته‌ی VPN...');
     for (final c in toTest) {
       if (halted()) break;
       checked++;
@@ -346,13 +487,47 @@ extension IpAutoExt on _HomePageState {
       say('متوقف شد؛ نتایج این اجرا کامل نیستند.');
       return false;
     }
+    // Every TCP-positive endpoint is either verified in this run or retained
+    // for the next run. Commit the new address cursor only after the durable
+    // queue contains all candidates that exceeded this run's core-test budget.
+    ipAutoPendingCore
+      ..clear()
+      ..addAll(remainingCandidates);
+    // While draining queued candidates, keep the address cursor unchanged.
+    // The next invocation starts a fresh TCP batch only after the queue empties.
+    if (!drainingPending) {
+      ipAutoCursors
+        ..clear()
+        ..addAll(addressBatch.cursors);
+      ipAutoPos = addressBatch.nextPosition;
+    }
+    // Do not report a completed scan or keep an advanced in-memory cursor
+    // unless the atomic checkpoint is durable. Successful hits remain useful,
+    // but the same address batch is retried if persistence fails.
+    final checkpointSaved = await _ipAutoSave();
+    if (!checkpointSaved) {
+      if (nationalMode == runNationalMode &&
+          _ipAutoLoadedNat == runNationalMode) {
+        ipAutoPendingCore
+          ..clear()
+          ..addAll(previousPending);
+        if (!drainingPending) {
+          ipAutoCursors
+            ..clear()
+            ..addAll(previousCursors);
+          ipAutoPos = previousPosition;
+        }
+      }
+      say('ذخیره‌ی نتیجه کامل نشد؛ آدرس‌ها برای تلاش بعدی حفظ شدند.');
+      return false;
+    }
     say('تمام شد: $found IP جدید در حالت ${runNationalMode ? 'نت ملی' : 'جهانی'}.');
     return true;
   }
 
   Future<void> ipAutoSheet(BuildContext ctx0) async {
     var sheetScanRunning = false;
-    await ipAutoLoad();
+    await ipAutoLoad(skipIfBusy: true);
     if (!ctx0.mounted) return;
     showModalBottomSheet(
       context: ctx0,
@@ -374,6 +549,18 @@ extension IpAutoExt on _HomePageState {
               return;
             }
             final runNationalMode = nationalMode;
+            // Load the selected mode's checkpoint before taking the scan lock.
+            // A background scan may win this await; in that case the second
+            // refusal check below prevents us from replacing its live state.
+            await ipAutoLoad(skipIfBusy: true);
+            if (!ctx.mounted) return;
+            final retryWhy = _ipAutoRefusal();
+            if (retryWhy != null || nationalMode != runNationalMode) {
+              ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(SnackBar(
+                content: Text(retryWhy ?? 'حالت شبکه تغییر کرد؛ دوباره شروع کن.'),
+              ));
+              return;
+            }
             ipAutoBusy = true;
             sheetScanRunning = true;
             // تا این اسکن تمام نشده، اسکن DNS پس‌زمینه هم شروع نمی‌شود (جدا و بدون تداخل)
@@ -381,12 +568,6 @@ extension IpAutoExt on _HomePageState {
             ipAutoStopFlag = false;
             upd(() => ipAutoStatus = 'شروع...');
             try {
-              // The sheet may have stayed open while the user changed network mode.
-              await ipAutoLoad();
-              if (_ipAutoHalt(modeSnapshot: runNationalMode)) {
-                upd(() => ipAutoStatus = 'حالت شبکه تغییر کرد یا اسکن متوقف شد؛ دوباره شروع کن.');
-                return;
-              }
               await _ipAutoRunOnce((s) => upd(() => ipAutoStatus = s), manual: true);
             } catch (e, stk) {
               logError(e, stk);

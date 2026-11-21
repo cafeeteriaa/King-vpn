@@ -75,16 +75,51 @@ class NetworkEvidence {
 /// Conservative strategy selection with minimum evidence requirements.
 /// Partial evidence preserves the last strategy instead of guessing.
 PilotNetworkStrategy choosePilotNetworkStrategy(NetworkEvidence evidence) {
-  // A single successful endpoint is only a hint (degraded), not enough to
-  // change the active route. Require the scanner's >=2/3 quorum on each side.
-  final domesticConfirmed = evidence.domestic == LinkHealth.healthy &&
-      evidence.domesticSamples >= 3;
-  final globalConfirmed = evidence.global == LinkHealth.healthy &&
-      evidence.globalSamples >= 3;
-  final domesticFailed = evidence.domestic == LinkHealth.unreachable &&
-      evidence.domesticSamples >= 2;
-  final globalFailed = evidence.global == LinkHealth.unreachable &&
-      evidence.globalSamples >= 2;
+  // A route verdict must agree with the underlying counters. This prevents
+  // stale, partial, or malformed evidence from steering the active mode.
+  bool confirmed({
+    required LinkHealth health,
+    required int samples,
+    required int successes,
+    required bool tlsVerified,
+  }) =>
+      health == LinkHealth.healthy &&
+      samples >= 3 &&
+      successes >= 2 &&
+      successes <= samples &&
+      tlsVerified;
+
+  bool failed({
+    required LinkHealth health,
+    required int samples,
+    required int successes,
+  }) =>
+      health == LinkHealth.unreachable &&
+      samples >= 2 &&
+      successes == 0;
+
+  final domesticConfirmed = confirmed(
+    health: evidence.domestic,
+    samples: evidence.domesticSamples,
+    successes: evidence.domesticSuccesses,
+    tlsVerified: evidence.domesticTlsReachabilityVerified,
+  );
+  final globalConfirmed = confirmed(
+    health: evidence.global,
+    samples: evidence.globalSamples,
+    successes: evidence.globalSuccesses,
+    tlsVerified: evidence.globalTlsReachabilityVerified,
+  );
+  final domesticFailed = failed(
+    health: evidence.domestic,
+    samples: evidence.domesticSamples,
+    successes: evidence.domesticSuccesses,
+  );
+  final globalFailed = failed(
+    health: evidence.global,
+    samples: evidence.globalSamples,
+    successes: evidence.globalSuccesses,
+  );
 
   if (domesticConfirmed && globalFailed) return PilotNetworkStrategy.domestic;
   if (globalConfirmed && domesticFailed) return PilotNetworkStrategy.global;

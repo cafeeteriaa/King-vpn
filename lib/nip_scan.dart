@@ -10,10 +10,18 @@ class NipHit {
   const NipHit(this.ip, this.ms);
 }
 
-/// بلوک CIDR مثل «5.160.0.0/16» را به فهرست IP تبدیل می‌کند.
+/// بلوک CIDR از هر دو خانواده IPv4/IPv6 را با سقف مشخص گسترش می‌دهد.
 /// برای بلوک‌های بزرگ فقط [maxPerBlock] آدرس پراکنده برمی‌گرداند.
 List<String> nipExpandCidr(String cidr, {int maxPerBlock = 4096}) {
+  // Keep the public helper safe for invalid or unexpectedly large limits.
+  if (maxPerBlock <= 0) return const [];
   final parts = cidr.trim().split('/');
+  if (parts.length != 2) return const [];
+  final parsed = InternetAddress.tryParse(parts[0].trim());
+  if (parsed?.type == InternetAddressType.IPv6) {
+    return nipExpandIpv6Cidr(cidr, maxPerBlock: maxPerBlock);
+  }
+  final limit = min(maxPerBlock, 65536);
   if (parts.length != 2) return const [];
   final octets = parts[0].split('.');
   final prefix = int.tryParse(parts[1].trim());
@@ -28,7 +36,7 @@ List<String> nipExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   }
   final size = 1 << (32 - prefix);
   final start = base & ~(size - 1) & 0xFFFFFFFF;
-  final step = size > maxPerBlock ? size ~/ maxPerBlock : 1;
+  final step = size > limit ? (size + limit - 1) ~/ limit : 1;
   final out = <String>[];
   for (var i = 0; i < size; i += step) {
     final v = start + i;
@@ -37,20 +45,74 @@ List<String> nipExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   return out;
 }
 
+/// گسترش محدود CIDR برای IPv6؛ برای بلوک‌های بزرگ، نمونه‌برداری یکنواخت انجام می‌شود.
+List<String> nipExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
+  if (maxPerBlock <= 0) return const [];
+  final limit = min(maxPerBlock, 65536);
+  final parts = cidr.trim().split('/');
+  if (parts.length != 2) return const [];
+  final address = InternetAddress.tryParse(parts[0].trim());
+  final prefix = int.tryParse(parts[1].trim());
+  if (address == null ||
+      address.type != InternetAddressType.IPv6 ||
+      prefix == null ||
+      prefix < 0 ||
+      prefix > 128) {
+    return const [];
+  }
+
+  var base = BigInt.zero;
+  for (final byte in address.rawAddress) {
+    base = (base << 8) | BigInt.from(byte);
+  }
+  final hostBits = 128 - prefix;
+  final size = BigInt.one << hostBits;
+  final mask = ((BigInt.one << 128) - BigInt.one) ^ (size - BigInt.one);
+  final network = base & mask;
+  final step = size > BigInt.from(limit)
+      ? (size + BigInt.from(limit) - BigInt.one) ~/ BigInt.from(limit)
+      : BigInt.one;
+  final out = <String>[];
+  for (var offset = BigInt.zero;
+      offset < size && out.length < limit;
+      offset += step) {
+    final value = network + offset;
+    final bytes = List<int>.generate(
+      16,
+      (i) => ((value >> ((15 - i) * 8)) & BigInt.from(255)).toInt(),
+    );
+    out.add(InternetAddress.fromRawAddress(Uint8List.fromList(bytes)).address);
+  }
+  return out;
+}
+
 /// اتصال TCP به ip:port. اگر جواب داد زمان پاسخ (ms) را برمی‌گرداند، وگرنه null.
 Future<int?> nipTcpProbe(String ip, int port, Duration timeout) async {
+  final address = InternetAddress.tryParse(ip.trim());
+  if (address == null ||
+      (address.type != InternetAddressType.IPv4 &&
+          address.type != InternetAddressType.IPv6) ||
+      port < 1 ||
+      port > 65535 ||
+      timeout <= Duration.zero) {
+    return null;
+  }
   final sw = Stopwatch()..start();
+  Socket? socket;
   try {
-    final s = await Socket.connect(ip, port, timeout: timeout);
+    socket = await Socket.connect(address, port, timeout: timeout);
     sw.stop();
-    s.destroy();
     return sw.elapsedMilliseconds;
   } catch (_) {
     return null;
+  } finally {
+    try {
+      socket?.destroy();
+    } catch (_) {}
   }
 }
 
-/// اسکن هم‌زمان. با رسیدن به [want] نتیجه، یا پایان [budget]، یا [cancelled] = true متوقف می‌شود.
+/// اسکن هم‌زمان IPv4/IPv6؛ فقط IP literal پذیرفته می‌شود تا DNS سیستم دور زده نشود.
 Future<List<NipHit>> nipScan(
   List<String> ips, {
   int port = 443,
@@ -60,33 +122,107 @@ Future<List<NipHit>> nipScan(
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
 }) async {
+  if (ips.isEmpty ||
+      want <= 0 ||
+      budget <= Duration.zero ||
+      timeout <= Duration.zero ||
+      port < 1 ||
+      port > 65535) {
+    return <NipHit>[];
+  }
+
+  final seen = <String>{};
+  final v4Candidates = <String>[];
+  final v6Candidates = <String>[];
+  for (final raw in ips) {
+    final address = InternetAddress.tryParse(raw.trim());
+    if (address == null || !seen.add(address.address)) continue;
+    if (address.type == InternetAddressType.IPv4) {
+      v4Candidates.add(address.address);
+    } else if (address.type == InternetAddressType.IPv6) {
+      v6Candidates.add(address.address);
+    }
+  }
+  // Interleave address families so a large fast IPv4 batch cannot starve
+  // IPv6 candidates when the caller only wants a small number of hits.
+  final candidates = <String>[];
+  for (var i = 0; i < max(v4Candidates.length, v6Candidates.length); i++) {
+    if (i < v4Candidates.length) candidates.add(v4Candidates[i]);
+    if (i < v6Candidates.length) candidates.add(v6Candidates[i]);
+  }
+  if (candidates.isEmpty) return <NipHit>[];
+
   final hits = <NipHit>[];
-  final deadline = DateTime.now().add(budget);
+  final clock = Stopwatch()..start();
   var next = 0;
+
+  bool aborted() => cancelled?.call() ?? false;
 
   Future<void> worker() async {
     while (true) {
-      if (hits.length >= want) return;
-      if (cancelled != null && cancelled()) return;
-      if (DateTime.now().isAfter(deadline)) return;
-      if (next >= ips.length) return;
-      final ip = ips[next++];
+      if (hits.length >= want || aborted() || clock.elapsed >= budget) return;
+      final index = next++;
+      if (index >= candidates.length) return;
+      final ip = candidates[index];
       final ms = await nipTcpProbe(ip, port, timeout);
-      if (ms != null) hits.add(NipHit(ip, ms));
+      if (aborted() || clock.elapsed >= budget) return;
+      if (ms != null && hits.length < want) {
+        hits.add(NipHit(ip, ms));
+      }
     }
   }
 
-  final n = min(concurrency.clamp(1, 16), max(ips.length, 1));
+  final n = min(concurrency.clamp(1, 16), candidates.length);
   await Future.wait(List.generate(n, (_) => worker()));
   natStableSort(hits, (a, b) => a.ms.compareTo(b.ms));
   return hits;
+}
+
+/// Normalize and bound untrusted IPv4 CIDR lists before caching or expanding them.
+List<String> _nipNormalizeIpv4Cidrs(Iterable<dynamic> values,
+    {int maxEntries = 4096}) {
+  if (maxEntries <= 0) return const [];
+  final limit = min(maxEntries, 4096);
+  final seen = <String>{};
+  final out = <String>[];
+  for (final value in values) {
+    final parts = value.toString().trim().split('/');
+    if (parts.length != 2) continue;
+    final address = InternetAddress.tryParse(parts[0].trim());
+    final prefix = int.tryParse(parts[1].trim());
+    if (address == null ||
+        address.type != InternetAddressType.IPv4 ||
+        prefix == null ||
+        prefix < 8 ||
+        prefix > 32) {
+      continue;
+    }
+    var base = 0;
+    for (final octet in address.rawAddress) {
+      base = (base << 8) | octet;
+    }
+    final size = 1 << (32 - prefix);
+    final network = base & ~(size - 1) & 0xFFFFFFFF;
+    final normalized =
+        '${(network >> 24) & 255}.${(network >> 16) & 255}.${(network >> 8) & 255}.${network & 255}/$prefix';
+    if (!seen.add(normalized)) continue;
+    out.add(normalized);
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 /// فهرست بلوک‌های IPv4 ایران از RIPE (یک بار دانلود و بعد کش).
 Future<List<String>> nipIranCidrs() async {
   final p = await SharedPreferences.getInstance();
   final cached = p.getStringList('plus_ir_cidr');
-  if (cached != null && cached.isNotEmpty) return cached;
+  if (cached != null && cached.isNotEmpty) {
+    final safe = _nipNormalizeIpv4Cidrs(cached);
+    if (safe.length != cached.length) {
+      await p.setStringList('plus_ir_cidr', safe);
+    }
+    return safe;
+  }
   final c = HttpClient()..connectionTimeout = const Duration(seconds: 10);
   try {
     final req = await c
@@ -94,10 +230,11 @@ Future<List<String>> nipIranCidrs() async {
             'https://stat.ripe.net/data/country-resource-list/data.json?resource=IR'))
         .timeout(const Duration(seconds: 15));
     final res = await req.close().timeout(const Duration(seconds: 20));
+    if (res.statusCode != HttpStatus.ok) return const [];
     final body = await res.transform(utf8.decoder).join();
     final j = jsonDecode(body);
     final raw = (j['data']['resources']['ipv4'] as List?) ?? const [];
-    final list = raw.map((e) => '$e').where((e) => e.contains('/')).toList();
+    final list = _nipNormalizeIpv4Cidrs(raw);
     if (list.isNotEmpty) await p.setStringList('plus_ir_cidr', list);
     return list;
   } catch (_) {
@@ -139,20 +276,35 @@ String? nipSwapLink(Server t, String ip) {
 List<String> natRelayHosts = <String>[];
 
 // RELAYHOSTS: واسط‌های IP که کاربر اضافه می‌کند
+// Keep persisted/user-entered relay lists bounded and deterministic.
+List<String> _nipNormalizeRelayHosts(Iterable<String> values) {
+  final seen = <String>{};
+  final out = <String>[];
+  for (final value in values) {
+    final raw = value.trim();
+    final parsed = InternetAddress.tryParse(raw);
+    if (parsed == null) continue;
+    final normalized = parsed.address;
+    if (!seen.add(normalized)) continue;
+    out.add(normalized);
+    if (out.length >= 64) break;
+  }
+  return out;
+}
+
 Future<void> natRelayHostsLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
-    natRelayHosts = p.getStringList('nat_relay_hosts') ?? <String>[];
+    natRelayHosts = _nipNormalizeRelayHosts(
+        p.getStringList('nat_relay_hosts') ?? const <String>[]);
   } catch (e, st) {
     logError(e, st);
   }
 }
 
 Future<void> natRelayHostsSave(String text) async {
-  natRelayHosts = text
-      .split(RegExp(r'[\r\n\s]+'))
-      .where((x) => InternetAddress.tryParse(x) != null)
-      .toList();
+  natRelayHosts = _nipNormalizeRelayHosts(
+      text.split(RegExp(r'[\r\n\s]+')));
   try {
     final p = await SharedPreferences.getInstance();
     await p.setStringList('nat_relay_hosts', natRelayHosts);
@@ -162,18 +314,29 @@ Future<void> natRelayHostsSave(String text) async {
 }
 
 Future<String?> nipResolve(String host) async {
+  // This resolver feeds RIPE ASN discovery, whose prefix normalizer is IPv4-only.
+  // Do not let a preferred AAAA answer silently suppress a usable A answer.
+  bool ipv4(String? value) {
+    final address = value == null ? null : InternetAddress.tryParse(value);
+    return address != null && address.type == InternetAddressType.IPv4;
+  }
+
   // NATOPT: وقتی جهانی قطع است، DoH (سرویس خارجی) بی‌فایده و کند است؛ مستقیم DNS سیستم.
   if (!NatNetworkDiagnosis.preferDomestic) {
-    // DNSDOH: اول DoH (در نت ملی DNS معمولی جواب بسته می‌دهد)
+    // DNSDOH: اول DoH (در نت ملی DNS معمولی جواب می‌دهد)
     final d = await dohResolve(host);
-    if (d != null) return d;
+    if (ipv4(d)) return d;
   }
   try {
-    final l = await InternetAddress.lookup(host).timeout(const Duration(seconds: 5));
-    return l.isEmpty ? null : l.first.address;
+    final results = await InternetAddress.lookup(host)
+        .timeout(const Duration(seconds: 5));
+    for (final address in results) {
+      if (address.type == InternetAddressType.IPv4) return address.address;
+    }
   } catch (_) {
     return null;
   }
+  return null;
 }
 
 /// بلوک‌های هاست یک IP را برای نت ملی ذخیره می‌کند (کلید: IP).
@@ -194,10 +357,21 @@ final Map<String, DateTime> _asnFailAt = <String, DateTime>{};
 
 /// بلوک‌های IPv4 اعلام‌شده‌ی شرکت هاست همان IP (از RIPE Stat).
 Future<List<String>> nipAsnPrefixes(String ip) async {
+  // RIPE ASN prefix discovery and its cache are intentionally IPv4-only.
+  final parsedIp = InternetAddress.tryParse(ip);
+  if (parsedIp == null || parsedIp.type != InternetAddressType.IPv4) {
+    return const [];
+  }
   final prefs = await SharedPreferences.getInstance();
   final cacheKey = 'nip_asn_v1_$ip';
   final cached = prefs.getStringList(cacheKey);
-  if (cached != null && cached.isNotEmpty) return cached;
+  if (cached != null && cached.isNotEmpty) {
+    final safe = _nipNormalizeIpv4Cidrs(cached, maxEntries: 2048);
+    if (safe.length != cached.length) {
+      await prefs.setStringList(cacheKey, safe);
+    }
+    return safe;
+  }
   // NATOPT: RIPE خارج از کشور است. وقتی جهانی قطع است فقط کش معتبر است؛ شبکه نمی‌زنیم.
   if (NatNetworkDiagnosis.preferDomestic) return const [];
   // NATOPT: شکست اخیر را ۱۵ دقیقه به خاطر می‌سپاریم تا هر دور جستجو ۳ بار ۱۲ ثانیه تایم‌اوت نخورد.
@@ -214,7 +388,7 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
       return const [];
     }
     final asns = ((jsonDecode(r.body)['data']?['asns']) as List?) ?? const [];
-    final out = <String>[];
+    final rawPrefixes = <dynamic>[];
     for (final a in asns.take(2)) {
       final rr = await http
           .get(Uri.parse('https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS$a'))
@@ -222,10 +396,14 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
       if (rr.statusCode != 200) continue;
       final prefixes = ((jsonDecode(rr.body)['data']?['prefixes']) as List?) ?? const [];
       for (final pe in prefixes) {
-        final pr = '${pe['prefix']}';
-        if (pr.contains('/') && !pr.contains(':')) out.add(pr);
+        if (pe is Map && pe['prefix'] != null) {
+          rawPrefixes.add(pe['prefix']);
+          if (rawPrefixes.length >= 4096) break;
+        }
       }
+      if (rawPrefixes.length >= 4096) break;
     }
+    final out = _nipNormalizeIpv4Cidrs(rawPrefixes, maxEntries: 2048);
     if (out.isNotEmpty) {
       await prefs.setStringList(cacheKey, out);
     } else {
@@ -247,11 +425,10 @@ const natFrontSnis = <String>[
   'cdnjs.cloudflare.com',    // 0
   'www.cloudflare.com',      // 1
   'speed.cloudflare.com',    // 2  ← قبلاً 3 بود، حالا 2
-  'one.one.one.one',         // 3  ← قبلاً 16 بود
-  '1.1.1.1',                 // 4  ← قبلاً 17 بود
-  'www.aparat.com',          // 5
-  'www.digikala.com',        // 6
-  'divar.ir',                // 7
+  'one.one.one.one',         // 3
+  'www.aparat.com',          // 4
+  'www.digikala.com',        // 5
+  'divar.ir',                // 6
 ];
 
 /// روی IP:port یک TLS با SNI داده‌شده کامل شود؟ برمی‌گرداند همان SNI یا null.
@@ -259,8 +436,14 @@ Future<String?> nipFrontProbe(String ip, int port, String sni) async {
   Socket? raw;
   SecureSocket? sec;
   try {
-    raw = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 2000));
-    sec = await SecureSocket.secure(raw, host: sni, onBadCertificate: (_) => true)
+    final address = InternetAddress.tryParse(ip.trim());
+    if (address == null ||
+        (address.type != InternetAddressType.IPv4 &&
+            address.type != InternetAddressType.IPv6)) {
+      return null;
+    }
+    raw = await Socket.connect(address, port, timeout: const Duration(milliseconds: 2000));
+    sec = await SecureSocket.secure(raw, host: sni)
         .timeout(const Duration(seconds: 3));
     return sni;
   } catch (_) {
