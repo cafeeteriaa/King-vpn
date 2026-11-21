@@ -130,6 +130,35 @@ void main() {
       expect(ev.classify(), NatNetworkClass.transportRestricted);
     });
 
+    test('IPv4 and IPv6 DNS evidence remain independent', () {
+      const ipv4Only = NatProbeEvidence(
+        domesticDnsOk: false, domesticTcpOk: true,
+        globalDnsOk: true, globalTcpOk: false,
+        globalIpv4DnsOk: true, globalIpv6DnsOk: false, sampleCount: 4,
+      );
+      expect(ipv4Only.ipv4Reachability, NatIpFamilyReachability.dnsOnly);
+      expect(ipv4Only.ipv6Reachability, NatIpFamilyReachability.tcpBlocked);
+
+      const ipv6Only = NatProbeEvidence(
+        domesticDnsOk: false, domesticTcpOk: true,
+        globalDnsOk: true, globalTcpOk: false,
+        globalIpv4DnsOk: false, globalIpv6DnsOk: true, sampleCount: 4,
+      );
+      expect(ipv6Only.ipv4Reachability, NatIpFamilyReachability.tcpBlocked);
+      expect(ipv6Only.ipv6Reachability, NatIpFamilyReachability.dnsOnly);
+    });
+
+    test('family state reports TCP reachability only for its own family', () {
+      const ev = NatProbeEvidence(
+        domesticDnsOk: false, domesticTcpOk: true,
+        globalDnsOk: true, globalTcpOk: false,
+        globalIpv4DnsOk: true, globalIpv4TcpOk: true,
+        globalIpv6DnsOk: true, globalIpv6TcpOk: false, sampleCount: 4,
+      );
+      expect(ev.ipv4Reachability, NatIpFamilyReachability.tcpReachable);
+      expect(ev.ipv6Reachability, NatIpFamilyReachability.dnsOnly);
+    });
+
     test('literal IPv4 evidence independently proves a global data path', () {
       const ev = NatProbeEvidence(
         domesticDnsOk: false, domesticTcpOk: false,
