@@ -3376,5 +3376,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('lastError = "could not launch VPN attempt worker:', recovery)
         self.assertIn('return false;', recovery)
 
+
+    def test_native_final_cleanup_fallback_thread_launch_is_failure_guarded(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private void runFallback(Runnable r)')
+        end = source.index('private void startFlow(', start)
+        fallback = source[start:end]
+        self.assertIn('try {', fallback)
+        self.assertIn('new Thread(r, "KingVpnService-fallback")', fallback)
+        self.assertIn('t.setDaemon(true);', fallback)
+        self.assertIn('t.start();', fallback)
+        self.assertIn('catch (Throwable launchError)', fallback)
+        self.assertIn('could not launch VPN cleanup fallback:', fallback)
+        self.assertIn('Log.e(TAG, lastError, launchError);', fallback)
+
 if __name__ == '__main__':
     unittest.main()
