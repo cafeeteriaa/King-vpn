@@ -1120,14 +1120,13 @@ String withNpvAmCore(String cfg) {
               ..._dnsUrls['radar']!,
             ]
           : (customDnsList() ?? _dnsUrls[effectiveDnsProv()] ?? _dnsUrls['cloudflare']!);
-      final ips = <dynamic>[];
-      final doh = <dynamic>[];
+      // Keep the selected provider's exact order across IP and DoH
+      // transports. Splitting these into separate lists moved every IP
+      // resolver ahead of the selected DoH endpoint, silently defeating a
+      // custom or provider-preferred DoH choice.
+      final servers = <dynamic>[];
       void addResolver(String value) {
-        if (value.startsWith('https://')) {
-          if (!doh.contains(value)) doh.add(value);
-        } else if (!ips.contains(value)) {
-          ips.add(value);
-        }
+        if (!servers.contains(value)) servers.add(value);
       }
       // National mode uses only the domestic resolver set; global mode keeps fallbacks.
       for (final value in first) { addResolver(value.toString()); }
@@ -1144,7 +1143,7 @@ String withNpvAmCore(String cfg) {
           for (final value in entry.value) { addResolver(value); }
         }
       }
-      d['servers'] = [...ips, ...doh];
+      d['servers'] = servers;
       d['queryStrategy'] = 'UseIP';
       j['dns'] = d;
       final rt = j['routing'] is Map ? j['routing'] as Map : <String, dynamic>{};
