@@ -376,6 +376,25 @@ def exact_replace(path, old, new, label):
     open(path, 'w', encoding='utf-8').write(src.replace(old, new, 1))
     print(f'OK: {label}')
 
+def exact_replace_after(path, scope_anchor, old, new, label):
+    """Replace the first exact block after a unique method/branch anchor."""
+    src = open(path, encoding='utf-8').read()
+    if new in src:
+        print(f'OK: {label} (already applied)')
+        return
+    scope = src.find(scope_anchor)
+    if scope < 0:
+        print(f'ERROR: {label}: scope anchor not found')
+        sys.exit(1)
+    index = src.find(old, scope)
+    if index < 0:
+        print(f'ERROR: {label}: replacement block not found after scope')
+        show_context(src[scope:], old[:40])
+        sys.exit(1)
+    updated = src[:index] + src[index:].replace(old, new, 1)
+    open(path, 'w', encoding='utf-8').write(updated)
+    print(f'OK: {label}')
+
 # The plugin's ensureTunInbound() prepends a direct DNS bypass for ports 53/853
 # unless it sees an existing direct-853 rule. Our own port-53 DNS outbound rule
 # must be recognized, otherwise the plugin's prepended rule shadows DNS hijack.
@@ -1092,22 +1111,55 @@ exact_replace(core, '''    public void stopCore() {''', '''    public void stopC
     }
 
     public void stopCore(boolean stopService) {''',
+
 'P1-40 stopCore supports non-destructive restart');
 
+# StopLoop invokes CoreCallbackHandler.shutdown() synchronously. Suppress that
+# callback's service teardown during intentional restarts; stopCore() performs
+# the one explicit service teardown only when stopService=true.
+exact_replace(core, '''    private CoreController coreController;''', '''    private CoreController coreController;
+    private volatile boolean suppressServiceShutdownCallback = false;''',
+'P1-41 shutdown callback suppression state');
+
+exact_replace(core, '''                    try {
+                        v2rayServicesListener.stopService();
+                        /* VPNRACE: keep the reference */
+                        return 0;
+                    } catch (Exception e) {''', '''                    try {
+                        if (!suppressServiceShutdownCallback && v2rayServicesListener != null) {
+                            v2rayServicesListener.stopService();
+                        }
+                        return 0;
+                    } catch (Exception e) {''',
+'P1-41 shutdown callback respects intentional core restart');
+
+
 exact_replace(core, '''                if (coreController != null) {
-                    coreController.stopLoop();
+                    boolean previousSuppress = suppressServiceShutdownCallback;
+                    suppressServiceShutdownCallback = true;
+                    try {
+                        coreController.stopLoop();
+                    } finally {
+                        suppressServiceShutdownCallback = previousSuppress;
+                    }
                 }
                 v2rayServicesListener.stopService();
                 Log.e(V2rayCoreManager.class.getSimpleName(), "stopCore success => v2ray core stopped.");''', '''                if (coreController != null) {
-                    coreController.stopLoop();
+                    boolean previousSuppress = suppressServiceShutdownCallback;
+                    suppressServiceShutdownCallback = true;
+                    try {
+                        coreController.stopLoop();
+                    } finally {
+                        suppressServiceShutdownCallback = previousSuppress;
+                    }
                 }
                 if (stopService && v2rayServicesListener != null) {
                     v2rayServicesListener.stopService();
                 }
                 Log.e(V2rayCoreManager.class.getSimpleName(), "stopCore success => v2ray core stopped.");''',
-'P1-40 stopCore only tears down service for explicit stop');
+'P1-41 suppress shutdown callback during explicit stopCore');
 
-exact_replace(vpn, '''            if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {
+exact_replace_after(vpn, "if (startCommand.equals(AppConfigs.V2RAY_SERVICE_COMMANDS.START_SERVICE))", '''            if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {
                 V2rayCoreManager.getInstance().stopCore();
             }''', '''            if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {
                 // Replacing a server must not stop this Service while this START command is running.
@@ -1115,7 +1167,7 @@ exact_replace(vpn, '''            if (V2rayCoreManager.getInstance().isV2rayCore
             }''',
 'P1-40 VPN restart keeps service alive');
 
-exact_replace(proxy_svc, '''            if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {
+exact_replace_after(proxy_svc, "if (startCommand.equals(AppConfigs.V2RAY_SERVICE_COMMANDS.START_SERVICE))", '''            if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {
                 V2rayCoreManager.getInstance().stopCore();
             }''', '''            if (V2rayCoreManager.getInstance().isV2rayCoreRunning()) {
                 // Replacing a server must not stop this Service while this START command is running.
