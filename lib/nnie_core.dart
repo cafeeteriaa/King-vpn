@@ -49,6 +49,7 @@ class NatProbeEvidence {
     required this.globalTcpOk,
     this.dnsPoisonSuspected = false,
     this.sampleCount = 1,
+    this.globalIpv6TcpOk = false,
   });
 
   final bool domesticDnsOk;
@@ -57,6 +58,10 @@ class NatProbeEvidence {
   final bool globalTcpOk;
   final bool dnsPoisonSuspected;
   final int sampleCount;
+
+  /// Explicit TCP/443 reachability to a literal global IPv6 address returned
+  /// by AAAA DNS. Kept separate from generic hostname TCP evidence.
+  final bool globalIpv6TcpOk;
 
   NatNetworkClass classify() {
     // DNS replies prove resolver availability only. They must never be used as
