@@ -627,6 +627,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             }
             coreStopping = true;
         }
+        // The worker's watchdog-protected native state query is the sole authority
+        // for stop completion. Never repeat that JNI call on the waiting thread.
+        final boolean[] stopVerified = {false};
         Thread t;
         try {
             t = new Thread(() -> {
@@ -653,6 +656,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 }
                 synchronized (tunLock) {
                     coreStopping = false;
+                    stopVerified[0] = !stillRunning;
                     if (!stillRunning && closeTunAfterCoreStop) {
                         closeQuietly(tun);
                         tun = null;
@@ -696,18 +700,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 Log.w(TAG, "stopCore still running; TUN close deferred until native stop returns");
                 return false;
             }
-            final boolean stillRunning;
-            try {
-                stillRunning = core.isV2rayCoreRunning();
-            } catch (Throwable stateError) {
+            if (!stopVerified[0]) {
                 closeTunAfterCoreStop = true;
-                lastError = "could not verify native core stop";
-                Log.e(TAG, lastError + "; retaining TUN", stateError);
-                return false;
-            }
-            if (stillRunning) {
-                closeTunAfterCoreStop = true;
-                Log.e(TAG, "native core is still running after stop; TUN retained");
+                Log.e(TAG, "native stop was not verified by the watchdog-protected worker; TUN retained");
                 return false;
             }
             if (closeTunAfterCoreStop) {
