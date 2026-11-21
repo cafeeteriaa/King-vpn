@@ -4426,6 +4426,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
+    def test_smart_pilot_persists_bounded_privacy_safe_route_history(self):
+        national = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        self.assertIn('class PilotRouteHistory', national)
+        self.assertIn("pilot_route_history_v1", national)
+        self.assertIn('static Future<void> record(', national)
+        self.assertIn("evidence.domesticSamples < 3", national)
+        self.assertIn("evidence.globalSamples < 3", national)
+        self.assertIn("static bool _validGroup(String value)", national)
+        self.assertIn("unawaited(PilotRouteHistory.record(", national)
+        self.assertIn("if (identity.isNotEmpty)", national)
+        self.assertIn("PilotRouteHistory.forNetwork(natOpKey)", extras)
+        self.assertNotIn("ssid", national.lower())
+        self.assertNotIn("subscriber", national.lower())
+
     def test_smart_pilot_manual_ip_ranges_accept_bounded_ipv4_and_ipv6(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = source.index('List<String> _pilotExpandRanges(String raw)')
