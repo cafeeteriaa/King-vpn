@@ -2395,6 +2395,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('return natHotNext(', impl)
 
 
+    def test_national_hot_source_forced_refresh_is_not_swallowed_by_active_refresh(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        ensure_start = source.index('Future<void> natHotEnsure({bool force = false})')
+        ensure_end = source.index('Future<void> _natHotEnsureImpl(', ensure_start)
+        ensure = source[ensure_start:ensure_end]
+        self.assertIn('bool _hotEnsureRunningForce = false;', source)
+        self.assertIn('final activeWasForced = _hotEnsureRunningForce;', ensure)
+        self.assertIn('if (force && !activeWasForced)', ensure)
+        self.assertIn('await natHotEnsure(force: true);', ensure)
+        self.assertIn('_hotEnsureRunningForce = force;', ensure)
+        self.assertIn('_hotEnsureRunningForce = false;', ensure)
+
+
     def test_ip_auto_scan_aborts_when_network_mode_changes_mid_run(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         self.assertIn('(modeSnapshot != null && nationalMode != modeSnapshot)', source)
