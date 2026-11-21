@@ -2321,8 +2321,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         body = source[start:end]
         self.assertIn('final scanClock = Stopwatch()..start();', body)
         self.assertIn('final remainingBudget = budget - scanClock.elapsed;', body)
-        self.assertIn('final portBudget = perPortCap < remainingBudget', body)
-        self.assertIn('milliseconds: max(20000, budget.inMilliseconds ~/ max(1, portList.length)).toInt()', body)
+        self.assertIn('final remainingPorts = portList.length - portIndex;', body)
+        self.assertIn('natFairPortBudget(remainingBudget, remainingPorts)', body)
+        self.assertIn('for (var portIndex = 0; portIndex < portList.length; portIndex++)', body)
+        self.assertNotIn('perPortCap', body)
+        self.assertNotIn('milliseconds: max(20000', body)
         scan = body.index('final hits = await natScanIps(')
         self.assertIn('budget: portBudget,', body[scan:scan + 500])
         expiry = body.index('if (shouldAbort() || scanExpired()) return const <String>[];', scan)
