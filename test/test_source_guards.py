@@ -81,6 +81,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('domesticSet.contains(item.toString().trim().toLowerCase())', builder)
         self.assertIn('[...preferredDomestic, ...domesticFirst, ...existingList]', builder)
 
+    def test_npv_core_preserves_structured_xray_dns_server_entries(self):
+        source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        start = source.index('void addResolver(dynamic raw)')
+        end = source.index("d['queryStrategy']", start)
+        resolver_builder = source[start:end]
+        self.assertIn('if (raw is Map)', resolver_builder)
+        self.assertIn('jsonEncode(raw)', resolver_builder)
+        self.assertIn('structured.add(Map<String, dynamic>.from(raw))', resolver_builder)
+        self.assertIn('for (final value in existingServers) { addResolver(value); }', resolver_builder)
+        self.assertIn("d['servers'] = [...ips, ...doh, ...structured];", resolver_builder)
+        self.assertNotIn('addResolver(value.toString())', resolver_builder)
+
     def test_dns_auto_resolver_probe_uses_one_stable_route_mode_snapshot(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         probe_start = source.index('Future<int?> _probeDnsIp(')
