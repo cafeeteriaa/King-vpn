@@ -3500,5 +3500,31 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('else saveState();', recovery)
 
 
+
+    def test_subscription_urls_require_https_and_have_bounded_non_redirecting_reads(self):
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        groups = (ROOT / 'lib' / 'sub_groups.dart').read_text(encoding='utf-8')
+        start = extras.index('Future<List<Server>> fetchSubscription(String url)')
+        end = extras.index('// ======================= بخش‌های رابط', start)
+        fetch = extras[start:end]
+        self.assertIn("uri.scheme != 'https'", fetch)
+        self.assertIn('uri.userInfo.isNotEmpty', fetch)
+        self.assertIn('followRedirects = false', fetch)
+        self.assertIn('streamed.statusCode != 200', fetch)
+        self.assertIn('2 * 1024 * 1024', fetch)
+        self.assertIn('streamed.stream.timeout', fetch)
+        self.assertIn("uri.scheme != 'https'", groups)
+        self.assertNotIn("startsWith('http://')", groups)
+
+    def test_operator_asn_lookups_require_https_and_do_not_follow_redirects(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('Future<String?> _natAsnFrom(')
+        end = source.index('Future<void> natDetectOperator()', start)
+        lookup = source[start:end]
+        self.assertIn("uri.scheme != 'https'", lookup)
+        self.assertIn('req.followRedirects = false;', lookup)
+        self.assertNotIn('http://ip-api.com', source)
+
+
 if __name__ == '__main__':
     unittest.main()

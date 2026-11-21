@@ -350,11 +350,39 @@ Future<http.Response> getListMirror(String u) async {
 
 // ======================= لینک اشتراک (subscription) =======================
 Future<List<Server>> fetchSubscription(String url) async {
+  final uri = Uri.tryParse(url.trim());
+  if (uri == null ||
+      uri.scheme != 'https' ||
+      uri.host.isEmpty ||
+      uri.userInfo.isNotEmpty) {
+    return [];
+  }
+  final client = http.Client();
   try {
-    final r =
-        await http.get(Uri.parse(url)).timeout(const Duration(seconds: 20));
-    if (r.statusCode != 200) return [];
-    var body = r.body.trim();
+    final request = http.Request('GET', uri)..followRedirects = false;
+    final streamed = await client.send(request).timeout(const Duration(seconds: 20));
+    // Subscription URLs contain server credentials. Never send them over cleartext
+    // HTTP, and never follow a redirect that could downgrade the transport.
+    if (streamed.statusCode != 200 ||
+        streamed.request?.url.scheme != 'https') {
+      return [];
+    }
+    const maxSubscriptionBytes = 2 * 1024 * 1024;
+    final declaredLength = streamed.contentLength;
+    if (declaredLength != null && declaredLength > maxSubscriptionBytes) {
+      return [];
+    }
+    final builder = BytesBuilder(copy: false);
+    var receivedBytes = 0;
+    await for (final chunk in streamed.stream.timeout(const Duration(seconds: 20))) {
+      receivedBytes += chunk.length;
+      if (receivedBytes > maxSubscriptionBytes) {
+        client.close();
+        return [];
+      }
+      builder.add(chunk);
+    }
+    var body = utf8.decode(builder.takeBytes(), allowMalformed: true).trim();
     if (!body.contains('://')) {
       try {
         body = utf8.decode(base64
@@ -374,6 +402,8 @@ Future<List<Server>> fetchSubscription(String url) async {
   } catch (e, stk) {
     logError(e, stk);
     return [];
+  } finally {
+    client.close();
   }
 }
 
@@ -446,7 +476,9 @@ extension HomeExtras on _HomePageState {
             FilledButton(
               onPressed: () {
                 final u = c.text.trim();
-                if (!u.startsWith('http')) return;
+                final uri = Uri.tryParse(u);
+                if (uri == null || uri.scheme != 'https' ||
+                    uri.host.isEmpty || uri.userInfo.isNotEmpty) return;
                 importSubscription(ctx, u);
               },
               child: const Text('دریافت'),

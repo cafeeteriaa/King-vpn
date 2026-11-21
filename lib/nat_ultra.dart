@@ -1494,13 +1494,22 @@ Future<String> _natNetType() async {
 }
 
 Future<String?> _natAsnFrom(String url, String field) async {
+  final uri = Uri.tryParse(url);
+  if (uri == null ||
+      uri.scheme != 'https' ||
+      uri.host.isEmpty ||
+      uri.userInfo.isNotEmpty) {
+    return null;
+  }
   final c = HttpClient()
     ..findProxy = ((_) => 'DIRECT')
     ..connectionTimeout = const Duration(seconds: 3);
   try {
-    final req =
-        await c.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 3));
+    final req = await c.getUrl(uri).timeout(const Duration(seconds: 3));
+    // ASN providers are optional diagnostics; do not follow a downgrade redirect.
+    req.followRedirects = false;
     final res = await req.close().timeout(const Duration(seconds: 3));
+    if (res.statusCode != HttpStatus.ok) return null;
     final body =
         await res.transform(utf8.decoder).join().timeout(const Duration(seconds: 3));
     final t = body.trimLeft();
@@ -1528,7 +1537,6 @@ Future<void> natDetectOperator() async {
     if (stale) {
       _natAsnTry[type] = DateTime.now();
       final r = await Future.wait([
-        _natAsnFrom('http://ip-api.com/json/?fields=as', 'as'),
         _natAsnFrom('https://ipinfo.io/json', 'org'),
         _natAsnFrom('https://api.ip.sb/geoip', 'asn'),
       ]);
