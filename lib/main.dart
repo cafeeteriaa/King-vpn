@@ -8924,7 +8924,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           nnieGeneration == _connGen &&
           connected &&
           identical(s, current);
-    });
+    }, stillValid: () =>
+        nnieGeneration == _connGen && connected && identical(s, current));
     if (mounted) setState(() {});
     if (mounted) uiJoinPrompt(context);
     _set(_connStatus());

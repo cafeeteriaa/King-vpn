@@ -98,14 +98,17 @@ class NationalNetworkIntelligence {
   /// traffic verification. A CONNECTED state alone is not stable-traffic proof.
   static void armStable(
     String endpointKey,
-    Future<bool> Function() verifyStableTraffic,
-  ) {
+    Future<bool> Function() verifyStableTraffic, {
+    bool Function()? stillValid,
+  }) {
     _stableTimer?.cancel();
     _stableTimer = Timer(const Duration(minutes: 5), () {
       _stableTimer = null;
       unawaited(() async {
         try {
-          if (await verifyStableTraffic()) await recordStable(endpointKey);
+          if (await verifyStableTraffic()) {
+            await recordStable(endpointKey, stillValid: stillValid);
+          }
         } catch (_) {
           // Missing probe evidence is never counted as a successful stable run.
         }
@@ -113,8 +116,14 @@ class NationalNetworkIntelligence {
     });
   }
 
-  static Future<void> recordStable(String endpointKey) async {
+  static Future<void> recordStable(
+    String endpointKey, {
+    bool Function()? stillValid,
+  }) async {
     await load();
+    // load() awaits persistent storage. The connection may have changed while
+    // waiting, so validate once more immediately before mutating the evidence.
+    if (stillValid != null && !stillValid()) return;
     final old = _memory[endpointKey];
     if (old == null) return; // only extend entries that already have a real success
     _memory[endpointKey] = NatEndpointMemory(

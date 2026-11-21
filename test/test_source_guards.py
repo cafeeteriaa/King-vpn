@@ -3899,6 +3899,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         arm = source[start:end]
         self.assertIn('nnieGeneration == _connGen', arm)
         self.assertIn('_stableTunnelTrafficOk(s)', arm)
+        self.assertIn('stillValid: () =>', arm)
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        stable_start = engine.index('static Future<void> recordStable(')
+        stable_end = engine.index('static Future<void> _save()', stable_start)
+        stable = engine[stable_start:stable_end]
+        self.assertIn('if (stillValid != null && !stillValid()) return;', stable)
+        self.assertLess(stable.index('await load();'),
+                        stable.index('if (stillValid != null && !stillValid()) return;'))
         self.assertLess(arm.index('final nnieGeneration = _connGen;'),
                         arm.index('NationalNetworkIntelligence.armStable('))
 
