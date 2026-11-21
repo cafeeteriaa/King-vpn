@@ -93,6 +93,39 @@ List<String> natExpandDash(String range, {int maxCount = 65536}) {
   return out;
 }
 
+/// Build a bounded, fair batch from the complete configured range inventory.
+/// Each successful batch advances by the number of ranges visited, not by the
+/// number of generated addresses; callers persist [nextCursor] only on success.
+({List<String> addresses, int nextCursor}) natConfiguredRangeBatch({
+  required List<String> ranges,
+  required int cursor,
+  required int limit,
+  required List<String> Function(String range, int maxPerRange) expand,
+}) {
+  if (limit <= 0 || ranges.isEmpty) {
+    return (addresses: const <String>[], nextCursor: cursor);
+  }
+  final start = cursor % ranges.length;
+  final rangeCount = min(ranges.length, limit);
+  final basePerRange = limit ~/ rangeCount;
+  final extra = limit % rangeCount;
+  final addresses = <String>[];
+  final seen = <String>{};
+  for (var i = 0; i < rangeCount; i++) {
+    final rangeIndex = (start + i) % ranges.length;
+    final perRange = basePerRange + (i < extra ? 1 : 0);
+    final sampled = expand(ranges[rangeIndex], perRange);
+    for (final address in sampled) {
+      if (addresses.length >= limit) break;
+      if (seen.add(address)) addresses.add(address);
+    }
+  }
+  return (
+    addresses: List<String>.unmodifiable(addresses),
+    nextCursor: (start + rangeCount) % ranges.length,
+  );
+}
+
 /// اتصال TCP به ip:port. اگر جواب داد زمان پاسخ را برمی‌گرداند، وگرنه null.
 /// تضمین: سوکت در هر حالتی (موفق، خطا، تایم‌اوت) بسته می‌شود.
 Future<int?> natTcpProbe(String ip, int port, Duration timeout) async {

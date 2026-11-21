@@ -2,6 +2,61 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:king_vpn/nat_ip_scan.dart';
 
 void main() {
+  group('configured National Net range scheduling', () {
+    test('round-robins across the complete inventory beyond 128 ranges', () {
+      final ranges = List<String>.generate(300, (i) => 'range-$i');
+      var cursor = 0;
+      final visited = <String>{};
+      for (var batch = 0; batch < 19; batch++) {
+        final result = natConfiguredRangeBatch(
+          ranges: ranges,
+          cursor: cursor,
+          limit: 16,
+          expand: (range, budget) {
+            expect(budget, greaterThan(0));
+            return List<String>.generate(budget, (i) => '$range-ip-$i');
+          },
+        );
+        expect(result.addresses.length, lessThanOrEqualTo(16));
+        visited.addAll(result.addresses.map((address) => address.split('-ip-').first));
+        cursor = result.nextCursor;
+      }
+      expect(visited, hasLength(300));
+      expect(cursor, 4);
+    });
+
+    test('distributes a bounded budget across all ranges and deduplicates', () {
+      final result = natConfiguredRangeBatch(
+        ranges: ['a', 'b', 'c'],
+        cursor: 1,
+        limit: 8,
+        expand: (range, budget) =>
+            List<String>.filled(budget, range == 'b' ? 'shared' : range),
+      );
+      expect(result.addresses, ['shared', 'c', 'a']);
+      expect(result.nextCursor, 1);
+    });
+
+    test('invalid ranges still advance fairly and invalid limits do not', () {
+      final skipped = natConfiguredRangeBatch(
+        ranges: ['bad-a', 'good-b', 'bad-c'],
+        cursor: 0,
+        limit: 2,
+        expand: (range, budget) => range == 'good-b' ? ['10.0.0.1'] : const [],
+      );
+      expect(skipped.addresses, ['10.0.0.1']);
+      expect(skipped.nextCursor, 2);
+      final empty = natConfiguredRangeBatch(
+        ranges: ['a', 'b'],
+        cursor: 1,
+        limit: 0,
+        expand: (_, __) => fail('must not expand'),
+      );
+      expect(empty.addresses, isEmpty);
+      expect(empty.nextCursor, 1);
+    });
+  });
+
   group('IP range expansion limits', () {
     test('CIDR expansion rejects non-positive output limits', () {
       expect(natExpandCidr('10.0.0.0/24', maxPerBlock: 0), isEmpty);

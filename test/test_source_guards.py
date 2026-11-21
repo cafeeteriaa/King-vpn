@@ -1582,7 +1582,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         helper_start = nat.index('({List<String> addresses, int nextCursor}) _natConfiguredRangeBatch(')
         helper_end = nat.index('Future<void> natRangesSave(', helper_start)
         helper = nat[helper_start:helper_end]
-        self.assertIn('nextCursor: (start + count) % values.length', helper)
+        self.assertIn('natConfiguredRangeBatch(', helper)
+        self.assertNotIn('natRanges.take(128)', helper)
         self.assertNotIn('SharedPreferences.getInstance()', helper)
         scan_only_start = main.index('Future<void> _natScanOnly()')
         scan_only_end = main.index('// NATFIRSTFAST:', scan_only_start)

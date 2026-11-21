@@ -1781,30 +1781,17 @@ Future<void> natIpMemSave(String ip, int port) async {
 }
 
 
-/// Next bounded sample from the National Net engine's own user-configured
-/// ranges. This cursor and range inventory are not shared with generic scanners.
-({List<String> addresses, int nextCursor}) _natConfiguredRangeBatch(int limit) {
-  if (limit <= 0 || natRanges.isEmpty) {
-    return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
-  }
-  final candidates = <String>{};
-  for (final range in natRanges.take(128)) {
-    final remaining = limit * 4 - candidates.length;
-    if (remaining <= 0) break;
-    candidates.addAll(natExpandAny(range, maxPerBlock: remaining));
-  }
-  if (candidates.isEmpty) {
-    return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
-  }
-  final values = candidates.toList(growable: false);
-  final start = _natConfiguredRangeCursor % values.length;
-  final count = min(limit, values.length).toInt();
-  final out = <String>[
-    for (var i = 0; i < count; i++) values[(start + i) % values.length],
-  ];
-  // The caller commits this cursor only after the corresponding scan completes.
-  return (addresses: out, nextCursor: (start + count) % values.length);
-}
+/// Next bounded, fair sample from every user-configured National Net range.
+/// The cursor now indexes ranges (the legacy persisted integer is safely
+/// normalized modulo the current inventory length).
+({List<String> addresses, int nextCursor}) _natConfiguredRangeBatch(int limit) =>
+    natConfiguredRangeBatch(
+      ranges: natRanges,
+      cursor: _natConfiguredRangeCursor,
+      limit: limit,
+      expand: (range, perRange) =>
+          natExpandAny(range, maxPerBlock: perRange),
+    );
 
 Future<void> natRangesSave(String text) async {
   natRanges = text
