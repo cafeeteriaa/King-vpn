@@ -4299,5 +4299,35 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Socket.connect(address, 443', scan)
 
 
+    def test_vpn_watchdog_requires_repeated_mode_specific_evidence_before_failover(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        check_start = source.index('private void checkOnce()')
+        probe_start = source.index('private ProbeResult probeResult(boolean modeSnapshot)')
+        probe_end = source.index('private ProbeResult probeOne(String url)', probe_start)
+        check = source[check_start:probe_start]
+        probe = source[probe_start:probe_end]
+        self.assertIn('if (coreState == null)', check)
+        unknown_state = check[check.index('if (coreState == null)'):]
+        self.assertIn('rescheduleNormal();', unknown_state)
+        self.assertIn('if (attemptSeq.get() != healthAttempt)', check)
+        self.assertIn('if (nationalMode != modeSnapshot)', check)
+        self.assertIn('if (fails < FAILS_BEFORE_SWITCH)', check)
+        self.assertIn('FAILS_BEFORE_SWITCH = 2', source)
+        self.assertIn('int required = modeSnapshot ? 2 : 1;', probe)
+        self.assertIn('DOMESTIC_PROBE_URLS', probe)
+        self.assertIn('INTERNATIONAL_PROBE_URLS', probe)
+        self.assertIn('if (passed >= required) return ProbeResult.OK;', probe)
+
+    def test_vpn_watchdog_does_not_accept_redirects_or_non_success_status_as_health(self):
+        source = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = source.index('private ProbeResult probeOne(String url)')
+        end = source.index('private ', start + 20)
+        probe = source[start:end]
+        self.assertIn('setInstanceFollowRedirects(false)', probe)
+        self.assertIn('expects204 ? code == HttpURLConnection.HTTP_NO_CONTENT', probe)
+        self.assertIn('(code >= 200 && code < 300)', probe)
+        self.assertIn('c.disconnect();', probe)
+
+
 if __name__ == '__main__':
     unittest.main()
