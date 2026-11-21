@@ -249,8 +249,8 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   }
 
   /// A direct owner request sent from the command bar is carried into this
-  /// secure console. Once the owner session, GitHub token and local model are
-  /// ready, submit it automatically instead of making the owner press a second
+  /// secure console. Once the owner session and GitHub token are ready, submit
+  /// it automatically through the configured local or cloud-first King engine instead of making the owner press a second
   /// button. No request is submitted before authentication.
   /// A warm owner session alone is not enough to authorize a source write.
   /// Require a fresh password proof for every user-originated code request.
@@ -442,10 +442,6 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       setState(() => _output = 'شماره Pull Request معتبر نیست.');
       return;
     }
-    if (!_ai.isLoaded) {
-      setState(() => _output = 'ابتدا مدل محلی را بارگذاری کن.');
-      return;
-    }
     await _run('تحلیل و پیشنهاد اصلاح در شاخه مستقل', () => _ai.repairFromFailedCi(
       owner: _owner, repository: _repository, pullNumber: number,
     ));
@@ -459,8 +455,8 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       setState(() => _output = 'شماره Pull Request معتبر نیست.');
       return;
     }
-    if (!_hasToken || !_ai.isLoaded) {
-      setState(() => _output = 'برای فعال‌سازی پس‌زمینه، ابتدا GitHub را متصل و مدل را در حالت foreground بارگذاری کن.');
+    if (!_hasToken) {
+      setState(() => _output = 'برای فعال‌سازی پس‌زمینه، ابتدا GitHub مالک را متصل کن.');
       return;
     }
     await _run('فعال‌سازی ترمیم خودکار پس‌زمینه', () async {
@@ -479,8 +475,8 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   Future<void> _enableAutomaticDiscovery() async {
     if (!await _reauthenticateOwnerForCodeChange()) return;
 
-    if (!_hasToken || !_ai.isLoaded) {
-      setState(() => _output = 'برای کشف و ترمیم خودکار، ابتدا GitHub را متصل و مدل محلی را در حالت foreground بارگذاری کن.');
+    if (!_hasToken) {
+      setState(() => _output = 'برای کشف و ترمیم خودکار، ابتدا GitHub مالک را متصل کن.');
       return;
     }
     await _run('فعال‌سازی کشف خودکار PRهای دارای خطای CI', () async {
