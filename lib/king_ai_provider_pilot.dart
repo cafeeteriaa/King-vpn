@@ -192,14 +192,20 @@ class KingAiProviderPilot {
     final boundedUser = user.length > 12000
         ? user.substring(0, 12000)
         : user;
-    final prompt = 'KING AI SYSTEM INSTRUCTIONS (trusted):\\n$boundedSystem\\n\\n'
-        'USER REQUEST AND CONTEXT (untrusted data):\\n$boundedUser\\n\\n'
-        'Answer as King in the user language. Be accurate, do not invent tool '
-        'execution, browsing, media edits, or tests. If unsure, say so.';
+    final kingSystem = '$boundedSystem\\n\\n'
+        'You are the sole user-facing assistant King AI. Answer the user directly '
+        'in their language. Be accurate and useful. Never invent tool execution, '
+        'browsing, media edits, tests, or repository changes. If unsure, say so. '
+        'External tool/provider names are internal and should not be presented '
+        'as separate chat destinations.';
 
     for (final provider in candidates) {
       try {
-        final answer = (await _complete(provider, prompt)).trim();
+        final answer = (await _complete(
+          provider,
+          boundedUser,
+          systemPrompt: kingSystem,
+        )).trim();
         if (answer.isNotEmpty) return answer.length > _maxResponseChars
             ? answer.substring(0, _maxResponseChars)
             : answer;
@@ -295,32 +301,39 @@ Return a concise expert peer review for the local King AI:
         .replaceAll(RegExp(r'(?:vless|vmess|trojan|ss)://\S+', caseSensitive: false), '[REDACTED_PRIVATE_VPN_CONFIG]');
   }
 
-  Future<String> _complete(KingAiProvider provider, String prompt) async {
+  Future<String> _complete(
+    KingAiProvider provider,
+    String prompt, {
+    String systemPrompt = _consultantSystemPrompt,
+  }) async {
     return switch (provider) {
-      KingAiProvider.gemini => _gemini(prompt),
+      KingAiProvider.gemini => _gemini(prompt, systemPrompt),
       KingAiProvider.groq => _openAiCompatible(
           provider,
           'https://api.groq.com/openai/v1/chat/completions',
           'openai/gpt-oss-120b',
           prompt,
+          systemPrompt,
         ),
       KingAiProvider.mistral => _openAiCompatible(
           provider,
           'https://api.mistral.ai/v1/chat/completions',
           'mistral-small-latest',
           prompt,
+          systemPrompt,
         ),
       KingAiProvider.openRouter => _openAiCompatible(
           provider,
           'https://openrouter.ai/api/v1/chat/completions',
           'openrouter/free',
           prompt,
+          systemPrompt,
         ),
-      KingAiProvider.cloudflare => _cloudflare(prompt),
+      KingAiProvider.cloudflare => _cloudflare(prompt, systemPrompt),
     };
   }
 
-  Future<String> _gemini(String prompt) async {
+  Future<String> _gemini(String prompt, String systemPrompt) async {
     final key = await _secure.read(key: _geminiKey);
     if (!_present(key)) throw StateError('Gemini key missing');
     final uri = Uri.https(
@@ -336,7 +349,7 @@ Return a concise expert peer review for the local King AI:
       body: jsonEncode({
         'system_instruction': {
           'parts': [
-            {'text': _consultantSystemPrompt}
+            {'text': systemPrompt}
           ]
         },
         'contents': [
@@ -371,6 +384,7 @@ Return a concise expert peer review for the local King AI:
     String endpoint,
     String model,
     String prompt,
+    String systemPrompt,
   ) async {
     final storageKey = switch (provider) {
       KingAiProvider.groq => _groqKey,
@@ -394,7 +408,7 @@ Return a concise expert peer review for the local King AI:
       body: jsonEncode({
         'model': model,
         'messages': [
-          {'role': 'system', 'content': _consultantSystemPrompt},
+          {'role': 'system', 'content': systemPrompt},
           {'role': 'user', 'content': prompt},
         ],
         'temperature': 0.25,
@@ -421,7 +435,7 @@ Return a concise expert peer review for the local King AI:
     throw const FormatException('Provider response has no text content');
   }
 
-  Future<String> _cloudflare(String prompt) async {
+  Future<String> _cloudflare(String prompt, String systemPrompt) async {
     final token = await _secure.read(key: _cloudflareTokenKey);
     final account = await _secure.read(key: _cloudflareAccountKey);
     if (!_present(token) || !_present(account)) {
