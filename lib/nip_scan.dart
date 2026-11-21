@@ -31,7 +31,7 @@ List<String> nipExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   }
   final size = 1 << (32 - prefix);
   final start = base & ~(size - 1) & 0xFFFFFFFF;
-  final step = size > limit ? size ~/ limit : 1;
+  final step = size > limit ? (size + limit - 1) ~/ limit : 1;
   final out = <String>[];
   for (var i = 0; i < size; i += step) {
     final v = start + i;
@@ -170,7 +170,7 @@ Future<void> natRelayHostsLoad() async {
 
 Future<void> natRelayHostsSave(String text) async {
   natRelayHosts = _nipNormalizeRelayHosts(
-      text.split(RegExp(r'[\\r\\n\\s]+')));
+      text.split(RegExp(r'[\r\n\s]+')));
   try {
     final p = await SharedPreferences.getInstance();
     await p.setStringList('nat_relay_hosts', natRelayHosts);

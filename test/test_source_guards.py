@@ -4013,6 +4013,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_nipNormalizeRelayHosts(', helper)
         self.assertIn("p.setStringList('nat_relay_hosts', natRelayHosts)", helper)
 
+    def test_nip_cidr_expansion_uses_ceiling_step_and_relay_whitespace_regex(self):
+        source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        self.assertIn('final step = size > limit ? (size + limit - 1) ~/ limit : 1;', source)
+        self.assertIn("text.split(RegExp(r'[\\r\\n\\s]+'))", source)
+
     def test_nip_cidr_expansion_bounds_caller_supplied_limit(self):
         source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         start = source.index('List<String> nipExpandCidr(')
