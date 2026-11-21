@@ -46,6 +46,16 @@ void main() {
       expect(result, isEmpty);
     });
 
+    test('CIDR and dash expansion clamp excessive caller limits', () {
+      final cidr = natExpandCidr('10.0.0.0/8', maxPerBlock: 999999999);
+      final dash = natExpandDash(
+        '0.0.0.0-255.255.255.255',
+        maxCount: 999999999,
+      );
+      expect(cidr, hasLength(65536));
+      expect(dash, hasLength(65536));
+    });
+
     test('valid limits preserve expected expansion', () {
       expect(natExpandCidr('10.0.0.0/30', maxPerBlock: 4), hasLength(4));
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: 3), hasLength(3));

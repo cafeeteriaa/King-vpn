@@ -38,6 +38,7 @@ class NatIpHit {
 /// برای بلوک‌های بزرگ، فقط [maxPerBlock] آدرس پراکنده برمی‌گرداند.
 List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   if (maxPerBlock <= 0) return const [];
+  final limit = min(maxPerBlock, 65536);
   final parts = cidr.trim().split('/');
   if (parts.length != 2) return const [];
   final octets = parts[0].split('.');
@@ -55,7 +56,7 @@ List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   final start = base & ~(size - 1) & 0xFFFFFFFF;
   // Ceiling division is required: floor division can exceed maxPerBlock
   // for non-divisible subnet sizes (e.g. /24 with a limit of 100 yields 128).
-  final step = size > maxPerBlock ? (size + maxPerBlock - 1) ~/ maxPerBlock : 1;
+  final step = size > limit ? (size + limit - 1) ~/ limit : 1;
   final out = <String>[];
   for (var i = 0; i < size; i += step) {
     final v = start + i;
@@ -68,6 +69,7 @@ List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
 /// بازه‌های بزرگ‌تر از maxCount به‌طور یکنواخت نمونه‌برداری می‌شوند.
 List<String> natExpandDash(String range, {int maxCount = 65536}) {
   if (maxCount <= 0) return const [];
+  final limit = min(maxCount, 65536);
   final parts = range.trim().split('-');
   if (parts.length != 2) return const [];
   int? toInt(String ip) {
@@ -85,7 +87,7 @@ List<String> natExpandDash(String range, {int maxCount = 65536}) {
   final b = toInt(parts[1]);
   if (a == null || b == null || b < a) return const [];
   final count = b - a + 1;
-  final step = count > maxCount ? (count + maxCount - 1) ~/ maxCount : 1; // مشکل ۱۵: سقف رعایت شود
+  final step = count > limit ? (count + limit - 1) ~/ limit : 1; // مشکل ۱۵: سقف رعایت شود
   final out = <String>[];
   for (var v = a; v <= b; v += step) {
     out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
