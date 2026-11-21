@@ -14,6 +14,10 @@ enum NatNetworkClass {
   unknown,
 }
 
+/// Address-family evidence is independent: IPv4 success cannot prove IPv6.
+enum NatIpFamilyReachability { unknown, dnsOnly, tcpReachable, tcpBlocked }
+
+
 enum NatAttemptStage { quick, alternate, expensive }
 
 /// Coalesces concurrent requests for the same asynchronous operation.
@@ -49,6 +53,8 @@ class NatProbeEvidence {
     required this.globalTcpOk,
     this.dnsPoisonSuspected = false,
     this.sampleCount = 1,
+    this.globalIpv4DnsOk = false,
+    this.globalIpv6DnsOk = false,
     this.globalIpv4TcpOk = false,
     this.globalIpv6TcpOk = false,
   });
@@ -64,11 +70,29 @@ class NatProbeEvidence {
   /// DNS resolver/query counts are deliberately excluded.
   final int sampleCount;
 
+  /// Public A answers received from global DNS probes.
+  final bool globalIpv4DnsOk;
+
+  /// Public AAAA answers received from global DNS probes.
+  final bool globalIpv6DnsOk;
+
   /// Explicit TCP/443 reachability to a literal global A-record address.
   final bool globalIpv4TcpOk;
 
   /// Explicit TCP/443 reachability to a literal global AAAA-record address.
   final bool globalIpv6TcpOk;
+
+  NatIpFamilyReachability get ipv4Reachability =>
+      _familyReachability(globalIpv4DnsOk, globalIpv4TcpOk);
+
+  NatIpFamilyReachability get ipv6Reachability =>
+      _familyReachability(globalIpv6DnsOk, globalIpv6TcpOk);
+
+  static NatIpFamilyReachability _familyReachability(bool dnsOk, bool tcpOk) {
+    if (tcpOk) return NatIpFamilyReachability.tcpReachable;
+    if (dnsOk) return NatIpFamilyReachability.dnsOnly;
+    return NatIpFamilyReachability.tcpBlocked;
+  }
 
   NatNetworkClass classify() {
     // DNS replies prove resolver availability only. They must never be used as
