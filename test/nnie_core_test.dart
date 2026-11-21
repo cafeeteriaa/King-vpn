@@ -456,6 +456,41 @@ void main() {
     });
   });
 
+  group('NatIpv4CidrIndex', () {
+    test('matches addresses inside IPv4 CIDRs without scanning the ranges', () {
+      final index = NatIpv4CidrIndex([
+        '2.144.0.0/18',
+        '5.10.248.0/23',
+        '192.0.2.0/24',
+        'invalid/99',
+      ]);
+      expect(index.contains('2.144.1.10'), isTrue);
+      expect(index.contains('2.144.64.1'), isFalse);
+      expect(index.contains('5.10.249.254'), isTrue);
+      expect(index.contains('5.10.250.1'), isFalse);
+      expect(index.contains('192.0.2.10'), isTrue);
+    });
+
+    test('rejects IPv6, malformed addresses, and malformed CIDRs', () {
+      final index = NatIpv4CidrIndex([
+        '2001:db8::/32',
+        '10.0.0.0/33',
+        '10.0.0.0/not-a-prefix',
+        '10.0.0.0',
+      ]);
+      expect(index.contains('10.0.0.1'), isFalse);
+      expect(index.contains('2001:db8::1'), isFalse);
+      expect(index.contains('not-an-ip'), isFalse);
+    });
+
+    test('supports a full IPv4 range and a single-host /32', () {
+      final index = NatIpv4CidrIndex(['0.0.0.0/0', '203.0.113.9/32']);
+      expect(index.contains('8.8.8.8'), isTrue);
+      expect(index.contains('203.0.113.9'), isTrue);
+      expect(index.contains('203.0.113.10'), isTrue);
+    });
+  });
+
   group('natStageFor', () {
     NatAttemptStage stage({int v = 20, bool kcp = false, bool winner = false, bool cdn = false}) =>
         natStageFor(variantIndex: v, isKcp: kcp, isKnownWinner: winner, isCdnCompatible: cdn);
