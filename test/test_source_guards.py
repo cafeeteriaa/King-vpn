@@ -4353,6 +4353,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('return isLocalHttpInboundAvailable()', probe)
         self.assertIn('? ProbeResult.SOFT_FAIL : ProbeResult.INCONCLUSIVE;', probe)
         self.assertIn('catch (SocketException | SocketTimeoutException e)', probe)
+        self.assertIn('catch (UnknownHostException | SSLException e)', probe)
+        self.assertIn('return ProbeResult.INCONCLUSIVE;', probe)
+        self.assertIn('Unexpected probe/runtime failures are not proof of a dead route.', probe)
 
 
     def test_plain_fallback_keeps_native_watchdog_http_inbound_without_policy_rewrite(self):
