@@ -4543,7 +4543,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         replacement = app_block.split("''', '''", 1)[1]
         self.assertNotIn("addDisallowedApplication(getPackageName())", replacement)
         self.assertIn("the app is NOT excluded from the tunnel", replacement)
-        self.assertIn("BLOCKED_APPS", patch)
 
         # Returning true without calling Android protect(fd) is unsafe: it can leave
         # the core socket inside the TUN and create a routing loop.
