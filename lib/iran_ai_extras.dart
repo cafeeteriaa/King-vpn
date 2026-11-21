@@ -2583,7 +2583,7 @@ extension HomeExtras on _HomePageState {
       return switch (evidence.mode) {
         DetectedNetworkMode.domesticOnly => NatNetworkClass.domesticOnlyLikely,
         DetectedNetworkMode.globalOnly ||
-        DetectedNetworkMode.dualStack => NatNetworkClass.globalReachable,
+        DetectedNetworkMode.domesticAndGlobal => NatNetworkClass.globalReachable,
         DetectedNetworkMode.offline => NatNetworkClass.transportRestricted,
         DetectedNetworkMode.unknown => NatNetworkClass.unknown,
       };
