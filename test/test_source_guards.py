@@ -1425,6 +1425,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('KingAiProviderPilot', background)
         self.assertIn('await ai.createAutonomousMaintenanceProposal(', background)
 
+    def test_owner_repair_and_autonomous_maintenance_do_not_require_local_model(self):
+        console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
+        background = (ROOT / 'lib' / 'king_ai_background.dart').read_text(encoding='utf-8')
+        repair_start = console.index('Future<void> _repair()')
+        repair_end = console.index('Future<void> _enableBackground()', repair_start)
+        self.assertNotIn('_ai.isLoaded', console[repair_start:repair_end])
+        enable_start = console.index('Future<void> _enableBackground()')
+        enable_end = console.index('Future<void> _enableAutomaticDiscovery()', enable_start)
+        self.assertNotIn('_ai.isLoaded', console[enable_start:enable_end])
+        auto_start = console.index('Future<void> _enableAutomaticDiscovery()')
+        auto_end = console.index('Future<void> _disableBackground()', auto_start)
+        self.assertNotIn('_ai.isLoaded', console[auto_start:auto_end])
+        self.assertIn('if (!ai.isLoaded)', background)
+        self.assertIn('pilot.cloudEnabled', background)
+        self.assertIn('KingAiProvider.gemini', background)
+        self.assertIn('KingAiProvider.groq', background)
+        self.assertIn('KingAiProvider.openRouter', background)
 
     def test_native_apk_installer_accepts_only_the_verified_private_cache_asset(self):
         native = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
