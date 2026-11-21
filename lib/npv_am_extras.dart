@@ -1121,12 +1121,22 @@ String withNpvAmCore(String cfg) {
     j['outbounds'] = outs;
     if (secureDns) {
       final d = j['dns'] is Map ? j['dns'] as Map : <String, dynamic>{};
-      final nationalAutoProvider = const {'shecan', 'electro', 'radar'}
-              .contains(dnsProvActive)
-          ? dnsProvActive
-          : 'shecan';
+      const domesticProviders = {'shecan', 'electro', 'radar'};
+      // A manually selected domestic provider must not be replaced by the
+      // stale auto-selection cache. In auto mode, use only a validated
+      // domestic result; otherwise fall back to Shecan.
+      final nationalAutoProvider = dnsProv != 'auto' &&
+              domesticProviders.contains(dnsProv)
+          ? dnsProv
+          : (domesticProviders.contains(dnsProvActive)
+              ? dnsProvActive
+              : 'shecan');
+      final nationalCustom = dnsProv == 'custom' ? customDnsList() : null;
       final first = nationalMode
-          ? (_dnsUrls[nationalAutoProvider] ?? _dnsUrls['shecan']!)
+          ? <String>[
+              ...(_dnsUrls[nationalAutoProvider] ?? _dnsUrls['shecan']!),
+              ...?nationalCustom,
+            ]
           : (customDnsList() ?? _dnsUrls[effectiveDnsProv()] ?? _dnsUrls['cloudflare']!);
       final ips = <dynamic>[];
       final doh = <dynamic>[];
