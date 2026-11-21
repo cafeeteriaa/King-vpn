@@ -8722,11 +8722,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // NNIE: measure only this server's own start-to-data-plane verification time.
     final nnieElapsedMs = _nnieFinishAttempt(s);
     if (_listPartial) unawaited(_fetchFullListBg());
-    // IP کارا به حافظه (هم در نت جهانی و هم در نت ملی؛ دفعه‌ی بعد اول از همین‌ها استفاده می‌شود)
+    // Remember successful endpoints globally; also promote IP and domain winners in national mode.
     if (InternetAddress.tryParse(s.host) != null) {
       unawaited(natIpMemSave(s.host, s.port));
+      if (nationalMode) {
+        unawaited(natDomMemSave(s.host, s.port));
+      }
     } else if (nationalMode) {
-      unawaited(natDomMemSave(s.host, s.port)); // NATDOM: دامنه‌ی موفق در نت ملی
+      unawaited(natDomMemSave(s.host, s.port)); // NATDOM: successful national domain
     }
     s.miss = 0; // BADCFG: only an end-to-end connection resets health
     softFailN.remove(s.key);
