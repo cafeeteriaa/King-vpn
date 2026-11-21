@@ -71,6 +71,31 @@ void main() {
       expect(await flight.run(() async => 4), 4);
     });
   });
+  group('domestic candidate ordering', () {
+    test('verified national traffic wins over ASN and geographic-only hints', () {
+      final input = ['geo-label', 'other', 'iran-asn', 'verified-domain', 'verified-ip'];
+      final ordered = natPrioritizeDomesticEvidence<String>(
+        input,
+        verifiedNational: (value) => value.startsWith('verified-'),
+        iranAsnAddress: (value) => value == 'iran-asn',
+      );
+      expect(ordered, [
+        'verified-domain', 'verified-ip', 'iran-asn', 'geo-label', 'other',
+      ]);
+      // Stable partitioning must not mutate the source inventory.
+      expect(input, ['geo-label', 'other', 'iran-asn', 'verified-domain', 'verified-ip']);
+    });
+
+    test('preserves source order inside each evidence tier', () {
+      final ordered = natPrioritizeDomesticEvidence<int>(
+        [5, 3, 4, 2, 1],
+        verifiedNational: (value) => value == 3 || value == 1,
+        iranAsnAddress: (value) => value == 4 || value == 2,
+      );
+      expect(ordered, [3, 1, 4, 2, 5]);
+    });
+  });
+
   group('NatProbeEvidence.classify', () {
     test('a single failed sample is never proof of a national network', () {
       const ev = NatProbeEvidence(

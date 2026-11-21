@@ -17217,27 +17217,22 @@ bool _natIsIranAsnIp(String host) => _iranIspIpv4Index.contains(host);
 
 // NNIE-DOM: وقتی جهانی قطع و ملی باز است، سرورهای ایران‌محور جلو می‌روند.
 // تفکیک صریح و پایدار است (List.sort در Dart پایدار نیست).
+// NNIE-DOM: rank by observed national traffic first, then Iranian ASN assignment.
+// A country code or source-list name is only metadata; neither proves local hosting
+// or a working domestic data path, so neither can promote an endpoint into this tier.
 List<Server> _natDomesticFirst(List<Server> list) {
-  final dom = <Server>[];
-  final rest = <Server>[];
-  for (final s in list) {
-    (s.country == 'IR' || _natSrc(s) || _natIsIranAsnIp(s.host) ? dom : rest).add(s);
-  }
-  return [...dom, ...rest];
+  final verified = natDomMemHosts();
+  return natPrioritizeDomesticEvidence<Server>(
+    list,
+    verifiedNational: (s) => verified.contains('${s.host}:${s.port}'),
+    iranAsnAddress: (s) => _natIsIranAsnIp(s.host),
+  );
 }
 
-// NNIE-WIN: سرورهایی که قبلاً همین endpoint را در نت ملی باز کرده‌اند (حافظه‌ی دامنه)
-// همیشه قبل از ترجیح ایران‌محور می‌آیند؛ وگرنه ترتیب یادگیری‌شده خنثی می‌شد.
-// ترتیب نسبی داخل هر گروه حفظ می‌شود.
-List<Server> _natDomesticFirstKeepWinners(List<Server> list) {
-  final remDom = natDomMemHosts();
-  final winners = <Server>[];
-  final rest = <Server>[];
-  for (final s in list) {
-    (remDom.contains('${s.host}:${s.port}') ? winners : rest).add(s);
-  }
-  return [...winners, ..._natDomesticFirst(rest)];
-}
+// Compatibility wrapper for existing call sites; the evidence tiers are applied
+// in one place so verified winners can never be displaced by country/source tags.
+List<Server> _natDomesticFirstKeepWinners(List<Server> list) =>
+    _natDomesticFirst(list);
 
 // رتبه نت ملی: برندگان قبلی > منبع ایران‌محور > Reality > IR > CDN
 // فیکس ۹: نتیجه روی خود Server کش می‌شود تا در sort هزاران سرور، toLowerCase + چندین contains

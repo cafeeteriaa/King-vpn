@@ -491,6 +491,30 @@ class NatIpv4CidrIndex {
   }
 }
 
+/// Stable domestic-mode ordering based on evidence, not geographic labels.
+/// A recently verified national endpoint always comes first; an IP assigned to
+/// an Iranian ISP/datacenter ASN is a weaker candidate hint. Country/source tags
+/// are deliberately not accepted here because they do not prove hosting or traffic.
+List<T> natPrioritizeDomesticEvidence<T>(
+  Iterable<T> items, {
+  required bool Function(T) verifiedNational,
+  required bool Function(T) iranAsnAddress,
+}) {
+  final verified = <T>[];
+  final iranAsn = <T>[];
+  final remaining = <T>[];
+  for (final item in items) {
+    if (verifiedNational(item)) {
+      verified.add(item);
+    } else if (iranAsnAddress(item)) {
+      iranAsn.add(item);
+    } else {
+      remaining.add(item);
+    }
+  }
+  return List<T>.unmodifiable([...verified, ...iranAsn, ...remaining]);
+}
+
 class NatEndpointMemory {
   const NatEndpointMemory({
     required this.attempts,
