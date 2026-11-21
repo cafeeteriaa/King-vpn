@@ -3531,5 +3531,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('http://ip-api.com', source)
 
 
+
+    def test_process_exit_diagnostics_do_not_skip_records_after_display_limit(self):
+        source = (ROOT / 'android_src' / 'KingDiag.java').read_text(encoding='utf-8')
+        start = source.index('public static String lastExits(Context ctx)')
+        end = source.index('private static void nativeHints(', start)
+        body = source[start:end]
+        self.assertIn('Collections.sort(ordered', body)
+        self.assertIn('if (shown >= 5) break;', body)
+        self.assertIn('processedThrough = ts;', body)
+        self.assertIn('writeSeen(app, processedThrough)', body)
+        self.assertNotIn('if (shown >= 5) continue;', body)
+        self.assertNotIn('newest > seen', body)
+
+
 if __name__ == '__main__':
     unittest.main()
