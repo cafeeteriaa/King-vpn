@@ -2168,7 +2168,8 @@ Future<List<String>> _natDomainFirst(List<Server> known,
       final addresses = parsed == null ? await safeLookup(entry.key) : <InternetAddress>[parsed];
       if (cancelled()) return const <String>[];
       for (final address in addresses) {
-        if (address.type != InternetAddressType.IPv4) continue;
+        if (address.type != InternetAddressType.IPv4 &&
+            address.type != InternetAddressType.IPv6) continue;
         (resolved[address.address] ??= <int>{}).addAll(entry.value);
       }
     }

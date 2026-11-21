@@ -4156,6 +4156,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('nipExpandIpv6Cidr(item, maxPerBlock: limit)', expander)
         self.assertIn('a.type == InternetAddressType.IPv4', expander)
         self.assertIn('a.type == InternetAddressType.IPv6', expander)
+        memory_start = source.index('Future<void> natIpMemLoad()')
+        memory_end = source.index('const String _domMemKey', memory_start)
+        memory = source[memory_start:memory_end]
+        self.assertIn('address.type != InternetAddressType.IPv6', memory)
+        domain_start = source.index('Future<List<String>> _natDomainFirst(')
+        domain_end = source.index('Future<List<String>> natDeviceHosts()', domain_start)
+        domain_scan = source[domain_start:domain_end]
+        self.assertIn('address.type != InternetAddressType.IPv6', domain_scan)
 
 
 if __name__ == '__main__':
