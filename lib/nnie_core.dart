@@ -189,10 +189,16 @@ class NatDnsWireProbe {
     var p = start;
     var resume = -1;
     var hops = 0;
+    var expandedLength = 0;
     final visitedPointers = <int>{};
     while (p < b.length && hops++ < 128) {
       final n = b[p];
       if (n == 0) {
+        // RFC 1035 limits the expanded wire-format domain name to 255 octets,
+        // including the terminating root label (compression bytes excluded).
+        if (expandedLength + 1 > 255) {
+          throw const FormatException('DNS name exceeds 255 octets');
+        }
         if (resume < 0) resume = p + 1;
         break;
       }
@@ -212,6 +218,10 @@ class NatDnsWireProbe {
         continue;
       }
       if (n > 63 || p + 1 + n > b.length) throw const FormatException('Bad label');
+      expandedLength += n + 1;
+      if (expandedLength > 254) {
+        throw const FormatException('DNS name exceeds 255 octets');
+      }
       labels.add(ascii.decode(b.sublist(p + 1, p + 1 + n), allowInvalid: false).toLowerCase());
       p += n + 1;
     }
