@@ -4080,6 +4080,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('ipv6 sinkhole not supported', body)
         self.assertNotIn('catch (Exception e)', body[:body.index('} catch (Exception e)')])
 
+    def test_reliable_config_preserves_selected_global_dns_before_fallbacks(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('String _reliableVpnCfg(String cfg)')
+        end = source.index('// completes when the VPN tunnel reports CONNECTED', start)
+        body = source[start:end]
+        global_block = body[body.index("} else if (secureDns && !ultraMode"):body.index("    // If the profile has no upstream resolver")]
+        self.assertIn('final existingList = existing is List ? existing : const <dynamic>[];', global_block)
+        self.assertIn('for (final item in [...existingList, ...globalFallbacks])', global_block)
+        self.assertIn("d['servers'] = merged;", global_block)
+        self.assertNotIn("d['servers'] = <dynamic>[", global_block)
+
     def test_reliable_config_hijacks_udp_and_tcp_dns_into_xray_builtin_resolver(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = source.index('String _reliableVpnCfg(String cfg)')
