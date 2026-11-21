@@ -624,20 +624,27 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
     }
 
-    /** Reads native core state only while a process watchdog is armed. */
+    /** Reads native core state serially and only while a process watchdog is armed. */
     private Boolean readCoreRunningWithWatchdog(V2rayCoreManager core, String operation) {
-        if (!beginNative(operation)) {
-            lastError = "native watchdog unavailable; refusing unmonitored core state query";
-            return null;
-        }
+        // checkOnce() runs outside coreLock during network probes. Skip a state read if a
+        // start/stop owns the core; never let two native calls overwrite the watchdog token.
+        if (!coreLock.tryLock()) return null;
         try {
-            return core.isV2rayCoreRunning();
-        } catch (Throwable stateError) {
-            lastError = "could not read native core state: " + operation;
-            Log.e(TAG, lastError, stateError);
-            return null;
+            if (!beginNative(operation)) {
+                lastError = "native watchdog unavailable; refusing unmonitored core state query";
+                return null;
+            }
+            try {
+                return core.isV2rayCoreRunning();
+            } catch (Throwable stateError) {
+                lastError = "could not read native core state: " + operation;
+                Log.e(TAG, lastError, stateError);
+                return null;
+            } finally {
+                endNative();
+            }
         } finally {
-            endNative();
+            coreLock.unlock();
         }
     }
 
