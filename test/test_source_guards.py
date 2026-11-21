@@ -4530,5 +4530,30 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('_reliableVpnCfg(base)', cfg_list)
 
 
+
+    def test_active_plugin_routes_app_traffic_and_fails_closed_on_unprotected_core_socket(self):
+        patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+
+        # The plugin's old self-exclusion bypassed VPN for requests issued by King VPN
+        # itself (including direct-IP/ASN diagnostics). Only BLOCKED_APPS should remain
+        # excluded; core sockets are separately exempted through VpnService.protect().
+        app_start = patch.index("exact_replace(vpn, '''        // Keep this process outside the VPN")
+        app_end = patch.index("'V3 #49 do not exclude app from VPN')", app_start)
+        app_block = patch[app_start:app_end]
+        replacement = app_block.split("''', '''", 1)[1]
+        self.assertNotIn("addDisallowedApplication(getPackageName())", replacement)
+        self.assertIn("The app is NOT excluded from the tunnel", replacement)
+        self.assertIn("BLOCKED_APPS", patch)
+
+        # Returning true without calling Android protect(fd) is unsafe: it can leave
+        # the core socket inside the TUN and create a routing loop.
+        protect_start = patch.index("exact_replace(core, '''                public boolean protect(long fd)")
+        protect_end = patch.index("'V3 #49 protector fails when service is missing')", protect_start)
+        protect_block = patch[protect_start:protect_end]
+        protect_replacement = protect_block.split("''', '''", 1)[1]
+        self.assertIn("return false;", protect_replacement)
+        self.assertNotIn("return true;", protect_replacement)
+
+
 if __name__ == '__main__':
     unittest.main()
