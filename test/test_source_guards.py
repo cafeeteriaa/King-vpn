@@ -1914,6 +1914,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Do not publish stale discoveries after the tunnel/pilot stops.', keep)
 
 
+    def test_nat_ip_memory_cache_is_validated_deduplicated_and_capped(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = nat.index('Future<void> natIpMemLoad() async {')
+        end = nat.index('const String _domMemKey', start)
+        loader = nat[start:end]
+        self.assertIn('decoded.take(_ipMemMax * 4)', loader)
+        self.assertIn('address.type != InternetAddressType.IPv4', loader)
+        self.assertIn('port < 1', loader)
+        self.assertIn('port > 65535', loader)
+        self.assertIn('timestamp < cutoff', loader)
+        self.assertIn('if (!seen.add(key)) continue;', loader)
+        self.assertIn('if (natIpMem.length >= _ipMemMax) break;', loader)
+        self.assertIn('await p.setString(_ipMemKey, jsonEncode(natIpMem));', loader)
+
     def test_configured_nat_ranges_are_normalized_and_sync_expansion_is_bounded(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         normalize_start = nat.index('List<String> _natNormalizeConfiguredRanges(')

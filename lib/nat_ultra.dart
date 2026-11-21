@@ -1757,19 +1757,48 @@ Set<String> natIpMemHosts() => {for (final e in natIpMem) '${e['ip']}'};
 Future<void> natIpMemLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
-    final s = p.getString(_ipMemKey);
-    if (s != null) {
-      natIpMem
-        ..clear()
-        ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
-      final cutoff = DateTime.now()
-          .subtract(const Duration(days: 14))
-          .millisecondsSinceEpoch;
-      natIpMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
+    final raw = p.getString(_ipMemKey);
+    natIpMem.clear();
+    if (raw != null && raw.isNotEmpty) {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        final now = DateTime.now().millisecondsSinceEpoch;
+        final cutoff = now - const Duration(days: 14).inMilliseconds;
+        final seen = <String>{};
+        for (final item in decoded.take(_ipMemMax * 4)) {
+          if (item is! Map) continue;
+          final address = InternetAddress.tryParse('${item['ip'] ?? ''}');
+          final portValue = item['port'];
+          final timeValue = item['t'];
+          final port = portValue is num ? portValue.toInt() : 0;
+          final timestamp = timeValue is num ? timeValue.toInt() : 0;
+          if (address == null ||
+              address.type != InternetAddressType.IPv4 ||
+              port < 1 ||
+              port > 65535 ||
+              timestamp < cutoff ||
+              timestamp > now + const Duration(days: 1).inMilliseconds) {
+            continue;
+          }
+          final key = '${address.address}:$port';
+          if (!seen.add(key)) continue;
+          natIpMem.add({
+            'ip': address.address,
+            'port': port,
+            't': timestamp,
+          });
+          if (natIpMem.length >= _ipMemMax) break;
+        }
+      }
+    }
+    // Rewrite stale or malformed cache once, keeping future reads bounded.
+    if (raw != null && jsonEncode(natIpMem) != raw) {
+      await p.setString(_ipMemKey, jsonEncode(natIpMem));
     }
     natRanges = _natNormalizeConfiguredRanges(
         (p.getString(_rangeKey) ?? '').split(RegExp(r'[\r\n,; ]+')));
-    _natConfiguredRangeCursor = (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
+    _natConfiguredRangeCursor =
+        (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
   } catch (e, stk) {
     logError(e, stk);
   }
