@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import 'king_ai_background.dart';
 import 'king_ai_owner_auth.dart';
 import 'king_voice_output.dart';
+import 'king_ai_provider_settings.dart';
 
 /// In-app control surface for the local coding model and guarded GitHub PR workflow.
 class KingAiConsolePage extends StatefulWidget {
@@ -41,6 +42,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   final TextEditingController _featureRequestController = TextEditingController();
   final KingAiOwnerAuth _ownerAuth = KingAiOwnerAuth.instance;
   bool _initialRequestSubmitted = false;
+  bool _initialProjectRequestSubmitted = false;
   bool _initialIdeaAnalysisSubmitted = false;
   bool _ownerConfigured = false;
   bool _ownerUnlocked = false;
@@ -92,6 +94,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       if (_ownerAuth.hasActiveSession) {
         await _maybeAnalyzeInitialIdea();
         await _maybeSubmitInitialFeatureRequest();
+        await _maybeCreateInitialProject();
       }
     } catch (error) {
       if (mounted) setState(() => _output = 'خطا در بررسی وضعیت مالک: $error');
@@ -113,6 +116,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
       await _refreshOwnerState();
       if (mounted) setState(() => _output = 'رمز مالک روی همین دستگاه به‌صورت امن ثبت شد.');
       await _maybeSubmitInitialFeatureRequest();
+      await _maybeCreateInitialProject();
     } catch (error) {
       if (mounted) setState(() => _output = 'ثبت رمز مالک انجام نشد: $error');
     }
@@ -129,7 +133,10 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
             ? 'دسترسی مالک برای حداکثر ۲ دقیقه فعال شد.'
             : 'احراز هویت ناموفق بود یا موقتاً قفل شده است.');
       }
-      if (accepted) await _maybeSubmitInitialFeatureRequest();
+      if (accepted) {
+        await _maybeSubmitInitialFeatureRequest();
+        await _maybeCreateInitialProject();
+      }
     } catch (error) {
       if (mounted) setState(() => _output = 'احراز هویت انجام نشد: $error');
     }
@@ -328,7 +335,33 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     await _submitFeatureRequest(ownerReauthenticated: true);
   }
 
-  Future<void> _createStandaloneProject() async {
+  Future<void> _maybeCreateInitialProject() async {
+    if (!mounted || _initialProjectRequestSubmitted ||
+        (widget.initialProjectRequest?.trim().length ?? 0) < 12 ||
+        !_ownerAuth.hasActiveSession) {
+      return;
+    }
+    if (!_ai.isLoaded) {
+      if (mounted) {
+        setState(() => _output =
+            'درخواست ساخت پروژه محفوظ است. ابتدا مدل محلی کینگ را بارگذاری کن.');
+      }
+      return;
+    }
+    _initialProjectRequestSubmitted = true;
+    if (!await _reauthenticateOwnerForCodeChange()) {
+      _initialProjectRequestSubmitted = false;
+      return;
+    }
+    await _createStandaloneProject(ownerReauthenticated: true);
+  }
+
+  Future<void> _createStandaloneProject({bool ownerReauthenticated = false}) async {
+    if (!await _requireOwnerSession('ساخت اپلیکیشن')) return;
+    // Project generation writes source files and a ZIP, so require a fresh
+    // owner proof for this exact user-originated code-generation request.
+    if (!ownerReauthenticated && !await _reauthenticateOwnerForCodeChange()) return;
+    if (!mounted) return;
     final request = _featureRequestController.text.trim();
     if (request.length < 12) {
       setState(() => _output = 'شرح پروژه را دقیق‌تر بنویس (حداقل ۱۲ نویسه).');
@@ -393,6 +426,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     if (mounted) setState(() => _progress = null);
     await _maybeAnalyzeInitialIdea();
     await _maybeSubmitInitialFeatureRequest();
+    await _maybeCreateInitialProject();
   }
 
   int? get _pullNumber => int.tryParse(_pullController.text.trim());
@@ -523,6 +557,8 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
               ]),
             )),
             const SizedBox(height: 10),
+            const KingAiProviderSettingsCard(),
+            const SizedBox(height: 10),
             Card(child: Padding(
               padding: const EdgeInsets.all(14),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -530,7 +566,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
                 const SizedBox(height: 6),
                 Text(!_ownerConfigured
                     ? 'رمز مالک هنوز روی این دستگاه تعیین نشده است.'
-                    : (_ownerUnlocked ? 'دسترسی مالک فعال است (حداکثر ۱۵ دقیقه).' : 'دسترسی مالک قفل است.')),
+                    : (_ownerUnlocked ? 'دسترسی مالک فعال است (حداکثر ۲ دقیقه).' : 'دسترسی مالک قفل است.')),
                 TextField(
                   controller: _ownerPasswordController,
                   obscureText: true,
@@ -641,7 +677,9 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
-                    onPressed: _busy || !_ai.isLoaded ? null : _createStandaloneProject,
+                    onPressed: _busy || !_ownerUnlocked || !_ai.isLoaded
+                        ? null
+                        : _createStandaloneProject,
                     icon: const Icon(Icons.archive_outlined),
                     label: const Text('ساخت اپلیکیشن مستقل و ارسال ZIP'),
                   ),

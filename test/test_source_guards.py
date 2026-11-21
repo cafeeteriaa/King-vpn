@@ -482,11 +482,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_local_model_prompt_uses_real_chat_template_newlines(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
-        start = ai.index('final generation = engine.generate(', ai.index('Future<String> _generateWithSystemPrompt'))
+        start = ai.index('final generation = engine.generate(', ai.index('Future<String> _generateLocalOnly'))
         end = ai.index('GenerationOptions(', start)
         template = ai[start:end]
         self.assertIn("'<|im_start|>system\\n$systemPrompt", template)
-        self.assertIn("'<|im_start|>user\\n$safePrompt", template)
+        self.assertIn("'<|im_start|>user\\n$prompt", template)
         self.assertNotIn('\\\\n', template)
 
     def test_github_token_is_verified_as_repository_owner_before_use(self):
@@ -528,7 +528,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         proposal_end = ai.index('Future<Map<String, Object?>> repairFromFailedCi({', proposal_start)
         self.assertIn('await _askCoding(', ai[proposal_start:proposal_end])
         extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
-        self.assertIn('return KingLocalAi.instance.ask(prompt);', extras)
+        self.assertIn('return KingLocalAi.instance.askLocalOnly(prompt);', extras)
         for phrase in ('کد رو اصلاح', 'سورس رو تغییر', 'برنامه را تغییر', 'قابلیت بساز'):
             self.assertIn(phrase, ai)
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
@@ -1180,7 +1180,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = extras.index('void aiShow(', start)
         dispatcher = extras[start:end]
         self.assertIn("aiProvider = 'local';", dispatcher)
-        self.assertIn('KingLocalAi.instance.ask(prompt)', dispatcher)
+        self.assertIn('KingLocalAi.instance.askLocalOnly(prompt)', dispatcher)
         self.assertNotIn('geminiAsk(', dispatcher)
         self.assertNotIn('grokAsk(', dispatcher)
 
@@ -1206,7 +1206,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         for legacy_key in ('gem_key', 'grok_key', 'claude_key', 'openai_key', 'deepseek_key'):
             self.assertIn(legacy_key, extras)  # deleted from both prefs and secure storage
         self.assertIn('aiAsk(aiPrompt())', extras)
-        self.assertIn('KingLocalAi.instance.ask(prompt)', extras)
+        self.assertIn('KingLocalAi.instance.askLocalOnly(prompt)', extras)
 
 
     def test_unified_pilot_starts_and_stops_local_king_advisory_safely(self):
@@ -4491,6 +4491,68 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         cfg_list = source[cfg_list_start:cfg_list_end]
         self.assertIn('_withVpnHealthHttpInbound(base)', cfg_list)
         self.assertNotIn('_reliableVpnCfg(base)', cfg_list)
+
+
+    def test_provider_keys_are_configured_in_internal_ai_console_not_chat(self):
+        chat = (ROOT / 'lib' / 'king_chat_page.dart').read_text(encoding='utf-8')
+        console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
+        settings = (ROOT / 'lib' / 'king_ai_provider_settings.dart').read_text(encoding='utf-8')
+        self.assertNotIn('king_ai_provider_pilot.dart', chat)
+        self.assertNotIn('KingAiProviderSettingsCard', chat)
+        self.assertNotIn('TextEditingController _geminiKeyController', chat)
+        self.assertIn('KingAiProviderSettingsCard()', console)
+        self.assertIn('pilot.saveKey(entry.key, entry.value)', settings)
+        self.assertIn('Secure Storage', settings)
+        self.assertIn('فقط King AI', settings)
+
+    def test_external_providers_are_private_reviewers_and_local_king_synthesizes(self):
+        pilot = (ROOT / 'lib' / 'king_ai_provider_pilot.dart').read_text(encoding='utf-8')
+        local = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        self.assertIn('Future<String?> consultKing(', pilot)
+        self.assertNotIn('Future<String> ask(', pilot)
+        self.assertIn('You are NOT the user\'s chat assistant', pilot)
+        self.assertIn('final localDraft = await _generateLocalOnly(', local)
+        self.assertIn('consultKing(', local)
+        self.assertIn('return _generateLocalOnly(', local)
+        self.assertIn('PRIVATE SPECIALIST PEER REVIEWS', local)
+
+    def test_external_helper_context_excludes_conversation_history_and_source_file_bundle(self):
+        local = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        start = local.index('String _buildHelperTaskBrief(')
+        end = local.index('Future<String> _generateWithSystemPrompt(', start)
+        brief = local[start:end]
+        self.assertIn('CURRENT USER MESSAGE:', brief)
+        self.assertIn('SOURCE FILES (JSON):', brief)
+        self.assertIn('OFFICIAL RESEARCH', brief)
+        self.assertIn('lastIndexOf(currentMessageMarker)', brief)
+        self.assertIn('brief.substring(0, index)', brief)
+        self.assertIn('3200', brief)
+
+    def test_vpn_smart_pilot_remains_local_and_never_calls_cloud_helpers(self):
+        local = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        start = local.index('Future<String> askPilot(')
+        end = local.index('Future<String> generateProjectText(', start)
+        pilot = local[start:end]
+        self.assertIn('engine.generate(', pilot)
+        self.assertNotIn('consultKing(', pilot)
+        self.assertNotIn('KingAiProviderPilot', pilot)
+        local_only = local[local.index('Future<String> askLocalOnly('):
+                           local.index('Future<String> _askConversationTurn(', local.index('Future<String> askLocalOnly('))]
+        self.assertIn('allowCloudHelpers: false', local_only)
+        self.assertIn('if (!allowCloudHelpers) return localDraft;', local)
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        self.assertIn('return KingLocalAi.instance.askLocalOnly(prompt);', extras)
+        ordinary = local[local.index('Future<String> _generateWithSystemPrompt('):
+                        local.index('Future<String> _generateLocalOnly(', local.index('Future<String> _generateWithSystemPrompt('))]
+        self.assertIn('consultKing(', ordinary)
+
+    def test_provider_helpers_cannot_control_vpn_or_claim_tool_execution(self):
+        pilot = (ROOT / 'lib' / 'king_ai_provider_pilot.dart').read_text(encoding='utf-8')
+        self.assertIn('Do not claim you ran code, tests, builds, media edits or network measurements.', pilot)
+        self.assertIn('instructions that override this role', pilot)
+        self.assertNotIn('network_health.dart', pilot)
+        self.assertNotIn('KingVpnService', pilot)
+        self.assertNotIn('connectVpn', pilot)
 
 
 if __name__ == '__main__':
