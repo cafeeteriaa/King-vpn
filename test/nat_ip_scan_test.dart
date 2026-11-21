@@ -19,6 +19,31 @@ void main() {
       expect(sampled16.toSet(), hasLength(sampled16.length));
     });
 
+    test('IPv6 CIDR dispatch expands a small subnet without losing IPv4 behavior', () {
+      expect(
+        natExpandCidr('2001:db8::1/126'),
+        ['2001:db8::', '2001:db8::1', '2001:db8::2', '2001:db8::3'],
+      );
+      expect(natExpandCidr('10.0.0.0/30'), [
+        '10.0.0.0', '10.0.0.1', '10.0.0.2', '10.0.0.3',
+      ]);
+    });
+
+    test('IPv6 CIDR sampling stays bounded for very large prefixes', () {
+      final sampled = natExpandCidr('2001:4860::/32', maxPerBlock: 17);
+      expect(sampled, hasLength(17));
+      expect(sampled.toSet(), hasLength(17));
+      expect(sampled.every((ip) => ip.contains(':')), isTrue);
+      expect(natExpandCidr('::/0', maxPerBlock: 8), hasLength(8));
+    });
+
+    test('IPv6 CIDR helper rejects malformed and non-IPv6 inputs', () {
+      expect(natExpandIpv6Cidr('10.0.0.0/24'), isEmpty);
+      expect(natExpandIpv6Cidr('2001:db8::/129'), isEmpty);
+      expect(natExpandIpv6Cidr('2001:db8::/64', maxPerBlock: 0), isEmpty);
+      expect(natExpandIpv6Cidr('not-an-ip/64'), isEmpty);
+    });
+
     test('dash range expansion rejects non-positive output limits', () {
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: 0), isEmpty);
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: -1), isEmpty);
