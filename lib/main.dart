@@ -3770,12 +3770,7 @@ bool _privateIp(InternetAddress a) {
   // Treat every non-global/special-purpose IPv6 address as non-routable for
   // public server probes, matching the strict AAAA validation used by NNIE.
   if (b.length == 16 && !NatDnsWireProbe.publicV6(b, 0)) return true;
-  if (b.length == 4) {
-    if (b[0] == 10 || b[0] == 0) return true;
-    if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) return true;
-    if (b[0] == 192 && b[1] == 168) return true;
-    if (b[0] == 100 && b[1] >= 64 && b[1] <= 127) return true;
-  }
+  if (b.length == 4 && !NatDnsWireProbe.publicV4(b, 0)) return true;
   return false;
 }
 

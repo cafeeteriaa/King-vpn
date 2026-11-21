@@ -4176,6 +4176,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('2001:4860:4860::8888', scanner)
         self.assertIn('parsedIp.type == InternetAddressType.IPv6', extras)
 
+    def test_server_probe_rejects_non_global_addresses_in_both_families(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('bool _privateIp(InternetAddress a)')
+        end = source.index('int byPing(', start)
+        helper = source[start:end]
+        self.assertIn('NatDnsWireProbe.publicV4(b, 0)', helper)
+        self.assertIn('NatDnsWireProbe.publicV6(b, 0)', helper)
+
     def test_ripe_asn_discovery_stays_ipv4_only_even_when_dns_prefers_aaaa(self):
         source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         resolve_start = source.index('Future<String?> nipResolve(')
