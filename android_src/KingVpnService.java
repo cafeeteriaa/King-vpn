@@ -134,11 +134,15 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     };
 
     private final Object lock = new Object();
+    /** Serializes startId publication with the final foreground/service-stop decision. */
+    private final Object startLifecycleLock = new Object();
     // Prevent a watchdog tick racing service destruction and creating a new executor.
     private final Object schedulerLock = new Object();
     private volatile boolean destroyed = false;
     /** Latest Android start request; stale asynchronous stop work must not stop a newer start. */
     private volatile int latestStartId = 0;
+    /** Start id whose stop request most recently set the stopping flag. */
+    private volatile int latestStopRequestId = -1;
     private final List<Srv> servers = new ArrayList<>();
     private ParcelFileDescriptor tun = null;
     // جدید: ONE scheduler for the whole service (was a new executor per tick, never closed)
@@ -226,7 +230,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     /** جدید: stop requested by the app while it is in the background. */
     public void stopFromApp() {
         final int stopStartId = latestStartId;
-        requestStop();
+        requestStop(stopStartId);
         submit(() -> stopEverything(stopStartId));
     }
 
@@ -257,7 +261,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        latestStartId = startId;
+        synchronized (startLifecycleLock) {
+            latestStartId = startId;
+        }
         // Keep this method short: it runs on the main thread, and the system
         // expects a foreground service to be promoted within a few seconds.
         if (intent == null) {
@@ -267,7 +273,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             if (!startForegroundSafe("در حال بازیابی اتصال…")) {
                 lastError = "Unable to enter foreground mode during VPN service recovery";
                 Log.e(TAG, lastError);
-                requestStop();
+                requestStop(startId);
                 submit(() -> stopEverything(startId));
                 return START_NOT_STICKY;
             }
@@ -283,7 +289,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // ACTION_STOP may itself arrive through startForegroundService; satisfy the
             // same deadline before asynchronous shutdown work is queued.
             startForegroundSafe("در حال قطع اتصال…");
-            requestStop();
+            requestStop(startId);
             submit(() -> stopEverything(startId));
             return START_NOT_STICKY;
         }
@@ -299,7 +305,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // جدید: startForegroundService requires startForeground() within 5 s, or Android
             // kills the process with ForegroundServiceDidNotStartInTimeException.
             updateNotification("خطا: تنظیمات سرور خالی است");
-            requestStop();
+            requestStop(startId);
             submit(() -> stopEverything(startId));
             return START_NOT_STICKY;
         }
@@ -319,7 +325,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             lastError = "Unable to enter foreground mode; VPN startup was refused";
             Log.e(TAG, lastError);
             emit("FAILED", lastError, activeAttemptId);
-            requestStop();
+            requestStop(startId);
             submit(() -> stopEverything(startId));
             return START_NOT_STICKY;
         }
@@ -420,7 +426,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * Non-blocking half of a stop. Safe to call on the main thread: it only sets
      * flags and cancels the running attempt. The real work runs on the worker.
      */
-    private void requestStop() {
+    private void requestStop(int startId) {
+        latestStopRequestId = startId;
         userStopped = true;
         stopping = true;
         active = false;
@@ -1104,15 +1111,29 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             }
             clearState();
             servers.clear();
-            try {
-                stopForeground(true);
-            } catch (Exception ignored) {
+            // Coordinate this short final section with onStartCommand's startId
+            // publication. If a newer start arrived during teardown, preserve its
+            // foreground notification and let its queued worker task start afterwards.
+            synchronized (startLifecycleLock) {
+                if (expectedStartId == latestStartId) {
+                    try {
+                        stopForeground(true);
+                    } catch (Exception ignored) {
+                    }
+                }
+                // stopSelfResult refuses to stop the service if Android has already delivered
+                // a newer start command, closing the final race with startId delivery.
+                stopSelfResult(expectedStartId);
+                // An old stop must release its cancellation flag for a newer start, but
+                // never overwrite a stop request that belongs to that newer startId.
+                if (expectedStartId != latestStartId
+                        && latestStopRequestId == expectedStartId) {
+                    stopping = false;
+                }
             }
-            // stopSelfResult refuses to stop the service if Android has already delivered
-            // a newer start command, closing the final race with startId delivery.
-            stopSelfResult(expectedStartId);
-            stopping = false;
-            emit("STOPPED", "", -1); // جدید: با هیچ تلاشی تطابق ندارد
+            if (expectedStartId == latestStartId) {
+                emit("STOPPED", "", -1); // جدید: با هیچ تلاشی تطابق ندارد
+            }
         }
     }
 
@@ -1233,7 +1254,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     public void onRevoke() {
         // Another VPN took over: stop our core and free the TUN, without blocking the main thread.
         final int revokeStartId = latestStartId;
-        requestStop();
+        requestStop(revokeStartId);
         submit(() -> stopEverything(revokeStartId));
     }
 
@@ -1251,7 +1272,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             sch = scheduler;
             scheduler = null;
         }
-        requestStop();
+        requestStop(latestStartId);
         if (sch != null) sch.shutdownNow();
         // The core must stop so its local ports are released. Run it on the worker; shutdown()
         // still runs queued tasks, so this does not block the main thread.
