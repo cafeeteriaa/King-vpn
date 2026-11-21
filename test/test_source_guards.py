@@ -1616,6 +1616,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Future<void> _natHotEnsureImpl({bool force = false}) async', source)
         self.assertIn('final seenKeys = <String>{};', source)
         self.assertIn('if (!seenKeys.add(cfg)) continue;', source)
+        impl_start = source.index('Future<void> _natHotEnsureImpl({bool force = false}) async')
+        impl_end = source.index('bool natHotReady()', impl_start)
+        refresh = source[impl_start:impl_end]
+        cleanup = refresh.index('for (final path in [...parts, extraPath])')
+        fetch = refresh.index('await pool<int>')
+        self.assertLess(cleanup, fetch)
+        self.assertIn('await File(path).delete();', refresh[cleanup:fetch])
         fill_start = source.index('Future<void> hotAutoFill() async')
         fill_end = source.index('Future<void> hotAutoStart()', fill_start)
         self.assertNotIn('manageExternalStorage', source[fill_start:fill_end])

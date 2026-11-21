@@ -2638,6 +2638,15 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
     final parts = [for (var i = 0; i < urls.length; i++) '$dir/hot_part_$i.txt'];
     final extraPath = '$dir/hot_part_extra.txt';
     final sw = Stopwatch()..start();
+    // A previous interrupted refresh may have left partial source files behind.
+    // Remove them before fetching so a failed/empty source can never reuse stale configs.
+    for (final path in [...parts, extraPath]) {
+      try {
+        await File(path).delete();
+      } on FileSystemException {
+        // Missing temporary files are the normal first-run case.
+      }
+    }
     try {
       await pool<int>([for (var i = 0; i < urls.length; i++) i], fetchWorkers,
           (i) async {
