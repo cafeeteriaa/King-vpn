@@ -29,6 +29,7 @@ class KingAiProjectBuilderGuards(unittest.TestCase):
         self.assertIn("path.contains('\\\\')", builder)
         self.assertIn("path.split('/').any((part) => part.startsWith('.'))", builder)
         self.assertIn("_extensions.any(", builder)
+        self.assertIn("'.kts'", builder)
 
     def test_zip_writer_emits_stored_entries_and_central_directory(self):
         builder = (ROOT / "lib" / "king_ai_project_builder.dart").read_text(encoding="utf-8")
