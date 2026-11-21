@@ -165,7 +165,7 @@ class KingAiProviderPilot {
   }
 
   String _safeError(Object error) {
-    final value = error.toString().replaceAll(RegExp(r'(?i)(api[_-]?key|token|authorization)\s*[:=]\s*\S+'), '[secret]');
+    final value = error.toString().replaceAll(RegExp(r'(api[_-]?key|token|authorization)\s*[:=]\s*\S+', caseSensitive: false), '[secret]');
     return value.length > 260 ? value.substring(0, 260) : value;
   }
 
