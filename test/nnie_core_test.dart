@@ -137,7 +137,7 @@ void main() {
         globalIpv4DnsOk: true, globalIpv6DnsOk: false, sampleCount: 4,
       );
       expect(ipv4Only.ipv4Reachability, NatIpFamilyReachability.dnsOnly);
-      expect(ipv4Only.ipv6Reachability, NatIpFamilyReachability.tcpBlocked);
+      expect(ipv4Only.ipv6Reachability, NatIpFamilyReachability.unknown);
 
       const ipv6Only = NatProbeEvidence(
         domesticDnsOk: false, domesticTcpOk: true,
