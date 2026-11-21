@@ -234,6 +234,25 @@ void main() {
       expect(NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'), ['8.8.8.8']);
     });
 
+    test('rejects CNAME names that spill beyond their RDATA length', () {
+      final bytes = <int>[
+        ..._u16(0x1234), ..._u16(0x8180), ..._u16(1), ..._u16(2),
+        ..._u16(0), ..._u16(0),
+        6, 103, 111, 111, 103, 108, 101, 3, 99, 111, 109, 0,
+        0, 1, 0, 1, // Question: google.com A IN
+        0xc0, 0x0c, // CNAME owner: google.com
+        0, 5, 0, 1, // TYPE=CNAME, CLASS=IN
+        0, 0, 0, 60, 0, 1, 3, // RDLENGTH=1, but the label continues
+        3, 102, 111, 111, 0, // Next RR owner "foo" completes the fake CNAME
+        0, 1, 0, 1, // TYPE=A, CLASS=IN
+        0, 0, 0, 60, 0, 4, 8, 8, 8, 8,
+      ];
+      expect(
+        () => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
     test('buildQuery supports AAAA records', () {
       final query = NatDnsWireProbe.buildQuery('google.com', 0x1234, type: 28);
       expect(query.sublist(query.length - 4), [0, 28, 0, 1]);

@@ -312,6 +312,12 @@ class NatDnsWireProbe {
       if (rd + rdlen > b.length) throw const FormatException('Bad RDATA length');
       records.add((owner: owner, type: type, cls: cls, rd: rd, rdlen: rdlen));
       if (type == 5 && cls == 1 && rdlen > 0) {
+        // CNAME RDATA is exactly one encoded domain name. Do not let a
+        // malformed short RDLENGTH borrow bytes from the following RR.
+        final cnameEnd = _skipName(b, rd);
+        if (cnameEnd != rd + rdlen) {
+          throw const FormatException('CNAME RDATA length mismatch');
+        }
         cnameTargets[owner] = _readName(b, rd);
       }
       p = rd + rdlen;
