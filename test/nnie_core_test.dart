@@ -206,6 +206,17 @@ void main() {
           throwsA(isA<FormatException>()));
     });
 
+    test('rejects a DNS compression pointer into the message header', () {
+      final bytes = <int>[
+        ..._u16(0x1234), ..._u16(0x8180), ..._u16(1), ..._u16(1),
+        ..._u16(0), ..._u16(0),
+        0xc0, 0x00, // points to transaction ID/header, not a prior DNS name
+        0, 1, 0, 1,
+      ];
+      expect(() => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
+          throwsA(isA<FormatException>()));
+    });
+
     test('pre-cancelled DNS probes return without opening a socket', () async {
       final result = await NatDnsWireProbe.probe(
         '127.0.0.1',
