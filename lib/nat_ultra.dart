@@ -2547,6 +2547,20 @@ Future<List<String>> _hotFetchOne(String u) async {
   return out;
 }
 
+// The hot-file index and cursor are shared by every national-source consumer.
+// Serialize rebuilds and reads so concurrent callers cannot interleave seek/read
+// operations or reset the cursor while another reader is consuming the old index.
+Future<void> _hotIoQueue = Future<void>.value();
+
+Future<T> _hotSerialize<T>(Future<T> Function() action) {
+  final result = _hotIoQueue.then((_) => action());
+  _hotIoQueue = result.then<void>(
+    (_) {},
+    onError: (Object error, StackTrace stack) {},
+  );
+  return result;
+}
+
 Future<void>? _hotEnsureFuture;
 
 Future<void> natHotEnsure({bool force = false}) async {
@@ -2555,7 +2569,7 @@ Future<void> natHotEnsure({bool force = false}) async {
     await active;
     return;
   }
-  final task = _natHotEnsureImpl(force: force);
+  final task = _hotSerialize<void>(() => _natHotEnsureImpl(force: force));
   _hotEnsureFuture = task;
   try {
     await task;
@@ -2733,9 +2747,17 @@ Future<_HotIdx?> _hotLoad() async {
 }
 
 Future<List<Server>> natHotNext(int n,
-    {bool fetch = true, bool retried = false}) async {
+    {bool fetch = true, bool retried = false}) {
+  if (n <= 0) return Future<List<Server>>.value(const <Server>[]);
+  // Queue the refresh first so a read never races an atomic file replacement.
+  if (fetch) unawaited(natHotEnsure());
+  return _hotSerialize<List<Server>>(
+      () => _natHotNextImpl(n, fetch: false, retried: retried));
+}
+
+Future<List<Server>> _natHotNextImpl(int n,
+    {bool fetch = false, bool retried = false}) async {
   try {
-    if (fetch) unawaited(natHotEnsure());
     final h = await _hotLoad();
     if (h == null) return const [];
     final lines = h.offs.length - 1;
@@ -2748,7 +2770,7 @@ Future<List<Server>> natHotNext(int n,
       if (await raf.length() != h.offs.last) {
         _hot = null; // ایندکس قدیمی را دور بریز
         if (retried) return const [];
-        return natHotNext(n, fetch: false, retried: true);
+        return await _natHotNextImpl(n, fetch: false, retried: true);
       }
       var read = 0;
       while (out.length < n && read < lines) {
