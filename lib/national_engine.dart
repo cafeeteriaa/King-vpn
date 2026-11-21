@@ -221,6 +221,12 @@ class PilotRouteHistory {
   }
 
   static String get currentGroup => _activeGroup;
+  /// Loads persisted aggregates without delaying app startup or VPN setup.
+  static Future<void> loadForCurrentNetwork() async {
+    await load();
+    _activeGroup = await networkGroup();
+  }
+
   static Map<String, Object?>? forNetwork(String group) => _entries[group];
 
   static Future<void> load() async {
