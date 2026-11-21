@@ -31,6 +31,20 @@ class KingAiProjectBuilderGuards(unittest.TestCase):
         self.assertIn("_extensions.any(", builder)
         self.assertIn("'.kts'", builder)
 
+    def test_failed_project_export_cleans_partial_workspace_and_zip(self):
+        builder = (ROOT / "lib" / "king_ai_project_builder.dart").read_text(encoding="utf-8")
+        start = builder.index("final zipFile = File(projects.path")
+        end = builder.index("return {", start)
+        export = builder[start:end]
+        self.assertIn("try {", export)
+        self.assertIn("workspace.delete(recursive: true)", export)
+        self.assertIn("zipFile.delete()", export)
+        self.assertIn("rethrow;", export)
+        self.assertLess(export.index("workspace.delete(recursive: true)"),
+                        export.index("rethrow;"))
+        self.assertLess(export.index("zipFile.delete()"), export.index("rethrow;"))
+
+
     def test_zip_writer_emits_stored_entries_and_central_directory(self):
         builder = (ROOT / "lib" / "king_ai_project_builder.dart").read_text(encoding="utf-8")
         self.assertIn("0x04034b50", builder)

@@ -100,13 +100,32 @@ class KingAiProjectBuilder {
     final projectName = name + '-' + id;
     final workspace = Directory(projects.path + '/' + projectName);
     await workspace.create(recursive: true);
-    for (final entry in generated.entries) {
-      final file = File(workspace.path + '/' + entry.key);
-      await file.parent.create(recursive: true);
-      await file.writeAsBytes(entry.value, flush: true);
-    }
     final zipFile = File(projects.path + '/' + projectName + '.zip');
-    await zipFile.writeAsBytes(_createZip(generated), flush: true);
+    try {
+      for (final entry in generated.entries) {
+        final file = File(workspace.path + '/' + entry.key);
+        await file.parent.create(recursive: true);
+        await file.writeAsBytes(entry.value, flush: true);
+      }
+      await zipFile.writeAsBytes(_createZip(generated), flush: true);
+    } catch (_) {
+      // A failed export must not leave a half-written workspace or ZIP behind.
+      // Keep the app-private project directory clean so retries do not accumulate
+      // unusable artifacts or appear as successful projects in later UI scans.
+      try {
+        if (await workspace.exists()) {
+          await workspace.delete(recursive: true);
+        }
+      } catch (_) {
+        // Preserve the original generation/write error.
+      }
+      try {
+        if (await zipFile.exists()) await zipFile.delete();
+      } catch (_) {
+        // Preserve the original generation/write error.
+      }
+      rethrow;
+    }
     return {
       'status': 'project_zip_created',
       'name': name,
