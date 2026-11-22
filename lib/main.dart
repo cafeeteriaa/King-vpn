@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'network_health.dart';
+import 'dns_policy.dart';
 import 'king_local_ai.dart';
 import 'king_ai_console.dart';
 import 'king_chat_page.dart';
@@ -2843,14 +2844,11 @@ String _reliableVpnCfg(String cfg) {
         '78.157.42.101', '10.202.10.10', '10.202.10.11',
       ];
       final existingList = existing is List ? existing : const <dynamic>[];
-      final merged = <dynamic>[];
-      final seenDns = <String>{};
-      for (final item in [...domesticFirst, ...existingList]) {
-        final value = item.toString().trim();
-        if (!secureDns && value.toLowerCase().startsWith('https://')) continue;
-        if (value.isNotEmpty && seenDns.add(value.toLowerCase())) merged.add(item);
-      }
-      d['servers'] = merged;
+      d['servers'] = mergeNationalDnsServers(
+        domesticFirst: domesticFirst,
+        existing: existingList,
+        secureDns: secureDns,
+      );
     } else if (secureDns && !ultraMode && !indestructibleMode) {
       d['servers'] = <dynamic>[
         '1.1.1.1', '1.0.0.1', '8.8.8.8', '8.8.4.4',
