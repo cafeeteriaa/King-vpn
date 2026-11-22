@@ -5,6 +5,25 @@ enum DetectedNetworkMode { unknown, domesticOnly, globalOnly, dualStack, offline
 /// Internal route selected by the single Smart Pilot controller.
 enum PilotNetworkStrategy { domestic, global, preserve, offline }
 
+/// Reuse probe evidence only when its network identity is known and its age
+/// is within the TTL. An unavailable identity or a backwards clock must force
+/// a fresh probe rather than reusing potentially stale routing evidence.
+bool shouldReuseNetworkProbeCache({
+  required bool force,
+  required String currentIdentity,
+  required String? cachedIdentity,
+  required DateTime? checkedAt,
+  required DateTime now,
+  required Duration ttl,
+}) {
+  if (force || currentIdentity.isEmpty || cachedIdentity == null ||
+      cachedIdentity.isEmpty || checkedAt == null) {
+    return false;
+  }
+  final age = now.difference(checkedAt);
+  return age >= Duration.zero && age < ttl;
+}
+
 class NetworkEvidence {
   const NetworkEvidence({
     required this.domestic,
