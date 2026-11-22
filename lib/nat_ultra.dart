@@ -1695,7 +1695,7 @@ Future<void> natLoadPersisted() async {
   }
 }
 
-const String _ipMemKey = 'natIpMem';
+const String _ipMemKey = 'natIpMem_domestic_v2';
 const String _rangeKey = 'natRanges';
 const int _ipMemMax = 200;
 
@@ -1706,70 +1706,68 @@ int natRangeCursor = 0; // generic range cursor
 int _natConfiguredRangeCursor = 0; // isolated National Net user-range cursor
 DateTime natRangeLast = DateTime.fromMillisecondsSinceEpoch(0);
 
-Set<String> natIpMemHosts() => {for (final e in natIpMem) '${e['ip']}'};
+Set<String> natIpMemHosts({DateTime? now}) {
+  if (!_natHasVerifiedOperatorKey(natOpKey)) return <String>{};
+  final at = now ?? DateTime.now();
+  final cutoff = at.subtract(const Duration(hours: 48)).millisecondsSinceEpoch;
+  return {
+    for (final e in natIpMem)
+      if (e['op'] == natOpKey &&
+          (e['t'] as num?)?.toInt() case final t? &&
+          t <= at.millisecondsSinceEpoch &&
+          t >= cutoff)
+        e['ip'].toString(),
+  };
+}
 
 Future<void> natIpMemLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
-    final s = p.getString(_ipMemKey);
-    if (s != null) {
+    final saved = p.getString(_ipMemKey);
+    if (saved != null) {
       natIpMem
         ..clear()
-        ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
-      final cutoff = DateTime.now()
-          .subtract(const Duration(days: 14))
-          .millisecondsSinceEpoch;
-      natIpMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
+        ..addAll((jsonDecode(saved) as List).cast<Map<String, dynamic>>());
+      final now = DateTime.now();
+      final cutoff = now.subtract(const Duration(hours: 48)).millisecondsSinceEpoch;
+      natIpMem.removeWhere((e) {
+        final t = (e['t'] as num?)?.toInt();
+        return t == null || t > now.millisecondsSinceEpoch || t < cutoff;
+      });
     }
     natRanges = (p.getString(_rangeKey) ?? '')
         .split(RegExp(r'[\r\n,; ]+'))
         .where((x) => x.contains('/') || x.contains('-'))
         .toList();
-    _natConfiguredRangeCursor = (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
+    natRangeCursor = p.getInt('natRangeCursor') ?? 0;
+    _natConfiguredRangeCursor = p.getInt('natConfiguredRangeCursor') ?? 0;
+    natRangeLast = DateTime.fromMillisecondsSinceEpoch(
+        p.getInt('natRangeLast') ?? 0);
   } catch (e, stk) {
     logError(e, stk);
   }
 }
 
-const String _domMemKey = 'natDomMem';
-const int _domMemMax = 200;
-const Duration _domMemTtl = Duration(hours: 48);
-const int natDelaySecs = 14;
-final List<Map<String, dynamic>> natDomMem = [];
-
-// A past tunnel success is reusable only for the same detected access network / ASN
-// and while it is fresh. Legacy entries without an operator key are never trusted.
-bool _natHasVerifiedOperatorKey(String key) {
-  final marker = key.lastIndexOf('|AS');
-  if (marker <= 0) return false;
-  final digits = key.substring(marker + 3);
-  return digits.length >= 3 &&
-      digits.length <= 7 &&
-      digits.codeUnits.every((c) => c >= 48 && c <= 57);
-}
-
-Set<String> natDomMemHosts({DateTime? now}) {
-  final at = now ?? DateTime.now();
-  final cutoff = at.subtract(_domMemTtl).millisecondsSinceEpoch;
-  if (!_natHasVerifiedOperatorKey(natOpKey)) return <String>{};
-  final hosts = <String>{};
-  for (final e in natDomMem) {
-    final t = (e['t'] as num?)?.toInt();
-    final host = e['h'];
-    final port = e['port'];
-    if (e['op'] != natOpKey ||
-        t == null ||
-        t > at.millisecondsSinceEpoch ||
-        t < cutoff ||
-        host is! String ||
-        port is! num) {
-      continue;
-    }
-    hosts.add(host + ':' + port.toInt().toString());
+Future<void> natIpMemSave(String ip, int port) async {
+  if (!_natHasVerifiedOperatorKey(natOpKey)) return;
+  natIpMem.removeWhere((e) =>
+      e['ip'] == ip && e['port'] == port && e['op'] == natOpKey);
+  natIpMem.insert(0, {
+    'ip': ip,
+    'port': port,
+    'op': natOpKey,
+    't': DateTime.now().millisecondsSinceEpoch,
+  });
+  if (natIpMem.length > _ipMemMax) {
+    natIpMem.removeRange(_ipMemMax, natIpMem.length);
   }
-  return hosts;
+  try {
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_ipMemKey, jsonEncode(natIpMem));
+  } catch (e, stk) {
+    logError(e, stk);
+  }
 }
-
 Future<void> natDomMemLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
