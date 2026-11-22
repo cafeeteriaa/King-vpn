@@ -2835,7 +2835,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         waiter_identity = body.index('!identical(connSig, c)')
         completed = body.index('c.isCompleted')
         desire = body.index('!wantVpn')
-        probe = body.index('final ok = await _tunnelTrafficOk();')
+        probe = body.index('ok = await _tunnelTrafficOk();')
         fence = body.index('_staleCoreMayBeUp = false;')
         complete = body.index('c.complete(true);')
         self.assertLess(probe, generation)

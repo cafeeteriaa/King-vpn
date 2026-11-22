@@ -97,3 +97,9 @@
 - Added per-waiter in-flight deduplication for _verifyPendingConnect; a newer waiter remains independent. Probe exceptions are logged and treated as unverified traffic; they cannot clear _staleCoreMayBeUp or complete the waiter. The existing bounded connect timeout remains responsible for ending an unverified attempt.
 - Added source guard test_stale_connect_verification_coalesces_callbacks_and_contains_probe_errors.
 - This change does not add attempt IDs to FlutterV2ray events and does not claim to solve all late DISCONNECTED state attribution. Requires exact-HEAD CI and real-device lifecycle validation.
+
+
+### CI source-guard correction
+- CI run `44987802709` checked out merge commit `bf45f363ee746090c5d53613437df49238c81115` for PR head `57c17535330b6362c391ba4eac6afc62f8bc79da`.
+- Source guards found one stale test assertion: the implementation assigns the awaited probe result to a previously declared `bool ok`, while the test expected an inline `final ok` declaration. This is a test expectation mismatch, not a Dart compile/test failure; Flutter tests, Dart analysis and APK build were skipped because the source guard is a required first step.
+- Corrected the source guard to assert the actual assignment. Exact new HEAD must pass a fresh CI run before validation claims.
