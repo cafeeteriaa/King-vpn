@@ -3278,6 +3278,25 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("rt['domainStrategy'] = 'AsIs';", normalize)
 
 
+    def test_domestic_ip_memory_is_operator_scoped_and_not_trained_by_global_success(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = nat.index("const String _ipMemKey = 'natIpMem_domestic_v2';")
+        end = nat.index('Future<void> natDomMemLoad', start)
+        memory = nat[start:end]
+        self.assertIn("e['op'] == natOpKey", memory)
+        self.assertIn('Duration(hours: 48)', memory)
+        self.assertIn('if (!_natHasVerifiedOperatorKey(natOpKey)) return;', memory)
+        self.assertIn("'op': natOpKey", memory)
+        connected_start = main.index('void _onConnected(Server s)')
+        connected_end = main.index('s.miss = 0;', connected_start)
+        connected = main[connected_start:connected_end]
+        self.assertIn('if (nationalMode && InternetAddress.tryParse(s.host) != null)', connected)
+        self.assertNotIn('natIpMemSave(s.host, s.port)', connected.replace('if (nationalMode && InternetAddress.tryParse(s.host) != null)', ''))
+        reuse_start = main.index('Future<void> _natMemoryReuse()')
+        reuse_end = main.index('Future<void> _natRangeAdd', reuse_start)
+        self.assertIn("natIpMem.where((e) => e['op'] == natOpKey)", main[reuse_start:reuse_end])
+
     def test_domestic_endpoint_memory_requires_independent_asn_quorum(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = nat.index('Future<void> natDetectOperator()')
