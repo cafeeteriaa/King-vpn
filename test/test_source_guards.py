@@ -97,6 +97,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(ipv4, establish_call)
         self.assertIn('refusing possible IPv6 leak', establish[fail_closed:ipv4])
 
+    def test_flutter_v2ray_plugin_refuses_partial_ipv6_tun_setup(self):
+        patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
+        start = patch.index('Active FlutterV2ray path: do not continue with a partial IPv6 TUN.')
+        end = patch.index('# 5) FIX #49:', start)
+        ipv6_patch = patch[start:end]
+        self.assertIn('builder.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);', ipv6_patch)
+        self.assertIn('builder.addRoute("::", 0);', ipv6_patch)
+        self.assertIn('return false;', ipv6_patch)
+        self.assertIn('Active FlutterV2ray path refuses partial IPv6 TUN', ipv6_patch)
+        self.assertNotIn('IPv6 sinkhole not supported', ipv6_patch)
+
     def test_connect_path_uses_mode_aware_tunnel_probe(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn('networkAware: true', main)

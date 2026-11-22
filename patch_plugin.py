@@ -461,6 +461,25 @@ for svc_path, svc_name in ((vpn, 'VPN'), (proxy_svc, 'ProxyOnly')):
             V2rayCoreManager.getInstance().stopCore();''', f'V3 #86 {svc_name} STOP promotes')
 
 
+# 4e) Active FlutterV2ray path: do not continue with a partial IPv6 TUN.
+#     The upstream plugin logs and swallows IPv6 address/route failures, then may establish
+#     only IPv4. Since this plugin path is the app default, fail the interface setup closed.
+exact_replace(vpn, '''        // Force IPv4 path: sinkhole IPv6 so apps don't bypass a broken dual-stack route.
+        try {
+            builder.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);
+            builder.addRoute("::", 0);
+        } catch (Exception e) {
+            Log.w("V2rayVPNService", "IPv6 sinkhole not supported", e);
+        }''', '''        // FIX: IPv6 is part of the default tunnel contract. Never establish an IPv4-only
+        // interface after IPv6 address/route setup failed, because that can leak IPv6 traffic.
+        try {
+            builder.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);
+            builder.addRoute("::", 0);
+        } catch (Exception e) {
+            Log.e("V2rayVPNService", "IPv6 TUN setup failed; refusing partial VPN", e);
+            return false;
+        }''', 'Active FlutterV2ray path refuses partial IPv6 TUN');
+
 # 5) FIX #49: the app is not excluded from the VPN (its own requests must go through the tunnel).
 #    Only the core's outbound sockets are exempt, through protect() (see the protector below).
 exact_replace(vpn, '''        // Keep this process outside the VPN so outbound sockets don't loop.
