@@ -3110,10 +3110,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         tun = main[start:end]
         self.assertIn("invokeMethod<bool>('kingVpnTunnelActive')", tun)
         self.assertIn('if (nativeVpn != null)', tun)
-        self.assertIn('return nativeVpn;', tun)
+        self.assertNotIn('return nativeVpn;', tun)
         self.assertIn("tunNames = nativeVpn ? 'android:KINGVPN_DAEMON_ALIVE' : 'android:KINGVPN_DAEMON_INACTIVE';", tun)
-        self.assertIn('The native signal confirms only that the plugin daemon process is alive.', tun)
-        self.assertIn('It does NOT prove the Xray core is running, the TUN FD is healthy, or traffic passes.', tun)
+        self.assertIn('The native signal confirms only plugin daemon-process liveness.', tun)
+        self.assertIn('It does NOT prove that Android installed a TUN interface', tun)
+        self.assertIn('Keep it diagnostic-only', tun)
         self.assertIn("catch (_nativeTunError)", tun)
         self.assertIn('NetworkInterface.list(includeLoopback: false)', tun)
         self.assertLess(tun.index("invokeMethod<bool>('kingVpnTunnelActive')"),
