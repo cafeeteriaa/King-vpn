@@ -10478,10 +10478,15 @@ ListTile( // KINGEXTRAS row
         // DNS/IP/SNI scanners are never started by this detection path.
         final evidence = await PilotNetworkProbe.refresh();
         final strategy = choosePilotNetworkStrategy(evidence);
-        if (strategy == PilotNetworkStrategy.domestic) {
-          nationalMode = true;
-        } else if (strategy == PilotNetworkStrategy.global) {
-          nationalMode = false;
+        if (!_pilotNetworkModePinned) {
+          if (strategy == PilotNetworkStrategy.domestic) {
+            nationalMode = true;
+          } else if (strategy == PilotNetworkStrategy.global) {
+            nationalMode = false;
+          }
+        } else {
+          // An explicit user-selected network mode outranks automatic diagnosis.
+          dbg('PILOT-MODE-PINNED: preserving explicit ${nationalMode ? 'domestic' : 'global'} mode');
         }
         // Unknown/dual-failure evidence preserves the previous strategy.
         natForce = nationalMode;
