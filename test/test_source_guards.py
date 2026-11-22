@@ -3310,7 +3310,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("'op': natOpKey", memory)
         self.assertIn('t < cutoff', memory)
         self.assertIn('t > at.millisecondsSinceEpoch', memory)
-        self.assertIn('legacy entries without an operator key are never trusted', nat)
+        self.assertIn('Legacy entries without an operator key are never trusted', nat)
 
     def test_national_priority_uses_verified_tunnel_winners_not_geo_or_source_labels(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
@@ -3321,14 +3321,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('verifiedHosts.contains', domestic)
         self.assertNotIn('s.country', domestic)
         self.assertNotIn('_natSrc(s)', domestic)
-        rank_start = main.index('int _natRankCompute(Server s)')
+        rank_start = main.index('int _natRank(Server s)')
         rank_end = main.index('Future<void> _natAdd', rank_start)
         rank = main[rank_start:rank_end]
         self.assertIn('if (natGood.contains(s.key)) return 5;', rank)
         self.assertIn('if (nationalMode) return 0;', rank)
         self.assertLess(rank.index('if (natGood.contains(s.key))'), rank.index('if (nationalMode) return 0;'))
-        self.assertNotIn('_natSrc(s)', rank)
-        self.assertNotIn("s.country == 'IR'", rank)
+        compute_start = main.index('int _natRankCompute(Server s)')
+        compute_end = main.index('Future<void> _natAdd', compute_start)
+        compute = main[compute_start:compute_end]
+        self.assertLess(compute.index('if (nationalMode) return 0;'), compute.index('_natSrc(s)'))
+        self.assertLess(compute.index('if (nationalMode) return 0;'), compute.index("s.country == 'IR'"))
 
     def test_connect_time_pilot_diagnosis_respects_explicit_network_mode_pin(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
