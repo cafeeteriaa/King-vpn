@@ -2924,5 +2924,39 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('finally {', body)
 
 
+    def test_healthy_server_store_requires_end_to_end_data_plane_proof(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        record_start = main.index('void _record(Server s, int? d)')
+        record_end = main.index('// TCP prefilter', record_start)
+        record = main[record_start:record_end]
+        self.assertIn('_resAdd(s, verified: false)', record)
+        self.assertNotIn('goldNoteServer', record)
+
+        connected_start = main.index('void _onConnected(Server s)')
+        connected_end = main.index('void ', connected_start + len('void _onConnected(Server s)'))
+        connected = main[connected_start:connected_end]
+        self.assertIn('_resAdd(s, verified: true)', connected)
+
+        load_start = main.index('Future<void> _resLoad()')
+        save_start = main.index('Future<void> _resSave()', load_start)
+        add_start = main.index('void _resAdd(Server srv', save_start)
+        load_save = main[load_start:add_start]
+        self.assertIn("e.verified = x['v'] == true", load_save)
+        self.assertIn("'v': e.verified", load_save)
+
+        add_end = main.index('// SRCSPLIT:', add_start)
+        add = main[add_start:add_end]
+        self.assertIn('if (verified) goldNoteServer(srv);', add)
+        self.assertIn('if (verified) old.verified = true;', add)
+
+        nat_start = main.index('Future<void> _natDetect()')
+        nat_end = main.index('Future<void> ', nat_start + len('Future<void> _natDetect()'))
+        self.assertIn('where((e) => e.verified)', main[nat_start:nat_end])
+
+        disconnect_start = main.index('Future<void> _disconnect()')
+        disconnect_end = main.index('void ', disconnect_start + len('Future<void> _disconnect()'))
+        self.assertIn('_resAdd(g, verified: false)', main[disconnect_start:disconnect_end])
+
+
 if __name__ == '__main__':
     unittest.main()

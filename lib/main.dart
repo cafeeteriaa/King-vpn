@@ -6223,7 +6223,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           s.restored = true; // RESTORE: همان سرورهای سالم قبلی؛ حذف نمی‌شوند
           warmKeys.add(s.key);
           // checkedAt stays null: these are tested FIRST at the next connect
-          _resAdd(s); // SCREENGOOD: بعد از باز شدن برنامه روی صفحه نمی‌آید؛ فقط در پوشه‌ی سالم می‌ماند
+          _resAdd(s, verified: false); // cached delay success is only a candidate until a real tunnel connects
         }
       }
       // servers that failed recently are not tested again (kept on disk)
@@ -7332,10 +7332,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         good.add(s);
         _saveSoon();
       }
-      // FOLDER-ALL: every server that passes a test goes into the healthy folder now,
-      // not only the one that ends up connected (_resAdd ignores personal servers and
-      // only refreshes an entry that is already saved)
-      _resAdd(s);
+      // A core-delay pass is only a candidate result. Keep it in the candidate cache,
+      // but never promote it to end-to-end verified or the global gold folder.
+      _resAdd(s, verified: false);
     } else {
       // The timestamp belongs to the failed check, not to the previous ping.
       // Clear that ping so freshness gates cannot promote stale latency evidence.
@@ -8731,7 +8730,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (nationalMode && !s.personal) unawaited(_natAdd(s));
     // HEALTHY-STORE: every genuinely connected non-personal server is saved,
     // regardless of discovery source or mode. Reads/injection remain NAT-only.
-    if (!s.personal) _resAdd(s);
+    if (!s.personal) _resAdd(s, verified: true);
     upServer = null;
     fails = 0;
     slowCount = 0;
@@ -9742,7 +9741,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           final e = _NatResItem(srv.link, srv,
               DateTime.fromMillisecondsSinceEpoch((x['a'] as num).toInt()));
           final c = (x['c'] as num?)?.toInt();
-          if (c != null) e.checked = DateTime.fromMillisecondsSinceEpoch(c);
+          e.verified = x['v'] == true; // legacy entries without provenance are candidates only
+          if (c != null && e.verified) {
+            e.checked = DateTime.fromMillisecondsSinceEpoch(c);
+          } // unverified legacy records must be rechecked
           srv.ping = (x['p'] as num?)?.toInt();
           _resMap[srv.key] = e;
         }
@@ -9771,7 +9773,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       'l': e.link,
                       'a': e.added.millisecondsSinceEpoch,
                       'c': e.checked?.millisecondsSinceEpoch,
-                      'p': e.s.ping
+                      'p': e.s.ping,
+                      'v': e.verified
                     })
                 .toList()
           }));
@@ -9784,17 +9787,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // a server passed a real test: it goes into the folder (or is refreshed)
   // همهٔ سرورهای V2Ray
   // (سرور شخصی جدا می‌ماند و وارد پوشه نمی‌شود)
-  void _resAdd(Server srv) {
+  void _resAdd(Server srv, {bool verified = false}) {
     try {
-      // FOLDER-SAVE: هر سرور سالمِ هر تستی وارد پوشه می‌شود؛ استفاده از پوشه فقط برای نت ملی است
+      // Delay-only results remain candidates. Only a confirmed tunnel data-plane
+      // connection may promote a record into the trusted/gold healthy store.
       if (srv.personal || _inPF(srv)) return; // ONLYFOLDER
-      goldNoteServer(srv); // GOLDSEARCH: سرور سالم هر جستجو وارد پوشه‌ی جهانی هم می‌شود
+      if (verified) goldNoteServer(srv);
       final now = DateTime.now();
       final old = _resMap[srv.key];
       if (old != null) {
         old.checked = now;
         old.miss = 0;
         old.s.ping = srv.ping;
+        if (verified) old.verified = true; // never downgrade a previously verified record
       } else {
         final c = Server.parse(srv.link);
         if (c == null) return;
@@ -9812,8 +9817,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (oldK != null) _resMap.remove(oldK);
         }
         c.ping = srv.ping;
-        final e = _NatResItem(srv.link, c, now);
-        e.checked = now;
+        final e = _NatResItem(srv.link, c, now)..verified = verified;
+        e.checked = verified ? now : null;
         _resMap[srv.key] = e;
       }
       _resDirty = true;
@@ -9994,6 +9999,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       for (final e in dead) {
         _resMap.remove(e.s.key);
+        if (e.verified) natGood.remove(e.s.key);
       }
       _resLast = DateTime.now();
       _resDirty = true;
@@ -10024,7 +10030,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       b.write('\nتست قبلی همه‌ی سرورها را خراب نشان داد؛ مشکل از نت بود، '
           'چیزی پاک نشد و بعداً دوباره تست می‌شود');
     }
-    b.write('\nتست خودکار هر ۴۸ ساعت؛ سرور خراب حذف و سالم می‌ماند');
+    final verified = _resMap.values.where((e) => e.verified).length;
+    b.write('\nتأیید ترافیک واقعی: $verified از ${_resMap.length}؛ بقیه کاندید و نیازمند اتصال واقعی');
+    b.write('\nبازآزمایی تأخیر هر ۴۸ ساعت؛ تأخیر به‌تنهایی تأیید واقعی محسوب نمی‌شود');
     return b.toString();
   }
 
@@ -10039,7 +10047,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             ListTile(
               leading: const Icon(Icons.folder_special_outlined),
-              title: Text('پوشه‌ی سرورهای سالم: ${_resMap.length} سرور'),
+              title: Text('پوشه‌ی سرورهای ثبت‌شده: ${_resMap.length} سرور'),
               subtitle: Text(_resInfo()),
             ),
             ListTile(
@@ -10337,7 +10345,7 @@ ListTile( // KINGEXTRAS row
     try {
       if (!_natLoaded) {
         _natLoaded = true;
-        natGood.addAll(_resMap.keys); // FOLDERONLY
+        natGood.addAll(_resMap.values.where((e) => e.verified).map((e) => e.s.key)); // only end-to-end verified records
         await natLoadPersisted(); // NATULTRA
       }
       final was = nationalMode;
@@ -12766,7 +12774,7 @@ ListTile( // KINGEXTRAS row
     // قطع اتصال: سرورهای صفحه همان لحظه حذف می‌شوند و همه‌ی سرورهای سالم به پوشه‌ی سالم می‌روند.
     // ذخیره‌ی صفحه فقط وقتی برنامه روشن است انجام می‌شود، تا بستن برنامه لیست ذخیره‌شده را خالی نکند.
     for (final g in good) {
-      _resAdd(g);
+      _resAdd(g, verified: false); // preserve as a candidate; _onConnected owns promotion
     }
     good.clear();
     _personalShown = <Server>[]; // مشکل ۱۳: قبلاً شرط !switching همیشه false بود و لیست پاک نمی‌شد
@@ -17332,6 +17340,7 @@ class _NatResItem {
   final Server s;
   final DateTime added;
   DateTime? checked;
+  bool verified = false; // only _onConnected's end-to-end data-plane proof sets this
   int miss = 0;
   _NatResItem(this.link, this.s, this.added);
 }
