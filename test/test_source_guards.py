@@ -2977,7 +2977,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final active = h.current;', step)
         self.assertNotIn('for (final s in h.good)', step)
         self.assertIn('where((v) => v.verified &&', step)
-        self.assertIn('verified: true', step)
+        self.assertIn('final proofDue = ex == null ||', step)
+        self.assertIn('await h._stableTunnelTrafficOk(active)', step)
+        self.assertIn('nowMs - verifiedAt >= retestMs', step)
+        expiry_start = step.index('// End-to-end proof expires')
+        merge_call = step.index('await _goldMergeGood(h);', expiry_start)
+        self.assertLess(expiry_start, merge_call)
         trim_start = gold.index('void _goldTrimSrv()')
         trim_end = gold.index('List<CleanIp>? _goldTop', trim_start)
         trim = gold[trim_start:trim_end]

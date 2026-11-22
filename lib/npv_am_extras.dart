@@ -1730,33 +1730,44 @@ Future<void> _goldIpStep() async {
 
 Future<void> _goldSrvStep(_HomePageState h) async {
   final nowMs = DateTime.now().millisecondsSinceEpoch;
+  final retestMs = kGoldRetestHours * 3600 * 1000;
   var changed = false;
 
-  // Only the active server has passed _onConnected's real tunnel traffic check.
-  // The broader h.good list also contains core-delay-only candidates.
+  // Delay alone is not fresh end-to-end proof. Re-probe the active server
+  // through multiple mode-appropriate destinations when its proof is due.
   final active = h.current;
   if (active != null && !active.personal && !h._bad(active)) {
     final p = active.ping;
     if (p != null && p > 0) {
       final link = active.useLink;
       final ex = _goldSrv[link];
-      if (ex == null) {
-        _goldSrv[link] = _GoldSrv(
-          link, p, nowMs, nowMs, verified: true, verifiedAt: nowMs);
-      } else {
-        ex.ping = p;
-        ex.okAt = nowMs;
-        ex.testAt = nowMs;
-        ex.verified = true;
-        ex.verifiedAt = nowMs;
+      final proofDue = ex == null ||
+          !ex.verified ||
+          ex.verifiedAt == null ||
+          nowMs < ex.verifiedAt! ||
+          nowMs - ex.verifiedAt! >= retestMs;
+      final proofOk =
+          !proofDue || await h._stableTunnelTrafficOk(active);
+      if (proofOk) {
+        if (ex == null) {
+          _goldSrv[link] = _GoldSrv(
+            link, p, nowMs, nowMs, verified: true, verifiedAt: nowMs);
+        } else {
+          ex.ping = p;
+          ex.okAt = nowMs;
+          ex.testAt = nowMs;
+          if (proofDue) {
+            ex.verified = true;
+            ex.verifiedAt = nowMs;
+          }
+        }
+        changed = true;
       }
-      changed = true;
     }
   }
   _goldTrimSrv();
 
   if (!nationalMode) {
-    final retestMs = kGoldRetestHours * 3600 * 1000;
     final due = _goldSrv.values
         .where((v) => v.verified && nowMs - v.testAt >= retestMs)
         .take(20)
@@ -1780,6 +1791,19 @@ Future<void> _goldSrvStep(_HomePageState h) async {
         v.okAt = nowMs;
         v.testAt = nowMs;
       }
+      changed = true;
+    }
+  }
+
+  // End-to-end proof expires after the configured interval in BOTH network
+  // modes. Old entries remain candidates but cannot stay trusted indefinitely.
+  for (final v in _goldSrv.values) {
+    final verifiedAt = v.verifiedAt;
+    if (v.verified &&
+        (verifiedAt == null ||
+            nowMs < verifiedAt ||
+            nowMs - verifiedAt >= retestMs)) {
+      v.verified = false;
       changed = true;
     }
   }
