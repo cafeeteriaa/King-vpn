@@ -2884,7 +2884,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         flow = service.index('private void startFlow(')
         success = service.index('if (connectFrom(0, attempt, requestGeneration))', flow)
         lifecycle = service.index('synchronized (lifecycleLock)', success)
-        stop_guard = service.index('if (stopping || userStopped || attempt != activeAttemptId) return;', lifecycle)
+        stop_guard = service.index('if (stopping || userStopped || attempt != activeAttemptId', lifecycle)
         save = service.index('if (!saveStateDurably())', stop_guard)
         watchdog = service.index('startWatchdog(CHECK_EVERY_SEC);', save)
         connected = service.index('emit("CONNECTED", "", attempt);', watchdog)
@@ -3401,7 +3401,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         flow = native[flow_start:flow_end]
         self.assertIn('if (stopping || attempt != activeAttemptId', flow)
         self.assertIn('requestGeneration != activeRequestGeneration) return;', flow)
-        self.assertIn('connectFrom(0, attempt)', flow)
+        self.assertIn('connectFrom(0, attempt, requestGeneration)', flow)
         self.assertIn('if (!requestStopIfCurrent(attempt, requestGeneration)) return;', flow)
         self.assertNotIn('requestStop();', flow)
         connect_start = native.index('private boolean connectFrom(int first, int requestAttempt, long requestGeneration)')
