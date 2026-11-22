@@ -17,7 +17,8 @@ bool shouldReuseNetworkProbeCache({
   required Duration ttl,
 }) {
   if (force || currentIdentity.isEmpty || cachedIdentity == null ||
-      cachedIdentity.isEmpty || checkedAt == null) {
+      cachedIdentity.isEmpty || currentIdentity != cachedIdentity ||
+      checkedAt == null) {
     return false;
   }
   final age = now.difference(checkedAt);
