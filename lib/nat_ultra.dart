@@ -2738,38 +2738,43 @@ Future<List<Server>> natHotNext(int n,
     if (lines <= 0) return const [];
     final out = <Server>[];
     final raf = await File(h.file).open();
+    var staleIndex = false;
     try {
       // HOTSTALE: طول handle باز را با ایندکس بسنج؛ handle به inode ثابت است، پس
-      // اگر فایل وسط rename عوض شده باشد، این مقایسه ناهم‌خوانی را می‌گیرد
-      if (await raf.length() != h.offs.last) {
-        _hot = null; // ایندکس قدیمی را دور بریز
-        if (retried) return const [];
-        return await natHotNext(n, fetch: false, retried: true);
-      }
-      var read = 0;
-      while (out.length < n && read < lines) {
-        var start = _hotCursor;
-        if (start >= lines) start = 0;
-        final take = min(min(n - out.length, lines - start), lines - read);
-        final from = h.offs[start];
-        final to = h.offs[start + take];
-        await raf.setPosition(from);
-        final bytes = await raf.read(to - from);
-        final text = utf8.decode(bytes, allowMalformed: true);
-        for (final e in text.split('\n')) {
-          final i = e.indexOf('\t');
-          if (i < 0) continue;
-          final s = Server.parse(e.substring(i + 1));
-          if (s != null) {
-            s.src = e.substring(0, i);
-            out.add(s);
+      // اگر فایل وسط rename عوض شده باشد، این مقایسه ناهم‌خوانی را می‌گیرد.
+      staleIndex = await raf.length() != h.offs.last;
+      if (!staleIndex) {
+        var read = 0;
+        while (out.length < n && read < lines) {
+          var start = _hotCursor;
+          if (start >= lines) start = 0;
+          final take = min(min(n - out.length, lines - start), lines - read);
+          final from = h.offs[start];
+          final to = h.offs[start + take];
+          await raf.setPosition(from);
+          final bytes = await raf.read(to - from);
+          final text = utf8.decode(bytes, allowMalformed: true);
+          for (final e in text.split('\n')) {
+            final i = e.indexOf('\t');
+            if (i < 0) continue;
+            final s = Server.parse(e.substring(i + 1));
+            if (s != null) {
+              s.src = e.substring(0, i);
+              out.add(s);
+            }
           }
+          read += take;
+          _hotCursor = (start + take) % lines;
         }
-        read += take;
-        _hotCursor = (start + take) % lines;
       }
     } finally {
+      // Close the old inode before rebuilding/retrying the cache index.
       await raf.close();
+    }
+    if (staleIndex) {
+      _hot = null; // ایندکس قدیمی را دور بریز
+      if (retried) return const [];
+      return await natHotNext(n, fetch: false, retried: true);
     }
     return out;
   } catch (e, stk) {
