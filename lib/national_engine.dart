@@ -169,19 +169,10 @@ class NatNetworkDiagnosis {
   static final NatSingleFlight<NatNetworkClass> _refreshFlight =
       NatSingleFlight<NatNetworkClass>();
 
-  /// Network identity from local interfaces (no native code). Hashed, so the
-  /// cache can tell "same network" from "network changed" without storing IPs.
-  static Future<String> _identityHash() async {
-    try {
-      final ifs = await NetworkInterface.list(includeLoopback: false);
-      final parts = <String>[
-        for (final i in ifs) for (final a in i.addresses) '${i.name}=${a.address}',
-      ]..sort();
-      return sha256.convert(utf8.encode(parts.join(';'))).toString();
-    } catch (_) {
-      return '';
-    }
-  }
+  /// Use the same Android network-handle identity as Smart Pilot. A local
+  /// interface/IP-only hash can collide across Wi-Fi/mobile handovers and let
+  /// this legacy diagnosis reuse or publish evidence for the wrong network.
+  static Future<String> _identityHash() => PilotNetworkProbe._networkIdentity();
 
   static Future<bool> _tcpOk(String host) async {
     try {
