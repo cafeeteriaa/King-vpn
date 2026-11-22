@@ -14000,7 +14000,12 @@ ListTile( // KINGEXTRAS row
   DateTime netUpAt = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _netDownSince = DateTime.now();
   int _netDownRun = 0;
+  bool _netWatchBusy = false;
   Future<void> _netWatch() async {
+    // Timer ticks must not overlap: an older interface snapshot must never
+    // overwrite a newer network signature or reset a newer outage decision.
+    if (_netWatchBusy) return;
+    _netWatchBusy = true;
     try {
       final l = await NetworkInterface.list(
           includeLoopback: false, includeLinkLocal: false);
@@ -14008,9 +14013,21 @@ ListTile( // KINGEXTRAS row
       final parts = <String>[];
       for (final i in l) {
         final n = i.name.toLowerCase();
-        if (n.startsWith('tun') || n.startsWith('dummy')) continue;
-        if (i.addresses.isNotEmpty) anyUp = true;
-        // هم IPv4 و هم IPv6 برای تشخیص تغییر شبکه
+        // Virtual tunnel interfaces are not evidence that the phone's
+        // underlying Wi-Fi/mobile network is available.
+        if (n.startsWith('tun') ||
+            n.startsWith('vpn') ||
+            n.startsWith('ppp') ||
+            n.startsWith('utun') ||
+            n.startsWith('wg') ||
+            n.startsWith('tailscale') ||
+            n.contains('wireguard') ||
+            n.contains('xray') ||
+            n.contains('v2ray') ||
+            n.startsWith('dummy')) {
+          continue;
+        }
+        // Count only usable IPv4/IPv6 addresses, not arbitrary address types.
         final ips = i.addresses
             .where((a) =>
                 a.type == InternetAddressType.IPv4 ||
@@ -14019,6 +14036,7 @@ ListTile( // KINGEXTRAS row
             .toList()
           ..sort(); // ترتیب آدرس‌ها ثابت باشد تا تغییر کاذب تشخیص داده نشود
         if (ips.isEmpty) continue;
+        anyUp = true;
         parts.add('${i.name}:${ips.join(',')}');
       }
       parts.sort();
@@ -14056,7 +14074,11 @@ ListTile( // KINGEXTRAS row
           dbg('اینترنت گوشی برگشت؛ همان اتصال ادامه پیدا می‌کند');
         }
       }
-    } catch (e, stk) { logError(e, stk); }
+    } catch (e, stk) {
+      logError(e, stk);
+    } finally {
+      _netWatchBusy = false;
+    }
   }
 
   void _startWatch() {
