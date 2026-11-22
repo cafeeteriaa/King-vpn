@@ -67,3 +67,5 @@
 - CI run `44986379535` belongs to `d14eeb1`, not current HEAD. It was pending with no jobs visible at last poll. A new exact-head run for `3d0e838` is expected; verify it before making any build/test claims.
 - Next: audit plugin-managed stop/start and late CONNECTED/DISCONNECTED callback ordering; verify `_verifyPendingConnect` cannot leave a waiter hanging after a superseded probe; inspect tunnel probe routing (must be through core, not direct network); check run status and update this checkpoint.
 - No device, Iranian operator-network, production-signing, or exact-head APK validation is claimed.
+
+- Follow-up clarification commit: `8691127c3e331affa1ea541805d0d51ab4d3e66d` updates the stale function comments to accurately describe both data paths; no behavior changed in that comment-only commit.
