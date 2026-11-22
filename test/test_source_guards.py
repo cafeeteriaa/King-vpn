@@ -3573,5 +3573,25 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('obsolete stop cleanup skipped before touching the core', cleanup)
 
 
+    def test_native_stale_start_failure_cannot_cancel_newer_start(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        helper_start = native.index('private boolean requestStopIfCurrent(int attempt)')
+        helper_end = native.index('private boolean persistUserStopMarker', helper_start)
+        helper = native[helper_start:helper_end]
+        self.assertIn('attempt != activeAttemptId || stopping || userStopped', helper)
+        self.assertIn('requestedStopGeneration = attemptSeq.incrementAndGet();', helper)
+
+        flow_start = native.index('private void startFlow(')
+        flow_end = native.index('private void resumeSaved(', flow_start)
+        flow = native[flow_start:flow_end]
+        self.assertEqual(flow.count('requestStopIfCurrent(attempt)'), 4)
+        self.assertNotIn('requestStop();', flow)
+        self.assertIn('if (!requestStopIfCurrent(attempt)) return;', flow)
+        self.assertLess(
+            flow.index('if (!requestStopIfCurrent(attempt)) return;'),
+            flow.index('invalidateRecoveryAfterStartFailure(lastError)')
+        )
+
+
 if __name__ == '__main__':
     unittest.main()

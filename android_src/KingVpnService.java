@@ -447,10 +447,11 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // جدید: without the user's VPN consent, establish() fails for every server one by one.
             // Check once here and report a single clear error instead.
             if (VpnService.prepare(this) != null) {
+                if (!requestStopIfCurrent(attempt)) return;
                 lastError = "VPN permission not granted";
                 Log.e(TAG, lastError);
-                emit("FAILED", lastError, attempt); // جدید
-                requestStop();
+                invalidateRecoveryAfterStartFailure(lastError);
+                emit("FAILED", lastError, attempt);
                 stopEverything();
                 return;
             }
@@ -466,9 +467,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             currentIdx = 0; // جدید: new list starts at 0; a stale index from the last session was saved before
             fails = 0;      // جدید
             if (!saveStateDurably()) {
+                if (!requestStopIfCurrent(attempt)) return;
                 invalidateRecoveryAfterStartFailure("Unable to durably save the new VPN server list");
                 emit("FAILED", lastError, attempt);
-                requestStop();
                 stopEverything();
                 return;
             }
@@ -482,9 +483,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 }
             }
             if (!recoveryEnabled) {
+                if (!requestStopIfCurrent(attempt)) return;
                 invalidateRecoveryAfterStartFailure("Unable to enable recovery for the current committed VPN server list");
                 emit("FAILED", lastError, attempt);
-                requestStop();
                 stopEverything();
                 return;
             }
@@ -502,11 +503,13 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             } else {
                 // A newer request owns the service now. The old worker must not fail
                 // or stop that newer request merely because it was superseded.
-                if (attempt != activeAttemptId || stopping) return;
+                if (!requestStopIfCurrent(attempt)) return;
                 lastError = "no server could be started";
                 Log.e(TAG, lastError);
-                emit("FAILED", lastError, attempt); // جدید
-                requestStop();
+                emit("FAILED", lastError, attempt);
+                if (!persistUserStopMarker(true) && !clearStateDurably()) {
+                    Log.e(TAG, "could not persist stop intent after all servers failed");
+                }
                 stopEverything();
             }
         }
@@ -617,6 +620,24 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // Capture the generation now. A delayed cleanup must never supersede
             // a newer Start by incrementing the generation when it eventually runs.
             requestedStopGeneration = attemptSeq.incrementAndGet();
+        }
+    }
+
+    /**
+     * Stop only the attempt that is still the active owner. A stale worker must
+     * never cancel a newer Start merely because its own startup path failed.
+     */
+    private boolean requestStopIfCurrent(int attempt) {
+        synchronized (lifecycleLock) {
+            if (attempt != activeAttemptId || stopping || userStopped) {
+                return false;
+            }
+            userStopped = true;
+            stopping = true;
+            active = false;
+            retryWaiting = false;
+            requestedStopGeneration = attemptSeq.incrementAndGet();
+            return true;
         }
     }
 
