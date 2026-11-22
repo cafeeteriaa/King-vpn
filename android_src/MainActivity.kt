@@ -132,8 +132,12 @@ class MainActivity : FlutterActivity() {
                         "kingVpnTransportActive" -> {
                             // Ask Android whether this app's active default network is a VPN transport.
                             val connectivity = getSystemService(android.net.ConnectivityManager::class.java)
-                            val activeNetwork = connectivity?.activeNetwork
-                            val capabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
+                            val capabilities = if (connectivity == null) {
+                                null
+                            } else {
+                                val activeNetwork = connectivity.activeNetwork
+                                if (activeNetwork == null) null else connectivity.getNetworkCapabilities(activeNetwork)
+                            }
                             result.success(
                                 capabilities?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true
                             )
