@@ -93,6 +93,19 @@ extension KingHealEngine on _HomePageState {
         return;
       }
 
+      // OODA guard: an underlying-network outage or its short recovery
+      // window is not evidence that the VPN server is bad. Observe and report,
+      // but do not launch connect/search/restart/failover actions automatically.
+      if (reason != 'force' &&
+          (netDown ||
+              DateTime.now().difference(netUpAt) < const Duration(seconds: 15))) {
+        _healPhase = _HealPhase.idle;
+        kingHealText.value = netDown
+            ? '⏸ اینترنت پایه قطع است؛ خودترمیمی منتظر بازگشت شبکه می‌ماند.'
+            : '⏳ شبکه تازه برگشته؛ خودترمیمی تا پایان مهلت تثبیت صبر می‌کند.';
+        return;
+      }
+
       // ----- ۲) تشخیص -----
       _healPhase = _HealPhase.diagnose;
       signals.sort((a, b) => b.severity.compareTo(a.severity));
