@@ -143,6 +143,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private volatile ScheduledFuture<?> watchdogTask = null;
     /** Attempt id of the start that is currently active; sent with every status message. */
     private volatile int activeAttemptId = 0;
+    // Native ownership token; Dart attempt ids can be reused after engine restart.
+    private long requestGenerationSeq = 0L;
+    private volatile long activeRequestGeneration = 0L;
     private int currentIdx = 0;
     private int fails = 0;
     private int listExhaustedStreak = 0;
@@ -297,8 +300,13 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 return START_NOT_STICKY;
             }
             // No Dart attempt is waiting for it, so its status uses attempt 0 (accepted by all).
-            activeAttemptId = 0;
-            submit(() -> resumeSaved(0));
+            final long recoveryGeneration;
+            synchronized (lifecycleLock) {
+                recoveryGeneration = ++requestGenerationSeq;
+                activeAttemptId = 0;
+                activeRequestGeneration = recoveryGeneration;
+            }
+            submit(() -> resumeSaved(0, recoveryGeneration));
             return START_STICKY;
         }
         // Any non-null intent may have been delivered through startForegroundService().
@@ -360,8 +368,11 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         // older worker can release user_stopped=false in the gap between these two
         // operations and re-enable sticky recovery for the previous server list.
         final int startGeneration;
+        final long startRequestGeneration;
         synchronized (lifecycleLock) {
             startGeneration = attemptSeq.incrementAndGet();
+            startRequestGeneration = ++requestGenerationSeq;
+            activeRequestGeneration = startRequestGeneration;
             userStopped = true;
             stopping = true;
             active = false;
@@ -389,6 +400,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         final boolean startActivated;
         synchronized (lifecycleLock) {
             startActivated = attemptSeq.get() == startGeneration
+                    && activeRequestGeneration == startRequestGeneration
                     && userStopped && stopping;
             if (startActivated) {
                 activeAttemptId = intent.getIntExtra(EXTRA_ATTEMPT, 0);
@@ -413,7 +425,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             return START_NOT_STICKY;
         }
         final int attempt = activeAttemptId; // مشکل ۹: شناسه‌ی همین شروع، نه فیلد سراسری بعدی
-        submit(() -> startFlow(first, backups, attempt));
+        submit(() -> startFlow(first, backups, attempt, startRequestGeneration));
         return START_STICKY;
     }
 
@@ -445,13 +457,14 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     }
 
     /** Worker side of ACTION_START: builds the list and connects. */
-    private void startFlow(Srv first, List<Srv> backups, int attempt) {
+    private void startFlow(Srv first, List<Srv> backups, int attempt, long requestGeneration) {
         synchronized (lock) {
-            if (stopping || attempt != activeAttemptId) return; // a stop request arrived first
+            if (stopping || attempt != activeAttemptId
+                    || requestGeneration != activeRequestGeneration) return; // a stop request arrived first
             // جدید: without the user's VPN consent, establish() fails for every server one by one.
             // Check once here and report a single clear error instead.
             if (VpnService.prepare(this) != null) {
-                if (!requestStopIfCurrent(attempt)) return;
+                if (!requestStopIfCurrent(attempt, requestGeneration)) return;
                 lastError = "VPN permission not granted";
                 Log.e(TAG, lastError);
                 invalidateRecoveryAfterStartFailure(lastError);
@@ -471,7 +484,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             currentIdx = 0; // جدید: new list starts at 0; a stale index from the last session was saved before
             fails = 0;      // جدید
             if (!saveStateDurably()) {
-                if (!requestStopIfCurrent(attempt)) return;
+                if (!requestStopIfCurrent(attempt, requestGeneration)) return;
                 invalidateRecoveryAfterStartFailure("Unable to durably save the new VPN server list");
                 emit("FAILED", lastError, attempt);
                 stopEverything();
@@ -487,13 +500,13 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 }
             }
             if (!recoveryEnabled) {
-                if (!requestStopIfCurrent(attempt)) return;
+                if (!requestStopIfCurrent(attempt, requestGeneration)) return;
                 invalidateRecoveryAfterStartFailure("Unable to enable recovery for the current committed VPN server list");
                 emit("FAILED", lastError, attempt);
                 stopEverything();
                 return;
             }
-            if (connectFrom(0, attempt)) {
+            if (connectFrom(0, attempt, requestGeneration)) {
                 synchronized (lifecycleLock) {
                     // Stop or a newer start can arrive after native startup but before
                     // publication. Never publish a stale CONNECTED event.
@@ -507,7 +520,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             } else {
                 // A newer request owns the service now. The old worker must not fail
                 // or stop that newer request merely because it was superseded.
-                if (!requestStopIfCurrent(attempt)) return;
+                if (!requestStopIfCurrent(attempt, requestGeneration)) return;
                 lastError = "no server could be started";
                 Log.e(TAG, lastError);
                 emit("FAILED", lastError, attempt);
@@ -519,14 +532,16 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
     }
 
-    private void resumeSaved(int recoveryAttempt) {
+    private void resumeSaved(int recoveryAttempt, long requestGeneration) {
         synchronized (lock) {
             // Sticky recovery is lower priority than any explicit Start/Stop received
             // after Android queued this restore operation.
-            if (stopping || activeAttemptId != recoveryAttempt) return;
+            if (stopping || activeAttemptId != recoveryAttempt
+                    || activeRequestGeneration != requestGeneration) return;
             if (!loadState()) {
                 synchronized (lifecycleLock) {
-                    if (activeAttemptId == recoveryAttempt && !stopping) {
+                    if (activeAttemptId == recoveryAttempt && !stopping
+                            && activeRequestGeneration == requestGeneration) {
                         lastError = "No valid saved VPN state is available for sticky recovery";
                         Log.w(TAG, lastError);
                         // A failed restore must not leave an idle foreground service or
@@ -557,7 +572,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // onStartCommand already promoted this sticky restart before queuing recovery.
             // Do not silently attempt a second promotion here; connectFrom checks the
             // foreground update after native startup and tears the tunnel down on failure.
-            if (connectFrom(currentIdx, recoveryAttempt)) {
+            if (connectFrom(currentIdx, recoveryAttempt, requestGeneration)) {
                 synchronized (lifecycleLock) {
                     if (stopping || activeAttemptId != recoveryAttempt) return;
                     if (!saveStateDurably()) {
@@ -631,9 +646,11 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * Stop only the attempt that is still the active owner. A stale worker must
      * never cancel a newer Start merely because its own startup path failed.
      */
-    private boolean requestStopIfCurrent(int attempt) {
+    private boolean requestStopIfCurrent(int attempt, long requestGeneration) {
         synchronized (lifecycleLock) {
-            if (attempt != activeAttemptId || stopping || userStopped) {
+            if (attempt != activeAttemptId
+                    || requestGeneration != activeRequestGeneration
+                    || stopping || userStopped) {
                 return false;
             }
             userStopped = true;
@@ -647,14 +664,16 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     /** Try each server starting at [first]; the first one that comes up wins. */
     private boolean connectFrom(int first) {
-        return connectFrom(first, -1);
+        return connectFrom(first, -1, 0L);
     }
 
     /** Request-scoped variant used by explicit starts; stale requests cannot keep failing over. */
-    private boolean connectFrom(int first, int requestAttempt) {
+    private boolean connectFrom(int first, int requestAttempt, long requestGeneration) {
         int n = servers.size();
         for (int k = 0; k < n; k++) {
-            if (stopping || (requestAttempt >= 0 && requestAttempt != activeAttemptId)) {
+            if (stopping || (requestAttempt >= 0
+                    && (requestAttempt != activeAttemptId
+                    || requestGeneration != activeRequestGeneration))) {
                 return false;
             }
             int idx = (first + k) % n;
@@ -664,7 +683,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 synchronized (lifecycleLock) {
                     // Stop or a newer explicit start may supersede this native result.
                     if (stopping || userStopped
-                            || (requestAttempt >= 0 && requestAttempt != activeAttemptId)) return false;
+                            || (requestAttempt >= 0 && (requestAttempt != activeAttemptId
+                            || requestGeneration != activeRequestGeneration))) return false;
                     currentIdx = idx;
                     fails = 0;
                     healthyStreak = 0;
@@ -678,7 +698,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                     // bring-up must not cancel a newer explicit Start.
                     final boolean ownsStop;
                     if (requestAttempt >= 0) {
-                        ownsStop = requestStopIfCurrent(requestAttempt);
+                        ownsStop = requestStopIfCurrent(requestAttempt, requestGeneration);
                     } else {
                         requestStop();
                         ownsStop = true;

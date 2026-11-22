@@ -3661,5 +3661,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('synchronized (lock)', prefix)
 
 
+    def test_native_request_ownership_uses_internal_generation_not_dart_attempt_only(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertIn('private long requestGenerationSeq = 0L;', native)
+        self.assertIn('private volatile long activeRequestGeneration = 0L;', native)
+        self.assertIn('startRequestGeneration = ++requestGenerationSeq;', native)
+        self.assertIn('startFlow(first, backups, attempt, startRequestGeneration)', native)
+        self.assertIn('requestGeneration != activeRequestGeneration', native)
+        self.assertIn('requestStopIfCurrent(int attempt, long requestGeneration)', native)
+        self.assertIn('resumeSaved(0, recoveryGeneration)', native)
+
+
 if __name__ == '__main__':
     unittest.main()
