@@ -129,31 +129,46 @@ class NetworkEvidence {
   final bool domesticTlsReachabilityVerified;
   final bool globalTlsReachabilityVerified;
 
-  /// A positive route requires the same 2-of-3 TLS quorum used by the
-  /// strategy controller. A caller cannot promote a hand-built/stale
-  /// "healthy" label without matching sample counts and verified handshakes.
+  // The dedicated scanner has exactly three targets per route. Treat the
+  // evidence object as an untrusted boundary: impossible sample counts or
+  // success counters invalidate that route instead of being silently clamped.
+  bool get _domesticCountersValid =>
+      domesticSamples >= 0 &&
+      domesticSamples <= 3 &&
+      domesticSuccesses >= 0 &&
+      domesticSuccesses <= domesticSamples;
+
+  bool get _globalCountersValid =>
+      globalSamples >= 0 &&
+      globalSamples <= 3 &&
+      globalSuccesses >= 0 &&
+      globalSuccesses <= globalSamples;
+
+  /// A positive route requires the scanner's complete 2-of-3 TLS quorum.
   bool get domesticConfirmed =>
+      _domesticCountersValid &&
       domestic == LinkHealth.healthy &&
-      domesticSamples >= 3 &&
+      domesticSamples == 3 &&
       domesticSuccesses >= 2 &&
-      domesticSuccesses <= domesticSamples &&
       domesticTlsReachabilityVerified;
 
   bool get globalConfirmed =>
+      _globalCountersValid &&
       global == LinkHealth.healthy &&
-      globalSamples >= 3 &&
+      globalSamples == 3 &&
       globalSuccesses >= 2 &&
-      globalSuccesses <= globalSamples &&
       globalTlsReachabilityVerified;
 
-  /// A negative route requires at least two actual failed samples. Missing
-  /// samples and inconsistent labels are unknown, never proof of blocking.
+  /// A negative route requires at least two real failed samples, with no
+  /// impossible counters. Missing or malformed evidence is never blocking.
   bool get domesticFailed =>
+      _domesticCountersValid &&
       domestic == LinkHealth.unreachable &&
       domesticSamples >= 2 &&
       domesticSuccesses == 0;
 
   bool get globalFailed =>
+      _globalCountersValid &&
       global == LinkHealth.unreachable &&
       globalSamples >= 2 &&
       globalSuccesses == 0;
@@ -184,10 +199,8 @@ class NetworkEvidence {
     // evidence for route classification but must never inflate reachability confidence.
     // Treat the evidence object as an external boundary: malformed counters
     // must not claim more successes than the scanner actually sampled.
-    final domesticCount = domesticSamples < 0 ? 0 : domesticSamples;
-    final globalCount = globalSamples < 0 ? 0 : globalSamples;
-    final domesticOk = domesticSuccesses.clamp(0, domesticCount);
-    final globalOk = globalSuccesses.clamp(0, globalCount);
+    final domesticOk = _domesticCountersValid ? domesticSuccesses : 0;
+    final globalOk = _globalCountersValid ? globalSuccesses : 0;
     final successfulSamples = (domesticOk + globalOk).clamp(0, 6);
     if (successfulSamples <= 0) return 0;
     // The dedicated pilot scanner samples exactly three domestic and three global targets.
