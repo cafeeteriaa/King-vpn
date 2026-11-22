@@ -1406,7 +1406,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         stop = command[command.index('if (ACTION_STOP.equals(action))'):]
         self.assertLess(promotion, command.index('String action = intent.getAction();'))
         self.assertLess(promotion, stop_start - command_start)
-        self.assertIn('requestStop();', stop)
+        self.assertIn('requestStopAndPersist("STOP command")', stop)
 
     def test_vpn_service_promotes_before_queuing_sticky_restart_or_stop(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
@@ -2806,19 +2806,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = service.index('public void onRevoke()')
         end = service.index('public void onDestroy()', start)
         revoke = service[start:end]
-        persist = revoke.index('persistUserStopMarker(true)')
-        stop = revoke.index('requestStop();')
-        clear_fallback = revoke.index('clearStateDurably()', persist)
+        stop = revoke.index('requestStopAndPersist("VPN revocation")')
         cleanup = revoke.index('submit(this::stopEverything);')
-        self.assertLess(stop, persist)
-        self.assertLess(persist, clear_fallback)
-        self.assertLess(clear_fallback, cleanup)
+        self.assertLess(stop, cleanup)
+        helper_start = service.index('private void requestStopAndPersist(String context)')
+        helper_end = service.index('private boolean persistStopStateIfCurrent', helper_start)
+        helper = service[helper_start:helper_end]
+        self.assertIn('synchronized (lifecycleLock)', helper)
+        self.assertLess(helper.index('requestStop();'), helper.index('persistUserStopMarker(true)'))
+        self.assertIn('clearStateDurably()', helper)
 
         stop_app_start = service.index('public void stopFromApp()')
         stop_app_end = service.index('private static class Srv', stop_app_start)
         stop_app = service[stop_app_start:stop_app_end]
-        self.assertLess(stop_app.index('requestStop();'), stop_app.index('persistUserStopMarker(true)'))
-        self.assertIn('clearStateDurably()', stop_app)
+        self.assertIn('requestStopAndPersist("app stop")', stop_app)
 
 
     def test_vpn_sticky_restart_rechecks_consent_before_recovery(self):
@@ -3460,7 +3461,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         failure = connect[failure_start:failure_end]
         self.assertIn('requestStopIfCurrent(requestAttempt, requestGeneration)', failure)
         self.assertIn('if (!ownsStop) return false;', failure)
-        self.assertIn('if (!persistUserStopMarker(true) && !clearStateDurably())', failure)
+        self.assertIn('persistStopStateIfCurrent("foreground update failure")', failure)
         self.assertIn('stopEverything();', failure)
         self.assertIn('return false;', failure)
 
