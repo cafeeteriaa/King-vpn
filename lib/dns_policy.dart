@@ -25,6 +25,16 @@ List<dynamic> _mergeUniqueDnsEntries(Iterable<dynamic> entries) {
   return merged;
 }
 
+/// Returns true when DNS queries must be serialized to prevent parallel
+/// requests from racing plaintext fallback resolvers against encrypted DNS.
+bool shouldSerializeDnsQueries({
+  required bool secureDns,
+  required bool nationalMode,
+  required bool ultraMode,
+  required bool indestructibleMode,
+}) =>
+    secureDns && (nationalMode || (!ultraMode && !indestructibleMode));
+
 /// Orders encrypted resolvers before plaintext fallback resolvers.
 List<dynamic> mergeGlobalDnsServers({
   required List<dynamic> encryptedFirst,

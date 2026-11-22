@@ -84,6 +84,33 @@ void main() {
       );
     });
 
+    test('Secure DNS serializes queries outside experimental global modes', () {
+      expect(shouldSerializeDnsQueries(
+        secureDns: true,
+        nationalMode: false,
+        ultraMode: false,
+        indestructibleMode: false,
+      ), isTrue);
+      expect(shouldSerializeDnsQueries(
+        secureDns: true,
+        nationalMode: true,
+        ultraMode: true,
+        indestructibleMode: true,
+      ), isTrue);
+      expect(shouldSerializeDnsQueries(
+        secureDns: true,
+        nationalMode: false,
+        ultraMode: true,
+        indestructibleMode: false,
+      ), isFalse);
+      expect(shouldSerializeDnsQueries(
+        secureDns: false,
+        nationalMode: true,
+        ultraMode: false,
+        indestructibleMode: false,
+      ), isFalse);
+    });
+
     test('global Secure DNS tries DoH before plaintext fallback and deduplicates', () {
       const doh = {'address': 'https://1.1.1.1/dns-query', 'timeoutMs': 1500};
       expect(

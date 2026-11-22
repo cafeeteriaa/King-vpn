@@ -2874,6 +2874,17 @@ String _reliableVpnCfg(String cfg) {
         plaintextFallback: plaintextFallback,
       );
     }
+    // Parallel DNS racing could send the plaintext fallback even while DoH
+    // succeeds. Keep Secure DNS ordered unless the global experiment matrix
+    // explicitly owns the resolver strategy.
+    if (shouldSerializeDnsQueries(
+      secureDns: secureDns,
+      nationalMode: nationalMode,
+      ultraMode: ultraMode,
+      indestructibleMode: indestructibleMode,
+    )) {
+      d['enableParallelQuery'] = false;
+    }
     // UseIP = هم IPv4 و هم IPv6 (هر کدام در دسترس باشد)
     d['queryStrategy'] = 'UseIP';
     j['dns'] = d;
