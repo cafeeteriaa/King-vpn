@@ -9743,7 +9743,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           final c = (x['c'] as num?)?.toInt();
           final verifiedAt = (x['va'] as num?)?.toInt();
           e.verified = x['v'] == true && verifiedAt != null;
-          if (e.verified) {
+          if (e.verified && verifiedAt != null) {
             e.verifiedAt = DateTime.fromMillisecondsSinceEpoch(verifiedAt);
             if (c != null) e.checked = DateTime.fromMillisecondsSinceEpoch(c);
           } // legacy entries without end-to-end proof are candidates only
