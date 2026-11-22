@@ -14055,6 +14055,9 @@ ListTile( // KINGEXTRAS row
         if (++_netDownRun >= 2 && !netDown) {
           netDown = true;
           _netDownSince = DateTime.now();
+          // OODA: invalidate in-flight/cached DNS reachability evidence even
+          // when Android keeps the same interface/IP signature during outage.
+          natDohCacheClear();
           dbg('اینترنت گوشی قطع شد؛ VPN نگه داشته می‌شود');
         }
         // never hold forever: after 30 minutes the normal logic takes over
@@ -14069,6 +14072,9 @@ ListTile( // KINGEXTRAS row
         if (netDown) {
           netDown = false;
           netUpAt = DateTime.now();
+          // Recovery can change resolver reachability without changing the
+          // interface signature; force the next variant check to observe anew.
+          natDohCacheClear();
           fails = 0;
           badPingRun = 0;
           lowSpeed = 0;
