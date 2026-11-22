@@ -2770,7 +2770,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         durable_save = flow.index('if (!saveStateDurably())')
         release_latch = flow.index('recoveryEnabled = persistUserStopMarker(false);')
         lifecycle_guard = flow.index('synchronized (lifecycleLock)', durable_save)
-        current_guard = flow.index('if (!stopping && !userStopped && attempt == activeAttemptId)', lifecycle_guard)
+        current_guard = flow.index('if (!stopping && !userStopped && attempt == activeAttemptId', lifecycle_guard)
+        self.assertIn('requestGeneration == activeRequestGeneration', flow[current_guard:release_latch])
         connect = flow.index('if (connectFrom(0, attempt, requestGeneration))')
         self.assertLess(durable_save, lifecycle_guard)
         self.assertLess(lifecycle_guard, current_guard)
@@ -3681,6 +3682,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start_flow = native[native.index('private void startFlow('):native.index('private void resumeSaved(')]
         recovery = native[native.index('private void resumeSaved('):native.index('private boolean hasPersistedUserStopMarker(')]
         self.assertIn('requestGeneration != activeRequestGeneration) return;', start_flow)
+        self.assertIn('requestGeneration == activeRequestGeneration', start_flow)
         self.assertIn('activeRequestGeneration != requestGeneration) return;', recovery)
 
 

@@ -495,7 +495,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // a newer stop request after its durable config write completes.
             boolean recoveryEnabled = false;
             synchronized (lifecycleLock) {
-                if (!stopping && !userStopped && attempt == activeAttemptId) {
+                if (!stopping && !userStopped && attempt == activeAttemptId
+                        && requestGeneration == activeRequestGeneration) {
                     recoveryEnabled = persistUserStopMarker(false);
                 }
             }
