@@ -161,3 +161,12 @@
 - Added a source guard asserting the grace path is used and the immediate-failover shortcut is absent.
 - Commits: implementation `e61656e223acee52f81b6cccb1f8420a62c21e5c`; tests `37f27f127bc21de114a3a75dede5f8d01df4c7b7`.
 - The prior CI run 2007 was cancelled when a newer commit superseded it; the new exact-commit CI result must be checked before treating this change as validated. No live carrier or device test is claimed.
+
+
+## DoH cache network-generation and mode fencing — 2026-11-22
+- Audit found that `natDohUsable()` captured the network generation to prevent stale cache writes, but still returned the old probe result to its caller when the generation changed during the asynchronous request. The server-variant ladder could therefore consume a stale positive/negative result even though it was not cached.
+- DoH cache entries are now also scoped to national/global mode because the probe target differs (`nic.ir` vs `google.com`).
+- An in-flight probe whose network generation changes is discarded and retried once against the current generation; a second concurrent network change fails closed. A mode change during the probe also fails closed. Only a result validated against the same generation and mode can be cached or returned.
+- Added source guards for generation fencing, bounded retry, and mode-aware cache validation.
+- Commits: implementation `4f53a27e69e1350637c01fbc7e1270bc1dcfab3b`; tests `988ddab83eaec17ab7c8cd5c28faf91cd6798a3d`.
+- CI result for the final documentation head must be checked before calling the change validated. No live DNS or carrier test is claimed.
