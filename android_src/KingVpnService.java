@@ -352,8 +352,11 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         // A fresh explicit START is the only operation that clears the durable stop latch.
         // If storage cannot confirm the clear, refuse to start rather than creating a
         // tunnel that Android would later be forbidden to restore after process death.
-        if (!persistUserStopMarker(false)) {
-            invalidateRecoveryAfterStartFailure("Unable to clear persisted user-stop marker; refusing VPN startup");
+        // Keep sticky recovery blocked until the worker has durably stored this
+        // exact request's server list. Otherwise process death here can revive the
+        // previous session from PREFS before the new config reaches disk.
+        if (!persistUserStopMarker(true)) {
+            invalidateRecoveryAfterStartFailure("Unable to latch recovery while preparing VPN startup");
             emit("FAILED", lastError, intent.getIntExtra(EXTRA_ATTEMPT, 0));
             stopSelf(startId);
             return START_NOT_STICKY;
@@ -433,7 +436,21 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             }
             currentIdx = 0; // جدید: new list starts at 0; a stale index from the last session was saved before
             fails = 0;      // جدید
-            saveState(); // persist the pending list first, so a restart mid-connect can resume it
+            if (!saveStateDurably()) {
+                invalidateRecoveryAfterStartFailure("Unable to durably save the new VPN server list");
+                emit("FAILED", lastError, attempt);
+                requestStop();
+                stopEverything();
+                return;
+            }
+            // Only the newly committed server list may be restored after process death.
+            if (!persistUserStopMarker(false)) {
+                invalidateRecoveryAfterStartFailure("Unable to enable recovery for the committed VPN server list");
+                emit("FAILED", lastError, attempt);
+                requestStop();
+                stopEverything();
+                return;
+            }
             if (connectFrom(0, attempt)) {
                 synchronized (lifecycleLock) {
                     // Stop or a newer start can arrive after native startup but before
@@ -1299,6 +1316,29 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                     .apply();
         } catch (Exception e) {
             Log.w(TAG, "saveState failed", e);
+        }
+    }
+
+    /** Persist the complete pending server list before enabling sticky recovery. */
+    private boolean saveStateDurably() {
+        try {
+            JSONArray arr = new JSONArray();
+            for (Srv s : servers) {
+                JSONObject o = new JSONObject();
+                o.put("config", s.config);
+                o.put("remark", s.remark);
+                o.put("addr", s.addr);
+                o.put("port", s.port);
+                arr.put(o);
+            }
+            return getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putString("list", arr.toString())
+                    .putInt("idx", currentIdx)
+                    .putBoolean("national", nationalMode)
+                    .commit();
+        } catch (Exception e) {
+            Log.e(TAG, "saveStateDurably failed", e);
+            return false;
         }
     }
 
