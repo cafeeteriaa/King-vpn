@@ -79,6 +79,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('natIrDomains', domain_scan)
         self.assertNotIn('for (var p = 1; p < 65536; p++)', domain_scan)
 
+    def test_android_vpn_refuses_partial_ipv6_tunnel_setup(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = service.index('private ParcelFileDescriptor establish(V2rayConfig cfg)')
+        end = service.index('private void wireCoreOnce()', start)
+        establish = service[start:end]
+        ipv6 = establish.index('b.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);')
+        route = establish.index('b.addRoute("::", 0);', ipv6)
+        catch = establish.index('catch (Exception e)', route)
+        fail_closed = establish.index('throw new IllegalStateException(', catch)
+        ipv4 = establish.index('b.addRoute("0.0.0.0", 0);', fail_closed)
+        establish_call = establish.index('return b.establish();', ipv4)
+        self.assertLess(ipv6, route)
+        self.assertLess(route, catch)
+        self.assertLess(catch, fail_closed)
+        self.assertLess(fail_closed, ipv4)
+        self.assertLess(ipv4, establish_call)
+        self.assertIn('refusing possible IPv6 leak', establish[fail_closed:ipv4])
+
     def test_connect_path_uses_mode_aware_tunnel_probe(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn('networkAware: true', main)
