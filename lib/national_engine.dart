@@ -187,14 +187,18 @@ class NatNetworkDiagnosis {
   /// True when the national network is up but the international one is cut.
   /// Read by the search ordering (main.dart): Iran-hosted sources go first.
   static bool get preferDomestic {
-    // Legacy TCP/DNS classification is only a hint. Never bias national
-    // sources unless the independent Pilot confirms domestic TLS and has
-    // multiple failed global TLS samples on the same known network.
-    final pilot = PilotNetworkProbe.current;
-    return current != NatNetworkClass.unknown &&
+    // Legacy TCP/DNS classification is only a hint. Its network snapshot must
+    // match the Pilot's identity and both snapshots must still be fresh; never
+    // combine a new network diagnosis with TLS evidence cached on an old link.
+    final identity = _identityAtCheck;
+    final checkedAt = _checkedAt;
+    if (identity == null || checkedAt == null) return false;
+    final age = DateTime.now().difference(checkedAt);
+    return !age.isNegative &&
+        age <= _ttl &&
+        current != NatNetworkClass.unknown &&
         current != NatNetworkClass.globalReachable &&
-        pilot.domesticConfirmed &&
-        pilot.globalFailed;
+        PilotNetworkProbe.hasConfirmedDomesticOnlyFor(identity);
   }
 
   static Future<NatNetworkClass> refresh({bool force = false}) =>
@@ -320,6 +324,19 @@ class PilotNetworkProbe {
   );
   static Future<NetworkEvidence>? _flight;
   static NetworkEvidence get current => _last;
+
+  /// True only when domestic TLS success and global TLS failure belong to the
+  /// exact same known network snapshot and are no older than the probe cache.
+  static bool hasConfirmedDomesticOnlyFor(String identity) {
+    if (identity.isEmpty || _lastIdentity != identity) return false;
+    final at = _lastAt;
+    if (at == null) return false;
+    final age = DateTime.now().difference(at);
+    return !age.isNegative &&
+        age <= const Duration(minutes: 2) &&
+        _last.domesticConfirmed &&
+        _last.globalFailed;
+  }
 
   static Future<NetworkEvidence> refresh({bool force = false}) async {
     final active = _flight;
