@@ -69,3 +69,14 @@
 - No device, Iranian operator-network, production-signing, or exact-head APK validation is claimed.
 
 - Follow-up clarification commit: `8691127c3e331affa1ea541805d0d51ab4d3e66d` updates the stale function comments to accurately describe both data paths; no behavior changed in that comment-only commit.
+
+
+## Latest continuation — 2026-11-22 (proxy-path verification)
+- Current engineering code commit: `824479a3e10f4eabb6a167a18136894b688cc1af`; branch now includes this commit. PR #42 remains open and Draft; do not merge without explicit authorization.
+- Fixed a false-positive in `_tunnelTrafficOk()`: proxy mode previously returned true without making a network request. It now executes the same real-traffic probe in both modes. In proxy mode, `_useCoreProxy(true)` selects `127.0.0.1:$httpProxyPort`; in VPN mode, the existing core-proxy/tunnel path remains in force. A CONNECTED event alone is not treated as proof of usable internet.
+- Added source guard `test_stale_connect_verification_checks_proxy_mode_data_path` to prevent restoring the proxy-mode unconditional-success shortcut and to assert the probe uses the local core HTTP proxy.
+- Reviewed `_siteOpens()`: it uses `_useCoreProxy(viaCore)` and explicit HTTP proxy routing; success requires HTTP 2xx/3xx, not merely a response. The current stale verification calls it with `viaCore: true`.
+- CI run `44986813019` is the exact-head run for code commit `824479a`; it was pending and had no jobs exposed at the last poll. Do not claim CI success until this run (or a newer exact-head run) completes successfully.
+- The plugin's status callbacks still have no attempt identifiers; do not claim native event-level generation tagging. Existing Dart waiter generation guards remain.
+- No real device, operator-network, production-signing, or install-ready APK validation is claimed.
+- Next: poll exact-head CI; audit DISCONNECTED callback/downSig ordering and superseded stop waiters; inspect `_verifyPendingConnect` timeout/cancellation behavior; continue IPv4/IPv6 DNS and route-bypass audit.
