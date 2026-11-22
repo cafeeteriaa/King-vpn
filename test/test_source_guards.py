@@ -3092,6 +3092,29 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (!proxyMode && await tunUp() != true)', main[end:main.index('// FlutterV2ray status events have no attempt IDs.', end)])
 
 
+    def test_network_watch_ignores_virtual_tunnels_and_serializes_snapshots(self):
+        dart = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        declaration = dart.index('bool _netWatchBusy = false;')
+        start = dart.index('Future<void> _netWatch() async {', declaration)
+        end = dart.index('void _startWatch()', start)
+        body = dart[start:end]
+        self.assertIn('if (_netWatchBusy) return;', body)
+        self.assertIn('_netWatchBusy = true;', body)
+        self.assertIn('_netWatchBusy = false;', body)
+        self.assertIn('finally {', body)
+        for prefix in ("n.startsWith('tun')", "n.startsWith('vpn')",
+                       "n.startsWith('ppp')", "n.startsWith('utun')",
+                       "n.startsWith('wg')", "n.startsWith('tailscale')",
+                       "n.contains('wireguard')", "n.contains('xray')",
+                       "n.contains('v2ray')", "n.startsWith('dummy')"):
+            self.assertIn(prefix, body)
+        self.assertLess(body.index('if (ips.isEmpty) continue;'),
+                        body.index('anyUp = true;'))
+        self.assertLess(body.index('if (_netWatchBusy) return;'),
+                        body.index('NetworkInterface.list('))
+        self.assertLess(body.index('NetworkInterface.list('),
+                        body.index('finally {'))
+
     def test_tun_detection_never_treats_connected_event_as_interface_proof(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('Future<bool?> tunUp()')
