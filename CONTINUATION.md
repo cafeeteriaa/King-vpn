@@ -111,3 +111,13 @@
 - Both the normal 2-second disconnect debounce and deferred-disconnect recovery now use this confirmation path. Added source guard test_unattributed_disconnect_requires_current_tun_and_traffic_before_failover.
 - This reduces false failovers but does not add native attempt IDs or prove which plugin event was emitted by which core. Device lifecycle and operator-network testing remain required.
 - New commit must pass its own source guards, Flutter tests, Dart analysis and arm64 release build; no current-head APK/device validation is claimed.
+
+
+## Latest continuation — Smart Pilot evidence consistency (2026-11-22)
+- Current branch head: `ae43210a6eed10158868f552d91aeb5a253fa185`; PR #42 remains open Draft, not merged.
+- Commit `c8443a1049f434982b7ba8c0cbe404e202ed46a9`: `choosePilotNetworkStrategy` now requires explicit TLS reachability verification and at least 2 successful handshakes for a healthy group; an unreachable group must have zero successes as well as sufficient samples. This prevents contradictory manually constructed/stale evidence from changing the route.
+- Commit `ae43210a6eed10158868f552d91aeb5a253fa185`: confidence calculation clamps successful counts to the number of available samples; tests cover inconsistent healthy labels without TLS quorum and impossible success counts.
+- Scanner behavior is unchanged: three domestic and three global TLS handshakes; quorum >=2/3. TLS reachability still does not prove VPN tunnel traffic.
+- Exact-head CI run `44996637457` was triggered for `ae43210a`; source-repair guard passed, Java setup passed, Gradle setup was still running at last poll. Do not claim Flutter tests, Dart analysis, APK build or artifact upload passed until this run completes.
+- Static audit of plugin-managed disconnect handling: `DISCONNECTED` events are treated as unattributed; current TUN daemon-liveness signal and core data-path probe are rechecked before failover. Plugin events still carry no attempt ID. No device/operator-network validation.
+- Next: poll run `44996637457`; if it passes, download and inspect exact-head APK/source artifacts. Continue review of DNS resolver traffic and native/plugin stop-start races. Keep PR #42 Draft and unmerged.
