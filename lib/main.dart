@@ -8755,8 +8755,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // NNIE: measure only this server's own start-to-data-plane verification time.
     final nnieElapsedMs = _nnieFinishAttempt(s);
     if (_listPartial) unawaited(_fetchFullListBg());
-    // IP کارا به حافظه (هم در نت جهانی و هم در نت ملی؛ دفعه‌ی بعد اول از همین‌ها استفاده می‌شود)
-    if (InternetAddress.tryParse(s.host) != null) {
+    // This memory is used only by the domestic scanner and is keyed to a verified operator.
+    if (nationalMode && InternetAddress.tryParse(s.host) != null) {
       unawaited(natIpMemSave(s.host, s.port));
     } else if (nationalMode) {
       unawaited(natDomMemSave(s.host, s.port)); // NATDOM: دامنه‌ی موفق در نت ملی
@@ -10778,7 +10778,7 @@ ListTile( // KINGEXTRAS row
         for (final s in [...pending, ...natRestPending]) '${s.host}|${s.port}'
       };
       final items = <String>[];
-      for (final e in natIpMem.take(40)) {
+      for (final e in natIpMem.where((e) => e['op'] == natOpKey).take(40)) {
         final ip = '${e['ip']}';
         final port = (e['port'] as num?)?.toInt() ?? 0;
         if (InternetAddress.tryParse(ip) == null || port <= 0) continue;
