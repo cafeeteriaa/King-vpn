@@ -3278,5 +3278,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("rt['domainStrategy'] = 'AsIs';", normalize)
 
 
+    def test_smart_pilot_requires_fresh_endpoint_evidence_for_standby_switch(self):
+        pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        start = pilot.index('Server? _pilotBestStandby()')
+        end = pilot.index('Future<void> _pilotLoadExperience()', start)
+        standby = pilot[start:end]
+        self.assertIn('final checked = s.checkedAt;', standby)
+        self.assertIn('!now.difference(checked).isNegative', standby)
+        self.assertIn('now.difference(checked) <= const Duration(minutes: 4)', standby)
+        self.assertIn('s.ping != null && s.ping! > 0', standby)
+        self.assertIn('&& !_bad(s) && freshPing', standby)
+        self.assertIn('Cached NNIE/profile scores may rank verified candidates', standby)
+        self.assertIn('NOT proof of tunnel data-plane', standby)
+        self.assertIn('bestScore < _pilotStandbyScore(active) + 12.0', standby)
+
+
 if __name__ == '__main__':
     unittest.main()
