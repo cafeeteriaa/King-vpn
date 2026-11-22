@@ -3129,6 +3129,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(body.index('if (gen != _dohGen)'), body.index('dohPreOk[v] = ok;'))
         self.assertLess(body.index('if (nationalMode != mode)'), body.index('dohPreOk[v] = ok;'))
 
+    def test_self_heal_waits_during_underlying_outage_and_recovery_grace(self):
+        heal = (ROOT / 'lib' / 'king_heal.dart').read_text(encoding='utf-8')
+        start = heal.index('Future<void> kingSelfHeal(')
+        end = heal.index('Future<List<_HealSignal>> _healSense()', start)
+        body = heal[start:end]
+        guard = body.index('if (reason != \'force\' &&')
+        self.assertLess(body.index('final signals = await _healSense();'), guard)
+        self.assertIn('netDown', body[guard:guard + 600])
+        self.assertIn('DateTime.now().difference(netUpAt) < const Duration(seconds: 15)', body[guard:guard + 600])
+        self.assertLess(guard, body.index('_healPlan(top)'))
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        watch = main[main.index("await kingSelfHeal(reason: 'watch')"):main.index('double _rate(Server s)')]
+        disconnected = watch[watch.index('if (!connected) {'):watch.index('// internet check through the tunnel')]
+        self.assertIn('if (netDown ||', disconnected)
+        self.assertIn('await _failover();', disconnected)
+        self.assertLess(disconnected.index('if (netDown ||'), disconnected.index('await _failover();'))
+
     def test_network_change_uses_grace_instead_of_immediate_failover(self):
         dart = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = dart.index('Future<void> _netWatch() async {')
