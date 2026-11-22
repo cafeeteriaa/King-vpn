@@ -3438,6 +3438,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('network changed during probes; snapshot discarded', diagnosis)
         self.assertIn('_identityAtCheck = null;', diagnosis)
 
+    def test_legacy_diagnosis_shares_strong_pilot_network_identity(self):
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        start = engine.index('static Future<String> _identityHash()')
+        end = engine.index('\n\n  static Future<bool> _tcpOk', start)
+        identity = engine[start:end]
+        self.assertIn('PilotNetworkProbe._networkIdentity()', identity)
+        self.assertNotIn('NetworkInterface.list', identity)
+
     def test_pilot_network_identity_uses_android_network_handle_and_fails_closed(self):
         native = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
         engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
