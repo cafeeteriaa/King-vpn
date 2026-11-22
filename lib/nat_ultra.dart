@@ -1710,16 +1710,17 @@ Set<String> natIpMemHosts({DateTime? now}) {
   if (!_natHasVerifiedOperatorKey(natOpKey)) return <String>{};
   final at = now ?? DateTime.now();
   final cutoff = at.subtract(const Duration(hours: 48)).millisecondsSinceEpoch;
-  return {
-    for (final e in natIpMem)
-      if (e['op'] == natOpKey &&
-          (e['t'] as num?)?.toInt() case final t? &&
-          t <= at.millisecondsSinceEpoch &&
-          t >= cutoff)
-        e['ip'].toString(),
-  };
+  final hosts = <String>{};
+  for (final e in natIpMem) {
+    final rawTime = e['t'];
+    final ip = e['ip'];
+    if (e['op'] != natOpKey || rawTime is! num || ip is! String) continue;
+    final timestamp = rawTime.toInt();
+    if (timestamp > at.millisecondsSinceEpoch || timestamp < cutoff) continue;
+    hosts.add(ip);
+  }
+  return hosts;
 }
-
 Future<void> natIpMemLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
@@ -3104,24 +3105,24 @@ final List<Map<String, dynamic>> natDomMem = [];
 Set<String> natDomMemHosts({DateTime? now}) {
   final at = now ?? DateTime.now();
   final cutoff = at.subtract(_domMemTtl).millisecondsSinceEpoch;
+  if (!_natHasVerifiedOperatorKey(natOpKey)) return <String>{};
   final hosts = <String>{};
   for (final e in natDomMem) {
-    final t = (e['t'] as num?)?.toInt();
+    final rawTime = e['t'];
     final host = e['h'];
     final port = e['port'];
     if (e['op'] != natOpKey ||
-        t == null ||
-        t > at.millisecondsSinceEpoch ||
-        t < cutoff ||
+        rawTime is! num ||
         host is! String ||
         port is! num) {
       continue;
     }
-    hosts.add('$host:${port.toInt()}');
+    final timestamp = rawTime.toInt();
+    if (timestamp > at.millisecondsSinceEpoch || timestamp < cutoff) continue;
+    hosts.add(host + ':' + port.toInt().toString());
   }
   return hosts;
 }
-
 Future<void> natDomMemLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
