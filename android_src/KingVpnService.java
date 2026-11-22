@@ -584,8 +584,10 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 }
                 return;
             }
-            if (stopping || activeAttemptId != recoveryAttempt) return;
-            requestStop();
+            // A failed sticky recovery may only stop the exact recovery request.
+            // Dart attempt ids can be reused by a newer engine/session, so ownership
+            // must include the native generation and be checked atomically with Stop.
+            if (!requestStopIfCurrent(recoveryAttempt, requestGeneration)) return;
             stopEverything();
         }
     }

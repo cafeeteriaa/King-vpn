@@ -3694,5 +3694,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('connectFrom(0, retryAttempt, retryGeneration)', native)
 
 
+    def test_native_failed_sticky_recovery_cannot_stop_a_reused_dart_attempt(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = native.index('private void resumeSaved(int recoveryAttempt, long requestGeneration)')
+        end = native.index('private boolean persistUserStopMarker', start)
+        recovery = native[start:end]
+        self.assertIn('requestStopIfCurrent(recoveryAttempt, requestGeneration)', recovery)
+        self.assertNotIn('requestStop();', recovery)
+        self.assertIn('activeRequestGeneration != requestGeneration', recovery)
+
+
 if __name__ == '__main__':
     unittest.main()
