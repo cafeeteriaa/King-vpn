@@ -153,3 +153,11 @@
 - Added source guards for virtual-interface exclusions, address-family evidence, and scan serialization.
 - Commits: implementation `90edc493677af3daa7d20ea666ae0e8e62f75a41`; tests `939321e141f566513601dce2f235a7ff2d9c79dc`. CI run 2006 (`45000309340`) targets the exact test commit and is pending.
 - This is source-level hardening only. Physical Wi-Fi/mobile transitions, OEM interface naming, captive portals, airplane mode, and IPv4/IPv6 runtime behavior still require device/network testing. PR #42 remains Draft and unmerged.
+
+
+## Network-change failover grace — 2026-11-22
+- The watchdog previously raised `fails` to `watchFailLimit - 1` immediately on any interface/IP signature change. A single failed tunnel probe during Wi-Fi/mobile handover or IPv6 privacy-address rotation could therefore trigger premature server failover.
+- A connected link change now clears stale failure count and updates `netUpAt`; the existing 15-second settling guard suppresses failover while Android rebuilds routes/DNS. Repeated failures after the grace period still follow the normal watchdog threshold.
+- Added a source guard asserting the grace path is used and the immediate-failover shortcut is absent.
+- Commits: implementation `e61656e223acee52f81b6cccb1f8420a62c21e5c`; tests `37f27f127bc21de114a3a75dede5f8d01df4c7b7`.
+- The prior CI run 2007 was cancelled when a newer commit superseded it; the new exact-commit CI result must be checked before treating this change as validated. No live carrier or device test is claimed.
