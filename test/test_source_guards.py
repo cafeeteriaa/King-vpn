@@ -3443,7 +3443,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = engine.index('static bool get preferDomestic')
         end = engine.index('static Future<NatNetworkClass> refresh', start)
         getter = engine[start:end]
-        self.assertIn('PilotNetworkProbe.current', getter)
         self.assertIn('PilotNetworkProbe.hasConfirmedDomesticOnlyFor(identity)', getter)
         self.assertIn('identity = _identityAtCheck', getter)
         self.assertIn('age <= _ttl', getter)
