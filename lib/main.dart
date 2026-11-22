@@ -8952,8 +8952,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  // TUNCHK: ترافیک واقعی از داخل تونل (VPN) باید به مقصد متناسب با حالت شبکه برسد.
-  // در حالت پروکسی تونلی وجود ندارد، پس بررسی انجام نمی‌شود.
+  // TUNCHK: verify real outbound traffic for the selected network mode.
+  // VPN mode uses the system TUN; proxy mode uses the local core HTTP proxy.
   // FIX #12: national mode tests domestic destinations (international traffic is cut there);
   // global mode tests only international ones, so a domestic site cannot pass a dead tunnel.
   Future<bool> _tunnelTrafficOk() async {
