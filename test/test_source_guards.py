@@ -3080,5 +3080,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (!proxyMode && await tunUp() != true)', main[end:main.index('// FlutterV2ray status events have no attempt IDs.', end)])
 
 
+    def test_tun_detection_never_treats_connected_event_as_interface_proof(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<bool?> tunUp()')
+        end = main.index('// real ping:', start)
+        body = main[start:end]
+        self.assertIn('if (hasTunnel) return true;', body)
+        self.assertIn('return false;', body)
+        self.assertIn('return null;', body)
+        self.assertNotIn('CONNECTED', body)
+        self.assertNotIn('kVpnLastStateTop', main)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -4143,7 +4143,6 @@ Future<bool> waitProxyPort(
 // normally), so without this check the app can say "connected" while the
 // phone has no VPN key and other apps get nothing.
 bool lastStartNoTunnel = false; // last _start failed because Android built no tunnel
-String kVpnLastStateTop = ''; // TUNSTATE-FIX: آینه‌ی سراسری lastState برای tunUp()
 String tunNames = ''; // interface names seen by the last tunUp() (diagnostics)
 Future<bool?> tunUp() async {
   try {
@@ -4162,12 +4161,11 @@ Future<bool?> tunUp() async {
       if (hasTunnel) return true;
       if (attempt < 4) await Future.delayed(const Duration(milliseconds: 800));
     }
-    // kVpnLastStateTop آینه‌ی lastState است (tunUp سراسری است و به فیلد کلاس دسترسی ندارد)
-    if (kVpnLastStateTop == 'CONNECTED') return true;
+    // A CONNECTED callback is not evidence that Android installed a TUN.
     return false;
   } catch (_swE) {
     _swl('tunUp#1', _swE);
-    return kVpnLastStateTop == 'CONNECTED' ? true : null;
+    return null;
   }
 }
 
@@ -5412,7 +5410,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             'بعد از آخرین تعویض=${DateTime.now().difference(lastSwitch).inSeconds}s');
       }
       lastState = st.state;
-      kVpnLastStateTop = st.state; // mirror for top-level tunUp()
       try {
         final d = st as dynamic; // LIVESTATS
         liveDown = (d.downloadSpeed as num?)?.toInt() ?? liveDown;
@@ -9017,7 +9014,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       if (tunnelUp && trafficOk) {
         lastState = 'CONNECTED';
-        kVpnLastStateTop = 'CONNECTED';
         if (mounted) setState(() => connected = true);
         dbg('STALE-DISCONNECTED ignored: current TUN and core traffic are healthy');
         return;
