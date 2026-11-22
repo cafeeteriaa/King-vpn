@@ -322,7 +322,8 @@ class PilotNetworkProbe {
     domestic: LinkHealth.unknown,
     global: LinkHealth.unknown,
   );
-  static Future<NetworkEvidence>? _flight;
+  static final NetworkProbeRefreshCoordinator<NetworkEvidence> _refreshCoordinator =
+      NetworkProbeRefreshCoordinator<NetworkEvidence>();
   static NetworkEvidence get current => _last;
 
   /// True only when domestic TLS success and global TLS failure belong to the
@@ -348,17 +349,8 @@ class PilotNetworkProbe {
       ) &&
       _last.domesticConfirmed;
 
-  static Future<NetworkEvidence> refresh({bool force = false}) async {
-    final active = _flight;
-    if (active != null) return active;
-    final future = _refresh(force: force);
-    _flight = future;
-    try {
-      return await future;
-    } finally {
-      if (identical(_flight, future)) _flight = null;
-    }
-  }
+  static Future<NetworkEvidence> refresh({bool force = false}) =>
+      _refreshCoordinator.run(_refresh, force: force);
 
   static void _clearSnapshot() {
     _last = const NetworkEvidence(
