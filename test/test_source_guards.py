@@ -3070,5 +3070,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertGreaterEqual(urls.count('https://'), 4)
 
 
+    def test_vpn_data_plane_proof_requires_confirmed_android_tun(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<bool> _tunnelTrafficOk()')
+        end = main.index('Future<bool> _stableTunnelTrafficOk(Server server)', start)
+        probe = main[start:end]
+        self.assertIn('if (!proxyMode && await tunUp() != true)', probe)
+        self.assertLess(probe.index('await tunUp()'), probe.index('final urls ='))
+        self.assertIn('if (!proxyMode && await tunUp() != true)', main[end:main.index('// FlutterV2ray status events have no attempt IDs.', end)])
+
+
 if __name__ == '__main__':
     unittest.main()

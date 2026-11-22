@@ -8957,6 +8957,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // National mode checks domestic endpoints; global mode checks international ones.
   Future<bool> _tunnelTrafficOk() async {
     await Future.delayed(const Duration(seconds: 2));
+    // A direct HTTP request can succeed over the phone's ordinary network if
+    // Android did not install the VPN interface. Require a confirmed TUN first.
+    if (!proxyMode && await tunUp() != true) {
+      dbg('VPN data-path probe refused: Android TUN is not confirmed');
+      return false;
+    }
     final urls = nationalMode ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
     for (final u in urls) {
       final ok = await _siteOpens(u, viaCore: proxyMode)
@@ -8969,6 +8975,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // Stable history uses the same mode-correct data path and multiple destinations.
   Future<bool> _stableTunnelTrafficOk(Server server) async {
     if (!connected || !identical(current, server)) return false;
+    if (!proxyMode && await tunUp() != true) return false;
     final urls = nationalMode ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
     if (urls.length < 2) return false;
     final results = await Future.wait(urls.map((url) =>
