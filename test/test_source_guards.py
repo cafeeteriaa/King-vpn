@@ -3278,6 +3278,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("rt['domainStrategy'] = 'AsIs';", normalize)
 
 
+    def test_national_hot_folder_does_not_consume_global_source_health_scores(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('void initState()')
+        end = main.index('WidgetsBinding.instance.addObserver(this);', start)
+        init = main[start:end]
+        self.assertIn('natSrcRates = const <String, double>{};', init)
+        self.assertNotIn('natSrcRates = srcRate;', init)
+        self.assertIn('dedicated domestic source-health signal', init)
+
     def test_global_source_health_cannot_filter_or_train_national_candidates(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn("p.getString('src_scores_global_v2')", main)
