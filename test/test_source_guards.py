@@ -3400,7 +3400,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         flow = native[flow_start:flow_end]
         self.assertIn('if (stopping || attempt != activeAttemptId) return;', flow)
         self.assertIn('connectFrom(0, attempt)', flow)
-        self.assertIn('if (attempt != activeAttemptId || stopping) return;', flow)
+        self.assertIn('if (!requestStopIfCurrent(attempt)) return;', flow)
+        self.assertNotIn('requestStop();', flow)
         connect_start = native.index('private boolean connectFrom(int first, int requestAttempt)')
         connect_end = native.index('private boolean bringUpWithTimeout(', connect_start)
         connect = native[connect_start:connect_end]
