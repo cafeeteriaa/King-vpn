@@ -3094,6 +3094,27 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('kVpnLastStateTop', main)
 
 
+    def test_tun_detection_prefers_android_vpn_transport_with_interface_fallback(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        native = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
+        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+
+        start = main.index('Future<bool?> tunUp()')
+        end = main.index('// real ping:', start)
+        tun = main[start:end]
+        self.assertIn("invokeMethod<bool>('vpnTransportUp')", tun)
+        self.assertIn("if (nativeVpn == true)", tun)
+        self.assertIn("tunNames = 'android:TRANSPORT_VPN';", tun)
+        self.assertIn("catch (_nativeTunError)", tun)
+        self.assertIn('NetworkInterface.list(includeLoopback: false)', tun)
+        self.assertLess(tun.index("invokeMethod<bool>('vpnTransportUp')"),
+                        tun.index('NetworkInterface.list(includeLoopback: false)'))
+
+        self.assertIn('"vpnTransportUp" ->', native)
+        self.assertIn('NetworkCapabilities.TRANSPORT_VPN', native)
+        self.assertIn('ConnectivityManager', native)
+        self.assertIn("'android.permission.ACCESS_NETWORK_STATE'", prepare)
+
     def test_iran_geoip_routing_strategy_survives_reliable_config_normalization(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         iran = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
