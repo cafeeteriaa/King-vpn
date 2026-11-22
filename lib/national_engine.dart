@@ -338,6 +338,16 @@ class PilotNetworkProbe {
         _last.globalFailed;
   }
 
+  /// Fresh domestic TLS quorum for candidate ordering. The caller still gates
+  /// this with the active national-mode choice; expired snapshots never rank.
+  static bool get hasFreshDomesticConfirmation =>
+      isNetworkProbeEvidenceFresh(
+        checkedAt: _lastAt,
+        now: DateTime.now(),
+        ttl: const Duration(minutes: 2),
+      ) &&
+      _last.domesticConfirmed;
+
   static Future<NetworkEvidence> refresh({bool force = false}) async {
     final active = _flight;
     if (active != null) return active;
@@ -479,7 +489,7 @@ bool get pilotPrefersDomesticRoute => shouldPreferDomesticCandidates(
       legacyDiagnosisPrefersDomestic: NatNetworkDiagnosis.preferDomestic,
       localPilotEnabled: localPilotOn,
       nationalMode: nationalMode,
-      pilotDomesticConfirmed: PilotNetworkProbe.current.domesticConfirmed,
+      pilotDomesticConfirmed: PilotNetworkProbe.hasFreshDomesticConfirmation,
     );
 
 String natNetworkClassLabel(NatNetworkClass value) => switch (value) {
