@@ -470,7 +470,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                     // Stop or a newer start can arrive after native startup but before
                     // publication. Never publish a stale CONNECTED event.
                     if (stopping || userStopped || attempt != activeAttemptId) return;
-                    saveState();
+                    if (!saveStateDurably()) {
+                        Log.e(TAG, "could not durably persist selected server after connection");
+                    }
                     startWatchdog(CHECK_EVERY_SEC);
                     emit("CONNECTED", "", attempt); // جدید
                 }
@@ -527,7 +529,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             if (connectFrom(currentIdx, recoveryAttempt)) {
                 synchronized (lifecycleLock) {
                     if (stopping || activeAttemptId != recoveryAttempt) return;
-                    saveState();
+                    if (!saveStateDurably()) {
+                        Log.e(TAG, "could not durably persist restored server index");
+                    }
                     startWatchdog(CHECK_EVERY_SEC);
                 }
                 return;
@@ -743,7 +747,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                     Log.e(TAG, "could not durably clear recovery state before process restart");
                 }
             } else {
-                saveState();
+                if (!saveStateDurably()) {
+                    Log.e(TAG, "could not durably save VPN state before native process restart");
+                }
             }
         } catch (Throwable t) {
             Log.w(TAG, "state save before restart failed", t);
@@ -1069,7 +1075,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             Log.w(TAG, "switching to next server");
             int next = (currentIdx + 1) % servers.size();
             if (connectFrom(next)) {
-                saveState();
+                if (!saveStateDurably()) {
+                    Log.e(TAG, "could not durably persist server index after watchdog failover");
+                }
                 rescheduleNormal();
             } else {
                 Log.e(TAG, "all servers failed this round");
@@ -1104,7 +1112,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             if (stopping || servers.isEmpty()) return;
             Log.i(TAG, "retrying full server list after backoff");
             if (connectFrom(0)) {
-                saveState();
+                if (!saveStateDurably()) {
+                    Log.e(TAG, "could not durably persist server index after full-list retry");
+                }
                 rescheduleNormal();
             } else {
                 retryWholeListLater();

@@ -2780,6 +2780,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('.commit()', service[save_helper:save_end])
         helper = service.index('private boolean hasPersistedUserStopMarker()')
         self.assertIn('return true;', service[helper:service.index('private void requestStop()', helper)])
+    def test_native_wedged_core_persists_recovery_state_before_killing_process(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = native.index('private void recoverWedgedCore(String what)')
+        end = native.index('private boolean stopCoreNow()', start)
+        recovery = native[start:end]
+        self.assertIn('if (!saveStateDurably())', recovery)
+        self.assertNotIn('saveState();', recovery)
+        self.assertLess(recovery.index('saveStateDurably()'), recovery.index('android.os.Process.killProcess'))
+
+
     def test_vpn_revocation_persists_stop_before_async_cleanup(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = service.index('public void onRevoke()')
