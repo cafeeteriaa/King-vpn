@@ -3311,5 +3311,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('conc = conc.clamp(1, 32).toInt();', body)
 
 
+    def test_own_vpn_start_supersedes_previous_waiter_and_prevents_stale_timeout_stop(self):
+        source = (ROOT / 'lib' / 'own_vpn.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> ownVpnStart(')
+        stop = source.index('Future<void> ownVpnStop()', start)
+        body = source[start:stop]
+        self.assertIn("previousWaiter.complete('SUPERSEDED');", body)
+        self.assertIn("_ownAttemptCurrent == attemptId", body)
+        self.assertIn("if (state == 'TIMEOUT' && _ownAttemptCurrent == attemptId)", body)
+
+    def test_own_vpn_stop_invalidates_late_status_attempts(self):
+        source = (ROOT / 'lib' / 'own_vpn.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> ownVpnStop()')
+        stop = source.index('\n}', start)
+        body = source[start:stop]
+        self.assertIn('_ownAttemptCurrent = ++_ownAttemptSeq;', body)
+        self.assertIn("w.complete('STOPPED');", body)
+
+
 if __name__ == '__main__':
     unittest.main()
