@@ -103,3 +103,11 @@
 - CI run `44987802709` checked out merge commit `bf45f363ee746090c5d53613437df49238c81115` for PR head `57c17535330b6362c391ba4eac6afc62f8bc79da`.
 - Source guards found one stale test assertion: the implementation assigns the awaited probe result to a previously declared `bool ok`, while the test expected an inline `final ok` declaration. This is a test expectation mismatch, not a Dart compile/test failure; Flutter tests, Dart analysis and APK build were skipped because the source guard is a required first step.
 - Corrected the source guard to assert the actual assignment. Exact new HEAD must pass a fresh CI run before validation claims.
+
+
+## Latest follow-up — verify unattributed DISCONNECTED before failover (2026-11-22)
+- Audit found the default FlutterV2ray callback still immediately treated an untagged DISCONNECTED event as authoritative after a 2-second debounce. A late event from an older core could therefore trigger unnecessary failover while the current connection was still healthy.
+- Added _confirmDisconnectBeforeFailover: it coalesces probes per connection generation, checks the current Android TUN via tunUp(), then requires real core-path traffic via _tunnelTrafficOk(). It rechecks generation, intent, busy/switching, and network state after awaits before deciding. A healthy current TUN/data path restores CONNECTED state; otherwise failover proceeds.
+- Both the normal 2-second disconnect debounce and deferred-disconnect recovery now use this confirmation path. Added source guard test_unattributed_disconnect_requires_current_tun_and_traffic_before_failover.
+- This reduces false failovers but does not add native attempt IDs or prove which plugin event was emitted by which core. Device lifecycle and operator-network testing remain required.
+- New commit must pass its own source guards, Flutter tests, Dart analysis and arm64 release build; no current-head APK/device validation is claimed.

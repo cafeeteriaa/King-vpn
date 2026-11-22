@@ -2935,6 +2935,8 @@ bool _staleCoreMayBeUp = false;
 // Prevent duplicate CONNECTED callbacks from launching overlapping traffic probes
 // for the same waiter. A newer waiter has a distinct Completer and can proceed.
 final Set<Completer<bool>> _connectVerificationInFlight = <Completer<bool>>{};
+// Coalesce duplicate DISCONNECTED recovery probes for the same connection generation.
+final Set<int> _disconnectVerificationInFlight = <int>{};
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -5463,9 +5465,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (on) {
         dropTimer?.cancel();
       } else if (st.state == 'DISCONNECTED' && wantVpn && !_ownStopNow()) {
-        // short wait: a tiny glitch must not cause a switch, a real
-        // disconnect is replaced right away (no 10 minute wait)
+        // Plugin status events have no attempt ID. Before failover, re-check
+        // that the current TUN and its core data path are really down.
         dropTimer?.cancel();
+        final dropGeneration = _connGen;
         dropTimer = Timer(const Duration(seconds: 2), () {
           if (wantVpn &&
               lastState != 'CONNECTED' &&
@@ -5473,8 +5476,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               !netDown &&
               !switching &&
               !_ownStopNow()) {
-            lastWhy = 'هسته/اندروید اتصال را قطع کرد';
-            unawaited(_failover().catchError((e) => logError(e)));
+            unawaited(_confirmDisconnectBeforeFailover(dropGeneration)
+                .catchError((e) => logError(e)));
           }
         });
       }
@@ -5490,8 +5493,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (_dropDeferred && mounted && !busy && !switching) {
         _dropDeferred = false;
         if (wantVpn && lastState != 'CONNECTED' && !netDown) {
-          lastWhy = 'هسته/اندروید اتصال را قطع کرد';
-          unawaited(_failover().catchError((e) => logError(e)));
+          unawaited(_confirmDisconnectBeforeFailover(_connGen)
+              .catchError((e) => logError(e)));
         }
       }
       if (mounted && connected && inForeground) {
@@ -8962,6 +8965,51 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             const Duration(seconds: 8), onTimeout: () => false)));
     final passed = results.where((ok) => ok).length;
     return connected && identical(current, server) && passed >= 2;
+  }
+
+  // FlutterV2ray status events have no attempt IDs. A late DISCONNECTED from
+  // an older core must not trigger failover while the current TUN still works.
+  Future<void> _confirmDisconnectBeforeFailover(int generation) async {
+    if (!_disconnectVerificationInFlight.add(generation)) return;
+    try {
+      if (!wantVpn ||
+          generation != _connGen ||
+          busy ||
+          switching ||
+          netDown ||
+          _ownStopNow()) {
+        return;
+      }
+      var tunnelUp = false;
+      var trafficOk = false;
+      try {
+        tunnelUp = await tunUp() == true;
+        if (tunnelUp) trafficOk = await _tunnelTrafficOk();
+      } catch (e, stk) {
+        logError(e, stk);
+      }
+      if (!wantVpn ||
+          generation != _connGen ||
+          busy ||
+          switching ||
+          netDown ||
+          _ownStopNow()) {
+        dbg('DISCONNECTED verification discarded: connection changed');
+        return;
+      }
+      if (tunnelUp && trafficOk) {
+        lastState = 'CONNECTED';
+        kVpnLastStateTop = 'CONNECTED';
+        if (mounted) setState(() => connected = true);
+        dbg('STALE-DISCONNECTED ignored: current TUN and core traffic are healthy');
+        return;
+      }
+      if (lastState == 'CONNECTED') return;
+      lastWhy = 'هسته/اندروید اتصال را قطع کرد';
+      unawaited(_failover().catchError((e) => logError(e)));
+    } finally {
+      _disconnectVerificationInFlight.remove(generation);
+    }
   }
 
   // FIX #107: completes the connect waiter only when real traffic passes through the tunnel now.

@@ -2863,6 +2863,35 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
+    def test_unattributed_disconnect_requires_current_tun_and_traffic_before_failover(self):
+        dart = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        declaration = dart.index('final Set<int> _disconnectVerificationInFlight')
+        helper = dart.index('Future<void> _confirmDisconnectBeforeFailover(int generation)')
+        end = dart.index('Future<void> _verifyPendingConnect(', helper)
+        body = dart[helper:end]
+        coalesce = body.index('if (!_disconnectVerificationInFlight.add(generation)) return;')
+        generation = body.index('generation != _connGen')
+        tun = body.index('tunnelUp = await tunUp() == true;')
+        traffic = body.index('if (tunnelUp) trafficOk = await _tunnelTrafficOk();')
+        recheck = body.index("dbg('DISCONNECTED verification discarded: connection changed');")
+        healthy = body.index('if (tunnelUp && trafficOk)')
+        failover = body.index('unawaited(_failover().catchError')
+        cleanup = body.index('_disconnectVerificationInFlight.remove(generation);')
+        self.assertLess(declaration, helper)
+        self.assertLess(coalesce, generation)
+        self.assertLess(generation, tun)
+        self.assertLess(tun, traffic)
+        self.assertLess(traffic, recheck)
+        self.assertLess(recheck, healthy)
+        self.assertLess(healthy, failover)
+        self.assertLess(failover, cleanup)
+        handler = dart.index("} else if (st.state == 'DISCONNECTED' && wantVpn")
+        timer = dart.index('_confirmDisconnectBeforeFailover(dropGeneration)', handler)
+        self.assertLess(handler, timer)
+        deferred = dart.index('if (_dropDeferred && mounted && !busy && !switching)')
+        deferred_call = dart.index('_confirmDisconnectBeforeFailover(_connGen)', deferred)
+        self.assertLess(deferred, deferred_call)
+
     def test_stale_connect_verification_coalesces_callbacks_and_contains_probe_errors(self):
         dart = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         declaration = dart.index('final Set<Completer<bool>> _connectVerificationInFlight')
