@@ -372,9 +372,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         // exact request's server list. Process death before that commit must not
         // restore the previous session.
         if (!persistUserStopMarker(true)) {
+            requestStop();
             invalidateRecoveryAfterStartFailure("Unable to latch recovery while preparing VPN startup");
             emit("FAILED", lastError, intent.getIntExtra(EXTRA_ATTEMPT, 0));
-            requestStop();
             submit(this::stopEverything);
             return START_NOT_STICKY;
         }
@@ -401,10 +401,10 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
 
         if (!startForegroundSafe(first.remark)) {
+            requestStop();
             invalidateRecoveryAfterStartFailure("Unable to enter foreground mode; VPN startup was refused");
             Log.e(TAG, lastError);
             emit("FAILED", lastError, activeAttemptId);
-            requestStop();
             submit(this::stopEverything);
             return START_NOT_STICKY;
         }

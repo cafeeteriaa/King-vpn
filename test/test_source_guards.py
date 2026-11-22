@@ -3624,5 +3624,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (!ownsStop) return false;', body)
 
 
+    def test_native_all_early_start_failures_fence_before_recovery_invalidation(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        reasons = (
+            'Unable to latch recovery while preparing VPN startup',
+            'Unable to enter foreground mode; VPN startup was refused',
+        )
+        for reason in reasons:
+            pos = native.index('invalidateRecoveryAfterStartFailure("' + reason + '")')
+            prefix = native[max(0, pos - 220):pos]
+            self.assertTrue(
+                'requestStop();' in prefix or 'requestStopIfCurrent(attempt)' in prefix,
+                reason,
+            )
+
+
 if __name__ == '__main__':
     unittest.main()
