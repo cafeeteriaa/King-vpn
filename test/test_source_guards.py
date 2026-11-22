@@ -1211,6 +1211,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('if (nationalMode)', standby)
 
 
+    def test_nnie_history_is_partitioned_between_domestic_and_global_routes(self):
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        self.assertIn("nnie_profiles_v3", engine)
+        self.assertIn('required bool nationalMode', engine)
+        self.assertIn("nationalMode ? 'domestic' : 'global'", engine)
+        self.assertIn('old v2 mixed-scope history is intentionally not reused', engine)
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        self.assertIn('keyOfServer(a, nationalMode: true)', main)
+        self.assertIn('keyOfServer(b, nationalMode: true)', main)
+        self.assertIn('keyOfServer(s, nationalMode: nationalMode)', main)
+        self.assertIn('keyOfServer(c, nationalMode: nationalMode)', extras)
+        self.assertIn('keyOfServer(s, nationalMode: nationalMode)', extras)
+        self.assertNotIn('keyOfServer(s)', main + extras)
+
     def test_smart_command_uses_safe_disconnect_intent_and_voice_answer(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('Future<void> _runSmartCommand')
