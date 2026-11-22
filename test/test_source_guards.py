@@ -1405,7 +1405,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         promotion = command.index('if (!startForegroundSafe("در حال آماده‌سازی اتصال…"))')
         stop = command[command.index('if (ACTION_STOP.equals(action))'):]
         self.assertLess(promotion, command.index('String action = intent.getAction();'))
-        self.assertLess(promotion, stop.index('requestStop()'))
+        self.assertLess(promotion, stop_start)
+        self.assertIn('requestStop();', stop)
 
     def test_vpn_service_promotes_before_queuing_sticky_restart_or_stop(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
@@ -1419,7 +1420,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         non_null_promotion = command.index('if (!startForegroundSafe("در حال آماده‌سازی اتصال…"))')
         self.assertLess(restart.index('startForegroundSafe('), restart.index('submit(() -> resumeSaved(0))'))
         self.assertLess(non_null_promotion, stop_start)
-        self.assertLess(non_null_promotion, stop.index('submit(this::stopEverything)'))
+        self.assertLess(non_null_promotion, stop_start)
+        self.assertIn('submit(this::stopEverything)', stop)
     def test_vpn_service_refuses_start_when_foreground_promotion_fails(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = service.index('public int onStartCommand(Intent intent')
@@ -2752,7 +2754,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(null_branch, marker_check)
         self.assertLess(marker_check, resume)
         stop_branch = service.index('if (ACTION_STOP.equals(action))', start)
-        stop_persist = service.index('persistUserStopMarker(true);', stop_branch)
+        stop_persist = service.index('persistUserStopMarker(true)', stop_branch)
         stop_request = service.index('requestStop();', stop_branch)
         self.assertLess(stop_persist, stop_request)
         start_branch = service.index('if (!ACTION_START.equals(action))', start)
@@ -2811,7 +2813,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         generation = service.index('stopGeneration = attemptSeq.incrementAndGet();', stop)
         final_lock = service.index('synchronized (lifecycleLock)', generation)
         guard = service.index('if (attemptSeq.get() != stopGeneration)', final_lock)
-        cleanup = service.index('clearStateDurably();', guard)
+        cleanup = service.index('if (!clearStateDurably())', guard)
         servers = service.index('servers.clear();', cleanup)
         stop_self = service.index('stopSelfResult(latestStartId);', servers)
         stopping_reset = service.index('stopping = false;', stop_self)
@@ -3371,7 +3373,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         cleanup = native[cleanup_start:cleanup_end]
         self.assertIn('if (attemptSeq.get() != stopGeneration)', cleanup)
         self.assertLess(cleanup.index('if (attemptSeq.get() != stopGeneration)'),
-                        cleanup.index('clearStateDurably();'))
+                        cleanup.index('if (!clearStateDurably())'))
         self.assertIn('stopSelfResult(latestStartId);', cleanup)
         self.assertNotIn('stopSelf();', cleanup)
         on_start = native.index('public int onStartCommand(')
