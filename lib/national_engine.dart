@@ -211,6 +211,19 @@ class NatNetworkDiagnosis {
     try {
       final at = _checkedAt;
       final id = await _identityHash();
+      if (id.isEmpty) {
+        current = NatNetworkClass.unknown;
+        _checkedAt = null;
+        _identityAtCheck = null;
+        dbg('NNIE-DIAG: network identity unavailable; evidence discarded');
+        return current;
+      }
+      if (_identityAtCheck != null && _identityAtCheck != id) {
+        // A previous network's label must not remain visible during a handover.
+        current = NatNetworkClass.unknown;
+        _checkedAt = null;
+        _identityAtCheck = null;
+      }
       if (shouldReuseNetworkProbeCache(
           force: force,
           currentIdentity: id,
@@ -261,15 +274,25 @@ class NatNetworkDiagnosis {
         sampleCount: domesticTcp.length + globalTcp.length +
             globalDnsRes.length + domesticDnsRes.length,
       );
+      final identityAfter = await _identityHash();
+      if (!sameKnownNetworkProbeIdentity(id, identityAfter)) {
+        current = NatNetworkClass.unknown;
+        _checkedAt = null;
+        _identityAtCheck = null;
+        dbg('NNIE-DIAG: network changed during probes; snapshot discarded');
+        return current;
+      }
       current = ev.classify();
       _checkedAt = DateTime.now();
-      _identityAtCheck = id;
+      _identityAtCheck = identityAfter;
       dbg('NNIE-DIAG: ${natNetworkClassLabel(current)} '
           '(domesticTcp=${ev.domesticTcpOk} domesticDns=$domesticDnsOk '
           'globalTcp=${ev.globalTcpOk} globalDns=${ev.globalDnsOk} poison=$poison)');
     } catch (e, st) {
       logError(e, st);
       current = NatNetworkClass.unknown;
+      _checkedAt = null;
+      _identityAtCheck = null;
     } finally {
       _running = false;
     }
@@ -427,6 +450,16 @@ class PilotNetworkProbe {
     }
   }
 }
+
+
+/// Unified domestic preference used by DNS and candidate ordering. The Pilot
+/// contributes only a quorum-confirmed domestic route, never a geo label.
+bool get pilotPrefersDomesticRoute => shouldPreferDomesticCandidates(
+      legacyDiagnosisPrefersDomestic: NatNetworkDiagnosis.preferDomestic,
+      localPilotEnabled: localPilotOn,
+      nationalMode: nationalMode,
+      pilotDomesticConfirmed: PilotNetworkProbe.current.domesticConfirmed,
+    );
 
 String natNetworkClassLabel(NatNetworkClass value) => switch (value) {
       NatNetworkClass.globalReachable => 'دسترسی جهانی برقرار',
