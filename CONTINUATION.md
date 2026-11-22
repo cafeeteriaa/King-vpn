@@ -56,3 +56,14 @@
 4. Complete connect/stop/failover race review across Dart and `KingVpnService`.
 5. If an exact-head APK is built, inspect the inner APK, ABI, package metadata, APK SHA-256 and signing status.
 6. Validate national/global traffic on real operator networks separately; CI cannot establish this.
+
+
+## Latest continuation — 2026-11-22
+- Current branch HEAD: `3d0e838d456a879daeaa772bd110bce1ddcaf29b`; PR #42 remains open, Draft, targets `main`, not merged.
+- Commit `d14eeb15384dcc492e597ba8c1ad556a6d489b85`: final native `CONNECTED` publication in `KingVpnService.startFlow` is guarded by `lifecycleLock` and rechecks `stopping || userStopped` before saving state, starting watchdog, and emitting success. Added a source guard.
+- Commit `3d0e838d456a879daeaa772bd110bce1ddcaf29b`: in the default FlutterV2ray path, asynchronous stale-core tunnel verification now captures the current `_connGen` and verifies the same `connSig` is still active, incomplete, and `wantVpn` remains true after the network probe returns. An old probe cannot clear `_staleCoreMayBeUp` or complete a superseded waiter. Added a source guard.
+- Important distinction: Flutter plugin status events do not carry attempt IDs. The Dart side uses serialized core starts, generation checks on the waiter, stale-core traffic verification, and post-await generation validation; do not claim plugin event callbacks themselves are natively generation-tagged.
+- `kOwnVpnService=false`; the plugin-managed path is the active default. Custom native service work must not be mistaken for default-path runtime validation.
+- CI run `44986379535` belongs to `d14eeb1`, not current HEAD. It was pending with no jobs visible at last poll. A new exact-head run for `3d0e838` is expected; verify it before making any build/test claims.
+- Next: audit plugin-managed stop/start and late CONNECTED/DISCONNECTED callback ordering; verify `_verifyPendingConnect` cannot leave a waiter hanging after a superseded probe; inspect tunnel probe routing (must be through core, not direct network); check run status and update this checkpoint.
+- No device, Iranian operator-network, production-signing, or exact-head APK validation is claimed.
