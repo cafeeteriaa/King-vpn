@@ -5403,7 +5403,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     unawaited(_loadVpnPerm()); // FIX-PERSIST
     Future.delayed(const Duration(seconds: 4), () => unawaited(_logLastExit())); // KINGDIAG
     _favsRef = favs;
-    natSrcRates = srcRate; // نرخ منابع برای مرتب‌سازی پوشه‌ی منابع تازه
+    // The hot folder is national-mode data; global source TCP scores are not valid evidence here.
+    // Keep ordering neutral until a dedicated domestic source-health signal exists.
+    natSrcRates = const <String, double>{};
     natExtraSource = () => [...fetchedAll, ...good]; // کانفیگ‌های آنلاین داخل برنامه برای پوشه
     WidgetsBinding.instance.addObserver(this);
     // پوشه‌ی منابع تازه خودکار است: چند ثانیه بعد از باز شدن و بعد هر ساعت
