@@ -353,8 +353,13 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             return START_NOT_STICKY;
         }
         nationalMode = intent.getBooleanExtra(EXTRA_NATIONAL, false);
-        activeAttemptId = intent.getIntExtra(EXTRA_ATTEMPT, 0);
-        userStopped = false;
+        // A newer explicit start supersedes any in-flight native bringUp immediately.
+        // Its worker will observe the changed request id and must not emit a stale result.
+        synchronized (lifecycleLock) {
+            activeAttemptId = intent.getIntExtra(EXTRA_ATTEMPT, 0);
+            attemptSeq.incrementAndGet();
+            userStopped = false;
+        }
 
         if (!startForegroundSafe(first.remark)) {
             lastError = "Unable to enter foreground mode; VPN startup was refused";
@@ -399,7 +404,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     /** Worker side of ACTION_START: builds the list and connects. */
     private void startFlow(Srv first, List<Srv> backups, int attempt) {
         synchronized (lock) {
-            if (stopping) return; // a stop request arrived first
+            if (stopping || attempt != activeAttemptId) return; // a stop request arrived first
             // جدید: without the user's VPN consent, establish() fails for every server one by one.
             // Check once here and report a single clear error instead.
             if (VpnService.prepare(this) != null) {
@@ -421,16 +426,19 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             currentIdx = 0; // جدید: new list starts at 0; a stale index from the last session was saved before
             fails = 0;      // جدید
             saveState(); // persist the pending list first, so a restart mid-connect can resume it
-            if (connectFrom(0)) {
+            if (connectFrom(0, attempt)) {
                 synchronized (lifecycleLock) {
-                    // Stop can arrive after connectFrom succeeds but before this worker
-                    // publishes its final result. Never deliver a stale CONNECTED event.
-                    if (stopping || userStopped) return;
+                    // Stop or a newer start can arrive after native startup but before
+                    // publication. Never publish a stale CONNECTED event.
+                    if (stopping || userStopped || attempt != activeAttemptId) return;
                     saveState();
                     startWatchdog(CHECK_EVERY_SEC);
                     emit("CONNECTED", "", attempt); // جدید
                 }
             } else {
+                // A newer request owns the service now. The old worker must not fail
+                // or stop that newer request merely because it was superseded.
+                if (attempt != activeAttemptId || stopping) return;
                 lastError = "no server could be started";
                 Log.e(TAG, lastError);
                 emit("FAILED", lastError, attempt); // جدید
@@ -496,17 +504,24 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     /** Try each server starting at [first]; the first one that comes up wins. */
     private boolean connectFrom(int first) {
+        return connectFrom(first, -1);
+    }
+
+    /** Request-scoped variant used by explicit starts; stale requests cannot keep failing over. */
+    private boolean connectFrom(int first, int requestAttempt) {
         int n = servers.size();
         for (int k = 0; k < n; k++) {
-            if (stopping) return false; // جدید: a Stop stops the list walk at once; no next server starts
+            if (stopping || (requestAttempt >= 0 && requestAttempt != activeAttemptId)) {
+                return false;
+            }
             int idx = (first + k) % n;
             Srv s = servers.get(idx);
             Log.i(TAG, "starting server " + idx + "/" + n + " " + s.remark);
             if (bringUpWithTimeout(s)) {
                 synchronized (lifecycleLock) {
-                    // Stop may arrive just after the native start returns. Do not publish
-                    // CONNECTED or reactivate the watchdog-facing state after that request.
-                    if (stopping || userStopped) return false;
+                    // Stop or a newer explicit start may supersede this native result.
+                    if (stopping || userStopped
+                            || (requestAttempt >= 0 && requestAttempt != activeAttemptId)) return false;
                     currentIdx = idx;
                     fails = 0;
                     healthyStreak = 0;

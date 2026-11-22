@@ -3329,5 +3329,25 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("w.complete('STOPPED');", body)
 
 
+    def test_native_new_start_supersedes_inflight_start_without_stale_failover(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = native.index('nationalMode = intent.getBooleanExtra')
+        start_end = native.index('if (!startForegroundSafe(first.remark))', start)
+        start_block = native[start:start_end]
+        self.assertIn('activeAttemptId = intent.getIntExtra(EXTRA_ATTEMPT, 0);', start_block)
+        self.assertIn('attemptSeq.incrementAndGet();', start_block)
+        flow_start = native.index('private void startFlow(')
+        flow_end = native.index('private void resumeSaved()', flow_start)
+        flow = native[flow_start:flow_end]
+        self.assertIn('if (stopping || attempt != activeAttemptId) return;', flow)
+        self.assertIn('connectFrom(0, attempt)', flow)
+        self.assertIn('if (attempt != activeAttemptId || stopping) return;', flow)
+        connect_start = native.index('private boolean connectFrom(int first, int requestAttempt)')
+        connect_end = native.index('private boolean bringUpWithTimeout(', connect_start)
+        connect = native[connect_start:connect_end]
+        self.assertIn('requestAttempt != activeAttemptId', connect)
+        self.assertIn('if (stopping || userStopped', connect)
+
+
 if __name__ == '__main__':
     unittest.main()
