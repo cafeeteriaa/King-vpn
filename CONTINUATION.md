@@ -145,3 +145,11 @@
 - Added a source guard asserting the definitive-negative check occurs before interface fallback.
 - Commits: implementation `14481302424c2268b8931eea5b88c859d329c452`; test `34acb1cdf6756a1c82e062e3de9918bd8a42fd50`. Exact-HEAD CI run `45000052401` (run 2003) is pending; do not claim this follow-up is validated until it completes.
 - This remains source-level evidence hardening. Real Android device/OEM, VPN coexistence, tunnel traffic, IPv6 and operator-network tests are still required. PR #42 remains Draft and unmerged.
+
+
+## Underlying-network detection hardening — 2026-11-22
+- The network watchdog previously treated any non-loopback interface with any address as proof that the phone's underlying network was up, excluding only `tun*` and `dummy*`. VPN-like interfaces named `vpn*`, `ppp*`, `utun*`, `wg*`, `tailscale*`, or containing `wireguard`, `xray`, or `v2ray` could therefore mask a real physical-network outage.
+- `_netWatch()` now excludes those virtual tunnel interface families and counts an interface as up only after finding an IPv4 or IPv6 address. It also serializes periodic scans with `_netWatchBusy` so overlapping asynchronous snapshots cannot overwrite newer network state.
+- Added source guards for virtual-interface exclusions, address-family evidence, and scan serialization.
+- Commits: implementation `90edc493677af3daa7d20ea666ae0e8e62f75a41`; tests `939321e141f566513601dce2f235a7ff2d9c79dc`. CI run 2006 (`45000309340`) targets the exact test commit and is pending.
+- This is source-level hardening only. Physical Wi-Fi/mobile transitions, OEM interface naming, captive portals, airplane mode, and IPv4/IPv6 runtime behavior still require device/network testing. PR #42 remains Draft and unmerged.
