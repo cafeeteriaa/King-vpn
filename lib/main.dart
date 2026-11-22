@@ -10069,6 +10069,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   String _resInfo() {
+    _expireNatVerification();
     final b = StringBuffer('آخرین تست کامل: ${_resAgo(_resLast)}');
     if (_resBusy) b.write('\nدر حال تست: $_resDone/$_resTotal');
     final h = _resHold;
@@ -10078,7 +10079,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     final verified = _resMap.values.where((e) => e.verified).length;
     b.write('\nتأیید ترافیک واقعی: $verified از ${_resMap.length}؛ بقیه کاندید و نیازمند اتصال واقعی');
-    b.write('\nبازآزمایی تأخیر هر ۴۸ ساعت؛ تأخیر به‌تنهایی تأیید واقعی محسوب نمی‌شود');
+    b.write('\\nتأیید واقعی حداکثر ۲۴ ساعت معتبر است؛ تأخیر به‌تنهایی آن را تمدید نمی‌کند');
     return b.toString();
   }
 

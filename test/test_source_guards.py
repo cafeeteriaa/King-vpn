@@ -3036,6 +3036,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         daily_end = main.index('String _resAgo(', daily_start)
         daily = main[daily_start:daily_end]
         self.assertIn('_expireNatVerification(at: now);', daily)
+        info_start = main.index('String _resInfo()')
+        info_end = main.index('Future<void> _resMenu()', info_start)
+        info = main[info_start:info_end]
+        self.assertIn('_expireNatVerification();', info)
+        self.assertIn('تأیید واقعی حداکثر ۲۴ ساعت معتبر است', info)
 
 
 if __name__ == '__main__':
