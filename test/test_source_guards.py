@@ -2802,7 +2802,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         generation = service.index('stopGeneration = attemptSeq.incrementAndGet();', stop)
         final_lock = service.index('synchronized (lifecycleLock)', generation)
         guard = service.index('if (attemptSeq.get() != stopGeneration)', final_lock)
-        cleanup = service.index('clearState();', guard)
+        cleanup = service.index('clearStateDurably();', guard)
         servers = service.index('servers.clear();', cleanup)
         stop_self = service.index('stopSelfResult(latestStartId);', servers)
         stopping_reset = service.index('stopping = false;', stop_self)
@@ -3362,7 +3362,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         cleanup = native[cleanup_start:cleanup_end]
         self.assertIn('if (attemptSeq.get() != stopGeneration)', cleanup)
         self.assertLess(cleanup.index('if (attemptSeq.get() != stopGeneration)'),
-                        cleanup.index('clearState();'))
+                        cleanup.index('clearStateDurably();'))
         self.assertIn('stopSelfResult(latestStartId);', cleanup)
         self.assertNotIn('stopSelf();', cleanup)
         on_start = native.index('public int onStartCommand(')
