@@ -3557,5 +3557,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('preserving newer lifecycle request', native[activation_end:activation_end + 400])
 
 
+    def test_native_stop_cleanup_cannot_supersede_a_newer_start(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        request_start = native.index('private void requestStop()')
+        request_end = native.index('private boolean persistUserStopMarker', request_start)
+        request = native[request_start:request_end]
+        self.assertIn('requestedStopGeneration = attemptSeq.incrementAndGet();', request)
+
+        cleanup_start = native.index('private void stopEverything()')
+        cleanup_end = native.index('private void closeTun()', cleanup_start)
+        cleanup = native[cleanup_start:cleanup_end]
+        self.assertIn('final int stopGeneration = requestedStopGeneration;', cleanup)
+        self.assertIn('attemptSeq.get() != stopGeneration', cleanup)
+        self.assertNotIn('attemptSeq.incrementAndGet()', cleanup)
+        self.assertIn('obsolete stop cleanup skipped before touching the core', cleanup)
+
+
 if __name__ == '__main__':
     unittest.main()

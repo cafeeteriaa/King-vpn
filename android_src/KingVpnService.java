@@ -162,6 +162,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private final ReentrantLock coreLock = new ReentrantLock();
     /** Every new attempt, every stop and every timeout increments this. */
     private final AtomicInteger attemptSeq = new AtomicInteger(0);
+    /** Generation owned by the most recently requested stop; queued cleanup must not mint one. */
+    private volatile int requestedStopGeneration = 0;
     /** bringUp calls that have not returned yet, orphans included. */
     private final AtomicInteger inFlight = new AtomicInteger(0);
     /** True while a stopCore call is still running on its thread (it may hang). Core is fenced. */
@@ -448,6 +450,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 lastError = "VPN permission not granted";
                 Log.e(TAG, lastError);
                 emit("FAILED", lastError, attempt); // جدید
+                requestStop();
                 stopEverything();
                 return;
             }
@@ -503,6 +506,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 lastError = "no server could be started";
                 Log.e(TAG, lastError);
                 emit("FAILED", lastError, attempt); // جدید
+                requestStop();
                 stopEverything();
             }
         }
@@ -557,6 +561,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 return;
             }
             if (stopping || activeAttemptId != recoveryAttempt) return;
+            requestStop();
             stopEverything();
         }
     }
@@ -609,8 +614,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             stopping = true;
             active = false;
             retryWaiting = false;
-            // Supersede whatever attempt is running. It can no longer act on the core.
-            attemptSeq.incrementAndGet();
+            // Capture the generation now. A delayed cleanup must never supersede
+            // a newer Start by incrementing the generation when it eventually runs.
+            requestedStopGeneration = attemptSeq.incrementAndGet();
         }
     }
 
@@ -1279,11 +1285,14 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     private void stopEverything() {
         synchronized (lock) {
-            // Supersede every attempt first: a stale one that returns later does nothing.
-            final int stopGeneration;
+            // This cleanup belongs to the exact requestStop() generation. If a newer
+            // Start has arrived since it was queued, do not touch its core or state.
+            final int stopGeneration = requestedStopGeneration;
             synchronized (lifecycleLock) {
-                stopping = true;
-                stopGeneration = attemptSeq.incrementAndGet();
+                if (attemptSeq.get() != stopGeneration || !stopping || !userStopped) {
+                    Log.i(TAG, "obsolete stop cleanup skipped before touching the core");
+                    return;
+                }
             }
             active = false;
             retryWaiting = false;
