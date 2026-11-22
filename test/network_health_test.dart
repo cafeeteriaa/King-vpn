@@ -2,6 +2,76 @@ import 'package:flutter_test/flutter_test.dart';
 import '../lib/network_health.dart';
 
 void main() {
+  group('network probe cache policy', () {
+    final checkedAt = DateTime.utc(2026, 11, 22, 7);
+    final now = DateTime.utc(2026, 11, 22, 7, 1);
+    const ttl = Duration(minutes: 2);
+
+    test('reuses a fresh cache only for a known matching network identity', () {
+      expect(shouldReuseNetworkProbeCache(
+        force: false,
+        currentIdentity: 'network-a',
+        cachedIdentity: 'network-a',
+        checkedAt: checkedAt,
+        now: now,
+        ttl: ttl,
+      ), isTrue);
+    });
+
+    test('does not reuse cache when current identity could not be read', () {
+      expect(shouldReuseNetworkProbeCache(
+        force: false,
+        currentIdentity: '',
+        cachedIdentity: '',
+        checkedAt: checkedAt,
+        now: now,
+        ttl: ttl,
+      ), isFalse);
+    });
+
+    test('does not reuse cache when prior identity is missing', () {
+      expect(shouldReuseNetworkProbeCache(
+        force: false,
+        currentIdentity: 'network-a',
+        cachedIdentity: null,
+        checkedAt: checkedAt,
+        now: now,
+        ttl: ttl,
+      ), isFalse);
+    });
+
+    test('does not reuse expired cache or cache from a future clock time', () {
+      expect(shouldReuseNetworkProbeCache(
+        force: false,
+        currentIdentity: 'network-a',
+        cachedIdentity: 'network-a',
+        checkedAt: checkedAt,
+        now: checkedAt.add(const Duration(minutes: 3)),
+        ttl: ttl,
+      ), isFalse);
+      expect(shouldReuseNetworkProbeCache(
+        force: false,
+        currentIdentity: 'network-a',
+        cachedIdentity: 'network-a',
+        checkedAt: now,
+        now: checkedAt,
+        ttl: ttl,
+      ), isFalse);
+    });
+
+    test('force always bypasses the cache', () {
+      expect(shouldReuseNetworkProbeCache(
+        force: true,
+        currentIdentity: 'network-a',
+        cachedIdentity: 'network-a',
+        checkedAt: checkedAt,
+        now: now,
+        ttl: ttl,
+      ), isFalse);
+    });
+  });
+
+
   group('Smart Pilot route policy', () {
     test('confidence reaches 1.0 when all six dedicated probes are verified', () {
       const evidence = NetworkEvidence(
