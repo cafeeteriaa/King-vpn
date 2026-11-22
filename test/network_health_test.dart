@@ -279,4 +279,71 @@ void main() {
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.offline);
     });
   });
+  group('network probe snapshot integrity', () {
+    test('accepts only matching, non-empty before and after identities', () {
+      expect(sameKnownNetworkProbeIdentity('wifi-a', 'wifi-a'), isTrue);
+      expect(sameKnownNetworkProbeIdentity('wifi-a', 'mobile-b'), isFalse);
+      expect(sameKnownNetworkProbeIdentity('', ''), isFalse);
+      expect(sameKnownNetworkProbeIdentity('wifi-a', ''), isFalse);
+    });
+
+    test('does not promote an inconsistent healthy label without TLS quorum', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 1,
+        globalSuccesses: 0,
+        domesticTlsReachabilityVerified: false,
+      );
+      expect(evidence.mode, DetectedNetworkMode.unknown);
+      expect(evidence.acceptsTlsReachability(nationalOnly: true), isFalse);
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
+    });
+
+    test('does not infer offline from zero or insufficient failed samples', () {
+      const noSamples = NetworkEvidence(
+        domestic: LinkHealth.unreachable,
+        global: LinkHealth.unreachable,
+      );
+      const oneEach = NetworkEvidence(
+        domestic: LinkHealth.unreachable,
+        global: LinkHealth.unreachable,
+        domesticSamples: 1,
+        globalSamples: 1,
+      );
+      expect(noSamples.mode, DetectedNetworkMode.unknown);
+      expect(oneEach.mode, DetectedNetworkMode.unknown);
+      expect(choosePilotNetworkStrategy(noSamples), PilotNetworkStrategy.preserve);
+    });
+
+    test('mode and strategy share the same verified quorum', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 2,
+        globalSuccesses: 0,
+        domesticTlsReachabilityVerified: true,
+      );
+      expect(evidence.mode, DetectedNetworkMode.domesticOnly);
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.domestic);
+    });
+
+    test('TLS flag without matching sample quorum adds no confidence bonus', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.degraded,
+        global: LinkHealth.unknown,
+        domesticSamples: 1,
+        globalSamples: 0,
+        domesticSuccesses: 1,
+        domesticTlsReachabilityVerified: true,
+      );
+      expect(evidence.confidence, closeTo(0.55 / 6, 0.0001));
+    });
+  });
+
+
 }
