@@ -3087,9 +3087,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = main.index('Future<bool?> tunUp()')
         end = main.index('// real ping:', start)
         body = main[start:end]
+        self.assertIn("invokeMethod<bool>('kingVpnTunnelActive')", body)
+        self.assertIn('KINGVPN_DAEMON_ALIVE', body)
+        self.assertIn('NetworkInterface.list(includeLoopback: false)', body)
         self.assertIn('if (hasTunnel) return true;', body)
         self.assertIn('return false;', body)
         self.assertIn('return null;', body)
+        self.assertNotIn('return nativeVpn;', body)
+        self.assertLess(body.index("invokeMethod<bool>('kingVpnTunnelActive')"),
+                        body.index('NetworkInterface.list(includeLoopback: false)'))
         self.assertNotIn('lastState', body)
         self.assertNotIn('kVpnLastStateTop', main)
 
