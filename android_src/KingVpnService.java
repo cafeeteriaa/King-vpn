@@ -1469,8 +1469,11 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     public void onRevoke() {
         // Another VPN took over or Android revoked our VPN consent. Persist the revocation
         // before async cleanup so a sticky restart cannot resurrect a tunnel without consent.
-        persistUserStopMarker(true);
+        // Fence any in-flight start before writing the durable stop marker. If the
+        // marker were written first, a racing start worker could clear it after its
+        // config commit and briefly re-enable sticky recovery after VPN revocation.
         requestStop();
+        persistUserStopMarker(true);
         submit(this::stopEverything);
     }
 
