@@ -1790,6 +1790,27 @@ Set<String> natDomMemHosts({DateTime? now}) {
   return hosts;
 }
 
+Future<void> natIpMemSave(String ip, int port) async {
+  if (!_natHasVerifiedOperatorKey(natOpKey)) return;
+  natIpMem.removeWhere((e) =>
+      e['ip'] == ip && e['port'] == port && e['op'] == natOpKey);
+  natIpMem.insert(0, {
+    'ip': ip,
+    'port': port,
+    'op': natOpKey,
+    't': DateTime.now().millisecondsSinceEpoch,
+  });
+  if (natIpMem.length > _ipMemMax) {
+    natIpMem.removeRange(_ipMemMax, natIpMem.length);
+  }
+  try {
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_ipMemKey, jsonEncode(natIpMem));
+  } catch (e, stk) {
+    logError(e, stk);
+  }
+}
+
 Future<void> natDomMemLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
@@ -1831,26 +1852,6 @@ Future<void> natDomMemSave(String host, int port) async {
   }
 }
 
-Future<void> natIpMemSave(String ip, int port) async {
-  if (!_natHasVerifiedOperatorKey(natOpKey)) return;
-  natIpMem.removeWhere((e) =>
-      e['ip'] == ip && e['port'] == port && e['op'] == natOpKey);
-  natIpMem.insert(0, {
-    'ip': ip,
-    'port': port,
-    'op': natOpKey,
-    't': DateTime.now().millisecondsSinceEpoch,
-  });
-  if (natIpMem.length > _ipMemMax) {
-    natIpMem.removeRange(_ipMemMax, natIpMem.length);
-  }
-  try {
-    final p = await SharedPreferences.getInstance();
-    await p.setString(_ipMemKey, jsonEncode(natIpMem));
-  } catch (e, stk) {
-    logError(e, stk);
-  }
-}
 
 
 
