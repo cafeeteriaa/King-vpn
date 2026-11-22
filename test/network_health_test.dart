@@ -156,6 +156,8 @@ void main() {
         global: LinkHealth.unreachable,
         domesticSamples: 3,
         globalSamples: 3,
+        domesticSuccesses: 2,
+        globalSuccesses: 0,
         domesticLatencyMs: 140,
         domesticTlsReachabilityVerified: true,
       );
@@ -168,6 +170,8 @@ void main() {
         global: LinkHealth.healthy,
         domesticSamples: 3,
         globalSamples: 3,
+        domesticSuccesses: 0,
+        globalSuccesses: 2,
         globalLatencyMs: 190,
         globalTlsReachabilityVerified: true,
       );
@@ -180,6 +184,8 @@ void main() {
         global: LinkHealth.healthy,
         domesticSamples: 3,
         globalSamples: 3,
+        domesticSuccesses: 3,
+        globalSuccesses: 3,
         domesticLatencyMs: 120,
         globalLatencyMs: 280,
         domesticTlsReachabilityVerified: true,
@@ -194,8 +200,12 @@ void main() {
         global: LinkHealth.healthy,
         domesticSamples: 3,
         globalSamples: 3,
+        domesticSuccesses: 2,
+        globalSuccesses: 2,
         domesticLatencyMs: 180,
         globalLatencyMs: 200,
+        domesticTlsReachabilityVerified: true,
+        globalTlsReachabilityVerified: true,
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
     });
@@ -223,6 +233,32 @@ void main() {
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
     });
 
+
+    test('does not switch on inconsistent healthy labels without TLS quorum', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 1,
+        globalSuccesses: 0,
+        domesticTlsReachabilityVerified: false,
+      );
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
+    });
+
+    test('confidence never counts more successes than available samples', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.healthy,
+        domesticSamples: 1,
+        globalSamples: 1,
+        domesticSuccesses: 99,
+        globalSuccesses: 99,
+      );
+      expect(evidence.confidence, closeTo(0.55 * 2 / 6, 0.0001));
+    });
+
     test('does not infer offline from missing evidence', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.unknown,
@@ -237,6 +273,8 @@ void main() {
         global: LinkHealth.unreachable,
         domesticSamples: 3,
         globalSamples: 3,
+        domesticSuccesses: 0,
+        globalSuccesses: 0,
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.offline);
     });
