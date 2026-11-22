@@ -2727,6 +2727,9 @@ Future<_HotIdx?> _hotLoad() async {
 
 Future<List<Server>> natHotNext(int n,
     {bool fetch = true, bool retried = false}) async {
+  // A zero/negative request must be a true no-op: do not start background
+  // resource indexing or touch the cache/file system for an empty batch.
+  if (n <= 0) return const [];
   try {
     if (fetch) unawaited(natHotEnsure());
     final h = await _hotLoad();
@@ -2741,7 +2744,7 @@ Future<List<Server>> natHotNext(int n,
       if (await raf.length() != h.offs.last) {
         _hot = null; // ایندکس قدیمی را دور بریز
         if (retried) return const [];
-        return natHotNext(n, fetch: false, retried: true);
+        return await natHotNext(n, fetch: false, retried: true);
       }
       var read = 0;
       while (out.length < n && read < lines) {
