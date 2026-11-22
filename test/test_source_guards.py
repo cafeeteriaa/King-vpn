@@ -3438,6 +3438,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('network changed during probes; snapshot discarded', diagnosis)
         self.assertIn('_identityAtCheck = null;', diagnosis)
 
+    def test_domestic_source_preference_requires_pilot_tls_quorum(self):
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        start = engine.index('static bool get preferDomestic')
+        end = engine.index('static Future<NatNetworkClass> refresh', start)
+        getter = engine[start:end]
+        self.assertIn('PilotNetworkProbe.current', getter)
+        self.assertIn('pilot.domesticConfirmed', getter)
+        self.assertIn('pilot.globalFailed', getter)
+        self.assertNotIn('current == NatNetworkClass.transportRestricted;', getter)
+
     def test_legacy_diagnosis_shares_strong_pilot_network_identity(self):
         engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
         start = engine.index('static Future<String> _identityHash()')
