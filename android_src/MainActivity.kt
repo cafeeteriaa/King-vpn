@@ -127,7 +127,7 @@ class MainActivity : FlutterActivity() {
                         )
                         "kingVpnTunnelActive" -> {
                             // This is the plugin's own service/core state, not another app's VPN.
-                            result.success(V2rayVPNService.isKingVpnTunnelActive())
+                            result.success(V2rayVPNService.isKingVpnTunnelActive(this))
                         }
                         "back" -> {
                             moveTaskToBack(true)
