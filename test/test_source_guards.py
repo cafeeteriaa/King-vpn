@@ -3278,6 +3278,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("rt['domainStrategy'] = 'AsIs';", normalize)
 
 
+    def test_connect_time_pilot_diagnosis_respects_explicit_network_mode_pin(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<void> _natDetect() async {')
+        end = main.index('// SAVED / old healthy servers are tested FIRST', start)
+        detect = main[start:end]
+        self.assertIn('if (!_pilotNetworkModePinned)', detect)
+        self.assertIn('PILOT-MODE-PINNED: preserving explicit', detect)
+        self.assertIn('natForce = nationalMode;', detect)
+        self.assertIn('userModeChoice = nationalMode;', detect)
+
     def test_national_hot_folder_does_not_consume_global_source_health_scores(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('void initState()')
