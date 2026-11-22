@@ -1724,23 +1724,47 @@ Future<void> natIpMemLoad() async {
 
 const String _domMemKey = 'natDomMem';
 const int _domMemMax = 200;
+const Duration _domMemTtl = Duration(hours: 48);
 const int natDelaySecs = 14;
 final List<Map<String, dynamic>> natDomMem = [];
 
-Set<String> natDomMemHosts() => {for (final e in natDomMem) '${e['h']}:${e['port']}'};
+// A past tunnel success is reusable only for the same detected access network / ASN
+// and while it is fresh. Legacy entries without an operator key are never trusted.
+Set<String> natDomMemHosts({DateTime? now}) {
+  final at = now ?? DateTime.now();
+  final cutoff = at.subtract(_domMemTtl).millisecondsSinceEpoch;
+  final hosts = <String>{};
+  for (final e in natDomMem) {
+    final t = (e['t'] as num?)?.toInt();
+    final host = e['h'];
+    final port = e['port'];
+    if (e['op'] != natOpKey ||
+        t == null ||
+        t > at.millisecondsSinceEpoch ||
+        t < cutoff ||
+        host is! String ||
+        port is! num) {
+      continue;
+    }
+    hosts.add('$host:${port.toInt()}');
+  }
+  return hosts;
+}
 
 Future<void> natDomMemLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
-    final s = p.getString(_domMemKey);
-    if (s != null) {
+    final saved = p.getString(_domMemKey);
+    if (saved != null) {
       natDomMem
         ..clear()
-        ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
-      final cutoff = DateTime.now()
-          .subtract(const Duration(days: 14))
-          .millisecondsSinceEpoch;
-      natDomMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
+        ..addAll((jsonDecode(saved) as List).cast<Map<String, dynamic>>());
+      final now = DateTime.now();
+      final cutoff = now.subtract(_domMemTtl).millisecondsSinceEpoch;
+      natDomMem.removeWhere((e) {
+        final t = (e['t'] as num?)?.toInt();
+        return t == null || t > now.millisecondsSinceEpoch || t < cutoff;
+      });
     }
   } catch (e, stk) {
     logError(e, stk);
@@ -1748,8 +1772,14 @@ Future<void> natDomMemLoad() async {
 }
 
 Future<void> natDomMemSave(String host, int port) async {
-  natDomMem.removeWhere((e) => e['h'] == host && e['port'] == port);
-  natDomMem.insert(0, {'h': host, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
+  natDomMem.removeWhere((e) =>
+      e['h'] == host && e['port'] == port && e['op'] == natOpKey);
+  natDomMem.insert(0, {
+    'h': host,
+    'port': port,
+    'op': natOpKey,
+    't': DateTime.now().millisecondsSinceEpoch,
+  });
   if (natDomMem.length > _domMemMax) {
     natDomMem.removeRange(_domMemMax, natDomMem.length);
   }
