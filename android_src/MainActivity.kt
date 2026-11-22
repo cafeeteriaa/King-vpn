@@ -129,6 +129,15 @@ class MainActivity : FlutterActivity() {
                             // This proves plugin daemon-process liveness only, not Xray core health or traffic flow.
                             result.success(V2rayVPNService.isKingVpnTunnelActive(this))
                         }
+                        "kingVpnTransportActive" -> {
+                            // Ask Android whether this app's active default network is a VPN transport.
+                            val connectivity = getSystemService(android.net.ConnectivityManager::class.java)
+                            val activeNetwork = connectivity?.activeNetwork
+                            val capabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
+                            result.success(
+                                capabilities?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true
+                            )
+                        }
                         "back" -> {
                             moveTaskToBack(true)
                             result.success(true)
