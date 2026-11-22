@@ -1322,27 +1322,6 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
     }
 
-    private void saveState() {
-        try {
-            JSONArray arr = new JSONArray();
-            for (Srv s : servers) {
-                JSONObject o = new JSONObject();
-                o.put("config", s.config);
-                o.put("remark", s.remark);
-                o.put("addr", s.addr);
-                o.put("port", s.port);
-                arr.put(o);
-            }
-            SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
-            sp.edit().putString("list", arr.toString())
-                    .putInt("idx", currentIdx)
-                    .putBoolean("national", nationalMode)
-                    .apply();
-        } catch (Exception e) {
-            Log.w(TAG, "saveState failed", e);
-        }
-    }
-
     /** Persist the complete pending server list before enabling sticky recovery. */
     private boolean saveStateDurably() {
         try {

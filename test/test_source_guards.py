@@ -2874,7 +2874,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         success = service.index('if (connectFrom(0, attempt))', flow)
         lifecycle = service.index('synchronized (lifecycleLock)', success)
         stop_guard = service.index('if (stopping || userStopped || attempt != activeAttemptId) return;', lifecycle)
-        save = service.index('saveState();', stop_guard)
+        save = service.index('if (!saveStateDurably())', stop_guard)
         watchdog = service.index('startWatchdog(CHECK_EVERY_SEC);', save)
         connected = service.index('emit("CONNECTED", "", attempt);', watchdog)
         self.assertLess(success, lifecycle)
