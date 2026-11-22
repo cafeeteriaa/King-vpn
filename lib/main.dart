@@ -14135,6 +14135,15 @@ ListTile( // KINGEXTRAS row
         await kingSelfHeal(reason: 'watch');
         if (busy || switching || !wantVpn) return;
         if (!connected) {
+          // Do not retry/fail over while the underlying link is down or still
+          // inside the network/DNS route-rebuild grace window.
+          if (netDown ||
+              DateTime.now().difference(netUpAt) < const Duration(seconds: 15)) {
+            _set(netDown
+                ? 'اینترنت پایه قطع است؛ اتصال VPN حفظ می‌شود و منتظر شبکه می‌مانیم.'
+                : 'شبکه برگشته؛ پیش از تلاش مجدد، مسیر و DNS تثبیت می‌شوند.');
+            return;
+          }
           // connection lost and the last replacement attempt failed: retry
           if (DateTime.now().difference(lastSwitch) >
               const Duration(seconds: 10)) {
