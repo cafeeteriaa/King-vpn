@@ -1536,7 +1536,7 @@ void _goldTrimSrv() {
   final l = _goldSrv.values.toList()
     ..sort((a, b) {
       // Keep verified records; discard delay-only candidates first at capacity.
-      if (a.verified != b.verified) return a.verified ? 1 : -1;
+      if (a.verified != b.verified) return a.verified ? -1 : 1;
       return a.ping.compareTo(b.ping);
     });
   for (final v in l.skip(kGoldSrvCap)) {

@@ -2981,7 +2981,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         trim_start = gold.index('void _goldTrimSrv()')
         trim_end = gold.index('List<CleanIp>? _goldTop', trim_start)
         trim = gold[trim_start:trim_end]
-        self.assertIn('if (a.verified != b.verified) return a.verified ? 1 : -1;', trim)
+        self.assertIn('if (a.verified != b.verified) return a.verified ? -1 : 1;', trim)
 
         note_start = gold.index('void goldNoteServer(Server srv)')
         note_end = gold.index('// MANUALSCAN:', note_start)
