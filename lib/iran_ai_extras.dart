@@ -1825,9 +1825,19 @@ extension HomeExtras on _HomePageState {
   // Hysteresis: don't disrupt a working tunnel for a marginal score gain.
   // A 12-point margin filters noisy ping/throughput fluctuations.
   Server? _pilotBestStandby() {
-    final candidates = _pickList()
-        .where((s) => !identical(s, current) && !_bad(s))
-        .toList();
+    final now = DateTime.now();
+    // A standby must have a successful, recent core endpoint check in this
+    // session. Cached NNIE/profile scores may rank verified candidates, but
+    // must never make an untested or stale endpoint eligible for disruption.
+    // This is endpoint reachability evidence, NOT proof of tunnel data-plane.
+    final candidates = _pickList().where((s) {
+      final checked = s.checkedAt;
+      final freshPing = checked != null &&
+          !now.difference(checked).isNegative &&
+          now.difference(checked) <= const Duration(minutes: 4) &&
+          s.ping != null && s.ping! > 0;
+      return !identical(s, current) && !_bad(s) && freshPing;
+    }).toList();
     Server? best;
     var bestScore = -1e12;
     for (final s in candidates) {
