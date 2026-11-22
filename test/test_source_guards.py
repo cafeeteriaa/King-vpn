@@ -3680,5 +3680,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('activeRequestGeneration != requestGeneration) return;', recovery)
 
 
+    def test_native_watchdog_and_retry_tasks_are_request_generation_scoped(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertIn('checkOnce(requestAttempt, requestGeneration)', native)
+        self.assertIn('requestGeneration != activeRequestGeneration) return;', native)
+        self.assertIn('connectFrom(next, requestAttempt, requestGeneration)', native)
+        self.assertIn('retryWholeListNow(retryAttempt, retryGeneration)', native)
+        self.assertIn('retryWholeListNow(int retryAttempt, long retryGeneration)', native)
+        self.assertIn('connectFrom(0, retryAttempt, retryGeneration)', native)
+
+
 if __name__ == '__main__':
     unittest.main()

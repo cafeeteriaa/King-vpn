@@ -1047,7 +1047,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     /** Schedule the next watchdog tick (single-shot; each tick reschedules). */
     private void startWatchdog(int delaySec) {
-        scheduleTask(this::checkOnce, delaySec);
+        final int requestAttempt = activeAttemptId;
+        final long requestGeneration = activeRequestGeneration;
+        scheduleTask(() -> checkOnce(requestAttempt, requestGeneration), delaySec);
     }
 
     /** جدید: schedules one task on the single shared scheduler, replacing any pending tick. */
@@ -1075,11 +1077,12 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * watchdog stopped permanently. Now we always reschedule, even when we skip
      * the actual probe.
      */
-    private void checkOnce() {
+    private void checkOnce(int requestAttempt, long requestGeneration) {
         final int probeAttempt;
         final Srv probeServer;
         synchronized (lock) {
-            if (!active || stopping) return;
+            if (!active || stopping || requestAttempt != activeAttemptId
+                    || requestGeneration != activeRequestGeneration) return;
             if (isStarting()) {
                 // A server is starting right now; skip the probe but keep alive.
                 rescheduleNormal();
@@ -1105,14 +1108,16 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // Keep the current TUN and retry on the next tick; never fail over on unknown state.
             Log.e(TAG, "watchdog could not read core state; retaining current tunnel", stateError);
             synchronized (lock) {
-                if (active && !stopping) rescheduleNormal();
+                if (active && !stopping && requestAttempt == activeAttemptId
+                        && requestGeneration == activeRequestGeneration) rescheduleNormal();
             }
             return;
         }
         ProbeResult pr = coreUp ? probeResult() : ProbeResult.HARD_FAIL;
 
         synchronized (lock) {
-            if (!active || stopping) return;
+            if (!active || stopping || requestAttempt != activeAttemptId
+                    || requestGeneration != activeRequestGeneration) return;
             // Discard stale probe results: never let a previous server/session trigger
             // a score change or failover on a newer connection.
             if (probeAttempt != attemptSeq.get() || servers.isEmpty()
@@ -1161,7 +1166,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             }
             Log.w(TAG, "switching to next server");
             int next = (currentIdx + 1) % servers.size();
-            if (connectFrom(next)) {
+            if (connectFrom(next, requestAttempt, requestGeneration)) {
                 if (!saveStateDurably()) {
                     Log.e(TAG, "could not durably persist server index after watchdog failover");
                 }
@@ -1190,15 +1195,19 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         lastError = "all servers down; retrying in " + delay + "s";
         Log.w(TAG, lastError);
         updateNotification("در حال تلاش برای اتصال مجدد… (" + delay + "s)");
-        scheduleTask(this::retryWholeListNow, delay);
+        final int retryAttempt = activeAttemptId;
+        final long retryGeneration = activeRequestGeneration;
+        scheduleTask(() -> retryWholeListNow(retryAttempt, retryGeneration), delay);
     }
 
-    private void retryWholeListNow() {
+    private void retryWholeListNow(int retryAttempt, long retryGeneration) {
         synchronized (lock) {
+            if (stopping || retryAttempt != activeAttemptId
+                    || retryGeneration != activeRequestGeneration) return;
             retryWaiting = false;
-            if (stopping || servers.isEmpty()) return;
+            if (servers.isEmpty()) return;
             Log.i(TAG, "retrying full server list after backoff");
-            if (connectFrom(0)) {
+            if (connectFrom(0, retryAttempt, retryGeneration)) {
                 if (!saveStateDurably()) {
                     Log.e(TAG, "could not durably persist server index after full-list retry");
                 }
