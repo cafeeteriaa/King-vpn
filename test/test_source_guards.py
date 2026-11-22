@@ -3292,7 +3292,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         connected_end = main.index('s.miss = 0;', connected_start)
         connected = main[connected_start:connected_end]
         self.assertIn('if (nationalMode && InternetAddress.tryParse(s.host) != null)', connected)
-        self.assertNotIn('natIpMemSave(s.host, s.port)', connected.replace('if (nationalMode && InternetAddress.tryParse(s.host) != null)', ''))
+        self.assertIn('if (nationalMode && InternetAddress.tryParse(s.host) != null) {\n      unawaited(natIpMemSave(s.host, s.port));', connected)
+        self.assertNotIn('if (InternetAddress.tryParse(s.host) != null)', connected)
         reuse_start = main.index('Future<void> _natMemoryReuse()')
         reuse_end = main.index('Future<void> _natRangeAdd', reuse_start)
         self.assertIn("natIpMem.where((e) => e['op'] == natOpKey)", main[reuse_start:reuse_end])
