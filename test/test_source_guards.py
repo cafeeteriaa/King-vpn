@@ -3286,8 +3286,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         memory = nat[start:end]
         self.assertIn("e['op'] == natOpKey", memory)
         self.assertIn('Duration(hours: 48)', memory)
-        self.assertIn('if (!_natHasVerifiedOperatorKey(natOpKey)) return;', memory)
+        self.assertIn("if (e['op'] == natOpKey", memory)
         self.assertIn("'op': natOpKey", memory)
+        save_start = nat.index('Future<void> natIpMemSave')
+        save_end = nat.index('/// Next bounded sample', save_start)
+        save = nat[save_start:save_end]
+        self.assertIn('if (!_natHasVerifiedOperatorKey(natOpKey)) return;', save)
+        self.assertIn("'op': natOpKey", save)
         connected_start = main.index('void _onConnected(Server s)')
         connected_end = main.index('s.miss = 0;', connected_start)
         connected = main[connected_start:connected_end]
