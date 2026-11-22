@@ -2784,8 +2784,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         persist = revoke.index('persistUserStopMarker(true);')
         stop = revoke.index('requestStop();')
         cleanup = revoke.index('submit(this::stopEverything);')
-        self.assertLess(persist, stop)
-        self.assertLess(stop, cleanup)
+        self.assertLess(stop, persist)
+        self.assertLess(persist, cleanup)
 
 
     def test_vpn_sticky_restart_rechecks_consent_before_recovery(self):
@@ -3436,7 +3436,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         stop = native[start:end]
         self.assertIn('if (!persistUserStopMarker(true) && !clearStateDurably())', stop)
         self.assertIn('STOP command could not persist stop latch or erase recovery state', stop)
-        self.assertLess(stop.index('persistUserStopMarker(true)'), stop.index('requestStop();'))
+        self.assertLess(stop.index('requestStop();'), stop.index('persistUserStopMarker(true)'))
         self.assertLess(stop.index('clearStateDurably()'), stop.index('submit(this::stopEverything);'))
 
 

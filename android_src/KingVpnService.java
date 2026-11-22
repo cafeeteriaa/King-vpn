@@ -229,8 +229,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     /** جدید: stop requested by the app while it is in the background. */
     public void stopFromApp() {
-        persistUserStopMarker(true);
         requestStop();
+        persistUserStopMarker(true);
         submit(this::stopEverything);
     }
 
@@ -315,10 +315,13 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // If the dedicated stop latch cannot be committed, synchronously erase
             // the resumable VPN configuration as a second line of defense. Do not
             // silently rely on the worker cleanup: Android may kill this process first.
+            // Invalidate in-flight startup under lifecycleLock before persisting the
+            // stop latch. A worker may release the latch only while holding that same
+            // lock and proving its request is still current.
+            requestStop();
             if (!persistUserStopMarker(true) && !clearStateDurably()) {
                 Log.e(TAG, "STOP command could not persist stop latch or erase recovery state");
             }
-            requestStop();
             submit(this::stopEverything);
             return START_NOT_STICKY;
         }
@@ -444,8 +447,16 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 return;
             }
             // Only the newly committed server list may be restored after process death.
-            if (!persistUserStopMarker(false)) {
-                invalidateRecoveryAfterStartFailure("Unable to enable recovery for the committed VPN server list");
+            // Serialize latch release with Stop/revoke so an old start cannot overwrite
+            // a newer stop request after its durable config write completes.
+            boolean recoveryEnabled = false;
+            synchronized (lifecycleLock) {
+                if (!stopping && !userStopped && attempt == activeAttemptId) {
+                    recoveryEnabled = persistUserStopMarker(false);
+                }
+            }
+            if (!recoveryEnabled) {
+                invalidateRecoveryAfterStartFailure("Unable to enable recovery for the current committed VPN server list");
                 emit("FAILED", lastError, attempt);
                 requestStop();
                 stopEverything();
