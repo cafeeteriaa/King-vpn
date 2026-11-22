@@ -137,3 +137,11 @@
 - Signing is the generated Flutter debug key, not a production signing key. The artifact is a CI validation build, not a Play Store/production release. No Android device, real VPN traffic, IPv6 runtime, or Iranian operator-network validation is claimed.
 - TUN evidence now has two independent signals on Android: plugin daemon-process liveness and `ConnectivityManager` active-network `TRANSPORT_VPN`; either alone is insufficient. If both are not positively confirmed, interface enumeration remains the compatibility fallback, and a known inactive daemon vetoes that fallback. Source guards cover both sides. Device testing is still needed to confirm Android exposes the expected active VPN transport on supported OEM builds.
 - PR #42 remains open, Draft, and unmerged.
+
+
+## TUN false-positive prevention follow-up — 2026-11-22
+- Audit found the interface-name compatibility fallback could accept a generic `tun*`/VPN-like interface even when Android's `ConnectivityManager` definitively reported that the active network was not a VPN transport. In a multi-VPN or stale-daemon scenario, that could misattribute another provider's interface to King VPN.
+- `tunUp()` now returns false immediately when the King VPN daemon signal is available but `kingVpnTransportActive` definitively returns false. The interface-name fallback remains available only when the native transport result is unavailable/indeterminate; positive native proof still requires both daemon liveness and VPN transport.
+- Added a source guard asserting the definitive-negative check occurs before interface fallback.
+- Commits: implementation `14481302424c2268b8931eea5b88c859d329c452`; test `34acb1cdf6756a1c82e062e3de9918bd8a42fd50`. Exact-HEAD CI run `45000052401` (run 2003) is pending; do not claim this follow-up is validated until it completes.
+- This remains source-level evidence hardening. Real Android device/OEM, VPN coexistence, tunnel traffic, IPv6 and operator-network tests are still required. PR #42 remains Draft and unmerged.
