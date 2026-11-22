@@ -1765,7 +1765,7 @@ Set<String> natDomMemHosts({DateTime? now}) {
         port is! num) {
       continue;
     }
-    hosts.add(''${host}:${port.toInt()}'');
+    hosts.add(host + ':' + port.toInt().toString());
   }
   return hosts;
 }
