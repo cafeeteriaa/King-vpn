@@ -64,12 +64,14 @@ class NetworkEvidence {
       domestic == LinkHealth.healthy &&
       domesticSamples >= 3 &&
       domesticSuccesses >= 2 &&
+      domesticSuccesses <= domesticSamples &&
       domesticTlsReachabilityVerified;
 
   bool get globalConfirmed =>
       global == LinkHealth.healthy &&
       globalSamples >= 3 &&
       globalSuccesses >= 2 &&
+      globalSuccesses <= globalSamples &&
       globalTlsReachabilityVerified;
 
   /// A negative route requires at least two actual failed samples. Missing
