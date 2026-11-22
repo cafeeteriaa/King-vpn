@@ -3455,8 +3455,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         failure_start = connect.index('if (!startForegroundSafe(s.remark))')
         failure_end = connect.index('cancelPluginNotification()', failure_start)
         failure = connect[failure_start:failure_end]
-        self.assertIn('persistUserStopMarker(true);', failure)
-        self.assertIn('requestStop();', failure)
+        self.assertIn('requestStopIfCurrent(requestAttempt)', failure)
+        self.assertIn('if (!ownsStop) return false;', failure)
+        self.assertIn('if (!persistUserStopMarker(true) && !clearStateDurably())', failure)
         self.assertIn('stopEverything();', failure)
         self.assertIn('return false;', failure)
 
@@ -3531,12 +3532,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             'Unable to enter foreground mode; VPN startup was refused',
         ):
             pos = body.index('invalidateRecoveryAfterStartFailure("' + reason + '")')
-            stop = body.find('requestStop();', pos)
-            self.assertNotEqual(stop, -1)
+            stop = body.rfind('requestStop();', 0, pos)
+            self.assertNotEqual(stop, -1, reason)
             cleanup = body.find('submit(this::stopEverything)', pos)
             if cleanup != -1:
                 self.assertLess(pos, cleanup)
-            self.assertLess(pos, stop)
 
 
     def test_native_new_start_invalidates_old_generation_before_persisting_stop_latch(self):
