@@ -3278,6 +3278,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("rt['domainStrategy'] = 'AsIs';", normalize)
 
 
+    def test_domestic_endpoint_memory_requires_independent_asn_quorum(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = nat.index('Future<void> natDetectOperator()')
+        end = nat.index('final Map<String, int> natWins', start)
+        detect = nat[start:end]
+        self.assertIn('e.value >= 2', detect)
+        self.assertIn("r'^\\d{3,7}$'", detect)
+        self.assertIn("'$type|unverified'", detect)
+        self.assertIn('_natAsnByType.remove(type)', detect)
+        memory_start = nat.index('Set<String> natDomMemHosts')
+        memory_end = nat.index('Future<void> natDomMemLoad', memory_start)
+        memory = nat[memory_start:memory_end]
+        self.assertIn("r'^\\w+\\|AS\\d{3,7}$'", memory)
+        save_start = nat.index('Future<void> natDomMemSave')
+        save_end = nat.index('Future<void> natIpMemSave', save_start)
+        save = nat[save_start:save_end]
+        self.assertIn("r'^\\w+\\|AS\\d{3,7}$'", save)
+
     def test_national_verified_endpoint_memory_is_operator_scoped_and_expires(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = nat.index('Set<String> natDomMemHosts')
