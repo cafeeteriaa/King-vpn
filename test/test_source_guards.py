@@ -3444,9 +3444,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = engine.index('static Future<NatNetworkClass> refresh', start)
         getter = engine[start:end]
         self.assertIn('PilotNetworkProbe.current', getter)
-        self.assertIn('pilot.domesticConfirmed', getter)
-        self.assertIn('pilot.globalFailed', getter)
-        self.assertNotIn('current == NatNetworkClass.transportRestricted;', getter)
+        self.assertIn('PilotNetworkProbe.hasConfirmedDomesticOnlyFor(identity)', getter)
+        self.assertIn('identity = _identityAtCheck', getter)
+        self.assertIn('age <= _ttl', getter)
+        self.assertIn('static bool hasConfirmedDomesticOnlyFor(String identity)', engine)
+        self.assertIn('_lastIdentity != identity', engine)
+        self.assertIn('_last.domesticConfirmed', engine)
+        self.assertIn('_last.globalFailed', engine)
 
     def test_legacy_diagnosis_shares_strong_pilot_network_identity(self):
         engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
