@@ -942,7 +942,12 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 b.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 126);
                 b.addRoute("::", 0);
             } catch (Exception e) {
-                Log.w(TAG, "ipv6 sinkhole not supported", e);
+                // Do not establish an IPv4-only tunnel after the IPv6 address was
+                // partially accepted: that can leave IPv6 outside the VPN.
+                // Fail closed so the caller reports a connection failure instead
+                // of presenting a connected state with an incomplete IP-family route.
+                throw new IllegalStateException(
+                        "IPv6 VPN address/route setup failed; refusing possible IPv6 leak", e);
             }
             b.addRoute("0.0.0.0", 0);
             // FIX #49: the app is NOT excluded from the tunnel. Its own requests (e.g. the ASN
