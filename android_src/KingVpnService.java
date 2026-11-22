@@ -270,7 +270,6 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             if (VpnService.prepare(this) != null) {
                 Log.w(TAG, "VPN consent missing during sticky restart; refusing recovery");
                 invalidateRecoveryAfterStartFailure("VPN consent missing during sticky restart");
-                clearStateDurably();
                 requestStop();
                 stopSelf(startId);
                 return START_NOT_STICKY;

@@ -3480,8 +3480,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             'Unable to enter foreground mode; VPN startup was refused',
         ):
             pos = body.index('invalidateRecoveryAfterStartFailure("' + reason + '")')
+            stop = body.find('requestStop();', pos)
+            self.assertNotEqual(stop, -1)
             cleanup = body.find('submit(this::stopEverything)', pos)
-            self.assertTrue(cleanup == -1 or pos < cleanup)
+            if cleanup != -1:
+                self.assertLess(pos, cleanup)
+            self.assertLess(pos, stop)
 
 
 if __name__ == '__main__':
