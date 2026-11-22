@@ -3401,5 +3401,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
+    def test_native_stop_and_wedged_recovery_clear_saved_state_durably(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        recovery_start = native.index('private void recoverWedgedCore(String what)')
+        recovery_end = native.index('private boolean stopCoreNow()', recovery_start)
+        recovery = native[recovery_start:recovery_end]
+        self.assertIn('if (userStopped)', recovery)
+        self.assertIn('clearStateDurably()', recovery)
+        self.assertNotIn('if (userStopped) clearState();', recovery)
+
+        stop_start = native.index('private void stopEverything()')
+        stop_end = native.index('private void closeTun()', stop_start)
+        stop = native[stop_start:stop_end]
+        self.assertIn('if (!clearStateDurably())', stop)
+        self.assertNotIn('clearState();', stop)
+
+
+
 if __name__ == '__main__':
     unittest.main()

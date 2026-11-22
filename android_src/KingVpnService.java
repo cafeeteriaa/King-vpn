@@ -665,8 +665,15 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         Log.e(TAG, what + " has not returned after " + (HUNG_NATIVE_MS / 1000)
                 + "s; restarting the VPN process");
         try {
-            if (userStopped) clearState();
-            else saveState();
+            if (userStopped) {
+                // killProcess follows immediately; apply() is asynchronous and may lose
+                // the stop state before Android performs a sticky service restart.
+                if (!clearStateDurably()) {
+                    Log.e(TAG, "could not durably clear recovery state before process restart");
+                }
+            } else {
+                saveState();
+            }
         } catch (Throwable t) {
             Log.w(TAG, "state save before restart failed", t);
         }
@@ -1211,7 +1218,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                     Log.i(TAG, "stop cleanup superseded by a newer lifecycle request");
                     return;
                 }
-                clearState();
+                if (!clearStateDurably()) {
+                    Log.e(TAG, "could not durably clear saved VPN state during stop");
+                }
                 servers.clear();
                 try {
                     stopForeground(true);
