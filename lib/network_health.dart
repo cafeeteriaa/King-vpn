@@ -1,6 +1,6 @@
 /// Independent domestic/global network evidence model for Smart Pilot ∞.
 enum LinkHealth { unknown, healthy, degraded, unreachable }
-enum DetectedNetworkMode { unknown, domesticOnly, globalOnly, dualStack, offline }
+enum DetectedNetworkMode { unknown, domesticOnly, globalOnly, dualReachable, offline }
 
 /// Internal route selected by the single Smart Pilot controller.
 enum PilotNetworkStrategy { domestic, global, preserve, offline }
@@ -66,7 +66,8 @@ class NetworkEvidence {
           ? DetectedNetworkMode.offline
           : DetectedNetworkMode.unknown;
     }
-    if (domesticUp && globalUp) return DetectedNetworkMode.dualStack;
+    // This is geographic endpoint reachability, not IPv4/IPv6 dual-stack support.
+    if (domesticUp && globalUp) return DetectedNetworkMode.dualReachable;
     if (domesticUp && global == LinkHealth.unreachable) return DetectedNetworkMode.domesticOnly;
     if (globalUp && domestic == LinkHealth.unreachable) return DetectedNetworkMode.globalOnly;
     return DetectedNetworkMode.unknown;
