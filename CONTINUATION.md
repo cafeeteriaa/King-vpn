@@ -3,7 +3,7 @@
 ## Source of truth
 - Repository: `cafeeteriaa/King-vpn`; base `main` HEAD: `c43d325f9803d4f6306415e511f6790deff9d87e`.
 - Active branch: `codex/continuation-mainline-20261122`.
-- Current branch HEAD: `7b8aa6d85e8201acaf9d123e6474c905f2facecb`.
+- Current branch HEAD: `c23e607d2e2b0e031c1cda24a67c3c3a1a2a081a` (DNS policy test commit).
 - PR #42 remains open, Draft, targeting `main`; not merged.
 - PR #41 / domestic-ranking branch remains separate; do not retarget or merge without a full diff audit.
 
@@ -12,7 +12,7 @@
 - `shouldReuseNetworkProbeCache` in `lib/network_health.dart` now requires no forced refresh, known non-empty current and cached identities, exact identity equality, a timestamp, and age >= 0 and below TTL.
 - Both cache paths in `lib/national_engine.dart` use the helper.
 - Six focused tests in `test/network_health_test.dart` cover valid same-network reuse, unavailable current identity, changed network, missing cached identity, expired/backwards-clock cache, and forced refresh.
-- These tests have not yet completed in a non-cancelled run for the exact current head.
+- Run 1932 (`44984895465`) on docs checkpoint `a64465851434784545dbc17bfb0369c14fd99ed4` completed source guards, Flutter tests and Dart analysis, and entered the arm64 release build; it was still running at the latest poll. It does not include the DNS follow-up commits.
 
 ## Android IPv6 fail-closed correction
 - Audit of `android_src/KingVpnService.java` found the TUN builder added the IPv6 interface address and default route inside a try block, but swallowed any exception and continued to establish the IPv4 route.
@@ -24,7 +24,10 @@
 
 ## Other audit notes
 - Active-branch `android_src/MainActivity.kt` registers `vpn/bg` and handles `alive`, `back`, and `vpnSettings`; the historical MissingPluginException still needs runtime reproduction.
-- `_reliableVpnCfg` prefers domestic DNS in national mode and sets `queryStrategy=UseIP`; static inspection does not prove active-core behavior or rule out DNS leakage. Verify using runtime logs and IPv4/IPv6 leak tests.
+- `_reliableVpnCfg` prefers domestic DNS in national mode and sets `queryStrategy=UseIP`; static inspection does not prove active-core behavior or rule out DNS leakage. Android `VpnService.Builder.addDnsServer` documentation confirms that omitting an explicit DNS server uses the default network's DNS servers; full IPv4/IPv6 TUN routes should capture traffic, but runtime packet/core verification remains necessary.
+- Xray accepts DNS servers as either strings or `DnsServerObject` maps. The old national-mode Secure DNS filter only inspected strings beginning with `https://`, so a DoH map (`{"address":"https://..."}`) could survive while Secure DNS was disabled.
+- Added `lib/dns_policy.dart` and routed national-mode server merging through `mergeNationalDnsServers`. It preserves domestic-first order and existing per-object metadata, filters DoH map entries by their `address` when Secure DNS is off, retains them when Secure DNS is on, and preserves duplicate handling. Added four tests in `test/dns_policy_test.dart` for string DoH, object DoH, Secure DNS enabled, and domestic-first deduplication.
+- DNS policy commits: helper `5d7333a769646ce29496096a581a325a7d82b2c7`, integration `6f06c559c0aa80bb684fc68b2417cda6fe5d7670`, tests `c23e607d2e2b0e031c1cda24a67c3c3a1a2a081a`.
 - Dart stop logic waits for DISCONNECTED with a timeout and marks `_staleCoreMayBeUp` if shutdown cannot be confirmed. Keep reviewing races without removing existing guards.
 - DNS replies, TCP opens, and TLS handshakes are diagnostic evidence only, not proof that traffic traverses the VPN tunnel.
 
@@ -32,10 +35,10 @@
 - Baseline main run 1393 (`44785612381`) succeeded for source guard, Flutter tests, Dart analysis, arm64 release APK build and artifact upload; debug-key signing only.
 - Run 1924 (`44956105111`) succeeded for an earlier checkpoint; artifact is historical.
 - Run 1925 (`44984275812`) succeeded for older code `d284f9d40b7fd7057298625bd83200c75f326afc`: source guard, Flutter tests, Dart analysis, arm64 APK build, and artifact uploads passed. APK ZIP digest `sha256:836e6c5e97947bcd4beea4a44395cf37bdb5ac61efba887c7c44ddc952d2db30`; debug-key signed. It predates later cache and IPv6 fixes.
-- Run 1928 (`44984479396`) for earlier checkpoint `4e8d08cd38d88e8441d55d38c3cb9a99af05d5f9`: source guard, Flutter tests, and Dart analysis passed; arm64 release APK build was still in progress at last poll.
+- Run 1928 (`44984479396`) for earlier checkpoint `4e8d08cd38d88e8441d55d38c3cb9a99af05d5f9` completed successfully: source guard, Flutter tests, Dart analysis, optimized arm64 release APK build, and APK/source/symbol artifact uploads all passed. Artifacts are older-source evidence only; APK archive digest `sha256:a4653731a2d2684aba4f19b436f0153fa01b06c4bc608ece05a3a01601b48451`.
 - Run 1929 (`44984637534`) for cache-fix code head `ecd6b8b2533f5d61967b29eac2e9c4db90e33695` was cancelled before jobs ran.
 - Run 1930 (`44984708185`) for docs checkpoint `6d1b8d469b6267bb689fa56bf4eefbaa0b2e4023` remained pending with no jobs at last poll.
-- Current head `7b8aa6d85e8201acaf9d123e6474c905f2facecb` has no GitHub check-runs or workflow runs yet. Do not claim the new native guard or cache regression tests passed until a run actually executes.
+- Run 1932 (`44984895465`) is for `a64465851434784545dbc17bfb0369c14fd99ed4`, not the current DNS policy head; its source guard, Flutter tests and Dart analysis passed, and the arm64 build was in progress at last poll. No exact-head check-run was visible for current `c23e607d2e2b0e031c1cda24a67c3c3a1a2a081a` at the last poll. Do not claim the DNS policy tests passed until a run actually executes.
 - No real device, production signing, inner-APK metadata/checksum inspection, or Iranian operator-network validation has been performed. Current branch is not declared install-ready.
 
 ## Engineering guardrails
@@ -47,8 +50,8 @@
 - Do not merge to `main` or cancel active CI runs without explicit authorization.
 
 ## Next actions
-1. Get a non-cancelled CI run for current head `7b8aa6d85e8201acaf9d123e6474c905f2facecb`; verify the new Python source guard, all Flutter tests, Dart analysis, and arm64 build.
-2. Poll run 1928 for build completion and artifact metadata; treat it as older source only.
+1. Get a non-cancelled CI run for current head `c23e607d2e2b0e031c1cda24a67c3c3a1a2a081a`; verify source guards, DNS policy tests, all Flutter tests, Dart analysis, and arm64 build.
+2. Poll run 1932 for build completion and artifact metadata; treat it as pre-DNS-fix source only.
 3. Continue DNS path audit, including whether resolver traffic traverses the intended core and whether IPv4/IPv6 can bypass the TUN.
 4. Complete connect/stop/failover race review across Dart and `KingVpnService`.
 5. If an exact-head APK is built, inspect the inner APK, ABI, package metadata, APK SHA-256 and signing status.
