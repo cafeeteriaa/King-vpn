@@ -2863,5 +2863,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
+    def test_stale_connect_verification_coalesces_callbacks_and_contains_probe_errors(self):
+        dart = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        declaration = dart.index('final Set<Completer<bool>> _connectVerificationInFlight')
+        verify = dart.index('Future<void> _verifyPendingConnect(')
+        end = dart.index('// [trust]', verify)
+        body = dart[verify:end]
+        add = body.index('if (!_connectVerificationInFlight.add(c)) return;')
+        probe_try = body.index('ok = await _tunnelTrafficOk();')
+        catch = body.index('} catch (e, stk)', probe_try)
+        fence = body.index('_staleCoreMayBeUp = false;')
+        complete = body.index('c.complete(true);')
+        cleanup = body.index('_connectVerificationInFlight.remove(c);')
+        self.assertLess(declaration, verify)
+        self.assertLess(add, probe_try)
+        self.assertLess(probe_try, catch)
+        self.assertLess(catch, fence)
+        self.assertLess(fence, complete)
+        self.assertLess(complete, cleanup)
+        self.assertIn('finally {', body)
+
+
 if __name__ == '__main__':
     unittest.main()

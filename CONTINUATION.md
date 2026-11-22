@@ -90,3 +90,10 @@
 - Added source guard `test_plugin_stop_does_not_trust_unattributed_disconnected_event`. This is a source-level race mitigation; plugin events still cannot be correlated to native attempts, and real-device lifecycle testing remains necessary.
 - New commit is not yet CI-validated; do not carry forward the previous HEAD's CI result to this commit.
 - No device/operator validation or production signing is claimed. PR #42 remains open Draft; do not merge.
+
+
+## Latest continuation — CONNECTED verification deduplication (2026-11-22)
+- Follow-up audit of the default FlutterV2ray path found repeated CONNECTED callbacks could launch overlapping traffic probes for the same pending waiter. A platform/proxy-selection exception thrown before _siteOpens enters its own catch could also escape the async callback.
+- Added per-waiter in-flight deduplication for _verifyPendingConnect; a newer waiter remains independent. Probe exceptions are logged and treated as unverified traffic; they cannot clear _staleCoreMayBeUp or complete the waiter. The existing bounded connect timeout remains responsible for ending an unverified attempt.
+- Added source guard test_stale_connect_verification_coalesces_callbacks_and_contains_probe_errors.
+- This change does not add attempt IDs to FlutterV2ray events and does not claim to solve all late DISCONNECTED state attribution. Requires exact-HEAD CI and real-device lifecycle validation.

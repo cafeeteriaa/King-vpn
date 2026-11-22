@@ -2932,6 +2932,9 @@ int _connGen = 0;
 // FIX #107: true when a stop gave up waiting for DISCONNECTED, so an old core may still send a
 // late CONNECTED. While this is true, a CONNECTED only completes the waiter after a real traffic check.
 bool _staleCoreMayBeUp = false;
+// Prevent duplicate CONNECTED callbacks from launching overlapping traffic probes
+// for the same waiter. A newer waiter has a distinct Completer and can proceed.
+final Set<Completer<bool>> _connectVerificationInFlight = <Completer<bool>>{};
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -8965,22 +8968,38 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // A pass clears the stale-core flag, because the connection is now proven.
   Future<void> _verifyPendingConnect(
       Completer<bool> c, int generation) async {
-    final ok = await _tunnelTrafficOk();
-    // The probe may outlive the attempt that triggered it. Never let an old
-    // verification clear the stale-core fence or complete a newer waiter's state.
-    if (generation != _connGen ||
-        !identical(connSig, c) ||
-        c.isCompleted ||
-        !wantVpn) {
-      dbg('CONNECTED verification discarded: attempt was superseded');
-      return;
+    // FlutterV2ray may emit repeated CONNECTED callbacks. Coalesce them for
+    // this waiter so they cannot create parallel HTTP probes or race the fence.
+    if (!_connectVerificationInFlight.add(c)) return;
+    try {
+      bool ok;
+      try {
+        ok = await _tunnelTrafficOk();
+      } catch (e, stk) {
+        // A proxy-selection/platform exception is a failed verification, never
+        // evidence of a working tunnel. Leave the waiter to its bounded timeout.
+        logError(e, stk);
+        dbg('CONNECTED verification probe threw; tunnel remains unverified');
+        return;
+      }
+      // The probe may outlive the attempt that triggered it. Never let an old
+      // verification clear the stale-core fence or complete a newer waiter's state.
+      if (generation != _connGen ||
+          !identical(connSig, c) ||
+          c.isCompleted ||
+          !wantVpn) {
+        dbg('CONNECTED verification discarded: attempt was superseded');
+        return;
+      }
+      if (!ok) {
+        dbg('CONNECTED ignored: traffic not through the tunnel yet (possible stale core)');
+        return;
+      }
+      _staleCoreMayBeUp = false;
+      c.complete(true);
+    } finally {
+      _connectVerificationInFlight.remove(c);
     }
-    if (!ok) {
-      dbg('CONNECTED ignored: traffic not through the tunnel yet (possible stale core)');
-      return;
-    }
-    _staleCoreMayBeUp = false;
-    c.complete(true);
   }
 
   // [trust] = the server was already tested: skip the extra verification.
