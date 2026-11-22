@@ -3753,5 +3753,35 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('requestStopIfCurrent(requestAttempt, requestGeneration)', body)
 
 
+    def test_pilot_probe_rejects_mixed_network_snapshots_and_retries_once(self):
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        start = engine.index('class PilotNetworkProbe {')
+        end = engine.index('String natNetworkClassLabel', start)
+        probe = engine[start:end]
+        self.assertIn('for (var attempt = 0; attempt < 2; attempt++)', probe)
+        self.assertIn('final identityBefore = await _networkIdentity();', probe)
+        self.assertIn('final identityAfter = await _networkIdentity();', probe)
+        self.assertIn('sameKnownNetworkProbeIdentity(identityBefore, identityAfter)', probe)
+        self.assertIn('_clearSnapshot();', probe)
+
+    def test_native_network_identity_is_transient_and_rejects_vpn_default_network(self):
+        activity = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
+        start = activity.index('"kingVpnNetworkIdentity" -> {')
+        end = activity.index('"kingVpnTransportActive" -> {', start)
+        body = activity[start:end]
+        self.assertIn('connectivity?.activeNetwork', body)
+        self.assertIn('NetworkCapabilities.TRANSPORT_VPN', body)
+        self.assertIn('result.success(null)', body)
+        self.assertIn('network.networkHandle', body)
+        self.assertIn('NET_CAPABILITY_INTERNET', body)
+        self.assertIn('NET_CAPABILITY_VALIDATED', body)
+
+    def test_pilot_forced_probe_refresh_is_serialized(self):
+        policy = (ROOT / 'lib' / 'network_health.dart').read_text(encoding='utf-8')
+        self.assertIn('class NetworkProbeRefreshCoordinator<T>', policy)
+        self.assertIn('if (!force || _flightIsForced) return active;', policy)
+        self.assertIn('return refresh(force: true);', policy)
+
+
 if __name__ == '__main__':
     unittest.main()
