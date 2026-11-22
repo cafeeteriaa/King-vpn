@@ -2785,11 +2785,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = service.index('public void onRevoke()')
         end = service.index('public void onDestroy()', start)
         revoke = service[start:end]
-        persist = revoke.index('persistUserStopMarker(true);')
+        persist = revoke.index('persistUserStopMarker(true)')
         stop = revoke.index('requestStop();')
+        clear_fallback = revoke.index('clearStateDurably()', persist)
         cleanup = revoke.index('submit(this::stopEverything);')
         self.assertLess(stop, persist)
-        self.assertLess(persist, cleanup)
+        self.assertLess(persist, clear_fallback)
+        self.assertLess(clear_fallback, cleanup)
+
+        stop_app_start = service.index('public void stopFromApp()')
+        stop_app_end = service.index('private static class Srv', stop_app_start)
+        stop_app = service[stop_app_start:stop_app_end]
+        self.assertLess(stop_app.index('requestStop();'), stop_app.index('persistUserStopMarker(true)'))
+        self.assertIn('clearStateDurably()', stop_app)
 
 
     def test_vpn_sticky_restart_rechecks_consent_before_recovery(self):

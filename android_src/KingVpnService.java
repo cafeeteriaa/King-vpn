@@ -230,7 +230,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     /** جدید: stop requested by the app while it is in the background. */
     public void stopFromApp() {
         requestStop();
-        persistUserStopMarker(true);
+        if (!persistUserStopMarker(true) && !clearStateDurably()) {
+            Log.e(TAG, "app stop could not persist stop marker or clear recovery state");
+        }
         submit(this::stopEverything);
     }
 
@@ -1474,7 +1476,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         // marker were written first, a racing start worker could clear it after its
         // config commit and briefly re-enable sticky recovery after VPN revocation.
         requestStop();
-        persistUserStopMarker(true);
+        if (!persistUserStopMarker(true) && !clearStateDurably()) {
+            Log.e(TAG, "VPN revocation could not persist stop marker or clear recovery state");
+        }
         submit(this::stopEverything);
     }
 
