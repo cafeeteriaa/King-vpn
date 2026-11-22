@@ -121,3 +121,10 @@
 - Exact-head CI run `44996637457` was triggered for `ae43210a`; source-repair guard passed, Java setup passed, Gradle setup was still running at last poll. Do not claim Flutter tests, Dart analysis, APK build or artifact upload passed until this run completes.
 - Static audit of plugin-managed disconnect handling: `DISCONNECTED` events are treated as unattributed; current TUN daemon-liveness signal and core data-path probe are rechecked before failover. Plugin events still carry no attempt ID. No device/operator-network validation.
 - Next: poll run `44996637457`; if it passes, download and inspect exact-head APK/source artifacts. Continue review of DNS resolver traffic and native/plugin stop-start races. Keep PR #42 Draft and unmerged.
+
+
+## CI correction — Smart Pilot fixture migration (2026-11-22)
+- CI run 44996637457 for code commit ae43210a failed the test step: 131 passed, 3 failed. All three failures were stale fixtures in `pilot_command_bar_test.dart` (2) and `smart_pilot_architecture_test.dart` (1), which declared healthy reachability without the newly required successful-handshake count and TLS verification.
+- Updated those fixtures in commits `68d860bd26fa61f5f5e1fa21352f98318ce4976b` and `a10b5301ecf3761c597347501440bca73f79a209`; production policy was not weakened.
+- The 131 other tests, including the new evidence-consistency tests, passed in the failing run. The suite must be rerun on the current branch head before claiming green.
+- CI run 44996679873 was queued on the earlier documentation checkpoint but its run metadata captured code SHA ae43210a while PR head subsequently advanced; do not treat it as validation of the fixture updates. Await a run whose tested SHA matches current branch HEAD.
