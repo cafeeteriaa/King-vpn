@@ -83,6 +83,41 @@ void main() {
   });
 
 
+  group('probe evidence freshness', () {
+    final checkedAt = DateTime.utc(2026, 11, 22, 7);
+
+    test('accepts evidence strictly inside the two-minute TTL', () {
+      expect(isNetworkProbeEvidenceFresh(
+        checkedAt: checkedAt,
+        now: checkedAt.add(const Duration(minutes: 1, seconds: 59)),
+        ttl: const Duration(minutes: 2),
+      ), isTrue);
+    });
+
+    test('rejects expired, future, missing and non-positive-TTL evidence', () {
+      expect(isNetworkProbeEvidenceFresh(
+        checkedAt: checkedAt,
+        now: checkedAt.add(const Duration(minutes: 2)),
+        ttl: const Duration(minutes: 2),
+      ), isFalse);
+      expect(isNetworkProbeEvidenceFresh(
+        checkedAt: checkedAt.add(const Duration(seconds: 1)),
+        now: checkedAt,
+        ttl: const Duration(minutes: 2),
+      ), isFalse);
+      expect(isNetworkProbeEvidenceFresh(
+        checkedAt: null,
+        now: checkedAt,
+        ttl: const Duration(minutes: 2),
+      ), isFalse);
+      expect(isNetworkProbeEvidenceFresh(
+        checkedAt: checkedAt,
+        now: checkedAt,
+        ttl: Duration.zero,
+      ), isFalse);
+    });
+  });
+
   group('Smart Pilot route policy', () {
     test('confidence reaches 1.0 when all six dedicated probes are verified', () {
       const evidence = NetworkEvidence(
