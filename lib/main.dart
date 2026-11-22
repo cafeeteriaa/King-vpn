@@ -13992,9 +13992,9 @@ ListTile( // KINGEXTRAS row
     }
   }
 
-  // NETCHANGE: Wi-Fi <-> mobile data (or a new IP) while connected. The old
-  // tunnel is often dead right after such a change, so the next failed check
-  // switches server at once instead of waiting for several failures.
+  // NETCHANGE: Wi-Fi <-> mobile data (or a new IP) while connected.
+  // A link change gets a short revalidation grace period: do not switch on
+  // the first failed probe while Android is rebuilding routes/DNS.
   String _netSig = '';
   bool netDown = false; // the phone has no network interface with an address
   DateTime netUpAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -14043,8 +14043,11 @@ ListTile( // KINGEXTRAS row
       final sig = parts.join('|');
       if (_netSig.isNotEmpty && sig != _netSig) natDohCacheClear();
       if (_netSig.isNotEmpty && sig != _netSig && connected && wantVpn) {
-        dbg('تغییر شبکه (وای‌فای/دیتا)؛ بررسی فوری اتصال');
-        fails = max(fails, watchFailLimit - 1);
+        // DHCP and IPv6 privacy-address changes are not proof that the tunnel
+        // is dead. Clear stale failures and let Android settle before judging.
+        netUpAt = DateTime.now();
+        fails = 0;
+        dbg('تغییر شبکه (وای‌فای/دیتا یا IP)؛ مهلت کوتاه برای بازسازی مسیر و DNS');
       }
       _netSig = sig;
       // two checks in a row (~10 s) without any real interface = no internet
