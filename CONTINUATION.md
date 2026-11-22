@@ -178,3 +178,11 @@
 - Added source guards for both paths. No live device/carrier validation is claimed.
 - Commits: heal `7b85d8f2d54106c7b1691c4c81997c67823e7f00`; watchdog `c97680ceea1ad53031c11c4d08c39b3e9ae7b87e`; tests `d05b2728cc67896fb97ea23cf6a6fb9f1d793257`.
 - A new exact-head CI run is required; prior run 2012 tested the earlier head and cannot validate these commits.
+
+
+## OODA DNS evidence invalidation across outage/recovery — 2026-11-22
+- Audit found that _netWatch() invalidated the DoH precheck cache when the interface/IP signature changed, but a physical outage/recovery can occur while Android reports the same interface signature. In that case, DNS reachability evidence from before the outage could remain reusable.
+- _netWatch() now calls natDohCacheClear() exactly when the underlying network transitions into confirmed netDown, and again when it transitions back to available. The existing DoH generation fence discards in-flight probes from the prior network state; the next variant decision must observe the new state.
+- Commits: implementation c7ed6eff05ca474ec394f72aeca5ae84c68ba17d; source guard d7e5eccdf996bbee154a339c8bcc380f3716e290.
+- This invalidates DNS evidence only; it does not itself prove DNS resolution, tunnel traffic, or domestic/global reachability. CI for the exact final head and real-device/carrier validation are still required.
+- PR #42 must remain open Draft and unmerged.
