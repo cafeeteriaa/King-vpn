@@ -7203,8 +7203,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
           // NNIE: سابقه‌ی واقعی همین endpoint فقط اولویت را تغییر می‌دهد؛ هیچ کانفیگ ناشناخته‌ای حذف نمی‌شود.
           int nnieCompare(Server a, Server b) {
-            final ak = NationalNetworkIntelligence.keyOfServer(a);
-            final bk = NationalNetworkIntelligence.keyOfServer(b);
+            final ak = NationalNetworkIntelligence.keyOfServer(a, nationalMode: true);
+            final bk = NationalNetworkIntelligence.keyOfServer(b, nationalMode: true);
             return NationalNetworkIntelligence.scoreFor(bk)
                 .compareTo(NationalNetworkIntelligence.scoreFor(ak));
           }
@@ -8803,7 +8803,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // NNIE records end-to-end successes in BOTH domestic and global modes.
     // The previous nationalMode guard silently left global-route servers
     // without learned history, biasing Smart Pilot toward incomplete evidence.
-    final nnieKey = NationalNetworkIntelligence.keyOfServer(s);
+    final nnieKey = NationalNetworkIntelligence.keyOfServer(s, nationalMode: nationalMode);
     // A server's EWMA must never include time spent failing over through earlier servers.
     unawaited(NationalNetworkIntelligence.record(
       endpointKey: nnieKey,
@@ -8900,7 +8900,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           dbg('نردبان: ${s.name} با حالت «${_natSpecs[v].name}» ترافیک تونل نداد؛ حالت بعدی');
           // NNIE: only a started candidate with failed tunnel traffic is a server failure.
           unawaited(NationalNetworkIntelligence.record(
-            endpointKey: NationalNetworkIntelligence.keyOfServer(s),
+            endpointKey: NationalNetworkIntelligence.keyOfServer(s, nationalMode: nationalMode),
             success: false,
             elapsedMs: failedElapsedMs,
             stableForFiveMinutes: false,
@@ -9353,7 +9353,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
           final failedElapsedMs = _nnieFinishAttempt(s) ?? 0;
           unawaited(NationalNetworkIntelligence.record(
-            endpointKey: NationalNetworkIntelligence.keyOfServer(s),
+            endpointKey: NationalNetworkIntelligence.keyOfServer(s, nationalMode: nationalMode),
             success: false,
             elapsedMs: failedElapsedMs,
             stableForFiveMinutes: false,
