@@ -3672,5 +3672,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('resumeSaved(0, recoveryGeneration)', native)
 
 
+    def test_native_start_and_recovery_recheck_request_generation_before_publishing(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start_flow = native[native.index('private void startFlow('):native.index('private void resumeSaved(')]
+        recovery = native[native.index('private void resumeSaved('):native.index('private boolean hasPersistedUserStopMarker(')]
+        self.assertIn('requestGeneration != activeRequestGeneration) return;', start_flow)
+        self.assertIn('activeRequestGeneration != requestGeneration) return;', recovery)
+
+
 if __name__ == '__main__':
     unittest.main()

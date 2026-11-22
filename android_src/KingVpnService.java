@@ -510,7 +510,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 synchronized (lifecycleLock) {
                     // Stop or a newer start can arrive after native startup but before
                     // publication. Never publish a stale CONNECTED event.
-                    if (stopping || userStopped || attempt != activeAttemptId) return;
+                    if (stopping || userStopped || attempt != activeAttemptId
+                            || requestGeneration != activeRequestGeneration) return;
                     if (!saveStateDurably()) {
                         Log.e(TAG, "could not durably persist selected server after connection");
                     }
@@ -574,7 +575,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // foreground update after native startup and tears the tunnel down on failure.
             if (connectFrom(currentIdx, recoveryAttempt, requestGeneration)) {
                 synchronized (lifecycleLock) {
-                    if (stopping || activeAttemptId != recoveryAttempt) return;
+                    if (stopping || activeAttemptId != recoveryAttempt
+                            || activeRequestGeneration != requestGeneration) return;
                     if (!saveStateDurably()) {
                         Log.e(TAG, "could not durably persist restored server index");
                     }
