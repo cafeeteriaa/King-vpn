@@ -3639,5 +3639,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             )
 
 
+    def test_native_durable_state_snapshot_and_commit_share_server_lock(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = native.index('private boolean saveStateDurably()')
+        end = native.index('private boolean loadState()', start)
+        body = native[start:end]
+        lock = body.index('synchronized (lock)')
+        commit = body.index('.commit();')
+        snapshot = body.index('new ArrayList<>(servers)')
+        self.assertLess(lock, snapshot)
+        self.assertLess(snapshot, commit)
+        self.assertIn('return false;', body)
+        self.assertIn('a delayed recovery writer overwrite a newer Start', body)
+
+
 if __name__ == '__main__':
     unittest.main()
