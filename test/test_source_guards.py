@@ -3278,6 +3278,43 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("rt['domainStrategy'] = 'AsIs';", normalize)
 
 
+    def test_pilot_discards_probe_results_spanning_network_handover(self):
+        network = (ROOT / 'lib' / 'network_health.dart').read_text(encoding='utf-8')
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        self.assertIn('bool sameKnownNetworkProbeIdentity(String before, String after)', network)
+        self.assertIn('before.isNotEmpty && after.isNotEmpty && before == after', network)
+        start = engine.index('static Future<NetworkEvidence> _refresh({required bool force}) async {',
+                            engine.index('class PilotNetworkProbe'))
+        end = engine.index('static Future<int?> _probeHttps', start)
+        probe = engine[start:end]
+        self.assertIn('for (var attempt = 0; attempt < 2; attempt++)', probe)
+        self.assertIn('final identityBefore = await _networkIdentity();', probe)
+        self.assertIn('final identityAfter = await _networkIdentity();', probe)
+        self.assertIn('sameKnownNetworkProbeIdentity(identityBefore, identityAfter)', probe)
+        self.assertIn('if (attempt == 0)', probe)
+        self.assertIn('_clearSnapshot();', probe)
+        self.assertIn('network changed repeatedly; snapshot rejected', probe)
+
+    def test_pilot_mode_and_strategy_require_identical_verified_quorums(self):
+        network = (ROOT / 'lib' / 'network_health.dart').read_text(encoding='utf-8')
+        self.assertIn('bool get domesticConfirmed', network)
+        self.assertIn('bool get globalConfirmed', network)
+        self.assertIn('bool get domesticFailed', network)
+        self.assertIn('bool get globalFailed', network)
+        mode_start = network.index('DetectedNetworkMode get mode')
+        mode_end = network.index('acceptsTlsReachability', mode_start)
+        mode = network[mode_start:mode_end]
+        self.assertIn('domesticConfirmed && globalConfirmed', mode)
+        self.assertIn('domesticConfirmed && globalFailed', mode)
+        self.assertIn('globalConfirmed && domesticFailed', mode)
+        self.assertIn('domesticFailed && globalFailed', mode)
+        strategy_start = network.index('PilotNetworkStrategy choosePilotNetworkStrategy')
+        strategy = network[strategy_start:]
+        self.assertIn('final domesticConfirmed = evidence.domesticConfirmed;', strategy)
+        self.assertIn('final globalConfirmed = evidence.globalConfirmed;', strategy)
+        self.assertIn('final domesticFailed = evidence.domesticFailed;', strategy)
+        self.assertIn('final globalFailed = evidence.globalFailed;', strategy)
+
     def test_smart_pilot_requires_fresh_endpoint_evidence_for_standby_switch(self):
         pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
         start = pilot.index('Server? _pilotBestStandby()')
