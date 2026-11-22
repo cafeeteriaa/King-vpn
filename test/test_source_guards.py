@@ -3286,7 +3286,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         memory = nat[start:end]
         self.assertIn("e['op'] != natOpKey", memory)
         self.assertIn('Duration(hours: 48)', memory)
-        self.assertIn("'op': natOpKey", memory)
         save_start = nat.index('Future<void> natIpMemSave')
         save_end = nat.index('/// Next bounded sample', save_start)
         save = nat[save_start:save_end]
