@@ -2789,6 +2789,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('saveState();', recovery)
         self.assertLess(recovery.index('saveStateDurably()'), recovery.index('android.os.Process.killProcess'))
 
+        save_start = native.index('private boolean saveStateDurably()')
+        save_end = native.index('private boolean loadState()', save_start)
+        save = native[save_start:save_end]
+        self.assertIn('synchronized (lock)', save)
+        self.assertIn('new ArrayList<>(servers)', save)
+        self.assertIn('for (Srv s : snapshot)', save)
+        self.assertIn('.commit()', save)
+        self.assertNotIn('for (Srv s : servers)', save)
+
 
     def test_vpn_revocation_persists_stop_before_async_cleanup(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')

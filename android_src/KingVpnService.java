@@ -1325,8 +1325,20 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     /** Persist the complete pending server list before enabling sticky recovery. */
     private boolean saveStateDurably() {
         try {
+            // Snapshot the mutable service state under its owner lock, then perform
+            // JSON serialization and disk I/O without holding that lock.
+            final List<Srv> snapshot;
+            final int snapshotIndex;
+            final boolean snapshotNationalMode;
+            synchronized (lock) {
+                snapshot = new ArrayList<>(servers);
+                snapshotIndex = currentIdx;
+                snapshotNationalMode = nationalMode;
+            }
+            if (snapshot.isEmpty()) return false;
+
             JSONArray arr = new JSONArray();
-            for (Srv s : servers) {
+            for (Srv s : snapshot) {
                 JSONObject o = new JSONObject();
                 o.put("config", s.config);
                 o.put("remark", s.remark);
@@ -1334,10 +1346,11 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 o.put("port", s.port);
                 arr.put(o);
             }
+            int safeIndex = Math.max(0, Math.min(snapshotIndex, snapshot.size() - 1));
             return getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                     .putString("list", arr.toString())
-                    .putInt("idx", currentIdx)
-                    .putBoolean("national", nationalMode)
+                    .putInt("idx", safeIndex)
+                    .putBoolean("national", snapshotNationalMode)
                     .commit();
         } catch (Exception e) {
             Log.e(TAG, "saveStateDurably failed", e);
