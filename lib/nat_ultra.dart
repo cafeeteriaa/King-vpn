@@ -1769,6 +1769,7 @@ Future<void> natIpMemSave(String ip, int port) async {
     logError(e, stk);
   }
 }
+// Legacy entries without an operator key are never trusted for route promotion.
 bool _natHasVerifiedOperatorKey(String key) {
   final marker = key.lastIndexOf('|AS');
   if (marker <= 0) return false;
