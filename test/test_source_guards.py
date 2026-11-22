@@ -3284,7 +3284,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = nat.index("const String _ipMemKey = 'natIpMem_domestic_v2';")
         end = nat.index('Future<void> natDomMemLoad', start)
         memory = nat[start:end]
-        self.assertIn("e['op'] == natOpKey", memory)
+        self.assertIn("e['op'] != natOpKey", memory)
         self.assertIn('Duration(hours: 48)', memory)
         self.assertIn("if (e['op'] == natOpKey", memory)
         self.assertIn("'op': natOpKey", memory)
