@@ -1769,6 +1769,37 @@ Future<void> natIpMemSave(String ip, int port) async {
     logError(e, stk);
   }
 }
+bool _natHasVerifiedOperatorKey(String key) {
+  final marker = key.lastIndexOf('|AS');
+  if (marker <= 0) return false;
+  final digits = key.substring(marker + 3);
+  return digits.length >= 3 &&
+      digits.length <= 7 &&
+      digits.codeUnits.every((c) => c >= 48 && c <= 57);
+}
+
+Set<String> natDomMemHosts({DateTime? now}) {
+  final at = now ?? DateTime.now();
+  final cutoff = at.subtract(_domMemTtl).millisecondsSinceEpoch;
+  if (!_natHasVerifiedOperatorKey(natOpKey)) return <String>{};
+  final hosts = <String>{};
+  for (final e in natDomMem) {
+    final rawTime = e['t'];
+    final host = e['h'];
+    final port = e['port'];
+    if (e['op'] != natOpKey ||
+        rawTime is! num ||
+        host is! String ||
+        port is! num) {
+      continue;
+    }
+    final timestamp = rawTime.toInt();
+    if (timestamp > at.millisecondsSinceEpoch || timestamp < cutoff) continue;
+    hosts.add(host + ':' + port.toInt().toString());
+  }
+  return hosts;
+}
+
 Future<void> natDomMemLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
