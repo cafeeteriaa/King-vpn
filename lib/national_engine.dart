@@ -7,7 +7,7 @@ part of 'main.dart';
 /// Bounded, privacy-preserving history. Only a SHA-256 key is persisted, never
 /// the raw V2Ray link, UUID, password, server name, or full endpoint string.
 class NationalNetworkIntelligence {
-  static const String _prefsKey = 'nnie_profiles_v2'; // v2: key includes transport + TLS
+  static const String _prefsKey = 'nnie_profiles_v3'; // v3: endpoint + transport + TLS + domestic/global scope
   static const int _maxEntries = 500;
   static Map<String, NatEndpointMemory> _memory = <String, NatEndpointMemory>{};
   static bool _loaded = false;
@@ -40,9 +40,11 @@ class NationalNetworkIntelligence {
     }
   }
 
-  /// Key = hash(transport + TLS flag + canonical endpoint). The raw link is never stored.
-  static String keyOfServer(Server s) =>
-      keyFor(s.key, '${s.net}|${s.tls ? 'tls' : 'plain'}');
+  /// Key = hash(network scope + transport + TLS flag + canonical endpoint).
+  /// Domestic and global tunnel outcomes must never train each other's ranking.
+  /// The raw link is never stored; old v2 mixed-scope history is intentionally not reused.
+  static String keyOfServer(Server s, {required bool nationalMode}) =>
+      keyFor(s.key, '${nationalMode ? 'domestic' : 'global'}|${s.net}|${s.tls ? 'tls' : 'plain'}');
 
   static String keyFor(String canonicalEndpoint, String transport) {
     final raw = '${transport.toLowerCase()}|${canonicalEndpoint.trim().toLowerCase()}';
