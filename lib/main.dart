@@ -4900,7 +4900,7 @@ Future<String?> dohResolve(String name) async {
   final at = _dohCacheAt[name];
   if (c != null && at != null && DateTime.now().difference(at) < const Duration(minutes: 10)) return c;
   // NATOPT: جهانی قطع است → DoH خارجی جواب نمی‌دهد؛ فقط کش (هر سنی) و بدون انتظار
-  if (NatNetworkDiagnosis.preferDomestic) return c;
+  if (pilotPrefersDomesticRoute) return c;
   if (_dohFail >= 6) {
     final failAt = _dohFailAt;
     if (failAt != null && DateTime.now().difference(failAt) < const Duration(minutes: 5)) {
@@ -6313,7 +6313,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (v[2] == 1) srcReal.add(k);
         });
       }
-      final pj = p.getString('prof');
+      final pj = p.getString('prof_route_v2');
       if (pj != null) {
         (jsonDecode(pj) as Map).forEach((k, v) {
           profTested[k as String] = (v[0] as num).toInt();
@@ -6675,9 +6675,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   // ---------- smart ordering (no extra parallel tests needed) ----------
-  String _profKey(Server s) =>
-      '$natOpKey|${s.link.split('://').first.toLowerCase()}|${s.net}|'
-      '${s.reality ? 'r' : (s.tls ? 't' : 'n')}|${s.port == 443 ? '443' : 'x'}';
+  String _profKey(Server s) => networkScopedProfileKey(
+        '$natOpKey|${s.link.split('://').first.toLowerCase()}|${s.net}|'
+        '${s.reality ? 'r' : (s.tls ? 't' : 'n')}|${s.port == 443 ? '443' : 'x'}',
+        nationalMode: nationalMode,
+      );
 
   // learned success rate of this kind of server on this network (0..1)
   double _profRate(Server s) {
@@ -7217,7 +7219,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             if (ui < unknownPart.length) cand.add(unknownPart[ui++]);
           }
           // NNIE-DOM: جهانی قطع و نت ملی باز → منبع ایران‌محور و سرور IR جلوتر (ترتیب داخل هر گروه حفظ می‌شود)
-          if (NatNetworkDiagnosis.preferDomestic) cand = _natDomesticFirstKeepWinners(cand);
+          if (pilotPrefersDomesticRoute) cand = _natDomesticFirstKeepWinners(cand);
         }
         final batch = _mixBatch(cand, size);
         _set('ردیف ${row ?? 'همه'} • '
@@ -7529,7 +7531,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         return 2;
       }
       natStableSort(alive, (a, b) => natRank(a).compareTo(natRank(b)));
-      if (NatNetworkDiagnosis.preferDomestic) {
+      if (pilotPrefersDomesticRoute) {
         final reordered = _natDomesticFirstKeepWinners(alive); // NNIE-DOM
         alive..clear()..addAll(reordered);
       }
@@ -14606,7 +14608,7 @@ ListTile( // KINGEXTRAS row
               k: [srcRate[k], srcAt[k] ?? 0, srcReal.contains(k) ? 1 : 0]
           }));
       await p.setString(
-          'prof',
+          'prof_route_v2',
           jsonEncode({
             for (final k in profTested.keys) k: [profTested[k], profOk[k] ?? 0]
           }));
