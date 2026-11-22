@@ -126,7 +126,7 @@ class MainActivity : FlutterActivity() {
                             engineAttached && !isFinishing && !isDestroyed
                         )
                         "kingVpnTunnelActive" -> {
-                            // This is the plugin's own service/core state, not another app's VPN.
+                            // This proves plugin daemon-process liveness only, not Xray core health or traffic flow.
                             result.success(V2rayVPNService.isKingVpnTunnelActive(this))
                         }
                         "back" -> {
