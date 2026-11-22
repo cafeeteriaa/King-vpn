@@ -80,3 +80,13 @@
 - The plugin's status callbacks still have no attempt identifiers; do not claim native event-level generation tagging. Existing Dart waiter generation guards remain.
 - No real device, operator-network, production-signing, or install-ready APK validation is claimed.
 - Next: poll exact-head CI; audit DISCONNECTED callback/downSig ordering and superseded stop waiters; inspect `_verifyPendingConnect` timeout/cancellation behavior; continue IPv4/IPv6 DNS and route-bypass audit.
+
+
+## Latest continuation — 2026-11-22 (stop-event attribution safety)
+- Verified current pre-change HEAD `5bae3ddd34148b2317532faeb7bab424664166c3` with CI run `44986967528`: Source-repair guard, Flutter unit tests, Dart analysis, optimized arm64 release-mode APK build, and APK/source/symbol artifact uploads all completed successfully. Artifact is debug-key signed and is not a production-signed or device-validated release.
+- CI artifacts: arm64 APK artifact `14740387981` (archive digest `sha256:0ccfd7216c5071aa2bc7b226a023ec349499fdad6bb39e17da083404a28fc3f5`); full source `14739899130`; symbols `14740596932`.
+- Audit found `downSig` was completed by any plugin `DISCONNECTED` callback while a stop waiter existed. Since FlutterV2ray status events have no attempt IDs, an old callback could be misattributed to a later stop and prematurely shorten teardown.
+- Removed the unattributed `downSig` completion path. `_stopCoreInner` now awaits the plugin stop request, applies a conservative fixed 2.2-second teardown grace, and always leaves `_staleCoreMayBeUp` enabled. A subsequent CONNECTED event must pass the existing real traffic probe through the core proxy before it can satisfy the active connect waiter.
+- Added source guard `test_plugin_stop_does_not_trust_unattributed_disconnected_event`. This is a source-level race mitigation; plugin events still cannot be correlated to native attempts, and real-device lifecycle testing remains necessary.
+- New commit is not yet CI-validated; do not carry forward the previous HEAD's CI result to this commit.
+- No device/operator validation or production signing is claimed. PR #42 remains open Draft; do not merge.

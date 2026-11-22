@@ -2932,8 +2932,6 @@ int _connGen = 0;
 // FIX #107: true when a stop gave up waiting for DISCONNECTED, so an old core may still send a
 // late CONNECTED. While this is true, a CONNECTED only completes the waiter after a real traffic check.
 bool _staleCoreMayBeUp = false;
-// جدید: completes when the V2Ray core really reports DISCONNECTED
-Completer<bool>? downSig;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -5416,11 +5414,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         totalUp = (d.upload as num?)?.toInt() ?? totalUp;
       } catch (e, stk) { logError(e, stk); }
       dbgState(st.state);
-      if (st.state == 'DISCONNECTED' &&
-          downSig != null &&
-          !downSig!.isCompleted) {
-        downSig!.complete(true);
-      }
       // LIVEQUIET جدید: تا ۹۰ ثانیه بعد از وصل شدن تونل، تست‌های هسته‌ی پس‌زمینه
       // (getServerDelay، یک نمونه‌ی Xray دوم داخل همان پروسه) اجرا نمی‌شوند؛
       // در لاگ، قطع‌های ۲ تا ۱۲ ثانیه‌ای دقیقاً همین‌جا رخ می‌داد.
@@ -5939,30 +5932,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           DateTime.now().difference(_lastOwnStop!) < const Duration(seconds: 6));
 
   Future<void> _stopCoreInner() async {
-    // جدید: wait for the real DISCONNECTED event (not just a fixed delay), so
-    // the next start can never race with the old VPN service still closing
-    final wasUp = lastState == 'CONNECTED' || lastState == 'CONNECTING';
-    if (wasUp) downSig = Completer<bool>();
+    // FlutterV2ray status events have no attempt identifier. A late DISCONNECTED
+    // from an older core can therefore complete a newer stop waiter incorrectly.
+    // Treat stopV2Ray's completed method call only as a shutdown request, never as
+    // proof of a correlated DISCONNECTED event. Keep the stale-core traffic fence
+    // enabled for every restart; CONNECTED must pass a real core-proxy probe.
     await _stopV2();
-    var gotDown = !wasUp;
-    if (wasUp && downSig != null) {
-      // RARE BUG FIX: complete on timeout so a late DISCONNECTED cannot
-      // complete a future stop's downSig
-      final waitDown = downSig!;
-      gotDown = await waitDown.future
-          .timeout(const Duration(seconds: 5), onTimeout: () {
-        if (!waitDown.isCompleted) waitDown.complete(false);
-        return false;
-      });
-    }
-    downSig = null;
-    // FIX #107: a stop that timed out leaves a core that may still report CONNECTED later
-    _staleCoreMayBeUp = !gotDown;
-    // a stale CONNECTED must not stay behind after a stop
+    _staleCoreMayBeUp = true;
     lastState = 'DISCONNECTED';
-    // Android needs a moment to tear the old VPN service down, or the next
-    // start can hang in CONNECTING and run without a tunnel (no key icon)
-    await Future.delayed(Duration(milliseconds: gotDown ? 1200 : 2200));
+    // Conservative teardown grace: do not shorten it based on an unattributed event.
+    await Future.delayed(const Duration(milliseconds: 2200));
   }
 
   // ---------- cache ----------

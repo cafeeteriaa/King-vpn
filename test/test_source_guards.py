@@ -2846,5 +2846,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(fence, complete)
 
 
+    def test_plugin_stop_does_not_trust_unattributed_disconnected_event(self):
+        dart = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertNotIn('downSig', dart)
+        start = dart.index('Future<void> _stopCoreInner()')
+        end = dart.index('// ---------- cache ----------', start)
+        stop = dart[start:end]
+        stop_request = stop.index('await _stopV2();')
+        stale_fence = stop.index('_staleCoreMayBeUp = true;')
+        state_reset = stop.index("lastState = 'DISCONNECTED';")
+        grace = stop.index('Duration(milliseconds: 2200)') if 'Duration(milliseconds: 2200)' in stop else stop.index('Duration(milliseconds: 2200')
+        self.assertLess(stop_request, stale_fence)
+        self.assertLess(stale_fence, state_reset)
+        self.assertLess(state_reset, grace)
+        self.assertIn('const Duration(milliseconds: 2200)', stop)
+
+
+
 if __name__ == '__main__':
     unittest.main()
