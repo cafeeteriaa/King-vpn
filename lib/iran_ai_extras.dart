@@ -523,10 +523,10 @@ extension HomeExtras on _HomePageState {
     sb.writeln('National diagnosis: ${natNetworkClassLabel(NatNetworkDiagnosis.current)}');
     if (c != null) {
       final history = NationalNetworkIntelligence.memoryFor(
-          NationalNetworkIntelligence.keyOfServer(c));
+          NationalNetworkIntelligence.keyOfServer(c, nationalMode: nationalMode));
       sb.writeln('Current endpoint history: success=${history.successes}/${history.attempts} '
           'failStreak=${history.failStreak} stable=${history.stableSuccesses} '
-          'score=${NationalNetworkIntelligence.scoreFor(NationalNetworkIntelligence.keyOfServer(c)).toStringAsFixed(1)}');
+          'score=${NationalNetworkIntelligence.scoreFor(NationalNetworkIntelligence.keyOfServer(c, nationalMode: nationalMode)).toStringAsFixed(1)}');
     }
     return 'You are a network assistant inside a censorship-circumvention VPN '
         'client used in Iran. Use only the measured statistics and the independent domestic/global TLS evidence above. '
@@ -1815,7 +1815,7 @@ extension HomeExtras on _HomePageState {
     }
     // Verified historical tunnel outcomes decay independently in NNIE.
     final learned = NationalNetworkIntelligence.scoreFor(
-      NationalNetworkIntelligence.keyOfServer(s),
+      NationalNetworkIntelligence.keyOfServer(s, nationalMode: nationalMode),
     );
     score += (learned.clamp(-20.0, 100.0) * 0.25).toDouble();
     score += (_profRate(s) - 0.5) * 30;
