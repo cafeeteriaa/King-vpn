@@ -1428,7 +1428,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('requestStop();', restart)
         self.assertLess(action_start.index('if (!startForegroundSafe(first.remark))'),
                         action_start.index('submit(() -> startFlow(first, backups, attempt))'))
-        failure = action_start[action_start.index('if (!startForegroundSafe(first.remark))':
+        failure = action_start[action_start.index('if (!startForegroundSafe(first.remark))'):
                                action_start.index('final int attempt = activeAttemptId')]
         self.assertIn('emit("FAILED", lastError, activeAttemptId);', failure)
         self.assertIn('return START_NOT_STICKY;', failure)
