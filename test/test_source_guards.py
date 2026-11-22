@@ -3471,8 +3471,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = native.index('if (!ACTION_START.equals(action))')
         end = native.index('String json = intent.getStringExtra(EXTRA_CONFIG);', start)
         branch = native[start:end]
-        self.assertIn('requestStop();', branch)
-        self.assertIn('if (!persistUserStopMarker(true) && !clearStateDurably())', branch)
+        self.assertIn('requestStopAndPersist("unknown service action")', branch)
+        self.assertNotIn('persistUserStopMarker(true)', branch)
         self.assertIn('submit(this::stopEverything);', branch)
         self.assertIn('return START_NOT_STICKY;', branch)
         self.assertNotIn('stopForeground(true);', branch)
@@ -3484,10 +3484,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = native.index('if (ACTION_STOP.equals(action))')
         end = native.index('if (!ACTION_START.equals(action))', start)
         stop = native[start:end]
-        self.assertIn('if (!persistUserStopMarker(true) && !clearStateDurably())', stop)
-        self.assertIn('STOP command could not persist stop latch or erase recovery state', stop)
-        self.assertLess(stop.index('requestStop();'), stop.index('persistUserStopMarker(true)'))
-        self.assertLess(stop.index('clearStateDurably()'), stop.index('submit(this::stopEverything);'))
+        self.assertIn('requestStopAndPersist("STOP command")', stop)
+        self.assertNotIn('persistUserStopMarker(true)', stop)
+        self.assertLess(stop.index('requestStopAndPersist("STOP command")'),
+                        stop.index('submit(this::stopEverything);'))
 
 
     def test_sticky_recovery_rejects_invalid_state_without_partial_mutation(self):
@@ -3658,6 +3658,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
                 reason,
             )
 
+
+    def test_native_stop_marker_write_is_atomic_with_lifecycle_invalidation(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = native.index('private void requestStopAndPersist(String context)')
+        end = native.index('private boolean persistStopStateIfCurrent', start)
+        helper = native[start:end]
+        self.assertIn('synchronized (lifecycleLock)', helper)
+        self.assertLess(helper.index('requestStop();'), helper.index('persistUserStopMarker(true)'))
+        self.assertIn('clearStateDurably()', helper)
+
+    def test_native_delayed_failure_cannot_invalidate_newer_start_recovery(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = native.index('private void invalidateRecoveryAfterStartFailure(String reason)')
+        end = native.index('private void requestStopAndPersist', start)
+        helper = native[start:end]
+        self.assertIn('synchronized (lifecycleLock)', helper)
+        self.assertIn('attemptSeq.get() != requestedStopGeneration', helper)
+        self.assertIn('skipping stale recovery invalidation', helper)
 
     def test_native_durable_state_snapshot_and_commit_share_server_lock(self):
         native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')

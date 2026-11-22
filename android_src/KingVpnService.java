@@ -234,10 +234,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     /** جدید: stop requested by the app while it is in the background. */
     public void stopFromApp() {
-        requestStop();
-        if (!persistUserStopMarker(true) && !clearStateDurably()) {
-            Log.e(TAG, "app stop could not persist stop marker or clear recovery state");
-        }
+        requestStopAndPersist("app stop");
         submit(this::stopEverything);
     }
 
@@ -330,10 +327,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // Invalidate in-flight startup under lifecycleLock before persisting the
             // stop latch. A worker may release the latch only while holding that same
             // lock and proving its request is still current.
-            requestStop();
-            if (!persistUserStopMarker(true) && !clearStateDurably()) {
-                Log.e(TAG, "STOP command could not persist stop latch or erase recovery state");
-            }
+            requestStopAndPersist("STOP command");
+
             submit(this::stopEverything);
             return START_NOT_STICKY;
         }
@@ -343,10 +338,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // Android eventually destroys the service, and must not permit sticky
             // recovery to resurrect the previous session.
             Log.w(TAG, "unknown VPN service action; stopping current session");
-            requestStop();
-            if (!persistUserStopMarker(true) && !clearStateDurably()) {
-                Log.e(TAG, "unknown action could not persist stop intent or clear recovery state");
-            }
+            requestStopAndPersist("unknown service action");
+
             submit(this::stopEverything);
             return START_NOT_STICKY;
         }
@@ -532,7 +525,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 lastError = "no server could be started";
                 Log.e(TAG, lastError);
                 emit("FAILED", lastError, attempt);
-                if (!persistUserStopMarker(true) && !clearStateDurably()) {
+                if (!persistStopStateIfCurrent("all servers failed")) {
                     Log.e(TAG, "could not persist stop intent after all servers failed");
                 }
                 stopEverything();
@@ -622,11 +615,49 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      */
     private void invalidateRecoveryAfterStartFailure(String reason) {
         lastError = reason;
-        boolean markerSaved = persistUserStopMarker(true);
-        boolean stateCleared = clearStateDurably();
-        if (!markerSaved || !stateCleared) {
-            Log.e(TAG, "failed to fully invalidate sticky recovery after start failure"
-                    + " (markerSaved=" + markerSaved + ", stateCleared=" + stateCleared + ")");
+        synchronized (lifecycleLock) {
+            // A delayed failure from an obsolete Start must not invalidate a newer
+            // Start's recovery state. requestStopIfCurrent()/requestStop() owns this
+            // exact stop generation before the durable writes are allowed.
+            if (!stopping || !userStopped || attemptSeq.get() != requestedStopGeneration) {
+                Log.i(TAG, "skipping stale recovery invalidation: " + reason);
+                return;
+            }
+            boolean markerSaved = persistUserStopMarker(true);
+            boolean stateCleared = clearStateDurably();
+            if (!markerSaved || !stateCleared) {
+                Log.e(TAG, "failed to fully invalidate sticky recovery after start failure"
+                        + " (markerSaved=" + markerSaved + ", stateCleared=" + stateCleared + ")");
+            }
+        }
+    }
+
+    /**
+     * Persist an explicit Stop while holding lifecycleLock across both ownership
+     * invalidation and the durable write. Without this critical section, a delayed
+     * Stop marker can overwrite a newer Start's later user_stopped=false commit.
+     */
+    private void requestStopAndPersist(String context) {
+        synchronized (lifecycleLock) {
+            requestStop();
+            if (!persistUserStopMarker(true) && !clearStateDurably()) {
+                Log.e(TAG, context + " could not persist stop marker or clear recovery state");
+            }
+        }
+    }
+
+    /** Persist only if the currently active stop generation still owns the service. */
+    private boolean persistStopStateIfCurrent(String context) {
+        synchronized (lifecycleLock) {
+            if (!stopping || !userStopped || attemptSeq.get() != requestedStopGeneration) {
+                Log.i(TAG, "skipping stale stop-state persistence: " + context);
+                return false;
+            }
+            if (!persistUserStopMarker(true) && !clearStateDurably()) {
+                Log.e(TAG, context + " could not persist stop marker or clear recovery state");
+                return false;
+            }
+            return true;
         }
     }
 
@@ -704,7 +735,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                     final boolean ownsStop =
                             requestStopIfCurrent(requestAttempt, requestGeneration);
                     if (!ownsStop) return false;
-                    if (!persistUserStopMarker(true) && !clearStateDurably()) {
+                    if (!persistStopStateIfCurrent("foreground update failure")) {
                         Log.e(TAG, "foreground failure could not persist stop intent or clear recovery state");
                     }
                     stopEverything();
@@ -1572,10 +1603,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         // Fence any in-flight start before writing the durable stop marker. If the
         // marker were written first, a racing start worker could clear it after its
         // config commit and briefly re-enable sticky recovery after VPN revocation.
-        requestStop();
-        if (!persistUserStopMarker(true) && !clearStateDurably()) {
-            Log.e(TAG, "VPN revocation could not persist stop marker or clear recovery state");
-        }
+        requestStopAndPersist("VPN revocation");
         submit(this::stopEverything);
     }
 
