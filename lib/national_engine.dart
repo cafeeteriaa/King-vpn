@@ -332,9 +332,11 @@ class PilotNetworkProbe {
     if (identity.isEmpty || _lastIdentity != identity) return false;
     final at = _lastAt;
     if (at == null) return false;
-    final age = DateTime.now().difference(at);
-    return !age.isNegative &&
-        age <= const Duration(minutes: 2) &&
+    return isNetworkProbeEvidenceFresh(
+          checkedAt: at,
+          now: DateTime.now(),
+          ttl: const Duration(minutes: 2),
+        ) &&
         _last.domesticConfirmed &&
         _last.globalFailed;
   }
