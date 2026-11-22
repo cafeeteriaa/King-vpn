@@ -1407,35 +1407,32 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = service.index('public int onStartCommand(Intent intent')
         end = service.index('/** Runs a task on the single worker thread', start)
         command = service[start:end]
-        restart = command[command.index('if (intent == null)'):command.index('String action = intent.getAction()')]
+        restart = command[command.index('if (intent == null)'):command.index('// Any non-null intent')]
         stop = command[command.index('if (ACTION_STOP.equals(action))'):command.index('if (!ACTION_START.equals(action))')]
-        self.assertLess(restart.index('startForegroundSafe('), restart.index('submit(this::resumeSaved)'))
+        self.assertLess(restart.index('startForegroundSafe('), restart.index('submit(() -> resumeSaved(0))'))
         self.assertLess(stop.index('startForegroundSafe('), stop.index('submit(this::stopEverything)'))
-
     def test_vpn_service_refuses_start_when_foreground_promotion_fails(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = service.index('public int onStartCommand(Intent intent')
         end = service.index('/** Runs a task on the single worker thread', start)
         command = service[start:end]
-        restart = command[command.index('if (intent == null)'):command.index('String action = intent.getAction()')]
+        restart = command[command.index('if (intent == null)'):command.index('// Any non-null intent')]
         action_start = command[command.index('if (!ACTION_START.equals(action))'):]
 
         self.assertIn('private boolean startForegroundSafe(String remark)', service)
         self.assertIn('private boolean updateNotification(String text)', service)
-        self.assertIn('return true;', service[service.index('private boolean updateNotification'):])
-        self.assertIn('return false;', service[service.index('private boolean updateNotification'):])
-        self.assertLess(restart.index('if (!startForegroundSafe('), restart.index('submit(this::resumeSaved)'))
+        update = service[service.index('private boolean updateNotification'):service.index('private void stopEverything()')]
+        self.assertIn('return true;', update)
+        self.assertIn('return false;', update)
+        self.assertLess(restart.index('if (!startForegroundSafe('), restart.index('submit(this::stopEverything)'))
         self.assertIn('requestStop();', restart)
-        self.assertIn('submit(this::stopEverything);', restart)
         self.assertLess(action_start.index('if (!startForegroundSafe(first.remark))'),
                         action_start.index('submit(() -> startFlow(first, backups, attempt))'))
-        failure = action_start[action_start.index('if (!startForegroundSafe(first.remark))'):
+        failure = action_start[action_start.index('if (!startForegroundSafe(first.remark))':
                                action_start.index('final int attempt = activeAttemptId')]
         self.assertIn('emit("FAILED", lastError, activeAttemptId);', failure)
         self.assertIn('return START_NOT_STICKY;', failure)
         self.assertIn('Unable to enter foreground mode', failure)
-
-
     def test_vpn_service_serializes_worker_submission_and_shutdown(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         submit_start = service.index('private void submit(Runnable r)')
@@ -2742,7 +2739,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = service.index('public int onStartCommand(')
         null_branch = service.index('if (intent == null)', start)
         marker_check = service.index('hasPersistedUserStopMarker()', null_branch)
-        resume = service.index('submit(this::resumeSaved)', null_branch)
+        resume = service.index('submit(() -> resumeSaved(0))', null_branch)
         self.assertLess(null_branch, marker_check)
         self.assertLess(marker_check, resume)
         stop_branch = service.index('if (ACTION_STOP.equals(action))', start)
@@ -2757,8 +2754,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(clear_failure, start_submit)
         helper = service.index('private boolean hasPersistedUserStopMarker()')
         self.assertIn('return true;', service[helper:service.index('private void requestStop()', helper)])
-
-
     def test_vpn_revocation_persists_stop_before_async_cleanup(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = service.index('public void onRevoke()')
@@ -2777,7 +2772,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         null_branch = service.index('if (intent == null)', start)
         consent = service.index('VpnService.prepare(this) != null', null_branch)
         foreground = service.index('startForegroundSafe("در حال بازیابی اتصال…")', null_branch)
-        resume = service.index('submit(this::resumeSaved)', null_branch)
+        resume = service.index('submit(() -> resumeSaved(0))', null_branch)
         durable_clear = service.index('clearStateDurably();', consent)
         refuse = service.index('return START_NOT_STICKY;', durable_clear)
         self.assertLess(consent, foreground)
@@ -2785,8 +2780,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(refuse, resume)
         helper = service.index('private boolean clearStateDurably()')
         self.assertIn('.commit()', service[helper:service.index('private int getScore', helper)])
-
-
     def test_vpn_stop_cannot_be_overwritten_by_late_connect_success(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         lifecycle = service.index('private final Object lifecycleLock')
@@ -2807,20 +2800,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         stop = service.index('private void stopEverything()')
         generation = service.index('stopGeneration = attemptSeq.incrementAndGet();', stop)
-        cleanup = service.index('clearState();', generation)
-        final_lock = service.index('synchronized (lifecycleLock)', cleanup)
-        conditional = service.index('if (attemptSeq.get() == stopGeneration) stopping = false;', final_lock)
-        emit = service.index('emit("STOPPED"', conditional)
+        final_lock = service.index('synchronized (lifecycleLock)', generation)
+        guard = service.index('if (attemptSeq.get() != stopGeneration)', final_lock)
+        cleanup = service.index('clearState();', guard)
+        servers = service.index('servers.clear();', cleanup)
+        stop_self = service.index('stopSelfResult(latestStartId);', servers)
+        stopping_reset = service.index('stopping = false;', stop_self)
+        emit = service.index('emit("STOPPED"', stopping_reset)
         request = service.index('private void requestStop()')
         request_end = service.index('private boolean connectFrom(', request)
         request_increment = service.index('attemptSeq.incrementAndGet();', request)
-        self.assertLess(generation, cleanup)
-        self.assertLess(cleanup, final_lock)
-        self.assertLess(final_lock, conditional)
+        self.assertLess(generation, final_lock)
+        self.assertLess(final_lock, guard)
+        self.assertLess(guard, cleanup)
+        self.assertLess(cleanup, servers)
+        self.assertLess(stop_self, stopping_reset)
         self.assertLess(request_increment, request_end)
-        self.assertLess(conditional, emit)
-
-
+        self.assertLess(stopping_reset, emit)
+        self.assertIn('return;', service[guard:cleanup])
     def test_vpn_start_flow_never_emits_connected_after_stop(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         flow = service.index('private void startFlow(')
@@ -3336,8 +3333,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start_block = native[start:start_end]
         self.assertIn('activeAttemptId = intent.getIntExtra(EXTRA_ATTEMPT, 0);', start_block)
         self.assertIn('attemptSeq.incrementAndGet();', start_block)
+        self.assertIn('userStopped = false;', start_block)
+        self.assertIn('stopping = false;', start_block)
         flow_start = native.index('private void startFlow(')
-        flow_end = native.index('private void resumeSaved()', flow_start)
+        flow_end = native.index('private void resumeSaved(int recoveryAttempt)', flow_start)
         flow = native[flow_start:flow_end]
         self.assertIn('if (stopping || attempt != activeAttemptId) return;', flow)
         self.assertIn('connectFrom(0, attempt)', flow)
@@ -3347,8 +3346,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         connect = native[connect_start:connect_end]
         self.assertIn('requestAttempt != activeAttemptId', connect)
         self.assertIn('if (stopping || userStopped', connect)
-
-
     def test_native_explicit_start_clears_stopping_and_advances_lifecycle_generation(self):
         native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = native.index('// A newer explicit start supersedes any in-flight native bringUp immediately.')
