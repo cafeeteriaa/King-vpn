@@ -3373,5 +3373,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('latestStartId = startId;', native[on_start:on_start_end])
 
 
+    def test_native_sticky_recovery_is_superseded_by_newer_explicit_start(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertIn('submit(() -> resumeSaved(0));', native)
+        start = native.index('private void resumeSaved(int recoveryAttempt)')
+        end = native.index('private boolean persistUserStopMarker', start)
+        recovery = native[start:end]
+        self.assertIn('activeAttemptId != recoveryAttempt', recovery)
+        self.assertIn('connectFrom(currentIdx, recoveryAttempt)', recovery)
+        self.assertIn('stopSelfResult(latestStartId);', recovery)
+        self.assertNotIn('stopSelf();', recovery)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -295,7 +295,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             }
             // No Dart attempt is waiting for it, so its status uses attempt 0 (accepted by all).
             activeAttemptId = 0;
-            submit(this::resumeSaved);
+            submit(() -> resumeSaved(0));
             return START_STICKY;
         }
         // Any non-null intent may have been delivered through startForegroundService().
@@ -452,19 +452,29 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
     }
 
-    private void resumeSaved() {
+    private void resumeSaved(int recoveryAttempt) {
         synchronized (lock) {
-            if (stopping) return;
+            // Sticky recovery is lower priority than any explicit Start/Stop received
+            // after Android queued this restore operation.
+            if (stopping || activeAttemptId != recoveryAttempt) return;
             if (!loadState()) {
-                stopSelf();
+                synchronized (lifecycleLock) {
+                    if (activeAttemptId == recoveryAttempt && !stopping) {
+                        stopSelfResult(latestStartId);
+                    }
+                }
                 return;
             }
             startForegroundSafe(servers.get(currentIdx).remark);
-            if (connectFrom(currentIdx)) {
-                saveState();
-                startWatchdog(CHECK_EVERY_SEC);
+            if (connectFrom(currentIdx, recoveryAttempt)) {
+                synchronized (lifecycleLock) {
+                    if (stopping || activeAttemptId != recoveryAttempt) return;
+                    saveState();
+                    startWatchdog(CHECK_EVERY_SEC);
+                }
                 return;
             }
+            if (stopping || activeAttemptId != recoveryAttempt) return;
             stopEverything();
         }
     }
