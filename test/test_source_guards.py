@@ -2732,5 +2732,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('return true;', service[helper:service.index('private void requestStop()', helper)])
 
 
+    def test_vpn_revocation_persists_stop_before_async_cleanup(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = service.index('public void onRevoke()')
+        end = service.index('public void onDestroy()', start)
+        revoke = service[start:end]
+        persist = revoke.index('persistUserStopMarker(true);')
+        stop = revoke.index('requestStop();')
+        cleanup = revoke.index('submit(this::stopEverything);')
+        self.assertLess(persist, stop)
+        self.assertLess(stop, cleanup)
+
+
 if __name__ == '__main__':
     unittest.main()

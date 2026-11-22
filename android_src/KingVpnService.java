@@ -1247,7 +1247,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     @Override
     public void onRevoke() {
-        // Another VPN took over: stop our core and free the TUN, without blocking the main thread.
+        // Another VPN took over or Android revoked our VPN consent. Persist the revocation
+        // before async cleanup so a sticky restart cannot resurrect a tunnel without consent.
+        persistUserStopMarker(true);
         requestStop();
         submit(this::stopEverything);
     }
