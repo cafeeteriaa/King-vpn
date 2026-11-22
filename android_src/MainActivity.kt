@@ -1,9 +1,7 @@
 package com.kingvpn.king_vpn
 
-import android.content.Context
+import dev.amirzr.flutter_v2ray_client.v2ray.services.V2rayVPNService
 import android.content.Intent
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -127,16 +125,9 @@ class MainActivity : FlutterActivity() {
                         "alive" -> result.success(
                             engineAttached && !isFinishing && !isDestroyed
                         )
-                        "vpnTransportUp" -> {
-                            val connectivityManager =
-                                getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-                            val activeNetwork = connectivityManager?.activeNetwork
-                            val capabilities = activeNetwork?.let {
-                                connectivityManager?.getNetworkCapabilities(it)
-                            }
-                            result.success(
-                                capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
-                            )
+                        "kingVpnTunnelActive" -> {
+                            // This is the plugin's own service/core state, not another app's VPN.
+                            result.success(V2rayVPNService.isKingVpnTunnelActive())
                         }
                         "back" -> {
                             moveTaskToBack(true)

@@ -3094,26 +3094,29 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('kVpnLastStateTop', main)
 
 
-    def test_tun_detection_prefers_android_vpn_transport_with_interface_fallback(self):
+    def test_tun_detection_uses_flutter_v2ray_owned_service_state(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         native = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
-        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        plugin_patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
 
         start = main.index('Future<bool?> tunUp()')
         end = main.index('// real ping:', start)
         tun = main[start:end]
-        self.assertIn("invokeMethod<bool>('vpnTransportUp')", tun)
-        self.assertIn("if (nativeVpn == true)", tun)
-        self.assertIn("tunNames = 'android:TRANSPORT_VPN';", tun)
+        self.assertIn("invokeMethod<bool>('kingVpnTunnelActive')", tun)
+        self.assertIn('if (nativeVpn != null)', tun)
+        self.assertIn('return nativeVpn;', tun)
+        self.assertIn("tunNames = nativeVpn ? 'android:KINGVPN_TUN' : 'android:KINGVPN_INACTIVE';", tun)
         self.assertIn("catch (_nativeTunError)", tun)
         self.assertIn('NetworkInterface.list(includeLoopback: false)', tun)
-        self.assertLess(tun.index("invokeMethod<bool>('vpnTransportUp')"),
+        self.assertLess(tun.index("invokeMethod<bool>('kingVpnTunnelActive')"),
                         tun.index('NetworkInterface.list(includeLoopback: false)'))
 
-        self.assertIn('"vpnTransportUp" ->', native)
-        self.assertIn('NetworkCapabilities.TRANSPORT_VPN', native)
-        self.assertIn('ConnectivityManager', native)
-        self.assertIn("'android.permission.ACCESS_NETWORK_STATE'", prepare)
+        self.assertIn('V2rayVPNService.isKingVpnTunnelActive()', native)
+        self.assertIn('import dev.amirzr.flutter_v2ray_client.v2ray.services.V2rayVPNService', native)
+        self.assertNotIn('NetworkCapabilities.TRANSPORT_VPN', native)
+        self.assertIn('kingVpnTunnelActive = true;', plugin_patch)
+        self.assertIn('kingVpnTunnelActive = false;', plugin_patch)
+        self.assertIn('isV2rayCoreRunning()', plugin_patch)
 
     def test_iran_geoip_routing_strategy_survives_reliable_config_normalization(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')

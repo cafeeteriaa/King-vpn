@@ -4147,14 +4147,15 @@ Future<bool> waitProxyPort(
 bool lastStartNoTunnel = false; // last _start failed because Android built no tunnel
 String tunNames = ''; // interface names seen by the last tunUp() (diagnostics)
 Future<bool?> tunUp() async {
-  // Prefer Android's authoritative active-network VPN transport signal.
-  // Keep interface-name detection as a fallback for older hosts/plugins.
+  // Ask the exact FlutterV2ray service whether its own TUN and Xray core are active.
+  // A native false is authoritative: do not mistake another VPN's interface for ours.
+  // Interface-name detection remains only for older hosts where the method is unavailable.
   try {
     if (Platform.isAndroid) {
-      final nativeVpn = await bgChannel.invokeMethod<bool>('vpnTransportUp');
-      if (nativeVpn == true) {
-        tunNames = 'android:TRANSPORT_VPN';
-        return true;
+      final nativeVpn = await bgChannel.invokeMethod<bool>('kingVpnTunnelActive');
+      if (nativeVpn != null) {
+        tunNames = nativeVpn ? 'android:KINGVPN_TUN' : 'android:KINGVPN_INACTIVE';
+        return nativeVpn;
       }
     }
   } catch (_nativeTunError) {

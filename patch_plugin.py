@@ -1028,3 +1028,39 @@ exact_replace(core, '''        }
 
     private String createNotificationChannelID''',
 'P1-38 keep disconnect lock through broadcast');
+
+
+# P1-39: expose the active VPN state owned by this exact plugin service.
+# TRANSPORT_VPN only identifies any VPN on Android; this state belongs to
+# flutter_v2ray_client's own V2rayVPNService and requires a running Xray core.
+exact_replace(vpn, '''    private boolean vpnInterfaceReady = false;''', '''    private boolean vpnInterfaceReady = false;
+    private static volatile boolean kingVpnTunnelActive = false;
+
+    public static boolean isKingVpnTunnelActive() {
+        return kingVpnTunnelActive &&
+                V2rayCoreManager.getInstance().isV2rayCoreRunning();
+    }''', 'P1-39 plugin-owned VPN active state');
+
+exact_replace(vpn, '''        if (startCommand.equals(AppConfigs.V2RAY_SERVICE_COMMANDS.START_SERVICE)) {
+            v2rayConfig =''', '''        if (startCommand.equals(AppConfigs.V2RAY_SERVICE_COMMANDS.START_SERVICE)) {
+            kingVpnTunnelActive = false;
+            v2rayConfig =''', 'P1-39 clear stale state before new start');
+
+exact_replace(vpn, '''                Log.i("V2rayVPNService", "onStartCommand success => native TUN core started.");''', '''                // Publish only after establish() and native Xray startup both succeeded.
+                kingVpnTunnelActive = true;
+                Log.i("V2rayVPNService", "onStartCommand success => native TUN core started.");''', 'P1-39 publish active state after core start');
+
+exact_replace(vpn, '''    private void stopAllProcess() {
+        stopForeground(true);''', '''    private void stopAllProcess() {
+        kingVpnTunnelActive = false;
+        stopForeground(true);''', 'P1-39 clear active state on stop');
+
+exact_replace(vpn, '''    public void onDestroy() {
+        Log.i("V2rayVPNService", "onDestroy called - cleaning up resources");''', '''    public void onDestroy() {
+        kingVpnTunnelActive = false;
+        Log.i("V2rayVPNService", "onDestroy called - cleaning up resources");''', 'P1-39 clear active state on destroy');
+
+exact_replace(vpn, '''    public void onRevoke() {
+        try {''', '''    public void onRevoke() {
+        kingVpnTunnelActive = false;
+        try {''', 'P1-39 clear active state on revoke');
