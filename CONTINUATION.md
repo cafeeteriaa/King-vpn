@@ -186,3 +186,11 @@
 - Commits: implementation c7ed6eff05ca474ec394f72aeca5ae84c68ba17d; source guard d7e5eccdf996bbee154a339c8bcc380f3716e290.
 - This invalidates DNS evidence only; it does not itself prove DNS resolution, tunnel traffic, or domestic/global reachability. CI for the exact final head and real-device/carrier validation are still required.
 - PR #42 must remain open Draft and unmerged.
+
+
+## OODA: isolate NNIE learning by domestic/global route — 2026-11-22
+- Audit found NNIE endpoint history was keyed by endpoint + transport/TLS only. The same success/failure history could influence standby ranking and source ordering in both national and global modes, even though reachability and tunnel behavior differ by route.
+- NNIE keys now include an explicit domestic/global scope; all connect successes, verified stable-traffic updates, tunnel failures, national candidate ordering, Smart Pilot standby scoring, and diagnostic history reads use the current route scope.
+- Persistence key advanced from nnie_profiles_v2 to nnie_profiles_v3. The old mixed-scope history is intentionally not reused, avoiding contamination; no server/config is rejected for lacking new history.
+- Commits: engine 7984e147898fc201a82f71882612404a85ca3552; main integration 87d5aef9a9880630f2e115314bf7f94d2ac5c215; pilot/diagnostics b70b0aa72980cc0c0ce0500494a6d7efbf1916ea; source guard 11e448da2b9ec31ba62e592c988be1b2bd820a04.
+- CI and real-device/carrier validation are pending. PR #42 remains open Draft and unmerged.
