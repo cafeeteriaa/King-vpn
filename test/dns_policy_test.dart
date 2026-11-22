@@ -84,30 +84,43 @@ void main() {
       );
     });
 
-    test('Secure DNS serializes queries outside experimental global modes', () {
+    test('global Secure DNS remains active in endless-search mode', () {
+      expect(shouldApplyGlobalSecureDns(
+        secureDns: true,
+        ultraMode: false,
+      ), isTrue);
       expect(shouldSerializeDnsQueries(
         secureDns: true,
         nationalMode: false,
         ultraMode: false,
-        indestructibleMode: false,
       ), isTrue);
+    });
+
+    test('national Secure DNS remains sequential even with Ultra enabled', () {
       expect(shouldSerializeDnsQueries(
         secureDns: true,
         nationalMode: true,
         ultraMode: true,
-        indestructibleMode: true,
       ), isTrue);
+    });
+
+    test('global Ultra mode keeps control of its DNS matrix', () {
+      expect(shouldApplyGlobalSecureDns(
+        secureDns: true,
+        ultraMode: true,
+      ), isFalse);
       expect(shouldSerializeDnsQueries(
         secureDns: true,
         nationalMode: false,
         ultraMode: true,
-        indestructibleMode: false,
       ), isFalse);
+    });
+
+    test('disabling Secure DNS does not force serial queries', () {
       expect(shouldSerializeDnsQueries(
         secureDns: false,
         nationalMode: true,
         ultraMode: false,
-        indestructibleMode: false,
       ), isFalse);
     });
 

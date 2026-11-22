@@ -2856,7 +2856,10 @@ String _reliableVpnCfg(String cfg) {
         secureDns: secureDns,
         secureFallback: secureFallback,
       );
-    } else if (secureDns && !ultraMode && !indestructibleMode) {
+    } else if (shouldApplyGlobalSecureDns(
+      secureDns: secureDns,
+      ultraMode: ultraMode,
+    )) {
       // Xray tries DNS servers sequentially by default. DoH must be first or
       // a healthy plaintext resolver would make the Secure DNS entries unused.
       const secureFirst = <dynamic>[
@@ -2881,7 +2884,6 @@ String _reliableVpnCfg(String cfg) {
       secureDns: secureDns,
       nationalMode: nationalMode,
       ultraMode: ultraMode,
-      indestructibleMode: indestructibleMode,
     )) {
       d['enableParallelQuery'] = false;
     }
