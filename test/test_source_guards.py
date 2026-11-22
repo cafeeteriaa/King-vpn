@@ -2948,7 +2948,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         add_end = main.index('// SRCSPLIT:', add_start)
         add = main[add_start:add_end]
         self.assertIn('if (verified) goldNoteServer(srv);', add)
-        self.assertIn('if (verified) old.verified = true;', add)
+        self.assertIn('old.verified = true;', add)
+        self.assertIn('if (verified) {', add)
         self.assertIn('old.verifiedAt = now;', add)
 
         nat_start = main.index('Future<void> _natDetect()')
