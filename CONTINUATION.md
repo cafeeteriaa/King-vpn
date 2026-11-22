@@ -128,3 +128,12 @@
 - Updated those fixtures in commits `68d860bd26fa61f5f5e1fa21352f98318ce4976b` and `a10b5301ecf3761c597347501440bca73f79a209`; production policy was not weakened.
 - The 131 other tests, including the new evidence-consistency tests, passed in the failing run. The suite must be rerun on the current branch head before claiming green.
 - CI run 44996679873 was queued on the earlier documentation checkpoint but its run metadata captured code SHA ae43210a while PR head subsequently advanced; do not treat it as validation of the fixture updates. Await a run whose tested SHA matches current branch HEAD.
+
+
+## Exact-HEAD CI and APK checkpoint — 2026-11-22
+- Branch HEAD tested: `4ec8d2bb42fbbebf8449e8498bae5fb35b5be31f`; workflow run `44998437589` (run number 2001) completed successfully for this exact commit.
+- All 134 Flutter tests passed; source-repair guard, Dart analysis, V2Ray plugin patching, optimized Android arm64 release-mode APK build, 16 KiB ELF PT_LOAD validation (19 native libraries), and Android `zipalign -c -P 16 -v 4` validation all passed.
+- APK artifact: `king-vpn-arm64-release-2001`, artifact ID `14745136575`, ZIP digest `sha256:13574844019a99b09dd8a4215459cd2d64b911619544741e8ff693526188d106`. Extracted APK SHA-256: `8a251f04ac8c60a9da9340c757052258b839b2504202792c0470a0c3323d16c1`; APK size 122,885,758 bytes.
+- Signing is the generated Flutter debug key, not a production signing key. The artifact is a CI validation build, not a Play Store/production release. No Android device, real VPN traffic, IPv6 runtime, or Iranian operator-network validation is claimed.
+- TUN evidence now has two independent signals on Android: plugin daemon-process liveness and `ConnectivityManager` active-network `TRANSPORT_VPN`; either alone is insufficient. If both are not positively confirmed, interface enumeration remains the compatibility fallback, and a known inactive daemon vetoes that fallback. Source guards cover both sides. Device testing is still needed to confirm Android exposes the expected active VPN transport on supported OEM builds.
+- PR #42 remains open, Draft, and unmerged.
