@@ -186,10 +186,16 @@ class NatNetworkDiagnosis {
 
   /// True when the national network is up but the international one is cut.
   /// Read by the search ordering (main.dart): Iran-hosted sources go first.
-  static bool get preferDomestic =>
-      current == NatNetworkClass.domesticOnlyLikely ||
-      current == NatNetworkClass.dnsDegraded ||
-      current == NatNetworkClass.transportRestricted;
+  static bool get preferDomestic {
+    // Legacy TCP/DNS classification is only a hint. Never bias national
+    // sources unless the independent Pilot confirms domestic TLS and has
+    // multiple failed global TLS samples on the same known network.
+    final pilot = PilotNetworkProbe.current;
+    return current != NatNetworkClass.unknown &&
+        current != NatNetworkClass.globalReachable &&
+        pilot.domesticConfirmed &&
+        pilot.globalFailed;
+  }
 
   static Future<NatNetworkClass> refresh({bool force = false}) =>
       _refreshFlight.run(() => _refreshImpl(force: force));
