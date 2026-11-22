@@ -4147,15 +4147,20 @@ Future<bool> waitProxyPort(
 bool lastStartNoTunnel = false; // last _start failed because Android built no tunnel
 String tunNames = ''; // interface names seen by the last tunUp() (diagnostics)
 Future<bool?> tunUp() async {
-  // The native signal confirms only plugin daemon-process liveness.
-  // It does NOT prove that Android installed a TUN interface, the TUN FD is
-  // healthy, or traffic passes. Keep it diagnostic-only and always inspect
-  // interfaces before allowing a DIRECT request to count as VPN traffic.
+  // Daemon liveness alone is not TUN proof. On Android, prefer the combination
+  // of the plugin daemon PID and the OS-reported active VPN transport; this
+  // also works on devices that hide the TUN interface from Dart enumeration.
+  bool? nativeVpn;
   try {
     if (Platform.isAndroid) {
-      final nativeVpn = await bgChannel.invokeMethod<bool>('kingVpnTunnelActive');
+      nativeVpn = await bgChannel.invokeMethod<bool>('kingVpnTunnelActive');
       if (nativeVpn != null) {
         tunNames = nativeVpn ? 'android:KINGVPN_DAEMON_ALIVE' : 'android:KINGVPN_DAEMON_INACTIVE';
+      }
+      final vpnTransport = await bgChannel.invokeMethod<bool>('kingVpnTransportActive');
+      if (nativeVpn == true && vpnTransport == true) {
+        tunNames = 'android:KINGVPN_DAEMON_AND_TRANSPORT_ACTIVE';
+        return true;
       }
     }
   } catch (_nativeTunError) {
@@ -4174,7 +4179,10 @@ Future<bool?> tunUp() async {
             n.contains('xray') ||
             n.contains('v2ray');
       });
-      if (hasTunnel) return true;
+      // A stale/absent plugin daemon state must not be rescued by an unrelated
+      // system VPN interface. If the native method is unavailable, retain the
+      // interface-only compatibility fallback.
+      if (hasTunnel && nativeVpn != false) return true;
       if (attempt < 4) await Future.delayed(const Duration(milliseconds: 800));
     }
     // A CONNECTED callback is not evidence that Android installed a TUN.
