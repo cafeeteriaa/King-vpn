@@ -3278,6 +3278,257 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("rt['domainStrategy'] = 'AsIs';", normalize)
 
 
+    def test_domestic_ip_memory_is_operator_scoped_and_not_trained_by_global_success(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = nat.index("const String _ipMemKey = 'natIpMem_domestic_v2';")
+        end = nat.index('Future<void> natDomMemLoad', start)
+        memory = nat[start:end]
+        self.assertIn("e['op'] != natOpKey", memory)
+        self.assertIn('Duration(hours: 48)', memory)
+        save_start = nat.index('Future<void> natIpMemSave')
+        save_end = nat.index('/// Next bounded sample', save_start)
+        save = nat[save_start:save_end]
+        self.assertIn('if (!_natHasVerifiedOperatorKey(natOpKey)) return;', save)
+        self.assertIn("'op': natOpKey", save)
+        connected_start = main.index('void _onConnected(Server s)')
+        connected_end = main.index('s.miss = 0;', connected_start)
+        connected = main[connected_start:connected_end]
+        self.assertIn('if (nationalMode && InternetAddress.tryParse(s.host) != null)', connected)
+        self.assertIn('if (nationalMode && InternetAddress.tryParse(s.host) != null) {\n      unawaited(natIpMemSave(s.host, s.port));', connected)
+        reuse_start = main.index('Future<void> _natMemoryReuse()')
+        reuse_end = main.index('Future<void> _natRangeAdd', reuse_start)
+        self.assertIn("natIpMem.where((e) => e['op'] == natOpKey)", main[reuse_start:reuse_end])
+
+    def test_domestic_endpoint_memory_requires_independent_asn_quorum(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = nat.index('Future<void> natDetectOperator()')
+        end = nat.index('final Map<String, int> natWins', start)
+        detect = nat[start:end]
+        self.assertIn('e.value >= 2', detect)
+        self.assertIn('value.length < 3', detect)
+        self.assertIn('value.length > 7', detect)
+        self.assertIn('value.codeUnits.every((c) => c >= 48 && c <= 57)', detect)
+        self.assertIn("'$type|unverified'", detect)
+        self.assertIn('_natAsnByType.remove(type)', detect)
+        helper_start = nat.index('bool _natHasVerifiedOperatorKey')
+        memory_start = nat.index('Set<String> natDomMemHosts', helper_start)
+        memory_end = nat.index('Future<void> natDomMemLoad', memory_start)
+        memory = nat[helper_start:memory_end]
+        self.assertIn("key.lastIndexOf('|AS')", memory)
+        self.assertIn('if (!_natHasVerifiedOperatorKey(natOpKey))', memory)
+        save_start = nat.index('Future<void> natDomMemSave')
+        save_end = nat.index('/// Next bounded sample', save_start)
+        save = nat[save_start:save_end]
+        self.assertIn('if (!_natHasVerifiedOperatorKey(natOpKey)) return;', save)
+
+    def test_national_verified_endpoint_memory_is_operator_scoped_and_expires(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = nat.index('Set<String> natDomMemHosts')
+        end = nat.index('Future<void> natDomMemLoad', start)
+        memory = nat[start:end]
+        self.assertIn("e['op'] != natOpKey", memory)
+        self.assertIn("_domMemTtl = Duration(hours: 48)", nat)
+        self.assertIn('timestamp < cutoff', memory)
+        self.assertIn('timestamp > at.millisecondsSinceEpoch', memory)
+        save_start = nat.index('Future<void> natDomMemSave')
+        save_end = nat.index('/// Next bounded sample', save_start)
+        save = nat[save_start:save_end]
+        self.assertIn("'op': natOpKey", save)
+        self.assertIn('if (!_natHasVerifiedOperatorKey(natOpKey)) return;', save)
+        self.assertIn('Legacy entries without an operator key are never trusted', nat)
+
+    def test_national_priority_uses_verified_tunnel_winners_not_geo_or_source_labels(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('List<Server> _natDomesticFirstKeepWinners(List<Server> list)')
+        end = main.index('int _natRank(Server s)', start)
+        domestic = main[start:end]
+        self.assertIn('natDomMemHosts()', domestic)
+        self.assertIn('verifiedHosts.contains', domestic)
+        self.assertNotIn('s.country', domestic)
+        self.assertNotIn('_natSrc(s)', domestic)
+        rank_start = main.index('int _natRank(Server s)')
+        rank_end = main.index('Future<void> _natAdd', rank_start)
+        rank = main[rank_start:rank_end]
+        self.assertIn('if (natGood.contains(s.key)) return 5;', rank)
+        self.assertIn('if (nationalMode) return 0;', rank)
+        self.assertLess(rank.index('if (natGood.contains(s.key))'), rank.index('if (nationalMode) return 0;'))
+        compute_start = main.index('int _natRankCompute(Server s)')
+        compute_end = main.index('Future<void> _natAdd', compute_start)
+        compute = main[compute_start:compute_end]
+        self.assertLess(compute.index('if (nationalMode) return 0;'), compute.index('_natSrc(s)'))
+        self.assertLess(compute.index('if (nationalMode) return 0;'), compute.index("s.country == 'IR'"))
+
+    def test_connect_time_pilot_diagnosis_respects_explicit_network_mode_pin(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<void> _natDetect() async {')
+        end = main.index('// SAVED / old healthy servers are tested FIRST', start)
+        detect = main[start:end]
+        self.assertIn('if (!_pilotNetworkModePinned)', detect)
+        self.assertIn('PILOT-MODE-PINNED: preserving explicit', detect)
+        self.assertIn('natForce = nationalMode;', detect)
+        self.assertIn('userModeChoice = nationalMode;', detect)
+
+    def test_national_hot_folder_does_not_consume_global_source_health_scores(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('void initState()')
+        end = main.index('WidgetsBinding.instance.addObserver(this);', start)
+        init = main[start:end]
+        self.assertIn('natSrcRates = const <String, double>{};', init)
+        self.assertNotIn('natSrcRates = srcRate;', init)
+        self.assertIn('dedicated domestic source-health signal', init)
+
+    def test_global_source_health_cannot_filter_or_train_national_candidates(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn("p.getString('src_scores_global_v2')", main)
+        self.assertIn("'src_scores_global_v2',", main)
+        self.assertNotIn("p.getString('src_scores')", main)
+        rate_start = main.index('double _rate(Server s)')
+        rate_end = main.index('bool _srcOk(Server s)', rate_start)
+        self.assertIn('if (nationalMode) return 0.3;', main[rate_start:rate_end])
+        ok_start = rate_end
+        ok_end = main.index('int _tier(Server s)', ok_start)
+        self.assertIn('if (nationalMode) return true;', main[ok_start:ok_end])
+        dead_start = main.index('bool _srcDead(Server s)')
+        dead_end = main.index('int _cmpAlive(Server a, Server b)', dead_start)
+        self.assertIn('u == null || nationalMode', main[dead_start:dead_end])
+        record_start = main.index('void _srcRecord(Server s, bool ok)')
+        record_end = main.index('Future<void> _rankSources', record_start)
+        self.assertIn('u == null || nationalMode', main[record_start:record_end])
+        rank_start = record_end
+        rank_end = main.index('Future<void> _saveSrc()', rank_start)
+        self.assertIn('if (nationalMode || _personalBusy) return;', main[rank_start:rank_end])
+        diversify_start = main.index('List<Server> _diversify(List<Server> l)')
+        diversify_end = main.index('// ---------- discovery ----------', diversify_start)
+        diversify = main[diversify_start:diversify_end]
+        self.assertIn('if (nationalMode) return a.compareTo(b);', diversify)
+        self.assertIn('nationalMode ? 0.3 : (srcRate[k] ?? 0.3)', diversify)
+
+    def test_pilot_domestic_evidence_drives_all_domestic_policy_paths(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        health = (ROOT / 'lib' / 'network_health.dart').read_text(encoding='utf-8')
+        self.assertIn('bool get pilotPrefersDomesticRoute', engine)
+        self.assertIn('pilotDomesticConfirmed: PilotNetworkProbe.hasFreshDomesticConfirmation', engine)
+        self.assertIn('isNetworkProbeEvidenceFresh(', engine)
+        self.assertGreaterEqual(main.count('pilotPrefersDomesticRoute'), 3)
+        self.assertIn('shouldPreferDomesticCandidates(', health)
+        self.assertIn('localPilotEnabled && nationalMode && pilotDomesticConfirmed', health)
+        self.assertNotIn('NatNetworkDiagnosis.preferDomestic', main)
+
+    def test_protocol_learning_storage_is_separated_by_domestic_and_global_mode(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        health = (ROOT / 'lib' / 'network_health.dart').read_text(encoding='utf-8')
+        self.assertIn('networkScopedProfileKey(', health)
+        self.assertIn('networkScopedProfileKey(', main)
+        self.assertIn("p.getString('prof_route_v2')", main)
+        self.assertIn("'prof_route_v2',", main)
+        self.assertNotIn("p.getString('prof')", main)
+        self.assertNotIn("'prof',", main)
+
+    def test_legacy_national_diagnosis_discards_mixed_network_probe_snapshots(self):
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        start = engine.index('static Future<NatNetworkClass> _refreshImpl({bool force = false}) async {')
+        end = engine.index('/// Dedicated Smart Pilot link scanner', start)
+        diagnosis = engine[start:end]
+        self.assertIn('final id = await _identityHash();', diagnosis)
+        self.assertIn('if (id.isEmpty)', diagnosis)
+        self.assertIn('if (_identityAtCheck != null && _identityAtCheck != id)', diagnosis)
+        self.assertIn('final identityAfter = await _identityHash();', diagnosis)
+        self.assertIn('sameKnownNetworkProbeIdentity(id, identityAfter)', diagnosis)
+        self.assertIn('network changed during probes; snapshot discarded', diagnosis)
+        self.assertIn('_identityAtCheck = null;', diagnosis)
+
+    def test_domestic_source_preference_requires_pilot_tls_quorum(self):
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        start = engine.index('static bool get preferDomestic')
+        end = engine.index('static Future<NatNetworkClass> refresh', start)
+        getter = engine[start:end]
+        self.assertIn('PilotNetworkProbe.hasConfirmedDomesticOnlyFor(identity)', getter)
+        self.assertIn('identity = _identityAtCheck', getter)
+        self.assertIn('age <= _ttl', getter)
+        self.assertIn('static bool hasConfirmedDomesticOnlyFor(String identity)', engine)
+        self.assertIn('_lastIdentity != identity', engine)
+        self.assertIn('_last.domesticConfirmed', engine)
+        self.assertIn('_last.globalFailed', engine)
+
+    def test_legacy_diagnosis_shares_strong_pilot_network_identity(self):
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        start = engine.index('static Future<String> _identityHash()')
+        end = engine.index('\n\n  static Future<bool> _tcpOk', start)
+        identity = engine[start:end]
+        self.assertIn('PilotNetworkProbe._networkIdentity()', identity)
+        self.assertNotIn('NetworkInterface.list', identity)
+
+    def test_pilot_network_identity_uses_android_network_handle_and_fails_closed(self):
+        native = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        self.assertIn('"kingVpnNetworkIdentity" -> {', native)
+        self.assertIn('network.networkHandle', native)
+        self.assertIn('TRANSPORT_WIFI', native)
+        self.assertIn('TRANSPORT_CELLULAR', native)
+        self.assertIn('NET_CAPABILITY_VALIDATED', native)
+        self.assertIn('capabilities.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)', native)
+        start = engine.index('static Future<String> _networkIdentity() async {')
+        end = engine.index('\n  }', start)
+        identity = engine[start:end]
+        self.assertIn("MethodChannel('vpn/bg')", identity)
+        self.assertIn("'kingVpnNetworkIdentity'", identity)
+        self.assertIn('if (nativeIdentity == null || nativeIdentity.isEmpty) return', identity)
+        self.assertIn("return '';", identity)
+        self.assertIn('sha256.convert(utf8.encode(nativeIdentity))', identity)
+        self.assertNotIn('NetworkInterface.list', identity)
+
+    def test_pilot_discards_probe_results_spanning_network_handover(self):
+        network = (ROOT / 'lib' / 'network_health.dart').read_text(encoding='utf-8')
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        self.assertIn('bool sameKnownNetworkProbeIdentity(String before, String after)', network)
+        self.assertIn('before.isNotEmpty && after.isNotEmpty && before == after', network)
+        start = engine.index('static Future<NetworkEvidence> _refresh({required bool force}) async {',
+                            engine.index('class PilotNetworkProbe'))
+        end = engine.index('static Future<int?> _probeHttps', start)
+        probe = engine[start:end]
+        self.assertIn('for (var attempt = 0; attempt < 2; attempt++)', probe)
+        self.assertIn('final identityBefore = await _networkIdentity();', probe)
+        self.assertIn('final identityAfter = await _networkIdentity();', probe)
+        self.assertIn('sameKnownNetworkProbeIdentity(identityBefore, identityAfter)', probe)
+        self.assertIn('if (attempt == 0)', probe)
+        self.assertIn('_clearSnapshot();', probe)
+        self.assertIn('network changed repeatedly; snapshot rejected', probe)
+
+    def test_pilot_mode_and_strategy_require_identical_verified_quorums(self):
+        network = (ROOT / 'lib' / 'network_health.dart').read_text(encoding='utf-8')
+        self.assertIn('bool get domesticConfirmed', network)
+        self.assertIn('bool get globalConfirmed', network)
+        self.assertIn('bool get domesticFailed', network)
+        self.assertIn('bool get globalFailed', network)
+        mode_start = network.index('DetectedNetworkMode get mode')
+        mode_end = network.index('acceptsTlsReachability', mode_start)
+        mode = network[mode_start:mode_end]
+        self.assertIn('domesticConfirmed && globalConfirmed', mode)
+        self.assertIn('domesticConfirmed && globalFailed', mode)
+        self.assertIn('globalConfirmed && domesticFailed', mode)
+        self.assertIn('domesticFailed && globalFailed', mode)
+        strategy_start = network.index('PilotNetworkStrategy choosePilotNetworkStrategy')
+        strategy = network[strategy_start:]
+        self.assertIn('final domesticConfirmed = evidence.domesticConfirmed;', strategy)
+        self.assertIn('final globalConfirmed = evidence.globalConfirmed;', strategy)
+        self.assertIn('final domesticFailed = evidence.domesticFailed;', strategy)
+        self.assertIn('final globalFailed = evidence.globalFailed;', strategy)
+
+    def test_forced_pilot_refresh_is_coalesced_not_dropped(self):
+        network = (ROOT / 'lib' / 'network_health.dart').read_text(encoding='utf-8')
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        tests = (ROOT / 'test' / 'network_health_test.dart').read_text(encoding='utf-8')
+        self.assertIn('class NetworkProbeRefreshCoordinator<T>', network)
+        self.assertIn('if (!force || _flightIsForced) return active;', network)
+        self.assertIn('_forcedFlight = queued;', network)
+        self.assertIn('_flight = queued;', network)
+        self.assertIn('return refresh(force: true);', network)
+        self.assertIn('_refreshCoordinator.run(_refresh, force: force)', engine)
+        self.assertIn('queues one forced scan behind an active ordinary scan', tests)
+        self.assertIn('a failed ordinary scan does not discard a queued forced scan', tests)
+
     def test_smart_pilot_requires_fresh_endpoint_evidence_for_standby_switch(self):
         pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
         start = pilot.index('Server? _pilotBestStandby()')

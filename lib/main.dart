@@ -4900,7 +4900,7 @@ Future<String?> dohResolve(String name) async {
   final at = _dohCacheAt[name];
   if (c != null && at != null && DateTime.now().difference(at) < const Duration(minutes: 10)) return c;
   // NATOPT: جهانی قطع است → DoH خارجی جواب نمی‌دهد؛ فقط کش (هر سنی) و بدون انتظار
-  if (NatNetworkDiagnosis.preferDomestic) return c;
+  if (pilotPrefersDomesticRoute) return c;
   if (_dohFail >= 6) {
     final failAt = _dohFailAt;
     if (failAt != null && DateTime.now().difference(failAt) < const Duration(minutes: 5)) {
@@ -5403,7 +5403,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     unawaited(_loadVpnPerm()); // FIX-PERSIST
     Future.delayed(const Duration(seconds: 4), () => unawaited(_logLastExit())); // KINGDIAG
     _favsRef = favs;
-    natSrcRates = srcRate; // نرخ منابع برای مرتب‌سازی پوشه‌ی منابع تازه
+    // The hot folder is national-mode data; global source TCP scores are not valid evidence here.
+    // Keep ordering neutral until a dedicated domestic source-health signal exists.
+    natSrcRates = const <String, double>{};
     natExtraSource = () => [...fetchedAll, ...good]; // کانفیگ‌های آنلاین داخل برنامه برای پوشه
     WidgetsBinding.instance.addObserver(this);
     // پوشه‌ی منابع تازه خودکار است: چند ثانیه بعد از باز شدن و بعد هر ساعت
@@ -6305,7 +6307,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // around the link are repaired here)
         if (s != null) favs[s.key] = s.link;
       }
-      final ss = p.getString('src_scores');
+      final ss = p.getString('src_scores_global_v2');
       if (ss != null) {
         (jsonDecode(ss) as Map).forEach((k, v) {
           srcRate[k as String] = (v[0] as num).toDouble();
@@ -6313,7 +6315,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (v[2] == 1) srcReal.add(k);
         });
       }
-      final pj = p.getString('prof');
+      final pj = p.getString('prof_route_v2');
       if (pj != null) {
         (jsonDecode(pj) as Map).forEach((k, v) {
           profTested[k as String] = (v[0] as num).toInt();
@@ -6675,9 +6677,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   // ---------- smart ordering (no extra parallel tests needed) ----------
-  String _profKey(Server s) =>
-      '$natOpKey|${s.link.split('://').first.toLowerCase()}|${s.net}|'
-      '${s.reality ? 'r' : (s.tls ? 't' : 'n')}|${s.port == 443 ? '443' : 'x'}';
+  String _profKey(Server s) => networkScopedProfileKey(
+        '$natOpKey|${s.link.split('://').first.toLowerCase()}|${s.net}|'
+        '${s.reality ? 'r' : (s.tls ? 't' : 'n')}|${s.port == 443 ? '443' : 'x'}',
+        nationalMode: nationalMode,
+      );
 
   // learned success rate of this kind of server on this network (0..1)
   double _profRate(Server s) {
@@ -6698,8 +6702,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // a list that gave NOTHING in its first 12 real tests is skipped for now
   bool _srcDead(Server s) {
     final u = s.src;
-    if (u == null) return false;
-    if (nationalMode && (natAll || _natSrc(s))) return false; // NATIONALPATCH
+    if (u == null || nationalMode) return false;
     return (srcTested[u] ?? 0) >= 12 && (srcOkN[u] ?? 0) == 0;
   }
 
@@ -6729,6 +6732,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ..sort((a, b) {
         final t = _tier(by[b]!.first) - _tier(by[a]!.first);
         if (t != 0) return t;
+        if (nationalMode) return a.compareTo(b);
         return (srcRate[b] ?? 0.3).compareTo(srcRate[a] ?? 0.3);
       });
     final ptr = {for (final k in keys) k: 0};
@@ -6740,7 +6744,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         var p0 = ptr[k]!;
         if (p0 >= q.length) continue;
         more = true;
-        final r = srcRate[k] ?? 0.3;
+        final r = nationalMode ? 0.3 : (srcRate[k] ?? 0.3);
         if (r < 0.1 && round % 4 != 0) continue; // weak lists: 1 round in 4
         final ti = _tier(q.first);
         final per = ti >= 3 ? 4 : (ti == 2 ? 3 : 1);
@@ -7217,7 +7221,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             if (ui < unknownPart.length) cand.add(unknownPart[ui++]);
           }
           // NNIE-DOM: جهانی قطع و نت ملی باز → منبع ایران‌محور و سرور IR جلوتر (ترتیب داخل هر گروه حفظ می‌شود)
-          if (NatNetworkDiagnosis.preferDomestic) cand = _natDomesticFirstKeepWinners(cand);
+          if (pilotPrefersDomesticRoute) cand = _natDomesticFirstKeepWinners(cand);
         }
         final batch = _mixBatch(cand, size);
         _set('ردیف ${row ?? 'همه'} • '
@@ -7529,7 +7533,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         return 2;
       }
       natStableSort(alive, (a, b) => natRank(a).compareTo(natRank(b)));
-      if (NatNetworkDiagnosis.preferDomestic) {
+      if (pilotPrefersDomesticRoute) {
         final reordered = _natDomesticFirstKeepWinners(alive); // NNIE-DOM
         alive..clear()..addAll(reordered);
       }
@@ -8751,8 +8755,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // NNIE: measure only this server's own start-to-data-plane verification time.
     final nnieElapsedMs = _nnieFinishAttempt(s);
     if (_listPartial) unawaited(_fetchFullListBg());
-    // IP کارا به حافظه (هم در نت جهانی و هم در نت ملی؛ دفعه‌ی بعد اول از همین‌ها استفاده می‌شود)
-    if (InternetAddress.tryParse(s.host) != null) {
+    // This memory is used only by the domestic scanner and is keyed to a verified operator.
+    if (nationalMode && InternetAddress.tryParse(s.host) != null) {
       unawaited(natIpMemSave(s.host, s.port));
     } else if (nationalMode) {
       unawaited(natDomMemSave(s.host, s.port)); // NATDOM: دامنه‌ی موفق در نت ملی
@@ -10474,10 +10478,15 @@ ListTile( // KINGEXTRAS row
         // DNS/IP/SNI scanners are never started by this detection path.
         final evidence = await PilotNetworkProbe.refresh();
         final strategy = choosePilotNetworkStrategy(evidence);
-        if (strategy == PilotNetworkStrategy.domestic) {
-          nationalMode = true;
-        } else if (strategy == PilotNetworkStrategy.global) {
-          nationalMode = false;
+        if (!_pilotNetworkModePinned) {
+          if (strategy == PilotNetworkStrategy.domestic) {
+            nationalMode = true;
+          } else if (strategy == PilotNetworkStrategy.global) {
+            nationalMode = false;
+          }
+        } else {
+          // An explicit user-selected network mode outranks automatic diagnosis.
+          dbg('PILOT-MODE-PINNED: preserving explicit ${nationalMode ? 'domestic' : 'global'} mode');
         }
         // Unknown/dual-failure evidence preserves the previous strategy.
         natForce = nationalMode;
@@ -10571,7 +10580,7 @@ ListTile( // KINGEXTRAS row
         .toList()
       ..sort(bySpeedThenPing);
     if (l.isEmpty) return;
-    // Rank national winners / Iran-oriented sources first
+    // Rank only previously data-plane-verified national winners first
     l.sort((a, b) {
       final r = _natRank(b) - _natRank(a); // NATIONALPATCH
       return r != 0 ? r : bySpeedThenPing(a, b);
@@ -10769,7 +10778,7 @@ ListTile( // KINGEXTRAS row
         for (final s in [...pending, ...natRestPending]) '${s.host}|${s.port}'
       };
       final items = <String>[];
-      for (final e in natIpMem.take(40)) {
+      for (final e in natIpMem.where((e) => e['op'] == natOpKey).take(40)) {
         final ip = '${e['ip']}';
         final port = (e['port'] as num?)?.toInt() ?? 0;
         if (InternetAddress.tryParse(ip) == null || port <= 0) continue;
@@ -14453,12 +14462,17 @@ ListTile( // KINGEXTRAS row
   double _rate(Server s) {
     final u = s.src;
     if (u == null) return 1.0; // favourites / cache / imported
+    // Shared source scores are global-only; national mode uses route-scoped
+    // endpoint history instead of inheriting global reachability.
+    if (nationalMode) return 0.3;
     return srcRate[u] ?? 0.3;
   }
 
   bool _srcOk(Server s) {
     final u = s.src;
-    if (nationalMode && (natAll || _natSrc(s))) return true; // NATIONALPATCH
+    // A list that failed on the global route must still be eligible for a
+    // national-mode core test; global source health is not a national verdict.
+    if (nationalMode) return true;
     if (u == null || !onlyHealthySrc) return true;
     final r = srcRate[u];
     return r == null || r >= 0.25 || topSrc.contains(u);
@@ -14514,7 +14528,9 @@ ListTile( // KINGEXTRAS row
   // real results of a source replace the quick TCP estimate
   void _srcRecord(Server s, bool ok) {
     final u = s.src;
-    if (u == null) return;
+    // Keep this persisted source-health table global-only. National-mode
+    // endpoint outcomes are learned by NNIE with a separate route key.
+    if (u == null || nationalMode) return;
     srcTested[u] = (srcTested[u] ?? 0) + 1;
     if (ok) srcOkN[u] = (srcOkN[u] ?? 0) + 1;
     if (srcTested[u]! >= 5) {
@@ -14527,8 +14543,8 @@ ListTile( // KINGEXTRAS row
   // quick health check of every list: TCP-probe a random sample of each
   // force=true: با هر «اتصال» همه‌ی منابع دوباره (سریع) بررسی می‌شوند، قبل از شروع تست سرورها
   Future<void> _rankSources({bool force = false}) async {
-    // هنگام اتصال سرور شخصی، بررسی سلامت منابع اجرا نمی‌شود (وضعیت «۲۲ منبع» نباید نمایش داده شود)
-    if (_personalBusy) return;
+    // Direct source TCP health is not a valid filter for national-mode core paths.
+    if (nationalMode || _personalBusy) return;
     final bySrc = <String, List<Server>>{};
     for (final s in fetchedAll) {
       final u = s.src;
@@ -14600,13 +14616,13 @@ ListTile( // KINGEXTRAS row
     try {
       final p = await SharedPreferences.getInstance();
       await p.setString(
-          'src_scores',
+          'src_scores_global_v2',
           jsonEncode({
             for (final k in srcRate.keys)
               k: [srcRate[k], srcAt[k] ?? 0, srcReal.contains(k) ? 1 : 0]
           }));
       await p.setString(
-          'prof',
+          'prof_route_v2',
           jsonEncode({
             for (final k in profTested.keys) k: [profTested[k], profOk[k] ?? 0]
           }));
@@ -17430,28 +17446,18 @@ bool _natSrc(Server s) {
       u.contains('delta-kronecker');
 }
 
-// NNIE-DOM: وقتی جهانی قطع و ملی باز است، سرورهای ایران‌محور جلو می‌روند.
-// تفکیک صریح و پایدار است (List.sort در Dart پایدار نیست).
-List<Server> _natDomesticFirst(List<Server> list) {
-  final dom = <Server>[];
-  final rest = <Server>[];
-  for (final s in list) {
-    (s.country == 'IR' || _natSrc(s) ? dom : rest).add(s);
-  }
-  return [...dom, ...rest];
-}
-
-// NNIE-WIN: سرورهایی که قبلاً همین endpoint را در نت ملی باز کرده‌اند (حافظه‌ی دامنه)
-// همیشه قبل از ترجیح ایران‌محور می‌آیند؛ وگرنه ترتیب یادگیری‌شده خنثی می‌شد.
-// ترتیب نسبی داخل هر گروه حفظ می‌شود.
+// NNIE-DOM: only endpoints with prior real tunnel-data-plane success are
+// promoted. Country/source labels are hints for diagnostics, never proof that
+// a server is physically hosted in Iran or works on the domestic network.
 List<Server> _natDomesticFirstKeepWinners(List<Server> list) {
-  final remDom = natDomMemHosts();
+  final verifiedHosts = natDomMemHosts();
   final winners = <Server>[];
   final rest = <Server>[];
   for (final s in list) {
-    (remDom.contains('${s.host}:${s.port}') ? winners : rest).add(s);
+    (verifiedHosts.contains('${s.host}:${s.port}') ? winners : rest).add(s);
   }
-  return [...winners, ..._natDomesticFirst(rest)];
+  // Stable partition: preserve the original score/ping order within each group.
+  return [...winners, ...rest];
 }
 
 // رتبه نت ملی: برندگان قبلی > منبع ایران‌محور > Reality > IR > CDN
@@ -17460,6 +17466,8 @@ List<Server> _natDomesticFirstKeepWinners(List<Server> list) {
 // (همان بدنه‌ی قبلی) در _natRankCompute است.
 int _natRank(Server s) {
   if (natGood.contains(s.key)) return 5;
+  // Never reuse a global-mode cached rank while the domestic mode is active.
+  if (nationalMode) return 0;
   final c = s._natRankCache;
   if (c != null &&
       identical(s._natRankSrcAt, s.src) &&
@@ -17474,7 +17482,10 @@ int _natRank(Server s) {
 }
 
 int _natRankCompute(Server s) {
+  // In national mode, only a previously verified tunnel success is a domestic
+  // winner. GeoIP/source labels and protocol tags must not masquerade as proof.
   if (natGood.contains(s.key)) return 5;
+  if (nationalMode) return 0;
   if (_natSrc(s)) return 4;
   if (s.reality) return 3;
   if (s.country == 'IR') return 2;

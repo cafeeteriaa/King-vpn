@@ -25,6 +25,85 @@ bool shouldReuseNetworkProbeCache({
   return age >= Duration.zero && age < ttl;
 }
 
+
+/// A probe snapshot is usable only when both identity reads succeeded and
+/// refer to the same underlying network. Empty/changed identities invalidate
+/// the whole sample; they are not interpreted as an outage.
+bool sameKnownNetworkProbeIdentity(String before, String after) =>
+    before.isNotEmpty && after.isNotEmpty && before == after;
+
+/// A cached probe may guide routing only while its timestamp is trustworthy.
+/// Reject future timestamps (clock rollback) and evidence at or beyond the TTL.
+bool isNetworkProbeEvidenceFresh({
+  required DateTime? checkedAt,
+  required DateTime now,
+  required Duration ttl,
+}) {
+  if (checkedAt == null || ttl <= Duration.zero) return false;
+  final age = now.difference(checkedAt);
+  return age >= Duration.zero && age < ttl;
+}
+
+/// Serializes network-probe refreshes and preserves a forced refresh request.
+/// A forced caller arriving during a non-forced scan queues exactly one follow-up;
+/// callers arriving during that follow-up share it instead of spawning more scans.
+class NetworkProbeRefreshCoordinator<T> {
+  Future<T>? _flight;
+  Future<T>? _forcedFlight;
+  bool _flightIsForced = false;
+
+  Future<T> run(
+    Future<T> Function({required bool force}) refresh, {
+    bool force = false,
+  }) {
+    final active = _flight;
+    if (active != null) {
+      if (!force || _flightIsForced) return active;
+      final pending = _forcedFlight;
+      if (pending != null) return pending;
+
+      late final Future<T> queued;
+      queued = _runAfter(active, refresh).whenComplete(() {
+        if (identical(_flight, queued)) {
+          _flight = null;
+          _flightIsForced = false;
+        }
+        if (identical(_forcedFlight, queued)) _forcedFlight = null;
+      });
+      // Publish the queued future immediately: later non-forced callers must
+      // join the whole sequence, not slip into the gap between the two scans.
+      _forcedFlight = queued;
+      _flight = queued;
+      _flightIsForced = true;
+      return queued;
+    }
+
+    late final Future<T> flight;
+    flight = refresh(force: force).whenComplete(() {
+      if (identical(_flight, flight)) {
+        _flight = null;
+        _flightIsForced = false;
+      }
+    });
+    _flight = flight;
+    _flightIsForced = force;
+    return flight;
+  }
+
+  Future<T> _runAfter(
+    Future<T> active,
+    Future<T> Function({required bool force}) refresh,
+  ) async {
+    // A failed ordinary scan must not cancel the explicit forced retry.
+    try {
+      await active;
+    } catch (_) {
+      // The forced scan below is the authoritative result for queued callers.
+    }
+    return refresh(force: true);
+  }
+}
+
 class NetworkEvidence {
   const NetworkEvidence({
     required this.domestic,
@@ -50,50 +129,85 @@ class NetworkEvidence {
   final bool domesticTlsReachabilityVerified;
   final bool globalTlsReachabilityVerified;
 
+  // The dedicated scanner has exactly three targets per route. Treat the
+  // evidence object as an untrusted boundary: impossible sample counts or
+  // success counters invalidate that route instead of being silently clamped.
+  bool get _domesticCountersValid =>
+      domesticSamples >= 0 &&
+      domesticSamples <= 3 &&
+      domesticSuccesses >= 0 &&
+      domesticSuccesses <= domesticSamples;
+
+  bool get _globalCountersValid =>
+      globalSamples >= 0 &&
+      globalSamples <= 3 &&
+      globalSuccesses >= 0 &&
+      globalSuccesses <= globalSamples;
+
+  /// A positive route requires the scanner's complete 2-of-3 TLS quorum.
+  bool get domesticConfirmed =>
+      _domesticCountersValid &&
+      domestic == LinkHealth.healthy &&
+      domesticSamples == 3 &&
+      domesticSuccesses >= 2 &&
+      domesticTlsReachabilityVerified;
+
+  bool get globalConfirmed =>
+      _globalCountersValid &&
+      global == LinkHealth.healthy &&
+      globalSamples == 3 &&
+      globalSuccesses >= 2 &&
+      globalTlsReachabilityVerified;
+
+  /// A negative route requires at least two real failed samples, with no
+  /// impossible counters. Missing or malformed evidence is never blocking.
+  bool get domesticFailed =>
+      _domesticCountersValid &&
+      domestic == LinkHealth.unreachable &&
+      domesticSamples >= 2 &&
+      domesticSuccesses == 0;
+
+  bool get globalFailed =>
+      _globalCountersValid &&
+      global == LinkHealth.unreachable &&
+      globalSamples >= 2 &&
+      globalSuccesses == 0;
+
   DetectedNetworkMode get mode {
-    if (domestic == LinkHealth.unknown && global == LinkHealth.unknown) {
-      return DetectedNetworkMode.unknown;
+    if (domesticConfirmed && globalConfirmed) {
+      return DetectedNetworkMode.dualReachable;
     }
-    // A degraded group means only one endpoint responded; do not label it
-    // as a confirmed network class or infer the other side is unavailable.
-    if (domestic == LinkHealth.degraded || global == LinkHealth.degraded) {
-      return DetectedNetworkMode.unknown;
+    if (domesticConfirmed && globalFailed) {
+      return DetectedNetworkMode.domesticOnly;
     }
-    final domesticUp = domestic == LinkHealth.healthy;
-    final globalUp = global == LinkHealth.healthy;
-    if (!domesticUp && !globalUp) {
-      return domestic == LinkHealth.unreachable && global == LinkHealth.unreachable
-          ? DetectedNetworkMode.offline
-          : DetectedNetworkMode.unknown;
+    if (globalConfirmed && domesticFailed) {
+      return DetectedNetworkMode.globalOnly;
     }
-    // This is geographic endpoint reachability, not IPv4/IPv6 dual-stack support.
-    if (domesticUp && globalUp) return DetectedNetworkMode.dualReachable;
-    if (domesticUp && global == LinkHealth.unreachable) return DetectedNetworkMode.domesticOnly;
-    if (globalUp && domestic == LinkHealth.unreachable) return DetectedNetworkMode.globalOnly;
+    if (domesticFailed && globalFailed) {
+      return DetectedNetworkMode.offline;
+    }
     return DetectedNetworkMode.unknown;
   }
 
   /// TLS reachability is not proof that VPN tunnel traffic is passing.
-  /// This helper reports only the matching endpoint group's TLS evidence.
+  /// This helper reports only quorum-confirmed endpoint reachability.
   bool acceptsTlsReachability({required bool nationalOnly}) =>
-      nationalOnly ? domesticTlsReachabilityVerified : globalTlsReachabilityVerified;
+      nationalOnly ? domesticConfirmed : globalConfirmed;
 
   double get confidence {
     // Count actual successful TLS handshakes, not attempts. Failed probes are
     // evidence for route classification but must never inflate reachability confidence.
     // Treat the evidence object as an external boundary: malformed counters
     // must not claim more successes than the scanner actually sampled.
-    final domesticCount = domesticSamples < 0 ? 0 : domesticSamples;
-    final globalCount = globalSamples < 0 ? 0 : globalSamples;
-    final domesticOk = domesticSuccesses.clamp(0, domesticCount);
-    final globalOk = globalSuccesses.clamp(0, globalCount);
+    final domesticOk = _domesticCountersValid ? domesticSuccesses : 0;
+    final globalOk = _globalCountersValid ? globalSuccesses : 0;
     final successfulSamples = (domesticOk + globalOk).clamp(0, 6);
     if (successfulSamples <= 0) return 0;
     // The dedicated pilot scanner samples exactly three domestic and three global targets.
     // Six successful samples with both groups verified reach 100%.
     final coverage = (successfulSamples / 6).clamp(0, 1).toDouble();
-    final verified = (domesticTlsReachabilityVerified ? 1 : 0) +
-        (globalTlsReachabilityVerified ? 1 : 0);
+    final verified = (domesticConfirmed ? 1 : 0) +
+        (globalConfirmed ? 1 : 0);
     return (coverage * (0.55 + verified * 0.225)).clamp(0, 1).toDouble();
   }
 }
@@ -102,29 +216,23 @@ class NetworkEvidence {
 /// Conservative strategy selection with minimum evidence requirements.
 /// Partial evidence preserves the last strategy instead of guessing.
 PilotNetworkStrategy choosePilotNetworkStrategy(NetworkEvidence evidence) {
-  // A single successful endpoint is only a hint (degraded), not enough to
-  // change the active route. Require the scanner's >=2/3 quorum on each side.
-  final domesticConfirmed = evidence.domestic == LinkHealth.healthy &&
-      evidence.domesticSamples >= 3 &&
-      evidence.domesticSuccesses >= 2 &&
-      evidence.domesticTlsReachabilityVerified;
-  final globalConfirmed = evidence.global == LinkHealth.healthy &&
-      evidence.globalSamples >= 3 &&
-      evidence.globalSuccesses >= 2 &&
-      evidence.globalTlsReachabilityVerified;
-  final domesticFailed = evidence.domestic == LinkHealth.unreachable &&
-      evidence.domesticSamples >= 2 &&
-      evidence.domesticSuccesses == 0;
-  final globalFailed = evidence.global == LinkHealth.unreachable &&
-      evidence.globalSamples >= 2 &&
-      evidence.globalSuccesses == 0;
+  // Share exactly the same evidence gates as the user-visible network mode.
+  final domesticConfirmed = evidence.domesticConfirmed;
+  final globalConfirmed = evidence.globalConfirmed;
+  final domesticFailed = evidence.domesticFailed;
+  final globalFailed = evidence.globalFailed;
 
   if (domesticConfirmed && globalFailed) return PilotNetworkStrategy.domestic;
   if (globalConfirmed && domesticFailed) return PilotNetworkStrategy.global;
   if (domesticConfirmed && globalConfirmed) {
     final domesticMs = evidence.domesticLatencyMs;
     final globalMs = evidence.globalLatencyMs;
-    if (domesticMs != null && globalMs != null) {
+    // Latency is untrusted evidence too: zero/negative values must never
+    // manufacture a winning route or trigger an automatic handover.
+    if (domesticMs != null &&
+        domesticMs > 0 &&
+        globalMs != null &&
+        globalMs > 0) {
       // Switch only for a material gain; avoid oscillation on tiny variations.
       if (domesticMs <= globalMs * 0.80 && globalMs - domesticMs >= 80) {
         return PilotNetworkStrategy.domestic;
@@ -135,8 +243,22 @@ PilotNetworkStrategy choosePilotNetworkStrategy(NetworkEvidence evidence) {
     }
     return PilotNetworkStrategy.preserve;
   }
-  if (domesticConfirmed && !globalConfirmed && globalFailed) return PilotNetworkStrategy.domestic;
-  if (globalConfirmed && !domesticConfirmed && domesticFailed) return PilotNetworkStrategy.global;
   if (domesticFailed && globalFailed) return PilotNetworkStrategy.offline;
   return PilotNetworkStrategy.preserve;
 }
+
+/// Source/protocol learning must be isolated by route. Old unscoped profile
+/// keys are intentionally not reused across domestic and global modes.
+String networkScopedProfileKey(String profileKey, {required bool nationalMode}) =>
+    '${nationalMode ? 'domestic' : 'global'}|$profileKey';
+
+/// Domestic source ordering is enabled by the legacy diagnosis or by the
+/// unified Pilot only when its domestic TLS quorum is confirmed.
+bool shouldPreferDomesticCandidates({
+  required bool legacyDiagnosisPrefersDomestic,
+  required bool localPilotEnabled,
+  required bool nationalMode,
+  required bool pilotDomesticConfirmed,
+}) =>
+    legacyDiagnosisPrefersDomestic ||
+    (localPilotEnabled && nationalMode && pilotDomesticConfirmed);

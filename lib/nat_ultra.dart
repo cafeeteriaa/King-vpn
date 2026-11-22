@@ -1543,33 +1543,42 @@ Future<void> natDetectOperator() async {
     var asn = stale ? '' : (_natAsnByType[type] ?? '');
     if (stale) {
       _natAsnTry[type] = DateTime.now();
-      final r = await Future.wait([
+      final results = await Future.wait([
         _natAsnFrom('http://ip-api.com/json/?fields=as', 'as'),
         _natAsnFrom('https://ipinfo.io/json', 'org'),
         _natAsnFrom('https://api.ip.sb/geoip', 'asn'),
       ]);
-      var fresh = '';
-      for (final x in r) {
-        if (x != null && x.isNotEmpty) {
-          fresh = x;
-          break;
+      // Require two independent providers to agree on the same numeric ASN.
+      final counts = <String, int>{};
+      for (final value in results) {
+        if (value == null ||
+            value.length < 3 ||
+            value.length > 7 ||
+            !value.codeUnits.every((c) => c >= 48 && c <= 57)) {
+          continue;
         }
+        counts[value] = (counts[value] ?? 0) + 1;
       }
-      if (fresh.isNotEmpty) {
-        asn = fresh;
+      final agreed = counts.entries.where((e) => e.value >= 2).toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      if (agreed.isNotEmpty) {
+        asn = agreed.first.key;
         _natAsnByType[type] = asn;
       } else {
-        asn = _natAsnByType[type] ?? '';
+        // No single-source or stale fallback is safe for domestic promotion.
+        asn = '';
+        _natAsnByType.remove(type);
       }
     }
-    final k = asn.isEmpty ? type : '$type|AS$asn';
-    if (k != natOpKey) {
-      natOpKey = k;
-      dbg('شبکه/اپراتور: $k');
+    final key = asn.isEmpty ? '$type|unverified' : '$type|AS$asn';
+    if (key != natOpKey) {
+      natOpKey = key;
+      dbg('شبکه/اپراتور: $key');
     }
-  } catch (e, stk) { logError(e, stk); }
+  } catch (e, stk) {
+    logError(e, stk);
+  }
 }
-
 final Map<String, int> natWins = {};
 Timer? _natSaveT;
 
@@ -1686,7 +1695,7 @@ Future<void> natLoadPersisted() async {
   }
 }
 
-const String _ipMemKey = 'natIpMem';
+const String _ipMemKey = 'natIpMem_domestic_v2';
 const String _rangeKey = 'natRanges';
 const int _ipMemMax = 200;
 
@@ -1697,26 +1706,45 @@ int natRangeCursor = 0; // generic range cursor
 int _natConfiguredRangeCursor = 0; // isolated National Net user-range cursor
 DateTime natRangeLast = DateTime.fromMillisecondsSinceEpoch(0);
 
-Set<String> natIpMemHosts() => {for (final e in natIpMem) '${e['ip']}'};
+Set<String> natIpMemHosts({DateTime? now}) {
+  if (!_natHasVerifiedOperatorKey(natOpKey)) return <String>{};
+  final at = now ?? DateTime.now();
+  final cutoff = at.subtract(const Duration(hours: 48)).millisecondsSinceEpoch;
+  final hosts = <String>{};
+  for (final e in natIpMem) {
+    final rawTime = e['t'];
+    final ip = e['ip'];
+    if (e['op'] != natOpKey || rawTime is! num || ip is! String) continue;
+    final timestamp = rawTime.toInt();
+    if (timestamp > at.millisecondsSinceEpoch || timestamp < cutoff) continue;
+    hosts.add(ip);
+  }
+  return hosts;
+}
 
 Future<void> natIpMemLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
-    final s = p.getString(_ipMemKey);
-    if (s != null) {
+    final saved = p.getString(_ipMemKey);
+    if (saved != null) {
       natIpMem
         ..clear()
-        ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
-      final cutoff = DateTime.now()
-          .subtract(const Duration(days: 14))
-          .millisecondsSinceEpoch;
-      natIpMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
+        ..addAll((jsonDecode(saved) as List).cast<Map<String, dynamic>>());
+      final now = DateTime.now();
+      final cutoff = now.subtract(const Duration(hours: 48)).millisecondsSinceEpoch;
+      natIpMem.removeWhere((e) {
+        final t = e['t'];
+        return t is! num ||
+            t.toInt() > now.millisecondsSinceEpoch ||
+            t.toInt() < cutoff;
+      });
     }
     natRanges = (p.getString(_rangeKey) ?? '')
         .split(RegExp(r'[\r\n,; ]+'))
         .where((x) => x.contains('/') || x.contains('-'))
         .toList();
-    _natConfiguredRangeCursor = (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
+    _natConfiguredRangeCursor =
+        (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -1724,23 +1752,79 @@ Future<void> natIpMemLoad() async {
 
 const String _domMemKey = 'natDomMem';
 const int _domMemMax = 200;
+const Duration _domMemTtl = Duration(hours: 48);
 const int natDelaySecs = 14;
 final List<Map<String, dynamic>> natDomMem = [];
 
-Set<String> natDomMemHosts() => {for (final e in natDomMem) '${e['h']}:${e['port']}'};
+// A past tunnel success is reusable only for the same detected access network / ASN
+// and while it is fresh. Legacy entries without an operator key are never trusted.
+// Legacy entries without an operator key are never trusted for route promotion.
+bool _natHasVerifiedOperatorKey(String key) {
+  final marker = key.lastIndexOf('|AS');
+  if (marker <= 0) return false;
+  final digits = key.substring(marker + 3);
+  return digits.length >= 3 &&
+      digits.length <= 7 &&
+      digits.codeUnits.every((c) => c >= 48 && c <= 57);
+}
+
+Set<String> natDomMemHosts({DateTime? now}) {
+  final at = now ?? DateTime.now();
+  final cutoff = at.subtract(_domMemTtl).millisecondsSinceEpoch;
+  if (!_natHasVerifiedOperatorKey(natOpKey)) return <String>{};
+  final hosts = <String>{};
+  for (final e in natDomMem) {
+    final rawTime = e['t'];
+    final host = e['h'];
+    final port = e['port'];
+    if (e['op'] != natOpKey ||
+        rawTime is! num ||
+        host is! String ||
+        port is! num) {
+      continue;
+    }
+    final timestamp = rawTime.toInt();
+    if (timestamp > at.millisecondsSinceEpoch || timestamp < cutoff) continue;
+    hosts.add(host + ':' + port.toInt().toString());
+  }
+  return hosts;
+}
+
+Future<void> natIpMemSave(String ip, int port) async {
+  if (!_natHasVerifiedOperatorKey(natOpKey)) return;
+  natIpMem.removeWhere((e) =>
+      e['ip'] == ip && e['port'] == port && e['op'] == natOpKey);
+  natIpMem.insert(0, {
+    'ip': ip,
+    'port': port,
+    'op': natOpKey,
+    't': DateTime.now().millisecondsSinceEpoch,
+  });
+  if (natIpMem.length > _ipMemMax) {
+    natIpMem.removeRange(_ipMemMax, natIpMem.length);
+  }
+  try {
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_ipMemKey, jsonEncode(natIpMem));
+  } catch (e, stk) {
+    logError(e, stk);
+  }
+}
 
 Future<void> natDomMemLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
-    final s = p.getString(_domMemKey);
-    if (s != null) {
+    final saved = p.getString(_domMemKey);
+    if (saved != null) {
       natDomMem
         ..clear()
-        ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
-      final cutoff = DateTime.now()
-          .subtract(const Duration(days: 14))
-          .millisecondsSinceEpoch;
-      natDomMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
+        ..addAll((jsonDecode(saved) as List).cast<Map<String, dynamic>>());
+      final now = DateTime.now();
+      final cutoff = now.subtract(_domMemTtl).millisecondsSinceEpoch;
+      natDomMem.removeWhere((e) {
+        final t = (e['t'] as num?)?.toInt();
+        return t == null || t > now.millisecondsSinceEpoch || t < cutoff;
+      });
     }
   } catch (e, stk) {
     logError(e, stk);
@@ -1748,8 +1832,15 @@ Future<void> natDomMemLoad() async {
 }
 
 Future<void> natDomMemSave(String host, int port) async {
-  natDomMem.removeWhere((e) => e['h'] == host && e['port'] == port);
-  natDomMem.insert(0, {'h': host, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
+  if (!_natHasVerifiedOperatorKey(natOpKey)) return;
+  natDomMem.removeWhere((e) =>
+      e['h'] == host && e['port'] == port && e['op'] == natOpKey);
+  natDomMem.insert(0, {
+    'h': host,
+    'port': port,
+    'op': natOpKey,
+    't': DateTime.now().millisecondsSinceEpoch,
+  });
   if (natDomMem.length > _domMemMax) {
     natDomMem.removeRange(_domMemMax, natDomMem.length);
   }
@@ -1761,19 +1852,7 @@ Future<void> natDomMemSave(String host, int port) async {
   }
 }
 
-Future<void> natIpMemSave(String ip, int port) async {
-  natIpMem.removeWhere((e) => e['ip'] == ip && e['port'] == port);
-  natIpMem.insert(0, {'ip': ip, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
-  if (natIpMem.length > _ipMemMax) {
-    natIpMem.removeRange(_ipMemMax, natIpMem.length);
-  }
-  try {
-    final p = await SharedPreferences.getInstance();
-    await p.setString(_ipMemKey, jsonEncode(natIpMem));
-  } catch (e, stk) {
-    logError(e, stk);
-  }
-}
+
 
 
 /// Next bounded sample from the National Net engine's own user-configured
