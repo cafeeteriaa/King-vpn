@@ -468,14 +468,11 @@ class PilotNetworkProbe {
       final nativeIdentity = await const MethodChannel('vpn/bg')
           .invokeMethod<String>('kingVpnNetworkIdentity');
       if (nativeIdentity == null || nativeIdentity.isEmpty) return '';
-      final interfaces = await NetworkInterface.list(includeLoopback: false);
-      final values = <String>[
-        nativeIdentity,
-        for (final item in interfaces)
-          for (final address in item.addresses)
-            '${item.name}=${address.address}',
-      ]..sort();
-      return sha256.convert(utf8.encode(values.join(';'))).toString();
+      // Android's Network handle plus transport/capability tuple is the
+      // authoritative identity. Mixing every local interface address into
+      // this key makes harmless VPN/TUN or IPv6 privacy-address changes look
+      // like physical-network handovers and needlessly invalidates good probes.
+      return sha256.convert(utf8.encode(nativeIdentity)).toString();
     } catch (_) {
       return '';
     }
