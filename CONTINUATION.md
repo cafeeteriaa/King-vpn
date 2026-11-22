@@ -194,3 +194,12 @@
 - Persistence key advanced from nnie_profiles_v2 to nnie_profiles_v3. The old mixed-scope history is intentionally not reused, avoiding contamination; no server/config is rejected for lacking new history.
 - Commits: engine 7984e147898fc201a82f71882612404a85ca3552; main integration 87d5aef9a9880630f2e115314bf7f94d2ac5c215; pilot/diagnostics b70b0aa72980cc0c0ce0500494a6d7efbf1916ea; source guard 11e448da2b9ec31ba62e592c988be1b2bd820a04.
 - CI and real-device/carrier validation are pending. PR #42 remains open Draft and unmerged.
+
+
+## OODA: require fresh standby endpoint evidence before Smart Pilot switches — 2026-11-22
+- Audit found `_pilotBestStandby()` could include candidates whose ranking was lifted by route-scoped NNIE history or profile rate even when their endpoint check was missing/stale. That could authorize an unnecessary switch to an unverified standby.
+- Standby candidates now require a successful positive endpoint ping measured within the last four minutes. Stale/cached NNIE and profile data remain advisory for ranking only after this live eligibility gate; the existing 12-point hysteresis remains.
+- The guard is deliberately described as endpoint reachability, not proof that user traffic passes through the VPN tunnel. Verified tunnel outcome history remains separate evidence and is still route-scoped.
+- Added a source guard for the freshness gate and the distinction between endpoint checks and tunnel data-plane proof.
+- Commits: implementation 6bf961f6343929dbc9a2d7d39adb97af46308ee7; source guard 4cca04249db1414f324572b470445b2cdd97d736.
+- CI and real-device/carrier validation are pending. PR #42 remains open Draft and unmerged.
