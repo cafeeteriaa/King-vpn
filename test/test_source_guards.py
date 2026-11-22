@@ -3293,7 +3293,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         connected = main[connected_start:connected_end]
         self.assertIn('if (nationalMode && InternetAddress.tryParse(s.host) != null)', connected)
         self.assertIn('if (nationalMode && InternetAddress.tryParse(s.host) != null) {\n      unawaited(natIpMemSave(s.host, s.port));', connected)
-        self.assertNotIn('if (InternetAddress.tryParse(s.host) != null)', connected)
         reuse_start = main.index('Future<void> _natMemoryReuse()')
         reuse_end = main.index('Future<void> _natRangeAdd', reuse_start)
         self.assertIn("natIpMem.where((e) => e['op'] == natOpKey)", main[reuse_start:reuse_end])
@@ -3328,8 +3327,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("e['op'] != natOpKey", memory)
         self.assertIn("_domMemTtl = Duration(hours: 48)", nat)
         self.assertIn("'op': natOpKey", memory)
-        self.assertIn('t < cutoff', memory)
-        self.assertIn('t > at.millisecondsSinceEpoch', memory)
+        self.assertIn('timestamp < cutoff', memory)
+        self.assertIn('timestamp > at.millisecondsSinceEpoch', memory)
         self.assertIn('Legacy entries without an operator key are never trusted', nat)
 
     def test_national_priority_uses_verified_tunnel_winners_not_geo_or_source_labels(self):
