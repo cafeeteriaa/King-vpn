@@ -129,6 +129,29 @@ class MainActivity : FlutterActivity() {
                             // This proves plugin daemon-process liveness only, not Xray core health or traffic flow.
                             result.success(V2rayVPNService.isKingVpnTunnelActive(this))
                         }
+                        "kingVpnNetworkIdentity" -> {
+                            // Network.handle changes across Android network handovers even when
+                            // interface names/private IPs happen to be reused. Return only
+                            // transient transport metadata; Dart hashes it and never persists it.
+                            val connectivity = getSystemService(android.net.ConnectivityManager::class.java)
+                            val network = connectivity?.activeNetwork
+                            val capabilities = if (network == null) null else connectivity.getNetworkCapabilities(network)
+                            if (network == null || capabilities == null ||
+                                capabilities.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)) {
+                                result.success(null)
+                            } else {
+                                val transports = listOf(
+                                    "wifi" to android.net.NetworkCapabilities.TRANSPORT_WIFI,
+                                    "cellular" to android.net.NetworkCapabilities.TRANSPORT_CELLULAR,
+                                    "ethernet" to android.net.NetworkCapabilities.TRANSPORT_ETHERNET,
+                                    "vpn" to android.net.NetworkCapabilities.TRANSPORT_VPN,
+                                    "bluetooth" to android.net.NetworkCapabilities.TRANSPORT_BLUETOOTH
+                                ).filter { capabilities.hasTransport(it.second) }.map { it.first }.sorted()
+                                val internet = capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                                val validated = capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                                result.success("${network.networkHandle}|${transports.joinToString(",")}|internet=$internet|validated=$validated")
+                            }
+                        }
                         "kingVpnTransportActive" -> {
                             // Ask Android whether this app's active default network is a VPN transport.
                             val connectivity = getSystemService(android.net.ConnectivityManager::class.java)
