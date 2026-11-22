@@ -136,7 +136,8 @@ class MainActivity : FlutterActivity() {
                             val connectivity = getSystemService(android.net.ConnectivityManager::class.java)
                             val network = connectivity?.activeNetwork
                             val capabilities = if (network == null) null else connectivity.getNetworkCapabilities(network)
-                            if (network == null || capabilities == null) {
+                            if (network == null || capabilities == null ||
+                                capabilities.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)) {
                                 result.success(null)
                             } else {
                                 val transports = listOf(
