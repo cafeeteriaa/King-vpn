@@ -154,3 +154,19 @@ PilotNetworkStrategy choosePilotNetworkStrategy(NetworkEvidence evidence) {
   if (domesticFailed && globalFailed) return PilotNetworkStrategy.offline;
   return PilotNetworkStrategy.preserve;
 }
+
+/// Source/protocol learning must be isolated by route. Old unscoped profile
+/// keys are intentionally not reused across domestic and global modes.
+String networkScopedProfileKey(String profileKey, {required bool nationalMode}) =>
+    '${nationalMode ? 'domestic' : 'global'}|$profileKey';
+
+/// Domestic source ordering is enabled by the legacy diagnosis or by the
+/// unified Pilot only when its domestic TLS quorum is confirmed.
+bool shouldPreferDomesticCandidates({
+  required bool legacyDiagnosisPrefersDomestic,
+  required bool localPilotEnabled,
+  required bool nationalMode,
+  required bool pilotDomesticConfirmed,
+}) =>
+    legacyDiagnosisPrefersDomestic ||
+    (localPilotEnabled && nationalMode && pilotDomesticConfirmed);
