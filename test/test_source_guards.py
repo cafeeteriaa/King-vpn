@@ -3278,6 +3278,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("rt['domainStrategy'] = 'AsIs';", normalize)
 
 
+    def test_national_priority_uses_verified_tunnel_winners_not_geo_or_source_labels(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('List<Server> _natDomesticFirstKeepWinners(List<Server> list)')
+        end = main.index('int _natRank(Server s)', start)
+        domestic = main[start:end]
+        self.assertIn('natDomMemHosts()', domestic)
+        self.assertIn('verifiedHosts.contains', domestic)
+        self.assertNotIn('s.country', domestic)
+        self.assertNotIn('_natSrc(s)', domestic)
+        rank_start = main.index('int _natRankCompute(Server s)')
+        rank_end = main.index('Future<void> _natAdd', rank_start)
+        rank = main[rank_start:rank_end]
+        self.assertIn('if (natGood.contains(s.key)) return 5;', rank)
+        self.assertIn('if (nationalMode) return 0;', rank)
+        self.assertLess(rank.index('if (natGood.contains(s.key))'), rank.index('if (nationalMode) return 0;'))
+        self.assertNotIn('_natSrc(s)', rank)
+        self.assertNotIn("s.country == 'IR'", rank)
+
     def test_connect_time_pilot_diagnosis_respects_explicit_network_mode_pin(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('Future<void> _natDetect() async {')
