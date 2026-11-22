@@ -170,3 +170,11 @@
 - Added source guards for generation fencing, bounded retry, and mode-aware cache validation.
 - Commits: implementation `4f53a27e69e1350637c01fbc7e1270bc1dcfab3b`; tests `988ddab83eaec17ab7c8cd5c28faf91cd6798a3d`.
 - CI result for the final documentation head must be checked before calling the change validated. No live DNS or carrier test is claimed.
+
+## OODA outage/recovery guard for self-heal and disconnected retry — 2026-11-22
+- OODA audit found that the watchdog's NETHOLD protected connected tunnel probes, but the self-heal engine ran before that guard and could interpret an orphaned connection as a reason to reconnect/search during a known underlying-network outage. The disconnected watchdog retry path also called failover before reaching NETHOLD.
+- Self-heal now still observes/diagnoses, but defers disruptive automatic actions while `netDown` is true or during the 15-second `netUpAt` route/DNS recovery grace. Explicit `reason: 'force'` remains the manual override.
+- The disconnected watchdog branch now applies the same outage/recovery gate before retry/failover.
+- Added source guards for both paths. No live device/carrier validation is claimed.
+- Commits: heal `7b85d8f2d54106c7b1691c4c81997c67823e7f00`; watchdog `c97680ceea1ad53031c11c4d08c39b3e9ae7b87e`; tests `d05b2728cc67896fb97ea23cf6a6fb9f1d793257`.
+- A new exact-head CI run is required; prior run 2012 tested the earlier head and cannot validate these commits.
