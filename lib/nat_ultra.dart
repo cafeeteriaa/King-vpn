@@ -1060,20 +1060,24 @@ String _natLinkFor(Server s, int v, {bool reuse = false}) {
 
 final Map<int, bool> dohPreOk = {};
 final Map<int, DateTime> _dohPreAt = {};
+final Map<int, bool> _dohPreNationalMode = {};
 int _dohGen = 0; // نسل کش: هر تغییر شبکه آن را بالا می‌برد
-// نتیجه‌ی probe به شبکه‌ی فعلی وابسته است؛ با تغییر شبکه باید پاک شود.
+// نتیجه‌ی probe به شبکه و حالت داخلی/جهانی وابسته است؛ با تغییر هرکدام پاک شود.
 void natDohCacheClear() {
   _dohGen++;
   dohPreOk.clear();
   _dohPreAt.clear();
+  _dohPreNationalMode.clear();
 }
 Future<bool> natDohUsable(int v) async {
   if (v < 0 || v >= _natSpecs.length) return false;
   final doh = _natSpecs[v].doh;
   if (doh == null) return true;
+  final mode = nationalMode;
   final cached = dohPreOk[v];
   final at = _dohPreAt[v];
   if (cached != null &&
+      _dohPreNationalMode[v] == mode &&
       at != null &&
       DateTime.now().difference(at) < const Duration(minutes: 10)) {
     return cached;
@@ -1081,22 +1085,34 @@ Future<bool> natDohUsable(int v) async {
   var host = doh;
   final u = Uri.tryParse(doh);
   if (u != null && u.hasAuthority) host = u.host;
-  final gen = _dohGen; // نسل قبل از probe گرفته می‌شود
   // A TCP-open port or successful TLS handshake is not proof of DoH.
   // Require a valid DNS-over-HTTPS JSON response for a mode-appropriate name.
   final path = (u?.path.isNotEmpty ?? false) ? u!.path : '/dns-query';
   final query = Uri.https(host, path, <String, String>{
-    'name': nationalMode ? 'nic.ir' : 'google.com',
+    'name': mode ? 'nic.ir' : 'google.com',
     'type': 'A',
   }).toString();
-  final ms = await _probeDoh(query, expectedDomain: nationalMode ? 'nic.ir' : 'google.com');
-  final ok = ms != null;
-  // ج-۱: اگر در این فاصله شبکه عوض شده، نتیجه مربوط به شبکه‌ی قبلی است؛ ننویس
-  if (gen == _dohGen) {
+  // A network generation can change while an asynchronous probe is in flight.
+  // Discard that answer and retry once on the new network; never return a
+  // stale positive (or negative) result to the server-variant ladder.
+  for (var attempt = 0; attempt < 2; attempt++) {
+    final gen = _dohGen;
+    final ms = await _probeDoh(
+      query,
+      expectedDomain: mode ? 'nic.ir' : 'google.com',
+    );
+    if (gen != _dohGen) {
+      if (attempt == 0) continue;
+      return false;
+    }
+    if (nationalMode != mode) return false;
+    final ok = ms != null;
     dohPreOk[v] = ok;
     _dohPreAt[v] = DateTime.now();
+    _dohPreNationalMode[v] = mode;
+    return ok;
   }
-  return ok;
+  return false;
 }
 
 String _natApplyTweaks(String link, _NatSpec x, Server s) {
