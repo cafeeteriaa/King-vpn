@@ -1418,7 +1418,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         action_start = command.index('if (!ACTION_START.equals(action))', stop_start)
         stop = command[stop_start:action_start]
         non_null_promotion = command.index('if (!startForegroundSafe("در حال آماده‌سازی اتصال…"))')
-        self.assertLess(restart.index('startForegroundSafe('), restart.index('submit(() -> resumeSaved(0))'))
+        self.assertLess(restart.index('startForegroundSafe('), restart.index('submit(() -> resumeSaved(0, recoveryGeneration))'))
         self.assertLess(non_null_promotion, stop_start)
         self.assertIn('submit(this::stopEverything)', stop)
     def test_vpn_service_refuses_start_when_foreground_promotion_fails(self):
@@ -1437,7 +1437,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(restart.index('if (!startForegroundSafe('), restart.index('submit(this::stopEverything)'))
         self.assertIn('requestStop();', restart)
         self.assertLess(action_start.index('if (!startForegroundSafe(first.remark))'),
-                        action_start.index('submit(() -> startFlow(first, backups, attempt))'))
+                        action_start.index('submit(() -> startFlow(first, backups, attempt, startRequestGeneration))'))
         failure = action_start[action_start.index('if (!startForegroundSafe(first.remark))'):
                                action_start.index('final int attempt = activeAttemptId')]
         self.assertIn('emit("FAILED", lastError, activeAttemptId);', failure)
@@ -1465,14 +1465,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_vpn_watchdog_survives_core_state_query_exceptions(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
-        start = service.index('private void checkOnce()')
+        start = service.index('private void checkOnce(int requestAttempt, long requestGeneration)')
         end = service.index('private void rescheduleNormal()', start)
         watchdog = service[start:end]
         self.assertIn('try {', watchdog)
         self.assertIn('coreUp = core.isV2rayCoreRunning();', watchdog)
         self.assertIn('catch (Throwable stateError)', watchdog)
         self.assertIn('retaining current tunnel', watchdog)
-        self.assertIn('if (active && !stopping) rescheduleNormal();', watchdog)
+        self.assertIn('if (active && !stopping && requestAttempt == activeAttemptId
+                        && requestGeneration == activeRequestGeneration) rescheduleNormal();', watchdog)
         self.assertLess(watchdog.index('catch (Throwable stateError)'),
                         watchdog.index('ProbeResult pr = coreUp ? probeResult()'))
 
@@ -2728,7 +2729,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_vpn_watchdog_discards_probe_results_from_superseded_connections(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
-        start = service.index('private void checkOnce()')
+        start = service.index('private void checkOnce(int requestAttempt, long requestGeneration)')
         end = service.index('private void rescheduleNormal()', start)
         watchdog = service[start:end]
         snapshot = watchdog.index('probeAttempt = attemptSeq.get();')
@@ -2749,7 +2750,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = service.index('public int onStartCommand(')
         null_branch = service.index('if (intent == null)', start)
         marker_check = service.index('hasPersistedUserStopMarker()', null_branch)
-        resume = service.index('submit(() -> resumeSaved(0))', null_branch)
+        resume = service.index('submit(() -> resumeSaved(0, recoveryGeneration))', null_branch)
         self.assertLess(null_branch, marker_check)
         self.assertLess(marker_check, resume)
         stop_branch = service.index('if (ACTION_STOP.equals(action))', start)
@@ -2764,13 +2765,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(latch_failure, start_submit)
 
         flow_start = service.index('private void startFlow(')
-        flow_end = service.index('private void resumeSaved(int recoveryAttempt)', flow_start)
+        flow_end = service.index('private void resumeSaved(int recoveryAttempt, long requestGeneration)', flow_start)
         flow = service[flow_start:flow_end]
         durable_save = flow.index('if (!saveStateDurably())')
         release_latch = flow.index('recoveryEnabled = persistUserStopMarker(false);')
         lifecycle_guard = flow.index('synchronized (lifecycleLock)', durable_save)
         current_guard = flow.index('if (!stopping && !userStopped && attempt == activeAttemptId)', lifecycle_guard)
-        connect = flow.index('if (connectFrom(0, attempt))')
+        connect = flow.index('if (connectFrom(0, attempt, requestGeneration))')
         self.assertLess(durable_save, lifecycle_guard)
         self.assertLess(lifecycle_guard, current_guard)
         self.assertLess(current_guard, release_latch)
@@ -2825,7 +2826,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         null_branch = service.index('if (intent == null)', start)
         consent = service.index('VpnService.prepare(this) != null', null_branch)
         foreground = service.index('startForegroundSafe("در حال بازیابی اتصال…")', null_branch)
-        resume = service.index('submit(() -> resumeSaved(0))', null_branch)
+        resume = service.index('submit(() -> resumeSaved(0, recoveryGeneration))', null_branch)
         reject = service.index('invalidateRecoveryAfterStartFailure("VPN consent missing during sticky restart")', consent)
         refuse = service.index('return START_NOT_STICKY;', reject)
         self.assertLess(consent, reject)
@@ -2881,7 +2882,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_vpn_start_flow_never_emits_connected_after_stop(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         flow = service.index('private void startFlow(')
-        success = service.index('if (connectFrom(0, attempt))', flow)
+        success = service.index('if (connectFrom(0, attempt, requestGeneration))', flow)
         lifecycle = service.index('synchronized (lifecycleLock)', success)
         stop_guard = service.index('if (stopping || userStopped || attempt != activeAttemptId) return;', lifecycle)
         save = service.index('if (!saveStateDurably())', stop_guard)
@@ -3396,13 +3397,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('userStopped = false;', start_block)
         self.assertIn('stopping = false;', start_block)
         flow_start = native.index('private void startFlow(')
-        flow_end = native.index('private void resumeSaved(int recoveryAttempt)', flow_start)
+        flow_end = native.index('private void resumeSaved(int recoveryAttempt, long requestGeneration)', flow_start)
         flow = native[flow_start:flow_end]
-        self.assertIn('if (stopping || attempt != activeAttemptId) return;', flow)
+        self.assertIn('if (stopping || attempt != activeAttemptId', flow)
+        self.assertIn('requestGeneration != activeRequestGeneration) return;', flow)
         self.assertIn('connectFrom(0, attempt)', flow)
-        self.assertIn('if (!requestStopIfCurrent(attempt)) return;', flow)
+        self.assertIn('if (!requestStopIfCurrent(attempt, requestGeneration)) return;', flow)
         self.assertNotIn('requestStop();', flow)
-        connect_start = native.index('private boolean connectFrom(int first, int requestAttempt)')
+        connect_start = native.index('private boolean connectFrom(int first, int requestAttempt, long requestGeneration)')
         connect_end = native.index('private boolean bringUpWithTimeout(', connect_start)
         connect = native[connect_start:connect_end]
         self.assertIn('requestAttempt != activeAttemptId', connect)
@@ -3433,29 +3435,29 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_native_sticky_recovery_is_superseded_by_newer_explicit_start(self):
         native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
-        self.assertIn('submit(() -> resumeSaved(0));', native)
-        start = native.index('private void resumeSaved(int recoveryAttempt)')
+        self.assertIn('submit(() -> resumeSaved(0, recoveryGeneration));', native)
+        start = native.index('private void resumeSaved(int recoveryAttempt, long requestGeneration)')
         end = native.index('private boolean persistUserStopMarker', start)
         recovery = native[start:end]
         self.assertIn('activeAttemptId != recoveryAttempt', recovery)
-        self.assertIn('connectFrom(currentIdx, recoveryAttempt)', recovery)
+        self.assertIn('connectFrom(currentIdx, recoveryAttempt, requestGeneration)', recovery)
         self.assertIn('stopSelfResult(latestStartId);', recovery)
         self.assertNotIn('stopSelf();', recovery)
 
 
     def test_native_foreground_update_failure_cannot_leave_vpn_connected(self):
         native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
-        recovery_start = native.index('private void resumeSaved(int recoveryAttempt)')
+        recovery_start = native.index('private void resumeSaved(int recoveryAttempt, long requestGeneration)')
         recovery_end = native.index('private boolean persistUserStopMarker', recovery_start)
         recovery = native[recovery_start:recovery_end]
         self.assertNotIn('startForegroundSafe(servers.get(currentIdx).remark)', recovery)
-        connect_start = native.index('private boolean connectFrom(int first, int requestAttempt)')
+        connect_start = native.index('private boolean connectFrom(int first, int requestAttempt, long requestGeneration)')
         connect_end = native.index('private boolean bringUpWithTimeout(', connect_start)
         connect = native[connect_start:connect_end]
         failure_start = connect.index('if (!startForegroundSafe(s.remark))')
         failure_end = connect.index('cancelPluginNotification()', failure_start)
         failure = connect[failure_start:failure_end]
-        self.assertIn('requestStopIfCurrent(requestAttempt)', failure)
+        self.assertIn('requestStopIfCurrent(requestAttempt, requestGeneration)', failure)
         self.assertIn('if (!ownsStop) return false;', failure)
         self.assertIn('if (!persistUserStopMarker(true) && !clearStateDurably())', failure)
         self.assertIn('stopEverything();', failure)
@@ -3485,7 +3487,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('config.trim().isEmpty()', load)
         self.assertIn('arr.length() > MAX_BACKUPS + 1', load)
 
-        resume_start = native.index('private void resumeSaved(int recoveryAttempt)')
+        resume_start = native.index('private void resumeSaved(int recoveryAttempt, long requestGeneration)')
         resume_end = native.index('/**', resume_start + 20)
         resume = native[resume_start:resume_end]
         invalid = resume[resume.index('if (!loadState())'):resume.index('// onStartCommand already promoted')]
@@ -3562,7 +3564,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_native_stop_cleanup_cannot_supersede_a_newer_start(self):
         native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         request_start = native.index('private void requestStop()')
-        request_end = native.index('private boolean requestStopIfCurrent(int attempt)', request_start)
+        request_end = native.index('private boolean requestStopIfCurrent(int attempt, long requestGeneration)', request_start)
         request = native[request_start:request_end]
         self.assertIn('requestedStopGeneration = attemptSeq.incrementAndGet();', request)
 
@@ -3577,20 +3579,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_native_stale_start_failure_cannot_cancel_newer_start(self):
         native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
-        helper_start = native.index('private boolean requestStopIfCurrent(int attempt)')
+        helper_start = native.index('private boolean requestStopIfCurrent(int attempt, long requestGeneration)')
         helper_end = native.index('private boolean connectFrom(', helper_start)
         helper = native[helper_start:helper_end]
-        self.assertIn('attempt != activeAttemptId || stopping || userStopped', helper)
+        self.assertIn('attempt != activeAttemptId', helper)
+        self.assertIn('requestGeneration != activeRequestGeneration', helper)
+        self.assertIn('stopping || userStopped', helper)
         self.assertIn('requestedStopGeneration = attemptSeq.incrementAndGet();', helper)
 
         flow_start = native.index('private void startFlow(')
         flow_end = native.index('private void resumeSaved(', flow_start)
         flow = native[flow_start:flow_end]
-        self.assertEqual(flow.count('requestStopIfCurrent(attempt)'), 4)
+        self.assertEqual(flow.count('requestStopIfCurrent(attempt, requestGeneration)'), 4)
         self.assertNotIn('requestStop();', flow)
-        self.assertIn('if (!requestStopIfCurrent(attempt)) return;', flow)
+        self.assertIn('if (!requestStopIfCurrent(attempt, requestGeneration)) return;', flow)
         self.assertLess(
-            flow.index('if (!requestStopIfCurrent(attempt)) return;'),
+            flow.index('if (!requestStopIfCurrent(attempt, requestGeneration)) return;'),
             flow.index('invalidateRecoveryAfterStartFailure(lastError)')
         )
 
@@ -3617,10 +3621,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_native_foreground_failure_does_not_stop_a_stale_start(self):
         native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
-        start = native.index('private boolean connectFrom(int first, int requestAttempt)')
+        start = native.index('private boolean connectFrom(int first, int requestAttempt, long requestGeneration)')
         end = native.index('private boolean bringUpWithTimeout', start)
         body = native[start:end]
-        self.assertIn('ownsStop = requestStopIfCurrent(requestAttempt);', body)
+        self.assertIn('ownsStop = requestStopIfCurrent(requestAttempt, requestGeneration);', body)
         self.assertIn('if (!ownsStop) return false;', body)
 
 
@@ -3634,7 +3638,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             pos = native.index('invalidateRecoveryAfterStartFailure("' + reason + '")')
             prefix = native[max(0, pos - 220):pos]
             self.assertTrue(
-                'requestStop();' in prefix or 'requestStopIfCurrent(attempt)' in prefix,
+                'requestStop();' in prefix or 'requestStopIfCurrent(attempt, requestGeneration)' in prefix,
                 reason,
             )
 
