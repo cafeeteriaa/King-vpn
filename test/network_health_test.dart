@@ -29,6 +29,17 @@ void main() {
       ), isFalse);
     });
 
+    test('does not reuse cache after the device changes networks', () {
+      expect(shouldReuseNetworkProbeCache(
+        force: false,
+        currentIdentity: 'network-b',
+        cachedIdentity: 'network-a',
+        checkedAt: checkedAt,
+        now: now,
+        ttl: ttl,
+      ), isFalse);
+    });
+
     test('does not reuse cache when prior identity is missing', () {
       expect(shouldReuseNetworkProbeCache(
         force: false,
