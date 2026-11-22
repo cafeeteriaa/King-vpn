@@ -210,6 +210,50 @@ void main() {
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
     });
 
+    test('invalid zero or negative latency cannot trigger a route switch', () {
+      const negative = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.healthy,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 3,
+        globalSuccesses: 3,
+        domesticLatencyMs: -500,
+        globalLatencyMs: 900,
+        domesticTlsReachabilityVerified: true,
+        globalTlsReachabilityVerified: true,
+      );
+      const zero = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.healthy,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 3,
+        globalSuccesses: 3,
+        domesticLatencyMs: 0,
+        globalLatencyMs: 900,
+        domesticTlsReachabilityVerified: true,
+        globalTlsReachabilityVerified: true,
+      );
+      expect(choosePilotNetworkStrategy(negative), PilotNetworkStrategy.preserve);
+      expect(choosePilotNetworkStrategy(zero), PilotNetworkStrategy.preserve);
+    });
+
+    test('preserves strategy when either latency is unknown', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.healthy,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 3,
+        globalSuccesses: 3,
+        domesticLatencyMs: null,
+        globalLatencyMs: 900,
+        domesticTlsReachabilityVerified: true,
+        globalTlsReachabilityVerified: true,
+      );
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
+    });
 
     test('reports unknown mode when only one domestic endpoint responds', () {
       const evidence = NetworkEvidence(
@@ -232,7 +276,6 @@ void main() {
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
     });
-
 
     test('does not switch on inconsistent healthy labels without TLS quorum', () {
       const evidence = NetworkEvidence(
