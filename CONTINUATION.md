@@ -203,3 +203,12 @@
 - Added a source guard for the freshness gate and the distinction between endpoint checks and tunnel data-plane proof.
 - Commits: implementation 6bf961f6343929dbc9a2d7d39adb97af46308ee7; source guard 4cca04249db1414f324572b470445b2cdd97d736.
 - CI and real-device/carrier validation are pending. PR #42 remains open Draft and unmerged.
+
+
+## OODA: exact-head validation checkpoint — 2026-11-22
+- Current branch/PR head at this checkpoint: `bde2bb133a579bea89f1ae7e2b0e1fb020725181`; base `main` is `c43d325f9803d4f6306415e511f6790deff9d87e`.
+- Exact-head Android CI run `45002336463` completed successfully. Its job passed source-repair guards, Flutter unit tests, plugin patching, Dart analysis, optimized arm64 release-mode APK build, 16 KiB ELF PT_LOAD alignment validation, 16 KiB APK ZIP alignment validation, and artifact uploads.
+- The PR is mergeable with GitHub merge state `clean`; this confirms GitHub reports no merge conflict, not runtime correctness.
+- This exact-head CI result supersedes the earlier historical notes above that described CI as pending for earlier checkpoints. No physical-device, IPv4/IPv6 traffic-leak, VPN carrier, Iranian operator-network, production-signing, or Play-install validation is claimed. CI's APK uses the configured CI signing key and is not a production release.
+- Smart Pilot standby candidates now require positive endpoint ping evidence no older than four minutes; NNIE history is separated by domestic/global route. Endpoint ping and TLS reachability are not equivalent to proof of application traffic through the Android VPN TUN.
+- Next integration decision: only integrate this exact tested head after reconfirming the PR head and successful checks; preserve this distinction between automated CI evidence and real-device acceptance.
