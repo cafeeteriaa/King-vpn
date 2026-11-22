@@ -361,7 +361,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         if (!persistUserStopMarker(true)) {
             invalidateRecoveryAfterStartFailure("Unable to latch recovery while preparing VPN startup");
             emit("FAILED", lastError, intent.getIntExtra(EXTRA_ATTEMPT, 0));
-            stopSelf(startId);
+            requestStop();
+            submit(this::stopEverything);
             return START_NOT_STICKY;
         }
         nationalMode = intent.getBooleanExtra(EXTRA_NATIONAL, false);

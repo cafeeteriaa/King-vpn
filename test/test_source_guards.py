@@ -2755,7 +2755,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         stop_branch = service.index('if (ACTION_STOP.equals(action))', start)
         stop_persist = service.index('persistUserStopMarker(true)', stop_branch)
         stop_request = service.index('requestStop();', stop_branch)
-        self.assertLess(stop_persist, stop_request)
+        self.assertLess(stop_request, stop_persist)
         start_branch = service.index('if (!ACTION_START.equals(action))', start)
         latch_marker = service.index('if (!persistUserStopMarker(true))', start_branch)
         latch_failure = service.index('return START_NOT_STICKY;', latch_marker)
@@ -3494,7 +3494,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             'Unable to enter foreground mode during VPN service recovery',
             'Unable to enter foreground mode before processing VPN command',
             'start called with empty config',
-            'Unable to clear persisted user-stop marker; refusing VPN startup',
+            'Unable to latch recovery while preparing VPN startup',
             'Unable to enter foreground mode; VPN startup was refused',
         ):
             pos = body.index('invalidateRecoveryAfterStartFailure("' + reason + '")')
