@@ -3092,6 +3092,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('NetworkInterface.list(includeLoopback: false)', body)
         self.assertIn("invokeMethod<bool>('kingVpnTransportActive')", body)
         self.assertIn('nativeVpn == true && vpnTransport == true', body)
+        self.assertIn('nativeVpn != null && vpnTransport == false', body)
+        self.assertIn("tunNames = 'android:KINGVPN_TRANSPORT_INACTIVE';", body)
+        self.assertLess(body.index('if (nativeVpn != null && vpnTransport == false)'),
+                        body.index('if (hasTunnel && nativeVpn != false) return true;'))
         self.assertIn('if (hasTunnel && nativeVpn != false) return true;', body)
         self.assertIn('return false;', body)
         self.assertIn('return null;', body)
