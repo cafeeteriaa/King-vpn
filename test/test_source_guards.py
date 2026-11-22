@@ -2933,7 +2933,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('goldNoteServer', record)
 
         connected_start = main.index('void _onConnected(Server s)')
-        connected_end = main.index('\n  void ', connected_start + 1)
+        connected_end = main.index('upServer = null;', connected_start)
         connected = main[connected_start:connected_end]
         self.assertIn('_resAdd(s, verified: true)', connected)
 
@@ -2958,6 +2958,33 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         disconnect_start = main.index('Future<void> disconnect({bool keepPilot = false})')
         disconnect_end = main.index('good.clear();', disconnect_start)
         self.assertIn('_resAdd(g, verified: false)', main[disconnect_start:disconnect_end])
+
+
+    def test_global_gold_server_folder_does_not_promote_delay_only_candidates(self):
+        gold = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        load_start = gold.index('Future<void> _goldLoadOnce()')
+        encode_start = gold.index('String _goldEncode()', load_start)
+        load_encode = gold[load_start:encode_start]
+        self.assertIn('x.length > 4 && x[4] == true && verifiedAt != null', load_encode)
+        self.assertIn('verified: verified, verifiedAt: verifiedAt', load_encode)
+
+        step_start = gold.index('Future<void> _goldSrvStep(_HomePageState h)')
+        merge_start = gold.index('Future<void> _goldMergeGood(_HomePageState h)', step_start)
+        step = gold[step_start:merge_start]
+        self.assertIn('final active = h.current;', step)
+        self.assertNotIn('for (final s in h.good)', step)
+        self.assertIn('where((v) => v.verified &&', step)
+        self.assertIn('verified: true', step)
+
+        note_start = gold.index('void goldNoteServer(Server srv)')
+        note_end = gold.index('// MANUALSCAN:', note_start)
+        note = gold[note_start:note_end]
+        self.assertIn('ex.verified = true;', note)
+        self.assertIn('ex.verifiedAt = now;', note)
+
+        merge = gold[merge_start:gold.index('Future<void> _goldTick', merge_start)]
+        self.assertIn('for (final v in _goldSrv.values)', merge)
+        self.assertIn('h.good.add(sv);', merge)
 
 
 if __name__ == '__main__':
