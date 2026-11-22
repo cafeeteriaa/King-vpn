@@ -3278,6 +3278,32 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("rt['domainStrategy'] = 'AsIs';", normalize)
 
 
+    def test_global_source_health_cannot_filter_or_train_national_candidates(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn("p.getString('src_scores_global_v2')", main)
+        self.assertIn("'src_scores_global_v2',", main)
+        self.assertNotIn("p.getString('src_scores')", main)
+        rate_start = main.index('double _rate(Server s)')
+        rate_end = main.index('bool _srcOk(Server s)', rate_start)
+        self.assertIn('if (nationalMode) return 0.3;', main[rate_start:rate_end])
+        ok_start = rate_end
+        ok_end = main.index('int _tier(Server s)', ok_start)
+        self.assertIn('if (nationalMode) return true;', main[ok_start:ok_end])
+        dead_start = main.index('bool _srcDead(Server s)')
+        dead_end = main.index('int _cmpAlive(Server a, Server b)', dead_start)
+        self.assertIn('u == null || nationalMode', main[dead_start:dead_end])
+        record_start = main.index('void _srcRecord(Server s, bool ok)')
+        record_end = main.index('Future<void> _rankSources', record_start)
+        self.assertIn('u == null || nationalMode', main[record_start:record_end])
+        rank_start = record_end
+        rank_end = main.index('Future<void> _saveSrc()', rank_start)
+        self.assertIn('if (nationalMode || _personalBusy) return;', main[rank_start:rank_end])
+        diversify_start = main.index('List<Server> _diversify(List<Server> l)')
+        diversify_end = main.index('// ---------- discovery ----------', diversify_start)
+        diversify = main[diversify_start:diversify_end]
+        self.assertIn('if (nationalMode) return a.compareTo(b);', diversify)
+        self.assertIn('nationalMode ? 0.3 : (srcRate[k] ?? 0.3)', diversify)
+
     def test_pilot_domestic_evidence_drives_all_domestic_policy_paths(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
