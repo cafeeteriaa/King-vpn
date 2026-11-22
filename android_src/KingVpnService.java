@@ -260,6 +260,16 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         // Keep this method short: it runs on the main thread, and the system
         // expects a foreground service to be promoted within a few seconds.
         if (intent == null) {
+            // Re-check consent before restoring persisted state. A sticky restart must
+            // never attempt to resurrect a tunnel after Android revoked VPN permission.
+            if (VpnService.prepare(this) != null) {
+                Log.w(TAG, "VPN consent missing during sticky restart; refusing recovery");
+                persistUserStopMarker(true);
+                clearStateDurably();
+                requestStop();
+                stopSelf(startId);
+                return START_NOT_STICKY;
+            }
             // Android restarted the service (START_STICKY): promote immediately on the
             // main thread before queuing recovery, otherwise a busy worker can miss the
             // foreground-service deadline and Android may terminate the VPN process.
@@ -1187,6 +1197,16 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         try {
             getSharedPreferences(PREFS, MODE_PRIVATE).edit().clear().apply();
         } catch (Exception ignored) {
+        }
+    }
+
+    /** Synchronous invalidation used before refusing a sticky recovery. */
+    private boolean clearStateDurably() {
+        try {
+            return getSharedPreferences(PREFS, MODE_PRIVATE).edit().clear().commit();
+        } catch (Exception e) {
+            Log.e(TAG, "could not durably clear saved VPN recovery state", e);
+            return false;
         }
     }
 

@@ -2744,5 +2744,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(stop, cleanup)
 
 
+    def test_vpn_sticky_restart_rechecks_consent_before_recovery(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = service.index('public int onStartCommand(')
+        null_branch = service.index('if (intent == null)', start)
+        consent = service.index('VpnService.prepare(this) != null', null_branch)
+        foreground = service.index('startForegroundSafe("در حال بازیابی اتصال…")', null_branch)
+        resume = service.index('submit(this::resumeSaved)', null_branch)
+        durable_clear = service.index('clearStateDurably();', consent)
+        refuse = service.index('return START_NOT_STICKY;', durable_clear)
+        self.assertLess(consent, foreground)
+        self.assertLess(durable_clear, refuse)
+        self.assertLess(refuse, resume)
+        helper = service.index('private boolean clearStateDurably()')
+        self.assertIn('.commit()', service[helper:service.index('private int getScore', helper)])
+
+
 if __name__ == '__main__':
     unittest.main()
