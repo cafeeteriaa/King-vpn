@@ -3044,5 +3044,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('تأیید واقعی حداکثر ۲۴ ساعت معتبر است', info)
 
 
+    def test_tunnel_health_probe_uses_the_real_mode_data_path(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<bool> _tunnelTrafficOk()')
+        end = main.index('Future<bool> _stableTunnelTrafficOk(Server server)', start)
+        probe = main[start:end]
+        self.assertIn('_siteOpens(u, viaCore: proxyMode)', probe)
+        self.assertNotIn('_siteOpens(u, viaCore: true)', probe)
+
+        stable_start = end
+        stable_end = main.index('// FlutterV2ray status events have no attempt IDs.', stable_start)
+        stable = main[stable_start:stable_end]
+        self.assertIn('_siteOpens(url, viaCore: proxyMode)', stable)
+        self.assertNotIn('_siteOpens(url, viaCore: true)', stable)
+
+
 if __name__ == '__main__':
     unittest.main()

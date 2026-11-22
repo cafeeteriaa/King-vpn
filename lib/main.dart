@@ -8949,31 +8949,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  // TUNCHK: verify real outbound traffic for the selected network mode.
-  // VPN mode uses the system TUN; proxy mode uses the local core HTTP proxy.
-  // FIX #12: national mode tests domestic destinations (international traffic is cut there);
-  // global mode tests only international ones, so a domestic site cannot pass a dead tunnel.
+  // TUNCHK: verify the actual application data path for the selected mode.
+  // VPN mode must use DIRECT so Android routes this app request through its TUN;
+  // proxy mode has no system TUN and must explicitly use the core HTTP proxy.
+  // National mode checks domestic endpoints; global mode checks international ones.
   Future<bool> _tunnelTrafficOk() async {
     await Future.delayed(const Duration(seconds: 2));
-    // Verify the actual data path in both modes: the system TUN for VPN mode,
-    // and the local core proxy for proxyMode. A CONNECTED event alone is not proof.
     final urls = nationalMode ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
     for (final u in urls) {
-      final ok = await _siteOpens(u, viaCore: true)
+      final ok = await _siteOpens(u, viaCore: proxyMode)
           .timeout(const Duration(seconds: 8), onTimeout: () => false);
       if (ok) return true;
     }
     return false;
   }
 
-  // Stable history requires a fresh multi-destination check through the active core.
-  // This also covers proxy mode: the core's local proxy is the measured data path.
+  // Stable history uses the same mode-correct data path and multiple destinations.
   Future<bool> _stableTunnelTrafficOk(Server server) async {
     if (!connected || !identical(current, server)) return false;
     final urls = nationalMode ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
     if (urls.length < 2) return false;
     final results = await Future.wait(urls.map((url) =>
-        _siteOpens(url, viaCore: true).timeout(
+        _siteOpens(url, viaCore: proxyMode).timeout(
             const Duration(seconds: 8), onTimeout: () => false)));
     final passed = results.where((ok) => ok).length;
     return connected && identical(current, server) && passed >= 2;
