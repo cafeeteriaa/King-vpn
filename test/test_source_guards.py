@@ -106,7 +106,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('builder.addRoute("::", 0);', ipv6_patch)
         self.assertIn('return false;', ipv6_patch)
         self.assertIn('Active FlutterV2ray path refuses partial IPv6 TUN', ipv6_patch)
-        self.assertNotIn('IPv6 sinkhole not supported', ipv6_patch)
+        self.assertIn('Log.e("V2rayVPNService", "IPv6 TUN setup failed; refusing partial VPN", e);', ipv6_patch)
 
     def test_connect_path_uses_mode_aware_tunnel_probe(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
