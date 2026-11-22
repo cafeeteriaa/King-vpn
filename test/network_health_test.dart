@@ -2,6 +2,69 @@ import 'package:flutter_test/flutter_test.dart';
 import '../lib/network_health.dart';
 
 void main() {
+  group('forced network probe refresh coordination', () {
+    test('queues one forced scan behind an active ordinary scan', () async {
+      final coordinator = NetworkProbeRefreshCoordinator<int>();
+      final ordinaryGate = Completer<void>();
+      final forcedGate = Completer<void>();
+      final calls = <bool>[];
+
+      Future<int> scan({required bool force}) async {
+        calls.add(force);
+        if (force) {
+          await forcedGate.future;
+        } else {
+          await ordinaryGate.future;
+        }
+        return calls.length;
+      }
+
+      final ordinary = coordinator.run(scan);
+      final forced = coordinator.run(scan, force: true);
+      final duplicateForced = coordinator.run(scan, force: true);
+      final joined = coordinator.run(scan);
+      expect(calls, <bool>[false]);
+
+      ordinaryGate.complete();
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, <bool>[false, true]);
+
+      forcedGate.complete();
+      expect(await ordinary, 1);
+      expect(await forced, 2);
+      expect(await duplicateForced, 2);
+      expect(await joined, 2);
+      expect(calls, <bool>[false, true]);
+    });
+
+    test('a failed ordinary scan does not discard a queued forced scan', () async {
+      final coordinator = NetworkProbeRefreshCoordinator<int>();
+      final ordinaryGate = Completer<void>();
+      final forcedGate = Completer<void>();
+      final calls = <bool>[];
+
+      Future<int> scan({required bool force}) async {
+        calls.add(force);
+        if (force) {
+          await forcedGate.future;
+          return 7;
+        }
+        await ordinaryGate.future;
+        throw StateError('ordinary probe failed');
+      }
+
+      final ordinary = coordinator.run(scan);
+      final forced = coordinator.run(scan, force: true);
+      ordinaryGate.complete();
+      await expectLater(ordinary, throwsStateError);
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, <bool>[false, true]);
+
+      forcedGate.complete();
+      expect(await forced, 7);
+    });
+  });
+
   group('network probe cache policy', () {
     final checkedAt = DateTime.utc(2026, 11, 22, 7);
     final now = DateTime.utc(2026, 11, 22, 7, 1);
