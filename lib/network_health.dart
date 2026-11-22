@@ -124,7 +124,12 @@ PilotNetworkStrategy choosePilotNetworkStrategy(NetworkEvidence evidence) {
   if (domesticConfirmed && globalConfirmed) {
     final domesticMs = evidence.domesticLatencyMs;
     final globalMs = evidence.globalLatencyMs;
-    if (domesticMs != null && globalMs != null) {
+    // Latency is untrusted evidence: zero, negative or missing values cannot
+    // manufacture a winning route. Preserve the active strategy instead.
+    if (domesticMs != null &&
+        domesticMs > 0 &&
+        globalMs != null &&
+        globalMs > 0) {
       // Switch only for a material gain; avoid oscillation on tiny variations.
       if (domesticMs <= globalMs * 0.80 && globalMs - domesticMs >= 80) {
         return PilotNetworkStrategy.domestic;
