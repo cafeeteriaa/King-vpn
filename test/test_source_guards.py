@@ -3476,6 +3476,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("'kingVpnNetworkIdentity'", identity)
         self.assertIn('if (nativeIdentity == null || nativeIdentity.isEmpty) return', identity)
         self.assertIn("return '';", identity)
+        self.assertIn('sha256.convert(utf8.encode(nativeIdentity))', identity)
+        self.assertNotIn('NetworkInterface.list', identity)
 
     def test_pilot_discards_probe_results_spanning_network_handover(self):
         network = (ROOT / 'lib' / 'network_health.dart').read_text(encoding='utf-8')
