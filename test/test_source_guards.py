@@ -1398,9 +1398,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('PendingIntent.getForegroundService(this, 1, stop, flags)', service)
         self.assertIn('PendingIntent.getService(this, 1, stop, flags)', service)
         self.assertIn('Build.VERSION.SDK_INT >= Build.VERSION_CODES.O', service)
-        stop = service[service.index('if (ACTION_STOP.equals(action))'):
-                       service.index('if (!ACTION_START.equals(action))')]
-        self.assertLess(stop.index('startForegroundSafe('), stop.index('requestStop()'))
+        command_start = service.index('public int onStartCommand(Intent intent')
+        stop_start = service.index('if (ACTION_STOP.equals(action))', command_start)
+        action_start = service.index('if (!ACTION_START.equals(action))', stop_start)
+        command = service[command_start:action_start]
+        promotion = command.index('if (!startForegroundSafe("در حال آماده‌سازی اتصال…"))')
+        stop = command[command.index('if (ACTION_STOP.equals(action))'):]
+        self.assertLess(promotion, command.index('String action = intent.getAction();'))
+        self.assertLess(promotion, stop.index('requestStop()'))
 
     def test_vpn_service_promotes_before_queuing_sticky_restart_or_stop(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
@@ -1408,9 +1413,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = service.index('/** Runs a task on the single worker thread', start)
         command = service[start:end]
         restart = command[command.index('if (intent == null)'):command.index('// Any non-null intent')]
-        stop = command[command.index('if (ACTION_STOP.equals(action))'):command.index('if (!ACTION_START.equals(action))')]
+        stop_start = command.index('if (ACTION_STOP.equals(action))')
+        action_start = command.index('if (!ACTION_START.equals(action))', stop_start)
+        stop = command[stop_start:action_start]
+        non_null_promotion = command.index('if (!startForegroundSafe("در حال آماده‌سازی اتصال…"))')
         self.assertLess(restart.index('startForegroundSafe('), restart.index('submit(() -> resumeSaved(0))'))
-        self.assertLess(stop.index('startForegroundSafe('), stop.index('submit(this::stopEverything)'))
+        self.assertLess(non_null_promotion, stop_start)
+        self.assertLess(non_null_promotion, stop.index('submit(this::stopEverything)'))
     def test_vpn_service_refuses_start_when_foreground_promotion_fails(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = service.index('public int onStartCommand(Intent intent')
