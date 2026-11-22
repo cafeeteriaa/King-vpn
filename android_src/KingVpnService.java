@@ -1111,8 +1111,11 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private void stopEverything() {
         synchronized (lock) {
             // Supersede every attempt first: a stale one that returns later does nothing.
-            stopping = true;
-            attemptSeq.incrementAndGet();
+            final int stopGeneration;
+            synchronized (lifecycleLock) {
+                stopping = true;
+                stopGeneration = attemptSeq.incrementAndGet();
+            }
             active = false;
             retryWaiting = false;
             stopWatchdog(); // جدید: cancel only; the shared scheduler is closed in onDestroy
@@ -1146,7 +1149,11 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             } catch (Exception ignored) {
             }
             stopSelf();
-            stopping = false;
+            synchronized (lifecycleLock) {
+                // A newer Stop may have arrived while native cleanup was in progress.
+                // Never clear its cancellation flag as a side effect of this older cleanup.
+                if (attemptSeq.get() == stopGeneration) stopping = false;
+            }
             emit("STOPPED", "", -1); // جدید: با هیچ تلاشی تطابق ندارد
         }
     }

@@ -2776,5 +2776,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('synchronized (lifecycleLock)', service[request:request_end])
 
 
+    def test_vpn_cleanup_cannot_clear_a_newer_stop_request(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        stop = service.index('private void stopEverything()')
+        generation = service.index('stopGeneration = attemptSeq.incrementAndGet();', stop)
+        cleanup = service.index('clearState();', generation)
+        final_lock = service.index('synchronized (lifecycleLock)', cleanup)
+        conditional = service.index('if (attemptSeq.get() == stopGeneration) stopping = false;', final_lock)
+        emit = service.index('emit("STOPPED"', conditional)
+        request = service.index('private void requestStop()')
+        request_end = service.index('private boolean connectFrom(', request)
+        request_increment = service.index('attemptSeq.incrementAndGet();', request)
+        self.assertLess(generation, cleanup)
+        self.assertLess(cleanup, final_lock)
+        self.assertLess(final_lock, conditional)
+        self.assertLess(request_increment, request_end)
+        self.assertLess(conditional, emit)
+
+
 if __name__ == '__main__':
     unittest.main()
