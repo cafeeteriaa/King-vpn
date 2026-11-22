@@ -3115,6 +3115,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(body.index('NetworkInterface.list('),
                         body.index('finally {'))
 
+    def test_network_change_uses_grace_instead_of_immediate_failover(self):
+        dart = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = dart.index('Future<void> _netWatch() async {')
+        end = dart.index('void _startWatch()', start)
+        watch = dart[start:end]
+        changed = watch.index("if (_netSig.isNotEmpty && sig != _netSig && connected && wantVpn)")
+        block_end = watch.index('_netSig = sig;', changed)
+        block = watch[changed:block_end]
+        self.assertIn('netUpAt = DateTime.now();', block)
+        self.assertIn('fails = 0;', block)
+        self.assertNotIn('watchFailLimit - 1', block)
+        self.assertIn('DateTime.now().difference(netUpAt) < const Duration(seconds: 15)', dart)
+        self.assertIn('مهلت کوتاه برای بازسازی مسیر و DNS', block)
+
     def test_tun_detection_never_treats_connected_event_as_interface_proof(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('Future<bool?> tunUp()')
