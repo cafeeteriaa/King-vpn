@@ -2888,6 +2888,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         traffic = body.index('if (tunnelUp) trafficOk = await _tunnelTrafficOk();')
         recheck = body.index("dbg('DISCONNECTED verification discarded: connection changed');")
         healthy = body.index('if (tunnelUp && trafficOk)')
+        second = body.index('await Future.delayed(const Duration(milliseconds: 900));')
+        second_tun = body.index('tunnelUp = await tunUp() == true;', tun + 1)
         failover = body.index('unawaited(_failover().catchError')
         cleanup = body.index('_disconnectVerificationInFlight.remove(generation);')
         self.assertLess(declaration, helper)
@@ -2896,13 +2898,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(tun, traffic)
         self.assertLess(traffic, recheck)
         self.assertLess(recheck, healthy)
-        self.assertLess(healthy, failover)
+        self.assertLess(healthy, second)
+        self.assertLess(second, second_tun)
+        self.assertLess(second_tun, failover)
+        self.assertIn("lastState = 'DISCONNECTED';", body)
+        self.assertNotIn("if (lastState == 'CONNECTED') return;", body)
         self.assertLess(failover, cleanup)
         handler = dart.index("} else if (st.state == 'DISCONNECTED' && wantVpn")
         timer = dart.index('_confirmDisconnectBeforeFailover(dropGeneration)', handler)
+        timer_block = dart[dart.rfind('dropTimer = Timer(', handler, timer):timer]
         self.assertLess(handler, timer)
+        self.assertNotIn("lastState != 'CONNECTED'", timer_block)
         deferred = dart.index('if (_dropDeferred && mounted && !busy && !switching)')
         deferred_call = dart.index('_confirmDisconnectBeforeFailover(_connGen)', deferred)
+        deferred_block = dart[deferred:deferred_call]
+        self.assertNotIn("lastState != 'CONNECTED'", deferred_block)
         self.assertLess(deferred, deferred_call)
 
     def test_stale_connect_verification_coalesces_callbacks_and_contains_probe_errors(self):
