@@ -363,7 +363,7 @@ void main() {
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
     });
 
-    test('confidence never counts more successes than available samples', () {
+    test('malformed success counters contribute no confidence', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.healthy,
         global: LinkHealth.healthy,
@@ -372,7 +372,47 @@ void main() {
         domesticSuccesses: 99,
         globalSuccesses: 99,
       );
-      expect(evidence.confidence, closeTo(0.55 * 2 / 6, 0.0001));
+      expect(evidence.confidence, 0);
+      expect(evidence.domesticConfirmed, isFalse);
+      expect(evidence.globalConfirmed, isFalse);
+    });
+
+    test('rejects sample counts beyond the scanner inventory for both outcomes', () {
+      const impossiblePositive = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unknown,
+        domesticSamples: 4,
+        domesticSuccesses: 2,
+        domesticTlsReachabilityVerified: true,
+      );
+      const impossibleNegative = NetworkEvidence(
+        domestic: LinkHealth.unreachable,
+        global: LinkHealth.unknown,
+        domesticSamples: 4,
+        domesticSuccesses: 0,
+      );
+      expect(impossiblePositive.domesticConfirmed, isFalse);
+      expect(impossiblePositive.mode, DetectedNetworkMode.unknown);
+      expect(impossibleNegative.domesticFailed, isFalse);
+      expect(impossibleNegative.mode, DetectedNetworkMode.unknown);
+      expect(impossiblePositive.confidence, 0);
+      expect(impossibleNegative.confidence, 0);
+    });
+
+    test('rejects negative sample and success counters', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: -1,
+        globalSuccesses: 0,
+        domesticTlsReachabilityVerified: true,
+      );
+      expect(evidence.domesticConfirmed, isFalse);
+      expect(evidence.domesticFailed, isFalse);
+      expect(evidence.mode, DetectedNetworkMode.unknown);
+      expect(evidence.confidence, 0);
     });
 
     test('does not infer offline from missing evidence', () {
