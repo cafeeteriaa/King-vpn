@@ -1,6 +1,9 @@
 package com.kingvpn.king_vpn
 
+import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -124,6 +127,17 @@ class MainActivity : FlutterActivity() {
                         "alive" -> result.success(
                             engineAttached && !isFinishing && !isDestroyed
                         )
+                        "vpnTransportUp" -> {
+                            val connectivityManager =
+                                getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                            val activeNetwork = connectivityManager?.activeNetwork
+                            val capabilities = activeNetwork?.let {
+                                connectivityManager.getNetworkCapabilities(it)
+                            }
+                            result.success(
+                                capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+                            )
+                        }
                         "back" -> {
                             moveTaskToBack(true)
                             result.success(true)
