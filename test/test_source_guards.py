@@ -2710,5 +2710,25 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('rescheduleNormal();', watchdog[stale_guard:score_or_switch])
 
 
+    def test_vpn_sticky_restart_cannot_override_persisted_user_stop(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = service.index('public int onStartCommand(')
+        null_branch = service.index('if (intent == null)', start)
+        marker_check = service.index('hasPersistedUserStopMarker()', null_branch)
+        resume = service.index('submit(this::resumeSaved)', null_branch)
+        self.assertLess(null_branch, marker_check)
+        self.assertLess(marker_check, resume)
+        stop_branch = service.index('if (ACTION_STOP.equals(action))', start)
+        stop_persist = service.index('persistUserStopMarker(true);', stop_branch)
+        stop_request = service.index('requestStop();', stop_branch)
+        self.assertLess(stop_persist, stop_request)
+        start_branch = service.index('if (!ACTION_START.equals(action))', start)
+        clear_marker = service.index('persistUserStopMarker(false);', start_branch)
+        start_submit = service.index('submit(() -> startFlow', start_branch)
+        self.assertLess(clear_marker, start_submit)
+        helper = service.index('private boolean hasPersistedUserStopMarker()')
+        self.assertIn('return true;', service[helper:service.index('private void requestStop()', helper)])
+
+
 if __name__ == '__main__':
     unittest.main()

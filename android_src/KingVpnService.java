@@ -174,6 +174,10 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * and resumeSaved() reconnects from the saved list.
      */
     private static final long HUNG_NATIVE_MS = 45_000L;
+    /** Separate durable latch: stop requests must survive a process death before cleanup. */
+    private static final String CONTROL_PREFS = "king_vpn_control";
+    private static final String KEY_USER_STOPPED = "user_stopped";
+
     private final AtomicLong nativeToken = new AtomicLong(0);
     private volatile boolean nativeBusy = false;
     private final AtomicBoolean recovering = new AtomicBoolean(false);
@@ -221,6 +225,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     /** جدید: stop requested by the app while it is in the background. */
     public void stopFromApp() {
+        persistUserStopMarker(true);
         requestStop();
         submit(this::stopEverything);
     }
@@ -265,6 +270,14 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 submit(this::stopEverything);
                 return START_NOT_STICKY;
             }
+            // An explicit user stop is durable across process death. Never let a
+            // queued START_STICKY/null-intent restart resurrect the previous tunnel.
+            if (hasPersistedUserStopMarker()) {
+                Log.i(TAG, "ignoring sticky restart after explicit user stop");
+                requestStop();
+                submit(this::stopEverything);
+                return START_NOT_STICKY;
+            }
             // No Dart attempt is waiting for it, so its status uses attempt 0 (accepted by all).
             activeAttemptId = 0;
             submit(this::resumeSaved);
@@ -275,6 +288,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // ACTION_STOP may itself arrive through startForegroundService; satisfy the
             // same deadline before asynchronous shutdown work is queued.
             startForegroundSafe("در حال قطع اتصال…");
+            persistUserStopMarker(true);
             requestStop();
             submit(this::stopEverything);
             return START_NOT_STICKY;
@@ -302,6 +316,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 orEmpty(intent.getStringExtra(EXTRA_PORT)));
         List<Srv> backups = parseBackups(intent.getStringExtra(EXTRA_BACKUPS));
         sortByScoreDesc(backups);
+        // A fresh explicit START is the only operation that clears the durable stop latch.
+        persistUserStopMarker(false);
         nationalMode = intent.getBooleanExtra(EXTRA_NATIONAL, false);
         activeAttemptId = intent.getIntExtra(EXTRA_ATTEMPT, 0);
         userStopped = false;
@@ -405,6 +421,27 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * Non-blocking half of a stop. Safe to call on the main thread: it only sets
      * flags and cancels the running attempt. The real work runs on the worker.
      */
+    private void persistUserStopMarker(boolean stoppedByUser) {
+        try {
+            boolean saved = getSharedPreferences(CONTROL_PREFS, MODE_PRIVATE)
+                    .edit().putBoolean(KEY_USER_STOPPED, stoppedByUser).commit();
+            if (!saved) Log.e(TAG, "could not persist explicit user-stop marker");
+        } catch (Exception e) {
+            Log.e(TAG, "failed to persist explicit user-stop marker", e);
+        }
+    }
+
+    private boolean hasPersistedUserStopMarker() {
+        try {
+            return getSharedPreferences(CONTROL_PREFS, MODE_PRIVATE)
+                    .getBoolean(KEY_USER_STOPPED, false);
+        } catch (Exception e) {
+            Log.e(TAG, "failed to read explicit user-stop marker", e);
+            // Fail closed: do not reconnect if the stop intent cannot be verified.
+            return true;
+        }
+    }
+
     private void requestStop() {
         userStopped = true;
         stopping = true;
