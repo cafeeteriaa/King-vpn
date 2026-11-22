@@ -2858,7 +2858,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_vpn_cleanup_cannot_clear_a_newer_stop_request(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         stop = service.index('private void stopEverything()')
-        generation = service.index('stopGeneration = attemptSeq.incrementAndGet();', stop)
+        generation = service.index('final int stopGeneration = requestedStopGeneration;', stop)
         final_lock = service.index('synchronized (lifecycleLock)', generation)
         guard = service.index('if (attemptSeq.get() != stopGeneration)', final_lock)
         cleanup = service.index('if (!clearStateDurably())', guard)
@@ -2875,6 +2875,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(cleanup, servers)
         self.assertLess(stop_self, stopping_reset)
         self.assertLess(request_increment, request_end)
+        self.assertIn('requestedStopGeneration = attemptSeq.incrementAndGet();', service[request:request_end])
         self.assertLess(stopping_reset, emit)
         self.assertIn('return;', service[guard:cleanup])
     def test_vpn_start_flow_never_emits_connected_after_stop(self):
@@ -3387,7 +3388,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_native_new_start_supersedes_inflight_start_without_stale_failover(self):
         native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
-        start = native.index('nationalMode = intent.getBooleanExtra')
+        start = native.index('// Fence every older start BEFORE writing the durable latch.')
         start_end = native.index('if (!startForegroundSafe(first.remark))', start)
         start_block = native[start:start_end]
         self.assertIn('activeAttemptId = intent.getIntExtra(EXTRA_ATTEMPT, 0);', start_block)
@@ -3407,7 +3408,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (stopping || userStopped', connect)
     def test_native_explicit_start_clears_stopping_and_advances_lifecycle_generation(self):
         native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
-        start = native.index('// A newer explicit start supersedes any in-flight native bringUp immediately.')
+        start = native.index('// Fence every older start BEFORE writing the durable latch.')
         start_end = native.index('if (!startForegroundSafe(first.remark))', start)
         block = native[start:start_end]
         self.assertIn('attemptSeq.incrementAndGet();', block)
@@ -3560,7 +3561,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_native_stop_cleanup_cannot_supersede_a_newer_start(self):
         native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         request_start = native.index('private void requestStop()')
-        request_end = native.index('private boolean persistUserStopMarker', request_start)
+        request_end = native.index('private boolean requestStopIfCurrent(int attempt)', request_start)
         request = native[request_start:request_end]
         self.assertIn('requestedStopGeneration = attemptSeq.incrementAndGet();', request)
 
@@ -3576,7 +3577,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_native_stale_start_failure_cannot_cancel_newer_start(self):
         native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         helper_start = native.index('private boolean requestStopIfCurrent(int attempt)')
-        helper_end = native.index('private boolean persistUserStopMarker', helper_start)
+        helper_end = native.index('private boolean connectFrom(', helper_start)
         helper = native[helper_start:helper_end]
         self.assertIn('attempt != activeAttemptId || stopping || userStopped', helper)
         self.assertIn('requestedStopGeneration = attemptSeq.incrementAndGet();', helper)
