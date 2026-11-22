@@ -150,6 +150,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private volatile boolean active = false;
     private volatile boolean stopping = false;
     private volatile boolean retryWaiting = false;
+    /** Latest Android start id; stopSelfResult must not cancel a newer command. */
+    private volatile int latestStartId = 0;
     // ---- Core ownership -------------------------------------------------------
     // The V2Ray core is ONE native instance and the TUN is ONE fd. Lock order is
     // lock -> coreLock -> tunLock. Every operation that starts or stops the core,
@@ -259,6 +261,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        latestStartId = startId;
         // Keep this method short: it runs on the main thread, and the system
         // expects a foreground service to be promoted within a few seconds.
         if (intent == null) {
@@ -359,6 +362,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             activeAttemptId = intent.getIntExtra(EXTRA_ATTEMPT, 0);
             attemptSeq.incrementAndGet();
             userStopped = false;
+            // An explicit Start supersedes a queued/in-progress Stop cleanup.
+            stopping = false;
         }
 
         if (!startForegroundSafe(first.remark)) {
@@ -1177,19 +1182,25 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 Log.w(TAG, "core busy in a previous attempt; leaving it to that attempt");
                 lastError = "core busy from a previous attempt";
             }
-            clearState();
-            servers.clear();
-            try {
-                stopForeground(true);
-            } catch (Exception ignored) {
-            }
-            stopSelf();
             synchronized (lifecycleLock) {
-                // A newer Stop may have arrived while native cleanup was in progress.
-                // Never clear its cancellation flag as a side effect of this older cleanup.
-                if (attemptSeq.get() == stopGeneration) stopping = false;
+                // A newer Start/Stop owns the service now. Do not erase its persisted
+                // configuration, clear its in-memory server list, or stop its foreground
+                // notification/service as a side effect of this older cleanup.
+                if (attemptSeq.get() != stopGeneration) {
+                    Log.i(TAG, "stop cleanup superseded by a newer lifecycle request");
+                    return;
+                }
+                clearState();
+                servers.clear();
+                try {
+                    stopForeground(true);
+                } catch (Exception ignored) {
+                }
+                // Android refuses to stop the service for an obsolete start id.
+                stopSelfResult(latestStartId);
+                stopping = false;
             }
-            emit("STOPPED", "", -1); // جدید: با هیچ تلاشی تطابق ندارد
+            emit("STOPPED", "", -1); // generic stop event; not tied to a start attempt
         }
     }
 

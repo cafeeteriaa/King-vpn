@@ -3349,5 +3349,29 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (stopping || userStopped', connect)
 
 
+    def test_native_explicit_start_clears_stopping_and_advances_lifecycle_generation(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = native.index('// A newer explicit start supersedes any in-flight native bringUp immediately.')
+        start_end = native.index('if (!startForegroundSafe(first.remark))', start)
+        block = native[start:start_end]
+        self.assertIn('attemptSeq.incrementAndGet();', block)
+        self.assertIn('userStopped = false;', block)
+        self.assertIn('stopping = false;', block)
+
+    def test_native_stop_cleanup_is_generation_guarded_and_uses_latest_start_id(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        cleanup_start = native.index('private void stopEverything()')
+        cleanup_end = native.index('private void closeTun()', cleanup_start)
+        cleanup = native[cleanup_start:cleanup_end]
+        self.assertIn('if (attemptSeq.get() != stopGeneration)', cleanup)
+        self.assertLess(cleanup.index('if (attemptSeq.get() != stopGeneration)'),
+                        cleanup.index('clearState();'))
+        self.assertIn('stopSelfResult(latestStartId);', cleanup)
+        self.assertNotIn('stopSelf();', cleanup)
+        on_start = native.index('public int onStartCommand(')
+        on_start_end = native.index('private void submit(', on_start)
+        self.assertIn('latestStartId = startId;', native[on_start:on_start_end])
+
+
 if __name__ == '__main__':
     unittest.main()
