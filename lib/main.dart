@@ -9741,10 +9741,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           final e = _NatResItem(srv.link, srv,
               DateTime.fromMillisecondsSinceEpoch((x['a'] as num).toInt()));
           final c = (x['c'] as num?)?.toInt();
-          e.verified = x['v'] == true; // legacy entries without provenance are candidates only
-          if (c != null && e.verified) {
-            e.checked = DateTime.fromMillisecondsSinceEpoch(c);
-          } // unverified legacy records must be rechecked
+          final verifiedAt = (x['va'] as num?)?.toInt();
+          e.verified = x['v'] == true && verifiedAt != null;
+          if (e.verified) {
+            e.verifiedAt = DateTime.fromMillisecondsSinceEpoch(verifiedAt);
+            if (c != null) e.checked = DateTime.fromMillisecondsSinceEpoch(c);
+          } // legacy entries without end-to-end proof are candidates only
           srv.ping = (x['p'] as num?)?.toInt();
           _resMap[srv.key] = e;
         }
@@ -9774,7 +9776,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       'a': e.added.millisecondsSinceEpoch,
                       'c': e.checked?.millisecondsSinceEpoch,
                       'p': e.s.ping,
-                      'v': e.verified
+                      'v': e.verified,
+                      'va': e.verifiedAt?.millisecondsSinceEpoch
                     })
                 .toList()
           }));
@@ -9799,7 +9802,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         old.checked = now;
         old.miss = 0;
         old.s.ping = srv.ping;
-        if (verified) old.verified = true; // never downgrade a previously verified record
+        if (verified) {
+          old.verified = true; // never downgrade a previously verified record
+          old.verifiedAt = now;
+        }
       } else {
         final c = Server.parse(srv.link);
         if (c == null) return;
@@ -9819,6 +9825,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         c.ping = srv.ping;
         final e = _NatResItem(srv.link, c, now)..verified = verified;
         e.checked = verified ? now : null;
+        if (verified) e.verifiedAt = now;
         _resMap[srv.key] = e;
       }
       _resDirty = true;
@@ -17341,6 +17348,7 @@ class _NatResItem {
   final DateTime added;
   DateTime? checked;
   bool verified = false; // only _onConnected's end-to-end data-plane proof sets this
+  DateTime? verifiedAt; // timestamp of the last real tunnel traffic confirmation
   int miss = 0;
   _NatResItem(this.link, this.s, this.added);
 }

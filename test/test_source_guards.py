@@ -2933,7 +2933,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('goldNoteServer', record)
 
         connected_start = main.index('void _onConnected(Server s)')
-        connected_end = main.index('void ', connected_start + len('void _onConnected(Server s)'))
+        connected_end = main.index('\n  void ', connected_start + 1)
         connected = main[connected_start:connected_end]
         self.assertIn('_resAdd(s, verified: true)', connected)
 
@@ -2941,20 +2941,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         save_start = main.index('Future<void> _resSave()', load_start)
         add_start = main.index('void _resAdd(Server srv', save_start)
         load_save = main[load_start:add_start]
-        self.assertIn("e.verified = x['v'] == true", load_save)
+        self.assertIn("e.verified = x['v'] == true && verifiedAt != null", load_save)
         self.assertIn("'v': e.verified", load_save)
+        self.assertIn("'va': e.verifiedAt?.millisecondsSinceEpoch", load_save)
 
         add_end = main.index('// SRCSPLIT:', add_start)
         add = main[add_start:add_end]
         self.assertIn('if (verified) goldNoteServer(srv);', add)
         self.assertIn('if (verified) old.verified = true;', add)
+        self.assertIn('old.verifiedAt = now;', add)
 
         nat_start = main.index('Future<void> _natDetect()')
         nat_end = main.index('Future<void> ', nat_start + len('Future<void> _natDetect()'))
         self.assertIn('where((e) => e.verified)', main[nat_start:nat_end])
 
-        disconnect_start = main.index('Future<void> _disconnect()')
-        disconnect_end = main.index('void ', disconnect_start + len('Future<void> _disconnect()'))
+        disconnect_start = main.index('Future<void> disconnect({bool keepPilot = false})')
+        disconnect_end = main.index('good.clear();', disconnect_start)
         self.assertIn('_resAdd(g, verified: false)', main[disconnect_start:disconnect_end])
 
 
