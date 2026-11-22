@@ -81,7 +81,13 @@ class NetworkEvidence {
   double get confidence {
     // Count actual successful TLS handshakes, not attempts. Failed probes are
     // evidence for route classification but must never inflate reachability confidence.
-    final successfulSamples = (domesticSuccesses + globalSuccesses).clamp(0, 6);
+    // Treat the evidence object as an external boundary: malformed counters
+    // must not claim more successes than the scanner actually sampled.
+    final domesticCount = domesticSamples < 0 ? 0 : domesticSamples;
+    final globalCount = globalSamples < 0 ? 0 : globalSamples;
+    final domesticOk = domesticSuccesses.clamp(0, domesticCount);
+    final globalOk = globalSuccesses.clamp(0, globalCount);
+    final successfulSamples = (domesticOk + globalOk).clamp(0, 6);
     if (successfulSamples <= 0) return 0;
     // The dedicated pilot scanner samples exactly three domestic and three global targets.
     // Six successful samples with both groups verified reach 100%.
@@ -99,13 +105,19 @@ PilotNetworkStrategy choosePilotNetworkStrategy(NetworkEvidence evidence) {
   // A single successful endpoint is only a hint (degraded), not enough to
   // change the active route. Require the scanner's >=2/3 quorum on each side.
   final domesticConfirmed = evidence.domestic == LinkHealth.healthy &&
-      evidence.domesticSamples >= 3;
+      evidence.domesticSamples >= 3 &&
+      evidence.domesticSuccesses >= 2 &&
+      evidence.domesticTlsReachabilityVerified;
   final globalConfirmed = evidence.global == LinkHealth.healthy &&
-      evidence.globalSamples >= 3;
+      evidence.globalSamples >= 3 &&
+      evidence.globalSuccesses >= 2 &&
+      evidence.globalTlsReachabilityVerified;
   final domesticFailed = evidence.domestic == LinkHealth.unreachable &&
-      evidence.domesticSamples >= 2;
+      evidence.domesticSamples >= 2 &&
+      evidence.domesticSuccesses == 0;
   final globalFailed = evidence.global == LinkHealth.unreachable &&
-      evidence.globalSamples >= 2;
+      evidence.globalSamples >= 2 &&
+      evidence.globalSuccesses == 0;
 
   if (domesticConfirmed && globalFailed) return PilotNetworkStrategy.domestic;
   if (globalConfirmed && domesticFailed) return PilotNetworkStrategy.global;
