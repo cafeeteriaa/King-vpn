@@ -3625,7 +3625,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = native.index('private boolean connectFrom(int first, int requestAttempt, long requestGeneration)')
         end = native.index('private boolean bringUpWithTimeout', start)
         body = native[start:end]
-        self.assertIn('ownsStop = requestStopIfCurrent(requestAttempt, requestGeneration);', body)
+        self.assertIn('final boolean ownsStop =', body)
+        self.assertIn('requestStopIfCurrent(requestAttempt, requestGeneration);', body)
+        self.assertNotIn('requestStop();', body)
         self.assertIn('if (!ownsStop) return false;', body)
 
 
