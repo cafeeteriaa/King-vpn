@@ -4151,16 +4151,23 @@ Future<bool?> tunUp() async {
   // It does NOT prove that Android installed a TUN interface or that traffic passes.
   // Keep it diagnostic-only unless Android also reports an active VPN transport.
   bool? nativeVpn;
+  bool? vpnTransport;
   try {
     if (Platform.isAndroid) {
       nativeVpn = await bgChannel.invokeMethod<bool>('kingVpnTunnelActive');
       if (nativeVpn != null) {
         tunNames = nativeVpn ? 'android:KINGVPN_DAEMON_ALIVE' : 'android:KINGVPN_DAEMON_INACTIVE';
       }
-      final vpnTransport = await bgChannel.invokeMethod<bool>('kingVpnTransportActive');
+      vpnTransport = await bgChannel.invokeMethod<bool>('kingVpnTransportActive');
       if (nativeVpn == true && vpnTransport == true) {
         tunNames = 'android:KINGVPN_DAEMON_AND_TRANSPORT_ACTIVE';
         return true;
+      }
+      // A definitive negative Android transport result must not be overridden
+      // by a generic interface name that may belong to another VPN provider.
+      if (nativeVpn != null && vpnTransport == false) {
+        tunNames = 'android:KINGVPN_TRANSPORT_INACTIVE';
+        return false;
       }
     }
   } catch (_nativeTunError) {
