@@ -3446,6 +3446,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('TRANSPORT_WIFI', native)
         self.assertIn('TRANSPORT_CELLULAR', native)
         self.assertIn('NET_CAPABILITY_VALIDATED', native)
+        self.assertIn('capabilities.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)', native)
         start = engine.index('static Future<String> _networkIdentity() async {')
         end = engine.index('\n  }', start)
         identity = engine[start:end]
