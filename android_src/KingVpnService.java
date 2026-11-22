@@ -667,18 +667,12 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
     }
 
-    /** Try each server starting at [first]; the first one that comes up wins. */
-    private boolean connectFrom(int first) {
-        return connectFrom(first, -1, 0L);
-    }
-
     /** Request-scoped variant used by explicit starts; stale requests cannot keep failing over. */
     private boolean connectFrom(int first, int requestAttempt, long requestGeneration) {
         int n = servers.size();
         for (int k = 0; k < n; k++) {
-            if (stopping || (requestAttempt >= 0
-                    && (requestAttempt != activeAttemptId
-                    || requestGeneration != activeRequestGeneration))) {
+            if (stopping || requestAttempt != activeAttemptId
+                    || requestGeneration != activeRequestGeneration) {
                 return false;
             }
             int idx = (first + k) % n;
@@ -688,8 +682,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 synchronized (lifecycleLock) {
                     // Stop or a newer explicit start may supersede this native result.
                     if (stopping || userStopped
-                            || (requestAttempt >= 0 && (requestAttempt != activeAttemptId
-                            || requestGeneration != activeRequestGeneration))) return false;
+                            || requestAttempt != activeAttemptId
+                            || requestGeneration != activeRequestGeneration) return false;
                     currentIdx = idx;
                     fails = 0;
                     healthyStreak = 0;
@@ -701,13 +695,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                     // A VPN must not remain active after losing its foreground contract.
                     // Only the still-current request may stop the service; an older
                     // bring-up must not cancel a newer explicit Start.
-                    final boolean ownsStop;
-                    if (requestAttempt >= 0) {
-                        ownsStop = requestStopIfCurrent(requestAttempt, requestGeneration);
-                    } else {
-                        requestStop();
-                        ownsStop = true;
-                    }
+                    final boolean ownsStop =
+                            requestStopIfCurrent(requestAttempt, requestGeneration);
                     if (!ownsStop) return false;
                     if (!persistUserStopMarker(true) && !clearStateDurably()) {
                         Log.e(TAG, "foreground failure could not persist stop intent or clear recovery state");

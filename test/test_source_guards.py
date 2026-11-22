@@ -3706,5 +3706,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('activeRequestGeneration != requestGeneration', recovery)
 
 
+    def test_native_connect_from_requires_request_ownership_tokens(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        self.assertNotIn('private boolean connectFrom(int first)', native)
+        start = native.index('private boolean connectFrom(int first, int requestAttempt, long requestGeneration)')
+        end = native.index('private boolean bringUpWithTimeout(', start)
+        body = native[start:end]
+        self.assertIn('requestAttempt != activeAttemptId', body)
+        self.assertIn('requestGeneration != activeRequestGeneration', body)
+        self.assertNotIn('requestAttempt >= 0', body)
+        self.assertNotIn('requestStop();', body)
+        self.assertIn('requestStopIfCurrent(requestAttempt, requestGeneration)', body)
+
+
 if __name__ == '__main__':
     unittest.main()
