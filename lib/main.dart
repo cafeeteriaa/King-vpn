@@ -2867,7 +2867,9 @@ String _reliableVpnCfg(String cfg) {
     final rt = j['routing'] is Map
         ? Map<String, dynamic>.from(j['routing'] as Map)
         : <String, dynamic>{};
-    rt['domainStrategy'] = 'AsIs';
+    // Preserve routing strategy selected by withIranRouting (e.g. IPIfNonMatch).
+    // AsIs is only the fallback when the incoming config has no strategy.
+    rt.putIfAbsent('domainStrategy', () => 'AsIs');
     j['routing'] = rt;
     // Keep local SOCKS/HTTP so post-connect social checks (TG/IG/YT) go through
     // the REAL core path — not the app's direct network (often bypasses VPN).
