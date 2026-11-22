@@ -1405,7 +1405,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         promotion = command.index('if (!startForegroundSafe("در حال آماده‌سازی اتصال…"))')
         stop = command[command.index('if (ACTION_STOP.equals(action))'):]
         self.assertLess(promotion, command.index('String action = intent.getAction();'))
-        self.assertLess(promotion, stop_start)
+        self.assertLess(promotion, stop_start - command_start)
         self.assertIn('requestStop();', stop)
 
     def test_vpn_service_promotes_before_queuing_sticky_restart_or_stop(self):
@@ -1419,7 +1419,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         stop = command[stop_start:action_start]
         non_null_promotion = command.index('if (!startForegroundSafe("در حال آماده‌سازی اتصال…"))')
         self.assertLess(restart.index('startForegroundSafe('), restart.index('submit(() -> resumeSaved(0))'))
-        self.assertLess(non_null_promotion, stop_start)
         self.assertLess(non_null_promotion, stop_start)
         self.assertIn('submit(this::stopEverything)', stop)
     def test_vpn_service_refuses_start_when_foreground_promotion_fails(self):
