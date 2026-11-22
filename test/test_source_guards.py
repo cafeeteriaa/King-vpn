@@ -3459,5 +3459,30 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
+    def test_rejected_start_durably_blocks_sticky_recovery_before_async_cleanup(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        helper_start = native.index('private void invalidateRecoveryAfterStartFailure(')
+        helper_end = native.index('private boolean hasPersistedUserStopMarker()', helper_start)
+        helper = native[helper_start:helper_end]
+        self.assertIn('persistUserStopMarker(true)', helper)
+        self.assertIn('clearStateDurably()', helper)
+        self.assertLess(helper.index('persistUserStopMarker(true)'), helper.index('clearStateDurably()'))
+
+        on_start = native.index('public int onStartCommand(')
+        submit = native.index('private void submit(', on_start)
+        body = native[on_start:submit]
+        for reason in (
+            'VPN consent missing during sticky restart',
+            'Unable to enter foreground mode during VPN service recovery',
+            'Unable to enter foreground mode before processing VPN command',
+            'start called with empty config',
+            'Unable to clear persisted user-stop marker; refusing VPN startup',
+            'Unable to enter foreground mode; VPN startup was refused',
+        ):
+            pos = body.index('invalidateRecoveryAfterStartFailure("' + reason + '")')
+            cleanup = body.find('submit(this::stopEverything)', pos)
+            self.assertTrue(cleanup == -1 or pos < cleanup)
+
+
 if __name__ == '__main__':
     unittest.main()

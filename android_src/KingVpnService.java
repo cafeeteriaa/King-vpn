@@ -269,7 +269,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // never attempt to resurrect a tunnel after Android revoked VPN permission.
             if (VpnService.prepare(this) != null) {
                 Log.w(TAG, "VPN consent missing during sticky restart; refusing recovery");
-                persistUserStopMarker(true);
+                invalidateRecoveryAfterStartFailure("VPN consent missing during sticky restart");
                 clearStateDurably();
                 requestStop();
                 stopSelf(startId);
@@ -279,7 +279,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // main thread before queuing recovery, otherwise a busy worker can miss the
             // foreground-service deadline and Android may terminate the VPN process.
             if (!startForegroundSafe("در حال بازیابی اتصال…")) {
-                lastError = "Unable to enter foreground mode during VPN service recovery";
+                invalidateRecoveryAfterStartFailure("Unable to enter foreground mode during VPN service recovery");
                 Log.e(TAG, lastError);
                 requestStop();
                 submit(this::stopEverything);
@@ -302,7 +302,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         // Promote before inspecting the action or validating its payload: malformed or
         // unknown commands must not leave Android's foreground-start deadline unsatisfied.
         if (!startForegroundSafe("در حال آماده‌سازی اتصال…")) {
-            lastError = "Unable to enter foreground mode before processing VPN command";
+            invalidateRecoveryAfterStartFailure("Unable to enter foreground mode before processing VPN command");
             Log.e(TAG, lastError);
             requestStop();
             submit(this::stopEverything);
@@ -334,7 +334,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         String json = intent.getStringExtra(EXTRA_CONFIG);
         if (json == null || json.isEmpty()) {
             Log.e(TAG, "start without config");
-            lastError = "start called with empty config";
+            invalidateRecoveryAfterStartFailure("start called with empty config");
             // جدید: startForegroundService requires startForeground() within 5 s, or Android
             // kills the process with ForegroundServiceDidNotStartInTimeException.
             updateNotification("خطا: تنظیمات سرور خالی است");
@@ -354,7 +354,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         // If storage cannot confirm the clear, refuse to start rather than creating a
         // tunnel that Android would later be forbidden to restore after process death.
         if (!persistUserStopMarker(false)) {
-            lastError = "Unable to clear persisted user-stop marker; refusing VPN startup";
+            invalidateRecoveryAfterStartFailure("Unable to clear persisted user-stop marker; refusing VPN startup");
             emit("FAILED", lastError, intent.getIntExtra(EXTRA_ATTEMPT, 0));
             stopSelf(startId);
             return START_NOT_STICKY;
@@ -371,7 +371,7 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
 
         if (!startForegroundSafe(first.remark)) {
-            lastError = "Unable to enter foreground mode; VPN startup was refused";
+            invalidateRecoveryAfterStartFailure("Unable to enter foreground mode; VPN startup was refused");
             Log.e(TAG, lastError);
             emit("FAILED", lastError, activeAttemptId);
             requestStop();
@@ -520,6 +520,21 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         } catch (Exception e) {
             Log.e(TAG, "failed to persist explicit user-stop marker", e);
             return false;
+        }
+    }
+
+    /**
+     * Fail closed before asynchronous cleanup when a start command is rejected.
+     * The durable stop latch prevents START_STICKY from reviving an older saved
+     * tunnel if Android kills this process before the worker can clear state.
+     */
+    private void invalidateRecoveryAfterStartFailure(String reason) {
+        lastError = reason;
+        boolean markerSaved = persistUserStopMarker(true);
+        boolean stateCleared = clearStateDurably();
+        if (!markerSaved || !stateCleared) {
+            Log.e(TAG, "failed to fully invalidate sticky recovery after start failure"
+                    + " (markerSaved=" + markerSaved + ", stateCleared=" + stateCleared + ")");
         }
     }
 
