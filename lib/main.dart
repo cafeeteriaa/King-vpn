@@ -8348,6 +8348,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await _stopCore();
           return false;
         }
+        // Proxy mode is a real connection too: an open local port is not proof
+        // that requests pass through the remote server. Verify the mode-aware
+        // destinations through the core's HTTP proxy before accepting it.
+        final proxyTrafficOk = await _tunnelTrafficOk().timeout(
+          const Duration(seconds: 22),
+          onTimeout: () => false,
+        );
+        if (!proxyTrafficOk || abort || !wantVpn) {
+          _startNoTraffic = true;
+          lastFail = 'پروکسی بالا آمد ولی عبور ترافیک واقعی تأیید نشد';
+          await _stopCore();
+          return false;
+        }
         tunWarn = false;
         return true;
       }

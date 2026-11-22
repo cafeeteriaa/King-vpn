@@ -2988,5 +2988,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('h.good.add(sv);', merge)
 
 
+    def test_real_proxy_mode_requires_outbound_traffic_before_start_success(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<bool> _startImpl(')
+        end = main.index('bool _listPartial', start)
+        body = main[start:end]
+        proxy_branch = body[body.index('if (po) {'):body.index('bool? t;', body.index('if (po) {'))]
+        test_only = proxy_branch.index('if (proxyOnly) return true;')
+        port_ready = proxy_branch.index('await waitProxyPort(max: const Duration(seconds: 8))')
+        traffic = proxy_branch.index('final proxyTrafficOk = await _tunnelTrafficOk()')
+        accept = proxy_branch.index('return true;', traffic)
+        self.assertLess(test_only, port_ready)
+        self.assertLess(port_ready, traffic)
+        self.assertLess(traffic, accept)
+        self.assertIn('if (!proxyTrafficOk || abort || !wantVpn)', proxy_branch)
+        self.assertIn('await _stopCore();', proxy_branch[traffic:accept])
+
+
 if __name__ == '__main__':
     unittest.main()
