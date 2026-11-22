@@ -7,7 +7,9 @@ Base branch: `main`
 
 ## Source of truth
 
-- Current PR #42 head: `0ad29bfe7eb30b13eff2f3949b0b6086bedc6545`.
+- Latest code HEAD validated by CI 2130: `0ad29bfe7eb30b13eff2f3949b0b6086bedc6545`.
+- Checkpoint documentation commit: `25483910a388eecfca7db07aa7bf017e4bf1c913` (documentation-only; does not change the tested code).
+- Resolve the live branch/PR HEAD from GitHub PR #42 metadata on every resume; documentation-only checkpoint commits may advance it.
 - Base `main` SHA: `c43d325f9803d4f6306415e511f6790deff9d87e`.
 - PR #42 is OPEN, DRAFT, mergeable, and NOT merged. Keep it Draft and do not merge without explicit owner authorization.
 - PR #41 / domestic-ranking work remains separate; do not retarget or merge it without a full diff audit.
@@ -28,10 +30,10 @@ Implementation commit: `896dda05d16b2ec8f4aea1d5490ed61ff35a34f4`.
 - Lock-order inspection: nested service state paths use `lock -> lifecycleLock`; the new stop helper uses `lifecycleLock` without acquiring `lock`. No reverse nested acquisition was found in the inspected paths.
 - Residual limitation: SharedPreferences `commit()` remains synchronous on the service command path. It was already synchronous before this change; holding the lifecycle monitor through the commit lengthens the critical section. Measure main-thread latency on device before changing durability semantics.
 
-Latest test-only commit: `0ad29bfe7eb30b13eff2f3949b0b6086bedc6545`.
+Latest test-only code commit: `0ad29bfe7eb30b13eff2f3949b0b6086bedc6545`.
 
 - Updated source guards to assert the new helper call sites and lifecycle-lock ordering.
-- No production behavior changed in this final commit.
+- No production behavior changed in this final code commit.
 
 ## Three independent reviews
 
@@ -54,7 +56,7 @@ Latest test-only commit: `0ad29bfe7eb30b13eff2f3949b0b6086bedc6545`.
 
 ### REVIEW-3 — Independent diff and validation: PASS WITH LIMITATIONS
 
-- Re-read the implementation diff and final source-guard diff at exact PR HEAD.
+- Re-read the implementation diff and final source-guard diff at exact tested code HEAD.
 - Exact-head GitHub Actions run 2130 (`45047539595`) for `0ad29bfe7eb30b13eff2f3949b0b6086bedc6545` completed SUCCESS.
 - Successful CI steps: source-repair guard, Java/Gradle/Flutter setup, generated Flutter host preparation, dependency resolution, V2Ray plugin patch, unit tests, Dart analysis, optimized arm64 release APK build, 16 KiB ELF load-segment alignment, 16 KiB APK ZIP alignment, and APK/source/symbol artifact uploads.
 - Exact-head APK artifact: `king-vpn-arm64-release-2130`, artifact ID `14763823062`, archive size `49,011,435` bytes, GitHub archive digest `sha256:664050952e07aa316530bca4e7c8cc99698b2ba4e7f5b723db42b24de534a816`.
