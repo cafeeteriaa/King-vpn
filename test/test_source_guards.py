@@ -3278,6 +3278,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("rt['domainStrategy'] = 'AsIs';", normalize)
 
 
+    def test_national_verified_endpoint_memory_is_operator_scoped_and_expires(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = nat.index('Set<String> natDomMemHosts')
+        end = nat.index('Future<void> natIpMemSave', start)
+        memory = nat[start:end]
+        self.assertIn("e['op'] != natOpKey", memory)
+        self.assertIn("_domMemTtl = Duration(hours: 48)", nat)
+        self.assertIn("'op': natOpKey", memory)
+        self.assertIn('t < cutoff', memory)
+        self.assertIn('t > at.millisecondsSinceEpoch', memory)
+        self.assertIn('legacy entries without an operator key are never trusted', nat)
+
     def test_national_priority_uses_verified_tunnel_winners_not_geo_or_source_labels(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('List<Server> _natDomesticFirstKeepWinners(List<Server> list)')
