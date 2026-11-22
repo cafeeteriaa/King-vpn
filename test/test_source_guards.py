@@ -3059,5 +3059,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('_siteOpens(url, viaCore: true)', stable)
 
 
+    def test_global_tunnel_health_uses_independent_reachability_providers(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('const _tunnelTestUrlsGlobal = [')
+        end = main.index('];', start)
+        urls = main[start:end]
+        self.assertIn('https://www.google.com/generate_204', urls)
+        self.assertIn('https://cp.cloudflare.com/generate_204', urls)
+        self.assertIn('https://www.apple.com/library/test/success.html', urls)
+        self.assertGreaterEqual(urls.count('https://'), 4)
+
+
 if __name__ == '__main__':
     unittest.main()
