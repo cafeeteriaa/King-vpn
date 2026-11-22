@@ -111,6 +111,20 @@ void main() {
       expect(evidence.confidence, lessThan(1));
     });
 
+    test('labels domestic and global reachability without implying IP-family dual stack', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.healthy,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 3,
+        globalSuccesses: 3,
+        domesticTlsReachabilityVerified: true,
+        globalTlsReachabilityVerified: true,
+      );
+      expect(evidence.mode, DetectedNetworkMode.dualReachable);
+    });
+
     test('failed attempts do not inflate reachability confidence', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.unreachable,
