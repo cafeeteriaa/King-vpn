@@ -5501,7 +5501,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final dropGeneration = _connGen;
         dropTimer = Timer(const Duration(seconds: 2), () {
           if (wantVpn &&
-              lastState != 'CONNECTED' &&
               !busy &&
               !netDown &&
               !switching &&
@@ -5522,7 +5521,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
       if (_dropDeferred && mounted && !busy && !switching) {
         _dropDeferred = false;
-        if (wantVpn && lastState != 'CONNECTED' && !netDown) {
+        if (wantVpn && !netDown) {
           unawaited(_confirmDisconnectBeforeFailover(_connGen)
               .catchError((e) => logError(e)));
         }
@@ -9049,8 +9048,46 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         dbg('STALE-DISCONNECTED ignored: current TUN and core traffic are healthy');
         return;
       }
-      if (lastState == 'CONNECTED') return;
-      lastWhy = 'هسته/اندروید اتصال را قطع کرد';
+
+      // A late CONNECTED callback can overwrite lastState after a real drop.
+      // Re-probe once after a short grace period; never use that uncorrelated
+      // callback as a reason to suppress failover when the data path is dead.
+      await Future.delayed(const Duration(milliseconds: 900));
+      if (!wantVpn ||
+          generation != _connGen ||
+          busy ||
+          switching ||
+          netDown ||
+          _ownStopNow()) {
+        dbg('DISCONNECTED second verification discarded: connection changed');
+        return;
+      }
+      tunnelUp = false;
+      trafficOk = false;
+      try {
+        tunnelUp = await tunUp() == true;
+        if (tunnelUp) trafficOk = await _tunnelTrafficOk();
+      } catch (e, stk) {
+        logError(e, stk);
+      }
+      if (!wantVpn ||
+          generation != _connGen ||
+          busy ||
+          switching ||
+          netDown ||
+          _ownStopNow()) {
+        dbg('DISCONNECTED second verification discarded: connection changed');
+        return;
+      }
+      if (tunnelUp && trafficOk) {
+        lastState = 'CONNECTED';
+        if (mounted) setState(() => connected = true);
+        dbg('STALE-DISCONNECTED ignored after second healthy data-path proof');
+        return;
+      }
+      lastState = 'DISCONNECTED';
+      if (mounted) setState(() => connected = false);
+      lastWhy = 'هسته/اندروید اتصال را قطع کرد؛ دو بررسی مسیر داده ناموفق بود';
       unawaited(_failover().catchError((e) => logError(e)));
     } finally {
       _disconnectVerificationInFlight.remove(generation);
