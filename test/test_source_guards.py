@@ -3278,6 +3278,40 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("rt['domainStrategy'] = 'AsIs';", normalize)
 
 
+    def test_pilot_domestic_evidence_drives_all_domestic_policy_paths(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        health = (ROOT / 'lib' / 'network_health.dart').read_text(encoding='utf-8')
+        self.assertIn('bool get pilotPrefersDomesticRoute', engine)
+        self.assertIn('pilotDomesticConfirmed: PilotNetworkProbe.current.domesticConfirmed', engine)
+        self.assertGreaterEqual(main.count('pilotPrefersDomesticRoute'), 3)
+        self.assertIn('shouldPreferDomesticCandidates(', health)
+        self.assertIn('localPilotEnabled && nationalMode && pilotDomesticConfirmed', health)
+        self.assertNotIn('NatNetworkDiagnosis.preferDomestic', main)
+
+    def test_protocol_learning_storage_is_separated_by_domestic_and_global_mode(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        health = (ROOT / 'lib' / 'network_health.dart').read_text(encoding='utf-8')
+        self.assertIn('networkScopedProfileKey(', health)
+        self.assertIn('networkScopedProfileKey(', main)
+        self.assertIn("p.getString('prof_route_v2')", main)
+        self.assertIn("'prof_route_v2',", main)
+        self.assertNotIn("p.getString('prof')", main)
+        self.assertNotIn("'prof',", main)
+
+    def test_legacy_national_diagnosis_discards_mixed_network_probe_snapshots(self):
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        start = engine.index('static Future<NatNetworkClass> _refreshImpl({bool force = false}) async {')
+        end = engine.index('/// Dedicated Smart Pilot link scanner', start)
+        diagnosis = engine[start:end]
+        self.assertIn('final id = await _identityHash();', diagnosis)
+        self.assertIn('if (id.isEmpty)', diagnosis)
+        self.assertIn('if (_identityAtCheck != null && _identityAtCheck != id)', diagnosis)
+        self.assertIn('final identityAfter = await _identityHash();', diagnosis)
+        self.assertIn('sameKnownNetworkProbeIdentity(id, identityAfter)', diagnosis)
+        self.assertIn('network changed during probes; snapshot discarded', diagnosis)
+        self.assertIn('_identityAtCheck = null;', diagnosis)
+
     def test_pilot_discards_probe_results_spanning_network_handover(self):
         network = (ROOT / 'lib' / 'network_health.dart').read_text(encoding='utf-8')
         engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
