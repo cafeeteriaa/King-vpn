@@ -1026,7 +1026,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Future<bool> Function() verifyStableTraffic', national)
         self.assertIn('if (await verifyStableTraffic()) await recordStable(endpointKey);', national)
         self.assertIn('Future<bool> _stableTunnelTrafficOk(Server server)', main)
-        self.assertIn('_siteOpens(url, viaCore: true)', main)
+        self.assertIn('_siteOpens(url, viaCore: proxyMode)', main)
+        self.assertNotIn('_siteOpens(url, viaCore: true)', main)
         self.assertIn('passed >= 2', main)
         self.assertIn('() => _stableTunnelTrafficOk(s)', main)
 
@@ -2827,7 +2828,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = dart.index('// Stable history', start)
         probe = dart[start:end]
         self.assertNotIn('if (proxyMode) return true;', probe)
-        self.assertIn('_siteOpens(u, viaCore: true)', probe)
+        self.assertIn('_siteOpens(u, viaCore: proxyMode)', probe)
+        self.assertNotIn('_siteOpens(u, viaCore: true)', probe)
         site = dart.index('Future<bool> _siteOpens(')
         site_end = dart.index('Future<int> _sitesOpen()', site)
         site_body = dart[site:site_end]
@@ -3088,7 +3090,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (hasTunnel) return true;', body)
         self.assertIn('return false;', body)
         self.assertIn('return null;', body)
-        self.assertNotIn('CONNECTED', body)
+        self.assertNotIn('lastState', body)
         self.assertNotIn('kVpnLastStateTop', main)
 
 
