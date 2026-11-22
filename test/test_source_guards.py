@@ -3159,6 +3159,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('watchFailLimit - 1', block)
         self.assertIn('DateTime.now().difference(netUpAt) < const Duration(seconds: 15)', dart)
         self.assertIn('مهلت کوتاه برای بازسازی مسیر و DNS', block)
+        outage = watch[watch.index('if (++_netDownRun >= 2 && !netDown)'):watch.index('// never hold forever')]
+        recovery = watch[watch.index('if (netDown) {'):watch.index("dbg('اینترنت گوشی برگشت")]
+        self.assertIn('netDown = true;', outage)
+        self.assertIn('natDohCacheClear();', outage)
+        self.assertIn('netDown = false;', recovery)
+        self.assertIn('natDohCacheClear();', recovery)
 
     def test_tun_detection_never_treats_connected_event_as_interface_proof(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
