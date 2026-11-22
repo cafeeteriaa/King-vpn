@@ -44,6 +44,66 @@ bool isNetworkProbeEvidenceFresh({
   return age >= Duration.zero && age < ttl;
 }
 
+/// Serializes network-probe refreshes and preserves a forced refresh request.
+/// A forced caller arriving during a non-forced scan queues exactly one follow-up;
+/// callers arriving during that follow-up share it instead of spawning more scans.
+class NetworkProbeRefreshCoordinator<T> {
+  Future<T>? _flight;
+  Future<T>? _forcedFlight;
+  bool _flightIsForced = false;
+
+  Future<T> run(
+    Future<T> Function({required bool force}) refresh, {
+    bool force = false,
+  }) {
+    final active = _flight;
+    if (active != null) {
+      if (!force || _flightIsForced) return active;
+      final pending = _forcedFlight;
+      if (pending != null) return pending;
+
+      late final Future<T> queued;
+      queued = _runAfter(active, refresh).whenComplete(() {
+        if (identical(_flight, queued)) {
+          _flight = null;
+          _flightIsForced = false;
+        }
+        if (identical(_forcedFlight, queued)) _forcedFlight = null;
+      });
+      // Publish the queued future immediately: later non-forced callers must
+      // join the whole sequence, not slip into the gap between the two scans.
+      _forcedFlight = queued;
+      _flight = queued;
+      _flightIsForced = true;
+      return queued;
+    }
+
+    late final Future<T> flight;
+    flight = refresh(force: force).whenComplete(() {
+      if (identical(_flight, flight)) {
+        _flight = null;
+        _flightIsForced = false;
+      }
+    });
+    _flight = flight;
+    _flightIsForced = force;
+    return flight;
+  }
+
+  Future<T> _runAfter(
+    Future<T> active,
+    Future<T> Function({required bool force}) refresh,
+  ) async {
+    // A failed ordinary scan must not cancel the explicit forced retry.
+    try {
+      await active;
+    } catch (_) {
+      // The forced scan below is the authoritative result for queued callers.
+    }
+    return refresh(force: true);
+  }
+}
+
 class NetworkEvidence {
   const NetworkEvidence({
     required this.domestic,
