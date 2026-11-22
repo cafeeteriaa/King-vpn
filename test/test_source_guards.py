@@ -3094,5 +3094,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('kVpnLastStateTop', main)
 
 
+    def test_iran_geoip_routing_strategy_survives_reliable_config_normalization(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        iran = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+
+        start = main.index('String _reliableVpnCfg(String cfg)')
+        end = main.index('// completes when the VPN tunnel reports CONNECTED', start)
+        reliable = main[start:end]
+        self.assertIn('cfg = withIranRouting(cfg);', reliable)
+        self.assertIn("rt.putIfAbsent('domainStrategy', () => 'AsIs');", reliable)
+        self.assertNotIn("rt['domainStrategy'] = 'AsIs';", reliable)
+
+        route_start = iran.index('String withIranRouting(String cfg)')
+        route_end = iran.index('List<Widget> iranSettingsItems', route_start)
+        route = iran[route_start:route_end]
+        self.assertIn("routing['domainStrategy'] = 'IPIfNonMatch';", route)
+        self.assertIn("if (iranGeoip)", route)
+
+
 if __name__ == '__main__':
     unittest.main()
