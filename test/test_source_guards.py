@@ -2936,6 +2936,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         connected_end = main.index('upServer = null;', connected_start)
         connected = main[connected_start:connected_end]
         self.assertIn('_resAdd(s, verified: true)', connected)
+        self.assertIn('if (nationalMode && !s.personal && !_inPF(s)) unawaited(_natAdd(s));', connected)
 
         load_start = main.index('Future<void> _resLoad()')
         save_start = main.index('Future<void> _resSave()', load_start)
