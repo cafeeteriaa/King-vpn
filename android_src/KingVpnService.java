@@ -464,6 +464,28 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             if (!loadState()) {
                 synchronized (lifecycleLock) {
                     if (activeAttemptId == recoveryAttempt && !stopping) {
+                        lastError = "No valid saved VPN state is available for sticky recovery";
+                        Log.w(TAG, lastError);
+                        // A failed restore must not leave an idle foreground service or
+                        // allow Android to retry the same corrupt/incomplete state forever.
+                        userStopped = true;
+                        stopping = true;
+                        active = false;
+                        retryWaiting = false;
+                        attemptSeq.incrementAndGet();
+                        if (!persistUserStopMarker(true)) {
+                            Log.e(TAG, "could not persist stop marker after invalid recovery state");
+                        }
+                        if (!clearStateDurably()) {
+                            Log.e(TAG, "could not clear invalid recovery state durably");
+                        }
+                        stopWatchdog();
+                        try {
+                            stopForeground(true);
+                        } catch (Throwable stopError) {
+                            Log.w(TAG, "could not remove foreground notification after failed recovery",
+                                    stopError);
+                        }
                         stopSelfResult(latestStartId);
                     }
                 }
@@ -1271,20 +1293,37 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
             String raw = sp.getString("list", "");
             if (raw == null || raw.isEmpty()) return false;
+
+            // Parse and validate into a temporary collection. Never partially mutate the
+            // live server list when persisted JSON is truncated or contains bad entries.
             JSONArray arr = new JSONArray(raw);
-            servers.clear();
+            if (arr.length() == 0 || arr.length() > MAX_BACKUPS + 1) {
+                Log.w(TAG, "saved VPN server list has an invalid entry count: " + arr.length());
+                return false;
+            }
+            List<Srv> restored = new ArrayList<>(arr.length());
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject o = arr.getJSONObject(i);
-                servers.add(new Srv(o.optString("config"), o.optString("remark"),
+                String config = o.optString("config", "");
+                if (config == null || config.trim().isEmpty()) {
+                    Log.w(TAG, "saved VPN server entry " + i + " has no config");
+                    return false;
+                }
+                restored.add(new Srv(config, o.optString("remark"),
                         o.optString("addr"), o.optString("port")));
             }
-            currentIdx = Math.max(0, Math.min(sp.getInt("idx", 0), servers.size() - 1));
+
+            int restoredIndex = Math.max(0, Math.min(sp.getInt("idx", 0), restored.size() - 1));
+            boolean restoredNationalMode = sp.getBoolean("national", false);
+            servers.clear();
+            servers.addAll(restored);
+            currentIdx = restoredIndex;
             listExhaustedStreak = 0;
             healthyStreak = 0;
-            nationalMode = sp.getBoolean("national", false);
-            return !servers.isEmpty();
+            nationalMode = restoredNationalMode;
+            return true;
         } catch (Exception e) {
-            Log.w(TAG, "loadState failed", e);
+            Log.w(TAG, "loadState failed; saved state was not applied", e);
             return false;
         }
     }

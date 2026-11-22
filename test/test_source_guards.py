@@ -3422,6 +3422,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(stop.index('clearStateDurably()'), stop.index('submit(this::stopEverything);'))
 
 
+    def test_sticky_recovery_rejects_invalid_state_without_partial_mutation(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        load_start = native.index('private boolean loadState()')
+        load_end = native.index('private void clearState()', load_start)
+        load = native[load_start:load_end]
+        self.assertIn('List<Srv> restored = new ArrayList<>(arr.length());', load)
+        self.assertIn('servers.addAll(restored);', load)
+        self.assertLess(load.index('restored.add(new Srv('), load.index('servers.clear();'))
+        self.assertIn('config.trim().isEmpty()', load)
+        self.assertIn('arr.length() > MAX_BACKUPS + 1', load)
+
+        resume_start = native.index('private void resumeSaved(int recoveryAttempt)')
+        resume_end = native.index('/**', resume_start + 20)
+        resume = native[resume_start:resume_end]
+        invalid = resume[resume.index('if (!loadState())'):resume.index('// onStartCommand already promoted')]
+        self.assertIn('persistUserStopMarker(true)', invalid)
+        self.assertIn('clearStateDurably()', invalid)
+        self.assertIn('stopForeground(true)', invalid)
+        self.assertIn('stopSelfResult(latestStartId)', invalid)
+
     def test_native_stop_and_wedged_recovery_clear_saved_state_durably(self):
         native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         recovery_start = native.index('private void recoverWedgedCore(String what)')
