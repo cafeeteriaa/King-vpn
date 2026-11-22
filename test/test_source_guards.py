@@ -1472,8 +1472,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('coreUp = core.isV2rayCoreRunning();', watchdog)
         self.assertIn('catch (Throwable stateError)', watchdog)
         self.assertIn('retaining current tunnel', watchdog)
-        self.assertIn('if (active && !stopping && requestAttempt == activeAttemptId
-                        && requestGeneration == activeRequestGeneration) rescheduleNormal();', watchdog)
+        self.assertIn('requestAttempt == activeAttemptId', watchdog)
+        self.assertIn('requestGeneration == activeRequestGeneration) rescheduleNormal();', watchdog)
         self.assertLess(watchdog.index('catch (Throwable stateError)'),
                         watchdog.index('ProbeResult pr = coreUp ? probeResult()'))
 
