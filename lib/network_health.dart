@@ -25,6 +25,13 @@ bool shouldReuseNetworkProbeCache({
   return age >= Duration.zero && age < ttl;
 }
 
+
+/// A probe snapshot is usable only when both identity reads succeeded and
+/// refer to the same underlying network. Empty/changed identities invalidate
+/// the whole sample; they are not interpreted as an outage.
+bool sameKnownNetworkProbeIdentity(String before, String after) =>
+    before.isNotEmpty && after.isNotEmpty && before == after;
+
 class NetworkEvidence {
   const NetworkEvidence({
     required this.domestic,
@@ -50,33 +57,53 @@ class NetworkEvidence {
   final bool domesticTlsReachabilityVerified;
   final bool globalTlsReachabilityVerified;
 
+  /// A positive route requires the same 2-of-3 TLS quorum used by the
+  /// strategy controller. A caller cannot promote a hand-built/stale
+  /// "healthy" label without matching sample counts and verified handshakes.
+  bool get domesticConfirmed =>
+      domestic == LinkHealth.healthy &&
+      domesticSamples >= 3 &&
+      domesticSuccesses >= 2 &&
+      domesticTlsReachabilityVerified;
+
+  bool get globalConfirmed =>
+      global == LinkHealth.healthy &&
+      globalSamples >= 3 &&
+      globalSuccesses >= 2 &&
+      globalTlsReachabilityVerified;
+
+  /// A negative route requires at least two actual failed samples. Missing
+  /// samples and inconsistent labels are unknown, never proof of blocking.
+  bool get domesticFailed =>
+      domestic == LinkHealth.unreachable &&
+      domesticSamples >= 2 &&
+      domesticSuccesses == 0;
+
+  bool get globalFailed =>
+      global == LinkHealth.unreachable &&
+      globalSamples >= 2 &&
+      globalSuccesses == 0;
+
   DetectedNetworkMode get mode {
-    if (domestic == LinkHealth.unknown && global == LinkHealth.unknown) {
-      return DetectedNetworkMode.unknown;
+    if (domesticConfirmed && globalConfirmed) {
+      return DetectedNetworkMode.dualReachable;
     }
-    // A degraded group means only one endpoint responded; do not label it
-    // as a confirmed network class or infer the other side is unavailable.
-    if (domestic == LinkHealth.degraded || global == LinkHealth.degraded) {
-      return DetectedNetworkMode.unknown;
+    if (domesticConfirmed && globalFailed) {
+      return DetectedNetworkMode.domesticOnly;
     }
-    final domesticUp = domestic == LinkHealth.healthy;
-    final globalUp = global == LinkHealth.healthy;
-    if (!domesticUp && !globalUp) {
-      return domestic == LinkHealth.unreachable && global == LinkHealth.unreachable
-          ? DetectedNetworkMode.offline
-          : DetectedNetworkMode.unknown;
+    if (globalConfirmed && domesticFailed) {
+      return DetectedNetworkMode.globalOnly;
     }
-    // This is geographic endpoint reachability, not IPv4/IPv6 dual-stack support.
-    if (domesticUp && globalUp) return DetectedNetworkMode.dualReachable;
-    if (domesticUp && global == LinkHealth.unreachable) return DetectedNetworkMode.domesticOnly;
-    if (globalUp && domestic == LinkHealth.unreachable) return DetectedNetworkMode.globalOnly;
+    if (domesticFailed && globalFailed) {
+      return DetectedNetworkMode.offline;
+    }
     return DetectedNetworkMode.unknown;
   }
 
   /// TLS reachability is not proof that VPN tunnel traffic is passing.
-  /// This helper reports only the matching endpoint group's TLS evidence.
+  /// This helper reports only quorum-confirmed endpoint reachability.
   bool acceptsTlsReachability({required bool nationalOnly}) =>
-      nationalOnly ? domesticTlsReachabilityVerified : globalTlsReachabilityVerified;
+      nationalOnly ? domesticConfirmed : globalConfirmed;
 
   double get confidence {
     // Count actual successful TLS handshakes, not attempts. Failed probes are
@@ -92,8 +119,8 @@ class NetworkEvidence {
     // The dedicated pilot scanner samples exactly three domestic and three global targets.
     // Six successful samples with both groups verified reach 100%.
     final coverage = (successfulSamples / 6).clamp(0, 1).toDouble();
-    final verified = (domesticTlsReachabilityVerified ? 1 : 0) +
-        (globalTlsReachabilityVerified ? 1 : 0);
+    final verified = (domesticConfirmed ? 1 : 0) +
+        (globalConfirmed ? 1 : 0);
     return (coverage * (0.55 + verified * 0.225)).clamp(0, 1).toDouble();
   }
 }
@@ -102,22 +129,11 @@ class NetworkEvidence {
 /// Conservative strategy selection with minimum evidence requirements.
 /// Partial evidence preserves the last strategy instead of guessing.
 PilotNetworkStrategy choosePilotNetworkStrategy(NetworkEvidence evidence) {
-  // A single successful endpoint is only a hint (degraded), not enough to
-  // change the active route. Require the scanner's >=2/3 quorum on each side.
-  final domesticConfirmed = evidence.domestic == LinkHealth.healthy &&
-      evidence.domesticSamples >= 3 &&
-      evidence.domesticSuccesses >= 2 &&
-      evidence.domesticTlsReachabilityVerified;
-  final globalConfirmed = evidence.global == LinkHealth.healthy &&
-      evidence.globalSamples >= 3 &&
-      evidence.globalSuccesses >= 2 &&
-      evidence.globalTlsReachabilityVerified;
-  final domesticFailed = evidence.domestic == LinkHealth.unreachable &&
-      evidence.domesticSamples >= 2 &&
-      evidence.domesticSuccesses == 0;
-  final globalFailed = evidence.global == LinkHealth.unreachable &&
-      evidence.globalSamples >= 2 &&
-      evidence.globalSuccesses == 0;
+  // Share exactly the same evidence gates as the user-visible network mode.
+  final domesticConfirmed = evidence.domesticConfirmed;
+  final globalConfirmed = evidence.globalConfirmed;
+  final domesticFailed = evidence.domesticFailed;
+  final globalFailed = evidence.globalFailed;
 
   if (domesticConfirmed && globalFailed) return PilotNetworkStrategy.domestic;
   if (globalConfirmed && domesticFailed) return PilotNetworkStrategy.global;
@@ -135,8 +151,6 @@ PilotNetworkStrategy choosePilotNetworkStrategy(NetworkEvidence evidence) {
     }
     return PilotNetworkStrategy.preserve;
   }
-  if (domesticConfirmed && !globalConfirmed && globalFailed) return PilotNetworkStrategy.domestic;
-  if (globalConfirmed && !domesticConfirmed && domesticFailed) return PilotNetworkStrategy.global;
   if (domesticFailed && globalFailed) return PilotNetworkStrategy.offline;
   return PilotNetworkStrategy.preserve;
 }
