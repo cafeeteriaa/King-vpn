@@ -132,7 +132,7 @@ class MainActivity : FlutterActivity() {
                                 getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
                             val activeNetwork = connectivityManager?.activeNetwork
                             val capabilities = activeNetwork?.let {
-                                connectivityManager.getNetworkCapabilities(it)
+                                connectivityManager?.getNetworkCapabilities(it)
                             }
                             result.success(
                                 capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
