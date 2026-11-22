@@ -3319,20 +3319,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("key.lastIndexOf('|AS')", memory)
         self.assertIn('if (!_natHasVerifiedOperatorKey(natOpKey))', memory)
         save_start = nat.index('Future<void> natDomMemSave')
-        save_end = nat.index('Future<void> natIpMemSave', save_start)
+        save_end = nat.index('/// Next bounded sample', save_start)
         save = nat[save_start:save_end]
         self.assertIn('if (!_natHasVerifiedOperatorKey(natOpKey)) return;', save)
 
     def test_national_verified_endpoint_memory_is_operator_scoped_and_expires(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = nat.index('Set<String> natDomMemHosts')
-        end = nat.index('Future<void> natIpMemSave', start)
+        end = nat.index('Future<void> natDomMemLoad', start)
         memory = nat[start:end]
         self.assertIn("e['op'] != natOpKey", memory)
         self.assertIn("_domMemTtl = Duration(hours: 48)", nat)
-        self.assertIn("'op': natOpKey", memory)
         self.assertIn('timestamp < cutoff', memory)
         self.assertIn('timestamp > at.millisecondsSinceEpoch', memory)
+        save_start = nat.index('Future<void> natDomMemSave')
+        save_end = nat.index('/// Next bounded sample', save_start)
+        save = nat[save_start:save_end]
+        self.assertIn("'op': natOpKey", save)
+        self.assertIn('if (!_natHasVerifiedOperatorKey(natOpKey)) return;', save)
         self.assertIn('Legacy entries without an operator key are never trusted', nat)
 
     def test_national_priority_uses_verified_tunnel_winners_not_geo_or_source_labels(self):
