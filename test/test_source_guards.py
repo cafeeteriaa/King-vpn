@@ -3466,6 +3466,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
+    def test_native_unknown_service_action_durably_stops_existing_vpn_session(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = native.index('if (!ACTION_START.equals(action))')
+        end = native.index('String json = intent.getStringExtra(EXTRA_CONFIG);', start)
+        branch = native[start:end]
+        self.assertIn('requestStop();', branch)
+        self.assertIn('if (!persistUserStopMarker(true) && !clearStateDurably())', branch)
+        self.assertIn('submit(this::stopEverything);', branch)
+        self.assertIn('return START_NOT_STICKY;', branch)
+        self.assertNotIn('stopForeground(true);', branch)
+        self.assertNotIn('stopSelf(startId);', branch)
+
+
     def test_native_action_stop_falls_back_to_durable_recovery_state_clear(self):
         native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = native.index('if (ACTION_STOP.equals(action))')

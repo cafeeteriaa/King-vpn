@@ -338,10 +338,16 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             return START_NOT_STICKY;
         }
         if (!ACTION_START.equals(action)) {
-            // We already promoted above because this command may have used
-            // startForegroundService(). Do not leave an unknown command running.
-            stopForeground(true);
-            stopSelf(startId);
+            // Reject unknown commands as a durable stop. Merely removing the
+            // foreground notification can leave an active core/TUN alive until
+            // Android eventually destroys the service, and must not permit sticky
+            // recovery to resurrect the previous session.
+            Log.w(TAG, "unknown VPN service action; stopping current session");
+            requestStop();
+            if (!persistUserStopMarker(true) && !clearStateDurably()) {
+                Log.e(TAG, "unknown action could not persist stop intent or clear recovery state");
+            }
+            submit(this::stopEverything);
             return START_NOT_STICKY;
         }
 
