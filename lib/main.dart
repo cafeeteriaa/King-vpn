@@ -4147,9 +4147,9 @@ Future<bool> waitProxyPort(
 bool lastStartNoTunnel = false; // last _start failed because Android built no tunnel
 String tunNames = ''; // interface names seen by the last tunUp() (diagnostics)
 Future<bool?> tunUp() async {
-  // Daemon liveness alone is not TUN proof. On Android, prefer the combination
-  // of the plugin daemon PID and the OS-reported active VPN transport; this
-  // also works on devices that hide the TUN interface from Dart enumeration.
+  // The native signal confirms only plugin daemon-process liveness.
+  // It does NOT prove that Android installed a TUN interface or that traffic passes.
+  // Keep it diagnostic-only unless Android also reports an active VPN transport.
   bool? nativeVpn;
   try {
     if (Platform.isAndroid) {
