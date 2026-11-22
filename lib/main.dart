@@ -2846,20 +2846,33 @@ String _reliableVpnCfg(String cfg) {
         '78.157.42.101', '10.202.10.10', '10.202.10.11',
       ];
       final existingList = existing is List ? existing : const <dynamic>[];
+      const secureFallback = <dynamic>[
+        {'address': 'https://1.1.1.1/dns-query', 'timeoutMs': 1500},
+        {'address': 'https://8.8.8.8/dns-query', 'timeoutMs': 1500},
+      ];
       d['servers'] = mergeNationalDnsServers(
         domesticFirst: domesticFirst,
         existing: existingList,
         secureDns: secureDns,
+        secureFallback: secureFallback,
       );
     } else if (secureDns && !ultraMode && !indestructibleMode) {
-      d['servers'] = <dynamic>[
+      // Xray tries DNS servers sequentially by default. DoH must be first or
+      // a healthy plaintext resolver would make the Secure DNS entries unused.
+      const secureFirst = <dynamic>[
+        {'address': 'https://1.1.1.1/dns-query', 'timeoutMs': 1500},
+        {'address': 'https://8.8.8.8/dns-query', 'timeoutMs': 1500},
+      ];
+      const plaintextFallback = <dynamic>[
         '1.1.1.1', '1.0.0.1', '8.8.8.8', '8.8.4.4',
         '9.9.9.9', '149.112.112.112', '208.67.222.222',
         '208.67.220.220', '94.140.14.14', '94.140.15.15',
         '2606:4700:4700::1111', '2001:4860:4860::8888', '2620:fe::fe',
-        'https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query',
-        'https://9.9.9.9/dns-query', 'https://dns.adguard-dns.com/dns-query',
       ];
+      d['servers'] = mergeGlobalDnsServers(
+        encryptedFirst: secureFirst,
+        plaintextFallback: plaintextFallback,
+      );
     }
     // UseIP = هم IPv4 و هم IPv6 (هر کدام در دسترس باشد)
     d['queryStrategy'] = 'UseIP';

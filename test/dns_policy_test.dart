@@ -68,6 +68,33 @@ void main() {
       );
     });
 
+    test('keeps domestic resolvers first, then bounded DoH fallback, then existing DNS', () {
+      const secureFallback = <dynamic>[
+        {'address': 'https://1.1.1.1/dns-query', 'timeoutMs': 1500},
+      ];
+      const existingDoh = {'address': 'https://8.8.8.8/dns-query'};
+      expect(
+        mergeNationalDnsServers(
+          domesticFirst: domestic,
+          existing: const [existingDoh, '185.51.200.2'],
+          secureDns: true,
+          secureFallback: secureFallback,
+        ),
+        ['178.22.122.100', secureFallback.single, existingDoh, '185.51.200.2'],
+      );
+    });
+
+    test('global Secure DNS tries DoH before plaintext fallback and deduplicates', () {
+      const doh = {'address': 'https://1.1.1.1/dns-query', 'timeoutMs': 1500};
+      expect(
+        mergeGlobalDnsServers(
+          encryptedFirst: const [doh, 'https://8.8.8.8/dns-query'],
+          plaintextFallback: const ['1.1.1.1', '8.8.8.8', '1.1.1.1'],
+        ),
+        [doh, 'https://8.8.8.8/dns-query', '1.1.1.1', '8.8.8.8'],
+      );
+    });
+
     test('keeps domestic resolvers first and removes duplicate entries', () {
       expect(
         mergeNationalDnsServers(

@@ -1,9 +1,9 @@
-/// Keeps domestic resolvers first while applying the Secure DNS preference
-/// to both Xray's string and DnsServerObject server representations.
+/// Keeps domestic resolvers first in national mode while applying the Secure DNS
+/// preference to both Xray's string and DnsServerObject representations.
 ///
-/// Xray supports routed DoH (https://), local-mode DoH (https+local://),
-/// and local-mode DoQ (quic+local://). All three are encrypted transports
-/// and must respect the same opt-out.
+/// Xray evaluates DNS servers sequentially by default. Global Secure DNS must
+/// therefore place DoH before plaintext fallback servers; national mode keeps
+/// domestic resolvers first for reachability, then uses bounded DoH fallback.
 bool _isEncryptedDnsAddress(String address) {
   final normalized = address.trim().toLowerCase();
   return normalized.startsWith('https://') ||
@@ -11,18 +11,44 @@ bool _isEncryptedDnsAddress(String address) {
       normalized.startsWith('quic+local://');
 }
 
+String _dnsAddress(dynamic item) =>
+    item is Map ? item['address']?.toString().trim() ?? '' : item.toString().trim();
+
+List<dynamic> _mergeUniqueDnsEntries(Iterable<dynamic> entries) {
+  final merged = <dynamic>[];
+  final seenDns = <String>{};
+  for (final item in entries) {
+    final value = item.toString().trim();
+    if (value.isEmpty) continue;
+    if (seenDns.add(value.toLowerCase())) merged.add(item);
+  }
+  return merged;
+}
+
+/// Orders encrypted resolvers before plaintext fallback resolvers.
+List<dynamic> mergeGlobalDnsServers({
+  required List<dynamic> encryptedFirst,
+  required List<dynamic> plaintextFallback,
+}) =>
+    _mergeUniqueDnsEntries([...encryptedFirst, ...plaintextFallback]);
+
 List<dynamic> mergeNationalDnsServers({
   required List<dynamic> domesticFirst,
   required List<dynamic> existing,
   required bool secureDns,
+  List<dynamic> secureFallback = const <dynamic>[],
 }) {
   final merged = <dynamic>[];
   final seenDns = <String>{};
-  for (final item in [...domesticFirst, ...existing]) {
+  final candidates = <dynamic>[
+    ...domesticFirst,
+    if (secureDns) ...secureFallback,
+    ...existing,
+  ];
+  for (final item in candidates) {
     final value = item.toString().trim();
     if (value.isEmpty) continue;
-    final address =
-        item is Map ? item['address']?.toString().trim() ?? '' : value;
+    final address = _dnsAddress(item);
     if (!secureDns && _isEncryptedDnsAddress(address)) continue;
     if (seenDns.add(value.toLowerCase())) merged.add(item);
   }
