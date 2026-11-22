@@ -3438,6 +3438,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('network changed during probes; snapshot discarded', diagnosis)
         self.assertIn('_identityAtCheck = null;', diagnosis)
 
+    def test_pilot_network_identity_uses_android_network_handle_and_fails_closed(self):
+        native = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        self.assertIn('"kingVpnNetworkIdentity" -> {', native)
+        self.assertIn('network.networkHandle', native)
+        self.assertIn('TRANSPORT_WIFI', native)
+        self.assertIn('TRANSPORT_CELLULAR', native)
+        self.assertIn('NET_CAPABILITY_VALIDATED', native)
+        start = engine.index('static Future<String> _networkIdentity() async {')
+        end = engine.index('\n  }', start)
+        identity = engine[start:end]
+        self.assertIn("MethodChannel('vpn/bg')", identity)
+        self.assertIn("'kingVpnNetworkIdentity'", identity)
+        self.assertIn('if (nativeIdentity == null || nativeIdentity.isEmpty) return', identity)
+        self.assertIn("return '';", identity)
+
     def test_pilot_discards_probe_results_spanning_network_handover(self):
         network = (ROOT / 'lib' / 'network_health.dart').read_text(encoding='utf-8')
         engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
