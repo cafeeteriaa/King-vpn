@@ -134,3 +134,44 @@
 ## ۱۱. شرط وضعیت نهایی
 
 تا وقتی هر بخش مهم BLOCKED یا NOT TESTED باشد، وضعیت کل پروژه **FINAL VERIFIED WITH LIMITATIONS** خواهد بود، نه FINAL VERIFIED. هر نتیجه فقط پس از اجرای واقعی معیار پذیرش و ثبت commit، log، artifact و hash قابل ارتقا است.
+
+
+## ۱۲. یافته و اصلاح افزوده‌شده در ممیزی Smart Pilot
+
+### یافته: latency نامعتبر می‌توانست باعث handover شود
+
+- در نسخه مبنای این شاخه، انتخاب مسیر وقتی هر دو مسیر reachable بودند، فقط non-null بودن latency را بررسی می‌کرد.
+- مقدار صفر یا منفی می‌توانست شرط بهبود ۲۰ درصدی/۸۰ میلی‌ثانیه‌ای را پاس کند و باعث انتخاب مسیر اشتباه شود.
+- این رفتار با قید مالک که داده صفر یا ناموجود نباید موفقیت/امتیاز محسوب شود ناسازگار بود.
+
+### اصلاح ثبت‌شده
+
+- انتخاب خودکار مبتنی بر latency فقط وقتی مجاز است که هر دو مقدار مثبت و موجود باشند؛ در غیر این صورت استراتژی قبلی حفظ می‌شود.
+- شواهد شبکه اکنون شمارنده‌های نمونه/موفقیت را با حد بالای سه نمونه برای هر مسیر اعتبارسنجی می‌کند؛ شمارنده نامعتبر برای تأیید مسیر یا confidence قابل اتکا نیست.
+- confidence فقط موفقیت‌های معتبر را می‌شمارد و تأیید TLS را به quorum معتبر گره می‌زند.
+- وضعیت نمایشی شبکه و انتخاب استراتژی از دروازه‌های شواهد یکسان استفاده می‌کنند.
+- درخواست forced refresh که هنگام probe معمولی برسد، دیگر بی‌صدا حذف نمی‌شود؛ یک refresh اجباری پس از پایان scan جاری صف می‌شود و callerهای بعدی به همان Future می‌پیوندند.
+- هویت شبکه قبل و بعد از سه probe داخلی و سه probe جهانی دوباره خوانده می‌شود. اگر شبکه در حین probe تغییر کند، snapshot دور ریخته و فقط یک بار retry می‌شود؛ تغییر مجدد یا identity ناموجود به unknown منجر می‌شود.
+- Android از طریق MethodChannel vpn/bg، Network handle و transport/capabilityهای شبکه فعال را به‌صورت transient می‌دهد؛ اگر شبکه فعال VPN باشد یا identity قابل دریافت نباشد، مقدار null برمی‌گردد. Dart فقط hash آن را برای تطبیق کوتاه‌مدت نگه می‌دارد.
+
+### تست‌های افزوده‌شده
+
+- Unit tests برای صفر/منفی/ناموجود بودن latency، quorum و شمارنده‌های نامعتبر، forced refresh و identity/handover policy.
+- Source guards برای اطمینان از قبل/بعد identity check، retry محدود، رد VPN به‌عنوان identity پایه و serialization درخواست forced refresh.
+
+### وضعیت اعتبارسنجی
+
+- تغییرات کد در شاخه audit/final-master ثبت شده‌اند.
+- تست‌های افزوده‌شده هنوز در این محیط اجرا نشده‌اند؛ وضعیت آن‌ها **NOT TESTED** تا دریافت نتیجه CI است.
+- آزمون Wi-Fi/mobile handover، VPN فعال، اپراتور ایران و عبور واقعی ترافیک همچنان **BLOCKED** تا اجرای دستگاهی هستند.
+- این اصلاحات فقط Smart Pilot evidence/routing را سخت‌گیرانه‌تر می‌کنند؛ خودشان اثبات عبور ترافیک VPN نیستند.
+
+### Commitهای اصلاح
+
+- latency guard اولیه: d72ad54f3f2e07772d16f8dab9262fd93e51d308
+- تست latency: cfa902762edc5d62985051ed724f3cc9e7179b3e
+- اعتبارسنجی evidence و coordinator: 7fcdd4c1eef470b66c3fec4321da21d673c7ea5d
+- تست evidence/quorum: be989c77f40e30be01cd23a483a7a8f2501d86dc
+- probe identity و handover fencing: 2af9a0e895891f85f9021fb46bf4e8dfffe38cff
+- Android network identity: e226bebb56154f5eaec8098d70992e5b5ab439d8
+- source guards: 51e77849cd511c818a3df1bbaadb6d360a152dcc
