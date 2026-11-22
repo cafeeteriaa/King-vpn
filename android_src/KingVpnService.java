@@ -317,7 +317,14 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         List<Srv> backups = parseBackups(intent.getStringExtra(EXTRA_BACKUPS));
         sortByScoreDesc(backups);
         // A fresh explicit START is the only operation that clears the durable stop latch.
-        persistUserStopMarker(false);
+        // If storage cannot confirm the clear, refuse to start rather than creating a
+        // tunnel that Android would later be forbidden to restore after process death.
+        if (!persistUserStopMarker(false)) {
+            lastError = "Unable to clear persisted user-stop marker; refusing VPN startup";
+            emit("FAILED", lastError, intent.getIntExtra(EXTRA_ATTEMPT, 0));
+            stopSelf(startId);
+            return START_NOT_STICKY;
+        }
         nationalMode = intent.getBooleanExtra(EXTRA_NATIONAL, false);
         activeAttemptId = intent.getIntExtra(EXTRA_ATTEMPT, 0);
         userStopped = false;
@@ -421,13 +428,15 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * Non-blocking half of a stop. Safe to call on the main thread: it only sets
      * flags and cancels the running attempt. The real work runs on the worker.
      */
-    private void persistUserStopMarker(boolean stoppedByUser) {
+    private boolean persistUserStopMarker(boolean stoppedByUser) {
         try {
             boolean saved = getSharedPreferences(CONTROL_PREFS, MODE_PRIVATE)
                     .edit().putBoolean(KEY_USER_STOPPED, stoppedByUser).commit();
             if (!saved) Log.e(TAG, "could not persist explicit user-stop marker");
+            return saved;
         } catch (Exception e) {
             Log.e(TAG, "failed to persist explicit user-stop marker", e);
+            return false;
         }
     }
 

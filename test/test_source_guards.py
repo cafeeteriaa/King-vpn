@@ -2723,9 +2723,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         stop_request = service.index('requestStop();', stop_branch)
         self.assertLess(stop_persist, stop_request)
         start_branch = service.index('if (!ACTION_START.equals(action))', start)
-        clear_marker = service.index('persistUserStopMarker(false);', start_branch)
+        clear_marker = service.index('if (!persistUserStopMarker(false))', start_branch)
+        clear_failure = service.index('return START_NOT_STICKY;', clear_marker)
         start_submit = service.index('submit(() -> startFlow', start_branch)
-        self.assertLess(clear_marker, start_submit)
+        self.assertLess(clear_marker, clear_failure)
+        self.assertLess(clear_failure, start_submit)
         helper = service.index('private boolean hasPersistedUserStopMarker()')
         self.assertIn('return true;', service[helper:service.index('private void requestStop()', helper)])
 
