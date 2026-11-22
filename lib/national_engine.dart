@@ -438,8 +438,15 @@ class PilotNetworkProbe {
 
   static Future<String> _networkIdentity() async {
     try {
+      // Android's Network handle distinguishes Wi-Fi/mobile handovers even
+      // when interface names and private addresses are reused. Fail closed
+      // when native identity is unavailable instead of trusting a weak guess.
+      final nativeIdentity = await const MethodChannel('vpn/bg')
+          .invokeMethod<String>('kingVpnNetworkIdentity');
+      if (nativeIdentity == null || nativeIdentity.isEmpty) return '';
       final interfaces = await NetworkInterface.list(includeLoopback: false);
       final values = <String>[
+        nativeIdentity,
         for (final item in interfaces)
           for (final address in item.addresses)
             '${item.name}=${address.address}',
