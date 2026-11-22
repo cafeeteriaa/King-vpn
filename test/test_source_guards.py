@@ -3516,6 +3516,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final domesticFailed = evidence.domesticFailed;', strategy)
         self.assertIn('final globalFailed = evidence.globalFailed;', strategy)
 
+    def test_forced_pilot_refresh_is_coalesced_not_dropped(self):
+        network = (ROOT / 'lib' / 'network_health.dart').read_text(encoding='utf-8')
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        tests = (ROOT / 'test' / 'network_health_test.dart').read_text(encoding='utf-8')
+        self.assertIn('class NetworkProbeRefreshCoordinator<T>', network)
+        self.assertIn('if (!force || _flightIsForced) return active;', network)
+        self.assertIn('_forcedFlight = queued;', network)
+        self.assertIn('_flight = queued;', network)
+        self.assertIn('return refresh(force: true);', network)
+        self.assertIn('_refreshCoordinator.run(_refresh, force: force)', engine)
+        self.assertIn('queues one forced scan behind an active ordinary scan', tests)
+        self.assertIn('a failed ordinary scan does not discard a queued forced scan', tests)
+
     def test_smart_pilot_requires_fresh_endpoint_evidence_for_standby_switch(self):
         pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
         start = pilot.index('Server? _pilotBestStandby()')
