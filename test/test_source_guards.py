@@ -2692,5 +2692,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(guard, save)
 
 
+    def test_vpn_watchdog_discards_probe_results_from_superseded_connections(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = service.index('private void checkOnce()')
+        end = service.index('private void rescheduleNormal()', start)
+        watchdog = service[start:end]
+        snapshot = watchdog.index('probeAttempt = attemptSeq.get();')
+        server_snapshot = watchdog.index('probeServer = servers.get(currentIdx);')
+        probe = watchdog.index('ProbeResult pr = coreUp ? probeResult()')
+        stale_guard = watchdog.index('probeAttempt != attemptSeq.get()')
+        score_or_switch = watchdog.index('if (pr == ProbeResult.OK)')
+        self.assertLess(snapshot, probe)
+        self.assertLess(server_snapshot, probe)
+        self.assertLess(probe, stale_guard)
+        self.assertLess(stale_guard, score_or_switch)
+        self.assertIn('servers.get(currentIdx) != probeServer', watchdog)
+        self.assertIn('rescheduleNormal();', watchdog[stale_guard:score_or_switch])
+
+
 if __name__ == '__main__':
     unittest.main()

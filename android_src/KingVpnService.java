@@ -779,6 +779,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
      * the actual probe.
      */
     private void checkOnce() {
+        final int probeAttempt;
+        final Srv probeServer;
         synchronized (lock) {
             if (!active || stopping) return;
             if (isStarting()) {
@@ -786,6 +788,14 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 rescheduleNormal();
                 return;
             }
+            if (servers.isEmpty() || currentIdx < 0 || currentIdx >= servers.size()) {
+                rescheduleNormal();
+                return;
+            }
+            // Bind this network probe to the exact connection generation/server.
+            // A newer start or failover invalidates its result while I/O is outside lock.
+            probeAttempt = attemptSeq.get();
+            probeServer = servers.get(currentIdx);
         }
         // The probe does network I/O (several seconds at worst). It runs OUTSIDE the
         // lock, so a stop request or a server switch is never blocked behind it.
@@ -806,6 +816,14 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
         synchronized (lock) {
             if (!active || stopping) return;
+            // Discard stale probe results: never let a previous server/session trigger
+            // a score change or failover on a newer connection.
+            if (probeAttempt != attemptSeq.get() || servers.isEmpty()
+                    || currentIdx < 0 || currentIdx >= servers.size()
+                    || servers.get(currentIdx) != probeServer) {
+                rescheduleNormal();
+                return;
+            }
             if (isStarting()) {
                 rescheduleNormal();
                 return;
