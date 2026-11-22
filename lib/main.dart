@@ -17466,6 +17466,8 @@ List<Server> _natDomesticFirstKeepWinners(List<Server> list) {
 // (همان بدنه‌ی قبلی) در _natRankCompute است.
 int _natRank(Server s) {
   if (natGood.contains(s.key)) return 5;
+  // Never reuse a global-mode cached rank while the domestic mode is active.
+  if (nationalMode) return 0;
   final c = s._natRankCache;
   if (c != null &&
       identical(s._natRankSrcAt, s.src) &&
