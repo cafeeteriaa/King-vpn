@@ -465,7 +465,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 }
                 return;
             }
-            startForegroundSafe(servers.get(currentIdx).remark);
+            // onStartCommand already promoted this sticky restart before queuing recovery.
+            // Do not silently attempt a second promotion here; connectFrom checks the
+            // foreground update after native startup and tears the tunnel down on failure.
             if (connectFrom(currentIdx, recoveryAttempt)) {
                 synchronized (lifecycleLock) {
                     if (stopping || activeAttemptId != recoveryAttempt) return;
@@ -542,7 +544,16 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                     healthyStreak = 0;
                     active = true;
                 }
-                startForegroundSafe(s.remark);
+                if (!startForegroundSafe(s.remark)) {
+                    lastError = "VPN core started but foreground notification update failed";
+                    Log.e(TAG, lastError);
+                    // A VPN must not remain active after losing its foreground contract.
+                    // Persist the stop latch so a process restart cannot resurrect it.
+                    persistUserStopMarker(true);
+                    requestStop();
+                    stopEverything();
+                    return false;
+                }
                 cancelPluginNotification(); // جدید
                 return true;
             }

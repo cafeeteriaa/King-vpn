@@ -3382,5 +3382,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('stopSelf();', recovery)
 
 
+    def test_native_foreground_update_failure_cannot_leave_vpn_connected(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        recovery_start = native.index('private void resumeSaved(int recoveryAttempt)')
+        recovery_end = native.index('private boolean persistUserStopMarker', recovery_start)
+        recovery = native[recovery_start:recovery_end]
+        self.assertNotIn('startForegroundSafe(servers.get(currentIdx).remark)', recovery)
+        connect_start = native.index('private boolean connectFrom(int first, int requestAttempt)')
+        connect_end = native.index('private boolean bringUpWithTimeout(', connect_start)
+        connect = native[connect_start:connect_end]
+        failure_start = connect.index('if (!startForegroundSafe(s.remark))')
+        failure_end = connect.index('cancelPluginNotification()', failure_start)
+        failure = connect[failure_start:failure_end]
+        self.assertIn('persistUserStopMarker(true);', failure)
+        self.assertIn('requestStop();', failure)
+        self.assertIn('stopEverything();', failure)
+        self.assertIn('return false;', failure)
+
+
+
 if __name__ == '__main__':
     unittest.main()
