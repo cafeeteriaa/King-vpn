@@ -3653,5 +3653,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('a delayed recovery writer overwrite a newer Start', body)
 
 
+    def test_native_national_mode_mutation_uses_durable_state_lock(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        on_start = native.index('public int onStartCommand(')
+        mode = native.index('nationalMode = intent.getBooleanExtra(EXTRA_NATIONAL, false);', on_start)
+        prefix = native[max(on_start, mode - 220):mode]
+        self.assertIn('synchronized (lock)', prefix)
+
+
 if __name__ == '__main__':
     unittest.main()

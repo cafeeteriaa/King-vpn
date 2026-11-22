@@ -378,7 +378,11 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             submit(this::stopEverything);
             return START_NOT_STICKY;
         }
-        nationalMode = intent.getBooleanExtra(EXTRA_NATIONAL, false);
+        synchronized (lock) {
+            // Persisted snapshots read this field under the same lock; publish the
+            // request's mode under that lock as well to avoid mixed-generation state.
+            nationalMode = intent.getBooleanExtra(EXTRA_NATIONAL, false);
+        }
 
         // A concurrent Stop/revocation may have arrived while commit() was running.
         // Only the exact generation that installed the latch may activate this Start.
