@@ -3111,12 +3111,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(tun.index("invokeMethod<bool>('kingVpnTunnelActive')"),
                         tun.index('NetworkInterface.list(includeLoopback: false)'))
 
-        self.assertIn('V2rayVPNService.isKingVpnTunnelActive()', native)
+        self.assertIn('V2rayVPNService.isKingVpnTunnelActive(this)', native)
         self.assertIn('import dev.amirzr.flutter_v2ray_client.v2ray.services.V2rayVPNService', native)
         self.assertNotIn('NetworkCapabilities.TRANSPORT_VPN', native)
         self.assertIn('kingVpnTunnelActive = true;', plugin_patch)
         self.assertIn('kingVpnTunnelActive = false;', plugin_patch)
-        self.assertIn('isV2rayCoreRunning()', plugin_patch)
+        self.assertIn('isKingVpnTunnelActive(Context context)', plugin_patch)
+        self.assertIn('AtomicFile', plugin_patch)
+        self.assertIn('/proc/\" + pid + \"/cmdline', plugin_patch)
+        self.assertIn('RunSoLibV2RayDaemon', plugin_patch)
+        self.assertIn('setKingVpnTunnelActive(true);', plugin_patch)
+        self.assertIn('setKingVpnTunnelActive(false);', plugin_patch)
 
     def test_iran_geoip_routing_strategy_survives_reliable_config_normalization(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
