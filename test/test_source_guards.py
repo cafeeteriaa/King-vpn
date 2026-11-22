@@ -3537,5 +3537,25 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             self.assertLess(pos, stop)
 
 
+    def test_native_new_start_invalidates_old_generation_before_persisting_stop_latch(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        on_start = native.index('public int onStartCommand(')
+        start = native.index('// Fence every older start BEFORE writing the durable latch.', on_start)
+        marker = native.index('if (!persistUserStopMarker(true))', start)
+        generation = native.index('startGeneration = attemptSeq.incrementAndGet();', start)
+        self.assertLess(generation, marker)
+        self.assertIn('userStopped = true;', native[start:marker])
+        self.assertIn('stopping = true;', native[start:marker])
+
+        activation = native.index('final boolean startActivated;', marker)
+        activation_end = native.index('if (!startActivated)', activation)
+        guarded = native[activation:activation_end]
+        self.assertIn('attemptSeq.get() == startGeneration', guarded)
+        self.assertIn('userStopped && stopping', guarded)
+        self.assertIn('if (startActivated)', guarded)
+        self.assertIn('userStopped = false;', guarded)
+        self.assertIn('preserving newer lifecycle request', native[activation_end:activation_end + 400])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -354,12 +354,21 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                 orEmpty(intent.getStringExtra(EXTRA_PORT)));
         List<Srv> backups = parseBackups(intent.getStringExtra(EXTRA_BACKUPS));
         sortByScoreDesc(backups);
-        // A fresh explicit START is the only operation that clears the durable stop latch.
-        // If storage cannot confirm the clear, refuse to start rather than creating a
-        // tunnel that Android would later be forbidden to restore after process death.
+        // Fence every older start BEFORE writing the durable latch. Otherwise an
+        // older worker can release user_stopped=false in the gap between these two
+        // operations and re-enable sticky recovery for the previous server list.
+        final int startGeneration;
+        synchronized (lifecycleLock) {
+            startGeneration = attemptSeq.incrementAndGet();
+            userStopped = true;
+            stopping = true;
+            active = false;
+            retryWaiting = false;
+        }
+
         // Keep sticky recovery blocked until the worker has durably stored this
-        // exact request's server list. Otherwise process death here can revive the
-        // previous session from PREFS before the new config reaches disk.
+        // exact request's server list. Process death before that commit must not
+        // restore the previous session.
         if (!persistUserStopMarker(true)) {
             invalidateRecoveryAfterStartFailure("Unable to latch recovery while preparing VPN startup");
             emit("FAILED", lastError, intent.getIntExtra(EXTRA_ATTEMPT, 0));
@@ -368,14 +377,25 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             return START_NOT_STICKY;
         }
         nationalMode = intent.getBooleanExtra(EXTRA_NATIONAL, false);
-        // A newer explicit start supersedes any in-flight native bringUp immediately.
-        // Its worker will observe the changed request id and must not emit a stale result.
+
+        // A concurrent Stop/revocation may have arrived while commit() was running.
+        // Only the exact generation that installed the latch may activate this Start.
+        final boolean startActivated;
         synchronized (lifecycleLock) {
-            activeAttemptId = intent.getIntExtra(EXTRA_ATTEMPT, 0);
-            attemptSeq.incrementAndGet();
-            userStopped = false;
-            // An explicit Start supersedes a queued/in-progress Stop cleanup.
-            stopping = false;
+            startActivated = attemptSeq.get() == startGeneration
+                    && userStopped && stopping;
+            if (startActivated) {
+                activeAttemptId = intent.getIntExtra(EXTRA_ATTEMPT, 0);
+                userStopped = false;
+                // The durable latch remains true until startFlow commits the new list.
+                stopping = false;
+            }
+        }
+        if (!startActivated) {
+            Log.i(TAG, "explicit Start superseded before activation; preserving newer lifecycle request");
+            emit("FAILED", "VPN start superseded by a newer stop or lifecycle request",
+                    intent.getIntExtra(EXTRA_ATTEMPT, 0));
+            return START_NOT_STICKY;
         }
 
         if (!startForegroundSafe(first.remark)) {
