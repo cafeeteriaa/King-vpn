@@ -295,6 +295,17 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             submit(this::resumeSaved);
             return START_STICKY;
         }
+        // Any non-null intent may have been delivered through startForegroundService().
+        // Promote before inspecting the action or validating its payload: malformed or
+        // unknown commands must not leave Android's foreground-start deadline unsatisfied.
+        if (!startForegroundSafe("در حال آماده‌سازی اتصال…")) {
+            lastError = "Unable to enter foreground mode before processing VPN command";
+            Log.e(TAG, lastError);
+            requestStop();
+            submit(this::stopEverything);
+            return START_NOT_STICKY;
+        }
+
         String action = intent.getAction();
         if (ACTION_STOP.equals(action)) {
             // ACTION_STOP may itself arrive through startForegroundService; satisfy the
@@ -306,6 +317,10 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             return START_NOT_STICKY;
         }
         if (!ACTION_START.equals(action)) {
+            // We already promoted above because this command may have used
+            // startForegroundService(). Do not leave an unknown command running.
+            stopForeground(true);
+            stopSelf(startId);
             return START_NOT_STICKY;
         }
 

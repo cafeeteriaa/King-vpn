@@ -424,12 +424,21 @@ List<_NatSpec> _natGenerate() {
 
 int _natGrowCounter = 0;
 int natGrow(int n) {
-  if (_natSpecs.length > 500000) return 0;
+  // Keep the generated search space bounded on low-memory Android devices.
+  // The old 500,000-entry guard contradicted natMaxVariants (5,000) and
+  // allowed repeated exhaustion rounds to grow an effectively unbounded list.
+  if (n <= 0 || _natSpecs.length >= natMaxVariants) return 0;
+  final remaining = natMaxVariants - _natSpecs.length;
+  final requested = min(n, remaining);
   final rnd = Random(DateTime.now().millisecondsSinceEpoch + _natGrowCounter++);
+  final known = <String>{for (final spec in _natSpecs) _natSig(spec)};
   var added = 0;
   const fps = ['chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge', 'random', 'qq', '360', 'hellogolang', 'hellochrome', 'hellofirefox', 'hellosafari', 'helloios', 'helloandroid', 'helloedge', 'hello360', 'helloqq', 'hellorandomized', 'hellorandomizedalpn', 'hellorandomizednoalpn'];
   const alpns = <String?>[null, 'h2', 'http/1.1', 'h2,http/1.1'];
-  for (var i = 0; i < n; i++) {
+  // Bound attempts as well as successful additions. Duplicate signatures are
+  // common once the learned matrix has been expanded, and must not consume the
+  // variant budget or inflate ranking/cache work.
+  for (var i = 0; i < requested && added < remaining; i++) {
     final fp = fps[rnd.nextInt(fps.length)];
     final alpn = alpns[rnd.nextInt(alpns.length)];
     final frag = rnd.nextInt(_natFrags.length);
@@ -445,11 +454,13 @@ int natGrow(int n) {
     final tfo = rnd.nextBool();
     final keep = rnd.nextBool() ? rnd.nextInt(30) + 1 : null;
     final sniSwap = rnd.nextBool() ? rnd.nextInt(natFrontSnis.length) : null;
-    _natSpecs.add(_natMk(
+    final candidate = _natMk(
       fp: fp, alpn: alpn, frag: frag, port: port, portIdx: portIdx,
       clean: clean, cleanIdx: cleanIdx, v4: v4, tfo: tfo, keep: keep, doh: doh,
       sniSwap: sniSwap,
-    ));
+    );
+    if (!known.add(_natSig(candidate))) continue;
+    _natSpecs.add(candidate);
     added++;
   }
   if (added > 0) { _natNamesC = null; _natGenRankKey = ''; }
@@ -2237,6 +2248,12 @@ Future<List<String>> natRangeScanStep({
   bool Function()? stop,
   Duration budget = const Duration(minutes: 2),
 }) async {
+  // Reject invalid caller budgets before entering the global single-flight gate.
+  // Iterable.take() throws for a negative count; zero-sized requests should be
+  // a cheap no-op rather than starting compute/network work.
+  if (maxAddrs <= 0 || budget <= Duration.zero) return const <String>[];
+  maxAddrs = maxAddrs.clamp(1, 4096).toInt();
+  conc = conc.clamp(1, 32).toInt();
   if (_natRangeScanBusy) return const <String>[];
   _natRangeScanBusy = true;
   try {

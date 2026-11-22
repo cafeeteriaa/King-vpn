@@ -3293,5 +3293,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('bestScore < _pilotStandbyScore(active) + 12.0', standby)
 
 
+    def test_nat_variant_growth_obeys_declared_hard_cap_and_deduplicates(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn('const int natMaxVariants = 5000;', source)
+        self.assertIn('if (n <= 0 || _natSpecs.length >= natMaxVariants) return 0;', source)
+        self.assertIn('final remaining = natMaxVariants - _natSpecs.length;', source)
+        self.assertIn('if (!known.add(_natSig(candidate))) continue;', source)
+        self.assertNotIn('_natSpecs.length > 500000', source)
+
+    def test_nat_range_scan_rejects_invalid_work_and_clamps_resources(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('Future<List<String>> natRangeScanStep(')
+        end = source.index('Future<List<String>> _natRangeScanStepBody(', start)
+        body = source[start:end]
+        self.assertIn('if (maxAddrs <= 0 || budget <= Duration.zero)', body)
+        self.assertIn('maxAddrs = maxAddrs.clamp(1, 4096).toInt();', body)
+        self.assertIn('conc = conc.clamp(1, 32).toInt();', body)
+
+
 if __name__ == '__main__':
     unittest.main()
