@@ -247,6 +247,23 @@ void main() {
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
     });
 
+    test('does not confirm a route when success counters exceed sampled probes', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.healthy,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 99,
+        globalSuccesses: 99,
+        domesticTlsReachabilityVerified: true,
+        globalTlsReachabilityVerified: true,
+      );
+      expect(evidence.domesticConfirmed, isFalse);
+      expect(evidence.globalConfirmed, isFalse);
+      expect(evidence.mode, DetectedNetworkMode.unknown);
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
+    });
+
     test('confidence never counts more successes than available samples', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.healthy,
