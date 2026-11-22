@@ -9826,13 +9826,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // full: the entry verified the longest ago makes room
           String? oldK;
           DateTime? oldT;
-          _resMap.forEach((k, v) {
-            final t = v.checked ?? v.added;
+          // Evict unverified candidates before sacrificing any end-to-end winner.
+          final unverified = _resMap.entries
+              .where((entry) => !entry.value.verified)
+              .toList();
+          final evictionPool =
+              unverified.isNotEmpty ? unverified : _resMap.entries.toList();
+          for (final entry in evictionPool) {
+            final t = entry.value.checked ?? entry.value.added;
             if (oldT == null || t.isBefore(oldT!)) {
               oldT = t;
-              oldK = k;
+              oldK = entry.key;
             }
-          });
+          }
           if (oldK != null) _resMap.remove(oldK);
         }
         c.ping = srv.ping;
