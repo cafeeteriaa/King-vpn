@@ -2794,5 +2794,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(conditional, emit)
 
 
+    def test_vpn_start_flow_never_emits_connected_after_stop(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        flow = service.index('private void startFlow(')
+        success = service.index('if (connectFrom(0))', flow)
+        lifecycle = service.index('synchronized (lifecycleLock)', success)
+        stop_guard = service.index('if (stopping || userStopped) return;', lifecycle)
+        save = service.index('saveState();', stop_guard)
+        watchdog = service.index('startWatchdog(CHECK_EVERY_SEC);', save)
+        connected = service.index('emit("CONNECTED", "", attempt);', watchdog)
+        self.assertLess(success, lifecycle)
+        self.assertLess(lifecycle, stop_guard)
+        self.assertLess(stop_guard, save)
+        self.assertLess(save, watchdog)
+        self.assertLess(watchdog, connected)
+
+
 if __name__ == '__main__':
     unittest.main()

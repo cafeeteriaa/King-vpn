@@ -407,9 +407,14 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             fails = 0;      // جدید
             saveState(); // persist the pending list first, so a restart mid-connect can resume it
             if (connectFrom(0)) {
-                saveState();
-                startWatchdog(CHECK_EVERY_SEC);
-                emit("CONNECTED", "", attempt); // جدید
+                synchronized (lifecycleLock) {
+                    // Stop can arrive after connectFrom succeeds but before this worker
+                    // publishes its final result. Never deliver a stale CONNECTED event.
+                    if (stopping || userStopped) return;
+                    saveState();
+                    startWatchdog(CHECK_EVERY_SEC);
+                    emit("CONNECTED", "", attempt); // جدید
+                }
             } else {
                 lastError = "no server could be started";
                 Log.e(TAG, lastError);
