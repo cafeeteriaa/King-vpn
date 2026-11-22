@@ -313,8 +313,12 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         if (ACTION_STOP.equals(action)) {
             // ACTION_STOP may itself arrive through startForegroundService; satisfy the
             // same deadline before asynchronous shutdown work is queued.
-            startForegroundSafe("در حال قطع اتصال…");
-            persistUserStopMarker(true);
+            // If the dedicated stop latch cannot be committed, synchronously erase
+            // the resumable VPN configuration as a second line of defense. Do not
+            // silently rely on the worker cleanup: Android may kill this process first.
+            if (!persistUserStopMarker(true) && !clearStateDurably()) {
+                Log.e(TAG, "STOP command could not persist stop latch or erase recovery state");
+            }
             requestStop();
             submit(this::stopEverything);
             return START_NOT_STICKY;

@@ -3401,6 +3401,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
+    def test_native_action_stop_falls_back_to_durable_recovery_state_clear(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = native.index('if (ACTION_STOP.equals(action))')
+        end = native.index('if (!ACTION_START.equals(action))', start)
+        stop = native[start:end]
+        self.assertIn('if (!persistUserStopMarker(true) && !clearStateDurably())', stop)
+        self.assertIn('STOP command could not persist stop latch or erase recovery state', stop)
+        self.assertLess(stop.index('persistUserStopMarker(true)'), stop.index('requestStop();'))
+        self.assertLess(stop.index('clearStateDurably()'), stop.index('submit(this::stopEverything);'))
+
+
     def test_native_stop_and_wedged_recovery_clear_saved_state_durably(self):
         native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         recovery_start = native.index('private void recoverWedgedCore(String what)')
