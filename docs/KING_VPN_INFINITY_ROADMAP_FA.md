@@ -58,7 +58,7 @@
 1. داخل برنامه: جمع‌آوری خطا، stack trace، شناسه نسخه، شرایط شبکه و گزارش حداقلی؛ buildRepairDiagnosticJson/exportRepairDiagnosticFile لینک کانفیگ، UUID و مقادیر credential را پیش از خروجی پاک‌سازی می‌کنند.
 2. محیط تعمیر مستقل (CI/ماشین توسعه): تحلیل ریشه‌ای، تولید Patch، محدودیت مسیر و اندازه تغییر، تست ایزوله، تحلیل ایستا، بررسی secret و license، ساخت snapshot بازگشت، امضای Patch/Artifact و انتشار کنترل‌شده.
 
-ابزارهای موجود در این نسخه: tools/diagnose_build.py برای استخراج شواهد خطا، tools/patch_gate.py برای کنترل ساختار Patch و tools/repair_orchestrator.py برای اعمال Patch در کپی موقت و اجرای تست/تحلیل/بیلد. تولید Patch توسط مدل AI و ارسال آن به CI هنوز به provider و مجوز امن جداگانه نیاز دارد؛ هیچ تولید یا اعمال Patch آزمایش‌نشده‌ای داخل APK انجام نمی‌شود.
+ابزارهای موجود در این نسخه: tools/diagnose_build.py برای استخراج شواهد خطا، tools/patch_gate.py برای کنترل ساختار Patch و tools/repair_orchestrator.py برای اعمال Patch در کپی موقت و بررسی ساختاری. Patch gate فقط lib/ و test/ را می‌پذیرد و تغییر tools/، Android/Native، build، workflow و dependency را به بازبینی مالک واگذار می‌کند. repair_orchestrator کد Patch را روی میزبان توسعه‌دهنده اجرا نمی‌کند؛ تست، تحلیل و Build باید در GitHub Actions روی commit دقیق PR انجام شوند. کپی موقت Sandbox نیست و گزارش آماده‌سازی Patch به معنی تأیید نیست.
 
 دروازه انتشار Patch:
 - امضای معتبر و منشأ مشخص؛
