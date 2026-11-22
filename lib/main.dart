@@ -10580,7 +10580,7 @@ ListTile( // KINGEXTRAS row
         .toList()
       ..sort(bySpeedThenPing);
     if (l.isEmpty) return;
-    // Rank national winners / Iran-oriented sources first
+    // Rank only previously data-plane-verified national winners first
     l.sort((a, b) {
       final r = _natRank(b) - _natRank(a); // NATIONALPATCH
       return r != 0 ? r : bySpeedThenPing(a, b);
@@ -17446,28 +17446,18 @@ bool _natSrc(Server s) {
       u.contains('delta-kronecker');
 }
 
-// NNIE-DOM: وقتی جهانی قطع و ملی باز است، سرورهای ایران‌محور جلو می‌روند.
-// تفکیک صریح و پایدار است (List.sort در Dart پایدار نیست).
-List<Server> _natDomesticFirst(List<Server> list) {
-  final dom = <Server>[];
-  final rest = <Server>[];
-  for (final s in list) {
-    (s.country == 'IR' || _natSrc(s) ? dom : rest).add(s);
-  }
-  return [...dom, ...rest];
-}
-
-// NNIE-WIN: سرورهایی که قبلاً همین endpoint را در نت ملی باز کرده‌اند (حافظه‌ی دامنه)
-// همیشه قبل از ترجیح ایران‌محور می‌آیند؛ وگرنه ترتیب یادگیری‌شده خنثی می‌شد.
-// ترتیب نسبی داخل هر گروه حفظ می‌شود.
+// NNIE-DOM: only endpoints with prior real tunnel-data-plane success are
+// promoted. Country/source labels are hints for diagnostics, never proof that
+// a server is physically hosted in Iran or works on the domestic network.
 List<Server> _natDomesticFirstKeepWinners(List<Server> list) {
-  final remDom = natDomMemHosts();
+  final verifiedHosts = natDomMemHosts();
   final winners = <Server>[];
   final rest = <Server>[];
   for (final s in list) {
-    (remDom.contains('${s.host}:${s.port}') ? winners : rest).add(s);
+    (verifiedHosts.contains('${s.host}:${s.port}') ? winners : rest).add(s);
   }
-  return [...winners, ..._natDomesticFirst(rest)];
+  // Stable partition: preserve the original score/ping order within each group.
+  return [...winners, ...rest];
 }
 
 // رتبه نت ملی: برندگان قبلی > منبع ایران‌محور > Reality > IR > CDN
@@ -17490,7 +17480,10 @@ int _natRank(Server s) {
 }
 
 int _natRankCompute(Server s) {
+  // In national mode, only a previously verified tunnel success is a domestic
+  // winner. GeoIP/source labels and protocol tags must not masquerade as proof.
   if (natGood.contains(s.key)) return 5;
+  if (nationalMode) return 0;
   if (_natSrc(s)) return 4;
   if (s.reality) return 3;
   if (s.country == 'IR') return 2;
