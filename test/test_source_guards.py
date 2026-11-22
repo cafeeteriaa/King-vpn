@@ -2957,7 +2957,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
         nat_start = main.index('Future<void> _natDetect()')
         nat_end = main.index('Future<void> ', nat_start + len('Future<void> _natDetect()'))
-        self.assertIn('where((e) => e.verified)', main[nat_start:nat_end])
+        self.assertIn('where((e) => e.verified && e.verifiedAt != null)', main[nat_start:nat_end])
 
         disconnect_start = main.index('Future<void> disconnect({bool keepPilot = false})')
         disconnect_end = main.index('good.clear();', disconnect_start)
