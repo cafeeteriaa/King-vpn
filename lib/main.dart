@@ -8957,11 +8957,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // FIX #12: national mode tests domestic destinations (international traffic is cut there);
   // global mode tests only international ones, so a domestic site cannot pass a dead tunnel.
   Future<bool> _tunnelTrafficOk() async {
-    if (proxyMode) return true;
     await Future.delayed(const Duration(seconds: 2));
-    // TUNFIX: viaCore true = the core's outbound, which is what must be measured. The app is NOT
-    // excluded from its own tunnel (FIX #49, KingVpnService.java), so DIRECT requests also pass
-    // the TUN; viaCore is therefore the explicit choice for the server check.
+    // Verify the actual data path in both modes: the system TUN for VPN mode,
+    // and the local core proxy for proxyMode. A CONNECTED event alone is not proof.
     final urls = nationalMode ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
     for (final u in urls) {
       final ok = await _siteOpens(u, viaCore: true)

@@ -2810,6 +2810,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(watchdog, connected)
 
 
+    def test_stale_connect_verification_checks_proxy_mode_data_path(self):
+        dart = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = dart.index('Future<bool> _tunnelTrafficOk()')
+        end = dart.index('// Stable history', start)
+        probe = dart[start:end]
+        self.assertNotIn('if (proxyMode) return true;', probe)
+        self.assertIn('_siteOpens(u, viaCore: true)', probe)
+        site = dart.index('Future<bool> _siteOpens(')
+        site_end = dart.index('Future<int> _sitesOpen()', site)
+        site_body = dart[site:site_end]
+        self.assertIn('_useCoreProxy(viaCore)', site_body)
+        self.assertIn("'PROXY 127.0.0.1:$httpProxyPort'", site_body)
+
+
     def test_stale_tunnel_probe_cannot_complete_superseded_connect_waiter(self):
         dart = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         handler = dart.index("if (_staleCoreMayBeUp)")
