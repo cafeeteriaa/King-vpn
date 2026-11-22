@@ -3595,5 +3595,34 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         )
 
 
+    def test_native_stop_invalidates_before_clearing_recovery_on_early_failures(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        for reason in (
+            'VPN consent missing during sticky restart',
+            'Unable to enter foreground mode during VPN service recovery',
+            'Unable to enter foreground mode before processing VPN command',
+            'start called with empty config',
+        ):
+            pos = native.index('invalidateRecoveryAfterStartFailure("' + reason + '")')
+            prefix = native[max(0, pos - 180):pos]
+            self.assertIn('requestStop();', prefix)
+
+    def test_native_bringup_timeout_does_not_invalidate_stop_cleanup_generation(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = native.index('private boolean bringUpWithTimeout(')
+        end = native.index('private static void closeQuietly', start)
+        body = native[start:end]
+        self.assertIn('if (!stopping) attemptSeq.incrementAndGet();', body)
+        self.assertIn('requestStop() already invalidated this token', body)
+
+    def test_native_foreground_failure_does_not_stop_a_stale_start(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = native.index('private boolean connectFrom(int first, int requestAttempt)')
+        end = native.index('private boolean bringUpWithTimeout', start)
+        body = native[start:end]
+        self.assertIn('ownsStop = requestStopIfCurrent(requestAttempt);', body)
+        self.assertIn('if (!ownsStop) return false;', body)
+
+
 if __name__ == '__main__':
     unittest.main()

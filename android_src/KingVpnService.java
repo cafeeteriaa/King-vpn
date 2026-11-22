@@ -273,8 +273,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // never attempt to resurrect a tunnel after Android revoked VPN permission.
             if (VpnService.prepare(this) != null) {
                 Log.w(TAG, "VPN consent missing during sticky restart; refusing recovery");
-                invalidateRecoveryAfterStartFailure("VPN consent missing during sticky restart");
                 requestStop();
+                invalidateRecoveryAfterStartFailure("VPN consent missing during sticky restart");
                 stopSelf(startId);
                 return START_NOT_STICKY;
             }
@@ -282,9 +282,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             // main thread before queuing recovery, otherwise a busy worker can miss the
             // foreground-service deadline and Android may terminate the VPN process.
             if (!startForegroundSafe("در حال بازیابی اتصال…")) {
+                requestStop();
                 invalidateRecoveryAfterStartFailure("Unable to enter foreground mode during VPN service recovery");
                 Log.e(TAG, lastError);
-                requestStop();
                 submit(this::stopEverything);
                 return START_NOT_STICKY;
             }
@@ -305,9 +305,9 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         // Promote before inspecting the action or validating its payload: malformed or
         // unknown commands must not leave Android's foreground-start deadline unsatisfied.
         if (!startForegroundSafe("در حال آماده‌سازی اتصال…")) {
+            requestStop();
             invalidateRecoveryAfterStartFailure("Unable to enter foreground mode before processing VPN command");
             Log.e(TAG, lastError);
-            requestStop();
             submit(this::stopEverything);
             return START_NOT_STICKY;
         }
@@ -340,11 +340,11 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         String json = intent.getStringExtra(EXTRA_CONFIG);
         if (json == null || json.isEmpty()) {
             Log.e(TAG, "start without config");
+            requestStop();
             invalidateRecoveryAfterStartFailure("start called with empty config");
             // جدید: startForegroundService requires startForeground() within 5 s, or Android
             // kills the process with ForegroundServiceDidNotStartInTimeException.
             updateNotification("خطا: تنظیمات سرور خالی است");
-            requestStop();
             submit(this::stopEverything);
             return START_NOT_STICKY;
         }
@@ -670,9 +670,19 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                     lastError = "VPN core started but foreground notification update failed";
                     Log.e(TAG, lastError);
                     // A VPN must not remain active after losing its foreground contract.
-                    // Persist the stop latch so a process restart cannot resurrect it.
-                    persistUserStopMarker(true);
-                    requestStop();
+                    // Only the still-current request may stop the service; an older
+                    // bring-up must not cancel a newer explicit Start.
+                    final boolean ownsStop;
+                    if (requestAttempt >= 0) {
+                        ownsStop = requestStopIfCurrent(requestAttempt);
+                    } else {
+                        requestStop();
+                        ownsStop = true;
+                    }
+                    if (!ownsStop) return false;
+                    if (!persistUserStopMarker(true) && !clearStateDurably()) {
+                        Log.e(TAG, "foreground failure could not persist stop intent or clear recovery state");
+                    }
                     stopEverything();
                     return false;
                 }
@@ -731,7 +741,11 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
         // Not finished: either a Stop arrived or the timeout expired. Supersede this attempt
         // BEFORE reporting, so that if it returns later from startCore it sees it is stale.
-        attemptSeq.incrementAndGet();
+        synchronized (lifecycleLock) {
+            // requestStop() already invalidated this token. Incrementing the shared
+            // sequence again here would make stopEverything reject its own cleanup.
+            if (!stopping) attemptSeq.incrementAndGet();
+        }
         if (stopping) {
             lastError = "stopped by user"; // جدید
             Log.i(TAG, lastError + " for " + s.remark);
