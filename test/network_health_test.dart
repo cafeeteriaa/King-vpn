@@ -346,4 +346,49 @@ void main() {
   });
 
 
+  group('route-scoped Pilot learning and domestic ordering', () {
+    test('protocol profile keys cannot cross-contaminate domestic and global modes', () {
+      expect(
+        networkScopedProfileKey('operator|vless|ws', nationalMode: true),
+        'domestic|operator|vless|ws',
+      );
+      expect(
+        networkScopedProfileKey('operator|vless|ws', nationalMode: false),
+        'global|operator|vless|ws',
+      );
+      expect(
+        networkScopedProfileKey('operator|vless|ws', nationalMode: true),
+        isNot(networkScopedProfileKey('operator|vless|ws', nationalMode: false)),
+      );
+    });
+
+    test('Pilot domestic ordering needs an enabled national route and verified evidence', () {
+      expect(shouldPreferDomesticCandidates(
+        legacyDiagnosisPrefersDomestic: false,
+        localPilotEnabled: true,
+        nationalMode: true,
+        pilotDomesticConfirmed: true,
+      ), isTrue);
+      expect(shouldPreferDomesticCandidates(
+        legacyDiagnosisPrefersDomestic: false,
+        localPilotEnabled: true,
+        nationalMode: true,
+        pilotDomesticConfirmed: false,
+      ), isFalse);
+      expect(shouldPreferDomesticCandidates(
+        legacyDiagnosisPrefersDomestic: false,
+        localPilotEnabled: true,
+        nationalMode: false,
+        pilotDomesticConfirmed: true,
+      ), isFalse);
+      expect(shouldPreferDomesticCandidates(
+        legacyDiagnosisPrefersDomestic: true,
+        localPilotEnabled: false,
+        nationalMode: false,
+        pilotDomesticConfirmed: false,
+      ), isTrue);
+    });
+  });
+
+
 }
