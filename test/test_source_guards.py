@@ -3115,6 +3115,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(body.index('NetworkInterface.list('),
                         body.index('finally {'))
 
+    def test_doh_probe_discards_stale_network_generation_and_mode_cache(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = nat.index('final Map<int, bool> dohPreOk')
+        end = nat.index('String _natApplyTweaks', start)
+        body = nat[start:end]
+        self.assertIn('_dohPreNationalMode.clear();', body)
+        self.assertIn('_dohPreNationalMode[v] == mode', body)
+        self.assertIn('for (var attempt = 0; attempt < 2; attempt++)', body)
+        self.assertIn('if (gen != _dohGen)', body)
+        self.assertIn('if (attempt == 0) continue;', body)
+        self.assertIn('if (nationalMode != mode) return false;', body)
+        self.assertLess(body.index('if (gen != _dohGen)'), body.index('dohPreOk[v] = ok;'))
+        self.assertLess(body.index('if (nationalMode != mode)'), body.index('dohPreOk[v] = ok;'))
+
     def test_network_change_uses_grace_instead_of_immediate_failover(self):
         dart = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = dart.index('Future<void> _netWatch() async {')
