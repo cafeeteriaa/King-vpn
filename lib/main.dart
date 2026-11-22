@@ -9738,6 +9738,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int _resMergeCursor = 0; // FOLDERS: چرخش سهم سرورهای سالم در صف نت ملی
   bool _resFull = false; // second-chance pass: every variant
 
+  void _expireNatVerification({DateTime? at}) {
+    final now = at ?? DateTime.now();
+    final maxAge = Duration(hours: kGoldRetestHours);
+    for (final entry in _resMap.entries) {
+      final item = entry.value;
+      final verifiedAt = item.verifiedAt;
+      if (item.verified &&
+          (verifiedAt == null ||
+              now.isBefore(verifiedAt) ||
+              now.difference(verifiedAt) >= maxAge)) {
+        item.verified = false;
+        natGood.remove(entry.key);
+        _resDirty = true;
+      }
+    }
+  }
+
   Future<void> _resLoad() async {
     try {
       final p = await SharedPreferences.getInstance();
@@ -9767,6 +9784,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     } catch (e, stk) {
       logError(e, stk);
     }
+    _expireNatVerification();
+    if (_resDirty) await _resSave();
     _resT?.cancel();
     _resT = Timer.periodic(const Duration(minutes: 2), (_) {
       _resDaily();
@@ -9957,6 +9976,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         (wasUp ? (!connected || !wantVpn || abort) : searching);
     if (lost() || busy || switching || upBusy || (!wasUp && searching)) return;
     final now = DateTime.now();
+    _expireNatVerification(at: now);
     if (!force) {
       if (now.difference(lastSwitch) < const Duration(seconds: 60)) return;
       final h = _resHold;
@@ -10369,9 +10389,12 @@ ListTile( // KINGEXTRAS row
     _natFetched = false;
     await natDetectOperator(); // NATULTRA: per-operator learning
     try {
+      _expireNatVerification();
       if (!_natLoaded) {
         _natLoaded = true;
-        natGood.addAll(_resMap.values.where((e) => e.verified).map((e) => e.s.key)); // only end-to-end verified records
+        natGood.addAll(_resMap.values
+            .where((e) => e.verified && e.verifiedAt != null)
+            .map((e) => e.s.key)); // only fresh end-to-end verified records
         await natLoadPersisted(); // NATULTRA
       }
       final was = nationalMode;

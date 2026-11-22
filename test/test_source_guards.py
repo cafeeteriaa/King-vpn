@@ -3016,5 +3016,27 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('await _stopCore();', proxy_branch[traffic:accept])
 
 
+    def test_national_verified_folder_evidence_expires_after_24_hours(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        expiry_start = main.index('void _expireNatVerification(')
+        load_start = main.index('Future<void> _resLoad()', expiry_start)
+        expiry = main[expiry_start:load_start]
+        self.assertIn('Duration(hours: kGoldRetestHours)', expiry)
+        self.assertIn('now.difference(verifiedAt) >= maxAge', expiry)
+        self.assertIn('item.verified = false;', expiry)
+        self.assertIn('natGood.remove(entry.key);', expiry)
+
+        detect_start = main.index('Future<void> _natDetect()')
+        detect_end = main.index('DateTime? _checkSavedAt;', detect_start)
+        detect = main[detect_start:detect_end]
+        self.assertIn('_expireNatVerification();', detect)
+        self.assertIn('e.verified && e.verifiedAt != null', detect)
+
+        daily_start = main.index('Future<void> _resDaily({bool force = false})')
+        daily_end = main.index('String _resAgo(', daily_start)
+        daily = main[daily_start:daily_end]
+        self.assertIn('_expireNatVerification(at: now);', daily)
+
+
 if __name__ == '__main__':
     unittest.main()
