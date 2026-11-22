@@ -5,7 +5,7 @@ void main() {
   group('national DNS server policy', () {
     const domestic = <dynamic>['178.22.122.100'];
 
-    test('filters DoH string servers when secure DNS is disabled', () {
+    test('filters routed DoH string servers when secure DNS is disabled', () {
       expect(
         mergeNationalDnsServers(
           domesticFirst: domestic,
@@ -16,12 +16,30 @@ void main() {
       );
     });
 
-    test('filters DoH DnsServerObject entries by their address field', () {
+    test('filters encrypted local-mode DoH and DoQ strings', () {
+      expect(
+        mergeNationalDnsServers(
+          domesticFirst: domestic,
+          existing: const [
+            'https+local://1.1.1.1/dns-query',
+            'quic+local://dns.adguard.com',
+            'HTTPS://8.8.8.8/dns-query',
+            'tcp://8.8.8.8:53',
+          ],
+          secureDns: false,
+        ),
+        ['178.22.122.100', 'tcp://8.8.8.8:53'],
+      );
+    });
+
+    test('filters encrypted DnsServerObject entries by address', () {
       const doh = {
         'address': 'https://8.8.8.8/dns-query',
         'domains': ['domain:example.com'],
         'skipFallback': true,
       };
+      const dohLocal = {'address': 'https+local://1.1.1.1/dns-query'};
+      const doqLocal = {'address': 'quic+local://dns.adguard.com'};
       const udp = {
         'address': '9.9.9.9',
         'domains': ['domain:example.org'],
@@ -29,22 +47,24 @@ void main() {
       expect(
         mergeNationalDnsServers(
           domesticFirst: domestic,
-          existing: const [doh, udp],
+          existing: const [doh, dohLocal, doqLocal, udp],
           secureDns: false,
         ),
         ['178.22.122.100', udp],
       );
     });
 
-    test('retains DoH objects when secure DNS is enabled', () {
+    test('retains encrypted DNS objects when secure DNS is enabled', () {
       const doh = {'address': 'https://1.1.1.1/dns-query'};
+      const dohLocal = {'address': 'https+local://1.1.1.1/dns-query'};
+      const doqLocal = {'address': 'quic+local://dns.adguard.com'};
       expect(
         mergeNationalDnsServers(
           domesticFirst: domestic,
-          existing: const [doh],
+          existing: const [doh, dohLocal, doqLocal],
           secureDns: true,
         ),
-        ['178.22.122.100', doh],
+        ['178.22.122.100', doh, dohLocal, doqLocal],
       );
     });
 
