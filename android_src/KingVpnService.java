@@ -193,6 +193,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     private volatile ExecutorService worker = null;
     /** Serializes worker submission with onDestroy() detaching and shutting it down. */
     private final Object workerLock = new Object();
+    /** Serializes the tiny stop-vs-connected state transition, never network/native work. */
+    private final Object lifecycleLock = new Object();
 
     /** Persisted national-mode flag (see EXTRA_NATIONAL). */
     private volatile boolean nationalMode = false;
@@ -462,12 +464,14 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     }
 
     private void requestStop() {
-        userStopped = true;
-        stopping = true;
-        active = false;
-        retryWaiting = false;
-        // Supersede whatever attempt is running. It can no longer act on the core.
-        attemptSeq.incrementAndGet();
+        synchronized (lifecycleLock) {
+            userStopped = true;
+            stopping = true;
+            active = false;
+            retryWaiting = false;
+            // Supersede whatever attempt is running. It can no longer act on the core.
+            attemptSeq.incrementAndGet();
+        }
     }
 
     /** Try each server starting at [first]; the first one that comes up wins. */
@@ -479,10 +483,15 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             Srv s = servers.get(idx);
             Log.i(TAG, "starting server " + idx + "/" + n + " " + s.remark);
             if (bringUpWithTimeout(s)) {
-                currentIdx = idx;
-                fails = 0;
-                healthyStreak = 0;
-                active = true;
+                synchronized (lifecycleLock) {
+                    // Stop may arrive just after the native start returns. Do not publish
+                    // CONNECTED or reactivate the watchdog-facing state after that request.
+                    if (stopping || userStopped) return false;
+                    currentIdx = idx;
+                    fails = 0;
+                    healthyStreak = 0;
+                    active = true;
+                }
                 startForegroundSafe(s.remark);
                 cancelPluginNotification(); // جدید
                 return true;

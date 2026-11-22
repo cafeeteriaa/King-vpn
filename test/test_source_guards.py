@@ -2760,5 +2760,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('.commit()', service[helper:service.index('private int getScore', helper)])
 
 
+    def test_vpn_stop_cannot_be_overwritten_by_late_connect_success(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        lifecycle = service.index('private final Object lifecycleLock')
+        request = service.index('private void requestStop()')
+        request_end = service.index('private boolean connectFrom(', request)
+        connect = service.index('if (bringUpWithTimeout(s))', request_end)
+        state_lock = service.index('synchronized (lifecycleLock)', connect)
+        stop_guard = service.index('if (stopping || userStopped) return false;', state_lock)
+        active = service.index('active = true;', stop_guard)
+        self.assertLess(lifecycle, request)
+        self.assertLess(request, request_end)
+        self.assertLess(state_lock, stop_guard)
+        self.assertLess(stop_guard, active)
+        self.assertIn('synchronized (lifecycleLock)', service[request:request_end])
+
+
 if __name__ == '__main__':
     unittest.main()
