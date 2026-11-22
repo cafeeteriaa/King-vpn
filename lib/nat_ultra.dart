@@ -1543,23 +1543,42 @@ Future<void> natDetectOperator() async {
     var asn = stale ? '' : (_natAsnByType[type] ?? '');
     if (stale) {
       _natAsnTry[type] = DateTime.now();
-      final r = await Future.wait([
+      final results = await Future.wait([
         _natAsnFrom('http://ip-api.com/json/?fields=as', 'as'),
         _natAsnFrom('https://ipinfo.io/json', 'org'),
         _natAsnFrom('https://api.ip.sb/geoip', 'asn'),
       ]);
-      // Require independent agreement. One endpoint can be spoofed, stale,
-      // intercepted, or simply report a different egress than the active path.
+      // Require two independent providers to agree on the same numeric ASN.
       final counts = <String, int>{};
-      for (final x in r) {
-        if (x != null && RegExp(r'^\\d{3,7}
-    if (k != natOpKey) {
-      natOpKey = k;
-      dbg('شبکه/اپراتور: $k');
+      for (final value in results) {
+        if (value == null ||
+            value.length < 3 ||
+            value.length > 7 ||
+            !value.codeUnits.every((c) => c >= 48 && c <= 57)) {
+          continue;
+        }
+        counts[value] = (counts[value] ?? 0) + 1;
+      }
+      final agreed = counts.entries.where((e) => e.value >= 2).toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      if (agreed.isNotEmpty) {
+        asn = agreed.first.key;
+        _natAsnByType[type] = asn;
+      } else {
+        // No single-source or stale fallback is safe for domestic promotion.
+        asn = '';
+        _natAsnByType.remove(type);
+      }
     }
-  } catch (e, stk) { logError(e, stk); }
+    final key = asn.isEmpty ? '$type|unverified' : '$type|AS$asn';
+    if (key != natOpKey) {
+      natOpKey = key;
+      dbg('شبکه/اپراتور: $key');
+    }
+  } catch (e, stk) {
+    logError(e, stk);
+  }
 }
-
 final Map<String, int> natWins = {};
 Timer? _natSaveT;
 
@@ -1720,22 +1739,33 @@ final List<Map<String, dynamic>> natDomMem = [];
 
 // A past tunnel success is reusable only for the same detected access network / ASN
 // and while it is fresh. Legacy entries without an operator key are never trusted.
+bool _natHasVerifiedOperatorKey(String key) {
+  final marker = key.lastIndexOf('|AS');
+  if (marker <= 0) return false;
+  final digits = key.substring(marker + 3);
+  return digits.length >= 3 &&
+      digits.length <= 7 &&
+      digits.codeUnits.every((c) => c >= 48 && c <= 57);
+}
+
 Set<String> natDomMemHosts({DateTime? now}) {
   final at = now ?? DateTime.now();
   final cutoff = at.subtract(_domMemTtl).millisecondsSinceEpoch;
+  if (!_natHasVerifiedOperatorKey(natOpKey)) return <String>{};
   final hosts = <String>{};
   for (final e in natDomMem) {
     final t = (e['t'] as num?)?.toInt();
     final host = e['h'];
     final port = e['port'];
-    if (!RegExp(r'^\\w+\\|AS\\d{3,7}
+    if (e['op'] != natOpKey ||
+        t == null ||
         t > at.millisecondsSinceEpoch ||
         t < cutoff ||
         host is! String ||
         port is! num) {
       continue;
     }
-    hosts.add('$host:${port.toInt()}');
+    hosts.add(''${host}:${port.toInt()}'');
   }
   return hosts;
 }
@@ -1761,7 +1791,8 @@ Future<void> natDomMemLoad() async {
 }
 
 Future<void> natDomMemSave(String host, int port) async {
-  if (!RegExp(r'^\\w+\\|AS\\d{3,7}((e) =>
+  if (!_natHasVerifiedOperatorKey(natOpKey)) return;
+  natDomMem.removeWhere((e) =>
       e['h'] == host && e['port'] == port && e['op'] == natOpKey);
   natDomMem.insert(0, {
     'h': host,
@@ -1779,7 +1810,6 @@ Future<void> natDomMemSave(String host, int port) async {
     logError(e, stk);
   }
 }
-
 Future<void> natIpMemSave(String ip, int port) async {
   natIpMem.removeWhere((e) => e['ip'] == ip && e['port'] == port);
   natIpMem.insert(0, {'ip': ip, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
