@@ -2810,5 +2810,27 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(watchdog, connected)
 
 
+    def test_stale_tunnel_probe_cannot_complete_superseded_connect_waiter(self):
+        dart = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        handler = dart.index("if (_staleCoreMayBeUp)")
+        verify_call = dart.index('_verifyPendingConnect(connSig!, _connGen);', handler)
+        verify = dart.index('Future<void> _verifyPendingConnect(', verify_call)
+        end = dart.index('// [trust]', verify)
+        body = dart[verify:end]
+        generation = body.index('generation != _connGen')
+        waiter_identity = body.index('!identical(connSig, c)')
+        completed = body.index('c.isCompleted')
+        desire = body.index('!wantVpn')
+        probe = body.index('final ok = await _tunnelTrafficOk();')
+        fence = body.index('_staleCoreMayBeUp = false;')
+        complete = body.index('c.complete(true);')
+        self.assertLess(probe, generation)
+        self.assertLess(generation, waiter_identity)
+        self.assertLess(waiter_identity, completed)
+        self.assertLess(completed, desire)
+        self.assertLess(desire, fence)
+        self.assertLess(fence, complete)
+
+
 if __name__ == '__main__':
     unittest.main()
