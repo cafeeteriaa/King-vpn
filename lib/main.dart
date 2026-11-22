@@ -6305,7 +6305,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // around the link are repaired here)
         if (s != null) favs[s.key] = s.link;
       }
-      final ss = p.getString('src_scores');
+      final ss = p.getString('src_scores_global_v2');
       if (ss != null) {
         (jsonDecode(ss) as Map).forEach((k, v) {
           srcRate[k as String] = (v[0] as num).toDouble();
@@ -6700,8 +6700,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // a list that gave NOTHING in its first 12 real tests is skipped for now
   bool _srcDead(Server s) {
     final u = s.src;
-    if (u == null) return false;
-    if (nationalMode && (natAll || _natSrc(s))) return false; // NATIONALPATCH
+    if (u == null || nationalMode) return false;
     return (srcTested[u] ?? 0) >= 12 && (srcOkN[u] ?? 0) == 0;
   }
 
@@ -6731,6 +6730,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ..sort((a, b) {
         final t = _tier(by[b]!.first) - _tier(by[a]!.first);
         if (t != 0) return t;
+        if (nationalMode) return a.compareTo(b);
         return (srcRate[b] ?? 0.3).compareTo(srcRate[a] ?? 0.3);
       });
     final ptr = {for (final k in keys) k: 0};
@@ -6742,7 +6742,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         var p0 = ptr[k]!;
         if (p0 >= q.length) continue;
         more = true;
-        final r = srcRate[k] ?? 0.3;
+        final r = nationalMode ? 0.3 : (srcRate[k] ?? 0.3);
         if (r < 0.1 && round % 4 != 0) continue; // weak lists: 1 round in 4
         final ti = _tier(q.first);
         final per = ti >= 3 ? 4 : (ti == 2 ? 3 : 1);
@@ -14455,12 +14455,17 @@ ListTile( // KINGEXTRAS row
   double _rate(Server s) {
     final u = s.src;
     if (u == null) return 1.0; // favourites / cache / imported
+    // Shared source scores are global-only; national mode uses route-scoped
+    // endpoint history instead of inheriting global reachability.
+    if (nationalMode) return 0.3;
     return srcRate[u] ?? 0.3;
   }
 
   bool _srcOk(Server s) {
     final u = s.src;
-    if (nationalMode && (natAll || _natSrc(s))) return true; // NATIONALPATCH
+    // A list that failed on the global route must still be eligible for a
+    // national-mode core test; global source health is not a national verdict.
+    if (nationalMode) return true;
     if (u == null || !onlyHealthySrc) return true;
     final r = srcRate[u];
     return r == null || r >= 0.25 || topSrc.contains(u);
@@ -14516,7 +14521,9 @@ ListTile( // KINGEXTRAS row
   // real results of a source replace the quick TCP estimate
   void _srcRecord(Server s, bool ok) {
     final u = s.src;
-    if (u == null) return;
+    // Keep this persisted source-health table global-only. National-mode
+    // endpoint outcomes are learned by NNIE with a separate route key.
+    if (u == null || nationalMode) return;
     srcTested[u] = (srcTested[u] ?? 0) + 1;
     if (ok) srcOkN[u] = (srcOkN[u] ?? 0) + 1;
     if (srcTested[u]! >= 5) {
@@ -14529,8 +14536,8 @@ ListTile( // KINGEXTRAS row
   // quick health check of every list: TCP-probe a random sample of each
   // force=true: با هر «اتصال» همه‌ی منابع دوباره (سریع) بررسی می‌شوند، قبل از شروع تست سرورها
   Future<void> _rankSources({bool force = false}) async {
-    // هنگام اتصال سرور شخصی، بررسی سلامت منابع اجرا نمی‌شود (وضعیت «۲۲ منبع» نباید نمایش داده شود)
-    if (_personalBusy) return;
+    // Direct source TCP health is not a valid filter for national-mode core paths.
+    if (nationalMode || _personalBusy) return;
     final bySrc = <String, List<Server>>{};
     for (final s in fetchedAll) {
       final u = s.src;
@@ -14602,7 +14609,7 @@ ListTile( // KINGEXTRAS row
     try {
       final p = await SharedPreferences.getInstance();
       await p.setString(
-          'src_scores',
+          'src_scores_global_v2',
           jsonEncode({
             for (final k in srcRate.keys)
               k: [srcRate[k], srcAt[k] ?? 0, srcReal.contains(k) ? 1 : 0]
