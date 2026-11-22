@@ -3105,13 +3105,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("invokeMethod<bool>('kingVpnTunnelActive')", tun)
         self.assertIn('if (nativeVpn != null)', tun)
         self.assertIn('return nativeVpn;', tun)
-        self.assertIn("tunNames = nativeVpn ? 'android:KINGVPN_TUN' : 'android:KINGVPN_INACTIVE';", tun)
+        self.assertIn("tunNames = nativeVpn ? 'android:KINGVPN_DAEMON_ALIVE' : 'android:KINGVPN_DAEMON_INACTIVE';", tun)
+        self.assertIn('The native signal confirms only that the plugin daemon process is alive.', tun)
+        self.assertIn('It does NOT prove the Xray core is running, the TUN FD is healthy, or traffic passes.', tun)
         self.assertIn("catch (_nativeTunError)", tun)
         self.assertIn('NetworkInterface.list(includeLoopback: false)', tun)
         self.assertLess(tun.index("invokeMethod<bool>('kingVpnTunnelActive')"),
                         tun.index('NetworkInterface.list(includeLoopback: false)'))
 
         self.assertIn('V2rayVPNService.isKingVpnTunnelActive(this)', native)
+        self.assertIn('daemon-process liveness only, not Xray core health or traffic flow', native)
         self.assertIn('import dev.amirzr.flutter_v2ray_client.v2ray.services.V2rayVPNService', native)
         self.assertNotIn('NetworkCapabilities.TRANSPORT_VPN', native)
         self.assertIn('private void setKingVpnTunnelActive(boolean active)', plugin_patch)
@@ -3122,6 +3125,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('RunSoLibV2RayDaemon', plugin_patch)
         self.assertIn('setKingVpnTunnelActive(true);', plugin_patch)
         self.assertIn('setKingVpnTunnelActive(false);', plugin_patch)
+        state_start = plugin_patch.index('public static boolean isKingVpnTunnelActive(Context context)')
+        state_end = plugin_patch.index("''', 'P1-39 process-safe plugin tunnel state')", state_start)
+        state_reader = plugin_patch[state_start:state_end]
+        self.assertIn('/proc/', state_reader)
+        self.assertNotIn('isV2rayCoreRunning', state_reader)
+
 
     def test_iran_geoip_routing_strategy_survives_reliable_config_normalization(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
