@@ -2516,7 +2516,7 @@ extension HomeExtras on _HomePageState {
       final modeLabel = switch (evidence.mode) {
         DetectedNetworkMode.domesticOnly => 'فقط مسیر داخلی تأیید شد',
         DetectedNetworkMode.globalOnly => 'مسیر جهانی تأیید شد',
-        DetectedNetworkMode.dualStack => 'مسیر داخلی و جهانی هر دو در دسترس‌اند',
+        DetectedNetworkMode.dualReachable => 'مسیر داخلی و جهانی هر دو در دسترس‌اند',
         DetectedNetworkMode.offline => 'هیچ مسیر آزمایشی پاسخ نداد',
         DetectedNetworkMode.unknown => 'شواهد کافی نیست؛ حالت قبلی حفظ شد',
       };
@@ -2527,7 +2527,7 @@ extension HomeExtras on _HomePageState {
       return switch (evidence.mode) {
         DetectedNetworkMode.domesticOnly => NatNetworkClass.domesticOnlyLikely,
         DetectedNetworkMode.globalOnly ||
-        DetectedNetworkMode.dualStack => NatNetworkClass.globalReachable,
+        DetectedNetworkMode.dualReachable => NatNetworkClass.globalReachable,
         DetectedNetworkMode.offline => NatNetworkClass.transportRestricted,
         DetectedNetworkMode.unknown => NatNetworkClass.unknown,
       };
