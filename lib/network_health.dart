@@ -32,6 +32,18 @@ bool shouldReuseNetworkProbeCache({
 bool sameKnownNetworkProbeIdentity(String before, String after) =>
     before.isNotEmpty && after.isNotEmpty && before == after;
 
+/// A cached probe may guide routing only while its timestamp is trustworthy.
+/// Reject future timestamps (clock rollback) and evidence at or beyond the TTL.
+bool isNetworkProbeEvidenceFresh({
+  required DateTime? checkedAt,
+  required DateTime now,
+  required Duration ttl,
+}) {
+  if (checkedAt == null || ttl <= Duration.zero) return false;
+  final age = now.difference(checkedAt);
+  return age >= Duration.zero && age < ttl;
+}
+
 class NetworkEvidence {
   const NetworkEvidence({
     required this.domestic,
