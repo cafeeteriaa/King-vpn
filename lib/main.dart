@@ -4147,6 +4147,19 @@ Future<bool> waitProxyPort(
 bool lastStartNoTunnel = false; // last _start failed because Android built no tunnel
 String tunNames = ''; // interface names seen by the last tunUp() (diagnostics)
 Future<bool?> tunUp() async {
+  // Prefer Android's authoritative active-network VPN transport signal.
+  // Keep interface-name detection as a fallback for older hosts/plugins.
+  try {
+    if (Platform.isAndroid) {
+      final nativeVpn = await bgChannel.invokeMethod<bool>('vpnTransportUp');
+      if (nativeVpn == true) {
+        tunNames = 'android:TRANSPORT_VPN';
+        return true;
+      }
+    }
+  } catch (_nativeTunError) {
+    _swl('tunUp#native', _nativeTunError);
+  }
   try {
     for (var attempt = 0; attempt < 5; attempt++) {
       final l = await NetworkInterface.list(includeLoopback: false);
