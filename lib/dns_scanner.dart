@@ -148,42 +148,47 @@ bool dnsxIsPublicV4(int a, int b, int c, int d) {
   return NatDnsWireProbe.publicV4([a, b, c, d], 0);
 }
 
-/// پاسخ معتبر؟ rcode=0، ID یکسان، و حداقل یک رکورد A عمومی.
+/// Legacy structural check only; active scans must use NatDnsWireProbe.probe.
+@Deprecated('Use NatDnsWireProbe.probe; this helper cannot validate source/question identity.')
 bool dnsxAnswerOk(List<int> d, int id) {
   if (d.length < 12) return false;
   final rid = (d[0] << 8) | d[1];
   if (rid != id) return false;
-  final rcode = d[3] & 0x0f;
-  if (rcode != 0) return false;
+  final flags = (d[2] << 8) | d[3];
+  if ((flags & 0x8000) == 0 || (flags & 0x7800) != 0 || (flags & 0x0200) != 0) return false;
+  if ((flags & 0x000f) != 0) return false;
   final qd = (d[4] << 8) | d[5];
   final an = (d[6] << 8) | d[7];
-  if (an == 0) return false;
+  if (qd != 1 || an == 0) return false;
   var pos = 12;
   int skipName(int p) {
     while (p < d.length) {
       final len = d[p];
       if (len == 0) return p + 1;
       if ((len & 0xC0) == 0xC0) return p + 2;
+      if ((len & 0xC0) != 0) return d.length;
       p += len + 1;
     }
-    return p;
+    return d.length;
   }
-  for (var i = 0; i < qd; i++) {
-    pos = skipName(pos) + 4;
-  }
+  pos = skipName(pos);
+  if (pos + 4 > d.length) return false;
+  final qtype = (d[pos] << 8) | d[pos + 1];
+  final qclass = (d[pos + 2] << 8) | d[pos + 3];
+  if (qtype != 1 || qclass != 1) return false;
+  pos += 4;
   var goodA = false;
-  for (var i = 0; i < an && pos + 10 <= d.length; i++) {
+  for (var i = 0; i < an; i++) {
     pos = skipName(pos);
-    if (pos + 10 > d.length) break;
+    if (pos + 10 > d.length) return false;
     final type = (d[pos] << 8) | d[pos + 1];
+    final rrClass = (d[pos + 2] << 8) | d[pos + 3];
     final rdlen = (d[pos + 8] << 8) | d[pos + 9];
     final rd = pos + 10;
-    if (type == 1 && rdlen == 4 && rd + 4 <= d.length) {
-      if (dnsxIsPublicV4(d[rd], d[rd + 1], d[rd + 2], d[rd + 3])) {
-        goodA = true;
-      } else {
-        return false; // جواب جعلی یا بلاک‌پیج
-      }
+    if (rd + rdlen > d.length) return false;
+    if (type == 1 && rrClass == 1 && rdlen == 4) {
+      if (!dnsxIsPublicV4(d[rd], d[rd + 1], d[rd + 2], d[rd + 3])) return false;
+      goodA = true;
     }
     pos = rd + rdlen;
   }

@@ -532,3 +532,9 @@
 - این تغییر ممکن است کانفیگ‌هایی را که به گواهی نامعتبر وابسته‌اند رد کند؛ این رفتار برای جلوگیری از false-positive و کاهش خطر MITM عمدی است.
 
 **وضعیت:** اصلاح sanitizer و Source Guard ثبت شد؛ CI commit جدید لازم است.
+## ۳۹. سخت‌سازی parser قدیمی پاسخ DNS
+
+- مسیر فعال DNS از `NatDnsWireProbe.probe` استفاده می‌کند، اما helper سازگاری `dnsxAnswerOk` هنوز response bit، opcode، truncation، QDCOUNT، QTYPE/QCLASS و RR class را کامل بررسی نمی‌کرد.
+- helper اکنون این ساختارها را رد/اعتبارسنجی می‌کند و Deprecated شده تا اسکن‌های جدید از parser فعال NNIE استفاده کنند؛ source/port و تطبیق نام پرس‌وجو همچنان فقط در `NatDnsWireProbe.probe` قابل اثبات است.
+
+**وضعیت:** parser legacy سخت‌گیرتر شد؛ Source Guard اضافه شد.
