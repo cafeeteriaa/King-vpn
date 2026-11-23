@@ -269,25 +269,38 @@ Future<String?> nipFrontProbe(
   }
 }
 
+Future<List<String>> nipFindFrontSnis(
+  String ip,
+  int port, {
+  bool Function()? cancelled,
+  Duration budget = const Duration(seconds: 90),
+}) async {
+  if (budget <= Duration.zero) return const <String>[];
+  final elapsed = Stopwatch()..start();
+  final matches = <String>[];
+  for (final sni in natFrontSnis) {
+    if (cancelled?.call() == true) return matches;
+    final remaining = budget - elapsed.elapsed;
+    if (remaining <= Duration.zero) return matches;
+    const perProbeCap = Duration(seconds: 5);
+    final probeBudget = remaining < perProbeCap ? remaining : perProbeCap;
+    final ok = await nipFrontProbe(ip, port, sni, timeout: probeBudget);
+    if (cancelled?.call() == true) return matches;
+    if (ok != null) matches.add(ok);
+  }
+  return matches;
+}
+
 Future<String?> nipFindFrontSni(
   String ip,
   int port, {
   bool Function()? cancelled,
   Duration budget = const Duration(seconds: 90),
 }) async {
-  if (budget <= Duration.zero) return null;
-  final elapsed = Stopwatch()..start();
-  for (final sni in natFrontSnis) {
-    if (cancelled?.call() == true) return null;
-    final remaining = budget - elapsed.elapsed;
-    if (remaining <= Duration.zero) return null;
-    const perProbeCap = Duration(seconds: 5);
-    final probeBudget = remaining < perProbeCap ? remaining : perProbeCap;
-    final ok = await nipFrontProbe(ip, port, sni, timeout: probeBudget);
-    if (cancelled?.call() == true) return null;
-    if (ok != null) return ok;
-  }
-  return null;
+  final matches = await nipFindFrontSnis(
+    ip, port, cancelled: cancelled, budget: budget,
+  );
+  return matches.isEmpty ? null : matches.first;
 }
 
 /// همان کانفیگ را با IP و SNI جدید می‌سازد؛ Host اصلی سرور حفظ می‌شود.
@@ -343,10 +356,8 @@ extension NipHunt on _HomePageState {
       if (!pool.any((x) => x.link == e.link)) pool.add(e.s);
     }
     for (final s in pool) {
-      if (s.link.toLowerCase().startsWith('ss://')) continue;
-      if (!seen.add(s.host)) continue;
+      if (!seen.add(s.link)) continue;
       templates.add(s);
-      if (templates.length >= 40) break;
     }
     if (templates.isEmpty) {
       _set('برای جستجوی IP سرور نمونه نداریم؛ یک بار با سرورهای پوشه وصل شو');
@@ -419,44 +430,63 @@ extension NipHunt on _HomePageState {
       _set('نت ملی: هیچ $label بازی پیدا نشد');
       return false;
     }
-    final top = hits; // Keep every responsive endpoint for real tunnel verification.
-    // BATCHSNI: ۴ تا ۴ تا (نه همه با هم که SYN flood می‌کند، نه تک‌تک)
-    final snis = <String?>[];
+    final top = hits; // Every responsive endpoint remains eligible.
+    final snis = <List<String>>[];
     if (front) {
+      // Every SNI candidate is tested; concurrency is chunked, not truncated.
       for (var i = 0; i < top.length; i += 4) {
         final batch = top.skip(i).take(4).toList();
-        snis.addAll(await Future.wait(
-            batch.map((h) => nipFindFrontSni(h.ip, port, cancelled: () => abort))));
+        snis.addAll(await Future.wait(batch.map((h) => nipFindFrontSnis(
+          h.ip, port, cancelled: () => abort,
+        ))));
+        if (abort) return false;
       }
     }
-    final cands = <Server>[];
-    for (var i = 0; i < top.length; i++) {
-      final t = tpls[i % tpls.length];
-      final link = nipSwapLink(t, top[i].ip);
-      if (link != null) {
-        final c = Server.parse(link);
-        if (c != null) cands.add(c);
+    final matchingTemplates = tpls.where((t) => t.port == port).toList();
+    if (matchingTemplates.isEmpty) return false;
+    final candidateBatch = <Server>[];
+    final candidateLinks = <String>{};
+    Future<bool> flushCandidates() async {
+      if (candidateBatch.isEmpty) return false;
+      final batch = List<Server>.of(candidateBatch);
+      candidateBatch.clear();
+      candidateLinks.clear();
+      if (await _connectLoop(batch, trust: false)) {
+        final winner = current;
+        if (winner != null) _natAdd(winner);
+        return true;
       }
-      final sni = i < snis.length ? snis[i] : null;
-      if (sni != null) {
-        final fl = nipSwapSni(t, top[i].ip, sni);
-        if (fl != null) {
-          final c = Server.parse(fl);
-          if (c != null) cands.add(c);
+      return false;
+    }
+    void addCandidate(String? link) {
+      if (link == null || !candidateLinks.add(link)) return;
+      final candidate = Server.parse(link);
+      if (candidate != null) candidateBatch.add(candidate);
+    }
+    // Exhaust the endpoint × template × validated-SNI product in bounded
+    // connection batches. No template or successful SNI is silently dropped.
+    for (var i = 0; i < top.length; i++) {
+      final hit = top[i];
+      final frontNames = i < snis.length ? snis[i] : const <String>[];
+      for (final template in matchingTemplates) {
+        addCandidate(nipSwapLink(template, hit.ip));
+        for (final name in frontNames) {
+          addCandidate(nipSwapSni(template, hit.ip, name));
+          if (candidateBatch.length >= 64) {
+            _set('نت ملی: آزمون دسته‌ای مسیرهای $label (${candidateBatch.length})…');
+            if (await flushCandidates()) return true;
+            if (abort) return false;
+          }
+        }
+        if (candidateBatch.length >= 64) {
+          _set('نت ملی: آزمون دسته‌ای مسیرهای $label (${candidateBatch.length})…');
+          if (await flushCandidates()) return true;
+          if (abort) return false;
         }
       }
     }
-    if (cands.isEmpty) {
-      _set('نت ملی: IP باز پیدا شد ولی هیچ SNI باز نگرفت ($label)');
-      return false;
-    }
-    _set('نت ملی: امتحان ${cands.length} آدرس ($label)…');
-    final ok = await _connectLoop(cands, trust: false);
-    if (ok) {
-      final w = current;
-      if (w != null) _natAdd(w);
-    }
-    return ok;
+    if (candidateBatch.isNotEmpty && await flushCandidates()) return true;
+    return false;
   }
 }
 
