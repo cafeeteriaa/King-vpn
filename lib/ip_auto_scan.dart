@@ -150,7 +150,7 @@ List<String> _ipAutoBlocks(Iterable<Server> knownServers) {
   return blocks.toList(growable: false);
 }
 
-Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Function()? shouldAbort}) async {
+Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Function()? shouldAbort}) async {
   // A mode switch while compute() is running must not apply stale cursors
   // or a stale batch position to the newly selected network mode.
   final modeSnapshot = nationalMode;
@@ -167,19 +167,15 @@ Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Funct
   };
   final gen = await compute(_genAddrsIso, args);
   if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false)) {
-    return const <String>[];
+    return (addresses: const <String>[], cursors: cursorSnapshot);
   }
   final all = (gen['addrs'] as List).cast<String>();
   final generatedCursors = Map<String, dynamic>.from(gen['cursors'] as Map);
-  if (all.isEmpty) return const <String>[];
-  // maxAddrs is enforced inside the generator, so every advanced cursor maps
-  // to an address returned for this exact scan batch.
-  ipAutoCursors
-    ..clear()
-    ..addAll(generatedCursors);
+  if (all.isEmpty) return (addresses: const <String>[], cursors: cursorSnapshot);
+  // Return staged cursors. The caller commits them only after the complete TCP
+  // batch has finished; cancellation never skips addresses in the inventory.
   final slice = all.toList(growable: false);
-  ipAutoPos = 0; // legacy position key; range cursors now own scan continuity.
-  return slice;
+  return (addresses: slice, cursors: generatedCursors);
 }
 
 extension IpAutoExt on _HomePageState {
@@ -304,10 +300,11 @@ extension IpAutoExt on _HomePageState {
     }
     final tpl = pool.take(2).toList();
     say('ساخت آدرس‌ها...');
-    final addrs = await _ipAutoNextAddrs(
+    final generatedBatch = await _ipAutoNextAddrs(
       runNationalMode ? const <Server>[] : [...good, ...pending, ...fetchedAll],
       shouldAbort: halted,
     );
+    final addrs = generatedBatch.addresses;
     if (halted()) return false;
     if (addrs.isEmpty) {
       say('آدرسی برای اسکن پیدا نشد.');
@@ -335,6 +332,13 @@ extension IpAutoExt on _HomePageState {
         candidates.add('${h.ip}|$port');
       }
     }
+
+    if (halted()) return false;
+    // Commit only after every configured port has completed its TCP slice.
+    // Core-verification backlog is persisted separately and can resume later.
+    ipAutoCursors
+      ..clear()
+      ..addAll(generatedBatch.cursors);
 
     // مرحله‌ی ۲: تست واقعی با هسته‌ی VPN، دو بار پشت سر هم
     final url = runNationalMode ? _natTestUrls.first : delayTestUrl;
