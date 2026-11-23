@@ -2263,6 +2263,8 @@ Future<List<String>> _natRangeScanStepBody({
   bool shouldAbort() =>
       (stop?.call() ?? false) || nationalMode != modeSnapshot;
   if (!kNatIpScanOn || shouldAbort()) return const <String>[];
+  await natIpMemLoad();
+  if (shouldAbort()) return const <String>[];
 
   var seeds = List<Server>.of(known);
   try {
