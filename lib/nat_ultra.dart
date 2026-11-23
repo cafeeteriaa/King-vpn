@@ -2170,10 +2170,39 @@ List<String> _getCfIps({
     if (parts.length != 2) return (<String>[], 0);
     final ip = InternetAddress.tryParse(parts[0].trim());
     final prefix = int.tryParse(parts[1]);
-    if (ip == null || ip.type != InternetAddressType.IPv4 || prefix == null || prefix < 0 || prefix > 32) {
+    if (ip == null || prefix == null) return (<String>[], 0);
+    if (ip.type == InternetAddressType.IPv6) {
+      if (prefix < 0 || prefix > 128) return (<String>[], 0);
+      var network = BigInt.zero;
+      for (final byte in ip.rawAddress) {
+        network = (network << 8) | BigInt.from(byte);
+      }
+      final hostBits = 128 - prefix;
+      final size = BigInt.one << hostBits;
+      final mask = prefix == 0 ? BigInt.zero :
+          ((BigInt.one << 128) - BigInt.one) ^ (size - BigInt.one);
+      network &= mask;
+      final offset = BigInt.from(cursor) % size;
+      final count = min(maxPerBlock, size > BigInt.from(maxPerBlock)
+          ? maxPerBlock : size.toInt());
+      final out = <String>[];
+      for (var i = 0; i < count; i++) {
+        var value = network + offset + BigInt.from(i);
+        final raw = List<int>.filled(16, 0);
+        for (var j = 15; j >= 0; j--) {
+          raw[j] = (value & BigInt.from(255)).toInt();
+          value >>= 8;
+        }
+        out.add(InternetAddress.fromRawAddress(raw).address);
+      }
+      final next = (offset + BigInt.from(count)) % size;
+      return (out, next.toInt());
+    }
+    if (ip.type != InternetAddressType.IPv4 || prefix < 0 || prefix > 32) {
       return (<String>[], 0);
     }
-    final base = _ipToInt(ip.address) & (0xffffffff << (32 - prefix));
+    final mask = prefix == 0 ? 0 : (0xffffffff << (32 - prefix)) & 0xffffffff;
+    final base = _ipToInt(ip.address) & mask;
     span = 1 << (32 - prefix);
     startIp = _intToIp(base);
   } else if (item.contains('-')) {
