@@ -319,3 +319,15 @@
 - هنوز SBOM استاندارد، license metadata کامل برای تمام packageها، بررسی مجوزهای transitive و CVE scan تولید نشده است. Hashهای lockfile به‌تنهایی گزارش آسیب‌پذیری یا انطباق مجوز نیستند.
 
 **وضعیت اصلاح‌شده:** dependency graph یک build تاریخی قابل بازیابی و hash-verified است؛ اما lockfile در مخزن version-control نشده، reproducibility آینده تضمین نیست، و SBOM/license/CVE review همچنان **OPEN** است.
+
+
+## ۱۹. اجرای مستقل تست‌های artifact و secret-pattern triage
+
+- Full-source artifact مربوط به CI Run 2157 از GitHub دریافت شد و ZIP داخلی آن استخراج شد. تمام فایل‌های سورس در snapshot artifact با هم بررسی شدند.
+- اجرای مستقل مجموعه تست Python از ریشه سورس artifact: **280 passed, 23 subtests passed** در 0.95 ثانیه. این شامل guardها و تست‌های Python موجود در snapshot است؛ معادل اجرای Flutter/Dart یا Android runtime نیست.
+- تلاش برای اجرای همان تست‌ها از پوشه `build_app/test` به‌تنهایی به علت کپی نشدن پوشه root-level `tools/` در generated Flutter host با خطای import/collection روبه‌رو شد. اجرای صحیح از root artifact موفق بود؛ این مورد نقص تست‌های root نیست، اما نشان می‌دهد تست‌های Python نباید از مسیر build_app به‌تنهایی اجرا شوند.
+- ابزارهای `flutter`, `dart`, `syft`, `trivy`, `osv-scanner`, `gitleaks` و `semgrep` در محیط محلی این ممیزی در دسترس نبودند؛ بنابراین اجرای مجدد Flutter tests، Dart analysis، SBOM، CVE و اسکن استاندارد secrets در این محیط ادعا نمی‌شود. CI قبلی برای commit کد مرجع، test/analyze/build را با موفقیت انجام داده است.
+- اسکن regex محدود برای الگوهای کلید خصوصی، GitHub token، Google API key و AWS access key چند match فقط در فایل‌های تست پیدا کرد. بررسی متن نشان داد اینها fixtureهای ساختگی و عمداً برای آزمون redaction/secret detection هستند؛ هیچ مقدار واقعی از آن‌ها در گزارش بازنشر نشد. این اسکن heuristic و محدود است و جایگزین gitleaks/trufflehog و تاریخچه کامل Git نیست.
+- شمارش مجدد lockfile artifact: 116 package شامل 111 hosted و 5 SDK؛ هر 111 hosted package دارای SHA-256 در فیلد `description.sha256` است. SHA-256 فایل‌ها در بخش ۱۸ ثبت شده‌اند.
+
+**نتیجه:** Python test snapshot مستقل PASS؛ Flutter/Dart و Android device runtime در این محیط NOT RUN؛ secret scan استاندارد و SBOM/CVE همچنان OPEN. Artifact مبنا همان commit `649147e8a3c96979f1bbab82c14ccff09f6bbf2d) است و این نتایج به کد جدیدتر تعمیم داده نمی‌شوند.
