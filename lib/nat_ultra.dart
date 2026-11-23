@@ -2177,8 +2177,8 @@ List<String> _getCfIps({
 
 // فیکس ۳: ساخت رشته‌های IP (صدها هزار تا چند میلیون) از ترد UI به isolate منتقل شد.
 // args: {cfIpsBatch:int, blocks:List<String>, nationalMode:bool,
-//        liveRanges:List<String>, cursors:Map<String,int>}
-// خروجی: {'addrs': List<String>, 'cursors': Map<String,int>} — cursor به‌روزشده باید
+//        liveRanges:List<String>, cursors:Map<String,dynamic> (IPv6 offsets are decimal strings)}
+// خروجی: {'addrs': List<String>, 'cursors': Map<String,dynamic>} — cursor به‌روزشده باید
 // به ترد اصلی برگردد چون isolate نسخه‌ی کپی را تغییر می‌دهد (بدون آن اسکن هر دور از اول شروع می‌شد).
 Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   final int cfIpsBatch = args['cfIpsBatch'] as int;
