@@ -1177,26 +1177,8 @@ Map? _natProxyOut(Map<String, dynamic> j) {
 // (server key, variant). Same (server, variant) pair always gets the SAME
 // jitter, so the test and the real connection use identical byte counts.
 String _natApplySniSwap(String cfg, int sniIdx) {
-  try {
-    if (sniIdx < 0 || sniIdx >= natFrontSnis.length) return cfg;
-    final sni = natFrontSnis[sniIdx];
-    final j = jsonDecode(cfg);
-    if (j is! Map<String, dynamic>) return cfg;
-    final outs = (j['outbounds'] as List?) ?? <dynamic>[];
-    for (final o in outs) {
-      if (o is! Map) continue;
-      final st = o['streamSettings'];
-      if (st is! Map) continue;
-      if (st['security'] != 'tls') continue;
-      final tls = st['tlsSettings'];
-      if (tls is! Map) continue;
-      if (tlsHasEch(tls)) continue; // ECH: SNI را عوض نکن
-      tls['serverName'] = sni; // keep certificate validation enabled
-    }
-    return jsonEncode(j);
-  } catch (_) {
-    return cfg;
-  }
+  if (sniIdx < 0 || sniIdx >= natFrontSnis.length) return cfg;
+  return natSetPrimaryProxyTlsServerName(cfg, natFrontSnis[sniIdx]);
 }
 
 String _natFrag(String cfg, int fi,
@@ -1394,22 +1376,8 @@ String _natSmartSni(String cfg, Server s, {bool forceAll = false}) {
     } else if (!forceAll) {
       return cfg;
     }
-    final j = jsonDecode(cfg);
-    if (j is! Map<String, dynamic>) return cfg;
-    final outs = (j['outbounds'] as List?) ?? <dynamic>[];
-    for (final o in outs) {
-      if (o is! Map) continue;
-      final st = o['streamSettings'];
-      if (st is! Map || st['security'] != 'tls') continue;
-      final tls = st['tlsSettings'];
-      if (tls is! Map) continue;
-      if (tlsHasEch(tls)) continue;
-      // SNI camouflage must never disable certificate/hostname validation.
-      // If the origin certificate does not cover this name, this variant must fail.
-      tls['serverName'] = 'cdnjs.cloudflare.com';
-      tls.remove('allowInsecure');
-    }
-    return jsonEncode(j);
+    // Change only the primary proxy hop; auxiliary TLS outbounds keep their own SNI.
+    return natSetPrimaryProxyTlsServerName(cfg, 'cdnjs.cloudflare.com');
   } catch (_) { return cfg; }
 }
 
