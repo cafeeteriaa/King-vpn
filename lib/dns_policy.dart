@@ -8,6 +8,7 @@ bool _isEncryptedDnsAddress(String address) {
   final normalized = address.trim().toLowerCase();
   return normalized.startsWith('https://') ||
       normalized.startsWith('https+local://') ||
+      normalized.startsWith('quic://') ||
       normalized.startsWith('quic+local://');
 }
 

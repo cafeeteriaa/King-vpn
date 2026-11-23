@@ -3790,6 +3790,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('requestStopIfCurrent(requestAttempt, requestGeneration)', body)
 
 
+    def test_national_dns_policy_filters_all_quic_resolver_schemes_when_secure_dns_disabled(self):
+        policy = (ROOT / 'lib' / 'dns_policy.dart').read_text(encoding='utf-8')
+        self.assertIn("normalized.startsWith('quic://')", policy)
+        self.assertIn("normalized.startsWith('quic+local://')", policy)
+
     def test_dns_parser_bounds_cname_rdata_and_compression_pointers(self):
         source = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
         self.assertIn("CNAME RDATA length mismatch", source)

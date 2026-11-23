@@ -23,6 +23,7 @@ void main() {
           existing: const [
             'https+local://1.1.1.1/dns-query',
             'quic+local://dns.adguard.com',
+            'quic://dns.adguard.com',
             'HTTPS://8.8.8.8/dns-query',
             'tcp://8.8.8.8:53',
           ],
