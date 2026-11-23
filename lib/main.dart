@@ -9801,8 +9801,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // 2) Mux = parallel streams on one tunnel (concurrency بالاتر = سرعت بیشتر)
     muxEnabled = muxEnabled || kTurboEnabled;
     if (kTurboEnabled && muxConc < 32) muxConc = 32;
-    // 3) do not force global Fragment outside national crisis (Fragment سرعت را می‌کشد)
-    if (!nationalMode) fragEnabled = false;
+    // Preserve the owner's Fragment setting in every network mode.
     // 4) rank by real speed, not ping
     sortSpeed = true;
     // 5) تعویض فقط نزدیک صفر یا سرور ۵۰٪ بهتر — minSpeedKB را بالا نبر
@@ -12133,7 +12132,6 @@ ListTile( // KINGEXTRAS row
       autoSpeed = false;
       turboSpeed = false;
     } else if (pilot) {
-      fragEnabled = false;
       sniSpoofAll = true; // SNIALL: جعل SNI برای همه‌ی اتصال‌ها روشن است
       ultraMode = true;
       indestructibleMode = false;
@@ -12161,7 +12159,6 @@ ListTile( // KINGEXTRAS row
       autoSpeed = true;
       turboSpeed = true;
     } else {
-      fragEnabled = false;
       sniSpoofAll = true; // SNIALL: جعل SNI برای همه‌ی اتصال‌ها روشن است
       indestructibleMode = false;
       muxEnabled = true;
@@ -12788,11 +12785,7 @@ ListTile( // KINGEXTRAS row
         tcpTimeout = Duration(
             milliseconds: max(tcpTimeout.inMilliseconds, 4000));
       }
-      // NORMALFRAG: در اتصال عادی تنظیمات کاربر (از جمله Fragment) حفظ می‌شود.
-      // در pilot/nat/test، خودشان مقادیر را تعیین می‌کنند.
-      if (!nationalMode && (localPilotOn || aiSession || isAutoTesting)) {
-        fragEnabled = false;
-      }
+      // Preserve Fragment preference across normal, pilot, AI and test modes.
       // all throughput levers (Mux, no Fragment, speed-test top servers, ...)
       if (nationalMode || localPilotOn || aiSession || isAutoTesting) {
         _applyTurboLevers();
