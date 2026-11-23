@@ -6047,8 +6047,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         fwUserValue = 3;
         indestructibleMode = true;
         muxConc = 32;
-        fragEnabled = false;
-        muxEnabled = true;
+          muxEnabled = true;
         cleanIpMode = true;
         npvParse = true;
         turboSpeed = true;
@@ -6135,7 +6134,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           savedFirst = j['sf'] as bool? ?? savedFirst;
           smartOrder = j['so'] as bool? ?? smartOrder;
           autoCycle = j['ac'] as bool? ?? autoCycle;
-          ultraMode = j['ul'] as bool? ?? ultraMode;
+          ultraMode = j['um'] as bool? ?? ultraMode;
           indestructibleMode = j['idm2'] as bool? ?? true;
           // توربو سرعت بعد از اتصال: پیش‌فرض و ترجیح همیشه روشن
           turboSpeed = j['tb'] as bool? ?? true;
@@ -6172,6 +6171,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
         failWindow = Duration(minutes: failMin);
         recheckAfter = Duration(minutes: recheckMin);
+      }
+      // SCANNER-MATRIX-RESTORE: older builds forcibly disabled global SNI/Fragment variants.
+      // Restore the full matrix once; subsequent user changes remain respected.
+      if (p.getBool('scanner_matrix_restore_v1') != true) {
+        ultraMode = true;
+        await p.setBool('scanner_matrix_restore_v1', true);
+        await _saveSettings();
       }
       // LOWDATA: lowest internet usage, applied ONCE (fastWorkers stays 50,
       // batch stays 500). After that the user's own changes are kept.
@@ -9757,7 +9763,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         speedTopN = max(speedTopN, 5);
         muxEnabled = kTurboEnabled;
         muxConc = max(muxConc, kTurboEnabled ? 24 : 8);
-        fragEnabled = false;
         sortSpeed = true;
         break;
       case 'weak':
@@ -12158,7 +12163,6 @@ ListTile( // KINGEXTRAS row
     } else {
       fragEnabled = false;
       sniSpoofAll = true; // SNIALL: جعل SNI برای همه‌ی اتصال‌ها روشن است
-      ultraMode = false;
       indestructibleMode = false;
       muxEnabled = true;
       muxConc = 32;
