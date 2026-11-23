@@ -129,15 +129,11 @@ String? nipSwapLink(Server t, String ip) {
 // مثال: const natRelayHosts = <String>['1.2.3.4'];
 List<String> natRelayHosts = <String>[];
 
-// RELAYHOSTS: explicit user-supplied relay endpoints only; never discover peers implicitly.
-const int kNatMaxRelayHosts = 32;
-
 Future<void> natRelayHostsLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
     natRelayHosts = natBoundScanTargets(
       p.getStringList('nat_relay_hosts') ?? <String>[],
-      maxCount: kNatMaxRelayHosts,
     );
   } catch (e, st) {
     logError(e, st);
@@ -147,7 +143,6 @@ Future<void> natRelayHostsLoad() async {
 Future<void> natRelayHostsSave(String text) async {
   natRelayHosts = natBoundScanTargets(
     text.split(RegExp(r'[\\r\\n\\s]+')),
-    maxCount: kNatMaxRelayHosts,
   );
   try {
     final p = await SharedPreferences.getInstance();
@@ -346,7 +341,6 @@ extension NipHunt on _HomePageState {
         if (link == null) continue;
         final c = Server.parse(link);
         if (c != null) cands.add(c);
-        if (cands.length >= 8) break;
       }
       if (cands.isNotEmpty) {
         _set('نت ملی: امتحان ${cands.length} واسط…');
