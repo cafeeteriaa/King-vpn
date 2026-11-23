@@ -475,26 +475,49 @@ extension NipHunt on _HomePageState {
     }
     _nipLastHunt = DateTime.now();
 
-    final templates = <Server>[];
-    final seen = <String>{};
-    final pool = <Server>[];
-    pool.addAll(good);
-    pool.addAll(pending);
-    for (final e in _resMap.values) {
-      if (!pool.any((x) => x.link == e.link)) pool.add(e.s);
+    final sourceServers = <Server>[];
+    sourceServers.addAll(good);
+    sourceServers.addAll(pending);
+    for (final entry in _resMap.values) {
+      if (!sourceServers.any((server) => server.link == entry.link)) {
+        sourceServers.add(entry.s);
+      }
     }
-    for (final s in pool) {
-      if (s.link.toLowerCase().startsWith('ss://')) continue;
-      if (!seen.add(s.host)) continue;
-      templates.add(s);
-      if (templates.length >= 40) break;
+    final uniqueTemplates = <String, Server>{};
+    for (final server in sourceServers) {
+      if (server.link.toLowerCase().startsWith('ss://')) continue;
+      uniqueTemplates.putIfAbsent(server.host, () => server);
     }
-    if (templates.isEmpty) {
+    final templateInventory = uniqueTemplates.values.toList()
+      ..sort((a, b) {
+        final hostOrder = a.host.compareTo(b.host);
+        return hostOrder != 0 ? hostOrder : a.link.compareTo(b.link);
+      });
+    if (templateInventory.isEmpty) {
       _set('برای جستجوی IP سرور نمونه نداریم؛ یک بار با سرورهای پوشه وصل شو');
       return false;
     }
-    final cdnT = templates.where((s) => s.cdn).toList();
-    final direct = templates.where((s) => !s.cdn).toList();
+    final templatePrefs = await SharedPreferences.getInstance();
+    const templateCursorKey = 'nip_hunt_template_cursor_v1';
+    final savedTemplateCursor = templatePrefs.getString(templateCursorKey);
+    final previousTemplateIndex = savedTemplateCursor == null
+        ? -1
+        : templateInventory.indexWhere((server) => server.link == savedTemplateCursor);
+    final templateStart = previousTemplateIndex < 0
+        ? 0
+        : (previousTemplateIndex + 1) % templateInventory.length;
+    const templateBatchSize = 40;
+    final templates = <Server>[
+      for (var i = 0; i < min(templateBatchSize, templateInventory.length); i++)
+        templateInventory[(templateStart + i) % templateInventory.length],
+    ];
+    Future<void> saveTemplateCursor() async {
+      if (!abort && templates.isNotEmpty) {
+        await templatePrefs.setString(templateCursorKey, templates.last.link);
+      }
+    }
+    final cdnT = templates.where((server) => server.cdn).toList();
+    final direct = templates.where((server) => !server.cdn).toList();
     final huntCursors = await _nipLoadHuntCursors();
     if (abort) return false;
 
@@ -521,12 +544,16 @@ extension NipHunt on _HomePageState {
           front: true,
           onComplete: () => _nipSaveHuntCursors(cdnBatch.cursors),
         )) {
+          await saveTemplateCursor();
           return true;
         }
         if (abort) return false;
       }
     }
-    if (direct.isEmpty) return false;
+    if (direct.isEmpty) {
+      await saveTemplateCursor();
+      return false;
+    }
 
     // مرحله ۲: واسط‌های تعریف‌شده (natRelayHosts) — مستقیم امتحان می‌شوند
     if (natRelayHosts.isNotEmpty) {
@@ -543,6 +570,7 @@ extension NipHunt on _HomePageState {
         if (await _connectLoop(cands, trust: false)) {
           final w = current;
           if (w != null) _natAdd(w);
+          await saveTemplateCursor();
           return true;
         }
         if (abort) return false;
@@ -581,6 +609,7 @@ extension NipHunt on _HomePageState {
               label: 'IP هم‌شرکت سرور',
               onComplete: () => _nipSaveHuntCursors(asnBatch.cursors),
             )) {
+          await saveTemplateCursor();
           return true;
         }
         if (abort) return false;
@@ -589,6 +618,7 @@ extension NipHunt on _HomePageState {
 
     // مرحله ۴ (IP های باز ایران) حذف شد: یک IP باز ایران فوروارد نمی‌کند،
     // پس برای REALITY/TCP وقت تلف می‌کرد و هیچ‌وقت وصل نمی‌شد.
+    await saveTemplateCursor();
     _set('نت ملی: واسط یا IP هم‌شرکت سالم پیدا نشد');
     return false;
   }
