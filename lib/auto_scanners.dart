@@ -92,7 +92,7 @@ Future<List<String>> _autoResolveIpv6Targets({bool Function()? cancelled}) async
     for (final addresses in resolved) {
       for (final address in addresses) {
         if (address.type == InternetAddressType.IPv6 &&
-            !address.isLoopback && !address.isLinkLocal && !address.isMulticast) {
+            !_privateIp(address)) {
           out.add(address.address);
         }
       }
