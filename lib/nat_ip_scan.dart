@@ -109,7 +109,7 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
   String cursor, {
   int maxPerBlock = 4096,
 }) {
-  if (maxPerBlock <= 0) {
+  if (maxPerBlock <= 0 || cursor == 'done') {
     return (addresses: const <String>[], nextCursor: cursor);
   }
   final current = BigInt.tryParse(cursor) ?? BigInt.zero;
@@ -165,10 +165,13 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
     if (address == null) {
       return (addresses: const <String>[], nextCursor: cursor);
     }
-    return (addresses: [address.address], nextCursor: '0');
+    return (addresses: [address.address], nextCursor: 'done');
   }
 
   final size = last! - first! + BigInt.one;
+  if (size == BigInt.one && current > BigInt.zero) {
+    return (addresses: const <String>[], nextCursor: 'done');
+  }
   final offset = current % size;
   final take = min(maxPerBlock,
       size > BigInt.from(maxPerBlock) ? maxPerBlock : size.toInt());
@@ -184,7 +187,7 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
   }
   return (
     addresses: addresses,
-    nextCursor: ((offset + BigInt.from(take)) % size).toString(),
+    nextCursor: size == BigInt.one ? 'done' : ((offset + BigInt.from(take)) % size).toString(),
   );
 }
 
