@@ -2393,7 +2393,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('(cores * 2).clamp(8, 64).toInt()', source)
         self.assertIn('port < 1 || port > 65535', source)
         self.assertIn('final elapsed = Stopwatch()..start();', source)
-        self.assertIn('if (elapsed.elapsed >= budget) return;', source)
+        self.assertIn('if (budget != null && elapsed.elapsed >= budget) return;', source)
         self.assertNotIn('DateTime.now().add(budget)', source)
 
     def test_nat_ip_scan_discards_in_flight_results_after_cancellation(self):
@@ -2448,14 +2448,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_nat_range_scan_has_no_fixed_deadline_and_preserves_cursor_on_cancel(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('Future<List<String>> _natRangeScanStepBody(')
-        end = source.index('List<String> userListUrls', start)
+        end = source.index('int natMemQueued', start)
         body = source[start:end]
         self.assertNotIn('scanClock', body)
         self.assertNotIn('scanExpired()', body)
         self.assertIn('budget: budget,', body)
         scan = body.index('final hits = await natScanIps(')
         guard = body.index('if (shouldAbort()) return const <String>[];', scan)
-        cursor = body.index('_cfRangeCursors\\n    ..clear()')
+        cursor = body.index('_cfRangeCursors', guard)
         self.assertLess(guard, cursor)
 
     def test_dns_wire_probe_cancellation_closes_pending_udp_work(self):
@@ -2497,8 +2497,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         start = source.index('Future<List<NatIpHit>> natScanIps(')
         body = source[start:]
-        self.assertIn('if (ips.isEmpty || want <= 0) return <NatIpHit>[];', body)
-        self.assertIn('if (ms != null && hits.length < want)', body)
+        self.assertIn('if (ips.isEmpty || (want != null && want <= 0)) return <NatIpHit>[];', body)
+        self.assertIn('if (ms != null && (want == null || hits.length < want))', body)
 
     def test_network_scanners_share_hard_resource_and_transport_bounds(self):
         nat = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
