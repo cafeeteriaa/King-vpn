@@ -1773,7 +1773,7 @@ const List<int> natCommonPorts = [
 
 List<int> natAutoPorts(List<Server> known) {
   final cnt = <int, int>{};
-  for (final s in known.take(100)) { // فیکس ۱۸: قبلاً کل known (تا ۳۰۰۰ سرور)
+  for (final s in known) {
     if (s.port > 0 && s.port < 65536) cnt[s.port] = (cnt[s.port] ?? 0) + 1;
   }
   for (final e in natIpMem) {
@@ -1782,7 +1782,7 @@ List<int> natAutoPorts(List<Server> known) {
   }
   final ports = natStableSorted<int>(
       cnt.keys, (x, y) => cnt[y]! - cnt[x]!);
-  final out = <int>[...ports.take(10)];
+  final out = <int>[...ports];
   for (final p in natCommonPorts) {
     if (!out.contains(p)) out.add(p);
   }
