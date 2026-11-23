@@ -55,8 +55,8 @@ void main() {
       final sampled = natExpandIpv6Cidr('2001:db8::/32', maxPerBlock: 100000);
       expect(sampled, isNotEmpty);
       expect(sampled.length, 100000);
-      expect(natExpandIpv6Cidr('10.0.0.0/24'), isEmpty);
-      expect(natExpandIpv6Cidr('2001:db8::/129'), isEmpty);
+      expect(natExpandIpv6Cidr('10.0.0.0/24', maxPerBlock: 4096), isEmpty);
+      expect(natExpandIpv6Cidr('2001:db8::/129', maxPerBlock: 4096), isEmpty);
       expect(natExpandIpv6Cidr('2001:db8::/64', maxPerBlock: 0), isEmpty);
     });
 
