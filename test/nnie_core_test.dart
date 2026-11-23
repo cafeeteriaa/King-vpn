@@ -155,6 +155,13 @@ void main() {
       expect(q.length, 12 + 7 + 4 + 1 + 4); // header + labels + root + type/class
     });
 
+    test('buildQuery normalizes a fully qualified name with trailing dot', () {
+      expect(
+        NatDnsWireProbe.buildQuery('google.com.', 0x1234),
+        NatDnsWireProbe.buildQuery('google.com', 0x1234),
+      );
+    });
+
     test('accepts a valid public A answer', () {
       final bytes = _response(id: 0x1234, rdata: [8, 8, 8, 8]);
       expect(NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'), ['8.8.8.8']);
