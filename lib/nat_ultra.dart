@@ -2146,7 +2146,6 @@ bool _natRangeCursorsLoaded = false;
 
 Future<void> _natLoadRangeCursors() async {
   if (_natRangeCursorsLoaded) return;
-  _natRangeCursorsLoaded = true;
   try {
     final prefs = await SharedPreferences.getInstance();
     final rawPortCursors = prefs.getString('natRangePortCursorsV2');
@@ -2165,15 +2164,17 @@ Future<void> _natLoadRangeCursors() async {
           (prefs.getInt('natRangePortCursorV1') ?? 0).clamp(0, 1 << 31).toInt();
     }
     final raw = prefs.getString('natRangeScanCursorsV2');
-    if (raw == null || raw.isEmpty) return;
-    final decoded = jsonDecode(raw);
-    if (decoded is Map) {
-      for (final entry in decoded.entries) {
-        if (entry.value is num || entry.value is String) {
-          _cfRangeCursors['${entry.key}'] = entry.value;
+    if (raw != null && raw.isNotEmpty) {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        for (final entry in decoded.entries) {
+          if (entry.value is num || entry.value is String) {
+            _cfRangeCursors['${entry.key}'] = entry.value;
+          }
         }
       }
     }
+    _natRangeCursorsLoaded = true;
   } catch (e, stk) {
     logError(e, stk);
   }
