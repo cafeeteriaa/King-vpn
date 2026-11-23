@@ -518,3 +518,10 @@
 - هر دو مسیر اکنون endpoint یکسان host+port را رد می‌کنند تا زنجیره‌ی self-hop نسازد. این بررسی، IPهای resolve‌شده‌ی متفاوت با hostnameهای متفاوت را یکی فرض نمی‌کند؛ تست عملی همچنان لازم است.
 
 **وضعیت:** اصلاح سورس و Source Guard ثبت شد.
+## ۳۷. جلوگیری از ثبت پورت صرفاً بر اساس TCP connect
+
+- اسکنر پورت خودکار قبلاً هر پورت Cloudflare را با TCP connect موفق، سالم ذخیره می‌کرد؛ بازبودن TCP به‌تنهایی ثابت نمی‌کند TLS روی آن پورت با SNI/گواهی مورد انتظار کار می‌کند.
+- اکنون پورت فقط پس از TLS handshake و اعتبارسنجی گواهی/hostname با `www.cloudflare.com` ثبت می‌شود. fallback ALPN نیز از `www.cloudflare.com` استفاده می‌کند، نه `www.google.com` روی IPهای Cloudflare.
+- این نتیجه هنوز عبور HTTP یا VPN را ثابت نمی‌کند؛ فقط endpoint TLS معتبر روی IP:port را تأیید می‌کند.
+
+**وضعیت:** اصلاح سورس و Source Guard ثبت شد؛ CI commit جدید لازم است.

@@ -57,13 +57,19 @@ Future<String?> _autoAlpnOk(String ip, String sni, String alpn) async {
   }
 }
 
-Future<bool> _autoPortOk(String ip, int port) async {
+Future<bool> _autoPortOk(String ip, int port, String sni) async {
+  Socket? raw;
+  SecureSocket? secure;
   try {
-    final s = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 1500));
-    s.destroy();
-    return true;
+    raw = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 1500));
+    secure = await SecureSocket.secure(raw, host: sni)
+        .timeout(const Duration(milliseconds: 2500));
+    return true; // TCP + TLS + certificate/hostname validation
   } catch (_) {
     return false;
+  } finally {
+    try { secure?.destroy(); } catch (e, st) { logError(e, st); }
+    try { raw?.destroy(); } catch (e, st) { logError(e, st); }
   }
 }
 
@@ -146,8 +152,9 @@ Future<void> autoScanRun(void Function(String) say,
       return;
     }
 
-    // پورت: خروجی خود شماره‌ی پورت است. هر پورت یک بار؛ به محض یک IP سالم، همان پورت ثبت می‌شود
+    // پورت: فقط endpointهایی ثبت می‌شوند که TLS و گواهی www.cloudflare.com را هم معتبر کنند.
     final portHits = <String>[];
+    const portSni = 'www.cloudflare.com';
     var m = 0;
     portLoop:
     for (final p in kAutoPorts) {
@@ -159,7 +166,7 @@ Future<void> autoScanRun(void Function(String) say,
       var ok = false;
       for (final ip in ips) {
         if (cancelled()) break portLoop;
-        if (await _autoPortOk(ip, p)) {
+        if (await _autoPortOk(ip, p, portSni)) {
           ok = true;
           break;
         }
@@ -175,7 +182,7 @@ Future<void> autoScanRun(void Function(String) say,
 
     // TLS/ALPN: خروجی نام پروتکل‌های TLS است؛ روی اولین دامنه‌ی سالم (یا پیش‌فرض) تست می‌شود
     final tlsHits = <String>[];
-    final tlsSni = sniHits.isNotEmpty ? sniHits.first : 'www.google.com';
+    final tlsSni = sniHits.isNotEmpty ? sniHits.first : 'www.cloudflare.com';
     for (final alpn in const ['h2', 'http/1.1']) {
       if (cancelled()) break;
       var ok = false;
