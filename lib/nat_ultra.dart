@@ -2127,17 +2127,10 @@ List<String> _getCfIps({
   final out = <String>[];
   final ranges = liveRanges ?? _liveCdnRanges;
   final curMap = cursors ?? _cfRangeCursors;
-  // Cloudflare همچنان اصلی‌ترین استخر است (کانفیگ‌های CDN-fronted معمولاً روی
-  // Cloudflare هستند): نیمی از بودجه برای آن، نیم دیگر بین بقیه‌ی CDNها.
-  final cfSet = _cfRanges.toSet();
-  final cfN = ranges.where(cfSet.contains).length;
-  final otherN = ranges.length - cfN;
-  final cfShare = (cfN == 0 || otherN == 0) ? 1.0 : 0.5;
-  final perCf = cfN == 0 ? 0 : (batchSize * cfShare / cfN).ceil();
-  final perOther =
-      otherN == 0 ? 0 : (batchSize * (1.0 - (cfN == 0 ? 0.0 : cfShare)) / otherN).ceil();
-  for (final cidr in ranges) {
-    final perRange = cfSet.contains(cidr) ? perCf : perOther;
+  // Allocate the exact batch budget across the complete range catalog.
+  // Per-range quotas rotate fairly and can never make the result exceed batchSize.
+  for (var index = 0; index < ranges.length && out.length < batchSize; index++) {
+    final cidr = ranges[index];
     final parts = cidr.split('/');
     if (parts.length != 2) continue;
     final octets = parts[0].split('.');
@@ -2149,15 +2142,19 @@ List<String> _getCfIps({
     final prefix = int.tryParse(parts[1]);
     if (a == null || b == null || c == null || d == null || prefix == null) continue;
     if (prefix < 8 || prefix > 32) continue;
+    final remaining = batchSize - out.length;
+    final rangesLeft = ranges.length - index;
+    final quota = max(1, (remaining + rangesLeft - 1) ~/ rangesLeft);
     final base = (a << 24) | (b << 16) | (c << 8) | d;
     final span = 1 << (32 - prefix);
-    var cursor = curMap[cidr] ?? 0;
-    for (var i = 0; i < perRange; i++) {
+    final count = min(quota, span);
+    final cursor = curMap[cidr] ?? 0;
+    for (var i = 0; i < count && out.length < batchSize; i++) {
       final offset = (cursor + i) % span;
       final v = base + offset;
       out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
     }
-    curMap[cidr] = (cursor + perRange) % span;
+    curMap[cidr] = (cursor + count) % span;
   }
   return out;
 }
