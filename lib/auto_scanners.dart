@@ -157,7 +157,7 @@ Future<void> autoScanRun(void Function(String) say,
       }
     }
     final stagedCdnCursors = Map<String, dynamic>.of(cdnCursors);
-    final cdnRanges = _liveCdnRanges.isNotEmpty ? _liveCdnRanges : _cfRanges;
+    final cdnRanges = _liveCdnRanges.isNotEmpty ? _liveCdnRanges : [..._cfRanges, ..._cfRangesV6];
     unawaited(refreshCdnRanges());
     final cdnIps = _getCfIps(
       batchSize: _autoScanCdnBatchSize,
