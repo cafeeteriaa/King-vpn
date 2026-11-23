@@ -24,8 +24,10 @@ const _tgPxSources = <String>[
 bool _tgPxValidHost(String value) {
   final host = value.trim().toLowerCase();
   if (host.isEmpty || host.length > 253 || host.contains('..')) return false;
-  return RegExp(
-    r'^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))+
+  final labels = host.split('.');
+  if (labels.length < 2) return false;
+  return labels.every((label) => label.isNotEmpty && label.length <= 63 &&
+      RegExp(r'^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?
   final out = <_TgPx>[];
   final seen = <String>{};
   for (final url in _tgPxSources) {
@@ -46,16 +48,10 @@ bool _tgPxValidHost(String value) {
               final secret = '${e['secret'] ?? ''}'.trim();
               final user = '${e['user'] ?? e['username'] ?? ''}'.trim();
               final pass = '${e['pass'] ?? e['password'] ?? ''}'.trim();
-              final link = _tgPxBuildLink(
-                host: host, port: port,
-                secret: secret.isEmpty ? null : secret,
-                user: user, pass: pass,
-              );
+              final link = _tgPxBuildLink(host: host, port: port, secret: secret.isEmpty ? null : secret, user: user, pass: pass);
               if (link == null) continue;
               final kind = secret.isNotEmpty ? 'MTProto' : 'SOCKS5';
-              if (seen.add(link)) {
-                out.add(_TgPx('$kind • $host:$port', link, kind));
-              }
+              if (seen.add(link)) out.add(_TgPx('$kind • $host:$port', link, kind));
             }
           }
         } catch (e, jstk) { errJournalAdd(e, st: jstk); debugPrint("catch: $e"); }
@@ -71,8 +67,7 @@ bool _tgPxValidHost(String value) {
           final link = _tgPxNormalizeLink(m.group(0)!);
           if (link == null) continue;
           if (seen.add(link)) {
-            final kind = Uri.parse(link).pathSegments.first == 'socks'
-                ? 'SOCKS5' : 'MTProto';
+            final kind = Uri.parse(link).pathSegments.first == 'socks' ? 'SOCKS5' : 'MTProto';
             out.add(_TgPx('$kind • پروکسی', link, kind));
           }
         }
@@ -204,29 +199,17 @@ class _TgProxyPanelState extends State<_TgProxyPanel> {
     );
   }
 }
-,
-  ).hasMatch(host);
+).hasMatch(label));
 }
-
 int? _tgPxValidPort(String value) {
   final port = int.tryParse(value.trim());
   return port != null && port >= 1 && port <= 65535 ? port : null;
 }
-
-String? _tgPxBuildLink({
-  required String host,
-  required String port,
-  String? secret,
-  String? user,
-  String? pass,
-}) {
+String? _tgPxBuildLink({required String host, required String port, String? secret, String? user, String? pass}) {
   final cleanHost = host.trim().toLowerCase();
   final cleanPort = _tgPxValidPort(port);
   if (!_tgPxValidHost(cleanHost) || cleanPort == null) return null;
-  final params = <String, String>{
-    'server': cleanHost,
-    'port': '$cleanPort',
-  };
+  final params = <String, String>{'server': cleanHost, 'port': cleanPort.toString()};
   final isMtproto = secret != null && secret.isNotEmpty;
   if (isMtproto) {
     final cleanSecret = secret.trim();
@@ -417,8 +400,7 @@ class _TgProxyPanelState extends State<_TgProxyPanel> {
     );
   }
 }
-)
-        .hasMatch(cleanSecret)) return null;
+).hasMatch(cleanSecret)) return null;
     params['secret'] = cleanSecret;
   } else {
     final cleanUser = user?.trim() ?? '';
@@ -427,34 +409,20 @@ class _TgProxyPanelState extends State<_TgProxyPanel> {
     if (cleanUser.isNotEmpty) params['user'] = cleanUser;
     if (cleanPass.isNotEmpty) params['pass'] = cleanPass;
   }
-  final path = isMtproto ? 'proxy' : 'socks';
-  return Uri.https('t.me', '/$path', params).toString();
+  return Uri.https('t.me', isMtproto ? '/proxy' : '/socks', params).toString();
 }
-
 String? _tgPxNormalizeLink(String raw) {
   try {
     final uri = Uri.parse(raw.trim());
     final isHttps = uri.scheme == 'https' && uri.host.toLowerCase() == 't.me';
-    final isTelegramScheme = uri.scheme == 'tg' &&
-        (uri.host == 'proxy' || uri.host == 'socks');
+    final isTelegramScheme = uri.scheme == 'tg' && (uri.host == 'proxy' || uri.host == 'socks');
     if (!isHttps && !isTelegramScheme) return null;
-    final kind = isTelegramScheme
-        ? uri.host
-        : (uri.pathSegments.isEmpty ? '' : uri.pathSegments.first);
+    final kind = isTelegramScheme ? uri.host : (uri.pathSegments.isEmpty ? '' : uri.pathSegments.first);
     if (kind != 'proxy' && kind != 'socks') return null;
     final q = uri.queryParameters;
-    return _tgPxBuildLink(
-      host: q['server'] ?? '',
-      port: q['port'] ?? '',
-      secret: kind == 'proxy' ? q['secret'] : null,
-      user: q['user'],
-      pass: q['pass'],
-    );
-  } catch (_) {
-    return null;
-  }
+    return _tgPxBuildLink(host: q['server'] ?? '', port: q['port'] ?? '', secret: kind == 'proxy' ? q['secret'] : null, user: q['user'], pass: q['pass']);
+  } catch (_) { return null; }
 }
-
 Future<List<_TgPx>> _tgPxLoad() async {
   final out = <_TgPx>[];
   final seen = <String>{};
