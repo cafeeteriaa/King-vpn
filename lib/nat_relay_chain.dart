@@ -1,5 +1,18 @@
 import 'dart:convert';
 
+/// A relay candidate must have recent end-to-end tunnel proof. Core-delay or
+/// TCP/TLS reachability alone is not sufficient evidence for a usable relay.
+bool natIsFreshVerifiedRelay({
+  required bool verified,
+  required DateTime? verifiedAt,
+  required DateTime now,
+  required Duration maxAge,
+}) {
+  if (!verified || verifiedAt == null || maxAge <= Duration.zero) return false;
+  final age = now.difference(verifiedAt);
+  return !age.isNegative && age < maxAge;
+}
+
 const Set<String> _natRelayProxyProtocols = <String>{
   'vmess',
   'vless',
