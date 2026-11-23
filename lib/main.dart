@@ -8442,13 +8442,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (nationalMode && !proxyOnly) {
         if (relayServerUrl.isNotEmpty) {
           final relaySrv = Server.parse(relayServerUrl);
-          if (relaySrv != null) {
+          if (relaySrv != null &&
+              !(relaySrv.host == s.host && relaySrv.port == s.port)) {
             chainCfg = natChainCfg(cfg, natCfg(relaySrv, 0), keepInbounds: true);
             if (chainCfg != null) dbg('MULTIHOP: manual relay for ${s.name}');
           }
         }
         if (chainCfg == null) {
-          final relays = _usable().where((x) => !identical(x, s)).take(1).toList();
+          final relays = _usable()
+              .where((x) => !identical(x, s) && !(x.host == s.host && x.port == s.port))
+              .take(1).toList();
           if (relays.isNotEmpty) {
             chainCfg = natChainCfg(cfg, natCfg(relays.first, 0), keepInbounds: true);
             if (chainCfg != null) {

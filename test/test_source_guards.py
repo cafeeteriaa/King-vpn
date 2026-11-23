@@ -3876,6 +3876,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         helper = source[start:end]
         self.assertIn('NatDnsWireProbe.publicV4([a, b, c, d], 0)', helper)
         self.assertNotIn('return true;', helper)
+    def test_multihop_relay_rejects_same_endpoint_as_exit(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn('!(relaySrv.host == s.host && relaySrv.port == s.port)', source)
+        self.assertIn('!(x.host == s.host && x.port == s.port)', source)
     def test_nat_relay_chain_uses_collision_free_outbound_tag(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('String? natChainCfg(')
