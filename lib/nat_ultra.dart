@@ -2261,6 +2261,7 @@ List<String> _getCfIps({
     String item, Object? cursorValue, int maxPerBlock) {
   if (maxPerBlock <= 0) return (const <String>[], '0');
   final cursor = BigInt.tryParse(cursorValue?.toString() ?? '') ?? BigInt.zero;
+  final legacyCursor = int.tryParse(cursor.toString()) ?? 0;
   BigInt? first;
   BigInt? last;
   if (item.contains('/')) {
@@ -2270,16 +2271,17 @@ List<String> _getCfIps({
     final prefix = int.tryParse(parts[1]);
     if (address == null || address.type != InternetAddressType.IPv6 ||
         prefix == null || prefix < 0 || prefix > 128) {
-      final legacy = _natExpandAnyCursor(item, cursor.isValidInt ? cursor.toInt() : 0, maxPerBlock);
+      final legacy = _natExpandAnyCursor(item, legacyCursor, maxPerBlock);
       return (legacy.$1, legacy.$2.toString());
     }
-    first = _natIpv6ToBigInt(address);
+    var network = _natIpv6ToBigInt(address);
     final hostBits = 128 - prefix;
     final size = BigInt.one << hostBits;
     final mask = prefix == 0 ? BigInt.zero :
         ((BigInt.one << 128) - BigInt.one) ^ (size - BigInt.one);
-    first &= mask;
-    last = first + size - BigInt.one;
+    network &= mask;
+    first = network;
+    last = network + size - BigInt.one;
   } else if (item.contains('-')) {
     final parts = item.split('-');
     if (parts.length != 2) return (const <String>[], '0');
