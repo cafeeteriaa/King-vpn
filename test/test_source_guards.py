@@ -3969,6 +3969,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('bool _cfTraceResponseOk(')
         end = source.index('Future<int?> _cfProbeMs(', start)
         validator = source[start:end]
+        self.assertIn('response.substring(0, split).toLowerCase()', validator)
         self.assertIn("status.startsWith('http/1.1 200 ')", validator)
         self.assertIn("status.startsWith('http/1.0 200 ')", validator)
         self.assertIn("lines.contains('h=cloudflare.com')", validator)
@@ -3976,6 +3977,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("line.startsWith('colo=')", validator)
         probe = source[end:source.index('final ValueNotifier<int> cleanTick', end)]
         self.assertIn('_cfTraceResponseOk(txt)', probe)
+        self.assertIn("SecureSocket.secure(raw", probe)
+        self.assertNotIn('Socket.connect(ip, 80', probe)
         self.assertNotIn("txt.contains('cloudflare')", probe)
 
     def test_nip_swap_link_never_rewrites_reality_configs(self):
