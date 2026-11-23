@@ -26,17 +26,17 @@ import 'dart:typed_data';
 import 'errjournal.dart';
 import 'nnie_core.dart'; // natStableSort
 
-/// Hard ceiling per user-supplied range/scan to keep mobile probes bounded.
+/// Per-pass work chunk used by resumable scanners; it is not a ceiling on the candidate inventory.
 const int kNatMaxScanAddresses = 4096;
 
 /// Validate, canonicalize, de-duplicate, and hard-bound scanner targets.
 /// Hostnames are intentionally rejected: callers must resolve them explicitly.
 List<String> natBoundScanTargets(
   Iterable<String> source, {
-  int maxCount = kNatMaxScanAddresses,
+  int maxCount = 1 << 31,
 }) {
   if (maxCount <= 0) return const <String>[];
-  final limit = min(maxCount, kNatMaxScanAddresses);
+  final limit = maxCount;
   final out = <String>[];
   final seen = <String>{};
   for (final raw in source) {
@@ -62,7 +62,7 @@ class NatIpHit {
 /// برای بلوک‌های بزرگ، فقط [maxPerBlock] آدرس پراکنده برمی‌گرداند.
 List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   if (maxPerBlock <= 0) return const [];
-  final limit = min(maxPerBlock, kNatMaxScanAddresses);
+  final limit = maxPerBlock;
   final parts = cidr.trim().split('/');
   if (parts.length != 2) return const [];
   final octets = parts[0].split('.');
@@ -96,7 +96,7 @@ List<String> natExpandIpv6Cidr(
   int maxPerBlock = kNatMaxScanAddresses,
 }) {
   if (maxPerBlock <= 0) return const <String>[];
-  final limit = min(maxPerBlock, kNatMaxScanAddresses);
+  final limit = maxPerBlock;
   final parts = cidr.trim().split('/');
   if (parts.length != 2) return const <String>[];
   final address = InternetAddress.tryParse(parts[0].trim());
@@ -138,7 +138,7 @@ List<String> natExpandIpv6Cidr(
 /// بازه‌های بزرگ‌تر از maxCount به‌طور یکنواخت نمونه‌برداری می‌شوند.
 List<String> natExpandDash(String range, {int maxCount = kNatMaxScanAddresses}) {
   if (maxCount <= 0) return const [];
-  final limit = min(maxCount, kNatMaxScanAddresses);
+  final limit = maxCount;
   final parts = range.trim().split('-');
   if (parts.length != 2) return const [];
   int? toInt(String ip) {
@@ -216,12 +216,12 @@ int natAdaptiveConcurrency(int requested) {
 ///   • Cancellation stops scheduling probes; in-flight connects remain bounded by timeout.
 ///   • Progress reporting via [onProgress] (called every few completions).
 ///   • Optional [randomize] to shuffle the scan order.
-///   • Shared hard ceiling of 4096 validated numeric targets per scan.
+///   • All validated numeric targets remain eligible; callers control per-pass budgets and cancellation.
 Future<List<NatIpHit>> natScanIps(
   List<String> ips, {
   int port = 443,
   int concurrency = 16,
-  int want = 20,
+  int want = 1 << 31,
   Duration budget = const Duration(seconds: 90),
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
@@ -235,7 +235,7 @@ Future<List<NatIpHit>> natScanIps(
     return <NatIpHit>[];
   }
 
-  // Validate numeric endpoints, de-duplicate, and apply the same hard cap as every scanner.
+  // Validate and de-duplicate numeric endpoints without truncating the candidate inventory.
   final boundedIps = natBoundScanTargets(ips);
   final effective = natAdaptiveConcurrency(concurrency);
   // Stopwatch is monotonic; wall-clock changes must not extend or truncate a scan.
