@@ -125,7 +125,7 @@ Future<void> autoScanRun(void Function(String) say,
   bool cancelled() =>
       _autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode || timedOut();
   String cancellationMessage() => timedOut()
-      ? 'مهلت سه‌دقیقه‌ای اسکن تمام شد؛ نتایج ناقص ذخیره نشد'
+      ? 'مهلت چهار‌دقیقه‌ای اسکن تمام شد؛ نتایج ناقص ذخیره نشد'
       : ((vpnActive() || vpnWanted())
           ? 'با شروع اتصال VPN، اسکن برای جلوگیری از تداخل متوقف شد؛ نتایج ناقص ذخیره نشد'
           : 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');
