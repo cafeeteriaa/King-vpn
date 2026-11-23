@@ -2143,7 +2143,7 @@ List<String> _getCfIps({
 ) {
   if (maxPerBlock <= 0) return (<String>[], cursor ?? 0);
   final parts = item.trim().split('/');
-  final addressText = parts.first.trim();
+  final addressText = (item.contains('-') ? item.split('-').first : parts.first).trim();
   final address = InternetAddress.tryParse(addressText);
   if (address == null) return (<String>[], cursor ?? 0);
 
