@@ -235,11 +235,8 @@
 ### Validation and CI
 - Exact-head CI run 2157: https://github.com/cafeeteriaa/King-vpn/actions/runs/45132996395
 - Run head SHA: `649147e8a3c96979f1bbab82c14ccff09f6bbf2d`
-- Last observed status: `in_progress`; job `build` is in the optimized Android arm64 release APK build step.
-- Completed successfully before the build step: source-repair guards (including the new owner-UID guard), Flutter unit tests, dependency/plugin setup, and `flutter analyze`.
-- Not yet verified for this commit: arm64 APK build completion, 16 KiB ELF alignment, 16 KiB APK ZIP alignment, and artifact upload. Do not claim a successful build or provide an APK yet.
-- The workflow log endpoint returned BlobNotFound while the job was still running; this is not evidence of a build failure.
-- Previous exact-head baseline run 2156 for `b73b600aaa16fd4b74c9c8570774425b94d74b52` completed successfully, but it does not validate the new owner-UID change.
+- Run 2157 completed `success` for this exact source commit. Source-repair guards (including the new owner-UID guard), all Flutter unit tests, Dart analysis, optimized arm64 release APK build, 16 KiB ELF load-segment validation, 16 KiB APK ZIP alignment, and artifact upload all passed.
+- Artifact review is recorded below. The APK is CI/debug-key signed, not production-signed, and has no real-device validation.
 - No physical-device, competing-VPN, OEM, IPv4/IPv6 data-plane, or Iranian carrier test was performed.
 
 ### Open issues
@@ -248,6 +245,21 @@
 - Continue auditing DNS resolver routing/leak behavior, plugin/native stop-start ordering, and failover races. Keep the full IP Clean inventory unchanged.
 
 ### First next action
-1. Poll run 2157 to completion without cancelling it. If it fails, inspect the failing step/log and fix only the demonstrated cause; if it succeeds, inspect artifact metadata and checksum before discussing any APK.
-2. Then validate owner-UID behavior on Android 11+ devices, including a competing VPN scenario, and test Android 10 fallback separately.
-3. Keep PR #44 Draft and do not merge to `main`.
+1. Validate owner-UID behavior on Android 11+ devices, including a competing VPN scenario, and test Android 10 fallback separately.
+2. Continue DNS packet/data-plane validation: prove whether Xray DoH requests traverse the selected outbound and confirm there is no resolver traffic bypass around the TUN.
+3. Continue plugin/native stop-start ordering and failover race review; keep PR #44 Draft and do not merge to `main`.
+
+
+### Exact-head artifact review — CI run 2157
+
+- Workflow: https://github.com/cafeeteriaa/King-vpn/actions/runs/45132996395
+- Exact source commit: `649147e8a3c96979f1bbab82c14ccff09f6bbf2d`; run 2157 concluded `success`.
+- APK artifact: `king-vpn-arm64-release-2157`, artifact ID `14798254101`, archive size `49,014,218` bytes, GitHub SHA-256 `781f3389ac452485e790ccc4f5aac456a256a7e3bd30f392d8c82ba7f6d76d39`.
+- Downloaded archive digest matched GitHub metadata. The ZIP contains exactly `app-arm64-v8a-release.apk`, `122,885,758` bytes.
+- Extracted APK SHA-256: `d896017f8902712b99b141ac8cb324bda6b62a0f2ff1a768d01da999e530e2b5`.
+- APK recognized as an Android package; inspected ABI inventory contains 19 `arm64-v8a` native shared libraries. All 58 ELF LOAD segments across those libraries have power-of-two alignment of at least 16 KiB; CI's APK ZIP alignment check also passed.
+- The workflow summary identifies the generated Flutter debug key. This is not a production-signed release. No physical device, Play install, competing-VPN, IPv4/IPv6 data-plane, or Iranian carrier test has been performed.
+- Artifact review does not upgrade the build to “install-ready”; it is a verified CI artifact with runtime acceptance still pending.
+
+### DNS audit note
+- The current Xray DNS policy's `timeoutMs` field is valid for a `DnsServerObject`. Standard `https://` DoH requests enter Xray routing; `https+local://` and `quic+local://` intentionally bypass the routing component. Static config review cannot prove the live outbound or absence of DNS leakage; packet/device verification remains open.
