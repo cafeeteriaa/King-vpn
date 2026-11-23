@@ -5,6 +5,15 @@ import 'package:king_vpn/nat_ip_scan.dart';
 
 void main() {
   group('IP range expansion limits', () {
+    test('persisted outer cursor indexes recover from negative and malformed values', () {
+      expect(natCursorIndex('-1', 7), 0);
+      expect(natCursorIndex('broken', 7), 0);
+      expect(natCursorIndex(null, 7), 0);
+      expect(natCursorIndex('15', 7), 1);
+      expect(natCursorIndex(8, 7), 1);
+      expect(natCursorIndex(8, 0), 0);
+    });
+
     test('CIDR expansion rejects non-positive output limits', () {
       expect(natExpandCidr('10.0.0.0/24', maxPerBlock: 0), isEmpty);
       expect(natExpandCidr('10.0.0.0/24', maxPerBlock: -1), isEmpty);
