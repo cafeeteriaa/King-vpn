@@ -525,7 +525,7 @@ bool autoCycle = true; // BEST: لیست تمام شد → لیست تازه و 
 // ULTRA: multi-variant matrix (Fragment/fp/ALPN/DNS/port/cleanIP/Mux/Noise...)
 // default OFF so normal search only tests the plain config (much faster).
 // Turn on from Settings → «حالت فوق‌العاده» when a hard network needs variants.
-bool ultraMode = false;
+bool ultraMode = true; // Full DPI/SNI/Fragment matrix remains available in global and national modes.
 // INDESTRUCTIBLE: endless search — default ON (national search never stops).
 // Saved under key 'idm2' so older saved 'off' values do not override this.
 bool indestructibleMode = true;
@@ -5024,7 +5024,7 @@ class HomePage extends StatefulWidget {
 
 bool sniSpoofAll = true; // V16: apply SNI spoof to all CDN configs (normal mode too)
 // SNICF: جعل SNI برای کانفیگ‌های کلودفلر جدا کنترل می‌شود؛ پیش‌فرض خاموش
-bool sniCfOn = false;
+bool sniCfOn = true;
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   late final V2ray v2ray;
@@ -6135,7 +6135,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           savedFirst = j['sf'] as bool? ?? savedFirst;
           smartOrder = j['so'] as bool? ?? smartOrder;
           autoCycle = j['ac'] as bool? ?? autoCycle;
-          ultraMode = false; // plain-only: ignore old saved Ultra flag
+          ultraMode = j['ul'] as bool? ?? ultraMode;
           indestructibleMode = j['idm2'] as bool? ?? true;
           // توربو سرعت بعد از اتصال: پیش‌فرض و ترجیح همیشه روشن
           turboSpeed = j['tb'] as bool? ?? true;
@@ -6151,7 +6151,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           npvParse = j['npv'] as bool? ?? npvParse;
           relayServerUrl = j['relay_url'] as String? ?? '';
           sniSpoofAll = j['sni_all'] as bool? ?? true; // SNIDEF: پیش‌فرض روشن، قابل تغییر
-          sniCfOn = j['sni_cf'] as bool? ?? false; // SNICF
+          sniCfOn = j['sni_cf'] as bool? ?? true; // SNICF
           cleanIpMode = j['cip'] as bool? ?? cleanIpMode;
           fragEnabled = j['frg'] as bool? ?? fragEnabled;
           // Mux برای توربو سرعت بعد از اتصال روشن می‌ماند
@@ -7870,10 +7870,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final tt = t ?? delayTimeout;
     // NORMAL: only plain config (variant 0). Matrix only if nationalMode.
     // ultraMode alone no longer enables matrix during ordinary connect tests.
-    final useMatrix = nationalMode;
+    final useMatrix = nationalMode || ultraMode;
     final multi = useMatrix;
     final order = useMatrix
-        ? <int>[0, ..._natOrder(s, full: _resFull).where((v) => v != 0).take(max(0, natMaxVariants - 1))]
+        ? <int>[0, ..._natOrder(s, full: _resFull || ultraMode).where((v) => v != 0).take(max(0, natMaxVariants - 1))]
         : const [0]; // اول کانفیگ اصلی، سپس variantهای سازگار
     // NATBUDGET: one server may only use a limited time per pass; the rest of
     // its variants continue in the next pass (natCursorAdvance)
@@ -7940,7 +7940,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             dbg('ماتریس: ${s.name} با حالت «$vn» جواب داد');
             _set('پیدا شد • ${s.name} • حالت: $vn');
           }
-          natVarSet(s, v);
+          if (nationalMode) {
+            natVarSet(s, v);
+          } else {
+            natVarNormal[s.key] = v;
+            natSaveSoon();
+          }
         }
         return d;
       }
@@ -12073,7 +12078,6 @@ ListTile( // KINGEXTRAS row
       // (فقط جعل SNI و تنظیمات عمومی مثل Mux می‌مانند). در حافظه خاموش می‌شوند؛ ذخیره‌ی تنظیم دست نمی‌خورد.
       ipMode = false;
       cleanIpMode = false;
-      ultraMode = false;
       indestructibleMode = false;
       fragEnabled = false;
     }
@@ -12742,7 +12746,6 @@ ListTile( // KINGEXTRAS row
       natForce = false;
       // Force PLAIN connect: no matrix, no ultra, no folder race
       if (!nationalMode && !indestructibleMode) {
-        ultraMode = false;
         natLevel = 0;
         _resBusy = false;
         _resFull = false;
