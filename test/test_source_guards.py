@@ -1577,7 +1577,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
                 if action.startswith('./'):
                     continue
                 self.assertIn('@', action, f'{workflow}: {action}')
-                self.assertRegex(action.rsplit('@', 1)[1], r'^[0-9a-f]{40}
+                revision = action.rsplit('@', 1)[1]
+                self.assertEqual(len(revision), 40, f'{workflow}: {action}')
+                self.assertTrue(all(char in '0123456789abcdef' for char in revision), f'{workflow}: {action}')
+
+    def test_signed_release_job_is_restricted_to_repository_owner(self):
         release = (ROOT / '.github' / 'workflows' / 'signed-release.yml').read_text(encoding='utf-8')
         job_start = release.index('  signed-release:')
         job_end = release.index('    steps:', job_start)
@@ -1587,7 +1591,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_signed_release_does_not_persist_checkout_token_into_build_environment(self):
         release = (ROOT / '.github' / 'workflows' / 'signed-release.yml').read_text(encoding='utf-8')
-        checkout = release[release.index('uses: actions/checkout@v4'):release.index('- name:', release.index('uses: actions/checkout@v4'))]
+        checkout_start = release.index('uses: actions/checkout@')
+        checkout_end = release.index('- name:', checkout_start)
+        checkout = release[checkout_start:checkout_end]
         self.assertIn('persist-credentials: false', checkout)
         self.assertIn('GH_TOKEN: ${{ github.token }}', release)
         self.assertNotIn('GH_TOKEN:', checkout)
