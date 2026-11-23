@@ -132,6 +132,14 @@ Future<String> netDiagnose() async {
     _diagHttp('آپارات', 'https://www.aparat.com/'),
     _diagHttp('دیجی‌کالا', 'https://www.digikala.com/'),
     _diagHttp('دیوار', 'https://divar.ir/'),
+    // IPv6 transport and TLS/SNI probes are measured independently so an
+    // IPv4-only path cannot hide a working or broken IPv6 route.
+    _diagTcp('TCP Cloudflare IPv6:443', '2606:4700:4700::1111', 443),
+    _diagTcp('TCP Google IPv6:443', '2001:4860:4860::8888', 443),
+    _diagTls('TLS Cloudflare IPv6 با SNI=www.cloudflare.com',
+        '2606:4700:4700::1111', 'www.cloudflare.com'),
+    _diagTls('TLS Google IPv6 با SNI=www.google.com',
+        '2001:4860:4860::8888', 'www.google.com'),
   ]);
 
   // DNS: system resolver vs DNS-over-HTTPS
@@ -161,6 +169,7 @@ Future<String> netDiagnose() async {
   sec('— سایت‌های خارجی —', 9, 13);
   sec('— منابع لیست سرور —', 14, 17);
   sec('— شبکه ملی —', 18, 20);
+  sec('— IPv6: TCP و TLS/SNI —', 21, 24);
   b.writeln('— DNS —');
   b.writeln(dnsSys.isEmpty
       ? '❌ DNS سیستم جواب نداد'
@@ -180,8 +189,8 @@ Future<String> netDiagnose() async {
     return false;
   }
 
-  final tcp = any(0, 4);
-  final tls = any(5, 8);
+  final tcp = any(0, 4) || any(21, 22);
+  final tls = any(5, 8) || any(23, 24);
   final web = any(9, 13);
   final srcRaw = r[14].ok;
   final srcMir = any(15, 17);
