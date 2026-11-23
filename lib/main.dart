@@ -41,6 +41,7 @@ import 'nat_ip_scan.dart'; // اسکن TCP آدرس IP و دامنه
 import 'help_page.dart';
 import 'conn_specs.dart';
 import 'transport_capabilities.dart'; // Dual-stack transport and DPI engine capability registry
+import 'transport_capabilities_page.dart';
 import 'personal_folder.dart'; // پوشه‌ی «سرورهای شخصی»
 import 'king_extras2.dart'; // KINGEXTRAS: share sheet / UUID / check-host.net
 part 'iran_ai_extras.dart';
@@ -16015,6 +16016,11 @@ ListTile( // KINGEXTRAS row
                 }));
               }
               if (v == 'plus') plusSheet();
+              if (v == 'engines') {
+                Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => const KingCapabilityCatalogPage(),
+                ));
+              }
               if (v == 'donate') donateSheet(context);
               if (v == 'shop') serverShopOpen(context);
               if (v == 'tgch') telegramChannelsOpen(context);
@@ -16055,6 +16061,7 @@ ListTile( // KINGEXTRAS row
               PopupMenuItem(
                   value: 'panic', child: Text('⚠ حالت اضطراری (قطع + پاکسازی)')),
               PopupMenuItem(value: 'plus', child: Text('ابزارهای بیشتر')),
+              PopupMenuItem(value: 'engines', child: Text('موتورها و روش‌های اتصال')),
               PopupMenuItem(value: 'admin', child: Text('ارتباط با ادمین 💬')),
               PopupMenuItem(value: 'shop', child: Text('خرید سرور شخصی 🛒')),
               PopupMenuItem(value: 'tgch', child: Text('کانال‌های تلگرامی 📢')),
