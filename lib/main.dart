@@ -17568,6 +17568,44 @@ class _NatResItem {
   _NatResItem(this.link, this.s, this.added);
 }
 
+const String _atPendingCleanIpKey = 'at_pending_clean_ip_v2';
+
+Future<List<CleanIp>> _atLoadPendingCleanIps() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final values = prefs.getStringList(_atPendingCleanIpKey) ?? const <String>[];
+    final out = <CleanIp>[];
+    final seen = <String>{};
+    for (final value in values) {
+      final parts = value.split('|');
+      if (parts.length < 2) continue;
+      final port = int.tryParse(parts[1]);
+      final ms = parts.length > 2 ? (int.tryParse(parts[2]) ?? 0) : 0;
+      if (port == null || port < 1 || port > 65535) continue;
+      final ip = InternetAddress.tryParse(parts[0]);
+      if (ip == null) continue;
+      final key = '${ip.address}|$port';
+      if (seen.add(key)) out.add(CleanIp(ip.address, ms, port));
+    }
+    return out;
+  } catch (e, st) {
+    logError(e, st);
+    return <CleanIp>[];
+  }
+}
+
+Future<void> _atSavePendingCleanIps(List<CleanIp> values) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _atPendingCleanIpKey,
+      values.map((item) => '${item.ip}|${item.port}|${item.ms}').toList(),
+    );
+  } catch (e, st) {
+    logError(e, st);
+  }
+}
+
 // ===== NAT-PROJECT: منطق پروژه (نه فقط تست) =====
 // این توابع در اتصال واقعی (نردبان نت ملی و سنجش IP) استفاده می‌شوند.
 extension ProjectNatSweep on _HomePageState {
@@ -17579,8 +17617,8 @@ extension ProjectNatSweep on _HomePageState {
         const {'360', 'qq'}.contains(x.fp); // NEWFP
   }
 
-  // IPSWEEP: use the shared resumable IP/range/port engine, then verify
-  // every open endpoint with real tunneled Google + YouTube traffic.
+  // IPSWEEP: shared resumable range/port discovery plus real tunnel verification.
+  // TCP-open endpoints remain queued until every available TLS template is tested.
   Future<List<CleanIp>> _atIpSweep(List<Server> pool, Duration budget) async {
     final templates = pool.where((server) => server.tls && !server.reality).toList();
     if (templates.isEmpty) return <CleanIp>[];
@@ -17590,52 +17628,88 @@ extension ProjectNatSweep on _HomePageState {
       return <CleanIp>[];
     }
 
-    final scanBudget = budget < const Duration(minutes: 3)
-        ? budget
-        : const Duration(minutes: 3);
-    final openedRaw = await natRangeScanStep(
-      known: templates,
-      maxAddrs: 100000,
-      conc: 24,
-      stop: () => abort || AutoTestEngine._abortRequested ||
-          AutoTestEngine._phase != _AtPhase.running,
-      budget: scanBudget,
-    );
-    final opened = <CleanIp>[];
-    for (final value in openedRaw) {
-      final parts = value.split('|');
-      if (parts.length != 2) continue;
-      final port = int.tryParse(parts[1]);
-      if (port == null || port < 1 || port > 65535) continue;
-      opened.add(CleanIp(parts[0], 0, port));
-    }
-    dbg('IPSCAN: ${opened.length} جفت IP:پورت باز');
-    final cands = opened.isNotEmpty
-        ? opened
-        : [for (final ip in await _cleanCandidates()) CleanIp(ip, 0, 443)];
-
+    final pendingCandidates = await _atLoadPendingCleanIps();
+    final queued = pendingCandidates.map((c) => '${c.ip}|${c.port}').toSet();
     final winners = <CleanIp>[];
-    final saved = List<CleanIp>.of(cleanIps);
+    final savedCleanIps = List<CleanIp>.of(cleanIps);
+    final isNatSnapshot = nationalMode;
     final previousVariants = <String, int?>{
       for (final template in templates)
-        _nk(template): natVar[_nk(template)],
+        (isNatSnapshot ? _nk(template) : template.key):
+            (isNatSnapshot ? natVar[_nk(template)] : natVarNormal[template.key]),
     };
-    final t0 = DateTime.now();
+    final clock = Stopwatch()..start();
+    final scanBudgetTotal = Duration(microseconds: budget.inMicroseconds ~/ 3);
+    var scanTimeUsed = Duration.zero;
     final prevWant = wantVpn;
+
     try {
       wantVpn = true;
-      for (var i = 0; i < cands.length; i++) {
-        if (abort || AutoTestEngine._abortRequested ||
-            AutoTestEngine._phase != _AtPhase.running) break;
-        if (DateTime.now().difference(t0) > budget) break;
-        final candidate = cands[i];
+      while (clock.elapsed < budget &&
+          !abort &&
+          !AutoTestEngine._abortRequested &&
+          AutoTestEngine._phase == _AtPhase.running) {
+        if (pendingCandidates.isEmpty && scanTimeUsed < scanBudgetTotal) {
+          final scanRemaining = scanBudgetTotal - scanTimeUsed;
+          final batchBudget = scanRemaining < const Duration(minutes: 2)
+              ? scanRemaining
+              : const Duration(minutes: 2);
+          final beforeScanned = natIpScanned;
+          final scanClock = Stopwatch()..start();
+          final openedRaw = await natRangeScanStep(
+            known: templates,
+            maxAddrs: 100000,
+            conc: 24,
+            stop: () => abort ||
+                AutoTestEngine._abortRequested ||
+                AutoTestEngine._phase != _AtPhase.running ||
+                nationalMode != isNatSnapshot,
+            budget: batchBudget,
+          );
+          scanTimeUsed += scanClock.elapsed;
+          for (final value in openedRaw) {
+            final parts = value.split('|');
+            if (parts.length != 2) continue;
+            final port = int.tryParse(parts[1]);
+            final parsedIp = InternetAddress.tryParse(parts[0]);
+            if (port == null || port < 1 || port > 65535 || parsedIp == null) continue;
+            final key = '${parsedIp.address}|$port';
+            if (queued.add(key)) pendingCandidates.add(CleanIp(parsedIp.address, 0, port));
+          }
+          await _atSavePendingCleanIps(pendingCandidates);
+          if (abort ||
+              AutoTestEngine._abortRequested ||
+              AutoTestEngine._phase != _AtPhase.running ||
+              nationalMode != isNatSnapshot) {
+            break;
+          }
+          if (pendingCandidates.isEmpty &&
+              natIpScanned == beforeScanned) {
+            break;
+          }
+          if (pendingCandidates.isEmpty) continue;
+        }
+
+        if (pendingCandidates.isEmpty) break;
+        final candidate = pendingCandidates.first;
         cleanIps = [candidate];
         var passed = false;
+        var completed = true;
         for (final template in templates) {
-          if (abort || AutoTestEngine._abortRequested ||
-              AutoTestEngine._phase != _AtPhase.running) break;
-          final key = _nk(template);
-          natVar[key] = vIdx;
+          if (abort ||
+              AutoTestEngine._abortRequested ||
+              AutoTestEngine._phase != _AtPhase.running ||
+              nationalMode != isNatSnapshot ||
+              clock.elapsed >= budget) {
+            completed = false;
+            break;
+          }
+          final key = isNatSnapshot ? _nk(template) : template.key;
+          if (isNatSnapshot) {
+            natVar[key] = vIdx;
+          } else {
+            natVarNormal[key] = vIdx;
+          }
           var ok = false;
           try {
             if (await _start(template)) {
@@ -17647,10 +17721,18 @@ extension ProjectNatSweep on _HomePageState {
           } finally {
             await _stopV2();
             final previous = previousVariants[key];
-            if (previous == null) {
-              natVar.remove(key);
+            if (isNatSnapshot) {
+              if (previous == null) {
+                natVar.remove(key);
+              } else {
+                natVar[key] = previous;
+              }
             } else {
-              natVar[key] = previous;
+              if (previous == null) {
+                natVarNormal.remove(key);
+              } else {
+                natVarNormal[key] = previous;
+              }
             }
           }
           if (ok) {
@@ -17658,20 +17740,33 @@ extension ProjectNatSweep on _HomePageState {
             break;
           }
         }
+        if (!completed) break;
         if (passed) winners.add(candidate);
+        pendingCandidates.removeAt(0);
+        queued.remove('${candidate.ip}|${candidate.port}');
+        await _atSavePendingCleanIps(pendingCandidates);
         autoTestText.value =
-            'سنجش IP تونلی ${winners.length} • ${i + 1}/${cands.length}';
+            'سنجش IP تونلی ${winners.length} • صف باقی‌مانده: ${pendingCandidates.length}';
       }
     } finally {
       wantVpn = prevWant && !abort;
       for (final entry in previousVariants.entries) {
-        if (entry.value == null) {
-          natVar.remove(entry.key);
+        if (isNatSnapshot) {
+          if (entry.value == null) {
+            natVar.remove(entry.key);
+          } else {
+            natVar[entry.key] = entry.value!;
+          }
         } else {
-          natVar[entry.key] = entry.value!;
+          if (entry.value == null) {
+            natVarNormal.remove(entry.key);
+          } else {
+            natVarNormal[entry.key] = entry.value!;
+          }
         }
       }
-      cleanIps = saved;
+      cleanIps = savedCleanIps;
+      await _atSavePendingCleanIps(pendingCandidates);
     }
     return winners;
   }
