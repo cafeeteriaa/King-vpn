@@ -105,7 +105,10 @@ List<String> _ipAutoBlocks(Iterable<Server> knownServers) {
   if (nationalMode) {
     ips
       ..addAll(natIpMemHosts())
-      ..addAll(natScanHits);
+      ..addAll(natScanHits)
+      // Include every user-configured national CIDR/range; the generator
+      // advances its per-range cursors across resumable batches.
+      ..addAll(natRanges);
   } else {
     for (final server in knownServers) {
       if (server.isIp) ips.add(server.host);
