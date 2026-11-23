@@ -3898,6 +3898,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('builder.addDnsServer("1.1.1.1")', dns_setup)
         self.assertIn("addConfiguredDnsServers(b, cfg)", source)
 
+    def test_custom_vpn_service_accepts_compressed_ipv6_dns_literals(self):
+        source = (ROOT / "android_src" / "KingVpnService.java").read_text(encoding="utf-8")
+        start = source.index("private static boolean isPlainIpAddress(")
+        end = source.index("    /**", start)
+        helper = source[start:end]
+        self.assertIn("Inet6Address", source)
+        self.assertIn("InetAddress.getByName(host)", helper)
+        self.assertIn("host.matches(\"^[0-9a-fA-F:.]+$\")", helper)
+        self.assertNotIn('host.split(":").length >= 3', helper)
+
     def test_plugin_patcher_guards_upstream_tun_dns_integration(self):
         source = (ROOT / "patch_plugin.py").read_text(encoding="utf-8")
         self.assertIn("builder.addDnsServer(candidate)", source)
