@@ -2447,7 +2447,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Future<void> autoScanRun(')
         end = source.index('Future<void> autoScanSheet(', start)
         body = source[start:end]
-        self.assertIn('_autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode || timedOut();', body)
+        self.assertIn('_autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode;', body)
         self.assertIn('با شروع اتصال VPN، اسکن برای جلوگیری از تداخل متوقف شد', body)
         self.assertIn('shouldAbort: () => cancelled(),', body)
 
@@ -2952,7 +2952,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         self.assertIn('Future<List<String>> _autoResolveIpv6Targets', auto)
         self.assertIn('InternetAddress.lookup(', auto)
-        self.assertIn('type: InternetAddressType.IPv6', auto)
+        self.assertIn('type: InternetAddressType.any', auto)
+        self.assertIn('address.type == InternetAddressType.IPv4 ||', auto)
         self.assertIn('...ipv6DnsIps', auto)
         self.assertIn('_autoSniOk(ip, 443, d)', auto)
         self.assertIn('_autoPortOk(ip, p)', auto)
