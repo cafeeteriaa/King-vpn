@@ -28,6 +28,26 @@ import 'nnie_core.dart'; // natStableSort
 /// Hard ceiling per user-supplied range/scan to keep mobile probes bounded.
 const int kNatMaxScanAddresses = 4096;
 
+/// Validate, canonicalize, de-duplicate, and hard-bound scanner targets.
+/// Hostnames are intentionally rejected: callers must resolve them explicitly.
+List<String> natBoundScanTargets(
+  Iterable<String> source, {
+  int maxCount = kNatMaxScanAddresses,
+}) {
+  if (maxCount <= 0) return const <String>[];
+  final limit = min(maxCount, kNatMaxScanAddresses);
+  final out = <String>[];
+  final seen = <String>{};
+  for (final raw in source) {
+    if (out.length >= limit) break;
+    final parsed = InternetAddress.tryParse(raw.trim());
+    if (parsed == null) continue;
+    final ip = parsed.address;
+    if (seen.add(ip)) out.add(ip);
+  }
+  return out;
+}
+
 class NatIpHit {
   final String ip;
   final int ms;
