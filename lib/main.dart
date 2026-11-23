@@ -12196,14 +12196,10 @@ ListTile( // KINGEXTRAS row
   Future<bool> _connectPersonalFast(Server s) async {
     _personalFast = true;
     _personalBusy = true;
-    // PERSNOFRAG: قطعه‌قطعه کردن TLS (fragment) روی ورکر شخصی ترافیک را می‌بست؛
-    // برنامه‌های دیگر این کار را نمی‌کنند. فقط برای همین اتصال خاموش و بعد برگردانده می‌شود.
-    final savedFrag = fragEnabled;
-    fragEnabled = false;
+    // Preserve the user's Fragment preference on personal-fast connections too.
     try {
       return await _connectPersonalFastImpl(s);
     } finally {
-      fragEnabled = savedFrag;
       _personalFast = false;
       _personalBusy = false;
     }
