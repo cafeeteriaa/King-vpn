@@ -72,7 +72,7 @@ Future<bool> _autoPortOk(String ip, int port) async {
   }
 }
 
-/// Resolve the project's SNI names to IPv6 endpoints in small cancellable batches.
+/// Resolve the project's SNI names to both IPv4 and IPv6 endpoints in small cancellable batches.
 /// The hostname remains the TLS SNI; only the TCP destination is the AAAA address.
 Future<List<String>> _autoResolveIpv6Targets({required List<String> domains, bool Function()? cancelled}) async {
   final out = <String>{};
@@ -84,7 +84,7 @@ Future<List<String>> _autoResolveIpv6Targets({required List<String> domains, boo
       try {
         return await InternetAddress.lookup(
           domain,
-          type: InternetAddressType.IPv6,
+          type: InternetAddressType.any,
         ).timeout(const Duration(seconds: 2));
       } catch (_) {
         return const <InternetAddress>[];
@@ -93,7 +93,8 @@ Future<List<String>> _autoResolveIpv6Targets({required List<String> domains, boo
     if (cancelled?.call() ?? false) break;
     for (final addresses in resolved) {
       for (final address in addresses) {
-        if (address.type == InternetAddressType.IPv6 &&
+        if ((address.type == InternetAddressType.IPv4 ||
+                address.type == InternetAddressType.IPv6) &&
             !_privateIp(address)) {
           out.add(address.address);
         }
@@ -121,16 +122,15 @@ Future<void> autoScanRun(void Function(String) say,
   dnsxManualBusy = true;
   _autoScanStop = false;
   final scanNationalMode = nationalMode;
-  const scanBudget = Duration(minutes: 4);
-  final scanClock = Stopwatch()..start();
-  bool timedOut() => scanClock.elapsed >= scanBudget;
+  // Chunking and persisted cursors, not a wall-clock cutoff, govern scan progress.
+  // Socket timeouts and bounded concurrency protect the device while later runs
+  // resume the complete inventory.
   bool cancelled() =>
-      _autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode || timedOut();
-  String cancellationMessage() => timedOut()
-      ? 'مهلت چهار‌دقیقه‌ای اسکن تمام شد؛ نتایج ناقص ذخیره نشد'
-      : ((vpnActive() || vpnWanted())
-          ? 'با شروع اتصال VPN، اسکن برای جلوگیری از تداخل متوقف شد؛ نتایج ناقص ذخیره نشد'
-          : 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');
+      _autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode;
+  String cancellationMessage() =>
+      (vpnActive() || vpnWanted())
+          ? 'با شروع اتصال VPN، اسکن برای جلوگیری از تداخل متوقف شد؛ پیشرفت دستهٔ کامل‌شده حفظ می‌شود'
+          : 'اسکن متوقف شد؛ پیشرفت دستهٔ کامل‌شده حفظ می‌شود';
   try {
     await goldLoad();
     if (cancelled()) {
