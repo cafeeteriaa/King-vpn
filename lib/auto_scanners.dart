@@ -167,9 +167,8 @@ Future<void> autoScanRun(void Function(String) say,
       return;
     }
 
-    // پورت: فقط endpointهایی ثبت می‌شوند که TLS و گواهی www.cloudflare.com را هم معتبر کنند.
+    // Port scan: validate TLS against every discovered SNI, not only Cloudflare.
     final portHits = <String>[];
-    const portSni = 'www.cloudflare.com';
     var m = 0;
     final knownPortServers = <Server>[
       ...natTemplateSeeds,
@@ -193,10 +192,14 @@ Future<void> autoScanRun(void Function(String) say,
       var ok = false;
       for (final ip in ips) {
         if (cancelled()) break portLoop;
-        if (await _autoPortOk(ip, p, portSni)) {
-          ok = true;
-          break;
+        for (final sni in configuredSnis) {
+          if (cancelled()) break portLoop;
+          if (await _autoPortOk(ip, p, sni)) {
+            ok = true;
+            break;
+          }
         }
+        if (ok) break;
       }
       if (ok) portHits.add('$p');
       say('پورت $m/${portsToTest.length} • سالم: ${portHits.length}');
@@ -207,20 +210,24 @@ Future<void> autoScanRun(void Function(String) say,
       return;
     }
 
-    // TLS/ALPN: خروجی نام پروتکل‌های TLS است؛ روی اولین دامنه‌ی سالم (یا پیش‌فرض) تست می‌شود
+    // TLS/ALPN: evaluate every discovered SNI against each ALPN candidate.
     final tlsHits = <String>[];
-    final tlsSni = sniHits.isNotEmpty ? sniHits.first : 'www.cloudflare.com';
+    final tlsSnis = sniHits.isNotEmpty ? sniHits : configuredSnis;
     for (final alpn in const ['h2', 'http/1.1']) {
       if (cancelled()) break;
       var ok = false;
-      for (final ip in ips) {
+      for (final sni in tlsSnis) {
         if (cancelled()) break;
-        final sel = await _autoAlpnOk(ip, tlsSni, alpn);
-        if (sel != null && sel.isNotEmpty) {
-          if (!tlsHits.contains(sel)) tlsHits.add(sel);
-          ok = true;
-          break;
+        for (final ip in ips) {
+          if (cancelled()) break;
+          final sel = await _autoAlpnOk(ip, sni, alpn);
+          if (sel != null && sel.isNotEmpty) {
+            if (!tlsHits.contains(sel)) tlsHits.add(sel);
+            ok = true;
+            break;
+          }
         }
+        if (ok) break;
       }
       if (ok) say('TLS: $alpn ✓');
     }
