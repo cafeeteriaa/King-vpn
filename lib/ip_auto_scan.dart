@@ -12,9 +12,10 @@ const String _ipAutoKeyNat = 'ipauto_nat_v1';
 const String _ipAutoKeyGlob = 'ipauto_glob_v1';
 const String _ipAutoCursorKey = 'ipauto_cursor_v1';
 const String _ipAutoPosKey = 'ipauto_pos_v1'; // جای فعلی در فهرست آدرس‌ها
+const String _ipAutoPendingKey = 'ipauto_pending_core_v1';
 const int _ipAutoBatch = 6000; // آدرس در هر اجرا
 const int _ipAutoMaxHits = 1000; // سقف نتایج ذخیره‌شده
-const int _ipAutoPorts = 5; // بیشترین پورت برای TCP
+// TCP scanning uses every discovered/configured port; no fixed port-count cap.
 const String _ipAutoAtKey = 'ipauto_at_v1'; // زمان آخرین اسکن خودکار نت ملی
 const int _ipAutoConc = 48; // اتصال TCP همزمان
 const int _ipAutoCoreMax = 200; // سقف تست هسته در هر اجرا
@@ -23,6 +24,7 @@ bool ipAutoBusy = false;
 bool ipAutoStopFlag = false;
 String ipAutoStatus = '';
 final List<String> ipAutoHits = []; // به شکل «ip|port»
+final List<String> ipAutoPendingCore = []; // TCP hits awaiting two-pass VPN-core verification
 final Map<String, int> ipAutoCursors = {};
 int ipAutoPos = 0;
 
@@ -41,10 +43,12 @@ Future<void> ipAutoLoad() async {
   final hitsKey = loadNationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
   final posKey = '${_ipAutoPosKey}_${loadNationalMode ? 'nat' : 'glob'}';
   final cursorKey = '${_ipAutoCursorKey}_${loadNationalMode ? 'nat' : 'glob'}';
+  final pendingKey = '${_ipAutoPendingKey}_${loadNationalMode ? 'nat' : 'glob'}';
   try {
     final p = await SharedPreferences.getInstance();
     if (nationalMode != loadNationalMode) return;
     final savedHits = p.getString(hitsKey) ?? '';
+    final savedPending = p.getString(pendingKey) ?? '';
     final savedPos = int.tryParse(p.getString(posKey) ?? '') ?? 0;
     final loadedCursors = <String, int>{};
     final c = p.getString(cursorKey);
@@ -66,6 +70,9 @@ Future<void> ipAutoLoad() async {
     ipAutoHits
       ..clear()
       ..addAll(savedHits.split('\n').where((x) => x.contains('|')));
+    ipAutoPendingCore
+      ..clear()
+      ..addAll(savedPending.split('\n').where((x) => x.contains('|')));
     ipAutoCursors
       ..clear()
       ..addAll(loadedCursors);
@@ -81,11 +88,13 @@ Future<void> _ipAutoSave() async {
   final saveNationalMode = nationalMode;
   if (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode) return;
   final hits = List<String>.of(ipAutoHits);
+  final pending = List<String>.of(ipAutoPendingCore);
   final cursors = Map<String, int>.of(ipAutoCursors);
   final position = ipAutoPos;
   final hitsKey = saveNationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
   final cursorKey = '${_ipAutoCursorKey}_${saveNationalMode ? 'nat' : 'glob'}';
   final posKey = '${_ipAutoPosKey}_${saveNationalMode ? 'nat' : 'glob'}';
+  final pendingKey = '${_ipAutoPendingKey}_${saveNationalMode ? 'nat' : 'glob'}';
   try {
     final p = await SharedPreferences.getInstance();
     if (nationalMode != saveNationalMode ||
@@ -93,6 +102,7 @@ Future<void> _ipAutoSave() async {
       return;
     }
     await p.setString(hitsKey, hits.join('\n'));
+    await p.setString(pendingKey, pending.join('\n'));
     await p.setString(cursorKey, jsonEncode(cursors));
     await p.setString(posKey, position.toString());
   } catch (e, stk) {
@@ -279,7 +289,7 @@ extension IpAutoExt on _HomePageState {
       say('آدرسی برای اسکن پیدا نشد.');
       return false;
     }
-    final ports = natAutoPorts(pool).take(_ipAutoPorts).toList();
+    final ports = natAutoPorts(pool);
     if (ports.isEmpty) ports.add(443);
 
     // مرحله‌ی ۱: TCP روی همه‌ی آدرس‌ها
@@ -291,7 +301,7 @@ extension IpAutoExt on _HomePageState {
         addrs,
         port: port,
         concurrency: (manual && runNationalMode) ? kNatManualConc : _ipAutoConc,
-        want: 300,
+        want: addrs.length,
         budget: const Duration(minutes: 5),
         timeout: const Duration(milliseconds: 1500),
         cancelled: halted,
@@ -305,16 +315,26 @@ extension IpAutoExt on _HomePageState {
     // مرحله‌ی ۲: تست واقعی با هسته‌ی VPN، دو بار پشت سر هم
     final url = runNationalMode ? _natTestUrls.first : delayTestUrl;
     final seen = ipAutoHits.toSet();
+    final queued = ipAutoPendingCore.toSet();
+    for (final candidate in candidates) {
+      if (!seen.contains(candidate) && queued.add(candidate)) {
+        ipAutoPendingCore.add(candidate);
+      }
+    }
     final tplSrv = tpl.first;
     var found = 0;
     var checked = 0;
-    // سقف تست هسته در هر اجرا، تا زمان اجرا از حد نگذرد (بقیه در اجرای بعدی از آدرس‌های تازه می‌آیند)
-    final toTest = candidates.take(_ipAutoCoreMax).toList();
-    say('${candidates.length} پورت باز (تست ${toTest.length} تای اول)؛ تست با هسته‌ی VPN...');
-    for (final c in toTest) {
+    // Keep each run responsive, but persist and resume every untested TCP hit.
+    final coreBatchLimit = _ipAutoCoreMax;
+    say('${candidates.length} پورت باز • ${ipAutoPendingCore.length} مورد در صف تست هسته');
+    while (ipAutoPendingCore.isNotEmpty && checked < coreBatchLimit) {
       if (halted()) break;
+      final c = ipAutoPendingCore.first;
       checked++;
-      if (seen.contains(c)) continue;
+      if (seen.contains(c)) {
+        ipAutoPendingCore.removeAt(0);
+        continue;
+      }
       final parts = c.split('|');
       final ip = parts[0];
       final port = int.tryParse(parts[1]) ?? 443;
@@ -323,15 +343,18 @@ extension IpAutoExt on _HomePageState {
       final firstOk = await _ipAutoCoreOk(s, url);
       if (halted()) return false;
       if (!firstOk) {
-        say('تست $checked/${toTest.length} • جواب‌داده: $found');
+        ipAutoPendingCore.removeAt(0);
+        say('تست $checked • جواب‌داده: $found');
         continue;
       }
       final secondOk = await _ipAutoCoreOk(s, url);
       if (halted()) return false;
       if (!secondOk) {
-        say('تست $checked/${toTest.length} • جواب‌داده: $found');
+        ipAutoPendingCore.removeAt(0);
+        say('تست $checked • جواب‌داده: $found');
         continue;
       }
+      ipAutoPendingCore.removeAt(0);
       ipAutoHits.insert(0, c);
       // Core outbound delay is not proof of a clean IP or Android TUN health.
       // Keep it as a candidate only; promotion requires a real user tunnel test.
@@ -340,13 +363,17 @@ extension IpAutoExt on _HomePageState {
       if (ipAutoHits.length > _ipAutoMaxHits) {
         ipAutoHits.removeRange(_ipAutoMaxHits, ipAutoHits.length);
       }
-      say('تست $checked/${toTest.length} • جواب‌داده: $found');
+      say('تست $checked • جواب‌داده: $found');
     }
     if (halted()) {
       say('متوقف شد؛ نتایج این اجرا کامل نیستند.');
       return false;
     }
-    say('تمام شد: $found IP جدید در حالت ${runNationalMode ? 'نت ملی' : 'جهانی'}.');
+    if (ipAutoPendingCore.isNotEmpty) {
+      say('این نوبت تمام شد: $found IP جدید؛ ${ipAutoPendingCore.length} مورد برای ادامه در صف باقی ماند.');
+    } else {
+      say('تمام شد: $found IP جدید در حالت ${runNationalMode ? 'نت ملی' : 'جهانی'}.');
+    }
     return true;
   }
 
