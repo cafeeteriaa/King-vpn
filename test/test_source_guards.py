@@ -3847,6 +3847,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('onBadCertificate:', probe)
         self.assertIn('SecureSocket.secure(sock, host: name)', probe)
 
+    def test_generated_sni_swap_indices_match_front_sni_candidates(self):
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        scan = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        self.assertIn('const [0, 2, 3, 7][sniIdx]', ultra)
+        self.assertIn("'cloudflare-dns.com'", scan)
+        self.assertNotIn("'1.1.1.1',                 // 4", scan)
+
     def test_nip_front_sni_probe_requires_valid_tls_certificate(self):
         source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         start = source.index('Future<String?> nipFrontProbe(')

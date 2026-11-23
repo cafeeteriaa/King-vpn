@@ -252,7 +252,7 @@ const natFrontSnis = <String>[
   'www.cloudflare.com',      // 1
   'speed.cloudflare.com',    // 2  ← قبلاً 3 بود، حالا 2
   'one.one.one.one',         // 3  ← قبلاً 16 بود
-  '1.1.1.1',                 // 4  ← قبلاً 17 بود
+  'cloudflare-dns.com',      // 4  ← قبلاً 17 بود
   'www.aparat.com',          // 5
   'www.digikala.com',        // 6
   'divar.ir',                // 7

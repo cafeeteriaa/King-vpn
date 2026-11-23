@@ -334,7 +334,7 @@ List<_NatSpec> _natGenerate() {
 
   // V13: SNI-swap x fragment combos (bypass SNI + DPI in one shot).
   for (var sniIdx = 0; sniIdx < 4; sniIdx++) {
-    final realIdx = const [0, 2, 3, 10][sniIdx];
+    final realIdx = const [0, 2, 3, 7][sniIdx];
     for (var fi = 0; fi < _natFragBase.length; fi++) {
       add(_natMk(frag: fi, sniSwap: realIdx));
     }
