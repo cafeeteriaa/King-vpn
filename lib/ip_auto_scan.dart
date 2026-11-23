@@ -142,7 +142,7 @@ Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Funct
   if (all.isEmpty) return const <String>[];
   // فقط یک تکه‌ی _ipAutoBatch تایی در هر اجرا؛ جای فعلی ذخیره می‌شود تا اجرای بعدی ادامه دهد
   final start = startPosSnapshot % all.length;
-  final batchSize = max(256, Platform.numberOfProcessors * 1024);
+  final batchSize = max(256, Platform.numberOfProcessors * 512);
   final slice = all.skip(start).take(batchSize).toList();
   ipAutoPos = start + slice.length;
   return slice;
