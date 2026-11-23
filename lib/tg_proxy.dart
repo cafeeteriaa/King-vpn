@@ -438,7 +438,9 @@ String? _tgPxNormalizeLink(String raw) {
     final isTelegramScheme = uri.scheme == 'tg' &&
         (uri.host == 'proxy' || uri.host == 'socks');
     if (!isHttps && !isTelegramScheme) return null;
-    final kind = isTelegramScheme ? uri.host : uri.pathSegments.firstOrNull;
+    final kind = isTelegramScheme
+        ? uri.host
+        : (uri.pathSegments.isEmpty ? '' : uri.pathSegments.first);
     if (kind != 'proxy' && kind != 'socks') return null;
     final q = uri.queryParameters;
     return _tgPxBuildLink(
