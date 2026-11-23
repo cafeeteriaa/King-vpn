@@ -1213,6 +1213,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('if (nationalMode)', standby)
 
 
+    def test_nnie_evidence_threshold_counts_successful_probes_only(self):
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        start = engine.index('final ev = NatProbeEvidence(')
+        end = engine.index('current = ev.classify();', start)
+        evidence = engine[start:end]
+        self.assertIn('domesticTcp.where((ok) => ok).length', evidence)
+        self.assertIn('globalTcp.where((ok) => ok).length', evidence)
+        self.assertIn('globalDnsRes.where((r) => r.ok).length', evidence)
+        self.assertIn('domesticDnsRes.where((r) => r.ok).length', evidence)
+        self.assertNotIn('domesticTcp.length + globalTcp.length', evidence)
+
     def test_nnie_reachability_requires_verified_tls_not_open_tcp_only(self):
         engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
         start = engine.index('static Future<bool> _tcpOk(String host)')
