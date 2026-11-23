@@ -2118,10 +2118,7 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
     if (!cancelled) {
       result = await natScanIps(
         addrs,
-        want: 1000,
         concurrency: nationalMode ? kNatManualConc : natAdaptiveWorkers(),
-        // RANGEFIX: بازه‌ی کوچک ۲ دقیقه؛ بازه‌ی بزرگ (بیش از ۴۰۹۶ IP) ۸ دقیقه
-        budget: Duration(minutes: userAddrs.length > 4096 ? 8 : 2),
         timeout: const Duration(milliseconds: 1500),
         cancelled: () => cancelled || !open,
         onProgress: (d, t, h) => upd(() {
