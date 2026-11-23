@@ -11,7 +11,7 @@ part of 'main.dart';
 
 int natLevel = 1;
 int natRound = 1; // V12: 1 = pass 1 (skip failed), 2 = pass 2 (retry all)
-const int natMaxVariants = 5000; // V8 • فیکس ۱۷: قبلاً 0x7FFFFFFF
+const int natMaxVariants = 2000000; // Restore the historical full variant inventory; execution remains cursor-batched.
 int natFloor = 0;
 List<Server> natRestPending = [];
 
@@ -788,9 +788,9 @@ Duration natBudget({bool full = false}) {
   return const Duration(seconds: 240);
 }
 
-// فیکس ۱۷: سقف‌ها کاهش یافت (قبلاً: 0, 0, 200, 1200, 6000, 15000, 30000, 60000, 100000, 150000, 200000)
+// Restore the previous full per-pass candidate windows; cursors continue the matrix across passes.
 const List<int> _natGenCap = [
-  0, 0, 100, 500, 1500, 4000, 8000, 15000, 20000, 30000, 40000
+  0, 0, 200, 1200, 6000, 15000, 30000, 60000, 100000, 150000, 200000
 ];
 
 // فقط mKCP (UDP) «سنگین و کند» حساب می‌شود؛ Fragment و بقیه در اتصال عادی مجازند
@@ -1645,7 +1645,7 @@ Future<void> natLoadPersisted() async {
 
 const String _ipMemKey = 'natIpMem';
 const String _rangeKey = 'natRanges';
-const int _ipMemMax = 200;
+const int _ipMemMax = 0x7fffffff;
 
 final List<Map<String, dynamic>> natIpMem = [];
 final Set<String> natIpDeadRun = {};
@@ -1680,7 +1680,7 @@ Future<void> natIpMemLoad() async {
 }
 
 const String _domMemKey = 'natDomMem';
-const int _domMemMax = 200;
+const int _domMemMax = 0x7fffffff;
 const int natDelaySecs = 14;
 final List<Map<String, dynamic>> natDomMem = [];
 
@@ -1740,7 +1740,7 @@ Future<void> natIpMemSave(String ip, int port) async {
     return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
   }
   final candidates = <String>{};
-  for (final range in natRanges.take(128)) {
+  for (final range in natRanges) {
     final remaining = limit * 4 - candidates.length;
     if (remaining <= 0) break;
     candidates.addAll(natExpandAny(range, maxPerBlock: remaining));
@@ -1780,7 +1780,7 @@ const List<int> natCommonPorts = [
 
 List<int> natAutoPorts(List<Server> known) {
   final cnt = <int, int>{};
-  for (final s in known.take(100)) { // فیکس ۱۸: قبلاً کل known (تا ۳۰۰۰ سرور)
+  for (final s in known) {
     if (s.port > 0 && s.port < 65536) cnt[s.port] = (cnt[s.port] ?? 0) + 1;
   }
   for (final e in natIpMem) {
@@ -1789,7 +1789,7 @@ List<int> natAutoPorts(List<Server> known) {
   }
   final ports = natStableSorted<int>(
       cnt.keys, (x, y) => cnt[y]! - cnt[x]!);
-  final out = <int>[...ports.take(10)];
+  final out = <int>[...ports];
   for (final p in natCommonPorts) {
     if (!out.contains(p)) out.add(p);
   }
@@ -2163,7 +2163,7 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   final addrs = <String>[];
   // NATMEM: هر بلوک حداکثر ۲۵۶ آدرس پراکنده و کل فهرست سقف دارد. قبلاً هر بلوک تا ۶۵۵۳۶ آدرس
   // و فهرست ISP حدود ۲۸۰۰ بلوک داشت، یعنی ده‌ها میلیون رشته در isolate و فقط ۶۰۰۰ تای آن استفاده می‌شد.
-  final cap = max(cfIpsBatch * 4, 20000);
+  final cap = (args['maxTargets'] as int?) ?? max(cfIpsBatch * 4, 20000);
   void addBlocks() {
     if (blocks.isEmpty) return;
     // Rotate across the entire CIDR/range catalog; otherwise a capped list
@@ -2209,7 +2209,6 @@ Future<List<String>> natRangeScanStep({
   // Iterable.take() throws for a negative count; zero-sized requests should be
   // a cheap no-op rather than starting compute/network work.
   if (maxAddrs <= 0 || budget <= Duration.zero) return const <String>[];
-  maxAddrs = maxAddrs.clamp(1, 4096).toInt();
   conc = conc.clamp(1, 32).toInt();
   if (_natRangeScanBusy) return const <String>[];
   _natRangeScanBusy = true;
@@ -2258,17 +2257,19 @@ Future<List<String>> _natRangeScanStepBody({
   final blocks = natSeedBlocks(hosts);
   // Stage the configured-range cursor; do not persist it until scan success.
   final configuredBatch = modeSnapshot
-      ? _natConfiguredRangeBatch(maxAddrs)
+      ? _natConfiguredRangeBatch(max(1, maxAddrs ~/ 2))
       : (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
   final configuredNatRanges = configuredBatch.addresses;
 
-  // CDN refresh is unrelated to the National Net range inventory.
-  unawaited(refreshCdnRanges());
+  // Refresh published CDN prefixes and retain the last good snapshot on failure.
+  try { await refreshCdnRanges(); } catch (e, st) { logError(e, st); }
+  final generatedBudget = max(1, maxAddrs - configuredNatRanges.length);
   final args = <String, dynamic>{
-    'cfIpsBatch': 0, // no broad CDN/third-party range sweep in automatic mode
+    'cfIpsBatch': max(1, generatedBudget ~/ 2),
+    'maxTargets': generatedBudget,
     'blocks': blocks,
     'nationalMode': modeSnapshot,
-    'liveRanges': <String>[],
+    'liveRanges': List<String>.of(_liveCdnRanges),
     'cursors': Map<String, int>.of(_cfRangeCursors),
   };
   final gen = await compute(_genAddrsIso, args);
@@ -2303,7 +2304,7 @@ Future<List<String>> _natRangeScanStepBody({
       slice,
       port: port,
       concurrency: conc,
-      want: 50,
+      want: slice.length,
       budget: portBudget,
       timeout: const Duration(milliseconds: 1500),
       cancelled: shouldAbort,
