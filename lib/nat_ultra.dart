@@ -2426,10 +2426,14 @@ Future<List<String>> _natRangeScanStepBody({
   }.toList(growable: false);
   final blocks = natSeedBlocks(hosts);
 
-  final portList = natAutoPorts(seeds);
+  final portList = natFullPortInventory(seeds);
   if (portList.isEmpty) return const <String>[];
   final modeKey = modeSnapshot ? 'nat' : 'global';
-  final portIndex = natCursorIndex(_natRangePortCursors[modeKey], portList.length);
+  final lastPort = _natRangePortCursors[modeKey] ?? 0;
+  final previousPortIndex = portList.indexOf(lastPort);
+  final portIndex = previousPortIndex < 0
+      ? 0
+      : (previousPortIndex + 1) % portList.length;
   final port = portList[portIndex];
   final portPrefix = '$modeKey:port:$port:';
 
@@ -2523,7 +2527,7 @@ Future<List<String>> _natRangeScanStepBody({
         configuredBatch.nextCursor.toString();
     _natConfiguredRangeCursor = configuredBatch.nextCursor;
   }
-  _natRangePortCursors[modeKey] = (portIndex + 1) % portList.length;
+  _natRangePortCursors[modeKey] = port;
 
   natTemplateSeeds = seeds.take(2).toList();
   natRandomLast = 0;
@@ -2532,10 +2536,7 @@ Future<List<String>> _natRangeScanStepBody({
   try {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('natRangeScanCursorsV2', jsonEncode(_cfRangeCursors));
-    await prefs.setString('natRangePortCursorsV2', jsonEncode(_natRangePortCursors));
-    if (modeSnapshot) {
-      await prefs.setInt('natRangePortCursorV1', _natRangePortCursors['nat'] ?? 0);
-    }
+    await prefs.setString('natRangePortCursorsV3', jsonEncode(_natRangePortCursors));
     if (configuredRanges.isNotEmpty) {
       await prefs.setString(
           'natConfiguredRangeOffsetsV1', jsonEncode(_natConfiguredRangeOffsets));
