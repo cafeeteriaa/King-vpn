@@ -280,47 +280,58 @@ Future<void> natPrefetchAsn(List<Server> list) async {
 /// آخرین شکست RIPE برای هر IP (حافظه‌ی موقت، جدا از کش دائمی).
 final Map<String, DateTime> _asnFailAt = <String, DateTime>{};
 
-/// بلوک‌های IPv4 اعلام‌شده‌ی شرکت هاست همان IP (از RIPE Stat).
+/// All announced IPv4 and IPv6 prefixes for every ASN owning this address.
 Future<List<String>> nipAsnPrefixes(String ip) async {
   final prefs = await SharedPreferences.getInstance();
   final cacheKey = 'nip_asn_v1_$ip';
   final cached = prefs.getStringList(cacheKey);
   if (cached != null && cached.isNotEmpty) return cached;
-  // NATOPT: RIPE خارج از کشور است. وقتی جهانی قطع است فقط کش معتبر است؛ شبکه نمی‌زنیم.
+  // RIPE is external; while international access is unavailable, use valid cache only.
   if (NatNetworkDiagnosis.preferDomestic) return const [];
-  // NATOPT: شکست اخیر را ۱۵ دقیقه به خاطر می‌سپاریم تا هر دور جستجو ۳ بار ۱۲ ثانیه تایم‌اوت نخورد.
   final failAt = _asnFailAt[ip];
-  if (failAt != null && DateTime.now().difference(failAt) < const Duration(minutes: 15)) {
+  if (failAt != null &&
+      DateTime.now().difference(failAt) < const Duration(minutes: 15)) {
     return const [];
   }
   try {
-    final r = await http
+    final response = await http
         .get(Uri.parse('https://stat.ripe.net/data/network-info/data.json?resource=$ip'))
         .timeout(const Duration(seconds: 12));
-    if (r.statusCode != 200) {
+    if (response.statusCode != 200) {
       _asnFailAt[ip] = DateTime.now();
       return const [];
     }
-    final asns = ((jsonDecode(r.body)['data']?['asns']) as List?) ?? const [];
-    final out = <String>[];
-    for (final a in asns.take(2)) {
-      final rr = await http
-          .get(Uri.parse('https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS$a'))
-          .timeout(const Duration(seconds: 12));
-      if (rr.statusCode != 200) continue;
-      final prefixes = ((jsonDecode(rr.body)['data']?['prefixes']) as List?) ?? const [];
-      for (final pe in prefixes) {
-        final pr = '${pe['prefix']}';
-        if (pr.contains('/')) out.add(pr);
+    final rawAsns =
+        ((jsonDecode(response.body)['data']?['asns']) as List?) ?? const [];
+    final asns = rawAsns.map((value) => value.toString()).toList(growable: false);
+    final out = <String>{};
+    await pool<String>(asns, 4, (asn) async {
+      try {
+        final result = await http
+            .get(Uri.parse(
+                'https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS$asn'))
+            .timeout(const Duration(seconds: 12));
+        if (result.statusCode != 200) return;
+        final prefixes =
+            ((jsonDecode(result.body)['data']?['prefixes']) as List?) ?? const [];
+        for (final entry in prefixes) {
+          if (entry is! Map) continue;
+          final prefix = '${entry['prefix']}';
+          if (prefix.contains('/')) out.add(prefix);
+        }
+      } catch (e, stk) {
+        logError(e, stk);
       }
-    }
-    if (out.isNotEmpty) {
-      await prefs.setStringList(cacheKey, out);
+    });
+    final ranges = out.toList(growable: false);
+    if (ranges.isNotEmpty) {
+      await prefs.setStringList(cacheKey, ranges);
     } else {
       _asnFailAt[ip] = DateTime.now();
     }
-    return out;
-  } catch (_) {
+    return ranges;
+  } catch (e, stk) {
+    logError(e, stk);
     _asnFailAt[ip] = DateTime.now();
     return const [];
   }
