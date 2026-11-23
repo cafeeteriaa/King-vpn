@@ -170,7 +170,7 @@ Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Funct
     return const <String>[];
   }
   final all = (gen['addrs'] as List).cast<String>();
-  final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);
+  final generatedCursors = Map<String, dynamic>.from(gen['cursors'] as Map);
   if (all.isEmpty) return const <String>[];
   // maxAddrs is enforced inside the generator, so every advanced cursor maps
   // to an address returned for this exact scan batch.
