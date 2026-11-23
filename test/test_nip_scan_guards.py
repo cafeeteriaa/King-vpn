@@ -1,0 +1,67 @@
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class NationalIpScannerGuardTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.source = (ROOT / "lib" / "nip_scan.dart").read_text(encoding="utf-8")
+
+    def test_cidr_sampling_has_hard_ceiling_and_positive_limit(self):
+        start = self.source.index("List<String> nipExpandCidr(")
+        end = self.source.index("/// اتصال TCP", start)
+        block = self.source[start:end]
+        self.assertIn("if (maxPerBlock <= 0) return const [];", block)
+        self.assertIn("maxPerBlock = min(maxPerBlock, 4096);", block)
+        self.assertIn("(size + maxPerBlock - 1) ~/ maxPerBlock", block)
+
+    def test_scanner_validates_port_and_time_budgets_before_work(self):
+        start = self.source.index("Future<List<NipHit>> nipScan(")
+        end = self.source.index("/// همان کانفیگ سرور", start)
+        block = self.source[start:end]
+        self.assertIn("port < 1 || port > 65535", block)
+        self.assertIn("budget <= Duration.zero", block)
+        self.assertIn("timeout <= Duration.zero", block)
+        self.assertIn("final boundedIps = natBoundScanTargets(ips);", block)
+
+    def test_scan_uses_monotonic_clock_and_enforces_remaining_budget(self):
+        start = self.source.index("Future<List<NipHit>> nipScan(")
+        end = self.source.index("/// همان کانفیگ سرور", start)
+        block = self.source[start:end]
+        self.assertIn("final elapsed = Stopwatch()..start();", block)
+        self.assertIn("final remaining = budget - elapsed.elapsed;", block)
+        self.assertIn("if (remaining <= Duration.zero) return;", block)
+        self.assertIn("final probeTimeout = timeout < remaining ? timeout : remaining;", block)
+        self.assertIn("nipTcpProbe(ip, port, probeTimeout)", block)
+
+    def test_worker_checks_cancel_budget_and_result_cap(self):
+        start = self.source.index("Future<List<NipHit>> nipScan(")
+        end = self.source.index("/// همان کانفیگ سرور", start)
+        block = self.source[start:end]
+        self.assertIn("if (hits.length >= want) return;", block)
+        self.assertIn("if (cancelled != null && cancelled()) return;", block)
+        self.assertIn("if (elapsed.elapsed >= budget) return;", block)
+        self.assertIn("concurrency.clamp(1, 16)", block)
+
+    def test_tcp_probe_destroys_successful_socket(self):
+        start = self.source.index("Future<int?> nipTcpProbe(")
+        end = self.source.index("/// اسکن هم‌زمان", start)
+        block = self.source[start:end]
+        self.assertIn("Socket.connect(ip, port, timeout: timeout)", block)
+        self.assertIn("s.destroy();", block)
+
+    def test_front_tls_probe_keeps_certificate_validation_and_closes_sockets(self):
+        start = self.source.index("Future<String?> nipFrontProbe(")
+        end = self.source.index("Future<String?> nipFindFrontSni(", start)
+        block = self.source[start:end]
+        self.assertIn("SecureSocket.secure(raw, host: sni)", block)
+        self.assertNotIn("onBadCertificate:", block)
+        self.assertIn("finally", block)
+        self.assertIn("sec?.destroy()", block)
+        self.assertIn("raw?.destroy()", block)
+
+
+if __name__ == "__main__":
+    unittest.main()
