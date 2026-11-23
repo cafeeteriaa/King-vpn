@@ -25,6 +25,9 @@ import 'dart:math';
 import 'errjournal.dart';
 import 'nnie_core.dart'; // natStableSort
 
+/// Hard ceiling per user-supplied range/scan to keep mobile probes bounded.
+const int kNatMaxScanAddresses = 4096;
+
 class NatIpHit {
   final String ip;
   final int ms;
@@ -38,6 +41,7 @@ class NatIpHit {
 /// برای بلوک‌های بزرگ، فقط [maxPerBlock] آدرس پراکنده برمی‌گرداند.
 List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   if (maxPerBlock <= 0) return const [];
+  final limit = min(maxPerBlock, kNatMaxScanAddresses);
   final parts = cidr.trim().split('/');
   if (parts.length != 2) return const [];
   final octets = parts[0].split('.');
@@ -55,7 +59,7 @@ List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   final start = base & ~(size - 1) & 0xFFFFFFFF;
   // Ceiling division is required: floor division can exceed maxPerBlock
   // for non-divisible subnet sizes (e.g. /24 with a limit of 100 yields 128).
-  final step = size > maxPerBlock ? (size + maxPerBlock - 1) ~/ maxPerBlock : 1;
+  final step = size > limit ? (size + limit - 1) ~/ limit : 1;
   final out = <String>[];
   for (var i = 0; i < size; i += step) {
     final v = start + i;
@@ -66,8 +70,9 @@ List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
 
 /// بازه‌ی خطی به شکل a.b.c.d-e.f.g.h (برای نوشته‌هایی که CIDR نیستند).
 /// بازه‌های بزرگ‌تر از maxCount به‌طور یکنواخت نمونه‌برداری می‌شوند.
-List<String> natExpandDash(String range, {int maxCount = 65536}) {
+List<String> natExpandDash(String range, {int maxCount = kNatMaxScanAddresses}) {
   if (maxCount <= 0) return const [];
+  final limit = min(maxCount, kNatMaxScanAddresses);
   final parts = range.trim().split('-');
   if (parts.length != 2) return const [];
   int? toInt(String ip) {
@@ -85,7 +90,7 @@ List<String> natExpandDash(String range, {int maxCount = 65536}) {
   final b = toInt(parts[1]);
   if (a == null || b == null || b < a) return const [];
   final count = b - a + 1;
-  final step = count > maxCount ? (count + maxCount - 1) ~/ maxCount : 1; // مشکل ۱۵: سقف رعایت شود
+  final step = count > limit ? (count + limit - 1) ~/ limit : 1; // مشکل ۱۵: سقف رعایت شود
   final out = <String>[];
   for (var v = a; v <= b; v += step) {
     out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
@@ -164,13 +169,17 @@ Future<List<NatIpHit>> natScanIps(
     return <NatIpHit>[];
   }
 
+  // A caller cannot turn one scan into an unbounded sweep by passing a huge list.
+  final boundedIps = ips.length > kNatMaxScanAddresses
+      ? ips.take(kNatMaxScanAddresses).toList(growable: false)
+      : ips;
   final effective = natAdaptiveConcurrency(concurrency);
   // Stopwatch is monotonic; wall-clock changes must not extend or truncate a scan.
   final elapsed = Stopwatch()..start();
   final hits = <NatIpHit>[];
 
   // Optional shuffle so the same subnet is not hit first on every run.
-  final source = randomize ? (List<String>.of(ips)..shuffle(Random())) : ips;
+  final source = randomize ? (List<String>.of(boundedIps)..shuffle(Random())) : boundedIps;
 
   var next = 0;
   var done = 0;
