@@ -2145,7 +2145,9 @@ List<String> _getCfIps({
     final remaining = batchSize - out.length;
     final rangesLeft = ranges.length - index;
     final quota = max(1, (remaining + rangesLeft - 1) ~/ rangesLeft);
-    final base = (a << 24) | (b << 16) | (c << 8) | d;
+    final rawBase = (a << 24) | (b << 16) | (c << 8) | d;
+    final mask = prefix == 0 ? 0 : (0xffffffff << (32 - prefix)) & 0xffffffff;
+    final base = rawBase & mask;
     final span = 1 << (32 - prefix);
     final count = min(quota, span);
     final cursor = curMap[cidr] ?? 0;
