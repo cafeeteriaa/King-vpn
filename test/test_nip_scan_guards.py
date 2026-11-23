@@ -26,12 +26,12 @@ class NationalIpScannerGuardTests(unittest.TestCase):
         self.assertIn("timeout <= Duration.zero", block)
         self.assertIn("final boundedIps = natBoundScanTargets(ips);", block)
 
-    def test_scan_uses_monotonic_clock_and_enforces_remaining_budget(self):
+    def test_scan_uses_optional_budget_and_per_probe_timeout(self):
         start = self.source.index("Future<List<NipHit>> nipScan(")
         end = self.source.index("/// همان کانفیگ سرور", start)
         block = self.source[start:end]
         self.assertIn("final elapsed = Stopwatch()..start();", block)
-        self.assertIn("final remaining = budget - elapsed.elapsed;", block)
+        self.assertIn("final remaining = budget == null ? timeout : budget - elapsed.elapsed;", block)
         self.assertIn("if (remaining <= Duration.zero) return;", block)
         self.assertIn("final probeTimeout = timeout < remaining ? timeout : remaining;", block)
         self.assertIn("nipTcpProbe(ip, port, probeTimeout)", block)
@@ -42,14 +42,14 @@ class NationalIpScannerGuardTests(unittest.TestCase):
         block = self.source[start:end]
         self.assertIn("if (hits.length >= want) return;", block)
         self.assertIn("if (cancelled != null && cancelled()) return;", block)
-        self.assertIn("if (elapsed.elapsed >= budget) return;", block)
-        self.assertIn("concurrency.clamp(1, 16)", block)
+        self.assertIn("if (budget != null && elapsed.elapsed >= budget) return;", block)
+        self.assertIn("natAdaptiveConcurrency(concurrency)", block)
 
     def test_nat_scan_caps_each_probe_to_remaining_monotonic_budget(self):
         source = (ROOT / "lib" / "nat_ip_scan.dart").read_text(encoding="utf-8")
         start = source.index("Future<List<NatIpHit>> natScanIps(")
         block = source[start:]
-        self.assertIn("final remaining = budget - elapsed.elapsed;", block)
+        self.assertIn("final remaining = budget == null ? timeout : budget - elapsed.elapsed;", block)
         self.assertIn("if (remaining <= Duration.zero) return;", block)
         self.assertIn("final probeTimeout = timeout < remaining ? timeout : remaining;", block)
         self.assertIn("natTcpProbe(ip, port, probeTimeout)", block)
@@ -111,11 +111,11 @@ class NationalIpScannerGuardTests(unittest.TestCase):
         end = self.source.index("/// همان کانفیگ را با IP و SNI جدید", start)
         block = self.source[start:end]
         self.assertIn("final elapsed = Stopwatch()..start();", block)
-        self.assertIn("final remaining = budget - elapsed.elapsed;", block)
+        self.assertIn("final probeBudget = budget == null", block)
         self.assertIn("cancelled?.call() == true", block)
-        self.assertIn("final probeBudget = remaining < perProbeCap ? remaining : perProbeCap;", block)
+        self.assertIn("final probeBudget = budget == null", block)
         self.assertIn("nipFrontProbe(ip, port, sni, timeout: probeBudget)", block)
-        self.assertIn("budget = const Duration(seconds: 90)", block)
+        self.assertNotIn("Duration(seconds: 90)", block)
 
     def test_front_sni_scan_passes_its_abort_signal_to_each_probe(self):
         self.assertIn("nipFindFrontSni(h.ip, port, cancelled: () => abort)", self.source)
