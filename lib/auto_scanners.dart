@@ -19,7 +19,9 @@ const List<String> kAutoFallbackIps = [
 bool _autoScanRunning = false;
 bool _autoScanStop = false;
 const String _autoScanCdnCursorKey = 'auto_scan_cdn_cursors_v1';
-const int _autoScanCdnBatchSize = 8; // full SNI/port/TLS pass fits the shared four-minute budget
+const String _autoScanDomainCursorKey = 'auto_scan_domain_cursor_v1';
+const int _autoScanCdnBatchSize = 8;
+const int _autoScanDomainBatchSize = 18; // full SNI/port/TLS pass fits the shared four-minute budget
 
 // TLS با SNI مشخص: اگر هندشیک کامل شود، SNI برای آن IP قابل استفاده است
 Future<int?> _autoSniOk(String ip, int port, String sni) async {
@@ -157,6 +159,24 @@ Future<void> autoScanRun(void Function(String) say,
       }
     }
     final stagedCdnCursors = Map<String, dynamic>.of(cdnCursors);
+    // Use the entire project domain inventory, not only the small seed list.
+    // A persisted last-domain cursor rotates through it across completed runs.
+    final domainInventory = <String>{
+      ...kAutoSniDomains,
+      ...dnsxFullDomains(),
+    }.toList()..sort();
+    final savedDomainCursor = prefs.getString(_autoScanDomainCursorKey);
+    final previousDomainIndex = savedDomainCursor == null
+        ? -1
+        : domainInventory.indexOf(savedDomainCursor);
+    final domainStart = previousDomainIndex < 0
+        ? 0
+        : (previousDomainIndex + 1) % domainInventory.length;
+    final domainBatch = <String>[
+      for (var i = 0; i < min(_autoScanDomainBatchSize, domainInventory.length); i++)
+        domainInventory[(domainStart + i) % domainInventory.length],
+    ];
+    final stagedDomainCursor = domainBatch.isEmpty ? savedDomainCursor : domainBatch.last;
     final cdnRanges = _liveCdnRanges.isNotEmpty ? _liveCdnRanges : [..._cfRanges, ..._cfRangesV6];
     unawaited(refreshCdnRanges());
     // Add AAAA answers from the same project SNI inventory. Combine exact
@@ -185,7 +205,7 @@ Future<void> autoScanRun(void Function(String) say,
     final sniHits = <String>[];
     var n = 0;
     sniLoop:
-    for (final d in kAutoSniDomains) {
+    for (final d in domainBatch) {
       n++;
       if (scanNationalMode) {
         await natManualYield(shouldAbort: () => cancelled());
@@ -206,7 +226,7 @@ Future<void> autoScanRun(void Function(String) say,
         }
       }
       if (ok) sniHits.add(d);
-      say('SNI $n/${kAutoSniDomains.length} • سالم: ${sniHits.length}');
+      say('SNI $n/${domainBatch.length} • سالم: ${sniHits.length}');
     }
 
     if (cancelled()) {
@@ -248,7 +268,9 @@ Future<void> autoScanRun(void Function(String) say,
 
     // TLS/ALPN: خروجی نام پروتکل‌های TLS است؛ روی اولین دامنه‌ی سالم (یا پیش‌فرض) تست می‌شود
     final tlsHits = <String>[];
-    final tlsSni = sniHits.isNotEmpty ? sniHits.first : 'www.google.com';
+    final tlsSni = sniHits.isNotEmpty
+        ? sniHits.first
+        : (domainBatch.isNotEmpty ? domainBatch.first : 'www.google.com');
     for (final alpn in const ['h2', 'http/1.1']) {
       if (cancelled()) break;
       var ok = false;
@@ -284,7 +306,10 @@ Future<void> autoScanRun(void Function(String) say,
     }
     // Advance the CDN inventory only after the scan results have been committed.
     await prefs.setString(_autoScanCdnCursorKey, jsonEncode(stagedCdnCursors));
-    say('تمام شد: ${sniHits.length} SNI و ${portHits.length} پورت در پوشه‌ی جهانی ذخیره شد');
+    if (stagedDomainCursor != null) {
+      await prefs.setString(_autoScanDomainCursorKey, stagedDomainCursor);
+    }
+    say('تمام شد: ${sniHits.length} SNI و ${portHits.length} پورت در پوشه‌ی جهانی ذخیره شد؛ دامنه‌ها در نوبت‌های بعدی ادامه می‌یابند');
   } catch (e, stk) {
     logError(e, stk);
     say('خطا در اسکن خودکار');
