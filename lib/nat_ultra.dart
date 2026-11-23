@@ -2031,7 +2031,17 @@ Future<List<String>> _natDomainFirst(List<Server> known,
     for (final entry in endpoints.entries) {
       if (cancelled()) return const <String>[];
       final parsed = InternetAddress.tryParse(entry.key);
-      final addresses = parsed == null ? await safeLookup(entry.key) : <InternetAddress>[parsed];
+      var addresses = parsed == null
+          ? await safeLookup(entry.key)
+          : <InternetAddress>[parsed];
+      if (addresses.isEmpty && !NatNetworkDiagnosis.preferDomestic) {
+        final dohAddresses = await dohResolveAll(entry.key);
+        addresses = [
+          for (final value in dohAddresses)
+            if (InternetAddress.tryParse(value) != null)
+              InternetAddress.parse(value),
+        ];
+      }
       if (cancelled()) return const <String>[];
       for (final address in addresses) {
         if (address.type != InternetAddressType.IPv4 &&
