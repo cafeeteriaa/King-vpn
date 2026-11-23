@@ -10,7 +10,6 @@ const List<String> kAutoSniDomains = [
   'www.spotify.com', 'www.github.com',
 ];
 const List<int> kAutoPorts = [443, 8443, 2053, 2083, 2087, 2096];
-const int kAutoIpLimit = 40;
 // AUTOFALLBACK: IPهای داخلی برای وقتی پوشه‌ی جهانی هنوز IP تمیز ندارد
 const List<String> kAutoFallbackIps = [
   '104.16.0.1', '104.17.0.1', '104.18.0.1', '104.19.0.1', '104.20.0.1',
@@ -112,7 +111,7 @@ Future<void> autoScanRun(void Function(String) say,
     // FOLDERALL: IPهای پوشه اول؛ در نت ملی IPهای ISP داخلی هم اضافه می‌شود (بهینه برای نت ملی)
     // This is the generic/global SNI and port scanner. National ISP ranges
     // belong exclusively to the National Net engine and are never borrowed here.
-    final base = [for (final entry in _goldIps.values.take(kAutoIpLimit)) entry.ip];
+    final base = [for (final entry in _goldIps.values) entry.ip];
     final cdnSample = <String>[];
     if (base.isEmpty) {
       for (final r in _cfRanges.take(8)) {
@@ -128,8 +127,14 @@ Future<void> autoScanRun(void Function(String) say,
     // SNI: خروجی خود دامنه‌هاست. هر دامنه یک بار؛ به محض یک IP سالم، همان دامنه ثبت می‌شود
     final sniHits = <String>[];
     var n = 0;
+    final configuredSnis = <String>{
+      ...kAutoSniDomains,
+      ...dnsxFullDomains(),
+      for (final server in fetchedAll)
+        if (InternetAddress.tryParse(server.host) == null) server.host,
+    }.toList(growable: false);
     sniLoop:
-    for (final d in kAutoSniDomains) {
+    for (final d in configuredSnis) {
       n++;
       if (scanNationalMode) {
         await natManualYield(shouldAbort: () => cancelled());
@@ -144,7 +149,7 @@ Future<void> autoScanRun(void Function(String) say,
         }
       }
       if (ok) sniHits.add(d);
-      say('SNI $n/${kAutoSniDomains.length} • سالم: ${sniHits.length}');
+      say('SNI $n/${configuredSnis.length} • سالم: ${sniHits.length}');
     }
 
     if (cancelled()) {
