@@ -3880,6 +3880,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn('!(relaySrv.host == s.host && relaySrv.port == s.port)', source)
         self.assertIn('!(x.host == s.host && x.port == s.port)', source)
+    def test_multihop_relay_endpoint_comparison_is_dns_and_ip_normalized(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('bool _sameEndpoint(Server a, Server b)')
+        end = source.index('// BUSYDROP:', start)
+        helper = source[start:end]
+        self.assertIn('a.host.toLowerCase()', helper)
+        self.assertIn('b.host.toLowerCase()', helper)
+        self.assertIn('endsWith(\'.\')', helper)
+        self.assertIn('ai.rawAddress.join(\':\')', helper)
+        self.assertIn('_sameEndpoint(relaySrv, s)', source)
+        self.assertIn('_sameEndpoint(x, s)', source)
+
     def test_nat_relay_chain_uses_collision_free_outbound_tag(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('String? natChainCfg(')
