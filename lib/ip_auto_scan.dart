@@ -169,7 +169,9 @@ Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddr
   if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false)) {
     return (addresses: const <String>[], cursors: cursorSnapshot);
   }
-  final all = (gen['addrs'] as List).cast<String>();
+  // Overlapping CIDRs and exact host seeds may describe the same endpoint.
+  // Probe each distinct address once while preserving deterministic order.
+  final all = (gen['addrs'] as List).cast<String>().toSet().toList(growable: false);
   final generatedCursors = Map<String, dynamic>.from(gen['cursors'] as Map);
   if (all.isEmpty) return (addresses: const <String>[], cursors: cursorSnapshot);
   // Return staged cursors. The caller commits them only after the complete TCP
