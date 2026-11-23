@@ -2208,18 +2208,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         tls_start = source.index('final tlsHits = <String>[];')
         tls_end = source.index("await goldAddScans(", tls_start)
         tls = source[tls_start:tls_end]
-        ip_loop = tls.index('for (final ip in ips) {')
-        stop_check = tls.index('if (cancelled()) break;', ip_loop)
-        probe = tls.index('final sel = await _autoAlpnOk', ip_loop)
-        self.assertLess(ip_loop, stop_check)
-        self.assertLess(stop_check, probe)
+        self.assertIn("for (final alpn in const ['h2', 'http/1.1'])", tls)
+        self.assertIn('batch.map((ip) => _autoAlpnOk(ip, tlsSni, alpn))', tls)
+        self.assertIn('if (cancelled()) break;', tls)
 
     def test_ip_auto_storage_load_and_save_are_mode_isolated_across_awaits(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         load_start = source.index('Future<void> ipAutoLoad() async {')
         save_start = source.index('Future<void> _ipAutoSave() async {', load_start)
         load = source[load_start:save_start]
-        save_end = source.index('/// خودکار فقط IPهای دقیق', save_start)
+        save_end = source.index('/// Inventory پویا', save_start)
         save = source[save_start:save_end]
         self.assertLess(load.index('final loadNationalMode = nationalMode;'),
                         load.index('await SharedPreferences.getInstance();'))
@@ -2370,7 +2368,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('perPortCap', body)
         self.assertNotIn('for (final port in portList)', body)
         self.assertNotIn('DateTime.now().add(budget)', body)
-        self.assertIn('int maxAddrs = 2048,', source[source.index('Future<List<String>> natRangeScanStep('):source.index('Future<List<String>> _natRangeScanStepBody(')])
+        self.assertIn('int maxAddrs = 8192,', source[source.index('Future<List<String>> natRangeScanStep('):source.index('Future<List<String>> _natRangeScanStepBody(')])
 
     def test_dns_wire_probe_cancellation_closes_pending_udp_work(self):
         core = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
@@ -2644,7 +2642,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_manual_range_scan_honors_cancel_and_persists_only_complete_batches(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> manualRangeScan(')
-        end = source.index('// HOTFOLDER UI', start)
+        end = len(source)
         body = source[start:end]
         self.assertIn('await natManualYield(shouldAbort: () => cancelled || !open);', body)
         self.assertIn('while (!cancelled && open)', body)
@@ -2750,9 +2748,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = auto.index('final base = [for (final entry in _goldIps.values) entry.ip];')
         end = auto.index('final ips =', start)
         inventory = auto[start:end]
-        self.assertIn('_getCfIps(', inventory)
-        self.assertIn('liveRanges: cdnRanges', inventory)
-        self.assertIn('cursors: stagedCdnCursors', inventory)
+        self.assertIn('_getCfIps(', auto)
+        self.assertIn('liveRanges: targetRanges', auto)
+        self.assertIn('cursors: stagedCdnCursors', auto)
         self.assertIn('Map<String, dynamic>.of(cdnCursors)', inventory)
         self.assertNotIn('natExpandCidr(', inventory)
         self.assertNotIn('_cfRanges.take(', inventory)
@@ -2808,7 +2806,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("cursorMap['__cdn_range_cursor']", cf)
         self.assertIn('(start + visited) % ranges.length', cf)
         self.assertIn('for (; visited < ranges.length && out.length < batchSize; visited++)', cf)
-        self.assertIn("'maxAddrs': maxAddrs,", nat)
+        self.assertIn("'maxAddrs': max(0, scanLimit - configuredRanges.length),", nat)
         ip = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         self.assertIn("'maxAddrs': batchSize,", ip)
         start = ip.index('Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(')
@@ -2950,7 +2948,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('natExpandIpv6Cidr(cidr, maxPerBlock: maxPerBlock)', nip)
         self.assertIn('resources[\'ipv6\']', nip)
         self.assertIn('Future<List<String>> nipResolveAll(', nip)
-        self.assertIn('await nipResolveAll(server.host)', nip)
+        self.assertIn('return nipResolveAll(server.host);', nip)
         self.assertIn('if (pr.contains(\'/\')) out.add(pr);', nip)
         self.assertIn('..._cfRangesV6', nip)
         self.assertNotIn('!pr.contains(\':\')', nip)
@@ -2988,7 +2986,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('BigInt _natIpv6ToBigInt(', nat)
         self.assertIn('prefix > 128', nat)
         self.assertIn('(List<String>, String) _natExpandAnyCursorWide(', nat)
-        self.assertIn('cursor % size', nat)
+        self.assertIn("cursorMap['__cdn_range_cursor']", nat)
+        self.assertIn('(start + visited) % ranges.length', nat)
         self.assertIn("Map<String, dynamic> _cfRangeCursors", nat)
         self.assertIn("final expanded = _natExpandAnyCursorWide(", nat)
         self.assertIn("return _natExpandAnyCursorWide(item, '0', maxPerBlock).$1;", nat)
@@ -3038,7 +3037,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
         extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         self.assertIn("'https://www.cloudflare.com/ips-v6'", extras)
-        self.assertIn("p['ipv6_prefix']", extras)
+        self.assertIn("entry['ipv6_prefix']", extras)
         self.assertIn("p['ipv6Prefix']", extras)
         self.assertIn("NatDnsWireProbe.publicV6(address.rawAddress, 0)", extras)
         self.assertIn("address.type == InternetAddressType.IPv6", extras)
