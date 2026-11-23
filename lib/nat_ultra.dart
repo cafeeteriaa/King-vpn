@@ -2313,9 +2313,9 @@ Future<List<String>> _natRangeScanStepBody({
   } catch (e, st) {
     logError(e, st);
   }
-  final generatedBudget = max(1, workQuantum - configuredNatRanges.length);
+  final generatedBudget = max(0, workQuantum - configuredNatRanges.length);
   final args = <String, dynamic>{
-    'cfIpsBatch': max(1, generatedBudget ~/ 2),
+    'cfIpsBatch': generatedBudget ~/ 2,
     'maxTargets': generatedBudget,
     'blocks': blocks,
     'nationalMode': modeSnapshot,
@@ -2344,6 +2344,7 @@ Future<List<String>> _natRangeScanStepBody({
   natRangePortCursor %= natRangePortInventory.length;
   final port = natRangePortInventory[natRangePortCursor];
   var scanned = 0;
+  final out = <String>[];
   final hits = await natScanIps(
     slice,
     port: port,
