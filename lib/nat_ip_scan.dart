@@ -170,7 +170,7 @@ int natAdaptiveConcurrency(int requested) {
 ///   • Live cancellation: in-flight probes exit as soon as cancelled() is true.
 ///   • Progress reporting via [onProgress] (called every few completions).
 ///   • Optional [randomize] to shuffle the scan order.
-///   • No artificial caps on the caller's intent.
+///   • Shared hard ceiling of 4096 validated numeric targets per scan.
 Future<List<NatIpHit>> natScanIps(
   List<String> ips, {
   int port = 443,
