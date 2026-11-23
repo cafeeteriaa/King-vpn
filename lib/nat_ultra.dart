@@ -1686,7 +1686,7 @@ final Set<String> natIpDeadRun = {};
 List<String> natRanges = [];
 int natRangeCursor = 0; // generic range cursor
 int _natConfiguredRangeCursor = 0; // next range index for fair round-robin coverage
-final Map<String, int> _natConfiguredRangeOffsets = {}; // per-range address cursor
+final Map<String, dynamic> _natConfiguredRangeOffsets = {}; // per-range address cursor
 DateTime natRangeLast = DateTime.fromMillisecondsSinceEpoch(0);
 
 Set<String> natIpMemHosts() => {for (final e in natIpMem) '${e['ip']}'};
@@ -1716,9 +1716,8 @@ Future<void> natIpMemLoad() async {
         final decoded = jsonDecode(savedOffsets);
         if (decoded is Map) {
           for (final entry in decoded.entries) {
-            if (entry.value is num) {
-              _natConfiguredRangeOffsets['${entry.key}'] =
-                  (entry.value as num).toInt();
+            if (entry.value is num || entry.value is String) {
+              _natConfiguredRangeOffsets['${entry.key}'] = '${entry.value}';
             }
           }
         }
@@ -1788,9 +1787,9 @@ Future<void> natIpMemSave(String ip, int port) async {
 /// Next bounded, fair sample from every configured National Net range.
 /// Range rotation and per-range address offsets prevent large early ranges from
 /// starving later entries; memory stays proportional to the requested batch.
-({List<String> addresses, int nextCursor, Map<String, int> nextOffsets})
+({List<String> addresses, int nextCursor, Map<String, dynamic> nextOffsets})
     _natConfiguredRangeBatch(int limit) {
-  final offsets = Map<String, int>.of(_natConfiguredRangeOffsets);
+  final offsets = Map<String, dynamic>.of(_natConfiguredRangeOffsets);
   if (limit <= 0 || natRanges.isEmpty) {
     return (
       addresses: const <String>[],
@@ -1810,7 +1809,7 @@ Future<void> natIpMemSave(String ip, int port) async {
     final index = (start + visited) % natRanges.length;
     final range = natRanges[index];
     final quota = min(perRange, limit - scanned).toInt();
-    final expanded = _natExpandAnyCursor(
+    final expanded = _natExpandAnyCursorWide(
       range,
       offsets[range] ?? 0,
       quota,
@@ -1879,11 +1878,17 @@ List<int>? _ipTriple(String host) {
 
 List<String> natAutoBlocks(List<Server> known) {
   String blk(int a, int b, int c) => '$a.$b.$c.0/24';
+  final ipv6Blocks = <String>{};
   final hitBlocks = <String>[];
   final near = <String>[];
   final rest = <String>[];
   final hitTriples = <List<int>>[];
   for (final e in natIpMem) {
+    final remembered = InternetAddress.tryParse('${e['ip']}');
+    if (remembered?.type == InternetAddressType.IPv6) {
+      ipv6Blocks.add('${remembered!.address}/128');
+      continue;
+    }
     final t = _ipTriple('${e['ip']}');
     if (t != null) {
       hitTriples.add(t);
@@ -1900,6 +1905,11 @@ List<String> natAutoBlocks(List<Server> known) {
     }
   }
   for (final s in known) {
+    final parsed = InternetAddress.tryParse(s.host);
+    if (parsed?.type == InternetAddressType.IPv6) {
+      ipv6Blocks.add('${parsed!.address}/128');
+      continue;
+    }
     final t = _ipTriple(s.host);
     if (t == null) continue;
     final b = blk(t[0], t[1], t[2]);
@@ -1907,7 +1917,7 @@ List<String> natAutoBlocks(List<Server> known) {
       rest.add(b);
     }
   }
-  return [...hitBlocks, ...near, ...rest];
+  return [...ipv6Blocks, ...hitBlocks, ...near, ...rest];
 }
 
 BigInt _natIpv6ToBigInt(InternetAddress address) {
@@ -2123,11 +2133,11 @@ List<Server> natTemplateSeeds = [];
 // V7: IP scanning is required by v7 (Layer 1 filter = IP/Port). Set to true.
 bool kNatIpScanOn = true;
 
-final Map<String, int> _cfRangeCursors = {};
+final Map<String, dynamic> _cfRangeCursors = {};
 List<String> _getCfIps({
   int batchSize = 160000,
   List<String>? liveRanges,
-  Map<String, int>? cursors,
+  Map<String, dynamic>? cursors,
 }) {
   if (cursors == null) unawaited(refreshCdnRanges());
   final out = <String>[];
@@ -2245,6 +2255,64 @@ List<String> _getCfIps({
   return (out, (offset + count) % span);
 }
 
+// 128-bit cursor persistence: IPv6 /0..128 and dash ranges must not be
+// narrowed to a platform int. Store their decimal cursor as a JSON string.
+(List<String>, String) _natExpandAnyCursorWide(
+    String item, Object? cursorValue, int maxPerBlock) {
+  if (maxPerBlock <= 0) return (const <String>[], '0');
+  final cursor = BigInt.tryParse(cursorValue?.toString() ?? '') ?? BigInt.zero;
+  BigInt? first;
+  BigInt? last;
+  if (item.contains('/')) {
+    final parts = item.split('/');
+    if (parts.length != 2) return (const <String>[], '0');
+    final address = InternetAddress.tryParse(parts[0].trim());
+    final prefix = int.tryParse(parts[1]);
+    if (address == null || address.type != InternetAddressType.IPv6 ||
+        prefix == null || prefix < 0 || prefix > 128) {
+      final legacy = _natExpandAnyCursor(item, cursor.isValidInt ? cursor.toInt() : 0, maxPerBlock);
+      return (legacy.$1, legacy.$2.toString());
+    }
+    first = _natIpv6ToBigInt(address);
+    final hostBits = 128 - prefix;
+    final size = BigInt.one << hostBits;
+    final mask = prefix == 0 ? BigInt.zero :
+        ((BigInt.one << 128) - BigInt.one) ^ (size - BigInt.one);
+    first &= mask;
+    last = first + size - BigInt.one;
+  } else if (item.contains('-')) {
+    final parts = item.split('-');
+    if (parts.length != 2) return (const <String>[], '0');
+    final a = InternetAddress.tryParse(parts[0].trim());
+    final b = InternetAddress.tryParse(parts[1].trim());
+    if (a == null || b == null || a.type != InternetAddressType.IPv6 ||
+        b.type != InternetAddressType.IPv6) {
+      final legacy = _natExpandAnyCursor(item, cursor.isValidInt ? cursor.toInt() : 0, maxPerBlock);
+      return (legacy.$1, legacy.$2.toString());
+    }
+    final av = _natIpv6ToBigInt(a);
+    final bv = _natIpv6ToBigInt(b);
+    first = av <= bv ? av : bv;
+    last = av <= bv ? bv : av;
+  } else {
+    final address = InternetAddress.tryParse(item.trim());
+    if (address?.type != InternetAddressType.IPv6) {
+      final legacy = _natExpandAnyCursor(item, cursor.isValidInt ? cursor.toInt() : 0, maxPerBlock);
+      return (legacy.$1, legacy.$2.toString());
+    }
+    return ([address!.address], '0');
+  }
+  final size = last! - first! + BigInt.one;
+  final offset = cursor % size;
+  final take = min(maxPerBlock,
+      size > BigInt.from(maxPerBlock) ? maxPerBlock : size.toInt());
+  final out = <String>[];
+  for (var i = 0; i < take; i++) {
+    out.add(_natBigIntToIpv6(first + ((offset + BigInt.from(i)) % size)));
+  }
+  return (out, ((offset + BigInt.from(take)) % size).toString());
+}
+
 // فیکس ۳: ساخت رشته‌های IP (صدها هزار تا چند میلیون) از ترد UI به isolate منتقل شد.
 // args: {cfIpsBatch:int, blocks:List<String>, nationalMode:bool,
 //        liveRanges:List<String>, cursors:Map<String,int>}
@@ -2256,7 +2324,7 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   final List<String> blocks = List<String>.from(args['blocks'] as List);
   final bool nationalMode = args['nationalMode'] as bool;
   final List<String> liveRanges = List<String>.from(args['liveRanges'] as List);
-  final Map<String, int> cursors = Map<String, int>.from(args['cursors'] as Map);
+  final Map<String, dynamic> cursors = Map<String, dynamic>.from(args['cursors'] as Map);
   final addrs = <String>[];
 
   // Generate exactly the batch that will be scanned. Cursor advancement and
@@ -2273,7 +2341,7 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
       final remaining = cap - addrs.length;
       final rangesLeft = blocks.length - offset;
       final quota = max(1, (remaining + rangesLeft - 1) ~/ rangesLeft);
-      final generated = _natExpandAnyCursor(range, cursor, quota);
+      final generated = _natExpandAnyCursorWide(range, cursor, quota);
       if (generated.$1.isNotEmpty) {
         addrs.addAll(generated.$1);
         cursors[key] = generated.$2;
@@ -2370,7 +2438,7 @@ Future<List<String>> _natRangeScanStepBody({
       : (
           addresses: const <String>[],
           nextCursor: _natConfiguredRangeCursor,
-          nextOffsets: Map<String, int>.of(_natConfiguredRangeOffsets),
+          nextOffsets: Map<String, dynamic>.of(_natConfiguredRangeOffsets),
         );
   final configuredNatRanges = configuredBatch.addresses;
 
@@ -2382,12 +2450,12 @@ Future<List<String>> _natRangeScanStepBody({
     'blocks': blocks,
     'nationalMode': modeSnapshot,
     'liveRanges': <String>[],
-    'cursors': Map<String, int>.of(_cfRangeCursors),
+    'cursors': Map<String, dynamic>.of(_cfRangeCursors),
   };
   final gen = await compute(_genAddrsIso, args);
   if (shouldAbort()) return const <String>[];
 
-  final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);
+  final generatedCursors = Map<String, dynamic>.from(gen['cursors'] as Map);
   final addrs = <String>{
     ...configuredNatRanges,
     ...(gen['addrs'] as List).cast<String>(),
