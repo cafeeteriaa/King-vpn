@@ -75,7 +75,7 @@ Future<List<NipHit>> nipScan(
     }
   }
 
-  final n = min(concurrency.clamp(1, 16), max(ips.length, 1));
+  final n = min(concurrency.clamp(1, 16), max(ips.length, 1)).toInt();
   await Future.wait(List.generate(n, (_) => worker()));
   onProgress?.call(done, ips.length);
   natStableSort(hits, (a, b) => a.ms.compareTo(b.ms));
