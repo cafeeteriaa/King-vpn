@@ -18,7 +18,10 @@ class KingTransportCapability {
   final String category;
   final String title;
   final KingCapabilityState state;
+  /// Intended address families; this is not evidence of runtime support.
   final Set<KingAddressFamily> families;
+  /// Families that passed real engine/device integration tests. Empty until proven.
+  final Set<KingAddressFamily> verifiedFamilies;
   final String integration;
   const KingTransportCapability({
     required this.id,
@@ -26,9 +29,13 @@ class KingTransportCapability {
     required this.title,
     required this.state,
     this.families = const {KingAddressFamily.ipv4, KingAddressFamily.ipv6},
+    this.verifiedFamilies = const <KingAddressFamily>{},
     required this.integration,
   });
+  /// Whether the inventory declares this family as an intended target.
   bool supports(KingAddressFamily family) => families.contains(family);
+  /// Whether this exact engine/family pair passed a real integration test.
+  bool isVerifiedFor(KingAddressFamily family) => verifiedFamilies.contains(family);
   bool get executableWithCurrentCore =>
       state == KingCapabilityState.existingCoreConfig;
 }
