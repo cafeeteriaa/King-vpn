@@ -41,6 +41,22 @@ void main() {
           lessThanOrEqualTo(4096));
     });
 
+    test('IPv6 CIDR expansion supports explicit small ranges', () {
+      final result = natExpandIpv6Cidr('2001:db8::1/126', maxPerBlock: 8);
+      expect(result, hasLength(4));
+      expect(result.toSet(), hasLength(4));
+      expect(result.every((ip) => ip.contains(':')), isTrue);
+    });
+
+    test('IPv6 CIDR sampling is hard bounded and rejects invalid input', () {
+      final sampled = natExpandIpv6Cidr('2001:db8::/32', maxPerBlock: 100000);
+      expect(sampled, isNotEmpty);
+      expect(sampled.length, lessThanOrEqualTo(4096));
+      expect(natExpandIpv6Cidr('10.0.0.0/24'), isEmpty);
+      expect(natExpandIpv6Cidr('2001:db8::/129'), isEmpty);
+      expect(natExpandIpv6Cidr('2001:db8::/64', maxPerBlock: 0), isEmpty);
+    });
+
     test('dash range expansion rejects non-positive output limits', () {
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: 0), isEmpty);
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: -1), isEmpty);
