@@ -2713,6 +2713,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('natRanges.take(', configured)
         self.assertIn("natConfiguredRangeOffsetsV1", nat)
         self.assertIn('..addAll(configuredBatch.nextOffsets)', nat)
+        seed_start = nat.index('List<String> natSeedBlocks(')
+        seed_end = nat.index('int natMemQueued', seed_start)
+        seed_blocks = nat[seed_start:seed_end]
+        self.assertIn("${octets[0]}.${octets[1]}.${octets[2]}.0/24", seed_blocks)
+        self.assertNotIn('/32', seed_blocks)
         ports_start = nat.index('List<int> natAutoPorts(')
         ports_end = nat.index('List<int>? _ipTriple', ports_start)
         ports = nat[ports_start:ports_end]
