@@ -178,16 +178,27 @@ Future<String?> nipResolve(String host) async {
 // This does not prove HTTP Host routing, CDN co-location, or domain-fronting acceptance;
 // the real VPN tunnel and HTTP traffic check remain the final acceptance gate.
 // The original Host header is preserved when a candidate is applied.
-// FRONTSNI: کاهش از ۱۹ به ۸ دامنه برای سرعت بیشتر nipFindFrontSni
+// FRONTSNI: full historical hostname candidate inventory (IP literals excluded).
+// Every candidate is evaluated independently; the original Host header is preserved.
 const natFrontSnis = <String>[
-  'cdnjs.cloudflare.com',    // 0
-  'www.cloudflare.com',      // 1
-  'speed.cloudflare.com',    // 2  ← قبلاً 3 بود، حالا 2
-  'one.one.one.one',         // 3  ← قبلاً 16 بود
-  'cloudflare-dns.com',      // 4  ← قبلاً 17 بود
-  'www.aparat.com',          // 5
-  'www.digikala.com',        // 6
-  'divar.ir',                // 7
+  'cdnjs.cloudflare.com',
+  'www.cloudflare.com',
+  'cloudflare.com',
+  'speed.cloudflare.com',
+  'www.aparat.com',
+  'www.digikala.com',
+  'divar.ir',
+  'www.snapp.ir',
+  'www.bale.ai',
+  'eitaa.com',
+  'www.zarinpal.com',
+  'www.iranserver.com',
+  'www.shatel.ir',
+  'www.mci.ir',
+  'workers.dev',
+  'dash.cloudflare.com',
+  'one.one.one.one',
+  'cloudflare-dns.com',
 ];
 
 /// روی IP:port یک TLS با SNI داده‌شده کامل شود؟ برمی‌گرداند همان SNI یا null.
@@ -227,7 +238,7 @@ Future<String?> nipFindFrontSni(
   String ip,
   int port, {
   bool Function()? cancelled,
-  Duration budget = const Duration(seconds: 12),
+  Duration budget = const Duration(seconds: 90),
 }) async {
   if (budget <= Duration.zero) return null;
   final elapsed = Stopwatch()..start();
@@ -378,7 +389,7 @@ extension NipHunt on _HomePageState {
     _set('نت ملی: جستجوی $label (${ips.length} آدرس)…');
     final hits = await nipScan(ips,
         port: port,
-        want: 12,
+        want: ips.length,
         budget: const Duration(minutes: 2),
         cancelled: () => abort);
     if (abort) return false;
@@ -386,7 +397,7 @@ extension NipHunt on _HomePageState {
       _set('نت ملی: هیچ $label بازی پیدا نشد');
       return false;
     }
-    final top = hits.take(8).toList(); // CHOP: قبلاً ۱۲ بود ولی فقط ۸ تا استفاده می‌شد
+    final top = hits; // Keep every responsive endpoint for real tunnel verification.
     // BATCHSNI: ۴ تا ۴ تا (نه همه با هم که SYN flood می‌کند، نه تک‌تک)
     final snis = <String?>[];
     if (front) {
@@ -397,7 +408,7 @@ extension NipHunt on _HomePageState {
       }
     }
     final cands = <Server>[];
-    for (var i = 0; i < top.length && cands.length < 8; i++) {
+    for (var i = 0; i < top.length; i++) {
       final t = tpls[i % tpls.length];
       final link = nipSwapLink(t, top[i].ip);
       if (link != null) {
@@ -405,7 +416,7 @@ extension NipHunt on _HomePageState {
         if (c != null) cands.add(c);
       }
       final sni = i < snis.length ? snis[i] : null;
-      if (sni != null && cands.length < 8) {
+      if (sni != null) {
         final fl = nipSwapSni(t, top[i].ip, sni);
         if (fl != null) {
           final c = Server.parse(fl);
