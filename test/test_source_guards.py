@@ -2737,7 +2737,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         body = source[start:end]
         wait = body.index('await natManualYield(shouldAbort: () => cancelled || !open);')
         before_scan = body.index('if (!cancelled) {', wait)
-        scan = body.index('result = await natScanIps(', before_scan)
+        scan = body.index('final hits = await natScanIps(', before_scan)
         after_scan = body.index('if (!cancelled && open)', scan)
         persist = body.index('await goldMergeIps(', after_scan)
         self.assertLess(wait, before_scan)
@@ -2745,7 +2745,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(scan, after_scan)
         self.assertLess(after_scan, persist)
         self.assertIn('cancelled: () => cancelled || !open,', body)
-
+        self.assertNotIn('want:', body)
+        self.assertNotIn('budget:', body)
+        self.assertIn('for (final raw in allCandidates())', body)
 
     def test_manual_range_scan_close_cancels_scan_and_blocks_late_persistence(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
@@ -2756,7 +2758,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         close_pop = body.index('Navigator.pop(ctx);', close)
         completion = body.index('open = false;', body.index(').then((_) {'))
         completion_cancel = body.index('cancelled = true;', completion)
-        scan = body.index('result = await natScanIps(')
+        scan = body.index('final hits = await natScanIps(')
         stop = body.index('cancelled: () => cancelled || !open,', scan)
         persist_guard = body.index('if (!cancelled && open)', scan)
         persist = body.index('await goldMergeIps(', persist_guard)
