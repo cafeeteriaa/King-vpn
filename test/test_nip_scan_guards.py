@@ -22,7 +22,7 @@ class NationalIpScannerGuardTests(unittest.TestCase):
         end = self.source.index("/// همان کانفیگ سرور", start)
         block = self.source[start:end]
         self.assertIn("port < 1 || port > 65535", block)
-        self.assertIn("budget <= Duration.zero", block)
+        self.assertIn("(budget != null && budget <= Duration.zero)", block)
         self.assertIn("timeout <= Duration.zero", block)
         self.assertIn("final boundedIps = natBoundScanTargets(ips);", block)
 
@@ -40,7 +40,7 @@ class NationalIpScannerGuardTests(unittest.TestCase):
         start = self.source.index("Future<List<NipHit>> nipScan(")
         end = self.source.index("/// همان کانفیگ سرور", start)
         block = self.source[start:end]
-        self.assertIn("if (hits.length >= want) return;", block)
+        self.assertIn("if (want != null && hits.length >= want) return;", block)
         self.assertIn("if (cancelled != null && cancelled()) return;", block)
         self.assertIn("if (budget != null && elapsed.elapsed >= budget) return;", block)
         self.assertIn("natAdaptiveConcurrency(concurrency)", block)
