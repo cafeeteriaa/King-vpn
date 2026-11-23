@@ -292,7 +292,6 @@ extension IpAutoExt on _HomePageState {
         port: port,
         concurrency: (manual && runNationalMode) ? kNatManualConc : _ipAutoConc,
         want: addrs.length,
-        budget: const Duration(minutes: 5),
         timeout: const Duration(milliseconds: 1500),
         cancelled: halted,
       );
