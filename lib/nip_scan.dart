@@ -483,15 +483,21 @@ extension NipHunt on _HomePageState {
       }
     }
 
-    // مرحله ۳: همه‌ی A/AAAA آدرس‌های هاست و تمام prefixهای ASN آن‌ها.
-    final t0 = direct.first;
-    final hostIps = t0.isIp ? [t0.host] : await nipResolveAll(t0.host);
+    // مرحله ۳: A/AAAA همه‌ی templateهای مستقیم و prefixهای ASN هرکدام.
+    final hostResults = await Future.wait(direct.map((server) async {
+      if (server.isIp) return <String>[server.host];
+      return nipResolveAll(server.host);
+    }));
+    if (abort) return false;
+    final hostIps = <String>{
+      for (final result in hostResults) ...result,
+    };
     if (hostIps.isNotEmpty) {
       final prefixes = <String>{};
-      for (final hostIp in hostIps) {
-        if (abort) return false;
+      await pool<String>(hostIps.toList(growable: false), 4, (hostIp) async {
+        if (abort) return;
         prefixes.addAll(await nipAsnPrefixes(hostIp));
-      }
+      });
       if (abort) return false;
       if (prefixes.isNotEmpty) {
         final asnRanges = prefixes.toList()..sort();
@@ -505,7 +511,7 @@ extension NipHunt on _HomePageState {
             await _natTryScan(
               direct,
               asnBatch.addresses,
-              port: t0.port,
+              port: direct.first.port,
               label: 'IP هم‌شرکت سرور',
               onComplete: () => _nipSaveHuntCursors(asnBatch.cursors),
             )) {
