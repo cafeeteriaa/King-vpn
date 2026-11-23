@@ -4903,7 +4903,9 @@ Future<List<String>> dohResolveAll(String name) async {
   }
 
   final found = <String>{};
-  await pool<String>(_dohEps, 4, (endpoint) async {
+  for (var offset = 0; offset < _dohEps.length; offset += 4) {
+    final batch = _dohEps.skip(offset).take(4);
+    await Future.wait(batch.map((endpoint) async {
     final uri = Uri.parse(endpoint.replaceAll('%N', Uri.encodeComponent(name)));
     final expectedType =
         uri.queryParameters['type']?.toUpperCase() == 'AAAA' ? 28 : 1;
@@ -4940,7 +4942,8 @@ Future<List<String>> dohResolveAll(String name) async {
     } finally {
       client.close(force: true);
     }
-  });
+    }));
+  }
 
   if (found.isNotEmpty) {
     final addresses = found.toList(growable: false);
