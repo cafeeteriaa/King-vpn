@@ -223,9 +223,11 @@ Future<DnsxHit?> dnsxProbe(String server,
     Duration timeout = const Duration(seconds: 3),
     Duration gap = Duration.zero,
     bool Function()? stop}) async {
-  // Sanitize caller-supplied and project-derived names at the final probe boundary.
-  // This prevents one malformed manual/custom domain from aborting a resolver batch.
-  final list = _dnsxHostsFrom(domains ?? dnsxAutoDomains()).toSet().toList();
+  // Reject non-IP resolvers and cap caller-supplied domains at the probe boundary.
+  if (InternetAddress.tryParse(server.trim()) == null ||
+      timeout <= Duration.zero || gap < Duration.zero) return null;
+  final list = _dnsxHostsFrom(domains ?? dnsxAutoDomains())
+      .toSet().take(128).toList(growable: false);
   final times = <int>[];
   var tested = 0; // تعداد دامنه‌هایی که واقعاً سنجیده شدند (اگر توقف زده شود، کمتر از کل است)
   const chunk = 8; // دامنه‌ها در هر بسته‌ی همزمان
@@ -274,23 +276,35 @@ Future<List<DnsxHit>> dnsxScan(List<String> list,
     bool Function()? stop,
     bool manual = false}) async {
   final results = <DnsxHit>[];
+  final boundedServers = <String>[];
+  final seenServers = <String>{};
+  for (final raw in list) {
+    final parsed = InternetAddress.tryParse(raw.trim());
+    if (parsed == null) continue;
+    final address = parsed.address;
+    if (seenServers.add(address)) boundedServers.add(address);
+    if (boundedServers.length >= 128) break;
+  }
+  if (boundedServers.isEmpty) return results;
+  final scanDomains = _dnsxHostsFrom(domains ?? dnsxAutoDomains())
+      .toSet().take(128).toList(growable: false);
   var done = 0;
   // NATQUOTA: اسکن دستی در نت ملی سهمیه‌ی کم دارد و منتظر جستجوی نت ملی می‌ماند
   final limited = manual && nationalMode;
   final dnsBatch = limited ? kNatManualConc : 12; // DNS در هر دسته‌ی همزمان
-  for (var i = 0; i < list.length; i += dnsBatch) {
+  for (var i = 0; i < boundedServers.length; i += dnsBatch) {
     if (stop != null && stop()) break;
     if (limited) {
       await natManualYield(shouldAbort: stop);
       if (stop != null && stop()) break;
     }
-    final batch = list.sublist(i, min(i + dnsBatch, list.length));
+    final batch = boundedServers.sublist(i, min(i + dnsBatch, boundedServers.length));
     await Future.wait(batch.map((server) async {
       final hit =
-          await dnsxProbe(server, domains: domains, gap: gap, stop: stop);
+          await dnsxProbe(server, domains: scanDomains, gap: gap, stop: stop);
       done++;
       if (hit != null) results.add(hit);
-      onProgress?.call(done, list.length);
+      onProgress?.call(done, boundedServers.length);
     }));
   }
   results.sort((a, b) {
