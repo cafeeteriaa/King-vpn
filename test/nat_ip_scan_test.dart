@@ -16,6 +16,14 @@ void main() {
       expect(natBoundScanTargets(['192.0.2.1'], maxCount: 0), isEmpty);
     });
 
+    test('lazy range expansion streams every address without a fixed count ceiling', () {
+      expect(natExpandRangeStream('192.0.2.0/30').toList(),
+          ['192.0.2.0', '192.0.2.1', '192.0.2.2', '192.0.2.3']);
+      expect(natExpandRangeStream('192.0.2.1-192.0.2.3').toList(),
+          ['192.0.2.1', '192.0.2.2', '192.0.2.3']);
+      expect(natExpandRangeStream('invalid').toList(), isEmpty);
+    });
+
     test('CIDR expansion rejects non-positive output limits', () {
       expect(natExpandCidr('10.0.0.0/24', maxPerBlock: 0), isEmpty);
       expect(natExpandCidr('10.0.0.0/24', maxPerBlock: -1), isEmpty);
