@@ -1559,6 +1559,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Do not publish stale discoveries after the tunnel/pilot stops.', keep)
 
 
+    def test_saved_nat_ranges_load_and_save_all_ipv4_ipv6_forms(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        load_start = nat.index('Future<void> natIpMemLoad()')
+        save_start = nat.index('Future<void> natRangesSave(')
+        save_end = nat.index('const List<int> natCommonPorts', save_start)
+        load = nat[load_start:save_start]
+        save = nat[save_start:save_end]
+        self.assertIn('natExpandIpRangeCursor(', load)
+        self.assertIn('natExpandIpRangeCursor(', save)
+        self.assertIn('wrap: false,', load)
+        self.assertIn('wrap: false,', save)
+        self.assertNotIn("where((x) => x.contains('/') || x.contains('-'))", load)
+        self.assertNotIn("where((x) => x.contains('/') || x.contains('-'))", save)
+        self.assertIn('final configuredBatch = _natConfiguredRangeBatch(', nat)
+        self.assertNotIn('final configuredBatch = modeSnapshot', nat)
+
     def test_nat_range_scan_commits_per_port_cursors_only_after_full_batch(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
