@@ -236,6 +236,69 @@ const natFrontSnis = <String>[
   'cloudflare-dns.com',
 ];
 
+const String _nipFrontEndpointsKey = 'nip_front_endpoints_v1';
+final List<String> _nipFrontEndpoints = [];
+bool _nipFrontEndpointsLoaded = false;
+
+Future<void> _nipFrontEndpointsLoad() async {
+  if (_nipFrontEndpointsLoaded) return;
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    _nipFrontEndpoints
+      ..clear()
+      ..addAll(prefs.getStringList(_nipFrontEndpointsKey) ?? const <String>[]);
+  } catch (e, st) {
+    logError(e, st);
+  } finally {
+    _nipFrontEndpointsLoaded = true;
+  }
+}
+
+Future<void> _nipFrontEndpointsAdd(List<NipHit> hits, int port) async {
+  await _nipFrontEndpointsLoad();
+  final known = _nipFrontEndpoints.toSet();
+  for (final hit in hits) {
+    final key = '${hit.ip}|$port';
+    if (known.add(key)) _nipFrontEndpoints.add(key);
+  }
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_nipFrontEndpointsKey, _nipFrontEndpoints);
+  } catch (e, st) {
+    logError(e, st);
+  }
+}
+
+Future<void> _nipFrontEndpointsPrune(
+  List<NipHit> hits,
+  int port,
+  List<String> candidates,
+) async {
+  if (hits.isEmpty || candidates.isEmpty) return;
+  final fingerprint = _nipSniFingerprint(candidates);
+  final prefs = await SharedPreferences.getInstance();
+  final done = <String>{};
+  for (final hit in hits) {
+    final key = 'nip_sni_cursor_${hit.ip.replaceAll(':', '_')}_$port';
+    final fp = prefs.getString('${key}_fp');
+    if (fp == fingerprint && prefs.getInt(key) == -1) {
+      done.add('${hit.ip}|$port');
+    }
+  }
+  if (done.isEmpty) return;
+  _nipFrontEndpoints.removeWhere(done.contains);
+  await prefs.setStringList(_nipFrontEndpointsKey, _nipFrontEndpoints);
+}
+
+int _nipSniFingerprint(List<String> values) {
+  var hash = 0x811c9dc5;
+  for (final unit in values.join('\n').codeUnits) {
+    hash ^= unit;
+    hash = (hash * 0x01000193) & 0xffffffff;
+  }
+  return hash;
+}
+
 /// روی IP:port یک TLS با SNI داده‌شده کامل شود؟ برمی‌گرداند همان SNI یا null.
 Future<String?> nipFrontProbe(
     String ip, int port, String sni, {
@@ -299,7 +362,17 @@ Future<List<String>> nipFindFrontSnis(
   if (list.isEmpty) return const <String>[];
   final prefs = await SharedPreferences.getInstance();
   final cursorKey = 'nip_sni_cursor_${ip.replaceAll(':', '_')}_$port';
-  final start = (prefs.getInt(cursorKey) ?? 0) % list.length;
+  final fingerprint = _nipSniFingerprint(list);
+  final fingerprintKey = '${cursorKey}_fp';
+  final oldFingerprint = prefs.getInt(fingerprintKey);
+  final sameInventory = oldFingerprint == fingerprint;
+  if (!sameInventory) {
+    await prefs.setInt(fingerprintKey, fingerprint);
+    await prefs.setInt(cursorKey, 0);
+  }
+  final storedCursor = sameInventory ? (prefs.getInt(cursorKey) ?? 0) : 0;
+  if (storedCursor < 0) return const <String>[];
+  final start = storedCursor % list.length;
   final elapsed = Stopwatch()..start();
   final matches = <String>[];
   var processed = 0;
@@ -316,7 +389,8 @@ Future<List<String>> nipFindFrontSnis(
     if (ok != null) matches.add(ok);
   }
   if (processed > 0) {
-    await prefs.setInt(cursorKey, (start + processed) % list.length);
+    await prefs.setInt(cursorKey,
+        processed >= list.length ? -1 : (start + processed) % list.length);
   }
   return matches;
 }
@@ -476,6 +550,7 @@ extension NipHunt on _HomePageState {
       _set('نت ملی: هیچ $label بازی پیدا نشد');
       return false;
     }
+    if (front) await _nipFrontEndpointsAdd(hits, port);
     final top = hits; // Every responsive endpoint remains eligible.
     final matchingTemplates = tpls.where((t) => t.port == port).toList();
     if (matchingTemplates.isEmpty) return false;
@@ -533,6 +608,7 @@ extension NipHunt on _HomePageState {
       }
     }
     if (candidateBatch.isNotEmpty && await flushCandidates()) return true;
+    if (front) await _nipFrontEndpointsPrune(top, port, frontSniCandidates);
     return false;
   }
 }
