@@ -74,12 +74,12 @@ Future<bool> _autoPortOk(String ip, int port) async {
 
 /// Resolve the project's SNI names to IPv6 endpoints in small cancellable batches.
 /// The hostname remains the TLS SNI; only the TCP destination is the AAAA address.
-Future<List<String>> _autoResolveIpv6Targets({bool Function()? cancelled}) async {
+Future<List<String>> _autoResolveIpv6Targets({required List<String> domains, bool Function()? cancelled}) async {
   final out = <String>{};
   const batchSize = 4;
-  for (var offset = 0; offset < kAutoSniDomains.length; offset += batchSize) {
+  for (var offset = 0; offset < domains.length; offset += batchSize) {
     if (cancelled?.call() ?? false) break;
-    final batch = kAutoSniDomains.skip(offset).take(batchSize);
+    final batch = domains.skip(offset).take(batchSize);
     final resolved = await Future.wait(batch.map((domain) async {
       try {
         return await InternetAddress.lookup(
@@ -185,7 +185,10 @@ Future<void> autoScanRun(void Function(String) say,
     // Add AAAA answers from the same project SNI inventory. Combine exact
     // A/AAAA endpoints and CDN CIDRs in one fair cursor iterator so no source
     // is permanently starved by the order of a concatenated list.
-    final ipv6DnsIps = await _autoResolveIpv6Targets(cancelled: cancelled);
+    final ipv6DnsIps = await _autoResolveIpv6Targets(
+      domains: domainBatch,
+      cancelled: cancelled,
+    );
     if (cancelled()) {
       say(cancellationMessage());
       return;
