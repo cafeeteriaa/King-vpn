@@ -2063,6 +2063,48 @@ void goldNoteServer(Server srv) {
   });
 }
 
+const String _manualRangeCursorKey = 'manual_range_scan_cursors_v2';
+const String _manualRangeSignatureKey = 'manual_range_scan_signature_v2';
+
+({List<String> addresses, Map<String, dynamic> cursors}) _manualRangeNextBatch(
+  List<String> ranges,
+  Map<String, dynamic> saved, {
+  int batchSize = 2048,
+}) {
+  final cursors = Map<String, dynamic>.of(saved);
+  if (ranges.isEmpty || batchSize <= 0) {
+    return (addresses: const <String>[], cursors: cursors);
+  }
+  final start =
+      (int.tryParse(cursors['__manual_range_cursor']?.toString() ?? '') ?? 0) %
+          ranges.length;
+  final addresses = <String>{};
+  var visited = 0;
+  for (; visited < ranges.length && addresses.length < batchSize; visited++) {
+    final index = (start + visited) % ranges.length;
+    final range = ranges[index];
+    final remaining = batchSize - addresses.length;
+    final rangesLeft = ranges.length - visited;
+    final quota = max(1, (remaining + rangesLeft - 1) ~/ rangesLeft);
+    final expanded = natExpandIpRangeCursor(
+      range,
+      cursors[range]?.toString() ?? '0',
+      maxPerBlock: quota,
+      wrap: false,
+    );
+    if (expanded.addresses.isEmpty) {
+      cursors[range] = 'done';
+      continue;
+    }
+    addresses.addAll(expanded.addresses);
+    cursors[range] = expanded.nextCursor;
+  }
+  if (visited > 0) {
+    cursors['__manual_range_cursor'] = (start + visited) % ranges.length;
+  }
+  return (addresses: addresses.toList(growable: false), cursors: cursors);
+}
+
 // MANUALSCAN: اسکن دستی بازه‌ها با پیشرفت و نتیجه داخل خود دیالوگ (نه پیام پشت دیالوگ)
 Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async {
   // FOLDERHELP: IPهای تمیز پوشه اول تست می‌شوند (کمک پوشه به اسکن بازه، در نت ملی و عادی)
