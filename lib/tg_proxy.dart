@@ -182,6 +182,37 @@ class _TgProxyPanelState extends State<_TgProxyPanel> {
   List<_TgPx>? _items;
   bool _loading = false;
   String _status = 'برای دریافت لیست، «جستجو» را بزن';
+  final TextEditingController _manualController = TextEditingController();
+
+  Future<void> _addManual() async {
+    final link = _tgPxNormalizeLink(_manualController.text);
+    if (link == null) {
+      setState(() => _status = 'لینک MTProto یا SOCKS معتبر نیست');
+      return;
+    }
+    final uri = Uri.parse(link);
+    final kind = uri.pathSegments.first == 'socks' ? 'SOCKS5' : 'MTProto';
+    final current = List<_TgPx>.from(_items ?? await _tgPxReadCache());
+    if (current.any((item) => item.link == link)) {
+      setState(() => _status = 'این پروکسی قبلاً ذخیره شده است');
+      return;
+    }
+    current.insert(0, _TgPx('دستی • $kind', link, kind));
+    if (current.length > 200) current.removeRange(200, current.length);
+    await _tgPxWriteCache(current);
+    if (!mounted) return;
+    setState(() {
+      _items = current;
+      _status = 'پروکسی دستی ذخیره شد؛ برای استفاده آن را در تلگرام باز کن';
+    });
+    _manualController.clear();
+  }
+
+  @override
+  void dispose() {
+    _manualController.dispose();
+    super.dispose();
+  }
 
   Future<void> _refresh() async {
     setState(() {
@@ -244,6 +275,30 @@ class _TgProxyPanelState extends State<_TgProxyPanel> {
             _status,
             textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 12.5, color: Colors.grey),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _manualController,
+            textDirection: TextDirection.ltr,
+            decoration: const InputDecoration(
+              labelText: 'افزودن لینک پروکسی دستی',
+              hintText: 'https://t.me/proxy?... یا https://t.me/socks?...',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _addManual,
+              icon: const Icon(Icons.add),
+              label: const Text('ذخیره پروکسی دستی'),
+            ),
+          ),
+          const Text(
+            'این پروکسی در برنامه تلگرام باز می‌شود؛ به‌تنهایی ترافیک تلگرام را از تونل KING VPN عبور نمی‌دهد.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 11, color: Colors.grey),
           ),
           const SizedBox(height: 10),
           FilledButton.icon(
