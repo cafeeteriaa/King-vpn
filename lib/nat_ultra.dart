@@ -1947,7 +1947,7 @@ String _intToIp(int v) =>
 
 List<String> natExpandAny(String item, {int maxPerBlock = 65536}) {
   if (maxPerBlock <= 0) return const [];
-  return _natExpandAnyCursor(item, 0, maxPerBlock).$1;
+  return _natExpandAnyCursorWide(item, '0', maxPerBlock).$1;
 }
 
 const List<String> natIranDnsHosts = [
@@ -2150,7 +2150,7 @@ List<String> _getCfIps({
     final remaining = batchSize - out.length;
     final rangesLeft = ranges.length - index;
     final quota = max(1, (remaining + rangesLeft - 1) ~/ rangesLeft);
-    final expanded = _natExpandAnyCursor(
+    final expanded = _natExpandAnyCursorWide(
       range,
       cursorMap[range] ?? 0,
       quota,
