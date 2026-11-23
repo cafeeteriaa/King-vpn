@@ -269,28 +269,56 @@ Future<String?> nipFrontProbe(
   }
 }
 
+List<String> nipFrontSniCandidates(Iterable<Server> templates) {
+  final all = _dnsxHostsFrom([
+    ...dnsxFullDomains(),
+    ...natFrontSnis,
+    ...templates.map((server) => server.host),
+  ]).toSet();
+  bool cloudflareLast(String host) =>
+      host == 'one.one.one.one' ||
+      host.endsWith('.cloudflare.com') ||
+      host == 'cloudflare.com' ||
+      host.endsWith('.workers.dev') ||
+      host.endsWith('.pages.dev');
+  final ordinary = all.where((host) => !cloudflareLast(host)).toList();
+  final cloudflare = all.where(cloudflareLast).toList();
+  return [...ordinary, ...cloudflare];
+}
+
 Future<List<String>> nipFindFrontSnis(
   String ip,
   int port, {
+  Iterable<String>? candidates,
   bool Function()? cancelled,
   Duration budget = const Duration(seconds: 90),
 }) async {
   if (budget <= Duration.zero) return const <String>[];
+  final list = _dnsxHostsFrom(candidates ?? natFrontSnis).toSet().toList();
+  if (list.isEmpty) return const <String>[];
+  final prefs = await SharedPreferences.getInstance();
+  final cursorKey = 'nip_sni_cursor_${ip.replaceAll(':', '_')}_$port';
+  final start = (prefs.getInt(cursorKey) ?? 0) % list.length;
   final elapsed = Stopwatch()..start();
   final matches = <String>[];
-  for (final sni in natFrontSnis) {
-    if (cancelled?.call() == true) return matches;
+  var processed = 0;
+  for (var offset = 0; offset < list.length; offset++) {
+    if (cancelled?.call() == true) break;
     final remaining = budget - elapsed.elapsed;
-    if (remaining <= Duration.zero) return matches;
+    if (remaining <= Duration.zero) break;
+    final sni = list[(start + offset) % list.length];
     const perProbeCap = Duration(seconds: 5);
     final probeBudget = remaining < perProbeCap ? remaining : perProbeCap;
     final ok = await nipFrontProbe(ip, port, sni, timeout: probeBudget);
-    if (cancelled?.call() == true) return matches;
+    processed++;
+    if (cancelled?.call() == true) break;
     if (ok != null) matches.add(ok);
+  }
+  if (processed > 0) {
+    await prefs.setInt(cursorKey, (start + processed) % list.length);
   }
   return matches;
 }
-
 Future<String?> nipFindFrontSni(
   String ip,
   int port, {
@@ -439,12 +467,13 @@ extension NipHunt on _HomePageState {
     }
     final top = hits; // Every responsive endpoint remains eligible.
     final snis = <List<String>>[];
+    final frontSniCandidates = front ? nipFrontSniCandidates(matchingTemplates) : const <String>[];
     if (front) {
       // Every SNI candidate is tested; concurrency is chunked, not truncated.
       for (var i = 0; i < top.length; i += 4) {
         final batch = top.skip(i).take(4).toList();
         snis.addAll(await Future.wait(batch.map((h) => nipFindFrontSnis(
-          h.ip, port, cancelled: () => abort,
+          h.ip, port, candidates: frontSniCandidates, cancelled: () => abort,
         ))));
         if (abort) return false;
       }
