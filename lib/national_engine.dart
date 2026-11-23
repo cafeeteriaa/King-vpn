@@ -218,12 +218,18 @@ class NatNetworkDiagnosis {
       // waits the full timeout), so the caller's deadline usually expired first.
       final domesticF = Future.wait(_domesticHosts.map(_tcpOk));
       final globalF = Future.wait(_globalHosts.map(_tcpOk));
-      final globalDnsF = Future.wait(
-          _globalResolvers.map((r) => NatDnsWireProbe.probe(r, 'google.com')));
+      final globalDnsF = Future.wait([
+        for (final resolver in _globalResolvers) ...[
+          NatDnsWireProbe.probe(resolver, 'google.com', recordType: 1),
+          NatDnsWireProbe.probe(resolver, 'google.com', recordType: 28),
+        ],
+      ]);
       final domesticDnsF = Future.wait([
         for (final resolver in _domesticResolvers)
-          for (final domain in _domesticDnsNames)
-            NatDnsWireProbe.probe(resolver, domain),
+          for (final domain in _domesticDnsNames) ...[
+            NatDnsWireProbe.probe(resolver, domain, recordType: 1),
+            NatDnsWireProbe.probe(resolver, domain, recordType: 28),
+          ],
       ]);
       final domesticTcp = await domesticF;
       final globalTcp = await globalF;
