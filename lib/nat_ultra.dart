@@ -1431,8 +1431,10 @@ String _natSmartSni(String cfg, Server s, {bool forceAll = false}) {
       final tls = st['tlsSettings'];
       if (tls is! Map) continue;
       if (tlsHasEch(tls)) continue;
+      // SNI camouflage must never disable certificate/hostname validation.
+      // If the origin certificate does not cover this name, this variant must fail.
       tls['serverName'] = 'cdnjs.cloudflare.com';
-      tls['allowInsecure'] = true;
+      tls.remove('allowInsecure');
     }
     return jsonEncode(j);
   } catch (_) { return cfg; }

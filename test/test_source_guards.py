@@ -3854,6 +3854,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("'cloudflare-dns.com'", scan)
         self.assertNotIn("'1.1.1.1',                 // 4", scan)
 
+    def test_sni_camouflage_never_enables_insecure_tls(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('String _natSmartSni(')
+        end = source.index('int natSafeVariant(', start)
+        smart_sni = source[start:end]
+        self.assertNotIn("allowInsecure'] = true", smart_sni)
+        self.assertIn("tls.remove('allowInsecure')", smart_sni)
+        self.assertIn('tlsHasEch(tls)', smart_sni)
+
+    def test_telegram_proxy_links_are_validated_and_query_encoded(self):
+        source = (ROOT / 'lib' / 'tg_proxy.dart').read_text(encoding='utf-8')
+        self.assertIn('Uri.https(\'t.me\',', source)
+        self.assertIn('_tgPxValidPort', source)
+        self.assertIn('_tgPxNormalizeLink', source)
+        self.assertIn('if (link == null) continue;', source)
+
     def test_nip_front_sni_probe_requires_valid_tls_certificate(self):
         source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         start = source.index('Future<String?> nipFrontProbe(')
