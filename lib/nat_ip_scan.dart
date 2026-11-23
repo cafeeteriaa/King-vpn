@@ -64,6 +64,44 @@ List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   return out;
 }
 
+/// Expand an IPv6 CIDR in deterministic, evenly spaced chunks.
+/// IPv6 ranges are 128-bit; BigInt avoids truncation to Dart's 64-bit int.
+List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
+  if (maxPerBlock <= 0) return const [];
+  final parts = cidr.trim().split('/');
+  if (parts.length != 2) return const [];
+  final address = InternetAddress.tryParse(parts[0].trim());
+  final prefix = int.tryParse(parts[1].trim());
+  if (address == null || address.type != InternetAddressType.IPv6 ||
+      prefix == null || prefix < 0 || prefix > 128) return const [];
+  final bytes = address.rawAddress;
+  var base = BigInt.zero;
+  for (final byte in bytes) {
+    base = (base << 8) | BigInt.from(byte);
+  }
+  final hostBits = 128 - prefix;
+  final size = BigInt.one << hostBits;
+  final mask = prefix == 0 ? BigInt.zero :
+      ((BigInt.one << 128) - BigInt.one) ^ (size - BigInt.one);
+  base &= mask;
+  final count = size > BigInt.from(maxPerBlock)
+      ? maxPerBlock : size.toInt();
+  final step = size > BigInt.from(maxPerBlock)
+      ? (size + BigInt.from(maxPerBlock) - BigInt.one) ~/ BigInt.from(maxPerBlock)
+      : BigInt.one;
+  final out = <String>[];
+  for (var i = 0; i < count; i++) {
+    var value = base + BigInt.from(i) * step;
+    final raw = List<int>.filled(16, 0);
+    for (var j = 15; j >= 0; j--) {
+      raw[j] = (value & BigInt.from(255)).toInt();
+      value >>= 8;
+    }
+    out.add(InternetAddress.fromRawAddress(raw).address);
+  }
+  return out;
+}
+
 /// بازه‌ی خطی به شکل a.b.c.d-e.f.g.h (برای نوشته‌هایی که CIDR نیستند).
 /// بازه‌های بزرگ‌تر از maxCount به‌طور یکنواخت نمونه‌برداری می‌شوند.
 List<String> natExpandDash(String range, {int maxCount = 65536}) {
