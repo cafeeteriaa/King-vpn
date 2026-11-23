@@ -105,8 +105,13 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
   if (parts.length != 2) return const [];
   final address = InternetAddress.tryParse(parts[0].trim());
   final prefix = int.tryParse(parts[1].trim());
-  if (address == null || address.type != InternetAddressType.IPv6 ||
-      prefix == null || prefix < 0 || prefix > 128) return const [];
+  if (address == null ||
+      address.type != InternetAddressType.IPv6 ||
+      prefix == null ||
+      prefix < 0 ||
+      prefix > 128) {
+    return const [];
+  }
   final bytes = address.rawAddress;
   var base = BigInt.zero;
   for (final byte in bytes) {
