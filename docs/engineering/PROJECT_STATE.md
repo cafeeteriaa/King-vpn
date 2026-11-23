@@ -213,3 +213,9 @@ Final status: VERIFIED WITH LIMITATIONS. This CI artifact is not declared produc
 - Code commits for this fix: `c51eea90358e35375c56946bbd7ae418e21d90bb` (UI) and `149c954cc65963bdc11caf51089ec2e142d53de5` (guard test). Subsequent audit documentation commit: `3835f2dd8bb4896c639d55068d2ed545c95c96e1`.
 - CI Run 2167 (`45141089093`) for the code/test head was observed pending at last check; do not claim it passed until a completed success result is retrieved.
 - Full audit remains open for packet-level DNS/IP/MTU/QUIC, real Iranian operators and device runtime, standard secret-history scan, SBOM/license/CVE, and current-head CI.
+
+
+## Validation trigger after consolidated code changes
+
+- The CI attempt associated with the owner-session UI/test commit (`149c954cc65963bdc11caf51089ec2e142d53de5`) ended as **cancelled** before a job record was available. It is not a pass.
+- A consolidated branch update follows all code/test edits so the PR synchronization workflow can validate the current exact branch head without being superseded by further immediate pushes.
