@@ -1559,47 +1559,44 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Do not publish stale discoveries after the tunnel/pilot stops.', keep)
 
 
-    def test_nat_range_scan_discards_cancelled_batches_without_advancing_cursors(self):
+    def test_nat_range_scan_commits_per_port_cursors_only_after_full_batch(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = nat.index('Future<List<String>> _natRangeScanStepBody(')
         end = nat.index('List<String> userListUrls = [];', start)
         body = nat[start:end]
-        self.assertIn('final modeSnapshot = nationalMode;', body)
-        self.assertIn('bool shouldAbort() =>', body)
-        hot = body.index('await natHotNext(800, fetch: false)')
-        hot_guard = body.index('if (shouldAbort()) return const <String>[];', hot)
-        compute = body.index('await compute(_genAddrsIso, args)')
-        compute_guard = body.index('if (shouldAbort()) return const <String>[];', compute)
+        self.assertIn('await _natLoadRangeCursors();', body)
+        self.assertIn("final portPrefix = 'port:$port:';", body)
+        self.assertIn('final scanLimit = min(maxAddrs, estimatedCapacity).toInt();', body)
         scan = body.index('await natScanIps(')
-        cancel = body.index('cancelled: shouldAbort,', scan)
-        scan_guard = body.index('if (shouldAbort() || scanExpired()) return const <String>[];', scan)
-        cursor_commit = body.index('_cfRangeCursors\n    ..clear()')
-        configured_commit = body.index('_natConfiguredRangeCursor = configuredBatch.nextCursor;')
-        self.assertLess(hot, hot_guard)
-        self.assertLess(compute, compute_guard)
-        self.assertLess(compute_guard, scan)
-        self.assertLess(cancel, scan_guard)
-        self.assertLess(scan_guard, cursor_commit)
-        self.assertLess(cursor_commit, configured_commit)
+        progress = body.index('onProgress: (done, total, _) => completed = done,', scan)
+        complete_guard = body.index('completed < slice.length', progress)
+        cursor_commit = body.index('_cfRangeCursors.removeWhere((key, _) => key.startsWith(portPrefix));')
+        port_advance = body.index('_natRangePortCursor = (portIndex + 1) % portList.length;')
+        self.assertLess(scan, progress)
+        self.assertLess(progress, complete_guard)
+        self.assertLess(complete_guard, cursor_commit)
+        self.assertLess(cursor_commit, port_advance)
+        self.assertIn("prefs.setString('natRangeScanCursorsV2', jsonEncode(_cfRangeCursors))", body)
+        self.assertIn("prefs.setInt('natRangePortCursorV1', _natRangePortCursor)", body)
+        self.assertIn('configuredBatch.nextOffsets', body)
+        self.assertIn('configuredBatch.nextCursor', body)
+
         helper_start = nat.index('({List<String> addresses, int nextCursor, Map<String, dynamic> nextOffsets})')
         helper_end = nat.index('Future<void> natRangesSave(', helper_start)
         helper = nat[helper_start:helper_end]
-        self.assertIn('nextCursor: (start + max(1, visited).toInt()) % natRanges.length', helper)
-        self.assertNotIn('SharedPreferences.getInstance()', helper)
+        self.assertIn('initialOffsets: localOffsets', body)
+        self.assertIn('startCursor: configuredStart', body)
+        self.assertIn('offsets[range] ?? 0', helper)
+        self.assertIn('while (visited < natRanges.length && scanned < limit)', helper)
+        self.assertNotIn('natRanges.take(', helper)
+
         scan_only_start = main.index('Future<void> _natScanOnly()')
         scan_only_end = main.index('// NATFIRSTFAST:', scan_only_start)
         scan_only = main[scan_only_start:scan_only_end]
         self.assertIn('stop: () => abort || nationalMode != runNationalMode,', scan_only)
         self.assertLess(scan_only.index('if (abort || nationalMode != runNationalMode) return;'),
                         scan_only.index('await _natRangeAdd(ips);'))
-        escalate_start = main.index('Future<void> _natEscalate(int round)')
-        escalate_end = main.index('// CRITICAL for نت ملی: do NOT destroy existing configs.', escalate_start)
-        escalate = main[escalate_start:escalate_end]
-        self.assertIn('stop: () => abort || modeChanged(),', escalate)
-        self.assertIn('if (abort || modeChanged()) return;', escalate)
-        self.assertLess(escalate.index('if (abort || modeChanged()) return;', escalate.index('await natRangeScanStep(')),
-                        escalate.index('await _natRangeAdd(ips);'))
 
     def test_connect_loop_cancellation_does_not_penalize_or_accept_server(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
