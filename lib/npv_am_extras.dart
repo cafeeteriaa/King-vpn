@@ -633,7 +633,7 @@ Future<void> refreshCdnRanges() async {
     var liveOk = 0;
     // هر CDN جدا: اگر دریافتش شکست خورد، لیست استاتیک خودش جایگزین می‌شود
     // (قبلاً فقط CDNهای موفق می‌ماندند و بقیه از استخر حذف می‌شدند).
-    Future<void> pull(String label, List<String> fallback, int cap,
+    Future<void> pull(String label, List<String> fallback,
         Future<List<String>> Function() fetch) async {
       var got = const <String>[];
       try {
@@ -645,13 +645,14 @@ Future<void> refreshCdnRanges() async {
         merged.addAll(fallback);
         return;
       }
-      // رنج‌های استاتیک همیشه می‌مانند؛ رنج‌های زنده تا سقف cap اضافه می‌شوند
+      // Keep the complete live prefix inventory for both address families.
+      // Batch sizing belongs to the cursor-based scanner, not source ingestion.
       merged.addAll(fallback);
-      merged.addAll(got.take(cap));
+      merged.addAll(got);
       liveOk++;
     }
 
-    await pull('cloudflare', [..._cfRanges, ..._cfRangesV6], 128, () async {
+    await pull('cloudflare', [..._cfRanges, ..._cfRangesV6], () async {
       final responses = await Future.wait([
         http.get(Uri.parse('https://www.cloudflare.com/ips-v4')),
         http.get(Uri.parse('https://www.cloudflare.com/ips-v6')),
@@ -665,16 +666,20 @@ Future<void> refreshCdnRanges() async {
           .toList();
     });
 
-    await pull('fastly', _fastlyRanges, 48, () async {
+    await pull('fastly', _fastlyRanges, () async {
       final res = await http.get(Uri.parse('https://api.fastly.com/public-ip-list'));
       if (res.statusCode != 200) return const <String>[];
       final j = await compute(cdnJsonDecodeBg, res.body);
-      final addrs = j is Map ? j['addresses'] : null;
-      if (addrs is! List) return const <String>[];
-      return addrs.whereType<String>().toList();
+      if (j is! Map) return const <String>[];
+      final ipv4 = j['addresses'];
+      final ipv6 = j['ipv6_addresses'];
+      return <String>[
+        if (ipv4 is List) ...ipv4.whereType<String>(),
+        if (ipv6 is List) ...ipv6.whereType<String>(),
+      ];
     });
 
-    await pull('aws-cloudfront', _awsCfRanges, 96, () async {
+    await pull('aws-cloudfront', _awsCfRanges, () async {
       final res = await http.get(Uri.parse('https://ip-ranges.amazonaws.com/ip-ranges.json'));
       if (res.statusCode != 200) return const <String>[];
       final decoded = await compute(cdnJsonDecodeBg, res.body);
@@ -697,7 +702,7 @@ Future<void> refreshCdnRanges() async {
       ];
     });
 
-    await pull('google', _gcpCdnRanges, 48, () async {
+    await pull('google', _gcpCdnRanges, () async {
       final res = await http.get(Uri.parse('https://www.gstatic.com/ipranges/goog.json'));
       if (res.statusCode != 200) return const <String>[];
       final j = await compute(cdnJsonDecodeBg, res.body);
