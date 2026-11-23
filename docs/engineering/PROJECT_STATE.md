@@ -162,3 +162,18 @@ Final status: VERIFIED WITH LIMITATIONS. This CI artifact is not declared produc
 - DNS policy review reconfirmed the intentional availability trade-off: national mode prefers domestic resolvers; global Secure DNS orders DoH before plaintext fallback. Unit tests cover ordering/filtering, but DNS resolution through the selected VPN core and leak resistance remain NOT TESTED at packet/device level.
 - Open acceptance blockers remain: physical-device Start/Stop and process-death/revocation tests; competing-VPN ownership behavior on Android 11+; IPv4/IPv6 and DNS packet-level leak tests; real operator/national-network tests; performance/thermal/battery benchmarks; dependency license/SBOM/CVE inventory; comprehensive secret scan of Git history and artifacts; and full UI/feature inventory.
 - Status remains **IN PROGRESS / VERIFIED WITH LIMITATIONS**. No merge, production release, or device acceptance was performed.
+
+
+## Network-stack audit continuation — 2026-11-23
+
+- Expanded `docs/engineering/FINAL_MASTER_AUDIT.md` with source-backed review of IP, DNS, SNI, Host, TLS, ALPN, REALITY, DPI, Fragment/Mux, MTU, IPv4/IPv6, packet-level acceptance and domestic-hosting evidence.
+- DNS static findings: national mode is domestic-resolver-first with DoH fallback; global Secure DNS is DoH-first with plaintext fallback and serialized queries outside Ultra. This is an availability/security trade-off, not strict encrypted-DNS enforcement. Packet-level DNS routing/leak validation remains NOT TESTED.
+- `queryStrategy=UseIP` requests both IP families from DNS but does not prove both families traverse the VPN TUN.
+- Custom Android `KingVpnService` configures IPv4 and IPv6 default routes and fails closed if IPv6 setup fails, but `kOwnVpnService=false`; the active plugin-managed path still needs separate IPv4/IPv6 route and leak validation.
+- MTU is fixed at 1500 in the custom service; PMTU, fragmentation, UDP/QUIC and lower-MTU cellular paths remain NOT TESTED.
+- SNI fallback currently derives TLS serverName from WS Host only when serverName is empty. SNI probes ignore certificate validation and do not validate HTTP content; they are handshake-reachability hints, not proof of domain identity or DPI circumvention.
+- Fragment, Mux, Noise, TLS fingerprint, ALPN, WebSocket/gRPC and TCP socket options are present as configuration/variant features; no operator-specific DPI bypass or throughput benefit is claimed.
+- Automatic IP scanner uses exact known endpoint IPs and keeps broad CIDR expansion disabled in its automatic path; preserve the separation between global and national candidate pools.
+- No source-code behavior was changed in this continuation; only the audit documentation was expanded. New documentation commit: `1192cd42913d44daa9081e37eae642ecc0454fbd`.
+- PR #44 remains Draft/unmerged. Do not treat the earlier exact-code CI run as validation of this documentation commit; no new CI result is claimed here.
+- Current acceptance remains IN PROGRESS / VERIFIED WITH LIMITATIONS. Outstanding: dependency lockfile/SBOM/license/CVE inventory; comprehensive secret scan; active plugin-managed route inspection; packet capture; physical-device DNS/IPv4/IPv6/PMTU/UDP/QUIC tests; real operator/national-network tests; and validated hosting evidence for domestic endpoints.
