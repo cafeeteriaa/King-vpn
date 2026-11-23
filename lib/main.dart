@@ -10190,13 +10190,15 @@ ListTile( // KINGEXTRAS row
           if (localPilotOn && cpuHot == 0 &&
               DateTime.now().difference(natRangeLast) >
                   const Duration(minutes: 5) &&
-              pending.length < 3000) {
+              pending.length < max(3000, natAdaptiveWorkers() * 1500)) {
             natRangeLast = DateTime.now();
             unawaited(() async {
               final ips = await natRangeScanStep(
                   known: [...pending, ...natRestPending],
-                  maxAddrs: 2048, // NATBG-BUDGET: اسکن پس‌زمینه‌ی متصل سبک و مرحله‌ای است
-                  conc: min(2, natAdaptiveWorkers()),
+                  // Scale each scan slice with device capacity; the shared
+                  // monotonic deadline below remains the hard runtime budget.
+                  maxAddrs: max(8192, min(16384, natAdaptiveWorkers() * 2048)),
+                  conc: min(4, natAdaptiveWorkers()),
                   stop: () => !mounted ||
                       !connected ||
                       !wantVpn ||
@@ -10204,7 +10206,7 @@ ListTile( // KINGEXTRAS row
                       !localPilotOn ||
                       appGone ||
                       abort,
-                  budget: const Duration(seconds: 90));
+                  budget: const Duration(minutes: 3));
               // Do not publish stale discoveries after the tunnel/pilot stops.
               if (mounted &&
                   connected &&
