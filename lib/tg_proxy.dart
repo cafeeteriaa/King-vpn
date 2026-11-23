@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // =============================================================================
 // پروکسی تلگرام — لیست پروکسی‌های عمومی (MTProto / SOCKS) برای کپی یا باز کردن
@@ -64,21 +65,67 @@ String? _tgPxNormalizeLink(String raw) {
     return _tgPxBuildLink(host: q['server'] ?? '', port: q['port'] ?? '', secret: kind == 'proxy' ? q['secret'] : null, user: q['user'], pass: q['pass']);
   } catch (_) { return null; }
 }
+const String _tgPxCacheKey = 'tg_proxy_cache_v1';
+bool _tgPxUsedCache = false;
+
+Future<List<_TgPx>> _tgPxReadCache() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_tgPxCacheKey);
+    if (raw == null || raw.isEmpty) return <_TgPx>[];
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) return <_TgPx>[];
+    final out = <_TgPx>[];
+    final seen = <String>{};
+    for (final item in decoded.take(200)) {
+      if (item is! Map) continue;
+      final link = _tgPxNormalizeLink('${item['link'] ?? ''}');
+      if (link == null || !seen.add(link)) continue;
+      final uri = Uri.parse(link);
+      final kind = uri.pathSegments.first == 'socks' ? 'SOCKS5' : 'MTProto';
+      final title = '${item['title'] ?? 'پروکسی'}';
+      out.add(_TgPx('ذخیره‌شده • ${title.substring(0, title.length.clamp(0, 100))}', link, kind));
+    }
+    return out;
+  } catch (e, st) {
+    errJournalAdd(e, st: st);
+    return <_TgPx>[];
+  }
+}
+
+Future<void> _tgPxWriteCache(List<_TgPx> items) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final snapshot = items.take(200).map((item) => <String, String>{
+      'title': item.title,
+      'link': item.link,
+    }).toList(growable: false);
+    await prefs.setString(_tgPxCacheKey, jsonEncode(snapshot));
+  } catch (e, st) {
+    errJournalAdd(e, st: st);
+  }
+}
+
 Future<List<_TgPx>> _tgPxLoad() async {
+  final cached = await _tgPxReadCache();
+  _tgPxUsedCache = false;
   final out = <_TgPx>[];
   final seen = <String>{};
   for (final url in _tgPxSources) {
+    if (out.length >= 200) break;
     try {
       final r = await http
           .get(Uri.parse(url))
-          .timeout(const Duration(seconds: 12));
+          .timeout(const Duration(seconds: 5));
       if (r.statusCode != 200) continue;
       final body = r.body.trim();
+      if (body.length > 2 * 1024 * 1024) continue;
       if (body.startsWith('[') || body.startsWith('{')) {
         try {
           final j = jsonDecode(body);
           if (j is List) {
             for (final e in j) {
+              if (out.length >= 200) break;
               if (e is! Map) continue;
               final host = '${e['host'] ?? e['server'] ?? ''}'.trim();
               final port = '${e['port'] ?? ''}'.trim();
@@ -94,6 +141,7 @@ Future<List<_TgPx>> _tgPxLoad() async {
         } catch (e, jstk) { errJournalAdd(e, st: jstk); debugPrint("catch: $e"); }
       } else {
         for (final raw in body.split(RegExp(r'[\r\n]+'))) {
+          if (out.length >= 200) break;
           final line = raw.trim();
           if (line.isEmpty) continue;
           final m = RegExp(
@@ -111,7 +159,12 @@ Future<List<_TgPx>> _tgPxLoad() async {
       }
     } catch (e, jstk) { errJournalAdd(e, st: jstk); debugPrint("catch: $e"); }
   }
-  return out;
+  if (out.isNotEmpty) {
+    await _tgPxWriteCache(out);
+    return out;
+  }
+  _tgPxUsedCache = cached.isNotEmpty;
+  return cached;
 }
 
 /// ویجت پروکسی تلگرام برای صفحه اصلی / شیت
@@ -142,7 +195,9 @@ class _TgProxyPanelState extends State<_TgProxyPanel> {
       _loading = false;
       _status = list.isEmpty
           ? 'پروکسی پیدا نشد (شبکه یا منبع فیلتر است)'
-          : '${list.length} پروکسی پیدا شد';
+          : (_tgPxUsedCache
+              ? '${list.length} پروکسی از حافظهٔ ذخیره‌شده؛ منابع آنلاین در دسترس نیستند'
+              : '${list.length} پروکسی از منابع آنلاین دریافت شد');
     });
   }
 
