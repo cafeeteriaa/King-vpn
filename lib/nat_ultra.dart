@@ -807,7 +807,7 @@ List<int> _natOrder(Server s, {bool full = false}) {
   if (lvl < 1) lvl = 1;
   if (lvl > 10) lvl = 10;
   final f = _NatFacts(s);
-  final known = natVar[_nk(s)];
+  final known = nationalMode ? natVar[_nk(s)] : natVarNormal[s.key];
   final cursor = _natCursor[_natCk(s)] ?? 0;
   final again = cursor > 0 && lvl >= 2;
   final out = <int>[];
@@ -1392,7 +1392,7 @@ int natSafeVariant(int v) {
 int natVarFor(Server s) {
   // NATONLYVAR: اتصال عادی هیچ حالتی (fp / Fragment / نردبان) ندارد؛ فقط نت ملی
   if (!nationalMode) return 0;
-  final rawV = natVar[_nk(s)] ?? 0;
+  final rawV = nationalMode ? (natVar[_nk(s)] ?? 0) : (natVarNormal[s.key] ?? 0);
   final v = natSafeVariant(rawV);
   if (v <= 0) return 0;
   final x = _natSpecs[v];
