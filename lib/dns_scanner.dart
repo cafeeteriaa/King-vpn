@@ -144,13 +144,8 @@ List<int> dnsxQuery(String name, int id) {
 
 /// آیا این IPv4 عمومی و واقعی است؟ (خصوصی، لوپ‌بک، صفر و بلاک‌پیج رد می‌شوند)
 bool dnsxIsPublicV4(int a, int b, int c, int d) {
-  if (a == 0 || a == 10 || a == 127 || a >= 224) return false;
-  if (a == 169 && b == 254) return false;
-  if (a == 172 && b >= 16 && b <= 31) return false;
-  if (a == 192 && b == 168) return false;
-  if (a == 100 && b >= 64 && b <= 127) return false; // CGNAT
-  if (a == 10 && b == 10 && c == 34 && d == 34) return false; // بلاک‌پیج
-  return true;
+  // Keep the legacy parser aligned with NNIE's complete special-use IPv4 policy.
+  return NatDnsWireProbe.publicV4([a, b, c, d], 0);
 }
 
 /// پاسخ معتبر؟ rcode=0، ID یکسان، و حداقل یک رکورد A عمومی.

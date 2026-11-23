@@ -3869,6 +3869,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("builder.addDnsServer(candidate)", source)
         self.assertIn("isPlainIpAddress(candidate)", source)
         self.assertIn("DNS configuration must populate Android VpnService.Builder", source)
+    def test_legacy_dns_scanner_uses_strict_special_use_ipv4_filter(self):
+        source = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        start = source.index('bool dnsxIsPublicV4(')
+        end = source.index('/// پاسخ معتبر؟', start)
+        helper = source[start:end]
+        self.assertIn('NatDnsWireProbe.publicV4([a, b, c, d], 0)', helper)
+        self.assertNotIn('return true;', helper)
     def test_nat_relay_chain_uses_collision_free_outbound_tag(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('String? natChainCfg(')
