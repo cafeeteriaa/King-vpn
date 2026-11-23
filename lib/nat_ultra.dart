@@ -1903,6 +1903,23 @@ List<String> natAutoBlocks(List<Server> known) {
   return [...hitBlocks, ...near, ...rest];
 }
 
+BigInt _natIpv6ToBigInt(InternetAddress address) {
+  var value = BigInt.zero;
+  for (final byte in address.rawAddress) {
+    value = (value << 8) | BigInt.from(byte);
+  }
+  return value;
+}
+
+String _natBigIntToIpv6(BigInt value) {
+  final raw = List<int>.filled(16, 0);
+  for (var i = 15; i >= 0; i--) {
+    raw[i] = (value & BigInt.from(255)).toInt();
+    value >>= 8;
+  }
+  return InternetAddress.fromRawAddress(raw).address;
+}
+
 int _ipToInt(String ip) {
   final p = ip.split('.').map(int.parse).toList();
   return (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
@@ -2210,9 +2227,24 @@ List<String> _getCfIps({
     if (parts.length != 2) return (<String>[], 0);
     final a = InternetAddress.tryParse(parts[0].trim());
     final b = InternetAddress.tryParse(parts[1].trim());
-    if (a == null || b == null || a.type != InternetAddressType.IPv4 || b.type != InternetAddressType.IPv4) {
-      return (<String>[], 0);
+    if (a == null || b == null || a.type != b.type) return (<String>[], 0);
+    if (a.type == InternetAddressType.IPv6) {
+      final first = _natIpv6ToBigInt(a);
+      final last = _natIpv6ToBigInt(b);
+      final low = first <= last ? first : last;
+      final high = first <= last ? last : first;
+      final count = high - low + BigInt.one;
+      final offset = BigInt.from(cursor) % count;
+      final take = min(maxPerBlock, count > BigInt.from(maxPerBlock)
+          ? maxPerBlock : count.toInt());
+      final out = <String>[];
+      for (var i = 0; i < take; i++) {
+        out.add(_natBigIntToIpv6(low + offset + BigInt.from(i)));
+      }
+      return (out, (offset + BigInt.from(take) < count
+          ? (offset + BigInt.from(take)).toInt() : 0));
     }
+    if (a.type != InternetAddressType.IPv4) return (<String>[], 0);
     final first = _ipToInt(a.address);
     final last = _ipToInt(b.address);
     final low = min(first, last);
@@ -2220,7 +2252,11 @@ List<String> _getCfIps({
     startIp = _intToIp(low);
   } else {
     final ip = InternetAddress.tryParse(item.trim());
-    if (ip == null || ip.type != InternetAddressType.IPv4) return (<String>[], 0);
+    if (ip == null) return (<String>[], 0);
+    if (ip.type == InternetAddressType.IPv6) {
+      return ([ip.address], 0);
+    }
+    if (ip.type != InternetAddressType.IPv4) return (<String>[], 0);
     startIp = ip.address;
     span = 1;
   }
