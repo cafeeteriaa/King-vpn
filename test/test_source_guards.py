@@ -1566,6 +1566,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('APK_CERT_SHA256" != "$KEY_CERT_SHA256"', release)
         self.assertIn('does not match the protected production keystore', release)
 
+    def test_signed_release_job_is_restricted_to_repository_owner(self):
+        release = (ROOT / '.github' / 'workflows' / 'signed-release.yml').read_text(encoding='utf-8')
+        job_start = release.index('  signed-release:')
+        job_end = release.index('    steps:', job_start)
+        job = release[job_start:job_end]
+        self.assertIn('if: github.actor == github.repository_owner', job)
+        self.assertLess(job.index('if: github.actor == github.repository_owner'), job.index('runs-on:'))
+
     def test_signed_release_does_not_persist_checkout_token_into_build_environment(self):
         release = (ROOT / '.github' / 'workflows' / 'signed-release.yml').read_text(encoding='utf-8')
         checkout = release[release.index('uses: actions/checkout@v4'):release.index('- name:', release.index('uses: actions/checkout@v4'))]
