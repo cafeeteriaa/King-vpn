@@ -20,6 +20,7 @@
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:math';
 
 import 'errjournal.dart';
@@ -97,7 +98,7 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
       raw[j] = (value & BigInt.from(255)).toInt();
       value >>= 8;
     }
-    out.add(InternetAddress.fromRawAddress(raw).address);
+    out.add(InternetAddress.fromRawAddress(Uint8List.fromList(raw)).address);
   }
   return out;
 }
@@ -191,7 +192,7 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
       bytes[index] = (encoded & BigInt.from(255)).toInt();
       encoded >>= 8;
     }
-    addresses.add(InternetAddress.fromRawAddress(bytes).address);
+    addresses.add(InternetAddress.fromRawAddress(Uint8List.fromList(bytes)).address);
   }
   final nextOffset = offset + BigInt.from(take);
   return (
