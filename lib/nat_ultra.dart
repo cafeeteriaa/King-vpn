@@ -1652,6 +1652,7 @@ final Set<String> natIpDeadRun = {};
 List<String> natRanges = [];
 int natRangeCursor = 0; // generic range cursor
 int _natConfiguredRangeCursor = 0; // isolated National Net user-range cursor
+final Map<String, int> _natConfiguredRangeCursors = {};
 DateTime natRangeLast = DateTime.fromMillisecondsSinceEpoch(0);
 
 Set<String> natIpMemHosts() => {for (final e in natIpMem) '${e['ip']}'};
@@ -1674,6 +1675,15 @@ Future<void> natIpMemLoad() async {
         .where((x) => x.contains('/') || x.contains('-'))
         .toList();
     _natConfiguredRangeCursor = (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
+    final rangeCursors = p.getString('natConfiguredRangeCursors');
+    if (rangeCursors != null) {
+      final decoded = jsonDecode(rangeCursors);
+      if (decoded is Map) {
+        _natConfiguredRangeCursors
+          ..clear()
+          ..addAll(decoded.map((k, v) => MapEntry('$k', (v as num).toInt())));
+      }
+    }
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -1735,27 +1745,44 @@ Future<void> natIpMemSave(String ip, int port) async {
 
 /// Next bounded sample from the National Net engine's own user-configured
 /// ranges. This cursor and range inventory are not shared with generic scanners.
-({List<String> addresses, int nextCursor}) _natConfiguredRangeBatch(int limit) {
+({List<String> addresses, int nextCursor, Map<String, int> nextCursors})
+    _natConfiguredRangeBatch(int limit) {
+  final currentCursors = Map<String, int>.of(_natConfiguredRangeCursors);
   if (limit <= 0 || natRanges.isEmpty) {
-    return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
+    return (
+      addresses: const <String>[],
+      nextCursor: _natConfiguredRangeCursor,
+      nextCursors: currentCursors,
+    );
   }
-  final candidates = <String>{};
-  for (final range in natRanges) {
-    final remaining = limit * 4 - candidates.length;
-    if (remaining <= 0) break;
-    candidates.addAll(natExpandAny(range, maxPerBlock: remaining));
+  // Visit every configured range over successive batches. Each range has its
+  // own address cursor, so large CIDRs are traversed exhaustively instead of
+  // repeatedly sampling the same small prefix of a range.
+  final start = _natConfiguredRangeCursor % natRanges.length;
+  final perRange = max(1, (limit / natRanges.length).ceil());
+  final out = <String>[];
+  final seen = <String>{};
+  var processed = 0;
+  for (var offset = 0; offset < natRanges.length && out.length < limit; offset++) {
+    final range = natRanges[(start + offset) % natRanges.length];
+    final remaining = limit - out.length;
+    final count = min(perRange, remaining);
+    final generated = _natExpandAnyCursor(
+      range,
+      currentCursors[range] ?? 0,
+      count,
+    );
+    currentCursors[range] = generated.$2;
+    for (final ip in generated.$1) {
+      if (seen.add(ip)) out.add(ip);
+    }
+    processed++;
   }
-  if (candidates.isEmpty) {
-    return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
-  }
-  final values = candidates.toList(growable: false);
-  final start = _natConfiguredRangeCursor % values.length;
-  final count = min(limit, values.length).toInt();
-  final out = <String>[
-    for (var i = 0; i < count; i++) values[(start + i) % values.length],
-  ];
-  // The caller commits this cursor only after the corresponding scan completes.
-  return (addresses: out, nextCursor: (start + count) % values.length);
+  return (
+    addresses: out,
+    nextCursor: (start + max(1, processed)) % natRanges.length,
+    nextCursors: currentCursors,
+  );
 }
 
 Future<void> natRangesSave(String text) async {
@@ -1764,10 +1791,12 @@ Future<void> natRangesSave(String text) async {
       .where((x) => x.contains('/') || x.contains('-'))
       .toList();
   _natConfiguredRangeCursor = 0;
+  _natConfiguredRangeCursors.clear();
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString(_rangeKey, natRanges.join('\n'));
     await p.setInt('natConfiguredRangeCursor', 0);
+    await p.setString('natConfiguredRangeCursors', '{}');
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -2323,11 +2352,16 @@ Future<List<String>> _natRangeScanStepBody({
   if (!modeSnapshot) natRangeCursor = nextNatRangeCursor;
   if (modeSnapshot && configuredBatch.nextCursor != _natConfiguredRangeCursor) {
     _natConfiguredRangeCursor = configuredBatch.nextCursor;
+    _natConfiguredRangeCursors
+      ..clear()
+      ..addAll(configuredBatch.nextCursors);
     final persistedCursor = _natConfiguredRangeCursor;
+    final persistedRangeCursors = jsonEncode(_natConfiguredRangeCursors);
     unawaited(() async {
       try {
         final p = await SharedPreferences.getInstance();
         await p.setInt('natConfiguredRangeCursor', persistedCursor);
+        await p.setString('natConfiguredRangeCursors', persistedRangeCursors);
       } catch (e, st) {
         logError(e, st);
       }
