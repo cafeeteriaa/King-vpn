@@ -20,15 +20,14 @@ const List<String> kAutoFallbackIps = [
 bool _autoScanRunning = false;
 bool _autoScanStop = false;
 
-// TLS با SNI مشخص: اگر هندشیک کامل شود، SNI برای آن IP قابل استفاده است
+// TLS با SNI مشخص: هندشیک و اعتبارسنجی زنجیره گواهی باید هر دو موفق شوند
 Future<int?> _autoSniOk(String ip, int port, String sni) async {
   final sw = Stopwatch()..start();
   Socket? raw;
   SecureSocket? secure;
   try {
     raw = await Socket.connect(ip, port, timeout: const Duration(seconds: 4));
-    secure = await SecureSocket.secure(raw,
-        host: sni, onBadCertificate: (_) => true)
+    secure = await SecureSocket.secure(raw, host: sni)
         .timeout(const Duration(seconds: 4));
     return sw.elapsedMilliseconds;
   } catch (_) {
@@ -47,8 +46,7 @@ Future<String?> _autoAlpnOk(String ip, String sni, String alpn) async {
     raw = await Socket.connect(ip, 443, timeout: const Duration(seconds: 4));
     secure = await SecureSocket.secure(raw,
         host: sni,
-        supportedProtocols: [alpn],
-        onBadCertificate: (_) => true)
+        supportedProtocols: [alpn])
         .timeout(const Duration(seconds: 4));
     return secure.selectedProtocol;
   } catch (_) {
