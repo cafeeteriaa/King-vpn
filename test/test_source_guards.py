@@ -4038,6 +4038,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(connect.index('if (nationalMode && !proxyOnly)'), connect.index('final cfgTries = <String>['))
         self.assertLess(connect.index('if (chainCfg != null) chainCfg,'), connect.index('var usedFallback = false;'))
 
+    def test_automatic_multihop_relay_requires_fresh_end_to_end_proof(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('// MULTIHOP-REAL:')
+        end = source.index('final cfgTries = <String>[', start)
+        relay = source[start:end]
+        self.assertIn('_expireNatVerification(at: relayCheckAt)', relay)
+        self.assertIn('final proof = _resMap[x.key];', relay)
+        self.assertIn('natIsFreshVerifiedRelay(', relay)
+        self.assertIn('maxAge: Duration(hours: kGoldRetestHours)', relay)
+        self.assertIn('relayServerUrl.isNotEmpty', relay)
+        helper = (ROOT / 'lib' / 'nat_relay_chain.dart').read_text(encoding='utf-8')
+        self.assertIn('if (!verified || verifiedAt == null || maxAge <= Duration.zero)', helper)
+        self.assertIn('return !age.isNegative && age < maxAge;', helper)
+
     def test_multihop_relay_rejects_same_endpoint_as_exit(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn('if (relaySrv != null && !_sameEndpoint(relaySrv, s))', source)
