@@ -161,8 +161,10 @@ Future<void> autoScanRun(void Function(String) say,
     final portHits = <String>[];
     const portSni = 'www.cloudflare.com';
     var m = 0;
+    final configuredPorts = natAutoPorts(fetchedAll).toSet()..addAll(kAutoPorts);
+    final portsToTest = configuredPorts.toList(growable: false);
     portLoop:
-    for (final p in kAutoPorts) {
+    for (final p in portsToTest) {
       m++;
       if (scanNationalMode) {
         await natManualYield(shouldAbort: () => cancelled());
@@ -177,7 +179,7 @@ Future<void> autoScanRun(void Function(String) say,
         }
       }
       if (ok) portHits.add('$p');
-      say('پورت $m/${kAutoPorts.length} • سالم: ${portHits.length}');
+      say('پورت $m/${portsToTest.length} • سالم: ${portHits.length}');
     }
 
     if (cancelled()) {
