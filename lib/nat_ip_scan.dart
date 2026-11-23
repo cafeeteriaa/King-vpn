@@ -214,12 +214,22 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
   return natExpandIpRangeCursor(range, cursor, maxPerBlock: maxPerBlock);
 }
 
-/// بازه‌ی خطی به شکل a.b.c.d-e.f.g.h (برای نوشته‌هایی که CIDR نیستند).
-/// بازه‌های بزرگ‌تر از maxCount به‌طور یکنواخت نمونه‌برداری می‌شوند.
+/// Linear IPv4 or IPv6 address range. Large ranges are returned as a
+/// resumable-sized slice; use natExpandIpRangeCursor for subsequent slices.
 List<String> natExpandDash(String range, {int maxCount = 65536}) {
   if (maxCount <= 0) return const [];
   final parts = range.trim().split('-');
   if (parts.length != 2) return const [];
+  final startAddress = InternetAddress.tryParse(parts[0].trim());
+  final endAddress = InternetAddress.tryParse(parts[1].trim());
+  if (startAddress?.type == InternetAddressType.IPv6 &&
+      endAddress?.type == InternetAddressType.IPv6) {
+    return natExpandIpRangeCursor(
+      range,
+      '0',
+      maxPerBlock: maxCount,
+    ).addresses;
+  }
   int? toInt(String ip) {
     final o = ip.trim().split('.');
     if (o.length != 4) return null;
