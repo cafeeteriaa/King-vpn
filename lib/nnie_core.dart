@@ -103,7 +103,11 @@ class _NatDnsProbeCancelled implements Exception {
 
 class NatDnsWireProbe {
   static List<int> buildQuery(String domain, int id) {
-    final labels = domain.toLowerCase().replaceAll(RegExp(r'\.$'), '').split('.');
+    final normalized = domain.toLowerCase().replaceAll(RegExp(r'\\.$'), '');
+    if (normalized.isEmpty || ascii.encode(normalized).length > 253) {
+      throw const FormatException('Invalid DNS name length');
+    }
+    final labels = normalized.split('.');
     final out = <int>[
       (id >> 8) & 255, id & 255,
       0x01, 0x00, // RD=1
@@ -172,6 +176,7 @@ class NatDnsWireProbe {
       if ((n & 0xc0) == 0xc0) {
         if (p + 1 >= b.length) throw const FormatException('Bad pointer');
         final ptr = ((n & 0x3f) << 8) | b[p + 1];
+        if (ptr >= b.length) throw const FormatException('DNS pointer out of range');
         if (resume < 0) resume = p + 2;
         p = ptr;
         continue;
@@ -218,7 +223,10 @@ class NatDnsWireProbe {
       final rd = p + 10;
       if (rd + rdlen > b.length) throw const FormatException('Bad RDATA length');
       records.add((owner: owner, type: type, cls: cls, rd: rd, rdlen: rdlen));
-      if (type == 5 && cls == 1 && rdlen > 0) {
+      if (type == 5 && cls == 1) {
+        if (rdlen == 0 || _skipName(b, rd) != rd + rdlen) {
+          throw const FormatException('CNAME RDATA length mismatch');
+        }
         cnameTargets[owner] = _readName(b, rd);
       }
       p = rd + rdlen;

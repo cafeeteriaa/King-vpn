@@ -190,6 +190,21 @@ void main() {
           throwsA(isA<FormatException>()));
     });
 
+    test('rejects a CNAME whose encoded target exceeds RDLENGTH', () {
+      final bytes = <int>[
+        ..._u16(0x1234), ..._u16(0x8180),
+        ..._u16(1), ..._u16(1), ..._u16(0), ..._u16(0),
+        6, ...'google'.codeUnits, 3, ...'com'.codeUnits, 0,
+        0, 1, 0, 1,
+        0xc0, 0x0c, 0, 5, 0, 1, 0, 0, 0, 60,
+        0, 1, 0xc0, 0x0c,
+      ];
+      expect(
+        () => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
     test('rejects a truncated packet instead of crashing', () {
       expect(() => NatDnsWireProbe.parseResponse([0, 1, 2], 1, 'google.com'),
           throwsA(isA<FormatException>()));
