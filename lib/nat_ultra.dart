@@ -2337,7 +2337,7 @@ Future<List<String>> _natRangeScanStepBody({
   unawaited(refreshCdnRanges());
   final args = <String, dynamic>{
     'cfIpsBatch': 0, // no broad CDN/third-party range sweep in automatic mode
-    'maxAddrs': maxAddrs,
+    'maxAddrs': max(0, maxAddrs - configuredNatRanges.length),
     'blocks': blocks,
     'nationalMode': modeSnapshot,
     'liveRanges': <String>[],
@@ -2353,9 +2353,10 @@ Future<List<String>> _natRangeScanStepBody({
   }.toList(growable: false);
   if (addrs.isEmpty) return const <String>[];
 
-  final from = modeSnapshot ? 0 : (natRangeCursor % addrs.length);
-  final slice = addrs.skip(from).take(maxAddrs).toList();
-  final nextNatRangeCursor = from + slice.length;
+  // The generator and configured-range iterator already advance their own
+  // cursors. Do not apply a second positional skip to a freshly generated batch.
+  final slice = addrs.take(maxAddrs).toList(growable: false);
+  final nextNatRangeCursor = 0;
   final out = <String>[];
   final portList = natAutoPorts(seeds);
   final perPortCap = Duration(
