@@ -2106,24 +2106,66 @@ const String _manualRangeSignatureKey = 'manual_range_scan_signature_v2';
 }
 
 // MANUALSCAN: اسکن دستی بازه‌ها با پیشرفت و نتیجه داخل خود دیالوگ (نه پیام پشت دیالوگ)
-Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async {
-  // FOLDERHELP: IPهای تمیز پوشه اول تست می‌شوند (کمک پوشه به اسکن بازه، در نت ملی و عادی)
+Future<void> manualRangeScan(BuildContext context, List<String> userRanges) async {
   await goldLoad();
-  // RANGEFIX: بازه‌ی کاربر اول می‌آید تا با سقف زمان کوتاه هرگز کنار گذاشته نشود
-  // RANGEFIX: بازه‌ی کاربر اول و با ترتیب تصادفی (تا بازه‌ی بزرگ در سقف زمان کل بازه را پوشش دهد)
-  final shuffledUser = List<String>.of(userAddrs)..shuffle(Random());
-  final addrs = {...shuffledUser, for (final c in goldIpList()) c.ip}.toList();
+  final ranges = <String>{
+    ...userRanges.map((value) => value.trim()).where((value) => value.isNotEmpty),
+    for (final clean in goldIpList()) clean.ip,
+  }.toList()..sort();
+  if (ranges.isEmpty) return;
+
+  final prefs = await SharedPreferences.getInstance();
+  final signature = jsonEncode(ranges);
+  final previousSignature = prefs.getString(_manualRangeSignatureKey);
+  final cursors = <String, dynamic>{};
+  if (previousSignature == signature) {
+    final raw = prefs.getString(_manualRangeCursorKey);
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          for (final entry in decoded.entries) {
+            if (entry.value is String || entry.value is num) {
+              cursors['${entry.key}'] = entry.value;
+            }
+          }
+        }
+      } catch (e, stk) {
+        logError(e, stk);
+      }
+    }
+  } else {
+    await prefs.setString(_manualRangeSignatureKey, signature);
+    await prefs.setString(_manualRangeCursorKey, '{}');
+  }
+
+  final workers =
+      nationalMode ? natAdaptiveConcurrency(kNatManualConc) : natAdaptiveWorkers();
+  final batchSize = min(
+    6000,
+    max(
+      1,
+      (const Duration(minutes: 2).inMilliseconds / 1500 * workers * 0.65).floor(),
+    ),
+  ).toInt();
   var cancelled = false;
   var finished = false;
+  var complete = false;
   var done = 0;
   var hitsCount = 0;
-  var total = addrs.length;
-  var result = <NatIpHit>[];
+  var batchNumber = 0;
+  final hitsByIp = <String, NatIpHit>{};
   var open = true;
   StateSetter? setS;
 
   void upd(VoidCallback f) {
     if (open && setS != null) setS!(f);
+  }
+
+  void showResult() {
+    upd(() {
+      hitsCount = hitsByIp.length;
+    });
   }
 
   // ignore: unawaited_futures
@@ -2132,6 +2174,8 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
     barrierDismissible: false,
     builder: (ctx) => StatefulBuilder(builder: (ctx2, ss) {
       setS = ss;
+      final result = hitsByIp.values.toList()
+        ..sort((a, b) => a.ms.compareTo(b.ms));
       return AlertDialog(
         title: Text(finished ? 'نتیجه‌ی اسکن بازه' : 'در حال اسکن بازه...'),
         content: SizedBox(
@@ -2140,7 +2184,8 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('آدرس‌ها: $done / $total   •   IP سالم: $hitsCount'),
+              Text('آدرس‌های بررسی‌شده: $done   •   IP سالم: $hitsCount'),
+              Text('دسته: $batchNumber   •   ${complete ? 'همه‌ی بازه‌ها تمام شد' : 'ادامه از Cursor ذخیره می‌شود'}'),
               if (!finished) ...[
                 const SizedBox(height: 10),
                 const LinearProgressIndicator(),
@@ -2153,7 +2198,7 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
               if (finished && result.isNotEmpty)
                 TextButton.icon(
                   onPressed: () => Clipboard.setData(ClipboardData(
-                      text: result.map((h) => '${h.ip}:443').join('\n'))),
+                      text: result.map((hit) => '${hit.ip}:443').join('\n'))),
                   icon: const Icon(Icons.copy, size: 16),
                   label: Text('کپی ${result.length} IP'),
                 ),
@@ -2162,8 +2207,8 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
                   height: 260,
                   child: ListView(
                     children: [
-                      for (final h in result)
-                        Text('${h.ms} ms  •  ${h.ip}:443',
+                      for (final hit in result)
+                        Text('${hit.ms} ms  •  ${hit.ip}:443',
                             style: const TextStyle(
                                 fontSize: 12, fontFamily: 'monospace')),
                     ],
@@ -2181,8 +2226,8 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
           if (finished && result.isNotEmpty)
             TextButton(
               onPressed: () async {
-                final t = result.map((h) => '${h.ip}:443').join('\n');
-                await Clipboard.setData(ClipboardData(text: t));
+                final text = result.map((hit) => '${hit.ip}:443').join('\n');
+                await Clipboard.setData(ClipboardData(text: text));
                 if (ctx.mounted) {
                   ScaffoldMessenger.of(ctx).showSnackBar(
                       SnackBar(content: Text('${result.length} IP کپی شد')));
@@ -2209,28 +2254,57 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
     if (nationalMode) {
       await natManualYield(shouldAbort: () => cancelled || !open);
     }
-    // Do not start a scan if the user cancelled while waiting for the national scan.
-    if (!cancelled) {
-      result = await natScanIps(
-        addrs,
-        want: 1000,
-        concurrency: nationalMode ? kNatManualConc : natAdaptiveWorkers(),
-        // RANGEFIX: بازه‌ی کوچک ۲ دقیقه؛ بازه‌ی بزرگ (بیش از ۴۰۹۶ IP) ۸ دقیقه
-        budget: Duration(minutes: userAddrs.length > 4096 ? 8 : 2),
+    while (!cancelled && open) {
+      final generated = _manualRangeNextBatch(
+        ranges,
+        cursors,
+        batchSize: batchSize,
+      );
+      final addresses = generated.addresses;
+      if (addresses.isEmpty) {
+        complete = true;
+        break;
+      }
+      batchNumber++;
+      final batchBase = done;
+      var completed = 0;
+      final batchHits = await natScanIps(
+        addresses,
+        want: addresses.length,
+        concurrency: workers,
+        budget: const Duration(minutes: 2),
         timeout: const Duration(milliseconds: 1500),
         cancelled: () => cancelled || !open,
-        onProgress: (d, t, h) => upd(() {
-          done = d;
-          total = t;
-          hitsCount = h;
-        }),
+        onProgress: (scanned, total, found) {
+          upd(() {
+            done = batchBase + scanned;
+            completed = scanned;
+            hitsCount = hitsByIp.length + found;
+          });
+        },
       );
-      // Partial results remain visible, but a cancelled scan must not enter shared storage.
-      if (!cancelled && open) {
-        await goldMergeIps(
-          [for (final h in result) CleanIp(h.ip, h.ms, 443)],
-          shouldAbort: () => cancelled || !open,
-        );
+      if (cancelled || !open) break;
+      for (final hit in batchHits) {
+        final previous = hitsByIp[hit.ip];
+        if (previous == null || hit.ms < previous.ms) hitsByIp[hit.ip] = hit;
+      }
+      done = batchBase + completed;
+      showResult();
+
+      if (completed < addresses.length) {
+        // Do not advance a partial batch; the next opening retries this exact slice.
+        break;
+      }
+      cursors
+        ..clear()
+        ..addAll(generated.cursors);
+      await prefs.setString(_manualRangeCursorKey, jsonEncode(cursors));
+      await goldMergeIps(
+        [for (final hit in batchHits) CleanIp(hit.ip, hit.ms, 443)],
+        shouldAbort: () => cancelled || !open,
+      );
+      if (nationalMode && !cancelled && open) {
+        await natManualYield(shouldAbort: () => cancelled || !open);
       }
     }
   } catch (e, stk) {
@@ -2238,6 +2312,6 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
   }
   upd(() {
     finished = true;
-    hitsCount = result.length;
+    hitsCount = hitsByIp.length;
   });
 }
