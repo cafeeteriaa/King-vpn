@@ -2723,5 +2723,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('savedDns.take(40)', dns)
 
 
+    def test_ip_auto_scan_has_no_fixed_port_or_hit_count_caps_and_resumes_core_queue(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        self.assertNotIn('_ipAutoPorts', source)
+        self.assertNotIn('_ipAutoCoreMax', source)
+        self.assertIn('final ports = natAutoPorts(pool);', source)
+        self.assertIn('want: addrs.length,', source)
+        self.assertIn('const Duration _ipAutoCoreBudget = Duration(minutes: 4);', source)
+        self.assertIn('while (ipAutoPendingCore.isNotEmpty &&', source)
+        self.assertIn('ipAutoPendingCore.removeAt(0);', source)
+        self.assertIn('final savedPending = p.getString(pendingKey) ??', source)
+        self.assertIn('..addAll(savedPending.split', source)
+        self.assertIn('await p.setString(pendingKey, pending.join', source)
+        self.assertIn('for (final candidate in candidates)', source)
+
+
 if __name__ == '__main__':
     unittest.main()
