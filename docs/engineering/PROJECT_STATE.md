@@ -177,3 +177,13 @@ Final status: VERIFIED WITH LIMITATIONS. This CI artifact is not declared produc
 - No source-code behavior was changed in this continuation; only the audit documentation was expanded. New documentation commit: `1192cd42913d44daa9081e37eae642ecc0454fbd`.
 - PR #44 remains Draft/unmerged. Do not treat the earlier exact-code CI run as validation of this documentation commit; no new CI result is claimed here.
 - Current acceptance remains IN PROGRESS / VERIFIED WITH LIMITATIONS. Outstanding: dependency lockfile/SBOM/license/CVE inventory; comprehensive secret scan; active plugin-managed route inspection; packet capture; physical-device DNS/IPv4/IPv6/PMTU/UDP/QUIC tests; real operator/national-network tests; and validated hosting evidence for domestic endpoints.
+
+
+## Dependency reproducibility continuation — 2026-11-23
+
+- CI currently generates a temporary Flutter project under `build_app`; root repository has no committed `pubspec.yaml` or `pubspec.lock`.
+- `.github/workflows/build.yml` resolves packages at build time via `flutter pub add`; multiple direct dependencies are unconstrained and Flutter uses the moving `stable` channel rather than a fixed SDK release.
+- `prepare_android.py` pins AGP 9.3.1 and Gradle 9.5.0, but those pins do not make the Pub dependency graph reproducible.
+- The V2Ray plugin source is patched after Pub resolution from the cache; exact resolved package graph and patch provenance need to be captured.
+- Added this finding and a remediation checklist to `FINAL_MASTER_AUDIT.md`. Documentation commit: `50375e9ae032b0300215a74aae38ebd310c442c7`.
+- No dependency version was guessed or changed, and no SBOM/license/CVE pass is claimed. Exact lockfile creation requires a real CI/toolchain resolution and artifact evidence.
