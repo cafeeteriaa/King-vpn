@@ -1213,6 +1213,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('if (nationalMode)', standby)
 
 
+    def test_nnie_reachability_requires_verified_tls_not_open_tcp_only(self):
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        start = engine.index('static Future<bool> _tcpOk(String host)')
+        end = engine.index('/// True when the national network', start)
+        probe = engine[start:end]
+        self.assertIn('SecureSocket.secure(raw, host: host)', probe)
+        self.assertIn('timeout(const Duration(seconds: 4))', probe)
+        self.assertIn('secure?.destroy()', probe)
+        self.assertIn('raw?.destroy()', probe)
+        self.assertNotIn('final s = await Socket.connect(host, 443', probe)
+
     def test_nnie_history_is_partitioned_between_domestic_and_global_routes(self):
         engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
         self.assertIn("nnie_profiles_v3", engine)
