@@ -658,7 +658,7 @@ bool _natAppliesF(_NatFacts f, int v) {
   if (x.mode != null && (!x.mode!.startsWith('kcp:') || f.reality)) return false;
   if (x.doh != null && f.isIp) return false;
   // V13: SNI swap only makes sense for CDN configs with TLS (not reality).
-  if (x.sniSwap != null && !(f.sec && f.cdnLike && !f.reality)) return false;
+  if (x.sniSwap != null && !(f.sec && !f.reality)) return false;
   return true;
 }
 
@@ -817,7 +817,9 @@ List<int> _natOrder(Server s, {bool full = false}) {
   }
 
   final preferLight = !nationalMode;
-  final skipHeavy = !nationalMode;
+  // Heavy transports remain in the candidate matrix in every mode; staged
+  // ordering may defer them, but does not remove them from eligibility.
+  const skipHeavy = false;
 
   final knownOk = known != null && _natAppliesF(f, known);
   if (knownOk && (!skipHeavy || !_natIsSlowHeavy(known!))) put(known!);
@@ -1368,18 +1370,9 @@ String _natCfgRaw(Server s, int v, {bool reuse = false}) {
 String _natSmartSni(String cfg, Server s, {bool forceAll = false}) {
   try {
     final h = s.host.toLowerCase();
-    final isWorker = h.endsWith('workers.dev') || h.endsWith('pages.dev');
-    // SNICF: کلودفلر (workers.dev/pages.dev یا IP کلودفلر) فقط با sniCfOn؛ بقیه‌ی CDNها با sniSpoofAll
-    final isCf = isWorker || _isCfIp(h);
-    final isCdn = isCf || s.cdn;
-    if (!s.tls && !s.reality) return cfg;
-    if (!isCdn) return cfg;
-    if (isCf) {
-      if (!sniCfOn) return cfg;
-    } else if (!forceAll) {
-      return cfg;
-    }
-    // Change only the primary proxy hop; auxiliary TLS outbounds keep their own SNI.
+    // SNI override candidates are tested on every standard-TLS proxy; REALITY,
+    // ECH and auxiliary TLS hops are preserved by the config transformer.
+    if (!s.tls || !forceAll) return cfg;
     return natSetPrimaryProxyTlsServerName(cfg, 'cdnjs.cloudflare.com');
   } catch (_) { return cfg; }
 }
@@ -1390,8 +1383,7 @@ int natSafeVariant(int v) {
   return v;
 }
 int natVarFor(Server s) {
-  // NATONLYVAR: اتصال عادی هیچ حالتی (fp / Fragment / نردبان) ندارد؛ فقط نت ملی
-  if (!nationalMode) return 0;
+  // Reuse the last end-to-end verified variant in both national and global modes.
   final rawV = nationalMode ? (natVar[_nk(s)] ?? 0) : (natVarNormal[s.key] ?? 0);
   final v = natSafeVariant(rawV);
   if (v <= 0) return 0;
@@ -2287,7 +2279,8 @@ Future<List<String>> _natRangeScanStepBody({
   // Stage the configured-range cursor; do not persist it until scan success.
   final configuredBatch = modeSnapshot
       ? _natConfiguredRangeBatch(max(1, maxAddrs ~/ 2))
-      : (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
+      : (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor,
+          nextCursors: Map<String, int>.of(_natConfiguredRangeCursors));
   final configuredNatRanges = configuredBatch.addresses;
 
   // Refresh published CDN prefixes and retain the last good snapshot on failure.
