@@ -102,7 +102,10 @@ class _NatDnsProbeCancelled implements Exception {
 }
 
 class NatDnsWireProbe {
-  static List<int> buildQuery(String domain, int id) {
+  static List<int> buildQuery(String domain, int id, {int recordType = 1}) {
+    if (recordType != 1 && recordType != 28) {
+      throw ArgumentError.value(recordType, 'recordType', 'Only A and AAAA are supported');
+    }
     final lower = domain.toLowerCase();
     final normalized = lower.endsWith('.')
         ? lower.substring(0, lower.length - 1)
@@ -124,8 +127,24 @@ class NatDnsWireProbe {
       }
       out..add(bytes.length)..addAll(bytes);
     }
-    out.addAll(const <int>[0, 0, 1, 0, 1]); // root, A, IN
+    out.addAll(<int>[0, (recordType >> 8) & 255, recordType & 255, 0, 1]); // root, QTYPE, IN
     return out;
+  }
+
+  /// Accept only globally scoped unicast IPv6 (2000::/3), excluding
+  /// documentation, transition, benchmarking and ORCHID special-purpose blocks.
+  static bool publicV6(List<int> b, int p) {
+    if (p < 0 || p + 16 > b.length) return false;
+    final a = b[p], second = b[p + 1], third = b[p + 2], fourth = b[p + 3];
+    if ((a & 0xe0) != 0x20) return false; // 2000::/3 only
+    if (a == 0x20 && second == 0x01) {
+      if (third == 0x0d && fourth == 0xb8) return false; // 2001:db8::/32 documentation
+      if (third == 0x00 && fourth == 0x00) return false; // 2001::/32 transition
+      if (third == 0x00 && fourth == 0x02) return false; // 2001:2::/48 benchmarking
+      if (third == 0x00 && (fourth == 0x10 || fourth == 0x20)) return false; // ORCHID
+    }
+    if (a == 0x20 && second == 0x02) return false; // 6to4
+    return true;
   }
 
   static bool publicV4(List<int> b, int p) {
@@ -194,7 +213,11 @@ class NatDnsWireProbe {
     return labels.join('.');
   }
 
-  static List<String> parseResponse(List<int> b, int id, String domain) {
+  static List<String> parseResponse(List<int> b, int id, String domain,
+      {int recordType = 1}) {
+    if (recordType != 1 && recordType != 28) {
+      throw ArgumentError.value(recordType, 'recordType', 'Only A and AAAA are supported');
+    }
     if (b.length < 17) throw const FormatException('Short DNS response');
     final rid = (b[0] << 8) | b[1];
     final flags = (b[2] << 8) | b[3];
@@ -218,7 +241,7 @@ class NatDnsWireProbe {
         : domain.toLowerCase();
     if (normalizedDomain.isEmpty ||
         qname != normalizedDomain ||
-        qtype != 1 ||
+        qtype != recordType ||
         qclass != 1) {
       throw const FormatException('Question mismatch');
     }
@@ -242,8 +265,8 @@ class NatDnsWireProbe {
       }
       p = rd + rdlen;
     }
-    // Only accept A records owned by the queried QNAME or its validated CNAME
-    // chain. An unrelated A record elsewhere in the answer section is ignored.
+    // Only accept records of the requested family owned by the queried QNAME
+    // or its validated CNAME chain. Unrelated answer-section records are ignored.
     final allowedOwners = <String>{normalizedDomain};
     var owner = normalizedDomain;
     for (var hop = 0; hop < 16; hop++) {
@@ -253,20 +276,31 @@ class NatDnsWireProbe {
     }
     final ips = <String>[];
     for (final rr in records) {
-      if (rr.type != 1 || rr.cls != 1 || rr.rdlen != 4 ||
+      if (rr.type != recordType || rr.cls != 1 ||
           !allowedOwners.contains(rr.owner)) continue;
-      if (!publicV4(b, rr.rd)) {
-        throw const FormatException('Non-public/blockpage A answer for queried name');
+      if (recordType == 1) {
+        if (rr.rdlen != 4) continue;
+        if (!publicV4(b, rr.rd)) {
+          throw const FormatException('Non-public/blockpage A answer for queried name');
+        }
+        ips.add('${b[rr.rd]}.${b[rr.rd + 1]}.${b[rr.rd + 2]}.${b[rr.rd + 3]}');
+      } else {
+        if (rr.rdlen != 16) continue;
+        if (!publicV6(b, rr.rd)) {
+          throw const FormatException('Non-public/special-use AAAA answer for queried name');
+        }
+        ips.add(InternetAddress.fromRawAddress(b.sublist(rr.rd, rr.rd + 16)).address);
       }
-      ips.add('${b[rr.rd]}.${b[rr.rd + 1]}.${b[rr.rd + 2]}.${b[rr.rd + 3]}');
     }
-    if (ips.isEmpty) throw const FormatException('No usable A answer for queried name');
+    if (ips.isEmpty) {
+      throw FormatException('No usable ${recordType == 1 ? 'A' : 'AAAA'} answer for queried name');
+    }
     return ips;
   }
 
   static Future<NatDnsProbeResult> probe(String server, String domain,
       {Duration timeout = const Duration(seconds: 2),
-      bool Function()? cancelled}) async {
+      bool Function()? cancelled, int recordType = 1}) async {
     RawDatagramSocket? socket;
     StreamSubscription<RawSocketEvent>? subscription;
     Timer? cancelWatcher;
@@ -281,7 +315,7 @@ class NatDnsWireProbe {
       final s = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0).timeout(timeout);
       socket = s;
       final id = Random.secure().nextInt(0x10000);
-      final packet = buildQuery(domain, id);
+      final packet = buildQuery(domain, id, recordType: recordType);
       final sw = Stopwatch()..start();
       final completer = Completer<List<String>>();
       subscription = s.listen((event) {
@@ -291,7 +325,7 @@ class NatDnsWireProbe {
         // RFC 5452: a matching ID alone is insufficient; verify source tuple.
         if (dg.port != 53 || dg.address.address != target.address) return;
         try {
-          completer.complete(parseResponse(dg.data, id, domain));
+          completer.complete(parseResponse(dg.data, id, domain, recordType: recordType));
         } catch (_) {
           // Ignore unrelated/malformed datagrams until timeout.
         }
