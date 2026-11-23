@@ -1632,6 +1632,7 @@ final Set<String> natIpDeadRun = {};
 List<String> natRanges = [];
 int natRangeCursor = 0; // generic range cursor
 int natRangePortCursor = 0; // resumable cursor across every discovered/common service port
+List<int> natRangePortInventory = []; // frozen port set until the current address batch completes
 int _natConfiguredRangeCursor = 0; // isolated National Net user-range cursor
 final Map<String, int> _natConfiguredRangeCursors = {};
 DateTime natRangeLast = DateTime.fromMillisecondsSinceEpoch(0);
@@ -1656,6 +1657,10 @@ Future<void> natIpMemLoad() async {
         .where((x) => x.contains('/') || x.contains('-'))
         .toList();
     natRangePortCursor = (p.getInt('natRangePortCursor') ?? 0).clamp(0, 1 << 31).toInt();
+    natRangePortInventory = (p.getStringList('natRangePortInventory') ?? const <String>[])
+        .map((value) => int.tryParse(value) ?? 0)
+        .where((port) => port > 0 && port < 65536)
+        .toList();
     _natConfiguredRangeCursor = (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
     final rangeCursors = p.getString('natConfiguredRangeCursors');
     if (rangeCursors != null) {
@@ -1776,11 +1781,13 @@ Future<void> natRangesSave(String text) async {
   _natConfiguredRangeCursor = 0;
   _natConfiguredRangeCursors.clear();
   natRangePortCursor = 0;
+  natRangePortInventory.clear();
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString(_rangeKey, natRanges.join('\n'));
     await p.setInt('natConfiguredRangeCursor', 0);
     await p.setInt('natRangePortCursor', 0);
+    await p.setStringList('natRangePortInventory', const <String>[]);
     await p.setString('natConfiguredRangeCursors', '{}');
   } catch (e, stk) {
     logError(e, stk);
