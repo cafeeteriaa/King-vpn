@@ -35,7 +35,7 @@ class KingTransportCapability {
 
 const _both = {KingAddressFamily.ipv4, KingAddressFamily.ipv6};
 
-const List<KingTransportCapability> kingTransportCapabilities = [
+final List<KingTransportCapability> kingTransportCapabilities = [
   // Current Xray/V2Ray configuration family.
   KingTransportCapability(id:'vless',category:'vpn',title:'VLESS',state:KingCapabilityState.existingCoreConfig,families:_both,integration:'Xray/V2Ray core config'),
   KingTransportCapability(id:'vmess',category:'vpn',title:'VMess / V2Ray',state:KingCapabilityState.existingCoreConfig,families:_both,integration:'Xray/V2Ray core config'),
