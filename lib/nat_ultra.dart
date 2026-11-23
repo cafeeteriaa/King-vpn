@@ -1740,9 +1740,10 @@ Future<void> natIpMemSave(String ip, int port) async {
 /// Next bounded sample from the National Net engine's own user-configured
 /// ranges. This cursor and range inventory are not shared with generic scanners.
 ({List<String> addresses, int nextCursor, Map<String, int> nextCursors})
-    _natConfiguredRangeBatch(int limit) {
+    _natConfiguredRangeBatch(int limit, {Iterable<String> extraRanges = const <String>[]}) {
   final currentCursors = Map<String, int>.of(_natConfiguredRangeCursors);
-  if (limit <= 0 || natRanges.isEmpty) {
+  final ranges = <String>{...natRanges, ...extraRanges}.toList(growable: false);
+  if (limit <= 0 || ranges.isEmpty) {
     return (
       addresses: const <String>[],
       nextCursor: _natConfiguredRangeCursor,
@@ -1752,13 +1753,13 @@ Future<void> natIpMemSave(String ip, int port) async {
   // Visit every configured range over successive batches. Each range has its
   // own address cursor, so large CIDRs are traversed exhaustively instead of
   // repeatedly sampling the same small prefix of a range.
-  final start = _natConfiguredRangeCursor % natRanges.length;
-  final perRange = max(1, (limit / natRanges.length).ceil());
+  final start = _natConfiguredRangeCursor % ranges.length;
+  final perRange = max(1, (limit / ranges.length).ceil());
   final out = <String>[];
   final seen = <String>{};
   var processed = 0;
-  for (var offset = 0; offset < natRanges.length && out.length < limit; offset++) {
-    final range = natRanges[(start + offset) % natRanges.length];
+  for (var offset = 0; offset < ranges.length && out.length < limit; offset++) {
+    final range = ranges[(start + offset) % ranges.length];
     final remaining = limit - out.length;
     final count = min(perRange, remaining);
     final generated = _natExpandAnyCursor(
@@ -1774,7 +1775,7 @@ Future<void> natIpMemSave(String ip, int port) async {
   }
   return (
     addresses: out,
-    nextCursor: (start + max(1, processed)) % natRanges.length,
+    nextCursor: (start + max(1, processed)) % ranges.length,
     nextCursors: currentCursors,
   );
 }
@@ -2281,8 +2282,10 @@ Future<List<String>> _natRangeScanStepBody({
   }.toList(growable: false);
   final blocks = natSeedBlocks(hosts);
   // Stage the configured-range cursor; do not persist it until scan success.
+  final iranRanges = modeSnapshot ? await nipIranCidrs() : const <String>[];
+  if (shouldAbort()) return const <String>[];
   final configuredBatch = modeSnapshot
-      ? _natConfiguredRangeBatch(max(1, maxAddrs ~/ 2))
+      ? _natConfiguredRangeBatch(max(1, maxAddrs ~/ 2), extraRanges: iranRanges)
       : (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor,
           nextCursors: Map<String, int>.of(_natConfiguredRangeCursors));
   final configuredNatRanges = configuredBatch.addresses;
