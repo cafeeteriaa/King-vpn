@@ -3460,22 +3460,25 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('bestScore < _pilotStandbyScore(active) + 12.0', standby)
 
 
-    def test_nat_variant_growth_obeys_declared_hard_cap_and_deduplicates(self):
+    def test_nat_variant_growth_keeps_broad_resumable_inventory_and_deduplicates(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
-        self.assertIn('const int natMaxVariants = 5000;', source)
+        self.assertIn('const int natMaxVariants = 2000000;', source)
+        self.assertNotIn('const int natMaxVariants = 5000;', source)
         self.assertIn('if (n <= 0 || _natSpecs.length >= natMaxVariants) return 0;', source)
-        self.assertIn('final remaining = natMaxVariants - _natSpecs.length;', source)
         self.assertIn('if (!known.add(_natSig(candidate))) continue;', source)
-        self.assertNotIn('_natSpecs.length > 500000', source)
+        self.assertIn('0, 0, 200, 1200, 6000, 15000, 30000, 60000, 100000, 150000, 200000', source)
 
-    def test_nat_range_scan_rejects_invalid_work_and_clamps_resources(self):
+    def test_nat_range_scan_uses_resumable_batches_without_small_fixed_target_ceiling(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('Future<List<String>> natRangeScanStep(')
         end = source.index('Future<List<String>> _natRangeScanStepBody(', start)
         body = source[start:end]
         self.assertIn('if (maxAddrs <= 0 || budget <= Duration.zero)', body)
-        self.assertIn('maxAddrs = maxAddrs.clamp(1, 4096).toInt();', body)
+        self.assertNotIn('maxAddrs = maxAddrs.clamp(1, 4096).toInt();', body)
         self.assertIn('conc = conc.clamp(1, 32).toInt();', body)
+        self.assertIn('natRangePortCursor', source)
+        self.assertIn('_natConfiguredRangeCursors', source)
+        self.assertIn("'maxTargets': generatedBudget", source)
 
 
     def test_own_vpn_start_supersedes_previous_waiter_and_prevents_stale_timeout_stop(self):
@@ -4169,21 +4172,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_tgPxNormalizeLink', source)
         self.assertIn('if (link == null) continue;', source)
 
-    def test_removed_asn_prefetch_has_no_background_network_cost(self):
-        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+    def test_official_iran_cidr_inventory_is_available_to_resumable_range_scanner(self):
         scan = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
-        self.assertNotIn('natPrefetchAsn(', main)
-        self.assertNotIn('nipAsnPrefixes(', scan)
-        self.assertNotIn('nipIranCidrs(', scan)
-    def test_national_ip_hunt_does_not_sweep_unrelated_asn_prefixes(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn('Future<List<String>> nipIranCidrs()', scan)
+        self.assertIn('country-resource-list/data.json?resource=IR', scan)
+        self.assertIn('extraRanges: iranRanges', nat)
+        self.assertIn('_natConfiguredRangeCursors', nat)
+
+    def test_national_ip_hunt_keeps_live_cdn_and_all_supplied_relays(self):
         source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         start = source.index('Future<bool> _natIpHunt()')
         end = source.index('Future<bool> _natTryScan(', start)
         hunt = source[start:end]
-        self.assertNotIn('nipAsnPrefixes(', hunt)
         self.assertIn('natRelayHosts', hunt)
         self.assertIn('_liveCdnRanges', hunt)
-        self.assertIn('اسکن همسایه‌های ASN عمداً اجرا نمی‌شود', hunt)
+        self.assertNotIn('اسکن همسایه‌های ASN عمداً اجرا نمی‌شود', hunt)
+        self.assertNotIn('cands.length >= 8', hunt)
     def test_front_sni_swap_only_rewrites_validated_standard_tls_configs(self):
         source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         start = source.index('String? nipSwapSni(')
