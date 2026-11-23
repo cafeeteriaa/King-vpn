@@ -177,7 +177,7 @@ class NatNetworkDiagnosis {
       final parts = <String>[
         for (final i in ifs) for (final a in i.addresses) '${i.name}=${a.address}',
       ]..sort();
-      return sha256.convert(utf8.encode(parts.join(';'))).toString();
+      return hashNetworkIdentityParts(parts);
     } catch (_) {
       return '';
     }
