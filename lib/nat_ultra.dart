@@ -1836,9 +1836,8 @@ int _ipToInt(String ip) {
 String _intToIp(int v) =>
     '${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}';
 
-List<String> natExpandAny(String item, {int maxPerBlock = kNatMaxScanAddresses}) {
+List<String> natExpandAny(String item, {int maxPerBlock = 4096}) {
   if (maxPerBlock <= 0) return const [];
-  maxPerBlock = min(maxPerBlock, kNatMaxScanAddresses);
   if (item.contains('/')) {
     final address = InternetAddress.tryParse(item.split('/').first.trim());
     if (address?.type == InternetAddressType.IPv6) {
