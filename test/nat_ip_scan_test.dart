@@ -71,6 +71,31 @@ void main() {
       expect(batch.nextCursor, '1');
     });
 
+    test('wrapped batches never duplicate a small IPv4 or IPv6 range', () {
+      for (final range in ['192.0.2.0/30', '2001:db8::/126']) {
+        final batch = natExpandIpRangeCursor(
+          range,
+          '3',
+          maxPerBlock: 8,
+          wrap: true,
+        );
+        expect(batch.addresses, hasLength(4));
+        expect(batch.addresses.toSet(), hasLength(4));
+        expect(batch.nextCursor, '3');
+      }
+    });
+
+    test('IPv4 and IPv6 dash ranges both normalize reversed endpoints', () {
+      expect(
+        natExpandDash('192.0.2.3-192.0.2.1', maxCount: 3),
+        ['192.0.2.1', '192.0.2.2', '192.0.2.3'],
+      );
+      expect(
+        natExpandDash('2001:db8::3-2001:db8::1', maxCount: 3),
+        ['2001:db8::1', '2001:db8::2', '2001:db8::3'],
+      );
+    });
+
     test('negative persisted cursors safely restart IPv4 and IPv6 ranges', () {
       for (final range in ['192.0.2.0/30', '2001:db8::/126']) {
         final batch = natExpandIpRangeCursor(
