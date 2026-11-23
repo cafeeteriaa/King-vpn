@@ -133,6 +133,11 @@ List<String> dnsxFullDomains() {
     ...natIrDomains,
     ..._dnsxHostsFrom(iranDomains),
     ..._dnsxHostsFrom(_iranMoreDomains),
+    for (final server in natTemplateSeeds)
+      if (!server.isIp && server.host.contains('.')) server.host.toLowerCase(),
+    for (final record in _goldSrv.values)
+      if ((Uri.tryParse(record.link)?.host ?? '').contains('.'))
+        Uri.parse(record.link).host.toLowerCase(),
   };
   return all.toList();
 }
@@ -354,7 +359,13 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
     if (now - last < gapMs) return;
     final savedDns = await goldDnsList();
     if (nationalMode != scanNationalMode) return;
-    final list = {...savedDns, ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults)}.toList();
+    final list = <String>{
+      ...savedDns,
+      ..._goldIps.values.map((entry) => entry.ip),
+      ...natIpMemHosts(),
+      ...cleanIps.map((entry) => entry.ip),
+      ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults),
+    }.toList();
     // کامل: همه‌ی دامنه‌های پروژه، با فاصله‌ی ۱۵۰ میلی‌ثانیه بین بسته‌ها
     final r = await dnsxScan(
       list,
