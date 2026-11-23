@@ -17543,19 +17543,6 @@ extension ProjectNatSweep on _HomePageState {
         const {'360', 'qq'}.contains(x.fp); // NEWFP
   }
 
-  // AUTORANGE: بلوک‌های /24 سرورهای IP دار برنامه، بدون دخالت کاربر
-  List<String> _atAutoRanges(List<Server> servers) {
-    final blocks = <String>{};
-    for (final x in servers) {
-      if (!x.isIp) continue;
-      final p = x.host.split('.');
-      if (p.length != 4) continue;
-      blocks.add('${p[0]}.${p[1]}.${p[2]}.0/24');
-      if (blocks.length >= 200) break;
-    }
-    return blocks.toList();
-  }
-
   // IPSWEEP: هر IP تمیز را با اتصال واقعی روی یک سرور پشت کلودفلر امتحان می‌کند.
   // فقط IP‌هایی که ترافیک تونل (google و youtube) بدهند نگه داشته می‌شوند (حداکثر ۱۰ تا).
   // IPSWEEP: IP‌های باز را روی همه‌ی پورت‌های CDN (_natCfPorts) پیدا می‌کند، سپس هر جفت IP:پورت
@@ -17577,8 +17564,9 @@ extension ProjectNatSweep on _HomePageState {
       return <CleanIp>[];
     }
 
-    // بازه‌ها: کلودفلر + بلوک‌های /24 سرورهای خود برنامه
-    final ranges = <String>[..._cfRanges, ..._atAutoRanges(good)];
+    // Scope automatic probes to the CDN provider's published ranges only.
+    // Never infer authorization to scan neighboring /24s from a configured server IP.
+    final ranges = List<String>.of(_cfRanges);
     final pool2 = <String>[];
     for (final r in ranges) {
       pool2.addAll(natExpandCidr(r, maxPerBlock: 128));
