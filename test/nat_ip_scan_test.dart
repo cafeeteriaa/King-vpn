@@ -19,6 +19,12 @@ void main() {
       expect(sampled16.toSet(), hasLength(sampled16.length));
     });
 
+    test('CIDR expansion accepts the complete IPv4 address space', () {
+      final fullSpace = natExpandCidr('0.0.0.0/0', maxPerBlock: 4);
+      expect(fullSpace, isNotEmpty);
+      expect(fullSpace, hasLength(4));
+    });
+
     test('dash range expansion rejects non-positive output limits', () {
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: 0), isEmpty);
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: -1), isEmpty);
