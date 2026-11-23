@@ -4044,15 +4044,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_sameEndpoint(relaySrv, s)', source)
         self.assertIn('_sameEndpoint(x, s)', source)
 
-    def test_nat_relay_chain_uses_collision_free_outbound_tag(self):
+    def test_nat_relay_chain_delegates_to_executable_builder(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('String? natChainCfg(')
         end = source.index('Map? _natProxyOut(', start)
         chain = source[start:end]
-        self.assertIn('final usedTags = <String>{', chain)
-        self.assertIn('while (usedTags.contains(hopTag))', chain)
-        self.assertIn("so['dialerProxy'] = hopTag;", chain)
-        self.assertNotIn("so['dialerProxy'] = 'relay-hop';", chain)
+        self.assertIn('natBuildRelayChainConfig(exitCfg, relayCfg', chain)
+        helper = (ROOT / 'lib' / 'nat_relay_chain.dart').read_text(encoding='utf-8')
+        self.assertIn('while (usedTags.contains(relayTag))', helper)
+        self.assertIn("exitSockopt['dialerProxy'] = relayTag;", helper)
+        self.assertIn("..remove('dialerProxy')", helper)
+        self.assertIn("if (!keepInbounds) decodedExit.remove('inbounds');", helper)
+
+    def test_nat_relay_chain_has_runtime_json_regression_tests(self):
+        tests = (ROOT / 'test' / 'nat_relay_chain_test.dart').read_text(encoding='utf-8')
+        self.assertIn('routes exit through relay', tests)
+        self.assertIn('chooses a collision-free relay tag', tests)
+        self.assertIn('rejects unsupported or malformed proxy configurations', tests)
     def test_nat_sni_variant_labels_match_candidate_indices(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         self.assertIn("_NatSpec('SNI>cloudflare', sniSwap: 1)", source)
