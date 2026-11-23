@@ -2248,16 +2248,16 @@ Future<List<String>> _natRangeScanStepBody({
       (stop?.call() ?? false) || nationalMode != modeSnapshot;
   if (!kNatIpScanOn || shouldAbort()) return const <String>[];
 
-  var seeds = known;
-  if (seeds.length < 50) {
-    try {
-      final hotSeeds = await natHotNext(800, fetch: false);
-      if (shouldAbort()) return const <String>[];
-      seeds = [...known, ...hotSeeds];
-    } catch (e, stk) {
-      logError(e, stk);
-      if (shouldAbort()) return const <String>[];
-    }
+  var seeds = List<Server>.of(known);
+  try {
+    // Keep rotating through the complete public/user source cache even when
+    // the active server pool already contains many entries.
+    final hotSeeds = await natHotNext(800, fetch: false);
+    if (shouldAbort()) return const <String>[];
+    seeds.addAll(hotSeeds);
+  } catch (e, stk) {
+    logError(e, stk);
+    if (shouldAbort()) return const <String>[];
   }
   if (shouldAbort()) return const <String>[];
 
