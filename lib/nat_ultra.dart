@@ -1883,13 +1883,10 @@ Future<List<String>> _natDomainFirst(List<Server> known,
     {required int conc, bool Function()? stop}) async {
   final out = <String>[];
   if (!kNatIpScanOn || known.isEmpty) return out;
-  // Bound endpoint collection, DNS resolution, and TCP probes together.
-  // Starting the monotonic clock only after DNS resolution allowed a slow
-  // resolver to keep this background phase alive far beyond its advertised cap.
-  const scanBudget = Duration(seconds: 45);
-  final scanClock = Stopwatch()..start();
-  bool expired() => scanClock.elapsed >= scanBudget;
-  bool cancelled() => (stop != null && stop()) || expired();
+  // Do not impose a fixed wall-clock cutoff on endpoint discovery.
+  // The caller can cancel explicitly; DNS and socket operations retain their
+  // own bounded per-operation timeouts and the full endpoint inventory is kept.
+  bool cancelled() => stop != null && stop();
   try {
     // Only inspect hosts and ports explicitly present in the user's/current
     // server configurations. Do not scan unrelated public domains or all
