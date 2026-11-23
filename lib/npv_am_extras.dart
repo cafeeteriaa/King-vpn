@@ -103,56 +103,75 @@ List<String>? customDnsList() {
   if (effectiveDnsProv() != 'custom') return null;
   final a = customDnsAddr.trim();
   final parsedIp = InternetAddress.tryParse(a);
-  final ipOk = parsedIp != null && parsedIp.type == InternetAddressType.IPv4;
+  final ipOk = parsedIp != null &&
+      (parsedIp.type == InternetAddressType.IPv4 ||
+          parsedIp.type == InternetAddressType.IPv6);
   if (a.startsWith('https://') || ipOk) return [a];
   return null;
 }
 
 Future<int?> _probeDoh(String url, {String expectedDomain = 'google.com'}) async {
   final sw = Stopwatch()..start();
-  final cl = HttpClient()..connectionTimeout = const Duration(seconds: 2);
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
   try {
-    final req = await cl.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 2));
-    req.headers.set('accept', 'application/dns-json');
-    final res = await req.close().timeout(const Duration(seconds: 2));
-    if (res.statusCode != 200) {
-      await res.drain().timeout(const Duration(seconds: 2));
-      return null;
+    final base = Uri.parse(url);
+    for (final recordType in const [1, 28]) {
+      final query = Map<String, String>.of(base.queryParameters)
+        ..['name'] = expectedDomain
+        ..['type'] = recordType == 1 ? 'A' : 'AAAA';
+      final request = await client.getUrl(base.replace(queryParameters: query))
+          .timeout(const Duration(seconds: 2));
+      request.headers.set('accept', 'application/dns-json');
+      final response = await request.close().timeout(const Duration(seconds: 2));
+      if (response.statusCode != 200) {
+        await response.drain().timeout(const Duration(seconds: 2));
+        continue;
+      }
+      final body = await utf8.decoder.bind(response).join()
+          .timeout(const Duration(seconds: 2));
+      final decoded = jsonDecode(body);
+      if (decoded is! Map || (decoded['Status'] as num?)?.toInt() != 0) continue;
+      final question = decoded['Question'];
+      if (question is! List || !question.any((q) => q is Map &&
+          (q['name']?.toString().toLowerCase() == expectedDomain.toLowerCase() ||
+           q['name']?.toString().toLowerCase() == '${expectedDomain.toLowerCase()}.') &&
+          (q['type'] as num?)?.toInt() == recordType)) continue;
+      final answers = decoded['Answer'];
+      if (answers is! List) continue;
+      final valid = answers.any((answer) {
+        if (answer is! Map ||
+            (answer['type'] as num?)?.toInt() != recordType) return false;
+        final address = InternetAddress.tryParse(answer['data']?.toString() ?? '');
+        if (address == null) return false;
+        if (recordType == 1) {
+          return address.type == InternetAddressType.IPv4 &&
+              NatDnsWireProbe.publicV4(address.rawAddress, 0);
+        }
+        return address.type == InternetAddressType.IPv6 &&
+            NatDnsWireProbe.publicV6(address.rawAddress, 0);
+      });
+      if (valid) return sw.elapsedMilliseconds;
     }
-    final body = await utf8.decoder.bind(res).join().timeout(const Duration(seconds: 2));
-    final decoded = jsonDecode(body);
-    if (decoded is! Map || (decoded['Status'] as num?)?.toInt() != 0) return null;
-    final question = decoded['Question'];
-    if (question is! List || !question.any((q) => q is Map &&
-        (q['name']?.toString().toLowerCase() == expectedDomain.toLowerCase() ||
-         q['name']?.toString().toLowerCase() == '${expectedDomain.toLowerCase()}.') &&
-        (q['type'] as num?)?.toInt() == 1)) return null;
-    final answers = decoded['Answer'];
-    if (answers is! List) return null;
-    final valid = answers.any((a) {
-      if (a is! Map || (a['type'] as num?)?.toInt() != 1) return false;
-      final ip = InternetAddress.tryParse(a['data']?.toString() ?? '');
-      if (ip == null || ip.type != InternetAddressType.IPv4) return false;
-      final octets = ip.rawAddress;
-      return NatDnsWireProbe.publicV4(octets, 0);
-    });
-    return valid ? sw.elapsedMilliseconds : null;
+    return null;
   } catch (e, stk) {
     logError(e, stk);
     return null;
   } finally {
-    cl.close(force: true);
+    client.close(force: true);
   }
 }
 
 Future<int?> _probeDnsIp(String ip) async {
   final domain = nationalMode ? 'nic.ir' : 'google.com';
-  final result = await NatDnsWireProbe.probe(
-    ip,
-    domain,
-    timeout: const Duration(seconds: 2),
-  );
-  return result.ok ? result.elapsedMs : null;
+  final results = await Future.wait([
+    NatDnsWireProbe.probe(ip, domain,
+        timeout: const Duration(seconds: 2), recordType: 1),
+    NatDnsWireProbe.probe(ip, domain,
+        timeout: const Duration(seconds: 2), recordType: 28),
+  ]);
+  final successful = results.where((result) => result.ok).toList();
+  if (successful.isEmpty) return null;
+  return successful.map((result) => result.elapsedMs!).reduce(min);
 }
 
 Future<String> pickBestDns({bool force = false}) async {
@@ -529,6 +548,13 @@ const _cfRanges = <String>[
   '131.0.72.0/22',
 ];
 
+// Cloudflare's published IPv6 anycast ranges (refreshed live below).
+const _cfRangesV6 = <String>[
+  '2400:cb00::/32', '2606:4700::/32', '2803:f800::/32',
+  '2405:b500::/32', '2405:8100::/32', '2a06:98c0::/29',
+  '2c0f:f248::/32',
+];
+
 // CDNDIV: Fastly's published anycast ranges — a second CDN pool so a
 // block of Cloudflare's ranges doesn't take out all CDN-fronted servers.
 const _fastlyRanges = <String>[
@@ -571,6 +597,7 @@ const _gcpCdnRanges = <String>[
 // value) whenever the live range fetch below has not run yet or fails.
 const _allCdnRanges = <String>[
   ..._cfRanges,
+  ..._cfRangesV6,
   ..._fastlyRanges,
   ..._awsCfRanges,
   ..._gcpCdnRanges,
@@ -624,13 +651,17 @@ Future<void> refreshCdnRanges() async {
       liveOk++;
     }
 
-    await pull('cloudflare', _cfRanges, 64, () async {
-      final res = await http.get(Uri.parse('https://www.cloudflare.com/ips-v4'));
-      if (res.statusCode != 200) return const <String>[];
-      return res.body
-          .split(RegExp(r'[\r\n]+'))
-          .map((e) => e.trim())
-          .where((e) => e.contains('/'))
+    await pull('cloudflare', [..._cfRanges, ..._cfRangesV6], 128, () async {
+      final responses = await Future.wait([
+        http.get(Uri.parse('https://www.cloudflare.com/ips-v4')),
+        http.get(Uri.parse('https://www.cloudflare.com/ips-v6')),
+      ]);
+      return responses
+          .where((response) => response.statusCode == 200)
+          .expand((response) => response.body
+              .split(RegExp(r'[\\r\\n]+'))
+              .map((entry) => entry.trim())
+              .where((entry) => entry.contains('/')))
           .toList();
     });
 
@@ -652,7 +683,10 @@ Future<void> refreshCdnRanges() async {
       return list
           .whereType<Map>()
           .where((p) => p['service'] == 'CLOUDFRONT')
-          .map((p) => (p['ip_prefix'] ?? '').toString())
+          .expand((p) => [
+            (p['ip_prefix'] ?? '').toString(),
+            (p['ipv6_prefix'] ?? '').toString(),
+          ])
           .where((s) => s.contains('/'))
           .toList();
     });
@@ -665,7 +699,10 @@ Future<void> refreshCdnRanges() async {
       if (list is! List) return const <String>[];
       return list
           .whereType<Map>()
-          .map((p) => (p['ipv4Prefix'] ?? '').toString())
+          .expand((p) => [
+            (p['ipv4Prefix'] ?? '').toString(),
+            (p['ipv6Prefix'] ?? '').toString(),
+          ])
           .where((s) => s.contains('/'))
           .toList();
     });
@@ -741,58 +778,83 @@ String echApply(String link, String cfg) {
 }
 
 bool _cleanOk(String ip) {
-  final a = InternetAddress.tryParse(ip);
-  return a != null && a.type == InternetAddressType.IPv4 && !_privateIp(a);
+  final address = InternetAddress.tryParse(ip);
+  if (address == null) return false;
+  if (address.type == InternetAddressType.IPv4) {
+    return !_privateIp(address) &&
+        NatDnsWireProbe.publicV4(address.rawAddress, 0);
+  }
+  return address.type == InternetAddressType.IPv6 &&
+      NatDnsWireProbe.publicV6(address.rawAddress, 0);
 }
 
-List<String> _cidrSample(String cidr, int n, Random r) {
-  final p = cidr.split('/');
-  if (p.length != 2) return const [];
-  final a = InternetAddress.tryParse(p[0]);
-  final bits = int.tryParse(p[1]);
-  if (a == null ||
-      a.type != InternetAddressType.IPv4 ||
-      bits == null ||
-      bits < 8 ||
-      bits > 32) {
-    return const [];
+List<String> _cidrSample(String cidr, int n, Random random) {
+  if (n <= 0) return const [];
+  final parts = cidr.split('/');
+  if (parts.length != 2) return const [];
+  final address = InternetAddress.tryParse(parts[0].trim());
+  final prefix = int.tryParse(parts[1]);
+  if (address == null || prefix == null) return const [];
+  final width = address.type == InternetAddressType.IPv4 ? 32 :
+      (address.type == InternetAddressType.IPv6 ? 128 : 0);
+  if (width == 0 || prefix < 0 || prefix > width) return const [];
+  final bytes = address.rawAddress;
+  var base = BigInt.zero;
+  for (final byte in bytes) {
+    base = (base << 8) | BigInt.from(byte);
   }
-  final b = a.rawAddress;
-  final base = (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3];
-  final span = 1 << (32 - bits);
-  final mask = (0xFFFFFFFF << (32 - bits)) & 0xFFFFFFFF;
-  final net = base & mask;
-  final out = <String>[];
-  for (var i = 0; i < n; i++) {
-    final off = span <= 2 ? 0 : 1 + r.nextInt(span - 2);
-    final v = net + off;
-    out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
+  final hostBits = width - prefix;
+  final size = BigInt.one << hostBits;
+  final mask = prefix == 0 ? BigInt.zero :
+      ((BigInt.one << width) - BigInt.one) ^ (size - BigInt.one);
+  base &= mask;
+  final out = <String>{};
+  for (var i = 0; i < n * 3 && out.length < n; i++) {
+    var randomValue = BigInt.zero;
+    for (var j = 0; j < bytes.length; j += 4) {
+      randomValue = (randomValue << 32) |
+          BigInt.from(random.nextInt(1 << 32));
+    }
+    final value = base + (randomValue % size);
+    final raw = List<int>.filled(bytes.length, 0);
+    var remaining = value;
+    for (var j = raw.length - 1; j >= 0; j--) {
+      raw[j] = (remaining & BigInt.from(255)).toInt();
+      remaining >>= 8;
+    }
+    final candidate = InternetAddress.fromRawAddress(raw).address;
+    if (_cleanOk(candidate)) out.add(candidate);
   }
-  return out;
+  return out.toList(growable: false);
 }
 
 Future<List<String>> _cleanCandidates() async {
-  final r = Random();
-  final set = <String>{};
-  var ranges = List<String>.of(_cfRanges);
+  final random = Random();
+  final ranges = <String>{..._cfRanges, ..._cfRangesV6};
   try {
-    final res = await http
-        .get(Uri.parse('https://www.cloudflare.com/ips-v4'))
-        .timeout(const Duration(seconds: 8));
-    if (res.statusCode == 200) {
-      final live = res.body
-          .split(RegExp(r'[\r\n]+'))
-          .map((e) => e.trim())
-          .where((e) => e.contains('/'))
-          .toList();
-      if (live.length >= 5) ranges = live;
+    final responses = await Future.wait([
+      http.get(Uri.parse('https://www.cloudflare.com/ips-v4'))
+          .timeout(const Duration(seconds: 8)),
+      http.get(Uri.parse('https://www.cloudflare.com/ips-v6'))
+          .timeout(const Duration(seconds: 8)),
+    ]);
+    for (final response in responses) {
+      if (response.statusCode == 200) {
+        ranges.addAll(response.body
+            .split(RegExp(r'[\\r\\n]+'))
+            .map((entry) => entry.trim())
+            .where((entry) => entry.contains('/')));
+      }
     }
-  } catch (e, stk) { logError(e, stk); }
-  for (final c in ranges) {
-    set.addAll(_cidrSample(c, 28, r).where(_cleanOk));
+  } catch (e, stk) {
+    logError(e, stk);
   }
-  final l = set.toList()..shuffle(r);
-  return l.take(240).toList();
+  final candidates = <String>{};
+  for (final range in ranges) {
+    candidates.addAll(_cidrSample(range, 28, random));
+  }
+  final result = candidates.toList()..shuffle(random);
+  return result.take(240).toList();
 }
 
 Future<String> _cfRead(Socket k, Duration t) async {
