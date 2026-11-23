@@ -2873,6 +2873,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_nip_hunt_resumes_every_dual_stack_range_and_scans_all_open_hits(self):
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         self.assertIn("const String _nipHuntCursorKey = 'nip_hunt_range_cursors_v1';", nip)
+        self.assertIn("const templateCursorKey = 'nip_hunt_template_cursor_v1';", nip)
+        self.assertIn('final templateInventory = uniqueTemplates.values.toList()', nip)
+        self.assertIn('const templateBatchSize = 40;', nip)
+        self.assertIn('await templatePrefs.setString(templateCursorKey, templates.last.link);', nip)
+        self.assertNotIn('templates.length >= 40', nip)
         self.assertIn("required String namespace,", nip)
         self.assertIn("'__nip_${namespace}_range_cursor'", nip)
         self.assertIn("cursors['$namespace:$range']", nip)
