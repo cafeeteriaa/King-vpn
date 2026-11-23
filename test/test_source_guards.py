@@ -2883,7 +2883,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_clean_ip_scan_uses_resumable_dual_stack_range_batches(self):
         extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
-        start = extras.index('Future<List<String>> _cleanCandidates()')
+        start = extras.index("const String _cleanRangeCursorKey")
         end = extras.index('Future<String> _cfRead', start)
         candidates = extras[start:end]
         self.assertIn("const String _cleanRangeCursorKey = 'clean_ip_range_cursors_v1';", candidates)
