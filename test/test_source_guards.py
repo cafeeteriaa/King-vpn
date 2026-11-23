@@ -2706,8 +2706,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = nat.index('({List<String> addresses, int nextCursor}) _natConfiguredRangeBatch')
         end = nat.index('Future<void> natRangesSave', start)
         configured = nat[start:end]
-        self.assertIn('for (final range in natRanges)', configured)
+        self.assertIn('while (visited < natRanges.length && scanned < limit)', configured)
+        self.assertIn('_natExpandAnyCursor(', configured)
+        self.assertIn('offsets[range] ?? 0', configured)
+        self.assertIn('nextOffsets: offsets', configured)
         self.assertNotIn('natRanges.take(', configured)
+        self.assertIn("natConfiguredRangeOffsetsV1", nat)
+        self.assertIn('..addAll(configuredBatch.nextOffsets)', nat)
         ports_start = nat.index('List<int> natAutoPorts(')
         ports_end = nat.index('List<int>? _ipTriple', ports_start)
         ports = nat[ports_start:ports_end]
