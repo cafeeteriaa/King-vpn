@@ -475,13 +475,10 @@ extension NipHunt on _HomePageState {
     }
     _nipLastHunt = DateTime.now();
 
-    final sourceServers = <Server>[];
-    sourceServers.addAll(good);
-    sourceServers.addAll(pending);
+    final sourceServers = <Server>[...good, ...pending];
+    final seenLinks = sourceServers.map((server) => server.link).toSet();
     for (final entry in _resMap.values) {
-      if (!sourceServers.any((server) => server.link == entry.link)) {
-        sourceServers.add(entry.s);
-      }
+      if (seenLinks.add(entry.link)) sourceServers.add(entry.s);
     }
     final uniqueTemplates = <String, Server>{};
     for (final server in sourceServers) {
@@ -588,10 +585,15 @@ extension NipHunt on _HomePageState {
     };
     if (hostIps.isNotEmpty) {
       final prefixes = <String>{};
-      await pool<String>(hostIps.toList(growable: false), 4, (hostIp) async {
-        if (abort) return;
-        prefixes.addAll(await nipAsnPrefixes(hostIp));
-      });
+      final allHostIps = hostIps.toList(growable: false);
+      for (var offset = 0; offset < allHostIps.length; offset += 4) {
+        if (abort) return false;
+        final batch = allHostIps.skip(offset).take(4);
+        await Future.wait(batch.map((hostIp) async {
+          if (abort) return;
+          prefixes.addAll(await nipAsnPrefixes(hostIp));
+        }));
+      }
       if (abort) return false;
       if (prefixes.isNotEmpty) {
         final asnRanges = prefixes.toList()..sort();
