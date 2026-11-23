@@ -39,7 +39,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'tg_proxy.dart' show tgProxyRow; // فقط پروکسی تلگرام
 import 'nat_ip_scan.dart'; // اسکن TCP آدرس IP و دامنه
-import 'nat_relay_chain.dart' show natBuildRelayChainConfig;
+import 'nat_relay_chain.dart' show natBuildRelayChainConfig, natIsFreshVerifiedRelay;
 import 'help_page.dart';
 import 'conn_specs.dart';
 import 'personal_folder.dart'; // پوشه‌ی «سرورهای شخصی»
@@ -8469,13 +8469,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
         }
         if (chainCfg == null) {
-          final relays = _usable()
-              .where((x) => !identical(x, s) && !_sameEndpoint(x, s))
-              .take(1).toList();
+          // _usable() also contains delay-only candidates. A relay must instead
+          // have recent end-to-end tunnel proof or it may provide no egress.
+          final relayCheckAt = DateTime.now();
+          _expireNatVerification(at: relayCheckAt);
+          final relays = _usable().where((x) {
+            if (identical(x, s) || _sameEndpoint(x, s)) return false;
+            final proof = _resMap[x.key];
+            return natIsFreshVerifiedRelay(
+              verified: proof?.verified ?? false,
+              verifiedAt: proof?.verifiedAt,
+              now: relayCheckAt,
+              maxAge: Duration(hours: kGoldRetestHours),
+            );
+          }).take(1).toList();
           if (relays.isNotEmpty) {
             chainCfg = natChainCfg(cfg, natCfg(relays.first, 0), keepInbounds: true);
             if (chainCfg != null) {
-              dbg('MULTIHOP: آخرین تلاش از پشت ${relays.first.name} (relay) برای ${s.name}');
+              dbg('MULTIHOP: آخرین تلاش از پشت ${relays.first.name} (تأیید ترافیک واقعی) برای ${s.name}');
             }
           }
         }
