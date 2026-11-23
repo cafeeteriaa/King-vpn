@@ -20,8 +20,10 @@ bool _autoScanRunning = false;
 bool _autoScanStop = false;
 const String _autoScanCdnCursorKey = 'auto_scan_cdn_cursors_v1';
 const String _autoScanDomainCursorKey = 'auto_scan_domain_cursor_v1';
+const String _autoScanPortCursorKey = 'auto_scan_port_cursor_v1';
 const int _autoScanCdnBatchSize = 8;
-const int _autoScanDomainBatchSize = 18; // full SNI/port/TLS pass fits the shared four-minute budget
+const int _autoScanDomainBatchSize = 18;
+const int _autoScanPortBatchSize = 24; // full SNI/port/TLS pass fits the shared four-minute budget
 
 // TLS با SNI مشخص: اگر هندشیک کامل شود، SNI برای آن IP قابل استفاده است
 Future<int?> _autoSniOk(String ip, int port, String sni) async {
@@ -180,6 +182,27 @@ Future<void> autoScanRun(void Function(String) say,
         domainInventory[(domainStart + i) % domainInventory.length],
     ];
     final stagedDomainCursor = domainBatch.isEmpty ? savedDomainCursor : domainBatch.last;
+    // The familiar ports are priority seeds, not an allowlist. The full valid
+    // TCP port space follows them in resumable slices.
+    final priorityPorts = <int>{
+      ...kAutoPorts,
+      ...natAutoPorts([...good, ...pending, ...fetchedAll]),
+    }..removeWhere((port) => port < 1 || port > 65535);
+    final portInventory = <int>[
+      ...priorityPorts,
+      for (var port = 1; port <= 65535; port++)
+        if (!priorityPorts.contains(port)) port,
+    ];
+    final savedPortCursor = prefs.getInt(_autoScanPortCursorKey) ?? 0;
+    final previousPortIndex = portInventory.indexOf(savedPortCursor);
+    final portStart = previousPortIndex < 0
+        ? 0
+        : (previousPortIndex + 1) % portInventory.length;
+    final portBatch = <int>[
+      for (var i = 0; i < min(_autoScanPortBatchSize, portInventory.length); i++)
+        portInventory[(portStart + i) % portInventory.length],
+    ];
+    final stagedPortCursor = portBatch.isEmpty ? savedPortCursor : portBatch.last;
     final cdnRanges = _liveCdnRanges.isNotEmpty ? _liveCdnRanges : [..._cfRanges, ..._cfRangesV6];
     unawaited(refreshCdnRanges());
     // Add AAAA answers from the same project SNI inventory. Combine exact
@@ -244,7 +267,7 @@ Future<void> autoScanRun(void Function(String) say,
     final portHits = <String>[];
     var m = 0;
     portLoop:
-    for (final p in kAutoPorts) {
+    for (final p in portBatch) {
       m++;
       if (scanNationalMode) {
         await natManualYield(shouldAbort: () => cancelled());
@@ -264,7 +287,7 @@ Future<void> autoScanRun(void Function(String) say,
         }
       }
       if (ok) portHits.add('$p');
-      say('پورت $m/${kAutoPorts.length} • سالم: ${portHits.length}');
+      say('پورت $m/${portBatch.length} • سالم: ${portHits.length}');
     }
 
     if (cancelled()) {
@@ -315,7 +338,10 @@ Future<void> autoScanRun(void Function(String) say,
     if (stagedDomainCursor != null) {
       await prefs.setString(_autoScanDomainCursorKey, stagedDomainCursor);
     }
-    say('تمام شد: ${sniHits.length} SNI و ${portHits.length} پورت در پوشه‌ی جهانی ذخیره شد؛ دامنه‌ها در نوبت‌های بعدی ادامه می‌یابند');
+    if (stagedPortCursor != null) {
+      await prefs.setInt(_autoScanPortCursorKey, stagedPortCursor);
+    }
+    say('تمام شد: ${sniHits.length} SNI و ${portHits.length} پورت در پوشه‌ی جهانی ذخیره شد؛ دامنه‌ها و کل فضای پورت در نوبت‌های بعدی ادامه می‌یابند');
   } catch (e, stk) {
     logError(e, stk);
     say('خطا در اسکن خودکار');
