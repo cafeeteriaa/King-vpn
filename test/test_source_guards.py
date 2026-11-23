@@ -298,7 +298,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('iterations: 3', auth)
         self.assertIn('FlutterSecureStorage', auth)
         self.assertIn('_maxFailuresBeforeLock', auth)
-        self.assertIn('sessionLifetime', auth)
+        self.assertIn('sessionLifetime = Duration(minutes: 2)', auth)
+        self.assertIn('دسترسی مالک فعال است (حداکثر ۲ دقیقه).', console)
+        self.assertNotIn('دسترسی مالک فعال است (حداکثر ۱۵ دقیقه).', console)
         self.assertIn('Stopwatch()', auth)
         self.assertIn('_maximumPasswordLength = 128', auth)
         manual = ai[ai.index('Future<Map<String, Object?>> repairFromFailedCi({'):
