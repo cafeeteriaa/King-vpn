@@ -3936,6 +3936,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_dnsxHostsFrom(domains ?? dnsxAutoDomains())', probe)
         self.assertIn('.toSet().toList()', probe)
 
+    def test_nnie_dns_response_parser_normalizes_trailing_dot(self):
+        source = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
+        start = source.index('static List<String> parseResponse(')
+        end = source.index('static Future<NatDnsProbeResult> probe(', start)
+        parser = source[start:end]
+        self.assertIn('final normalizedDomain = domain.toLowerCase().endsWith', parser)
+        self.assertIn('qname != normalizedDomain', parser)
+        self.assertIn("final allowedOwners = <String>{normalizedDomain}", parser)
+
     def test_legacy_dns_answer_parser_checks_response_flags_and_question(self):
         source = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
         start = source.index('bool dnsxAnswerOk(')
