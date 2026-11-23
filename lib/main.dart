@@ -11065,10 +11065,18 @@ ListTile( // KINGEXTRAS row
         .toList(growable: false);
     final cursors = Map<String, dynamic>.of(savedCursors);
     final out = <String>{};
-    for (var index = 0; index < ranges.length && out.length < batchSize; index++) {
+    if (ranges.isEmpty) {
+      return (addresses: const <String>[], cursors: cursors);
+    }
+    final start =
+        (int.tryParse(cursors['__pilot_range_cursor']?.toString() ?? '') ?? 0) %
+            ranges.length;
+    var visited = 0;
+    for (; visited < ranges.length && out.length < batchSize; visited++) {
+      final index = (start + visited) % ranges.length;
       final range = ranges[index];
       final remaining = batchSize - out.length;
-      final rangesLeft = ranges.length - index;
+      final rangesLeft = ranges.length - visited;
       final quota = max(1, (remaining + rangesLeft - 1) ~/ rangesLeft);
       final batch = natExpandIpRangeCursor(
         range,
@@ -11078,6 +11086,9 @@ ListTile( // KINGEXTRAS row
       if (batch.addresses.isEmpty) continue;
       out.addAll(batch.addresses);
       cursors[range] = batch.nextCursor;
+    }
+    if (visited > 0) {
+      cursors['__pilot_range_cursor'] = (start + visited) % ranges.length;
     }
     return (addresses: out.toList(growable: false), cursors: cursors);
   }
