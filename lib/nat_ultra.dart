@@ -2114,47 +2114,28 @@ bool kNatIpScanOn = true;
 final Map<String, int> _cfRangeCursors = {};
 List<String> _getCfIps({
   int batchSize = 160000,
-  // فیکس ۳: داخل isolate مقدار سراسری‌ها (بازه‌های زنده و cursorها) وجود ندارد؛ از
-  // این دو پارامتر پاس داده می‌شوند. در حالت عادی (null) رفتار قبلی دقیقاً حفظ است.
   List<String>? liveRanges,
   Map<String, int>? cursors,
 }) {
-  // CDNDIV: fire-and-forget; uses the cached/static list below until this
-  // (rate-limited, 6h cache) refresh lands, never blocks the scan.
   if (cursors == null) unawaited(refreshCdnRanges());
   final out = <String>[];
   final ranges = liveRanges ?? _liveCdnRanges;
-  final curMap = cursors ?? _cfRangeCursors;
-  // Allocate the exact batch budget across the complete range catalog.
-  // Per-range quotas rotate fairly and can never make the result exceed batchSize.
+  final cursorMap = cursors ?? _cfRangeCursors;
+  // Use the same dual-stack cursor parser as configured ranges. The batch is
+  // a memory/CPU slice only; per-range cursors resume IPv4 and IPv6 on later runs.
   for (var index = 0; index < ranges.length && out.length < batchSize; index++) {
-    final cidr = ranges[index];
-    final parts = cidr.split('/');
-    if (parts.length != 2) continue;
-    final octets = parts[0].split('.');
-    if (octets.length != 4) continue;
-    final a = int.tryParse(octets[0]);
-    final b = int.tryParse(octets[1]);
-    final c = int.tryParse(octets[2]);
-    final d = int.tryParse(octets[3]);
-    final prefix = int.tryParse(parts[1]);
-    if (a == null || b == null || c == null || d == null || prefix == null) continue;
-    if (prefix < 0 || prefix > 32) continue;
+    final range = ranges[index];
     final remaining = batchSize - out.length;
     final rangesLeft = ranges.length - index;
     final quota = max(1, (remaining + rangesLeft - 1) ~/ rangesLeft);
-    final rawBase = (a << 24) | (b << 16) | (c << 8) | d;
-    final mask = prefix == 0 ? 0 : (0xffffffff << (32 - prefix)) & 0xffffffff;
-    final base = rawBase & mask;
-    final span = 1 << (32 - prefix);
-    final count = min(quota, span);
-    final cursor = curMap[cidr] ?? 0;
-    for (var i = 0; i < count && out.length < batchSize; i++) {
-      final offset = (cursor + i) % span;
-      final v = base + offset;
-      out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
-    }
-    curMap[cidr] = (cursor + count) % span;
+    final expanded = _natExpandAnyCursor(
+      range,
+      cursorMap[range] ?? 0,
+      quota,
+    );
+    if (expanded.$1.isEmpty) continue;
+    out.addAll(expanded.$1);
+    cursorMap[range] = expanded.$2;
   }
   return out;
 }
