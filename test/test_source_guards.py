@@ -4274,7 +4274,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = source.index('Future<void> autoScanSheet(', start)
         body = source[start:end]
         self.assertIn('...dnsxFullDomains()', body)
-        self.assertIn('for (final server in natTemplateSeeds)', body)
+        self.assertIn('...fetchedAll', body)
+        self.assertIn('...good', body)
+        self.assertIn('...pending', body)
+        self.assertIn('...natRestPending', body)
+        self.assertIn('for (final server in serverInventory)', body)
         self.assertIn('for (final server in _goldSrv.values)', body)
         self.assertIn('...natAutoPorts(knownPortServers)', body)
         self.assertIn('...natCommonPorts', body)
