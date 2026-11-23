@@ -2879,7 +2879,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         self.assertIn('InternetAddressType.IPv6', nat)
-        self.assertIn('BigInt.from(cursor) % size', nat)
+        self.assertIn('natExpandIpRangeCursor(', nat)
         self.assertIn('address.type != InternetAddressType.IPv6', nat)
         self.assertIn('final expanded = _natExpandAnyCursorWide(', nat)
         seed_start = nat.index('List<String> natSeedBlocks(')
