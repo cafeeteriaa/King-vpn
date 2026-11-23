@@ -15,9 +15,14 @@ class NipHit {
 List<String> nipExpandCidr(String cidr, {int maxPerBlock = 65536}) {
   final parts = cidr.trim().split('/');
   if (parts.length != 2) return const [];
-  final octets = parts[0].split('.');
+  final address = InternetAddress.tryParse(parts[0].trim());
   final prefix = int.tryParse(parts[1].trim());
-  if (octets.length != 4 || prefix == null || prefix < 8 || prefix > 32) {
+  if (address == null || prefix == null) return const [];
+  if (address.type == InternetAddressType.IPv6) {
+    return natExpandIpv6Cidr(cidr, maxPerBlock: maxPerBlock);
+  }
+  final octets = address.address.split('.');
+  if (address.type != InternetAddressType.IPv4 || prefix < 0 || prefix > 32) {
     return const [];
   }
   int base = 0;
