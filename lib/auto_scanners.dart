@@ -141,14 +141,14 @@ Future<void> autoScanRun(void Function(String) say,
     final base = [for (final entry in _goldIps.values) entry.ip];
     final prefs = await SharedPreferences.getInstance();
     final savedCursorJson = prefs.getString(_autoScanCdnCursorKey);
-    final cdnCursors = <String, int>{};
+    final cdnCursors = <String, dynamic>{};
     if (savedCursorJson != null && savedCursorJson.isNotEmpty) {
       try {
         final decoded = jsonDecode(savedCursorJson);
         if (decoded is Map) {
           for (final entry in decoded.entries) {
-            if (entry.value is num) {
-              cdnCursors['${entry.key}'] = (entry.value as num).toInt();
+            if (entry.value is num || entry.value is String) {
+              cdnCursors['${entry.key}'] = entry.value;
             }
           }
         }
@@ -156,7 +156,7 @@ Future<void> autoScanRun(void Function(String) say,
         logError(e, stk);
       }
     }
-    final stagedCdnCursors = Map<String, int>.of(cdnCursors);
+    final stagedCdnCursors = Map<String, dynamic>.of(cdnCursors);
     final cdnRanges = _liveCdnRanges.isNotEmpty ? _liveCdnRanges : _cfRanges;
     unawaited(refreshCdnRanges());
     final cdnIps = _getCfIps(
