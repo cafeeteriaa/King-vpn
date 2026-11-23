@@ -351,7 +351,7 @@ List<_NatSpec> _natGenerate() {
     add(_natMk(frag: g));
   }
   for (final g in top) {
-    for (final p in fps.take(7)) {
+    for (final p in fps) {
       add(_natMk(frag: g, fp: p));
     }
   }
@@ -388,7 +388,7 @@ List<_NatSpec> _natGenerate() {
     add(m(null, null));
   }
   for (final m in mods) {
-    for (final g in top.take(12)) {
+    for (final g in top) {
       add(m(g, null));
     }
   }
@@ -398,14 +398,14 @@ List<_NatSpec> _natGenerate() {
     }
   }
   for (final m in mods) {
-    for (final g in top.take(6)) {
+    for (final g in top) {
       for (final p in const ['chrome', 'firefox', 'randomized']) {
         add(m(g, p));
       }
     }
   }
-  for (final g in top.take(20)) {
-    for (final p in fps.take(5)) {
+  for (final g in top) {
+    for (final p in fps) {
       for (final a in alpns) {
         add(_natMk(frag: g, fp: p, alpn: a));
       }
@@ -1915,7 +1915,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
     // server configurations. Do not scan unrelated public domains or all
     // 65,535 ports on third-party hosts.
     final endpoints = <String, Set<int>>{};
-    for (final server in known.take(1200)) {
+    for (final server in known) {
       if (cancelled()) return const <String>[];
       final host = server.host.trim();
       final port = server.port;
@@ -1951,7 +1951,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
         entry.value,
         port: entry.key,
         concurrency: conc.clamp(1, 32).toInt(),
-        want: 50,
+        want: entry.value.length,
         budget: const Duration(seconds: 5),
         timeout: const Duration(milliseconds: 1200),
         cancelled: cancelled,
@@ -2277,7 +2277,7 @@ Future<List<String>> _natRangeScanStepBody({
       slice,
       port: port,
       concurrency: conc,
-      want: 50,
+      want: slice.length,
       budget: portBudget,
       timeout: const Duration(milliseconds: 1500),
       cancelled: shouldAbort,
@@ -2306,7 +2306,7 @@ Future<List<String>> _natRangeScanStepBody({
       }
     }());
   }
-  natTemplateSeeds = seeds.take(2).toList();
+  natTemplateSeeds = seeds;
   natRandomLast = 0;
   natIpScanned += slice.length;
   return out;
