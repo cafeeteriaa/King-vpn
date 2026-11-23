@@ -10986,58 +10986,48 @@ ListTile( // KINGEXTRAS row
     } catch (e, st) { logError(e, st); }
   }
 
-  int? _pilotIpNumber(String value) {
-    final ip = InternetAddress.tryParse(value.trim());
-    if (ip == null || ip.type != InternetAddressType.IPv4) return null;
-    var n = 0;
-    for (final b in ip.rawAddress) { n = (n << 8) | b; }
-    return n;
-  }
+  static const String _pilotRangeCursorKey = 'king_pilot_range_cursors_v1';
 
-  String _pilotIpText(int n) =>
-      '${(n >> 24) & 255}.${(n >> 16) & 255}.${(n >> 8) & 255}.${n & 255}';
-
-  List<String> _pilotExpandRanges(String raw) {
-    final out = <String>{};
-    for (final source in raw.split(String.fromCharCode(10))) {
-      final line = source.trim();
-      if (line.isEmpty) continue;
-      final cidr = RegExp(r'^([0-9.]+)/([0-9]{1,2})$').firstMatch(line);
-      if (cidr != null) {
-        final base = _pilotIpNumber(cidr.group(1)!);
-        final prefix = int.tryParse(cidr.group(2)!);
-        if (base == null || prefix == null || prefix < 24 || prefix > 32) continue;
-        final mask = (0xffffffff << (32 - prefix)) & 0xffffffff;
-        final network = base & mask;
-        final count = 1 << (32 - prefix);
-        for (var i = 0; i < count && out.length < 256; i++) {
-          out.add(_pilotIpText(network + i));
-        }
-      } else if (_pilotIpNumber(line) != null) {
-        out.add(line);
-      }
-      if (out.length >= 256) break;
+  ({List<String> addresses, Map<String, dynamic> cursors}) _pilotExpandRanges(
+    String raw,
+    Map<String, dynamic> savedCursors, {
+    int batchSize = 6000,
+  }) {
+    if (batchSize <= 0) {
+      return (addresses: const <String>[], cursors: Map<String, dynamic>.of(savedCursors));
     }
-    return out.take(256).toList();
+    final ranges = raw.split(String.fromCharCode(10))
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    final cursors = Map<String, dynamic>.of(savedCursors);
+    final out = <String>{};
+    for (var index = 0; index < ranges.length && out.length < batchSize; index++) {
+      final range = ranges[index];
+      final remaining = batchSize - out.length;
+      final rangesLeft = ranges.length - index;
+      final quota = max(1, (remaining + rangesLeft - 1) ~/ rangesLeft);
+      final batch = natExpandIpRangeCursor(
+        range,
+        cursors[range]?.toString() ?? '0',
+        maxPerBlock: quota,
+      );
+      if (batch.addresses.isEmpty) continue;
+      out.addAll(batch.addresses);
+      cursors[range] = batch.nextCursor;
+    }
+    return (addresses: out.toList(growable: false), cursors: cursors);
   }
 
   bool _pilotRangesValid(String raw) {
     final lines = raw.split(String.fromCharCode(10))
-        .map((v) => v.trim()).where((v) => v.isNotEmpty).toList();
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList();
     if (lines.isEmpty) return false;
-    for (final line in lines) {
-      final cidr = RegExp(r'^([0-9.]+)/([0-9]{1,2})$').firstMatch(line);
-      if (cidr == null) {
-        if (_pilotIpNumber(line) == null) return false;
-        continue;
-      }
-      final base = _pilotIpNumber(cidr.group(1)!);
-      final prefix = int.tryParse(cidr.group(2)!);
-      if (base == null || prefix == null || prefix < 24 || prefix > 32) {
-        return false;
-      }
-    }
-    return _pilotExpandRanges(raw).isNotEmpty;
+    return lines.every((line) =>
+        natExpandIpRangeCursor(line, '0', maxPerBlock: 1).addresses.isNotEmpty);
   }
 
   Future<void> _pilotRangesDialog(BuildContext context) async {
@@ -11048,18 +11038,19 @@ ListTile( // KINGEXTRAS row
     await showDialog<void>(context: context, builder: (ctx) => AlertDialog(
       title: const Text('بازه‌های مستقل IP خلبان'),
       content: TextField(controller: c, minLines: 3, maxLines: 8,
-        decoration: const InputDecoration(hintText: 'هر خط یک IPv4 یا CIDR از /24 تا /32؛ نمونه: 1.2.3.0/24')),
+        decoration: const InputDecoration(hintText: 'هر خط IPv4 یا IPv6، CIDR با پیشوند کامل یا بازه شروع-پایان؛ نمونه: 1.2.3.0/24 یا 2001:db8::/48')),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('بستن')),
         FilledButton(onPressed: () async {
           if (!_pilotRangesValid(c.text)) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('یکی از بازه‌ها نامعتبر است؛ هر خط باید IPv4 یا CIDR معتبر /24 تا /32 باشد.')));
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('یکی از IPها یا بازه‌ها معتبر نیست؛ IPv4 و IPv6، CIDR و بازه خطی پشتیبانی می‌شوند.')));
             return;
           }
           _pilotRanges = c.text.split(String.fromCharCode(10)).map((v) => v.trim()).where((v) => v.isNotEmpty).toList();
           await prefs.setStringList('king_pilot_ip_ranges_v1', _pilotRanges);
+          await prefs.setString(_pilotRangeCursorKey, '{}');
           if (ctx.mounted) Navigator.pop(ctx);
-          _set('بازه‌های مستقل خلبان ذخیره شد؛ حداکثر ۲۵۶ IP در هر اجرا.');
+          _set('بازه‌های مستقل IPv4/IPv6 ذخیره شد؛ اسکن به‌صورت دسته‌ای و با ادامه از Cursor انجام می‌شود.');
         }, child: const Text('ذخیره')),
       ],
     ));
@@ -11073,11 +11064,29 @@ ListTile( // KINGEXTRAS row
     }
     final prefs = await SharedPreferences.getInstance();
     _pilotRanges = prefs.getStringList('king_pilot_ip_ranges_v1') ?? _pilotRanges;
-    final targets = _pilotExpandRanges(_pilotRanges.join(String.fromCharCode(10)));
-    if (targets.isEmpty) { _set('ابتدا بازه‌های اختصاصی خلبان را تعریف کن.'); return; }
+    final savedCursorJson = prefs.getString(_pilotRangeCursorKey);
+    final savedCursors = <String, dynamic>{};
+    if (savedCursorJson != null && savedCursorJson.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(savedCursorJson);
+        if (decoded is Map) {
+          for (final entry in decoded.entries) {
+            if (entry.value is String || entry.value is num) {
+              savedCursors['${entry.key}'] = entry.value;
+            }
+          }
+        }
+      } catch (e, st) { logError(e, st); }
+    }
+    final generated = _pilotExpandRanges(
+      _pilotRanges.join(String.fromCharCode(10)),
+      savedCursors,
+    );
+    final targets = generated.addresses;
+    if (targets.isEmpty) { _set('ابتدا بازه‌های اختصاصی IPv4/IPv6 را تعریف کن.'); return; }
     _pilotRangeCancelRequested = false;
     setState(() => _pilotRangeBusy = true);
-    _set('اسکن مستقل خلبان آغاز شد: ${targets.length} نشانی، فقط TCP/443.');
+    _set('اسکن مستقل خلبان آغاز شد: ${targets.length} نشانی از IPv4/IPv6، فقط TCP/443؛ ادامه با Cursor.');
     final alive = <String>[];
     try {
       for (var i = 0; i < targets.length; i += 12) {
@@ -11093,7 +11102,16 @@ ListTile( // KINGEXTRAS row
         }));
         alive.addAll(result.whereType<String>());
       }
-      await prefs.setStringList('king_pilot_scan_results_v1', alive);
+      final previousAlive = prefs.getStringList('king_pilot_scan_results_v1') ?? const <String>[];
+      await prefs.setStringList(
+        'king_pilot_scan_results_v1',
+        {...previousAlive, ...alive}.toList(growable: false),
+      );
+      // Commit the next 128-bit cursor only after the whole current batch has
+      // been checked. A cancellation retries this batch rather than skipping it.
+      if (!_pilotRangeCancelRequested) {
+        await prefs.setString(_pilotRangeCursorKey, jsonEncode(generated.cursors));
+      }
       if (_pilotRangeCancelRequested) {
         _set('اسکن خلبان به درخواست کاربر متوقف شد؛ ${alive.length} میزبان پاسخ‌گو تا این لحظه ذخیره شدند.');
       } else {
