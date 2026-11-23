@@ -13,28 +13,11 @@ class NipHit {
 /// بلوک CIDR مثل «5.160.0.0/16» را به فهرست IP تبدیل می‌کند.
 /// برای بلوک‌های بزرگ فقط [maxPerBlock] آدرس پراکنده برمی‌گرداند.
 List<String> nipExpandCidr(String cidr, {int maxPerBlock = 4096}) {
-  final parts = cidr.trim().split('/');
-  if (parts.length != 2) return const [];
-  final octets = parts[0].split('.');
-  final prefix = int.tryParse(parts[1].trim());
-  if (octets.length != 4 || prefix == null || prefix < 8 || prefix > 32) {
-    return const [];
-  }
-  int base = 0;
-  for (final o in octets) {
-    final v = int.tryParse(o.trim());
-    if (v == null || v < 0 || v > 255) return const [];
-    base = (base << 8) | v;
-  }
-  final size = 1 << (32 - prefix);
-  final start = base & ~(size - 1) & 0xFFFFFFFF;
-  final step = size > maxPerBlock ? size ~/ maxPerBlock : 1;
-  final out = <String>[];
-  for (var i = 0; i < size; i += step) {
-    final v = start + i;
-    out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
-  }
-  return out;
+  return natExpandIpRangeCursor(
+    cidr,
+    '0',
+    maxPerBlock: maxPerBlock,
+  ).addresses;
 }
 
 /// اتصال TCP به ip:port. اگر جواب داد زمان پاسخ (ms) را برمی‌گرداند، وگرنه null.
@@ -82,28 +65,38 @@ Future<List<NipHit>> nipScan(
   return hits;
 }
 
-/// فهرست بلوک‌های IPv4 ایران از RIPE (یک بار دانلود و بعد کش).
+/// IPv4 and IPv6 prefixes announced for Iran by RIPE, cached together.
 Future<List<String>> nipIranCidrs() async {
-  final p = await SharedPreferences.getInstance();
-  final cached = p.getStringList('plus_ir_cidr');
+  final prefs = await SharedPreferences.getInstance();
+  final cached = prefs.getStringList('plus_ir_cidr_v2');
   if (cached != null && cached.isNotEmpty) return cached;
-  final c = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+  final legacyV4 = prefs.getStringList('plus_ir_cidr') ?? const <String>[];
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
   try {
-    final req = await c
+    final request = await client
         .getUrl(Uri.parse(
             'https://stat.ripe.net/data/country-resource-list/data.json?resource=IR'))
         .timeout(const Duration(seconds: 15));
-    final res = await req.close().timeout(const Duration(seconds: 20));
-    final body = await res.transform(utf8.decoder).join();
-    final j = jsonDecode(body);
-    final raw = (j['data']['resources']['ipv4'] as List?) ?? const [];
-    final list = raw.map((e) => '$e').where((e) => e.contains('/')).toList();
-    if (list.isNotEmpty) await p.setStringList('plus_ir_cidr', list);
-    return list;
+    final response = await request.close().timeout(const Duration(seconds: 20));
+    final body = await response.transform(utf8.decoder).join();
+    final decoded = jsonDecode(body);
+    if (decoded is! Map) return legacyV4;
+    final data = decoded['data'];
+    final resources = data is Map ? data['resources'] : null;
+    if (resources is! Map) return legacyV4;
+    final ipv4 = resources['ipv4'];
+    final ipv6 = resources['ipv6'];
+    final ranges = <String>{
+      ...legacyV4,
+      if (ipv4 is List) ...ipv4.map((value) => '$value').where((value) => value.contains('/')),
+      if (ipv6 is List) ...ipv6.map((value) => '$value').where((value) => value.contains('/')),
+    }.toList(growable: false);
+    if (ranges.isNotEmpty) await prefs.setStringList('plus_ir_cidr_v2', ranges);
+    return ranges;
   } catch (_) {
-    return const [];
+    return legacyV4;
   } finally {
-    c.close(force: true);
+    client.close(force: true);
   }
 }
 
@@ -161,31 +154,46 @@ Future<void> natRelayHostsSave(String text) async {
   }
 }
 
-Future<String?> nipResolve(String host) async {
-  // NATOPT: وقتی جهانی قطع است، DoH (سرویس خارجی) بی‌فایده و کند است؛ مستقیم DNS سیستم.
-  if (!NatNetworkDiagnosis.preferDomestic) {
-    // DNSDOH: اول DoH (در نت ملی DNS معمولی جواب بسته می‌دهد)
-    final d = await dohResolve(host);
-    if (d != null) return d;
-  }
+Future<List<String>> nipResolveAll(String host) async {
+  final literal = InternetAddress.tryParse(host.trim());
+  if (literal != null) return [literal.address];
+  // Keep all system A/AAAA answers so the caller can inspect both families.
   try {
-    final l = await InternetAddress.lookup(host).timeout(const Duration(seconds: 5));
-    return l.isEmpty ? null : l.first.address;
-  } catch (_) {
-    return null;
+    final addresses = await InternetAddress.lookup(host)
+        .timeout(const Duration(seconds: 5));
+    final out = <String>{};
+    for (final address in addresses) {
+      if (address.type == InternetAddressType.IPv4 ||
+          address.type == InternetAddressType.IPv6) {
+        out.add(address.address);
+      }
+    }
+    if (out.isNotEmpty) return out.toList(growable: false);
+  } catch (_) {}
+  if (!NatNetworkDiagnosis.preferDomestic) {
+    final doh = await dohResolve(host);
+    if (doh != null) return [doh];
   }
+  return const <String>[];
+}
+
+Future<String?> nipResolve(String host) async {
+  final addresses = await nipResolveAll(host);
+  return addresses.isEmpty ? null : addresses.first;
 }
 
 /// بلوک‌های هاست یک IP را برای نت ملی ذخیره می‌کند (کلید: IP).
 Future<void> natPrefetchAsn(List<Server> list) async {
   var n = 0;
-  for (final s in list) {
+  for (final server in list) {
     if (n >= 20) break;
-    if (s.cdn) continue;
-    final ip = s.isIp ? s.host : await nipResolve(s.host);
-    if (ip == null) continue;
-    n++;
-    await nipAsnPrefixes(ip); // نتیجه خودکار در کش ذخیره می‌شود
+    if (server.cdn) continue;
+    final addresses = server.isIp ? [server.host] : await nipResolveAll(server.host);
+    for (final ip in addresses) {
+      if (n >= 20) break;
+      n++;
+      await nipAsnPrefixes(ip); // each A/AAAA endpoint has its own RIPE cache
+    }
   }
 }
 
@@ -223,7 +231,7 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
       final prefixes = ((jsonDecode(rr.body)['data']?['prefixes']) as List?) ?? const [];
       for (final pe in prefixes) {
         final pr = '${pe['prefix']}';
-        if (pr.contains('/') && !pr.contains(':')) out.add(pr);
+        if (pr.contains('/')) out.add(pr);
       }
     }
     if (out.isNotEmpty) {
@@ -345,11 +353,13 @@ extension NipHunt on _HomePageState {
     // مرحله ۱: کانفیگ‌های CDN (SNI/Host) ← لبه‌های باز چند CDN
     // CDNDIV: Cloudflare + Fastly + AWS CloudFront + Google، نه فقط Cloudflare
     if (cdnT.isNotEmpty) {
-      final cfSet = _cfRanges.toSet();
+      final cfSet = <String>{..._cfRanges, ..._cfRangesV6};
       final cfIps = <String>[];
       final otherIps = <String>[];
-      for (final c in _liveCdnRanges) {
-        if (cfSet.contains(c)) cfIps.addAll(nipExpandCidr(c, maxPerBlock: 512));
+      for (final range in _liveCdnRanges) {
+        if (cfSet.contains(range)) {
+          cfIps.addAll(nipExpandCidr(range, maxPerBlock: 512));
+        }
       }
       // PERFFIX: بقیه‌ی CDNها را فقط تا سقف هم‌اندازه‌ی Cloudflare بساز. قبلاً
       // همه‌ی بلوک‌های زنده (صدها بلوک × ۵۱۲) روی UI ساخته و بعد کوتاه می‌شد
@@ -396,13 +406,16 @@ extension NipHunt on _HomePageState {
 
     // مرحله ۳: IP های همان شرکت هاست سرور (ASN) روی همان پورت
     final t0 = direct.first;
-    final sIp = t0.isIp ? t0.host : await nipResolve(t0.host);
-    if (sIp != null) {
-      final prefixes = await nipAsnPrefixes(sIp);
+    final hostIps = t0.isIp ? [t0.host] : await nipResolveAll(t0.host);
+    if (hostIps.isNotEmpty) {
+      final prefixes = <String>{};
+      for (final hostIp in hostIps) {
+        prefixes.addAll(await nipAsnPrefixes(hostIp));
+      }
       if (prefixes.isNotEmpty) {
         final ips = <String>[];
-        for (final p in prefixes.take(80)) {
-          ips.addAll(nipExpandCidr(p, maxPerBlock: 256));
+        for (final prefix in prefixes) {
+          ips.addAll(nipExpandCidr(prefix, maxPerBlock: 256));
         }
         ips.shuffle(Random());
         if (ips.isNotEmpty &&
