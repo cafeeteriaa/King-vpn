@@ -801,7 +801,7 @@ List<int> _natOrder(Server s, {bool full = false}) {
   }
 
   final preferLight = !nationalMode;
-  final skipHeavy = !nationalMode;
+  final skipHeavy = false;
 
   final knownOk = known != null && _natAppliesF(f, known);
   if (knownOk && (!skipHeavy || !_natIsSlowHeavy(known!))) put(known!);
@@ -845,9 +845,7 @@ List<int> _natOrder(Server s, {bool full = false}) {
     }
   }
 
-  final cand = (lvl >= 2
-      ? <int>[for (var i = 0; i < _natBaseCount; i++) i]
-      : <int>[0, 1, 2, 8])
+  final cand = <int>[for (var i = 0; i < _natSpecs.length; i++) i]
     ..sort((a, b) {
       final d = (natWins['$natOpKey#$b'] ?? 0) -
           (natWins['$natOpKey#$a'] ?? 0);
