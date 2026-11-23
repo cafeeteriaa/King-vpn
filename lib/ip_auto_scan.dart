@@ -110,22 +110,36 @@ Future<void> _ipAutoSave() async {
   }
 }
 
-/// خودکار فقط IPهای دقیقِ کانفیگ‌های موجود و سرورهای قبلاً موفق را بررسی می‌کند.
-/// پیمایش گسترده‌ی CIDRهای ISP/CDN برای اجرای خودکار مجاز نیست؛ اسکن دستی جداست.
+/// Inventory پویا برای اسکن IP؛ رنج‌های تنظیم‌شده و بلوک‌های کشف‌شده
+/// به‌صورت چرخشی پیمایش می‌شوند تا هیچ بخش ثابتِ ابتدای فهرست انحصاری نشود.
 List<String> _ipAutoBlocks(Iterable<Server> knownServers) {
-  // Hard isolation: national candidates come only from the national scanner's
-  // verified memory/hits. Global candidates come only from the active global pool.
+  final blocks = <String>{};
   final ips = <String>{};
+
+  void addHostBlock(String host) {
+    final parsed = InternetAddress.tryParse(host.trim());
+    if (parsed == null || parsed.type != InternetAddressType.IPv4) return;
+    final octets = parsed.address.split('.');
+    ips.add(parsed.address);
+    blocks.add('${octets[0]}.${octets[1]}.${octets[2]}.0/24');
+  }
+
   if (nationalMode) {
+    // تمام رنج‌های واردشده در موتور نت ملی + بلوک‌های حاصل از حافظه‌ی موفقیت.
+    blocks.addAll(natRanges);
+    blocks.addAll(natAutoBlocks(const <Server>[]));
     ips
       ..addAll(natIpMemHosts())
-      ..addAll(natScanHits);
+      ..addAll(natScanHits.map((hit) => hit.split('|').first));
   } else {
+    // حالت جهانی مستقل می‌ماند؛ فقط از IPهای pool جهانی بلوک می‌سازد.
     for (final server in knownServers) {
-      if (server.isIp) ips.add(server.host);
+      if (server.isIp) addHostBlock(server.host);
     }
   }
-  return ips.map((ip) => '$ip/32').toList(growable: false);
+
+  blocks.addAll(ips.map((ip) => '$ip/32'));
+  return blocks.toList(growable: false);
 }
 
 Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Function()? shouldAbort}) async {
@@ -135,10 +149,12 @@ Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Funct
   final startPosSnapshot = ipAutoPos;
   final cursorSnapshot = Map<String, int>.of(ipAutoCursors);
   final args = <String, dynamic>{
-    'cfIpsBatch': 0, // exact known endpoints only; no broad public CIDR scan
+    // Feed the generator a rotating CDN batch in global mode. National mode
+    // uses only the user's configured national ranges and national hit memory.
+    'cfIpsBatch': modeSnapshot ? 0 : _ipAutoBatch,
     'blocks': _ipAutoBlocks(knownServers),
     'nationalMode': modeSnapshot,
-    'liveRanges': <String>[],
+    'liveRanges': modeSnapshot ? <String>[] : List<String>.of(_liveCdnRanges),
     'cursors': cursorSnapshot,
   };
   final gen = await compute(_genAddrsIso, args);
@@ -151,7 +167,7 @@ Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Funct
     ..clear()
     ..addAll(generatedCursors);
   if (all.isEmpty) return const <String>[];
-  // فقط یک تکه‌ی _ipAutoBatch تایی در هر اجرا؛ جای فعلی ذخیره می‌شود تا اجرای بعدی ادامه دهد
+  // هر اجرا یک batch قابل‌کنترل می‌گیرد؛ کرسرهای رنج و جای batch اجرای بعدی را ادامه می‌دهند
   final start = startPosSnapshot % all.length;
   final slice = all.skip(start).take(_ipAutoBatch).toList();
   ipAutoPos = start + slice.length;
