@@ -90,16 +90,11 @@ Future<void> autoScanRun(void Function(String) say,
   dnsxManualBusy = true;
   _autoScanStop = false;
   final scanNationalMode = nationalMode;
-  const scanBudget = Duration(minutes: 3);
-  final scanClock = Stopwatch()..start();
-  bool timedOut() => scanClock.elapsed >= scanBudget;
   bool cancelled() =>
-      _autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode || timedOut();
-  String cancellationMessage() => timedOut()
-      ? 'مهلت سه‌دقیقه‌ای اسکن تمام شد؛ نتایج ناقص ذخیره نشد'
-      : ((vpnActive() || vpnWanted())
-          ? 'با شروع اتصال VPN، اسکن برای جلوگیری از تداخل متوقف شد؛ نتایج ناقص ذخیره نشد'
-          : 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');
+      _autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode;
+  String cancellationMessage() => (vpnActive() || vpnWanted())
+      ? 'با شروع اتصال VPN، اسکن برای جلوگیری از تداخل متوقف شد؛ نتایج ناقص ذخیره نشد'
+      : 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد';
   try {
     await goldLoad();
     if (cancelled()) {
