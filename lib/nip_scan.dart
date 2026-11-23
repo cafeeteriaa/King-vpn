@@ -58,13 +58,13 @@ Future<int?> nipTcpProbe(String ip, int port, Duration timeout) async {
 Future<List<NipHit>> nipScan(
   List<String> ips, {
   int port = 443,
-  int concurrency = 16,
-  int want = 1 << 30,
+  int concurrency = 0,
+  int? want,
   Duration? budget,
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
 }) async {
-  if (port < 1 || port > 65535 || want <= 0 ||
+  if (port < 1 || port > 65535 || (want != null && want <= 0) ||
       (budget != null && budget <= Duration.zero) || timeout <= Duration.zero) {
     return const <NipHit>[];
   }
@@ -77,7 +77,7 @@ Future<List<NipHit>> nipScan(
 
   Future<void> worker() async {
     while (true) {
-      if (hits.length >= want) return;
+      if (want != null && hits.length >= want) return;
       if (cancelled != null && cancelled()) return;
       if (budget != null && elapsed.elapsed >= budget) return;
       if (next >= boundedIps.length) return;
@@ -397,8 +397,9 @@ extension NipHunt on _HomePageState {
     // BATCHSNI: ۴ تا ۴ تا (نه همه با هم که SYN flood می‌کند، نه تک‌تک)
     final snis = <String?>[];
     if (front) {
-      for (var i = 0; i < top.length; i += 4) {
-        final batch = top.skip(i).take(4).toList();
+      final sniWorkers = natAdaptiveConcurrency(0);
+      for (var i = 0; i < top.length; i += sniWorkers) {
+        final batch = top.skip(i).take(sniWorkers).toList();
         snis.addAll(await Future.wait(
             batch.map((h) => nipFindFrontSni(h.ip, port, cancelled: () => abort))));
       }
