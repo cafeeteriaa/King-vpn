@@ -189,10 +189,8 @@ Future<List<NatIpHit>> natScanIps(
     return <NatIpHit>[];
   }
 
-  // A caller cannot turn one scan into an unbounded sweep by passing a huge list.
-  final boundedIps = ips.length > kNatMaxScanAddresses
-      ? ips.take(kNatMaxScanAddresses).toList(growable: false)
-      : ips;
+  // Validate numeric endpoints, de-duplicate, and apply the same hard cap as every scanner.
+  final boundedIps = natBoundScanTargets(ips);
   final effective = natAdaptiveConcurrency(concurrency);
   // Stopwatch is monotonic; wall-clock changes must not extend or truncate a scan.
   final elapsed = Stopwatch()..start();
