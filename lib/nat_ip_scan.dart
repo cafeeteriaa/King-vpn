@@ -204,6 +204,59 @@ Iterable<String> natExpandRangeStream(String item) sync* {
   }
 }
 
+({int first, int count})? _natIpv4RangeBounds(String item) {
+  final value = item.trim();
+  final cidr = value.split('/');
+  if (cidr.length == 2) {
+    final octets = cidr[0].split('.');
+    final prefix = int.tryParse(cidr[1].trim());
+    if (octets.length != 4 || prefix == null || prefix < 8 || prefix > 32) return null;
+    var base = 0;
+    for (final raw in octets) {
+      final part = int.tryParse(raw.trim());
+      if (part == null || part < 0 || part > 255) return null;
+      base = (base << 8) | part;
+    }
+    final size = 1 << (32 - prefix);
+    return (first: base & ~(size - 1) & 0xFFFFFFFF, count: size);
+  }
+  final range = value.split('-');
+  if (range.length != 2) return null;
+  int? parseIp(String raw) {
+    final parts = raw.trim().split('.');
+    if (parts.length != 4) return null;
+    var address = 0;
+    for (final part in parts) {
+      final octet = int.tryParse(part);
+      if (octet == null || octet < 0 || octet > 255) return null;
+      address = (address << 8) | octet;
+    }
+    return address;
+  }
+  final first = parseIp(range[0]);
+  final last = parseIp(range[1]);
+  if (first == null || last == null || last < first) return null;
+  return (first: first, count: last - first + 1);
+}
+
+/// Count and page helpers let automatic scanners resume through complete
+/// configured IPv4 ranges without sampling away the unvisited addresses.
+int? natRangeAddressCount(String item) => _natIpv4RangeBounds(item)?.count;
+
+List<String> natExpandRangePage(String item, {required int offset, required int count}) {
+  if (offset < 0 || count <= 0) return const <String>[];
+  final bounds = _natIpv4RangeBounds(item);
+  if (bounds == null || offset >= bounds.count) return const <String>[];
+  final end = min(bounds.count, offset + count);
+  return [
+    for (var index = offset; index < end; index++)
+      () {
+        final address = bounds.first + index;
+        return '${(address >> 24) & 255}.${(address >> 16) & 255}.${(address >> 8) & 255}.${address & 255}';
+      }(),
+  ];
+}
+
 /// اتصال TCP به ip:port. اگر جواب داد زمان پاسخ را برمی‌گرداند، وگرنه null.
 /// تضمین: سوکت در هر حالتی (موفق، خطا، تایم‌اوت) بسته می‌شود.
 Future<int?> natTcpProbe(String ip, int port, Duration timeout) async {
