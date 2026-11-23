@@ -2088,17 +2088,16 @@ Future<List<String>> natDeviceHosts() async {
 }
 
 List<String> natSeedBlocks(List<String> hosts) {
-  // A discovered DNS/server/device IP is not permission to scan its /24.
-  // Keep the candidate set to the exact observed address (/32).
-  final out = <String>[];
-  final seen = <String>{};
+  // Seed each discovered IPv4 host's /24 so nearby addresses are not excluded.
+  // The caller's configured ranges remain independently scanned as well.
+  final out = <String>{};
   for (final host in hosts) {
     final parsed = InternetAddress.tryParse(host.trim());
     if (parsed == null || parsed.type != InternetAddressType.IPv4) continue;
-    final cidr = '${parsed.address}/32';
-    if (seen.add(cidr)) out.add(cidr);
+    final octets = parsed.address.split('.');
+    out.add('${octets[0]}.${octets[1]}.${octets[2]}.0/24');
   }
-  return out;
+  return out.toList(growable: false);
 }
 
 int natMemQueued = 0;
