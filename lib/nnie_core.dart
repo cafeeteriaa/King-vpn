@@ -303,6 +303,18 @@ class NatDnsWireProbe {
     return ips;
   }
 
+  /// Parse either resolver address family. DNS answer record type (A/AAAA)
+  /// is independent from the IP family used to reach the resolver.
+  static InternetAddress? parseResolver(String server) {
+    final target = InternetAddress.tryParse(server.trim());
+    if (target == null ||
+        (target.type != InternetAddressType.IPv4 &&
+            target.type != InternetAddressType.IPv6)) {
+      return null;
+    }
+    return target;
+  }
+
   static Future<NatDnsProbeResult> probe(String server, String domain,
       {Duration timeout = const Duration(seconds: 2),
       bool Function()? cancelled, int recordType = 1}) async {
@@ -321,15 +333,18 @@ class NatDnsWireProbe {
       if (cancelled?.call() ?? false) {
         return NatDnsProbeResult(server, domain, null, error: 'cancelled');
       }
-      final target = InternetAddress.tryParse(server);
-      if (target == null || target.type != InternetAddressType.IPv4) {
-        throw const FormatException('Resolver must be IPv4');
+      final target = parseResolver(server);
+      if (target == null) {
+        throw const FormatException('Resolver must be a valid IPv4 or IPv6 address');
       }
       final bindBudget = remaining();
       if (bindBudget <= Duration.zero) {
         throw TimeoutException('DNS probe deadline exhausted');
       }
-      final s = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0)
+      final bindAddress = target.type == InternetAddressType.IPv4
+          ? InternetAddress.anyIPv4
+          : InternetAddress.anyIPv6;
+      final s = await RawDatagramSocket.bind(bindAddress, 0)
           .timeout(bindBudget);
       socket = s;
       final id = Random.secure().nextInt(0x10000);
