@@ -1784,6 +1784,27 @@ Future<void> natDomMemSave(String host, int port) async {
   }
 }
 
+Future<bool> natIpMemSaveMany(Iterable<String> ips, int port) async {
+  final values = ips.toSet().toList(growable: false);
+  if (values.isEmpty) return true;
+  final timestamp = DateTime.now().millisecondsSinceEpoch;
+  for (final ip in values.reversed) {
+    natIpMem.removeWhere((entry) => entry['ip'] == ip && entry['port'] == port);
+    natIpMem.insert(0, {'ip': ip, 'port': port, 't': timestamp});
+  }
+  if (natIpMem.length > _ipMemMax) {
+    natIpMem.removeRange(_ipMemMax, natIpMem.length);
+  }
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_ipMemKey, jsonEncode(natIpMem));
+    return true;
+  } catch (e, stk) {
+    logError(e, stk);
+    return false;
+  }
+}
+
 Future<void> natIpMemSave(String ip, int port) async {
   natIpMem.removeWhere((e) => e['ip'] == ip && e['port'] == port);
   natIpMem.insert(0, {'ip': ip, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
@@ -2456,6 +2477,13 @@ Future<List<String>> _natRangeScanStepBody({
   if (shouldAbort() || completed < slice.length) {
     return const <String>[];
   }
+  // Persist discoveries before advancing their address cursor. If persistence
+  // fails or the app closes, the same batch is retried instead of losing hits.
+  final savedHits = await natIpMemSaveMany(
+    hits.map((hit) => hit.ip),
+    port,
+  );
+  if (!savedHits || shouldAbort()) return const <String>[];
 
   // Commit only this port's cursors after every address in its slice finished.
   _cfRangeCursors.removeWhere((key, _) => key.startsWith(portPrefix));
