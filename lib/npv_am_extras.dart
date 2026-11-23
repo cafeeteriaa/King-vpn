@@ -833,7 +833,7 @@ List<String> _cidrSample(String cidr, int n, Random random) {
       raw[j] = (remaining & BigInt.from(255)).toInt();
       remaining >>= 8;
     }
-    final candidate = InternetAddress.fromRawAddress(raw).address;
+    final candidate = InternetAddress.fromRawAddress(Uint8List.fromList(raw)).address;
     if (_cleanOk(candidate)) out.add(candidate);
   }
   return out.toList(growable: false);
