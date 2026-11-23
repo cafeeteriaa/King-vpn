@@ -3069,5 +3069,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('IPv4-mapped IPv6', private_ip)
 
 
+    def test_persisted_dual_stack_scan_indexes_are_normalized_before_list_access(self):
+        nat_scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        self.assertIn('int natCursorIndex(Object? value, int length)', nat_scan)
+        self.assertIn('parsed == null || parsed < 0', nat_scan)
+
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn('natCursorIndex(startCursor ?? _natConfiguredRangeCursor, natRanges.length)', nat)
+        self.assertIn("natCursorIndex(cursorMap['__cdn_range_cursor'], ranges.length)", nat)
+        self.assertIn("natCursorIndex(cursors['__block_cursor'], blocks.length)", nat)
+        self.assertIn('natCursorIndex(_natRangePortCursors[modeKey], portList.length)', nat)
+
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        self.assertIn("natCursorIndex(cursors['__clean_range_cursor'], orderedRanges.length)", extras)
+        self.assertIn("natCursorIndex(cursors['__manual_range_cursor'], ranges.length)", extras)
+
+        nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        self.assertIn("natCursorIndex(cursors['__nip_${namespace}_range_cursor'], ranges.length)", nip)
+
+
 if __name__ == '__main__':
     unittest.main()
