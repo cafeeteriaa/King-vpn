@@ -1929,7 +1929,6 @@ Future<List<String>> _natDomainFirst(List<Server> known,
         port: entry.key,
         concurrency: conc.clamp(1, 32).toInt(),
         want: entry.value.length,
-        budget: const Duration(seconds: 5),
         timeout: const Duration(milliseconds: 1200),
         cancelled: cancelled,
       );
@@ -2155,12 +2154,12 @@ Future<List<String>> natRangeScanStep({
   int maxAddrs = 256,
   int conc = 4,
   bool Function()? stop,
-  Duration budget = const Duration(minutes: 2),
+  Duration? budget,
 }) async {
   // Reject invalid caller budgets before entering the global single-flight gate.
   // Iterable.take() throws for a negative count; zero-sized requests should be
   // a cheap no-op rather than starting compute/network work.
-  if (maxAddrs <= 0 || budget <= Duration.zero) return const <String>[];
+  if (maxAddrs <= 0 || (budget != null && budget <= Duration.zero)) return const <String>[];
   conc = conc.clamp(1, 32).toInt();
   if (_natRangeScanBusy) return const <String>[];
   _natRangeScanBusy = true;
@@ -2237,34 +2236,23 @@ Future<List<String>> _natRangeScanStepBody({
   final nextNatRangeCursor = from + slice.length;
   final out = <String>[];
   final portList = natAutoPorts(seeds);
-  final perPortCap = Duration(
-      milliseconds: max(20000, budget.inMilliseconds ~/ max(1, portList.length)).toInt());
-  // A monotonic shared deadline prevents each port from consuming a fresh
-  // minimum budget and accidentally multiplying the requested scan duration.
-  final scanClock = Stopwatch()..start();
-  bool scanExpired() => scanClock.elapsed >= budget;
   for (final port in portList) {
     if (shouldAbort()) return const <String>[];
-    final remainingBudget = budget - scanClock.elapsed;
-    if (remainingBudget <= Duration.zero) return const <String>[];
-    final portBudget = perPortCap < remainingBudget
-        ? perPortCap
-        : remainingBudget;
     final hits = await natScanIps(
       slice,
       port: port,
       concurrency: conc,
       want: slice.length,
-      budget: portBudget,
+      budget: budget,
       timeout: const Duration(milliseconds: 1500),
       cancelled: shouldAbort,
     );
-    if (shouldAbort() || scanExpired()) return const <String>[];
+    if (shouldAbort()) return const <String>[];
     for (final hit in hits) {
       out.add('${hit.ip}|$port');
     }
   }
-  if (shouldAbort() || scanExpired()) return const <String>[];
+  if (shouldAbort()) return const <String>[];
 
   // Commit the address and configured-range cursors only after a non-cancelled run.
   _cfRangeCursors
