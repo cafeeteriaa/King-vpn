@@ -3099,7 +3099,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('natCursorIndex(startCursor ?? _natConfiguredRangeCursor, natRanges.length)', nat)
         self.assertIn("natCursorIndex(cursorMap['__cdn_range_cursor'], ranges.length)", nat)
         self.assertIn("natCursorIndex(cursors['__block_cursor'], blocks.length)", nat)
-        self.assertIn('natCursorIndex(_natRangePortCursors[modeKey], portList.length)', nat)
+        self.assertIn('final previousPortIndex = portList.indexOf(lastPort);', nat)
+        self.assertIn('final portList = natFullPortInventory(seeds);', nat)
+        self.assertIn("natRangePortCursorsV3", nat)
 
         extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         self.assertIn("natCursorIndex(cursors['__clean_range_cursor'], orderedRanges.length)", extras)
