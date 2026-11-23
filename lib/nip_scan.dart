@@ -334,6 +334,7 @@ String? nipSwapSni(Server t, String ip, String sni) {
 
 extension NipHunt on _HomePageState {
   static DateTime? _nipLastHunt;
+  static int _nipCdnPortCursor = 0;
 
   /// نت ملی: وقتی سرورهای شناخته‌شده جواب ندادند، IP های باز ایران را پیدا
   /// می‌کند و کانفیگ‌های خود کاربر را روی آن‌ها امتحان می‌کند.
@@ -369,19 +370,25 @@ extension NipHunt on _HomePageState {
     // مرحله ۱: کانفیگ‌های CDN (SNI/Host) ← لبه‌های باز چند CDN
     // CDNDIV: Cloudflare + Fastly + AWS CloudFront + Google، نه فقط Cloudflare
     if (cdnT.isNotEmpty) {
-      // Cursor-based sampling traverses the entire published CDN range inventory
-      // over repeated passes. The batch is a work quantum, not a candidate ceiling.
-      // Non-Cloudflare CDN ranges are emitted first; Cloudflare is deliberately last.
-      final ips = _getCfIps(
-        batchSize: 1024,
-        liveRanges: _liveCdnRanges,
-        cursors: _cfRangeCursors,
-      );
-      if (await _natTryScan(cdnT, ips,
-          port: cdnT.first.port, label: 'لبه‌ی CDN', front: true)) {
-        return true;
+      // Rotate through every configured CDN service port across hunt passes.
+      // Address and SNI candidates are cursor-driven independently of this port cursor.
+      final cdnPorts = cdnT.map((s) => s.port).where((p) => p > 0 && p < 65536)
+          .toSet().toList(growable: false);
+      if (cdnPorts.isNotEmpty) {
+        final port = cdnPorts[_nipCdnPortCursor % cdnPorts.length];
+        _nipCdnPortCursor = (_nipCdnPortCursor + 1) % cdnPorts.length;
+        final portTemplates = cdnT.where((s) => s.port == port).toList();
+        final ips = _getCfIps(
+          batchSize: 1024,
+          liveRanges: _liveCdnRanges,
+          cursors: _cfRangeCursors,
+        );
+        if (await _natTryScan(portTemplates, ips,
+            port: port, label: 'لبه‌ی CDN', front: true)) {
+          return true;
+        }
+        if (abort) return false;
       }
-      if (abort) return false;
     }
     if (direct.isEmpty) return false;
 
