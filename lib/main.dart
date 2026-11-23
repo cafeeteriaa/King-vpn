@@ -8461,18 +8461,31 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // از پشت یک سرور سالم دیگر (relay) وصل می‌شود. اگر مستقیم وصل شود، تغییری نمی‌کند.
       String? chainCfg;
       if (nationalMode && !proxyOnly) {
+        // Manual and automatic relay candidates share the same evidence gate:
+        // TCP reachability or a pasted config alone cannot prove global egress.
+        final relayCheckAt = DateTime.now();
+        _expireNatVerification(at: relayCheckAt);
         if (relayServerUrl.isNotEmpty) {
           final relaySrv = Server.parse(relayServerUrl);
           if (relaySrv != null && !_sameEndpoint(relaySrv, s)) {
-            chainCfg = natChainCfg(cfg, natCfg(relaySrv, 0), keepInbounds: true);
-            if (chainCfg != null) dbg('MULTIHOP: manual relay for ${s.name}');
+            final proof = _resMap[relaySrv.key];
+            final manuallyVerified = natIsFreshVerifiedRelay(
+              verified: proof?.verified ?? false,
+              verifiedAt: proof?.verifiedAt,
+              now: relayCheckAt,
+              maxAge: Duration(hours: kGoldRetestHours),
+            );
+            if (manuallyVerified) {
+              chainCfg = natChainCfg(cfg, natCfg(relaySrv, 0), keepInbounds: true);
+              if (chainCfg != null) dbg('MULTIHOP: verified manual relay for ${s.name}');
+            } else {
+              dbg('MULTIHOP: manual relay skipped; fresh end-to-end proof required');
+            }
           }
         }
         if (chainCfg == null) {
           // _usable() also contains delay-only candidates. A relay must instead
           // have recent end-to-end tunnel proof or it may provide no egress.
-          final relayCheckAt = DateTime.now();
-          _expireNatVerification(at: relayCheckAt);
           final relays = _usable().where((x) {
             if (identical(x, s) || _sameEndpoint(x, s)) return false;
             final proof = _resMap[x.key];
