@@ -2141,7 +2141,7 @@ List<String> _getCfIps({
     final d = int.tryParse(octets[3]);
     final prefix = int.tryParse(parts[1]);
     if (a == null || b == null || c == null || d == null || prefix == null) continue;
-    if (prefix < 8 || prefix > 32) continue;
+    if (prefix < 0 || prefix > 32) continue;
     final remaining = batchSize - out.length;
     final rangesLeft = ranges.length - index;
     final quota = max(1, (remaining + rangesLeft - 1) ~/ rangesLeft);
@@ -2168,7 +2168,7 @@ List<String> _getCfIps({
     if (parts.length != 2) return (<String>[], 0);
     final ip = InternetAddress.tryParse(parts[0].trim());
     final prefix = int.tryParse(parts[1]);
-    if (ip == null || ip.type != InternetAddressType.IPv4 || prefix == null || prefix < 8 || prefix > 32) {
+    if (ip == null || ip.type != InternetAddressType.IPv4 || prefix == null || prefix < 0 || prefix > 32) {
       return (<String>[], 0);
     }
     final base = _ipToInt(ip.address) & (0xffffffff << (32 - prefix));
