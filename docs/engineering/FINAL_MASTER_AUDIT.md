@@ -360,3 +360,17 @@
 - **نقص UI اصلاح شد:** متن کنسول اشتباهاً «حداکثر ۱۵ دقیقه» نمایش می‌داد؛ با مقدار واقعی ۲ دقیقه همسان شد و source guard برای جلوگیری از برگشت mismatch اضافه شد. این اصلاح روی شاخه ممیزی است؛ CI مربوط به آن در زمان ثبت این بخش هنوز در حال اجرا بود.
 
 **نتیجه:** Smart Pilot دارای محافظه‌کاری مناسب در انتخاب domestic/global و جداسازی poolها است، اما probe محدود TCP/443 و داده‌های ASN/IP metadata برای اثبات کامل شرایط نت ملی کافی نیست. پذیرش عملیاتی همچنان نیازمند تست چند اپراتور، دستگاه واقعی و data-plane است.
+
+## ۲۱. اعتبارسنجی artifact دقیق HEAD — CI Run 2170
+
+- HEAD بررسی‌شده: `e6ecebe0de842ec3ad1b3794635880bc9c9edea1` روی شاخه `audit/final-master`؛ PR #44 همچنان Draft و باز است و شاخه `main` تغییر نکرده است.
+- GitHub Actions Run 2170 با شناسه `45141258460` برای همین SHA با نتیجه **SUCCESS** پایان یافت. تمام مراحل اصلی موفق بودند: source-repair guards، setup toolchain، تولید Flutter host، resolve dependencies، patch plugin، unit tests، Dart analysis، arm64 release APK، بررسی ELF 16 KiB، بررسی APK ZIP alignment و upload artifactها.
+- Artifact APK با شناسه `14802108565` دریافت شد. SHA-256 آرشیو ZIP: `ee3cfa82808c6001a897ec9a71a2e2f6da866458cf88640fb9f6d8e305e08c96`؛ با digest اعلام‌شده GitHub Actions برابر است.
+- APK داخلی `app-arm64-v8a-release.apk`، اندازه 122,885,758 بایت؛ SHA-256: `eadf5f7e8da0617cee42b772d60abe74067713dc8801aa87d029e971aacdbdc0`.
+- بازرسی مستقل ZIP: 330 entry؛ 19 کتابخانه native در ABI برابر `arm64-v8a`؛ هیچ‌یک از entryهای native در offset نامنطبق با مرز 16 KiB قرار نداشتند.
+- بازرسی مستقل ELF با `readelf`: 58 عدد LOAD segment از 19 کتابخانه؛ همگی دارای `p_align` برابر 16 KiB یا 64 KiB بودند؛ segment زیر 16 KiB مشاهده نشد.
+- این محیط ابزار رسمی `apksigner`/Android Build Tools را نداشت؛ بنابراین امضای APK، گواهی و v2/v3 signing block به‌طور مستقل بررسی نشده‌اند. موفقیت workflow یا وجود APK به‌تنهایی اثبات production signing نیست؛ artifact را release امضاشده یا install-ready اعلام نکنید.
+- CI و بازرسی ZIP/ELF، تست روی دستگاه واقعی، رقابت با VPN دیگر، packet capture، نشت DNS، مسیر IPv4/IPv6، اپراتورهای ایران، دسترسی نت ملی و عبور واقعی ترافیک از TUN را اثبات نمی‌کنند.
+- متن بخش ۲۰.۳ درباره «CI هنوز در حال اجرا» مربوط به لحظه ثبت قبلی آن بخش است؛ نتیجه نهایی بعدی برای همان HEAD اکنون در Run 2170 با وضعیت SUCCESS ثبت شده است.
+
+**نتیجه این checkpoint:** exact-head CI و بازرسی مستقل ساختار APK/ELF **PASS**؛ بررسی مستقل امضا، دستگاه واقعی و data-plane **NOT VERIFIED / OPEN**.
