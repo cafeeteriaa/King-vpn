@@ -195,6 +195,7 @@ Future<void> natRelayHostsLoad() async {
 Future<void> natRelayHostsSave(String text) async {
   natRelayHosts = natBoundScanTargets(
     text.split(RegExp(r'[\s,;]+')),
+    maxCount: kNatMaxRelayHosts,
   );
   try {
     final p = await SharedPreferences.getInstance();
