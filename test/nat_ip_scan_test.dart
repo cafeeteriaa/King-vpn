@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:king_vpn/nat_ip_scan.dart';
 
@@ -30,6 +32,36 @@ void main() {
       expect(natExpandIpv6Cidr('2001:db8::/32', maxPerBlock: 4), hasLength(4));
       expect(natExpandIpv6Cidr('2001:db8::1/128'), hasLength(1));
       expect(natExpandIpv6Cidr('2001:db8::/129'), isEmpty);
+    });
+
+    test('IPv6 range cursors cover each address and wrap without 64-bit truncation', () {
+      final first = natExpandIpv6RangeCursor(
+        '2001:db8::/126', '0', maxPerBlock: 2,
+      );
+      expect(first.addresses, ['2001:db8::', '2001:db8::1']);
+      expect(first.nextCursor, '2');
+
+      final second = natExpandIpv6RangeCursor(
+        '2001:db8::/126', first.nextCursor, maxPerBlock: 2,
+      );
+      expect(second.addresses, ['2001:db8::2', '2001:db8::3']);
+      expect(second.nextCursor, '0');
+
+      final hugeCursor = natExpandIpv6RangeCursor(
+        '::/0', '18446744073709551616', maxPerBlock: 1,
+      );
+      expect(hugeCursor.addresses, hasLength(1));
+      expect(InternetAddress.tryParse(hugeCursor.addresses.single)?.type,
+          InternetAddressType.IPv6);
+      expect(hugeCursor.nextCursor, '18446744073709551617');
+    });
+
+    test('IPv6 dash ranges resume from a 128-bit cursor', () {
+      final batch = natExpandIpv6RangeCursor(
+        '2001:db8::1-2001:db8::3', '2', maxPerBlock: 2,
+      );
+      expect(batch.addresses, ['2001:db8::3', '2001:db8::1']);
+      expect(batch.nextCursor, '1');
     });
 
     test('dash range expansion rejects non-positive output limits', () {
