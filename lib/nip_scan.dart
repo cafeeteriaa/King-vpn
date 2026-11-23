@@ -335,8 +335,11 @@ extension NipHunt on _HomePageState {
         otherIps.addAll(nipExpandCidr(c, maxPerBlock: 32));
       }
       if (otherIps.length > cap) otherIps.removeRange(cap, otherIps.length);
-      final ips = <String>[...cfIps, ...otherIps];
-      ips.shuffle(rnd);
+      // Cloudflare remains the final fallback tier; randomize within each
+      // tier without mixing it ahead of other CDN candidates.
+      otherIps.shuffle(rnd);
+      cfIps.shuffle(rnd);
+      final ips = <String>[...otherIps, ...cfIps];
       if (await _natTryScan(cdnT, ips,
           port: cdnT.first.port, label: 'لبه‌ی CDN', front: true)) {
         return true;
