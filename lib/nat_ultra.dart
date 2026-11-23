@@ -2418,10 +2418,10 @@ Future<void> userListsSave(String text) async {
   }
 }
 
-// HOTCAP: کاهش از ۲ میلیون برای جلوگیری از OOM روی گوشی ضعیف
-const int natHotPerSource = 80000;
+// Restore the previous broad source inventory; fetch and parsing remain chunked.
+const int natHotPerSource = 2000000;
 const int natHotMin = 30000;
-const int natHotMax = 400000;
+const int natHotMax = 2000000;
 List<Server> Function()? natExtraSource;
 const Duration natHotTtl = Duration(hours: 72);
 const Duration natHotFetchDeadline = Duration(seconds: 900);
