@@ -60,12 +60,12 @@ Future<List<NipHit>> nipScan(
   int port = 443,
   int concurrency = 16,
   int want = 1 << 30,
-  Duration budget = const Duration(minutes: 2),
+  Duration? budget,
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
 }) async {
   if (port < 1 || port > 65535 || want <= 0 ||
-      budget <= Duration.zero || timeout <= Duration.zero) {
+      (budget != null && budget <= Duration.zero) || timeout <= Duration.zero) {
     return const <NipHit>[];
   }
   final boundedIps = natBoundScanTargets(ips);
@@ -79,12 +79,12 @@ Future<List<NipHit>> nipScan(
     while (true) {
       if (hits.length >= want) return;
       if (cancelled != null && cancelled()) return;
-      if (elapsed.elapsed >= budget) return;
+      if (budget != null && elapsed.elapsed >= budget) return;
       if (next >= boundedIps.length) return;
       final ip = boundedIps[next++];
       // Never let an in-flight probe extend the scan beyond its remaining
       // monotonic budget. Socket.connect enforces this per-attempt deadline.
-      final remaining = budget - elapsed.elapsed;
+      final remaining = budget == null ? timeout : budget - elapsed.elapsed;
       if (remaining <= Duration.zero) return;
       final probeTimeout = timeout < remaining ? timeout : remaining;
       final ms = await nipTcpProbe(ip, port, probeTimeout);
@@ -92,7 +92,7 @@ Future<List<NipHit>> nipScan(
     }
   }
 
-  final n = min(concurrency.clamp(1, 16), max(boundedIps.length, 1));
+  final n = min(natAdaptiveConcurrency(concurrency), max(boundedIps.length, 1));
   await Future.wait(List.generate(n, (_) => worker()));
   natStableSort(hits, (a, b) => a.ms.compareTo(b.ms));
   return hits;
@@ -233,16 +233,17 @@ Future<String?> nipFindFrontSni(
   String ip,
   int port, {
   bool Function()? cancelled,
-  Duration budget = const Duration(seconds: 90),
+  Duration? budget,
 }) async {
-  if (budget <= Duration.zero) return null;
+  if (budget != null && budget <= Duration.zero) return null;
   final elapsed = Stopwatch()..start();
   for (final sni in natFrontSnis) {
     if (cancelled?.call() == true) return null;
-    final remaining = budget - elapsed.elapsed;
-    if (remaining <= Duration.zero) return null;
     const perProbeCap = Duration(seconds: 5);
-    final probeBudget = remaining < perProbeCap ? remaining : perProbeCap;
+    final probeBudget = budget == null
+        ? perProbeCap
+        : (budget - elapsed.elapsed < perProbeCap ? budget - elapsed.elapsed : perProbeCap);
+    if (probeBudget <= Duration.zero) return null;
     final ok = await nipFrontProbe(ip, port, sni, timeout: probeBudget);
     if (cancelled?.call() == true) return null;
     if (ok != null) return ok;
@@ -386,7 +387,6 @@ extension NipHunt on _HomePageState {
     final hits = await nipScan(ips,
         port: port,
         want: ips.length,
-        budget: const Duration(minutes: 2),
         cancelled: () => abort);
     if (abort) return false;
     if (hits.isEmpty) {
