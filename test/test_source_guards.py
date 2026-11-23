@@ -2172,7 +2172,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             r'await _saveSettings\(\);\s*if \(!mounted \|\| !ctx\.mounted\) return;\s*Navigator\.pop\(ctx\);',
         )
 
-    def test_relay_settings_do_not_claim_unimplemented_national_bypass(self):
+    def test_relay_settings_describe_last_resort_without_guaranteeing_global_access(self):
         extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         self.assertIn('فقط در حالت نت ملی و پس از شکست اتصال مستقیم', extras)
         self.assertIn('ذخیره آن به‌تنهایی اتصال جهانی را تضمین نمی‌کند', extras)
@@ -4017,6 +4017,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         helper = source[start:end]
         self.assertIn('NatDnsWireProbe.publicV4([a, b, c, d], 0)', helper)
         self.assertNotIn('return true;', helper)
+    def test_multihop_relay_is_national_only_and_last_resort(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> _startImpl(')
+        end = source.index('Future<bool> _connectLoop(', start)
+        connect = source[start:end]
+        self.assertIn('if (nationalMode && !proxyOnly)', connect)
+        self.assertIn('chainCfg = natChainCfg(cfg, natCfg(relaySrv, 0), keepInbounds: true);', connect)
+        self.assertIn('if (chainCfg != null) chainCfg,', connect)
+        self.assertLess(connect.index('if (nationalMode && !proxyOnly)'), connect.index('final cfgTries = <String>['))
+        self.assertLess(connect.index('if (chainCfg != null) chainCfg,'), connect.index('var usedFallback = false;'))
+
     def test_multihop_relay_rejects_same_endpoint_as_exit(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn('if (relaySrv != null && !_sameEndpoint(relaySrv, s))', source)
