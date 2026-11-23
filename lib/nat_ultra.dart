@@ -1903,6 +1903,8 @@ Future<void> natRangesSave(String text) async {
   }
 }
 
+/// Fast first-pass shortlist for manual IP checks. This is not the exhaustive
+/// background scan's port filter; natRangeScanStep uses natFullPortInventory.
 const List<int> natCommonPorts = [
   443, 2053, 2083, 2087, 2096, 8443, 80, 8080, 8880, 2052, 2082, 2086, 2095,
   8444, 9443, 4443, 5443, 6443, 7443, 10443, 2222, 8000, 8008, 8888, 3128, 1080,
@@ -1924,6 +1926,28 @@ List<int> natAutoPorts(List<Server> known) {
     if (!out.contains(p)) out.add(p);
   }
   return out;
+}
+
+/// Complete port sweep for the resumable NAT range scanner.
+/// Observed ports and common ports are priorities, never exclusions.
+List<int> natFullPortInventory(List<Server> known) {
+  final counts = <int, int>{};
+  for (final server in known) {
+    if (server.port > 0 && server.port <= 65535) {
+      counts[server.port] = (counts[server.port] ?? 0) + 1;
+    }
+  }
+  for (final entry in natIpMem) {
+    final port = (entry['port'] as num?)?.toInt() ?? 0;
+    if (port > 0 && port <= 65535) {
+      counts[port] = (counts[port] ?? 0) + 5;
+    }
+  }
+  final observed = natStableSorted<int>(
+    counts.keys,
+    (a, b) => counts[b]! - counts[a]!,
+  );
+  return natBuildFullPortInventory([...observed, ...natCommonPorts]);
 }
 
 List<int>? _ipTriple(String host) {
