@@ -1678,7 +1678,8 @@ final List<Map<String, dynamic>> natIpMem = [];
 final Set<String> natIpDeadRun = {};
 List<String> natRanges = [];
 int natRangeCursor = 0; // generic range cursor
-int _natConfiguredRangeCursor = 0; // isolated National Net user-range cursor
+int _natConfiguredRangeCursor = 0; // next range index for fair round-robin coverage
+final Map<String, int> _natConfiguredRangeOffsets = {}; // per-range address cursor
 DateTime natRangeLast = DateTime.fromMillisecondsSinceEpoch(0);
 
 Set<String> natIpMemHosts() => {for (final e in natIpMem) '${e['ip']}'};
@@ -1701,6 +1702,23 @@ Future<void> natIpMemLoad() async {
         .where((x) => x.contains('/') || x.contains('-'))
         .toList();
     _natConfiguredRangeCursor = (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
+    _natConfiguredRangeOffsets.clear();
+    final savedOffsets = p.getString('natConfiguredRangeOffsetsV1');
+    if (savedOffsets != null && savedOffsets.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(savedOffsets);
+        if (decoded is Map) {
+          for (final entry in decoded.entries) {
+            if (entry.value is num) {
+              _natConfiguredRangeOffsets['${entry.key}'] =
+                  (entry.value as num).toInt();
+            }
+          }
+        }
+      } catch (e, stk) {
+        logError(e, stk);
+      }
+    }
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -1760,29 +1778,50 @@ Future<void> natIpMemSave(String ip, int port) async {
 }
 
 
-/// Next bounded sample from the National Net engine's own user-configured
-/// ranges. This cursor and range inventory are not shared with generic scanners.
-({List<String> addresses, int nextCursor}) _natConfiguredRangeBatch(int limit) {
+/// Next bounded, fair sample from every configured National Net range.
+/// Range rotation and per-range address offsets prevent large early ranges from
+/// starving later entries; memory stays proportional to the requested batch.
+({List<String> addresses, int nextCursor, Map<String, int> nextOffsets})
+    _natConfiguredRangeBatch(int limit) {
+  final offsets = Map<String, int>.of(_natConfiguredRangeOffsets);
   if (limit <= 0 || natRanges.isEmpty) {
-    return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
+    return (
+      addresses: const <String>[],
+      nextCursor: _natConfiguredRangeCursor,
+      nextOffsets: offsets,
+    );
   }
+
+  final start = _natConfiguredRangeCursor % natRanges.length;
+  final activeRanges = min(limit, natRanges.length);
+  final perRange = max(1, (limit + activeRanges - 1) ~/ activeRanges);
   final candidates = <String>{};
-  for (final range in natRanges) {
-    final remaining = limit * 4 - candidates.length;
-    if (remaining <= 0) break;
-    candidates.addAll(natExpandAny(range, maxPerBlock: remaining));
+  var scanned = 0;
+  var visited = 0;
+
+  while (visited < natRanges.length && scanned < limit) {
+    final index = (start + visited) % natRanges.length;
+    final range = natRanges[index];
+    final quota = min(perRange, limit - scanned);
+    final expanded = _natExpandAnyCursor(
+      range,
+      offsets[range] ?? 0,
+      quota,
+    );
+    if (expanded.$1.isNotEmpty) {
+      candidates.addAll(expanded.$1);
+      offsets[range] = expanded.$2;
+      scanned += expanded.$1.length;
+    }
+    visited++;
   }
-  if (candidates.isEmpty) {
-    return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
-  }
-  final values = candidates.toList(growable: false);
-  final start = _natConfiguredRangeCursor % values.length;
-  final count = min(limit, values.length).toInt();
-  final out = <String>[
-    for (var i = 0; i < count; i++) values[(start + i) % values.length],
-  ];
-  // The caller commits this cursor only after the corresponding scan completes.
-  return (addresses: out, nextCursor: (start + count) % values.length);
+
+  // Commit both cursors only after the corresponding network scan succeeds.
+  return (
+    addresses: candidates.toList(growable: false),
+    nextCursor: (start + max(1, visited)) % natRanges.length,
+    nextOffsets: offsets,
+  );
 }
 
 Future<void> natRangesSave(String text) async {
@@ -1791,10 +1830,12 @@ Future<void> natRangesSave(String text) async {
       .where((x) => x.contains('/') || x.contains('-'))
       .toList();
   _natConfiguredRangeCursor = 0;
+  _natConfiguredRangeOffsets.clear();
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString(_rangeKey, natRanges.join('\n'));
     await p.setInt('natConfiguredRangeCursor', 0);
+    await p.setString('natConfiguredRangeOffsetsV1', '{}');
   } catch (e, stk) {
     logError(e, stk);
   }
@@ -2271,7 +2312,11 @@ Future<List<String>> _natRangeScanStepBody({
   // Stage the configured-range cursor; do not persist it until scan success.
   final configuredBatch = modeSnapshot
       ? _natConfiguredRangeBatch(maxAddrs)
-      : (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
+      : (
+          addresses: const <String>[],
+          nextCursor: _natConfiguredRangeCursor,
+          nextOffsets: Map<String, int>.of(_natConfiguredRangeOffsets),
+        );
   final configuredNatRanges = configuredBatch.addresses;
 
   // CDN refresh is unrelated to the National Net range inventory.
@@ -2334,13 +2379,18 @@ Future<List<String>> _natRangeScanStepBody({
     ..clear()
     ..addAll(generatedCursors);
   if (!modeSnapshot) natRangeCursor = nextNatRangeCursor;
-  if (modeSnapshot && configuredBatch.nextCursor != _natConfiguredRangeCursor) {
+  if (modeSnapshot && configuredBatch.addresses.isNotEmpty) {
     _natConfiguredRangeCursor = configuredBatch.nextCursor;
+    _natConfiguredRangeOffsets
+      ..clear()
+      ..addAll(configuredBatch.nextOffsets);
     final persistedCursor = _natConfiguredRangeCursor;
+    final persistedOffsets = jsonEncode(_natConfiguredRangeOffsets);
     unawaited(() async {
       try {
         final p = await SharedPreferences.getInstance();
         await p.setInt('natConfiguredRangeCursor', persistedCursor);
+        await p.setString('natConfiguredRangeOffsetsV1', persistedOffsets);
       } catch (e, st) {
         logError(e, st);
       }
