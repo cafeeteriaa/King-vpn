@@ -2435,17 +2435,11 @@ Future<List<String>> _natRangeScanStepBody({
 
   final configuredStart =
       int.tryParse(localOffsets['__range_cursor']?.toString() ?? '') ?? 0;
-  final configuredBatch = modeSnapshot
-      ? _natConfiguredRangeBatch(
-          scanLimit,
-          initialOffsets: localOffsets,
-          startCursor: configuredStart,
-        )
-      : (
-          addresses: const <String>[],
-          nextCursor: configuredStart,
-          nextOffsets: localOffsets,
-        );
+  final configuredBatch = _natConfiguredRangeBatch(
+    scanLimit,
+    initialOffsets: localOffsets,
+    startCursor: configuredStart,
+  );
   final configuredRanges = configuredBatch.addresses;
 
   final args = <String, dynamic>{
@@ -2497,7 +2491,7 @@ Future<List<String>> _natRangeScanStepBody({
   for (final entry in generatedCursors.entries) {
     _cfRangeCursors['$portPrefix${entry.key}'] = entry.value;
   }
-  if (modeSnapshot && configuredRanges.isNotEmpty) {
+  if (configuredRanges.isNotEmpty) {
     _natConfiguredRangeOffsets.removeWhere((key, _) => key.startsWith(portPrefix));
     for (final entry in configuredBatch.nextOffsets.entries) {
       _natConfiguredRangeOffsets['$portPrefix${entry.key}'] = entry.value;
@@ -2519,7 +2513,7 @@ Future<List<String>> _natRangeScanStepBody({
     if (modeSnapshot) {
       await prefs.setInt('natRangePortCursorV1', _natRangePortCursors['nat'] ?? 0);
     }
-    if (modeSnapshot && configuredRanges.isNotEmpty) {
+    if (configuredRanges.isNotEmpty) {
       await prefs.setString(
           'natConfiguredRangeOffsetsV1', jsonEncode(_natConfiguredRangeOffsets));
       await prefs.setInt('natConfiguredRangeCursor', _natConfiguredRangeCursor);
