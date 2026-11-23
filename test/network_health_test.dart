@@ -3,6 +3,22 @@ import 'package:flutter_test/flutter_test.dart';
 import '../lib/network_health.dart';
 
 void main() {
+  group('network identity hashing', () {
+    test('empty or blank interface snapshots remain unknown', () {
+      expect(hashNetworkIdentityParts(const <String>[]), isEmpty);
+      expect(hashNetworkIdentityParts(const <String>['', '  ']), isEmpty);
+    });
+
+    test('known interface snapshots hash deterministically without storing raw addresses', () {
+      const first = 'wlan0=192.0.2.10';
+      const second = 'rmnet0=2001:db8::10';
+      final hash = hashNetworkIdentityParts(const <String>[first, second]);
+      expect(hash, isNotEmpty);
+      expect(hash, isNot(contains('192.0.2.10')));
+      expect(hash, hashNetworkIdentityParts(const <String>[second, first]));
+    });
+  });
+
   group('forced network probe refresh coordination', () {
     test('queues one forced scan behind an active ordinary scan', () async {
       final coordinator = NetworkProbeRefreshCoordinator<int>();
