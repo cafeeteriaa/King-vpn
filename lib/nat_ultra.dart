@@ -1797,8 +1797,14 @@ Future<void> natIpMemSave(String ip, int port) async {
 /// Range rotation and per-range address offsets prevent large early ranges from
 /// starving later entries; memory stays proportional to the requested batch.
 ({List<String> addresses, int nextCursor, Map<String, dynamic> nextOffsets})
-    _natConfiguredRangeBatch(int limit) {
-  final offsets = Map<String, dynamic>.of(_natConfiguredRangeOffsets);
+    _natConfiguredRangeBatch(
+  int limit, {
+  Map<String, dynamic>? initialOffsets,
+  int? startCursor,
+}) {
+  final offsets = Map<String, dynamic>.of(
+    initialOffsets ?? _natConfiguredRangeOffsets,
+  );
   if (limit <= 0 || natRanges.isEmpty) {
     return (
       addresses: const <String>[],
@@ -1807,7 +1813,7 @@ Future<void> natIpMemSave(String ip, int port) async {
     );
   }
 
-  final start = _natConfiguredRangeCursor % natRanges.length;
+  final start = (startCursor ?? _natConfiguredRangeCursor) % natRanges.length;
   final activeRanges = min(limit, natRanges.length).toInt();
   final perRange = max(1, (limit + activeRanges - 1) ~/ activeRanges).toInt();
   final candidates = <String>{};
