@@ -793,7 +793,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
       return [
         'lib/nat_ultra.dart → _natSpecs (لیست حالت‌های پروژه)',
         'این حالت روی چند تلاش با اتصال واقعی ترافیک تونل نداد',
-        'اگر تست دوباره همین را گفت، حالت را در _natRetiredNames (nat_ultra.dart) بگذار؛ کار دیگری لازم نیست',
+        'هیچ حالتی از فهرست حذف نمی‌شود؛ در چرخه‌های بعدی دوباره با آزمون واقعی بررسی می‌شود',
       ];
     }
     switch (code) {
@@ -1926,10 +1926,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
 
     // ALLMODES: هر حالت پروژه (همه‌ی _natSpecs) حداقل یک بار روی یک سرور واقعی امتحان می‌شود.
     // هیچ حالتی بی‌صدا رد نمی‌شود: یا تست می‌شود، یا با دلیل مشخص در گزارش «جواب نداد» / «تست نشد» می‌آید.
-    final allVars = [
-      for (var v = 1; v < _natSpecs.length; v++)
-        if (!natDisabled.contains(v) && !natRetired(v)) v
-    ];
+    final allVars = [for (var v = 1; v < _natSpecs.length; v++) v];
     final untried = <int>[...allVars]; // هنوز روی هیچ سروری امتحان نشده
     final failedOnce = <int>{}; // یک بار امتحان شده و ترافیک نداده (برای دور دوم)
     final perTry = <int, int>{}; // هر حالت: چند بار امتحان شد
