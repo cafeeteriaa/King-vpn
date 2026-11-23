@@ -106,10 +106,19 @@ Future<void> autoScanRun(void Function(String) say,
     // FOLDERALL: IPهای پوشه اول؛ در نت ملی IPهای ISP داخلی هم اضافه می‌شود (بهینه برای نت ملی)
     // This is the generic/global SNI and port scanner. National ISP ranges
     // belong exclusively to the National Net engine and are never borrowed here.
+    final serverInventory = <Server>[
+      ...fetchedAll,
+      ...good,
+      ...pending,
+      ...natRestPending,
+      ...natTemplateSeeds,
+    ];
     final base = <String>{
       for (final entry in _goldIps.values) entry.ip,
       for (final entry in cleanIps) entry.ip,
       for (final entry in natIpMem) (entry['ip'] ?? '').toString(),
+      for (final server in serverInventory)
+        if (server.isIp) server.host,
     }.where((ip) => ip.isNotEmpty).toList(growable: false);
     final cdnSample = <String>[];
     if (base.isEmpty) {
@@ -137,7 +146,7 @@ Future<void> autoScanRun(void Function(String) say,
     final configuredSnis = <String>{
       ...kAutoSniDomains,
       ...dnsxFullDomains(),
-      for (final server in natTemplateSeeds)
+      for (final server in serverInventory)
         if (!server.isIp && server.host.contains('.')) server.host.toLowerCase(),
       for (final server in _goldSrv.values)
         if ((Uri.tryParse(server.link)?.host ?? '').contains('.'))
@@ -171,7 +180,7 @@ Future<void> autoScanRun(void Function(String) say,
     final portHits = <String>[];
     var m = 0;
     final knownPortServers = <Server>[
-      ...natTemplateSeeds,
+      ...serverInventory,
       for (final record in _goldSrv.values)
         if (Server.parse(record.link) case final Server server) server,
     ];
