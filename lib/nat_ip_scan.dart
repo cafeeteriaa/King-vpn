@@ -217,16 +217,16 @@ Future<List<NatIpHit>> natScanIps(
   List<String> ips, {
   int port = 443,
   int concurrency = 16,
-  int want = 20,
-  Duration budget = const Duration(seconds: 90),
+  int? want,
+  Duration? budget,
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
   void Function(int done, int total, int hits)? onProgress,
   bool randomize = false,
 }) async {
-  if (ips.isEmpty || want <= 0) return <NatIpHit>[];
+  if (ips.isEmpty || (want != null && want <= 0)) return <NatIpHit>[];
 
-  if (budget <= Duration.zero || timeout <= Duration.zero ||
+  if ((budget != null && budget <= Duration.zero) || timeout <= Duration.zero ||
       port < 1 || port > 65535) {
     return <NatIpHit>[];
   }
@@ -249,9 +249,9 @@ Future<List<NatIpHit>> natScanIps(
 
   Future<void> worker() async {
     while (true) {
-      if (hits.length >= want) return;
+      if (want != null && hits.length >= want) return;
       if (aborted()) return;
-      if (elapsed.elapsed >= budget) return;
+      if (budget != null && elapsed.elapsed >= budget) return;
 
       final idx = next++;
       if (idx >= source.length) return;
@@ -259,19 +259,19 @@ Future<List<NatIpHit>> natScanIps(
 
       // Cap every in-flight connect to the remaining monotonic scan budget.
       // Cancellation is checked between attempts; Socket.connect itself is not cancellable.
-      final remaining = budget - elapsed.elapsed;
+      final remaining = budget == null ? timeout : budget - elapsed.elapsed;
       if (remaining <= Duration.zero) return;
       final probeTimeout = timeout < remaining ? timeout : remaining;
       final ms = await natTcpProbe(ip, port, probeTimeout);
       // Do not publish a probe that completed after cancellation or the time budget.
-      if (aborted() || elapsed.elapsed >= budget) {
+      if (aborted() || (budget != null && elapsed.elapsed >= budget)) {
         done++;
         if (onProgress != null) onProgress(done, total, hits.length);
         return;
       }
       // Several workers may finish successful probes in the same event-loop turn.
       // Enforce [want] at insertion time so concurrent completions cannot exceed it.
-      if (ms != null && hits.length < want) {
+      if (ms != null && (want == null || hits.length < want)) {
         hits.add(NatIpHit(ip, ms));
       }
 
