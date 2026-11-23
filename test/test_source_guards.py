@@ -2740,5 +2740,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('for (final candidate in candidates)', source)
 
 
+    def test_ip_auto_scans_configured_ranges_and_rotating_global_cdn_inventory(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        start = source.index('List<String> _ipAutoBlocks(')
+        end = source.index('Future<List<String>> _ipAutoNextAddrs(', start)
+        inventory = source[start:end]
+        self.assertIn('blocks.addAll(natRanges);', inventory)
+        self.assertIn('blocks.addAll(natAutoBlocks(const <Server>[]));', inventory)
+        self.assertIn("blocks.add('${octets[0]}.${octets[1]}.${octets[2]}.0/24');", inventory)
+        self.assertNotIn('exact known endpoints only', source)
+        self.assertNotIn("'cfIpsBatch': 0, // exact known endpoints only", source)
+        self.assertIn("'cfIpsBatch': modeSnapshot ? 0 : _ipAutoBatch,", source)
+        self.assertIn("List<String>.of(_liveCdnRanges)", source)
+        self.assertIn("'cursors': cursorSnapshot,", source)
+
+
 if __name__ == '__main__':
     unittest.main()
