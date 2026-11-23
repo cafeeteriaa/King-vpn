@@ -68,7 +68,7 @@ final List<KingTransportCapability> kingTransportCapabilities = [
     'slipnet-sni-split','slipnet-half',
     'zerodpi-sni-spoof','zerodpi-ip-bypass','zerodpi-ip-bypass-plus',
     'zerodpi-sni-scan','zerodpi-ip-scan','zerodpi-proxy-scan',
-    'b4-fakesni','sniproxy-tcp-segmentation','sniproxy-fake-rst',
+    'b4-fakesni','b4-fakesni-1','b4-fakesni-2','sniproxy-tcp-segmentation','sniproxy-fake-rst',
     'sniproxy-wrong-seq','sniproxy-wrong-checksum',
     'ciadpi-byedpi','ciadpi-nfqws','ciadpi-snimod','ciadpi-dns-bridge',
     'spoofdpi','greentunnel','wstunnel','udp2raw','ghostcp','dpi-tunnel',
