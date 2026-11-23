@@ -2110,26 +2110,15 @@ List<String> _getCfIps({
   final orderedRanges = <String>[...otherRanges, ...cfRanges];
   for (final cidr in orderedRanges) {
     final perRange = cfSet.contains(cidr) ? perCf : perOther;
-    final parts = cidr.split('/');
-    if (parts.length != 2) continue;
-    final octets = parts[0].split('.');
-    if (octets.length != 4) continue;
-    final a = int.tryParse(octets[0]);
-    final b = int.tryParse(octets[1]);
-    final c = int.tryParse(octets[2]);
-    final d = int.tryParse(octets[3]);
-    final prefix = int.tryParse(parts[1]);
-    if (a == null || b == null || c == null || d == null || prefix == null) continue;
-    if (prefix < 8 || prefix > 32) continue;
-    final base = (a << 24) | (b << 16) | (c << 8) | d;
-    final span = 1 << (32 - prefix);
-    var cursor = curMap[cidr] ?? 0;
-    for (var i = 0; i < perRange; i++) {
-      final offset = (cursor + i) % span;
-      final v = base + offset;
-      out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
-    }
-    curMap[cidr] = (cursor + perRange) % span;
+    if (perRange <= 0) continue;
+    final generated = _natExpandAnyCursor(
+      cidr,
+      curMap[cidr] ?? 0,
+      perRange,
+    );
+    if (generated.$1.isEmpty) continue;
+    out.addAll(generated.$1);
+    curMap[cidr] = generated.$2;
   }
   return out;
 }
@@ -2238,7 +2227,7 @@ List<String> _getCfIps({
 
 // فیکس ۳: ساخت رشته‌های IP (صدها هزار تا چند میلیون) از ترد UI به isolate منتقل شد.
 // args: {cfIpsBatch:int, blocks:List<String>, nationalMode:bool,
-//        liveRanges:List<String>, cursors:Map<String,int>}
+//        liveRanges:List<String>, cursors:Map<String,dynamic>}
 // خروجی: {'addrs': List<String>, 'cursors': Map<String,int>} — cursor به‌روزشده باید
 // به ترد اصلی برگردد چون isolate نسخه‌ی کپی را تغییر می‌دهد (بدون آن اسکن هر دور از اول شروع می‌شد).
 Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
