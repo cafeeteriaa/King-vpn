@@ -5680,8 +5680,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   // CACHEGC: سقف cacheهای کوچک؛ هر ۱۰ ثانیه از tick صدا زده می‌شود
   void _gcCaches() {
-    _capMap(natTryCount, 2000);
-    _capMap(natWinCount, 2000);
     _capMap(slowStrikes, 500);
     _capMap(_cfgDumpAt, 3000);
     while (natIpDeadRun.length > 10000) {
@@ -8964,9 +8962,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           natVarSet(s, v);
         } else {
           // NORMALCACHE: برای اتصال بعدی هم به خاطر بسپار
-          if (natVarNormal.length > 3000) {
-            natVarNormal.remove(natVarNormal.keys.first);
-          }
           // NORMALKEY: keyed by s.key only so the cache survives operator
           // changes and restarts (natOpKey is 'x' at startup).
           natVarNormal[s.key] = v;
