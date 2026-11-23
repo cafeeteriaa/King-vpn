@@ -659,7 +659,7 @@ Future<void> refreshCdnRanges() async {
       return responses
           .where((response) => response.statusCode == 200)
           .expand((response) => response.body
-              .split(RegExp(r'[\\r\\n]+'))
+              .split(RegExp(r'[\r\n]+'))
               .map((entry) => entry.trim())
               .where((entry) => entry.contains('/')))
           .toList();
@@ -841,7 +841,7 @@ Future<List<String>> _cleanCandidates() async {
     for (final response in responses) {
       if (response.statusCode == 200) {
         ranges.addAll(response.body
-            .split(RegExp(r'[\\r\\n]+'))
+            .split(RegExp(r'[\r\n]+'))
             .map((entry) => entry.trim())
             .where((entry) => entry.contains('/')));
       }
