@@ -98,6 +98,22 @@ Future<List<NipHit>> nipScan(
   return hits;
 }
 
+/// Complete dynamic SNI inventory: built-in candidates plus every domain
+/// learned from DNS inventories and currently known server configurations.
+List<String> natAllSniCandidates() {
+  final all = <String>{
+    ...natFrontSnis,
+    ...dnsxFullDomains(),
+    for (final server in natTemplateSeeds)
+      if (!server.isIp && server.host.contains('.')) server.host.toLowerCase(),
+    for (final record in _goldSrv.values)
+      if ((Uri.tryParse(record.link)?.host ?? '').contains('.'))
+        Uri.parse(record.link).host.toLowerCase(),
+  };
+  all.removeWhere((host) => host.isEmpty || InternetAddress.tryParse(host) != null);
+  return all.toList(growable: false);
+}
+
 /// همان کانفیگ سرور [t] را روی IP دیگری می‌سازد؛ SNI و Host اصلی حفظ می‌شوند.
 String? nipSwapLink(Server t, String ip) {
   final l = t.link;
@@ -237,7 +253,7 @@ Future<String?> nipFindFrontSni(
 }) async {
   if (budget != null && budget <= Duration.zero) return null;
   final elapsed = Stopwatch()..start();
-  for (final sni in natFrontSnis) {
+  for (final sni in natAllSniCandidates()) {
     if (cancelled?.call() == true) return null;
     const perProbeCap = Duration(seconds: 5);
     final probeBudget = budget == null
