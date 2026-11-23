@@ -15,6 +15,13 @@ const List<String> kDnsxDefaults = [
   '208.67.220.220',
   '94.140.14.14',
   '94.140.15.15',
+  // Public IPv6 recursive resolvers
+  '2001:4860:4860::8888',
+  '2001:4860:4860::8844',
+  '2606:4700:4700::1111',
+  '2606:4700:4700::1001',
+  '2620:fe::fe',
+  '2620:fe::9',
 ];
 
 // DNSهای داخلی که از قبل در پروژه (npv_am_extras.dart) آمده‌اند
@@ -124,7 +131,10 @@ List<String> dnsxFullDomains() {
 String dnsxProbeDomain() => '${dnsxFullDomains().length} دامنه (ایرانی و جهانی)';
 
 /// بسته‌ی پرس‌وجوی DNS برای نوع A (RD=1)
-List<int> dnsxQuery(String name, int id) {
+List<int> dnsxQuery(String name, int id, {int recordType = 1}) {
+  if (recordType != 1 && recordType != 28) {
+    throw ArgumentError.value(recordType, 'recordType');
+  }
   final b = <int>[
     (id >> 8) & 0xff, id & 0xff, // ID
     0x01, 0x00, // flags: RD
@@ -138,7 +148,7 @@ List<int> dnsxQuery(String name, int id) {
     b.add(bytes.length);
     b.addAll(bytes);
   }
-  b.addAll([0x00, 0x00, 0x01, 0x00, 0x01]); // ته‌ی نام، QTYPE=A، QCLASS=IN
+  b.addAll([0x00, 0x00, (recordType >> 8) & 0xff, recordType & 0xff, 0x00, 0x01]); // QTYPE و QCLASS=IN
   return b;
 }
 
@@ -153,8 +163,13 @@ bool dnsxIsPublicV4(int a, int b, int c, int d) {
   return true;
 }
 
-/// پاسخ معتبر؟ rcode=0، ID یکسان، و حداقل یک رکورد A عمومی.
-bool dnsxAnswerOk(List<int> d, int id) {
+/// پاسخ معتبر برای A یا AAAA؛ حداقل یک رکورد عمومی از همان خانواده لازم است.
+/// IPv6 DNS answer validation shares the NNIE global-unicast checks.
+bool dnsxIsPublicV6(List<int> bytes, int offset) =>
+    NatDnsWireProbe.publicV6(bytes, offset);
+
+bool dnsxAnswerOk(List<int> d, int id, {int recordType = 1}) {
+  if (recordType != 1 && recordType != 28) return false;
   if (d.length < 12) return false;
   final rid = (d[0] << 8) | d[1];
   if (rid != id) return false;
@@ -174,7 +189,11 @@ bool dnsxAnswerOk(List<int> d, int id) {
     return p;
   }
   for (var i = 0; i < qd; i++) {
-    pos = skipName(pos) + 4;
+    pos = skipName(pos);
+    if (pos + 4 > d.length) return false;
+    final qtype = (d[pos] << 8) | d[pos + 1];
+    if (qtype != recordType || ((d[pos + 2] << 8) | d[pos + 3]) != 1) return false;
+    pos += 4;
   }
   var goodA = false;
   for (var i = 0; i < an && pos + 10 <= d.length; i++) {
@@ -183,11 +202,15 @@ bool dnsxAnswerOk(List<int> d, int id) {
     final type = (d[pos] << 8) | d[pos + 1];
     final rdlen = (d[pos + 8] << 8) | d[pos + 9];
     final rd = pos + 10;
-    if (type == 1 && rdlen == 4 && rd + 4 <= d.length) {
-      if (dnsxIsPublicV4(d[rd], d[rd + 1], d[rd + 2], d[rd + 3])) {
+    if (type == recordType) {
+      final valid = recordType == 1
+          ? rdlen == 4 && rd + 4 <= d.length &&
+              dnsxIsPublicV4(d[rd], d[rd + 1], d[rd + 2], d[rd + 3])
+          : rdlen == 16 && rd + 16 <= d.length && dnsxIsPublicV6(d, rd);
+      if (valid) {
         goodA = true;
       } else {
-        return false; // جواب جعلی یا بلاک‌پیج
+        return false; // پاسخ ناقص، جعلی یا خارج از محدوده‌ی آدرس‌دهی عمومی
       }
     }
     pos = rd + rdlen;
@@ -403,10 +426,13 @@ extension DnsxExt on _HomePageState {
               final extra = extraC.text
                   .split(RegExp(r'[\s,]+'))
                   .map((s) => s.trim())
-                  .where((s) =>
-                      s.isNotEmpty &&
-                      InternetAddress.tryParse(s)?.type ==
-                          InternetAddressType.IPv4)
+                  .where((s) {
+                    final parsed = InternetAddress.tryParse(s);
+                    return s.isNotEmpty &&
+                        parsed != null &&
+                        (parsed.type == InternetAddressType.IPv4 ||
+                            parsed.type == InternetAddressType.IPv6);
+                  })
                   .toList();
               final saved = await goldDnsList();
               if (!mounted || !sheetOpen) return;
@@ -472,7 +498,7 @@ extension DnsxExt on _HomePageState {
                     controller: extraC,
                     maxLines: 2,
                     decoration: const InputDecoration(
-                        labelText: 'DNS دلخواه (IPv4، با فاصله یا کاما)',
+                        labelText: 'DNS دلخواه (IPv4 یا IPv6، با فاصله یا کاما)',
                         border: OutlineInputBorder()),
                   ),
                   const SizedBox(height: 8),
