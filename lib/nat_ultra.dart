@@ -1793,8 +1793,8 @@ Future<void> natIpMemSave(String ip, int port) async {
   }
 
   final start = _natConfiguredRangeCursor % natRanges.length;
-  final activeRanges = min(limit, natRanges.length);
-  final perRange = max(1, (limit + activeRanges - 1) ~/ activeRanges);
+  final activeRanges = min(limit, natRanges.length).toInt();
+  final perRange = max(1, (limit + activeRanges - 1) ~/ activeRanges).toInt();
   final candidates = <String>{};
   var scanned = 0;
   var visited = 0;
@@ -1802,7 +1802,7 @@ Future<void> natIpMemSave(String ip, int port) async {
   while (visited < natRanges.length && scanned < limit) {
     final index = (start + visited) % natRanges.length;
     final range = natRanges[index];
-    final quota = min(perRange, limit - scanned);
+    final quota = min(perRange, limit - scanned).toInt();
     final expanded = _natExpandAnyCursor(
       range,
       offsets[range] ?? 0,
@@ -1819,7 +1819,7 @@ Future<void> natIpMemSave(String ip, int port) async {
   // Commit both cursors only after the corresponding network scan succeeds.
   return (
     addresses: candidates.toList(growable: false),
-    nextCursor: (start + max(1, visited)) % natRanges.length,
+    nextCursor: (start + max(1, visited).toInt()) % natRanges.length,
     nextOffsets: offsets,
   );
 }
