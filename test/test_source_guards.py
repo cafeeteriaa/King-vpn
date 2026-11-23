@@ -2858,6 +2858,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("address.type == InternetAddressType.IPv6", extras)
         self.assertIn("..._cfRangesV6", extras)
         self.assertIn("InternetAddressType.IPv6", extras[extras.index('List<String> _cidrSample'):extras.index('Future<String> _cfRead')])
+        self.assertIn("https://www.cloudflare.com/ips-v6", extras)
+        self.assertIn("type': recordType == 1 ? 'A' : 'AAAA'", extras)
+
+        nat_dns = nat[nat.index('const List<String> _natDnsList'):nat.index('class _NatSpec')]
+        self.assertIn('https+local://[2606:4700:4700::1111]', nat_dns)
+        doh_eps = nat[nat.index('const List<String> _dohEps'):nat.index('String natOpKey')]
+        self.assertIn('type=AAAA', doh_eps)
 
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         private_ip = main[main.index('bool _privateIp('):main.index('int byPing(')]
