@@ -10970,21 +10970,21 @@ ListTile( // KINGEXTRAS row
           TextButton(
             // MANUALSCAN: اسکن دستی بازه‌ها؛ نتیجه در پوشه‌ی جهانی ذخیره می‌شود (نت ملی را تغییر نمی‌دهد)
             onPressed: () {
-              final lines = c.text.split('\n');
-              final addrs = <String>[];
-              for (final line in lines) {
-                final t = line.trim();
-                if (t.isEmpty) continue;
-                // Preserve the user's complete manually supplied range; the scanner
-                // processes the resulting finite inventory with adaptive concurrency.
-                final got = natExpandCidr(t, maxPerBlock: 1 << 24);
-                addrs.addAll(got.isNotEmpty ? got : natExpandDash(t, maxCount: 1 << 32));
-              }
-              if (addrs.isEmpty) {
+              final ranges = c.text
+                  .split('\n')
+                  .map((line) => line.trim())
+                  .where((line) => line.isNotEmpty)
+                  .toList(growable: false);
+              if (ranges.isEmpty || !ranges.any((range) => natExpandRangeStream(range).iterator.moveNext())) {
                 _set('بازه‌ی معتبر نیست؛ مثلاً 5.160.0.0/24 بنویس');
                 return;
               }
-              unawaited(manualRangeScan(context, addrs)); // MANUALSCAN: نتیجه و پیشرفت داخل دیالوگ
+              Iterable<String> expandedRanges() sync* {
+                for (final range in ranges) {
+                  yield* natExpandRangeStream(range);
+                }
+              }
+              unawaited(manualRangeScan(context, expandedRanges())); // MANUALSCAN: نتیجه و پیشرفت داخل دیالوگ
             },
             child: const Text('اسکن بازه‌ها'),
           ),
