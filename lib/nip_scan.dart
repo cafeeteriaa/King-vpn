@@ -483,7 +483,6 @@ extension NipHunt on _HomePageState {
       }
     }
 
-    // مرحله ۳: IP های همان شرکت هاست سرور (ASN) روی همان پورت
     // مرحله ۳: همه‌ی A/AAAA آدرس‌های هاست و تمام prefixهای ASN آن‌ها.
     final t0 = direct.first;
     final hostIps = t0.isIp ? [t0.host] : await nipResolveAll(t0.host);
@@ -593,7 +592,8 @@ extension NipHunt on _HomePageState {
       }
     }
     return false;
-  }}
+  }
+}
 
 // HOTFOLDER UI ==============================================================
 // وضعیت پوشه‌ی منابع تازه و ساخت دستی آن (در هر حالتی، نه فقط نت ملی).
