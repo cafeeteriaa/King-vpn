@@ -379,7 +379,7 @@ Future<String?> nipFrontProbe(String ip, int port, String sni) async {
   }
 }
 
-Future<String?> nipFindFrontSni(String ip, int port) async {
+Future<String?> nipFindFrontSni(String ip, int port, {bool Function()? cancelled}) async {
   final inventory = <String>{
     ...natFrontSnis,
     ...dnsxFullDomains(),
@@ -391,7 +391,7 @@ Future<String?> nipFindFrontSni(String ip, int port) async {
   // not all repeat the same domain slice.
   _nipFrontSniCursor = (start + count) % inventory.length;
   for (var offset = 0; offset < count; offset++) {
-    if (abort) return null;
+    if (cancelled?.call() ?? false) return null;
     final sni = inventory[(start + offset) % inventory.length];
     final ok = await nipFrontProbe(ip, port, sni);
     if (ok != null) return ok;
@@ -597,7 +597,7 @@ extension NipHunt on _HomePageState {
           if (abort) return false;
           final batch = top.skip(i).take(4).toList();
           snis.addAll(await Future.wait(
-            batch.map((hit) => nipFindFrontSni(hit.ip, port)),
+            batch.map((hit) => nipFindFrontSni(hit.ip, port, cancelled: () => abort)),
           ));
         }
       }
