@@ -84,7 +84,7 @@ Future<List<_TgPx>> _tgPxReadCache() async {
       final uri = Uri.parse(link);
       final kind = uri.pathSegments.first == 'socks' ? 'SOCKS5' : 'MTProto';
       final title = '${item['title'] ?? 'پروکسی'}';
-      out.add(_TgPx('ذخیره‌شده • ${title.substring(0, title.length.clamp(0, 100))}', link, kind));
+      out.add(_TgPx('ذخیره‌شده • ${title.substring(0, title.length.clamp(0, 100).toInt())}', link, kind));
     }
     return out;
   } catch (e, st) {
