@@ -4790,11 +4790,9 @@ Future<List<Server>> fetchServers({bool Function()? stop}) async {
   srcFetchState.clear();
   srcFetchCount.clear();
   final all = <String, Server>{};
-  final sw = Stopwatch()..start();
-  final dl = fetchDeadline;
   // لینک‌های اضافه‌ی کاربر اول دریافت می‌شوند
   await pool<String>([...userListUrls, ...listUrls], fetchWorkers, (u) async {
-    if ((stop?.call() ?? false) || sw.elapsed > dl) {
+    if (stop?.call() ?? false) {
       srcFetchState[u] = 'skip';
       return;
     }
