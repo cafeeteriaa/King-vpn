@@ -2740,6 +2740,27 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('savedDns.take(40)', dns)
 
 
+    def test_ip_generator_returns_exactly_the_addresses_covered_by_its_cursors(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = nat.index('Map<String, dynamic> _genAddrsIso(')
+        end = nat.index('// RANGEGUARD:', start)
+        body = nat[start:end]
+        self.assertIn("final int cap = max(0, args['maxAddrs'] as int);", body)
+        self.assertIn('final remaining = cap - addrs.length;', body)
+        self.assertIn('final rangesLeft = blocks.length - offset;', body)
+        self.assertNotIn('max(cfIpsBatch * 4, 20000)', body)
+        self.assertNotIn('_natExpandAnyCursor(range, cursor, 256)', body)
+        self.assertIn("'maxAddrs': maxAddrs,", nat)
+        ip = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        self.assertIn("'maxAddrs': _ipAutoBatch,", ip)
+        start = ip.index('Future<List<String>> _ipAutoNextAddrs(')
+        end = ip.index('extension IpAutoExt', start)
+        body = ip[start:end]
+        self.assertLess(body.index('final generatedCursors'), body.index('ipAutoCursors'))
+        self.assertIn('final slice = all.toList(growable: false);', body)
+        self.assertNotIn('all.take(_ipAutoBatch)', body)
+
+
     def test_ip_auto_scan_has_no_fixed_port_or_hit_count_caps_and_resumes_core_queue(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         self.assertNotIn('_ipAutoPorts', source)
