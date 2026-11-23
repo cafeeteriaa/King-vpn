@@ -181,12 +181,14 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
   final remaining = size - offset;
   // Wrapping cursors fill the requested batch across the end of the range;
   // non-wrapping cursors stop exactly at exhaustion and return the done marker.
-  final take = wrap
-      ? maxPerBlock
-      : min(
+  final take = size == BigInt.one
+      ? 1
+      : (wrap
+          ? maxPerBlock
+          : min(
           maxPerBlock,
-          remaining > BigInt.from(maxPerBlock) ? maxPerBlock : remaining.toInt(),
-        );
+              remaining > BigInt.from(maxPerBlock) ? maxPerBlock : remaining.toInt(),
+            ));
   final addresses = <String>[];
   for (var i = 0; i < take; i++) {
     final value = first + ((offset + BigInt.from(i)) % size);
