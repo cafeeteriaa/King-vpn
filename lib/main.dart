@@ -17628,8 +17628,7 @@ extension ProjectNatSweep on _HomePageState {
       final hits = await natScanIps(pool2,
           port: port,
           concurrency: 24,
-          want: 20,
-          budget: left,
+          want: pool2.length,
           cancelled: () => abort || AutoTestEngine._abortRequested);
       for (final h in hits) {
         opened.add(CleanIp(h.ip, h.ms, port));
