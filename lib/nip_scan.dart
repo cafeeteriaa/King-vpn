@@ -115,6 +115,7 @@ Future<void> _nipSaveHuntCursors(Map<String, dynamic> cursors) async {
 ({List<String> addresses, Map<String, dynamic> cursors}) _nipRangeBatch(
   List<String> ranges,
   Map<String, dynamic> saved, {
+  required String namespace,
   int batchSize = 1000,
 }) {
   final cursors = Map<String, dynamic>.of(saved);
@@ -122,7 +123,7 @@ Future<void> _nipSaveHuntCursors(Map<String, dynamic> cursors) async {
     return (addresses: const <String>[], cursors: cursors);
   }
   final start =
-      (int.tryParse(cursors['__nip_range_cursor']?.toString() ?? '') ?? 0) %
+      (int.tryParse(cursors['__nip_${namespace}_range_cursor']?.toString() ?? '') ?? 0) %
           ranges.length;
   final out = <String>{};
   var visited = 0;
@@ -134,15 +135,15 @@ Future<void> _nipSaveHuntCursors(Map<String, dynamic> cursors) async {
     final quota = max(1, (remaining + rangesLeft - 1) ~/ rangesLeft);
     final batch = natExpandIpRangeCursor(
       range,
-      cursors[range]?.toString() ?? '0',
+      cursors['$namespace:$range']?.toString() ?? '0',
       maxPerBlock: quota,
     );
     if (batch.addresses.isEmpty) continue;
     out.addAll(batch.addresses);
-    cursors[range] = batch.nextCursor;
+    cursors['$namespace:$range'] = batch.nextCursor;
   }
   if (visited > 0) {
-    cursors['__nip_range_cursor'] = (start + visited) % ranges.length;
+    cursors['__nip_${namespace}_range_cursor'] = (start + visited) % ranges.length;
   }
   return (addresses: out.toList(growable: false), cursors: cursors);
 }
