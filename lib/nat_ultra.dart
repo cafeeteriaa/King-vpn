@@ -1165,7 +1165,18 @@ String? natChainCfg(String exitCfg, String relayCfg, {bool keepInbounds = false}
     final exitOut = _natProxyOut(ej);
     final relayOut = _natProxyOut(rj);
     if (exitOut == null || relayOut == null) return null;
-    final hop = Map<String, dynamic>.from(relayOut)..['tag'] = 'relay-hop';
+    final outs = List<dynamic>.from((ej['outbounds'] as List?) ?? <dynamic>[]);
+    final usedTags = <String>{
+      for (final item in outs)
+        if (item is Map && item['tag'] != null) item['tag'].toString(),
+    };
+    var hopTag = 'relay-hop';
+    var suffix = 2;
+    while (usedTags.contains(hopTag)) {
+      hopTag = 'relay-hop-$suffix';
+      suffix++;
+    }
+    final hop = Map<String, dynamic>.from(relayOut)..['tag'] = hopTag;
     final hopSt = hop['streamSettings'];
     if (hopSt is Map && hopSt['sockopt'] is Map) {
       (hopSt['sockopt'] as Map).remove('dialerProxy');
@@ -1176,10 +1187,9 @@ String? natChainCfg(String exitCfg, String relayCfg, {bool keepInbounds = false}
     final so = st['sockopt'] is Map
         ? Map<String, dynamic>.from(st['sockopt'] as Map)
         : <String, dynamic>{};
-    so['dialerProxy'] = 'relay-hop';
+    so['dialerProxy'] = hopTag;
     st['sockopt'] = so;
     exitOut['streamSettings'] = st;
-    final outs = List<dynamic>.from((ej['outbounds'] as List?) ?? <dynamic>[]);
     outs.add(hop);
     ej['outbounds'] = outs;
     if (!keepInbounds) ej.remove('inbounds');

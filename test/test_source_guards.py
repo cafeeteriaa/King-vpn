@@ -3869,6 +3869,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("builder.addDnsServer(candidate)", source)
         self.assertIn("isPlainIpAddress(candidate)", source)
         self.assertIn("DNS configuration must populate Android VpnService.Builder", source)
+    def test_nat_relay_chain_uses_collision_free_outbound_tag(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('String? natChainCfg(')
+        end = source.index('Map? _natProxyOut(', start)
+        chain = source[start:end]
+        self.assertIn('final usedTags = <String>{', chain)
+        self.assertIn('while (usedTags.contains(hopTag))', chain)
+        self.assertIn("so['dialerProxy'] = hopTag;", chain)
+        self.assertNotIn("so['dialerProxy'] = 'relay-hop';", chain)
     def test_sni_camouflage_never_enables_insecure_tls(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('String _natSmartSni(')
