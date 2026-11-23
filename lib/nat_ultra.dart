@@ -2420,7 +2420,6 @@ Future<List<String>> _natRangeScanStepBody({
   // This prevents a short global deadline from silently skipping the tail of
   // a port's batch or repeatedly restarting the first port.
   var completed = 0;
-  final scanClock = Stopwatch()..start();
   final hits = await natScanIps(
     slice,
     port: port,
@@ -2431,9 +2430,7 @@ Future<List<String>> _natRangeScanStepBody({
     cancelled: shouldAbort,
     onProgress: (done, total, _) => completed = done,
   );
-  if (shouldAbort() ||
-      scanClock.elapsed >= budget ||
-      completed < slice.length) {
+  if (shouldAbort() || completed < slice.length) {
     return const <String>[];
   }
 
