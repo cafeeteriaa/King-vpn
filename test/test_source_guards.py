@@ -2401,9 +2401,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Future<void> worker() async {')
         end = source.index('\n  }', start)
         worker = source[start:end]
-        probe = worker.index('final ms = await natTcpProbe(ip, port, timeout);')
+        budget_guard = worker.index('final remaining = budget - elapsed.elapsed;')
+        probe = worker.index('final ms = await natTcpProbe(ip, port, probeTimeout);')
         stale_guard = worker.index('if (aborted() || elapsed.elapsed >= budget)', probe)
         insert = worker.index('if (ms != null && hits.length < want)', stale_guard)
+        self.assertLess(budget_guard, probe)
         self.assertLess(probe, stale_guard)
         self.assertLess(stale_guard, insert)
         self.assertIn('return;', worker[stale_guard:insert])
