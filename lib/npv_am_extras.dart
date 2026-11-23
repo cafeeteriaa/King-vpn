@@ -1260,7 +1260,7 @@ extension NpvAmExtras on _HomePageState {
       builder: (ctx) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          title: const Text('🔗 سرور واسط (دور زدن نت ملی)'),
+          title: const Text('🔗 تنظیمات آزمایشی مسیر واسط'),
           content: TextField(
             controller: c,
             maxLines: 4,
@@ -1268,8 +1268,8 @@ extension NpvAmExtras on _HomePageState {
             textDirection: TextDirection.ltr,
             decoration: const InputDecoration(
               hintText: 'vless://... یا vmess://...',
-              helperText: 'خالی بگذارید تا واسط به‌صورت خودکار از سرورهای سالم شما انتخاب شود. '
-                  'اگر لینک بگذارید، در نت ملی اتصال از پشت همین سرور رد می‌شود.',
+              helperText: 'این فیلد فعلاً به مسیر اتصال VPN متصل نیست و ذخیره آن Relay واقعی ایجاد نمی‌کند. '
+                  'برای خروج جهانی، سرور واسط باید از شبکه فعلی قابل دسترس باشد و زنجیره دو مرحله‌ای در مسیر اصلی پیاده‌سازی و با ترافیک واقعی آزموده شود.',
               helperMaxLines: 2,
             ),
           ),
@@ -1284,7 +1284,7 @@ extension NpvAmExtras on _HomePageState {
                 await _saveSettings();
                 if (!mounted || !ctx.mounted) return;
                 Navigator.pop(ctx);
-                _set(relayServerUrl.isEmpty ? 'سرور واسط پاک شد' : 'سرور واسط ذخیره شد');
+                _set(relayServerUrl.isEmpty ? 'تنظیم آزمایشی پاک شد' : 'ذخیره شد؛ هنوز در مسیر اتصال VPN اعمال نمی‌شود');
               },
               child: const Text('ذخیره'),
             ),
