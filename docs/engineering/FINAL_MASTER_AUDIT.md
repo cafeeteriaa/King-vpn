@@ -175,3 +175,34 @@
 - probe identity و handover fencing: 2af9a0e895891f85f9021fb46bf4e8dfffe38cff
 - Android network identity: e226bebb56154f5eaec8098d70992e5b5ab439d8
 - source guards: 51e77849cd511c818a3df1bbaadb6d360a152dcc
+
+
+## ۱۳. بازبینی مرز مالکیت Start/Stop سرویس VPN در Android
+
+### شواهد مستقیم از HEAD ممیزی
+
+- در `lib/own_vpn.dart` مقدار `kOwnVpnService` برابر `false` است؛ بنابراین مسیر اجرایی فعلی باید plugin-managed باقی بماند و سرویس اختصاصی `KingVpnService` هنوز مسیر فعال پیش‌فرض نیست.
+- در مسیر شروع `lib/main.dart`، انتخاب بین `ownVpnStart(...)` و `v2ray.startV2Ray(...)` با همین flag انجام می‌شود؛ تغییر flag بدون پذیرش دستگاهی مجاز نیست.
+- در مسیر توقف، `_stopV2()` ابتدا در صورت فعال بودن flag، `ownVpnStop()` را فراخوانی می‌کند، اما سپس `v2ray.stopV2Ray()` را بدون شرط اجرا می‌کند.
+- در `android_src/MainActivity.kt`، handler فرمان `stop`، متد `KingVpnService.stopFromApp()` را فراخوانی کرده و بلافاصله `result.success(true)` برمی‌گرداند.
+- در `android_src/KingVpnService.java`، `stopFromApp()` پاک‌سازی `stopEverything` را به worker صف می‌کند؛ بنابراین پاسخ MethodChannel به‌تنهایی اثبات پایان native core، آزادشدن TUN یا تکمیل توقف نیست.
+- سرویس اختصاصی و مسیر plugin-managed از اجزای V2Ray مشترک استفاده می‌کنند؛ در نتیجه ترتیب و هم‌زمانی دو درخواست توقف باید به‌صورت عملی بررسی شود.
+
+### ارزیابی
+
+این بررسی یک **ریسک بالقوه در مسیر غیرفعال custom-service** را مشخص می‌کند، نه یک خرابی اثبات‌شده در مسیر فعلی. هنوز معلوم نیست فراخوانی متوالی توقف پلاگین پس از درخواست توقف سرویس اختصاصی، در تمام interleavingها بی‌خطر است یا می‌تواند با cleanup سرویس اختصاصی رقابت کند.
+
+### اقدام و معیار پذیرش
+
+1. `kOwnVpnService=false` حفظ شود؛ هیچ فعال‌سازی صرفاً بر اساس CI یا تست ایستا انجام نشود.
+2. قرارداد توقف native باید میان «درخواست توقف پذیرفته شد» و «هسته متوقف و TUN آزاد شد» تمایز روشن داشته باشد.
+3. تست‌های قطعی برای own-service Stop در برابر Start جدید، timeout قدیمی، stop notification و cleanup هم‌زمان با plugin stop اضافه شوند.
+4. روی دستگاه واقعی، توقف فقط پس از تأیید پایان core و آزادشدن TUN موفق تلقی شود؛ سپس Start بعدی و عبور واقعی IPv4/IPv6 بررسی شود.
+5. تا تکمیل این معیارها، مسیر plugin-managed فعلی حفظ شود و هیچ ادعای تأیید custom service ثبت نشود.
+
+### نتیجه این مرحله
+
+- معماری فعلی تغییر نکرد.
+- هیچ قابلیت سالمی حذف نشد.
+- هیچ موتور یا سرویس جدیدی فعال نشد.
+- این مورد به‌عنوان بررسی باز برای فاز lifecycle ثبت شد؛ وضعیت: **OPEN / DEVICE VALIDATION REQUIRED**.
