@@ -86,31 +86,6 @@ Future<List<NipHit>> nipScan(
   return hits;
 }
 
-/// فهرست بلوک‌های IPv4 ایران از RIPE (یک بار دانلود و بعد کش).
-Future<List<String>> nipIranCidrs() async {
-  final p = await SharedPreferences.getInstance();
-  final cached = p.getStringList('plus_ir_cidr');
-  if (cached != null && cached.isNotEmpty) return cached;
-  final c = HttpClient()..connectionTimeout = const Duration(seconds: 10);
-  try {
-    final req = await c
-        .getUrl(Uri.parse(
-            'https://stat.ripe.net/data/country-resource-list/data.json?resource=IR'))
-        .timeout(const Duration(seconds: 15));
-    final res = await req.close().timeout(const Duration(seconds: 20));
-    final body = await res.transform(utf8.decoder).join();
-    final j = jsonDecode(body);
-    final raw = (j['data']['resources']['ipv4'] as List?) ?? const [];
-    final list = raw.map((e) => '$e').where((e) => e.contains('/')).toList();
-    if (list.isNotEmpty) await p.setStringList('plus_ir_cidr', list);
-    return list;
-  } catch (_) {
-    return const [];
-  } finally {
-    c.close(force: true);
-  }
-}
-
 /// همان کانفیگ سرور [t] را روی IP دیگری می‌سازد؛ SNI و Host اصلی حفظ می‌شوند.
 String? nipSwapLink(Server t, String ip) {
   final l = t.link;
@@ -177,68 +152,6 @@ Future<String?> nipResolve(String host) async {
     return l.isEmpty ? null : l.first.address;
   } catch (_) {
     return null;
-  }
-}
-
-/// بلوک‌های هاست یک IP را برای نت ملی ذخیره می‌کند (کلید: IP).
-Future<void> natPrefetchAsn(List<Server> list) async {
-  var n = 0;
-  for (final s in list) {
-    if (n >= 20) break;
-    if (s.cdn) continue;
-    final ip = s.isIp ? s.host : await nipResolve(s.host);
-    if (ip == null) continue;
-    n++;
-    await nipAsnPrefixes(ip); // نتیجه خودکار در کش ذخیره می‌شود
-  }
-}
-
-/// آخرین شکست RIPE برای هر IP (حافظه‌ی موقت، جدا از کش دائمی).
-final Map<String, DateTime> _asnFailAt = <String, DateTime>{};
-
-/// بلوک‌های IPv4 اعلام‌شده‌ی شرکت هاست همان IP (از RIPE Stat).
-Future<List<String>> nipAsnPrefixes(String ip) async {
-  final prefs = await SharedPreferences.getInstance();
-  final cacheKey = 'nip_asn_v1_$ip';
-  final cached = prefs.getStringList(cacheKey);
-  if (cached != null && cached.isNotEmpty) return cached;
-  // NATOPT: RIPE خارج از کشور است. وقتی جهانی قطع است فقط کش معتبر است؛ شبکه نمی‌زنیم.
-  if (NatNetworkDiagnosis.preferDomestic) return const [];
-  // NATOPT: شکست اخیر را ۱۵ دقیقه به خاطر می‌سپاریم تا هر دور جستجو ۳ بار ۱۲ ثانیه تایم‌اوت نخورد.
-  final failAt = _asnFailAt[ip];
-  if (failAt != null && DateTime.now().difference(failAt) < const Duration(minutes: 15)) {
-    return const [];
-  }
-  try {
-    final r = await http
-        .get(Uri.parse('https://stat.ripe.net/data/network-info/data.json?resource=$ip'))
-        .timeout(const Duration(seconds: 12));
-    if (r.statusCode != 200) {
-      _asnFailAt[ip] = DateTime.now();
-      return const [];
-    }
-    final asns = ((jsonDecode(r.body)['data']?['asns']) as List?) ?? const [];
-    final out = <String>[];
-    for (final a in asns.take(2)) {
-      final rr = await http
-          .get(Uri.parse('https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS$a'))
-          .timeout(const Duration(seconds: 12));
-      if (rr.statusCode != 200) continue;
-      final prefixes = ((jsonDecode(rr.body)['data']?['prefixes']) as List?) ?? const [];
-      for (final pe in prefixes) {
-        final pr = '${pe['prefix']}';
-        if (pr.contains('/') && !pr.contains(':')) out.add(pr);
-      }
-    }
-    if (out.isNotEmpty) {
-      await prefs.setStringList(cacheKey, out);
-    } else {
-      _asnFailAt[ip] = DateTime.now();
-    }
-    return out;
-  } catch (_) {
-    _asnFailAt[ip] = DateTime.now();
-    return const [];
   }
 }
 

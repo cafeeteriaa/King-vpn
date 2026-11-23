@@ -7543,9 +7543,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         : effFastWorkers.clamp(1, kFastGateCeil);
     _delayGate.max = gateMax;
     dbg('تست سریع: $gateMax تست هم‌زمان • دسته ${alive.length}');
-    // ASNPREFETCH: وقتی نت جهانی است، بلوک‌های هاست سرورها را ذخیره می‌کنیم تا در نت ملی
-    // (که RIPE باز نیست) همان‌ها استفاده شوند.
-    if (!nationalMode) unawaited(natPrefetchAsn(alive));
+    // ASN-neighbor probing/prefetch is disabled; only published CDN ranges and explicit relays are used.
     // NATORDER: نت ملی: اول دامنه‌های موفق قبلی، بعد ws/grpc/xhttp/h2 (مقاوم‌تر در برابر DPI)، بقیه
     if (nationalMode && alive.length > 1) {
       final remDom = natDomMemHosts();

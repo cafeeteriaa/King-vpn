@@ -3907,6 +3907,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_tgPxNormalizeLink', source)
         self.assertIn('if (link == null) continue;', source)
 
+    def test_removed_asn_prefetch_has_no_background_network_cost(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        scan = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        self.assertNotIn('natPrefetchAsn(', main)
+        self.assertNotIn('nipAsnPrefixes(', scan)
+        self.assertNotIn('nipIranCidrs(', scan)
     def test_national_ip_hunt_does_not_sweep_unrelated_asn_prefixes(self):
         source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         start = source.index('Future<bool> _natIpHunt()')
