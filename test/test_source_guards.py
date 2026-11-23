@@ -2853,6 +2853,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('await onComplete?.call();', nip)
         self.assertIn('for (var offset = 0; offset < hits.length; offset += 8)', nip)
         self.assertNotIn('hits.take(8)', nip)
+        self.assertIn('...dnsxFullDomains()', nip)
+        self.assertIn('_nipFrontSniCursor', nip)
+        self.assertIn('Future<String?> nipFindFrontSni(String ip, int port, {bool Function()? cancelled})', nip)
+        self.assertIn('cancelled?.call()', nip)
         self.assertNotIn('prefixes.take(80)', nip)
 
     def test_nip_hunt_and_ripe_asn_scanning_accept_both_address_families(self):
