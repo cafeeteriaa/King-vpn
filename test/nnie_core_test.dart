@@ -2,6 +2,7 @@
 //   flutter test test/nnie_core_test.dart
 // These cover logic only; they do not test real networks, VPN, or Android.
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:king_vpn/nnie_core.dart';
