@@ -2062,7 +2062,7 @@ Future<List<String>> natDeviceHosts() async {
       for (final a in i.addresses) {
         final h = a.address;
         if (a.type == InternetAddressType.IPv6) {
-          if (a.isLoopback || a.isLinkLocal || a.isMulticast) continue;
+          if (_privateIp(a)) continue;
           if (!out.contains(h)) out.add(h);
           continue;
         }
@@ -2085,12 +2085,17 @@ Future<List<String>> natDeviceHosts() async {
 }
 
 List<String> natSeedBlocks(List<String> hosts) {
-  // Seed each discovered IPv4 host's /24 so nearby addresses are not excluded.
-  // The caller's configured ranges remain independently scanned as well.
+  // Seed discovered IPv4 hosts with their /24 and IPv6 hosts with exact /128s.
+  // Do not infer an enormous neighbouring IPv6 /64 from one endpoint.
   final out = <String>{};
   for (final host in hosts) {
     final parsed = InternetAddress.tryParse(host.trim());
-    if (parsed == null || parsed.type != InternetAddressType.IPv4) continue;
+    if (parsed == null) continue;
+    if (parsed.type == InternetAddressType.IPv6) {
+      out.add('${parsed.address}/128');
+      continue;
+    }
+    if (parsed.type != InternetAddressType.IPv4) continue;
     final octets = parsed.address.split('.');
     out.add('${octets[0]}.${octets[1]}.${octets[2]}.0/24');
   }
