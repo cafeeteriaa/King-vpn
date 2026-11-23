@@ -45,6 +45,16 @@ class NationalIpScannerGuardTests(unittest.TestCase):
         self.assertIn("if (elapsed.elapsed >= budget) return;", block)
         self.assertIn("concurrency.clamp(1, 16)", block)
 
+    def test_nat_scan_caps_each_probe_to_remaining_monotonic_budget(self):
+        source = (ROOT / "lib" / "nat_ip_scan.dart").read_text(encoding="utf-8")
+        start = source.index("Future<List<NatIpHit>> natScanIps(")
+        block = source[start:]
+        self.assertIn("final remaining = budget - elapsed.elapsed;", block)
+        self.assertIn("if (remaining <= Duration.zero) return;", block)
+        self.assertIn("final probeTimeout = timeout < remaining ? timeout : remaining;", block)
+        self.assertIn("natTcpProbe(ip, port, probeTimeout)", block)
+        self.assertIn("Socket.connect itself is not cancellable.", block)
+
     def test_relay_hosts_are_validated_deduplicated_and_bounded_on_load_and_save(self):
         self.assertIn("const int kNatMaxRelayHosts = 32;", self.source)
         start = self.source.index("Future<void> natRelayHostsLoad()")
