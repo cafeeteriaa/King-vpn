@@ -178,16 +178,26 @@ Future<String?> nipResolve(String host) async {
 // This does not prove HTTP Host routing, CDN co-location, or domain-fronting acceptance;
 // the real VPN tunnel and HTTP traffic check remain the final acceptance gate.
 // The original Host header is preserved when a candidate is applied.
-// FRONTSNI: کاهش از ۱۹ به ۸ دامنه برای سرعت بیشتر nipFindFrontSni
+// FRONTSNI: مجموعه کامل نامزدهای دامنه؛ IP literal ها SNI معتبر نیستند.
 const natFrontSnis = <String>[
-  'cdnjs.cloudflare.com',    // 0
-  'www.cloudflare.com',      // 1
-  'speed.cloudflare.com',    // 2  ← قبلاً 3 بود، حالا 2
-  'one.one.one.one',         // 3  ← قبلاً 16 بود
-  'cloudflare-dns.com',      // 4  ← قبلاً 17 بود
-  'www.aparat.com',          // 5
-  'www.digikala.com',        // 6
-  'divar.ir',                // 7
+  'cdnjs.cloudflare.com',
+  'www.cloudflare.com',
+  'speed.cloudflare.com',
+  'one.one.one.one',
+  'cloudflare-dns.com',
+  'www.aparat.com',
+  'www.digikala.com',
+  'divar.ir',
+  'cloudflare.com',
+  'www.snapp.ir',
+  'www.bale.ai',
+  'eitaa.com',
+  'www.zarinpal.com',
+  'www.iranserver.com',
+  'www.shatel.ir',
+  'www.mci.ir',
+  'workers.dev',
+  'dash.cloudflare.com',
 ];
 
 /// روی IP:port یک TLS با SNI داده‌شده کامل شود؟ برمی‌گرداند همان SNI یا null.
