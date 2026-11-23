@@ -1481,6 +1481,12 @@ const List<String> _dohEps = [
   'https://[2001:4860:4860::8888]/resolve?name=%N&type=A',
   'https://[2606:4700:4700::1111]/dns-query?name=%N&type=AAAA',
   'https://[2001:4860:4860::8888]/resolve?name=%N&type=AAAA',
+  'https://1.1.1.1/dns-query?name=%N&type=AAAA',
+  'https://8.8.8.8/resolve?name=%N&type=AAAA',
+  'https://1.0.0.1/dns-query?name=%N&type=AAAA',
+  'https://9.9.9.9:5053/dns-query?name=%N&type=AAAA',
+  'https://[2620:fe::fe]/dns-query?name=%N&type=A',
+  'https://[2620:fe::fe]/dns-query?name=%N&type=AAAA',
 ];
 
 String natOpKey = 'x';
