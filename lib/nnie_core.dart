@@ -146,6 +146,7 @@ class NatDnsWireProbe {
     if (a == 0x20 && second == 0x02) return false; // 6to4
     if (a == 0x3f && second == 0xff && (third & 0xf0) == 0x00) {
       return false; // 3fff::/20 documentation
+    }
     return true;
   }
 
