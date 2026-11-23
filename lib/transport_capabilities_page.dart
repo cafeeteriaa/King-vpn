@@ -82,15 +82,16 @@ class _KingCapabilityCatalogPageState extends State<KingCapabilityCatalogPage> {
               itemBuilder: (context, index) {
                 final item = items[index];
                 final ready = item.executableWithCurrentCore;
+                final verified = item.isVerifiedFor(_family);
                 return ListTile(
                   dense: true,
                   title: Text(item.title),
                   subtitle: Text(
-                    '${item.integration} · ${_family == KingAddressFamily.ipv4 ? 'IPv4' : 'IPv6'}',
+                    '${item.integration} · ${_family == KingAddressFamily.ipv4 ? 'IPv4' : 'IPv6'} · آزمون واقعی: ${verified ? 'موفق' : 'ثبت‌نشده'}',
                   ),
                   trailing: Chip(
                     label: Text(
-                      ready ? 'پیکربندی هسته' : 'نیازمند موتور',
+                      verified ? 'تست‌شده' : ready ? 'پیکربندی موجود؛ تست‌نشده' : 'نیازمند موتور',
                       style: const TextStyle(fontSize: 10),
                     ),
                     visualDensity: VisualDensity.compact,
