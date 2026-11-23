@@ -2218,7 +2218,7 @@ bool _natRangeScanBusy = false;
 
 Future<List<String>> natRangeScanStep({
   required List<Server> known,
-  int maxAddrs = 2048,
+  int maxAddrs = 8192,
   int conc = 4,
   bool Function()? stop,
   Duration budget = const Duration(minutes: 2),
