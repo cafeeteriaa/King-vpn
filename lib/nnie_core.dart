@@ -103,7 +103,10 @@ class _NatDnsProbeCancelled implements Exception {
 
 class NatDnsWireProbe {
   static List<int> buildQuery(String domain, int id) {
-    final normalized = domain.toLowerCase().replaceAll(RegExp(r'\., '');
+    final lower = domain.toLowerCase();
+    final normalized = lower.endsWith('.')
+        ? lower.substring(0, lower.length - 1)
+        : lower;
     if (normalized.isEmpty || ascii.encode(normalized).length > 253) {
       throw const FormatException('Invalid DNS name length');
     }
