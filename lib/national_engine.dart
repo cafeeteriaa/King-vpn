@@ -162,6 +162,17 @@ class NatNetworkDiagnosis {
     'aparat.com', 'digikala.com',
   ];
 
+  // NNIE uses the same strict A/AAAA parser as the user-facing DNS scanner.
+  // Keep both families independent so a resolver with only one usable family
+  // still contributes valid evidence without masking the other family's failure.
+  static Future<List<NatDnsProbeResult>> _dnsFamilyProbe(
+      String resolver, String domain) {
+    return Future.wait([
+      NatDnsWireProbe.probe(resolver, domain, recordType: 1),
+      NatDnsWireProbe.probe(resolver, domain, recordType: 28),
+    ]);
+  }
+
   static NatNetworkClass current = NatNetworkClass.unknown;
   static DateTime? _checkedAt;
   static String? _identityAtCheck;
@@ -237,21 +248,21 @@ class NatNetworkDiagnosis {
       final domesticF = Future.wait(_domesticHosts.map(_tcpOk));
       final globalF = Future.wait(_globalHosts.map(_tcpOk));
       final globalDnsF = Future.wait(
-          _globalResolvers.map((r) => NatDnsWireProbe.probe(r, 'google.com')));
+          _globalResolvers.map((r) => _dnsFamilyProbe(r, 'google.com')));
       final domesticDnsF = Future.wait([
         for (final resolver in _domesticResolvers)
           for (final domain in _domesticDnsNames)
-            NatDnsWireProbe.probe(resolver, domain),
+            _dnsFamilyProbe(resolver, domain),
       ]);
       final domesticTcp = await domesticF;
       final globalTcp = await globalF;
-      final globalDnsRes = await globalDnsF;
-      final domesticDnsRes = await domesticDnsF;
+      final globalDnsRes = (await globalDnsF).expand((x) => x).toList();
+      final domesticDnsRes = (await domesticDnsF).expand((x) => x).toList();
       final domesticDnsOk = domesticDnsRes.any((x) => x.ok);
       final globalDnsOk = globalDnsRes.any((x) => x.ok);
       final domesticTcpOk = domesticTcp.any((x) => x);
       final globalTcpOk = globalTcp.any((x) => x);
-      // DNS poisoning / blockpage check: a resolver returned a public A answer,
+      // DNS poisoning / blockpage check: a resolver returned a public A/AAAA answer,
       // yet none of the answered addresses accepts TCP/443, while domestic hosts
       // do. That is the typical signature of an injected answer, not a live Google.
       var poison = false;
