@@ -1697,24 +1697,50 @@ Future<void> natIpMemSave(String ip, int port) async {
   if (limit <= 0 || natRanges.isEmpty) {
     return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
   }
-  final candidates = <String>{};
-  // Include every configured range in each resumable round. The per-range
-  // sample size follows the caller's adaptive batch size; no first-N range
-  // truncation silently starves later entries in the user's inventory.
+  final ranges = <({String value, int count})>[];
+  var total = 0;
   for (final range in natRanges) {
-    candidates.addAll(natExpandAny(range, maxPerBlock: limit));
+    final count = natRangeAddressCount(range);
+    if (count == null || count <= 0) continue;
+    ranges.add((value: range, count: count));
+    total += count;
   }
-  if (candidates.isEmpty) {
+  if (total <= 0) {
     return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
   }
-  final values = candidates.toList(growable: false);
-  final start = _natConfiguredRangeCursor % values.length;
-  final count = min(limit, values.length).toInt();
-  final out = <String>[
-    for (var i = 0; i < count; i++) values[(start + i) % values.length],
-  ];
-  // The caller commits this cursor only after the corresponding scan completes.
-  return (addresses: out, nextCursor: (start + count) % values.length);
+  final start = _natConfiguredRangeCursor % total;
+  final takeCount = min(limit, total).toInt();
+  var cursor = start;
+  var remaining = takeCount;
+  final addresses = <String>[];
+  while (remaining > 0) {
+    var base = 0;
+    var advanced = false;
+    for (final range in ranges) {
+      final rangeEnd = base + range.count;
+      if (cursor >= rangeEnd) {
+        base = rangeEnd;
+        continue;
+      }
+      final localOffset = max(0, cursor - base);
+      final count = min(remaining, range.count - localOffset).toInt();
+      addresses.addAll(natExpandRangePage(
+        range.value,
+        offset: localOffset,
+        count: count,
+      ));
+      remaining -= count;
+      cursor += count;
+      advanced = true;
+      if (remaining == 0) break;
+      base = rangeEnd;
+    }
+    if (!advanced || cursor >= total) cursor = 0;
+  }
+  return (
+    addresses: addresses,
+    nextCursor: (start + takeCount) % total,
+  );
 }
 
 Future<void> natRangesSave(String text) async {
