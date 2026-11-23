@@ -94,8 +94,8 @@ class NatDnsProbeResult {
   bool get ok => elapsedMs != null && addresses.isNotEmpty;
 }
 
-/// Strict DNS-over-UDP A-query probe. It verifies transaction ID, QR/opcode,
-/// question name/type/class, response source IP/port, RCODE and public A answers.
+/// Strict DNS-over-UDP A/AAAA probe. It verifies transaction ID, QR/opcode,
+/// question name/type/class, response source IP/port, RCODE and public answers.
 /// It is a resolver test only; it is NOT a test of the VPN server's reachability.
 class _NatDnsProbeCancelled implements Exception {
   const _NatDnsProbeCancelled();
