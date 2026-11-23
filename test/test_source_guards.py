@@ -4244,8 +4244,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         probe = source[start:end]
         self.assertIn('SecureSocket.secure(raw, host: sni)', probe)
         self.assertNotIn('final s = await Socket.connect(ip, port', probe)
-        self.assertIn("const portSni = 'www.cloudflare.com';", source)
-        self.assertIn('_autoPortOk(ip, p, portSni)', source)
+        self.assertIn('for (final sni in configuredSnis)', source)
+        self.assertIn('_autoPortOk(ip, p, sni)', source)
+        self.assertIn('final tlsSnis = sniHits.isNotEmpty ? sniHits : configuredSnis;', source)
+        self.assertIn('_autoAlpnOk(ip, sni, alpn)', source)
+        self.assertNotIn("const portSni = 'www.cloudflare.com';", source)
     def test_saved_sni_and_alpn_hits_require_valid_tls_certificates(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<int?> _autoSniOk(')
