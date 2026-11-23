@@ -164,7 +164,10 @@ Future<void> autoScanRun(void Function(String) say,
     final domainInventory = <String>{
       ...kAutoSniDomains,
       ...dnsxFullDomains(),
-    }.toList()..sort();
+      ...good.where((server) => !server.isIp).map((server) => server.host),
+      ...pending.where((server) => !server.isIp).map((server) => server.host),
+      ...fetchedAll.where((server) => !server.isIp).map((server) => server.host),
+    }.where((domain) => domain.trim().isNotEmpty).toList()..sort();
     final savedDomainCursor = prefs.getString(_autoScanDomainCursorKey);
     final previousDomainIndex = savedDomainCursor == null
         ? -1
