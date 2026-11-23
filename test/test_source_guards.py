@@ -2612,9 +2612,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (completed < addresses.length)', body)
         self.assertIn('await prefs.setString(_manualRangeCursorKey, jsonEncode(cursors));', body)
         self.assertLess(body.index('if (completed < addresses.length)'),
-                        body.index('await prefs.setString(_manualRangeCursorKey, jsonEncode(cursors));'))
-        self.assertLess(body.index('await prefs.setString(_manualRangeCursorKey, jsonEncode(cursors));'),
                         body.index('await goldMergeIps('))
+        self.assertLess(body.index('await goldMergeIps('),
+                        body.index('await prefs.setString(_manualRangeCursorKey, jsonEncode(cursors));'))
         self.assertIn('wrap: false,', source[source.index('_manualRangeNextBatch('):start])
 
     def test_manual_range_scan_close_cancels_scan_and_blocks_cursor_commit(self):
