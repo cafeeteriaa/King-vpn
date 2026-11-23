@@ -43,9 +43,9 @@ const List<String> kDnsxNationalProbeDomains = <String>[
   'www.digikala.com',
 ];
 
-/// دامنه‌های اسکن خودکار پس‌زمینه (کوچک، تا نت ملی بی‌جهت بار نشود)
-List<String> dnsxAutoDomains() =>
-    nationalMode ? kDnsxNationalProbeDomains : const ['google.com'];
+/// دامنه‌های اسکن خودکار از کل موجودی دامنه‌های پروژه استفاده می‌کند؛
+/// حالت ملی/جهانی فقط برچسب شبکه و اولویت ارزیابی را تعیین می‌کند، نه فهرست ثابت کوچک.
+List<String> dnsxAutoDomains() => dnsxFullDomains();
 
 /// تبدیل فهرست‌های پروژه (مثل `domain:divar.ir`) به نام میزبان ساده
 List<String> _dnsxHostsFrom(Iterable<String> src) {
