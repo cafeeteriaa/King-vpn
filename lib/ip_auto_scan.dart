@@ -13,7 +13,6 @@ const String _ipAutoKeyGlob = 'ipauto_glob_v1';
 const String _ipAutoCursorKey = 'ipauto_cursor_v1';
 const String _ipAutoPosKey = 'ipauto_pos_v1'; // جای فعلی در فهرست آدرس‌ها
 const String _ipAutoAtKey = 'ipauto_at_v1'; // زمان آخرین اسکن خودکار نت ملی
-const int _ipAutoConc = 48; // اتصال TCP همزمان
 
 bool ipAutoBusy = false;
 bool ipAutoStopFlag = false;
@@ -238,7 +237,7 @@ extension IpAutoExt on _HomePageState {
     if (runNationalMode) {
       say('دریافت الگوهای مستقل نت ملی...');
       try {
-        final nationalSeeds = await natHotNext(50, fetch: false);
+        final nationalSeeds = await natHotNext(max(50, Platform.numberOfProcessors * 512), fetch: false);
         if (halted()) return false;
         if (nationalSeeds.isNotEmpty) {
           natTemplateSeeds = nationalSeeds;
@@ -290,7 +289,7 @@ extension IpAutoExt on _HomePageState {
       final hits = await natScanIps(
         addrs,
         port: port,
-        concurrency: (manual && runNationalMode) ? kNatManualConc : _ipAutoConc,
+        concurrency: (manual && runNationalMode) ? kNatManualConc : natAdaptiveConcurrency(0),
         want: addrs.length,
         timeout: const Duration(milliseconds: 1500),
         cancelled: halted,
