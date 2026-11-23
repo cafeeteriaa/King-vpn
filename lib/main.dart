@@ -11519,7 +11519,12 @@ ListTile( // KINGEXTRAS row
           ((command.contains('ip') || command.contains('آی پی')) && command.contains('اسکن'))) {
         ipAutoSheet(context);
       } else if (!negatesScan && (command.contains('اسکن sni') || command.contains('اسکن پورت'))) {
-        autoScanSheet(context, isVpnActive: () => connected, isVpnWanted: () => wantVpn);
+        autoScanSheet(
+          context,
+          isVpnActive: () => connected,
+          isVpnWanted: () => wantVpn,
+          getServerInventory: () => [...fetchedAll, ...good, ...pending],
+        );
       } else if (command.contains('ip تمیز') || command.contains('آی پی تمیز')) {
         cleanIpDialog();
       } else if (command.contains('پروکسی تلگرام')) {
