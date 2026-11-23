@@ -1643,6 +1643,7 @@ final List<Map<String, dynamic>> natIpMem = [];
 final Set<String> natIpDeadRun = {};
 List<String> natRanges = [];
 int natRangeCursor = 0; // generic range cursor
+int natRangePortCursor = 0; // resumable cursor across every discovered/common service port
 int _natConfiguredRangeCursor = 0; // isolated National Net user-range cursor
 final Map<String, int> _natConfiguredRangeCursors = {};
 DateTime natRangeLast = DateTime.fromMillisecondsSinceEpoch(0);
@@ -1666,6 +1667,7 @@ Future<void> natIpMemLoad() async {
         .split(RegExp(r'[\r\n,; ]+'))
         .where((x) => x.contains('/') || x.contains('-'))
         .toList();
+    natRangePortCursor = (p.getInt('natRangePortCursor') ?? 0).clamp(0, 1 << 31).toInt();
     _natConfiguredRangeCursor = (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
     final rangeCursors = p.getString('natConfiguredRangeCursors');
     if (rangeCursors != null) {
@@ -1784,10 +1786,12 @@ Future<void> natRangesSave(String text) async {
       .toList();
   _natConfiguredRangeCursor = 0;
   _natConfiguredRangeCursors.clear();
+  natRangePortCursor = 0;
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString(_rangeKey, natRanges.join('\n'));
     await p.setInt('natConfiguredRangeCursor', 0);
+    await p.setInt('natRangePortCursor', 0);
     await p.setString('natConfiguredRangeCursors', '{}');
   } catch (e, stk) {
     logError(e, stk);
@@ -2309,16 +2313,21 @@ Future<List<String>> _natRangeScanStepBody({
   final nextNatRangeCursor = from + slice.length;
   final out = <String>[];
   final portList = natAutoPorts(seeds);
+  if (portList.isEmpty) portList.add(443);
+  final portStart = natRangePortCursor % portList.length;
   final perPortCap = Duration(
-      milliseconds: max(20000, budget.inMilliseconds ~/ max(1, portList.length)).toInt());
-  // A monotonic shared deadline prevents each port from consuming a fresh
-  // minimum budget and accidentally multiplying the requested scan duration.
+    milliseconds: max(5000, budget.inMilliseconds ~/ max(1, portList.length)),
+  );
+  // A shared deadline bounds each pass. Port cursor rotation guarantees that
+  // later discovered ports are reached on subsequent passes instead of being
+  // starved forever by the first few entries.
   final scanClock = Stopwatch()..start();
-  bool scanExpired() => scanClock.elapsed >= budget;
-  for (final port in portList) {
+  var processedPorts = 0;
+  for (var offset = 0; offset < portList.length; offset++) {
     if (shouldAbort()) return const <String>[];
     final remainingBudget = budget - scanClock.elapsed;
-    if (remainingBudget <= Duration.zero) return const <String>[];
+    if (remainingBudget <= Duration.zero) break;
+    final port = portList[(portStart + offset) % portList.length];
     final portBudget = perPortCap < remainingBudget
         ? perPortCap
         : remainingBudget;
@@ -2331,18 +2340,22 @@ Future<List<String>> _natRangeScanStepBody({
       timeout: const Duration(milliseconds: 1500),
       cancelled: shouldAbort,
     );
-    if (shouldAbort() || scanExpired()) return const <String>[];
+    if (shouldAbort()) return const <String>[];
+    processedPorts++;
     for (final hit in hits) {
       out.add('${hit.ip}|$port');
     }
+    if (scanClock.elapsed >= budget) break;
   }
-  if (shouldAbort() || scanExpired()) return const <String>[];
+  if (shouldAbort()) return const <String>[];
+  final nextPortCursor = (portStart + max(1, processedPorts)) % portList.length;
 
   // Commit the address and configured-range cursors only after a non-cancelled run.
   _cfRangeCursors
     ..clear()
     ..addAll(generatedCursors);
   if (!modeSnapshot) natRangeCursor = nextNatRangeCursor;
+  natRangePortCursor = nextPortCursor;
   if (modeSnapshot && configuredBatch.nextCursor != _natConfiguredRangeCursor) {
     _natConfiguredRangeCursor = configuredBatch.nextCursor;
     _natConfiguredRangeCursors
@@ -2354,6 +2367,7 @@ Future<List<String>> _natRangeScanStepBody({
       try {
         final p = await SharedPreferences.getInstance();
         await p.setInt('natConfiguredRangeCursor', persistedCursor);
+        await p.setInt('natRangePortCursor', natRangePortCursor);
         await p.setString('natConfiguredRangeCursors', persistedRangeCursors);
       } catch (e, st) {
         logError(e, st);
