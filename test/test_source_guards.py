@@ -2519,7 +2519,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('const int _ipAutoBatch = kNatMaxScanAddresses;', ip_auto)
         self.assertIn('boundedServers.length >= 128', dns)
         self.assertIn('uniqueDomains.take(128)', dns)
-        self.assertIn('resolver.type != InternetAddressType.IPv4', dns)
+        self.assertIn('NatDnsWireProbe.parseResolver(server)', dns)
+        self.assertIn('NatDnsWireProbe.parseResolver(raw)', dns)
+        self.assertIn('2001:4860:4860::8888', dns)
 
     def test_auto_sni_scan_uses_shared_scanner_lock(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
