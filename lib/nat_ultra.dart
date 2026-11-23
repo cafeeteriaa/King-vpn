@@ -1721,8 +1721,15 @@ Future<void> natIpMemLoad() async {
     }
     natRanges = (p.getString(_rangeKey) ?? '')
         .split(RegExp(r'[\r\n,; ]+'))
-        .where((x) => x.contains('/') || x.contains('-'))
-        .toList();
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .where((value) => natExpandIpRangeCursor(
+              value,
+              '0',
+              maxPerBlock: 1,
+              wrap: false,
+            ).addresses.isNotEmpty)
+        .toList(growable: false);
     _natConfiguredRangeCursor = (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
     _natConfiguredRangeOffsets.clear();
     final savedOffsets = p.getString('natConfiguredRangeOffsetsV1');
