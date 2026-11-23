@@ -2394,12 +2394,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Future<void> autoScanRun(')
         end = source.index('Future<void> autoScanSheet(', start)
         body = source[start:end]
-        self.assertIn('const scanBudget = Duration(minutes: 3);', body)
+        self.assertIn('const scanBudget = Duration(minutes: 4);', body)
         self.assertIn('final scanClock = Stopwatch()..start();', body)
         self.assertIn('bool timedOut() => scanClock.elapsed >= scanBudget;', body)
         self.assertIn('|| timedOut();', body)
         self.assertIn('shouldAbort: () => cancelled(),', body)
-        self.assertIn('مهلت سه‌دقیقه‌ای اسکن تمام شد', body)
+        self.assertIn('مهلت چهار‌دقیقه‌ای اسکن تمام شد', body)
 
     def test_auto_sni_scan_aborts_when_network_mode_changes_mid_run(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
