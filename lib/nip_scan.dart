@@ -191,14 +191,29 @@ const natFrontSnis = <String>[
 ];
 
 /// روی IP:port یک TLS با SNI داده‌شده کامل شود؟ برمی‌گرداند همان SNI یا null.
-Future<String?> nipFrontProbe(String ip, int port, String sni) async {
+Future<String?> nipFrontProbe(
+    String ip, int port, String sni, {
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+  if (timeout <= Duration.zero) return null;
+  final elapsed = Stopwatch()..start();
+  Duration remaining() => timeout - elapsed.elapsed;
   Socket? raw;
   SecureSocket? sec;
   try {
-    raw = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 2000));
-    // A successful probe requires a valid certificate for the requested SNI.
-    sec = await SecureSocket.secure(raw, host: sni)
-        .timeout(const Duration(seconds: 3));
+    final connectBudget = remaining();
+    if (connectBudget <= Duration.zero) return null;
+    const connectCap = Duration(seconds: 2);
+    raw = await Socket.connect(
+      ip,
+      port,
+      timeout: connectBudget < connectCap ? connectBudget : connectCap,
+    );
+    // TCP connect and TLS handshake share one deadline. Keep normal certificate
+    // and hostname validation; a successful handshake is only a prefilter.
+    final handshakeBudget = remaining();
+    if (handshakeBudget <= Duration.zero) return null;
+    sec = await SecureSocket.secure(raw, host: sni).timeout(handshakeBudget);
     return sni;
   } catch (_) {
     return null;
@@ -208,9 +223,22 @@ Future<String?> nipFrontProbe(String ip, int port, String sni) async {
   }
 }
 
-Future<String?> nipFindFrontSni(String ip, int port) async {
+Future<String?> nipFindFrontSni(
+  String ip,
+  int port, {
+  bool Function()? cancelled,
+  Duration budget = const Duration(seconds: 12),
+}) async {
+  if (budget <= Duration.zero) return null;
+  final elapsed = Stopwatch()..start();
   for (final sni in natFrontSnis) {
-    final ok = await nipFrontProbe(ip, port, sni);
+    if (cancelled?.call() == true) return null;
+    final remaining = budget - elapsed.elapsed;
+    if (remaining <= Duration.zero) return null;
+    const perProbeCap = Duration(seconds: 5);
+    final probeBudget = remaining < perProbeCap ? remaining : perProbeCap;
+    final ok = await nipFrontProbe(ip, port, sni, timeout: probeBudget);
+    if (cancelled?.call() == true) return null;
     if (ok != null) return ok;
   }
   return null;
@@ -365,7 +393,7 @@ extension NipHunt on _HomePageState {
       for (var i = 0; i < top.length; i += 4) {
         final batch = top.skip(i).take(4).toList();
         snis.addAll(await Future.wait(
-            batch.map((h) => nipFindFrontSni(h.ip, port))));
+            batch.map((h) => nipFindFrontSni(h.ip, port, cancelled: () => abort))));
       }
     }
     final cands = <Server>[];
