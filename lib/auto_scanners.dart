@@ -18,6 +18,8 @@ const List<String> kAutoFallbackIps = [
 
 bool _autoScanRunning = false;
 bool _autoScanStop = false;
+const String _autoScanCdnCursorKey = 'auto_scan_cdn_cursors_v1';
+const int _autoScanCdnBatchSize = 6000;
 
 // TLS با SNI مشخص: اگر هندشیک کامل شود، SNI برای آن IP قابل استفاده است
 Future<int?> _autoSniOk(String ip, int port, String sni) async {
@@ -102,24 +104,40 @@ Future<void> autoScanRun(void Function(String) say,
       say(cancellationMessage());
       return;
     }
-    // Use the complete discovered endpoint inventory; do not truncate it to a fixed candidate count.
-    // National ISP ranges remain owned by the dedicated National Net engine.
-    // اگر پوشه‌ی جهانی هنوز خالی است، از بازه‌های CDN (Cloudflare) نمونه‌برداری می‌شود، نه ISP داخلی.
-    // FOLDERALL: IPهای پوشه اول؛ در نت ملی IPهای ISP داخلی هم اضافه می‌شود (بهینه برای نت ملی)
-    // This is the generic/global SNI and port scanner. National ISP ranges
-    // belong exclusively to the National Net engine and are never borrowed here.
+    // Keep the discovered pool and CDN inventory independent, then rotate
+    // through every configured CDN range with persisted per-range cursors.
+    // Each run handles a memory-safe slice; later runs resume at the next IP.
     final base = [for (final entry in _goldIps.values) entry.ip];
-    final cdnSample = <String>[];
-    if (base.isEmpty) {
-      // Cover every configured range with a bounded, evenly distributed
-      // sample per range. The scan deadline and socket batches cap total work.
-      for (final r in _cfRanges) {
-        cdnSample.addAll(natExpandCidr(r, maxPerBlock: 64));
+    final prefs = await SharedPreferences.getInstance();
+    final savedCursorJson = prefs.getString(_autoScanCdnCursorKey);
+    final cdnCursors = <String, int>{};
+    if (savedCursorJson != null && savedCursorJson.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(savedCursorJson);
+        if (decoded is Map) {
+          for (final entry in decoded.entries) {
+            if (entry.value is num) {
+              cdnCursors['${entry.key}'] = (entry.value as num).toInt();
+            }
+          }
+        }
+      } catch (e, stk) {
+        logError(e, stk);
       }
     }
-    final ips = base.isNotEmpty
-        ? base
-        : (cdnSample.isNotEmpty ? cdnSample : kAutoFallbackIps);
+    final stagedCdnCursors = Map<String, int>.of(cdnCursors);
+    final cdnRanges = _liveCdnRanges.isNotEmpty ? _liveCdnRanges : _cfRanges;
+    unawaited(refreshCdnRanges());
+    final cdnIps = _getCfIps(
+      batchSize: _autoScanCdnBatchSize,
+      liveRanges: cdnRanges,
+      cursors: stagedCdnCursors,
+    );
+    final ips = <String>{
+      ...base,
+      ...cdnIps,
+      if (base.isEmpty && cdnIps.isEmpty) ...kAutoFallbackIps,
+    }.toList(growable: false);
     say('تست با ${ips.length} IP (پوشه جهانی / CDN مستقل از نت ملی)');
 
     // SNI: خروجی خود دامنه‌هاست. هر دامنه یک بار؛ به محض یک IP سالم، همان دامنه ثبت می‌شود
@@ -218,6 +236,8 @@ Future<void> autoScanRun(void Function(String) say,
       say(cancellationMessage());
       return;
     }
+    // Advance the CDN inventory only after the scan results have been committed.
+    await prefs.setString(_autoScanCdnCursorKey, jsonEncode(stagedCdnCursors));
     say('تمام شد: ${sniHits.length} SNI و ${portHits.length} پورت در پوشه‌ی جهانی ذخیره شد');
   } catch (e, stk) {
     logError(e, stk);
