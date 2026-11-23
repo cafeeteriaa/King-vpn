@@ -309,7 +309,15 @@ class NatDnsWireProbe {
     RawDatagramSocket? socket;
     StreamSubscription<RawSocketEvent>? subscription;
     Timer? cancelWatcher;
+    final elapsed = Stopwatch()..start();
+    Duration remaining() {
+      final left = timeout - elapsed.elapsed;
+      return left.isNegative ? Duration.zero : left;
+    }
     try {
+      if (timeout <= Duration.zero) {
+        throw TimeoutException('DNS probe deadline exhausted');
+      }
       if (cancelled?.call() ?? false) {
         return NatDnsProbeResult(server, domain, null, error: 'cancelled');
       }
@@ -317,7 +325,12 @@ class NatDnsWireProbe {
       if (target == null || target.type != InternetAddressType.IPv4) {
         throw const FormatException('Resolver must be IPv4');
       }
-      final s = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0).timeout(timeout);
+      final bindBudget = remaining();
+      if (bindBudget <= Duration.zero) {
+        throw TimeoutException('DNS probe deadline exhausted');
+      }
+      final s = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0)
+          .timeout(bindBudget);
       socket = s;
       final id = Random.secure().nextInt(0x10000);
       final packet = buildQuery(domain, id, recordType: recordType);
@@ -346,7 +359,11 @@ class NatDnsWireProbe {
         });
       }
       if (s.send(packet, target, 53) <= 0) throw const SocketException('DNS send failed');
-      final ips = await completer.future.timeout(timeout);
+      final responseBudget = remaining();
+      if (responseBudget <= Duration.zero) {
+        throw TimeoutException('DNS probe deadline exhausted');
+      }
+      final ips = await completer.future.timeout(responseBudget);
       sw.stop();
       return NatDnsProbeResult(server, domain, sw.elapsedMilliseconds, addresses: ips);
     } catch (e) {
