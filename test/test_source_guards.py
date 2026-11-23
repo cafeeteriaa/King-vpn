@@ -4011,6 +4011,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('onBadCertificate: (_) => true', tls_probe)
         self.assertIn('independent of certificate identity', tls_probe)
         self.assertIn('never saved as a usable config', tls_probe)
+        report = source[source.index('Future<String> netDiagnose()', start):]
+        self.assertIn('TLS handshake (گواهی بررسی نمی‌شود)', report)
 
     def test_auto_port_scan_requires_valid_tls_certificate(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
