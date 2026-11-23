@@ -11145,7 +11145,7 @@ ListTile( // KINGEXTRAS row
       savedCursors,
     );
     final targets = generated.addresses;
-    if (targets.isEmpty) { _set('ابتدا بازه‌های اختصاصی IPv4/IPv6 را تعریف کن.'); return; }
+    if (targets.isEmpty) { _set('همه‌ی نشانی‌های بازه‌های ذخیره‌شده بررسی شده‌اند؛ برای شروع دوباره، بازه‌ها را دوباره ذخیره کن.'); return; }
     _pilotRangeCancelRequested = false;
     setState(() => _pilotRangeBusy = true);
     _set('اسکن مستقل خلبان آغاز شد: ${targets.length} نشانی از IPv4/IPv6، فقط TCP/443؛ ادامه با Cursor.');
