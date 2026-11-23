@@ -56,12 +56,12 @@ class NationalIpScannerGuardTests(unittest.TestCase):
         self.assertIn("Socket.connect itself is not cancellable.", block)
 
     def test_relay_hosts_are_validated_deduplicated_and_bounded_on_load_and_save(self):
-        self.assertIn("const int kNatMaxRelayHosts = 32;", self.source)
+        self.assertNotIn("kNatMaxRelayHosts", self.source)
         start = self.source.index("Future<void> natRelayHostsLoad()")
         end = self.source.index("Future<String?> nipResolve(", start)
         block = self.source[start:end]
         self.assertEqual(block.count("natBoundScanTargets("), 2)
-        self.assertEqual(block.count("maxCount: kNatMaxRelayHosts"), 2)
+        self.assertNotIn("maxCount:", block)
         self.assertIn("p.getStringList('nat_relay_hosts')", block)
         self.assertIn("p.setStringList('nat_relay_hosts', natRelayHosts)", block)
 
