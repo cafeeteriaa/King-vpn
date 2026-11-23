@@ -839,8 +839,10 @@ List<String> _cidrSample(String cidr, int n, Random random) {
   return out.toList(growable: false);
 }
 
+const String _cleanRangeCursorKey = 'clean_ip_range_cursors_v1';
+Map<String, dynamic> _cleanStagedRangeCursors = <String, dynamic>{};
+
 Future<List<String>> _cleanCandidates() async {
-  final random = Random();
   final ranges = <String>{..._cfRanges, ..._cfRangesV6};
   try {
     final responses = await Future.wait([
@@ -860,12 +862,73 @@ Future<List<String>> _cleanCandidates() async {
   } catch (e, stk) {
     logError(e, stk);
   }
-  final candidates = <String>{};
-  for (final range in ranges) {
-    candidates.addAll(_cidrSample(range, 28, random));
+
+  final orderedRanges = ranges.toList()..sort();
+  final prefs = await SharedPreferences.getInstance();
+  final cursors = <String, dynamic>{};
+  final raw = prefs.getString(_cleanRangeCursorKey);
+  if (raw != null && raw.isNotEmpty) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        for (final entry in decoded.entries) {
+          if (entry.value is String || entry.value is num) {
+            cursors['${entry.key}'] = entry.value;
+          }
+        }
+      }
+    } catch (e, stk) {
+      logError(e, stk);
+    }
   }
-  final result = candidates.toList()..shuffle(random);
-  return result.take(240).toList();
+
+  // The per-run batch is a resource slice, not a total candidate ceiling.
+  // Every IPv4/IPv6 prefix keeps its 128-bit offset for the next refresh.
+  const batchSize = 160;
+  final out = <String>{};
+  if (orderedRanges.isNotEmpty) {
+    final start =
+        (int.tryParse(cursors['__clean_range_cursor']?.toString() ?? '') ?? 0) %
+            orderedRanges.length;
+    var visited = 0;
+    for (; visited < orderedRanges.length && out.length < batchSize; visited++) {
+      final index = (start + visited) % orderedRanges.length;
+      final range = orderedRanges[index];
+      final remaining = batchSize - out.length;
+      final rangesLeft = orderedRanges.length - visited;
+      final quota = max(1, (remaining + rangesLeft - 1) ~/ rangesLeft);
+      final expanded = natExpandIpRangeCursor(
+        range,
+        cursors[range]?.toString() ?? '0',
+        maxPerBlock: quota,
+      );
+      if (expanded.addresses.isEmpty) continue;
+      out.addAll(expanded.addresses);
+      cursors[range] = expanded.nextCursor;
+    }
+    if (visited > 0) {
+      cursors['__clean_range_cursor'] = (start + visited) % orderedRanges.length;
+    }
+  }
+  if (out.isEmpty && orderedRanges.isNotEmpty) {
+    // Single-address /32 and /128 entries are one-shot; begin a fresh sweep
+    // after every entry is exhausted so they can be revalidated on later runs.
+    for (final range in orderedRanges) {
+      cursors[range] = '0';
+    }
+    cursors['__clean_range_cursor'] = '0';
+    final first = orderedRanges.first;
+    final expanded = natExpandIpRangeCursor(
+      first,
+      '0',
+      maxPerBlock: batchSize,
+    );
+    out.addAll(expanded.addresses);
+    cursors[first] = expanded.nextCursor;
+  }
+  _cleanStagedRangeCursors = cursors;
+  final result = out.toList()..shuffle(Random());
+  return result;
 }
 
 Future<String> _cfRead(Socket k, Duration t) async {
