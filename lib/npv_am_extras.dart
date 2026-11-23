@@ -887,9 +887,7 @@ Future<List<String>> _cleanCandidates() async {
   const batchSize = 160;
   final out = <String>{};
   if (orderedRanges.isNotEmpty) {
-    final start =
-        (int.tryParse(cursors['__clean_range_cursor']?.toString() ?? '') ?? 0) %
-            orderedRanges.length;
+    final start = natCursorIndex(cursors['__clean_range_cursor'], orderedRanges.length);
     var visited = 0;
     for (; visited < orderedRanges.length && out.length < batchSize; visited++) {
       final index = (start + visited) % orderedRanges.length;
@@ -2171,9 +2169,7 @@ const String _manualRangeSignatureKey = 'manual_range_scan_signature_v2';
   if (ranges.isEmpty || batchSize <= 0) {
     return (addresses: const <String>[], cursors: cursors);
   }
-  final start =
-      (int.tryParse(cursors['__manual_range_cursor']?.toString() ?? '') ?? 0) %
-          ranges.length;
+  final start = natCursorIndex(cursors['__manual_range_cursor'], ranges.length);
   final addresses = <String>{};
   var visited = 0;
   for (; visited < ranges.length && addresses.length < batchSize; visited++) {
