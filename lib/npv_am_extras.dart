@@ -1522,7 +1522,7 @@ void goldPrepareNational() {
 
 // NATQUOTA: سهمیه‌ی اسکنرهای دستی در نت ملی. همزمانی کم، و هر بار قبل از شروع صبر می‌کنند
 // تا جستجوی بازه‌ی نت ملی تمام شود، تا نت ملی همیشه اولویت داشته باشد.
-const int kNatManualConc = 3;
+final int kNatManualConc = natAdaptiveConcurrency(0);
 // NATQUOTA-2: جستجوی عادی/آماده‌باش (busy/searching) هم اولویت دارد. _natKeep عمداً گوش داده نمی‌شود
 // چون در نت ملی ساعت‌ها اجرا می‌شود و اسکن دستی را گرسنه نگه می‌دارد.
 bool Function()? natSearchBusyProbe; // توسط State در initState تنظیم می‌شود
