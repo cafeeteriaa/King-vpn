@@ -119,7 +119,7 @@ Future<void> autoScanRun(void Function(String) say,
   dnsxManualBusy = true;
   _autoScanStop = false;
   final scanNationalMode = nationalMode;
-  const scanBudget = Duration(minutes: 3);
+  const scanBudget = Duration(minutes: 4);
   final scanClock = Stopwatch()..start();
   bool timedOut() => scanClock.elapsed >= scanBudget;
   bool cancelled() =>
@@ -252,14 +252,19 @@ Future<void> autoScanRun(void Function(String) say,
     for (final alpn in const ['h2', 'http/1.1']) {
       if (cancelled()) break;
       var ok = false;
-      for (final ip in ips) {
+      for (var offset = 0; offset < ips.length; offset += 8) {
         if (cancelled()) break;
-        final sel = await _autoAlpnOk(ip, tlsSni, alpn);
-        if (sel != null && sel.isNotEmpty) {
-          if (!tlsHits.contains(sel)) tlsHits.add(sel);
-          ok = true;
-          break;
+        final batch = ips.skip(offset).take(8);
+        final selected = await Future.wait(
+          batch.map((ip) => _autoAlpnOk(ip, tlsSni, alpn)),
+        );
+        for (final protocol in selected.whereType<String>()) {
+          if (protocol.isNotEmpty && !tlsHits.contains(protocol)) {
+            tlsHits.add(protocol);
+            ok = true;
+          }
         }
+        if (ok) break;
       }
       if (ok) say('TLS: $alpn ✓');
     }
