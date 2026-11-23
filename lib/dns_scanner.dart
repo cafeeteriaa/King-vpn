@@ -15,6 +15,11 @@ const List<String> kDnsxDefaults = [
   '208.67.220.220',
   '94.140.14.14',
   '94.140.15.15',
+  // Public IPv6 resolvers are tested only when the active network has IPv6.
+  '2001:4860:4860::8888',
+  '2001:4860:4860::8844',
+  '2606:4700:4700::1111',
+  '2606:4700:4700::1001',
 ];
 
 // DNSهای داخلی که از قبل در پروژه (npv_am_extras.dart) آمده‌اند
@@ -223,11 +228,9 @@ Future<DnsxHit?> dnsxProbe(String server,
     Duration timeout = const Duration(seconds: 3),
     Duration gap = Duration.zero,
     bool Function()? stop}) async {
-  // The current DNS wire transport binds UDP/IPv4; reject IPv6 resolvers until
-  // a separately tested IPv6 socket path exists, and normalize IPv4 input.
-  final resolver = InternetAddress.tryParse(server.trim());
-  if (resolver == null || resolver.type != InternetAddressType.IPv4 ||
-      timeout <= Duration.zero || gap < Duration.zero) return null;
+  // Resolver transport family is independent from the queried A/AAAA record.
+  final resolver = NatDnsWireProbe.parseResolver(server);
+  if (resolver == null || timeout <= Duration.zero || gap < Duration.zero) return null;
   final resolverIp = resolver.address;
   final uniqueDomains = _dnsxHostsFrom(domains ?? dnsxAutoDomains()).toSet().toList();
   final list = uniqueDomains.take(128).toList(growable: false);
@@ -282,8 +285,8 @@ Future<List<DnsxHit>> dnsxScan(List<String> list,
   final boundedServers = <String>[];
   final seenServers = <String>{};
   for (final raw in list) {
-    final parsed = InternetAddress.tryParse(raw.trim());
-    if (parsed == null || parsed.type != InternetAddressType.IPv4) continue;
+    final parsed = NatDnsWireProbe.parseResolver(raw);
+    if (parsed == null) continue;
     final address = parsed.address;
     if (seenServers.add(address)) boundedServers.add(address);
     if (boundedServers.length >= 128) break;
@@ -440,8 +443,7 @@ extension DnsxExt on _HomePageState {
                   .map((s) => s.trim())
                   .where((s) =>
                       s.isNotEmpty &&
-                      InternetAddress.tryParse(s)?.type ==
-                          InternetAddressType.IPv4)
+                      NatDnsWireProbe.parseResolver(s) != null)
                   .toList();
               final saved = await goldDnsList();
               if (!mounted || !sheetOpen) return;
@@ -507,7 +509,7 @@ extension DnsxExt on _HomePageState {
                     controller: extraC,
                     maxLines: 2,
                     decoration: const InputDecoration(
-                        labelText: 'DNS دلخواه (IPv4، با فاصله یا کاما)',
+                        labelText: 'DNS دلخواه (IPv4 یا IPv6، با فاصله یا کاما)',
                         border: OutlineInputBorder()),
                   ),
                   const SizedBox(height: 8),
