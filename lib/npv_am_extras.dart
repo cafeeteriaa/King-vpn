@@ -1988,7 +1988,6 @@ Future<void> manualRangeScan(BuildContext context, Iterable<String> userAddrs) a
   var finished = false;
   var done = 0;
   var hitsCount = 0;
-  var total = 0;
   var result = <NatIpHit>[];
   var open = true;
   StateSetter? setS;
@@ -2093,7 +2092,6 @@ Future<void> manualRangeScan(BuildContext context, Iterable<String> userAddrs) a
           cancelled: () => cancelled || !open,
           onProgress: (d, t, h) => upd(() {
             done += 0; // progress is committed after each finite batch
-            total = done + t;
             hitsCount = result.length + h;
           }),
         );
@@ -2101,7 +2099,6 @@ Future<void> manualRangeScan(BuildContext context, Iterable<String> userAddrs) a
           result.addAll(hits);
           hitsCount = result.length;
           done += current.length;
-          total = done;
           upd(() {});
         }
       }
