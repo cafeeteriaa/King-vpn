@@ -2817,5 +2817,35 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("recordType: 28", engine)
 
 
+    def test_ipv6_flows_through_dns_sni_ports_and_dpi_diagnostics(self):
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        self.assertIn("'2001:4860:4860::8888'", dns)
+        self.assertIn("'2606:4700:4700::1111'", dns)
+        self.assertIn('recordType = 1', dns)
+        self.assertIn('recordType != 28', dns)
+        self.assertIn('dnsxIsPublicV6', dns)
+        self.assertIn('InternetAddressType.IPv6', dns)
+
+        auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        self.assertIn('Future<List<String>> _autoResolveIpv6Targets', auto)
+        self.assertIn('InternetAddress.lookup(', auto)
+        self.assertIn('type: InternetAddressType.IPv6', auto)
+        self.assertIn('...ipv6DnsIps', auto)
+        self.assertIn('_autoSniOk(ip, 443, d)', auto)
+        self.assertIn('_autoPortOk(ip, p)', auto)
+        self.assertIn('_autoAlpnOk(ip, tlsSni, alpn)', auto)
+
+        diag = (ROOT / 'lib' / 'net_diag.dart').read_text(encoding='utf-8')
+        self.assertIn("'2606:4700:4700::1111'", diag)
+        self.assertIn("'2001:4860:4860::8888'", diag)
+        self.assertIn('final tcp = any(0, 4) || any(21, 22);', diag)
+        self.assertIn('final tls = any(5, 8) || any(23, 24);', diag)
+
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn('InternetAddressType.IPv6', nat)
+        self.assertIn('BigInt.from(cursor) % size', nat)
+        self.assertIn('address.type != InternetAddressType.IPv6', nat)
+
+
 if __name__ == '__main__':
     unittest.main()
