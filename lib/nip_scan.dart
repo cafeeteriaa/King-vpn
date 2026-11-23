@@ -242,8 +242,10 @@ Future<List<String>> nipResolveAll(String host) async {
   if (literal != null) return [literal.address];
   // Preserve the existing global-mode DoH preference, then collect all system
   // A/AAAA answers so both address families can feed ASN discovery.
-  final doh = NatNetworkDiagnosis.preferDomestic ? null : await dohResolve(host);
-  final out = <String>{if (doh != null) doh};
+  final doh = NatNetworkDiagnosis.preferDomestic
+      ? const <String>[]
+      : await dohResolveAll(host);
+  final out = <String>{...doh};
   try {
     final addresses = await InternetAddress.lookup(host)
         .timeout(const Duration(seconds: 5));
