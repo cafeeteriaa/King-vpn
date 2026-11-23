@@ -1937,14 +1937,6 @@ BigInt _natIpv6ToBigInt(InternetAddress address) {
   return value;
 }
 
-String _natBigIntToIpv6(BigInt value) {
-  final raw = List<int>.filled(16, 0);
-  for (var i = 15; i >= 0; i--) {
-    raw[i] = (value & BigInt.from(255)).toInt();
-    value >>= 8;
-  }
-  return InternetAddress.fromRawAddress(raw).address;
-}
 
 int _ipToInt(String ip) {
   final p = ip.split('.').map(int.parse).toList();
@@ -2169,99 +2161,6 @@ List<String> _getCfIps({
     cursorMap[range] = expanded.$2;
   }
   return out;
-}
-
-// Cursor-aware expansion so large CIDR catalogs are covered fairly across runs.
-(List<String>, int) _natExpandAnyCursor(String item, int cursor, int maxPerBlock) {
-  String? startIp;
-  int span = 0;
-  if (item.contains('/')) {
-    final parts = item.split('/');
-    if (parts.length != 2) return (<String>[], 0);
-    final ip = InternetAddress.tryParse(parts[0].trim());
-    final prefix = int.tryParse(parts[1]);
-    if (ip == null || prefix == null) return (<String>[], 0);
-    if (ip.type == InternetAddressType.IPv6) {
-      if (prefix < 0 || prefix > 128) return (<String>[], 0);
-      var network = BigInt.zero;
-      for (final byte in ip.rawAddress) {
-        network = (network << 8) | BigInt.from(byte);
-      }
-      final hostBits = 128 - prefix;
-      final size = BigInt.one << hostBits;
-      final mask = prefix == 0 ? BigInt.zero :
-          ((BigInt.one << 128) - BigInt.one) ^ (size - BigInt.one);
-      network &= mask;
-      final offset = BigInt.from(cursor) % size;
-      final count = min(maxPerBlock, size > BigInt.from(maxPerBlock)
-          ? maxPerBlock : size.toInt());
-      final out = <String>[];
-      for (var i = 0; i < count; i++) {
-        var value = network + offset + BigInt.from(i);
-        final raw = List<int>.filled(16, 0);
-        for (var j = 15; j >= 0; j--) {
-          raw[j] = (value & BigInt.from(255)).toInt();
-          value >>= 8;
-        }
-        out.add(InternetAddress.fromRawAddress(raw).address);
-      }
-      final next = (offset + BigInt.from(count)) % size;
-      return (out, next.toInt());
-    }
-    if (ip.type != InternetAddressType.IPv4 || prefix < 0 || prefix > 32) {
-      return (<String>[], 0);
-    }
-    final mask = prefix == 0 ? 0 : (0xffffffff << (32 - prefix)) & 0xffffffff;
-    final base = _ipToInt(ip.address) & mask;
-    span = 1 << (32 - prefix);
-    startIp = _intToIp(base);
-  } else if (item.contains('-')) {
-    final parts = item.split('-');
-    if (parts.length != 2) return (<String>[], 0);
-    final a = InternetAddress.tryParse(parts[0].trim());
-    final b = InternetAddress.tryParse(parts[1].trim());
-    if (a == null || b == null || a.type != b.type) return (<String>[], 0);
-    if (a.type == InternetAddressType.IPv6) {
-      final first = _natIpv6ToBigInt(a);
-      final last = _natIpv6ToBigInt(b);
-      final low = first <= last ? first : last;
-      final high = first <= last ? last : first;
-      final count = high - low + BigInt.one;
-      final offset = BigInt.from(cursor) % count;
-      final take = min(maxPerBlock, count > BigInt.from(maxPerBlock)
-          ? maxPerBlock : count.toInt());
-      final out = <String>[];
-      for (var i = 0; i < take; i++) {
-        out.add(_natBigIntToIpv6(low + offset + BigInt.from(i)));
-      }
-      return (out, (offset + BigInt.from(take) < count
-          ? (offset + BigInt.from(take)).toInt() : 0));
-    }
-    if (a.type != InternetAddressType.IPv4) return (<String>[], 0);
-    final first = _ipToInt(a.address);
-    final last = _ipToInt(b.address);
-    final low = min(first, last);
-    span = (max(first, last) - low) + 1;
-    startIp = _intToIp(low);
-  } else {
-    final ip = InternetAddress.tryParse(item.trim());
-    if (ip == null) return (<String>[], 0);
-    if (ip.type == InternetAddressType.IPv6) {
-      return ([ip.address], 0);
-    }
-    if (ip.type != InternetAddressType.IPv4) return (<String>[], 0);
-    startIp = ip.address;
-    span = 1;
-  }
-  if (span <= 0) return (<String>[], 0);
-  final base = _ipToInt(startIp);
-  final offset = cursor % span;
-  final count = min(maxPerBlock, span);
-  final out = <String>[];
-  for (var i = 0; i < count; i++) {
-    out.add(_intToIp(base + ((offset + i) % span)));
-  }
-  return (out, (offset + count) % span);
 }
 
 // 128-bit cursor persistence: IPv6 /0..128 and dash ranges must not be
