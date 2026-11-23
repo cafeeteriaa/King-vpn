@@ -1873,6 +1873,16 @@ Future<void> _goldIpStep() async {
   _goldCnt += batch.length;
   _goldTrimIps();
   _goldTop = null;
+  // _cleanCandidates stages a resumable dual-stack cursor. Gold background
+  // discovery must commit it too, but only after every candidate in this slice
+  // has completed; a timed-out/partial probe leaves the prior cursor intact.
+  if (r.length >= batch.length) {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _cleanRangeCursorKey,
+      jsonEncode(_cleanStagedRangeCursors),
+    );
+  }
   dbg('گلد: IP تازه $found از ${batch.length} • پوشه ${_goldIps.length} • امروز $_goldCnt/$kGoldDailyProbes');
 }
 
