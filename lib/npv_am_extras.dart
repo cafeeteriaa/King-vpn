@@ -808,13 +808,13 @@ Future<String> _cfRead(Socket k, Duration t) async {
 
 // Accept only the real trace endpoint response, not an error page mentioning Cloudflare.
 bool _cfTraceResponseOk(String response) {
-  final split = response.indexOf('\\r\\n\\r\\n');
+  final split = response.indexOf('\r\n\r\n');
   if (split < 0) return false;
   final status = response.substring(0, split);
   if (!status.startsWith('http/1.1 200 ') &&
       !status.startsWith('http/1.0 200 ')) return false;
   final body = response.substring(split + 4);
-  final lines = body.split(RegExp(r'[\\r\\n]+'));
+  final lines = body.split(RegExp(r'[\r\n]+'));
   return lines.contains('h=cloudflare.com') &&
       lines.any((line) => line.startsWith('fl=')) &&
       lines.any((line) => line.startsWith('colo='));
