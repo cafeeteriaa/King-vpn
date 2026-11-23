@@ -60,7 +60,7 @@ Future<List<NipHit>> nipScan(
   List<String> ips, {
   int port = 443,
   int concurrency = 16,
-  int want = 12,
+  int want = 1 << 30,
   Duration budget = const Duration(minutes: 2),
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
@@ -237,7 +237,7 @@ Future<String?> nipFindFrontSni(
   String ip,
   int port, {
   bool Function()? cancelled,
-  Duration budget = const Duration(seconds: 12),
+  Duration budget = const Duration(seconds: 90),
 }) async {
   if (budget <= Duration.zero) return null;
   final elapsed = Stopwatch()..start();
@@ -310,7 +310,6 @@ extension NipHunt on _HomePageState {
       if (s.link.toLowerCase().startsWith('ss://')) continue;
       if (!seen.add(s.host)) continue;
       templates.add(s);
-      if (templates.length >= 40) break;
     }
     if (templates.isEmpty) {
       _set('برای جستجوی IP سرور نمونه نداریم؛ یک بار با سرورهای پوشه وصل شو');
@@ -358,7 +357,6 @@ extension NipHunt on _HomePageState {
         if (link == null) continue;
         final c = Server.parse(link);
         if (c != null) cands.add(c);
-        if (cands.length >= 8) break;
       }
       if (cands.isNotEmpty) {
         _set('نت ملی: امتحان ${cands.length} واسط…');
@@ -388,7 +386,7 @@ extension NipHunt on _HomePageState {
     _set('نت ملی: جستجوی $label (${ips.length} آدرس)…');
     final hits = await nipScan(ips,
         port: port,
-        want: 12,
+        want: ips.length,
         budget: const Duration(minutes: 2),
         cancelled: () => abort);
     if (abort) return false;
@@ -396,7 +394,7 @@ extension NipHunt on _HomePageState {
       _set('نت ملی: هیچ $label بازی پیدا نشد');
       return false;
     }
-    final top = hits.take(8).toList(); // CHOP: قبلاً ۱۲ بود ولی فقط ۸ تا استفاده می‌شد
+    final top = hits;
     // BATCHSNI: ۴ تا ۴ تا (نه همه با هم که SYN flood می‌کند، نه تک‌تک)
     final snis = <String?>[];
     if (front) {
@@ -407,7 +405,7 @@ extension NipHunt on _HomePageState {
       }
     }
     final cands = <Server>[];
-    for (var i = 0; i < top.length && cands.length < 8; i++) {
+    for (var i = 0; i < top.length; i++) {
       final t = tpls[i % tpls.length];
       final link = nipSwapLink(t, top[i].ip);
       if (link != null) {
