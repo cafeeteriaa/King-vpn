@@ -10698,9 +10698,6 @@ ListTile( // KINGEXTRAS row
     if (add.isEmpty) return;
     // فیکس ۱۶: درج درجا و حذف انتهای لیست (بدون ساخت دو لیست تازه)
     pending.insertAll(0, add);
-    if (pending.length > 1200) {
-      pending.removeRange(1200, pending.length); // بدون allocation
-    }
     _set('نت ملی: ${add.length} کانفیگ از پوشه‌ها به صف اضافه شد');
   }
 
