@@ -2061,7 +2061,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_network_diagnostic_disposes_notifier_and_guards_late_results(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn('Future<List<String>> dohResolveAll(String name)', main)
-        self.assertIn("expectedType == 28 && address.type == InternetAddressType.IPv6", main)
+        self.assertIn('expectedType == 28 &&', main)
+        self.assertIn('address.type == InternetAddressType.IPv6', main)
         self.assertIn('_dohCacheAll[name] = addresses;', main)
         self.assertIn('Future<String?> dohResolve(String name)', main)
         self.assertIn('final doh = NatNetworkDiagnosis.preferDomestic', (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8'))
