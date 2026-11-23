@@ -280,7 +280,8 @@ List<String> nipFrontSniCandidates(Iterable<Server> templates) {
       host.endsWith('.cloudflare.com') ||
       host == 'cloudflare.com' ||
       host.endsWith('.workers.dev') ||
-      host.endsWith('.pages.dev');
+      host.endsWith('.pages.dev') ||
+      host.endsWith('cloudflare-dns.com');
   final ordinary = all.where((host) => !cloudflareLast(host)).toList();
   final cloudflare = all.where(cloudflareLast).toList();
   return [...ordinary, ...cloudflare];
@@ -466,6 +467,8 @@ extension NipHunt on _HomePageState {
       return false;
     }
     final top = hits; // Every responsive endpoint remains eligible.
+    final matchingTemplates = tpls.where((t) => t.port == port).toList();
+    if (matchingTemplates.isEmpty) return false;
     final snis = <List<String>>[];
     final frontSniCandidates = front ? nipFrontSniCandidates(matchingTemplates) : const <String>[];
     if (front) {
@@ -478,8 +481,6 @@ extension NipHunt on _HomePageState {
         if (abort) return false;
       }
     }
-    final matchingTemplates = tpls.where((t) => t.port == port).toList();
-    if (matchingTemplates.isEmpty) return false;
     final candidateBatch = <Server>[];
     final candidateLinks = <String>{};
     Future<bool> flushCandidates() async {
