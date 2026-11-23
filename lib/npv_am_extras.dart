@@ -595,7 +595,7 @@ dynamic cdnJsonDecodeBg(String body) => jsonDecode(body);
 Future<void> refreshCdnRanges() async {
   if (_cdnRangesBusy) return;
   final last = _cdnRangesFetchedAt;
-  if (last != null && DateTime.now().difference(last) < const Duration(hours: 6)) return;
+  if (last != null && DateTime.now().difference(last) < const Duration(hours: 1)) return;
   // اگر آخرین تلاش ناموفق بود، تا ۱۰ دقیقه دوباره تلاش نکن (نت ملی = endpoint ها بسته)
   final tried = _cdnRangesTriedAt;
   if (tried != null && DateTime.now().difference(tried) < const Duration(minutes: 10)) return;
@@ -606,7 +606,7 @@ Future<void> refreshCdnRanges() async {
     var liveOk = 0;
     // هر CDN جدا: اگر دریافتش شکست خورد، لیست استاتیک خودش جایگزین می‌شود
     // (قبلاً فقط CDNهای موفق می‌ماندند و بقیه از استخر حذف می‌شدند).
-    Future<void> pull(String label, List<String> fallback, int cap,
+    Future<void> pull(String label, List<String> fallback,
         Future<List<String>> Function() fetch) async {
       var got = const <String>[];
       try {
@@ -614,17 +614,17 @@ Future<void> refreshCdnRanges() async {
       } catch (e, stk) {
         logError(e, stk);
       }
-      if (got.length < 3) {
+      if (got.isEmpty) {
         merged.addAll(fallback);
         return;
       }
-      // رنج‌های استاتیک همیشه می‌مانند؛ رنج‌های زنده تا سقف cap اضافه می‌شوند
+      // Keep the full live inventory alongside the static fallback ranges.
       merged.addAll(fallback);
-      merged.addAll(got.take(cap));
+      merged.addAll(got);
       liveOk++;
     }
 
-    await pull('cloudflare', _cfRanges, 64, () async {
+    await pull('cloudflare', _cfRanges, () async {
       final res = await http.get(Uri.parse('https://www.cloudflare.com/ips-v4'));
       if (res.statusCode != 200) return const <String>[];
       return res.body
@@ -634,7 +634,7 @@ Future<void> refreshCdnRanges() async {
           .toList();
     });
 
-    await pull('fastly', _fastlyRanges, 48, () async {
+    await pull('fastly', _fastlyRanges, () async {
       final res = await http.get(Uri.parse('https://api.fastly.com/public-ip-list'));
       if (res.statusCode != 200) return const <String>[];
       final j = await compute(cdnJsonDecodeBg, res.body);
@@ -643,7 +643,7 @@ Future<void> refreshCdnRanges() async {
       return addrs.whereType<String>().toList();
     });
 
-    await pull('aws-cloudfront', _awsCfRanges, 96, () async {
+    await pull('aws-cloudfront', _awsCfRanges, () async {
       final res = await http.get(Uri.parse('https://ip-ranges.amazonaws.com/ip-ranges.json'));
       if (res.statusCode != 200) return const <String>[];
       final j = await compute(cdnJsonDecodeBg, res.body);
@@ -657,7 +657,7 @@ Future<void> refreshCdnRanges() async {
           .toList();
     });
 
-    await pull('google', _gcpCdnRanges, 48, () async {
+    await pull('google', _gcpCdnRanges, () async {
       final res = await http.get(Uri.parse('https://www.gstatic.com/ipranges/goog.json'));
       if (res.statusCode != 200) return const <String>[];
       final j = await compute(cdnJsonDecodeBg, res.body);
