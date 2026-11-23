@@ -241,7 +241,7 @@ extension IpAutoExt on _HomePageState {
         final nationalSeeds = await natHotNext(50, fetch: false);
         if (halted()) return false;
         if (nationalSeeds.isNotEmpty) {
-          natTemplateSeeds = nationalSeeds.take(2).toList();
+          natTemplateSeeds = nationalSeeds;
           pool = [...nationalSeeds, ...good, ...pending];
         } else {
           pool = <Server>[...natTemplateSeeds, ...good, ...pending];
@@ -254,7 +254,7 @@ extension IpAutoExt on _HomePageState {
     } else {
       say('دریافت سرور نمونه از منابع جهانی...');
       try {
-        pool = await fetchServers(stop: () => halted(), quickCap: 200);
+        pool = await fetchServers(stop: () => halted());
       } catch (e, stk) {
         logError(e, stk);
         if (halted()) return false;
@@ -268,7 +268,7 @@ extension IpAutoExt on _HomePageState {
       say('دریافت لیست سرورها ناموفق بود. اینترنت را بررسی کنید و دوباره اجرا کنید.');
       return false;
     }
-    final tpl = pool.take(2).toList();
+    final tpl = pool;
     say('ساخت آدرس‌ها...');
     final addrs = await _ipAutoNextAddrs(
       runNationalMode ? const <Server>[] : [...good, ...pending, ...fetchedAll],
@@ -305,7 +305,7 @@ extension IpAutoExt on _HomePageState {
     // مرحله‌ی ۲: تست واقعی با هسته‌ی VPN، دو بار پشت سر هم
     final url = runNationalMode ? _natTestUrls.first : delayTestUrl;
     final seen = ipAutoHits.toSet();
-    final tplSrv = tpl.first;
+
     var found = 0;
     var checked = 0;
     // Test every TCP-open candidate returned by this resumable address batch.
@@ -318,6 +318,7 @@ extension IpAutoExt on _HomePageState {
       final parts = c.split('|');
       final ip = parts[0];
       final port = int.tryParse(parts[1]) ?? 443;
+      final tplSrv = tpl[(checked - 1) % tpl.length];
       final ipLink = _natSetPort(_natSetHost(tplSrv.link, ip, tplSrv.host), port);
       final s = Server(ipLink, tplSrv.name, ip, port);
       final firstOk = await _ipAutoCoreOk(s, url);
