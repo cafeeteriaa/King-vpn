@@ -108,6 +108,7 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
   String range,
   String cursor, {
   int maxPerBlock = 4096,
+  bool wrap = true,
 }) {
   if (maxPerBlock <= 0 || cursor == 'done') {
     return (addresses: const <String>[], nextCursor: cursor);
@@ -172,22 +173,32 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
   if (size == BigInt.one && current > BigInt.zero) {
     return (addresses: const <String>[], nextCursor: 'done');
   }
-  final offset = current % size;
-  final take = min(maxPerBlock,
-      size > BigInt.from(maxPerBlock) ? maxPerBlock : size.toInt());
+  if (!wrap && current >= size) {
+    return (addresses: const <String>[], nextCursor: 'done');
+  }
+  final offset = wrap ? current % size : current;
+  final remaining = size - offset;
+  final take = min(
+    maxPerBlock,
+    remaining > BigInt.from(maxPerBlock) ? maxPerBlock : remaining.toInt(),
+  );
   final addresses = <String>[];
   for (var i = 0; i < take; i++) {
-    var value = first + ((offset + BigInt.from(i)) % size);
+    final value = first + offset + BigInt.from(i);
     final bytes = List<int>.filled(byteLength, 0);
+    var encoded = value;
     for (var index = byteLength - 1; index >= 0; index--) {
-      bytes[index] = (value & BigInt.from(255)).toInt();
-      value >>= 8;
+      bytes[index] = (encoded & BigInt.from(255)).toInt();
+      encoded >>= 8;
     }
     addresses.add(InternetAddress.fromRawAddress(bytes).address);
   }
+  final nextOffset = offset + BigInt.from(take);
   return (
     addresses: addresses,
-    nextCursor: size == BigInt.one ? 'done' : ((offset + BigInt.from(take)) % size).toString(),
+    nextCursor: wrap
+        ? (nextOffset % size).toString()
+        : (nextOffset >= size ? 'done' : nextOffset.toString()),
   );
 }
 
