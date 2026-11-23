@@ -3139,8 +3139,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('old.verified = true;', add)
         self.assertIn('if (verified) {', add)
         self.assertIn('old.verifiedAt = now;', add)
-        self.assertIn('final unverified = _resMap.entries', add)
-        self.assertIn('unverified.isNotEmpty ? unverified : _resMap.entries.toList()', add)
+        self.assertNotIn('_resMax', main)
+        self.assertNotIn('if (_resMap.length >=', add)
 
         nat_start = main.index('Future<void> _natDetect()')
         nat_end = main.index('Future<void> ', nat_start + len('Future<void> _natDetect()'))
