@@ -592,13 +592,8 @@ class _NatFacts {
         port = s.port;
 }
 
-const Set<String> _natRetiredNames = {
-  'Fragment ریز و کند',
-  'fp=android',
-};
-
-bool natRetired(int v) =>
-    v > 0 && v < _natSpecs.length && _natRetiredNames.contains(_natSpecs[v].name);
+// No static variant denylist: every compatible variant remains testable.
+bool natRetired(int v) => false;
 
 // VARCB: circuit breaker برای variantها (فقط نت ملی)
 // هر variant بعد از ۲۰ شکست پشت‌سرهم، یک ساعت غیرفعال می‌شود
@@ -634,9 +629,7 @@ bool natVariantCooling(int v) {
 bool _natAppliesF(_NatFacts f, int v) {
   if (v < 0 || v >= _natSpecs.length) return false;
   if (v == 0) return true;
-  if (natDisabled.contains(v)) return false;
   if (natVariantCooling(v)) return false; // VARCB
-  if (natRetired(v)) return false;
   final x = _natSpecs[v];
   if (x.other && !f.hasOther) return false;
   if ((x.fp != null || x.alpn != null || x.frag != null || x.noise) &&
@@ -653,9 +646,7 @@ bool _natAppliesF(_NatFacts f, int v) {
   if (x.clean && !(f.sec && !f.reality && f.hasClean && f.cdnLike)) {
     return false;
   }
-  if (x.mux) return false;
-  if (x.noise) return false;
-  if (x.mode != null && (!x.mode!.startsWith('kcp:') || f.reality)) return false;
+  if (x.mode != null && f.reality) return false;
   if (x.doh != null && f.isIp) return false;
   // V13: SNI swap only makes sense for CDN configs with TLS (not reality).
   if (x.sniSwap != null && !(f.sec && !f.reality)) return false;
@@ -1387,9 +1378,6 @@ int natVarFor(Server s) {
   final rawV = nationalMode ? (natVar[_nk(s)] ?? 0) : (natVarNormal[s.key] ?? 0);
   final v = natSafeVariant(rawV);
   if (v <= 0) return 0;
-  final x = _natSpecs[v];
-  if (x.mux || x.noise) return 0;
-  if (x.mode != null && !x.mode!.startsWith('kcp:')) return 0;
   return v;
 }
 
