@@ -1847,7 +1847,7 @@ Future<void> natIpMemSave(String ip, int port) async {
     );
   }
 
-  final start = (startCursor ?? _natConfiguredRangeCursor) % natRanges.length;
+  final start = natCursorIndex(startCursor ?? _natConfiguredRangeCursor, natRanges.length);
   final activeRanges = min(limit, natRanges.length).toInt();
   final perRange = max(1, (limit + activeRanges - 1) ~/ activeRanges).toInt();
   final candidates = <String>{};
@@ -2243,8 +2243,7 @@ List<String> _getCfIps({
   // Rotate the starting range on every completed slice. Without this outer
   // cursor, a few huge IPv6/IPv4 CIDRs at the front would starve every later
   // announced range forever, even though each individual range had a cursor.
-  final start = (int.tryParse(cursorMap['__cdn_range_cursor']?.toString() ?? '') ?? 0)
-      % ranges.length;
+  final start = natCursorIndex(cursorMap['__cdn_range_cursor'], ranges.length);
   var visited = 0;
   for (; visited < ranges.length && out.length < batchSize; visited++) {
     final index = (start + visited) % ranges.length;
@@ -2297,7 +2296,7 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   // returned addresses therefore describe the same work; no generated tail is lost.
   void addBlocks() {
     if (blocks.isEmpty || addrs.length >= cap) return;
-    final start = (cursors['__block_cursor'] ?? 0) % blocks.length;
+    final start = natCursorIndex(cursors['__block_cursor'], blocks.length);
     var processed = 0;
     for (var offset = 0; offset < blocks.length && addrs.length < cap; offset++) {
       final index = (start + offset) % blocks.length;
@@ -2405,7 +2404,7 @@ Future<List<String>> _natRangeScanStepBody({
   final portList = natAutoPorts(seeds);
   if (portList.isEmpty) return const <String>[];
   final modeKey = modeSnapshot ? 'nat' : 'global';
-  final portIndex = (_natRangePortCursors[modeKey] ?? 0) % portList.length;
+  final portIndex = natCursorIndex(_natRangePortCursors[modeKey], portList.length);
   final port = portList[portIndex];
   final portPrefix = '$modeKey:port:$port:';
 
