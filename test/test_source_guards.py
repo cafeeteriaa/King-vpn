@@ -2220,18 +2220,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(save, unlock)
         self.assertIn('if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode))', body)
 
-    def test_ip_auto_address_generation_does_not_commit_after_stop(self):
+    def test_ip_auto_address_generation_stages_cursors_until_tcp_batch_completes(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        start = source.index('Future<List<String>> _ipAutoNextAddrs(')
+        start = source.index('Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(')
         end = source.index('extension IpAutoExt', start)
         body = source[start:end]
         compute = body.index('await compute(_genAddrsIso, args)')
         abort = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
-        cursor_mutation = body.index('ipAutoCursors\n    ..clear()')
-        position_mutation = body.index('ipAutoPos = start + slice.length;')
+        generated = body.index("final generatedCursors = Map<String, dynamic>.from(gen['cursors'] as Map);")
+        staged = body.index('return (addresses: slice, cursors: generatedCursors);')
         self.assertLess(compute, abort)
-        self.assertLess(abort, cursor_mutation)
-        self.assertLess(abort, position_mutation)
+        self.assertLess(abort, generated)
+        self.assertLess(generated, staged)
+        self.assertNotIn('ipAutoCursors\\n    ..clear()', body)
         self.assertIn('bool Function()? shouldAbort', body)
 
     def test_ip_auto_scan_aborts_when_network_mode_changes_mid_run(self):
@@ -2452,29 +2453,25 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("nationalMode ? 'nat' : 'glob'", body)
 
 
-    def test_ip_auto_address_generation_does_not_apply_stale_mode_cursors(self):
+    def test_ip_auto_address_generation_preserves_full_width_mode_cursors(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        start = source.index('Future<List<String>> _ipAutoNextAddrs(')
+        start = source.index('Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(')
         end = source.index('extension IpAutoExt', start)
         body = source[start:end]
         mode = body.index('final modeSnapshot = nationalMode;')
-        position = body.index('final startPosSnapshot = ipAutoPos;')
-        cursors = body.index('final cursorSnapshot = Map<String, int>.of(ipAutoCursors);')
+        cursors = body.index('final cursorSnapshot = Map<String, dynamic>.of(ipAutoCursors);')
         compute = body.index('await compute(_genAddrsIso, args)')
         guard = body.index('if (nationalMode != modeSnapshot || (shouldAbort?.call() ?? false))')
-        mutation = body.index('ipAutoCursors\n    ..clear()')
-        generated = body.index("final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);")
-        update_pos = body.index('ipAutoPos = start + slice.length;')
+        generated = body.index("final generatedCursors = Map<String, dynamic>.from(gen['cursors'] as Map);")
+        staged = body.index('return (addresses: slice, cursors: generatedCursors);')
         self.assertLess(mode, compute)
-        self.assertLess(position, compute)
         self.assertLess(cursors, compute)
         self.assertLess(compute, guard)
         self.assertLess(guard, generated)
-        self.assertLess(generated, mutation)
+        self.assertLess(generated, staged)
         self.assertIn("'nationalMode': modeSnapshot", body)
-        self.assertIn('final start = startPosSnapshot % all.length;', body)
-        self.assertLess(mutation, update_pos)
-
+        self.assertNotIn('startPosSnapshot', body)
+        self.assertNotIn('ipAutoCursors\\n    ..clear()', body)
 
 
     def test_auto_scan_dialog_close_requests_cancellation(self):
@@ -2701,18 +2698,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_getCfIps(', inventory)
         self.assertIn('liveRanges: cdnRanges', inventory)
         self.assertIn('cursors: stagedCdnCursors', inventory)
-        self.assertIn('Map<String, int>.of(cdnCursors)', inventory)
+        self.assertIn('Map<String, dynamic>.of(cdnCursors)', inventory)
         self.assertNotIn('natExpandCidr(', inventory)
         self.assertNotIn('_cfRanges.take(', inventory)
         self.assertIn("_autoScanCdnCursorKey = 'auto_scan_cdn_cursors_v1'", auto)
         self.assertIn('prefs.setString(_autoScanCdnCursorKey, jsonEncode(stagedCdnCursors))', auto)
 
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
-        start = nat.index('({List<String> addresses, int nextCursor}) _natConfiguredRangeBatch')
+        start = nat.index('({List<String> addresses, int nextCursor, Map<String, dynamic> nextOffsets})')
         end = nat.index('Future<void> natRangesSave', start)
         configured = nat[start:end]
         self.assertIn('while (visited < natRanges.length && scanned < limit)', configured)
-        self.assertIn('_natExpandAnyCursor(', configured)
+        self.assertIn('_natExpandAnyCursorWide(', configured)
         self.assertIn('offsets[range] ?? 0', configured)
         self.assertIn('nextOffsets: offsets', configured)
         self.assertNotIn('natRanges.take(', configured)
