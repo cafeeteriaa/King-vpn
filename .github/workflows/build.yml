@@ -40,7 +40,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          channel: stable
+          flutter-version: '3.50.1'
           cache: true
 
       - name: Show toolchain
@@ -56,6 +56,9 @@ jobs:
           rm -f build_app/test/widget_test.dart
           cp -R lib/. build_app/lib/
           cp -R test/. build_app/test/
+          cp ci/flutter/pubspec.yaml build_app/pubspec.yaml
+          gzip -dc ci/flutter/pubspec.lock.gz > build_app/pubspec.lock
+          echo 'f531c1ac1fcee55851992a6d76bfb3893b7fc4b2508e20e4adb0cedaa0fa159c  build_app/pubspec.lock' | sha256sum --check -
           grep -q 'bool requireRewardedAd = true;' build_app/lib/main.dart || { echo 'Required source guard missing'; exit 1; }
           python3 prepare_android.py
           python3 tools/configure_local_ai_host.py build_app/pubspec.yaml
@@ -63,7 +66,8 @@ jobs:
       - name: Resolve Flutter dependencies
         working-directory: build_app
         run: |
-          flutter pub add http webview_flutter flutter_v2ray_client:3.5.0 installed_apps:1.6.0 permission_handler workmanager url_launcher crypto:^3.0.3 flutter_secure_storage:^9.2.2 local_inference:0.1.1 local_inference_flutter:0.1.1 path_provider package_info_plus speech_to_text:^7.4.0 cryptography:^2.7.0 flutter_tts:^4.2.3
+          # Pinned inventory includes webview_flutter, speech_to_text:^7.4.0 and flutter_tts.
+          flutter pub get --enforce-lockfile
           flutter pub get
 
       - name: Patch V2Ray plugin
