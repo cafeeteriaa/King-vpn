@@ -35,6 +35,29 @@ int natCursorIndex(Object? value, int length) {
   return parsed % length;
 }
 
+/// Build a complete TCP port inventory, placing preferred ports first.
+/// Preferred ports affect order only; every valid port in the requested range
+/// is included exactly once.
+List<int> natBuildFullPortInventory(
+  Iterable<int> preferredPorts, {
+  int firstPort = 1,
+  int lastPort = 65535,
+}) {
+  if (firstPort < 1 || lastPort > 65535 || firstPort > lastPort) {
+    return const <int>[];
+  }
+  final seen = <int>{};
+  final out = <int>[];
+  for (final port in preferredPorts) {
+    if (port < firstPort || port > lastPort || !seen.add(port)) continue;
+    out.add(port);
+  }
+  for (var port = firstPort; port <= lastPort; port++) {
+    if (seen.add(port)) out.add(port);
+  }
+  return out;
+}
+
 class NatIpHit {
   final String ip;
   final int ms;
