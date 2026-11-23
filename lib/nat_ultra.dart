@@ -527,7 +527,6 @@ String _natPickOf(String k, bool reuse, String Function() gen) {
     if (old != null) return old;
   }
   final v = gen();
-  if (_natPick.length > 3000) _natPick.remove(_natPick.keys.first);
   _natPick[k] = v;
   return v;
 }
@@ -758,7 +757,6 @@ String _natCk(Server s) => '$natOpKey#${s.key}';
 void natCursorAdvance(Server s, int n) {
   if (n <= 0) return;
   final k = _natCk(s);
-  if (_natCursor.length > 4000) _natCursor.remove(_natCursor.keys.first);
   _natCursor[k] = (_natCursor[k] ?? 0) + n;
 }
 
@@ -1543,10 +1541,6 @@ void natVarSet(Server s, int v) {
     _natLearnVer++;
   }
   _natCursor.remove(_natCk(s));
-  if (natDimWins.length > 6000) natDimWins.remove(natDimWins.keys.first);
-  while (natVar.length > 4000) {
-    natVar.remove(natVar.keys.first);
-  }
   _natSaveT ??= Timer(const Duration(seconds: 5), () {
     _natSaveT = null;
     natSavePersisted();
@@ -1616,9 +1610,6 @@ Future<void> natLoadPersisted() async {
           }
         }
       });
-      while (natVarNormal.length > 3000) {
-        natVarNormal.remove(natVarNormal.keys.first);
-      }
     }
     if (((j['g'] ?? 0) as num).toInt() != _natGenVer) {
       natVar.removeWhere((k, v) => v >= _natBaseCount);
