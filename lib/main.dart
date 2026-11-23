@@ -17446,8 +17446,13 @@ extension ProjectNatSweep on _HomePageState {
     await _natLoadRangeCursors();
     final scanDeadline = DateTime.now().add(const Duration(seconds: 35));
     final opened = <CleanIp>[];
-    const sweepBatchSize = 512;
-    for (final port in _natCfPorts) {
+    const sweepBatchSize = 128;
+    final portStart = (int.tryParse(
+          _cfRangeCursors['atsweep:port_cursor']?.toString() ?? '0') ?? 0) %
+        _natCfPorts.length;
+    for (var portOffset = 0; portOffset < _natCfPorts.length; portOffset++) {
+      final portIndex = (portStart + portOffset) % _natCfPorts.length;
+      final port = _natCfPorts[portIndex];
       if (abort || AutoTestEngine._abortRequested) break;
       final left = scanDeadline.difference(DateTime.now());
       if (left <= Duration.zero || ranges.isEmpty) break;
@@ -17477,9 +17482,11 @@ extension ProjectNatSweep on _HomePageState {
       // completed for this port. Interrupted slices are retried, never skipped.
       if (completed < pool2.length) break;
       _cfRangeCursors.removeWhere((key, _) => key.startsWith(prefix));
-      for (final entry in localCursors.entries) {
+      for (final entry of localCursors.entries) {
         _cfRangeCursors['$prefix${entry.key}'] = entry.value;
       }
+      _cfRangeCursors['atsweep:port_cursor'] =
+          (portIndex + 1) % _natCfPorts.length;
       try {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('natRangeScanCursorsV2', jsonEncode(_cfRangeCursors));
