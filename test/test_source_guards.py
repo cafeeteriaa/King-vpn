@@ -2796,6 +2796,29 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('ipAutoCursors\n    ..clear()', next_batch)
 
 
+    def test_smart_pilot_ranges_support_dual_stack_and_resumable_full_space(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('({List<String> addresses, Map<String, dynamic> cursors}) _pilotExpandRanges(')
+        end = main.index('Future<void> _pilotRangesDialog(', start)
+        expand = main[start:end]
+        self.assertIn('natExpandIpRangeCursor(', expand)
+        self.assertIn('batchSize = 6000', expand)
+        self.assertIn('cursors[range]?.toString()', expand)
+        self.assertNotIn('prefix < 24', main)
+        self.assertNotIn('out.length < 256', main)
+        self.assertNotIn('out.take(256)', main)
+        dialog_start = main.index('Future<void> _pilotRangesDialog(')
+        dialog_end = main.index('Future<void> _pilotScanOnly()', dialog_start)
+        dialog = main[dialog_start:dialog_end]
+        self.assertIn('IPv4 یا IPv6', dialog)
+        self.assertIn('_pilotRangeCursorKey', dialog)
+        scan_start = main.index('Future<void> _pilotScanOnly()')
+        scan_end = main.index('String? _smartCountryCode(', scan_start)
+        scan = main[scan_start:scan_end]
+        self.assertIn('savedCursorJson', scan)
+        self.assertIn('generated.cursors', scan)
+        self.assertIn('king_pilot_scan_results_v1', scan)
+
     def test_ipv6_is_supported_by_ip_inventory_tcp_scan_and_dns_aaaa(self):
         nat_scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         self.assertIn('List<String> natExpandIpv6Cidr(', nat_scan)
