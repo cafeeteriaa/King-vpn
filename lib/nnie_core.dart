@@ -119,7 +119,7 @@ class NatDnsWireProbe {
       }
       out..add(bytes.length)..addAll(bytes);
     }
-    out.addAll(<int>[0, 0, (recordType >> 8) & 255, recordType & 255, 0, 1]); // root, QTYPE, IN
+    out.addAll(<int>[0, (recordType >> 8) & 255, recordType & 255, 0, 1]); // root, QTYPE, IN
     return out;
   }
 
