@@ -3882,7 +3882,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_legacy_dns_scanner_uses_strict_special_use_ipv4_filter(self):
         source = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
         start = source.index('bool dnsxIsPublicV4(')
-        end = source.index('/// پاسخ معتبر؟', start)
+        end = source.index('/// Legacy structural check only;', start)
         helper = source[start:end]
         self.assertIn('NatDnsWireProbe.publicV4([a, b, c, d], 0)', helper)
         self.assertNotIn('return true;', helper)
