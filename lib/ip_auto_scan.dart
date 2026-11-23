@@ -147,7 +147,7 @@ List<String> _ipAutoBlocks(Iterable<Server> knownServers) {
     final parsed = InternetAddress.tryParse(ip);
     return parsed?.type == InternetAddressType.IPv6 ? '$ip/128' : '$ip/32';
   }));
-  return blocks.toList(growable: false);
+  return blocks.toList()..sort();
 }
 
 Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Function()? shouldAbort, int batchSize = _ipAutoBatch}) async {
