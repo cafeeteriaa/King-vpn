@@ -152,7 +152,7 @@ const List<_NatSpec> _natBase = [
   _NatSpec('Fragment خیلی ریز', frag: 3),
   _NatSpec('Fragment چندبسته‌ای', frag: 4),
   _NatSpec('پورت دیگر CDN', port: true),
-  _NatSpec('IP تمیز Cloudflare', clean: true),
+  _NatSpec('IP تمیز', clean: true),
   _NatSpec('Mux', mux: true),
   _NatSpec('fp=chrome', fp: 'chrome'),
   _NatSpec('fp=safari', fp: 'safari'),
@@ -643,7 +643,7 @@ bool _natAppliesF(_NatFacts f, int v) {
   if (x.port && pi != null && _natCfPorts[pi % _natCfPorts.length] == f.port) {
     return false;
   }
-  if (x.clean && !(f.sec && !f.reality && f.hasClean && f.cdnLike)) {
+  if (x.clean && !(f.sec && !f.reality && f.hasClean)) {
     return false;
   }
   if (x.mode != null && f.reality) return false;
