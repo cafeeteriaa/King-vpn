@@ -817,9 +817,9 @@ List<String> _cidrSample(String cidr, int n, Random random) {
   final out = <String>{};
   for (var i = 0; i < n * 3 && out.length < n; i++) {
     var randomValue = BigInt.zero;
-    for (var j = 0; j < bytes.length; j += 4) {
-      randomValue = (randomValue << 32) |
-          BigInt.from(random.nextInt(1 << 32));
+    for (var j = 0; j < bytes.length; j++) {
+      randomValue = (randomValue << 8) |
+          BigInt.from(random.nextInt(256));
     }
     final value = base + (randomValue % size);
     final raw = List<int>.filled(bytes.length, 0);
