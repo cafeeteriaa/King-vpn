@@ -213,7 +213,13 @@ class NatDnsWireProbe {
     final qtype = (b[p] << 8) | b[p + 1];
     final qclass = (b[p + 2] << 8) | b[p + 3];
     p += 4;
-    if (qname != domain.toLowerCase() || qtype != 1 || qclass != 1) {
+    final normalizedDomain = domain.toLowerCase().endsWith('.')
+        ? domain.toLowerCase().substring(0, domain.length - 1)
+        : domain.toLowerCase();
+    if (normalizedDomain.isEmpty ||
+        qname != normalizedDomain ||
+        qtype != 1 ||
+        qclass != 1) {
       throw const FormatException('Question mismatch');
     }
     final records = <({String owner, int type, int cls, int rd, int rdlen})>[];
@@ -238,8 +244,8 @@ class NatDnsWireProbe {
     }
     // Only accept A records owned by the queried QNAME or its validated CNAME
     // chain. An unrelated A record elsewhere in the answer section is ignored.
-    final allowedOwners = <String>{domain.toLowerCase()};
-    var owner = domain.toLowerCase();
+    final allowedOwners = <String>{normalizedDomain};
+    var owner = normalizedDomain;
     for (var hop = 0; hop < 16; hop++) {
       final target = cnameTargets[owner];
       if (target == null || !allowedOwners.add(target)) break;
