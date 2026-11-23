@@ -276,7 +276,9 @@ _NatSpec _natMk(
     n.add('DNS $dn');
   }
   if (mode != null) n.add(mode);
-  if (sniSwap != null && sniSwap >= 0 && sniSwap < natFrontSnis.length) {\n    n.add('SNI>${natFrontSnis[sniSwap]}');\n  }
+  if (sniSwap != null && sniSwap >= 0 && sniSwap < natFrontSnis.length) {
+    n.add('SNI>${natFrontSnis[sniSwap]}');
+  }
   return _NatSpec(n.isEmpty ? 'عادی+' : n.join(' + '),
       other: other,
       fp: fp,
