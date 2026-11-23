@@ -17482,7 +17482,7 @@ extension ProjectNatSweep on _HomePageState {
       // completed for this port. Interrupted slices are retried, never skipped.
       if (completed < pool2.length) break;
       _cfRangeCursors.removeWhere((key, _) => key.startsWith(prefix));
-      for (final entry of localCursors.entries) {
+      for (final entry in localCursors.entries) {
         _cfRangeCursors['$prefix${entry.key}'] = entry.value;
       }
       _cfRangeCursors['atsweep:port_cursor'] =
