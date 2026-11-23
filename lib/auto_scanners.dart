@@ -19,7 +19,7 @@ const List<String> kAutoFallbackIps = [
 bool _autoScanRunning = false;
 bool _autoScanStop = false;
 const String _autoScanCdnCursorKey = 'auto_scan_cdn_cursors_v1';
-const int _autoScanCdnBatchSize = 6000;
+const int _autoScanCdnBatchSize = 8; // full SNI/port/TLS pass fits the shared three-minute budget
 
 // TLS با SNI مشخص: اگر هندشیک کامل شود، SNI برای آن IP قابل استفاده است
 Future<int?> _autoSniOk(String ip, int port, String sni) async {
@@ -159,25 +159,26 @@ Future<void> autoScanRun(void Function(String) say,
     final stagedCdnCursors = Map<String, dynamic>.of(cdnCursors);
     final cdnRanges = _liveCdnRanges.isNotEmpty ? _liveCdnRanges : [..._cfRanges, ..._cfRangesV6];
     unawaited(refreshCdnRanges());
-    final cdnIps = _getCfIps(
-      batchSize: _autoScanCdnBatchSize,
-      liveRanges: cdnRanges,
-      cursors: stagedCdnCursors,
-    );
-    // Add AAAA answers from the same project SNI inventory. These exact
-    // endpoints feed the same SNI, TLS/ALPN, and TCP-port phases as IPv4.
+    // Add AAAA answers from the same project SNI inventory. Combine exact
+    // A/AAAA endpoints and CDN CIDRs in one fair cursor iterator so no source
+    // is permanently starved by the order of a concatenated list.
     final ipv6DnsIps = await _autoResolveIpv6Targets(cancelled: cancelled);
     if (cancelled()) {
       say(cancellationMessage());
       return;
     }
-    final ips = <String>{
+    final targetRanges = <String>{
       ...base,
-      ...cdnIps,
       ...ipv6DnsIps,
-      if (base.isEmpty && cdnIps.isEmpty && ipv6DnsIps.isEmpty)
+      ...cdnRanges,
+      if (base.isEmpty && ipv6DnsIps.isEmpty && cdnRanges.isEmpty)
         ...kAutoFallbackIps,
     }.toList(growable: false);
+    final ips = _getCfIps(
+      batchSize: _autoScanCdnBatchSize,
+      liveRanges: targetRanges,
+      cursors: stagedCdnCursors,
+    );
     say('تست با ${ips.length} IP از IPv4 و IPv6 (پوشه جهانی / CDN مستقل از نت ملی)');
 
     // SNI: خروجی خود دامنه‌هاست. هر دامنه یک بار؛ به محض یک IP سالم، همان دامنه ثبت می‌شود
