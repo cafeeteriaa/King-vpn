@@ -289,6 +289,8 @@ String? nipSwapSni(Server t, String ip, String sni) {
   final l = t.link;
   final lower = l.toLowerCase();
   if (lower.startsWith('ss://')) return null;
+  // Front-SNI candidates are for ordinary TLS only; never rewrite REALITY or plaintext links.
+  if (!t.tls || t.reality) return null;
   if (echFromLink(l).isNotEmpty) return null; // ECH: SNI جایگزین ممنوع
   try {
     if (lower.startsWith('vmess://')) {

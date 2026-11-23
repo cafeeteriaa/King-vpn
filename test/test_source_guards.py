@@ -3901,6 +3901,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_tgPxNormalizeLink', source)
         self.assertIn('if (link == null) continue;', source)
 
+    def test_front_sni_swap_only_rewrites_validated_standard_tls_configs(self):
+        source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('String? nipSwapSni(')
+        end = source.index('extension NipHunt', start)
+        swap = source[start:end]
+        self.assertIn('if (!t.tls || t.reality) return null;', swap)
+        self.assertIn('echFromLink(l).isNotEmpty', swap)
+        self.assertIn("q['host'] = oldSni", swap)
+        self.assertIn("q['sni'] = sni", swap)
     def test_nip_front_sni_probe_requires_valid_tls_certificate(self):
         source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         start = source.index('Future<String?> nipFrontProbe(')
