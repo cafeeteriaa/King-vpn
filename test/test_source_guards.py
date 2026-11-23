@@ -4056,6 +4056,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("..remove('dialerProxy')", helper)
         self.assertIn("if (!keepInbounds) decodedExit.remove('inbounds');", helper)
 
+    def test_telegram_proxy_supports_manual_validated_cached_links(self):
+        source = (ROOT / 'lib' / 'tg_proxy.dart').read_text(encoding='utf-8')
+        self.assertIn('Future<void> _addManual() async', source)
+        self.assertIn('_tgPxNormalizeLink(_manualController.text)', source)
+        self.assertIn('await _tgPxWriteCache(current)', source)
+        self.assertIn('به‌تنهایی ترافیک تلگرام را از تونل KING VPN عبور نمی‌دهد', source)
+        self.assertIn('_manualController.dispose()', source)
+
     def test_nat_relay_chain_has_runtime_json_regression_tests(self):
         tests = (ROOT / 'test' / 'nat_relay_chain_test.dart').read_text(encoding='utf-8')
         self.assertIn('routes exit through relay', tests)
