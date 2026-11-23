@@ -401,26 +401,9 @@ extension NipHunt on _HomePageState {
       }
     }
 
-    // مرحله ۳: IP های همان شرکت هاست سرور (ASN) روی همان پورت
-    final t0 = direct.first;
-    final sIp = t0.isIp ? t0.host : await nipResolve(t0.host);
-    if (sIp != null) {
-      final prefixes = await nipAsnPrefixes(sIp);
-      if (prefixes.isNotEmpty) {
-        final ips = <String>[];
-        for (final p in prefixes.take(80)) {
-          ips.addAll(nipExpandCidr(p, maxPerBlock: 256));
-        }
-        ips.shuffle(Random());
-        if (ips.isNotEmpty &&
-            await _natTryScan(direct, ips,
-                port: t0.port, label: 'IP هم‌شرکت سرور')) {
-          return true;
-        }
-        if (abort) return false;
-      }
-    }
-
+    // مرحله ۳: اسکن همسایه‌های ASN عمداً اجرا نمی‌شود.
+    // داشتن یک hostname/IP از یک شرکت، مجوز اسکن بقیه‌ی prefixهای همان ASN نیست.
+    // محدوده‌های دستیِ مالک و فهرست relayهای صریح همچنان از مسیرهای جداگانه قابل آزمون‌اند.
     // مرحله ۴ (IP های باز ایران) حذف شد: یک IP باز ایران فوروارد نمی‌کند،
     // پس برای REALITY/TCP وقت تلف می‌کرد و هیچ‌وقت وصل نمی‌شد.
     _set('نت ملی: واسط یا IP هم‌شرکت سالم پیدا نشد');

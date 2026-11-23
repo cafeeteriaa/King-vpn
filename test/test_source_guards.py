@@ -3901,6 +3901,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_tgPxNormalizeLink', source)
         self.assertIn('if (link == null) continue;', source)
 
+    def test_national_ip_hunt_does_not_sweep_unrelated_asn_prefixes(self):
+        source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> _natIpHunt()')
+        end = source.index('Future<bool> _natTryScan(', start)
+        hunt = source[start:end]
+        self.assertNotIn('nipAsnPrefixes(', hunt)
+        self.assertIn('natRelayHosts', hunt)
+        self.assertIn('_liveCdnRanges', hunt)
+        self.assertIn('اسکن همسایه‌های ASN عمداً اجرا نمی‌شود', hunt)
     def test_front_sni_swap_only_rewrites_validated_standard_tls_configs(self):
         source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         start = source.index('String? nipSwapSni(')
