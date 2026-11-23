@@ -2753,10 +2753,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("'maxAddrs': maxAddrs,", nat)
         ip = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         self.assertIn("'maxAddrs': _ipAutoBatch,", ip)
-        start = ip.index('Future<List<String>> _ipAutoNextAddrs(')
+        start = ip.index('Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(')
         end = ip.index('extension IpAutoExt', start)
         body = ip[start:end]
-        self.assertLess(body.index('final generatedCursors'), body.index('ipAutoCursors'))
+        self.assertLess(body.index('final generatedCursors'), body.index('return (addresses: slice'))
         self.assertIn('final slice = all.toList(growable: false);', body)
         self.assertNotIn('all.take(_ipAutoBatch)', body)
 
@@ -2781,7 +2781,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_ip_auto_scans_configured_ranges_and_rotating_global_cdn_inventory(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         start = source.index('List<String> _ipAutoBlocks(')
-        end = source.index('Future<List<String>> _ipAutoNextAddrs(', start)
+        end = source.index('Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(', start)
         inventory = source[start:end]
         self.assertIn('blocks.addAll(natRanges);', inventory)
         self.assertIn('blocks.addAll(natAutoBlocks(const <Server>[]));', inventory)
@@ -2791,12 +2791,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("'cfIpsBatch': modeSnapshot ? 0 : _ipAutoBatch,", source)
         self.assertIn("List<String>.of(_liveCdnRanges)", source)
         self.assertIn("'cursors': cursorSnapshot,", source)
-        next_start = source.index('Future<List<String>> _ipAutoNextAddrs(')
+        next_start = source.index('Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(')
         next_end = source.index('extension IpAutoExt', next_start)
         next_batch = source[next_start:next_end]
-        self.assertIn('final slice = all.take(_ipAutoBatch).toList(growable: false);', next_batch)
-        self.assertNotIn('all.skip(start)', next_batch)
-        self.assertIn("ipAutoPos = 0; // legacy position key", next_batch)
+        self.assertIn('final slice = all.toList(growable: false);', next_batch)
+        self.assertIn('return (addresses: slice, cursors: generatedCursors);', next_batch)
+        self.assertNotIn('ipAutoCursors\n    ..clear()', next_batch)
 
 
     def test_ipv6_is_supported_by_ip_inventory_tcp_scan_and_dns_aaaa(self):
@@ -2806,7 +2806,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         self.assertIn('BigInt _natIpv6ToBigInt(', nat)
         self.assertIn('prefix > 128', nat)
-        self.assertIn('return _natExpandAnyCursor(item, 0, maxPerBlock).$1;', nat)
+        self.assertIn('(List<String>, String) _natExpandAnyCursorWide(', nat)
+        self.assertIn('cursor % size', nat)
+        self.assertIn("Map<String, dynamic> _cfRangeCursors", nat)
+        self.assertIn("final expanded = _natExpandAnyCursorWide(", nat)
+        self.assertIn("return _natExpandAnyCursorWide(item, '0', maxPerBlock).$1;", nat)
         ip_auto = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         self.assertIn("blocks.add('${parsed.address}/128');", ip_auto)
         core = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
@@ -2845,7 +2849,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('InternetAddressType.IPv6', nat)
         self.assertIn('BigInt.from(cursor) % size', nat)
         self.assertIn('address.type != InternetAddressType.IPv6', nat)
-        self.assertIn('final expanded = _natExpandAnyCursor(', nat)
+        self.assertIn('final expanded = _natExpandAnyCursorWide(', nat)
         seed_start = nat.index('List<String> natSeedBlocks(')
         seed_end = nat.index('int natMemQueued', seed_start)
         self.assertIn("out.add('${parsed.address}/128');", nat[seed_start:seed_end])
