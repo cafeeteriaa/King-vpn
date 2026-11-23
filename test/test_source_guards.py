@@ -2916,6 +2916,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
                         refresh.index('_cleanRangeCursorKey,'))
         self.assertIn('if (complete)', refresh)
 
+    def test_gold_background_scan_commits_dual_stack_cursor_only_after_full_probe(self):
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        start = extras.index('Future<void> _goldIpStep()')
+        end = extras.index('Future<void> _goldSrvStep(', start)
+        step = extras[start:end]
+        self.assertIn('final cands = await _cleanCandidates();', step)
+        self.assertIn('if (r.length >= batch.length)', step)
+        self.assertIn('_cleanRangeCursorKey,', step)
+        self.assertIn('jsonEncode(_cleanStagedRangeCursors)', step)
+        self.assertLess(step.index('if (r.length >= batch.length)'),
+                        step.index('_cleanRangeCursorKey,'))
+
     def test_nip_hunt_resumes_every_dual_stack_range_and_scans_all_open_hits(self):
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         self.assertIn("const String _nipHuntCursorKey = 'nip_hunt_range_cursors_v1';", nip)
