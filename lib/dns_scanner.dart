@@ -233,7 +233,7 @@ Future<DnsxHit?> dnsxProbe(String server,
   if (resolver == null || timeout <= Duration.zero || gap < Duration.zero) return null;
   final resolverIp = resolver.address;
   final uniqueDomains = _dnsxHostsFrom(domains ?? dnsxAutoDomains()).toSet().toList();
-  final list = uniqueDomains.take(128).toList(growable: false);
+  final list = uniqueDomains;
   final times = <int>[];
   var tested = 0; // تعداد دامنه‌هایی که واقعاً سنجیده شدند (اگر توقف زده شود، کمتر از کل است)
   const chunk = 8; // دامنه‌ها در هر بسته‌ی همزمان
@@ -289,11 +289,9 @@ Future<List<DnsxHit>> dnsxScan(List<String> list,
     if (parsed == null) continue;
     final address = parsed.address;
     if (seenServers.add(address)) boundedServers.add(address);
-    if (boundedServers.length >= 128) break;
   }
   if (boundedServers.isEmpty) return results;
-  final scanDomains = _dnsxHostsFrom(domains ?? dnsxAutoDomains())
-      .toSet().take(128).toList(growable: false);
+  final scanDomains = _dnsxHostsFrom(domains ?? dnsxAutoDomains()).toSet().toList(growable: false);
   var done = 0;
   // NATQUOTA: اسکن دستی در نت ملی سهمیه‌ی کم دارد و منتظر جستجوی نت ملی می‌ماند
   final limited = manual && nationalMode;
@@ -356,7 +354,7 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
     if (now - last < gapMs) return;
     final savedDns = await goldDnsList();
     if (nationalMode != scanNationalMode) return;
-    final list = {...savedDns.take(40), ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults)}.toList();
+    final list = {...savedDns, ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults)}.toList();
     // کامل: همه‌ی دامنه‌های پروژه، با فاصله‌ی ۱۵۰ میلی‌ثانیه بین بسته‌ها
     final r = await dnsxScan(
       list,
