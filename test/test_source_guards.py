@@ -3820,6 +3820,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('return refresh(force: true);', policy)
 
 
+    def test_net_diagnosis_tls_requires_valid_certificate(self):
+        source = (ROOT / 'lib' / 'net_diag.dart').read_text(encoding='utf-8')
+        start = source.index('Future<_DiagItem> _diagTls(')
+        end = source.index('Future<String> netDiagnose()', start)
+        tls_probe = source[start:end]
+        self.assertNotIn('onBadCertificate:', tls_probe)
+        self.assertIn('SecureSocket.secure(raw, host: sni)', tls_probe)
+
     def test_saved_sni_and_alpn_hits_require_valid_tls_certificates(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<int?> _autoSniOk(')
