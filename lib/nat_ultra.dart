@@ -2222,20 +2222,21 @@ Future<void> _natLoadRangeCursors() async {
   if (_natRangeCursorsLoaded) return;
   try {
     final prefs = await SharedPreferences.getInstance();
-    final rawPortCursors = prefs.getString('natRangePortCursorsV2');
+    // V3 stores the last completed TCP port value, not an index into a
+    // changing priority list. Legacy V1/V2 values were indexes and are reset.
+    final rawPortCursors = prefs.getString('natRangePortCursorsV3');
     if (rawPortCursors != null && rawPortCursors.isNotEmpty) {
       final decodedPorts = jsonDecode(rawPortCursors);
       if (decodedPorts is Map) {
         for (final entry in decodedPorts.entries) {
           if (entry.value is num) {
-            _natRangePortCursors['${entry.key}'] =
-                (entry.value as num).toInt().clamp(0, 1 << 31).toInt();
+            final port = (entry.value as num).toInt();
+            if (port >= 0 && port <= 65535) {
+              _natRangePortCursors['${entry.key}'] = port;
+            }
           }
         }
       }
-    } else {
-      _natRangePortCursors['nat'] =
-          (prefs.getInt('natRangePortCursorV1') ?? 0).clamp(0, 1 << 31).toInt();
     }
     final raw = prefs.getString('natRangeScanCursorsV2');
     if (raw != null && raw.isNotEmpty) {
