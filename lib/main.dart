@@ -559,9 +559,7 @@ int standbyBatchSize = 40;
 const bgTimeoutSecs = 10;
 int firstBatchSize = 100; // FAST100: دسته اول هم ۱۰۰تایی
 int fetchWorkers = 16;
-Duration fetchDeadline = const Duration(seconds: 60);
 int tcpWorkers = 20;
-int maxPerSource = 120;
 Duration tcpTimeout = const Duration(milliseconds: 3500);
 // TLS handshakes in the prefilter leaked sockets (crash, instant failures)
 const probeTls = false;
@@ -6182,9 +6180,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         failMin = 120;
         recheckMin = 30;
         tcpWorkers = 50;
-        maxPerSource = 100;
         fetchWorkers = 4;
-        fetchDeadline = const Duration(seconds: 20);
         firstBatchSize = 100;
         standbyBatchSize = 30;
         maxBatches = 5;
@@ -6218,7 +6214,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (p.getBool('best_defaults_v4') != true) {
         fastWorkers = 3;
         fetchWorkers = 8;
-        fetchDeadline = const Duration(seconds: 45);
         await p.setBool('best_defaults_v4', true);
         await saveNumPrefs();
         await _saveSettings();
