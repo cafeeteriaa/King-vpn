@@ -2200,9 +2200,9 @@ Future<List<String>> natRangeScanStep({
 Future<List<String>> _natRangeScanStepBody({
   required List<Server> known,
   int maxAddrs = 256,
-  int conc = 4,
+  int conc = 0,
   bool Function()? stop,
-  Duration budget = const Duration(minutes: 2),
+  Duration? budget,
 }) async {
   // A stop request or a network-mode switch invalidates the whole scan batch.
   // Keep all shared cursors and discoveries unchanged until every phase completes.
