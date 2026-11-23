@@ -4906,42 +4906,46 @@ Future<List<String>> dohResolveAll(String name) async {
   for (var offset = 0; offset < _dohEps.length; offset += 4) {
     final batch = _dohEps.skip(offset).take(4);
     await Future.wait(batch.map((endpoint) async {
-    final uri = Uri.parse(endpoint.replaceAll('%N', Uri.encodeComponent(name)));
-    final expectedType =
-        uri.queryParameters['type']?.toUpperCase() == 'AAAA' ? 28 : 1;
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
-    try {
-      final request = await client.getUrl(uri).timeout(const Duration(seconds: 3));
-      request.headers.set('accept', 'application/dns-json');
-      final response = await request.close().timeout(const Duration(seconds: 3));
-      final body = await response
-          .transform(Utf8Decoder(allowMalformed: true))
-          .join()
-          .timeout(const Duration(seconds: 3));
-      final decoded = jsonDecode(body);
-      final answers = decoded is Map ? decoded['Answer'] : null;
-      if (answers is! List) return;
-      for (final answer in answers) {
-        if (answer is! Map ||
-            (answer['type'] as num?)?.toInt() != expectedType) {
-          continue;
+      final uri =
+          Uri.parse(endpoint.replaceAll('%N', Uri.encodeComponent(name)));
+      final expectedType =
+          uri.queryParameters['type']?.toUpperCase() == 'AAAA' ? 28 : 1;
+      final client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 3);
+      try {
+        final request =
+            await client.getUrl(uri).timeout(const Duration(seconds: 3));
+        request.headers.set('accept', 'application/dns-json');
+        final response =
+            await request.close().timeout(const Duration(seconds: 3));
+        final body = await response
+            .transform(Utf8Decoder(allowMalformed: true))
+            .join()
+            .timeout(const Duration(seconds: 3));
+        final decoded = jsonDecode(body);
+        final answers = decoded is Map ? decoded['Answer'] : null;
+        if (answers is! List) return;
+        for (final answer in answers) {
+          if (answer is! Map ||
+              (answer['type'] as num?)?.toInt() != expectedType) {
+            continue;
+          }
+          final address = InternetAddress.tryParse(
+            answer['data']?.toString() ?? '',
+          );
+          if (address == null) continue;
+          if (expectedType == 1 && address.type == InternetAddressType.IPv4) {
+            found.add(address.address);
+          } else if (expectedType == 28 &&
+              address.type == InternetAddressType.IPv6) {
+            found.add(address.address);
+          }
         }
-        final address = InternetAddress.tryParse(
-          answer['data']?.toString() ?? '',
-        );
-        if (address == null) continue;
-        if (expectedType == 1 && address.type == InternetAddressType.IPv4) {
-          found.add(address.address);
-        } else if (expectedType == 28 &&
-            address.type == InternetAddressType.IPv6) {
-          found.add(address.address);
-        }
+      } catch (error) {
+        _swl('dohResolveAll', error);
+      } finally {
+        client.close(force: true);
       }
-    } catch (error) {
-      _swl('dohResolveAll', error);
-    } finally {
-      client.close(force: true);
-    }
     }));
   }
 
