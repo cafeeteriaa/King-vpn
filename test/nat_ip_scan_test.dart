@@ -2,15 +2,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:king_vpn/nat_ip_scan.dart';
 
 void main() {
-  group('IP range expansion limits', () {
-    test('scanner targets are validated, unique, and hard bounded', () {
+  group('IP range expansion and caller-controlled batches', () {
+    test('scanner targets are validated, unique, and not truncated at 4096', () {
       final targets = natBoundScanTargets([
         ' 192.0.2.1 ', '192.0.2.1', 'not-an-ip', '2001:db8::1',
         ...List<String>.generate(5000, (i) => '10.${(i ~/ 65536) % 256}.${(i ~/ 256) % 256}.${i % 256}'),
       ], maxCount: 100000);
       expect(targets, containsAll(['192.0.2.1', '2001:db8::1']));
       expect(targets.toSet(), hasLength(targets.length));
-      expect(targets.length, lessThanOrEqualTo(kNatMaxScanAddresses));
+      expect(targets, hasLength(5002));
       expect(natBoundScanTargets(['example.com', 'bad'],), isEmpty);
       expect(natBoundScanTargets(['192.0.2.1'], maxCount: 0), isEmpty);
     });
@@ -31,14 +31,12 @@ void main() {
       expect(sampled16.toSet(), hasLength(sampled16.length));
     });
 
-    test('CIDR expansion enforces the hard 4096-address ceiling', () {
-      expect(natExpandCidr('10.0.0.0/8', maxPerBlock: 100000).length,
-          lessThanOrEqualTo(4096));
+    test('CIDR expansion honors the caller batch instead of a hidden 4096 ceiling', () {
+      expect(natExpandCidr('10.0.0.0/8', maxPerBlock: 5000), hasLength(5000));
     });
 
-    test('dash range expansion enforces the hard 4096-address ceiling', () {
-      expect(natExpandDash('10.0.0.0-10.255.255.255', maxCount: 100000).length,
-          lessThanOrEqualTo(4096));
+    test('dash range expansion honors the caller batch instead of a hidden 4096 ceiling', () {
+      expect(natExpandDash('10.0.0.0-10.0.255.255', maxCount: 5000), hasLength(5000));
     });
 
     test('IPv6 CIDR expansion supports explicit small ranges', () {
@@ -48,10 +46,9 @@ void main() {
       expect(result.every((ip) => ip.contains(':')), isTrue);
     });
 
-    test('IPv6 CIDR sampling is hard bounded and rejects invalid input', () {
-      final sampled = natExpandIpv6Cidr('2001:db8::/32', maxPerBlock: 100000);
-      expect(sampled, isNotEmpty);
-      expect(sampled.length, lessThanOrEqualTo(4096));
+    test('IPv6 CIDR sampling honors caller batch and rejects invalid input', () {
+      final sampled = natExpandIpv6Cidr('2001:db8::/32', maxPerBlock: 5000);
+      expect(sampled, hasLength(5000));
       expect(natExpandIpv6Cidr('10.0.0.0/24'), isEmpty);
       expect(natExpandIpv6Cidr('2001:db8::/129'), isEmpty);
       expect(natExpandIpv6Cidr('2001:db8::/64', maxPerBlock: 0), isEmpty);
