@@ -1589,7 +1589,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         complete_guard = body.index('completed < slice.length', progress)
         save_hits = body.index('final savedHits = await natIpMemSaveMany(', complete_guard)
         cursor_commit = body.index('_cfRangeCursors.removeWhere((key, _) => key.startsWith(portPrefix));')
-        port_advance = body.index('_natRangePortCursors[modeKey] = (portIndex + 1) % portList.length;')
+        port_advance = body.index('_natRangePortCursors[modeKey] = port;')
         self.assertLess(scan, progress)
         self.assertLess(progress, complete_guard)
         self.assertLess(complete_guard, cursor_commit)
@@ -1597,7 +1597,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (!savedHits || shouldAbort())', body)
         self.assertLess(cursor_commit, port_advance)
         self.assertIn("prefs.setString('natRangeScanCursorsV2', jsonEncode(_cfRangeCursors))", body)
-        self.assertIn("prefs.setString('natRangePortCursorsV2', jsonEncode(_natRangePortCursors))", body)
+        self.assertIn("prefs.setString('natRangePortCursorsV3', jsonEncode(_natRangePortCursors))", body)
         self.assertIn('configuredBatch.nextOffsets', body)
         self.assertIn('configuredBatch.nextCursor', body)
 
@@ -2357,7 +2357,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final effectiveConcurrency = natAdaptiveConcurrency(conc);', body)
         self.assertIn('final estimatedCapacity = max(', body)
         self.assertIn('final scanLimit = min(maxAddrs, estimatedCapacity).toInt();', body)
-        self.assertIn('final portIndex = natCursorIndex(_natRangePortCursors[modeKey], portList.length);', body)
+        self.assertIn('final previousPortIndex = portList.indexOf(lastPort);', body)
+        self.assertIn('final portList = natFullPortInventory(seeds);', body)
         self.assertIn('final portPrefix = \'$modeKey:port:$port:\';', body)
         scan = body.index('final hits = await natScanIps(')
         self.assertIn('budget: budget,', body[scan:scan + 500])
@@ -2778,6 +2779,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         ports = nat[ports_start:ports_end]
         self.assertIn('for (final s in known)', ports)
         self.assertIn('final out = <int>[...ports];', ports)
+        full_ports_start = nat.index('List<int> natFullPortInventory(')
+        full_ports_end = nat.index('List<int>? _ipTriple', full_ports_start)
+        full_ports = nat[full_ports_start:full_ports_end]
+        self.assertIn('natBuildFullPortInventory([...observed, ...natCommonPorts])', full_ports)
+        self.assertIn('for (var port = firstPort; port <= lastPort; port++)', (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8'))
         domain_start = nat.index('Future<List<String>> _natDomainFirst(')
         domain_end = nat.index('Future<List<String>> natDeviceHosts()', domain_start)
         domain = nat[domain_start:domain_end]
