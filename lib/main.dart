@@ -10791,7 +10791,7 @@ ListTile( // KINGEXTRAS row
           // نت ملی: بازه‌ی دستی غیرفعال است؛ جستجو کاملاً خودکار است و دخالتی نمی‌شود
           readOnly: false, // RANGEOPEN: قفل بازه برداشته شد (در نت ملی هم قابل ویرایش)
           decoration: InputDecoration(
-              hintText: 'هر بازه در یک خط: مثلاً 5.160.0.0/16 یا 5.160.0.0-5.160.3.255 (بدون فاصله)'),
+              hintText: 'هر خط یک IPv4/IPv6، CIDR یا بازه شروع-پایان؛ نمونه: 5.160.0.0/16 یا 2001:db8::/48'),
         ),
         actions: [
           TextButton(
@@ -10799,20 +10799,22 @@ ListTile( // KINGEXTRAS row
           TextButton(
             // MANUALSCAN: اسکن دستی بازه‌ها؛ نتیجه در پوشه‌ی جهانی ذخیره می‌شود (نت ملی را تغییر نمی‌دهد)
             onPressed: () {
-              final lines = c.text.split('\n');
-              final addrs = <String>[];
-              for (final line in lines) {
-                final t = line.trim();
-                if (t.isEmpty) continue;
-                // LARGE: بازه‌ی CIDR یا خطی؛ بلوک‌های بزرگ تا ۶۵۵۳۶ IP برای پوشش بهتر
-                final got = natExpandCidr(t, maxPerBlock: 65536);
-                addrs.addAll(got.isNotEmpty ? got : natExpandDash(t, maxCount: 65536));
-              }
-              if (addrs.isEmpty) {
-                _set('بازه‌ی معتبر نیست؛ مثلاً 5.160.0.0/24 بنویس');
+              final ranges = c.text
+                  .split('\n')
+                  .map((value) => value.trim())
+                  .where((value) => value.isNotEmpty)
+                  .where((value) => natExpandIpRangeCursor(
+                        value,
+                        '0',
+                        maxPerBlock: 1,
+                        wrap: false,
+                      ).addresses.isNotEmpty)
+                  .toList(growable: false);
+              if (ranges.isEmpty) {
+                _set('هیچ IP، CIDR یا بازه‌ی IPv4/IPv6 معتبری وارد نشده است.');
                 return;
               }
-              unawaited(manualRangeScan(context, addrs)); // MANUALSCAN: نتیجه و پیشرفت داخل دیالوگ
+              unawaited(manualRangeScan(context, ranges)); // اسکن دسته‌ای با ادامه‌ی Cursor ذخیره‌شده
             },
             child: const Text('اسکن بازه‌ها'),
           ),
