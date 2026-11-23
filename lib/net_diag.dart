@@ -220,7 +220,7 @@ Future<String> netDiagnose() async {
   }
 
   lastNetVerdict = _NetVerdict(
-      tcp, tls, web, home, dnsPoison, dnsDoh != null, srcRaw, srcMir,
+      tcp, tls, web, home, dnsPoison, dnsDohAddresses.isNotEmpty, srcRaw, srcMir,
       natOpKey, filterLayer);
 
   b.writeln('— نتیجه و پیشنهاد —');
