@@ -73,7 +73,8 @@ Future<bool> _autoPortOk(String ip, int port, String sni) async {
 }
 
 Future<void> autoScanRun(void Function(String) say,
-    {bool Function()? isVpnActive, bool Function()? isVpnWanted}) async {
+    {bool Function()? isVpnActive, bool Function()? isVpnWanted,
+    List<Server> Function()? getServerInventory}) async {
   bool vpnActive() => isVpnActive?.call() ?? false;
   bool vpnWanted() => isVpnWanted?.call() ?? false;
   // Scanning through an active VPN tunnel can produce misleading direct-IP results
@@ -106,10 +107,10 @@ Future<void> autoScanRun(void Function(String) say,
     // FOLDERALL: IPهای پوشه اول؛ در نت ملی IPهای ISP داخلی هم اضافه می‌شود (بهینه برای نت ملی)
     // This is the generic/global SNI and port scanner. National ISP ranges
     // belong exclusively to the National Net engine and are never borrowed here.
+    // The scanner is a top-level part library; obtain State-owned candidates
+    // through an explicit provider instead of reaching into _HomePageState locals.
     final serverInventory = <Server>[
-      ...fetchedAll,
-      ...good,
-      ...pending,
+      ...(getServerInventory?.call() ?? const <Server>[]),
       ...natRestPending,
       ...natTemplateSeeds,
     ];
@@ -265,7 +266,8 @@ Future<void> autoScanRun(void Function(String) say,
 }
 
 Future<void> autoScanSheet(BuildContext context,
-    {bool Function()? isVpnActive, bool Function()? isVpnWanted}) async {
+    {bool Function()? isVpnActive, bool Function()? isVpnWanted,
+    List<Server> Function()? getServerInventory}) async {
   var status = _autoScanRunning ? 'در حال اجرا...' : 'آماده';
   var open = true;
   StateSetter? setS;
@@ -311,7 +313,9 @@ Future<void> autoScanSheet(BuildContext context,
             onPressed: _autoScanRunning
                 ? null
                 : () => autoScanRun(say,
-                    isVpnActive: isVpnActive, isVpnWanted: isVpnWanted),
+                    isVpnActive: isVpnActive,
+                    isVpnWanted: isVpnWanted,
+                    getServerInventory: getServerInventory),
             child: const Text('شروع'),
           ),
           TextButton(

@@ -9,7 +9,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> autoScanSheet(')
         body = source[start:]
-        self.assertIn('isVpnActive: isVpnActive, isVpnWanted: isVpnWanted', body)
+        self.assertIn('isVpnActive: isVpnActive', body)
+        self.assertIn('isVpnWanted: isVpnWanted', body)
+        self.assertIn('getServerInventory: getServerInventory', body)
 
     def test_auto_sni_scan_refuses_to_compete_with_live_vpn(self):
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
@@ -2565,7 +2567,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> autoScanSheet(')
         body = source[start:]
-        self.assertIn('isVpnActive: isVpnActive, isVpnWanted: isVpnWanted', body)
+        self.assertIn('isVpnActive: isVpnActive', body)
+        self.assertIn('isVpnWanted: isVpnWanted', body)
+        self.assertIn('getServerInventory: getServerInventory', body)
 
     def test_auto_sni_scan_aborts_if_vpn_connects_mid_run(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
@@ -4274,9 +4278,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = source.index('Future<void> autoScanSheet(', start)
         body = source[start:end]
         self.assertIn('...dnsxFullDomains()', body)
-        self.assertIn('...fetchedAll', body)
-        self.assertIn('...good', body)
-        self.assertIn('...pending', body)
+        self.assertIn('...(getServerInventory?.call() ?? const <Server>[])', body)
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn('getServerInventory: () => [...fetchedAll, ...good, ...pending]', main)
         self.assertIn('...natRestPending', body)
         self.assertIn('for (final server in serverInventory)', body)
         self.assertIn('for (final server in _goldSrv.values)', body)
