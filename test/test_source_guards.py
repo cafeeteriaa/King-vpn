@@ -2357,7 +2357,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final effectiveConcurrency = natAdaptiveConcurrency(conc);', body)
         self.assertIn('final estimatedCapacity = max(', body)
         self.assertIn('final scanLimit = min(maxAddrs, estimatedCapacity).toInt();', body)
-        self.assertIn('final portIndex = (_natRangePortCursors[modeKey] ?? 0) % portList.length;', body)
+        self.assertIn('final portIndex = natCursorIndex(_natRangePortCursors[modeKey], portList.length);', body)
         self.assertIn('final portPrefix = \'$modeKey:port:$port:\';', body)
         scan = body.index('final hits = await natScanIps(')
         self.assertIn('budget: budget,', body[scan:scan + 500])
