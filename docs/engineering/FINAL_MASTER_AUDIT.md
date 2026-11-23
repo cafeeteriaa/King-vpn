@@ -288,3 +288,18 @@
 8. پس از هر تغییر کد، exact-head CI، سه بازبینی مستقل و تکرار تست‌های مرتبط الزامی است.
 
 وضعیت کل پروژه همچنان **IN PROGRESS / VERIFIED WITH LIMITATIONS** است. این فاز صرفاً یافته‌های ایستای سورس را ثبت می‌کند؛ هیچ packet capture، دستگاه واقعی، اپراتور ایران یا bypass موفق DPI ادعا نشده است.
+
+
+## ۱۷. Dependency و reproducible-build audit — یافته جدید
+
+- مخزن در root فعلی `pubspec.yaml` و `pubspec.lock` نگه نمی‌دارد؛ پروژه Flutter در CI با `flutter create` به‌صورت موقت در `build_app` تولید می‌شود و سورس `lib/` و `test/` به آن کپی می‌شوند.
+- workflow وابستگی‌ها را در زمان اجرا با `flutter pub add` اضافه می‌کند. فقط بخشی از وابستگی‌های مستقیم constraint نسخه دارند؛ مواردی مانند `http`, `webview_flutter`, `permission_handler`, `workmanager`, `url_launcher`, `path_provider` و `package_info_plus` در دستور فعلی بدون نسخه دقیق آمده‌اند.
+- Flutter action روی channel برابر `stable` تنظیم شده و نسخه SDK در workflow به شماره release ثابت pin نشده است. بنابراین buildهای آینده ممکن است با نسخه Flutter یا dependency graph متفاوتی resolve شوند، حتی اگر commit سورس یکسان باشد.
+- AGP و Gradle در `prepare_android.py` به‌ترتیب روی 9.3.1 و 9.5.0 تنظیم می‌شوند؛ این pinها بخشی از toolchain هستند اما جای lockfile و SBOM را نمی‌گیرند.
+- workflow پس از `flutter pub get`، سورس plugin دریافت‌شده در Pub cache را با `patch_plugin.py` تغییر می‌دهد. برای provenance کامل باید نسخه/محتوای دقیق plugin، transitive dependencies و patch diff به‌صورت artifact قابل ردیابی ذخیره شوند.
+- فایل `NOTICE.md` به‌تنهایی inventory مجوزهای مستقیم/غیرمستقیم نیست. در این مرحله نه Pub lockfile قابل بازبینی وجود داشت و نه SBOM، license report یا CVE scan برای dependency graph دقیق تولید شد.
+
+**ریسک:** build فعلی CI قابل ساخت است، اما dependency resolution به‌طور کامل reproducible و supply-chain inventory کامل نیست. وضعیت: **DEPENDENCY INVENTORY BLOCKED**.
+
+**اقدام لازم:** تثبیت نسخه Flutter SDK؛ تعریف constraint دقیق برای همه dependencyهای مستقیم؛ تولید و commit کردن `pubspec.lock` از build_app واقعی؛ ثبت checksum/source provenance برای plugin patch؛ تولید CycloneDX/SPDX SBOM؛ بررسی مجوزهای transitive و CVE با timestamp؛ سپس build دقیق از lockfile و مقایسه artifact.
+
