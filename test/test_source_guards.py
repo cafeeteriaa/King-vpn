@@ -2659,7 +2659,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_manual_range_scan_close_cancels_scan_and_blocks_cursor_commit(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> manualRangeScan(')
-        end = source.index('// HOTFOLDER UI', start)
+        end = len(source)
         body = source[start:end]
         close = body.index('cancelled = true;', body.index("child: const Text('کپی IPها')"))
         close_pop = body.index('Navigator.pop(ctx);', close)
@@ -2767,7 +2767,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('nextOffsets: offsets', configured)
         self.assertNotIn('natRanges.take(', configured)
         self.assertIn("natConfiguredRangeOffsetsV1", nat)
-        self.assertIn('..addAll(configuredBatch.nextOffsets)', nat)
+        self.assertIn('for (final entry in configuredBatch.nextOffsets.entries)', nat)
         seed_start = nat.index('List<String> natSeedBlocks(')
         seed_end = nat.index('int natMemQueued', seed_start)
         seed_blocks = nat[seed_start:seed_end]
@@ -3044,7 +3044,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("..._cfRangesV6", extras)
         self.assertIn("InternetAddressType.IPv6", extras[extras.index('List<String> _cidrSample'):extras.index('Future<String> _cfRead')])
         self.assertIn("https://www.cloudflare.com/ips-v6", extras)
-        self.assertIn("type': recordType == 1 ? 'A' : 'AAAA'", extras)
+        self.assertIn("..['type'] = recordType == 1 ? 'A' : 'AAAA';", extras)
 
         nat_dns = nat[nat.index('const List<String> _natDnsList'):nat.index('class _NatSpec')]
         self.assertIn('https+local://[2606:4700:4700::1111]', nat_dns)
