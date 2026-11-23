@@ -14,6 +14,8 @@ concurrency:
 
 jobs:
   signed-release:
+    # Only the repository owner may invoke the workflow that uses production signing and update-manifest secrets.
+    if: github.actor == github.repository_owner
     runs-on: ubuntu-24.04
     timeout-minutes: 100
     steps:
