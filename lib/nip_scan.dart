@@ -13,6 +13,17 @@ class NipHit {
 /// بلوک CIDR مثل «5.160.0.0/16» را به فهرست IP تبدیل می‌کند.
 /// برای بلوک‌های بزرگ فقط [maxPerBlock] آدرس پراکنده برمی‌گرداند.
 List<String> nipExpandCidr(String cidr, {int maxPerBlock = 4096}) {
+  if (maxPerBlock <= 0) return const <String>[];
+  final parts = cidr.trim().split('/');
+  if (parts.length == 2) {
+    final address = InternetAddress.tryParse(parts[0].trim());
+    if (address?.type == InternetAddressType.IPv4) {
+      return natExpandCidr(cidr, maxPerBlock: maxPerBlock);
+    }
+    if (address?.type == InternetAddressType.IPv6) {
+      return natExpandIpv6Cidr(cidr, maxPerBlock: maxPerBlock);
+    }
+  }
   return natExpandIpRangeCursor(
     cidr,
     '0',
