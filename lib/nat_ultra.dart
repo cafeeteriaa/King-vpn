@@ -1801,7 +1801,7 @@ int _ipToInt(String ip) {
 String _intToIp(int v) =>
     '${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}';
 
-List<String> natExpandAny(String item, {int maxPerBlock = 4096}) {
+List<String> natExpandAny(String item, {required int maxPerBlock}) {
   if (maxPerBlock <= 0) return const [];
   if (item.contains('/')) {
     final address = InternetAddress.tryParse(item.split('/').first.trim());
