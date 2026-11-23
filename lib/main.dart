@@ -5022,7 +5022,7 @@ class HomePage extends StatefulWidget {
 
 bool sniSpoofAll = true; // V16: apply SNI spoof to all CDN configs (normal mode too)
 // SNICF: جعل SNI برای کانفیگ‌های کلودفلر جدا کنترل می‌شود؛ پیش‌فرض خاموش
-bool sniCfOn = false;
+bool sniCfOn = true;
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   late final V2ray v2ray;
@@ -6149,7 +6149,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           npvParse = j['npv'] as bool? ?? npvParse;
           relayServerUrl = j['relay_url'] as String? ?? '';
           sniSpoofAll = j['sni_all'] as bool? ?? true; // SNIDEF: پیش‌فرض روشن، قابل تغییر
-          sniCfOn = j['sni_cf'] as bool? ?? false; // SNICF
+          sniCfOn = j['sni_cf'] as bool? ?? true; // SNICF
           cleanIpMode = j['cip'] as bool? ?? cleanIpMode;
           fragEnabled = j['frg'] as bool? ?? fragEnabled;
           // Mux برای توربو سرعت بعد از اتصال روشن می‌ماند
