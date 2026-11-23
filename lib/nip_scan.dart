@@ -367,7 +367,8 @@ Future<void> _nipEnsureFrontSniCursorLoaded() {
   return _nipFrontSniCursorLoadFuture ??= () async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      _nipFrontSniCursor = prefs.getInt(_nipFrontSniCursorKey) ?? 0;
+      _nipFrontSniCursor =
+          (prefs.getInt(_nipFrontSniCursorKey) ?? 0).clamp(0, 1 << 31).toInt();
     } catch (e, stk) {
       logError(e, stk);
     }
