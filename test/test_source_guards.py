@@ -2589,43 +2589,41 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (stop != null && stop()) break;', dns)
 
 
-    def test_manual_range_scan_honors_cancel_during_national_yield(self):
+    def test_manual_range_scan_honors_cancel_and_persists_only_complete_batches(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> manualRangeScan(')
-        end = source.index('\n}', start)
+        end = source.index('// HOTFOLDER UI', start)
         body = source[start:end]
-        wait = body.index('await natManualYield(shouldAbort: () => cancelled || !open);')
-        before_scan = body.index('if (!cancelled) {', wait)
-        scan = body.index('result = await natScanIps(', before_scan)
-        after_scan = body.index('if (!cancelled && open)', scan)
-        persist = body.index('await goldMergeIps(', after_scan)
-        self.assertLess(wait, before_scan)
-        self.assertLess(before_scan, scan)
-        self.assertLess(scan, after_scan)
-        self.assertLess(after_scan, persist)
+        self.assertIn('await natManualYield(shouldAbort: () => cancelled || !open);', body)
+        self.assertIn('while (!cancelled && open)', body)
+        self.assertIn('final batchHits = await natScanIps(', body)
         self.assertIn('cancelled: () => cancelled || !open,', body)
+        self.assertIn('if (completed < addresses.length)', body)
+        self.assertIn('await prefs.setString(_manualRangeCursorKey, jsonEncode(cursors));', body)
+        self.assertLess(body.index('if (completed < addresses.length)'),
+                        body.index('await prefs.setString(_manualRangeCursorKey, jsonEncode(cursors));'))
+        self.assertLess(body.index('await prefs.setString(_manualRangeCursorKey, jsonEncode(cursors));'),
+                        body.index('await goldMergeIps('))
+        self.assertIn('wrap: false,', source[source.index('_manualRangeNextBatch('):start])
 
-
-    def test_manual_range_scan_close_cancels_scan_and_blocks_late_persistence(self):
+    def test_manual_range_scan_close_cancels_scan_and_blocks_cursor_commit(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> manualRangeScan(')
-        end = source.index('\n}', start)
+        end = source.index('// HOTFOLDER UI', start)
         body = source[start:end]
         close = body.index('cancelled = true;', body.index("child: const Text('کپی IPها')"))
         close_pop = body.index('Navigator.pop(ctx);', close)
         completion = body.index('open = false;', body.index(').then((_) {'))
         completion_cancel = body.index('cancelled = true;', completion)
-        scan = body.index('result = await natScanIps(')
+        scan = body.index('final batchHits = await natScanIps(')
         stop = body.index('cancelled: () => cancelled || !open,', scan)
-        persist_guard = body.index('if (!cancelled && open)', scan)
-        persist = body.index('await goldMergeIps(', persist_guard)
-        abort = body.index('shouldAbort: () => cancelled || !open,', persist)
+        after_scan = body.index('if (cancelled || !open) break;', scan)
+        cursor_commit = body.index('await prefs.setString(_manualRangeCursorKey, jsonEncode(cursors));', after_scan)
         self.assertLess(close, close_pop)
         self.assertLess(completion, completion_cancel)
         self.assertLess(scan, stop)
-        self.assertLess(stop, persist_guard)
-        self.assertLess(persist_guard, persist)
-        self.assertLess(persist, abort)
+        self.assertLess(stop, after_scan)
+        self.assertLess(after_scan, cursor_commit)
 
     def test_gold_merge_ips_checks_abort_after_preferences_before_cache_mutation(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
