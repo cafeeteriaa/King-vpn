@@ -1875,7 +1875,14 @@ String _intToIp(int v) =>
 List<String> natExpandAny(String item, {int maxPerBlock = kNatMaxScanAddresses}) {
   if (maxPerBlock <= 0) return const [];
   maxPerBlock = min(maxPerBlock, kNatMaxScanAddresses);
-  if (!item.contains('-')) return natExpandCidr(item, maxPerBlock: maxPerBlock);
+  if (item.contains('/')) {
+    final address = InternetAddress.tryParse(item.split('/').first.trim());
+    if (address?.type == InternetAddressType.IPv6) {
+      return natExpandIpv6Cidr(item, maxPerBlock: maxPerBlock);
+    }
+    return natExpandCidr(item, maxPerBlock: maxPerBlock);
+  }
+  if (!item.contains('-')) return const <String>[];
   final parts = item.split('-');
   if (parts.length != 2) return const [];
   final a = InternetAddress.tryParse(parts[0].trim());
