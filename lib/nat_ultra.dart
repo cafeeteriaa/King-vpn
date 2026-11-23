@@ -11,7 +11,6 @@ part of 'main.dart';
 
 int natLevel = 1;
 int natRound = 1; // V12: 1 = pass 1 (skip failed), 2 = pass 2 (retry all)
-const int natMaxVariants = 5000; // V8 • فیکس ۱۷: قبلاً 0x7FFFFFFF
 int natFloor = 0;
 List<Server> natRestPending = [];
 
@@ -426,12 +425,9 @@ List<_NatSpec> _natGenerate() {
 
 int _natGrowCounter = 0;
 int natGrow(int n) {
-  // Keep the generated search space bounded on low-memory Android devices.
-  // The old 500,000-entry guard contradicted natMaxVariants (5,000) and
-  // allowed repeated exhaustion rounds to grow an effectively unbounded list.
-  if (n <= 0 || _natSpecs.length >= natMaxVariants) return 0;
-  final remaining = natMaxVariants - _natSpecs.length;
-  final requested = min(n, remaining);
+  // Grow the variant matrix incrementally on demand; no fixed global variant ceiling.
+  if (n <= 0) return 0;
+  final requested = n;
   final rnd = Random(DateTime.now().millisecondsSinceEpoch + _natGrowCounter++);
   final known = <String>{for (final spec in _natSpecs) _natSig(spec)};
   var added = 0;
@@ -440,7 +436,7 @@ int natGrow(int n) {
   // Bound attempts as well as successful additions. Duplicate signatures are
   // common once the learned matrix has been expanded, and must not consume the
   // variant budget or inflate ranking/cache work.
-  for (var i = 0; i < requested && added < remaining; i++) {
+  for (var i = 0; i < requested; i++) {
     final fp = fps[rnd.nextInt(fps.length)];
     final alpn = alpns[rnd.nextInt(alpns.length)];
     final frag = rnd.nextInt(_natFrags.length);
@@ -1737,7 +1733,7 @@ Future<void> natIpMemSave(String ip, int port) async {
     return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
   }
   final candidates = <String>{};
-  for (final range in natRanges.take(128)) {
+  for (final range in natRanges) {
     final remaining = limit * 4 - candidates.length;
     if (remaining <= 0) break;
     candidates.addAll(natExpandAny(range, maxPerBlock: remaining));
@@ -2203,7 +2199,6 @@ Future<List<String>> natRangeScanStep({
   // Iterable.take() throws for a negative count; zero-sized requests should be
   // a cheap no-op rather than starting compute/network work.
   if (maxAddrs <= 0 || budget <= Duration.zero) return const <String>[];
-  maxAddrs = maxAddrs.clamp(1, 4096).toInt();
   conc = conc.clamp(1, 32).toInt();
   if (_natRangeScanBusy) return const <String>[];
   _natRangeScanBusy = true;
