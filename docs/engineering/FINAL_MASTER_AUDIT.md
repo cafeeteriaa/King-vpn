@@ -658,3 +658,19 @@
 - گام پذیرش بعدی Relay: روی دو سرور مجاز و قابل دسترس، مسیر هر دو hop، خروجی چند مقصد مستقل، DNS و رفتار fail-closed هنگام قطع relay با packet capture روی دستگاه سنجیده شود.
 - Telegram proxy هنوز data-plane اختصاصی MTProto/SOCKS5 داخل تونل را اثبات نکرده است.
 - PR #44 همچنان Draft می‌ماند؛ merge و تغییر main انجام نشده است.
+
+## ۴۱. تأیید CI دقیق HEAD و وضعیت بازبینی — 2026-11-23
+
+- شاخه ممیزی: `audit/final-master`
+- HEAD کد بررسی‌شده در PR #44: `f3f450ae75543778afd24d5206f32c3844f9e8a0`
+- اجرای GitHub Actions دقیق همین HEAD: Run 2297 / `45179045519` — **SUCCESS**.
+- Job اصلی `build` و تمام مراحل آن موفق شدند: Source Guard، تنظیم Java/Gradle/Flutter، بازیابی dependency با lockfile، تست واحد، Dart analysis، ساخت APK بهینه‌شده ARM64، بررسی ELF load segment برای 16 KiB، بررسی ZIP alignment و بارگذاری artifactها.
+- Artifactهای Run 2297:
+  - `king-vpn-arm64-release-2297` — ID `14820394028`، حجم آرشیو 49,034,345 بایت.
+  - `king-vpn-full-source-2297` — ID `14819744557`، حجم آرشیو 1,591,094 بایت.
+  - `king-vpn-symbols-2297` — ID `14821395096`، حجم آرشیو 1,323,924 بایت.
+- این تأیید فقط به SHA دقیق بالا و خروجی همان Run تعلق دارد؛ به تغییرات بعدی تعمیم داده نمی‌شود.
+- PR #44 همچنان Open و Draft است، Merge نشده و مقصد آن `codex/continuation-mainline-20261122` است. در زمان این بررسی هیچ review submission مستقلی برای PR ثبت نشده بود؛ بنابراین شرط سه بازبینی مستقل هنوز **NOT SATISFIED** است.
+- آزمون روی دستگاه واقعی، مالکیت UID در Android 11+ و fallback در Android 10، رقابت با VPN دیگر، DNS leak، مسیر واقعی IPv4/IPv6، اپراتورهای ایران و عبور end-to-end از relay همچنان **NOT TESTED** هستند.
+- این commit صرفاً ثبت شواهد ممیزی است؛ نباید به‌عنوان تغییر رفتار برنامه یا اثبات اتصال واقعی تلقی شود. پس از ثبت آن، CI جدید باید برای SHA جدید اجرا شود.
+- سیاست انتشار حفظ می‌شود: PR در حالت Draft باقی بماند؛ `main` تغییر نکند؛ ادغام یا انتشار production بدون سه بازبینی مستقل، CI دقیق HEAD و پذیرش دستگاهی انجام نشود.
