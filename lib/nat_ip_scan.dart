@@ -102,9 +102,9 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
   return out;
 }
 
-/// A resumable, lossless IPv6 CIDR/range iterator. The cursor is decimal
-/// text because a full IPv6 /0 requires 128 bits and cannot fit in int.
-({List<String> addresses, String nextCursor}) natExpandIpv6RangeCursor(
+/// Resumable, lossless iterator for IPv4 and IPv6 literals, CIDRs and
+/// linear ranges. Decimal-string cursors preserve the full 128-bit IPv6 space.
+({List<String> addresses, String nextCursor}) natExpandIpRangeCursor(
   String range,
   String cursor, {
   int maxPerBlock = 4096,
@@ -115,6 +115,16 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
   final current = BigInt.tryParse(cursor) ?? BigInt.zero;
   BigInt? first;
   BigInt? last;
+  int byteLength = 0;
+
+  BigInt toValue(InternetAddress address) {
+    var value = BigInt.zero;
+    for (final byte in address.rawAddress) {
+      value = (value << 8) | BigInt.from(byte);
+    }
+    return value;
+  }
+
   if (range.contains('/')) {
     final parts = range.trim().split('/');
     if (parts.length != 2) {
@@ -122,51 +132,42 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
     }
     final address = InternetAddress.tryParse(parts[0].trim());
     final prefix = int.tryParse(parts[1].trim());
-    if (address == null || address.type != InternetAddressType.IPv6 ||
-        prefix == null || prefix < 0 || prefix > 128) {
+    if (address == null || prefix == null) {
       return (addresses: const <String>[], nextCursor: cursor);
     }
-    var network = BigInt.zero;
-    for (final byte in address.rawAddress) {
-      network = (network << 8) | BigInt.from(byte);
+    byteLength = address.rawAddress.length;
+    final width = byteLength * 8;
+    if (prefix < 0 || prefix > width) {
+      return (addresses: const <String>[], nextCursor: cursor);
     }
-    final hostBits = 128 - prefix;
-    final size = BigInt.one << hostBits;
+    final size = BigInt.one << (width - prefix);
     final mask = prefix == 0 ? BigInt.zero :
-        ((BigInt.one << 128) - BigInt.one) ^ (size - BigInt.one);
-    network &= mask;
-    first = network;
-    last = network + size - BigInt.one;
+        ((BigInt.one << width) - BigInt.one) ^ (size - BigInt.one);
+    first = toValue(address) & mask;
+    last = first + size - BigInt.one;
   } else if (range.contains('-')) {
     final parts = range.trim().split('-');
     if (parts.length != 2) {
       return (addresses: const <String>[], nextCursor: cursor);
     }
-    final a = InternetAddress.tryParse(parts[0].trim());
-    final b = InternetAddress.tryParse(parts[1].trim());
-    if (a == null || b == null ||
-        a.type != InternetAddressType.IPv6 ||
-        b.type != InternetAddressType.IPv6) {
+    final start = InternetAddress.tryParse(parts[0].trim());
+    final end = InternetAddress.tryParse(parts[1].trim());
+    if (start == null || end == null || start.type != end.type) {
       return (addresses: const <String>[], nextCursor: cursor);
     }
-    BigInt value(InternetAddress address) {
-      var result = BigInt.zero;
-      for (final byte in address.rawAddress) {
-        result = (result << 8) | BigInt.from(byte);
-      }
-      return result;
-    }
-    final av = value(a);
-    final bv = value(b);
-    first = av <= bv ? av : bv;
-    last = av <= bv ? bv : av;
+    byteLength = start.rawAddress.length;
+    final startValue = toValue(start);
+    final endValue = toValue(end);
+    first = startValue <= endValue ? startValue : endValue;
+    last = startValue <= endValue ? endValue : startValue;
   } else {
     final address = InternetAddress.tryParse(range.trim());
-    if (address == null || address.type != InternetAddressType.IPv6) {
+    if (address == null) {
       return (addresses: const <String>[], nextCursor: cursor);
     }
     return (addresses: [address.address], nextCursor: '0');
   }
+
   final size = last! - first! + BigInt.one;
   final offset = current % size;
   final take = min(maxPerBlock,
@@ -174,8 +175,8 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
   final addresses = <String>[];
   for (var i = 0; i < take; i++) {
     var value = first + ((offset + BigInt.from(i)) % size);
-    final bytes = List<int>.filled(16, 0);
-    for (var index = 15; index >= 0; index--) {
+    final bytes = List<int>.filled(byteLength, 0);
+    for (var index = byteLength - 1; index >= 0; index--) {
       bytes[index] = (value & BigInt.from(255)).toInt();
       value >>= 8;
     }
@@ -185,6 +186,29 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
     addresses: addresses,
     nextCursor: ((offset + BigInt.from(take)) % size).toString(),
   );
+}
+
+/// IPv6-specific façade retained for callers that need strict family validation.
+({List<String> addresses, String nextCursor}) natExpandIpv6RangeCursor(
+  String range,
+  String cursor, {
+  int maxPerBlock = 4096,
+}) {
+  bool ipv6;
+  if (range.contains('/')) {
+    final parts = range.trim().split('/');
+    ipv6 = parts.length == 2 &&
+        InternetAddress.tryParse(parts[0].trim())?.type == InternetAddressType.IPv6;
+  } else if (range.contains('-')) {
+    final parts = range.trim().split('-');
+    ipv6 = parts.length == 2 &&
+        InternetAddress.tryParse(parts[0].trim())?.type == InternetAddressType.IPv6 &&
+        InternetAddress.tryParse(parts[1].trim())?.type == InternetAddressType.IPv6;
+  } else {
+    ipv6 = InternetAddress.tryParse(range.trim())?.type == InternetAddressType.IPv6;
+  }
+  if (!ipv6) return (addresses: const <String>[], nextCursor: cursor);
+  return natExpandIpRangeCursor(range, cursor, maxPerBlock: maxPerBlock);
 }
 
 /// بازه‌ی خطی به شکل a.b.c.d-e.f.g.h (برای نوشته‌هایی که CIDR نیستند).
