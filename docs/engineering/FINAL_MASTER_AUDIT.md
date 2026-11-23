@@ -303,3 +303,19 @@
 
 **اقدام لازم:** تثبیت نسخه Flutter SDK؛ تعریف constraint دقیق برای همه dependencyهای مستقیم؛ تولید و commit کردن `pubspec.lock` از build_app واقعی؛ ثبت checksum/source provenance برای plugin patch؛ تولید CycloneDX/SPDX SBOM؛ بررسی مجوزهای transitive و CVE با timestamp؛ سپس build دقیق از lockfile و مقایسه artifact.
 
+
+
+## ۱۸. اصلاح مبتنی بر artifact: dependency lockfile واقعاً تولید شده است
+
+این بخش، محدودیت مطرح‌شده در بخش ۱۷ را دقیق‌تر می‌کند:
+
+- Artifact کامل سورس CI Run 2157 با شناسه `14798807054` دانلود و باز شد. SHA-256 آرشیو بیرونی با digest اعلام‌شده GitHub برابر است: `9d65f7ae6f66fd1dbb99c3835b2bd2cf8af97e81edb03d19d79434a86c6c9d15`.
+- ZIP داخلی شامل `build_app/pubspec.yaml` و `build_app/pubspec.lock` است؛ بنابراین lockfile برای همان build واقعاً وجود دارد، اما در مخزن commit نشده و در هر اجرای CI دوباره تولید می‌شود.
+- نسخه toolchain از log همان Run 2157: Flutter `3.50.1`، Framework revision `ae9b586f34`، Dart `3.14.0`، Java `21.0.13`. Workflow همچنان channel شناور `stable` را درخواست می‌کند.
+- lockfile شامل 116 package است: 111 hosted package و 5 SDK package؛ 19 dependency مستقیم main و 2 dependency مستقیم dev. تعداد packageهای hosted دارای SHA-256 در lockfile: 111.
+- SHA-256 فایل `pubspec.yaml` در artifact: `d4206ee05eacd3bb3682b8f0f5b62948f110881a3d6ea1291cbe64af334fe5d8`.
+- SHA-256 فایل `pubspec.lock` در artifact: `f531c1ac1fcee55851992a6d76bfb3893b7fc4b2508e20e4adb0cedaa0fa159c`.
+- این inventory، snapshot دقیق dependency resolution برای commit کد `649147e8a3c96979f1bbab82c14ccff09f6bbf2d) و Flutter 3.50.1 است؛ به commitهای بعدی یا buildهای آینده تعمیم داده نمی‌شود.
+- هنوز SBOM استاندارد، license metadata کامل برای تمام packageها، بررسی مجوزهای transitive و CVE scan تولید نشده است. Hashهای lockfile به‌تنهایی گزارش آسیب‌پذیری یا انطباق مجوز نیستند.
+
+**وضعیت اصلاح‌شده:** dependency graph یک build تاریخی قابل بازیابی و hash-verified است؛ اما lockfile در مخزن version-control نشده، reproducibility آینده تضمین نیست، و SBOM/license/CVE review همچنان **OPEN** است.
