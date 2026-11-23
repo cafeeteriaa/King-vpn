@@ -2646,6 +2646,7 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
         final mergeFrom = <String>[
           if (File(extraPath).existsSync()) extraPath,
           for (final i in mixed) parts[i],
+          if (f.existsSync()) _hotPath(),
         ];
         for (final pth in mergeFrom) {
           if (full) break;
@@ -2674,15 +2675,7 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
         await sink.close();
       }
       final total = offs.length - 1;
-      final oldIdx = await _hotLoad();
-      final oldTotal = oldIdx == null ? 0 : oldIdx.offs.length - 1;
-      if (total > 0 && oldTotal > 0 && total < oldTotal ~/ 2) {
-        dbg('پوشه‌ی منابع تازه: ساخت جدید فقط $total کانفیگ داشت (قبلی $oldTotal)؛ پوشه‌ی قبلی نگه داشته شد');
-        _hotFailAt = DateTime.now();
-        try {
-          await File(newPath).delete();
-        } catch (e) { errJournalAdd(e, kind: 'SILENT-FILE'); }
-      } else if (total > 0) {
+      if (total > 0) {
         _hotFailAt = null;
         await File(newPath).rename(_hotPath());
         _hot = _HotIdx(_hotPath(), offs);
