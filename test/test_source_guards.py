@@ -4003,6 +4003,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('recordType: recordType', probe)
         self.assertIn('InternetAddress.fromRawAddress', probe)
 
+    def test_nnie_dns_probe_uses_one_monotonic_end_to_end_deadline(self):
+        source = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
+        start = source.index('static Future<NatDnsProbeResult> probe(')
+        end = source.index('class NatEndpointMemory', start)
+        probe = source[start:end]
+        self.assertIn('final elapsed = Stopwatch()..start();', probe)
+        self.assertIn('Duration remaining()', probe)
+        self.assertIn('final bindBudget = remaining();', probe)
+        self.assertIn('.timeout(bindBudget)', probe)
+        self.assertIn('final responseBudget = remaining();', probe)
+        self.assertIn('.timeout(responseBudget)', probe)
+        self.assertNotIn('completer.future.timeout(timeout)', probe)
+
     def test_nnie_dns_response_parser_normalizes_trailing_dot(self):
         source = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
         start = source.index('static List<String> parseResponse(')
