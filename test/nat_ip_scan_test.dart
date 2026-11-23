@@ -25,6 +25,13 @@ void main() {
       expect(fullSpace, hasLength(4));
     });
 
+    test('IPv6 CIDR expansion supports /0 through /128 without 32-bit truncation', () {
+      expect(natExpandIpv6Cidr('::/0', maxPerBlock: 3), hasLength(3));
+      expect(natExpandIpv6Cidr('2001:db8::/32', maxPerBlock: 4), hasLength(4));
+      expect(natExpandIpv6Cidr('2001:db8::1/128'), hasLength(1));
+      expect(natExpandIpv6Cidr('2001:db8::/129'), isEmpty);
+    });
+
     test('dash range expansion rejects non-positive output limits', () {
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: 0), isEmpty);
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: -1), isEmpty);
