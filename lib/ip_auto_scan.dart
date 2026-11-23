@@ -18,7 +18,7 @@ const int _ipAutoMaxHits = 1000; // سقف نتایج ذخیره‌شده
 // TCP scanning uses every discovered/configured port; no fixed port-count cap.
 const String _ipAutoAtKey = 'ipauto_at_v1'; // زمان آخرین اسکن خودکار نت ملی
 const int _ipAutoConc = 48; // اتصال TCP همزمان
-const int _ipAutoCoreMax = 200; // سقف تست هسته در هر اجرا
+const Duration _ipAutoCoreBudget = Duration(minutes: 4);
 
 bool ipAutoBusy = false;
 bool ipAutoStopFlag = false;
@@ -324,10 +324,12 @@ extension IpAutoExt on _HomePageState {
     final tplSrv = tpl.first;
     var found = 0;
     var checked = 0;
-    // Keep each run responsive, but persist and resume every untested TCP hit.
-    final coreBatchLimit = _ipAutoCoreMax;
+    // No fixed candidate-count cap: work until the adaptive time budget expires.
+    // Every untested item remains persisted in the queue for the next run.
+    final coreClock = Stopwatch()..start();
     say('${candidates.length} پورت باز • ${ipAutoPendingCore.length} مورد در صف تست هسته');
-    while (ipAutoPendingCore.isNotEmpty && checked < coreBatchLimit) {
+    while (ipAutoPendingCore.isNotEmpty &&
+        coreClock.elapsed < _ipAutoCoreBudget) {
       if (halted()) break;
       final c = ipAutoPendingCore.first;
       checked++;
