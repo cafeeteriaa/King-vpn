@@ -29,8 +29,8 @@ import 'nnie_core.dart'; // natStableSort
 /// Per-pass work chunk used by resumable scanners; it is not a ceiling on the candidate inventory.
 const int kNatMaxScanAddresses = 4096;
 
-/// Validate, canonicalize, de-duplicate, and hard-bound scanner targets.
-/// Hostnames are intentionally rejected: callers must resolve them explicitly.
+/// Validate, canonicalize and de-duplicate numeric scan targets.
+/// Hostnames are resolved by their discovery path; optional maxCount is caller-controlled.
 List<String> natBoundScanTargets(
   Iterable<String> source, {
   int maxCount = 1 << 31,
@@ -67,7 +67,7 @@ List<String> natExpandCidr(String cidr, {int maxPerBlock = 65536}) {
   if (parts.length != 2) return const [];
   final octets = parts[0].split('.');
   final prefix = int.tryParse(parts[1].trim());
-  if (octets.length != 4 || prefix == null || prefix < 8 || prefix > 32) {
+  if (octets.length != 4 || prefix == null || prefix < 0 || prefix > 32) {
     return const [];
   }
   int base = 0;
@@ -90,7 +90,7 @@ List<String> natExpandCidr(String cidr, {int maxPerBlock = 65536}) {
 }
 
 /// Expand an explicitly supplied IPv6 CIDR using bounded, evenly spaced samples.
-/// This is a manual/authorized-range primitive; it is never fed implicit ASN ranges.
+/// Large IPv6 prefixes are traversed in caller-sized batches by the resumable cursor.
 List<String> natExpandIpv6Cidr(
   String cidr, {
   int maxPerBlock = 65536,
@@ -236,14 +236,14 @@ Future<List<NatIpHit>> natScanIps(
   }
 
   // Validate and de-duplicate numeric endpoints without truncating the candidate inventory.
-  final boundedIps = natBoundScanTargets(ips);
+  final validatedIps = natBoundScanTargets(ips);
   final effective = natAdaptiveConcurrency(concurrency);
   // Stopwatch is monotonic; wall-clock changes must not extend or truncate a scan.
   final elapsed = Stopwatch()..start();
   final hits = <NatIpHit>[];
 
   // Optional shuffle so the same subnet is not hit first on every run.
-  final source = randomize ? (List<String>.of(boundedIps)..shuffle(Random())) : boundedIps;
+  final source = randomize ? (List<String>.of(validatedIps)..shuffle(Random())) : boundedIps;
 
   var next = 0;
   var done = 0;
