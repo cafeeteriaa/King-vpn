@@ -126,8 +126,8 @@
 - هنوز inventory کامل فایل‌به‌فایل و بازبینی کل Diff شاخه مبنا انجام نشده است.
 - هنوز ممیزی جامع secret روی تاریخچه Git و Artifactها انجام نشده است.
 - هنوز dependency/SBOM/CVE/license scan اجرا نشده است.
-- هنوز build دقیق HEAD شاخه audit/final-master اجرا نشده است.
-- هنوز اندازه APK بعد از تغییرات این شاخه اندازه‌گیری نشده است.
+- Build دقیق HEAD شاخه audit/final-master در CI Run `45075391129` موفق شد؛ آرشیو APK با اندازه `49,015,078` بایت تولید شد.
+- SHA-256 آرشیو APK: `4eb2ebd8188cd23645f1839eb1dc62031cd270fb4798f6d4989ed38e158f48d7` (Artifact: `king-vpn-arm64-release-2142`). این digest، آرشیو Artifact است و به‌تنهایی امضای تولیدی یا اعتبار نصب را اثبات نمی‌کند.
 - هنوز هیچ موتور جدیدی اضافه یا روی گوشی تأیید نشده است.
 - هیچ اتصال واقعی، DNS leak test، IPv4/IPv6 packet test، اپراتور ایران، failover یا process-death device test در این مرحله ادعا نمی‌شود.
 
@@ -162,7 +162,7 @@
 ### وضعیت اعتبارسنجی
 
 - تغییرات کد در شاخه audit/final-master ثبت شده‌اند.
-- تست‌های افزوده‌شده هنوز در این محیط اجرا نشده‌اند؛ وضعیت آن‌ها **NOT TESTED** تا دریافت نتیجه CI است.
+- اجرای CI دقیق HEAD شاخه audit/final-master در Run `45075391129` برای commit `da2733be49b96497edf166311401271e8d2ef2fb` با نتیجه **SUCCESS** تکمیل شد؛ Source Guard، Flutter Unit Tests، Dart Analysis، ساخت APK بهینه ARM64، بررسی ELF و ZIP alignment برابر 16 KiB و بارگذاری Artifactها همگی موفق بودند.
 - آزمون Wi-Fi/mobile handover، VPN فعال، اپراتور ایران و عبور واقعی ترافیک همچنان **BLOCKED** تا اجرای دستگاهی هستند.
 - این اصلاحات فقط Smart Pilot evidence/routing را سخت‌گیرانه‌تر می‌کنند؛ خودشان اثبات عبور ترافیک VPN نیستند.
 
