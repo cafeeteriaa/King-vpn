@@ -8,16 +8,15 @@ Base branch: `main`
 
 ## Live source of truth — refresh on every resume
 
-- Current audit branch HEAD at this checkpoint: `16590fb5bd2f074c79569ee51ccac56a09a42d92` (documentation-only refresh after `36f4af0`).
+- Current audit branch HEAD at this checkpoint: `36f4af0172aa78b6fc1777e735bbdb0465af7021`.
 - PR #44 is OPEN, DRAFT, mergeable, and NOT merged; its current head is the audit branch above. Keep it Draft; do not merge without explicit owner authorization.
 - Current `main` SHA: `c43d325f9803d4f6306415e511f6790deff9d87e`; no changes were made to `main`.
 - PR #42 remains OPEN and DRAFT at `05fcad8c5c046e647ae62584ba0ac0ed6baf57dd`; PR #43 and #41 remain separate Draft workstreams. Re-read live PR metadata before relying on any of these values.
-- Exact-head CI for audit HEAD `16590fb5bd2f074c79569ee51ccac56a09a42d92`: Run `45094539188` (run 2145), currently `in_progress`; source guard, Flutter unit tests, and Dart analysis passed, while the ARM64 release APK build is still running. Alignment and artifact-upload steps have not yet run.
-- Run `45094163106` for prior docs checkpoint `9a4b0cddeff3f9ee132b5996e496b7db54029ac0`: completed SUCCESS, including ARM64 build, 16 KiB ELF/ZIP alignment, and artifact uploads. It is not exact-head evidence for `16590fb`.
-- Run `45094289369` for `36f4af0172aa78b6fc1777e735bbdb0465af7021`: CANCELLED; do not treat it as a validation failure or success.
+- Exact-head CI for audit HEAD `36f4af0172aa78b6fc1777e735bbdb0465af7021`: Run `45094289369`, observed `pending` at 2026-11-23 01:23 UTC.
+- Previous audit CI Run `45094163106` for documentation checkpoint `9a4b0cddeff3f9ee132b5996e496b7db54029ac0`: observed `in_progress`; Unit Tests and Dart Analysis had passed, ARM64 release APK build was still running, and alignment/artifact steps had not yet completed.
 - Last completed exact-code CI Run `45075391129` for `da2733be49b96497edf166311401271e8d2ef2fb`: SUCCESS, including unit tests, Dart analysis, ARM64 release build, 16 KiB ELF/ZIP alignment and artifact upload. This result does not certify later source commits or device runtime.
 - Latest code-changing commit in PR #44 at this checkpoint: `da2733be49b96497edf166311401271e8d2ef2fb` (test fixture aligned with the three-probe contract); later commits `9a4b0cd` and `36f4af0` are documentation-only.
-- PR #44 currently contains 14 changed files (README, MainActivity, engineering/AI/roadmap docs, Smart Pilot/network-health implementation and tests, patch gate and repair orchestrator). Its base is the live PR #42 branch head `05fcad8c5c046e647ae62584ba0ac0ed6baf57dd`; it remains Draft and unmerged.
+- PR #44 contains 13 changed files (README, MainActivity, engineering/AI/roadmap docs, Smart Pilot/network-health implementation and tests, patch gate and repair orchestrator). Re-read its live diff before making changes.
 - Repository write permission was confirmed. No changes were made to `main`.
 
 ## Latest implementation under review
@@ -100,18 +99,19 @@ Final status: VERIFIED WITH LIMITATIONS. This CI artifact is not declared produc
 
 ### Current validation boundary
 
-- Latest fully completed CI evidence before the current exact-head run: Run `45094163106` / commit `9a4b0cd` — SUCCESS. This commit is documentation-only after code commit `da2733be`; it confirms the same code tree but is not the current exact HEAD.
-- Run `45094539188` for current audit HEAD `16590fb` is in progress; Source Guard, Flutter Unit Tests, and Dart Analysis are successful; ARM64 APK build is in progress.
+- Latest fully completed CI evidence: Run `45075391129` / commit `da2733be` — SUCCESS.
+- A subsequent run for `9a4b0cdd` had passed Unit Tests and Dart Analysis and was observed building the ARM64 APK; final completion was not yet observed.
+- Run `45094289369` for current audit HEAD `36f4af01` was pending when checked.
 - Device-level Start/Stop, process death, VPN revocation, DNS leak, IPv4/IPv6 packet flow, and Iranian operator-network validation remain NOT TESTED.
 - Do not describe any CI artifact as production-signed, install-ready, leak-free, or carrier-validated without separate evidence.
 
 ### Immediate continuation order
 
-1. Poll Run `45094539188` to completion; inspect build/alignment/artifact steps and verify artifacts before claiming exact-head Build success.
-2. Continue Android plugin/custom-service ownership audit without changing `kOwnVpnService=false` until device acceptance. Existing source guards already cover stop-vs-start, stale cleanup, revocation, sticky restart, and generation ownership; do not duplicate them. Add deterministic concurrency tests only if they exercise interleavings not represented by those source guards.
-3. Continue DNS resolver path and IPv4/IPv6 data-plane audit; require packet/device evidence before acceptance. Current global Secure DNS is DoH-first with serialized queries but retains plaintext fallback; national mode places domestic resolvers before DoH fallback. Neither behavior is proof of zero DNS leakage.
-4. Review CI permissions, workflow triggers, dependency/license inventory and AI patch gate before broadening autonomous write scope.
-5. Reconcile the stale `CONTINUATION.md` header on PR #42: it names `c23e607` while the live PR #42 head is `05fcad8`; do not treat the checkpoint's embedded SHA as the live branch ref.
+1. Recheck completion of Runs `45094163106` and `45094289369`; inspect failed steps/logs if either fails.
+2. Continue the Android plugin/custom-service ownership audit without changing `kOwnVpnService=false) until device acceptance.
+3. Add deterministic coverage for process-death recovery and stop/start ownership only where existing tests do not already cover the interleavings.
+4. Continue DNS resolver path and IPv4/IPv6 data-plane audit; require packet/device evidence before acceptance.
+5. Review CI permissions, workflow triggers, dependency/license inventory and AI patch gate before broadening autonomous write scope.
 
 ## Next engineering priorities
 
@@ -131,11 +131,3 @@ Final status: VERIFIED WITH LIMITATIONS. This CI artifact is not declared produc
 - Never infer domestic hosting or successful national reachability from country labels alone.
 - Keep CI evidence separate from device/operator-network evidence.
 - Do not claim install-ready, production-signed, leak-free, or carrier-validated without corresponding evidence.
-
-
-## Additional live audit findings — 2026-11-23
-
-- Live branch resolution: `audit/final-master` = `16590fb5bd2f074c79569ee51ccac56a09a42d92`; `main` = `c43d325f9803d4f6306415e511f6790deff9d87e`; PR #44 is open Draft with base `codex/continuation-mainline-20261122` at `05fcad8c5c046e647ae62584ba0ac0ed6baf57dd`. PR #42 is independently open Draft at that same base-branch HEAD. No merge was performed.
-- The mainline `CONTINUATION.md` content has a stale embedded current-head field (`c23e607d...`) while GitHub's live PR #42 head is `05fcad8c...`; always trust the live ref/PR metadata and reconcile the checkpoint before relying on it.
-- DNS static review: `_reliableVpnCfg` applies `mergeNationalDnsServers` in national mode and DoH-first ordering plus `enableParallelQuery=false` for global Secure DNS outside Ultra mode. Plaintext fallback entries remain configured globally, and national mode deliberately keeps domestic resolvers first. This is an explicit availability trade-off, not a strict no-plaintext guarantee. DNS routing through the intended core and IPv4/IPv6 leak behavior remain unverified without device packet evidence.
-- Android service review: `requestStopAndPersist` serializes stop-generation invalidation and durable marker write under the reentrant `lifecycleLock`; `stopEverything` queues/executes cleanup asynchronously and the MethodChannel stop handler acknowledges the request before core/TUN shutdown is proven. `kOwnVpnService=false` remains the active plugin-managed path. Existing source guards already cover many lifecycle interleavings; no duplicate guards or speculative production changes were added.
