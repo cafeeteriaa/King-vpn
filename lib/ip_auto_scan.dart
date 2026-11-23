@@ -151,11 +151,10 @@ extension IpAutoExt on _HomePageState {
       ipAutoStopFlag || connected || busy ||
       (modeSnapshot != null && nationalMode != modeSnapshot);
 
-  /// نت ملی: اسکن IP خودکار بدون دکمه (هر ۲۴ ساعت، یا ۶ ساعت اگر نتیجه نداشت)، فقط وقتی VPN قطع است.
-  /// نتایج در فهرست نت ملی ذخیره می‌شوند و هیچ صف یا بازه‌ی دیگری را تغییر نمی‌دهد.
+  /// اسکن IP خودکار در هر دو حالت ملی و جهانی، با مخزن و کرسر مستقل.
   Future<void> ipAutoBackground() async {
     final runNationalMode = nationalMode;
-    if (!kNatIpScanOn || !runNationalMode) return;
+    if (!kNatIpScanOn) return;
     if (ipAutoBusy || dnsxManualBusy || _natRangeScanBusy || _dnsxAutoBusy) return;
     if (connected || busy) return;
 
@@ -171,16 +170,17 @@ extension IpAutoExt on _HomePageState {
       final p = await SharedPreferences.getInstance();
       if (_ipAutoHalt(modeSnapshot: runNationalMode)) return;
 
-      final last = int.tryParse(p.getString(_ipAutoAtKey) ?? '') ?? 0;
+      final atKey = '${_ipAutoAtKey}_${runNationalMode ? 'nat' : 'glob'}';
+      final last = int.tryParse(p.getString(atKey) ?? '') ?? 0;
       final now = DateTime.now().millisecondsSinceEpoch;
-      // اگر هنوز IP سالمی پیدا نشده، زودتر دوباره امتحان می‌شود (۶ ساعت)؛ وگرنه هر ۲۴ ساعت
-      final gapMs = ipAutoHits.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
+      // Continue discovery frequently; the cursor preserves the complete inventory.
+      final gapMs = ipAutoHits.isEmpty ? 10 * 60 * 1000 : 60 * 60 * 1000;
       if (now - last < gapMs) return;
 
       final completed = await _ipAutoRunOnce((s) => ipAutoStatus = s);
       // Failed, cancelled, or mode-switched scans must not consume the retry interval.
       if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode)) {
-        await p.setString(_ipAutoAtKey, now.toString());
+        await p.setString(atKey, now.toString());
       }
     } catch (e, stk) {
       logError(e, stk);
@@ -195,7 +195,7 @@ extension IpAutoExt on _HomePageState {
 
   /// دلیل رد شدن شروع اسکن؛ null یعنی می‌شود شروع کرد
   String? _ipAutoRefusal() {
-    // نت ملی کاملاً خودکار است؛ دکمه‌ی دستی فقط برای حالت عادی است
+    // Background discovery is automatic in both network modes; manual scans share the same lock.
     if (!kNatIpScanOn) return 'اسکن IP از تنظیم اصلی خاموش است.';
     if (ipAutoBusy || dnsxManualBusy) return 'اسکن دیگری در حال اجراست.';
     if (connected || busy) return 'اول VPN را قطع کنید، بعد اسکن خودکار IP را اجرا کنید.';
