@@ -149,6 +149,19 @@ void main() {
   });
 
   group('NatDnsWireProbe', () {
+    test('parseResolver accepts both IPv4 and IPv6 resolver endpoints', () {
+      expect(
+        NatDnsWireProbe.parseResolver('8.8.8.8')?.type,
+        InternetAddressType.IPv4,
+      );
+      expect(
+        NatDnsWireProbe.parseResolver('2001:4860:4860::8888')?.type,
+        InternetAddressType.IPv6,
+      );
+      expect(NatDnsWireProbe.parseResolver('not-an-ip'), isNull);
+      expect(NatDnsWireProbe.parseResolver('google.com'), isNull);
+    });
+
     test('buildQuery encodes the name as length-prefixed labels', () {
       final q = NatDnsWireProbe.buildQuery('google.com', 0x1234);
       expect(q.sublist(0, 2), [0x12, 0x34]); // transaction ID
