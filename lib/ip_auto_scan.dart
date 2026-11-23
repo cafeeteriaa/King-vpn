@@ -13,11 +13,8 @@ const String _ipAutoKeyGlob = 'ipauto_glob_v1';
 const String _ipAutoCursorKey = 'ipauto_cursor_v1';
 const String _ipAutoPosKey = 'ipauto_pos_v1'; // جای فعلی در فهرست آدرس‌ها
 const int _ipAutoBatch = kNatMaxScanAddresses; // Hard cap shared with every other IP scanner
-const int _ipAutoMaxHits = 1000; // سقف نتایج ذخیره‌شده
-const int _ipAutoPorts = 5; // بیشترین پورت برای TCP
 const String _ipAutoAtKey = 'ipauto_at_v1'; // زمان آخرین اسکن خودکار نت ملی
 const int _ipAutoConc = 48; // اتصال TCP همزمان
-const int _ipAutoCoreMax = 200; // سقف تست هسته در هر اجرا
 
 bool ipAutoBusy = false;
 bool ipAutoStopFlag = false;
@@ -279,7 +276,7 @@ extension IpAutoExt on _HomePageState {
       say('آدرسی برای اسکن پیدا نشد.');
       return false;
     }
-    final ports = natAutoPorts(pool).take(_ipAutoPorts).toList();
+    final ports = natAutoPorts(pool);
     if (ports.isEmpty) ports.add(443);
 
     // مرحله‌ی ۱: TCP روی همه‌ی آدرس‌ها
@@ -291,7 +288,7 @@ extension IpAutoExt on _HomePageState {
         addrs,
         port: port,
         concurrency: (manual && runNationalMode) ? kNatManualConc : _ipAutoConc,
-        want: 300,
+        want: addrs.length,
         budget: const Duration(minutes: 5),
         timeout: const Duration(milliseconds: 1500),
         cancelled: halted,
@@ -308,9 +305,9 @@ extension IpAutoExt on _HomePageState {
     final tplSrv = tpl.first;
     var found = 0;
     var checked = 0;
-    // سقف تست هسته در هر اجرا، تا زمان اجرا از حد نگذرد (بقیه در اجرای بعدی از آدرس‌های تازه می‌آیند)
-    final toTest = candidates.take(_ipAutoCoreMax).toList();
-    say('${candidates.length} پورت باز (تست ${toTest.length} تای اول)؛ تست با هسته‌ی VPN...');
+    // Every TCP-responsive endpoint is eligible for a real core/tunnel test.
+    final toTest = candidates;
+    say('${candidates.length} پورت باز؛ تست همه با هسته‌ی VPN...');
     for (final c in toTest) {
       if (halted()) break;
       checked++;
@@ -337,9 +334,6 @@ extension IpAutoExt on _HomePageState {
       // Keep it as a candidate only; promotion requires a real user tunnel test.
       seen.add(c);
       found++;
-      if (ipAutoHits.length > _ipAutoMaxHits) {
-        ipAutoHits.removeRange(_ipAutoMaxHits, ipAutoHits.length);
-      }
       say('تست $checked/${toTest.length} • جواب‌داده: $found');
     }
     if (halted()) {
