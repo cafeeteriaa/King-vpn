@@ -243,7 +243,7 @@ Future<List<NatIpHit>> natScanIps(
   final hits = <NatIpHit>[];
 
   // Optional shuffle so the same subnet is not hit first on every run.
-  final source = randomize ? (List<String>.of(validatedIps)..shuffle(Random())) : boundedIps;
+  final source = randomize ? (List<String>.of(validatedIps)..shuffle(Random())) : validatedIps;
 
   var next = 0;
   var done = 0;

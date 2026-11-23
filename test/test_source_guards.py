@@ -1554,7 +1554,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         bg_end = source.index('/// دلیل رد شدن شروع اسکن', bg_start)
         background = source[bg_start:bg_end]
         completed = background.index('final completed = await _ipAutoRunOnce(')
-        timestamp = background.index('await p.setString(_ipAutoAtKey, now.toString());')
+        timestamp = background.index('await p.setString(atKey, now.toString());')
         self.assertIn('if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode))', background)
         self.assertLess(completed, timestamp)
 
@@ -2513,7 +2513,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
         cdn = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         self.assertIn('const int kNatMaxScanAddresses = 4096;', nat)
-        self.assertIn('final boundedIps = natBoundScanTargets(ips);', nat)
+        self.assertIn('final validatedIps = natBoundScanTargets(ips);', nat)
         self.assertIn('elapsed.elapsed >= budget', nat)
         self.assertIn('Future<List<String>> nipIranCidrs()', nip)
         self.assertIn('maxPerBlock = 65536', nat)
@@ -3926,7 +3926,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_generated_sni_swap_indices_match_front_sni_candidates(self):
         ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         scan = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
-        self.assertIn('const [0, 1, 2, 7][sniIdx]', ultra)
+        self.assertIn('for (var sniIdx = 0; sniIdx < natFrontSnis.length; sniIdx++)', ultra)
         self.assertIn("'cloudflare-dns.com'", scan)
         self.assertNotIn("'1.1.1.1',                 // 4", scan)
 
@@ -4131,8 +4131,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_nat_sni_variant_labels_match_candidate_indices(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         self.assertIn("_NatSpec('SNI>cloudflare', sniSwap: 1)", source)
-        self.assertIn("_NatSpec('SNI>speed', sniSwap: 2)", source)
-        self.assertIn('const [0, 1, 2, 7][sniIdx]', source)
+        self.assertIn("_NatSpec('SNI>speed', sniSwap: 3)", source)
+        self.assertIn("_NatSpec('SNI>divar.ir', sniSwap: 6)", source)
         self.assertIn("natFrontSnis[sniSwap]", source)
     def test_global_tls_sanitizer_removes_allow_insecure(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')

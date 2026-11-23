@@ -177,6 +177,7 @@ String? nipSwapLink(Server t, String ip) {
 // CHAINHUNT: کمک‌های جستجوی IP (پشت هم، هرکدام جواب داد همان استفاده می‌شود)
 // آدرس واسط (relay) که خودت اضافه می‌کنی: IP سرور داخلی/واسط با همان پورت سرور.
 // مثال: const natRelayHosts = <String>['1.2.3.4'];
+const int kNatMaxRelayHosts = 32;
 List<String> natRelayHosts = <String>[];
 
 Future<void> natRelayHostsLoad() async {
@@ -184,6 +185,7 @@ Future<void> natRelayHostsLoad() async {
     final p = await SharedPreferences.getInstance();
     natRelayHosts = natBoundScanTargets(
       p.getStringList('nat_relay_hosts') ?? <String>[],
+      maxCount: kNatMaxRelayHosts,
     );
   } catch (e, st) {
     logError(e, st);
@@ -193,6 +195,7 @@ Future<void> natRelayHostsLoad() async {
 Future<void> natRelayHostsSave(String text) async {
   natRelayHosts = natBoundScanTargets(
     text.split(RegExp(r'[\s,;]+')),
+    maxCount: kNatMaxRelayHosts,
   );
   try {
     final p = await SharedPreferences.getInstance();
