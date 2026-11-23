@@ -162,6 +162,14 @@ void main() {
       );
     });
 
+    test('parseResponse normalizes a fully qualified name with trailing dot', () {
+      final bytes = _response(id: 0x1234, rdata: [8, 8, 8, 8]);
+      expect(
+        NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com.'),
+        ['8.8.8.8'],
+      );
+    });
+
     test('accepts a valid public A answer', () {
       final bytes = _response(id: 0x1234, rdata: [8, 8, 8, 8]);
       expect(NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'), ['8.8.8.8']);
