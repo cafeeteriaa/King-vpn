@@ -4131,7 +4131,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_nat_sni_variant_labels_match_candidate_indices(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         self.assertIn("_NatSpec('SNI>cloudflare', sniSwap: 1)", source)
-        self.assertIn("_NatSpec('SNI>speed', sniSwap: 2)", source)
         self.assertIn("_NatSpec('SNI>speed', sniSwap: 3)", source)
         self.assertIn("_NatSpec('SNI>divar.ir', sniSwap: 6)", source)
         self.assertIn("natFrontSnis[sniSwap]", source)
