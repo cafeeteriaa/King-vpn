@@ -19,7 +19,7 @@ const List<String> kAutoFallbackIps = [
 bool _autoScanRunning = false;
 bool _autoScanStop = false;
 const String _autoScanCdnCursorKey = 'auto_scan_cdn_cursors_v1';
-const int _autoScanCdnBatchSize = 8; // full SNI/port/TLS pass fits the shared three-minute budget
+const int _autoScanCdnBatchSize = 8; // full SNI/port/TLS pass fits the shared four-minute budget
 
 // TLS با SNI مشخص: اگر هندشیک کامل شود، SNI برای آن IP قابل استفاده است
 Future<int?> _autoSniOk(String ip, int port, String sni) async {
