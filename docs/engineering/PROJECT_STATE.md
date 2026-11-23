@@ -151,7 +151,7 @@ Final status: VERIFIED WITH LIMITATIONS. This CI artifact is not declared produc
 
 ## Resume checkpoint — 2026-11-23 (live-head reconciliation and workflow review)
 
-- Live PR #44 metadata was refreshed: OPEN, DRAFT, mergeable, base `codex/continuation-mainline-20261122`, head `audit/final-master`, current head SHA `7c5c5a96367d635f3b0f96732c02d6354835125b`. PR #44 remains unmerged; `main` was not changed.
+- Live PR #44 metadata was refreshed before this checkpoint write: OPEN, DRAFT, mergeable, base `codex/continuation-mainline-20261122`, head `audit/final-master`, preceding head SHA `7c5c5a96367d635f3b0f96732c02d6354835125b`. This documentation checkpoint advances the branch to `aa62b09b339a2abd6da70899065903c9b4fc8710`; PR #44 remains unmerged and `main` was not changed.
 - Current code-changing commit on the audit branch: `649147e8a3c96979f1bbab82c14ccff09f6bbf2d` (Android 11+ VPN owner-UID check and source guard). The live head `7c5c5a9` is a documentation-only `[skip ci]` checkpoint after that code commit.
 - Exact-code CI Run 2157 (`45132996395`) for `649147e` completed SUCCESS. Successful steps include source guards, Flutter unit tests, Dart analysis, optimized arm64 release build, ELF 16 KiB alignment, APK ZIP alignment, and APK/source/symbol artifact uploads. Artifacts are CI-signed, not production-signed. No device/runtime acceptance is implied.
 - Exact-head CI Run 2145 (`45094539188`) for earlier checkpoint `16590fb` also completed SUCCESS and produced arm64 APK, full-source ZIP, and symbols. It is historical evidence for that exact source head, not a replacement for Run 2157.
