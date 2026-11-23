@@ -634,7 +634,7 @@ Future<void> refreshCdnRanges() async {
           .toList();
     });
 
-    await pull('fastly', _fastlyRanges, 48, () async {
+    await pull('fastly', _fastlyRanges, () async {
       final res = await http.get(Uri.parse('https://api.fastly.com/public-ip-list'));
       if (res.statusCode != 200) return const <String>[];
       final j = await compute(cdnJsonDecodeBg, res.body);
@@ -643,7 +643,7 @@ Future<void> refreshCdnRanges() async {
       return addrs.whereType<String>().toList();
     });
 
-    await pull('aws-cloudfront', _awsCfRanges, 96, () async {
+    await pull('aws-cloudfront', _awsCfRanges, () async {
       final res = await http.get(Uri.parse('https://ip-ranges.amazonaws.com/ip-ranges.json'));
       if (res.statusCode != 200) return const <String>[];
       final j = await compute(cdnJsonDecodeBg, res.body);
