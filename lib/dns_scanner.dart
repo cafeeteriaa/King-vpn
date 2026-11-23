@@ -123,8 +123,13 @@ List<String> dnsxFullDomains() {
     ...natIrDomains,
     ..._dnsxHostsFrom(iranDomains),
     ..._dnsxHostsFrom(_iranMoreDomains),
+    ...good.where((server) => !server.isIp).map((server) => server.host),
+    ...pending.where((server) => !server.isIp).map((server) => server.host),
+    ...fetchedAll.where((server) => !server.isIp).map((server) => server.host),
   };
-  return all.toList();
+  final domains = all.where((value) => value.trim().isNotEmpty).toList()
+    ..sort();
+  return domains;
 }
 
 /// متن نمایشی دامنه‌ها در شیت
