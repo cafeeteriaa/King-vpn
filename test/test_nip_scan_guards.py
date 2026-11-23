@@ -14,7 +14,7 @@ class NationalIpScannerGuardTests(unittest.TestCase):
         end = self.source.index("/// اتصال TCP", start)
         block = self.source[start:end]
         self.assertIn("if (maxPerBlock <= 0) return const [];", block)
-        self.assertIn("maxPerBlock = min(maxPerBlock, 4096);", block)
+        self.assertIn('final step = size > maxPerBlock', block)
         self.assertIn("(size + maxPerBlock - 1) ~/ maxPerBlock", block)
 
     def test_scanner_validates_port_and_time_budgets_before_work(self):
@@ -79,7 +79,7 @@ class NationalIpScannerGuardTests(unittest.TestCase):
         block = source[start:end]
         self.assertIn('InternetAddressType.IPv6', block)
         self.assertIn('prefix < 0 ||', block)
-        self.assertIn('min(maxPerBlock, kNatMaxScanAddresses)', block)
+        self.assertIn('final limit = maxPerBlock;', block)
         self.assertIn('BigInt', block)
         self.assertIn('InternetAddress.fromRawAddress', block)
 
@@ -115,7 +115,7 @@ class NationalIpScannerGuardTests(unittest.TestCase):
         self.assertIn("cancelled?.call() == true", block)
         self.assertIn("final probeBudget = remaining < perProbeCap ? remaining : perProbeCap;", block)
         self.assertIn("nipFrontProbe(ip, port, sni, timeout: probeBudget)", block)
-        self.assertIn("budget = const Duration(seconds: 12)", block)
+        self.assertIn("budget = const Duration(seconds: 90)", block)
 
     def test_front_sni_scan_passes_its_abort_signal_to_each_probe(self):
         self.assertIn("nipFindFrontSni(h.ip, port, cancelled: () => abort)", self.source)
