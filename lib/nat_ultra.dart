@@ -2436,7 +2436,7 @@ const int natHotPerSource = 2000000;
 const int natHotMin = 30000;
 const int natHotMax = 2000000;
 List<Server> Function()? natExtraSource;
-const Duration natHotTtl = Duration(hours: 72);
+const Duration natHotTtl = Duration(hours: 6);
 const Duration natHotFetchDeadline = Duration(seconds: 900);
 bool _hotBusy = false;
 DateTime? _hotFailAt;
