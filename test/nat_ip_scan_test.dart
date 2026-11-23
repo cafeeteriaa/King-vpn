@@ -5,6 +5,21 @@ import 'package:king_vpn/nat_ip_scan.dart';
 
 void main() {
   group('IP range expansion limits', () {
+    test('full port inventory includes every valid port once after priority seeds', () {
+      expect(
+        natBuildFullPortInventory([4, 2, 4, 99], firstPort: 1, lastPort: 5),
+        [4, 2, 1, 3, 5],
+      );
+      final allPorts = natBuildFullPortInventory([443, 443, 65535]);
+      expect(allPorts, hasLength(65535));
+      expect(allPorts.toSet(), hasLength(65535));
+      expect(allPorts.take(2), [443, 65535]);
+      expect(allPorts, contains(1));
+      expect(allPorts, contains(65535));
+      expect(natBuildFullPortInventory([443], firstPort: 0), isEmpty);
+      expect(natBuildFullPortInventory([443], firstPort: 5, lastPort: 4), isEmpty);
+    });
+
     test('persisted outer cursor indexes recover from negative and malformed values', () {
       expect(natCursorIndex('-1', 7), 0);
       expect(natCursorIndex('broken', 7), 0);
