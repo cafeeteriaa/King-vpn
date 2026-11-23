@@ -2367,13 +2367,21 @@ Future<List<String>> _natRangeScanStepBody({
       try {
         final p = await SharedPreferences.getInstance();
         await p.setInt('natConfiguredRangeCursor', persistedCursor);
-        await p.setInt('natRangePortCursor', natRangePortCursor);
         await p.setString('natConfiguredRangeCursors', persistedRangeCursors);
       } catch (e, st) {
         logError(e, st);
       }
     }());
   }
+  final persistedPortCursor = natRangePortCursor;
+  unawaited(() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setInt('natRangePortCursor', persistedPortCursor);
+    } catch (e, st) {
+      logError(e, st);
+    }
+  }());
   natTemplateSeeds = seeds.take(2).toList();
   natRandomLast = 0;
   natIpScanned += slice.length;
