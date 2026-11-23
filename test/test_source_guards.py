@@ -2487,6 +2487,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (ips.isEmpty || want <= 0) return <NatIpHit>[];', body)
         self.assertIn('if (ms != null && hits.length < want)', body)
 
+    def test_network_scanners_share_hard_resource_and_transport_bounds(self):
+        nat = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        ip_auto = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        self.assertIn('const int kNatMaxScanAddresses = 4096;', nat)
+        self.assertIn('final boundedIps = natBoundScanTargets(ips);', nat)
+        self.assertIn('final boundedIps = natBoundScanTargets(ips);', nip)
+        self.assertIn('elapsed.elapsed >= budget', nip)
+        self.assertIn('maxPerBlock = min(maxPerBlock, kNatMaxScanAddresses);', ultra)
+        self.assertIn('const int _ipAutoBatch = kNatMaxScanAddresses;', ip_auto)
+        self.assertIn('boundedServers.length >= 128', dns)
+        self.assertIn('uniqueDomains.take(128)', dns)
+        self.assertIn('resolver.type != InternetAddressType.IPv4', dns)
+
     def test_auto_sni_scan_uses_shared_scanner_lock(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> autoScanRun(')
