@@ -3907,6 +3907,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("_NatSpec('SNI>speed', sniSwap: 2)", source)
         self.assertIn('const [0, 1, 2, 7][sniIdx]', source)
         self.assertIn("natFrontSnis[sniSwap]", source)
+    def test_global_tls_sanitizer_removes_allow_insecure(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('String sanitizeCfg(String cfg)')
+        end = source.index('// NAMEFIX:', start)
+        sanitizer = source[start:end]
+        self.assertIn("ss.remove('allowInsecure')", sanitizer)
+        self.assertIn("key == 'tlsSettings'", sanitizer)
     def test_sni_camouflage_never_enables_insecure_tls(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('String _natSmartSni(')

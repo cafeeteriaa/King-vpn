@@ -2684,6 +2684,9 @@ String sanitizeCfg(String cfg) {
       for (final key in const ['tlsSettings', 'realitySettings']) {
         final ss = st[key];
         if (ss is Map) {
+          if (key == 'tlsSettings' && ss.remove('allowInsecure') != null) {
+            changed = true;
+          }
           final fpv = ss['fingerprint']?.toString();
           if (fpv == 'random' || fpv == 'randomized') {
             ss['fingerprint'] = 'chrome';
