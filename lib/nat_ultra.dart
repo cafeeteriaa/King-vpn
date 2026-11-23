@@ -2268,37 +2268,12 @@ List<String> _getCfIps({
 // narrowed to a platform int. Store their decimal cursor as a JSON string.
 (List<String>, String) _natExpandAnyCursorWide(
     String item, Object? cursorValue, int maxPerBlock) {
-  if (maxPerBlock <= 0) return (const <String>[], cursorValue?.toString() ?? '0');
-  final cursor = cursorValue?.toString() ?? '0';
-  bool isIpv6Range() {
-    if (item.contains('/')) {
-      final parts = item.split('/');
-      return parts.length == 2 &&
-          InternetAddress.tryParse(parts[0].trim())?.type == InternetAddressType.IPv6;
-    }
-    if (item.contains('-')) {
-      final parts = item.split('-');
-      return parts.length == 2 &&
-          InternetAddress.tryParse(parts[0].trim())?.type == InternetAddressType.IPv6 &&
-          InternetAddress.tryParse(parts[1].trim())?.type == InternetAddressType.IPv6;
-    }
-    return InternetAddress.tryParse(item.trim())?.type == InternetAddressType.IPv6;
-  }
-
-  if (isIpv6Range()) {
-    final batch = natExpandIpv6RangeCursor(
-      item,
-      cursor,
-      maxPerBlock: maxPerBlock,
-    );
-    return (batch.addresses, batch.nextCursor);
-  }
-  final legacy = _natExpandAnyCursor(
+  final batch = natExpandIpRangeCursor(
     item,
-    int.tryParse(cursor) ?? 0,
-    maxPerBlock,
+    cursorValue?.toString() ?? '0',
+    maxPerBlock: maxPerBlock,
   );
-  return (legacy.$1, legacy.$2.toString());
+  return (batch.addresses, batch.nextCursor);
 }
 
 // فیکس ۳: ساخت رشته‌های IP (صدها هزار تا چند میلیون) از ترد UI به isolate منتقل شد.
