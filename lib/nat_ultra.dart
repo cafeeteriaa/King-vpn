@@ -2214,41 +2214,59 @@ List<String> _getCfIps({
 // به ترد اصلی برگردد چون isolate نسخه‌ی کپی را تغییر می‌دهد (بدون آن اسکن هر دور از اول شروع می‌شد).
 Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   final int cfIpsBatch = args['cfIpsBatch'] as int;
+  final int cap = max(0, args['maxAddrs'] as int);
   final List<String> blocks = List<String>.from(args['blocks'] as List);
   final bool nationalMode = args['nationalMode'] as bool;
   final List<String> liveRanges = List<String>.from(args['liveRanges'] as List);
   final Map<String, int> cursors = Map<String, int>.from(args['cursors'] as Map);
   final addrs = <String>[];
-  // NATMEM: هر بلوک حداکثر ۲۵۶ آدرس پراکنده و کل فهرست سقف دارد. قبلاً هر بلوک تا ۶۵۵۳۶ آدرس
-  // و فهرست ISP حدود ۲۸۰۰ بلوک داشت، یعنی ده‌ها میلیون رشته در isolate و فقط ۶۰۰۰ تای آن استفاده می‌شد.
-  final cap = max(cfIpsBatch * 4, 20000);
+
+  // Generate exactly the batch that will be scanned. Cursor advancement and
+  // returned addresses therefore describe the same work; no generated tail is lost.
   void addBlocks() {
-    if (blocks.isEmpty) return;
-    // Rotate across the entire CIDR/range catalog; otherwise a capped list
-    // repeatedly expands only its first ~N blocks and starves the rest.
+    if (blocks.isEmpty || addrs.length >= cap) return;
     final start = (cursors['__block_cursor'] ?? 0) % blocks.length;
     var processed = 0;
-    for (var offset = 0; offset < blocks.length; offset++) {
-      if (addrs.length >= cap) break;
+    for (var offset = 0; offset < blocks.length && addrs.length < cap; offset++) {
       final index = (start + offset) % blocks.length;
       final range = blocks[index];
       final key = 'block:$range';
       final cursor = cursors[key] ?? 0;
-      final generated = _natExpandAnyCursor(range, cursor, 256);
+      final remaining = cap - addrs.length;
+      final rangesLeft = blocks.length - offset;
+      final quota = max(1, (remaining + rangesLeft - 1) ~/ rangesLeft);
+      final generated = _natExpandAnyCursor(range, cursor, quota);
       if (generated.$1.isNotEmpty) {
         addrs.addAll(generated.$1);
         cursors[key] = generated.$2;
       }
       processed++;
     }
-    cursors['__block_cursor'] = ((start + max(1, processed)) % blocks.length).toInt();
+    if (processed > 0) {
+      cursors['__block_cursor'] = (start + processed) % blocks.length;
+    }
   }
+
   if (nationalMode) {
-    addrs.addAll(_getCfIps(batchSize: cfIpsBatch, liveRanges: liveRanges, cursors: cursors));
+    final cfBatch = min(cfIpsBatch, cap);
+    if (cfBatch > 0) {
+      addrs.addAll(_getCfIps(
+        batchSize: cfBatch,
+        liveRanges: liveRanges,
+        cursors: cursors,
+      ));
+    }
     addBlocks();
   } else {
     addBlocks();
-    addrs.addAll(_getCfIps(batchSize: cfIpsBatch, liveRanges: liveRanges, cursors: cursors));
+    final remaining = cap - addrs.length;
+    if (remaining > 0 && cfIpsBatch > 0) {
+      addrs.addAll(_getCfIps(
+        batchSize: min(cfIpsBatch, remaining),
+        liveRanges: liveRanges,
+        cursors: cursors,
+      ));
+    }
   }
   return {'addrs': addrs, 'cursors': cursors};
 }
@@ -2322,6 +2340,7 @@ Future<List<String>> _natRangeScanStepBody({
   unawaited(refreshCdnRanges());
   final args = <String, dynamic>{
     'cfIpsBatch': 0, // no broad CDN/third-party range sweep in automatic mode
+    'maxAddrs': maxAddrs,
     'blocks': blocks,
     'nationalMode': modeSnapshot,
     'liveRanges': <String>[],
