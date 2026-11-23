@@ -62,6 +62,29 @@ void main() {
       expect(batch.nextCursor, '1');
     });
 
+    test('non-wrapping cursors visit every IPv4 and IPv6 address exactly once', () {
+      for (final range in ['192.0.2.0/30', '2001:db8::/126']) {
+        var cursor = '0';
+        final addresses = <String>[];
+        while (cursor != 'done') {
+          final batch = natExpandIpRangeCursor(
+            range,
+            cursor,
+            maxPerBlock: 2,
+            wrap: false,
+          );
+          addresses.addAll(batch.addresses);
+          cursor = batch.nextCursor;
+        }
+        expect(addresses, hasLength(4));
+        expect(addresses.toSet(), hasLength(4));
+        final again = natExpandIpRangeCursor(
+          range, cursor, maxPerBlock: 2, wrap: false,
+        );
+        expect(again.addresses, isEmpty);
+      }
+    });
+
     test('IPv6 range cursors cover each address and wrap without 64-bit truncation', () {
       final first = natExpandIpv6RangeCursor(
         '2001:db8::/126', '0', maxPerBlock: 2,
