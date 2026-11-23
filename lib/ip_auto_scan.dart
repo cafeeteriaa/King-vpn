@@ -117,9 +117,15 @@ List<String> _ipAutoBlocks(Iterable<Server> knownServers) {
 
   void addHostBlock(String host) {
     final parsed = InternetAddress.tryParse(host.trim());
-    if (parsed == null || parsed.type != InternetAddressType.IPv4) return;
-    final octets = parsed.address.split('.');
+    if (parsed == null) return;
     ips.add(parsed.address);
+    if (parsed.type == InternetAddressType.IPv6) {
+      // A discovered IPv6 endpoint is tested as that exact address; do not
+      // infer or enumerate an enormous neighbouring IPv6 prefix.
+      blocks.add('${parsed.address}/128');
+      return;
+    }
+    final octets = parsed.address.split('.');
     blocks.add('${octets[0]}.${octets[1]}.${octets[2]}.0/24');
   }
 
@@ -137,7 +143,10 @@ List<String> _ipAutoBlocks(Iterable<Server> knownServers) {
     }
   }
 
-  blocks.addAll(ips.map((ip) => '$ip/32'));
+  blocks.addAll(ips.map((ip) {
+    final parsed = InternetAddress.tryParse(ip);
+    return parsed?.type == InternetAddressType.IPv6 ? '$ip/128' : '$ip/32';
+  }));
   return blocks.toList(growable: false);
 }
 
