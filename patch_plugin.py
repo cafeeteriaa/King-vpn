@@ -1106,3 +1106,14 @@ exact_replace(vpn, '''    public void onRevoke() {
         try {''', '''    public void onRevoke() {
         setKingVpnTunnelActive(false);
         try {''', 'P1-39 clear active state on revoke');
+
+# DNS safety contract: upstream 3.5.0 must bind plain-IP DNS servers from the
+# Xray config to Android VpnService.Builder; fail the build if a plugin update
+# silently removes the system-resolver DNS setup.
+_dns_contract = open(vpn, encoding='utf-8').read()
+if ('builder.addDnsServer(candidate)' not in _dns_contract or
+        'isPlainIpAddress(candidate)' not in _dns_contract or
+        'if (!addedDns)' not in _dns_contract):
+    print('ERROR: DNS configuration must populate Android VpnService.Builder')
+    sys.exit(1)
+print('OK: upstream Android VPN DNS integration contract')

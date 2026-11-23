@@ -3854,6 +3854,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("'cloudflare-dns.com'", scan)
         self.assertNotIn("'1.1.1.1',                 // 4", scan)
 
+    def test_custom_vpn_service_registers_dns_servers_from_core_config(self):
+        source = (ROOT / "android_src" / "KingVpnService.java").read_text(encoding="utf-8")
+        start = source.index("private void addConfiguredDnsServers(")
+        end = source.index("private static boolean isPlainIpAddress(", start)
+        dns_setup = source[start:end]
+        self.assertIn('dns.optJSONArray("servers")', dns_setup)
+        self.assertIn("builder.addDnsServer(candidate.trim())", dns_setup)
+        self.assertIn('builder.addDnsServer("1.1.1.1")', dns_setup)
+        self.assertIn("addConfiguredDnsServers(b, cfg)", source)
+
+    def test_plugin_patcher_guards_upstream_tun_dns_integration(self):
+        source = (ROOT / "patch_plugin.py").read_text(encoding="utf-8")
+        self.assertIn("builder.addDnsServer(candidate)", source)
+        self.assertIn("isPlainIpAddress(candidate)", source)
+        self.assertIn("DNS configuration must populate Android VpnService.Builder", source)
     def test_sni_camouflage_never_enables_insecure_tls(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('String _natSmartSni(')
