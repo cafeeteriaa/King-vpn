@@ -2763,6 +2763,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('_ipAutoMaxHits', source)
         self.assertNotIn('ipAutoHits.removeRange(', source)
         self.assertIn('final ports = natAutoPorts(pool);', source)
+        self.assertIn('final hasRangeInventory = runNationalMode', source)
+        self.assertIn('if (tpl.isEmpty)', source)
+        self.assertIn('Keep its candidates', source)
         self.assertIn('want: addrs.length,', source)
         self.assertIn('const Duration _ipAutoCoreBudget = Duration(minutes: 4);', source)
         self.assertIn('while (ipAutoPendingCore.isNotEmpty &&', source)
@@ -2793,6 +2796,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('return (addresses: slice, cursors: generatedCursors);', next_batch)
         self.assertNotIn('ipAutoCursors\n    ..clear()', next_batch)
 
+
+    def test_auto_sni_scan_uses_a_fair_resumable_dual_stack_batch(self):
+        auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        self.assertIn('const int _autoScanCdnBatchSize = 8;', auto)
+        self.assertIn('final targetRanges = <String>{', auto)
+        self.assertIn('...base,', auto)
+        self.assertIn('...ipv6DnsIps,', auto)
+        self.assertIn('...cdnRanges,', auto)
+        self.assertIn('liveRanges: targetRanges,', auto)
+        self.assertIn('cursors: stagedCdnCursors,', auto)
+        self.assertLess(
+            auto.index('await goldAddScans('),
+            auto.index('prefs.setString(_autoScanCdnCursorKey, jsonEncode(stagedCdnCursors))'),
+        )
+        self.assertIn('type: InternetAddressType.IPv6', auto)
+        self.assertIn('_autoSniOk(ip, 443, d)', auto)
+        self.assertIn('_autoPortOk(ip, p)', auto)
+        self.assertIn('_autoAlpnOk(ip, tlsSni, alpn)', auto)
 
     def test_nip_hunt_and_ripe_asn_scanning_accept_both_address_families(self):
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
