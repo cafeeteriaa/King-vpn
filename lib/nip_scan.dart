@@ -525,59 +525,75 @@ extension NipHunt on _HomePageState {
   /// اسکن IP ها و امتحان نتیجه‌ها با همان کانفیگ‌ها (فقط IP عوض می‌شود).
   /// front = true (CDN): برای IP های باز، SNI دامنه‌ی باز هم امتحان می‌شود.
   Future<bool> _natTryScan(List<Server> tpls, List<String> ips,
-      {required int port, required String label, bool front = false}) async {
+      {required int port,
+      required String label,
+      bool front = false,
+      Future<void> Function()? onComplete}) async {
     if (ips.isEmpty) return false;
     _set('نت ملی: جستجوی $label (${ips.length} آدرس)…');
-    final hits = await nipScan(ips,
-        port: port,
-        want: 12,
-        budget: const Duration(minutes: 2),
-        cancelled: () => abort);
+    var completed = 0;
+    final hits = await nipScan(
+      ips,
+      port: port,
+      want: ips.length,
+      budget: const Duration(minutes: 2),
+      cancelled: () => abort,
+      onProgress: (done, total) => completed = done,
+    );
     if (abort) return false;
+    // Persist only when every candidate in this slice was actually probed.
+    // A timeout/cancel retries the same slice; no address cursor is skipped.
+    if (completed >= ips.length) {
+      await onComplete?.call();
+    }
     if (hits.isEmpty) {
       _set('نت ملی: هیچ $label بازی پیدا نشد');
       return false;
     }
-    final top = hits.take(8).toList(); // CHOP: قبلاً ۱۲ بود ولی فقط ۸ تا استفاده می‌شد
-    // BATCHSNI: ۴ تا ۴ تا (نه همه با هم که SYN flood می‌کند، نه تک‌تک)
-    final snis = <String?>[];
-    if (front) {
-      for (var i = 0; i < top.length; i += 4) {
-        final batch = top.skip(i).take(4).toList();
-        snis.addAll(await Future.wait(
-            batch.map((h) => nipFindFrontSni(h.ip, port))));
-      }
-    }
-    final cands = <Server>[];
-    for (var i = 0; i < top.length && cands.length < 8; i++) {
-      final t = tpls[i % tpls.length];
-      final link = nipSwapLink(t, top[i].ip);
-      if (link != null) {
-        final c = Server.parse(link);
-        if (c != null) cands.add(c);
-      }
-      final sni = i < snis.length ? snis[i] : null;
-      if (sni != null && cands.length < 8) {
-        final fl = nipSwapSni(t, top[i].ip, sni);
-        if (fl != null) {
-          final c = Server.parse(fl);
-          if (c != null) cands.add(c);
+
+    // Try every open address in small groups; the former top-8 truncation
+    // could permanently ignore working endpoints later in the same batch.
+    for (var offset = 0; offset < hits.length; offset += 8) {
+      if (abort) return false;
+      final top = hits.skip(offset).take(8).toList();
+      final snis = <String?>[];
+      if (front) {
+        for (var i = 0; i < top.length; i += 4) {
+          if (abort) return false;
+          final batch = top.skip(i).take(4).toList();
+          snis.addAll(await Future.wait(
+            batch.map((hit) => nipFindFrontSni(hit.ip, port)),
+          ));
         }
       }
+      if (abort) return false;
+      final candidates = <Server>[];
+      for (var i = 0; i < top.length; i++) {
+        final template = tpls[(offset + i) % tpls.length];
+        final link = nipSwapLink(template, top[i].ip);
+        if (link != null) {
+          final candidate = Server.parse(link);
+          if (candidate != null) candidates.add(candidate);
+        }
+        final sni = i < snis.length ? snis[i] : null;
+        if (sni != null) {
+          final frontLink = nipSwapSni(template, top[i].ip, sni);
+          if (frontLink != null) {
+            final candidate = Server.parse(frontLink);
+            if (candidate != null) candidates.add(candidate);
+          }
+        }
+      }
+      if (candidates.isEmpty) continue;
+      _set('نت ملی: امتحان ${candidates.length} آدرس ($label)…');
+      if (await _connectLoop(candidates, trust: false)) {
+        final winner = current;
+        if (winner != null) _natAdd(winner);
+        return true;
+      }
     }
-    if (cands.isEmpty) {
-      _set('نت ملی: IP باز پیدا شد ولی هیچ SNI باز نگرفت ($label)');
-      return false;
-    }
-    _set('نت ملی: امتحان ${cands.length} آدرس ($label)…');
-    final ok = await _connectLoop(cands, trust: false);
-    if (ok) {
-      final w = current;
-      if (w != null) _natAdd(w);
-    }
-    return ok;
-  }
-}
+    return false;
+  }}
 
 // HOTFOLDER UI ==============================================================
 // وضعیت پوشه‌ی منابع تازه و ساخت دستی آن (در هر حالتی، نه فقط نت ملی).
