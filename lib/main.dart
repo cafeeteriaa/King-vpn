@@ -5688,6 +5688,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final keys = _dohCache.keys.take(1000).toList();
       for (final k in keys) {
         _dohCache.remove(k);
+        _dohCacheAll.remove(k);
         _dohCacheAt.remove(k);
       }
     }
