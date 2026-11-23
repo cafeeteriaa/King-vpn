@@ -199,3 +199,17 @@ Final status: VERIFIED WITH LIMITATIONS. This CI artifact is not declared produc
 - `pubspec.lock` SHA-256: `f531c1ac1fcee55851992a6d76bfb3893b7fc4b2508e20e4adb0cedaa0fa159c`.
 - This is a verified snapshot for source commit `649147e8a3c96979f1bbab82c14ccff09f6bbf2d), not evidence for later code changes or future dependency resolution.
 - SBOM, complete license attribution and CVE review remain OPEN. Documentation addendum commit: `a5f692bed75002a3356876e6f971d7e300cd5024`.
+
+
+## Smart Pilot / test / owner-session audit continuation — 2026-11-23
+
+- Independently extracted the exact full-source CI Run 2157 artifact and ran its Python test suite from repository root: **280 passed, 23 subtests passed**. This is an independent Python snapshot test, not Flutter/Dart/device runtime validation.
+- Pilot network classifier reviewed: fixed three domestic TLS/443 targets (Aparat, Digikala, Divar) and three global TLS/443 targets (Cloudflare, Google, GitHub); requires a 2-of-3 verified quorum and confirmed failures on the opposite route before switching domestic/global. Incomplete evidence preserves the previous strategy.
+- Probe cache is tied to a known physical-network identity and expires after two minutes; identity change during scan rejects/retries the snapshot once.
+- National port-hop candidate order is 443, 80, 8443, 2053, 2083, 2087, 2096. These are candidates, not evidence of DPI bypass or working VPN tunnel.
+- Automatic IP candidate generation keeps broad CIDR scan disabled and separates national memory/hits from global known endpoint IPs.
+- Reviewed AI autonomy gates and background worker lifecycle: read-only official research, daily audit and periodic CI repair are WorkManager best-effort; no exact schedule guarantee, no background model download, no automatic merge/release.
+- Found and fixed a UI/security-timeout mismatch: owner session is 2 minutes in code but console said 15 minutes. Updated Persian label to 2 minutes and added source-guard assertions against regression.
+- Code commits for this fix: `c51eea90358e35375c56946bbd7ae418e21d90bb` (UI) and `149c954cc65963bdc11caf51089ec2e142d53de5` (guard test). Subsequent audit documentation commit: `3835f2dd8bb4896c639d55068d2ed545c95c96e1`.
+- CI Run 2167 (`45141089093`) for the code/test head was observed pending at last check; do not claim it passed until a completed success result is retrieved.
+- Full audit remains open for packet-level DNS/IP/MTU/QUIC, real Iranian operators and device runtime, standard secret-history scan, SBOM/license/CVE, and current-head CI.
