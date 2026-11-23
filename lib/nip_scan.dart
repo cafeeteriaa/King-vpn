@@ -83,7 +83,12 @@ Future<List<NipHit>> nipScan(
       if (elapsed.elapsed >= budget) return;
       if (next >= boundedIps.length) return;
       final ip = boundedIps[next++];
-      final ms = await nipTcpProbe(ip, port, timeout);
+      // Never let an in-flight probe extend the scan beyond its remaining
+      // monotonic budget. Socket.connect enforces this per-attempt deadline.
+      final remaining = budget - elapsed.elapsed;
+      if (remaining <= Duration.zero) return;
+      final probeTimeout = timeout < remaining ? timeout : remaining;
+      final ms = await nipTcpProbe(ip, port, probeTimeout);
       if (ms != null) hits.add(NipHit(ip, ms));
     }
   }
