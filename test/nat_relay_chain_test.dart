@@ -39,6 +39,70 @@ void main() {
         ],
       };
 
+  group('fresh verified relay evidence', () {
+    final now = DateTime.utc(2026, 11, 23, 12);
+
+    test('accepts only a recent verified data-plane result', () {
+      expect(
+        natIsFreshVerifiedRelay(
+          verified: true,
+          verifiedAt: now.subtract(const Duration(minutes: 10)),
+          now: now,
+          maxAge: const Duration(hours: 48),
+        ),
+        isTrue,
+      );
+      expect(
+        natIsFreshVerifiedRelay(
+          verified: false,
+          verifiedAt: now.subtract(const Duration(minutes: 1)),
+          now: now,
+          maxAge: const Duration(hours: 48),
+        ),
+        isFalse,
+      );
+    });
+
+    test('rejects missing, stale, future, and invalid-age evidence', () {
+      expect(
+        natIsFreshVerifiedRelay(
+          verified: true,
+          verifiedAt: null,
+          now: now,
+          maxAge: const Duration(hours: 48),
+        ),
+        isFalse,
+      );
+      expect(
+        natIsFreshVerifiedRelay(
+          verified: true,
+          verifiedAt: now.subtract(const Duration(hours: 48)),
+          now: now,
+          maxAge: const Duration(hours: 48),
+        ),
+        isFalse,
+      );
+      expect(
+        natIsFreshVerifiedRelay(
+          verified: true,
+          verifiedAt: now.add(const Duration(seconds: 1)),
+          now: now,
+          maxAge: const Duration(hours: 48),
+        ),
+        isFalse,
+      );
+      expect(
+        natIsFreshVerifiedRelay(
+          verified: true,
+          verifiedAt: now,
+          now: now,
+          maxAge: Duration.zero,
+        ),
+        isFalse,
+      );
+    });
+  });
+
   group('national relay chain config', () {
     test('routes exit through relay and keeps unrelated socket options', () {
       final result = natBuildRelayChainConfig(
