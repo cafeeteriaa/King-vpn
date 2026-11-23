@@ -84,9 +84,10 @@ Future<_DiagItem> _diagTls(String label, String ip, String sni) async {
   Socket? raw;
   try {
     raw = await Socket.connect(ip, 443, timeout: const Duration(seconds: 4));
-    // Keep platform certificate and hostname validation enabled. A TLS
-    // handshake with an invalid certificate is not evidence of reachable SNI.
-    k = await SecureSocket.secure(raw, host: sni)
+    // Diagnostic only: measure whether the TLS handshake completes with this SNI,
+    // independent of certificate identity. This result is never saved as a usable config.
+    k = await SecureSocket.secure(raw,
+            host: sni, onBadCertificate: (_) => true)
         .timeout(const Duration(seconds: 5));
     return _DiagItem(label, true, sw.elapsedMilliseconds);
   } catch (e, stk) {

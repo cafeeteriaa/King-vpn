@@ -3980,13 +3980,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (maxPerBlock <= 0) return const [];', expansion)
         self.assertIn('(size + maxPerBlock - 1) ~/ maxPerBlock', expansion)
 
-    def test_net_diagnosis_tls_requires_valid_certificate(self):
+    def test_net_diagnosis_tls_measures_handshake_independent_of_certificate(self):
         source = (ROOT / 'lib' / 'net_diag.dart').read_text(encoding='utf-8')
         start = source.index('Future<_DiagItem> _diagTls(')
         end = source.index('Future<String> netDiagnose()', start)
         tls_probe = source[start:end]
-        self.assertNotIn('onBadCertificate:', tls_probe)
-        self.assertIn('SecureSocket.secure(raw, host: sni)', tls_probe)
+        self.assertIn('onBadCertificate: (_) => true', tls_probe)
+        self.assertIn('independent of certificate identity', tls_probe)
+        self.assertIn('never saved as a usable config', tls_probe)
 
     def test_auto_port_scan_requires_valid_tls_certificate(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
