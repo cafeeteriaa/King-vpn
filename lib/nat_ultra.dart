@@ -95,6 +95,10 @@ const List<String> _natDnsList = [
   '9.9.9.9',
   '94.140.14.14',
   '208.67.222.222',
+  'https+local://[2606:4700:4700::1111]/dns-query',
+  'https+local://[2001:4860:4860::8888]/dns-query',
+  '2606:4700:4700::1111',
+  '2001:4860:4860::8888',
 ];
 
 class _NatSpec {
@@ -1464,6 +1468,10 @@ const List<String> _dohEps = [
   'https://8.8.8.8/resolve?name=%N&type=A',
   'https://1.0.0.1/dns-query?name=%N&type=A',
   'https://9.9.9.9:5053/dns-query?name=%N&type=A',
+  'https://[2606:4700:4700::1111]/dns-query?name=%N&type=A',
+  'https://[2001:4860:4860::8888]/resolve?name=%N&type=A',
+  'https://[2606:4700:4700::1111]/dns-query?name=%N&type=AAAA',
+  'https://[2001:4860:4860::8888]/resolve?name=%N&type=AAAA',
 ];
 
 String natOpKey = 'x';
