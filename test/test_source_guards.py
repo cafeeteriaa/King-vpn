@@ -1582,10 +1582,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(cancel, scan_guard)
         self.assertLess(scan_guard, cursor_commit)
         self.assertLess(cursor_commit, configured_commit)
-        helper_start = nat.index('({List<String> addresses, int nextCursor}) _natConfiguredRangeBatch(')
+        helper_start = nat.index('({List<String> addresses, int nextCursor, Map<String, dynamic> nextOffsets})')
         helper_end = nat.index('Future<void> natRangesSave(', helper_start)
         helper = nat[helper_start:helper_end]
-        self.assertIn('nextCursor: (start + count) % values.length', helper)
+        self.assertIn('nextCursor: (start + max(1, visited).toInt()) % natRanges.length', helper)
         self.assertNotIn('SharedPreferences.getInstance()', helper)
         scan_only_start = main.index('Future<void> _natScanOnly()')
         scan_only_end = main.index('// NATFIRSTFAST:', scan_only_start)
