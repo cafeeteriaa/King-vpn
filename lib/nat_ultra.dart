@@ -1677,7 +1677,7 @@ Future<void> natIpMemLoad() async {
       if (decoded is Map) {
         _natConfiguredRangeCursors
           ..clear()
-          ..addAll(decoded.map((k, v) => MapEntry('$k', (v as num).toInt())));
+          ..addAll(decoded.map((k, v) => MapEntry('$k', v)));
       }
     }
   } catch (e, stk) {
