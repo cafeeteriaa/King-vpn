@@ -2448,8 +2448,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_nat_range_scan_has_no_fixed_deadline_and_preserves_cursor_on_cancel(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('Future<List<String>> _natRangeScanStepBody(')
-        end = source.index('int natMemQueued', start)
-        body = source[start:end]
+        body = source[start:]
         self.assertNotIn('scanClock', body)
         self.assertNotIn('scanExpired()', body)
         self.assertIn('budget: budget,', body)
