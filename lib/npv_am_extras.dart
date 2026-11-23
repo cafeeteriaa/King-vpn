@@ -625,13 +625,19 @@ Future<void> refreshCdnRanges() async {
     }
 
     await pull('cloudflare', _cfRanges, () async {
-      final res = await http.get(Uri.parse('https://www.cloudflare.com/ips-v4'));
-      if (res.statusCode != 200) return const <String>[];
-      return res.body
-          .split(RegExp(r'[\r\n]+'))
-          .map((e) => e.trim())
-          .where((e) => e.contains('/'))
-          .toList();
+      final responses = await Future.wait([
+        http.get(Uri.parse('https://www.cloudflare.com/ips-v4')),
+        http.get(Uri.parse('https://www.cloudflare.com/ips-v6')),
+      ]);
+      final out = <String>[];
+      for (final response in responses) {
+        if (response.statusCode != 200) continue;
+        out.addAll(response.body
+            .split(RegExp(r'[\r\n]+'))
+            .map((e) => e.trim())
+            .where((e) => e.contains('/')));
+      }
+      return out;
     });
 
     await pull('fastly', _fastlyRanges, () async {
@@ -647,14 +653,19 @@ Future<void> refreshCdnRanges() async {
       final res = await http.get(Uri.parse('https://ip-ranges.amazonaws.com/ip-ranges.json'));
       if (res.statusCode != 200) return const <String>[];
       final j = await compute(cdnJsonDecodeBg, res.body);
-      final list = j is Map ? j['prefixes'] : null;
-      if (list is! List) return const <String>[];
-      return list
-          .whereType<Map>()
-          .where((p) => p['service'] == 'CLOUDFRONT')
-          .map((p) => (p['ip_prefix'] ?? '').toString())
-          .where((s) => s.contains('/'))
-          .toList();
+      if (j is! Map) return const <String>[];
+      final ipv4 = j['prefixes'] is List ? j['prefixes'] as List : const [];
+      final ipv6 = j['ipv6_prefixes'] is List ? j['ipv6_prefixes'] as List : const [];
+      return <String>[
+        ...ipv4.whereType<Map>()
+            .where((p) => p['service'] == 'CLOUDFRONT')
+            .map((p) => (p['ip_prefix'] ?? '').toString())
+            .where((value) => value.contains('/')),
+        ...ipv6.whereType<Map>()
+            .where((p) => p['service'] == 'CLOUDFRONT')
+            .map((p) => (p['ipv6_prefix'] ?? '').toString())
+            .where((value) => value.contains('/')),
+      ];
     });
 
     await pull('google', _gcpCdnRanges, () async {
@@ -665,8 +676,11 @@ Future<void> refreshCdnRanges() async {
       if (list is! List) return const <String>[];
       return list
           .whereType<Map>()
-          .map((p) => (p['ipv4Prefix'] ?? '').toString())
-          .where((s) => s.contains('/'))
+          .expand((p) => [
+            (p['ipv4Prefix'] ?? '').toString(),
+            (p['ipv6Prefix'] ?? '').toString(),
+          ])
+          .where((value) => value.contains('/'))
           .toList();
     });
 
