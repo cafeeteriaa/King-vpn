@@ -137,9 +137,11 @@ Future<void> autoScanRun(void Function(String) say,
     final configuredSnis = <String>{
       ...kAutoSniDomains,
       ...dnsxFullDomains(),
-      for (final record in _goldSrv.values)
-        if ((Uri.tryParse(record.link)?.host ?? '').isNotEmpty)
-          Uri.parse(record.link).host,
+      for (final server in natTemplateSeeds)
+        if (!server.isIp && server.host.contains('.')) server.host.toLowerCase(),
+      for (final server in _goldSrv.values)
+        if ((Uri.tryParse(server.link)?.host ?? '').contains('.'))
+          Uri.parse(server.link).host.toLowerCase(),
     }.toList(growable: false);
     sniLoop:
     for (final d in configuredSnis) {
@@ -169,7 +171,17 @@ Future<void> autoScanRun(void Function(String) say,
     final portHits = <String>[];
     const portSni = 'www.cloudflare.com';
     var m = 0;
-    final configuredPorts = <int>{...natCommonPorts, ...kAutoPorts, for (final ip in cleanIps) ip.port};
+    final knownPortServers = <Server>[
+      ...natTemplateSeeds,
+      for (final record in _goldSrv.values)
+        if (Server.parse(record.link) case final Server server) server,
+    ];
+    final configuredPorts = <int>{
+      ...natCommonPorts,
+      ...kAutoPorts,
+      ...natAutoPorts(knownPortServers),
+      for (final ip in cleanIps) ip.port,
+    }..removeWhere((port) => port < 1 || port > 65535);
     final portsToTest = configuredPorts.toList(growable: false);
     portLoop:
     for (final p in portsToTest) {
