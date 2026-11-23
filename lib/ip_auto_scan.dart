@@ -12,12 +12,7 @@ const String _ipAutoKeyNat = 'ipauto_nat_v1';
 const String _ipAutoKeyGlob = 'ipauto_glob_v1';
 const String _ipAutoCursorKey = 'ipauto_cursor_v1';
 const String _ipAutoPosKey = 'ipauto_pos_v1'; // جای فعلی در فهرست آدرس‌ها
-const int _ipAutoBatch = 6000; // آدرس در هر اجرا
-const int _ipAutoMaxHits = 1000; // سقف نتایج ذخیره‌شده
-const int _ipAutoPorts = 5; // بیشترین پورت برای TCP
 const String _ipAutoAtKey = 'ipauto_at_v1'; // زمان آخرین اسکن خودکار نت ملی
-const int _ipAutoConc = 48; // اتصال TCP همزمان
-const int _ipAutoCoreMax = 200; // سقف تست هسته در هر اجرا
 
 bool ipAutoBusy = false;
 bool ipAutoStopFlag = false;
@@ -109,7 +104,10 @@ List<String> _ipAutoBlocks(Iterable<Server> knownServers) {
   if (nationalMode) {
     ips
       ..addAll(natIpMemHosts())
-      ..addAll(natScanHits);
+      ..addAll(natScanHits)
+      // Include every user-configured national CIDR/range; the generator
+      // advances its per-range cursors across resumable batches.
+      ..addAll(natRanges);
   } else {
     for (final server in knownServers) {
       if (server.isIp) ips.add(server.host);
@@ -141,9 +139,10 @@ Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Funct
     ..clear()
     ..addAll(generatedCursors);
   if (all.isEmpty) return const <String>[];
-  // فقط یک تکه‌ی _ipAutoBatch تایی در هر اجرا؛ جای فعلی ذخیره می‌شود تا اجرای بعدی ادامه دهد
+  // Select an adaptive CPU-sized batch; the persisted cursor resumes the full candidate space.
   final start = startPosSnapshot % all.length;
-  final slice = all.skip(start).take(_ipAutoBatch).toList();
+  final batchSize = max(256, Platform.numberOfProcessors * 512);
+  final slice = all.skip(start).take(batchSize).toList();
   ipAutoPos = start + slice.length;
   return slice;
 }
@@ -238,10 +237,10 @@ extension IpAutoExt on _HomePageState {
     if (runNationalMode) {
       say('دریافت الگوهای مستقل نت ملی...');
       try {
-        final nationalSeeds = await natHotNext(50, fetch: false);
+        final nationalSeeds = await natHotNext(max(50, Platform.numberOfProcessors * 512), fetch: false);
         if (halted()) return false;
         if (nationalSeeds.isNotEmpty) {
-          natTemplateSeeds = nationalSeeds.take(2).toList();
+          natTemplateSeeds = nationalSeeds;
           pool = [...nationalSeeds, ...good, ...pending];
         } else {
           pool = <Server>[...natTemplateSeeds, ...good, ...pending];
@@ -254,7 +253,7 @@ extension IpAutoExt on _HomePageState {
     } else {
       say('دریافت سرور نمونه از منابع جهانی...');
       try {
-        pool = await fetchServers(stop: () => halted(), quickCap: 200);
+        pool = await fetchServers(stop: () => halted());
       } catch (e, stk) {
         logError(e, stk);
         if (halted()) return false;
@@ -268,7 +267,7 @@ extension IpAutoExt on _HomePageState {
       say('دریافت لیست سرورها ناموفق بود. اینترنت را بررسی کنید و دوباره اجرا کنید.');
       return false;
     }
-    final tpl = pool.take(2).toList();
+    final tpl = pool;
     say('ساخت آدرس‌ها...');
     final addrs = await _ipAutoNextAddrs(
       runNationalMode ? const <Server>[] : [...good, ...pending, ...fetchedAll],
@@ -279,7 +278,7 @@ extension IpAutoExt on _HomePageState {
       say('آدرسی برای اسکن پیدا نشد.');
       return false;
     }
-    final ports = natAutoPorts(pool).take(_ipAutoPorts).toList();
+    final ports = natAutoPorts(pool);
     if (ports.isEmpty) ports.add(443);
 
     // مرحله‌ی ۱: TCP روی همه‌ی آدرس‌ها
@@ -290,9 +289,8 @@ extension IpAutoExt on _HomePageState {
       final hits = await natScanIps(
         addrs,
         port: port,
-        concurrency: (manual && runNationalMode) ? kNatManualConc : _ipAutoConc,
-        want: 300,
-        budget: const Duration(minutes: 5),
+        concurrency: (manual && runNationalMode) ? kNatManualConc : natAdaptiveConcurrency(0),
+        want: addrs.length,
         timeout: const Duration(milliseconds: 1500),
         cancelled: halted,
       );
@@ -305,11 +303,11 @@ extension IpAutoExt on _HomePageState {
     // مرحله‌ی ۲: تست واقعی با هسته‌ی VPN، دو بار پشت سر هم
     final url = runNationalMode ? _natTestUrls.first : delayTestUrl;
     final seen = ipAutoHits.toSet();
-    final tplSrv = tpl.first;
+
     var found = 0;
     var checked = 0;
-    // سقف تست هسته در هر اجرا، تا زمان اجرا از حد نگذرد (بقیه در اجرای بعدی از آدرس‌های تازه می‌آیند)
-    final toTest = candidates.take(_ipAutoCoreMax).toList();
+    // Test every TCP-open candidate returned by this resumable address batch.
+    final toTest = candidates;
     say('${candidates.length} پورت باز (تست ${toTest.length} تای اول)؛ تست با هسته‌ی VPN...');
     for (final c in toTest) {
       if (halted()) break;
@@ -318,6 +316,7 @@ extension IpAutoExt on _HomePageState {
       final parts = c.split('|');
       final ip = parts[0];
       final port = int.tryParse(parts[1]) ?? 443;
+      final tplSrv = tpl[(checked - 1) % tpl.length];
       final ipLink = _natSetPort(_natSetHost(tplSrv.link, ip, tplSrv.host), port);
       final s = Server(ipLink, tplSrv.name, ip, port);
       final firstOk = await _ipAutoCoreOk(s, url);
@@ -337,9 +336,6 @@ extension IpAutoExt on _HomePageState {
       // Keep it as a candidate only; promotion requires a real user tunnel test.
       seen.add(c);
       found++;
-      if (ipAutoHits.length > _ipAutoMaxHits) {
-        ipAutoHits.removeRange(_ipAutoMaxHits, ipAutoHits.length);
-      }
       say('تست $checked/${toTest.length} • جواب‌داده: $found');
     }
     if (halted()) {

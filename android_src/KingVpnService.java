@@ -17,6 +17,8 @@ import org.json.JSONObject;
 
 import java.net.ConnectException;
 import java.net.HttpURLConnection;
+import java.net.Inet6Address;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NoRouteToHostException;
 import java.net.Proxy;
@@ -1307,6 +1309,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
                         "IPv6 VPN address/route setup failed; refusing possible IPv6 leak", e);
             }
             b.addRoute("0.0.0.0", 0);
+            // Keep custom service DNS behavior aligned with the active plugin TUN.
+            addConfiguredDnsServers(b, cfg);
             // FIX #49: the app is NOT excluded from the tunnel. Its own requests (e.g. the ASN
             // lookup in nat_ultra.dart, which uses DIRECT) must go through the VPN, otherwise they
             // show the real IP. Only the core's outbound sockets are exempt, via protect() in onProtect.
@@ -1318,6 +1322,57 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         }
     }
 
+    private void addConfiguredDnsServers(Builder builder, V2rayConfig cfg) {
+        boolean addedDns = false;
+        try {
+            JSONObject root = new JSONObject(cfg.V2RAY_FULL_JSON_CONFIG);
+            JSONObject dns = root.optJSONObject("dns");
+            JSONArray servers = dns == null ? null : dns.optJSONArray("servers");
+            if (servers != null) {
+                for (int i = 0; i < servers.length() && i < 32; i++) {
+                    Object entry = servers.get(i);
+                    String candidate = null;
+                    if (entry instanceof String) candidate = (String) entry;
+                    else if (entry instanceof JSONObject) candidate = ((JSONObject) entry).optString("address", null);
+                    if (isPlainIpAddress(candidate)) {
+                        builder.addDnsServer(candidate.trim());
+                        addedDns = true;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Unable to read configured DNS servers; using fallback", e);
+        }
+        if (!addedDns) {
+            builder.addDnsServer("1.1.1.1");
+            builder.addDnsServer("8.8.8.8");
+        }
+    }
+
+    private static boolean isPlainIpAddress(String value) {
+        if (value == null) return false;
+        String host = value.trim();
+        if (host.isEmpty() || host.contains("/") || host.contains("://")) return false;
+        if (host.contains(":")) {
+            // Accept compressed IPv6 literals such as ::1 and ::8888. The
+            // previous split(':').length check rejected valid compressed forms.
+            if (!host.matches("^[0-9a-fA-F:.]+$")) return false;
+            try {
+                return InetAddress.getByName(host) instanceof Inet6Address;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+        String[] parts = host.split("\\.");
+        if (parts.length != 4) return false;
+        try {
+            for (String part : parts) {
+                int n = Integer.parseInt(part);
+                if (n < 0 || n > 255) return false;
+            }
+            return true;
+        } catch (NumberFormatException e) { return false; }
+    }
     /** جدید: wires libv2ray exactly once per process. */
     private void wireCoreOnce() {
         synchronized (KingVpnService.class) {

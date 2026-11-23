@@ -2,6 +2,7 @@
 //   flutter test test/nnie_core_test.dart
 // These cover logic only; they do not test real networks, VPN, or Android.
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:king_vpn/nnie_core.dart';
@@ -15,6 +16,7 @@ List<int> _response({
   String qname = 'google.com',
   required List<int> rdata,
   int an = 1,
+  int recordType = 1,
 }) {
   final out = <int>[
     ..._u16(id), ..._u16(flags), ..._u16(1), ..._u16(an), ..._u16(0), ..._u16(0),
@@ -22,11 +24,11 @@ List<int> _response({
   for (final label in qname.split('.')) {
     out..add(label.length)..addAll(label.codeUnits);
   }
-  out.addAll([0, 0, 1, 0, 1]); // root, QTYPE=A, QCLASS=IN
+  out.addAll([0, (recordType >> 8) & 255, recordType & 255, 0, 1]); // root, QTYPE, QCLASS=IN
   if (an > 0) {
     out.addAll([
       0xc0, 0x0c, // name: pointer to the question name
-      ..._u16(1), ..._u16(1), // TYPE=A, CLASS=IN
+      ..._u16(recordType), ..._u16(1), // TYPE, CLASS=IN
       0, 0, 0, 60, // TTL
       ..._u16(rdata.length), ...rdata,
     ]);
@@ -148,11 +150,113 @@ void main() {
   });
 
   group('NatDnsWireProbe', () {
+    test('parseResolver accepts both IPv4 and IPv6 resolver endpoints', () {
+      expect(
+        NatDnsWireProbe.parseResolver('8.8.8.8')?.type,
+        InternetAddressType.IPv4,
+      );
+      expect(
+        NatDnsWireProbe.parseResolver('2001:4860:4860::8888')?.type,
+        InternetAddressType.IPv6,
+      );
+      expect(NatDnsWireProbe.parseResolver('not-an-ip'), isNull);
+      expect(NatDnsWireProbe.parseResolver('google.com'), isNull);
+    });
+
     test('buildQuery encodes the name as length-prefixed labels', () {
       final q = NatDnsWireProbe.buildQuery('google.com', 0x1234);
       expect(q.sublist(0, 2), [0x12, 0x34]); // transaction ID
       expect(q[12], 6); // "google"
       expect(q.length, 12 + 7 + 4 + 1 + 4); // header + labels + root + type/class
+    });
+
+    test('buildQuery normalizes a fully qualified name with trailing dot', () {
+      expect(
+        NatDnsWireProbe.buildQuery('google.com.', 0x1234),
+        NatDnsWireProbe.buildQuery('google.com', 0x1234),
+      );
+    });
+
+    test('parseResponse normalizes a fully qualified name with trailing dot', () {
+      final bytes = _response(id: 0x1234, rdata: [8, 8, 8, 8]);
+      expect(
+        NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com.'),
+        ['8.8.8.8'],
+      );
+    });
+
+    test('buildQuery encodes AAAA query type', () {
+      final q = NatDnsWireProbe.buildQuery('google.com', 0x1234, recordType: 28);
+      expect(q.sublist(q.length - 4), [0, 28, 0, 1]);
+    });
+
+    test('rejects unsupported DNS query types', () {
+      expect(() => NatDnsWireProbe.buildQuery('google.com', 1, recordType: 15),
+          throwsArgumentError);
+    });
+
+    test('accepts a global-unicast AAAA answer', () {
+      final bytes = _response(
+        id: 0x1234,
+        rdata: [0x20, 0x01, 0x48, 0x60, 0x48, 0x60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x88],
+        recordType: 28,
+      );
+      expect(
+        NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com', recordType: 28),
+        ['2001:4860:4860::88'],
+      );
+    });
+
+    test('rejects the full ORCHID /28 ranges, not only their first /32', () {
+      for (final fourth in [0x11, 0x2f]) {
+        final bytes = <int>[
+          0x20, 0x01, 0, fourth, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0, 0, 1,
+        ];
+        expect(NatDnsWireProbe.publicV6(bytes, 0), isFalse);
+      }
+    });
+
+    test('rejects IETF special-purpose IPv6 /23 addresses', () {
+      for (final third in [0x00, 0x01]) {
+        final bytes = <int>[
+          0x20, 0x01, third, 0x01, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0, 0, 1,
+        ];
+        expect(NatDnsWireProbe.publicV6(bytes, 0), isFalse);
+      }
+    });
+
+    test('rejects the IPv6 documentation 3fff::/20 range', () {
+      final bytes = <int>[
+        0x3f, 0xff, 0x00, 0x01, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 1,
+      ];
+      expect(NatDnsWireProbe.publicV6(bytes, 0), isFalse);
+    });
+
+    test('rejects documentation-range AAAA answers', () {
+      final bytes = _response(
+        id: 0x1234,
+        rdata: [0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+        recordType: 28,
+      );
+      expect(
+        () => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com', recordType: 28),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('rejects AAAA answers when an A response was requested', () {
+      final bytes = _response(
+        id: 0x1234,
+        rdata: [0x20, 0x01, 0x48, 0x60, 0x48, 0x60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x88],
+        recordType: 28,
+      );
+      expect(
+        () => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
+        throwsA(isA<FormatException>()),
+      );
     });
 
     test('accepts a valid public A answer', () {
@@ -188,6 +292,35 @@ void main() {
       final bytes = _response(id: 0x1234, qname: 'example.com', rdata: [8, 8, 8, 8]);
       expect(() => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
           throwsA(isA<FormatException>()));
+    });
+
+    test('rejects a self-referential DNS compression pointer', () {
+      final bytes = <int>[
+        ..._u16(0x1234), ..._u16(0x8180),
+        ..._u16(1), ..._u16(1), ..._u16(0), ..._u16(0),
+        0xc0, 0x0c, // question name points to itself
+        0, 1, 0, 1,
+        0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 8, 8, 8, 8,
+      ];
+      expect(
+        () => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('rejects a CNAME whose encoded target exceeds RDLENGTH', () {
+      final bytes = <int>[
+        ..._u16(0x1234), ..._u16(0x8180),
+        ..._u16(1), ..._u16(1), ..._u16(0), ..._u16(0),
+        6, ...'google'.codeUnits, 3, ...'com'.codeUnits, 0,
+        0, 1, 0, 1,
+        0xc0, 0x0c, 0, 5, 0, 1, 0, 0, 0, 60,
+        0, 1, 0xc0, 0x0c,
+      ];
+      expect(
+        () => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
+        throwsA(isA<FormatException>()),
+      );
     });
 
     test('rejects a truncated packet instead of crashing', () {

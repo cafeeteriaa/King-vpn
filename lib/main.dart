@@ -39,6 +39,8 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'tg_proxy.dart' show tgProxyRow; // فقط پروکسی تلگرام
 import 'nat_ip_scan.dart'; // اسکن TCP آدرس IP و دامنه
+import 'nat_relay_chain.dart' show natBuildRelayChainConfig, natIsFreshVerifiedRelay;
+import 'nat_sni_policy.dart' show natSetPrimaryProxyTlsServerName;
 import 'help_page.dart';
 import 'conn_specs.dart';
 import 'personal_folder.dart'; // پوشه‌ی «سرورهای شخصی»
@@ -557,9 +559,7 @@ int standbyBatchSize = 40;
 const bgTimeoutSecs = 10;
 int firstBatchSize = 100; // FAST100: دسته اول هم ۱۰۰تایی
 int fetchWorkers = 16;
-Duration fetchDeadline = const Duration(seconds: 60);
 int tcpWorkers = 20;
-int maxPerSource = 120;
 Duration tcpTimeout = const Duration(milliseconds: 3500);
 // TLS handshakes in the prefilter leaked sockets (crash, instant failures)
 const probeTls = false;
@@ -2684,6 +2684,9 @@ String sanitizeCfg(String cfg) {
       for (final key in const ['tlsSettings', 'realitySettings']) {
         final ss = st[key];
         if (ss is Map) {
+          if (key == 'tlsSettings' && ss.remove('allowInsecure') != null) {
+            changed = true;
+          }
           final fpv = ss['fingerprint']?.toString();
           if (fpv == 'random' || fpv == 'randomized') {
             ss['fingerprint'] = 'chrome';
@@ -3292,6 +3295,23 @@ bool _validHost(String h) {
   return true;
 }
 
+bool _sameEndpoint(Server a, Server b) {
+  if (a.port != b.port) return false;
+  final ai = InternetAddress.tryParse(a.host);
+  final bi = InternetAddress.tryParse(b.host);
+  if (ai != null || bi != null) {
+    return ai != null &&
+        bi != null &&
+        ai.type == bi.type &&
+        ai.rawAddress.join(':') == bi.rawAddress.join(':');
+  }
+  final a0 = a.host.toLowerCase();
+  final b0 = b.host.toLowerCase();
+  final ah = a0.endsWith('.') ? a0.substring(0, a0.length - 1) : a0;
+  final bh = b0.endsWith('.') ? b0.substring(0, b0.length - 1) : b0;
+  return ah.isNotEmpty && ah == bh;
+}
+
 // BUSYDROP: how many times a dropped failover was re-scheduled
 int _failoverRetries = 0;
 
@@ -3834,8 +3854,8 @@ Future<int?> probe(Server s) async {
     }
     final name = s.sni.isNotEmpty ? s.sni : s.host;
     if (s.tls && probeTls) {
-      final sec = await SecureSocket.secure(sock,
-              host: name, onBadCertificate: (_) => true)
+      // A TLS reachability probe must validate the certificate and SNI.
+      final sec = await SecureSocket.secure(sock, host: name)
           .timeout(tcpTimeout);
       sec.destroy();
     } else {
@@ -4764,17 +4784,13 @@ bool _looksBase64(String body) {
   return lines.every((l) => re.hasMatch(l)) && lines.join().length >= 16;
 }
 
-Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async {
-  // QUICKLIST: quickCap = دریافت سریع؛ به ~۲۰۰ سرور که رسید بقیه‌ی منابع رها می‌شوند
-  // و بعد از اتصال، لیست کامل در پس‌زمینه دریافت می‌شود
+Future<List<Server>> fetchServers({bool Function()? stop}) async {
   srcFetchState.clear();
   srcFetchCount.clear();
   final all = <String, Server>{};
-  final sw = Stopwatch()..start();
-  final dl = quickCap != null ? const Duration(seconds: 12) : fetchDeadline;
   // لینک‌های اضافه‌ی کاربر اول دریافت می‌شوند
   await pool<String>([...userListUrls, ...listUrls], fetchWorkers, (u) async {
-    if ((stop?.call() ?? false) || sw.elapsed > dl || (quickCap != null && all.length >= quickCap)) {
+    if (stop?.call() ?? false) {
       srcFetchState[u] = 'skip';
       return;
     }
@@ -4819,7 +4835,7 @@ Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async 
         ..shuffle();
       var pn = 0;
       var okN = 0;
-      for (final l in lines.take(quickCap != null ? 30 : maxPerSource)) {
+      for (final l in lines) {
         final s = Server.parse(l);
         if (s != null) {
           s.src = u;
@@ -5002,7 +5018,7 @@ class HomePage extends StatefulWidget {
 
 bool sniSpoofAll = true; // V16: apply SNI spoof to all CDN configs (normal mode too)
 // SNICF: جعل SNI برای کانفیگ‌های کلودفلر جدا کنترل می‌شود؛ پیش‌فرض خاموش
-bool sniCfOn = false;
+bool sniCfOn = true;
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   late final V2ray v2ray;
@@ -5664,19 +5680,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   // CACHEGC: سقف cacheهای کوچک؛ هر ۱۰ ثانیه از tick صدا زده می‌شود
   void _gcCaches() {
-    _capMap(natTryCount, 2000);
-    _capMap(natWinCount, 2000);
     _capMap(slowStrikes, 500);
     _capMap(_cfgDumpAt, 3000);
-    while (natScanHits.length > 20000) {
-      natScanHits.remove(natScanHits.first);
-    }
-    while (natGood.length > 50000) {
-      natGood.remove(natGood.first);
-    }
-    while (natSubstSearched.length > 5000) {
-      natSubstSearched.remove(natSubstSearched.first);
-    }
     while (natIpDeadRun.length > 10000) {
       natIpDeadRun.remove(natIpDeadRun.first);
     }
@@ -6129,7 +6134,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           npvParse = j['npv'] as bool? ?? npvParse;
           relayServerUrl = j['relay_url'] as String? ?? '';
           sniSpoofAll = j['sni_all'] as bool? ?? true; // SNIDEF: پیش‌فرض روشن، قابل تغییر
-          sniCfOn = j['sni_cf'] as bool? ?? false; // SNICF
+          sniCfOn = j['sni_cf'] as bool? ?? true; // SNICF
           cleanIpMode = j['cip'] as bool? ?? cleanIpMode;
           fragEnabled = j['frg'] as bool? ?? fragEnabled;
           // Mux برای توربو سرعت بعد از اتصال روشن می‌ماند
@@ -6164,9 +6169,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         failMin = 120;
         recheckMin = 30;
         tcpWorkers = 50;
-        maxPerSource = 100;
         fetchWorkers = 4;
-        fetchDeadline = const Duration(seconds: 20);
         firstBatchSize = 100;
         standbyBatchSize = 30;
         maxBatches = 5;
@@ -6200,7 +6203,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (p.getBool('best_defaults_v4') != true) {
         fastWorkers = 3;
         fetchWorkers = 8;
-        fetchDeadline = const Duration(seconds: 45);
         await p.setBool('best_defaults_v4', true);
         await saveNumPrefs();
         await _saveSettings();
@@ -6521,7 +6523,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       await p.setStringList(
           'list_cache',
           (fetchedAll.toList()..shuffle())
-              .take(3000)
               .map((s) => '${s.src ?? ''}\t${s.link}')
               .toList());
       await p.setInt('list_time', DateTime.now().millisecondsSinceEpoch);
@@ -6843,12 +6844,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       natRefetch = false;
       if (!bg && !connected) _set('در حال دریافت لیست‌ها...');
       try {
-        // QUICKLIST: اولین دریافت (و نه بعد از اتصال) فقط ~۲۰۰ سرور؛ لیست کامل بعد از اتصال می‌آید
-        // FASTLIST: اتصال عادی هم مثل خلبان با ~۲۰۰ سرور اول شروع می‌کند و سقف ۲۵ ثانیه‌ای دارد
-        final quick = !bg && !connected && !nationalMode && !offlineOnly;
-        final f = await fetchServers(stop: () => abort, quickCap: quick ? 200 : null)
-            .timeout(const Duration(seconds: 25), onTimeout: () => <Server>[]);
-        _listPartial = quick && f.isNotEmpty;
+        // Fetch the complete configured source inventory; do not truncate the
+        // initial server pool to a quick-start subset. The fetcher retains its
+        // cancellation and adaptive worker controls.
+        final f = await fetchServers(stop: () => abort);
+        _listPartial = false;
         if (f.isNotEmpty) {
           // lists that were "dead" get a new chance with the new content
           if (age == null || age >= Duration(minutes: min(listRefreshMin, 10))) {
@@ -7543,9 +7543,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         : effFastWorkers.clamp(1, kFastGateCeil);
     _delayGate.max = gateMax;
     dbg('تست سریع: $gateMax تست هم‌زمان • دسته ${alive.length}');
-    // ASNPREFETCH: وقتی نت جهانی است، بلوک‌های هاست سرورها را ذخیره می‌کنیم تا در نت ملی
-    // (که RIPE باز نیست) همان‌ها استفاده شوند.
-    if (!nationalMode) unawaited(natPrefetchAsn(alive));
+    // ASN-neighbor probing/prefetch is disabled; only published CDN ranges and explicit relays are used.
     // NATORDER: نت ملی: اول دامنه‌های موفق قبلی، بعد ws/grpc/xhttp/h2 (مقاوم‌تر در برابر DPI)، بقیه
     if (nationalMode && alive.length > 1) {
       final remDom = natDomMemHosts();
@@ -7853,7 +7851,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final useMatrix = nationalMode;
     final multi = useMatrix;
     final order = useMatrix
-        ? <int>[0, ..._natOrder(s, full: _resFull).where((v) => v != 0).take(max(0, natMaxVariants - 1))]
+        ? <int>[0, ..._natOrder(s, full: _resFull).where((v) => v != 0)]
         : const [0]; // اول کانفیگ اصلی، سپس variantهای سازگار
     // NATBUDGET: one server may only use a limited time per pass; the rest of
     // its variants continue in the next pass (natCursorAdvance)
@@ -8442,19 +8440,45 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // از پشت یک سرور سالم دیگر (relay) وصل می‌شود. اگر مستقیم وصل شود، تغییری نمی‌کند.
       String? chainCfg;
       if (nationalMode && !proxyOnly) {
+        // Manual and automatic relay candidates share the same evidence gate:
+        // TCP reachability or a pasted config alone cannot prove global egress.
+        final relayCheckAt = DateTime.now();
+        _expireNatVerification(at: relayCheckAt);
         if (relayServerUrl.isNotEmpty) {
           final relaySrv = Server.parse(relayServerUrl);
-          if (relaySrv != null) {
-            chainCfg = natChainCfg(cfg, natCfg(relaySrv, 0), keepInbounds: true);
-            if (chainCfg != null) dbg('MULTIHOP: manual relay for ${s.name}');
+          if (relaySrv != null && !_sameEndpoint(relaySrv, s)) {
+            final proof = _resMap[relaySrv.key];
+            final manuallyVerified = natIsFreshVerifiedRelay(
+              verified: proof?.verified ?? false,
+              verifiedAt: proof?.verifiedAt,
+              now: relayCheckAt,
+              maxAge: Duration(hours: kGoldRetestHours),
+            );
+            if (manuallyVerified) {
+              chainCfg = natChainCfg(cfg, natCfg(relaySrv, 0), keepInbounds: true);
+              if (chainCfg != null) dbg('MULTIHOP: verified manual relay for ${s.name}');
+            } else {
+              dbg('MULTIHOP: manual relay skipped; fresh end-to-end proof required');
+            }
           }
         }
         if (chainCfg == null) {
-          final relays = _usable().where((x) => !identical(x, s)).take(1).toList();
+          // _usable() also contains delay-only candidates. A relay must instead
+          // have recent end-to-end tunnel proof or it may provide no egress.
+          final relays = _usable().where((x) {
+            if (identical(x, s) || _sameEndpoint(x, s)) return false;
+            final proof = _resMap[x.key];
+            return natIsFreshVerifiedRelay(
+              verified: proof?.verified ?? false,
+              verifiedAt: proof?.verifiedAt,
+              now: relayCheckAt,
+              maxAge: Duration(hours: kGoldRetestHours),
+            );
+          }).take(1).toList();
           if (relays.isNotEmpty) {
             chainCfg = natChainCfg(cfg, natCfg(relays.first, 0), keepInbounds: true);
             if (chainCfg != null) {
-              dbg('MULTIHOP: آخرین تلاش از پشت ${relays.first.name} (relay) برای ${s.name}');
+              dbg('MULTIHOP: آخرین تلاش از پشت ${relays.first.name} (تأیید ترافیک واقعی) برای ${s.name}');
             }
           }
         }
@@ -8938,9 +8962,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           natVarSet(s, v);
         } else {
           // NORMALCACHE: برای اتصال بعدی هم به خاطر بسپار
-          if (natVarNormal.length > 3000) {
-            natVarNormal.remove(natVarNormal.keys.first);
-          }
           // NORMALKEY: keyed by s.key only so the cache survives operator
           // changes and restarts (natOpKey is 'x' at startup).
           natVarNormal[s.key] = v;
@@ -9829,7 +9850,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _resBusy = false, _resDirty = false, _resNext = false;
   DateTime? _resHold, _resLast, _resUi;
   int _resDone = 0, _resTotal = 0;
-  static const int _resMax = 5000;
   static const Duration _resEvery = Duration(hours: 48); // FOLDERS: تست خودکار هر ۴۸ ساعت
   int _resMergeCursor = 0; // FOLDERS: چرخش سهم سرورهای سالم در صف نت ملی
   bool _resFull = false; // second-chance pass: every variant
@@ -9937,25 +9957,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       } else {
         final c = Server.parse(srv.link);
         if (c == null) return;
-        if (_resMap.length >= _resMax) {
-          // full: the entry verified the longest ago makes room
-          String? oldK;
-          DateTime? oldT;
-          // Evict unverified candidates before sacrificing any end-to-end winner.
-          final unverified = _resMap.entries
-              .where((entry) => !entry.value.verified)
-              .toList();
-          final evictionPool =
-              unverified.isNotEmpty ? unverified : _resMap.entries.toList();
-          for (final entry in evictionPool) {
-            final t = entry.value.checked ?? entry.value.added;
-            if (oldT == null || t.isBefore(oldT!)) {
-              oldT = t;
-              oldK = entry.key;
-            }
-          }
-          if (oldK != null) _resMap.remove(oldK);
-        }
         c.ping = srv.ping;
         final e = _NatResItem(srv.link, c, now)..verified = verified;
         e.checked = verified ? now : null;
@@ -10697,9 +10698,6 @@ ListTile( // KINGEXTRAS row
     if (add.isEmpty) return;
     // فیکس ۱۶: درج درجا و حذف انتهای لیست (بدون ساخت دو لیست تازه)
     pending.insertAll(0, add);
-    if (pending.length > 1200) {
-      pending.removeRange(1200, pending.length); // بدون allocation
-    }
     _set('نت ملی: ${add.length} کانفیگ از پوشه‌ها به صف اضافه شد');
   }
 
@@ -10795,7 +10793,7 @@ ListTile( // KINGEXTRAS row
         for (final s in [...pending, ...natRestPending]) '${s.host}|${s.port}'
       };
       final items = <String>[];
-      for (final e in natIpMem.take(40)) {
+      for (final e in natIpMem) {
         final ip = '${e['ip']}';
         final port = (e['port'] as num?)?.toInt() ?? 0;
         if (InternetAddress.tryParse(ip) == null || port <= 0) continue;
@@ -10822,7 +10820,7 @@ ListTile( // KINGEXTRAS row
     for (final it in items) {
       natScanHits.add(it.split('|')[0]);
     }
-    final tpl = [...pending, ...natRestPending, ...natTemplateSeeds, ...good].take(2).toList();
+    final tpl = [...pending, ...natRestPending, ...natTemplateSeeds, ...good];
     if (tpl.isEmpty) {
       dbg('V8: no template - skipping');
       return;
@@ -10849,8 +10847,6 @@ ListTile( // KINGEXTRAS row
     if (made.isEmpty) return;
     if (count) natIpFound += items.length;
     pending = [...made, ...pending];
-    // NATPENDCAP: pending بیش از ۳۰۰۰ نشود (حافظه و زمان دسته‌بندی)؛ انتهای صف حذف می‌شود
-    if (pending.length > 3000) pending.removeRange(3000, pending.length);
     natRangeCursor = 0;
   }
 
@@ -10934,20 +10930,21 @@ ListTile( // KINGEXTRAS row
           TextButton(
             // MANUALSCAN: اسکن دستی بازه‌ها؛ نتیجه در پوشه‌ی جهانی ذخیره می‌شود (نت ملی را تغییر نمی‌دهد)
             onPressed: () {
-              final lines = c.text.split('\n');
-              final addrs = <String>[];
-              for (final line in lines) {
-                final t = line.trim();
-                if (t.isEmpty) continue;
-                // LARGE: بازه‌ی CIDR یا خطی؛ بلوک‌های بزرگ تا ۶۵۵۳۶ IP برای پوشش بهتر
-                final got = natExpandCidr(t, maxPerBlock: 65536);
-                addrs.addAll(got.isNotEmpty ? got : natExpandDash(t, maxCount: 65536));
-              }
-              if (addrs.isEmpty) {
+              final ranges = c.text
+                  .split('\n')
+                  .map((line) => line.trim())
+                  .where((line) => line.isNotEmpty)
+                  .toList(growable: false);
+              if (ranges.isEmpty || !ranges.any((range) => natExpandRangeStream(range).iterator.moveNext())) {
                 _set('بازه‌ی معتبر نیست؛ مثلاً 5.160.0.0/24 بنویس');
                 return;
               }
-              unawaited(manualRangeScan(context, addrs)); // MANUALSCAN: نتیجه و پیشرفت داخل دیالوگ
+              Iterable<String> expandedRanges() sync* {
+                for (final range in ranges) {
+                  yield* natExpandRangeStream(range);
+                }
+              }
+              unawaited(manualRangeScan(context, expandedRanges())); // MANUALSCAN: نتیجه و پیشرفت داخل دیالوگ
             },
             child: const Text('اسکن بازه‌ها'),
           ),
@@ -17543,19 +17540,6 @@ extension ProjectNatSweep on _HomePageState {
         const {'360', 'qq'}.contains(x.fp); // NEWFP
   }
 
-  // AUTORANGE: بلوک‌های /24 سرورهای IP دار برنامه، بدون دخالت کاربر
-  List<String> _atAutoRanges(List<Server> servers) {
-    final blocks = <String>{};
-    for (final x in servers) {
-      if (!x.isIp) continue;
-      final p = x.host.split('.');
-      if (p.length != 4) continue;
-      blocks.add('${p[0]}.${p[1]}.${p[2]}.0/24');
-      if (blocks.length >= 200) break;
-    }
-    return blocks.toList();
-  }
-
   // IPSWEEP: هر IP تمیز را با اتصال واقعی روی یک سرور پشت کلودفلر امتحان می‌کند.
   // فقط IP‌هایی که ترافیک تونل (google و youtube) بدهند نگه داشته می‌شوند (حداکثر ۱۰ تا).
   // IPSWEEP: IP‌های باز را روی همه‌ی پورت‌های CDN (_natCfPorts) پیدا می‌کند، سپس هر جفت IP:پورت
@@ -17577,8 +17561,9 @@ extension ProjectNatSweep on _HomePageState {
       return <CleanIp>[];
     }
 
-    // بازه‌ها: کلودفلر + بلوک‌های /24 سرورهای خود برنامه
-    final ranges = <String>[..._cfRanges, ..._atAutoRanges(good)];
+    // Scope automatic probes to the CDN provider's published ranges only.
+    // Never infer authorization to scan neighboring /24s from a configured server IP.
+    final ranges = List<String>.of(_cfRanges);
     final pool2 = <String>[];
     for (final r in ranges) {
       pool2.addAll(natExpandCidr(r, maxPerBlock: 128));
@@ -17597,8 +17582,7 @@ extension ProjectNatSweep on _HomePageState {
       final hits = await natScanIps(pool2,
           port: port,
           concurrency: 24,
-          want: 20,
-          budget: left,
+          want: pool2.length,
           cancelled: () => abort || AutoTestEngine._abortRequested);
       for (final h in hits) {
         opened.add(CleanIp(h.ip, h.ms, port));

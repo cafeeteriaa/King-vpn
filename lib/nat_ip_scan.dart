@@ -15,15 +15,35 @@
 //     subnet first every run.
 //   • Timeout accuracy: the Stopwatch is stopped exactly when the connect
 //     returns, not after potential catch/finally work.
-//   • No artificial caps: the caller controls want/budget/concurrency. We
-//     only enforce a device-safe ceiling for concurrency to prevent OOM.
+//   • Bounded targets: every scan validates/deduplicates numeric IPs and
+//     enforces the shared 4096-address ceiling, plus a device-safe concurrency cap.
 
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'errjournal.dart';
 import 'nnie_core.dart'; // natStableSort
+
+/// Validate, canonicalize, and de-duplicate scanner targets; maxCount is optional and caller-controlled.
+/// Hostnames are intentionally rejected: callers must resolve them explicitly.
+List<String> natBoundScanTargets(
+  Iterable<String> source, {
+  int? maxCount,
+}) {
+  if (maxCount != null && maxCount <= 0) return const <String>[];
+  final out = <String>[];
+  final seen = <String>{};
+  for (final raw in source) {
+    if (maxCount != null && out.length >= maxCount) break;
+    final parsed = InternetAddress.tryParse(raw.trim());
+    if (parsed == null) continue;
+    final ip = parsed.address;
+    if (seen.add(ip)) out.add(ip);
+  }
+  return out;
+}
 
 class NatIpHit {
   final String ip;
@@ -36,8 +56,9 @@ class NatIpHit {
 
 /// بلوک CIDR مثل «5.160.0.0/16» را به فهرست IP تبدیل می‌کند.
 /// برای بلوک‌های بزرگ، فقط [maxPerBlock] آدرس پراکنده برمی‌گرداند.
-List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
+List<String> natExpandCidr(String cidr, {required int maxPerBlock}) {
   if (maxPerBlock <= 0) return const [];
+  final limit = maxPerBlock;
   final parts = cidr.trim().split('/');
   if (parts.length != 2) return const [];
   final octets = parts[0].split('.');
@@ -55,7 +76,7 @@ List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   final start = base & ~(size - 1) & 0xFFFFFFFF;
   // Ceiling division is required: floor division can exceed maxPerBlock
   // for non-divisible subnet sizes (e.g. /24 with a limit of 100 yields 128).
-  final step = size > maxPerBlock ? (size + maxPerBlock - 1) ~/ maxPerBlock : 1;
+  final step = size > limit ? (size + limit - 1) ~/ limit : 1;
   final out = <String>[];
   for (var i = 0; i < size; i += step) {
     final v = start + i;
@@ -64,10 +85,56 @@ List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   return out;
 }
 
+/// Expand an explicitly supplied IPv6 CIDR using bounded, evenly spaced samples.
+/// This is a manual/authorized-range primitive; it is never fed implicit ASN ranges.
+List<String> natExpandIpv6Cidr(
+  String cidr, {
+  required int maxPerBlock,
+}) {
+  if (maxPerBlock <= 0) return const <String>[];
+  final limit = maxPerBlock;
+  final parts = cidr.trim().split('/');
+  if (parts.length != 2) return const <String>[];
+  final address = InternetAddress.tryParse(parts[0].trim());
+  final prefix = int.tryParse(parts[1].trim());
+  if (address == null ||
+      address.type != InternetAddressType.IPv6 ||
+      prefix == null ||
+      prefix < 0 ||
+      prefix > 128) {
+    return const <String>[];
+  }
+
+  final value = address.rawAddress.fold<BigInt>(
+    BigInt.zero,
+    (acc, byte) => (acc << 8) | BigInt.from(byte),
+  );
+  final hostBits = 128 - prefix;
+  final size = BigInt.one << hostBits;
+  final network = (value >> hostBits) << hostBits;
+  final limitBig = BigInt.from(limit);
+  final step = (size + limitBig - BigInt.one) ~/ limitBig;
+  final out = <String>[];
+
+  for (var offset = BigInt.zero;
+      offset < size && out.length < limit;
+      offset += step) {
+    var current = network + offset;
+    final bytes = List<int>.filled(16, 0);
+    for (var i = 15; i >= 0; i--) {
+      bytes[i] = (current & BigInt.from(255)).toInt();
+      current >>= 8;
+    }
+    out.add(InternetAddress.fromRawAddress(Uint8List.fromList(bytes)).address);
+  }
+  return out;
+}
+
 /// بازه‌ی خطی به شکل a.b.c.d-e.f.g.h (برای نوشته‌هایی که CIDR نیستند).
 /// بازه‌های بزرگ‌تر از maxCount به‌طور یکنواخت نمونه‌برداری می‌شوند.
-List<String> natExpandDash(String range, {int maxCount = 65536}) {
+List<String> natExpandDash(String range, {required int maxCount}) {
   if (maxCount <= 0) return const [];
+  final limit = maxCount;
   final parts = range.trim().split('-');
   if (parts.length != 2) return const [];
   int? toInt(String ip) {
@@ -85,12 +152,109 @@ List<String> natExpandDash(String range, {int maxCount = 65536}) {
   final b = toInt(parts[1]);
   if (a == null || b == null || b < a) return const [];
   final count = b - a + 1;
-  final step = count > maxCount ? (count + maxCount - 1) ~/ maxCount : 1; // مشکل ۱۵: سقف رعایت شود
+  final step = count > limit ? (count + limit - 1) ~/ limit : 1; // مشکل ۱۵: سقف رعایت شود
   final out = <String>[];
   for (var v = a; v <= b; v += step) {
     out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
   }
   return out;
+}
+
+/// Lazy full-range expansion for explicit manual input. It does not materialize
+/// huge CIDRs in memory and has no fixed candidate-count ceiling.
+Iterable<String> natExpandRangeStream(String item) sync* {
+  final value = item.trim();
+  final cidr = value.split('/');
+  if (cidr.length == 2) {
+    final octets = cidr[0].split('.');
+    final prefix = int.tryParse(cidr[1].trim());
+    if (octets.length != 4 || prefix == null || prefix < 8 || prefix > 32) return;
+    var base = 0;
+    for (final octet in octets) {
+      final part = int.tryParse(octet.trim());
+      if (part == null || part < 0 || part > 255) return;
+      base = (base << 8) | part;
+    }
+    final size = 1 << (32 - prefix);
+    final start = base & ~(size - 1) & 0xFFFFFFFF;
+    for (var offset = 0; offset < size; offset++) {
+      final address = start + offset;
+      yield '${(address >> 24) & 255}.${(address >> 16) & 255}.${(address >> 8) & 255}.${address & 255}';
+    }
+    return;
+  }
+  final range = value.split('-');
+  if (range.length != 2) return;
+  int? parseIp(String raw) {
+    final parts = raw.trim().split('.');
+    if (parts.length != 4) return null;
+    var address = 0;
+    for (final part in parts) {
+      final octet = int.tryParse(part);
+      if (octet == null || octet < 0 || octet > 255) return null;
+      address = (address << 8) | octet;
+    }
+    return address;
+  }
+  final first = parseIp(range[0]);
+  final last = parseIp(range[1]);
+  if (first == null || last == null || last < first) return;
+  for (var address = first; address <= last; address++) {
+    yield '${(address >> 24) & 255}.${(address >> 16) & 255}.${(address >> 8) & 255}.${address & 255}';
+  }
+}
+
+({int first, int count})? _natIpv4RangeBounds(String item) {
+  final value = item.trim();
+  final cidr = value.split('/');
+  if (cidr.length == 2) {
+    final octets = cidr[0].split('.');
+    final prefix = int.tryParse(cidr[1].trim());
+    if (octets.length != 4 || prefix == null || prefix < 8 || prefix > 32) return null;
+    var base = 0;
+    for (final raw in octets) {
+      final part = int.tryParse(raw.trim());
+      if (part == null || part < 0 || part > 255) return null;
+      base = (base << 8) | part;
+    }
+    final size = 1 << (32 - prefix);
+    return (first: base & ~(size - 1) & 0xFFFFFFFF, count: size);
+  }
+  final range = value.split('-');
+  if (range.length != 2) return null;
+  int? parseIp(String raw) {
+    final parts = raw.trim().split('.');
+    if (parts.length != 4) return null;
+    var address = 0;
+    for (final part in parts) {
+      final octet = int.tryParse(part);
+      if (octet == null || octet < 0 || octet > 255) return null;
+      address = (address << 8) | octet;
+    }
+    return address;
+  }
+  final first = parseIp(range[0]);
+  final last = parseIp(range[1]);
+  if (first == null || last == null || last < first) return null;
+  return (first: first, count: last - first + 1);
+}
+
+/// Count and page helpers let automatic scanners resume through complete
+/// configured IPv4 ranges without sampling away the unvisited addresses.
+int? natRangeAddressCount(String item) => _natIpv4RangeBounds(item)?.count;
+
+List<String> natExpandRangePage(String item, {required int offset, required int count}) {
+  if (offset < 0 || count <= 0) return const <String>[];
+  final bounds = _natIpv4RangeBounds(item);
+  if (bounds == null || offset >= bounds.count) return const <String>[];
+  final end = min(bounds.count, offset + count);
+  return [
+    for (var index = offset; index < end; index++)
+      () {
+        final address = bounds.first + index;
+        return '${(address >> 24) & 255}.${(address >> 16) & 255}.${(address >> 8) & 255}.${address & 255}';
+      }(),
+  ];
 }
 
 /// اتصال TCP به ip:port. اگر جواب داد زمان پاسخ را برمی‌گرداند، وگرنه null.
@@ -142,35 +306,37 @@ int natAdaptiveConcurrency(int requested) {
 /// IMPROVEMENTS:
 ///   • Concurrency is clamped by [natAdaptiveConcurrency] — never too small,
 ///     never device-crushing.
-///   • Live cancellation: in-flight probes exit as soon as cancelled() is true.
+///   • Cancellation stops scheduling probes; in-flight connects remain bounded by timeout.
 ///   • Progress reporting via [onProgress] (called every few completions).
 ///   • Optional [randomize] to shuffle the scan order.
-///   • No artificial caps on the caller's intent.
+///   • Every supplied target is checked; callers can resume across batches.
 Future<List<NatIpHit>> natScanIps(
   List<String> ips, {
   int port = 443,
-  int concurrency = 16,
-  int want = 20,
-  Duration budget = const Duration(seconds: 90),
+  int concurrency = 0,
+  int? want,
+  Duration? budget,
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
   void Function(int done, int total, int hits)? onProgress,
   bool randomize = false,
 }) async {
-  if (ips.isEmpty || want <= 0) return <NatIpHit>[];
+  if (ips.isEmpty || (want != null && want <= 0)) return <NatIpHit>[];
 
-  if (budget <= Duration.zero || timeout <= Duration.zero ||
+  if ((budget != null && budget <= Duration.zero) || timeout <= Duration.zero ||
       port < 1 || port > 65535) {
     return <NatIpHit>[];
   }
 
+  // Validate numeric endpoints and de-duplicate without silently truncating the caller's target list.
+  final boundedIps = natBoundScanTargets(ips);
   final effective = natAdaptiveConcurrency(concurrency);
   // Stopwatch is monotonic; wall-clock changes must not extend or truncate a scan.
   final elapsed = Stopwatch()..start();
   final hits = <NatIpHit>[];
 
   // Optional shuffle so the same subnet is not hit first on every run.
-  final source = randomize ? (List<String>.of(ips)..shuffle(Random())) : ips;
+  final source = randomize ? (List<String>.of(boundedIps)..shuffle(Random())) : boundedIps;
 
   var next = 0;
   var done = 0;
@@ -180,25 +346,29 @@ Future<List<NatIpHit>> natScanIps(
 
   Future<void> worker() async {
     while (true) {
-      if (hits.length >= want) return;
+      if (want != null && hits.length >= want) return;
       if (aborted()) return;
-      if (elapsed.elapsed >= budget) return;
+      if (budget != null && elapsed.elapsed >= budget) return;
 
       final idx = next++;
       if (idx >= source.length) return;
       final ip = source[idx];
 
-      final ms = await natTcpProbe(ip, port, timeout);
+      // Cap every in-flight connect to the remaining monotonic scan budget.
+      // Cancellation is checked between attempts; Socket.connect itself is not cancellable.
+      final remaining = budget == null ? timeout : budget - elapsed.elapsed;
+      if (remaining <= Duration.zero) return;
+      final probeTimeout = timeout < remaining ? timeout : remaining;
+      final ms = await natTcpProbe(ip, port, probeTimeout);
       // Do not publish a probe that completed after cancellation or the time budget.
-      // In-flight socket connects are bounded by [timeout], then discarded if stale.
-      if (aborted() || elapsed.elapsed >= budget) {
+      if (aborted() || (budget != null && elapsed.elapsed >= budget)) {
         done++;
         if (onProgress != null) onProgress(done, total, hits.length);
         return;
       }
       // Several workers may finish successful probes in the same event-loop turn.
       // Enforce [want] at insertion time so concurrent completions cannot exceed it.
-      if (ms != null && hits.length < want) {
+      if (ms != null && (want == null || hits.length < want)) {
         hits.add(NatIpHit(ip, ms));
       }
 

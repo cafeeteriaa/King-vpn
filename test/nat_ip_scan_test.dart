@@ -2,7 +2,39 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:king_vpn/nat_ip_scan.dart';
 
 void main() {
-  group('IP range expansion limits', () {
+  group('IP range expansion and resumable target batches', () {
+    test('scanner targets are validated and unique without a global ceiling', () {
+      final targets = natBoundScanTargets([
+        ' 192.0.2.1 ', '192.0.2.1', 'not-an-ip', '2001:db8::1',
+        ...List<String>.generate(5000, (i) => '10.${(i ~/ 65536) % 256}.${(i ~/ 256) % 256}.${i % 256}'),
+      ], maxCount: 100000);
+      expect(targets, containsAll(['192.0.2.1', '2001:db8::1']));
+      expect(targets.toSet(), hasLength(targets.length));
+      expect(targets.length, greaterThan(4096));
+      expect(targets.length, 5002);
+      expect(natBoundScanTargets(['example.com', 'bad'],), isEmpty);
+      expect(natBoundScanTargets(['192.0.2.1'], maxCount: 0), isEmpty);
+    });
+
+    test('range pages walk a CIDR sequentially without sampling or dropping addresses', () {
+      expect(natRangeAddressCount('192.0.2.0/29'), 8);
+      expect(natExpandRangePage('192.0.2.0/29', offset: 0, count: 3),
+          ['192.0.2.0', '192.0.2.1', '192.0.2.2']);
+      expect(natExpandRangePage('192.0.2.0/29', offset: 3, count: 5),
+          ['192.0.2.3', '192.0.2.4', '192.0.2.5', '192.0.2.6', '192.0.2.7']);
+      expect(natRangeAddressCount('192.0.2.1-192.0.2.4'), 4);
+      expect(natExpandRangePage('192.0.2.1-192.0.2.4', offset: 2, count: 4),
+          ['192.0.2.3', '192.0.2.4']);
+    });
+
+    test('lazy range expansion streams every address without a fixed count ceiling', () {
+      expect(natExpandRangeStream('192.0.2.0/30').toList(),
+          ['192.0.2.0', '192.0.2.1', '192.0.2.2', '192.0.2.3']);
+      expect(natExpandRangeStream('192.0.2.1-192.0.2.3').toList(),
+          ['192.0.2.1', '192.0.2.2', '192.0.2.3']);
+      expect(natExpandRangeStream('invalid').toList(), isEmpty);
+    });
+
     test('CIDR expansion rejects non-positive output limits', () {
       expect(natExpandCidr('10.0.0.0/24', maxPerBlock: 0), isEmpty);
       expect(natExpandCidr('10.0.0.0/24', maxPerBlock: -1), isEmpty);
@@ -17,6 +49,34 @@ void main() {
       expect(sampled16.length, lessThanOrEqualTo(1000));
       expect(sampled24.toSet(), hasLength(sampled24.length));
       expect(sampled16.toSet(), hasLength(sampled16.length));
+    });
+
+    test('CIDR expansion honors caller batch size beyond the old global ceiling', () {
+      final expanded = natExpandCidr('10.0.0.0/8', maxPerBlock: 100000);
+      expect(expanded.length, greaterThan(4096));
+      expect(expanded.length, lessThanOrEqualTo(100000));
+    });
+
+    test('dash range expansion honors caller batch size beyond the old global ceiling', () {
+      final expanded = natExpandDash('10.0.0.0-10.255.255.255', maxCount: 100000);
+      expect(expanded.length, greaterThan(4096));
+      expect(expanded.length, lessThanOrEqualTo(100000));
+    });
+
+    test('IPv6 CIDR expansion supports explicit small ranges', () {
+      final result = natExpandIpv6Cidr('2001:db8::1/126', maxPerBlock: 8);
+      expect(result, hasLength(4));
+      expect(result.toSet(), hasLength(4));
+      expect(result.every((ip) => ip.contains(':')), isTrue);
+    });
+
+    test('IPv6 CIDR sampling honors caller batch size and rejects invalid input', () {
+      final sampled = natExpandIpv6Cidr('2001:db8::/32', maxPerBlock: 100000);
+      expect(sampled, isNotEmpty);
+      expect(sampled.length, 100000);
+      expect(natExpandIpv6Cidr('10.0.0.0/24', maxPerBlock: 4096), isEmpty);
+      expect(natExpandIpv6Cidr('2001:db8::/129', maxPerBlock: 4096), isEmpty);
+      expect(natExpandIpv6Cidr('2001:db8::/64', maxPerBlock: 0), isEmpty);
     });
 
     test('dash range expansion rejects non-positive output limits', () {

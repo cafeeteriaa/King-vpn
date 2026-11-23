@@ -10,7 +10,6 @@ const List<String> kAutoSniDomains = [
   'www.spotify.com', 'www.github.com',
 ];
 const List<int> kAutoPorts = [443, 8443, 2053, 2083, 2087, 2096];
-const int kAutoIpLimit = 40;
 // AUTOFALLBACK: IPهای داخلی برای وقتی پوشه‌ی جهانی هنوز IP تمیز ندارد
 const List<String> kAutoFallbackIps = [
   '104.16.0.1', '104.17.0.1', '104.18.0.1', '104.19.0.1', '104.20.0.1',
@@ -20,15 +19,14 @@ const List<String> kAutoFallbackIps = [
 bool _autoScanRunning = false;
 bool _autoScanStop = false;
 
-// TLS با SNI مشخص: اگر هندشیک کامل شود، SNI برای آن IP قابل استفاده است
+// TLS با SNI مشخص: هندشیک و اعتبارسنجی زنجیره گواهی باید هر دو موفق شوند
 Future<int?> _autoSniOk(String ip, int port, String sni) async {
   final sw = Stopwatch()..start();
   Socket? raw;
   SecureSocket? secure;
   try {
     raw = await Socket.connect(ip, port, timeout: const Duration(seconds: 4));
-    secure = await SecureSocket.secure(raw,
-        host: sni, onBadCertificate: (_) => true)
+    secure = await SecureSocket.secure(raw, host: sni)
         .timeout(const Duration(seconds: 4));
     return sw.elapsedMilliseconds;
   } catch (_) {
@@ -47,8 +45,7 @@ Future<String?> _autoAlpnOk(String ip, String sni, String alpn) async {
     raw = await Socket.connect(ip, 443, timeout: const Duration(seconds: 4));
     secure = await SecureSocket.secure(raw,
         host: sni,
-        supportedProtocols: [alpn],
-        onBadCertificate: (_) => true)
+        supportedProtocols: [alpn])
         .timeout(const Duration(seconds: 4));
     return secure.selectedProtocol;
   } catch (_) {
@@ -59,13 +56,19 @@ Future<String?> _autoAlpnOk(String ip, String sni, String alpn) async {
   }
 }
 
-Future<bool> _autoPortOk(String ip, int port) async {
+Future<bool> _autoPortOk(String ip, int port, String sni) async {
+  Socket? raw;
+  SecureSocket? secure;
   try {
-    final s = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 1500));
-    s.destroy();
-    return true;
+    raw = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 1500));
+    secure = await SecureSocket.secure(raw, host: sni)
+        .timeout(const Duration(milliseconds: 2500));
+    return true; // TCP + TLS + certificate/hostname validation
   } catch (_) {
     return false;
+  } finally {
+    try { secure?.destroy(); } catch (e, st) { logError(e, st); }
+    try { raw?.destroy(); } catch (e, st) { logError(e, st); }
   }
 }
 
@@ -87,16 +90,11 @@ Future<void> autoScanRun(void Function(String) say,
   dnsxManualBusy = true;
   _autoScanStop = false;
   final scanNationalMode = nationalMode;
-  const scanBudget = Duration(minutes: 3);
-  final scanClock = Stopwatch()..start();
-  bool timedOut() => scanClock.elapsed >= scanBudget;
   bool cancelled() =>
-      _autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode || timedOut();
-  String cancellationMessage() => timedOut()
-      ? 'مهلت سه‌دقیقه‌ای اسکن تمام شد؛ نتایج ناقص ذخیره نشد'
-      : ((vpnActive() || vpnWanted())
-          ? 'با شروع اتصال VPN، اسکن برای جلوگیری از تداخل متوقف شد؛ نتایج ناقص ذخیره نشد'
-          : 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد');
+      _autoScanStop || vpnActive() || vpnWanted() || nationalMode != scanNationalMode;
+  String cancellationMessage() => (vpnActive() || vpnWanted())
+      ? 'با شروع اتصال VPN، اسکن برای جلوگیری از تداخل متوقف شد؛ نتایج ناقص ذخیره نشد'
+      : 'اسکن متوقف شد؛ نتایج ناقص ذخیره نشد';
   try {
     await goldLoad();
     if (cancelled()) {
@@ -108,12 +106,33 @@ Future<void> autoScanRun(void Function(String) say,
     // FOLDERALL: IPهای پوشه اول؛ در نت ملی IPهای ISP داخلی هم اضافه می‌شود (بهینه برای نت ملی)
     // This is the generic/global SNI and port scanner. National ISP ranges
     // belong exclusively to the National Net engine and are never borrowed here.
-    final base = [for (final entry in _goldIps.values.take(kAutoIpLimit)) entry.ip];
+    final serverInventory = <Server>[
+      ...fetchedAll,
+      ...good,
+      ...pending,
+      ...natRestPending,
+      ...natTemplateSeeds,
+    ];
+    final base = <String>{
+      for (final entry in _goldIps.values) entry.ip,
+      for (final entry in cleanIps) entry.ip,
+      for (final entry in natIpMem) (entry['ip'] ?? '').toString(),
+      for (final server in serverInventory)
+        if (server.isIp) server.host,
+    }.where((ip) => ip.isNotEmpty).toList(growable: false);
     final cdnSample = <String>[];
     if (base.isEmpty) {
-      for (final r in _cfRanges.take(8)) {
-        cdnSample.addAll(natExpandCidr(r, maxPerBlock: 3));
-        if (cdnSample.length >= 20) break;
+      // Discover from all published CDN inventories, with Cloudflare kept last.
+      final ranges = <String>{
+        ..._fastlyRanges,
+        ..._awsCfRanges,
+        ..._gcpCdnRanges,
+        ..._liveCdnRanges.where((range) => !_cfRanges.contains(range)),
+        ..._cfRanges,
+      };
+      final perRangeCandidates = natAdaptiveConcurrency(0) * 4;
+      for (final range in ranges) {
+        cdnSample.addAll(natExpandCidr(range, maxPerBlock: perRangeCandidates));
       }
     }
     final ips = base.isNotEmpty
@@ -124,8 +143,17 @@ Future<void> autoScanRun(void Function(String) say,
     // SNI: خروجی خود دامنه‌هاست. هر دامنه یک بار؛ به محض یک IP سالم، همان دامنه ثبت می‌شود
     final sniHits = <String>[];
     var n = 0;
+    final configuredSnis = <String>{
+      ...kAutoSniDomains,
+      ...dnsxFullDomains(),
+      for (final server in serverInventory)
+        if (!server.isIp && server.host.contains('.')) server.host.toLowerCase(),
+      for (final server in _goldSrv.values)
+        if ((Uri.tryParse(server.link)?.host ?? '').contains('.'))
+          Uri.parse(server.link).host.toLowerCase(),
+    }.toList(growable: false);
     sniLoop:
-    for (final d in kAutoSniDomains) {
+    for (final d in configuredSnis) {
       n++;
       if (scanNationalMode) {
         await natManualYield(shouldAbort: () => cancelled());
@@ -140,7 +168,7 @@ Future<void> autoScanRun(void Function(String) say,
         }
       }
       if (ok) sniHits.add(d);
-      say('SNI $n/${kAutoSniDomains.length} • سالم: ${sniHits.length}');
+      say('SNI $n/${configuredSnis.length} • سالم: ${sniHits.length}');
     }
 
     if (cancelled()) {
@@ -148,11 +176,23 @@ Future<void> autoScanRun(void Function(String) say,
       return;
     }
 
-    // پورت: خروجی خود شماره‌ی پورت است. هر پورت یک بار؛ به محض یک IP سالم، همان پورت ثبت می‌شود
+    // Port scan: validate TLS against every discovered SNI, not only Cloudflare.
     final portHits = <String>[];
     var m = 0;
+    final knownPortServers = <Server>[
+      ...serverInventory,
+      for (final record in _goldSrv.values)
+        if (Server.parse(record.link) case final Server server) server,
+    ];
+    final configuredPorts = <int>{
+      ...natCommonPorts,
+      ...kAutoPorts,
+      ...natAutoPorts(knownPortServers),
+      for (final ip in cleanIps) ip.port,
+    }..removeWhere((port) => port < 1 || port > 65535);
+    final portsToTest = configuredPorts.toList(growable: false);
     portLoop:
-    for (final p in kAutoPorts) {
+    for (final p in portsToTest) {
       m++;
       if (scanNationalMode) {
         await natManualYield(shouldAbort: () => cancelled());
@@ -161,13 +201,17 @@ Future<void> autoScanRun(void Function(String) say,
       var ok = false;
       for (final ip in ips) {
         if (cancelled()) break portLoop;
-        if (await _autoPortOk(ip, p)) {
-          ok = true;
-          break;
+        for (final sni in configuredSnis) {
+          if (cancelled()) break portLoop;
+          if (await _autoPortOk(ip, p, sni)) {
+            ok = true;
+            break;
+          }
         }
+        if (ok) break;
       }
       if (ok) portHits.add('$p');
-      say('پورت $m/${kAutoPorts.length} • سالم: ${portHits.length}');
+      say('پورت $m/${portsToTest.length} • سالم: ${portHits.length}');
     }
 
     if (cancelled()) {
@@ -175,20 +219,24 @@ Future<void> autoScanRun(void Function(String) say,
       return;
     }
 
-    // TLS/ALPN: خروجی نام پروتکل‌های TLS است؛ روی اولین دامنه‌ی سالم (یا پیش‌فرض) تست می‌شود
+    // TLS/ALPN: evaluate every discovered SNI against each ALPN candidate.
     final tlsHits = <String>[];
-    final tlsSni = sniHits.isNotEmpty ? sniHits.first : 'www.google.com';
+    final tlsSnis = sniHits.isNotEmpty ? sniHits : configuredSnis;
     for (final alpn in const ['h2', 'http/1.1']) {
       if (cancelled()) break;
       var ok = false;
-      for (final ip in ips) {
+      for (final sni in tlsSnis) {
         if (cancelled()) break;
-        final sel = await _autoAlpnOk(ip, tlsSni, alpn);
-        if (sel != null && sel.isNotEmpty) {
-          if (!tlsHits.contains(sel)) tlsHits.add(sel);
-          ok = true;
-          break;
+        for (final ip in ips) {
+          if (cancelled()) break;
+          final sel = await _autoAlpnOk(ip, sni, alpn);
+          if (sel != null && sel.isNotEmpty) {
+            if (!tlsHits.contains(sel)) tlsHits.add(sel);
+            ok = true;
+            break;
+          }
         }
+        if (ok) break;
       }
       if (ok) say('TLS: $alpn ✓');
     }

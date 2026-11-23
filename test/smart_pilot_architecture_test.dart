@@ -9,8 +9,8 @@ void main() {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.healthy,
         global: LinkHealth.unreachable,
-        domesticSamples: 4,
-        globalSamples: 4,
+        domesticSamples: 3,
+        globalSamples: 3,
         domesticSuccesses: 3,
         domesticTlsReachabilityVerified: true,
       );

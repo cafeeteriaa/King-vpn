@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 enum NatNetworkClass {
   globalReachable,
@@ -94,16 +95,26 @@ class NatDnsProbeResult {
   bool get ok => elapsedMs != null && addresses.isNotEmpty;
 }
 
-/// Strict DNS-over-UDP A-query probe. It verifies transaction ID, QR/opcode,
-/// question name/type/class, response source IP/port, RCODE and public A answers.
+/// Strict DNS-over-UDP A/AAAA probe. It verifies transaction ID, QR/opcode,
+/// question name/type/class, response source IP/port, RCODE and public answers.
 /// It is a resolver test only; it is NOT a test of the VPN server's reachability.
 class _NatDnsProbeCancelled implements Exception {
   const _NatDnsProbeCancelled();
 }
 
 class NatDnsWireProbe {
-  static List<int> buildQuery(String domain, int id) {
-    final labels = domain.toLowerCase().replaceAll(RegExp(r'\.$'), '').split('.');
+  static List<int> buildQuery(String domain, int id, {int recordType = 1}) {
+    if (recordType != 1 && recordType != 28) {
+      throw ArgumentError.value(recordType, 'recordType', 'Only A and AAAA are supported');
+    }
+    final lower = domain.toLowerCase();
+    final normalized = lower.endsWith('.')
+        ? lower.substring(0, lower.length - 1)
+        : lower;
+    if (normalized.isEmpty || ascii.encode(normalized).length > 253) {
+      throw const FormatException('Invalid DNS name length');
+    }
+    final labels = normalized.split('.');
     final out = <int>[
       (id >> 8) & 255, id & 255,
       0x01, 0x00, // RD=1
@@ -117,8 +128,27 @@ class NatDnsWireProbe {
       }
       out..add(bytes.length)..addAll(bytes);
     }
-    out.addAll(const <int>[0, 0, 1, 0, 1]); // root, A, IN
+    out.addAll(<int>[0, (recordType >> 8) & 255, recordType & 255, 0, 1]); // root, QTYPE, IN
     return out;
+  }
+
+  /// Accept only globally scoped unicast IPv6 (2000::/3), excluding
+  /// documentation, transition, benchmarking and ORCHID special-purpose blocks.
+  static bool publicV6(List<int> b, int p) {
+    if (p < 0 || p + 16 > b.length) return false;
+    final a = b[p], second = b[p + 1], third = b[p + 2], fourth = b[p + 3];
+    if ((a & 0xe0) != 0x20) return false; // 2000::/3 only
+    if (a == 0x20 && second == 0x01) {
+      // 2001:0000::/23 contains IETF protocol assignments and special-use
+      // ranges; conservatively exclude the entire /23 from "public" evidence.
+      if ((third & 0xfe) == 0x00) return false;
+      if (third == 0x0d && fourth == 0xb8) return false; // 2001:db8::/32 documentation
+    }
+    if (a == 0x20 && second == 0x02) return false; // 6to4
+    if (a == 0x3f && second == 0xff && (third & 0xf0) == 0x00) {
+      return false; // 3fff::/20 documentation
+    }
+    return true;
   }
 
   static bool publicV4(List<int> b, int p) {
@@ -172,6 +202,9 @@ class NatDnsWireProbe {
       if ((n & 0xc0) == 0xc0) {
         if (p + 1 >= b.length) throw const FormatException('Bad pointer');
         final ptr = ((n & 0x3f) << 8) | b[p + 1];
+        if (ptr >= p || ptr >= b.length) {
+          throw const FormatException('DNS compression pointer must reference prior packet data');
+        }
         if (resume < 0) resume = p + 2;
         p = ptr;
         continue;
@@ -184,7 +217,11 @@ class NatDnsWireProbe {
     return labels.join('.');
   }
 
-  static List<String> parseResponse(List<int> b, int id, String domain) {
+  static List<String> parseResponse(List<int> b, int id, String domain,
+      {int recordType = 1}) {
+    if (recordType != 1 && recordType != 28) {
+      throw ArgumentError.value(recordType, 'recordType', 'Only A and AAAA are supported');
+    }
     if (b.length < 17) throw const FormatException('Short DNS response');
     final rid = (b[0] << 8) | b[1];
     final flags = (b[2] << 8) | b[3];
@@ -203,7 +240,13 @@ class NatDnsWireProbe {
     final qtype = (b[p] << 8) | b[p + 1];
     final qclass = (b[p + 2] << 8) | b[p + 3];
     p += 4;
-    if (qname != domain.toLowerCase() || qtype != 1 || qclass != 1) {
+    final normalizedDomain = domain.toLowerCase().endsWith('.')
+        ? domain.toLowerCase().substring(0, domain.length - 1)
+        : domain.toLowerCase();
+    if (normalizedDomain.isEmpty ||
+        qname != normalizedDomain ||
+        qtype != recordType ||
+        qclass != 1) {
       throw const FormatException('Question mismatch');
     }
     final records = <({String owner, int type, int cls, int rd, int rdlen})>[];
@@ -218,15 +261,18 @@ class NatDnsWireProbe {
       final rd = p + 10;
       if (rd + rdlen > b.length) throw const FormatException('Bad RDATA length');
       records.add((owner: owner, type: type, cls: cls, rd: rd, rdlen: rdlen));
-      if (type == 5 && cls == 1 && rdlen > 0) {
+      if (type == 5 && cls == 1) {
+        if (rdlen == 0 || _skipName(b, rd) != rd + rdlen) {
+          throw const FormatException('CNAME RDATA length mismatch');
+        }
         cnameTargets[owner] = _readName(b, rd);
       }
       p = rd + rdlen;
     }
-    // Only accept A records owned by the queried QNAME or its validated CNAME
-    // chain. An unrelated A record elsewhere in the answer section is ignored.
-    final allowedOwners = <String>{domain.toLowerCase()};
-    var owner = domain.toLowerCase();
+    // Only accept records of the requested family owned by the queried QNAME
+    // or its validated CNAME chain. Unrelated answer-section records are ignored.
+    final allowedOwners = <String>{normalizedDomain};
+    var owner = normalizedDomain;
     for (var hop = 0; hop < 16; hop++) {
       final target = cnameTargets[owner];
       if (target == null || !allowedOwners.add(target)) break;
@@ -234,35 +280,75 @@ class NatDnsWireProbe {
     }
     final ips = <String>[];
     for (final rr in records) {
-      if (rr.type != 1 || rr.cls != 1 || rr.rdlen != 4 ||
+      if (rr.type != recordType || rr.cls != 1 ||
           !allowedOwners.contains(rr.owner)) continue;
-      if (!publicV4(b, rr.rd)) {
-        throw const FormatException('Non-public/blockpage A answer for queried name');
+      if (recordType == 1) {
+        if (rr.rdlen != 4) continue;
+        if (!publicV4(b, rr.rd)) {
+          throw const FormatException('Non-public/blockpage A answer for queried name');
+        }
+        ips.add('${b[rr.rd]}.${b[rr.rd + 1]}.${b[rr.rd + 2]}.${b[rr.rd + 3]}');
+      } else {
+        if (rr.rdlen != 16) continue;
+        if (!publicV6(b, rr.rd)) {
+          throw const FormatException('Non-public/special-use AAAA answer for queried name');
+        }
+        ips.add(InternetAddress.fromRawAddress(
+            Uint8List.fromList(b.sublist(rr.rd, rr.rd + 16))).address);
       }
-      ips.add('${b[rr.rd]}.${b[rr.rd + 1]}.${b[rr.rd + 2]}.${b[rr.rd + 3]}');
     }
-    if (ips.isEmpty) throw const FormatException('No usable A answer for queried name');
+    if (ips.isEmpty) {
+      throw FormatException('No usable ${recordType == 1 ? 'A' : 'AAAA'} answer for queried name');
+    }
     return ips;
+  }
+
+  /// Parse either resolver address family. DNS answer record type (A/AAAA)
+  /// is independent from the IP family used to reach the resolver.
+  static InternetAddress? parseResolver(String server) {
+    final target = InternetAddress.tryParse(server.trim());
+    if (target == null ||
+        (target.type != InternetAddressType.IPv4 &&
+            target.type != InternetAddressType.IPv6)) {
+      return null;
+    }
+    return target;
   }
 
   static Future<NatDnsProbeResult> probe(String server, String domain,
       {Duration timeout = const Duration(seconds: 2),
-      bool Function()? cancelled}) async {
+      bool Function()? cancelled, int recordType = 1}) async {
     RawDatagramSocket? socket;
     StreamSubscription<RawSocketEvent>? subscription;
     Timer? cancelWatcher;
+    final elapsed = Stopwatch()..start();
+    Duration remaining() {
+      final left = timeout - elapsed.elapsed;
+      return left.isNegative ? Duration.zero : left;
+    }
     try {
+      if (timeout <= Duration.zero) {
+        throw TimeoutException('DNS probe deadline exhausted');
+      }
       if (cancelled?.call() ?? false) {
         return NatDnsProbeResult(server, domain, null, error: 'cancelled');
       }
-      final target = InternetAddress.tryParse(server);
-      if (target == null || target.type != InternetAddressType.IPv4) {
-        throw const FormatException('Resolver must be IPv4');
+      final target = parseResolver(server);
+      if (target == null) {
+        throw const FormatException('Resolver must be a valid IPv4 or IPv6 address');
       }
-      final s = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0).timeout(timeout);
+      final bindBudget = remaining();
+      if (bindBudget <= Duration.zero) {
+        throw TimeoutException('DNS probe deadline exhausted');
+      }
+      final bindAddress = target.type == InternetAddressType.IPv4
+          ? InternetAddress.anyIPv4
+          : InternetAddress.anyIPv6;
+      final s = await RawDatagramSocket.bind(bindAddress, 0)
+          .timeout(bindBudget);
       socket = s;
       final id = Random.secure().nextInt(0x10000);
-      final packet = buildQuery(domain, id);
+      final packet = buildQuery(domain, id, recordType: recordType);
       final sw = Stopwatch()..start();
       final completer = Completer<List<String>>();
       subscription = s.listen((event) {
@@ -272,7 +358,7 @@ class NatDnsWireProbe {
         // RFC 5452: a matching ID alone is insufficient; verify source tuple.
         if (dg.port != 53 || dg.address.address != target.address) return;
         try {
-          completer.complete(parseResponse(dg.data, id, domain));
+          completer.complete(parseResponse(dg.data, id, domain, recordType: recordType));
         } catch (_) {
           // Ignore unrelated/malformed datagrams until timeout.
         }
@@ -288,7 +374,11 @@ class NatDnsWireProbe {
         });
       }
       if (s.send(packet, target, 53) <= 0) throw const SocketException('DNS send failed');
-      final ips = await completer.future.timeout(timeout);
+      final responseBudget = remaining();
+      if (responseBudget <= Duration.zero) {
+        throw TimeoutException('DNS probe deadline exhausted');
+      }
+      final ips = await completer.future.timeout(responseBudget);
       sw.stop();
       return NatDnsProbeResult(server, domain, sw.elapsedMilliseconds, addresses: ips);
     } catch (e) {

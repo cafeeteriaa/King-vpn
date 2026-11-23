@@ -212,3 +212,19 @@
 - This exact-head CI result supersedes the earlier historical notes above that described CI as pending for earlier checkpoints. No physical-device, IPv4/IPv6 traffic-leak, VPN carrier, Iranian operator-network, production-signing, or Play-install validation is claimed. CI's APK uses the configured CI signing key and is not a production release.
 - Smart Pilot standby candidates now require positive endpoint ping evidence no older than four minutes; NNIE history is separated by domestic/global route. Endpoint ping and TLS reachability are not equivalent to proof of application traffic through the Android VPN TUN.
 - Next integration decision: only integrate this exact tested head after reconfirming the PR head and successful checks; preserve this distinction between automated CI evidence and real-device acceptance.
+
+
+## Latest continuation — 2026-11-23 (Android VPN ownership verification)
+
+- Active development branch: `audit/final-master`
+- Source-code commit: `649147e8a3c96979f1bbab82c14ccff09f6bbf2d`
+- Change: Android 11/API 30+ now requires `NetworkCapabilities.ownerUid == applicationInfo.uid` before the active VPN transport is accepted as King VPN's. Android 10 and earlier retain the previous daemon + transport compatibility path.
+- Test: added source guard `test_vpn_transport_proof_checks_owner_uid_on_android_11_plus`.
+- Exact-head GitHub Actions run 2157 completed `success`: https://github.com/cafeeteriaa/King-vpn/actions/runs/45132996395
+- Passed: source guards, Flutter tests, `flutter analyze`, arm64 release build, ELF 16 KiB load-segment validation, APK ZIP alignment, and artifact upload.
+- Verified artifact: `king-vpn-arm64-release-2157` (ID `14798254101`), archive SHA-256 `781f3389ac452485e790ccc4f5aac456a256a7e3bd30f392d8c82ba7f6d76d39`; inner APK `122885758` bytes, SHA-256 `d896017f8902712b99b141ac8cb324bda6b62a0f2ff1a768d01da999e530e2b5`.
+- Artifact inspection found 19 `arm64-v8a` native libraries; all 58 ELF LOAD segments align to at least 16 KiB. APK is signed with the CI-generated debug key, not a production signing key. No physical-device, competing-VPN, OEM, carrier, or IPv4/IPv6 data-plane acceptance test is claimed.
+- DNS audit: Xray `timeoutMs` is a supported per-server field; standard `https://` DoH requests enter Xray routing, while `https+local://` / `quic+local://` intentionally bypass routing. Packet-level DNS leak verification remains open.
+- Open work: real-device owner-UID test on Android 11+, Android 10 compatibility test, DNS route/leak verification, Android VPN service lifecycle and failover race review, CPU/battery profiling. IP Clean inventory remains unchanged.
+- First next action: test active-VPN ownership on Android 11+ with a competing VPN, then test Android 10 fallback; after that capture DNS traffic to verify the selected Xray outbound and TUN path.
+- PR #44 remains Draft and unmerged; `main` remains unchanged. This documentation-only checkpoint intentionally skips CI because the exact source-code commit above already passed the full workflow.

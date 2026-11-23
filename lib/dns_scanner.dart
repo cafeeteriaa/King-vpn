@@ -15,6 +15,11 @@ const List<String> kDnsxDefaults = [
   '208.67.220.220',
   '94.140.14.14',
   '94.140.15.15',
+  // Public IPv6 resolvers are tested only when the active network has IPv6.
+  '2001:4860:4860::8888',
+  '2001:4860:4860::8844',
+  '2606:4700:4700::1111',
+  '2606:4700:4700::1001',
 ];
 
 // DNSهای داخلی که از قبل در پروژه (npv_am_extras.dart) آمده‌اند
@@ -48,8 +53,20 @@ List<String> _dnsxHostsFrom(Iterable<String> src) {
     s = s.trim().toLowerCase();
     if (s.startsWith('domain:')) s = s.substring(7);
     if (s.startsWith('full:')) s = s.substring(5);
+    // Accept the standard absolute-FQDN trailing dot, but normalize it away.
+    if (s.endsWith('.')) s = s.substring(0, s.length - 1);
     // فقط نام دامنه‌ی واقعی؛ TLD تنها (مثل ir) و قانون‌های geoip و کلمه‌ی کلیدی کنار گذاشته می‌شوند
-    if (!s.contains('.') || !okChars.hasMatch(s)) continue;
+    if (!s.contains('.') || !okChars.hasMatch(s) || s.length > 253) continue;
+    final labels = s.split('.');
+    // Reject malformed labels before they reach the asynchronous DNS batch.
+    // One invalid project-domain entry must not abort an entire resolver scan.
+    if (labels.any((label) =>
+        label.isEmpty ||
+        label.length > 63 ||
+        label.startsWith('-') ||
+        label.endsWith('-'))) {
+      continue;
+    }
     out.add(s);
   }
   return out;
@@ -116,6 +133,11 @@ List<String> dnsxFullDomains() {
     ...natIrDomains,
     ..._dnsxHostsFrom(iranDomains),
     ..._dnsxHostsFrom(_iranMoreDomains),
+    for (final server in natTemplateSeeds)
+      if (!server.isIp && server.host.contains('.')) server.host.toLowerCase(),
+    for (final record in _goldSrv.values)
+      if ((Uri.tryParse(record.link)?.host ?? '').contains('.'))
+        Uri.parse(record.link).host.toLowerCase(),
   };
   return all.toList();
 }
@@ -144,51 +166,51 @@ List<int> dnsxQuery(String name, int id) {
 
 /// آیا این IPv4 عمومی و واقعی است؟ (خصوصی، لوپ‌بک، صفر و بلاک‌پیج رد می‌شوند)
 bool dnsxIsPublicV4(int a, int b, int c, int d) {
-  if (a == 0 || a == 10 || a == 127 || a >= 224) return false;
-  if (a == 169 && b == 254) return false;
-  if (a == 172 && b >= 16 && b <= 31) return false;
-  if (a == 192 && b == 168) return false;
-  if (a == 100 && b >= 64 && b <= 127) return false; // CGNAT
-  if (a == 10 && b == 10 && c == 34 && d == 34) return false; // بلاک‌پیج
-  return true;
+  // Keep the legacy parser aligned with NNIE's complete special-use IPv4 policy.
+  return NatDnsWireProbe.publicV4([a, b, c, d], 0);
 }
 
-/// پاسخ معتبر؟ rcode=0، ID یکسان، و حداقل یک رکورد A عمومی.
+/// Legacy structural check only; active scans must use NatDnsWireProbe.probe.
+@Deprecated('Use NatDnsWireProbe.probe; this helper cannot validate source/question identity.')
 bool dnsxAnswerOk(List<int> d, int id) {
   if (d.length < 12) return false;
   final rid = (d[0] << 8) | d[1];
   if (rid != id) return false;
-  final rcode = d[3] & 0x0f;
-  if (rcode != 0) return false;
+  final flags = (d[2] << 8) | d[3];
+  if ((flags & 0x8000) == 0 || (flags & 0x7800) != 0 || (flags & 0x0200) != 0) return false;
+  if ((flags & 0x000f) != 0) return false;
   final qd = (d[4] << 8) | d[5];
   final an = (d[6] << 8) | d[7];
-  if (an == 0) return false;
+  if (qd != 1 || an == 0) return false;
   var pos = 12;
   int skipName(int p) {
     while (p < d.length) {
       final len = d[p];
       if (len == 0) return p + 1;
       if ((len & 0xC0) == 0xC0) return p + 2;
+      if ((len & 0xC0) != 0) return d.length;
       p += len + 1;
     }
-    return p;
+    return d.length;
   }
-  for (var i = 0; i < qd; i++) {
-    pos = skipName(pos) + 4;
-  }
+  pos = skipName(pos);
+  if (pos + 4 > d.length) return false;
+  final qtype = (d[pos] << 8) | d[pos + 1];
+  final qclass = (d[pos + 2] << 8) | d[pos + 3];
+  if (qtype != 1 || qclass != 1) return false;
+  pos += 4;
   var goodA = false;
-  for (var i = 0; i < an && pos + 10 <= d.length; i++) {
+  for (var i = 0; i < an; i++) {
     pos = skipName(pos);
-    if (pos + 10 > d.length) break;
+    if (pos + 10 > d.length) return false;
     final type = (d[pos] << 8) | d[pos + 1];
+    final rrClass = (d[pos + 2] << 8) | d[pos + 3];
     final rdlen = (d[pos + 8] << 8) | d[pos + 9];
     final rd = pos + 10;
-    if (type == 1 && rdlen == 4 && rd + 4 <= d.length) {
-      if (dnsxIsPublicV4(d[rd], d[rd + 1], d[rd + 2], d[rd + 3])) {
-        goodA = true;
-      } else {
-        return false; // جواب جعلی یا بلاک‌پیج
-      }
+    if (rd + rdlen > d.length) return false;
+    if (type == 1 && rrClass == 1 && rdlen == 4) {
+      if (!dnsxIsPublicV4(d[rd], d[rd + 1], d[rd + 2], d[rd + 3])) return false;
+      goodA = true;
     }
     pos = rd + rdlen;
   }
@@ -205,16 +227,21 @@ class DnsxHit {
 }
 
 /// سنجش یک DNS روی فهرست دامنه‌ها. برای جلوگیری از سیل پرس‌وجو، بسته‌به‌بسته (۸ تا ۸ تا) می‌رود.
-/// ملاک: حداقل ۲۵٪ دامنه‌ها باید پاسخ معتبر بدهند.
+/// ملاک: حداقل ۲۵٪ دامنه‌ها باید در A یا AAAA پاسخ معتبر بدهند.
 Future<DnsxHit?> dnsxProbe(String server,
     {List<String>? domains,
     Duration timeout = const Duration(seconds: 3),
     Duration gap = Duration.zero,
     bool Function()? stop}) async {
-  final list = domains ?? dnsxAutoDomains();
+  // Resolver transport family is independent from the queried A/AAAA record.
+  final resolver = NatDnsWireProbe.parseResolver(server);
+  if (resolver == null || timeout <= Duration.zero || gap < Duration.zero) return null;
+  final resolverIp = resolver.address;
+  final uniqueDomains = _dnsxHostsFrom(domains ?? dnsxAutoDomains()).toSet().toList();
+  final list = uniqueDomains;
   final times = <int>[];
   var tested = 0; // تعداد دامنه‌هایی که واقعاً سنجیده شدند (اگر توقف زده شود، کمتر از کل است)
-  const chunk = 8; // دامنه‌ها در هر بسته‌ی همزمان
+  final chunk = natAdaptiveConcurrency(0); // adaptive per-device parallel DNS batch size
   for (var i = 0; i < list.length; i += chunk) {
     if (stop != null && stop()) break;
     // فاصله بین بسته‌ها: اسکن پس‌زمینه بار ناگهانی روی اتصال نمی‌گذارد
@@ -222,24 +249,33 @@ Future<DnsxHit?> dnsxProbe(String server,
     // Cancellation may arrive while waiting between DNS batches.
     if (stop != null && stop()) break;
     final part = list.sublist(i, min(i + chunk, list.length));
-    // NNIE: strict response validation includes transaction ID, QR/opcode,
-    // question/type/class, source IP/port, RCODE and usable A answer.
-    final res = await Future.wait(part.map((d) => NatDnsWireProbe.probe(
-          server,
-          d,
-          timeout: timeout,
-          cancelled: stop,
-        )));
+    // Probe both address families per domain. A domain counts once when at
+    // least one family returns a validated globally-routable answer.
+    // The pair runs concurrently but remains inside the existing 8-domain batch.
+    final res = await Future.wait(part.map((d) async {
+      return await Future.wait([
+        NatDnsWireProbe.probe(
+          resolverIp, d, timeout: timeout, cancelled: stop, recordType: 1,
+        ),
+        NatDnsWireProbe.probe(
+          resolverIp, d, timeout: timeout, cancelled: stop, recordType: 28,
+        ),
+      ]);
+    }));
     if (stop != null && stop()) return null;
     tested += part.length;
-    for (final r in res) {
-      if (r.ok) times.add(r.elapsedMs!);
+    for (final familyResults in res) {
+      final valid = familyResults.where((r) => r.ok).toList();
+      if (valid.isNotEmpty) {
+        // Use the fastest validated family as the domain's usable DNS latency.
+        times.add(valid.map((r) => r.elapsedMs!).reduce(min));
+      }
     }
   }
   // ملاک: حداقل ۲۵٪ از دامنه‌هایی که واقعاً سنجیده شدند باید جواب بدهند
   if (tested == 0 || times.isEmpty || times.length * 4 < tested) return null;
   final avg = times.reduce((a, b) => a + b) ~/ times.length;
-  return DnsxHit(server, avg, times.length, tested);
+  return DnsxHit(resolverIp, avg, times.length, tested);
 }
 
 /// اسکن گروهی (۱۲ تا ۱۲ تا). خروجی: DNSهای سالم؛ اول آن‌که بیشترین دامنه را جواب داده،
@@ -251,23 +287,33 @@ Future<List<DnsxHit>> dnsxScan(List<String> list,
     bool Function()? stop,
     bool manual = false}) async {
   final results = <DnsxHit>[];
+  final boundedServers = <String>[];
+  final seenServers = <String>{};
+  for (final raw in list) {
+    final parsed = NatDnsWireProbe.parseResolver(raw);
+    if (parsed == null) continue;
+    final address = parsed.address;
+    if (seenServers.add(address)) boundedServers.add(address);
+  }
+  if (boundedServers.isEmpty) return results;
+  final scanDomains = _dnsxHostsFrom(domains ?? dnsxAutoDomains()).toSet().toList(growable: false);
   var done = 0;
   // NATQUOTA: اسکن دستی در نت ملی سهمیه‌ی کم دارد و منتظر جستجوی نت ملی می‌ماند
   final limited = manual && nationalMode;
   final dnsBatch = limited ? kNatManualConc : 12; // DNS در هر دسته‌ی همزمان
-  for (var i = 0; i < list.length; i += dnsBatch) {
+  for (var i = 0; i < boundedServers.length; i += dnsBatch) {
     if (stop != null && stop()) break;
     if (limited) {
       await natManualYield(shouldAbort: stop);
       if (stop != null && stop()) break;
     }
-    final batch = list.sublist(i, min(i + dnsBatch, list.length));
+    final batch = boundedServers.sublist(i, min(i + dnsBatch, boundedServers.length));
     await Future.wait(batch.map((server) async {
       final hit =
-          await dnsxProbe(server, domains: domains, gap: gap, stop: stop);
+          await dnsxProbe(server, domains: scanDomains, gap: gap, stop: stop);
       done++;
       if (hit != null) results.add(hit);
-      onProgress?.call(done, list.length);
+      onProgress?.call(done, boundedServers.length);
     }));
   }
   results.sort((a, b) {
@@ -313,7 +359,13 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
     if (now - last < gapMs) return;
     final savedDns = await goldDnsList();
     if (nationalMode != scanNationalMode) return;
-    final list = {...savedDns.take(40), ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults)}.toList();
+    final list = <String>{
+      ...savedDns,
+      ..._goldIps.values.map((entry) => entry.ip),
+      ...natIpMemHosts(),
+      ...cleanIps.map((entry) => entry.ip),
+      ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults),
+    }.toList();
     // کامل: همه‌ی دامنه‌های پروژه، با فاصله‌ی ۱۵۰ میلی‌ثانیه بین بسته‌ها
     final r = await dnsxScan(
       list,
@@ -331,7 +383,7 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
       final saved = await goldAddDns(r, shouldAbort: shouldAbort);
       if (!saved || shouldAbort()) return;
     }
-    final best = [for (final e in r.take(4)) e.ip];
+    final best = [for (final e in r) e.ip];
     await p.setStringList('dnsx_best_v1_$sfx', best);
     if (shouldAbort()) return;
     await p.setInt('dnsx_at_v1_$sfx', now);
@@ -400,8 +452,7 @@ extension DnsxExt on _HomePageState {
                   .map((s) => s.trim())
                   .where((s) =>
                       s.isNotEmpty &&
-                      InternetAddress.tryParse(s)?.type ==
-                          InternetAddressType.IPv4)
+                      NatDnsWireProbe.parseResolver(s) != null)
                   .toList();
               final saved = await goldDnsList();
               if (!mounted || !sheetOpen) return;
@@ -467,7 +518,7 @@ extension DnsxExt on _HomePageState {
                     controller: extraC,
                     maxLines: 2,
                     decoration: const InputDecoration(
-                        labelText: 'DNS دلخواه (IPv4، با فاصله یا کاما)',
+                        labelText: 'DNS دلخواه (IPv4 یا IPv6، با فاصله یا کاما)',
                         border: OutlineInputBorder()),
                   ),
                   const SizedBox(height: 8),

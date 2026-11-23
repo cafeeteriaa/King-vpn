@@ -1,18 +1,23 @@
 # King VPN — Engineering Project State
 
-Updated: 2026-11-22
+Updated: 2026-11-23
 Repository: `cafeeteriaa/King-vpn`
-Active branch: `codex/continuation-mainline-20261122`
+Active audit/continuation branch: `audit/final-master`
+Primary VPN implementation branch under separate review: `codex/continuation-mainline-20261122`
 Base branch: `main`
 
-## Source of truth
+## Live source of truth — refresh on every resume
 
-- Latest code HEAD validated by CI 2130: `0ad29bfe7eb30b13eff2f3949b0b6086bedc6545`.
-- Checkpoint documentation commit: `25483910a388eecfca7db07aa7bf017e4bf1c913` (documentation-only; does not change the tested code).
-- Resolve the live branch/PR HEAD from GitHub PR #42 metadata on every resume; documentation-only checkpoint commits may advance it.
-- Base `main` SHA: `c43d325f9803d4f6306415e511f6790deff9d87e`.
-- PR #42 is OPEN, DRAFT, mergeable, and NOT merged. Keep it Draft and do not merge without explicit owner authorization.
-- PR #41 / domestic-ranking work remains separate; do not retarget or merge it without a full diff audit.
+- Current audit branch HEAD at this checkpoint: `16590fb5bd2f074c79569ee51ccac56a09a42d92` (documentation-only refresh after `36f4af0`).
+- PR #44 is OPEN, DRAFT, mergeable, and NOT merged; its current head is the audit branch above. Keep it Draft; do not merge without explicit owner authorization.
+- Current `main` SHA: `c43d325f9803d4f6306415e511f6790deff9d87e`; no changes were made to `main`.
+- PR #42 remains OPEN and DRAFT at `05fcad8c5c046e647ae62584ba0ac0ed6baf57dd`; PR #43 and #41 remain separate Draft workstreams. Re-read live PR metadata before relying on any of these values.
+- Exact-head CI for audit HEAD `16590fb5bd2f074c79569ee51ccac56a09a42d92`: Run `45094539188` (run 2145), currently `in_progress`; source guard, Flutter unit tests, and Dart analysis passed, while the ARM64 release APK build is still running. Alignment and artifact-upload steps have not yet run.
+- Run `45094163106` for prior docs checkpoint `9a4b0cddeff3f9ee132b5996e496b7db54029ac0`: completed SUCCESS, including ARM64 build, 16 KiB ELF/ZIP alignment, and artifact uploads. It is not exact-head evidence for `16590fb`.
+- Run `45094289369` for `36f4af0172aa78b6fc1777e735bbdb0465af7021`: CANCELLED; do not treat it as a validation failure or success.
+- Last completed exact-code CI Run `45075391129` for `da2733be49b96497edf166311401271e8d2ef2fb`: SUCCESS, including unit tests, Dart analysis, ARM64 release build, 16 KiB ELF/ZIP alignment and artifact upload. This result does not certify later source commits or device runtime.
+- Latest code-changing commit in PR #44 at this checkpoint: `da2733be49b96497edf166311401271e8d2ef2fb` (test fixture aligned with the three-probe contract); later commits `9a4b0cd` and `36f4af0` are documentation-only.
+- PR #44 currently contains 14 changed files (README, MainActivity, engineering/AI/roadmap docs, Smart Pilot/network-health implementation and tests, patch gate and repair orchestrator). Its base is the live PR #42 branch head `05fcad8c5c046e647ae62584ba0ac0ed6baf57dd`; it remains Draft and unmerged.
 - Repository write permission was confirmed. No changes were made to `main`.
 
 ## Latest implementation under review
@@ -83,6 +88,31 @@ Latest test-only code commit: `0ad29bfe7eb30b13eff2f3949b0b6086bedc6545`.
 
 Final status: VERIFIED WITH LIMITATIONS. This CI artifact is not declared production-ready or device-accepted.
 
+## Resume checkpoint — 2026-11-23
+
+### Work completed in the current audit stream
+
+- Smart Pilot evidence hardening: invalid/unknown latency is not accepted as a route-switch signal; the dedicated probe uses a 2-of-3 TLS quorum, validates sample counters, and only caches evidence against a known transient Android network identity.
+- Network handover protection: before/after physical-network identity must match; mixed snapshots are discarded and retried once. Forced refreshes are serialized behind an active ordinary refresh.
+- AI repair security: automatic patches are limited to `lib/` and `test/`; executable, native, workflow, dependency and tooling paths require owner review. The repair orchestrator no longer executes untrusted patch code on the developer host; CI on the exact PR commit is the validation boundary.
+- Native lifecycle ownership review was added to `FINAL_MASTER_AUDIT.md`: `kOwnVpnService=false` remains the active default; custom service stop acknowledgement is asynchronous and is not proof that the core/TUN is down. Potential interaction with plugin stop remains a device-validation item, not a proven production bug.
+- Existing code and features were preserved; no engine activation, main-branch change, PR merge, or release was performed.
+
+### Current validation boundary
+
+- Latest fully completed CI evidence before the current exact-head run: Run `45094163106` / commit `9a4b0cd` — SUCCESS. This commit is documentation-only after code commit `da2733be`; it confirms the same code tree but is not the current exact HEAD.
+- Run `45094539188` for current audit HEAD `16590fb` is in progress; Source Guard, Flutter Unit Tests, and Dart Analysis are successful; ARM64 APK build is in progress.
+- Device-level Start/Stop, process death, VPN revocation, DNS leak, IPv4/IPv6 packet flow, and Iranian operator-network validation remain NOT TESTED.
+- Do not describe any CI artifact as production-signed, install-ready, leak-free, or carrier-validated without separate evidence.
+
+### Immediate continuation order
+
+1. Poll Run `45094539188` to completion; inspect build/alignment/artifact steps and verify artifacts before claiming exact-head Build success.
+2. Continue Android plugin/custom-service ownership audit without changing `kOwnVpnService=false` until device acceptance. Existing source guards already cover stop-vs-start, stale cleanup, revocation, sticky restart, and generation ownership; do not duplicate them. Add deterministic concurrency tests only if they exercise interleavings not represented by those source guards.
+3. Continue DNS resolver path and IPv4/IPv6 data-plane audit; require packet/device evidence before acceptance. Current global Secure DNS is DoH-first with serialized queries but retains plaintext fallback; national mode places domestic resolvers before DoH fallback. Neither behavior is proof of zero DNS leakage.
+4. Review CI permissions, workflow triggers, dependency/license inventory and AI patch gate before broadening autonomous write scope.
+5. Reconcile the stale `CONTINUATION.md` header on PR #42: it names `c23e607` while the live PR #42 head is `05fcad8`; do not treat the checkpoint's embedded SHA as the live branch ref.
+
 ## Next engineering priorities
 
 1. Audit plugin-managed and custom-native start/stop ownership boundaries; `kOwnVpnService=false` remains the active default until custom native service device acceptance.
@@ -101,3 +131,91 @@ Final status: VERIFIED WITH LIMITATIONS. This CI artifact is not declared produc
 - Never infer domestic hosting or successful national reachability from country labels alone.
 - Keep CI evidence separate from device/operator-network evidence.
 - Do not claim install-ready, production-signed, leak-free, or carrier-validated without corresponding evidence.
+
+
+## Additional live audit findings — 2026-11-23
+
+- Live branch resolution: `audit/final-master` = `16590fb5bd2f074c79569ee51ccac56a09a42d92`; `main` = `c43d325f9803d4f6306415e511f6790deff9d87e`; PR #44 is open Draft with base `codex/continuation-mainline-20261122` at `05fcad8c5c046e647ae62584ba0ac0ed6baf57dd`. PR #42 is independently open Draft at that same base-branch HEAD. No merge was performed.
+- The mainline `CONTINUATION.md` content has a stale embedded current-head field (`c23e607d...`) while GitHub's live PR #42 head is `05fcad8c...`; always trust the live ref/PR metadata and reconcile the checkpoint before relying on it.
+- DNS static review: `_reliableVpnCfg` applies `mergeNationalDnsServers` in national mode and DoH-first ordering plus `enableParallelQuery=false` for global Secure DNS outside Ultra mode. Plaintext fallback entries remain configured globally, and national mode deliberately keeps domestic resolvers first. This is an explicit availability trade-off, not a strict no-plaintext guarantee. DNS routing through the intended core and IPv4/IPv6 leak behavior remain unverified without device packet evidence.
+- Android service review: `requestStopAndPersist` serializes stop-generation invalidation and durable marker write under the reentrant `lifecycleLock`; `stopEverything` queues/executes cleanup asynchronously and the MethodChannel stop handler acknowledges the request before core/TUN shutdown is proven. `kOwnVpnService=false` remains the active plugin-managed path. Existing source guards already cover many lifecycle interleavings; no duplicate guards or speculative production changes were added.
+
+
+## CI and release-supply-chain hardening — 2026-11-23
+
+- Added a job-level owner gate to `.github/workflows/signed-release.yml`: the job runs only when `github.actor == github.repository_owner`. This gate is evaluated before any production signing or update-manifest secrets are exposed to steps.
+- Added a source guard requiring every remote GitHub Action referenced by workflow YAML to use a full 40-character commit SHA; local `./` actions remain exempt.
+- Pinned remote actions in all four workflow files to commit SHAs resolved from their upstream GitHub release refs: checkout `11d5960a326750d5838078e36cf38b85af677262`; setup-java `cf277c60eb25467037889841efdb72551f06f6c3`; Gradle setup `ed408507eac070d1f99cc633dbcf757c94c7933a`; Flutter action `1a449444c387b1966244ae4d4f8c696479add0b2`; upload-artifact `ea165f8d65b6e75b540449e92b4886f43607fa02`. Gradle's v4.4.3 annotated tag was dereferenced to its commit and its tag signature reported valid by GitHub.
+- Commits: owner gate `c15b1537fa01f5e68d6047df54d397c953835f16`; owner-gate source guard `419aba25acd1b11fbd3492536853989c71d5bb8b`; consolidated workflow SHA pins and SHA guard `844a5f6341b9b2ad9e97e98f515b761a65aee776`.
+- These workflow changes are not yet declared CI-validated. Wait for a successful run on the final live branch HEAD. The owner gate is a workflow authorization boundary, not a replacement for repository permissions or protected-secret controls.
+
+## Resume checkpoint — 2026-11-23 (live-head reconciliation and workflow review)
+
+- Live PR #44 metadata was refreshed before this checkpoint write: OPEN, DRAFT, mergeable, base `codex/continuation-mainline-20261122`, head `audit/final-master`, preceding head SHA `7c5c5a96367d635f3b0f96732c02d6354835125b`. This documentation checkpoint advances the branch to `aa62b09b339a2abd6da70899065903c9b4fc8710`; PR #44 remains unmerged and `main` was not changed.
+- Current code-changing commit on the audit branch: `649147e8a3c96979f1bbab82c14ccff09f6bbf2d` (Android 11+ VPN owner-UID check and source guard). The live head `7c5c5a9` is a documentation-only `[skip ci]` checkpoint after that code commit.
+- Exact-code CI Run 2157 (`45132996395`) for `649147e` completed SUCCESS. Successful steps include source guards, Flutter unit tests, Dart analysis, optimized arm64 release build, ELF 16 KiB alignment, APK ZIP alignment, and APK/source/symbol artifact uploads. Artifacts are CI-signed, not production-signed. No device/runtime acceptance is implied.
+- Exact-head CI Run 2145 (`45094539188`) for earlier checkpoint `16590fb` also completed SUCCESS and produced arm64 APK, full-source ZIP, and symbols. It is historical evidence for that exact source head, not a replacement for Run 2157.
+- PR #44 changed-file inventory was refreshed: 19 paths across four workflows, Android network identity/owner check, Smart Pilot/network-health code and tests, repair gate/orchestrator, and engineering/roadmap documentation.
+- Workflow static review: Android build workflow declares `contents: read`; remote Actions are pinned to full commit SHAs. Signed release workflow requires the triggering actor to equal the repository owner, checks that the tag is reachable from main, and verifies the APK certificate against the configured keystore before publishing. These controls were inspected statically; no production release was run.
+- King AI dataset collection is restricted to merged same-repository `king-ai/*` PRs into main, an explicit small file allowlist, all-success checks on the exact PR head, independent human approval on that exact SHA, and secret scanning. Training runs on a labeled self-hosted GPU runner, packages a candidate artifact, and does not deploy model weights.
+- Repair gate/orchestrator review: automatic candidate patches are restricted to `lib/` and `test/`, reject binary/symlink/submodule/executable-mode changes and common secret patterns, check existing symlinks, and apply only to a temporary copy. Candidate code is not executed locally; CI and human diff review remain required. This is a structural gate, not a general sandbox.
+- DNS policy review reconfirmed the intentional availability trade-off: national mode prefers domestic resolvers; global Secure DNS orders DoH before plaintext fallback. Unit tests cover ordering/filtering, but DNS resolution through the selected VPN core and leak resistance remain NOT TESTED at packet/device level.
+- Open acceptance blockers remain: physical-device Start/Stop and process-death/revocation tests; competing-VPN ownership behavior on Android 11+; IPv4/IPv6 and DNS packet-level leak tests; real operator/national-network tests; performance/thermal/battery benchmarks; dependency license/SBOM/CVE inventory; comprehensive secret scan of Git history and artifacts; and full UI/feature inventory.
+- Status remains **IN PROGRESS / VERIFIED WITH LIMITATIONS**. No merge, production release, or device acceptance was performed.
+
+
+## Network-stack audit continuation — 2026-11-23
+
+- Expanded `docs/engineering/FINAL_MASTER_AUDIT.md` with source-backed review of IP, DNS, SNI, Host, TLS, ALPN, REALITY, DPI, Fragment/Mux, MTU, IPv4/IPv6, packet-level acceptance and domestic-hosting evidence.
+- DNS static findings: national mode is domestic-resolver-first with DoH fallback; global Secure DNS is DoH-first with plaintext fallback and serialized queries outside Ultra. This is an availability/security trade-off, not strict encrypted-DNS enforcement. Packet-level DNS routing/leak validation remains NOT TESTED.
+- `queryStrategy=UseIP` requests both IP families from DNS but does not prove both families traverse the VPN TUN.
+- Custom Android `KingVpnService` configures IPv4 and IPv6 default routes and fails closed if IPv6 setup fails, but `kOwnVpnService=false`; the active plugin-managed path still needs separate IPv4/IPv6 route and leak validation.
+- MTU is fixed at 1500 in the custom service; PMTU, fragmentation, UDP/QUIC and lower-MTU cellular paths remain NOT TESTED.
+- SNI fallback currently derives TLS serverName from WS Host only when serverName is empty. SNI probes require normal TLS certificate and hostname validation, but do not validate HTTP content or CDN routing; they are handshake-reachability hints, not proof of application traffic or DPI circumvention.
+- Fragment, Mux, Noise, TLS fingerprint, ALPN, WebSocket/gRPC and TCP socket options are present as configuration/variant features; no operator-specific DPI bypass or throughput benefit is claimed.
+- Automatic IP discovery is limited to provider-published CDN CIDRs and explicitly configured relay hosts; unrelated ASN-neighbor and arbitrary ISP-prefix sweeps are disabled. Preserve the separation between global and national candidate pools.
+- No source-code behavior was changed in this continuation; only the audit documentation was expanded. New documentation commit: `1192cd42913d44daa9081e37eae642ecc0454fbd`.
+- PR #44 remains Draft/unmerged. Do not treat the earlier exact-code CI run as validation of this documentation commit; no new CI result is claimed here.
+- Current acceptance remains IN PROGRESS / VERIFIED WITH LIMITATIONS. Outstanding: dependency lockfile/SBOM/license/CVE inventory; comprehensive secret scan; active plugin-managed route inspection; packet capture; physical-device DNS/IPv4/IPv6/PMTU/UDP/QUIC tests; real operator/national-network tests; and validated hosting evidence for domestic endpoints.
+
+
+## Dependency reproducibility continuation — 2026-11-23
+
+- CI currently generates a temporary Flutter project under `build_app`; root repository has no committed `pubspec.yaml` or `pubspec.lock`.
+- `.github/workflows/build.yml` resolves packages at build time via `flutter pub add`; multiple direct dependencies are unconstrained and Flutter uses the moving `stable` channel rather than a fixed SDK release.
+- `prepare_android.py` pins AGP 9.3.1 and Gradle 9.5.0, but those pins do not make the Pub dependency graph reproducible.
+- The V2Ray plugin source is patched after Pub resolution from the cache; exact resolved package graph and patch provenance need to be captured.
+- Added this finding and a remediation checklist to `FINAL_MASTER_AUDIT.md`. Documentation commit: `50375e9ae032b0300215a74aae38ebd310c442c7`.
+- No dependency version was guessed or changed, and no SBOM/license/CVE pass is claimed. Exact lockfile creation requires a real CI/toolchain resolution and artifact evidence.
+
+
+## Verified dependency snapshot from CI artifact — 2026-11-23
+
+- Downloaded full-source artifact from CI Run 2157 (artifact ID `14798807054`) and independently matched outer ZIP SHA-256 to GitHub digest `9d65f7ae6f66fd1dbb99c3835b2bd2cf8af97e81edb03d19d79434a86c6c9d15`.
+- Nested source ZIP contains generated `build_app/pubspec.yaml` and `pubspec.lock`; the lockfile exists for this build but is not committed in the repository and is regenerated on each CI run.
+- Exact toolchain from run log: Flutter 3.50.1 (framework revision `ae9b586f34`), Dart 3.14.0, Java 21.0.13.
+- Lockfile inventory: 116 packages (111 hosted, 5 SDK), 19 direct main and 2 direct dev dependencies; 111 hosted package entries have SHA-256 values.
+- `pubspec.yaml` SHA-256: `d4206ee05eacd3bb3682b8f0f5b62948f110881a3d6ea1291cbe64af334fe5d8`.
+- `pubspec.lock` SHA-256: `f531c1ac1fcee55851992a6d76bfb3893b7fc4b2508e20e4adb0cedaa0fa159c`.
+- This is a verified snapshot for source commit `649147e8a3c96979f1bbab82c14ccff09f6bbf2d), not evidence for later code changes or future dependency resolution.
+- SBOM, complete license attribution and CVE review remain OPEN. Documentation addendum commit: `a5f692bed75002a3356876e6f971d7e300cd5024`.
+
+
+## Smart Pilot / test / owner-session audit continuation — 2026-11-23
+
+- Independently extracted the exact full-source CI Run 2157 artifact and ran its Python test suite from repository root: **280 passed, 23 subtests passed**. This is an independent Python snapshot test, not Flutter/Dart/device runtime validation.
+- Pilot network classifier reviewed: fixed three domestic TLS/443 targets (Aparat, Digikala, Divar) and three global TLS/443 targets (Cloudflare, Google, GitHub); requires a 2-of-3 verified quorum and confirmed failures on the opposite route before switching domestic/global. Incomplete evidence preserves the previous strategy.
+- Probe cache is tied to a known physical-network identity and expires after two minutes; identity change during scan rejects/retries the snapshot once.
+- National port-hop candidate order is 443, 80, 8443, 2053, 2083, 2087, 2096. These are candidates, not evidence of DPI bypass or working VPN tunnel.
+- Automatic IP candidate generation keeps broad CIDR scan disabled and separates national memory/hits from global known endpoint IPs.
+- Reviewed AI autonomy gates and background worker lifecycle: read-only official research, daily audit and periodic CI repair are WorkManager best-effort; no exact schedule guarantee, no background model download, no automatic merge/release.
+- Found and fixed a UI/security-timeout mismatch: owner session is 2 minutes in code but console said 15 minutes. Updated Persian label to 2 minutes and added source-guard assertions against regression.
+- Code commits for this fix: `c51eea90358e35375c56946bbd7ae418e21d90bb` (UI) and `149c954cc65963bdc11caf51089ec2e142d53de5` (guard test). Subsequent audit documentation commit: `3835f2dd8bb4896c639d55068d2ed545c95c96e1`.
+- CI Run 2167 (`45141089093`) for the code/test head was observed pending at last check; do not claim it passed until a completed success result is retrieved.
+- Full audit remains open for packet-level DNS/IP/MTU/QUIC, real Iranian operators and device runtime, standard secret-history scan, SBOM/license/CVE, and current-head CI.
+
+
+## Validation trigger after consolidated code changes
+
+- The CI attempt associated with the owner-session UI/test commit (`149c954cc65963bdc11caf51089ec2e142d53de5`) ended as **cancelled** before a job record was available. It is not a pass.
+- A consolidated branch update follows all code/test edits so the PR synchronization workflow can validate the current exact branch head without being superseded by further immediate pushes.

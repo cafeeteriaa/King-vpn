@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
+import 'prefs_store.dart';
 
 // =============================================================================
 // پروکسی تلگرام — لیست پروکسی‌های عمومی (MTProto / SOCKS) برای کپی یا باز کردن
@@ -21,47 +22,126 @@ const _tgPxSources = <String>[
   'https://raw.githubusercontent.com/ALIILAPRO/MTProtoProxy/main/mtproto.txt',
 ];
 
+bool _tgPxValidHost(String value) {
+  final host = value.trim().toLowerCase();
+  if (host.isEmpty || host.length > 253 || host.contains('..')) return false;
+  final labels = host.split('.');
+  if (labels.length < 2) return false;
+  return labels.every((label) => label.isNotEmpty && label.length <= 63 &&
+      RegExp(r'^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$').hasMatch(label));
+}
+int? _tgPxValidPort(String value) {
+  final port = int.tryParse(value.trim());
+  return port != null && port >= 1 && port <= 65535 ? port : null;
+}
+String? _tgPxBuildLink({required String host, required String port, String? secret, String? user, String? pass}) {
+  final cleanHost = host.trim().toLowerCase();
+  final cleanPort = _tgPxValidPort(port);
+  if (!_tgPxValidHost(cleanHost) || cleanPort == null) return null;
+  final params = <String, String>{'server': cleanHost, 'port': cleanPort.toString()};
+  final isMtproto = secret != null && secret.isNotEmpty;
+  if (isMtproto) {
+    final cleanSecret = secret.trim();
+    if (!RegExp(r'^(?:[a-fA-F0-9]{32,128}|[a-zA-Z0-9_-]{22,128})$').hasMatch(cleanSecret)) return null;
+    params['secret'] = cleanSecret;
+  } else {
+    final cleanUser = user?.trim() ?? '';
+    final cleanPass = pass?.trim() ?? '';
+    if (cleanUser.length > 128 || cleanPass.length > 256) return null;
+    if (cleanUser.isNotEmpty) params['user'] = cleanUser;
+    if (cleanPass.isNotEmpty) params['pass'] = cleanPass;
+  }
+  return Uri.https('t.me', isMtproto ? '/proxy' : '/socks', params).toString();
+}
+String? _tgPxNormalizeLink(String raw) {
+  try {
+    final uri = Uri.parse(raw.trim());
+    final isHttps = uri.scheme == 'https' && uri.host.toLowerCase() == 't.me';
+    final isTelegramScheme = uri.scheme == 'tg' && (uri.host == 'proxy' || uri.host == 'socks');
+    if (!isHttps && !isTelegramScheme) return null;
+    final kind = isTelegramScheme ? uri.host : (uri.pathSegments.isEmpty ? '' : uri.pathSegments.first);
+    if (kind != 'proxy' && kind != 'socks') return null;
+    final q = uri.queryParameters;
+    return _tgPxBuildLink(host: q['server'] ?? '', port: q['port'] ?? '', secret: kind == 'proxy' ? q['secret'] : null, user: q['user'], pass: q['pass']);
+  } catch (_) { return null; }
+}
+const String _tgPxCacheKey = 'tg_proxy_cache_v1';
+bool _tgPxUsedCache = false;
+
+Future<List<_TgPx>> _tgPxReadCache() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_tgPxCacheKey);
+    if (raw == null || raw.isEmpty) return <_TgPx>[];
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) return <_TgPx>[];
+    final out = <_TgPx>[];
+    final seen = <String>{};
+    for (final item in decoded.take(200)) {
+      if (item is! Map) continue;
+      final link = _tgPxNormalizeLink('${item['link'] ?? ''}');
+      if (link == null || !seen.add(link)) continue;
+      final uri = Uri.parse(link);
+      final kind = uri.pathSegments.first == 'socks' ? 'SOCKS5' : 'MTProto';
+      final title = '${item['title'] ?? 'پروکسی'}';
+      out.add(_TgPx('ذخیره‌شده • ${title.substring(0, title.length.clamp(0, 100).toInt())}', link, kind));
+    }
+    return out;
+  } catch (e, st) {
+    errJournalAdd(e, st: st);
+    return <_TgPx>[];
+  }
+}
+
+Future<void> _tgPxWriteCache(List<_TgPx> items) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final snapshot = items.take(200).map((item) => <String, String>{
+      'title': item.title,
+      'link': item.link,
+    }).toList(growable: false);
+    await prefs.setString(_tgPxCacheKey, jsonEncode(snapshot));
+  } catch (e, st) {
+    errJournalAdd(e, st: st);
+  }
+}
+
 Future<List<_TgPx>> _tgPxLoad() async {
+  final cached = await _tgPxReadCache();
+  _tgPxUsedCache = false;
   final out = <_TgPx>[];
   final seen = <String>{};
   for (final url in _tgPxSources) {
+    if (out.length >= 200) break;
     try {
       final r = await http
           .get(Uri.parse(url))
-          .timeout(const Duration(seconds: 12));
+          .timeout(const Duration(seconds: 5));
       if (r.statusCode != 200) continue;
       final body = r.body.trim();
+      if (body.length > 2 * 1024 * 1024) continue;
       if (body.startsWith('[') || body.startsWith('{')) {
         try {
           final j = jsonDecode(body);
           if (j is List) {
             for (final e in j) {
+              if (out.length >= 200) break;
               if (e is! Map) continue;
               final host = '${e['host'] ?? e['server'] ?? ''}'.trim();
               final port = '${e['port'] ?? ''}'.trim();
               final secret = '${e['secret'] ?? ''}'.trim();
-              if (host.isEmpty || port.isEmpty) continue;
-              String link;
-              String kind;
-              if (secret.isNotEmpty) {
-                link = 'https://t.me/proxy?server=$host&port=$port&secret=$secret';
-                kind = 'MTProto';
-              } else {
-                final user = '${e['user'] ?? e['username'] ?? ''}'.trim();
-                final pass = '${e['pass'] ?? e['password'] ?? ''}'.trim();
-                link = 'https://t.me/socks?server=$host&port=$port'
-                    '${user.isEmpty ? '' : '&user=$user'}'
-                    '${pass.isEmpty ? '' : '&pass=$pass'}';
-                kind = 'SOCKS5';
-              }
-              if (seen.add(link)) {
-                out.add(_TgPx('$kind • $host:$port', link, kind));
-              }
+              final user = '${e['user'] ?? e['username'] ?? ''}'.trim();
+              final pass = '${e['pass'] ?? e['password'] ?? ''}'.trim();
+              final link = _tgPxBuildLink(host: host, port: port, secret: secret.isEmpty ? null : secret, user: user, pass: pass);
+              if (link == null) continue;
+              final kind = secret.isNotEmpty ? 'MTProto' : 'SOCKS5';
+              if (seen.add(link)) out.add(_TgPx('$kind • $host:$port', link, kind));
             }
           }
         } catch (e, jstk) { errJournalAdd(e, st: jstk); debugPrint("catch: $e"); }
       } else {
         for (final raw in body.split(RegExp(r'[\r\n]+'))) {
+          if (out.length >= 200) break;
           final line = raw.trim();
           if (line.isEmpty) continue;
           final m = RegExp(
@@ -69,21 +149,22 @@ Future<List<_TgPx>> _tgPxLoad() async {
                   caseSensitive: false)
               .firstMatch(line);
           if (m == null) continue;
-          var link = m.group(0)!;
-          if (link.startsWith('tg://')) {
-            link = link
-                .replaceFirst('tg://proxy', 'https://t.me/proxy')
-                .replaceFirst('tg://socks', 'https://t.me/socks');
-          }
+          final link = _tgPxNormalizeLink(m.group(0)!);
+          if (link == null) continue;
           if (seen.add(link)) {
-            final kind = link.contains('socks') ? 'SOCKS5' : 'MTProto';
+            final kind = Uri.parse(link).pathSegments.first == 'socks' ? 'SOCKS5' : 'MTProto';
             out.add(_TgPx('$kind • پروکسی', link, kind));
           }
         }
       }
     } catch (e, jstk) { errJournalAdd(e, st: jstk); debugPrint("catch: $e"); }
   }
-  return out;
+  if (out.isNotEmpty) {
+    await _tgPxWriteCache(out);
+    return out;
+  }
+  _tgPxUsedCache = cached.isNotEmpty;
+  return cached;
 }
 
 /// ویجت پروکسی تلگرام برای صفحه اصلی / شیت
@@ -101,6 +182,38 @@ class _TgProxyPanelState extends State<_TgProxyPanel> {
   List<_TgPx>? _items;
   bool _loading = false;
   String _status = 'برای دریافت لیست، «جستجو» را بزن';
+  final TextEditingController _manualController = TextEditingController();
+
+  Future<void> _addManual() async {
+    final link = _tgPxNormalizeLink(_manualController.text);
+    if (link == null) {
+      setState(() => _status = 'لینک MTProto یا SOCKS معتبر نیست');
+      return;
+    }
+    final uri = Uri.parse(link);
+    final kind = uri.pathSegments.first == 'socks' ? 'SOCKS5' : 'MTProto';
+    final current = List<_TgPx>.from(_items ?? await _tgPxReadCache());
+    if (!mounted) return;
+    if (current.any((item) => item.link == link)) {
+      setState(() => _status = 'این پروکسی قبلاً ذخیره شده است');
+      return;
+    }
+    current.insert(0, _TgPx('دستی • $kind', link, kind));
+    if (current.length > 200) current.removeRange(200, current.length);
+    await _tgPxWriteCache(current);
+    if (!mounted) return;
+    setState(() {
+      _items = current;
+      _status = 'پروکسی دستی ذخیره شد؛ برای استفاده آن را در تلگرام باز کن';
+    });
+    _manualController.clear();
+  }
+
+  @override
+  void dispose() {
+    _manualController.dispose();
+    super.dispose();
+  }
 
   Future<void> _refresh() async {
     setState(() {
@@ -114,7 +227,9 @@ class _TgProxyPanelState extends State<_TgProxyPanel> {
       _loading = false;
       _status = list.isEmpty
           ? 'پروکسی پیدا نشد (شبکه یا منبع فیلتر است)'
-          : '${list.length} پروکسی پیدا شد';
+          : (_tgPxUsedCache
+              ? '${list.length} پروکسی از حافظهٔ ذخیره‌شده؛ منابع آنلاین در دسترس نیستند'
+              : '${list.length} پروکسی از منابع آنلاین دریافت شد');
     });
   }
 
@@ -161,6 +276,30 @@ class _TgProxyPanelState extends State<_TgProxyPanel> {
             _status,
             textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 12.5, color: Colors.grey),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _manualController,
+            textDirection: TextDirection.ltr,
+            decoration: const InputDecoration(
+              labelText: 'افزودن لینک پروکسی دستی',
+              hintText: 'https://t.me/proxy?... یا https://t.me/socks?...',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _addManual,
+              icon: const Icon(Icons.add),
+              label: const Text('ذخیره پروکسی دستی'),
+            ),
+          ),
+          const Text(
+            'این پروکسی در برنامه تلگرام باز می‌شود؛ به‌تنهایی ترافیک تلگرام را از تونل KING VPN عبور نمی‌دهد.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 11, color: Colors.grey),
           ),
           const SizedBox(height: 10),
           FilledButton.icon(

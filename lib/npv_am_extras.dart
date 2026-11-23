@@ -606,7 +606,7 @@ Future<void> refreshCdnRanges() async {
     var liveOk = 0;
     // هر CDN جدا: اگر دریافتش شکست خورد، لیست استاتیک خودش جایگزین می‌شود
     // (قبلاً فقط CDNهای موفق می‌ماندند و بقیه از استخر حذف می‌شدند).
-    Future<void> pull(String label, List<String> fallback, int cap,
+    Future<void> pull(String label, List<String> fallback,
         Future<List<String>> Function() fetch) async {
       var got = const <String>[];
       try {
@@ -618,13 +618,13 @@ Future<void> refreshCdnRanges() async {
         merged.addAll(fallback);
         return;
       }
-      // رنج‌های استاتیک همیشه می‌مانند؛ رنج‌های زنده تا سقف cap اضافه می‌شوند
+      // Keep every published static and live prefix; do not truncate a provider's inventory.
       merged.addAll(fallback);
-      merged.addAll(got.take(cap));
+      merged.addAll(got);
       liveOk++;
     }
 
-    await pull('cloudflare', _cfRanges, 64, () async {
+    await pull('cloudflare', _cfRanges, () async {
       final res = await http.get(Uri.parse('https://www.cloudflare.com/ips-v4'));
       if (res.statusCode != 200) return const <String>[];
       return res.body
@@ -634,7 +634,7 @@ Future<void> refreshCdnRanges() async {
           .toList();
     });
 
-    await pull('fastly', _fastlyRanges, 48, () async {
+    await pull('fastly', _fastlyRanges, () async {
       final res = await http.get(Uri.parse('https://api.fastly.com/public-ip-list'));
       if (res.statusCode != 200) return const <String>[];
       final j = await compute(cdnJsonDecodeBg, res.body);
@@ -643,7 +643,7 @@ Future<void> refreshCdnRanges() async {
       return addrs.whereType<String>().toList();
     });
 
-    await pull('aws-cloudfront', _awsCfRanges, 96, () async {
+    await pull('aws-cloudfront', _awsCfRanges, () async {
       final res = await http.get(Uri.parse('https://ip-ranges.amazonaws.com/ip-ranges.json'));
       if (res.statusCode != 200) return const <String>[];
       final j = await compute(cdnJsonDecodeBg, res.body);
@@ -657,7 +657,7 @@ Future<void> refreshCdnRanges() async {
           .toList();
     });
 
-    await pull('google', _gcpCdnRanges, 48, () async {
+    await pull('google', _gcpCdnRanges, () async {
       final res = await http.get(Uri.parse('https://www.gstatic.com/ipranges/goog.json'));
       if (res.statusCode != 200) return const <String>[];
       final j = await compute(cdnJsonDecodeBg, res.body);
@@ -788,11 +788,12 @@ Future<List<String>> _cleanCandidates() async {
       if (live.length >= 5) ranges = live;
     }
   } catch (e, stk) { logError(e, stk); }
+  final perRangeCandidates = natAdaptiveConcurrency(0) * 4;
   for (final c in ranges) {
-    set.addAll(_cidrSample(c, 28, r).where(_cleanOk));
+    set.addAll(_cidrSample(c, perRangeCandidates, r).where(_cleanOk));
   }
   final l = set.toList()..shuffle(r);
-  return l.take(240).toList();
+  return l;
 }
 
 Future<String> _cfRead(Socket k, Duration t) async {
@@ -806,15 +807,29 @@ Future<String> _cfRead(Socket k, Duration t) async {
   return utf8.decode(data, allowMalformed: true).toLowerCase();
 }
 
+// Accept only the real trace endpoint response, not an error page mentioning Cloudflare.
+bool _cfTraceResponseOk(String response) {
+  final split = response.indexOf('\r\n\r\n');
+  if (split < 0) return false;
+  final status = response.substring(0, split).toLowerCase();
+  if (!status.startsWith('http/1.1 200 ') &&
+      !status.startsWith('http/1.0 200 ')) return false;
+  final body = response.substring(split + 4);
+  final lines = body.split(RegExp(r'[\r\n]+'));
+  return lines.contains('h=cloudflare.com') &&
+      lines.any((line) => line.startsWith('fl=')) &&
+      lines.any((line) => line.startsWith('colo='));
+}
+
 Future<int?> _cfProbeMs(String ip, Duration t) async {
   final sw = Stopwatch()..start();
   Socket? raw;
   Socket? k;
   try {
     raw = await Socket.connect(ip, 443, timeout: t);
+    // Validate Cloudflare's certificate before accepting this endpoint as clean.
     k = await SecureSocket.secure(raw,
             host: 'cloudflare.com',
-            onBadCertificate: (_) => true,
             supportedProtocols: const ['http/1.1'])
         .timeout(t);
     k.write(
@@ -822,27 +837,12 @@ Future<int?> _cfProbeMs(String ip, Duration t) async {
     await k.flush();
     final txt = await _cfRead(k, t);
     sw.stop();
-    if (txt.contains('cloudflare')) return sw.elapsedMilliseconds;
+    if (_cfTraceResponseOk(txt)) return sw.elapsedMilliseconds;
   } catch (e, stk) {
     logError(e, stk);
   } finally {
     k?.destroy();
     raw?.destroy();
-  }
-  Socket? h;
-  try {
-    final sw2 = Stopwatch()..start();
-    h = await Socket.connect(ip, 80, timeout: t);
-    h.write(
-        'GET /cdn-cgi/trace HTTP/1.1\r\nHost: cloudflare.com\r\nConnection: close\r\n\r\n');
-    await h.flush();
-    final txt = await _cfRead(h, t);
-    sw2.stop();
-    if (txt.contains('cloudflare')) return sw2.elapsedMilliseconds + 40;
-  } catch (e, stk) {
-    logError(e, stk);
-  } finally {
-    h?.destroy();
   }
   return null;
 }
@@ -856,8 +856,7 @@ Future<void> _doRefreshClean() async {
     final c = await _cleanCandidates();
     final res = <CleanIp>[];
     var done = 0;
-    await pool<String>(c, 20, (ip) async {
-      if (res.length >= 20) return;
+    await pool<String>(c, natAdaptiveConcurrency(0), (ip) async {
       final ms = await _cfProbeMs(ip, const Duration(milliseconds: 3500));
       done++;
       if (ms != null) res.add(CleanIp(ip, ms));
@@ -866,9 +865,9 @@ Future<void> _doRefreshClean() async {
         cleanTick.value++;
       }
       await Future.delayed(const Duration(milliseconds: 20));
-    }).timeout(const Duration(seconds: 40), onTimeout: () {});
+    });
     res.sort((a, b) => a.ms.compareTo(b.ms));
-    cleanIps = res.take(20).toList();
+    cleanIps = res;
     cleanIpsAt = DateTime.now();
     cleanIpStatus = '${cleanIps.length} IP سالم از ${c.length} تست';
     await _saveCleanIps();
@@ -1261,7 +1260,7 @@ extension NpvAmExtras on _HomePageState {
       builder: (ctx) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          title: const Text('🔗 سرور واسط (دور زدن نت ملی)'),
+          title: const Text('🔗 سرور واسط (آخرین تلاش در نت ملی)'),
           content: TextField(
             controller: c,
             maxLines: 4,
@@ -1269,8 +1268,8 @@ extension NpvAmExtras on _HomePageState {
             textDirection: TextDirection.ltr,
             decoration: const InputDecoration(
               hintText: 'vless://... یا vmess://...',
-              helperText: 'خالی بگذارید تا واسط به‌صورت خودکار از سرورهای سالم شما انتخاب شود. '
-                  'اگر لینک بگذارید، در نت ملی اتصال از پشت همین سرور رد می‌شود.',
+              helperText: 'فقط در حالت نت ملی و پس از شکست اتصال مستقیم، این سرور به‌عنوان مسیر واسطِ آخرین تلاش استفاده می‌شود. '
+                  'سرور باید از شبکه فعلی قابل دسترس باشد؛ ذخیره آن به‌تنهایی اتصال جهانی را تضمین نمی‌کند و عبور واقعی ترافیک باید تأیید شود.',
               helperMaxLines: 2,
             ),
           ),
@@ -1285,7 +1284,7 @@ extension NpvAmExtras on _HomePageState {
                 await _saveSettings();
                 if (!mounted || !ctx.mounted) return;
                 Navigator.pop(ctx);
-                _set(relayServerUrl.isEmpty ? 'سرور واسط پاک شد' : 'سرور واسط ذخیره شد');
+                _set(relayServerUrl.isEmpty ? 'سرور واسط پاک شد' : 'سرور واسط ذخیره شد؛ فقط آخرین تلاش در نت ملی');
               },
               child: const Text('ذخیره'),
             ),
@@ -1347,7 +1346,7 @@ extension NpvAmExtras on _HomePageState {
                     child: ListView(
                       shrinkWrap: true,
                       children: [
-                        for (final e in cleanIps.take(10))
+                        for (final e in cleanIps)
                           Directionality(
                             textDirection: TextDirection.ltr,
                             child: Text('${e.ip}    ${e.ms} ms'),
@@ -1406,10 +1405,6 @@ extension NpvAmExtras on _HomePageState {
   }
 }
 
-const int kGoldIpCap = 100000;
-const int kGoldSrvCap = 20000;
-const int kGoldDailyProbes = 250000;
-const int kGoldRetestBatch = 500;
 const int kGoldEveryMin = 5;
 const int kGoldRetestHours = 24;
 
@@ -1436,23 +1431,6 @@ final Map<String, int> _goldDns = {};
 final Map<String, List<String>> _goldScan = {};
 bool _goldRunning = false;
 Timer? _goldTimer;
-String _goldDay = '';
-int _goldCnt = 0;
-
-String _goldToday() {
-  final n = DateTime.now();
-  return '${n.year}-${n.month}-${n.day}';
-}
-
-int _goldBudgetLeft() {
-  final d = _goldToday();
-  if (_goldDay != d) {
-    _goldDay = d;
-    _goldCnt = 0;
-  }
-  return kGoldDailyProbes - _goldCnt;
-}
-
 Future<void>? _goldLoadF;
 
 Future<void> goldLoad() => _goldLoadF ??= _goldLoadOnce();
@@ -1485,8 +1463,6 @@ Future<void> _goldLoadOnce() async {
     for (final e in (m['scan'] as Map? ?? const {}).entries) {
       _goldScan[e.key.toString()] = [for (final x in (e.value as List)) x.toString()];
     }
-    _goldDay = (m['day'] ?? '').toString();
-    _goldCnt = (m['cnt'] as num? ?? 0).toInt();
   } catch (e, stk) {
     logError(e, stk);
     // GOLDRETRY: cache را پاک کن تا فراخوانی بعدی دوباره تلاش کند
@@ -1505,8 +1481,6 @@ String _goldEncode() => jsonEncode({
       ],
       'dns': [for (final e in _goldDns.entries) [e.key, e.value]],
       'scan': _goldScan,
-      'day': _goldDay,
-      'cnt': _goldCnt,
     });
 
 Future<bool> _goldWrite(SharedPreferences p) =>
@@ -1519,28 +1493,6 @@ Future<void> goldSave() async {
     await _goldWrite(p);
   } catch (e, stk) {
     logError(e, stk);
-  }
-}
-
-void _goldTrimIps() {
-  if (_goldIps.length <= kGoldIpCap) return;
-  final keep = kGoldIpCap * 95 ~/ 100;
-  final l = _goldIps.values.toList()..sort((a, b) => a.ms.compareTo(b.ms));
-  for (final v in l.skip(keep)) {
-    _goldIps.remove(v.ip);
-  }
-}
-
-void _goldTrimSrv() {
-  if (_goldSrv.length <= kGoldSrvCap) return;
-  final l = _goldSrv.values.toList()
-    ..sort((a, b) {
-      // Keep verified records; discard delay-only candidates first at capacity.
-      if (a.verified != b.verified) return a.verified ? -1 : 1;
-      return a.ping.compareTo(b.ping);
-    });
-  for (final v in l.skip(kGoldSrvCap)) {
-    _goldSrv.remove(v.link);
   }
 }
 
@@ -1570,7 +1522,7 @@ void goldPrepareNational() {
 
 // NATQUOTA: سهمیه‌ی اسکنرهای دستی در نت ملی. همزمانی کم، و هر بار قبل از شروع صبر می‌کنند
 // تا جستجوی بازه‌ی نت ملی تمام شود، تا نت ملی همیشه اولویت داشته باشد.
-const int kNatManualConc = 3;
+final int kNatManualConc = natAdaptiveConcurrency(0);
 // NATQUOTA-2: جستجوی عادی/آماده‌باش (busy/searching) هم اولویت دارد. _natKeep عمداً گوش داده نمی‌شود
 // چون در نت ملی ساعت‌ها اجرا می‌شود و اسکن دستی را گرسنه نگه می‌دارد.
 bool Function()? natSearchBusyProbe; // توسط State در initState تنظیم می‌شود
@@ -1660,7 +1612,7 @@ Future<void> goldMergeIps(
   for (final c in res) {
     _goldIps[c.ip] = _GoldIp(c.ip, c.ms, c.port, now, now);
   }
-  _goldTrimIps();
+
   _goldTop = null;
   await _goldWrite(p);
 }
@@ -1668,23 +1620,20 @@ Future<void> goldMergeIps(
 Future<Map<String, int?>> _goldProbe(List<String> ips) async {
   final out = <String, int?>{};
   if (ips.isEmpty) return out;
-  await pool<String>(ips, 20, (ip) async {
+  await pool<String>(ips, natAdaptiveConcurrency(0), (ip) async {
     out[ip] = await _cfProbeMs(ip, const Duration(milliseconds: 3500));
     await Future.delayed(const Duration(milliseconds: 20));
-  }).timeout(const Duration(minutes: 2), onTimeout: () {});
+  });
   return out;
 }
 
 Future<void> _goldIpStep() async {
   if (nationalMode) return;
   final nowMs = DateTime.now().millisecondsSinceEpoch;
-  var left = _goldBudgetLeft();
-  if (left <= 0) return;
   final retestMs = kGoldRetestHours * 3600 * 1000;
 
   final due = _goldIps.values
       .where((v) => nowMs - v.testAt >= retestMs)
-      .take(left < kGoldRetestBatch ? left : kGoldRetestBatch)
       .map((v) => v.ip)
       .toList();
   if (due.isNotEmpty) {
@@ -1701,17 +1650,11 @@ Future<void> _goldIpStep() async {
         v.testAt = nowMs;
       }
     }
-    _goldCnt += due.length;
-    left -= due.length;
     _goldTop = null;
   }
 
-  if (left <= 0) return;
   final cands = await _cleanCandidates();
-  final batch = cands
-      .where((ip) => !_goldIps.containsKey(ip))
-      .take(left < 240 ? left : 240)
-      .toList();
+  final batch = cands.where((ip) => !_goldIps.containsKey(ip)).toList();
   if (batch.isEmpty) return;
   final r = await _goldProbe(batch);
   var found = 0;
@@ -1722,10 +1665,9 @@ Future<void> _goldIpStep() async {
       found++;
     }
   }
-  _goldCnt += batch.length;
-  _goldTrimIps();
+
   _goldTop = null;
-  dbg('گلد: IP تازه $found از ${batch.length} • پوشه ${_goldIps.length} • امروز $_goldCnt/$kGoldDailyProbes');
+  dbg('گلد: IP تازه $found از ${batch.length} • پوشه ${_goldIps.length}');
 }
 
 Future<void> _goldSrvStep(_HomePageState h) async {
@@ -1765,12 +1707,11 @@ Future<void> _goldSrvStep(_HomePageState h) async {
       }
     }
   }
-  _goldTrimSrv();
+
 
   if (!nationalMode) {
     final due = _goldSrv.values
         .where((v) => v.verified && nowMs - v.testAt >= retestMs)
-        .take(20)
         .toList();
     // GATEMAX: سقف گیت تست قبل از حلقه‌ی due
     // DSGETTER: از مقدار مؤثر
@@ -1891,19 +1832,19 @@ Future<void> goldShowList(BuildContext context) async {
                 const Divider(),
                 const Text('سرورهای ثبت‌شده (تأییدشده و کاندید؛ سریع → کند):',
                     style: TextStyle(fontWeight: FontWeight.bold)),
-                for (final v in srvL.take(200))
+                for (final v in srvL)
                   Text('${v.ping} ms  •  ${v.verified ? 'تأیید ترافیک واقعی' : 'کاندید؛ نیازمند اتصال واقعی'}  •  ${Server.parse(v.link)?.name ?? v.link}',
                       style: const TextStyle(fontSize: 12)),
                 const Divider(),
                 const Text('IP تمیز (سریع → کند):',
                     style: TextStyle(fontWeight: FontWeight.bold)),
-                for (final v in ipL.take(200))
+                for (final v in ipL)
                   Text('${v.ms} ms  •  ${v.ip}:${v.port}',
                       style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
                 const Divider(),
                 const Text('DNS سالم (سریع → کند):',
                     style: TextStyle(fontWeight: FontWeight.bold)),
-                for (final e in dnsL.take(200))
+                for (final e in dnsL)
                   Text('${e.value} ms  •  ${e.key}',
                       style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
                 for (final k in const ['sni', 'port', 'tls']) ...[
@@ -1912,7 +1853,7 @@ Future<void> goldShowList(BuildContext context) async {
                       {'sni': 'SNI سالم', 'port': 'پورت سالم', 'tls': 'پروتکل TLS سالم'}[k]! +
                           ' (${(_goldScan[k] ?? const []).length}):',
                       style: const TextStyle(fontWeight: FontWeight.bold)),
-                  for (final x in (_goldScan[k] ?? const <String>[]).take(200))
+                  for (final x in (_goldScan[k] ?? const <String>[]))
                     Text(x, style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
                 ],
               ],
@@ -2028,7 +1969,7 @@ void goldNoteServer(Server srv) {
     ex.verified = true;
     ex.verifiedAt = now;
   }
-  _goldTrimSrv();
+
   _goldSaveT ??= Timer(const Duration(seconds: 20), () {
     _goldSaveT = null;
     unawaited(goldSave());
@@ -2036,27 +1977,23 @@ void goldNoteServer(Server srv) {
 }
 
 // MANUALSCAN: اسکن دستی بازه‌ها با پیشرفت و نتیجه داخل خود دیالوگ (نه پیام پشت دیالوگ)
-Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async {
-  // FOLDERHELP: IPهای تمیز پوشه اول تست می‌شوند (کمک پوشه به اسکن بازه، در نت ملی و عادی)
+Future<void> manualRangeScan(BuildContext context, Iterable<String> userAddrs) async {
   await goldLoad();
-  // RANGEFIX: بازه‌ی کاربر اول می‌آید تا با سقف زمان کوتاه هرگز کنار گذاشته نشود
-  // RANGEFIX: بازه‌ی کاربر اول و با ترتیب تصادفی (تا بازه‌ی بزرگ در سقف زمان کل بازه را پوشش دهد)
-  final shuffledUser = List<String>.of(userAddrs)..shuffle(Random());
-  final addrs = {...shuffledUser, for (final c in goldIpList()) c.ip}.toList();
+  final savedIps = goldIpList().map((entry) => entry.ip);
+  Iterable<String> allCandidates() sync* {
+    yield* userAddrs;
+    yield* savedIps;
+  }
   var cancelled = false;
   var finished = false;
   var done = 0;
   var hitsCount = 0;
-  var total = addrs.length;
   var result = <NatIpHit>[];
   var open = true;
   StateSetter? setS;
-
   void upd(VoidCallback f) {
     if (open && setS != null) setS!(f);
   }
-
-  // ignore: unawaited_futures
   showDialog<void>(
     context: context,
     barrierDismissible: false,
@@ -2070,7 +2007,7 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('آدرس‌ها: $done / $total   •   IP سالم: $hitsCount'),
+              Text('آدرس‌های بررسی‌شده: $done • IP سالم: $hitsCount'),
               if (!finished) ...[
                 const SizedBox(height: 10),
                 const LinearProgressIndicator(),
@@ -2139,26 +2076,44 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
     if (nationalMode) {
       await natManualYield(shouldAbort: () => cancelled || !open);
     }
-    // Do not start a scan if the user cancelled while waiting for the national scan.
     if (!cancelled) {
-      result = await natScanIps(
-        addrs,
-        want: 1000,
-        concurrency: nationalMode ? kNatManualConc : natAdaptiveWorkers(),
-        // RANGEFIX: بازه‌ی کوچک ۲ دقیقه؛ بازه‌ی بزرگ (بیش از ۴۰۹۶ IP) ۸ دقیقه
-        budget: Duration(minutes: userAddrs.length > 4096 ? 8 : 2),
-        timeout: const Duration(milliseconds: 1500),
-        cancelled: () => cancelled || !open,
-        onProgress: (d, t, h) => upd(() {
-          done = d;
-          total = t;
-          hitsCount = h;
-        }),
-      );
-      // Partial results remain visible, but a cancelled scan must not enter shared storage.
+      final batchSize = max(256, natAdaptiveConcurrency(0) * 64);
+      final batch = <String>[];
+      final seenInBatch = <String>{};
+      Future<void> scanBatch() async {
+        if (batch.isEmpty || cancelled || !open) return;
+        final current = List<String>.of(batch);
+        batch.clear();
+        seenInBatch.clear();
+        final hits = await natScanIps(
+          current,
+          concurrency: 0,
+          timeout: const Duration(milliseconds: 1500),
+          cancelled: () => cancelled || !open,
+          onProgress: (d, t, h) => upd(() {
+            done += 0; // progress is committed after each finite batch
+            hitsCount = result.length + h;
+          }),
+        );
+        if (!cancelled && open) {
+          result.addAll(hits);
+          hitsCount = result.length;
+          done += current.length;
+          upd(() {});
+        }
+      }
+      for (final raw in allCandidates()) {
+        if (cancelled || !open) break;
+        final parsed = InternetAddress.tryParse(raw.trim());
+        if (parsed == null) continue;
+        final ip = parsed.address;
+        if (seenInBatch.add(ip)) batch.add(ip);
+        if (batch.length >= batchSize) await scanBatch();
+      }
+      if (!cancelled && open && batch.isNotEmpty) await scanBatch();
       if (!cancelled && open) {
         await goldMergeIps(
-          [for (final h in result) CleanIp(h.ip, h.ms, 443)],
+          [for (final hit in result) CleanIp(hit.ip, hit.ms, 443)],
           shouldAbort: () => cancelled || !open,
         );
       }

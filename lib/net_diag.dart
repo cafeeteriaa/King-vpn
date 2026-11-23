@@ -84,6 +84,8 @@ Future<_DiagItem> _diagTls(String label, String ip, String sni) async {
   Socket? raw;
   try {
     raw = await Socket.connect(ip, 443, timeout: const Duration(seconds: 4));
+    // Diagnostic only: measure whether the TLS handshake completes with this SNI,
+    // independent of certificate identity. This result is never saved as a usable config.
     k = await SecureSocket.secure(raw,
             host: sni, onBadCertificate: (_) => true)
         .timeout(const Duration(seconds: 5));
@@ -110,12 +112,12 @@ Future<String> netDiagnose() async {
     _diagTcp('TCP تلگرام 149.154.167.50:443', '149.154.167.50', 443),
     _diagTcp('TCP 104.16.0.1:443 (Cloudflare)', '104.16.0.1', 443),
     // 5..8 TLS with different SNI (SNI filtering test)
-    _diagTls('TLS 1.1.1.1 با SNI=cloudflare-dns.com', '1.1.1.1',
+    _diagTls('TLS handshake (گواهی بررسی نمی‌شود) 1.1.1.1 با SNI=cloudflare-dns.com', '1.1.1.1',
         'cloudflare-dns.com'),
-    _diagTls('TLS 1.1.1.1 با SNI=www.google.com', '1.1.1.1', 'www.google.com'),
-    _diagTls('TLS 1.1.1.1 با SNI=www.speedtest.net', '1.1.1.1',
+    _diagTls('TLS handshake (گواهی بررسی نمی‌شود) 1.1.1.1 با SNI=www.google.com', '1.1.1.1', 'www.google.com'),
+    _diagTls('TLS handshake (گواهی بررسی نمی‌شود) 1.1.1.1 با SNI=www.speedtest.net', '1.1.1.1',
         'www.speedtest.net'),
-    _diagTls('TLS 104.16.0.1 با SNI=www.cloudflare.com', '104.16.0.1',
+    _diagTls('TLS handshake (گواهی بررسی نمی‌شود) 104.16.0.1 با SNI=www.cloudflare.com', '104.16.0.1',
         'www.cloudflare.com'),
     // 9..13 foreign sites
     _diagHttp('gstatic (generate_204)', 'https://www.gstatic.com/generate_204'),

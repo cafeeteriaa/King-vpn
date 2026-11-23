@@ -1,7 +1,87 @@
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import '../lib/network_health.dart';
 
 void main() {
+  group('network identity hashing', () {
+    test('empty or blank interface snapshots remain unknown', () {
+      expect(hashNetworkIdentityParts(const <String>[]), isEmpty);
+      expect(hashNetworkIdentityParts(const <String>['', '  ']), isEmpty);
+    });
+
+    test('known interface snapshots hash deterministically without storing raw addresses', () {
+      const first = 'wlan0=192.0.2.10';
+      const second = 'rmnet0=2001:db8::10';
+      final hash = hashNetworkIdentityParts(const <String>[first, second]);
+      expect(hash, isNotEmpty);
+      expect(hash, isNot(contains('192.0.2.10')));
+      expect(hash, hashNetworkIdentityParts(const <String>[second, first]));
+    });
+  });
+
+  group('forced network probe refresh coordination', () {
+    test('queues one forced scan behind an active ordinary scan', () async {
+      final coordinator = NetworkProbeRefreshCoordinator<int>();
+      final ordinaryGate = Completer<void>();
+      final forcedGate = Completer<void>();
+      final calls = <bool>[];
+
+      Future<int> scan({required bool force}) async {
+        calls.add(force);
+        if (force) {
+          await forcedGate.future;
+        } else {
+          await ordinaryGate.future;
+        }
+        return calls.length;
+      }
+
+      final ordinary = coordinator.run(scan);
+      final forced = coordinator.run(scan, force: true);
+      final duplicateForced = coordinator.run(scan, force: true);
+      final joined = coordinator.run(scan);
+      expect(calls, <bool>[false]);
+
+      ordinaryGate.complete();
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, <bool>[false, true]);
+
+      forcedGate.complete();
+      expect(await ordinary, 1);
+      expect(await forced, 2);
+      expect(await duplicateForced, 2);
+      expect(await joined, 2);
+      expect(calls, <bool>[false, true]);
+    });
+
+    test('a failed ordinary scan does not discard a queued forced scan', () async {
+      final coordinator = NetworkProbeRefreshCoordinator<int>();
+      final ordinaryGate = Completer<void>();
+      final forcedGate = Completer<void>();
+      final calls = <bool>[];
+
+      Future<int> scan({required bool force}) async {
+        calls.add(force);
+        if (force) {
+          await forcedGate.future;
+          return 7;
+        }
+        await ordinaryGate.future;
+        throw StateError('ordinary probe failed');
+      }
+
+      final ordinary = coordinator.run(scan);
+      final forced = coordinator.run(scan, force: true);
+      ordinaryGate.complete();
+      await expectLater(ordinary, throwsStateError);
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, <bool>[false, true]);
+
+      forcedGate.complete();
+      expect(await forced, 7);
+    });
+  });
+
   group('network probe cache policy', () {
     final checkedAt = DateTime.utc(2026, 11, 22, 7);
     final now = DateTime.utc(2026, 11, 22, 7, 1);
@@ -82,6 +162,41 @@ void main() {
     });
   });
 
+
+  group('probe evidence freshness', () {
+    final checkedAt = DateTime.utc(2026, 11, 22, 7);
+
+    test('accepts evidence strictly inside the two-minute TTL', () {
+      expect(isNetworkProbeEvidenceFresh(
+        checkedAt: checkedAt,
+        now: checkedAt.add(const Duration(minutes: 1, seconds: 59)),
+        ttl: const Duration(minutes: 2),
+      ), isTrue);
+    });
+
+    test('rejects expired, future, missing and non-positive-TTL evidence', () {
+      expect(isNetworkProbeEvidenceFresh(
+        checkedAt: checkedAt,
+        now: checkedAt.add(const Duration(minutes: 2)),
+        ttl: const Duration(minutes: 2),
+      ), isFalse);
+      expect(isNetworkProbeEvidenceFresh(
+        checkedAt: checkedAt.add(const Duration(seconds: 1)),
+        now: checkedAt,
+        ttl: const Duration(minutes: 2),
+      ), isFalse);
+      expect(isNetworkProbeEvidenceFresh(
+        checkedAt: null,
+        now: checkedAt,
+        ttl: const Duration(minutes: 2),
+      ), isFalse);
+      expect(isNetworkProbeEvidenceFresh(
+        checkedAt: checkedAt,
+        now: checkedAt,
+        ttl: Duration.zero,
+      ), isFalse);
+    });
+  });
 
   group('Smart Pilot route policy', () {
     test('confidence reaches 1.0 when all six dedicated probes are verified', () {
@@ -210,6 +325,35 @@ void main() {
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
     });
 
+    test('invalid zero or negative latency cannot trigger a route switch', () {
+      const negative = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.healthy,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 3,
+        globalSuccesses: 3,
+        domesticLatencyMs: -500,
+        globalLatencyMs: 900,
+        domesticTlsReachabilityVerified: true,
+        globalTlsReachabilityVerified: true,
+      );
+      const zero = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.healthy,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 3,
+        globalSuccesses: 3,
+        domesticLatencyMs: 0,
+        globalLatencyMs: 900,
+        domesticTlsReachabilityVerified: true,
+        globalTlsReachabilityVerified: true,
+      );
+      expect(choosePilotNetworkStrategy(negative), PilotNetworkStrategy.preserve);
+      expect(choosePilotNetworkStrategy(zero), PilotNetworkStrategy.preserve);
+    });
+
 
     test('reports unknown mode when only one domestic endpoint responds', () {
       const evidence = NetworkEvidence(
@@ -247,7 +391,24 @@ void main() {
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
     });
 
-    test('confidence never counts more successes than available samples', () {
+    test('does not confirm a route when success counters exceed sampled probes', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.healthy,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 99,
+        globalSuccesses: 99,
+        domesticTlsReachabilityVerified: true,
+        globalTlsReachabilityVerified: true,
+      );
+      expect(evidence.domesticConfirmed, isFalse);
+      expect(evidence.globalConfirmed, isFalse);
+      expect(evidence.mode, DetectedNetworkMode.unknown);
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
+    });
+
+    test('malformed success counters contribute no confidence', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.healthy,
         global: LinkHealth.healthy,
@@ -256,7 +417,47 @@ void main() {
         domesticSuccesses: 99,
         globalSuccesses: 99,
       );
-      expect(evidence.confidence, closeTo(0.55 * 2 / 6, 0.0001));
+      expect(evidence.confidence, 0);
+      expect(evidence.domesticConfirmed, isFalse);
+      expect(evidence.globalConfirmed, isFalse);
+    });
+
+    test('rejects sample counts beyond the scanner inventory for both outcomes', () {
+      const impossiblePositive = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unknown,
+        domesticSamples: 4,
+        domesticSuccesses: 2,
+        domesticTlsReachabilityVerified: true,
+      );
+      const impossibleNegative = NetworkEvidence(
+        domestic: LinkHealth.unreachable,
+        global: LinkHealth.unknown,
+        domesticSamples: 4,
+        domesticSuccesses: 0,
+      );
+      expect(impossiblePositive.domesticConfirmed, isFalse);
+      expect(impossiblePositive.mode, DetectedNetworkMode.unknown);
+      expect(impossibleNegative.domesticFailed, isFalse);
+      expect(impossibleNegative.mode, DetectedNetworkMode.unknown);
+      expect(impossiblePositive.confidence, 0);
+      expect(impossibleNegative.confidence, 0);
+    });
+
+    test('rejects negative sample and success counters', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: -1,
+        globalSuccesses: 0,
+        domesticTlsReachabilityVerified: true,
+      );
+      expect(evidence.domesticConfirmed, isFalse);
+      expect(evidence.domesticFailed, isFalse);
+      expect(evidence.mode, DetectedNetworkMode.unknown);
+      expect(evidence.confidence, 0);
     });
 
     test('does not infer offline from missing evidence', () {
@@ -279,4 +480,116 @@ void main() {
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.offline);
     });
   });
+  group('network probe snapshot integrity', () {
+    test('accepts only matching, non-empty before and after identities', () {
+      expect(sameKnownNetworkProbeIdentity('wifi-a', 'wifi-a'), isTrue);
+      expect(sameKnownNetworkProbeIdentity('wifi-a', 'mobile-b'), isFalse);
+      expect(sameKnownNetworkProbeIdentity('', ''), isFalse);
+      expect(sameKnownNetworkProbeIdentity('wifi-a', ''), isFalse);
+    });
+
+    test('does not promote an inconsistent healthy label without TLS quorum', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 1,
+        globalSuccesses: 0,
+        domesticTlsReachabilityVerified: false,
+      );
+      expect(evidence.mode, DetectedNetworkMode.unknown);
+      expect(evidence.acceptsTlsReachability(nationalOnly: true), isFalse);
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
+    });
+
+    test('does not infer offline from zero or insufficient failed samples', () {
+      const noSamples = NetworkEvidence(
+        domestic: LinkHealth.unreachable,
+        global: LinkHealth.unreachable,
+      );
+      const oneEach = NetworkEvidence(
+        domestic: LinkHealth.unreachable,
+        global: LinkHealth.unreachable,
+        domesticSamples: 1,
+        globalSamples: 1,
+      );
+      expect(noSamples.mode, DetectedNetworkMode.unknown);
+      expect(oneEach.mode, DetectedNetworkMode.unknown);
+      expect(choosePilotNetworkStrategy(noSamples), PilotNetworkStrategy.preserve);
+    });
+
+    test('mode and strategy share the same verified quorum', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 2,
+        globalSuccesses: 0,
+        domesticTlsReachabilityVerified: true,
+      );
+      expect(evidence.mode, DetectedNetworkMode.domesticOnly);
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.domestic);
+    });
+
+    test('TLS flag without matching sample quorum adds no confidence bonus', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.degraded,
+        global: LinkHealth.unknown,
+        domesticSamples: 1,
+        globalSamples: 0,
+        domesticSuccesses: 1,
+        domesticTlsReachabilityVerified: true,
+      );
+      expect(evidence.confidence, closeTo(0.55 / 6, 0.0001));
+    });
+  });
+
+
+  group('route-scoped Pilot learning and domestic ordering', () {
+    test('protocol profile keys cannot cross-contaminate domestic and global modes', () {
+      expect(
+        networkScopedProfileKey('operator|vless|ws', nationalMode: true),
+        'domestic|operator|vless|ws',
+      );
+      expect(
+        networkScopedProfileKey('operator|vless|ws', nationalMode: false),
+        'global|operator|vless|ws',
+      );
+      expect(
+        networkScopedProfileKey('operator|vless|ws', nationalMode: true),
+        isNot(networkScopedProfileKey('operator|vless|ws', nationalMode: false)),
+      );
+    });
+
+    test('Pilot domestic ordering needs an enabled national route and verified evidence', () {
+      expect(shouldPreferDomesticCandidates(
+        legacyDiagnosisPrefersDomestic: false,
+        localPilotEnabled: true,
+        nationalMode: true,
+        pilotDomesticConfirmed: true,
+      ), isTrue);
+      expect(shouldPreferDomesticCandidates(
+        legacyDiagnosisPrefersDomestic: false,
+        localPilotEnabled: true,
+        nationalMode: true,
+        pilotDomesticConfirmed: false,
+      ), isFalse);
+      expect(shouldPreferDomesticCandidates(
+        legacyDiagnosisPrefersDomestic: false,
+        localPilotEnabled: true,
+        nationalMode: false,
+        pilotDomesticConfirmed: true,
+      ), isFalse);
+      expect(shouldPreferDomesticCandidates(
+        legacyDiagnosisPrefersDomestic: true,
+        localPilotEnabled: false,
+        nationalMode: false,
+        pilotDomesticConfirmed: false,
+      ), isTrue);
+    });
+  });
+
+
 }

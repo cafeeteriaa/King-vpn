@@ -162,6 +162,17 @@ class NatNetworkDiagnosis {
     'aparat.com', 'digikala.com',
   ];
 
+  // NNIE uses the same strict A/AAAA parser as the user-facing DNS scanner.
+  // Keep both families independent so a resolver with only one usable family
+  // still contributes valid evidence without masking the other family's failure.
+  static Future<List<NatDnsProbeResult>> _dnsFamilyProbe(
+      String resolver, String domain) {
+    return Future.wait([
+      NatDnsWireProbe.probe(resolver, domain, recordType: 1),
+      NatDnsWireProbe.probe(resolver, domain, recordType: 28),
+    ]);
+  }
+
   static NatNetworkClass current = NatNetworkClass.unknown;
   static DateTime? _checkedAt;
   static String? _identityAtCheck;
@@ -177,19 +188,29 @@ class NatNetworkDiagnosis {
       final parts = <String>[
         for (final i in ifs) for (final a in i.addresses) '${i.name}=${a.address}',
       ]..sort();
-      return sha256.convert(utf8.encode(parts.join(';'))).toString();
+      return hashNetworkIdentityParts(parts);
     } catch (_) {
       return '';
     }
   }
 
+  // Require a verified TLS handshake, not merely an open TCP/443 socket.
+  // This prevents captive portals and unrelated listeners from being counted
+  // as evidence that the selected domestic/global HTTPS route is reachable.
   static Future<bool> _tcpOk(String host) async {
+    Socket? raw;
+    SecureSocket? secure;
     try {
-      final s = await Socket.connect(host, 443, timeout: const Duration(seconds: 3));
-      s.destroy();
+      raw = await Socket.connect(
+        host, 443, timeout: const Duration(seconds: 3));
+      secure = await SecureSocket.secure(raw, host: host)
+          .timeout(const Duration(seconds: 4));
       return true;
     } catch (_) {
       return false;
+    } finally {
+      secure?.destroy();
+      raw?.destroy();
     }
   }
 
@@ -227,21 +248,21 @@ class NatNetworkDiagnosis {
       final domesticF = Future.wait(_domesticHosts.map(_tcpOk));
       final globalF = Future.wait(_globalHosts.map(_tcpOk));
       final globalDnsF = Future.wait(
-          _globalResolvers.map((r) => NatDnsWireProbe.probe(r, 'google.com')));
+          _globalResolvers.map((r) => _dnsFamilyProbe(r, 'google.com')));
       final domesticDnsF = Future.wait([
         for (final resolver in _domesticResolvers)
           for (final domain in _domesticDnsNames)
-            NatDnsWireProbe.probe(resolver, domain),
+            _dnsFamilyProbe(resolver, domain),
       ]);
       final domesticTcp = await domesticF;
       final globalTcp = await globalF;
-      final globalDnsRes = await globalDnsF;
-      final domesticDnsRes = await domesticDnsF;
+      final globalDnsRes = (await globalDnsF).expand((x) => x).toList();
+      final domesticDnsRes = (await domesticDnsF).expand((x) => x).toList();
       final domesticDnsOk = domesticDnsRes.any((x) => x.ok);
       final globalDnsOk = globalDnsRes.any((x) => x.ok);
       final domesticTcpOk = domesticTcp.any((x) => x);
       final globalTcpOk = globalTcp.any((x) => x);
-      // DNS poisoning / blockpage check: a resolver returned a public A answer,
+      // DNS poisoning / blockpage check: a resolver returned a public A/AAAA answer,
       // yet none of the answered addresses accepts TCP/443, while domestic hosts
       // do. That is the typical signature of an injected answer, not a live Google.
       var poison = false;
@@ -252,14 +273,28 @@ class NatNetworkDiagnosis {
         final reach = await Future.wait(answered.map(_tcpOk));
         poison = reach.isNotEmpty && !reach.any((x) => x);
       }
+      // The interface snapshot may change while DNS/TLS probes are in flight
+      // (Wi-Fi/mobile handover). Never publish a mixed-network classification.
+      final identityAfter = await _identityHash();
+      if (id.isEmpty || identityAfter.isEmpty || identityAfter != id) {
+        current = NatNetworkClass.unknown;
+        _checkedAt = null;
+        _identityAtCheck = null;
+        dbg('NNIE-DIAG: network changed during probes; evidence discarded');
+        return current;
+      }
       final ev = NatProbeEvidence(
         domesticDnsOk: domesticDnsOk,
         domesticTcpOk: domesticTcpOk,
         globalDnsOk: globalDnsOk,
         globalTcpOk: globalTcpOk,
         dnsPoisonSuspected: poison,
-        sampleCount: domesticTcp.length + globalTcp.length +
-            globalDnsRes.length + domesticDnsRes.length,
+        // Count independent successful observations, not attempted probes.
+        // Failed timeouts must not satisfy the minimum evidence threshold.
+        sampleCount: domesticTcp.where((ok) => ok).length +
+            globalTcp.where((ok) => ok).length +
+            globalDnsRes.where((r) => r.ok).length +
+            domesticDnsRes.where((r) => r.ok).length,
       );
       current = ev.classify();
       _checkedAt = DateTime.now();
@@ -298,61 +333,116 @@ class PilotNetworkProbe {
     domestic: LinkHealth.unknown,
     global: LinkHealth.unknown,
   );
-  static Future<NetworkEvidence>? _flight;
+  static final NetworkProbeRefreshCoordinator<NetworkEvidence> _refreshCoordinator =
+      NetworkProbeRefreshCoordinator<NetworkEvidence>();
   static NetworkEvidence get current => _last;
 
-  static Future<NetworkEvidence> refresh({bool force = false}) async {
-    final active = _flight;
-    if (active != null) return active;
-    final future = _refresh(force: force);
-    _flight = future;
-    try {
-      return await future;
-    } finally {
-      if (identical(_flight, future)) _flight = null;
-    }
+  /// True only when domestic TLS success and global TLS failure belong to the
+  /// exact same known network snapshot and are no older than the probe cache.
+  static bool hasConfirmedDomesticOnlyFor(String identity) {
+    if (identity.isEmpty || _lastIdentity != identity) return false;
+    final at = _lastAt;
+    if (at == null) return false;
+    return isNetworkProbeEvidenceFresh(
+          checkedAt: at,
+          now: DateTime.now(),
+          ttl: const Duration(minutes: 2),
+        ) &&
+        _last.domesticConfirmed &&
+        _last.globalFailed;
+  }
+
+  /// Fresh domestic TLS quorum for candidate ordering. The caller still gates
+  /// this with the active national-mode choice; expired snapshots never rank.
+  static bool get hasFreshDomesticConfirmation =>
+      isNetworkProbeEvidenceFresh(
+        checkedAt: _lastAt,
+        now: DateTime.now(),
+        ttl: const Duration(minutes: 2),
+      ) &&
+      _last.domesticConfirmed;
+
+  static Future<NetworkEvidence> refresh({bool force = false}) =>
+      _refreshCoordinator.run(_refresh, force: force);
+
+  static void _clearSnapshot() {
+    _last = const NetworkEvidence(
+      domestic: LinkHealth.unknown,
+      global: LinkHealth.unknown,
+    );
+    _lastAt = null;
+    _lastIdentity = null;
   }
 
   static Future<NetworkEvidence> _refresh({required bool force}) async {
-    final identity = await _networkIdentity();
-    final lastAt = _lastAt;
-    if (shouldReuseNetworkProbeCache(
-        force: force,
-        currentIdentity: identity,
-        cachedIdentity: _lastIdentity,
-        checkedAt: lastAt,
-        now: DateTime.now(),
-        ttl: const Duration(minutes: 2),
-      )) {
+    // A Wi-Fi/mobile handover during TLS probes can otherwise combine samples
+    // from two networks and train the Pilot with a false national/global result.
+    // Retry once on a fresh identity; if the link is still moving, fail closed.
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final identityBefore = await _networkIdentity();
+      if (identityBefore.isEmpty) {
+        _clearSnapshot();
+        dbg('PILOT-TLS-PROBE: network identity unavailable; evidence discarded');
+        return _last;
+      }
+      if (attempt == 0 &&
+          shouldReuseNetworkProbeCache(
+            force: force,
+            currentIdentity: identityBefore,
+            cachedIdentity: _lastIdentity,
+            checkedAt: _lastAt,
+            now: DateTime.now(),
+            ttl: const Duration(minutes: 2),
+          )) {
+        return _last;
+      }
+      if (_lastIdentity != null && _lastIdentity != identityBefore) {
+        // Do not expose an old-network classification while the new sample runs.
+        _clearSnapshot();
+      }
+
+      final domesticFuture = Future.wait(domesticTargets.map(_probeHttps));
+      final globalFuture = Future.wait(globalTargets.map(_probeHttps));
+      final domestic = await domesticFuture;
+      final global = await globalFuture;
+      final identityAfter = await _networkIdentity();
+      if (!sameKnownNetworkProbeIdentity(identityBefore, identityAfter)) {
+        _clearSnapshot();
+        if (attempt == 0) {
+          dbg('PILOT-TLS-PROBE: network changed during probes; retrying once');
+          continue;
+        }
+        dbg('PILOT-TLS-PROBE: network changed repeatedly; snapshot rejected');
+        return _last;
+      }
+
+      LinkHealth health(List<int?> samples) {
+        final successes = samples.whereType<int>().length;
+        if (successes >= 2) return LinkHealth.healthy;
+        if (successes == 1) return LinkHealth.degraded;
+        return LinkHealth.unreachable;
+      }
+
+      _last = NetworkEvidence(
+        domestic: health(domestic),
+        global: health(global),
+        domesticSamples: domestic.length,
+        globalSamples: global.length,
+        domesticSuccesses: domestic.whereType<int>().length,
+        globalSuccesses: global.whereType<int>().length,
+        domesticLatencyMs: _median(domestic),
+        globalLatencyMs: _median(global),
+        domesticTlsReachabilityVerified: domestic.whereType<int>().length >= 2,
+        globalTlsReachabilityVerified: global.whereType<int>().length >= 2,
+      );
+      _lastAt = DateTime.now();
+      _lastIdentity = identityAfter;
+      dbg('PILOT-TLS-PROBE: domestic=${domestic.whereType<int>().length}/${domestic.length} '
+          'global=${global.whereType<int>().length}/${global.length} '
+          'latencyDomestic=${_median(domestic)}ms latencyGlobal=${_median(global)}ms');
       return _last;
     }
-    final domesticFuture = Future.wait(domesticTargets.map(_probeHttps));
-    final globalFuture = Future.wait(globalTargets.map(_probeHttps));
-    final domestic = await domesticFuture;
-    final global = await globalFuture;
-    LinkHealth health(List<int?> samples) {
-      final successes = samples.whereType<int>().length;
-      if (successes >= 2) return LinkHealth.healthy;
-      if (successes == 1) return LinkHealth.degraded;
-      return LinkHealth.unreachable;
-    }
-    _last = NetworkEvidence(
-      domestic: health(domestic),
-      global: health(global),
-      domesticSamples: domestic.length,
-      globalSamples: global.length,
-      domesticSuccesses: domestic.whereType<int>().length,
-      globalSuccesses: global.whereType<int>().length,
-      domesticLatencyMs: _median(domestic),
-      globalLatencyMs: _median(global),
-      domesticTlsReachabilityVerified: domestic.whereType<int>().length >= 2,
-      globalTlsReachabilityVerified: global.whereType<int>().length >= 2,
-    );
-    _lastAt = DateTime.now();
-    _lastIdentity = identity;
-    dbg('PILOT-TLS-PROBE: domestic=${domestic.whereType<int>().length}/${domestic.length} '
-        'global=${global.whereType<int>().length}/${global.length} '
-        'latencyDomestic=${_median(domestic)}ms latencyGlobal=${_median(global)}ms');
+    _clearSnapshot();
     return _last;
   }
 
@@ -377,18 +467,32 @@ class PilotNetworkProbe {
 
   static Future<String> _networkIdentity() async {
     try {
-      final interfaces = await NetworkInterface.list(includeLoopback: false);
-      final values = <String>[
-        for (final item in interfaces)
-          for (final address in item.addresses)
-            '${item.name}=${address.address}',
-      ]..sort();
-      return sha256.convert(utf8.encode(values.join(';'))).toString();
+      // Android's Network handle distinguishes Wi-Fi/mobile handovers even
+      // when interface names and private addresses are reused. Fail closed
+      // when native identity is unavailable instead of trusting a weak guess.
+      final nativeIdentity = await const MethodChannel('vpn/bg')
+          .invokeMethod<String>('kingVpnNetworkIdentity');
+      if (nativeIdentity == null || nativeIdentity.isEmpty) return '';
+      // Android's Network handle plus transport/capability tuple is the
+      // authoritative identity. Mixing every local interface address into
+      // this key makes harmless VPN/TUN or IPv6 privacy-address changes look
+      // like physical-network handovers and needlessly invalidates good probes.
+      return sha256.convert(utf8.encode(nativeIdentity)).toString();
     } catch (_) {
       return '';
     }
   }
 }
+
+
+/// Unified domestic preference used by DNS and candidate ordering. The Pilot
+/// contributes only a quorum-confirmed domestic route, never a geo label.
+bool get pilotPrefersDomesticRoute => shouldPreferDomesticCandidates(
+      legacyDiagnosisPrefersDomestic: NatNetworkDiagnosis.preferDomestic,
+      localPilotEnabled: localPilotOn,
+      nationalMode: nationalMode,
+      pilotDomesticConfirmed: PilotNetworkProbe.hasFreshDomesticConfirmation,
+    );
 
 String natNetworkClassLabel(NatNetworkClass value) => switch (value) {
       NatNetworkClass.globalReachable => 'دسترسی جهانی برقرار',

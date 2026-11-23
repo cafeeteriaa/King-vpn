@@ -26,9 +26,13 @@ List<String> nipExpandCidr(String cidr, {int maxPerBlock = 4096}) {
     if (v == null || v < 0 || v > 255) return const [];
     base = (base << 8) | v;
   }
+  if (maxPerBlock <= 0) return const [];
   final size = 1 << (32 - prefix);
   final start = base & ~(size - 1) & 0xFFFFFFFF;
-  final step = size > maxPerBlock ? size ~/ maxPerBlock : 1;
+  // Ceiling division ensures the sampled output never exceeds the caller's cap.
+  final step = size > maxPerBlock
+      ? (size + maxPerBlock - 1) ~/ maxPerBlock
+      : 1;
   final out = <String>[];
   for (var i = 0; i < size; i += step) {
     final v = start + i;
@@ -54,64 +58,67 @@ Future<int?> nipTcpProbe(String ip, int port, Duration timeout) async {
 Future<List<NipHit>> nipScan(
   List<String> ips, {
   int port = 443,
-  int concurrency = 16,
-  int want = 12,
-  Duration budget = const Duration(minutes: 2),
+  int concurrency = 0,
+  int? want,
+  Duration? budget,
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
 }) async {
+  if (port < 1 || port > 65535 || (want != null && want <= 0) ||
+      (budget != null && budget <= Duration.zero) || timeout <= Duration.zero) {
+    return const <NipHit>[];
+  }
+  final boundedIps = natBoundScanTargets(ips);
+  if (boundedIps.isEmpty) return const <NipHit>[];
   final hits = <NipHit>[];
-  final deadline = DateTime.now().add(budget);
+  // Stopwatch is monotonic: wall-clock adjustments cannot extend a scan.
+  final elapsed = Stopwatch()..start();
   var next = 0;
 
   Future<void> worker() async {
     while (true) {
-      if (hits.length >= want) return;
+      if (want != null && hits.length >= want) return;
       if (cancelled != null && cancelled()) return;
-      if (DateTime.now().isAfter(deadline)) return;
-      if (next >= ips.length) return;
-      final ip = ips[next++];
-      final ms = await nipTcpProbe(ip, port, timeout);
+      if (budget != null && elapsed.elapsed >= budget) return;
+      if (next >= boundedIps.length) return;
+      final ip = boundedIps[next++];
+      // Never let an in-flight probe extend the scan beyond its remaining
+      // monotonic budget. Socket.connect enforces this per-attempt deadline.
+      final remaining = budget == null ? timeout : budget - elapsed.elapsed;
+      if (remaining <= Duration.zero) return;
+      final probeTimeout = timeout < remaining ? timeout : remaining;
+      final ms = await nipTcpProbe(ip, port, probeTimeout);
       if (ms != null) hits.add(NipHit(ip, ms));
     }
   }
 
-  final n = min(concurrency.clamp(1, 16), max(ips.length, 1));
+  final n = min(natAdaptiveConcurrency(concurrency), max(boundedIps.length, 1));
   await Future.wait(List.generate(n, (_) => worker()));
   natStableSort(hits, (a, b) => a.ms.compareTo(b.ms));
   return hits;
 }
 
-/// فهرست بلوک‌های IPv4 ایران از RIPE (یک بار دانلود و بعد کش).
-Future<List<String>> nipIranCidrs() async {
-  final p = await SharedPreferences.getInstance();
-  final cached = p.getStringList('plus_ir_cidr');
-  if (cached != null && cached.isNotEmpty) return cached;
-  final c = HttpClient()..connectionTimeout = const Duration(seconds: 10);
-  try {
-    final req = await c
-        .getUrl(Uri.parse(
-            'https://stat.ripe.net/data/country-resource-list/data.json?resource=IR'))
-        .timeout(const Duration(seconds: 15));
-    final res = await req.close().timeout(const Duration(seconds: 20));
-    final body = await res.transform(utf8.decoder).join();
-    final j = jsonDecode(body);
-    final raw = (j['data']['resources']['ipv4'] as List?) ?? const [];
-    final list = raw.map((e) => '$e').where((e) => e.contains('/')).toList();
-    if (list.isNotEmpty) await p.setStringList('plus_ir_cidr', list);
-    return list;
-  } catch (_) {
-    return const [];
-  } finally {
-    c.close(force: true);
-  }
+/// Complete dynamic SNI inventory: built-in candidates plus every domain
+/// learned from DNS inventories and currently known server configurations.
+List<String> natAllSniCandidates() {
+  final all = <String>{
+    ...natFrontSnis,
+    ...dnsxFullDomains(),
+    for (final server in natTemplateSeeds)
+      if (!server.isIp && server.host.contains('.')) server.host.toLowerCase(),
+    for (final record in _goldSrv.values)
+      if ((Uri.tryParse(record.link)?.host ?? '').contains('.'))
+        Uri.parse(record.link).host.toLowerCase(),
+  };
+  all.removeWhere((host) => host.isEmpty || InternetAddress.tryParse(host) != null);
+  return all.toList(growable: false);
 }
 
 /// همان کانفیگ سرور [t] را روی IP دیگری می‌سازد؛ SNI و Host اصلی حفظ می‌شوند.
 String? nipSwapLink(Server t, String ip) {
   final l = t.link;
   final lower = l.toLowerCase();
-  if (lower.startsWith('ss://')) return null;
+  if (lower.startsWith('ss://') || t.reality) return null;
   try {
     if (lower.startsWith('vmess://')) {
       var b = natB64Normalize(l.substring(8));
@@ -138,21 +145,23 @@ String? nipSwapLink(Server t, String ip) {
 // مثال: const natRelayHosts = <String>['1.2.3.4'];
 List<String> natRelayHosts = <String>[];
 
-// RELAYHOSTS: واسط‌های IP که کاربر اضافه می‌کند
+// RELAYHOSTS: retain every explicitly supplied numeric relay endpoint.
+
 Future<void> natRelayHostsLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
-    natRelayHosts = p.getStringList('nat_relay_hosts') ?? <String>[];
+    natRelayHosts = natBoundScanTargets(
+      p.getStringList('nat_relay_hosts') ?? <String>[],
+    );
   } catch (e, st) {
     logError(e, st);
   }
 }
 
 Future<void> natRelayHostsSave(String text) async {
-  natRelayHosts = text
-      .split(RegExp(r'[\r\n\s]+'))
-      .where((x) => InternetAddress.tryParse(x) != null)
-      .toList();
+  natRelayHosts = natBoundScanTargets(
+    text.split(RegExp(r'[\\r\\n\\s]+')),
+  );
   try {
     final p = await SharedPreferences.getInstance();
     await p.setStringList('nat_relay_hosts', natRelayHosts);
@@ -176,92 +185,57 @@ Future<String?> nipResolve(String host) async {
   }
 }
 
-/// بلوک‌های هاست یک IP را برای نت ملی ذخیره می‌کند (کلید: IP).
-Future<void> natPrefetchAsn(List<Server> list) async {
-  var n = 0;
-  for (final s in list) {
-    if (n >= 20) break;
-    if (s.cdn) continue;
-    final ip = s.isIp ? s.host : await nipResolve(s.host);
-    if (ip == null) continue;
-    n++;
-    await nipAsnPrefixes(ip); // نتیجه خودکار در کش ذخیره می‌شود
-  }
-}
-
-/// آخرین شکست RIPE برای هر IP (حافظه‌ی موقت، جدا از کش دائمی).
-final Map<String, DateTime> _asnFailAt = <String, DateTime>{};
-
-/// بلوک‌های IPv4 اعلام‌شده‌ی شرکت هاست همان IP (از RIPE Stat).
-Future<List<String>> nipAsnPrefixes(String ip) async {
-  final prefs = await SharedPreferences.getInstance();
-  final cacheKey = 'nip_asn_v1_$ip';
-  final cached = prefs.getStringList(cacheKey);
-  if (cached != null && cached.isNotEmpty) return cached;
-  // NATOPT: RIPE خارج از کشور است. وقتی جهانی قطع است فقط کش معتبر است؛ شبکه نمی‌زنیم.
-  if (NatNetworkDiagnosis.preferDomestic) return const [];
-  // NATOPT: شکست اخیر را ۱۵ دقیقه به خاطر می‌سپاریم تا هر دور جستجو ۳ بار ۱۲ ثانیه تایم‌اوت نخورد.
-  final failAt = _asnFailAt[ip];
-  if (failAt != null && DateTime.now().difference(failAt) < const Duration(minutes: 15)) {
-    return const [];
-  }
-  try {
-    final r = await http
-        .get(Uri.parse('https://stat.ripe.net/data/network-info/data.json?resource=$ip'))
-        .timeout(const Duration(seconds: 12));
-    if (r.statusCode != 200) {
-      _asnFailAt[ip] = DateTime.now();
-      return const [];
-    }
-    final asns = ((jsonDecode(r.body)['data']?['asns']) as List?) ?? const [];
-    final out = <String>[];
-    for (final a in asns.take(2)) {
-      final rr = await http
-          .get(Uri.parse('https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS$a'))
-          .timeout(const Duration(seconds: 12));
-      if (rr.statusCode != 200) continue;
-      final prefixes = ((jsonDecode(rr.body)['data']?['prefixes']) as List?) ?? const [];
-      for (final pe in prefixes) {
-        final pr = '${pe['prefix']}';
-        if (pr.contains('/') && !pr.contains(':')) out.add(pr);
-      }
-    }
-    if (out.isNotEmpty) {
-      await prefs.setStringList(cacheKey, out);
-    } else {
-      _asnFailAt[ip] = DateTime.now();
-    }
-    return out;
-  } catch (_) {
-    _asnFailAt[ip] = DateTime.now();
-    return const [];
-  }
-}
-
-// FRONTSNI: کانفیگ‌های CDN: اگر SNI اصلی فیلتر شده باشد، SNI را به یک دامنه‌ی دیگر
-// روی همان Cloudflare تغییر می‌دهیم و Host را همان سرور نگه می‌داریم.
-// لیست کاندید؛ هر کدام که TLS روی IP باز کامل شد نگه داشته می‌شود.
-// خودت می‌توانی دامنه‌های بیشتری به این لیست اضافه کنی.
-// FRONTSNI: کاهش از ۱۹ به ۸ دامنه برای سرعت بیشتر nipFindFrontSni
+// FRONTSNI: alternate SNI candidates for standard TLS only.
+// A candidate is retained only after a TLS handshake and platform certificate/hostname validation.
+// This does not prove HTTP Host routing, CDN co-location, or domain-fronting acceptance;
+// the real VPN tunnel and HTTP traffic check remain the final acceptance gate.
+// The original Host header is preserved when a candidate is applied.
+// FRONTSNI: مجموعه کامل نامزدهای دامنه؛ IP literal ها SNI معتبر نیستند.
 const natFrontSnis = <String>[
-  'cdnjs.cloudflare.com',    // 0
-  'www.cloudflare.com',      // 1
-  'speed.cloudflare.com',    // 2  ← قبلاً 3 بود، حالا 2
-  'one.one.one.one',         // 3  ← قبلاً 16 بود
-  '1.1.1.1',                 // 4  ← قبلاً 17 بود
-  'www.aparat.com',          // 5
-  'www.digikala.com',        // 6
-  'divar.ir',                // 7
+  'cdnjs.cloudflare.com',
+  'www.cloudflare.com',
+  'speed.cloudflare.com',
+  'one.one.one.one',
+  'cloudflare-dns.com',
+  'www.aparat.com',
+  'www.digikala.com',
+  'divar.ir',
+  'cloudflare.com',
+  'www.snapp.ir',
+  'www.bale.ai',
+  'eitaa.com',
+  'www.zarinpal.com',
+  'www.iranserver.com',
+  'www.shatel.ir',
+  'www.mci.ir',
+  'workers.dev',
+  'dash.cloudflare.com',
 ];
 
 /// روی IP:port یک TLS با SNI داده‌شده کامل شود؟ برمی‌گرداند همان SNI یا null.
-Future<String?> nipFrontProbe(String ip, int port, String sni) async {
+Future<String?> nipFrontProbe(
+    String ip, int port, String sni, {
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+  if (timeout <= Duration.zero) return null;
+  final elapsed = Stopwatch()..start();
+  Duration remaining() => timeout - elapsed.elapsed;
   Socket? raw;
   SecureSocket? sec;
   try {
-    raw = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 2000));
-    sec = await SecureSocket.secure(raw, host: sni, onBadCertificate: (_) => true)
-        .timeout(const Duration(seconds: 3));
+    final connectBudget = remaining();
+    if (connectBudget <= Duration.zero) return null;
+    const connectCap = Duration(seconds: 2);
+    raw = await Socket.connect(
+      ip,
+      port,
+      timeout: connectBudget < connectCap ? connectBudget : connectCap,
+    );
+    // TCP connect and TLS handshake share one deadline. Keep normal certificate
+    // and hostname validation; a successful handshake is only a prefilter.
+    final handshakeBudget = remaining();
+    if (handshakeBudget <= Duration.zero) return null;
+    sec = await SecureSocket.secure(raw, host: sni).timeout(handshakeBudget);
     return sni;
   } catch (_) {
     return null;
@@ -271,9 +245,23 @@ Future<String?> nipFrontProbe(String ip, int port, String sni) async {
   }
 }
 
-Future<String?> nipFindFrontSni(String ip, int port) async {
-  for (final sni in natFrontSnis) {
-    final ok = await nipFrontProbe(ip, port, sni);
+Future<String?> nipFindFrontSni(
+  String ip,
+  int port, {
+  bool Function()? cancelled,
+  Duration? budget,
+}) async {
+  if (budget != null && budget <= Duration.zero) return null;
+  final elapsed = Stopwatch()..start();
+  for (final sni in natAllSniCandidates()) {
+    if (cancelled?.call() == true) return null;
+    const perProbeCap = Duration(seconds: 5);
+    final probeBudget = budget == null
+        ? perProbeCap
+        : (budget - elapsed.elapsed < perProbeCap ? budget - elapsed.elapsed : perProbeCap);
+    if (probeBudget <= Duration.zero) return null;
+    final ok = await nipFrontProbe(ip, port, sni, timeout: probeBudget);
+    if (cancelled?.call() == true) return null;
     if (ok != null) return ok;
   }
   return null;
@@ -284,6 +272,8 @@ String? nipSwapSni(Server t, String ip, String sni) {
   final l = t.link;
   final lower = l.toLowerCase();
   if (lower.startsWith('ss://')) return null;
+  // Front-SNI candidates are for ordinary TLS only; never rewrite REALITY or plaintext links.
+  if (!t.tls || t.reality) return null;
   if (echFromLink(l).isNotEmpty) return null; // ECH: SNI جایگزین ممنوع
   try {
     if (lower.startsWith('vmess://')) {
@@ -333,7 +323,6 @@ extension NipHunt on _HomePageState {
       if (s.link.toLowerCase().startsWith('ss://')) continue;
       if (!seen.add(s.host)) continue;
       templates.add(s);
-      if (templates.length >= 40) break;
     }
     if (templates.isEmpty) {
       _set('برای جستجوی IP سرور نمونه نداریم؛ یک بار با سرورهای پوشه وصل شو');
@@ -363,8 +352,11 @@ extension NipHunt on _HomePageState {
         otherIps.addAll(nipExpandCidr(c, maxPerBlock: 32));
       }
       if (otherIps.length > cap) otherIps.removeRange(cap, otherIps.length);
-      final ips = <String>[...cfIps, ...otherIps];
-      ips.shuffle(rnd);
+      // Cloudflare remains the final fallback tier; randomize within each
+      // tier without mixing it ahead of other CDN candidates.
+      otherIps.shuffle(rnd);
+      cfIps.shuffle(rnd);
+      final ips = <String>[...otherIps, ...cfIps];
       if (await _natTryScan(cdnT, ips,
           port: cdnT.first.port, label: 'لبه‌ی CDN', front: true)) {
         return true;
@@ -381,7 +373,6 @@ extension NipHunt on _HomePageState {
         if (link == null) continue;
         final c = Server.parse(link);
         if (c != null) cands.add(c);
-        if (cands.length >= 8) break;
       }
       if (cands.isNotEmpty) {
         _set('نت ملی: امتحان ${cands.length} واسط…');
@@ -394,26 +385,9 @@ extension NipHunt on _HomePageState {
       }
     }
 
-    // مرحله ۳: IP های همان شرکت هاست سرور (ASN) روی همان پورت
-    final t0 = direct.first;
-    final sIp = t0.isIp ? t0.host : await nipResolve(t0.host);
-    if (sIp != null) {
-      final prefixes = await nipAsnPrefixes(sIp);
-      if (prefixes.isNotEmpty) {
-        final ips = <String>[];
-        for (final p in prefixes.take(80)) {
-          ips.addAll(nipExpandCidr(p, maxPerBlock: 256));
-        }
-        ips.shuffle(Random());
-        if (ips.isNotEmpty &&
-            await _natTryScan(direct, ips,
-                port: t0.port, label: 'IP هم‌شرکت سرور')) {
-          return true;
-        }
-        if (abort) return false;
-      }
-    }
-
+    // مرحله ۳: اسکن همسایه‌های ASN عمداً اجرا نمی‌شود.
+    // داشتن یک hostname/IP از یک شرکت، مجوز اسکن بقیه‌ی prefixهای همان ASN نیست.
+    // محدوده‌های دستیِ مالک و فهرست relayهای صریح همچنان از مسیرهای جداگانه قابل آزمون‌اند.
     // مرحله ۴ (IP های باز ایران) حذف شد: یک IP باز ایران فوروارد نمی‌کند،
     // پس برای REALITY/TCP وقت تلف می‌کرد و هیچ‌وقت وصل نمی‌شد.
     _set('نت ملی: واسط یا IP هم‌شرکت سالم پیدا نشد');
@@ -428,26 +402,26 @@ extension NipHunt on _HomePageState {
     _set('نت ملی: جستجوی $label (${ips.length} آدرس)…');
     final hits = await nipScan(ips,
         port: port,
-        want: 12,
-        budget: const Duration(minutes: 2),
+        want: ips.length,
         cancelled: () => abort);
     if (abort) return false;
     if (hits.isEmpty) {
       _set('نت ملی: هیچ $label بازی پیدا نشد');
       return false;
     }
-    final top = hits.take(8).toList(); // CHOP: قبلاً ۱۲ بود ولی فقط ۸ تا استفاده می‌شد
+    final top = hits;
     // BATCHSNI: ۴ تا ۴ تا (نه همه با هم که SYN flood می‌کند، نه تک‌تک)
     final snis = <String?>[];
     if (front) {
-      for (var i = 0; i < top.length; i += 4) {
-        final batch = top.skip(i).take(4).toList();
+      final sniWorkers = natAdaptiveConcurrency(0);
+      for (var i = 0; i < top.length; i += sniWorkers) {
+        final batch = top.skip(i).take(sniWorkers).toList();
         snis.addAll(await Future.wait(
-            batch.map((h) => nipFindFrontSni(h.ip, port))));
+            batch.map((h) => nipFindFrontSni(h.ip, port, cancelled: () => abort))));
       }
     }
     final cands = <Server>[];
-    for (var i = 0; i < top.length && cands.length < 8; i++) {
+    for (var i = 0; i < top.length; i++) {
       final t = tpls[i % tpls.length];
       final link = nipSwapLink(t, top[i].ip);
       if (link != null) {
@@ -455,7 +429,7 @@ extension NipHunt on _HomePageState {
         if (c != null) cands.add(c);
       }
       final sni = i < snis.length ? snis[i] : null;
-      if (sni != null && cands.length < 8) {
+      if (sni != null) {
         final fl = nipSwapSni(t, top[i].ip, sni);
         if (fl != null) {
           final c = Server.parse(fl);
