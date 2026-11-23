@@ -26,7 +26,7 @@ import 'dart:typed_data';
 import 'errjournal.dart';
 import 'nnie_core.dart'; // natStableSort
 
-/// Validate, canonicalize, de-duplicate, and hard-bound scanner targets.
+/// Validate, canonicalize, and de-duplicate scanner targets; maxCount is optional and caller-controlled.
 /// Hostnames are intentionally rejected: callers must resolve them explicitly.
 List<String> natBoundScanTargets(
   Iterable<String> source, {
@@ -89,10 +89,10 @@ List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
 /// This is a manual/authorized-range primitive; it is never fed implicit ASN ranges.
 List<String> natExpandIpv6Cidr(
   String cidr, {
-  int maxPerBlock = kNatMaxScanAddresses,
+  int maxPerBlock = 4096,
 }) {
   if (maxPerBlock <= 0) return const <String>[];
-  final limit = min(maxPerBlock, kNatMaxScanAddresses);
+  final limit = maxPerBlock;
   final parts = cidr.trim().split('/');
   if (parts.length != 2) return const <String>[];
   final address = InternetAddress.tryParse(parts[0].trim());
@@ -132,7 +132,7 @@ List<String> natExpandIpv6Cidr(
 
 /// بازه‌ی خطی به شکل a.b.c.d-e.f.g.h (برای نوشته‌هایی که CIDR نیستند).
 /// بازه‌های بزرگ‌تر از maxCount به‌طور یکنواخت نمونه‌برداری می‌شوند.
-List<String> natExpandDash(String range, {int maxCount = kNatMaxScanAddresses}) {
+List<String> natExpandDash(String range, {int maxCount = 4096}) {
   if (maxCount <= 0) return const [];
   final limit = maxCount;
   final parts = range.trim().split('-');
@@ -212,7 +212,7 @@ int natAdaptiveConcurrency(int requested) {
 ///   • Cancellation stops scheduling probes; in-flight connects remain bounded by timeout.
 ///   • Progress reporting via [onProgress] (called every few completions).
 ///   • Optional [randomize] to shuffle the scan order.
-///   • Shared hard ceiling of 4096 validated numeric targets per scan.
+///   • Every supplied target is checked; callers can resume across batches.
 Future<List<NatIpHit>> natScanIps(
   List<String> ips, {
   int port = 443,
