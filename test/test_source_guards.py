@@ -4278,5 +4278,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('for (final ip in cleanIps) ip.port', body)
 
 
+    def test_fragment_mux_noise_and_fingerprint_variants_are_not_hard_retired(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('bool _natAppliesF(')
+        end = source.index('\n}', start)
+        applies = source[start:end]
+        self.assertNotIn('_natRetiredNames', source)
+        self.assertNotIn('natRetired(v)', applies)
+        self.assertNotIn('if (x.mux) return false', applies)
+        self.assertNotIn('if (x.noise) return false', applies)
+        auto_test = (ROOT / 'lib' / 'auto_test.dart').read_text(encoding='utf-8')
+        self.assertNotIn('natRetired(v)', auto_test)
+        self.assertIn('if (!natDisabled.contains(v)) v', auto_test)
+
+
 if __name__ == '__main__':
     unittest.main()
