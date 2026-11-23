@@ -3069,6 +3069,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('IPv4-mapped IPv6', private_ip)
 
 
+    def test_resumable_inventory_order_is_stable_across_runs(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        seed_start = nat.index('List<String> natSeedBlocks(')
+        seed_end = nat.index('int natMemQueued', seed_start)
+        self.assertIn('return out.toList()..sort();', nat[seed_start:seed_end])
+
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        self.assertIn('_liveCdnRanges = merged.toList()..sort();', extras)
+
+        ip_auto = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        self.assertIn('return blocks.toList()..sort();', ip_auto)
+
+        auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        self.assertIn('}.toList()..sort();\\n    final ips = _getCfIps(', auto)
+
     def test_persisted_dual_stack_scan_indexes_are_normalized_before_list_access(self):
         nat_scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         self.assertIn('int natCursorIndex(Object? value, int length)', nat_scan)
