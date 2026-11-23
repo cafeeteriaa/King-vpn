@@ -606,7 +606,7 @@ Future<void> refreshCdnRanges() async {
     var liveOk = 0;
     // هر CDN جدا: اگر دریافتش شکست خورد، لیست استاتیک خودش جایگزین می‌شود
     // (قبلاً فقط CDNهای موفق می‌ماندند و بقیه از استخر حذف می‌شدند).
-    Future<void> pull(String label, List<String> fallback, int cap,
+    Future<void> pull(String label, List<String> fallback,
         Future<List<String>> Function() fetch) async {
       var got = const <String>[];
       try {
@@ -618,13 +618,13 @@ Future<void> refreshCdnRanges() async {
         merged.addAll(fallback);
         return;
       }
-      // رنج‌های استاتیک همیشه می‌مانند؛ رنج‌های زنده تا سقف cap اضافه می‌شوند
+      // Keep every published static and live prefix; do not truncate a provider's inventory.
       merged.addAll(fallback);
-      merged.addAll(got.take(cap));
+      merged.addAll(got);
       liveOk++;
     }
 
-    await pull('cloudflare', _cfRanges, 64, () async {
+    await pull('cloudflare', _cfRanges, () async {
       final res = await http.get(Uri.parse('https://www.cloudflare.com/ips-v4'));
       if (res.statusCode != 200) return const <String>[];
       return res.body
@@ -657,7 +657,7 @@ Future<void> refreshCdnRanges() async {
           .toList();
     });
 
-    await pull('google', _gcpCdnRanges, 48, () async {
+    await pull('google', _gcpCdnRanges, () async {
       final res = await http.get(Uri.parse('https://www.gstatic.com/ipranges/goog.json'));
       if (res.statusCode != 200) return const <String>[];
       final j = await compute(cdnJsonDecodeBg, res.body);
@@ -788,11 +788,12 @@ Future<List<String>> _cleanCandidates() async {
       if (live.length >= 5) ranges = live;
     }
   } catch (e, stk) { logError(e, stk); }
+  final perRangeCandidates = natAdaptiveConcurrency(0) * 4;
   for (final c in ranges) {
-    set.addAll(_cidrSample(c, 28, r).where(_cleanOk));
+    set.addAll(_cidrSample(c, perRangeCandidates, r).where(_cleanOk));
   }
   final l = set.toList()..shuffle(r);
-  return l.take(240).toList();
+  return l;
 }
 
 Future<String> _cfRead(Socket k, Duration t) async {
@@ -855,7 +856,7 @@ Future<void> _doRefreshClean() async {
     final c = await _cleanCandidates();
     final res = <CleanIp>[];
     var done = 0;
-    await pool<String>(c, 20, (ip) async {
+    await pool<String>(c, natAdaptiveConcurrency(0), (ip) async {
       final ms = await _cfProbeMs(ip, const Duration(milliseconds: 3500));
       done++;
       if (ms != null) res.add(CleanIp(ip, ms));
@@ -1404,8 +1405,6 @@ extension NpvAmExtras on _HomePageState {
   }
 }
 
-const int kGoldDailyProbes = 250000;
-const int kGoldRetestBatch = 500;
 const int kGoldEveryMin = 5;
 const int kGoldRetestHours = 24;
 
@@ -1438,15 +1437,6 @@ int _goldCnt = 0;
 String _goldToday() {
   final n = DateTime.now();
   return '${n.year}-${n.month}-${n.day}';
-}
-
-int _goldBudgetLeft() {
-  final d = _goldToday();
-  if (_goldDay != d) {
-    _goldDay = d;
-    _goldCnt = 0;
-  }
-  return kGoldDailyProbes - _goldCnt;
 }
 
 Future<void>? _goldLoadF;
@@ -1642,23 +1632,20 @@ Future<void> goldMergeIps(
 Future<Map<String, int?>> _goldProbe(List<String> ips) async {
   final out = <String, int?>{};
   if (ips.isEmpty) return out;
-  await pool<String>(ips, 20, (ip) async {
+  await pool<String>(ips, natAdaptiveConcurrency(0), (ip) async {
     out[ip] = await _cfProbeMs(ip, const Duration(milliseconds: 3500));
     await Future.delayed(const Duration(milliseconds: 20));
-  }).timeout(const Duration(minutes: 2), onTimeout: () {});
+  });
   return out;
 }
 
 Future<void> _goldIpStep() async {
   if (nationalMode) return;
   final nowMs = DateTime.now().millisecondsSinceEpoch;
-  var left = _goldBudgetLeft();
-  if (left <= 0) return;
   final retestMs = kGoldRetestHours * 3600 * 1000;
 
   final due = _goldIps.values
       .where((v) => nowMs - v.testAt >= retestMs)
-      .take(left < kGoldRetestBatch ? left : kGoldRetestBatch)
       .map((v) => v.ip)
       .toList();
   if (due.isNotEmpty) {
@@ -1675,17 +1662,11 @@ Future<void> _goldIpStep() async {
         v.testAt = nowMs;
       }
     }
-    _goldCnt += due.length;
-    left -= due.length;
     _goldTop = null;
   }
 
-  if (left <= 0) return;
   final cands = await _cleanCandidates();
-  final batch = cands
-      .where((ip) => !_goldIps.containsKey(ip))
-      .take(left < 240 ? left : 240)
-      .toList();
+  final batch = cands.where((ip) => !_goldIps.containsKey(ip)).toList();
   if (batch.isEmpty) return;
   final r = await _goldProbe(batch);
   var found = 0;
@@ -1696,10 +1677,9 @@ Future<void> _goldIpStep() async {
       found++;
     }
   }
-  _goldCnt += batch.length;
 
   _goldTop = null;
-  dbg('گلد: IP تازه $found از ${batch.length} • پوشه ${_goldIps.length} • امروز $_goldCnt/$kGoldDailyProbes');
+  dbg('گلد: IP تازه $found از ${batch.length} • پوشه ${_goldIps.length} • شمار ثبت‌شده $_goldCnt');
 }
 
 Future<void> _goldSrvStep(_HomePageState h) async {
@@ -1744,7 +1724,6 @@ Future<void> _goldSrvStep(_HomePageState h) async {
   if (!nationalMode) {
     final due = _goldSrv.values
         .where((v) => v.verified && nowMs - v.testAt >= retestMs)
-        .take(20)
         .toList();
     // GATEMAX: سقف گیت تست قبل از حلقه‌ی due
     // DSGETTER: از مقدار مؤثر
