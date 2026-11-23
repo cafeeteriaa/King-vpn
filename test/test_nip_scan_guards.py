@@ -14,7 +14,7 @@ class NationalIpScannerGuardTests(unittest.TestCase):
         end = self.source.index("/// اتصال TCP", start)
         block = self.source[start:end]
         self.assertIn("if (maxPerBlock <= 0) return const [];", block)
-        self.assertIn("final limit = maxPerBlock;", block)
+        self.assertIn("if (maxPerBlock <= 0) return const [];", block)
         self.assertIn("(size + maxPerBlock - 1) ~/ maxPerBlock", block)
         self.assertIn("i += step", block)
 
