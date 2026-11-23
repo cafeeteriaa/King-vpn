@@ -4903,9 +4903,10 @@ Future<List<String>> dohResolveAll(String name) async {
   }
 
   final found = <String>{};
-  for (final endpoint in _dohEps) {
+  await pool<String>(_dohEps, 4, (endpoint) async {
     final uri = Uri.parse(endpoint.replaceAll('%N', Uri.encodeComponent(name)));
-    final expectedType = uri.queryParameters['type']?.toUpperCase() == 'AAAA' ? 28 : 1;
+    final expectedType =
+        uri.queryParameters['type']?.toUpperCase() == 'AAAA' ? 28 : 1;
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
     try {
       final request = await client.getUrl(uri).timeout(const Duration(seconds: 3));
@@ -4917,16 +4918,20 @@ Future<List<String>> dohResolveAll(String name) async {
           .timeout(const Duration(seconds: 3));
       final decoded = jsonDecode(body);
       final answers = decoded is Map ? decoded['Answer'] : null;
-      if (answers is! List) continue;
+      if (answers is! List) return;
       for (final answer in answers) {
-        if (answer is! Map || (answer['type'] as num?)?.toInt() != expectedType) {
+        if (answer is! Map ||
+            (answer['type'] as num?)?.toInt() != expectedType) {
           continue;
         }
-        final address = InternetAddress.tryParse(answer['data']?.toString() ?? '');
+        final address = InternetAddress.tryParse(
+          answer['data']?.toString() ?? '',
+        );
         if (address == null) continue;
         if (expectedType == 1 && address.type == InternetAddressType.IPv4) {
           found.add(address.address);
-        } else if (expectedType == 28 && address.type == InternetAddressType.IPv6) {
+        } else if (expectedType == 28 &&
+            address.type == InternetAddressType.IPv6) {
           found.add(address.address);
         }
       }
@@ -4935,7 +4940,7 @@ Future<List<String>> dohResolveAll(String name) async {
     } finally {
       client.close(force: true);
     }
-  }
+  });
 
   if (found.isNotEmpty) {
     final addresses = found.toList(growable: false);
