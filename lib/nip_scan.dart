@@ -266,16 +266,24 @@ Future<String?> nipResolve(String host) async {
 
 /// بلوک‌های هاست یک IP را برای نت ملی ذخیره می‌کند (کلید: IP).
 Future<void> natPrefetchAsn(List<Server> list) async {
-  var n = 0;
-  for (final server in list) {
-    if (n >= 20) break;
-    if (server.cdn) continue;
-    final addresses = server.isIp ? [server.host] : await nipResolveAll(server.host);
-    for (final ip in addresses) {
-      if (n >= 20) break;
-      n++;
-      await nipAsnPrefixes(ip); // each A/AAAA endpoint has its own RIPE cache
+  final hosts = list.where((server) => !server.cdn).toList(growable: false);
+  final ips = <String>{};
+  for (var offset = 0; offset < hosts.length; offset += 8) {
+    final batch = hosts.skip(offset).take(8);
+    final resolved = await Future.wait(batch.map((server) async {
+      if (server.isIp) return <String>[server.host];
+      return nipResolveAll(server.host);
+    }));
+    for (final addresses in resolved) {
+      ips.addAll(addresses);
     }
+  }
+  final allIps = ips.toList(growable: false);
+  for (var offset = 0; offset < allIps.length; offset += 4) {
+    final batch = allIps.skip(offset).take(4);
+    await Future.wait(batch.map((ip) async {
+      await nipAsnPrefixes(ip); // each A/AAAA endpoint has its own RIPE cache
+    }));
   }
 }
 
