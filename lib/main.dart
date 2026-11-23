@@ -17397,17 +17397,22 @@ extension ProjectNatSweep on _HomePageState {
         const {'360', 'qq'}.contains(x.fp); // NEWFP
   }
 
-  // AUTORANGE: بلوک‌های /24 سرورهای IP دار برنامه، بدون دخالت کاربر
+  // Build dual-stack seeds from every known IP endpoint. IPv6 endpoints
+  // remain exact /128 seeds; no guessed neighbouring /64 is enumerated.
   List<String> _atAutoRanges(List<Server> servers) {
     final blocks = <String>{};
-    for (final x in servers) {
-      if (!x.isIp) continue;
-      final p = x.host.split('.');
-      if (p.length != 4) continue;
-      blocks.add('${p[0]}.${p[1]}.${p[2]}.0/24');
-      if (blocks.length >= 200) break;
+    for (final server in servers) {
+      if (!server.isIp) continue;
+      final address = InternetAddress.tryParse(server.host.trim());
+      if (address == null) continue;
+      if (address.type == InternetAddressType.IPv6) {
+        blocks.add('${address.address}/128');
+      } else if (address.type == InternetAddressType.IPv4) {
+        final octets = address.address.split('.');
+        blocks.add('${octets[0]}.${octets[1]}.${octets[2]}.0/24');
+      }
     }
-    return blocks.toList();
+    return blocks.toList(growable: false);
   }
 
   // IPSWEEP: هر IP تمیز را با اتصال واقعی روی یک سرور پشت کلودفلر امتحان می‌کند.
@@ -17431,31 +17436,58 @@ extension ProjectNatSweep on _HomePageState {
       return <CleanIp>[];
     }
 
-    // بازه‌ها: کلودفلر + بلوک‌های /24 سرورهای خود برنامه
-    final ranges = <String>[..._cfRanges, ..._atAutoRanges(good)];
-    final pool2 = <String>[];
-    for (final r in ranges) {
-      pool2.addAll(natExpandCidr(r, maxPerBlock: 128));
-    }
-    pool2.shuffle(Random());
-
-    // FIXSWEEP: سقف کل مرحله‌ی «اسکن» ۳۵ ثانیه است. قبلاً هر پورت جداگانه ۳۵ ثانیه
-    // بود (۷ پورت ⇒ تا ~۴ دقیقه) و بودجه‌ی ۴۵ ثانیه‌ای فقط روی مرحله‌ی تست کاندیدها اثر داشت.
-    // لغو کاربر (abort) هم اسکن را متوقف می‌کند.
+    // Dual-stack CDN and discovered endpoint inventory. Each port owns a
+    // persisted cursor, so a bounded slice never becomes a permanent coverage cap.
+    final ranges = <String>{
+      ..._cfRanges,
+      ..._cfRangesV6,
+      ..._atAutoRanges(good),
+    }.toList(growable: false);
+    await _natLoadRangeCursors();
     final scanDeadline = DateTime.now().add(const Duration(seconds: 35));
     final opened = <CleanIp>[];
+    const sweepBatchSize = 512;
     for (final port in _natCfPorts) {
       if (abort || AutoTestEngine._abortRequested) break;
       final left = scanDeadline.difference(DateTime.now());
-      if (left <= Duration.zero) break;
-      final hits = await natScanIps(pool2,
-          port: port,
-          concurrency: 24,
-          want: 20,
-          budget: left,
-          cancelled: () => abort || AutoTestEngine._abortRequested);
-      for (final h in hits) {
-        opened.add(CleanIp(h.ip, h.ms, port));
+      if (left <= Duration.zero || ranges.isEmpty) break;
+      final prefix = 'atsweep:$port:';
+      final localCursors = <String, dynamic>{
+        for (final entry in _cfRangeCursors.entries)
+          if (entry.key.startsWith(prefix))
+            entry.key.substring(prefix.length): entry.value,
+      };
+      final pool2 = _getCfIps(
+        batchSize: sweepBatchSize,
+        liveRanges: ranges,
+        cursors: localCursors,
+      );
+      if (pool2.isEmpty) continue;
+      var completed = 0;
+      final hits = await natScanIps(
+        pool2,
+        port: port,
+        concurrency: 24,
+        want: pool2.length,
+        budget: left,
+        cancelled: () => abort || AutoTestEngine._abortRequested,
+        onProgress: (done, total, hitCount) => completed = done,
+      );
+      // Cursor advancement is committed only if every address in this slice
+      // completed for this port. Interrupted slices are retried, never skipped.
+      if (completed < pool2.length) break;
+      _cfRangeCursors.removeWhere((key, _) => key.startsWith(prefix));
+      for (final entry in localCursors.entries) {
+        _cfRangeCursors['$prefix${entry.key}'] = entry.value;
+      }
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('natRangeScanCursorsV2', jsonEncode(_cfRangeCursors));
+      } catch (e, st) {
+        logError(e, st);
+      }
+      for (final hit in hits) {
+        opened.add(CleanIp(hit.ip, hit.ms, port));
       }
     }
     dbg('IPSCAN: ${opened.length} جفت IP:پورت باز');
