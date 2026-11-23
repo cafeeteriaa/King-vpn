@@ -1547,9 +1547,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = main.index('Future<void> _natKeep()')
         end = main.index('// NATIONALPATCH: is the international internet cut', start)
         keep = main[start:end]
-        self.assertIn('maxAddrs: 2048', keep)
-        self.assertIn('conc: min(2, natAdaptiveWorkers())', keep)
-        self.assertIn('budget: const Duration(seconds: 90)', keep)
+        self.assertIn('maxAddrs: max(8192, min(16384, natAdaptiveWorkers() * 2048))', keep)
+        self.assertIn('conc: min(4, natAdaptiveWorkers())', keep)
+        self.assertIn('budget: const Duration(minutes: 3)', keep)
+        self.assertIn('pending.length < max(3000, natAdaptiveWorkers() * 1500)', keep)
+        self.assertIn('int maxAddrs = 8192,', (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8'))
         for condition in ('!mounted', '!connected', '!wantVpn', '!nationalMode',
                           '!localPilotOn', 'appGone', 'abort'):
             self.assertIn(condition, keep)
