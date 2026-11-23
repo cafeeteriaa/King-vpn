@@ -711,3 +711,18 @@
 - Artifactها هنوز منقضی نشده‌اند: APK و سورس کامل تا 2026-12-07، symbols تا 2026-12-23. لینک workflow: https://github.com/cafeeteriaa/King-vpn/actions/runs/45194381162
 - PR #44 همچنان Open/Draft و ادغام‌نشده است. تعداد review submission مستقل در زمان بررسی صفر بود. `main` تغییر نکرده است.
 - پذیرش واقعی هنوز باز است: نصب/اجرای APK روی دستگاه، owner UID در Android 11+ و Android 10، competing VPN، DNS leak/packet capture، اپراتورهای ایران، relay E2E و MTProto data-plane **NOT TESTED**. CI signing کلید production نیست.
+
+
+## ۴۴. پشتیبانی دوپشتهٔ resolver در اسکنر DNS و پذیرش CI 2307 — 2026-11-23
+
+- Source HEAD آزمون‌شده: `82c47356461e898b73e50b8b5a702a5254f43f8e` در `audit/final-master`.
+- `NatDnsWireProbe.parseResolver` اکنون resolverهای IPv4 و IPv6 را می‌پذیرد؛ UDP socket بر اساس خانوادهٔ آدرس به `anyIPv4` یا `anyIPv6` bind می‌شود. اعتبارسنجی پاسخ همچنان ID، QNAME، QTYPE/QCLASS، IP/port مبدأ، RCODE و آدرس عمومی پاسخ را بررسی می‌کند.
+- `dnsxProbe` و `dnsxScan` هر دو خانوادهٔ resolver را می‌پذیرند؛ چهار resolver عمومی IPv6 (Google و Cloudflare) به فهرست جهانی اضافه شدند. ورودی دستی UI نیز IPv4/IPv6 را می‌پذیرد. DNSهای داخلی IPv6 به‌صورت حدسی اضافه نشده‌اند.
+- تست‌های واحد و Source Guard دوپشته موفق شدند؛ Dart analysis موفق شد.
+- GitHub Actions Run 2307 / `45195808713` برای همین source HEAD **SUCCESS**: Source Guard، Flutter tests، Dart analysis، ARM64 release APK، ELF 16 KiB، APK ZIP alignment و upload هر سه artifact.
+- Artifact APK: `king-vpn-arm64-release-2307`, ID `14828961278`, archive SHA-256 `802fa611ebfb7132393d0a1e5c90a080d7c11398cfc99d8cbad029e35626d70e`.
+- APK استخراج‌شده: `app-arm64-v8a-release.apk`, size `122885790` bytes, SHA-256 `4a10fa6f37ecb4afca4bf5b4dfabde7fbc301c91b54f4468cee7ff2b4edab886`.
+- بازبینی artifact: 19 کتابخانهٔ `arm64-v8a` و 39 ELF LOAD segment بررسی شدند؛ هیچ segmentی alignment کمتر از 16 KiB نداشت. بررسی محلی با موفقیت پایان یافت.
+- Artifactها منقضی نشده‌اند: APK و سورس تا 2026-12-07، symbols تا 2026-12-23. لینک run: https://github.com/cafeeteriaa/King-vpn/actions/runs/45195808713
+- محدودیت: وجود resolver IPv6 در فهرست به معنی وجود مسیر IPv6 روی اپراتور نیست؛ اگر شبکه IPv6 نداشته باشد، probe با خطا/timeout رد می‌شود. تست IPv6 UDP روی دستگاه واقعی و اپراتورهای ایران **NOT TESTED** است.
+- PR #44 هنوز Draft/Open و ادغام‌نشده است؛ main دست‌نخورده باقی مانده است. هیچ تست اتصال واقعی، DNS leak packet capture، relay E2E یا Telegram MTProto data-plane با این CI اثبات نشده است.
