@@ -2746,7 +2746,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('_natExpandAnyCursor(range, cursor, 256)', body)
         self.assertIn("'maxAddrs': maxAddrs,", nat)
         ip = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        self.assertIn("'maxAddrs': _ipAutoBatch,", ip)
+        self.assertIn("'maxAddrs': batchSize,", ip)
         start = ip.index('Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(')
         end = ip.index('extension IpAutoExt', start)
         body = ip[start:end]
@@ -2782,7 +2782,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("blocks.add('${octets[0]}.${octets[1]}.${octets[2]}.0/24');", inventory)
         self.assertNotIn('exact known endpoints only', source)
         self.assertNotIn("'cfIpsBatch': 0, // exact known endpoints only", source)
-        self.assertIn("'cfIpsBatch': modeSnapshot ? 0 : _ipAutoBatch,", source)
+        self.assertIn("'cfIpsBatch': modeSnapshot ? 0 : batchSize,", source)
         self.assertIn("List<String>.of(_liveCdnRanges)", source)
         self.assertIn("'cursors': cursorSnapshot,", source)
         next_start = source.index('Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(')
