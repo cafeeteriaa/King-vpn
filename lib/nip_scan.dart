@@ -116,7 +116,7 @@ Future<List<String>> nipIranCidrs() async {
             'https://stat.ripe.net/data/country-resource-list/data.json?resource=IR'))
         .timeout(const Duration(seconds: 15));
     final response = await request.close().timeout(const Duration(seconds: 20));
-    if (response.statusCode != 200) return const <String>[];
+    if (response.statusCode != 200) return cached;
     final body = await response.transform(utf8.decoder).join();
     final decoded = jsonDecode(body);
     final raw = ((decoded['data']?['resources']?['ipv4']) as List?) ?? const [];
@@ -613,7 +613,10 @@ extension NipHunt on _HomePageState {
       candidateLinks.clear();
       if (await _connectLoop(batch, trust: false)) {
         final winner = current;
-        if (winner != null) _natAdd(winner);
+        if (winner != null) {
+          _natAdd(winner);
+          if (front) await _nipFrontEndpointsRemove([winner.host], port);
+        }
         return true;
       }
       return false;
