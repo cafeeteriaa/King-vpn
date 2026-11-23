@@ -697,3 +697,17 @@
 - PR #44 همچنان Open و Draft و ادغام‌نشده است؛ base همان `codex/continuation-mainline-20261122`. ثبت reviewهای مستقل همچنان صفر است؛ شرط سه بازبینی مستقل **NOT SATISFIED** است.
 - وضعیت پذیرش: CI دقیق HEAD **TESTED/PASS**؛ اتصال واقعی روی گوشی، رفتار اپراتورهای ایران، MTU، DNS leak، IPv4/IPv6 packet routing، رقابت VPNها، Telegram data-plane و relay دو-hop **NOT TESTED**.
 - هیچ تغییری در `main` انجام نشد و این موفقیت CI مجوز merge یا انتشار production نیست.
+
+
+## ۴۳. اصلاح SNI محدودشده و پذیرش CI 2302 — 2026-11-23
+
+- Source commit مورد آزمون: `487e9a90f94dd47aa5d5290c2578444669d76782` در شاخه `audit/final-master`.
+- اصلاح: `lib/nat_sni_policy.dart` فقط اولین outbound واقعی TLS proxy از خانوادهٔ VMess/VLESS/Trojan/Shadowsocks را هدف می‌گیرد؛ outboundهای جانبی/relay و direct دست‌نخورده می‌مانند. ECH مانع rewrite است و `allowInsecure` در outbound بازنویسی‌شده حذف می‌شود. دو مسیر front-SNI و smart-SNI از helper مشترک استفاده می‌کنند.
+- تست‌ها: `test/nat_sni_policy_test.dart` پوشش primary-vs-relay، ECH، non-TLS/malformed و empty override را اضافه می‌کند؛ source guard متناظر نیز به policy جدید به‌روزرسانی شد.
+- GitHub Actions Run 2302 / `45194381162` برای source commit بالا **SUCCESS**: Source Guard، Flutter unit tests، Dart analysis، ARM64 release APK، ELF 16 KiB و APK ZIP alignment و upload artifacts موفق شدند. Diagnostics به‌دلیل نبود شکست skipped شد.
+- Artifact APK: `king-vpn-arm64-release-2302`, ID `14827033618`, ZIP size `49,033,276` bytes, archive SHA-256 `473325dc4fa0e805e3a40ac147bf2254087cb3bee558d27d7e65be5947a25210`.
+- APK استخراج‌شده از artifact: `app-arm64-v8a-release.apk`, size `122,885,790` bytes, SHA-256 `bf4d1069939111b488144d78fec11c7f47eeb2c6e2eeac2ce078fcc0c62ee0b7`. آرشیو و APK با ابزار محلی قابل‌خواندن شدند.
+- بازبینی مستقل artifact: 19 کتابخانهٔ native با ABI برابر `arm64-v8a` و 39 ELF LOAD segment بررسی شد؛ تمام LOAD segmentها حداقل alignment برابر `0x4000` (16 KiB) یا بیشتر داشتند. این بررسی با موفقیت پایان یافت.
+- Artifactها هنوز منقضی نشده‌اند: APK و سورس کامل تا 2026-12-07، symbols تا 2026-12-23. لینک workflow: https://github.com/cafeeteriaa/King-vpn/actions/runs/45194381162
+- PR #44 همچنان Open/Draft و ادغام‌نشده است. تعداد review submission مستقل در زمان بررسی صفر بود. `main` تغییر نکرده است.
+- پذیرش واقعی هنوز باز است: نصب/اجرای APK روی دستگاه، owner UID در Android 11+ و Android 10، competing VPN، DNS leak/packet capture، اپراتورهای ایران، relay E2E و MTProto data-plane **NOT TESTED**. CI signing کلید production نیست.
