@@ -166,9 +166,6 @@ Future<void> autoScanRun(void Function(String) say,
     final domainInventory = <String>{
       ...kAutoSniDomains,
       ...dnsxFullDomains(),
-      ...good.where((server) => !server.isIp).map((server) => server.host),
-      ...pending.where((server) => !server.isIp).map((server) => server.host),
-      ...fetchedAll.where((server) => !server.isIp).map((server) => server.host),
     }.where((domain) => domain.trim().isNotEmpty).toList()..sort();
     final savedDomainCursor = prefs.getString(_autoScanDomainCursorKey);
     final previousDomainIndex = savedDomainCursor == null
@@ -186,7 +183,6 @@ Future<void> autoScanRun(void Function(String) say,
     // TCP port space follows them in resumable slices.
     final priorityPorts = <int>{
       ...kAutoPorts,
-      ...natAutoPorts([...good, ...pending, ...fetchedAll]),
     }..removeWhere((port) => port < 1 || port > 65535);
     final portInventory = <int>[
       ...priorityPorts,
