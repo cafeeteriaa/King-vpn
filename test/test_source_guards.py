@@ -1566,7 +1566,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = nat.index('List<String> userListUrls = [];', start)
         body = nat[start:end]
         self.assertIn('await _natLoadRangeCursors();', body)
-        self.assertIn("final portPrefix = 'port:$port:';", body)
+        self.assertIn("final portPrefix = '$modeKey:port:$port:';", body)
         self.assertIn('final scanLimit = min(maxAddrs, estimatedCapacity).toInt();', body)
         scan = body.index('await natScanIps(')
         progress = body.index('onProgress: (done, total, _) => completed = done,', scan)
@@ -1578,7 +1578,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(complete_guard, cursor_commit)
         self.assertLess(cursor_commit, port_advance)
         self.assertIn("prefs.setString('natRangeScanCursorsV2', jsonEncode(_cfRangeCursors))", body)
-        self.assertIn("prefs.setInt('natRangePortCursorV1', _natRangePortCursor)", body)
+        self.assertIn("prefs.setString('natRangePortCursorsV2', jsonEncode(_natRangePortCursors))", body)
         self.assertIn('configuredBatch.nextOffsets', body)
         self.assertIn('configuredBatch.nextCursor', body)
 
