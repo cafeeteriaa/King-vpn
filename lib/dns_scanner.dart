@@ -48,6 +48,8 @@ List<String> _dnsxHostsFrom(Iterable<String> src) {
     s = s.trim().toLowerCase();
     if (s.startsWith('domain:')) s = s.substring(7);
     if (s.startsWith('full:')) s = s.substring(5);
+    // Accept the standard absolute-FQDN trailing dot, but normalize it away.
+    if (s.endsWith('.')) s = s.substring(0, s.length - 1);
     // فقط نام دامنه‌ی واقعی؛ TLD تنها (مثل ir) و قانون‌های geoip و کلمه‌ی کلیدی کنار گذاشته می‌شوند
     if (!s.contains('.') || !okChars.hasMatch(s) || s.length > 253) continue;
     final labels = s.split('.');
@@ -221,7 +223,9 @@ Future<DnsxHit?> dnsxProbe(String server,
     Duration timeout = const Duration(seconds: 3),
     Duration gap = Duration.zero,
     bool Function()? stop}) async {
-  final list = domains ?? dnsxAutoDomains();
+  // Sanitize caller-supplied and project-derived names at the final probe boundary.
+  // This prevents one malformed manual/custom domain from aborting a resolver batch.
+  final list = _dnsxHostsFrom(domains ?? dnsxAutoDomains()).toSet().toList();
   final times = <int>[];
   var tested = 0; // تعداد دامنه‌هایی که واقعاً سنجیده شدند (اگر توقف زده شود، کمتر از کل است)
   const chunk = 8; // دامنه‌ها در هر بسته‌ی همزمان
