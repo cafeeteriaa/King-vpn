@@ -62,6 +62,27 @@ void main() {
       expect(batch.nextCursor, '1');
     });
 
+    test('negative persisted cursors safely restart IPv4 and IPv6 ranges', () {
+      for (final range in ['192.0.2.0/30', '2001:db8::/126']) {
+        final batch = natExpandIpRangeCursor(
+          range,
+          '-1',
+          maxPerBlock: 2,
+          wrap: false,
+        );
+        expect(batch.addresses, hasLength(2));
+        expect(batch.nextCursor, '2');
+      }
+      final malformed = natExpandIpRangeCursor(
+        '2001:db8::/126',
+        'not-a-cursor',
+        maxPerBlock: 2,
+        wrap: false,
+      );
+      expect(malformed.addresses, ['2001:db8::', '2001:db8::1']);
+      expect(malformed.nextCursor, '2');
+    });
+
     test('non-wrapping cursors visit every IPv4 and IPv6 address exactly once', () {
       for (final range in ['192.0.2.0/30', '2001:db8::/126']) {
         var cursor = '0';
