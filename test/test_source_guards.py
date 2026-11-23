@@ -3936,6 +3936,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_dnsxHostsFrom(domains ?? dnsxAutoDomains())', probe)
         self.assertIn('.toSet().toList()', probe)
 
+    def test_nnie_dns_probe_supports_validated_a_and_aaaa_only(self):
+        source = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
+        start = source.index('class NatDnsWireProbe')
+        end = source.index('class NatEndpointMemory', start)
+        probe = source[start:end]
+        self.assertIn('recordType != 1 && recordType != 28', probe)
+        self.assertIn('static bool publicV6', probe)
+        self.assertIn('2001:db8::/32 documentation', probe)
+        self.assertIn('recordType: recordType', probe)
+        self.assertIn('InternetAddress.fromRawAddress', probe)
+
     def test_nnie_dns_response_parser_normalizes_trailing_dot(self):
         source = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
         start = source.index('static List<String> parseResponse(')
