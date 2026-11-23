@@ -13,6 +13,17 @@ void main() {
       }
     });
 
+    test('declared family targets are not mislabeled as device-tested support', () {
+      for (final capability in kingTransportCapabilities) {
+        expect(capability.isVerifiedFor(KingAddressFamily.ipv4), isFalse,
+            reason: '${capability.id}: no device integration evidence is recorded');
+        expect(capability.isVerifiedFor(KingAddressFamily.ipv6), isFalse,
+            reason: '${capability.id}: no device integration evidence is recorded');
+      }
+      expect(kingCapabilityById('vless')!.supports(KingAddressFamily.ipv6), isTrue);
+      expect(kingCapabilityById('vless')!.isVerifiedFor(KingAddressFamily.ipv6), isFalse);
+    });
+
     test('only capabilities backed by the current Xray/V2Ray config are runnable', () {
       expect(kingCapabilityCanRun('vless', KingAddressFamily.ipv4), isTrue);
       expect(kingCapabilityCanRun('vless', KingAddressFamily.ipv6), isTrue);
