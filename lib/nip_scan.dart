@@ -307,24 +307,29 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
         ((jsonDecode(response.body)['data']?['asns']) as List?) ?? const [];
     final asns = rawAsns.map((value) => value.toString()).toList(growable: false);
     final out = <String>{};
-    await pool<String>(asns, 4, (asn) async {
-      try {
-        final result = await http
-            .get(Uri.parse(
-                'https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS$asn'))
-            .timeout(const Duration(seconds: 12));
-        if (result.statusCode != 200) return;
-        final prefixes =
-            ((jsonDecode(result.body)['data']?['prefixes']) as List?) ?? const [];
-        for (final entry in prefixes) {
-          if (entry is! Map) continue;
-          final prefix = '${entry['prefix']}';
-          if (prefix.contains('/')) out.add(prefix);
+    for (var offset = 0; offset < asns.length; offset += 4) {
+      final batch = asns.skip(offset).take(4);
+      await Future.wait(batch.map((asn) async {
+        try {
+          final result = await http
+              .get(Uri.parse(
+                  'https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS$asn'))
+              .timeout(const Duration(seconds: 12));
+          if (result.statusCode != 200) return;
+          final decoded = jsonDecode(result.body);
+          final data = decoded is Map ? decoded['data'] : null;
+          final prefixes = data is Map ? data['prefixes'] : null;
+          if (prefixes is! List) return;
+          for (final entry in prefixes) {
+            if (entry is! Map) continue;
+            final prefix = '${entry['prefix']}';
+            if (prefix.contains('/')) out.add(prefix);
+          }
+        } catch (e, stk) {
+          logError(e, stk);
         }
-      } catch (e, stk) {
-        logError(e, stk);
-      }
-    });
+      }));
+    }
     final ranges = out.toList(growable: false);
     if (ranges.isNotEmpty) {
       await prefs.setStringList(cacheKey, ranges);
