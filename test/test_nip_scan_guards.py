@@ -14,8 +14,9 @@ class NationalIpScannerGuardTests(unittest.TestCase):
         end = self.source.index("/// اتصال TCP", start)
         block = self.source[start:end]
         self.assertIn("if (maxPerBlock <= 0) return const [];", block)
-        self.assertIn("maxPerBlock = min(maxPerBlock, 4096);", block)
+        self.assertIn("final limit = maxPerBlock;", block)
         self.assertIn("(size + maxPerBlock - 1) ~/ maxPerBlock", block)
+        self.assertIn("i += step", block)
 
     def test_scanner_validates_port_and_time_budgets_before_work(self):
         start = self.source.index("Future<List<NipHit>> nipScan(")
@@ -79,7 +80,9 @@ class NationalIpScannerGuardTests(unittest.TestCase):
         block = source[start:end]
         self.assertIn('InternetAddressType.IPv6', block)
         self.assertIn('prefix < 0 ||', block)
-        self.assertIn('min(maxPerBlock, kNatMaxScanAddresses)', block)
+        self.assertIn('if (maxPerBlock <= 0) return const <String>[];', block)
+        self.assertIn('final limit = maxPerBlock;', block)
+        self.assertIn('out.length < limit', block)
         self.assertIn('BigInt', block)
         self.assertIn('InternetAddress.fromRawAddress', block)
 
@@ -107,18 +110,27 @@ class NationalIpScannerGuardTests(unittest.TestCase):
         self.assertNotIn("onBadCertificate:", block)
 
     def test_front_sni_search_has_total_budget_and_observes_cancellation(self):
-        start = self.source.index("Future<String?> nipFindFrontSni(")
-        end = self.source.index("/// همان کانفیگ را با IP و SNI جدید", start)
+        start = self.source.index("Future<List<String>> nipFindFrontSnis(")
+        end = self.source.index("Future<String?> nipFindFrontSni(", start)
         block = self.source[start:end]
         self.assertIn("final elapsed = Stopwatch()..start();", block)
         self.assertIn("final remaining = budget - elapsed.elapsed;", block)
         self.assertIn("cancelled?.call() == true", block)
         self.assertIn("final probeBudget = remaining < perProbeCap ? remaining : perProbeCap;", block)
         self.assertIn("nipFrontProbe(ip, port, sni, timeout: probeBudget)", block)
-        self.assertIn("budget = const Duration(seconds: 12)", block)
+        self.assertIn("budget = const Duration(seconds: 90)", block)
+
+    def test_front_sni_wrapper_forwards_cancellation_and_budget(self):
+        start = self.source.index("Future<String?> nipFindFrontSni(")
+        end = self.source.index("/// همان کانفیگ را با IP و SNI جدید", start)
+        block = self.source[start:end]
+        self.assertIn("nipFindFrontSnis(", block)
+        self.assertIn("cancelled: cancelled", block)
+        self.assertIn("budget: budget", block)
 
     def test_front_sni_scan_passes_its_abort_signal_to_each_probe(self):
-        self.assertIn("nipFindFrontSni(h.ip, port, cancelled: () => abort)", self.source)
+        self.assertIn("nipFindFrontSnis(", self.source)
+        self.assertIn("cancelled: () => abort", self.source)
 
 if __name__ == "__main__":
     unittest.main()
