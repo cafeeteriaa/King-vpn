@@ -2949,7 +2949,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('resources[\'ipv6\']', nip)
         self.assertIn('Future<List<String>> nipResolveAll(', nip)
         self.assertIn('return nipResolveAll(server.host);', nip)
-        self.assertIn('if (pr.contains(\'/\')) out.add(pr);', nip)
+        self.assertIn(\"if (prefix.contains('/')) out.add(prefix);\", nip)
         self.assertIn('..._cfRangesV6', nip)
         self.assertNotIn('!pr.contains(\':\')', nip)
         self.assertNotIn('prefixes.take(80)', nip)
