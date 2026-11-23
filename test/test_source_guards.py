@@ -1572,7 +1572,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         progress = body.index('onProgress: (done, total, _) => completed = done,', scan)
         complete_guard = body.index('completed < slice.length', progress)
         cursor_commit = body.index('_cfRangeCursors.removeWhere((key, _) => key.startsWith(portPrefix));')
-        port_advance = body.index('_natRangePortCursor = (portIndex + 1) % portList.length;')
+        port_advance = body.index('_natRangePortCursors[modeKey] = (portIndex + 1) % portList.length;')
         self.assertLess(scan, progress)
         self.assertLess(progress, complete_guard)
         self.assertLess(complete_guard, cursor_commit)
