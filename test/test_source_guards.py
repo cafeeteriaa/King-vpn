@@ -3964,8 +3964,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('recordType != 1 && recordType != 28', probe)
         self.assertIn('static bool publicV6', probe)
         self.assertIn('2001:db8::/32 documentation', probe)
-        self.assertIn('(fourth & 0xf0) == 0x10', probe)
-        self.assertIn('(fourth & 0xf0) == 0x20', probe)
+        self.assertIn('(third & 0xfe) == 0x00', probe)
+        self.assertIn('3fff::/20 documentation', probe)
         self.assertIn('recordType: recordType', probe)
         self.assertIn('InternetAddress.fromRawAddress', probe)
 
