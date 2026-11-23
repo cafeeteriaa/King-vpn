@@ -65,23 +65,30 @@ Future<List<NipHit>> nipScan(
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
 }) async {
+  if (port < 1 || port > 65535 || want <= 0 ||
+      budget <= Duration.zero || timeout <= Duration.zero) {
+    return const <NipHit>[];
+  }
+  final boundedIps = natBoundScanTargets(ips);
+  if (boundedIps.isEmpty) return const <NipHit>[];
   final hits = <NipHit>[];
-  final deadline = DateTime.now().add(budget);
+  // Stopwatch is monotonic: wall-clock adjustments cannot extend a scan.
+  final elapsed = Stopwatch()..start();
   var next = 0;
 
   Future<void> worker() async {
     while (true) {
       if (hits.length >= want) return;
       if (cancelled != null && cancelled()) return;
-      if (DateTime.now().isAfter(deadline)) return;
-      if (next >= ips.length) return;
-      final ip = ips[next++];
+      if (elapsed.elapsed >= budget) return;
+      if (next >= boundedIps.length) return;
+      final ip = boundedIps[next++];
       final ms = await nipTcpProbe(ip, port, timeout);
       if (ms != null) hits.add(NipHit(ip, ms));
     }
   }
 
-  final n = min(concurrency.clamp(1, 16), max(ips.length, 1));
+  final n = min(concurrency.clamp(1, 16), max(boundedIps.length, 1));
   await Future.wait(List.generate(n, (_) => worker()));
   natStableSort(hits, (a, b) => a.ms.compareTo(b.ms));
   return hits;
