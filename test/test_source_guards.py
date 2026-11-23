@@ -3913,6 +3913,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("builder.addDnsServer(candidate)", source)
         self.assertIn("isPlainIpAddress(candidate)", source)
         self.assertIn("DNS configuration must populate Android VpnService.Builder", source)
+    def test_dns_scanner_filters_malformed_host_labels_before_probing(self):
+        source = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        start = source.index('List<String> _dnsxHostsFrom(')
+        end = source.index('/// سایت‌های خارجی', start)
+        helper = source[start:end]
+        self.assertIn('s.length > 253', helper)
+        self.assertIn('labels.any((label)', helper)
+        self.assertIn('label.length > 63', helper)
+        self.assertIn("label.startsWith('-')", helper)
+        self.assertIn("label.endsWith('-')", helper)
+
     def test_legacy_dns_answer_parser_checks_response_flags_and_question(self):
         source = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
         start = source.index('bool dnsxAnswerOk(')
