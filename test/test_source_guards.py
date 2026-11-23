@@ -3927,7 +3927,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_generated_sni_swap_indices_match_front_sni_candidates(self):
         ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         scan = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
-        self.assertIn('const [0, 1, 2, 7][sniIdx]', ultra)
+        self.assertIn('sniIdx < natFrontSnis.length', ultra)
         self.assertIn("'cloudflare-dns.com'", scan)
         self.assertNotIn("'1.1.1.1',                 // 4", scan)
 
@@ -4133,7 +4133,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         self.assertIn("_NatSpec('SNI>cloudflare', sniSwap: 1)", source)
         self.assertIn("_NatSpec('SNI>speed', sniSwap: 2)", source)
-        self.assertIn('const [0, 1, 2, 7][sniIdx]', source)
+        self.assertIn('sniIdx < natFrontSnis.length', source)
         self.assertIn("natFrontSnis[sniSwap]", source)
     def test_global_tls_sanitizer_removes_allow_insecure(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
