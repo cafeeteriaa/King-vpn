@@ -4786,17 +4786,15 @@ bool _looksBase64(String body) {
   return lines.every((l) => re.hasMatch(l)) && lines.join().length >= 16;
 }
 
-Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async {
-  // QUICKLIST: quickCap = دریافت سریع؛ به ~۲۰۰ سرور که رسید بقیه‌ی منابع رها می‌شوند
-  // و بعد از اتصال، لیست کامل در پس‌زمینه دریافت می‌شود
+Future<List<Server>> fetchServers({bool Function()? stop}) async {
   srcFetchState.clear();
   srcFetchCount.clear();
   final all = <String, Server>{};
   final sw = Stopwatch()..start();
-  final dl = quickCap != null ? const Duration(seconds: 12) : fetchDeadline;
+  final dl = fetchDeadline;
   // لینک‌های اضافه‌ی کاربر اول دریافت می‌شوند
   await pool<String>([...userListUrls, ...listUrls], fetchWorkers, (u) async {
-    if ((stop?.call() ?? false) || sw.elapsed > dl || (quickCap != null && all.length >= quickCap)) {
+    if ((stop?.call() ?? false) || sw.elapsed > dl) {
       srcFetchState[u] = 'skip';
       return;
     }
@@ -4841,7 +4839,7 @@ Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async 
         ..shuffle();
       var pn = 0;
       var okN = 0;
-      for (final l in lines.take(quickCap != null ? 30 : maxPerSource)) {
+      for (final l in lines) {
         final s = Server.parse(l);
         if (s != null) {
           s.src = u;
@@ -6869,7 +6867,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // initial server pool to a quick-start subset. The fetcher retains its
         // cancellation and adaptive worker controls.
         final f = await fetchServers(stop: () => abort);
-        _listPartial = quick && f.isNotEmpty;
+        _listPartial = false;
         if (f.isNotEmpty) {
           // lists that were "dead" get a new chance with the new content
           if (age == null || age >= Duration(minutes: min(listRefreshMin, 10))) {
