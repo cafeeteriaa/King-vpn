@@ -150,7 +150,7 @@ List<String> _ipAutoBlocks(Iterable<Server> knownServers) {
   return blocks.toList(growable: false);
 }
 
-Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Function()? shouldAbort}) async {
+Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Function()? shouldAbort, int batchSize = _ipAutoBatch}) async {
   // A mode switch while compute() is running must not apply stale cursors
   // or a stale batch position to the newly selected network mode.
   final modeSnapshot = nationalMode;
@@ -158,8 +158,8 @@ Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddr
   final args = <String, dynamic>{
     // Feed the generator a rotating CDN batch in global mode. National mode
     // uses only the user's configured national ranges and national hit memory.
-    'cfIpsBatch': modeSnapshot ? 0 : _ipAutoBatch,
-    'maxAddrs': _ipAutoBatch,
+    'cfIpsBatch': modeSnapshot ? 0 : batchSize,
+    'maxAddrs': batchSize,
     'blocks': _ipAutoBlocks(knownServers),
     'nationalMode': modeSnapshot,
     'liveRanges': modeSnapshot ? <String>[] : List<String>.of(_liveCdnRanges),
@@ -300,9 +300,22 @@ extension IpAutoExt on _HomePageState {
     }
     final tpl = pool.take(2).toList();
     say('ساخت آدرس‌ها...');
+    final tcpConcurrency =
+        (manual && runNationalMode) ? kNatManualConc : _ipAutoConc;
+    final effectiveTcpConcurrency = natAdaptiveConcurrency(tcpConcurrency);
+    final batchCapacity = min(
+      _ipAutoBatch,
+      max(
+        1,
+        (const Duration(minutes: 5).inMilliseconds / 1500 *
+                effectiveTcpConcurrency * 0.65)
+            .floor(),
+      ),
+    ).toInt();
     final generatedBatch = await _ipAutoNextAddrs(
       runNationalMode ? const <Server>[] : [...good, ...pending, ...fetchedAll],
       shouldAbort: halted,
+      batchSize: batchCapacity,
     );
     final addrs = generatedBatch.addresses;
     if (halted()) return false;
@@ -318,16 +331,22 @@ extension IpAutoExt on _HomePageState {
     for (final port in ports) {
       if (halted()) break;
       say('بررسی TCP روی پورت $port (${addrs.length} آدرس)...');
+      var completed = 0;
       final hits = await natScanIps(
         addrs,
         port: port,
-        concurrency: (manual && runNationalMode) ? kNatManualConc : _ipAutoConc,
+        concurrency: tcpConcurrency,
         want: addrs.length,
         budget: const Duration(minutes: 5),
         timeout: const Duration(milliseconds: 1500),
         cancelled: halted,
+        onProgress: (done, total, _) => completed = done,
       );
       if (halted()) return false;
+      if (completed < addrs.length) {
+        say('بسته TCP روی پورت $port کامل نشد؛ Cursor دست‌نخورده ماند و همین بازه در اجرای بعدی ادامه می‌یابد.');
+        return false;
+      }
       for (final h in hits) {
         candidates.add('${h.ip}|$port');
       }
