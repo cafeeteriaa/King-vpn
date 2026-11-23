@@ -76,7 +76,7 @@ Future<bool> _autoPortOk(String ip, int port) async {
 
 /// Resolve the project's SNI names to both IPv4 and IPv6 endpoints in small cancellable batches.
 /// The hostname remains the TLS SNI; only the TCP destination is the AAAA address.
-Future<List<String>> _autoResolveIpv6Targets({required List<String> domains, bool Function()? cancelled}) async {
+Future<List<String>> _autoResolveDualStackTargets({required List<String> domains, bool Function()? cancelled}) async {
   final out = <String>{};
   const batchSize = 4;
   for (var offset = 0; offset < domains.length; offset += batchSize) {
@@ -208,7 +208,7 @@ Future<void> autoScanRun(void Function(String) say,
     // Add AAAA answers from the same project SNI inventory. Combine exact
     // A/AAAA endpoints and CDN CIDRs in one fair cursor iterator so no source
     // is permanently starved by the order of a concatenated list.
-    final ipv6DnsIps = await _autoResolveIpv6Targets(
+    final dnsResolvedIps = await _autoResolveDualStackTargets(
       domains: domainBatch,
       cancelled: cancelled,
     );
@@ -218,9 +218,9 @@ Future<void> autoScanRun(void Function(String) say,
     }
     final targetRanges = <String>{
       ...base,
-      ...ipv6DnsIps,
+      ...dnsResolvedIps,
       ...cdnRanges,
-      if (base.isEmpty && ipv6DnsIps.isEmpty && cdnRanges.isEmpty)
+      if (base.isEmpty && dnsResolvedIps.isEmpty && cdnRanges.isEmpty)
         ...kAutoFallbackIps,
     }.toList(growable: false);
     final ips = _getCfIps(
