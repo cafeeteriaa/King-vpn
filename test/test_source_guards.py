@@ -3824,7 +3824,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertNotIn('_atAutoRanges', main)
         start = main.index('Future<List<CleanIp>> _atIpSweep(')
-        end = main.index('\\n  }\\n}', start)
+        end = main.index('\n  }\n}', start)
         sweep = main[start:end]
         self.assertIn('final ranges = List<String>.of(_cfRanges);', sweep)
         self.assertNotIn('..._atAutoRanges(good)', sweep)
