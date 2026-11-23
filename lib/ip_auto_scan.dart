@@ -140,7 +140,7 @@ Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Funct
     ..clear()
     ..addAll(generatedCursors);
   if (all.isEmpty) return const <String>[];
-  // فقط یک تکه‌ی _ipAutoBatch تایی در هر اجرا؛ جای فعلی ذخیره می‌شود تا اجرای بعدی ادامه دهد
+  // Select an adaptive CPU-sized batch; the persisted cursor resumes the full candidate space.
   final start = startPosSnapshot % all.length;
   final batchSize = max(256, Platform.numberOfProcessors * 512);
   final slice = all.skip(start).take(batchSize).toList();
