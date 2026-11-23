@@ -203,6 +203,24 @@ void main() {
       }
     });
 
+    test('rejects IETF special-purpose IPv6 /23 addresses', () {
+      for (final third in [0x00, 0x01]) {
+        final bytes = <int>[
+          0x20, 0x01, third, 0x01, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0, 0, 1,
+        ];
+        expect(NatDnsWireProbe.publicV6(bytes, 0), isFalse);
+      }
+    });
+
+    test('rejects the IPv6 documentation 3fff::/20 range', () {
+      final bytes = <int>[
+        0x3f, 0xff, 0x00, 0x01, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 1,
+      ];
+      expect(NatDnsWireProbe.publicV6(bytes, 0), isFalse);
+    });
+
     test('rejects documentation-range AAAA answers', () {
       final bytes = _response(
         id: 0x1234,
