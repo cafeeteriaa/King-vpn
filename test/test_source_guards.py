@@ -2589,6 +2589,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (stop != null && stop()) break;', dns)
 
 
+    def test_manual_range_ui_accepts_ipv4_ipv6_cidr_and_dash_ranges_without_expanding_all(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('void _natRangesDialog(BuildContext context)')
+        end = main.index('final TextEditingController _smartCommandController', start)
+        dialog = main[start:end]
+        self.assertIn('natExpandIpRangeCursor(', dialog)
+        self.assertIn('wrap: false,', dialog)
+        self.assertIn('manualRangeScan(context, ranges)', dialog)
+        self.assertNotIn('natExpandCidr(t, maxPerBlock: 65536)', dialog)
+        self.assertNotIn('natExpandDash(t, maxCount: 65536)', dialog)
+
     def test_manual_range_scan_honors_cancel_and_persists_only_complete_batches(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> manualRangeScan(')
