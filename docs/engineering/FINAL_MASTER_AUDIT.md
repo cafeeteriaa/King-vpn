@@ -206,3 +206,85 @@
 - هیچ قابلیت سالمی حذف نشد.
 - هیچ موتور یا سرویس جدیدی فعال نشد.
 - این مورد به‌عنوان بررسی باز برای فاز lifecycle ثبت شد؛ وضعیت: **OPEN / DEVICE VALIDATION REQUIRED**.
+
+
+## ۱۴. ممیزی لایه IP / DNS / SNI / Host / TLS / DPI / Packet
+
+### ۱۴.۱ DNS و مسیر حل نام — یافته‌های ایستا
+
+- `_reliableVpnCfg()` در حالت ملی resolverهای داخلی را در ابتدای فهرست قرار می‌دهد: `178.22.122.100`, `185.51.200.2`, `78.157.42.100`, `78.157.42.101`, `10.202.10.10`, `10.202.10.11`. در صورت Secure DNS، دو DoH به‌عنوان fallback افزوده می‌شوند؛ resolverهای قبلی کانفیگ نیز بعد از این موارد حفظ می‌شوند.
+- در حالت جهانی و Secure DNS (به‌جز Ultra)، DoHهای `https://1.1.1.1/dns-query` و `https://8.8.8.8/dns-query` قبل از resolverهای plaintext قرار می‌گیرند و `enableParallelQuery=false` تنظیم می‌شود تا race هم‌زمان به resolver متن‌باز/رمزنگاری‌نشده رخ ندهد.
+- در حالت ملی، ترتیب داخلی-first عمداً یک trade-off دسترس‌پذیری است؛ در حالت جهانی نیز plaintext fallback وجود دارد. بنابراین Secure DNS فعلی معادل «اجبار رمزنگاری همه درخواست‌ها» یا تضمین نبود DNS leak نیست.
+- `queryStrategy='UseIP'` برای انتخاب IPv4 و IPv6 تنظیم می‌شود؛ این فقط سیاست پاسخ DNS است و ثابت نمی‌کند هر دو خانواده IP از TUN عبور می‌کنند.
+- `routing.domainStrategy` فقط در صورت نبود مقدار قبلی روی `AsIs` قرار می‌گیرد؛ سیاست قبلی `withIranRouting` حفظ می‌شود.
+- DNS scanner از UDP/53 و پاسخ wire-level با اعتبارسنجی transaction ID، QR/opcode، question/type/class، source IP/port، RCODE و A answer استفاده می‌کند. این آزمون سلامت resolver است، نه اثبات مسیر DNS برنامه‌ها از داخل VPN.
+- در کد سیاست DNS، schemeهای `https+local://` و `quic+local://` نیز encrypted شناخته می‌شوند؛ معنای local و احتمال bypass routing باید با نسخه دقیق Xray و packet capture تأیید شود. DoH استاندارد `https://` از نظر طراحی وارد routing هسته می‌شود، اما مسیر واقعی هنوز با capture تأیید نشده است.
+
+**نتیجه:** پیاده‌سازی DNS دارای ترتیب‌دهی و تست واحد است، اما DNS strict-only، DNS leak-free و عبور تضمین‌شده از TUN هنوز اثبات نشده‌اند. وضعیت: **STATIC REVIEWED / PACKET TEST NOT TESTED**.
+
+### ۱۴.۲ IP، IPv4/IPv6، TUN و MTU
+
+- در `android_src/KingVpnService.java`، سرویس اختصاصی TUN با MTU ثابت 1500، آدرس IPv4 برابر `26.26.26.1/30` و آدرس IPv6 برابر `fd00:1:fd00:1:fd00:1:fd00:1/126` می‌سازد و routeهای `0.0.0.0/0` و `::/0` را اضافه می‌کند.
+- خطا در ساخت آدرس/route IPv6 در همین سرویس به fail-closed منجر می‌شود تا تونل IPv4-only با احتمال نشت IPv6 برقرار نشود.
+- این مسیر custom در `lib/own_vpn.dart` با `kOwnVpnService=false` غیرفعال است؛ پس وجود routeهای کامل در کلاس Java به‌هیچ‌وجه اثبات نمی‌کند مسیر plugin-managed فعلی همین پوشش را دارد.
+- MTU=1500 ثابت است؛ PMTU discovery، fragmentation در مسیر واقعی، شبکه‌های موبایل با MTU کمتر، UDP/QUIC و IPv6 هنوز روی دستگاه اندازه‌گیری نشده‌اند.
+- اسکن خودکار IP در `lib/ip_auto_scan.dart` برای حالت جهانی از IPهای دقیق کانفیگ‌های شناخته‌شده و در حالت ملی از حافظه/نتایج همان موتور ملی استفاده می‌کند؛ CIDR عمومی خودکار غیرفعال است (`cfIpsBatch=0`, `liveRanges=[]`). این جداسازی باید حفظ شود.
+- اسکنر SNI/Port از IPهای پوشه جهانی و نمونه‌های محدود CDN استفاده می‌کند و در صورت VPN فعال/درحال‌راه‌اندازی متوقف می‌شود؛ این تست‌ها برای یافتن endpoint هستند و تست عبور ترافیک VPN نیستند.
+
+**نتیجه:** طراحی fail-closed IPv6 در custom service مشاهده شد، اما مسیر فعال plugin-managed و data-plane هر دو خانواده IP هنوز **NOT TESTED** هستند.
+
+### ۱۴.۳ SNI، Host، TLS fingerprint، ALPN و REALITY
+
+- مسیر `SNIFIX` فقط وقتی `security=tls`، `serverName` خالی و WS Host/header موجود و فاقد colon باشد، Host را به‌عنوان SNI قرار می‌دهد. این fallback محدود به WS است؛ SNI صریح کانفیگ حفظ می‌شود.
+- `_reliableVpnCfg()` برای inboundهای محلی، sniffing با `destOverride=['http','tls']` و `routeOnly=true` را فعال/اضافه می‌کند. این قابلیت برای تشخیص مقصد و routing داخلی است؛ SNI واقعی handshake را تغییر نمی‌دهد و به‌تنهایی ضد-DPI نیست.
+- ابزارهای SNI/ALPN روی IP مشخص TCP برقرار کرده و TLS handshake را با نام دامنه یا ALPN درخواستی انجام می‌دهند. در probe فعلی `onBadCertificate: (_) => true` است؛ بنابراین موفقیت فقط نشانه برقراری handshake با آن SNI است، نه اعتبار گواهی، تطابق محتوای HTTP، مالکیت دامنه یا عبور از فیلترینگ برای ترافیک عمومی.
+- پورت‌های تست‌شده محدود به 443، 8443، 2053، 2083، 2087 و 2096 هستند. باز بودن TCP port به معنی HTTPS سالم یا تونل قابل استفاده نیست.
+- در مسیر REALITY، پارامترهای publicKey، shortId و serverName برای سازگاری کانفیگ اهمیت دارند؛ لاگ گواهی واقعی/redirect می‌تواند نشانه mismatch یا دستکاری مسیر باشد، اما تشخیص قطعی MITM بدون شواهد TLS مستقل انجام نمی‌شود.
+- تنظیمات TLS fingerprint، ALPN، WebSocket Host/path، gRPC serviceName، REALITY و Fragment/Mux در ماتریس/تبدیل کانفیگ وجود دارند؛ اثر هر variant بر شبکه اپراتور، handshake، throughput و پایداری هنوز در ماتریس دستگاهی مقایسه نشده است.
+
+**نتیجه:** پشتیبانی parsing/normalization و probeهای محدود وجود دارد؛ هیچ نتیجه‌ای درباره عبور قطعی از DPI یا کارکرد SNI/Fragment در اپراتور خاص ثبت نمی‌شود. وضعیت: **IMPLEMENTATION OBSERVED / CIRCUMVENTION NOT PROVEN**.
+
+### ۱۴.۴ DPI، packet shaping و fragmentation
+
+- گزینه‌های Fragment، fingerprint، ALPN، SNI/Host، WebSocket/gRPC، REALITY، Mux و TCP socket options در سورس/ماتریس دیده می‌شوند. اینها پارامترهای سازگاری و transport هستند، نه تضمین عبور از DPI.
+- در normalization، برای outboundهای واجد شرایط TCP Fast Open، TCP NoDelay، KeepAlive=15 و TCP MSS=1400 در صورت نبود مقدار از قبل تنظیم می‌شود؛ Worker outbound از این دستکاری مستثنا است.
+- Fragment/Noise/Mux می‌توانند در برخی شبکه‌ها latency، CPU، packet overhead یا throughput را بدتر کنند. روشن‌کردن هم‌زمان همه گزینه‌ها بدون آزمون A/B و تأیید data-plane مجاز نیست.
+- هیچ packet capture از SYN/TLS ClientHello/SNI، اندازه و مرز packetها، retransmission، fragmentation، PMTU، UDP/QUIC یا رفتار DPI در این ممیزی در دسترس نیست.
+- هیچ تکنیک نباید به‌عنوان عبور تضمینی از فیلترینگ یا قطع اینترنت معرفی شود. فقط نتیجه تست زمان‌دار و تکرارپذیر روی اپراتور/منطقه/نسخه سیستم‌عامل مشخص قابل ثبت است.
+
+**نتیجه:** اثر ضد-DPI/Fragmentation هنوز **NOT TESTED**؛ هرگونه ادعای bypass قطعی ممنوع.
+
+### ۱۴.۵ دامنه، Host و میزبانی واقعی
+
+- IP، Host header، SNI و دامنه چهار مفهوم متفاوت‌اند؛ یکی جای دیگری را نمی‌گیرد. دامنه CDN ممکن است به IP مشترک اشاره کند و TLS SNI/HTTP Host باید با سرویس و گواهی مورد انتظار سازگار باشد.
+- برچسب کشور، ASN، PTR یا قرار داشتن IP در یک بازه منتسب به ISP، به‌تنهایی میزبانی واقعی در ایران یا عبور ترافیک در شبکه ملی را ثابت نمی‌کند.
+- برای پذیرش یک endpoint ملی لازم است DNS resolution در همان اپراتور، ASN/route و مالکیت/میزبانی قابل استناد، TCP/TLS/HTTP response معتبر و در نهایت data-plane از داخل TUN ثبت شوند.
+- هیچ سرور یا دامنه‌ای فقط بر اساس geolocation یا نام ارائه‌دهنده به‌عنوان «میزبان داخل ایران» تأیید نمی‌شود.
+
+**نتیجه:** تشخیص میزبانی داخلی و دسترس‌پذیری ملی برای endpointهای واقعی هنوز **NOT TESTED / EVIDENCE REQUIRED** است.
+
+## ۱۵. یافته‌های ممیزی و ریسک‌های قابل پیگیری
+
+| شناسه | یافته | اثر احتمالی | اقدام/معیار پذیرش | وضعیت |
+|---|---|---|---|---|
+| NET-DNS-01 | DNS ملی plaintext-first و Secure DNS صرفاً fallback است | امکان مشاهده DNS توسط resolver/شبکه محلی | حالت strict encrypted با رفتار fallback صریح و تست packet-level؛ بدون شکستن دسترسی ملی | OPEN |
+| NET-DNS-02 | DoH استاندارد و schemeهای local از نظر routing رفتار یکسان ندارند | bypass ناخواسته routing یا شکست bootstrap | capture مقصد DNS و outbound tag برای هر scheme | OPEN |
+| NET-IP-01 | IPv6 route در custom service وجود دارد ولی custom service غیرفعال است | اختلاف پوشش IPv6 در مسیر plugin-managed | بررسی plugin builder و تست IPv4/IPv6 روی دستگاه با VPN فعال | OPEN |
+| NET-MTU-01 | MTU ثابت 1500 است | blackhole/fragmentation در مسیرهای با MTU کمتر | PMTU/UDP/TCP test و اندازه‌گیری روی Wi-Fi و cellular | OPEN |
+| NET-SNI-01 | SNI fallback فقط از WS Host در حالت TLS خالی استفاده می‌کند | کانفیگ‌های غیر-WS یا Host نامعتبر ممکن است شکست بخورند | تست ماتریس پروتکل و جلوگیری از اعتماد به Host بدون validation | OPEN |
+| NET-SNI-02 | probe SNI گواهی را نادیده می‌گیرد و HTTP را اعتبارسنجی نمی‌کند | false positive برای TLS reachability | تفکیک TLS handshake، certificate validation و HTTP response | OPEN |
+| NET-DPI-01 | اثر Fragment/Mux/fingerprint/ALPN فقط از سورس قابل مشاهده است | احتمال ادعای عملکرد بدون شاهد | A/B روی اپراتورهای مشخص، packet capture و data-plane | OPEN |
+| NET-HOST-01 | IP/ASN/geolocation برای اثبات میزبانی داخلی کافی نیست | انتخاب اشتباه سرور ملی | شواهد DNS/ASN/route/hosting و data-plane محلی | OPEN |
+
+## ۱۶. ترتیب ادامه ممیزی شبکه
+
+1. بازیابی build manifest و dependency lockfile واقعی مخزن؛ تولید SBOM و بررسی مجوزها/CVE با نسخه‌های دقیق.
+2. بررسی مسیر فعال plugin-managed: IPv4/IPv6 routes، DNS capture، socket protection و lifecycle؛ custom service را فعال نکن.
+3. تکمیل ماتریس SNI/Host/TLS/ALPN/REALITY/WS/gRPC با تست‌های unit و config fixtures؛ probeهای TLS را از HTTP/data-plane جدا کن.
+4. بررسی دقیق تنظیمات Fragment/Mux/Noise/TFO/MSS و جلوگیری از ترکیب‌های پرهزینه بدون شواهد.
+5. اجرای packet/device acceptance برای DNS، IPv4، IPv6، TCP، UDP/QUIC، PMTU و شبکه handover.
+6. آزمون جداگانه Wi-Fi و cellular و اپراتورهای هدف؛ نتایج national/global و زمان/منطقه/نسخه Android ثبت شوند.
+7. بررسی شواهد میزبانی واقعی دامنه/IPهای داخلی و عدم اعتماد به country label به‌تنهایی.
+8. پس از هر تغییر کد، exact-head CI، سه بازبینی مستقل و تکرار تست‌های مرتبط الزامی است.
+
+وضعیت کل پروژه همچنان **IN PROGRESS / VERIFIED WITH LIMITATIONS** است. این فاز صرفاً یافته‌های ایستای سورس را ثبت می‌کند؛ هیچ packet capture، دستگاه واقعی، اپراتور ایران یا bypass موفق DPI ادعا نشده است.
