@@ -2422,7 +2422,7 @@ Future<List<String>> _natRangeScanStepBody({
     for (final entry in configuredBatch.nextOffsets.entries) {
       _natConfiguredRangeOffsets['$portPrefix${entry.key}'] = entry.value;
     }
-    _natConfiguredRangeOffsets['$portPrefix${'__range_cursor'}'] =
+    _natConfiguredRangeOffsets[portPrefix + '__range_cursor'] =
         configuredBatch.nextCursor.toString();
     _natConfiguredRangeCursor = configuredBatch.nextCursor;
   }
