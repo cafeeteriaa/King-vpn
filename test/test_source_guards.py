@@ -2881,6 +2881,27 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_autoPortOk(ip, p)', auto)
         self.assertIn('_autoAlpnOk(ip, tlsSni, alpn)', auto)
 
+    def test_clean_ip_scan_uses_resumable_dual_stack_range_batches(self):
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        start = extras.index('Future<List<String>> _cleanCandidates()')
+        end = extras.index('Future<String> _cfRead', start)
+        candidates = extras[start:end]
+        self.assertIn("const String _cleanRangeCursorKey = 'clean_ip_range_cursors_v1';", candidates)
+        self.assertIn('..._cfRangesV6', candidates)
+        self.assertIn('natExpandIpRangeCursor(', candidates)
+        self.assertIn('const batchSize = 160;', candidates)
+        self.assertIn("cursors['__clean_range_cursor']", candidates)
+        self.assertNotIn('take(240)', candidates)
+        refresh_start = extras.index('Future<void> _doRefreshClean()')
+        refresh_end = extras.index('Future<void> refreshCleanIps()', refresh_start)
+        refresh = extras[refresh_start:refresh_end]
+        self.assertIn('const budget = Duration(seconds: 90);', refresh)
+        self.assertIn('if (clock.elapsed >= budget || next >= candidates.length)', refresh)
+        self.assertIn('final complete = done >= candidates.length;', refresh)
+        self.assertLess(refresh.index('await goldMergeIps(results);'),
+                        refresh.index('_cleanRangeCursorKey,'))
+        self.assertIn('if (complete)', refresh)
+
     def test_nip_hunt_resumes_every_dual_stack_range_and_scans_all_open_hits(self):
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         self.assertIn("const String _nipHuntCursorKey = 'nip_hunt_range_cursors_v1';", nip)
