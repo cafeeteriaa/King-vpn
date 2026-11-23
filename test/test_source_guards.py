@@ -3850,7 +3850,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_generated_sni_swap_indices_match_front_sni_candidates(self):
         ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         scan = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
-        self.assertIn('const [0, 2, 3, 7][sniIdx]', ultra)
+        self.assertIn('const [0, 1, 2, 7][sniIdx]', ultra)
         self.assertIn("'cloudflare-dns.com'", scan)
         self.assertNotIn("'1.1.1.1',                 // 4", scan)
 
@@ -3878,8 +3878,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('return true;', helper)
     def test_multihop_relay_rejects_same_endpoint_as_exit(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
-        self.assertIn('!(relaySrv.host == s.host && relaySrv.port == s.port)', source)
-        self.assertIn('!(x.host == s.host && x.port == s.port)', source)
+        self.assertIn('if (relaySrv != null && !_sameEndpoint(relaySrv, s))', source)
+        self.assertIn('!identical(x, s) && !_sameEndpoint(x, s)', source)
     def test_multihop_relay_endpoint_comparison_is_dns_and_ip_normalized(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = source.index('bool _sameEndpoint(Server a, Server b)')
