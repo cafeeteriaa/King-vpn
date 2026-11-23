@@ -98,7 +98,12 @@ const List<String> _natDnsList = [
   'https+local://[2606:4700:4700::1111]/dns-query',
   'https+local://[2001:4860:4860::8888]/dns-query',
   '2606:4700:4700::1111',
+  '2606:4700:4700::1001',
   '2001:4860:4860::8888',
+  '2001:4860:4860::8844',
+  '2620:fe::fe',
+  '2620:fe::9',
+  'https+local://[2620:fe::fe]/dns-query',
 ];
 
 class _NatSpec {
@@ -1089,10 +1094,14 @@ Future<bool> natDohUsable(int v) async {
   // A TCP-open port or successful TLS handshake is not proof of DoH.
   // Require a valid DNS-over-HTTPS JSON response for a mode-appropriate name.
   final path = (u?.path.isNotEmpty ?? false) ? u!.path : '/dns-query';
-  final query = Uri.https(host, path, <String, String>{
+  final queryParameters = <String, String>{
     'name': nationalMode ? 'nic.ir' : 'google.com',
     'type': 'A',
-  }).toString();
+  };
+  // Preserve IPv6-literal HTTPS authority (brackets and port) as parsed.
+  final query = (u != null && u.scheme == 'https' && u.hasAuthority)
+      ? u.replace(path: path, queryParameters: queryParameters).toString()
+      : Uri.https(host, path, queryParameters).toString();
   final ms = await _probeDoh(query, expectedDomain: nationalMode ? 'nic.ir' : 'google.com');
   final ok = ms != null;
   // ج-۱: اگر در این فاصله شبکه عوض شده، نتیجه مربوط به شبکه‌ی قبلی است؛ ننویس
