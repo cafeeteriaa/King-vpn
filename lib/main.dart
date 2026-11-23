@@ -17579,97 +17579,97 @@ extension ProjectNatSweep on _HomePageState {
         const {'360', 'qq'}.contains(x.fp); // NEWFP
   }
 
-  // IPSWEEP: هر IP تمیز را با اتصال واقعی روی یک سرور پشت کلودفلر امتحان می‌کند.
-  // فقط IP‌هایی که ترافیک تونل (google و youtube) بدهند نگه داشته می‌شوند (حداکثر ۱۰ تا).
-  // IPSWEEP: IP‌های باز را روی همه‌ی پورت‌های CDN (_natCfPorts) پیدا می‌کند، سپس هر جفت IP:پورت
-  // را با اتصال واقعی و بررسی تونل (google و youtube) می‌سنجد. فقط جفت‌های ترافیک‌دار نگه داشته می‌شوند.
+  // IPSWEEP: use the shared resumable IP/range/port engine, then verify
+  // every open endpoint with real tunneled Google + YouTube traffic.
   Future<List<CleanIp>> _atIpSweep(List<Server> pool, Duration budget) async {
-    Server? server;
-    for (final x in pool) {
-      if (_natCdnNets.contains(x.net)) {
-        server = x;
-        break;
-      }
-    }
-    if (server == null) return <CleanIp>[];
-    final sv = server;
-    final vIdx = _natSpecs.indexWhere((x) => x.name == 'IP تمیز Cloudflare');
+    final templates = pool.where((server) => server.tls && !server.reality).toList();
+    if (templates.isEmpty) return <CleanIp>[];
+    final vIdx = _natSpecs.indexWhere((x) => x.name == 'IP تمیز');
     if (vIdx <= 0) {
-      dbg('IPSCAN: حالت «IP تمیز Cloudflare» در ماتریس پیدا نشد '
-          '(vIdx=$vIdx، تعداد ماتریس=${_natSpecs.length})');
+      dbg('IPSCAN: حالت IP تمیز در ماتریس پیدا نشد (vIdx=$vIdx)');
       return <CleanIp>[];
     }
 
-    // Scope automatic probes to the CDN provider's published ranges only.
-    // Never infer authorization to scan neighboring /24s from a configured server IP.
-    final ranges = List<String>.of(_cfRanges);
-    final pool2 = <String>[];
-    for (final r in ranges) {
-      pool2.addAll(natExpandCidr(r, maxPerBlock: 128));
-    }
-    pool2.shuffle(Random());
-
-    // FIXSWEEP: سقف کل مرحله‌ی «اسکن» ۳۵ ثانیه است. قبلاً هر پورت جداگانه ۳۵ ثانیه
-    // بود (۷ پورت ⇒ تا ~۴ دقیقه) و بودجه‌ی ۴۵ ثانیه‌ای فقط روی مرحله‌ی تست کاندیدها اثر داشت.
-    // لغو کاربر (abort) هم اسکن را متوقف می‌کند.
-    final scanDeadline = DateTime.now().add(const Duration(seconds: 35));
+    final scanBudget = budget < const Duration(minutes: 3)
+        ? budget
+        : const Duration(minutes: 3);
+    final openedRaw = await natRangeScanStep(
+      known: templates,
+      maxAddrs: 100000,
+      conc: 24,
+      stop: () => abort || AutoTestEngine._abortRequested ||
+          AutoTestEngine._phase != _AtPhase.running,
+      budget: scanBudget,
+    );
     final opened = <CleanIp>[];
-    for (final port in _natCfPorts) {
-      if (abort || AutoTestEngine._abortRequested) break;
-      final left = scanDeadline.difference(DateTime.now());
-      if (left <= Duration.zero) break;
-      final hits = await natScanIps(pool2,
-          port: port,
-          concurrency: 24,
-          want: 20,
-          budget: left,
-          cancelled: () => abort || AutoTestEngine._abortRequested);
-      for (final h in hits) {
-        opened.add(CleanIp(h.ip, h.ms, port));
-      }
+    for (final value in openedRaw) {
+      final parts = value.split('|');
+      if (parts.length != 2) continue;
+      final port = int.tryParse(parts[1]);
+      if (port == null || port < 1 || port > 65535) continue;
+      opened.add(CleanIp(parts[0], 0, port));
     }
     dbg('IPSCAN: ${opened.length} جفت IP:پورت باز');
-    var cands = opened;
-    if (cands.isEmpty && !abort) {
-      cands = [for (final ip in await _cleanCandidates()) CleanIp(ip, 0, 443)];
-    }
+    final cands = opened.isNotEmpty
+        ? opened
+        : [for (final ip in await _cleanCandidates()) CleanIp(ip, 0, 443)];
 
     final winners = <CleanIp>[];
     final saved = List<CleanIp>.of(cleanIps);
-    final key = _nk(sv);
-    final prevNatVar = natVar[key]; // FIXSWEEP: حالت یادگرفته‌شده‌ی قبلی را پاک نکن
+    final previousVariants = <String, int?>{
+      for (final template in templates)
+        _nk(template): natVar[_nk(template)],
+    };
     final t0 = DateTime.now();
     final prevWant = wantVpn;
     try {
       wantVpn = true;
       for (var i = 0; i < cands.length; i++) {
-        if (abort || AutoTestEngine._abortRequested || AutoTestEngine._phase != _AtPhase.running) break;
-        if (winners.length >= 10) break;
+        if (abort || AutoTestEngine._abortRequested ||
+            AutoTestEngine._phase != _AtPhase.running) break;
         if (DateTime.now().difference(t0) > budget) break;
-        final c = cands[i];
-        cleanIps = [c];
-        natVar[key] = vIdx;
-        autoTestText.value = 'سنجش IP تمیز ${winners.length}/10 • ${i + 1}/${cands.length}';
-        var ok = false;
-        try {
-          if (await _start(sv)) {
-            await Future.delayed(const Duration(seconds: 2));
-            ok = await _tunnelTrafficOk();
+        final candidate = cands[i];
+        cleanIps = [candidate];
+        var passed = false;
+        for (final template in templates) {
+          if (abort || AutoTestEngine._abortRequested ||
+              AutoTestEngine._phase != _AtPhase.running) break;
+          final key = _nk(template);
+          natVar[key] = vIdx;
+          var ok = false;
+          try {
+            if (await _start(template)) {
+              await Future.delayed(const Duration(seconds: 2));
+              ok = await _tunnelTrafficOk();
+            }
+          } catch (e, stk) {
+            logError(e, stk);
+          } finally {
+            await _stopV2();
+            final previous = previousVariants[key];
+            if (previous == null) {
+              natVar.remove(key);
+            } else {
+              natVar[key] = previous;
+            }
           }
-        } catch (e, stk) {
-          logError(e, stk);
-        } finally {
-          await _stopV2();
+          if (ok) {
+            passed = true;
+            break;
+          }
         }
-        if (ok) winners.add(c);
+        if (passed) winners.add(candidate);
+        autoTestText.value =
+            'سنجش IP تونلی ${winners.length} • ${i + 1}/${cands.length}';
       }
     } finally {
-      // FIXSWEEP: اگر کاربر وسط اسکن قطع کرده، wantVpn نباید دوباره true شود
       wantVpn = prevWant && !abort;
-      if (prevNatVar != null) {
-        natVar[key] = prevNatVar;
-      } else {
-        natVar.remove(key);
+      for (final entry in previousVariants.entries) {
+        if (entry.value == null) {
+          natVar.remove(entry.key);
+        } else {
+          natVar[entry.key] = entry.value!;
+        }
       }
       cleanIps = saved;
     }
