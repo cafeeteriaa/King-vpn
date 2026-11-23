@@ -34,6 +34,18 @@ void main() {
       expect(natExpandIpv6Cidr('2001:db8::/129'), isEmpty);
     });
 
+    test('generic IP range cursor accepts IPv4 /0 and wraps at the full address-space boundary', () {
+      final batch = natExpandIpRangeCursor(
+        '0.0.0.0/0', '4294967294', maxPerBlock: 3,
+      );
+      expect(batch.addresses, [
+        '255.255.255.254',
+        '255.255.255.255',
+        '0.0.0.0',
+      ]);
+      expect(batch.nextCursor, '1');
+    });
+
     test('IPv6 range cursors cover each address and wrap without 64-bit truncation', () {
       final first = natExpandIpv6RangeCursor(
         '2001:db8::/126', '0', maxPerBlock: 2,
