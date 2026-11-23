@@ -223,9 +223,12 @@ Future<DnsxHit?> dnsxProbe(String server,
     Duration timeout = const Duration(seconds: 3),
     Duration gap = Duration.zero,
     bool Function()? stop}) async {
-  // Reject non-IP resolvers and cap caller-supplied domains at the probe boundary.
-  if (InternetAddress.tryParse(server.trim()) == null ||
+  // The current DNS wire transport binds UDP/IPv4; reject IPv6 resolvers until
+  // a separately tested IPv6 socket path exists, and normalize IPv4 input.
+  final resolver = InternetAddress.tryParse(server.trim());
+  if (resolver == null || resolver.type != InternetAddressType.IPv4 ||
       timeout <= Duration.zero || gap < Duration.zero) return null;
+  final resolverIp = resolver.address;
   final list = _dnsxHostsFrom(domains ?? dnsxAutoDomains())
       .toSet().take(128).toList(growable: false);
   final times = <int>[];
@@ -244,10 +247,10 @@ Future<DnsxHit?> dnsxProbe(String server,
     final res = await Future.wait(part.map((d) async {
       return await Future.wait([
         NatDnsWireProbe.probe(
-          server, d, timeout: timeout, cancelled: stop, recordType: 1,
+          resolverIp, d, timeout: timeout, cancelled: stop, recordType: 1,
         ),
         NatDnsWireProbe.probe(
-          server, d, timeout: timeout, cancelled: stop, recordType: 28,
+          resolverIp, d, timeout: timeout, cancelled: stop, recordType: 28,
         ),
       ]);
     }));
@@ -264,7 +267,7 @@ Future<DnsxHit?> dnsxProbe(String server,
   // ملاک: حداقل ۲۵٪ از دامنه‌هایی که واقعاً سنجیده شدند باید جواب بدهند
   if (tested == 0 || times.isEmpty || times.length * 4 < tested) return null;
   final avg = times.reduce((a, b) => a + b) ~/ times.length;
-  return DnsxHit(server, avg, times.length, tested);
+  return DnsxHit(resolverIp, avg, times.length, tested);
 }
 
 /// اسکن گروهی (۱۲ تا ۱۲ تا). خروجی: DNSهای سالم؛ اول آن‌که بیشترین دامنه را جواب داده،
