@@ -2519,6 +2519,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(scan, unlock)
         self.assertIn('stop: () => stopFlag || !sheetOpen,', body)
 
+    def test_dns_domain_inventory_includes_all_configured_hostnames(self):
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        start = dns.index('List<String> dnsxFullDomains()')
+        end = dns.index('String dnsxProbeDomain()', start)
+        body = dns[start:end]
+        self.assertIn('...good.where((server) => !server.isIp)', body)
+        self.assertIn('...pending.where((server) => !server.isIp)', body)
+        self.assertIn('...fetchedAll.where((server) => !server.isIp)', body)
+        self.assertIn('final domains = all.where((value) => value.trim().isNotEmpty).toList()', body)
+        self.assertIn('..sort();', body)
+
     def test_dns_probe_checks_cancellation_after_inter_batch_delay(self):
         dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
         start = dns.index('Future<DnsxHit?> dnsxProbe(')
