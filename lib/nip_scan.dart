@@ -242,10 +242,11 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
   }
 }
 
-// FRONTSNI: کانفیگ‌های CDN: اگر SNI اصلی فیلتر شده باشد، SNI را به یک دامنه‌ی دیگر
-// روی همان Cloudflare تغییر می‌دهیم و Host را همان سرور نگه می‌داریم.
-// لیست کاندید؛ هر کدام که TLS روی IP باز کامل شد نگه داشته می‌شود.
-// خودت می‌توانی دامنه‌های بیشتری به این لیست اضافه کنی.
+// FRONTSNI: alternate SNI candidates for standard TLS only.
+// A candidate is retained only after a TLS handshake and platform certificate/hostname validation.
+// This does not prove HTTP Host routing, CDN co-location, or domain-fronting acceptance;
+// the real VPN tunnel and HTTP traffic check remain the final acceptance gate.
+// The original Host header is preserved when a candidate is applied.
 // FRONTSNI: کاهش از ۱۹ به ۸ دامنه برای سرعت بیشتر nipFindFrontSni
 const natFrontSnis = <String>[
   'cdnjs.cloudflare.com',    // 0
