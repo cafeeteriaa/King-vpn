@@ -190,6 +190,20 @@ void main() {
           throwsA(isA<FormatException>()));
     });
 
+    test('rejects a self-referential DNS compression pointer', () {
+      final bytes = <int>[
+        ..._u16(0x1234), ..._u16(0x8180),
+        ..._u16(1), ..._u16(1), ..._u16(0), ..._u16(0),
+        0xc0, 0x0c, // question name points to itself
+        0, 1, 0, 1,
+        0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 8, 8, 8, 8,
+      ];
+      expect(
+        () => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
     test('rejects a CNAME whose encoded target exceeds RDLENGTH', () {
       final bytes = <int>[
         ..._u16(0x1234), ..._u16(0x8180),

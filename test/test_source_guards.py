@@ -3793,7 +3793,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_dns_parser_bounds_cname_rdata_and_compression_pointers(self):
         source = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
         self.assertIn("CNAME RDATA length mismatch", source)
-        self.assertIn("ptr >= b.length", source)
+        self.assertIn("ptr >= p || ptr >= b.length", source)
         self.assertIn("ascii.encode(normalized).length > 253", source)
 
     def test_pilot_probe_rejects_mixed_network_snapshots_and_retries_once(self):

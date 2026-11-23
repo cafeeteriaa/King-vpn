@@ -176,7 +176,9 @@ class NatDnsWireProbe {
       if ((n & 0xc0) == 0xc0) {
         if (p + 1 >= b.length) throw const FormatException('Bad pointer');
         final ptr = ((n & 0x3f) << 8) | b[p + 1];
-        if (ptr >= b.length) throw const FormatException('DNS pointer out of range');
+        if (ptr >= p || ptr >= b.length) {
+          throw const FormatException('DNS compression pointer must reference prior packet data');
+        }
         if (resume < 0) resume = p + 2;
         p = ptr;
         continue;
