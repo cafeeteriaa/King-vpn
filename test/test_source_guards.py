@@ -4060,7 +4060,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_telegram_proxy_uses_bounded_cached_offline_fallback(self):
         source = (ROOT / 'lib' / 'tg_proxy.dart').read_text(encoding='utf-8')
-        self.assertIn("import 'package:shared_preferences/shared_preferences.dart';", source)
+        self.assertIn("import 'prefs_store.dart';", source)
         self.assertIn('Future<List<_TgPx>> _tgPxReadCache()', source)
         self.assertIn('Future<void> _tgPxWriteCache(List<_TgPx> items)', source)
         self.assertIn('items.take(200)', source)
