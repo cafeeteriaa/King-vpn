@@ -122,9 +122,7 @@ Future<void> _nipSaveHuntCursors(Map<String, dynamic> cursors) async {
   if (ranges.isEmpty || batchSize <= 0) {
     return (addresses: const <String>[], cursors: cursors);
   }
-  final start =
-      (int.tryParse(cursors['__nip_${namespace}_range_cursor']?.toString() ?? '') ?? 0) %
-          ranges.length;
+  final start = natCursorIndex(cursors['__nip_${namespace}_range_cursor'], ranges.length);
   final out = <String>{};
   var visited = 0;
   for (; visited < ranges.length && out.length < batchSize; visited++) {
