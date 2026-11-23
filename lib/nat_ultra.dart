@@ -1642,7 +1642,7 @@ Future<void> natIpMemLoad() async {
         .split(RegExp(r'[\r\n,; ]+'))
         .where((x) => x.contains('/') || x.contains('-'))
         .toList();
-    _natConfiguredRangeCursor = (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
+    _natConfiguredRangeCursor = p.getInt('natConfiguredRangeCursor') ?? 0;
   } catch (e, stk) {
     logError(e, stk);
   }
