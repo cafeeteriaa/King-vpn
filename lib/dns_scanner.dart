@@ -283,7 +283,7 @@ Future<List<DnsxHit>> dnsxScan(List<String> list,
   final seenServers = <String>{};
   for (final raw in list) {
     final parsed = InternetAddress.tryParse(raw.trim());
-    if (parsed == null) continue;
+    if (parsed == null || parsed.type != InternetAddressType.IPv4) continue;
     final address = parsed.address;
     if (seenServers.add(address)) boundedServers.add(address);
     if (boundedServers.length >= 128) break;
