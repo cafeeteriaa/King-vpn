@@ -2268,60 +2268,37 @@ List<String> _getCfIps({
 // narrowed to a platform int. Store their decimal cursor as a JSON string.
 (List<String>, String) _natExpandAnyCursorWide(
     String item, Object? cursorValue, int maxPerBlock) {
-  if (maxPerBlock <= 0) return (const <String>[], '0');
-  final cursor = BigInt.tryParse(cursorValue?.toString() ?? '') ?? BigInt.zero;
-  final legacyCursor = int.tryParse(cursor.toString()) ?? 0;
-  BigInt? first;
-  BigInt? last;
-  if (item.contains('/')) {
-    final parts = item.split('/');
-    if (parts.length != 2) return (const <String>[], '0');
-    final address = InternetAddress.tryParse(parts[0].trim());
-    final prefix = int.tryParse(parts[1]);
-    if (address == null || address.type != InternetAddressType.IPv6 ||
-        prefix == null || prefix < 0 || prefix > 128) {
-      final legacy = _natExpandAnyCursor(item, legacyCursor, maxPerBlock);
-      return (legacy.$1, legacy.$2.toString());
+  if (maxPerBlock <= 0) return (const <String>[], cursorValue?.toString() ?? '0');
+  final cursor = cursorValue?.toString() ?? '0';
+  bool isIpv6Range() {
+    if (item.contains('/')) {
+      final parts = item.split('/');
+      return parts.length == 2 &&
+          InternetAddress.tryParse(parts[0].trim())?.type == InternetAddressType.IPv6;
     }
-    var network = _natIpv6ToBigInt(address);
-    final hostBits = 128 - prefix;
-    final size = BigInt.one << hostBits;
-    final mask = prefix == 0 ? BigInt.zero :
-        ((BigInt.one << 128) - BigInt.one) ^ (size - BigInt.one);
-    network &= mask;
-    first = network;
-    last = network + size - BigInt.one;
-  } else if (item.contains('-')) {
-    final parts = item.split('-');
-    if (parts.length != 2) return (const <String>[], '0');
-    final a = InternetAddress.tryParse(parts[0].trim());
-    final b = InternetAddress.tryParse(parts[1].trim());
-    if (a == null || b == null || a.type != InternetAddressType.IPv6 ||
-        b.type != InternetAddressType.IPv6) {
-      final legacy = _natExpandAnyCursor(item, cursor.isValidInt ? cursor.toInt() : 0, maxPerBlock);
-      return (legacy.$1, legacy.$2.toString());
+    if (item.contains('-')) {
+      final parts = item.split('-');
+      return parts.length == 2 &&
+          InternetAddress.tryParse(parts[0].trim())?.type == InternetAddressType.IPv6 &&
+          InternetAddress.tryParse(parts[1].trim())?.type == InternetAddressType.IPv6;
     }
-    final av = _natIpv6ToBigInt(a);
-    final bv = _natIpv6ToBigInt(b);
-    first = av <= bv ? av : bv;
-    last = av <= bv ? bv : av;
-  } else {
-    final address = InternetAddress.tryParse(item.trim());
-    if (address?.type != InternetAddressType.IPv6) {
-      final legacy = _natExpandAnyCursor(item, cursor.isValidInt ? cursor.toInt() : 0, maxPerBlock);
-      return (legacy.$1, legacy.$2.toString());
-    }
-    return ([address!.address], '0');
+    return InternetAddress.tryParse(item.trim())?.type == InternetAddressType.IPv6;
   }
-  final size = last! - first! + BigInt.one;
-  final offset = cursor % size;
-  final take = min(maxPerBlock,
-      size > BigInt.from(maxPerBlock) ? maxPerBlock : size.toInt());
-  final out = <String>[];
-  for (var i = 0; i < take; i++) {
-    out.add(_natBigIntToIpv6(first + ((offset + BigInt.from(i)) % size)));
+
+  if (isIpv6Range()) {
+    final batch = natExpandIpv6RangeCursor(
+      item,
+      cursor,
+      maxPerBlock: maxPerBlock,
+    );
+    return (batch.addresses, batch.nextCursor);
   }
-  return (out, ((offset + BigInt.from(take)) % size).toString());
+  final legacy = _natExpandAnyCursor(
+    item,
+    int.tryParse(cursor) ?? 0,
+    maxPerBlock,
+  );
+  return (legacy.$1, legacy.$2.toString());
 }
 
 // فیکس ۳: ساخت رشته‌های IP (صدها هزار تا چند میلیون) از ترد UI به isolate منتقل شد.
