@@ -4302,6 +4302,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('natSubstSearched.length >', gc)
         self.assertNotIn('_resMax', source)
         self.assertNotIn('pending.length > 3000', source)
+        self.assertNotIn('pending.length > 1200', source)
         self.assertNotIn('natIpMem.take(40)', source)
         self.assertNotIn('...good].take(2)', source)
         self.assertNotIn('.take(3000)', source)
