@@ -677,18 +677,24 @@ Future<void> refreshCdnRanges() async {
     await pull('aws-cloudfront', _awsCfRanges, 96, () async {
       final res = await http.get(Uri.parse('https://ip-ranges.amazonaws.com/ip-ranges.json'));
       if (res.statusCode != 200) return const <String>[];
-      final j = await compute(cdnJsonDecodeBg, res.body);
-      final list = j is Map ? j['prefixes'] : null;
-      if (list is! List) return const <String>[];
-      return list
-          .whereType<Map>()
-          .where((p) => p['service'] == 'CLOUDFRONT')
-          .expand((p) => [
-            (p['ip_prefix'] ?? '').toString(),
-            (p['ipv6_prefix'] ?? '').toString(),
-          ])
-          .where((s) => s.contains('/'))
-          .toList();
+      final decoded = await compute(cdnJsonDecodeBg, res.body);
+      if (decoded is! Map) return const <String>[];
+      final ipv4 = decoded['prefixes'];
+      final ipv6 = decoded['ipv6_prefixes'];
+      return <String>[
+        if (ipv4 is List)
+          ...ipv4
+              .whereType<Map>()
+              .where((entry) => entry['service'] == 'CLOUDFRONT')
+              .map((entry) => (entry['ip_prefix'] ?? '').toString())
+              .where((range) => range.contains('/')),
+        if (ipv6 is List)
+          ...ipv6
+              .whereType<Map>()
+              .where((entry) => entry['service'] == 'CLOUDFRONT')
+              .map((entry) => (entry['ipv6_prefix'] ?? '').toString())
+              .where((range) => range.contains('/')),
+      ];
     });
 
     await pull('google', _gcpCdnRanges, 48, () async {
