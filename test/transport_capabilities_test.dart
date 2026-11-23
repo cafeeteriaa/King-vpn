@@ -31,6 +31,8 @@ void main() {
       expect(kingCapabilitiesByCategory('fronting-cdn'), isNotEmpty);
       expect(kingCapabilitiesByCategory('advanced-network'), isNotEmpty);
       expect(kingCapabilityById('slipnet-micro'), isNotNull);
+      expect(kingCapabilityById('b4-fakesni-1'), isNotNull);
+      expect(kingCapabilityById('b4-fakesni-2'), isNotNull);
       expect(kingCapabilityById('zerodpi-ip-bypass-plus'), isNotNull);
       expect(kingCapabilityById('tuic-v5'), isNotNull);
       expect(kingCapabilityById('pt-snowflake'), isNotNull);
