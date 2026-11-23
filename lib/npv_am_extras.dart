@@ -806,6 +806,20 @@ Future<String> _cfRead(Socket k, Duration t) async {
   return utf8.decode(data, allowMalformed: true).toLowerCase();
 }
 
+// Accept only the real trace endpoint response, not an error page mentioning Cloudflare.
+bool _cfTraceResponseOk(String response) {
+  final split = response.indexOf('\\r\\n\\r\\n');
+  if (split < 0) return false;
+  final status = response.substring(0, split);
+  if (!status.startsWith('http/1.1 200 ') &&
+      !status.startsWith('http/1.0 200 ')) return false;
+  final body = response.substring(split + 4);
+  final lines = body.split(RegExp(r'[\\r\\n]+'));
+  return lines.contains('h=cloudflare.com') &&
+      lines.any((line) => line.startsWith('fl=')) &&
+      lines.any((line) => line.startsWith('colo='));
+}
+
 Future<int?> _cfProbeMs(String ip, Duration t) async {
   final sw = Stopwatch()..start();
   Socket? raw;
@@ -822,7 +836,7 @@ Future<int?> _cfProbeMs(String ip, Duration t) async {
     await k.flush();
     final txt = await _cfRead(k, t);
     sw.stop();
-    if (txt.contains('cloudflare')) return sw.elapsedMilliseconds;
+    if (_cfTraceResponseOk(txt)) return sw.elapsedMilliseconds;
   } catch (e, stk) {
     logError(e, stk);
   } finally {
@@ -838,7 +852,7 @@ Future<int?> _cfProbeMs(String ip, Duration t) async {
     await h.flush();
     final txt = await _cfRead(h, t);
     sw2.stop();
-    if (txt.contains('cloudflare')) return sw2.elapsedMilliseconds + 40;
+    if (_cfTraceResponseOk(txt)) return sw2.elapsedMilliseconds + 40;
   } catch (e, stk) {
     logError(e, stk);
   } finally {
