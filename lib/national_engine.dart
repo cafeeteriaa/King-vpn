@@ -268,8 +268,12 @@ class NatNetworkDiagnosis {
         globalDnsOk: globalDnsOk,
         globalTcpOk: globalTcpOk,
         dnsPoisonSuspected: poison,
-        sampleCount: domesticTcp.length + globalTcp.length +
-            globalDnsRes.length + domesticDnsRes.length,
+        // Count independent successful observations, not attempted probes.
+        // Failed timeouts must not satisfy the minimum evidence threshold.
+        sampleCount: domesticTcp.where((ok) => ok).length +
+            globalTcp.where((ok) => ok).length +
+            globalDnsRes.where((r) => r.ok).length +
+            domesticDnsRes.where((r) => r.ok).length,
       );
       current = ev.classify();
       _checkedAt = DateTime.now();
