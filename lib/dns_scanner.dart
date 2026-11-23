@@ -229,8 +229,8 @@ Future<DnsxHit?> dnsxProbe(String server,
   if (resolver == null || resolver.type != InternetAddressType.IPv4 ||
       timeout <= Duration.zero || gap < Duration.zero) return null;
   final resolverIp = resolver.address;
-  final list = _dnsxHostsFrom(domains ?? dnsxAutoDomains())
-      .toSet().take(128).toList(growable: false);
+  final uniqueDomains = _dnsxHostsFrom(domains ?? dnsxAutoDomains()).toSet().toList();
+  final list = uniqueDomains.take(128).toList(growable: false);
   final times = <int>[];
   var tested = 0; // تعداد دامنه‌هایی که واقعاً سنجیده شدند (اگر توقف زده شود، کمتر از کل است)
   const chunk = 8; // دامنه‌ها در هر بسته‌ی همزمان
