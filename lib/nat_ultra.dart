@@ -2354,10 +2354,7 @@ Future<void> userListsSave(String text) async {
   }
 }
 
-// HOTCAP: کاهش از ۲ میلیون برای جلوگیری از OOM روی گوشی ضعیف
-const int natHotPerSource = 80000;
-const int natHotMin = 30000;
-const int natHotMax = 400000;
+// HOTSOURCE: source inventories are streamed to disk; no per-source or total candidate ceiling.
 List<Server> Function()? natExtraSource;
 const Duration natHotTtl = Duration(hours: 72);
 const Duration natHotFetchDeadline = Duration(seconds: 900);
@@ -2490,7 +2487,6 @@ Future<List<String>> _hotFetchOne(String u) async {
     // فیکس ۱۱: split روی رشته‌ی چند مگابایتی در isolate انجام می‌شود
     final lines = await compute(_hotSplitIso, body);
     for (final l in lines) {
-      if (out.length >= natHotPerSource) break;
       final t = l.trim();
       if (!t.contains('://') || t.contains('[email') || t.contains('protected]')) {
         continue;
@@ -2585,10 +2581,6 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
             sink.add(const [10]);
             pos += b.length + 1;
             offs.add(pos);
-            if (offs.length - 1 >= natHotMax) {
-              full = true;
-              break;
-            }
           }
         }
       } finally {
@@ -2608,9 +2600,6 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
         await File(newPath).rename(_hotPath());
         _hot = _HotIdx(_hotPath(), offs);
         _hotCursor = 0;
-        if (total < natHotMin) {
-          dbg('پوشه‌ی منابع تازه: $total کانفیگ (کمتر از $natHotMin)');
-        }
       } else {
         _hotFailAt = DateTime.now();
         try {
