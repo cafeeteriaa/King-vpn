@@ -2813,6 +2813,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_auto_sni_scan_uses_a_fair_resumable_dual_stack_batch(self):
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         self.assertIn('const int _autoScanCdnBatchSize = 8;', auto)
+        self.assertIn("const String _autoScanDomainCursorKey = 'auto_scan_domain_cursor_v1';", auto)
+        self.assertIn('...dnsxFullDomains(),', auto)
+        self.assertIn('final savedDomainCursor = prefs.getString(_autoScanDomainCursorKey);', auto)
+        self.assertIn('final domainBatch = <String>[', auto)
+        self.assertIn('for (final d in domainBatch)', auto)
+        self.assertIn('prefs.setString(_autoScanDomainCursorKey, stagedDomainCursor)', auto)
         self.assertIn('final targetRanges = <String>{', auto)
         self.assertIn('...base,', auto)
         self.assertIn('...ipv6DnsIps,', auto)
