@@ -1405,8 +1405,6 @@ extension NpvAmExtras on _HomePageState {
   }
 }
 
-const int kGoldIpCap = 100000;
-const int kGoldSrvCap = 20000;
 const int kGoldDailyProbes = 250000;
 const int kGoldRetestBatch = 500;
 const int kGoldEveryMin = 5;
@@ -1518,28 +1516,6 @@ Future<void> goldSave() async {
     await _goldWrite(p);
   } catch (e, stk) {
     logError(e, stk);
-  }
-}
-
-void _goldTrimIps() {
-  if (_goldIps.length <= kGoldIpCap) return;
-  final keep = kGoldIpCap * 95 ~/ 100;
-  final l = _goldIps.values.toList()..sort((a, b) => a.ms.compareTo(b.ms));
-  for (final v in l.skip(keep)) {
-    _goldIps.remove(v.ip);
-  }
-}
-
-void _goldTrimSrv() {
-  if (_goldSrv.length <= kGoldSrvCap) return;
-  final l = _goldSrv.values.toList()
-    ..sort((a, b) {
-      // Keep verified records; discard delay-only candidates first at capacity.
-      if (a.verified != b.verified) return a.verified ? -1 : 1;
-      return a.ping.compareTo(b.ping);
-    });
-  for (final v in l.skip(kGoldSrvCap)) {
-    _goldSrv.remove(v.link);
   }
 }
 
@@ -1659,7 +1635,7 @@ Future<void> goldMergeIps(
   for (final c in res) {
     _goldIps[c.ip] = _GoldIp(c.ip, c.ms, c.port, now, now);
   }
-  _goldTrimIps();
+
   _goldTop = null;
   await _goldWrite(p);
 }
@@ -1722,7 +1698,7 @@ Future<void> _goldIpStep() async {
     }
   }
   _goldCnt += batch.length;
-  _goldTrimIps();
+
   _goldTop = null;
   dbg('گلد: IP تازه $found از ${batch.length} • پوشه ${_goldIps.length} • امروز $_goldCnt/$kGoldDailyProbes');
 }
@@ -1764,7 +1740,7 @@ Future<void> _goldSrvStep(_HomePageState h) async {
       }
     }
   }
-  _goldTrimSrv();
+
 
   if (!nationalMode) {
     final due = _goldSrv.values
@@ -2027,7 +2003,7 @@ void goldNoteServer(Server srv) {
     ex.verified = true;
     ex.verifiedAt = now;
   }
-  _goldTrimSrv();
+
   _goldSaveT ??= Timer(const Duration(seconds: 20), () {
     _goldSaveT = null;
     unawaited(goldSave());
