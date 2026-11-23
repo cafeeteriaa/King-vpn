@@ -40,6 +40,7 @@ import 'tg_proxy.dart' show tgProxyRow; // فقط پروکسی تلگرام
 import 'nat_ip_scan.dart'; // اسکن TCP آدرس IP و دامنه
 import 'help_page.dart';
 import 'conn_specs.dart';
+import 'transport_capabilities.dart'; // Dual-stack transport and DPI engine capability registry
 import 'personal_folder.dart'; // پوشه‌ی «سرورهای شخصی»
 import 'king_extras2.dart'; // KINGEXTRAS: share sheet / UUID / check-host.net
 part 'iran_ai_extras.dart';
