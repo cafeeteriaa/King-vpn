@@ -2695,13 +2695,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_configured_candidate_inventories_are_not_truncated_by_fixed_counts(self):
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
-        start = auto.index('if (base.isEmpty) {')
+        start = auto.index('final base = [for (final entry in _goldIps.values) entry.ip];')
         end = auto.index('final ips =', start)
-        fallback = auto[start:end]
-        self.assertIn('for (final r in _cfRanges)', fallback)
-        self.assertIn('maxPerBlock: 64', fallback)
-        self.assertNotIn('_cfRanges.take(', fallback)
-        self.assertNotIn('cdnSample.length >=', fallback)
+        inventory = auto[start:end]
+        self.assertIn('_getCfIps(', inventory)
+        self.assertIn('liveRanges: cdnRanges', inventory)
+        self.assertIn('cursors: stagedCdnCursors', inventory)
+        self.assertIn('Map<String, int>.of(cdnCursors)', inventory)
+        self.assertNotIn('natExpandCidr(', inventory)
+        self.assertNotIn('_cfRanges.take(', inventory)
+        self.assertIn("_autoScanCdnCursorKey = 'auto_scan_cdn_cursors_v1'", auto)
+        self.assertIn('prefs.setString(_autoScanCdnCursorKey, jsonEncode(stagedCdnCursors))', auto)
 
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = nat.index('({List<String> addresses, int nextCursor}) _natConfiguredRangeBatch')
