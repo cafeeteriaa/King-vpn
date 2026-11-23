@@ -143,17 +143,22 @@ Future<String> netDiagnose() async {
   ]);
 
   // DNS: system resolver vs DNS-over-HTTPS
-  String dnsSys = '';
+  final dnsSysAddresses = <String>{};
   bool dnsPoison = false;
   try {
-    final l = await InternetAddress.lookup('www.google.com')
+    final resolved = await InternetAddress.lookup('www.google.com')
         .timeout(const Duration(seconds: 4));
-    if (l.isNotEmpty) {
-      dnsSys = l.first.address;
-      dnsPoison = l.any((a) => _privateIp(a)) || dnsSys.startsWith('10.');
+    for (final address in resolved) {
+      if (address.type == InternetAddressType.IPv4 ||
+          address.type == InternetAddressType.IPv6) {
+        dnsSysAddresses.add(address.address);
+      }
+      if (_privateIp(address)) dnsPoison = true;
     }
   } catch (e, stk) { logError(e, stk); }
-  final dnsDoh = await dohResolve('www.google.com');
+  final dnsDohAddresses = await dohResolveAll('www.google.com');
+  final dnsSys = dnsSysAddresses.join(' | ');
+  final dnsDoh = dnsDohAddresses.join(' | ');
 
   void sec(String t, int a, int z) {
     b.writeln(t);
@@ -174,10 +179,11 @@ Future<String> netDiagnose() async {
   b.writeln(dnsSys.isEmpty
       ? '❌ DNS سیستم جواب نداد'
       : '${dnsPoison ? '⚠️' : '✅'} DNS سیستم: $dnsSys');
-  b.writeln(dnsDoh == null
+  b.writeln(dnsDohAddresses.isEmpty
       ? '❌ DNS-over-HTTPS باز نیست'
-      : '✅ DNS-over-HTTPS: $dnsDoh');
-  if (dnsSys.isNotEmpty && dnsDoh != null && dnsSys != dnsDoh) {
+      : '✅ DNS-over-HTTPS A/AAAA: $dnsDoh');
+  if (dnsSys.isNotEmpty && dnsDoh.isNotEmpty &&
+      dnsSysAddresses.toSet().difference(dnsDohAddresses.toSet()).isNotEmpty) {
     b.writeln('ℹ️ جواب DNS سیستم با DoH فرق دارد (ممکن است دستکاری شده باشد)');
   }
   b.writeln();
