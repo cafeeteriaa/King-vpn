@@ -2295,14 +2295,15 @@ Future<void> manualRangeScan(BuildContext context, List<String> userRanges) asyn
         // Do not advance a partial batch; the next opening retries this exact slice.
         break;
       }
-      cursors
-        ..clear()
-        ..addAll(generated.cursors);
-      await prefs.setString(_manualRangeCursorKey, jsonEncode(cursors));
       await goldMergeIps(
         [for (final hit in batchHits) CleanIp(hit.ip, hit.ms, 443)],
         shouldAbort: () => cancelled || !open,
       );
+      if (cancelled || !open) break;
+      cursors
+        ..clear()
+        ..addAll(generated.cursors);
+      await prefs.setString(_manualRangeCursorKey, jsonEncode(cursors));
       if (nationalMode && !cancelled && open) {
         await natManualYield(shouldAbort: () => cancelled || !open);
       }
