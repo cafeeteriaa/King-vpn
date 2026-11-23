@@ -2066,16 +2066,19 @@ List<String> _getCfIps({
   final out = <String>[];
   final ranges = liveRanges ?? _liveCdnRanges;
   final curMap = cursors ?? _cfRangeCursors;
-  // Cloudflare همچنان اصلی‌ترین استخر است (کانفیگ‌های CDN-fronted معمولاً روی
-  // Cloudflare هستند): نیمی از بودجه برای آن، نیم دیگر بین بقیه‌ی CDNها.
+  // Fairly split the work quantum between Cloudflare and other published
+  // CDN ranges, but always enqueue Cloudflare last as requested.
   final cfSet = _cfRanges.toSet();
-  final cfN = ranges.where(cfSet.contains).length;
-  final otherN = ranges.length - cfN;
+  final otherRanges = ranges.where((r) => !cfSet.contains(r)).toList(growable: false);
+  final cfRanges = ranges.where(cfSet.contains).toList(growable: false);
+  final cfN = cfRanges.length;
+  final otherN = otherRanges.length;
   final cfShare = (cfN == 0 || otherN == 0) ? 1.0 : 0.5;
   final perCf = cfN == 0 ? 0 : (batchSize * cfShare / cfN).ceil();
   final perOther =
       otherN == 0 ? 0 : (batchSize * (1.0 - (cfN == 0 ? 0.0 : cfShare)) / otherN).ceil();
-  for (final cidr in ranges) {
+  final orderedRanges = <String>[...otherRanges, ...cfRanges];
+  for (final cidr in orderedRanges) {
     final perRange = cfSet.contains(cidr) ? perCf : perOther;
     final parts = cidr.split('/');
     if (parts.length != 2) continue;
