@@ -6865,11 +6865,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       natRefetch = false;
       if (!bg && !connected) _set('در حال دریافت لیست‌ها...');
       try {
-        // QUICKLIST: اولین دریافت (و نه بعد از اتصال) فقط ~۲۰۰ سرور؛ لیست کامل بعد از اتصال می‌آید
-        // FASTLIST: اتصال عادی هم مثل خلبان با ~۲۰۰ سرور اول شروع می‌کند و سقف ۲۵ ثانیه‌ای دارد
-        final quick = !bg && !connected && !nationalMode && !offlineOnly;
-        final f = await fetchServers(stop: () => abort, quickCap: quick ? 200 : null)
-            .timeout(const Duration(seconds: 25), onTimeout: () => <Server>[]);
+        // Fetch the complete configured source inventory; do not truncate the
+        // initial server pool to a quick-start subset. The fetcher retains its
+        // cancellation and adaptive worker controls.
+        final f = await fetchServers(stop: () => abort);
         _listPartial = quick && f.isNotEmpty;
         if (f.isNotEmpty) {
           // lists that were "dead" get a new chance with the new content
