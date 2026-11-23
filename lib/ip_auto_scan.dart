@@ -24,7 +24,7 @@ bool ipAutoStopFlag = false;
 String ipAutoStatus = '';
 final List<String> ipAutoHits = []; // به شکل «ip|port»
 final List<String> ipAutoPendingCore = []; // TCP hits awaiting two-pass VPN-core verification
-final Map<String, int> ipAutoCursors = {};
+final Map<String, dynamic> ipAutoCursors = {};
 int ipAutoPos = 0;
 
 String _ipAutoKeyNow() => nationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
@@ -49,15 +49,15 @@ Future<void> ipAutoLoad() async {
     final savedHits = p.getString(hitsKey) ?? '';
     final savedPending = p.getString(pendingKey) ?? '';
     final savedPos = int.tryParse(p.getString(posKey) ?? '') ?? 0;
-    final loadedCursors = <String, int>{};
+    final loadedCursors = <String, dynamic>{};
     final c = p.getString(cursorKey);
     if (c != null && c.isNotEmpty) {
       try {
         final decoded = jsonDecode(c);
         if (decoded is Map) {
           for (final entry in decoded.entries) {
-            if (entry.value is num) {
-              loadedCursors['${entry.key}'] = (entry.value as num).toInt();
+            if (entry.value is num || entry.value is String) {
+              loadedCursors['${entry.key}'] = entry.value;
             }
           }
         }
@@ -88,7 +88,7 @@ Future<void> _ipAutoSave() async {
   if (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode) return;
   final hits = List<String>.of(ipAutoHits);
   final pending = List<String>.of(ipAutoPendingCore);
-  final cursors = Map<String, int>.of(ipAutoCursors);
+  final cursors = Map<String, dynamic>.of(ipAutoCursors);
   final position = ipAutoPos;
   final hitsKey = saveNationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
   final cursorKey = '${_ipAutoCursorKey}_${saveNationalMode ? 'nat' : 'glob'}';
@@ -154,7 +154,7 @@ Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Funct
   // A mode switch while compute() is running must not apply stale cursors
   // or a stale batch position to the newly selected network mode.
   final modeSnapshot = nationalMode;
-  final cursorSnapshot = Map<String, int>.of(ipAutoCursors);
+  final cursorSnapshot = Map<String, dynamic>.of(ipAutoCursors);
   final args = <String, dynamic>{
     // Feed the generator a rotating CDN batch in global mode. National mode
     // uses only the user's configured national ranges and national hit memory.
