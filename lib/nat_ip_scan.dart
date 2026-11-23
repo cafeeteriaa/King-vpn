@@ -15,8 +15,8 @@
 //     subnet first every run.
 //   • Timeout accuracy: the Stopwatch is stopped exactly when the connect
 //     returns, not after potential catch/finally work.
-//   • No artificial caps: the caller controls want/budget/concurrency. We
-//     only enforce a device-safe ceiling for concurrency to prevent OOM.
+//   • Bounded targets: every scan validates/deduplicates numeric IPs and
+//     enforces the shared 4096-address ceiling, plus a device-safe concurrency cap.
 
 import 'dart:async';
 import 'dart:io';
