@@ -3,6 +3,18 @@ import 'package:king_vpn/nat_ip_scan.dart';
 
 void main() {
   group('IP range expansion limits', () {
+    test('scanner targets are validated, unique, and hard bounded', () {
+      final targets = natBoundScanTargets([
+        ' 192.0.2.1 ', '192.0.2.1', 'not-an-ip', '2001:db8::1',
+        ...List<String>.generate(5000, (i) => '10.${(i ~/ 65536) % 256}.${(i ~/ 256) % 256}.${i % 256}'),
+      ], maxCount: 100000);
+      expect(targets, containsAll(['192.0.2.1', '2001:db8::1']));
+      expect(targets.toSet(), hasLength(targets.length));
+      expect(targets.length, lessThanOrEqualTo(kNatMaxScanAddresses));
+      expect(natBoundScanTargets(['example.com', 'bad'],), isEmpty);
+      expect(natBoundScanTargets(['192.0.2.1'], maxCount: 0), isEmpty);
+    });
+
     test('CIDR expansion rejects non-positive output limits', () {
       expect(natExpandCidr('10.0.0.0/24', maxPerBlock: 0), isEmpty);
       expect(natExpandCidr('10.0.0.0/24', maxPerBlock: -1), isEmpty);
