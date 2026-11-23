@@ -810,7 +810,7 @@ Future<String> _cfRead(Socket k, Duration t) async {
 bool _cfTraceResponseOk(String response) {
   final split = response.indexOf('\r\n\r\n');
   if (split < 0) return false;
-  final status = response.substring(0, split);
+  final status = response.substring(0, split).toLowerCase();
   if (!status.startsWith('http/1.1 200 ') &&
       !status.startsWith('http/1.0 200 ')) return false;
   final body = response.substring(split + 4);
@@ -842,21 +842,6 @@ Future<int?> _cfProbeMs(String ip, Duration t) async {
   } finally {
     k?.destroy();
     raw?.destroy();
-  }
-  Socket? h;
-  try {
-    final sw2 = Stopwatch()..start();
-    h = await Socket.connect(ip, 80, timeout: t);
-    h.write(
-        'GET /cdn-cgi/trace HTTP/1.1\r\nHost: cloudflare.com\r\nConnection: close\r\n\r\n');
-    await h.flush();
-    final txt = await _cfRead(h, t);
-    sw2.stop();
-    if (_cfTraceResponseOk(txt)) return sw2.elapsedMilliseconds + 40;
-  } catch (e, stk) {
-    logError(e, stk);
-  } finally {
-    h?.destroy();
   }
   return null;
 }
