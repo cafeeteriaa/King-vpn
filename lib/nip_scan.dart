@@ -90,7 +90,7 @@ Future<List<NipHit>> nipScan(
 String? nipSwapLink(Server t, String ip) {
   final l = t.link;
   final lower = l.toLowerCase();
-  if (lower.startsWith('ss://')) return null;
+  if (lower.startsWith('ss://') || t.reality) return null;
   try {
     if (lower.startsWith('vmess://')) {
       var b = natB64Normalize(l.substring(8));
