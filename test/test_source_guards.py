@@ -2845,6 +2845,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('InternetAddressType.IPv6', nat)
         self.assertIn('BigInt.from(cursor) % size', nat)
         self.assertIn('address.type != InternetAddressType.IPv6', nat)
+        self.assertIn('final expanded = _natExpandAnyCursor(', nat)
+        seed_start = nat.index('List<String> natSeedBlocks(')
+        seed_end = nat.index('int natMemQueued', seed_start)
+        self.assertIn("out.add('${parsed.address}/128');", nat[seed_start:seed_end])
 
         extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         self.assertIn("'https://www.cloudflare.com/ips-v6'", extras)
