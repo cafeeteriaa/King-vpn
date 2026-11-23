@@ -2710,7 +2710,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_gold_write_serializes_shared_state_once_and_reuses_preferences(self):
         extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         start = extras.index('String _goldEncode()')
-        end = extras.index('void _goldTrimIps()', start)
+        end = extras.index('List<CleanIp>? _goldTop;', start)
         persistence = extras[start:end]
         self.assertIn('Future<bool> _goldWrite(SharedPreferences p)', persistence)
         self.assertIn("p.setString('gold_v1', _goldEncode())", persistence)
@@ -3173,10 +3173,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         expiry_start = step.index('// End-to-end proof expires')
         merge_call = step.index('await _goldMergeGood(h);', expiry_start)
         self.assertLess(expiry_start, merge_call)
-        trim_start = gold.index('void _goldTrimSrv()')
-        trim_end = gold.index('List<CleanIp>? _goldTop', trim_start)
-        trim = gold[trim_start:trim_end]
-        self.assertIn('if (a.verified != b.verified) return a.verified ? -1 : 1;', trim)
+        self.assertNotIn('void _goldTrimSrv()', gold)
+        self.assertNotIn('kGoldSrvCap', gold)
+        self.assertNotIn('void _goldTrimIps()', gold)
+        self.assertNotIn('kGoldIpCap', gold)
 
         note_start = gold.index('void goldNoteServer(Server srv)')
         note_end = gold.index('// MANUALSCAN:', note_start)
