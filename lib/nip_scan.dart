@@ -429,37 +429,36 @@ extension NipHunt on _HomePageState {
     }
     final cdnT = templates.where((s) => s.cdn).toList();
     final direct = templates.where((s) => !s.cdn).toList();
+    final huntCursors = await _nipLoadHuntCursors();
+    if (abort) return false;
 
-    // مرحله ۱: کانفیگ‌های CDN (SNI/Host) ← لبه‌های باز چند CDN
-    // CDNDIV: Cloudflare + Fastly + AWS CloudFront + Google، نه فقط Cloudflare
+    // مرحله ۱: همه‌ی prefixهای زنده‌ی CDN، هر دو خانواده، با Cursor مستقل.
+    // هر اجرا فقط یک دسته‌ی قابل‌اتمام را می‌سنجد و بعد از تکمیل آن ادامه می‌دهد.
     if (cdnT.isNotEmpty) {
-      final cfSet = <String>{..._cfRanges, ..._cfRangesV6};
-      final cfIps = <String>[];
-      final otherIps = <String>[];
-      for (final range in _liveCdnRanges) {
-        if (cfSet.contains(range)) {
-          cfIps.addAll(nipExpandCidr(range, maxPerBlock: 512));
+      final cdnRanges = <String>{
+        ..._liveCdnRanges,
+        ..._cfRanges,
+        ..._cfRangesV6,
+      }.toList()..sort();
+      final cdnBatch = _nipRangeBatch(
+        cdnRanges,
+        huntCursors,
+        namespace: 'cdn',
+        batchSize: 1000,
+      );
+      if (cdnBatch.addresses.isNotEmpty) {
+        if (await _natTryScan(
+          cdnT,
+          cdnBatch.addresses,
+          port: cdnT.first.port,
+          label: 'لبه‌ی CDN',
+          front: true,
+          onComplete: () => _nipSaveHuntCursors(cdnBatch.cursors),
+        )) {
+          return true;
         }
+        if (abort) return false;
       }
-      // PERFFIX: بقیه‌ی CDNها را فقط تا سقف هم‌اندازه‌ی Cloudflare بساز. قبلاً
-      // همه‌ی بلوک‌های زنده (صدها بلوک × ۵۱۲) روی UI ساخته و بعد کوتاه می‌شد
-      // که باعث قفل شدن اپ می‌شد.
-      final cap = cfIps.isEmpty ? 6000 : cfIps.length;
-      final rnd = Random();
-      final others = _liveCdnRanges.where((c) => !cfSet.contains(c)).toList()
-        ..shuffle(rnd);
-      for (final c in others) {
-        if (otherIps.length >= cap) break;
-        otherIps.addAll(nipExpandCidr(c, maxPerBlock: 32));
-      }
-      if (otherIps.length > cap) otherIps.removeRange(cap, otherIps.length);
-      final ips = <String>[...cfIps, ...otherIps];
-      ips.shuffle(rnd);
-      if (await _natTryScan(cdnT, ips,
-          port: cdnT.first.port, label: 'لبه‌ی CDN', front: true)) {
-        return true;
-      }
-      if (abort) return false;
     }
     if (direct.isEmpty) return false;
 
