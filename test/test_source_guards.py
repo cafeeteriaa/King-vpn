@@ -3808,9 +3808,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('return refresh(force: true);', policy)
 
 
-if __name__ == '__main__':
-    unittest.main(), f'{workflow}: {action}')
-
     def test_signed_release_job_is_restricted_to_repository_owner(self):
         release = (ROOT / '.github' / 'workflows' / 'signed-release.yml').read_text(encoding='utf-8')
         job_start = release.index('  signed-release:')
