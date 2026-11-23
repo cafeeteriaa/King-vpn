@@ -540,12 +540,10 @@ extension NipHunt on _HomePageState {
       onProgress: (done, total) => completed = done,
     );
     if (abort) return false;
-    // Persist only when every candidate in this slice was actually probed.
-    // A timeout/cancel retries the same slice; no address cursor is skipped.
-    if (completed >= ips.length) {
-      await onComplete?.call();
-    }
+    // Do not advance the range cursor until the full scan AND all resulting
+    // connection trials finish. A timeout/cancel retries this slice safely.
     if (hits.isEmpty) {
+      if (completed >= ips.length) await onComplete?.call();
       _set('نت ملی: هیچ $label بازی پیدا نشد');
       return false;
     }
@@ -588,9 +586,11 @@ extension NipHunt on _HomePageState {
       if (await _connectLoop(candidates, trust: false)) {
         final winner = current;
         if (winner != null) _natAdd(winner);
+        if (completed >= ips.length) await onComplete?.call();
         return true;
       }
     }
+    if (completed >= ips.length) await onComplete?.call();
     return false;
   }
 }
