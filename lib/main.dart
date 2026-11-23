@@ -5684,15 +5684,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _capMap(natWinCount, 2000);
     _capMap(slowStrikes, 500);
     _capMap(_cfgDumpAt, 3000);
-    while (natScanHits.length > 20000) {
-      natScanHits.remove(natScanHits.first);
-    }
-    while (natGood.length > 50000) {
-      natGood.remove(natGood.first);
-    }
-    while (natSubstSearched.length > 5000) {
-      natSubstSearched.remove(natSubstSearched.first);
-    }
     while (natIpDeadRun.length > 10000) {
       natIpDeadRun.remove(natIpDeadRun.first);
     }
@@ -6534,7 +6525,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       await p.setStringList(
           'list_cache',
           (fetchedAll.toList()..shuffle())
-              .take(3000)
               .map((s) => '${s.src ?? ''}\t${s.link}')
               .toList());
       await p.setInt('list_time', DateTime.now().millisecondsSinceEpoch);
@@ -9865,7 +9855,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _resBusy = false, _resDirty = false, _resNext = false;
   DateTime? _resHold, _resLast, _resUi;
   int _resDone = 0, _resTotal = 0;
-  static const int _resMax = 5000;
   static const Duration _resEvery = Duration(hours: 48); // FOLDERS: تست خودکار هر ۴۸ ساعت
   int _resMergeCursor = 0; // FOLDERS: چرخش سهم سرورهای سالم در صف نت ملی
   bool _resFull = false; // second-chance pass: every variant
@@ -9973,25 +9962,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       } else {
         final c = Server.parse(srv.link);
         if (c == null) return;
-        if (_resMap.length >= _resMax) {
-          // full: the entry verified the longest ago makes room
-          String? oldK;
-          DateTime? oldT;
-          // Evict unverified candidates before sacrificing any end-to-end winner.
-          final unverified = _resMap.entries
-              .where((entry) => !entry.value.verified)
-              .toList();
-          final evictionPool =
-              unverified.isNotEmpty ? unverified : _resMap.entries.toList();
-          for (final entry in evictionPool) {
-            final t = entry.value.checked ?? entry.value.added;
-            if (oldT == null || t.isBefore(oldT!)) {
-              oldT = t;
-              oldK = entry.key;
-            }
-          }
-          if (oldK != null) _resMap.remove(oldK);
-        }
         c.ping = srv.ping;
         final e = _NatResItem(srv.link, c, now)..verified = verified;
         e.checked = verified ? now : null;
@@ -10831,7 +10801,7 @@ ListTile( // KINGEXTRAS row
         for (final s in [...pending, ...natRestPending]) '${s.host}|${s.port}'
       };
       final items = <String>[];
-      for (final e in natIpMem.take(40)) {
+      for (final e in natIpMem) {
         final ip = '${e['ip']}';
         final port = (e['port'] as num?)?.toInt() ?? 0;
         if (InternetAddress.tryParse(ip) == null || port <= 0) continue;
@@ -10858,7 +10828,7 @@ ListTile( // KINGEXTRAS row
     for (final it in items) {
       natScanHits.add(it.split('|')[0]);
     }
-    final tpl = [...pending, ...natRestPending, ...natTemplateSeeds, ...good].take(2).toList();
+    final tpl = [...pending, ...natRestPending, ...natTemplateSeeds, ...good];
     if (tpl.isEmpty) {
       dbg('V8: no template - skipping');
       return;
@@ -10885,8 +10855,6 @@ ListTile( // KINGEXTRAS row
     if (made.isEmpty) return;
     if (count) natIpFound += items.length;
     pending = [...made, ...pending];
-    // NATPENDCAP: pending بیش از ۳۰۰۰ نشود (حافظه و زمان دسته‌بندی)؛ انتهای صف حذف می‌شود
-    if (pending.length > 3000) pending.removeRange(3000, pending.length);
     natRangeCursor = 0;
   }
 
