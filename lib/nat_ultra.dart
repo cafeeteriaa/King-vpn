@@ -1159,47 +1159,8 @@ String _natApplyTweaks(String link, _NatSpec x, Server s) {
   return link;
 }
 
-String? natChainCfg(String exitCfg, String relayCfg, {bool keepInbounds = false}) {
-  try {
-    final ej = jsonDecode(exitCfg);
-    final rj = jsonDecode(relayCfg);
-    if (ej is! Map<String, dynamic> || rj is! Map<String, dynamic>) return null;
-    final exitOut = _natProxyOut(ej);
-    final relayOut = _natProxyOut(rj);
-    if (exitOut == null || relayOut == null) return null;
-    final outs = List<dynamic>.from((ej['outbounds'] as List?) ?? <dynamic>[]);
-    final usedTags = <String>{
-      for (final item in outs)
-        if (item is Map && item['tag'] != null) item['tag'].toString(),
-    };
-    var hopTag = 'relay-hop';
-    var suffix = 2;
-    while (usedTags.contains(hopTag)) {
-      hopTag = 'relay-hop-$suffix';
-      suffix++;
-    }
-    final hop = Map<String, dynamic>.from(relayOut)..['tag'] = hopTag;
-    final hopSt = hop['streamSettings'];
-    if (hopSt is Map && hopSt['sockopt'] is Map) {
-      (hopSt['sockopt'] as Map).remove('dialerProxy');
-    }
-    final st = exitOut['streamSettings'] is Map
-        ? Map<String, dynamic>.from(exitOut['streamSettings'] as Map)
-        : <String, dynamic>{};
-    final so = st['sockopt'] is Map
-        ? Map<String, dynamic>.from(st['sockopt'] as Map)
-        : <String, dynamic>{};
-    so['dialerProxy'] = hopTag;
-    st['sockopt'] = so;
-    exitOut['streamSettings'] = st;
-    outs.add(hop);
-    ej['outbounds'] = outs;
-    if (!keepInbounds) ej.remove('inbounds');
-    return jsonEncode(ej);
-  } catch (_) {
-    return null;
-  }
-}
+String? natChainCfg(String exitCfg, String relayCfg, {bool keepInbounds = false}) =>
+    natBuildRelayChainConfig(exitCfg, relayCfg, keepInbounds: keepInbounds);
 
 Map? _natProxyOut(Map<String, dynamic> j) {
   for (final o in (j['outbounds'] as List?) ?? <dynamic>[]) {
