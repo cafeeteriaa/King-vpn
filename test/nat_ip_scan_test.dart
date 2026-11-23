@@ -186,6 +186,41 @@ void main() {
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: -1), isEmpty);
     });
 
+    test('TCP probe reaches a local IPv4 listener', () async {
+      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      try {
+        final latency = await natTcpProbe(
+          InternetAddress.loopbackIPv4.address,
+          server.port,
+          const Duration(seconds: 2),
+        );
+        expect(latency, isNotNull);
+      } finally {
+        await server.close();
+      }
+    });
+
+    test('TCP probe reaches a local IPv6 listener when the runner supports IPv6', () async {
+      ServerSocket? server;
+      try {
+        server = await ServerSocket.bind(InternetAddress.loopbackIPv6, 0);
+      } on SocketException {
+        // Some CI/container hosts disable IPv6 loopback; do not misreport that
+        // host configuration as an application regression.
+        return;
+      }
+      try {
+        final latency = await natTcpProbe(
+          InternetAddress.loopbackIPv6.address,
+          server.port,
+          const Duration(seconds: 2),
+        );
+        expect(latency, isNotNull);
+      } finally {
+        await server.close();
+      }
+    });
+
     test('NAT scan rejects invalid budgets, timeouts, and ports without probing', () async {
       expect(await natScanIps(['127.0.0.1'], budget: Duration.zero), isEmpty);
       expect(await natScanIps(['127.0.0.1'], timeout: Duration.zero), isEmpty);
