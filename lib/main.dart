@@ -3768,6 +3768,15 @@ bool _privateIp(InternetAddress a) {
     if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) return true;
     if (b[0] == 192 && b[1] == 168) return true;
     if (b[0] == 100 && b[1] >= 64 && b[1] <= 127) return true;
+  } else if (b.length == 16) {
+    if (b.every((value) => value == 0)) return true; // unspecified
+    if ((b[0] & 0xfe) == 0xfc) return true; // unique-local fc00::/7
+    if (b.sublist(0, 10).every((value) => value == 0) &&
+        b[10] == 0xff && b[11] == 0xff) {
+      // IPv4-mapped IPv6: apply the IPv4 private-address checks too.
+      final mapped = InternetAddress.fromRawAddress(b.sublist(12, 16));
+      return _privateIp(mapped);
+    }
   }
   return false;
 }
