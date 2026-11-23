@@ -217,7 +217,7 @@ class DnsxHit {
 }
 
 /// سنجش یک DNS روی فهرست دامنه‌ها. برای جلوگیری از سیل پرس‌وجو، بسته‌به‌بسته (۸ تا ۸ تا) می‌رود.
-/// ملاک: حداقل ۲۵٪ دامنه‌ها باید پاسخ معتبر بدهند.
+/// ملاک: حداقل ۲۵٪ دامنه‌ها باید در A یا AAAA پاسخ معتبر بدهند.
 Future<DnsxHit?> dnsxProbe(String server,
     {List<String>? domains,
     Duration timeout = const Duration(seconds: 3),
@@ -236,18 +236,27 @@ Future<DnsxHit?> dnsxProbe(String server,
     // Cancellation may arrive while waiting between DNS batches.
     if (stop != null && stop()) break;
     final part = list.sublist(i, min(i + chunk, list.length));
-    // NNIE: strict response validation includes transaction ID, QR/opcode,
-    // question/type/class, source IP/port, RCODE and usable A answer.
-    final res = await Future.wait(part.map((d) => NatDnsWireProbe.probe(
-          server,
-          d,
-          timeout: timeout,
-          cancelled: stop,
-        )));
+    // Probe both address families per domain. A domain counts once when at
+    // least one family returns a validated globally-routable answer.
+    // The pair runs concurrently but remains inside the existing 8-domain batch.
+    final res = await Future.wait(part.map((d) async {
+      return await Future.wait([
+        NatDnsWireProbe.probe(
+          server, d, timeout: timeout, cancelled: stop, recordType: 1,
+        ),
+        NatDnsWireProbe.probe(
+          server, d, timeout: timeout, cancelled: stop, recordType: 28,
+        ),
+      ]);
+    }));
     if (stop != null && stop()) return null;
     tested += part.length;
-    for (final r in res) {
-      if (r.ok) times.add(r.elapsedMs!);
+    for (final familyResults in res) {
+      final valid = familyResults.where((r) => r.ok).toList();
+      if (valid.isNotEmpty) {
+        // Use the fastest validated family as the domain's usable DNS latency.
+        times.add(valid.map((r) => r.elapsedMs!).reduce(min));
+      }
     }
   }
   // ملاک: حداقل ۲۵٪ از دامنه‌هایی که واقعاً سنجیده شدند باید جواب بدهند
