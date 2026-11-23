@@ -16,7 +16,7 @@
 //   • Timeout accuracy: the Stopwatch is stopped exactly when the connect
 //     returns, not after potential catch/finally work.
 //   • Bounded targets: every scan validates/deduplicates numeric IPs and
-//     enforces the shared 4096-address ceiling, plus a device-safe concurrency cap.
+//     uses resumable work chunks; no shared total-candidate ceiling is applied.
 
 import 'dart:async';
 import 'dart:io';
@@ -60,7 +60,7 @@ class NatIpHit {
 
 /// بلوک CIDR مثل «5.160.0.0/16» را به فهرست IP تبدیل می‌کند.
 /// برای بلوک‌های بزرگ، فقط [maxPerBlock] آدرس پراکنده برمی‌گرداند.
-List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
+List<String> natExpandCidr(String cidr, {int maxPerBlock = 65536}) {
   if (maxPerBlock <= 0) return const [];
   final limit = maxPerBlock;
   final parts = cidr.trim().split('/');
@@ -93,7 +93,7 @@ List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
 /// This is a manual/authorized-range primitive; it is never fed implicit ASN ranges.
 List<String> natExpandIpv6Cidr(
   String cidr, {
-  int maxPerBlock = kNatMaxScanAddresses,
+  int maxPerBlock = 65536,
 }) {
   if (maxPerBlock <= 0) return const <String>[];
   final limit = maxPerBlock;
@@ -136,7 +136,7 @@ List<String> natExpandIpv6Cidr(
 
 /// بازه‌ی خطی به شکل a.b.c.d-e.f.g.h (برای نوشته‌هایی که CIDR نیستند).
 /// بازه‌های بزرگ‌تر از maxCount به‌طور یکنواخت نمونه‌برداری می‌شوند.
-List<String> natExpandDash(String range, {int maxCount = kNatMaxScanAddresses}) {
+List<String> natExpandDash(String range, {int maxCount = 65536}) {
   if (maxCount <= 0) return const [];
   final limit = maxCount;
   final parts = range.trim().split('-');
