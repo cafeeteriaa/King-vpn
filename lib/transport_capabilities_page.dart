@@ -34,7 +34,7 @@ class _KingCapabilityCatalogPageState extends State<KingCapabilityCatalogPage> {
               children: [
                 Expanded(
                   child: DropdownButtonFormField<KingAddressFamily>(
-                    value: _family,
+                    initialValue: _family,
                     decoration: const InputDecoration(labelText: 'خانواده IP'),
                     items: const [
                       DropdownMenuItem(
@@ -53,7 +53,7 @@ class _KingCapabilityCatalogPageState extends State<KingCapabilityCatalogPage> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: DropdownButtonFormField<String>(
-                    value: _category,
+                    initialValue: _category,
                     decoration: const InputDecoration(labelText: 'گروه'),
                     items: [
                       for (final value in categories)
