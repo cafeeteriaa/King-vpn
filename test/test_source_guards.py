@@ -2677,5 +2677,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(guard, save)
 
 
+    def test_auto_sni_and_port_scans_use_bounded_parallel_batches(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> autoScanRun(')
+        end = source.index('Future<void> autoScanSheet(', start)
+        body = source[start:end]
+        self.assertGreaterEqual(body.count('offset += 8'), 2)
+        self.assertGreaterEqual(body.count('await Future.wait('), 2)
+        self.assertIn('batch.map((ip) => _autoSniOk(ip, 443, d))', body)
+        self.assertIn('batch.map((ip) => _autoPortOk(ip, p))', body)
+        self.assertIn('checks.any((latency) => latency != null)', body)
+        self.assertIn('checks.any((reachable) => reachable)', body)
+
+
 if __name__ == '__main__':
     unittest.main()
