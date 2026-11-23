@@ -484,22 +484,32 @@ extension NipHunt on _HomePageState {
     }
 
     // مرحله ۳: IP های همان شرکت هاست سرور (ASN) روی همان پورت
+    // مرحله ۳: همه‌ی A/AAAA آدرس‌های هاست و تمام prefixهای ASN آن‌ها.
     final t0 = direct.first;
     final hostIps = t0.isIp ? [t0.host] : await nipResolveAll(t0.host);
     if (hostIps.isNotEmpty) {
       final prefixes = <String>{};
       for (final hostIp in hostIps) {
+        if (abort) return false;
         prefixes.addAll(await nipAsnPrefixes(hostIp));
       }
+      if (abort) return false;
       if (prefixes.isNotEmpty) {
-        final ips = <String>[];
-        for (final prefix in prefixes) {
-          ips.addAll(nipExpandCidr(prefix, maxPerBlock: 256));
-        }
-        ips.shuffle(Random());
-        if (ips.isNotEmpty &&
-            await _natTryScan(direct, ips,
-                port: t0.port, label: 'IP هم‌شرکت سرور')) {
+        final asnRanges = prefixes.toList()..sort();
+        final asnBatch = _nipRangeBatch(
+          asnRanges,
+          huntCursors,
+          namespace: 'asn',
+          batchSize: 1000,
+        );
+        if (asnBatch.addresses.isNotEmpty &&
+            await _natTryScan(
+              direct,
+              asnBatch.addresses,
+              port: t0.port,
+              label: 'IP هم‌شرکت سرور',
+              onComplete: () => _nipSaveHuntCursors(asnBatch.cursors),
+            )) {
           return true;
         }
         if (abort) return false;
