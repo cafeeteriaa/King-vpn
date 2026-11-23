@@ -1654,7 +1654,7 @@ Future<void> natIpMemLoad() async {
     }
     natRanges = (p.getString(_rangeKey) ?? '')
         .split(RegExp(r'[\r\n,; ]+'))
-        .where((x) => x.contains('/') || x.contains('-'))
+        .where((x) => x.contains('/') || x.contains('-') || InternetAddress.tryParse(x) != null)
         .toList();
     natRangePortCursor = (p.getInt('natRangePortCursor') ?? 0).clamp(0, 1 << 31).toInt();
     natRangePortInventory = (p.getStringList('natRangePortInventory') ?? const <String>[])
