@@ -2745,6 +2745,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final rangesLeft = blocks.length - offset;', body)
         self.assertNotIn('max(cfIpsBatch * 4, 20000)', body)
         self.assertNotIn('_natExpandAnyCursor(range, cursor, 256)', body)
+        cf_start = nat.index('List<String> _getCfIps(')
+        cf_end = nat.index('// 128-bit cursor persistence:', cf_start)
+        cf = nat[cf_start:cf_end]
+        self.assertIn("cursorMap['__cdn_range_cursor']", cf)
+        self.assertIn('(start + visited) % ranges.length', cf)
+        self.assertIn('for (; visited < ranges.length && out.length < batchSize; visited++)', cf)
         self.assertIn("'maxAddrs': maxAddrs,", nat)
         ip = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         self.assertIn("'maxAddrs': batchSize,", ip)
