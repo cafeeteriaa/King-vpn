@@ -2238,7 +2238,7 @@ List<String> _getCfIps({
   final out = <String>{};
   final ranges = liveRanges ?? _liveCdnRanges;
   final cursorMap = cursors ?? _cfRangeCursors;
-  if (batchSize <= 0 || ranges.isEmpty) return out;
+  if (batchSize <= 0 || ranges.isEmpty) return const <String>[];
 
   // Rotate the starting range on every completed slice. Without this outer
   // cursor, a few huge IPv6/IPv4 CIDRs at the front would starve every later
