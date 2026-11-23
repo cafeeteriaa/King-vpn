@@ -8905,10 +8905,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     turboSpeed = true;
     muxEnabled = muxEnabled || kTurboEnabled;
     muxConc = max(muxConc, kTurboEnabled ? 32 : 8);
-    // NORMALFRAG: در اتصال عادی Fragment کاربر حفظ می‌شود.
-    if (!nationalMode && (localPilotOn || aiSession || isAutoTesting)) {
-      fragEnabled = false;
-    }
     // SPEEDFIRST: اگر هنوز سرعتی اندازه‌گیری نشده، بعد از ۸ ثانیه اندازه‌گیری کن
     if ((s.speed ?? 0) <= 0) {
       Future.delayed(const Duration(seconds: 8), () {
@@ -9778,7 +9774,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         speedTopN = max(speedTopN, 8);
         muxEnabled = kTurboEnabled;
         muxConc = max(muxConc, kTurboEnabled ? 32 : 8);
-        fragEnabled = false;
         sortSpeed = true;
         betterSwitch = true;
         minSpeedKB = 0; // دیگر با ۸۰۰KB تعویض نمی‌کند
@@ -12083,7 +12078,6 @@ ListTile( // KINGEXTRAS row
       ipMode = false;
       cleanIpMode = false;
       indestructibleMode = false;
-      fragEnabled = false;
     }
   }
 
