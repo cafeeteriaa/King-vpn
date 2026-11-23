@@ -3831,6 +3831,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('return refresh(force: true);', policy)
 
 
+    def test_nip_front_sni_probe_requires_valid_tls_certificate(self):
+        source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<String?> nipFrontProbe(')
+        end = source.index('Future<String?> nipFindFrontSni(', start)
+        probe = source[start:end]
+        self.assertNotIn('onBadCertificate:', probe)
+        self.assertIn('SecureSocket.secure(raw, host: sni)', probe)
+
+    def test_nip_cidr_expansion_respects_positive_output_cap(self):
+        source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('List<String> nipExpandCidr(')
+        end = source.index('/// اتصال TCP', start)
+        expansion = source[start:end]
+        self.assertIn('if (maxPerBlock <= 0) return const [];', expansion)
+        self.assertIn('(size + maxPerBlock - 1) ~/ maxPerBlock', expansion)
+
     def test_net_diagnosis_tls_requires_valid_certificate(self):
         source = (ROOT / 'lib' / 'net_diag.dart').read_text(encoding='utf-8')
         start = source.index('Future<_DiagItem> _diagTls(')

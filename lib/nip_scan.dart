@@ -26,9 +26,13 @@ List<String> nipExpandCidr(String cidr, {int maxPerBlock = 4096}) {
     if (v == null || v < 0 || v > 255) return const [];
     base = (base << 8) | v;
   }
+  if (maxPerBlock <= 0) return const [];
   final size = 1 << (32 - prefix);
   final start = base & ~(size - 1) & 0xFFFFFFFF;
-  final step = size > maxPerBlock ? size ~/ maxPerBlock : 1;
+  // Ceiling division ensures the sampled output never exceeds the caller's cap.
+  final step = size > maxPerBlock
+      ? (size + maxPerBlock - 1) ~/ maxPerBlock
+      : 1;
   final out = <String>[];
   for (var i = 0; i < size; i += step) {
     final v = start + i;
@@ -260,7 +264,8 @@ Future<String?> nipFrontProbe(String ip, int port, String sni) async {
   SecureSocket? sec;
   try {
     raw = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 2000));
-    sec = await SecureSocket.secure(raw, host: sni, onBadCertificate: (_) => true)
+    // A successful probe requires a valid certificate for the requested SNI.
+    sec = await SecureSocket.secure(raw, host: sni)
         .timeout(const Duration(seconds: 3));
     return sni;
   } catch (_) {
