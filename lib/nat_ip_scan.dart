@@ -26,6 +26,15 @@ import 'dart:math';
 import 'errjournal.dart';
 import 'nnie_core.dart'; // natStableSort
 
+/// Normalize persisted list/range cursors before using them as indexes.
+/// Corrupt, negative, or non-numeric state restarts at the first item.
+int natCursorIndex(Object? value, int length) {
+  if (length <= 0) return 0;
+  final parsed = value is int ? value : int.tryParse(value?.toString() ?? '');
+  if (parsed == null || parsed < 0) return 0;
+  return parsed % length;
+}
+
 class NatIpHit {
   final String ip;
   final int ms;
