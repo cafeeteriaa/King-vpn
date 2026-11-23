@@ -198,9 +198,11 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
   final take = size == BigInt.one
       ? 1
       : (wrap
-          ? maxPerBlock
+          // A wrapped slice may cross the range boundary, but never repeats
+          // an address inside the same batch when the range is smaller.
+          ? (size < BigInt.from(maxPerBlock) ? size.toInt() : maxPerBlock)
           : min(
-          maxPerBlock,
+              maxPerBlock,
               remaining > BigInt.from(maxPerBlock) ? maxPerBlock : remaining.toInt(),
             ));
   final addresses = <String>[];
@@ -277,11 +279,14 @@ List<String> natExpandDash(String range, {int maxCount = 65536}) {
   }
   final a = toInt(parts[0]);
   final b = toInt(parts[1]);
-  if (a == null || b == null || b < a) return const [];
-  final count = b - a + 1;
+  if (a == null || b == null) return const [];
+  // Match the generic IPv4/IPv6 cursor semantics for reversed endpoints.
+  final first = min(a, b);
+  final last = max(a, b);
+  final count = last - first + 1;
   final step = count > maxCount ? (count + maxCount - 1) ~/ maxCount : 1; // مشکل ۱۵: سقف رعایت شود
   final out = <String>[];
-  for (var v = a; v <= b; v += step) {
+  for (var v = first; v <= last; v += step) {
     out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
   }
   return out;
