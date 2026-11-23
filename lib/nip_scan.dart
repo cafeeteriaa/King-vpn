@@ -348,17 +348,19 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
 // روی همان Cloudflare تغییر می‌دهیم و Host را همان سرور نگه می‌داریم.
 // لیست کاندید؛ هر کدام که TLS روی IP باز کامل شد نگه داشته می‌شود.
 // خودت می‌توانی دامنه‌های بیشتری به این لیست اضافه کنی.
-// FRONTSNI: کاهش از ۱۹ به ۸ دامنه برای سرعت بیشتر nipFindFrontSni
+// Seed domains are only starting points; the full project domain inventory
+// is rotated through by nipFindFrontSni on subsequent calls.
 const natFrontSnis = <String>[
-  'cdnjs.cloudflare.com',    // 0
-  'www.cloudflare.com',      // 1
-  'speed.cloudflare.com',    // 2  ← قبلاً 3 بود، حالا 2
-  'one.one.one.one',         // 3  ← قبلاً 16 بود
-  '1.1.1.1',                 // 4  ← قبلاً 17 بود
-  'www.aparat.com',          // 5
-  'www.digikala.com',        // 6
-  'divar.ir',                // 7
+  'cdnjs.cloudflare.com',
+  'www.cloudflare.com',
+  'speed.cloudflare.com',
+  'one.one.one.one',
+  'www.aparat.com',
+  'www.digikala.com',
+  'divar.ir',
 ];
+const int _nipFrontSniBatchSize = 8;
+int _nipFrontSniCursor = 0;
 
 /// روی IP:port یک TLS با SNI داده‌شده کامل شود؟ برمی‌گرداند همان SNI یا null.
 Future<String?> nipFrontProbe(String ip, int port, String sni) async {
@@ -378,7 +380,19 @@ Future<String?> nipFrontProbe(String ip, int port, String sni) async {
 }
 
 Future<String?> nipFindFrontSni(String ip, int port) async {
-  for (final sni in natFrontSnis) {
+  final inventory = <String>{
+    ...natFrontSnis,
+    ...dnsxFullDomains(),
+  }.toList()..sort();
+  if (inventory.isEmpty) return null;
+  final start = _nipFrontSniCursor % inventory.length;
+  final count = min(_nipFrontSniBatchSize, inventory.length);
+  // Advance synchronously before the first await so concurrent IP probes do
+  // not all repeat the same domain slice.
+  _nipFrontSniCursor = (start + count) % inventory.length;
+  for (var offset = 0; offset < count; offset++) {
+    if (abort) return null;
+    final sni = inventory[(start + offset) % inventory.length];
     final ok = await nipFrontProbe(ip, port, sni);
     if (ok != null) return ok;
   }
