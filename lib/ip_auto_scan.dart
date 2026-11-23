@@ -146,7 +146,6 @@ Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Funct
   // A mode switch while compute() is running must not apply stale cursors
   // or a stale batch position to the newly selected network mode.
   final modeSnapshot = nationalMode;
-  final startPosSnapshot = ipAutoPos;
   final cursorSnapshot = Map<String, int>.of(ipAutoCursors);
   final args = <String, dynamic>{
     // Feed the generator a rotating CDN batch in global mode. National mode
@@ -167,10 +166,10 @@ Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Funct
     ..clear()
     ..addAll(generatedCursors);
   if (all.isEmpty) return const <String>[];
-  // هر اجرا یک batch قابل‌کنترل می‌گیرد؛ کرسرهای رنج و جای batch اجرای بعدی را ادامه می‌دهند
-  final start = startPosSnapshot % all.length;
-  final slice = all.skip(start).take(_ipAutoBatch).toList();
-  ipAutoPos = start + slice.length;
+  // The generator already advances per-range cursors. Taking from its head
+  // avoids skipping the first part of each newly rotated candidate batch.
+  final slice = all.take(_ipAutoBatch).toList(growable: false);
+  ipAutoPos = 0; // legacy position key; range cursors now own scan continuity.
   return slice;
 }
 
