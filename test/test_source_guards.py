@@ -2796,6 +2796,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('ipAutoCursors\n    ..clear()', next_batch)
 
 
+    def test_nip_hunt_and_ripe_asn_scanning_accept_both_address_families(self):
+        nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        self.assertIn('natExpandIpv6Cidr(cidr, maxPerBlock: maxPerBlock)', nip)
+        self.assertIn('resources[\'ipv6\']', nip)
+        self.assertIn('Future<List<String>> nipResolveAll(', nip)
+        self.assertIn('await nipResolveAll(server.host)', nip)
+        self.assertIn('if (pr.contains(\'/\')) out.add(pr);', nip)
+        self.assertIn('..._cfRangesV6', nip)
+        self.assertNotIn('!pr.contains(\':\')', nip)
+        self.assertNotIn('prefixes.take(80)', nip)
+        self.assertIn('natExpandIpRangeCursor(', nip)
+
     def test_smart_pilot_ranges_support_dual_stack_and_resumable_full_space(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('({List<String> addresses, Map<String, dynamic> cursors}) _pilotExpandRanges(')
