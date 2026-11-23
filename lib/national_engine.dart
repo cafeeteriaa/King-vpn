@@ -262,6 +262,16 @@ class NatNetworkDiagnosis {
         final reach = await Future.wait(answered.map(_tcpOk));
         poison = reach.isNotEmpty && !reach.any((x) => x);
       }
+      // The interface snapshot may change while DNS/TLS probes are in flight
+      // (Wi-Fi/mobile handover). Never publish a mixed-network classification.
+      final identityAfter = await _identityHash();
+      if (id.isEmpty || identityAfter.isEmpty || identityAfter != id) {
+        current = NatNetworkClass.unknown;
+        _checkedAt = null;
+        _identityAtCheck = null;
+        dbg('NNIE-DIAG: network changed during probes; evidence discarded');
+        return current;
+      }
       final ev = NatProbeEvidence(
         domesticDnsOk: domesticDnsOk,
         domesticTcpOk: domesticTcpOk,
