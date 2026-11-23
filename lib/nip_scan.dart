@@ -360,7 +360,30 @@ const natFrontSnis = <String>[
   'divar.ir',
 ];
 const int _nipFrontSniBatchSize = 8;
+const String _nipFrontSniCursorKey = 'nip_front_sni_cursor_v1';
 int _nipFrontSniCursor = 0;
+Future<void>? _nipFrontSniCursorLoadFuture;
+Future<void> _nipEnsureFrontSniCursorLoaded() {
+  return _nipFrontSniCursorLoadFuture ??= () async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _nipFrontSniCursor = prefs.getInt(_nipFrontSniCursorKey) ?? 0;
+    } catch (e, stk) {
+      logError(e, stk);
+    }
+  }();
+}
+Future<void> _nipFrontSniCursorSaveQueue = Future<void>.value();
+void _nipPersistFrontSniCursor(int value) {
+  _nipFrontSniCursorSaveQueue = _nipFrontSniCursorSaveQueue.then((_) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_nipFrontSniCursorKey, value);
+    } catch (e, stk) {
+      logError(e, stk);
+    }
+  });
+}
 
 /// روی IP:port یک TLS با SNI داده‌شده کامل شود؟ برمی‌گرداند همان SNI یا null.
 Future<String?> nipFrontProbe(String ip, int port, String sni) async {
@@ -380,6 +403,7 @@ Future<String?> nipFrontProbe(String ip, int port, String sni) async {
 }
 
 Future<String?> nipFindFrontSni(String ip, int port, {bool Function()? cancelled}) async {
+  await _nipEnsureFrontSniCursorLoaded();
   final inventory = <String>{
     ...natFrontSnis,
     ...dnsxFullDomains(),
@@ -390,6 +414,7 @@ Future<String?> nipFindFrontSni(String ip, int port, {bool Function()? cancelled
   // Advance synchronously before the first await so concurrent IP probes do
   // not all repeat the same domain slice.
   _nipFrontSniCursor = (start + count) % inventory.length;
+  _nipPersistFrontSniCursor(_nipFrontSniCursor);
   for (var offset = 0; offset < count; offset++) {
     if (cancelled?.call() ?? false) return null;
     final sni = inventory[(start + offset) % inventory.length];
