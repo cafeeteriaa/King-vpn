@@ -160,6 +160,50 @@ List<String> natExpandDash(String range, {required int maxCount}) {
   return out;
 }
 
+/// Lazy full-range expansion for explicit manual input. It does not materialize
+/// huge CIDRs in memory and has no fixed candidate-count ceiling.
+Iterable<String> natExpandRangeStream(String item) sync* {
+  final value = item.trim();
+  final cidr = value.split('/');
+  if (cidr.length == 2) {
+    final octets = cidr[0].split('.');
+    final prefix = int.tryParse(cidr[1].trim());
+    if (octets.length != 4 || prefix == null || prefix < 8 || prefix > 32) return;
+    var base = 0;
+    for (final octet in octets) {
+      final part = int.tryParse(octet.trim());
+      if (part == null || part < 0 || part > 255) return;
+      base = (base << 8) | part;
+    }
+    final size = 1 << (32 - prefix);
+    final start = base & ~(size - 1) & 0xFFFFFFFF;
+    for (var offset = 0; offset < size; offset++) {
+      final address = start + offset;
+      yield '${(address >> 24) & 255}.${(address >> 16) & 255}.${(address >> 8) & 255}.${address & 255}';
+    }
+    return;
+  }
+  final range = value.split('-');
+  if (range.length != 2) return;
+  int? parseIp(String raw) {
+    final parts = raw.trim().split('.');
+    if (parts.length != 4) return null;
+    var address = 0;
+    for (final part in parts) {
+      final octet = int.tryParse(part);
+      if (octet == null || octet < 0 || octet > 255) return null;
+      address = (address << 8) | octet;
+    }
+    return address;
+  }
+  final first = parseIp(range[0]);
+  final last = parseIp(range[1]);
+  if (first == null || last == null || last < first) return;
+  for (var address = first; address <= last; address++) {
+    yield '${(address >> 24) & 255}.${(address >> 16) & 255}.${(address >> 8) & 255}.${address & 255}';
+  }
+}
+
 /// اتصال TCP به ip:port. اگر جواب داد زمان پاسخ را برمی‌گرداند، وگرنه null.
 /// تضمین: سوکت در هر حالتی (موفق، خطا، تایم‌اوت) بسته می‌شود.
 Future<int?> natTcpProbe(String ip, int port, Duration timeout) async {
