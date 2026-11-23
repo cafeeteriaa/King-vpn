@@ -19,6 +19,16 @@ void main() {
       expect(sampled16.toSet(), hasLength(sampled16.length));
     });
 
+    test('CIDR expansion enforces the hard 4096-address ceiling', () {
+      expect(natExpandCidr('10.0.0.0/8', maxPerBlock: 100000).length,
+          lessThanOrEqualTo(4096));
+    });
+
+    test('dash range expansion enforces the hard 4096-address ceiling', () {
+      expect(natExpandDash('10.0.0.0-10.255.255.255', maxCount: 100000).length,
+          lessThanOrEqualTo(4096));
+    });
+
     test('dash range expansion rejects non-positive output limits', () {
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: 0), isEmpty);
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: -1), isEmpty);
