@@ -2011,27 +2011,24 @@ void goldNoteServer(Server srv) {
 }
 
 // MANUALSCAN: اسکن دستی بازه‌ها با پیشرفت و نتیجه داخل خود دیالوگ (نه پیام پشت دیالوگ)
-Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async {
-  // FOLDERHELP: IPهای تمیز پوشه اول تست می‌شوند (کمک پوشه به اسکن بازه، در نت ملی و عادی)
+Future<void> manualRangeScan(BuildContext context, Iterable<String> userAddrs) async {
   await goldLoad();
-  // RANGEFIX: بازه‌ی کاربر اول می‌آید تا با سقف زمان کوتاه هرگز کنار گذاشته نشود
-  // RANGEFIX: بازه‌ی کاربر اول و با ترتیب تصادفی (تا بازه‌ی بزرگ در سقف زمان کل بازه را پوشش دهد)
-  final shuffledUser = List<String>.of(userAddrs)..shuffle(Random());
-  final addrs = {...shuffledUser, for (final c in goldIpList()) c.ip}.toList();
+  final savedIps = goldIpList().map((entry) => entry.ip);
+  Iterable<String> allCandidates() sync* {
+    yield* userAddrs;
+    yield* savedIps;
+  }
   var cancelled = false;
   var finished = false;
   var done = 0;
   var hitsCount = 0;
-  var total = addrs.length;
+  var total = 0;
   var result = <NatIpHit>[];
   var open = true;
   StateSetter? setS;
-
   void upd(VoidCallback f) {
     if (open && setS != null) setS!(f);
   }
-
-  // ignore: unawaited_futures
   showDialog<void>(
     context: context,
     barrierDismissible: false,
@@ -2045,7 +2042,7 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('آدرس‌ها: $done / $total   •   IP سالم: $hitsCount'),
+              Text('آدرس‌های بررسی‌شده: $done • IP سالم: $hitsCount'),
               if (!finished) ...[
                 const SizedBox(height: 10),
                 const LinearProgressIndicator(),
@@ -2114,23 +2111,46 @@ Future<void> manualRangeScan(BuildContext context, List<String> userAddrs) async
     if (nationalMode) {
       await natManualYield(shouldAbort: () => cancelled || !open);
     }
-    // Do not start a scan if the user cancelled while waiting for the national scan.
     if (!cancelled) {
-      result = await natScanIps(
-        addrs,
-        concurrency: nationalMode ? kNatManualConc : natAdaptiveWorkers(),
-        timeout: const Duration(milliseconds: 1500),
-        cancelled: () => cancelled || !open,
-        onProgress: (d, t, h) => upd(() {
-          done = d;
-          total = t;
-          hitsCount = h;
-        }),
-      );
-      // Partial results remain visible, but a cancelled scan must not enter shared storage.
+      final batchSize = max(256, natAdaptiveConcurrency(0) * 64);
+      final batch = <String>[];
+      final seenInBatch = <String>{};
+      Future<void> scanBatch() async {
+        if (batch.isEmpty || cancelled || !open) return;
+        final current = List<String>.of(batch);
+        batch.clear();
+        seenInBatch.clear();
+        final hits = await natScanIps(
+          current,
+          concurrency: 0,
+          timeout: const Duration(milliseconds: 1500),
+          cancelled: () => cancelled || !open,
+          onProgress: (d, t, h) => upd(() {
+            done += 0; // progress is committed after each finite batch
+            total = done + t;
+            hitsCount = result.length + h;
+          }),
+        );
+        if (!cancelled && open) {
+          result.addAll(hits);
+          hitsCount = result.length;
+          done += current.length;
+          total = done;
+          upd(() {});
+        }
+      }
+      for (final raw in allCandidates()) {
+        if (cancelled || !open) break;
+        final parsed = InternetAddress.tryParse(raw.trim());
+        if (parsed == null) continue;
+        final ip = parsed.address;
+        if (seenInBatch.add(ip)) batch.add(ip);
+        if (batch.length >= batchSize) await scanBatch();
+      }
+      if (!cancelled && open && batch.isNotEmpty) await scanBatch();
       if (!cancelled && open) {
         await goldMergeIps(
-          [for (final h in result) CleanIp(h.ip, h.ms, 443)],
+          [for (final hit in result) CleanIp(hit.ip, hit.ms, 443)],
           shouldAbort: () => cancelled || !open,
         );
       }
