@@ -98,6 +98,41 @@ Future<List<NipHit>> nipScan(
   return hits;
 }
 
+/// Full official IPv4 country-resource inventory from RIPE, cached for offline reuse.
+/// The returned prefixes are consumed by the resumable range cursor in small batches;
+/// this function discovers ranges and does not itself send probes.
+Future<List<String>> nipIranCidrs() async {
+  final prefs = await SharedPreferences.getInstance();
+  final cached = prefs.getStringList('plus_ir_cidr');
+  if (cached != null && cached.isNotEmpty) return cached;
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+  try {
+    final request = await client
+        .getUrl(Uri.parse(
+            'https://stat.ripe.net/data/country-resource-list/data.json?resource=IR'))
+        .timeout(const Duration(seconds: 15));
+    final response = await request.close().timeout(const Duration(seconds: 20));
+    if (response.statusCode != 200) return const <String>[];
+    final body = await response.transform(utf8.decoder).join();
+    final decoded = jsonDecode(body);
+    final raw = ((decoded['data']?['resources']?['ipv4']) as List?) ?? const [];
+    final ranges = raw
+        .map((entry) => '$entry'.trim())
+        .where((entry) => entry.contains('/') && !entry.contains(':'))
+        .toSet()
+        .toList(growable: false);
+    if (ranges.isNotEmpty) {
+      await prefs.setStringList('plus_ir_cidr', ranges);
+    }
+    return ranges;
+  } catch (e, st) {
+    logError(e, st);
+    return const <String>[];
+  } finally {
+    client.close(force: true);
+  }
+}
+
 /// همان کانفیگ سرور [t] را روی IP دیگری می‌سازد؛ SNI و Host اصلی حفظ می‌شوند.
 String? nipSwapLink(Server t, String ip) {
   final l = t.link;
