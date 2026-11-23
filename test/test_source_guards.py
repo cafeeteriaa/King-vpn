@@ -2511,7 +2511,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         ip_auto = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
-        self.assertIn('const int kNatMaxScanAddresses = 4096;', nat)
+        self.assertNotIn('kNatMaxScanAddresses', nat)
         self.assertIn('final boundedIps = natBoundScanTargets(ips);', nat)
         self.assertIn('final boundedIps = natBoundScanTargets(ips);', nip)
         self.assertIn('elapsed.elapsed >= budget', nip)
