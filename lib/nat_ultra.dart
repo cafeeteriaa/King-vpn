@@ -2141,6 +2141,30 @@ List<Server> natTemplateSeeds = [];
 bool kNatIpScanOn = true;
 
 final Map<String, dynamic> _cfRangeCursors = {};
+int _natRangePortCursor = 0;
+bool _natRangeCursorsLoaded = false;
+
+Future<void> _natLoadRangeCursors() async {
+  if (_natRangeCursorsLoaded) return;
+  _natRangeCursorsLoaded = true;
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    _natRangePortCursor =
+        (prefs.getInt('natRangePortCursorV1') ?? 0).clamp(0, 1 << 31).toInt();
+    final raw = prefs.getString('natRangeScanCursorsV2');
+    if (raw == null || raw.isEmpty) return;
+    final decoded = jsonDecode(raw);
+    if (decoded is Map) {
+      for (final entry in decoded.entries) {
+        if (entry.value is num || entry.value is String) {
+          _cfRangeCursors['${entry.key}'] = entry.value;
+        }
+      }
+    }
+  } catch (e, stk) {
+    logError(e, stk);
+  }
+}
 List<String> _getCfIps({
   int batchSize = 160000,
   List<String>? liveRanges,
