@@ -2846,6 +2846,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('BigInt.from(cursor) % size', nat)
         self.assertIn('address.type != InternetAddressType.IPv6', nat)
 
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        self.assertIn("'https://www.cloudflare.com/ips-v6'", extras)
+        self.assertIn("p['ipv6_prefix']", extras)
+        self.assertIn("p['ipv6Prefix']", extras)
+        self.assertIn("NatDnsWireProbe.publicV6(address.rawAddress, 0)", extras)
+        self.assertIn("address.type == InternetAddressType.IPv6", extras)
+        self.assertIn("..._cfRangesV6", extras)
+        self.assertIn("InternetAddressType.IPv6", extras[extras.index('List<String> _cidrSample'):extras.index('Future<String> _cfRead')])
+
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        private_ip = main[main.index('bool _privateIp('):main.index('int byPing(')]
+        self.assertIn('fc00::/7', private_ip)
+        self.assertIn('IPv4-mapped IPv6', private_ip)
+
 
 if __name__ == '__main__':
     unittest.main()
