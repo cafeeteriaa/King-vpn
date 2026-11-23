@@ -4048,6 +4048,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('natIsFreshVerifiedRelay(', relay)
         self.assertIn('maxAge: Duration(hours: kGoldRetestHours)', relay)
         self.assertIn('relayServerUrl.isNotEmpty', relay)
+        manual_start = relay.index('if (relayServerUrl.isNotEmpty)')
+        manual_end = relay.index('if (chainCfg == null)', manual_start)
+        manual = relay[manual_start:manual_end]
+        self.assertIn('final proof = _resMap[relaySrv.key];', manual)
+        self.assertIn('final manuallyVerified = natIsFreshVerifiedRelay(', manual)
+        self.assertIn('if (manuallyVerified)', manual)
+        self.assertNotIn('chainCfg = natChainCfg(', manual.split('if (manuallyVerified)', 1)[0])
         helper = (ROOT / 'lib' / 'nat_relay_chain.dart').read_text(encoding='utf-8')
         self.assertIn('if (!verified || verifiedAt == null || maxAge <= Duration.zero)', helper)
         self.assertIn('return !age.isNegative && age < maxAge;', helper)
