@@ -1472,8 +1472,7 @@ final Map<String, DateTime> _natAsnTry = {};
 
 Future<String> _natNetType() async {
   try {
-    final l = await NetworkInterface.list(
-        includeLoopback: false, type: InternetAddressType.IPv4);
+    final l = await NetworkInterface.list(includeLoopback: false);
     var wifi = false, mob = false;
     for (final i in l) {
       if (i.addresses.isEmpty) continue;
@@ -2924,17 +2923,33 @@ class HotResumeWatcher extends WidgetsBindingObserver {
 // بازه‌های اصلی کلودفلر: 104.16.0.0/12، 104.24.0.0/14، 162.158.0.0/15، 172.64.0.0/13
 bool _isCfIp(String host) {
   final ip = InternetAddress.tryParse(host);
-  if (ip == null || ip.type != InternetAddressType.IPv4) return false;
-  final b = ip.rawAddress;
-  int v(int i) => b[i];
-  bool inRange(int a, int bb, int prefix) {
-    final mask = prefix == 0 ? 0 : (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF;
-    final x = (v(0) << 24) | (v(1) << 16) | (v(2) << 8) | v(3);
-    final y = (a << 24) | (bb << 16);
-    return (x & mask) == (y & mask);
+  if (ip == null) return false;
+  if (ip.type == InternetAddressType.IPv4) {
+    final b = ip.rawAddress;
+    int v(int i) => b[i];
+    bool inRange(int a, int bb, int prefix) {
+      final mask = prefix == 0 ? 0 : (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF;
+      final x = (v(0) << 24) | (v(1) << 16) | (v(2) << 8) | v(3);
+      final y = (a << 24) | (bb << 16);
+      return (x & mask) == (y & mask);
+    }
+    return inRange(104, 16, 12) || inRange(104, 24, 14) ||
+        inRange(162, 158, 15) || inRange(172, 64, 13);
   }
-  return inRange(104, 16, 12) || inRange(104, 24, 14) ||
-      inRange(162, 158, 15) || inRange(172, 64, 13);
+  if (ip.type != InternetAddressType.IPv6) return false;
+  final value = _natIpv6ToBigInt(ip);
+  for (final cidr in _cfRangesV6) {
+    final parts = cidr.split('/');
+    if (parts.length != 2) continue;
+    final networkAddress = InternetAddress.tryParse(parts[0]);
+    final prefix = int.tryParse(parts[1]);
+    if (networkAddress == null || prefix == null || prefix < 0 || prefix > 128) continue;
+    final hostBits = 128 - prefix;
+    final mask = prefix == 0 ? BigInt.zero :
+        ((BigInt.one << 128) - BigInt.one) ^ ((BigInt.one << hostBits) - BigInt.one);
+    if ((value & mask) == (_natIpv6ToBigInt(networkAddress) & mask)) return true;
+  }
+  return false;
 }
 
 // MUXWORKER: Worker کلودفلر فقط VLESS با دستور TCP (1) را می‌پذیرد؛ mux (دستور 3) را رد می‌کند.
