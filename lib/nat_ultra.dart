@@ -1854,8 +1854,15 @@ Future<void> natIpMemSave(String ip, int port) async {
 Future<void> natRangesSave(String text) async {
   natRanges = text
       .split(RegExp(r'[\r\n,; ]+'))
-      .where((x) => x.contains('/') || x.contains('-'))
-      .toList();
+      .map((value) => value.trim())
+      .where((value) => value.isNotEmpty)
+      .where((value) => natExpandIpRangeCursor(
+            value,
+            '0',
+            maxPerBlock: 1,
+            wrap: false,
+          ).addresses.isNotEmpty)
+      .toList(growable: false);
   _natConfiguredRangeCursor = 0;
   _natConfiguredRangeOffsets.clear();
   try {
