@@ -16,6 +16,17 @@ void main() {
       expect(natBoundScanTargets(['192.0.2.1'], maxCount: 0), isEmpty);
     });
 
+    test('range pages walk a CIDR sequentially without sampling or dropping addresses', () {
+      expect(natRangeAddressCount('192.0.2.0/29'), 8);
+      expect(natExpandRangePage('192.0.2.0/29', offset: 0, count: 3),
+          ['192.0.2.0', '192.0.2.1', '192.0.2.2']);
+      expect(natExpandRangePage('192.0.2.0/29', offset: 3, count: 5),
+          ['192.0.2.3', '192.0.2.4', '192.0.2.5', '192.0.2.6', '192.0.2.7']);
+      expect(natRangeAddressCount('192.0.2.1-192.0.2.4'), 4);
+      expect(natExpandRangePage('192.0.2.1-192.0.2.4', offset: 2, count: 4),
+          ['192.0.2.3', '192.0.2.4']);
+    });
+
     test('lazy range expansion streams every address without a fixed count ceiling', () {
       expect(natExpandRangeStream('192.0.2.0/30').toList(),
           ['192.0.2.0', '192.0.2.1', '192.0.2.2', '192.0.2.3']);
