@@ -674,3 +674,26 @@
 - آزمون روی دستگاه واقعی، مالکیت UID در Android 11+ و fallback در Android 10، رقابت با VPN دیگر، DNS leak، مسیر واقعی IPv4/IPv6، اپراتورهای ایران و عبور end-to-end از relay همچنان **NOT TESTED** هستند.
 - این commit صرفاً ثبت شواهد ممیزی است؛ نباید به‌عنوان تغییر رفتار برنامه یا اثبات اتصال واقعی تلقی شود. پس از ثبت آن، CI جدید باید برای SHA جدید اجرا شود.
 - سیاست انتشار حفظ می‌شود: PR در حالت Draft باقی بماند؛ `main` تغییر نکند؛ ادغام یا انتشار production بدون سه بازبینی مستقل، CI دقیق HEAD و پذیرش دستگاهی انجام نشود.
+
+
+## ۴۲. نتیجهٔ نهایی CI دقیق HEAD و ممیزی تکمیلی — 2026-11-23
+
+- شاخه: `audit/final-master`
+- HEAD دقیق: `d185e1300cc9a991f8bfe8010dfcb2a30c48b50d`
+- GitHub Actions Run 2298 / `45192985927`: **SUCCESS** برای همین SHA.
+- مراحل موفق: Source Guard، dependency resolution، Flutter unit tests، Dart analysis، ARM64 release-mode APK، کنترل ELF 16 KiB، کنترل APK ZIP alignment، بارگذاری APK، سورس کامل و symbols.
+- مراحل diagnostics با وضعیت `skipped` پایان یافتند؛ شکست محسوب نمی‌شوند و در این اجرا repair diagnostics تولید نشده است.
+- Artifactهای Run 2298:
+  - `king-vpn-arm64-release-2298` — ID `14826378757`، اندازهٔ آرشیو 49,034,348 بایت، SHA-256 آرشیو `bbf40840d5614eb6b027e39e3185a59e546ae935b9ff49df44572c901622a1d5`.
+  - `king-vpn-full-source-2298` — ID `14826443657`، اندازهٔ آرشیو 1,591,969 بایت، SHA-256 آرشیو `943cf08e49add36e7a265bd1159ca6cde7ff5dbc8540e3b29e18184ff7230262`.
+  - `king-vpn-symbols-2298` — ID `14826074659`، اندازهٔ آرشیو 1,323,924 بایت، SHA-256 آرشیو `d333d6614c3b8b9fc9507983040c78c1c04c42e104ebe1991d3737ffcce4bb5c`.
+- Artifactها منقضی نشده‌اند و تاریخ انقضای ثبت‌شده 2026-12-07 (APK/source) و 2026-12-23 (symbols) است. SHA-256 بالا digest آرشیو artifact است، نه SHA-256 فایل APK داخل آن.
+- ممیزی کد تکمیلی:
+  - `lib/tg_proxy.dart`: کشف/اعتبارسنجی قالب لینک و بازکردن خارجی Telegram پیاده‌سازی شده؛ هیچ handshake یا آزمون data-plane برای MTProto/SOCKS5 انجام نمی‌شود. منبع عمومی و ناشناس می‌تواند پروکسی مخرب یا ناپایدار ارائه کند؛ کاربر باید پیش از اعتماد، ارائه‌دهنده را بشناسد. این قابلیت نباید «پروکسی امن/تأییدشده» نامیده شود.
+  - `lib/auto_scanners.dart`: نتیجهٔ SNI به معنی TCP + TLS handshake و اعتبارسنجی گواهی برای hostname است؛ نتیجهٔ پورت نیز TLS موفق روی پورت منتخب است. این نتایج به‌تنهایی HTTP پاسخ‌گو، Xray handshake یا عبور واقعی تونل را اثبات نمی‌کنند.
+  - `lib/dns_scanner.dart`: resolverهای اسکن UDP فعلی IPv4 هستند؛ برای resolver IPv6 مسیر transport جداگانه و تست‌شده وجود ندارد. آزمون A و AAAA نام دامنه را پوشش می‌دهد، اما این به معنی پشتیبانی از resolver IPv6 نیست.
+  - `lib/nat_ip_scan.dart`: هدف‌ها canonicalize و deduplicate می‌شوند و سقف سخت هر scan برابر 4096 آدرس است؛ تست‌های واحد برای CIDR، dash range، IPv6، لغو، concurrency و ورودی نامعتبر وجود دارد.
+  - `android_src/KingVpnService.java`: route پیش‌فرض IPv4 و IPv6 فعال است و در صورت شکست تنظیم IPv6، establish fail-closed می‌شود. مقدار MTU فعلی 1500 است؛ بهینه‌بودن آن روی اپراتورها/شبکه‌های ایران بدون packet capture و آزمون دستگاهی تأیید نشده است.
+- PR #44 همچنان Open و Draft و ادغام‌نشده است؛ base همان `codex/continuation-mainline-20261122`. ثبت reviewهای مستقل همچنان صفر است؛ شرط سه بازبینی مستقل **NOT SATISFIED** است.
+- وضعیت پذیرش: CI دقیق HEAD **TESTED/PASS**؛ اتصال واقعی روی گوشی، رفتار اپراتورهای ایران، MTU، DNS leak، IPv4/IPv6 packet routing، رقابت VPNها، Telegram data-plane و relay دو-hop **NOT TESTED**.
+- هیچ تغییری در `main` انجام نشد و این موفقیت CI مجوز merge یا انتشار production نیست.
