@@ -92,6 +92,17 @@ void main() {
       expect(batch.nextCursor, '1');
     });
 
+    test('linear dash range expansion accepts IPv6 endpoints', () {
+      expect(
+        natExpandDash('2001:db8::1-2001:db8::3', maxCount: 3),
+        ['2001:db8::1', '2001:db8::2', '2001:db8::3'],
+      );
+      expect(
+        natExpandDash('2001:db8::1-2001:db8::3', maxCount: 2),
+        ['2001:db8::1', '2001:db8::2'],
+      );
+    });
+
     test('dash range expansion rejects non-positive output limits', () {
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: 0), isEmpty);
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: -1), isEmpty);
