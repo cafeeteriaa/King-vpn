@@ -3290,6 +3290,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('kVpnLastStateTop', main)
 
 
+    def test_vpn_transport_proof_checks_owner_uid_on_android_11_plus(self):
+        native = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
+        start = native.index('"kingVpnTransportActive" -> {')
+        end = native.index('"back" -> {', start)
+        body = native[start:end]
+        self.assertIn('val isVpnTransport = capabilities?.hasTransport(', body)
+        self.assertIn('Build.VERSION.SDK_INT >= Build.VERSION_CODES.R', body)
+        self.assertIn('capabilities?.ownerUid == applicationInfo.uid', body)
+        self.assertIn('result.success(isVpnTransport && ownerMatches)', body)
+
     def test_tun_detection_uses_flutter_v2ray_owned_service_state(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         native = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')

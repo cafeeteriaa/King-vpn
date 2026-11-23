@@ -153,7 +153,7 @@ class MainActivity : FlutterActivity() {
                             }
                         }
                         "kingVpnTransportActive" -> {
-                            // Ask Android whether this app's active default network is a VPN transport.
+                            // A VPN transport alone may belong to another VPN provider.
                             val connectivity = getSystemService(android.net.ConnectivityManager::class.java)
                             val capabilities = if (connectivity == null) {
                                 null
@@ -161,9 +161,18 @@ class MainActivity : FlutterActivity() {
                                 val activeNetwork = connectivity.activeNetwork
                                 if (activeNetwork == null) null else connectivity.getNetworkCapabilities(activeNetwork)
                             }
-                            result.success(
-                                capabilities?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true
-                            )
+                            val isVpnTransport = capabilities?.hasTransport(
+                                android.net.NetworkCapabilities.TRANSPORT_VPN
+                            ) == true
+                            // Android 11+ exposes the owner UID to the VPN app itself.
+                            // Require this network to belong to King VPN, not merely any VPN.
+                            // Older Android releases retain the daemon + transport compatibility check.
+                            val ownerMatches = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                capabilities?.ownerUid == applicationInfo.uid
+                            } else {
+                                true
+                            }
+                            result.success(isVpnTransport && ownerMatches)
                         }
                         "back" -> {
                             moveTaskToBack(true)
