@@ -1662,6 +1662,15 @@ Future<void> natIpMemLoad() async {
         .where((port) => port > 0 && port < 65536)
         .toList();
     _natConfiguredRangeCursor = (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
+    final cfCursors = p.getString('natCfRangeCursors');
+    if (cfCursors != null) {
+      final decoded = jsonDecode(cfCursors);
+      if (decoded is Map) {
+        _cfRangeCursors
+          ..clear()
+          ..addAll(decoded.map((k, v) => MapEntry('$k', (v as num).toInt())));
+      }
+    }
     final rangeCursors = p.getString('natConfiguredRangeCursors');
     if (rangeCursors != null) {
       final decoded = jsonDecode(rangeCursors);
@@ -2375,21 +2384,22 @@ Future<List<String>> _natRangeScanStepBody({
     natIpScanned += scanned;
   }
 
-  final persistedPortCursor = natRangePortCursor;
-  final persistedPortInventory = natRangePortInventory.map((p) => '$p').toList();
-  final persistedRangeCursor = _natConfiguredRangeCursor;
-  final persistedRangeCursors = jsonEncode(_natConfiguredRangeCursors);
-  unawaited(() async {
-    try {
-      final p = await SharedPreferences.getInstance();
-      await p.setInt('natRangePortCursor', persistedPortCursor);
-      await p.setStringList('natRangePortInventory', persistedPortInventory);
-      await p.setInt('natConfiguredRangeCursor', persistedRangeCursor);
-      await p.setString('natConfiguredRangeCursors', persistedRangeCursors);
-    } catch (e, st) {
-      logError(e, st);
-    }
-  }());
+  try {
+    final p = await SharedPreferences.getInstance();
+    await p.setInt('natRangePortCursor', natRangePortCursor);
+    await p.setStringList(
+      'natRangePortInventory',
+      natRangePortInventory.map((port) => '$port').toList(),
+    );
+    await p.setInt('natConfiguredRangeCursor', _natConfiguredRangeCursor);
+    await p.setString(
+      'natConfiguredRangeCursors',
+      jsonEncode(_natConfiguredRangeCursors),
+    );
+    await p.setString('natCfRangeCursors', jsonEncode(_cfRangeCursors));
+  } catch (e, st) {
+    logError(e, st);
+  }
   return out;
 }
 
