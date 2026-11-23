@@ -2268,6 +2268,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('if (!nationalMode) ipAutoStopFlag = true;', body)
 
 
+    def test_manual_range_dispatch_supports_explicit_ipv6_cidr(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('List<String> natExpandAny(')
+        end = source.index('const List<String> natIranDnsHosts', start)
+        body = source[start:end]
+        self.assertIn("item.contains('/')", body)
+        self.assertIn('InternetAddressType.IPv6', body)
+        self.assertIn('natExpandIpv6Cidr(item, maxPerBlock: maxPerBlock)', body)
+        self.assertIn('natExpandCidr(item, maxPerBlock: maxPerBlock)', body)
+
     def test_ip_range_expanders_reject_non_positive_limits(self):
         scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
