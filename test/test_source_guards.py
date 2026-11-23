@@ -4133,14 +4133,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         sanitizer = source[start:end]
         self.assertIn("ss.remove('allowInsecure')", sanitizer)
         self.assertIn("key == 'tlsSettings'", sanitizer)
-    def test_sni_camouflage_never_enables_insecure_tls(self):
+    def test_sni_camouflage_scopes_tls_override_to_primary_proxy(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('String _natSmartSni(')
         end = source.index('int natSafeVariant(', start)
         smart_sni = source[start:end]
+        self.assertIn("natSetPrimaryProxyTlsServerName(cfg, 'cdnjs.cloudflare.com')", smart_sni)
         self.assertNotIn("allowInsecure'] = true", smart_sni)
-        self.assertIn("tls.remove('allowInsecure')", smart_sni)
-        self.assertIn('tlsHasEch(tls)', smart_sni)
+
+        policy = (ROOT / 'lib' / 'nat_sni_policy.dart').read_text(encoding='utf-8')
+        self.assertIn("_natTlsProxyProtocols.contains(outbound['protocol'])", policy)
+        self.assertIn("tls.remove('allowInsecure')", policy)
+        self.assertIn("tls['echConfigList']", policy)
+        self.assertIn("tls['serverName'] = name", policy)
+
+        tests = (ROOT / 'test' / 'nat_sni_policy_test.dart').read_text(encoding='utf-8')
+        self.assertIn('changes only the primary TLS proxy', tests)
+        self.assertIn('leaves ECH-enabled primary proxy', tests)
 
     def test_telegram_proxy_uses_bounded_cached_offline_fallback(self):
         source = (ROOT / 'lib' / 'tg_proxy.dart').read_text(encoding='utf-8')
