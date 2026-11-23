@@ -2156,7 +2156,7 @@ Future<void> _natLoadRangeCursors() async {
         for (final entry in decodedPorts.entries) {
           if (entry.value is num) {
             _natRangePortCursors['${entry.key}'] =
-                (entry.value as num).toInt().clamp(0, 1 << 31);
+                (entry.value as num).toInt().clamp(0, 1 << 31).toInt();
           }
         }
       }
