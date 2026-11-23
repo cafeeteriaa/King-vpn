@@ -187,3 +187,15 @@ Final status: VERIFIED WITH LIMITATIONS. This CI artifact is not declared produc
 - The V2Ray plugin source is patched after Pub resolution from the cache; exact resolved package graph and patch provenance need to be captured.
 - Added this finding and a remediation checklist to `FINAL_MASTER_AUDIT.md`. Documentation commit: `50375e9ae032b0300215a74aae38ebd310c442c7`.
 - No dependency version was guessed or changed, and no SBOM/license/CVE pass is claimed. Exact lockfile creation requires a real CI/toolchain resolution and artifact evidence.
+
+
+## Verified dependency snapshot from CI artifact — 2026-11-23
+
+- Downloaded full-source artifact from CI Run 2157 (artifact ID `14798807054`) and independently matched outer ZIP SHA-256 to GitHub digest `9d65f7ae6f66fd1dbb99c3835b2bd2cf8af97e81edb03d19d79434a86c6c9d15`.
+- Nested source ZIP contains generated `build_app/pubspec.yaml` and `pubspec.lock`; the lockfile exists for this build but is not committed in the repository and is regenerated on each CI run.
+- Exact toolchain from run log: Flutter 3.50.1 (framework revision `ae9b586f34`), Dart 3.14.0, Java 21.0.13.
+- Lockfile inventory: 116 packages (111 hosted, 5 SDK), 19 direct main and 2 direct dev dependencies; 111 hosted package entries have SHA-256 values.
+- `pubspec.yaml` SHA-256: `d4206ee05eacd3bb3682b8f0f5b62948f110881a3d6ea1291cbe64af334fe5d8`.
+- `pubspec.lock` SHA-256: `f531c1ac1fcee55851992a6d76bfb3893b7fc4b2508e20e4adb0cedaa0fa159c`.
+- This is a verified snapshot for source commit `649147e8a3c96979f1bbab82c14ccff09f6bbf2d), not evidence for later code changes or future dependency resolution.
+- SBOM, complete license attribution and CVE review remain OPEN. Documentation addendum commit: `a5f692bed75002a3356876e6f971d7e300cd5024`.
