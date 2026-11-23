@@ -2799,5 +2799,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("ipAutoPos = 0; // legacy position key", next_batch)
 
 
+    def test_ipv6_is_supported_by_ip_inventory_tcp_scan_and_dns_aaaa(self):
+        nat_scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        self.assertIn('List<String> natExpandIpv6Cidr(', nat_scan)
+        self.assertIn('InternetAddressType.IPv6', nat_scan)
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn('BigInt _natIpv6ToBigInt(', nat)
+        self.assertIn('prefix > 128', nat)
+        self.assertIn('return _natExpandAnyCursor(item, 0, maxPerBlock).$1;', nat)
+        ip_auto = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        self.assertIn("blocks.add('${parsed.address}/128');", ip_auto)
+        core = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
+        self.assertIn('int recordType = 1', core)
+        self.assertIn('recordType == 28', core)
+        self.assertIn('static bool publicV6(', core)
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        self.assertIn("recordType: 28", engine)
+
+
 if __name__ == '__main__':
     unittest.main()
