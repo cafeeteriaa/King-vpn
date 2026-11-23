@@ -989,26 +989,49 @@ Future<void> _doRefreshClean() async {
   try {
     cleanIpStatus = 'در حال جمع‌آوری IP...';
     cleanTick.value++;
-    final c = await _cleanCandidates();
-    final res = <CleanIp>[];
+    final candidates = await _cleanCandidates();
+    final results = <CleanIp>[];
+    final clock = Stopwatch()..start();
+    const budget = Duration(seconds: 90);
+    var next = 0;
     var done = 0;
-    await pool<String>(c, 20, (ip) async {
-      if (res.length >= 20) return;
-      final ms = await _cfProbeMs(ip, const Duration(milliseconds: 3500));
-      done++;
-      if (ms != null) res.add(CleanIp(ip, ms));
-      if (done % 5 == 0) {
-        cleanIpStatus = 'در حال تست... $done از ${c.length} • ${res.length} سالم';
-        cleanTick.value++;
+
+    Future<void> worker() async {
+      while (true) {
+        if (clock.elapsed >= budget || next >= candidates.length) return;
+        final ip = candidates[next++];
+        final latency = await _cfProbeMs(
+          ip,
+          const Duration(milliseconds: 3500),
+        );
+        done++;
+        if (latency != null) results.add(CleanIp(ip, latency));
+        if (done % 5 == 0 || done == candidates.length) {
+          cleanIpStatus =
+              'در حال تست... $done از ${candidates.length} • ${results.length} سالم';
+          cleanTick.value++;
+        }
       }
-      await Future.delayed(const Duration(milliseconds: 20));
-    }).timeout(const Duration(seconds: 40), onTimeout: () {});
-    res.sort((a, b) => a.ms.compareTo(b.ms));
-    cleanIps = res.take(20).toList();
+    }
+
+    final workers = min(20, candidates.length);
+    await Future.wait(List.generate(workers, (_) => worker()));
+    results.sort((a, b) => a.ms.compareTo(b.ms));
+    cleanIps = results.take(20).toList();
     cleanIpsAt = DateTime.now();
-    cleanIpStatus = '${cleanIps.length} IP سالم از ${c.length} تست';
+    final complete = done >= candidates.length;
+    cleanIpStatus = complete
+        ? '${cleanIps.length} IP سالم از ${candidates.length} تست'
+        : 'بسته ناقص: $done از ${candidates.length}؛ Cursor برای ادامه حفظ شد';
     await _saveCleanIps();
-    await goldMergeIps(res);
+    await goldMergeIps(results);
+    if (complete) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _cleanRangeCursorKey,
+        jsonEncode(_cleanStagedRangeCursors),
+      );
+    }
   } catch (e, stk) {
     logError(e, stk);
     cleanIpStatus = 'خطا در دریافت IP';
