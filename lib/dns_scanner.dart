@@ -148,7 +148,7 @@ List<int> dnsxQuery(String name, int id, {int recordType = 1}) {
     b.add(bytes.length);
     b.addAll(bytes);
   }
-  b.addAll([0x00, 0x00, (recordType >> 8) & 0xff, recordType & 0xff, 0x00, 0x01]); // QTYPE و QCLASS=IN
+  b.addAll([0x00, (recordType >> 8) & 0xff, recordType & 0xff, 0x00, 0x01]); // root, QTYPE و QCLASS=IN
   return b;
 }
 
