@@ -27,7 +27,6 @@ List<String> nipExpandCidr(String cidr, {int maxPerBlock = 4096}) {
     base = (base << 8) | v;
   }
   if (maxPerBlock <= 0) return const [];
-  maxPerBlock = min(maxPerBlock, 4096);
   final size = 1 << (32 - prefix);
   final start = base & ~(size - 1) & 0xFFFFFFFF;
   // Ceiling division ensures the sampled output never exceeds the caller's cap.
@@ -60,7 +59,7 @@ Future<List<NipHit>> nipScan(
   List<String> ips, {
   int port = 443,
   int concurrency = 16,
-  int want = 12,
+  int want = 1 << 31,
   Duration budget = const Duration(minutes: 2),
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
@@ -323,26 +322,14 @@ extension NipHunt on _HomePageState {
     // مرحله ۱: کانفیگ‌های CDN (SNI/Host) ← لبه‌های باز چند CDN
     // CDNDIV: Cloudflare + Fastly + AWS CloudFront + Google، نه فقط Cloudflare
     if (cdnT.isNotEmpty) {
-      final cfSet = _cfRanges.toSet();
-      final cfIps = <String>[];
-      final otherIps = <String>[];
-      for (final c in _liveCdnRanges) {
-        if (cfSet.contains(c)) cfIps.addAll(nipExpandCidr(c, maxPerBlock: 512));
-      }
-      // PERFFIX: بقیه‌ی CDNها را فقط تا سقف هم‌اندازه‌ی Cloudflare بساز. قبلاً
-      // همه‌ی بلوک‌های زنده (صدها بلوک × ۵۱۲) روی UI ساخته و بعد کوتاه می‌شد
-      // که باعث قفل شدن اپ می‌شد.
-      final cap = cfIps.isEmpty ? 6000 : cfIps.length;
-      final rnd = Random();
-      final others = _liveCdnRanges.where((c) => !cfSet.contains(c)).toList()
-        ..shuffle(rnd);
-      for (final c in others) {
-        if (otherIps.length >= cap) break;
-        otherIps.addAll(nipExpandCidr(c, maxPerBlock: 32));
-      }
-      if (otherIps.length > cap) otherIps.removeRange(cap, otherIps.length);
-      final ips = <String>[...cfIps, ...otherIps];
-      ips.shuffle(rnd);
+      // Cursor-based sampling traverses the entire published CDN range inventory
+      // over repeated passes. The batch is a work quantum, not a candidate ceiling.
+      // Non-Cloudflare CDN ranges are emitted first; Cloudflare is deliberately last.
+      final ips = _getCfIps(
+        batchSize: 1024,
+        liveRanges: _liveCdnRanges,
+        cursors: _cfRangeCursors,
+      );
       if (await _natTryScan(cdnT, ips,
           port: cdnT.first.port, label: 'لبه‌ی CDN', front: true)) {
         return true;
