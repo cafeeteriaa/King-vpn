@@ -3885,6 +3885,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('while (usedTags.contains(hopTag))', chain)
         self.assertIn("so['dialerProxy'] = hopTag;", chain)
         self.assertNotIn("so['dialerProxy'] = 'relay-hop';", chain)
+    def test_nat_sni_variant_labels_match_candidate_indices(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn("_NatSpec('SNI>cloudflare', sniSwap: 1)", source)
+        self.assertIn("_NatSpec('SNI>speed', sniSwap: 2)", source)
+        self.assertIn('const [0, 1, 2, 7][sniIdx]', source)
+        self.assertIn("natFrontSnis[sniSwap]", source)
     def test_sni_camouflage_never_enables_insecure_tls(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('String _natSmartSni(')
