@@ -114,7 +114,12 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
   if (maxPerBlock <= 0 || cursor == 'done') {
     return (addresses: const <String>[], nextCursor: cursor);
   }
-  final current = BigInt.tryParse(cursor) ?? BigInt.zero;
+  // Persisted cursors may be stale or malformed. A negative offset would
+  // otherwise produce negative BigInt addresses before raw-byte conversion.
+  final parsedCursor = BigInt.tryParse(cursor);
+  final current = parsedCursor == null || parsedCursor.isNegative
+      ? BigInt.zero
+      : parsedCursor;
   BigInt? first;
   BigInt? last;
   int byteLength = 0;
