@@ -34,6 +34,22 @@ void main() {
       expect(natExpandIpv6Cidr('2001:db8::/129'), isEmpty);
     });
 
+    test('single IPv4 and IPv6 addresses are exhausted after one probe', () {
+      for (final address in ['192.0.2.1', '2001:4860:4860::8888']) {
+        final first = natExpandIpRangeCursor(address, '0', maxPerBlock: 8);
+        expect(first.addresses, [address]);
+        expect(first.nextCursor, 'done');
+        final second = natExpandIpRangeCursor(
+          address, first.nextCursor, maxPerBlock: 8,
+        );
+        expect(second.addresses, isEmpty);
+        expect(second.nextCursor, 'done');
+      }
+      final v6 = natExpandIpRangeCursor('2001:4860::1/128', '0');
+      expect(v6.addresses, ['2001:4860::1']);
+      expect(v6.nextCursor, 'done');
+    });
+
     test('generic IP range cursor accepts IPv4 /0 and wraps at the full address-space boundary', () {
       final batch = natExpandIpRangeCursor(
         '0.0.0.0/0', '4294967294', maxPerBlock: 3,
