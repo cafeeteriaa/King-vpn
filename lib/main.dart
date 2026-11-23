@@ -4867,53 +4867,100 @@ bool inRowGid(Server s, String gid) {
   return false;
 }
 
-// DNS over HTTPS to a plain IP, so a poisoned local DNS cannot break it
+// DNS-over-HTTPS to plain resolver IPs. Keep every A and AAAA answer;
+// legacy single-address callers receive IPv4 first, then IPv6 as fallback.
 final Map<String, String> _dohCache = {};
+final Map<String, List<String>> _dohCacheAll = {};
 final Map<String, DateTime> _dohCacheAt = {};
-int _dohFail = 0; // DoH blocked on this network -> stop wasting time on it
+int _dohFail = 0;
 DateTime? _dohFailAt;
-Future<String?> dohResolve(String name) async {
-  final c = _dohCache[name];
+
+Future<List<String>> dohResolveAll(String name) async {
+  final cached = _dohCacheAll[name];
+  final single = _dohCache[name];
   final at = _dohCacheAt[name];
-  if (c != null && at != null && DateTime.now().difference(at) < const Duration(minutes: 10)) return c;
-  // NATOPT: جهانی قطع است → DoH خارجی جواب نمی‌دهد؛ فقط کش (هر سنی) و بدون انتظار
-  if (NatNetworkDiagnosis.preferDomestic) return c;
+  if (cached != null && cached.isNotEmpty && at != null &&
+      DateTime.now().difference(at) < const Duration(minutes: 10)) {
+    return List<String>.of(cached);
+  }
+  if (cached == null && single != null && at != null &&
+      DateTime.now().difference(at) < const Duration(minutes: 10)) {
+    return [single];
+  }
+  // When the international path is unavailable, use cache without waiting.
+  if (NatNetworkDiagnosis.preferDomestic) {
+    return cached != null && cached.isNotEmpty
+        ? List<String>.of(cached)
+        : (single == null ? const <String>[] : [single]);
+  }
   if (_dohFail >= 6) {
     final failAt = _dohFailAt;
-    if (failAt != null && DateTime.now().difference(failAt) < const Duration(minutes: 5)) {
-      return null;
+    if (failAt != null &&
+        DateTime.now().difference(failAt) < const Duration(minutes: 5)) {
+      return const <String>[];
     }
     _dohFail = 0;
   }
-  for (final ep in _dohEps) {
-    final cl = HttpClient()..connectionTimeout = const Duration(seconds: 3);
+
+  final found = <String>{};
+  for (final endpoint in _dohEps) {
+    final uri = Uri.parse(endpoint.replaceAll('%N', Uri.encodeComponent(name)));
+    final expectedType = uri.queryParameters['type']?.toUpperCase() == 'AAAA' ? 28 : 1;
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
     try {
-      final req = await cl
-          .getUrl(Uri.parse(ep.replaceAll('%N', name)))
-          .timeout(const Duration(seconds: 3));
-      req.headers.set('accept', 'application/dns-json');
-      final res = await req.close().timeout(const Duration(seconds: 3));
-      final body = await res
+      final request = await client.getUrl(uri).timeout(const Duration(seconds: 3));
+      request.headers.set('accept', 'application/dns-json');
+      final response = await request.close().timeout(const Duration(seconds: 3));
+      final body = await response
           .transform(Utf8Decoder(allowMalformed: true))
           .join()
           .timeout(const Duration(seconds: 3));
-      for (final a in (jsonDecode(body)['Answer'] as List? ?? [])) {
-        if (a['type'] == 1) {
-          final ip = a['data'].toString();
-          _dohCache[name] = ip;
-          _dohCacheAt[name] = DateTime.now();
-          _dohFail = 0;
-          return ip;
+      final decoded = jsonDecode(body);
+      final answers = decoded is Map ? decoded['Answer'] : null;
+      if (answers is! List) continue;
+      for (final answer in answers) {
+        if (answer is! Map || (answer['type'] as num?)?.toInt() != expectedType) {
+          continue;
+        }
+        final address = InternetAddress.tryParse(answer['data']?.toString() ?? '');
+        if (address == null) continue;
+        if (expectedType == 1 && address.type == InternetAddressType.IPv4) {
+          found.add(address.address);
+        } else if (expectedType == 28 && address.type == InternetAddressType.IPv6) {
+          found.add(address.address);
         }
       }
-    } catch (_swE) { _swl('dohResolve#1', _swE);
+    } catch (error) {
+      _swl('dohResolveAll', error);
     } finally {
-      cl.close(force: true);
+      client.close(force: true);
     }
+  }
+
+  if (found.isNotEmpty) {
+    final addresses = found.toList(growable: false);
+    final preferred = addresses.firstWhere(
+      (value) => InternetAddress.tryParse(value)?.type == InternetAddressType.IPv4,
+      orElse: () => addresses.first,
+    );
+    _dohCacheAll[name] = addresses;
+    _dohCache[name] = preferred;
+    _dohCacheAt[name] = DateTime.now();
+    _dohFail = 0;
+    return addresses;
   }
   _dohFail++;
   _dohFailAt = DateTime.now();
-  return null;
+  return const <String>[];
+}
+
+Future<String?> dohResolve(String name) async {
+  final addresses = await dohResolveAll(name);
+  if (addresses.isEmpty) return null;
+  return addresses.firstWhere(
+    (value) => InternetAddress.tryParse(value)?.type == InternetAddressType.IPv4,
+    orElse: () => addresses.first,
+  );
 }
 
 // same config, but the address is the resolved IP (SNI/Host keep the domain)
