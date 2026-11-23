@@ -183,13 +183,23 @@ class NatNetworkDiagnosis {
     }
   }
 
+  // Require a verified TLS handshake, not merely an open TCP/443 socket.
+  // This prevents captive portals and unrelated listeners from being counted
+  // as evidence that the selected domestic/global HTTPS route is reachable.
   static Future<bool> _tcpOk(String host) async {
+    Socket? raw;
+    SecureSocket? secure;
     try {
-      final s = await Socket.connect(host, 443, timeout: const Duration(seconds: 3));
-      s.destroy();
+      raw = await Socket.connect(
+        host, 443, timeout: const Duration(seconds: 3));
+      secure = await SecureSocket.secure(raw, host: host)
+          .timeout(const Duration(seconds: 4));
       return true;
     } catch (_) {
       return false;
+    } finally {
+      secure?.destroy();
+      raw?.destroy();
     }
   }
 
