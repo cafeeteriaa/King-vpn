@@ -21,6 +21,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'errjournal.dart';
 import 'nnie_core.dart'; // natStableSort
@@ -84,6 +85,51 @@ List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   for (var i = 0; i < size; i += step) {
     final v = start + i;
     out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');
+  }
+  return out;
+}
+
+/// Expand an explicitly supplied IPv6 CIDR using bounded, evenly spaced samples.
+/// This is a manual/authorized-range primitive; it is never fed implicit ASN ranges.
+List<String> natExpandIpv6Cidr(
+  String cidr, {
+  int maxPerBlock = kNatMaxScanAddresses,
+}) {
+  if (maxPerBlock <= 0) return const <String>[];
+  final limit = min(maxPerBlock, kNatMaxScanAddresses);
+  final parts = cidr.trim().split('/');
+  if (parts.length != 2) return const <String>[];
+  final address = InternetAddress.tryParse(parts[0].trim());
+  final prefix = int.tryParse(parts[1].trim());
+  if (address == null ||
+      address.type != InternetAddressType.IPv6 ||
+      prefix == null ||
+      prefix < 0 ||
+      prefix > 128) {
+    return const <String>[];
+  }
+
+  final value = address.rawAddress.fold<BigInt>(
+    BigInt.zero,
+    (acc, byte) => (acc << 8) | BigInt.from(byte),
+  );
+  final hostBits = 128 - prefix;
+  final size = BigInt.one << hostBits;
+  final network = (value >> hostBits) << hostBits;
+  final limitBig = BigInt.from(limit);
+  final step = (size + limitBig - BigInt.one) ~/ limitBig;
+  final out = <String>[];
+
+  for (var offset = BigInt.zero;
+      offset < size && out.length < limit;
+      offset += step) {
+    var current = network + offset;
+    final bytes = List<int>.filled(16, 0);
+    for (var i = 15; i >= 0; i--) {
+      bytes[i] = (current & BigInt.from(255)).toInt();
+      current >>= 8;
+    }
+    out.add(InternetAddress.fromRawAddress(Uint8List.fromList(bytes)).address);
   }
   return out;
 }
