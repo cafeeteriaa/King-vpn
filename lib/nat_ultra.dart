@@ -2029,7 +2029,8 @@ Future<List<String>> _natDomainFirst(List<Server> known,
       final addresses = parsed == null ? await safeLookup(entry.key) : <InternetAddress>[parsed];
       if (cancelled()) return const <String>[];
       for (final address in addresses) {
-        if (address.type != InternetAddressType.IPv4) continue;
+        if (address.type != InternetAddressType.IPv4 &&
+            address.type != InternetAddressType.IPv6) continue;
         (resolved[address.address] ??= <int>{}).addAll(entry.value);
       }
     }
@@ -2082,11 +2083,16 @@ Future<List<String>> _natDomainFirst(List<Server> known,
 Future<List<String>> natDeviceHosts() async {
   final out = <String>[];
   try {
-    final l = await NetworkInterface.list(
-        includeLoopback: false, type: InternetAddressType.IPv4);
-    for (final i in l) {
+    final interfaces = await NetworkInterface.list(includeLoopback: false);
+    for (final i in interfaces) {
       for (final a in i.addresses) {
         final h = a.address;
+        if (a.type == InternetAddressType.IPv6) {
+          if (a.isLoopback || a.isLinkLocal || a.isMulticast) continue;
+          if (!out.contains(h)) out.add(h);
+          continue;
+        }
+        if (a.type != InternetAddressType.IPv4) continue;
         final p = h.split('.').map(int.tryParse).toList();
         if (p.length != 4 || p.any((x) => x == null)) continue;
         final private = p[0] == 10 ||
