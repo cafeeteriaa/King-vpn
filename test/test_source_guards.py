@@ -2690,5 +2690,38 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('checks.any((reachable) => reachable)', body)
 
 
+    def test_configured_candidate_inventories_are_not_truncated_by_fixed_counts(self):
+        auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        start = auto.index('if (base.isEmpty) {')
+        end = auto.index('final ips =', start)
+        fallback = auto[start:end]
+        self.assertIn('for (final r in _cfRanges)', fallback)
+        self.assertIn('maxPerBlock: 64', fallback)
+        self.assertNotIn('_cfRanges.take(', fallback)
+        self.assertNotIn('cdnSample.length >=', fallback)
+
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = nat.index('({List<String> addresses, int nextCursor}) _natConfiguredRangeBatch')
+        end = nat.index('Future<void> natRangesSave', start)
+        configured = nat[start:end]
+        self.assertIn('for (final range in natRanges)', configured)
+        self.assertNotIn('natRanges.take(', configured)
+        ports_start = nat.index('List<int> natAutoPorts(')
+        ports_end = nat.index('List<int>? _ipTriple', ports_start)
+        ports = nat[ports_start:ports_end]
+        self.assertIn('for (final s in known)', ports)
+        self.assertIn('final out = <int>[...ports];', ports)
+        domain_start = nat.index('Future<List<String>> _natDomainFirst(')
+        domain_end = nat.index('Future<List<String>> natDeviceHosts()', domain_start)
+        domain = nat[domain_start:domain_end]
+        self.assertIn('for (final server in known)', domain)
+        self.assertIn('want: entry.value.length', domain)
+        self.assertNotIn('known.take(1200)', domain)
+
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        self.assertIn('final list = {...savedDns,', dns)
+        self.assertNotIn('savedDns.take(40)', dns)
+
+
 if __name__ == '__main__':
     unittest.main()
