@@ -4055,7 +4055,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_multihop_relay_rejects_same_endpoint_as_exit(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn('if (relaySrv != null && !_sameEndpoint(relaySrv, s))', source)
-        self.assertIn('!identical(x, s) && !_sameEndpoint(x, s)', source)
+        self.assertIn('if (identical(x, s) || _sameEndpoint(x, s)) return false;', source)
     def test_multihop_relay_endpoint_comparison_is_dns_and_ip_normalized(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = source.index('bool _sameEndpoint(Server a, Server b)')
