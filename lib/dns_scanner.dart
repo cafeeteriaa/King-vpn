@@ -49,7 +49,17 @@ List<String> _dnsxHostsFrom(Iterable<String> src) {
     if (s.startsWith('domain:')) s = s.substring(7);
     if (s.startsWith('full:')) s = s.substring(5);
     // فقط نام دامنه‌ی واقعی؛ TLD تنها (مثل ir) و قانون‌های geoip و کلمه‌ی کلیدی کنار گذاشته می‌شوند
-    if (!s.contains('.') || !okChars.hasMatch(s)) continue;
+    if (!s.contains('.') || !okChars.hasMatch(s) || s.length > 253) continue;
+    final labels = s.split('.');
+    // Reject malformed labels before they reach the asynchronous DNS batch.
+    // One invalid project-domain entry must not abort an entire resolver scan.
+    if (labels.any((label) =>
+        label.isEmpty ||
+        label.length > 63 ||
+        label.startsWith('-') ||
+        label.endsWith('-'))) {
+      continue;
+    }
     out.add(s);
   }
   return out;
