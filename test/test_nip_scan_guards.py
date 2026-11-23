@@ -94,5 +94,31 @@ class NationalIpScannerGuardTests(unittest.TestCase):
         self.assertIn("raw?.destroy()", block)
 
 
+    def test_front_tls_probe_uses_one_monotonic_deadline_for_tcp_and_tls(self):
+        start = self.source.index("Future<String?> nipFrontProbe(")
+        end = self.source.index("Future<String?> nipFindFrontSni(", start)
+        block = self.source[start:end]
+        self.assertIn("final elapsed = Stopwatch()..start();", block)
+        self.assertIn("Duration remaining() => timeout - elapsed.elapsed;", block)
+        self.assertIn("final connectBudget = remaining();", block)
+        self.assertIn("final handshakeBudget = remaining();", block)
+        self.assertIn(".timeout(handshakeBudget)", block)
+        self.assertNotIn(".timeout(const Duration(seconds: 3))", block)
+        self.assertNotIn("onBadCertificate:", block)
+
+    def test_front_sni_search_has_total_budget_and_observes_cancellation(self):
+        start = self.source.index("Future<String?> nipFindFrontSni(")
+        end = self.source.index("/// همان کانفیگ را با IP و SNI جدید", start)
+        block = self.source[start:end]
+        self.assertIn("final elapsed = Stopwatch()..start();", block)
+        self.assertIn("final remaining = budget - elapsed.elapsed;", block)
+        self.assertIn("cancelled?.call() == true", block)
+        self.assertIn("final probeBudget = remaining < perProbeCap ? remaining : perProbeCap;", block)
+        self.assertIn("nipFrontProbe(ip, port, sni, timeout: probeBudget)", block)
+        self.assertIn("budget = const Duration(seconds: 12)", block)
+
+    def test_front_sni_scan_passes_its_abort_signal_to_each_probe(self):
+        self.assertIn("nipFindFrontSni(h.ip, port, cancelled: () => abort)", self.source)
+
 if __name__ == "__main__":
     unittest.main()
