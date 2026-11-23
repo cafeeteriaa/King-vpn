@@ -2235,7 +2235,7 @@ List<String> _getCfIps({
   Map<String, dynamic>? cursors,
 }) {
   if (cursors == null) unawaited(refreshCdnRanges());
-  final out = <String>[];
+  final out = <String>{};
   final ranges = liveRanges ?? _liveCdnRanges;
   final cursorMap = cursors ?? _cfRangeCursors;
   if (batchSize <= 0 || ranges.isEmpty) return out;
@@ -2263,7 +2263,7 @@ List<String> _getCfIps({
   if (visited > 0) {
     cursorMap['__cdn_range_cursor'] = (start + visited) % ranges.length;
   }
-  return out;
+  return out.toList(growable: false);
 }
 
 // 128-bit cursor persistence: IPv6 /0..128 and dash ranges must not be
