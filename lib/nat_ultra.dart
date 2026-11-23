@@ -2188,12 +2188,19 @@ List<String> _getCfIps({
   final out = <String>[];
   final ranges = liveRanges ?? _liveCdnRanges;
   final cursorMap = cursors ?? _cfRangeCursors;
-  // Use the same dual-stack cursor parser as configured ranges. The batch is
-  // a memory/CPU slice only; per-range cursors resume IPv4 and IPv6 on later runs.
-  for (var index = 0; index < ranges.length && out.length < batchSize; index++) {
+  if (batchSize <= 0 || ranges.isEmpty) return out;
+
+  // Rotate the starting range on every completed slice. Without this outer
+  // cursor, a few huge IPv6/IPv4 CIDRs at the front would starve every later
+  // announced range forever, even though each individual range had a cursor.
+  final start = (int.tryParse(cursorMap['__cdn_range_cursor']?.toString() ?? '') ?? 0)
+      % ranges.length;
+  var visited = 0;
+  for (; visited < ranges.length && out.length < batchSize; visited++) {
+    final index = (start + visited) % ranges.length;
     final range = ranges[index];
     final remaining = batchSize - out.length;
-    final rangesLeft = ranges.length - index;
+    final rangesLeft = ranges.length - visited;
     final quota = max(1, (remaining + rangesLeft - 1) ~/ rangesLeft);
     final expanded = _natExpandAnyCursorWide(
       range,
@@ -2203,6 +2210,9 @@ List<String> _getCfIps({
     if (expanded.$1.isEmpty) continue;
     out.addAll(expanded.$1);
     cursorMap[range] = expanded.$2;
+  }
+  if (visited > 0) {
+    cursorMap['__cdn_range_cursor'] = (start + visited) % ranges.length;
   }
   return out;
 }
