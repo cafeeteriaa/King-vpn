@@ -499,7 +499,7 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
                 const SizedBox(height: 6),
                 Text(!_ownerConfigured
                     ? 'رمز مالک هنوز روی این دستگاه تعیین نشده است.'
-                    : (_ownerUnlocked ? 'دسترسی مالک فعال است (حداکثر ۱۵ دقیقه).' : 'دسترسی مالک قفل است.')),
+                    : (_ownerUnlocked ? 'دسترسی مالک فعال است (حداکثر ۲ دقیقه).' : 'دسترسی مالک قفل است.')),
                 TextField(
                   controller: _ownerPasswordController,
                   obscureText: true,
