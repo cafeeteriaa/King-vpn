@@ -67,7 +67,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertNotIn("import 'engine_registry.dart';", main)
 
-    def test_automatic_scan_is_not_a_subnet_or_all_port_sweep(self):
+    def test_seed_inventory_expands_host_network_and_domain_scan_stays_config_scoped(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = nat.index('List<String> natSeedBlocks(')
         end = nat.index('\nint natMemQueued', start)
@@ -76,7 +76,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         domain_start = nat.index('Future<List<String>> _natDomainFirst(')
         domain_end = nat.index('\nFuture<List<String>> natDeviceHosts()', domain_start)
         domain_scan = nat[domain_start:domain_end]
-        self.assertNotIn('natIrDomains', domain_scan)
+        self.assertIn('for (final server in known)', domain_scan)
         self.assertNotIn('for (var p = 1; p < 65536; p++)', domain_scan)
 
     def test_connect_path_uses_mode_aware_tunnel_probe(self):
@@ -2739,6 +2739,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         self.assertNotIn('_ipAutoPorts', source)
         self.assertNotIn('_ipAutoCoreMax', source)
+        self.assertNotIn('_ipAutoMaxHits', source)
+        self.assertNotIn('ipAutoHits.removeRange(', source)
         self.assertIn('final ports = natAutoPorts(pool);', source)
         self.assertIn('want: addrs.length,', source)
         self.assertIn('const Duration _ipAutoCoreBudget = Duration(minutes: 4);', source)
