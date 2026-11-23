@@ -17,6 +17,8 @@ import org.json.JSONObject;
 
 import java.net.ConnectException;
 import java.net.HttpURLConnection;
+import java.net.Inet6Address;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NoRouteToHostException;
 import java.net.Proxy;
@@ -1351,7 +1353,16 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
         if (value == null) return false;
         String host = value.trim();
         if (host.isEmpty() || host.contains("/") || host.contains("://")) return false;
-        if (host.contains(":")) return host.matches("^[0-9a-fA-F:]+$") && host.split(":").length >= 3;
+        if (host.contains(":")) {
+            // Accept compressed IPv6 literals such as ::1 and ::8888. The
+            // previous split(':').length check rejected valid compressed forms.
+            if (!host.matches("^[0-9a-fA-F:.]+$")) return false;
+            try {
+                return InetAddress.getByName(host) instanceof Inet6Address;
+            } catch (Exception e) {
+                return false;
+            }
+        }
         String[] parts = host.split("\\.");
         if (parts.length != 4) return false;
         try {
