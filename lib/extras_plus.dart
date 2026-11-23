@@ -4,8 +4,6 @@ part of 'main.dart';
 // ابزارهای اضافه: آمار و کنترل حالت‌های نت ملی، تاریخچه‌ی اتصال، اطلاعات IP
 // خروجی، تست سرعت دستی، پشتیبان‌گیری / بازگردانی، افزودن از کلیپ‌بورد ...
 
-// حالت‌های نت ملی که کاربر خاموش کرده (حالت 0 «عادی» همیشه روشن است)
-final Set<int> natDisabled = {};
 // تاریخچه‌ی اتصال: 'زمان|نام|کلید|حالت|نت ملی'
 final List<String> connHist = [];
 bool _plusLoaded = false;
@@ -15,11 +13,6 @@ Future<void> plusLoad() async {
   _plusLoaded = true;
   try {
     final p = await SharedPreferences.getInstance();
-    natDisabled
-      ..clear()
-      ..addAll((p.getStringList('plus_dis') ?? const <String>[])
-          .map((e) => int.tryParse(e))
-          .whereType<int>());
     connHist
       ..clear()
       ..addAll(p.getStringList('plus_hist') ?? const <String>[]);
@@ -31,8 +24,6 @@ Future<void> plusLoad() async {
 Future<void> plusSave() async {
   try {
     final p = await SharedPreferences.getInstance();
-    await p.setStringList(
-        'plus_dis', natDisabled.map((e) => '$e').toList());
     await p.setStringList('plus_hist', connHist);
   } catch (e, stk) {
     logError(e, stk);
@@ -269,48 +260,33 @@ extension PlusExt on _HomePageState {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => StatefulBuilder(builder: (ctx, setS) {
-        return Directionality(
-          textDirection: TextDirection.rtl,
-          child: SafeArea(
-            child: SizedBox(
-              height: MediaQuery.of(ctx).size.height * 0.8,
-              child: Column(children: [
-                Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Text(
-                      'حالت‌های پایه‌ی نت ملی (حالت «عادی» همیشه روشن است) • '
-                      '${_natSpecs.length - _natBaseCount} حالت ترکیبی دیگر خودکار و با یادگیری هر اپراتور مرتب می‌شود',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SafeArea(
+          child: SizedBox(
+            height: MediaQuery.of(ctx).size.height * 0.8,
+            child: Column(children: [
+              const Padding(
+                padding: EdgeInsets.all(12),
+                child: Text(
+                  'همه‌ی حالت‌ها به‌صورت پویا آزمایش می‌شوند؛ هیچ حالت ثابتی از چرخه حذف نمی‌شود. '
+                  'نتیجه‌ی هر حالت فقط با عبور واقعی ترافیک تونل سنجیده و ثبت می‌شود.',
+                  style: TextStyle(fontWeight: FontWeight.bold),
                 ),
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: _natBaseCount - 1,
-                    itemBuilder: (_, i) {
-                      final v = i + 1;
-                      return CheckboxListTile(
-                        dense: true,
-                        title: Text(_natSpecs[v].name),
-                        value: !natDisabled.contains(v),
-                        onChanged: (on) {
-                          setS(() {
-                            if (on == true) {
-                              natDisabled.remove(v);
-                            } else {
-                              natDisabled.add(v);
-                            }
-                          });
-                          plusSave();
-                        },
-                      );
-                    },
+              ),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: _natSpecs.length,
+                  itemBuilder: (_, i) => ListTile(
+                    dense: true,
+                    title: Text(_natSpecs[i].name),
                   ),
                 ),
-              ]),
-            ),
+              ),
+            ]),
           ),
-        );
-      }),
+        ),
+      ),
     );
   }
 
