@@ -53,27 +53,98 @@ Future<List<NipHit>> nipScan(
   Duration budget = const Duration(minutes: 2),
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
+  void Function(int done, int total)? onProgress,
 }) async {
   final hits = <NipHit>[];
-  final deadline = DateTime.now().add(budget);
+  final clock = Stopwatch()..start();
   var next = 0;
+  var done = 0;
 
   Future<void> worker() async {
     while (true) {
       if (hits.length >= want) return;
       if (cancelled != null && cancelled()) return;
-      if (DateTime.now().isAfter(deadline)) return;
+      if (clock.elapsed >= budget) return;
       if (next >= ips.length) return;
       final ip = ips[next++];
       final ms = await nipTcpProbe(ip, port, timeout);
-      if (ms != null) hits.add(NipHit(ip, ms));
+      if (cancelled != null && cancelled()) return;
+      if (ms != null && hits.length < want) hits.add(NipHit(ip, ms));
+      done++;
+      onProgress?.call(done, ips.length);
     }
   }
 
   final n = min(concurrency.clamp(1, 16), max(ips.length, 1));
   await Future.wait(List.generate(n, (_) => worker()));
+  onProgress?.call(done, ips.length);
   natStableSort(hits, (a, b) => a.ms.compareTo(b.ms));
   return hits;
+}
+
+const String _nipHuntCursorKey = 'nip_hunt_range_cursors_v1';
+
+Future<Map<String, dynamic>> _nipLoadHuntCursors() async {
+  final prefs = await SharedPreferences.getInstance();
+  final cursors = <String, dynamic>{};
+  final raw = prefs.getString(_nipHuntCursorKey);
+  if (raw != null && raw.isNotEmpty) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        for (final entry in decoded.entries) {
+          if (entry.value is String || entry.value is num) {
+            cursors['${entry.key}'] = entry.value;
+          }
+        }
+      }
+    } catch (e, stk) {
+      logError(e, stk);
+    }
+  }
+  return cursors;
+}
+
+Future<void> _nipSaveHuntCursors(Map<String, dynamic> cursors) async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setString(_nipHuntCursorKey, jsonEncode(cursors));
+}
+
+/// Fair, resumable dual-stack range iterator. Batch size controls this run's
+/// memory/time only; every prefix and every 128-bit address offset is retained.
+({List<String> addresses, Map<String, dynamic> cursors}) _nipRangeBatch(
+  List<String> ranges,
+  Map<String, dynamic> saved, {
+  int batchSize = 1000,
+}) {
+  final cursors = Map<String, dynamic>.of(saved);
+  if (ranges.isEmpty || batchSize <= 0) {
+    return (addresses: const <String>[], cursors: cursors);
+  }
+  final start =
+      (int.tryParse(cursors['__nip_range_cursor']?.toString() ?? '') ?? 0) %
+          ranges.length;
+  final out = <String>{};
+  var visited = 0;
+  for (; visited < ranges.length && out.length < batchSize; visited++) {
+    final index = (start + visited) % ranges.length;
+    final range = ranges[index];
+    final remaining = batchSize - out.length;
+    final rangesLeft = ranges.length - visited;
+    final quota = max(1, (remaining + rangesLeft - 1) ~/ rangesLeft);
+    final batch = natExpandIpRangeCursor(
+      range,
+      cursors[range]?.toString() ?? '0',
+      maxPerBlock: quota,
+    );
+    if (batch.addresses.isEmpty) continue;
+    out.addAll(batch.addresses);
+    cursors[range] = batch.nextCursor;
+  }
+  if (visited > 0) {
+    cursors['__nip_range_cursor'] = (start + visited) % ranges.length;
+  }
+  return (addresses: out.toList(growable: false), cursors: cursors);
 }
 
 /// IPv4 and IPv6 prefixes announced for Iran by RIPE, cached together.
