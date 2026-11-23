@@ -2172,6 +2172,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             r'await _saveSettings\(\);\s*if \(!mounted \|\| !ctx\.mounted\) return;\s*Navigator\.pop\(ctx\);',
         )
 
+    def test_relay_settings_do_not_claim_unimplemented_national_bypass(self):
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        self.assertIn('این فیلد فعلاً به مسیر اتصال VPN متصل نیست', extras)
+        self.assertIn('هنوز در مسیر اتصال VPN اعمال نمی‌شود', extras)
+        self.assertNotIn('سرور واسط (دور زدن نت ملی)', extras)
+
     def test_network_diagnostic_disposes_notifier_and_guards_late_results(self):
         diag = (ROOT / 'lib' / 'net_diag.dart').read_text(encoding='utf-8')
         method = diag[diag.index('Future<void> netDiagDialog()'): ]
