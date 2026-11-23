@@ -3964,6 +3964,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('echFromLink(l).isNotEmpty', swap)
         self.assertIn("q['host'] = oldSni", swap)
         self.assertIn("q['sni'] = sni", swap)
+    def test_cloudflare_probe_requires_success_status_and_trace_fields(self):
+        source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        start = source.index('bool _cfTraceResponseOk(')
+        end = source.index('Future<int?> _cfProbeMs(', start)
+        validator = source[start:end]
+        self.assertIn("status.startsWith('http/1.1 200 ')", validator)
+        self.assertIn("status.startsWith('http/1.0 200 ')", validator)
+        self.assertIn("lines.contains('h=cloudflare.com')", validator)
+        self.assertIn("line.startsWith('fl=')", validator)
+        self.assertIn("line.startsWith('colo=')", validator)
+        probe = source[end:source.index('final ValueNotifier<int> cleanTick', end)]
+        self.assertIn('_cfTraceResponseOk(txt)', probe)
+        self.assertNotIn("txt.contains('cloudflare')", probe)
+
+    def test_nip_swap_link_never_rewrites_reality_configs(self):
+        source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('String? nipSwapLink(')
+        end = source.index('// CHAINHUNT', start)
+        self.assertIn('lower.startsWith(\'ss://\') || t.reality', source[start:end])
+
     def test_nip_front_sni_probe_requires_valid_tls_certificate(self):
         source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         start = source.index('Future<String?> nipFrontProbe(')
