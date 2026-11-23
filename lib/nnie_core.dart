@@ -141,7 +141,9 @@ class NatDnsWireProbe {
       if (third == 0x0d && fourth == 0xb8) return false; // 2001:db8::/32 documentation
       if (third == 0x00 && fourth == 0x00) return false; // 2001::/32 transition
       if (third == 0x00 && fourth == 0x02) return false; // 2001:2::/48 benchmarking
-      if (third == 0x00 && (fourth == 0x10 || fourth == 0x20)) return false; // ORCHID
+      if (third == 0x00 && ((fourth & 0xf0) == 0x10 || (fourth & 0xf0) == 0x20)) {
+        return false; // ORCHIDv1/v2 are /28, not single /32s
+      }
     }
     if (a == 0x20 && second == 0x02) return false; // 6to4
     return true;
