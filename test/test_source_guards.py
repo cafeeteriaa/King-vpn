@@ -2753,6 +2753,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("'cfIpsBatch': modeSnapshot ? 0 : _ipAutoBatch,", source)
         self.assertIn("List<String>.of(_liveCdnRanges)", source)
         self.assertIn("'cursors': cursorSnapshot,", source)
+        next_start = source.index('Future<List<String>> _ipAutoNextAddrs(')
+        next_end = source.index('extension IpAutoExt', next_start)
+        next_batch = source[next_start:next_end]
+        self.assertIn('final slice = all.take(_ipAutoBatch).toList(growable: false);', next_batch)
+        self.assertNotIn('all.skip(start)', next_batch)
+        self.assertIn("ipAutoPos = 0; // legacy position key", next_batch)
 
 
 if __name__ == '__main__':
