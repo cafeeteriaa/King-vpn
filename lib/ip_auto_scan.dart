@@ -150,6 +150,7 @@ Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Funct
     // Feed the generator a rotating CDN batch in global mode. National mode
     // uses only the user's configured national ranges and national hit memory.
     'cfIpsBatch': modeSnapshot ? 0 : _ipAutoBatch,
+    'maxAddrs': _ipAutoBatch,
     'blocks': _ipAutoBlocks(knownServers),
     'nationalMode': modeSnapshot,
     'liveRanges': modeSnapshot ? <String>[] : List<String>.of(_liveCdnRanges),
@@ -161,13 +162,13 @@ Future<List<String>> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Funct
   }
   final all = (gen['addrs'] as List).cast<String>();
   final generatedCursors = Map<String, int>.from(gen['cursors'] as Map);
+  if (all.isEmpty) return const <String>[];
+  // maxAddrs is enforced inside the generator, so every advanced cursor maps
+  // to an address returned for this exact scan batch.
   ipAutoCursors
     ..clear()
     ..addAll(generatedCursors);
-  if (all.isEmpty) return const <String>[];
-  // The generator already advances per-range cursors. Taking from its head
-  // avoids skipping the first part of each newly rotated candidate batch.
-  final slice = all.take(_ipAutoBatch).toList(growable: false);
+  final slice = all.toList(growable: false);
   ipAutoPos = 0; // legacy position key; range cursors now own scan continuity.
   return slice;
 }
