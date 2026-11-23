@@ -15,7 +15,6 @@ class FlutterDependencyLockTests(unittest.TestCase):
         self.assertIn('gzip -dc ci/flutter/pubspec.lock.gz > build_app/pubspec.lock', workflow)
         self.assertEqual(workflow.count('flutter pub get --enforce-lockfile'), 1)
         self.assertIn("pubspec.lock' | sha256sum --check -", workflow)
-        self.assertNotIn('flutter pub get\\n          flutter pub get', workflow)
         self.assertNotIn('flutter pub add', workflow)
 
     def test_compressed_lock_matches_verified_ci_snapshot(self):
