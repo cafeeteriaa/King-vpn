@@ -4265,5 +4265,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('..._atAutoRanges(good)', sweep)
 
 
+    def test_auto_sni_and_port_inventory_uses_all_learned_templates(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> autoScanRun(')
+        end = source.index('Future<void> autoScanSheet(', start)
+        body = source[start:end]
+        self.assertIn('...dnsxFullDomains()', body)
+        self.assertIn('for (final server in natTemplateSeeds)', body)
+        self.assertIn('for (final server in _goldSrv.values)', body)
+        self.assertIn('...natAutoPorts(knownPortServers)', body)
+        self.assertIn('...natCommonPorts', body)
+        self.assertIn('for (final ip in cleanIps) ip.port', body)
+
+
 if __name__ == '__main__':
     unittest.main()
