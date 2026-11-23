@@ -2216,7 +2216,7 @@ bool _natRangeScanBusy = false;
 
 Future<List<String>> natRangeScanStep({
   required List<Server> known,
-  int maxAddrs = 256,
+  int maxAddrs = 2048,
   int conc = 4,
   bool Function()? stop,
   Duration budget = const Duration(minutes: 2),
@@ -2233,7 +2233,7 @@ Future<List<String>> natRangeScanStep({
 
 Future<List<String>> _natRangeScanStepBody({
   required List<Server> known,
-  int maxAddrs = 256,
+  int maxAddrs = 2048,
   int conc = 4,
   bool Function()? stop,
   Duration budget = const Duration(minutes: 2),
@@ -2313,7 +2313,9 @@ Future<List<String>> _natRangeScanStepBody({
       slice,
       port: port,
       concurrency: conc,
-      want: 50,
+      // Probe the complete current slice; do not stop after an arbitrary 50 open endpoints.
+      // The address slice and shared deadline remain the adaptive resource controls.
+      want: slice.length,
       budget: portBudget,
       timeout: const Duration(milliseconds: 1500),
       cancelled: shouldAbort,
