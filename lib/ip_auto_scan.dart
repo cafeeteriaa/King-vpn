@@ -294,8 +294,11 @@ extension IpAutoExt on _HomePageState {
       if (pool.isEmpty) pool = <Server>[...good, ...pending, ...fetchedAll];
     }
     if (halted()) return false;
-    if (pool.isEmpty) {
-      say('دریافت لیست سرورها ناموفق بود. اینترنت را بررسی کنید و دوباره اجرا کنید.');
+    final hasRangeInventory = runNationalMode
+        ? natRanges.isNotEmpty || natIpMemHosts().isNotEmpty
+        : _liveCdnRanges.isNotEmpty;
+    if (pool.isEmpty && !hasRangeInventory) {
+      say('هنوز الگو یا بازه‌ای برای ساخت موجودی اسکن نیست؛ منابع را تازه‌سازی کن و دوباره اجرا کن.');
       return false;
     }
     final tpl = pool.take(2).toList();
@@ -367,6 +370,12 @@ extension IpAutoExt on _HomePageState {
       if (!seen.contains(candidate) && queued.add(candidate)) {
         ipAutoPendingCore.add(candidate);
       }
+    }
+    if (tpl.isEmpty) {
+      // TCP discovery can proceed without a VPN template. Keep its candidates
+      // in the durable core-verification queue until a real template is known.
+      say('بسته TCP کامل شد؛ ${ipAutoPendingCore.length} نامزد برای بررسی هسته ذخیره شد و منتظر الگوی کانفیگ است.');
+      return true;
     }
     final tplSrv = tpl.first;
     var found = 0;
