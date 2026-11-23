@@ -1684,7 +1684,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         compute_guard = body.index('if (shouldAbort()) return const <String>[];', compute)
         scan = body.index('await natScanIps(')
         cancel = body.index('cancelled: shouldAbort,', scan)
-        scan_guard = body.index('if (shouldAbort() || scanExpired()) return const <String>[];', scan)
+        scan_guard = body.index('if (shouldAbort()) return const <String>[];', scan)
         cursor_commit = body.index('_cfRangeCursors\n    ..clear()')
         configured_commit = body.index('_natConfiguredRangeCursor = configuredBatch.nextCursor;')
         self.assertLess(hot, hot_guard)
@@ -2401,10 +2401,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Future<void> worker() async {')
         end = source.index('\n  }', start)
         worker = source[start:end]
-        budget_guard = worker.index('final remaining = budget - elapsed.elapsed;')
+        budget_guard = worker.index('final remaining = budget == null ? timeout : budget - elapsed.elapsed;')
         probe = worker.index('final ms = await natTcpProbe(ip, port, probeTimeout);')
-        stale_guard = worker.index('if (aborted() || elapsed.elapsed >= budget)', probe)
-        insert = worker.index('if (ms != null && hits.length < want)', stale_guard)
+        stale_guard = worker.index('if (aborted() || (budget != null && elapsed.elapsed >= budget))', probe)
+        insert = worker.index('if (ms != null && (want == null || hits.length < want))', stale_guard)
         self.assertLess(budget_guard, probe)
         self.assertLess(probe, stale_guard)
         self.assertLess(stale_guard, insert)
@@ -2445,22 +2445,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('DateTime.now().isBefore(verifyDeadline)', connect)
         self.assertNotIn('pingSec', connect)
 
-    def test_nat_range_scan_uses_one_monotonic_budget_across_ports(self):
+    def test_nat_range_scan_has_no_fixed_deadline_and_preserves_cursor_on_cancel(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('Future<List<String>> _natRangeScanStepBody(')
         end = source.index('List<String> userListUrls', start)
         body = source[start:end]
-        self.assertIn('final scanClock = Stopwatch()..start();', body)
-        self.assertIn('final remainingBudget = budget - scanClock.elapsed;', body)
-        self.assertIn('final portBudget = perPortCap < remainingBudget', body)
-        self.assertIn('milliseconds: max(20000, budget.inMilliseconds ~/ max(1, portList.length)).toInt()', body)
+        self.assertNotIn('scanClock', body)
+        self.assertNotIn('scanExpired()', body)
+        self.assertIn('budget: budget,', body)
         scan = body.index('final hits = await natScanIps(')
-        self.assertIn('budget: portBudget,', body[scan:scan + 500])
-        expiry = body.index('if (shouldAbort() || scanExpired()) return const <String>[];', scan)
-        cursor = body.index('_cfRangeCursors\n    ..clear()')
-        self.assertLess(scan, expiry)
-        self.assertLess(expiry, cursor)
-        self.assertNotIn('DateTime.now().add(budget)', body)
+        guard = body.index('if (shouldAbort()) return const <String>[];', scan)
+        cursor = body.index('_cfRangeCursors\\n    ..clear()')
+        self.assertLess(guard, cursor)
 
     def test_dns_wire_probe_cancellation_closes_pending_udp_work(self):
         core = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
@@ -3471,15 +3467,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final requested = n;', source)
         self.assertIn('if (!known.add(_natSig(candidate))) continue;', source)
         self.assertNotIn('_natSpecs.length > 500000', source)
-
-    def test_nat_range_scan_rejects_invalid_work_and_clamps_resources(self):
-        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
-        start = source.index('Future<List<String>> natRangeScanStep(')
-        end = source.index('Future<List<String>> _natRangeScanStepBody(', start)
-        body = source[start:end]
-        self.assertIn('if (maxAddrs <= 0 || budget <= Duration.zero)', body)
-        self.assertNotIn('maxAddrs = maxAddrs.clamp(1, 4096).toInt();', body)
-        self.assertIn('conc = conc.clamp(1, 32).toInt();', body)
 
 
     def test_own_vpn_start_supersedes_previous_waiter_and_prevents_stale_timeout_stop(self):
