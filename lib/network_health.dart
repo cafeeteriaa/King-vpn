@@ -1,9 +1,26 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+
 /// Independent domestic/global network evidence model for Smart Pilot ∞.
 enum LinkHealth { unknown, healthy, degraded, unreachable }
 enum DetectedNetworkMode { unknown, domesticOnly, globalOnly, dualReachable, offline }
 
 /// Internal route selected by the single Smart Pilot controller.
 enum PilotNetworkStrategy { domestic, global, preserve, offline }
+
+/// Hash a physical-network interface snapshot without persisting raw addresses.
+/// An empty/unavailable snapshot must stay unknown; hashing the empty string
+/// would otherwise create a stable-looking identity and permit stale cache reuse.
+String hashNetworkIdentityParts(Iterable<String> parts) {
+  final normalized = parts
+      .map((part) => part.trim())
+      .where((part) => part.isNotEmpty)
+      .toList()
+    ..sort();
+  if (normalized.isEmpty) return '';
+  return sha256.convert(utf8.encode(normalized.join(';'))).toString();
+}
 
 /// Reuse probe evidence only when its network identity is known and its age
 /// is within the TTL. An unavailable identity or a backwards clock must force
