@@ -3834,8 +3834,8 @@ Future<int?> probe(Server s) async {
     }
     final name = s.sni.isNotEmpty ? s.sni : s.host;
     if (s.tls && probeTls) {
-      final sec = await SecureSocket.secure(sock,
-              host: name, onBadCertificate: (_) => true)
+      // A TLS reachability probe must validate the certificate and SNI.
+      final sec = await SecureSocket.secure(sock, host: name)
           .timeout(tcpTimeout);
       sec.destroy();
     } else {

@@ -3831,6 +3831,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('return refresh(force: true);', policy)
 
 
+    def test_clean_ip_tls_probe_requires_valid_cloudflare_certificate(self):
+        source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        start = source.index('Future<int?> _cfProbeMs(')
+        end = source.index('final ValueNotifier<int> cleanTick', start)
+        probe = source[start:end]
+        self.assertNotIn('onBadCertificate:', probe)
+        self.assertIn("host: 'cloudflare.com'", probe)
+
+    def test_server_tls_probe_does_not_bypass_certificate_validation(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('Future<int?> probe(Server s)')
+        end = source.index('// DELAYGATE', start)
+        probe = source[start:end]
+        self.assertNotIn('onBadCertificate:', probe)
+        self.assertIn('SecureSocket.secure(sock, host: name)', probe)
+
     def test_nip_front_sni_probe_requires_valid_tls_certificate(self):
         source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         start = source.index('Future<String?> nipFrontProbe(')

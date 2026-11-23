@@ -812,9 +812,9 @@ Future<int?> _cfProbeMs(String ip, Duration t) async {
   Socket? k;
   try {
     raw = await Socket.connect(ip, 443, timeout: t);
+    // Validate Cloudflare's certificate before accepting this endpoint as clean.
     k = await SecureSocket.secure(raw,
             host: 'cloudflare.com',
-            onBadCertificate: (_) => true,
             supportedProtocols: const ['http/1.1'])
         .timeout(t);
     k.write(
