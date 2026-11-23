@@ -10975,9 +10975,10 @@ ListTile( // KINGEXTRAS row
               for (final line in lines) {
                 final t = line.trim();
                 if (t.isEmpty) continue;
-                // LARGE: بازه‌ی CIDR یا خطی؛ بلوک‌های بزرگ تا ۶۵۵۳۶ IP برای پوشش بهتر
-                final got = natExpandCidr(t, maxPerBlock: 65536);
-                addrs.addAll(got.isNotEmpty ? got : natExpandDash(t, maxCount: 65536));
+                // Preserve the user's complete manually supplied range; the scanner
+                // processes the resulting finite inventory with adaptive concurrency.
+                final got = natExpandCidr(t, maxPerBlock: 1 << 24);
+                addrs.addAll(got.isNotEmpty ? got : natExpandDash(t, maxCount: 1 << 32));
               }
               if (addrs.isEmpty) {
                 _set('بازه‌ی معتبر نیست؛ مثلاً 5.160.0.0/24 بنویس');
