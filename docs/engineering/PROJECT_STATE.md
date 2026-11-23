@@ -95,7 +95,7 @@ Final status: VERIFIED WITH LIMITATIONS. This CI artifact is not declared produc
 - Smart Pilot evidence hardening: invalid/unknown latency is not accepted as a route-switch signal; the dedicated probe uses a 2-of-3 TLS quorum, validates sample counters, and only caches evidence against a known transient Android network identity.
 - Network handover protection: before/after physical-network identity must match; mixed snapshots are discarded and retried once. Forced refreshes are serialized behind an active ordinary refresh.
 - AI repair security: automatic patches are limited to `lib/` and `test/`; executable, native, workflow, dependency and tooling paths require owner review. The repair orchestrator no longer executes untrusted patch code on the developer host; CI on the exact PR commit is the validation boundary.
-- Native lifecycle ownership review was added to `FINAL_MASTER_AUDIT.md`: `kOwnVpnService=false) remains the active default; custom service stop acknowledgement is asynchronous and is not proof that the core/TUN is down. Potential interaction with plugin stop remains a device-validation item, not a proven production bug.
+- Native lifecycle ownership review was added to `FINAL_MASTER_AUDIT.md`: `kOwnVpnService=false` remains the active default; custom service stop acknowledgement is asynchronous and is not proof that the core/TUN is down. Potential interaction with plugin stop remains a device-validation item, not a proven production bug.
 - Existing code and features were preserved; no engine activation, main-branch change, PR merge, or release was performed.
 
 ### Current validation boundary
