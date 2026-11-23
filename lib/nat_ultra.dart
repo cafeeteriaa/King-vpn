@@ -1698,10 +1698,11 @@ Future<void> natIpMemSave(String ip, int port) async {
     return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
   }
   final candidates = <String>{};
+  // Include every configured range in each resumable round. The per-range
+  // sample size follows the caller's adaptive batch size; no first-N range
+  // truncation silently starves later entries in the user's inventory.
   for (final range in natRanges) {
-    final remaining = limit * 4 - candidates.length;
-    if (remaining <= 0) break;
-    candidates.addAll(natExpandAny(range, maxPerBlock: remaining));
+    candidates.addAll(natExpandAny(range, maxPerBlock: limit));
   }
   if (candidates.isEmpty) {
     return (addresses: const <String>[], nextCursor: _natConfiguredRangeCursor);
