@@ -26,21 +26,17 @@ import 'dart:typed_data';
 import 'errjournal.dart';
 import 'nnie_core.dart'; // natStableSort
 
-/// Hard ceiling per user-supplied range/scan to keep mobile probes bounded.
-const int kNatMaxScanAddresses = 4096;
-
 /// Validate, canonicalize, de-duplicate, and hard-bound scanner targets.
 /// Hostnames are intentionally rejected: callers must resolve them explicitly.
 List<String> natBoundScanTargets(
   Iterable<String> source, {
-  int maxCount = kNatMaxScanAddresses,
+  int? maxCount,
 }) {
-  if (maxCount <= 0) return const <String>[];
-  final limit = min(maxCount, kNatMaxScanAddresses);
+  if (maxCount != null && maxCount <= 0) return const <String>[];
   final out = <String>[];
   final seen = <String>{};
   for (final raw in source) {
-    if (out.length >= limit) break;
+    if (maxCount != null && out.length >= maxCount) break;
     final parsed = InternetAddress.tryParse(raw.trim());
     if (parsed == null) continue;
     final ip = parsed.address;
@@ -62,7 +58,7 @@ class NatIpHit {
 /// برای بلوک‌های بزرگ، فقط [maxPerBlock] آدرس پراکنده برمی‌گرداند.
 List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   if (maxPerBlock <= 0) return const [];
-  final limit = min(maxPerBlock, kNatMaxScanAddresses);
+  final limit = maxPerBlock;
   final parts = cidr.trim().split('/');
   if (parts.length != 2) return const [];
   final octets = parts[0].split('.');
@@ -138,7 +134,7 @@ List<String> natExpandIpv6Cidr(
 /// بازه‌های بزرگ‌تر از maxCount به‌طور یکنواخت نمونه‌برداری می‌شوند.
 List<String> natExpandDash(String range, {int maxCount = kNatMaxScanAddresses}) {
   if (maxCount <= 0) return const [];
-  final limit = min(maxCount, kNatMaxScanAddresses);
+  final limit = maxCount;
   final parts = range.trim().split('-');
   if (parts.length != 2) return const [];
   int? toInt(String ip) {
@@ -235,7 +231,7 @@ Future<List<NatIpHit>> natScanIps(
     return <NatIpHit>[];
   }
 
-  // Validate numeric endpoints, de-duplicate, and apply the same hard cap as every scanner.
+  // Validate numeric endpoints and de-duplicate without silently truncating the caller's target list.
   final boundedIps = natBoundScanTargets(ips);
   final effective = natAdaptiveConcurrency(concurrency);
   // Stopwatch is monotonic; wall-clock changes must not extend or truncate a scan.
