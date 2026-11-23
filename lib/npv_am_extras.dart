@@ -1431,14 +1431,6 @@ final Map<String, int> _goldDns = {};
 final Map<String, List<String>> _goldScan = {};
 bool _goldRunning = false;
 Timer? _goldTimer;
-String _goldDay = '';
-int _goldCnt = 0;
-
-String _goldToday() {
-  final n = DateTime.now();
-  return '${n.year}-${n.month}-${n.day}';
-}
-
 Future<void>? _goldLoadF;
 
 Future<void> goldLoad() => _goldLoadF ??= _goldLoadOnce();
@@ -1471,8 +1463,6 @@ Future<void> _goldLoadOnce() async {
     for (final e in (m['scan'] as Map? ?? const {}).entries) {
       _goldScan[e.key.toString()] = [for (final x in (e.value as List)) x.toString()];
     }
-    _goldDay = (m['day'] ?? '').toString();
-    _goldCnt = (m['cnt'] as num? ?? 0).toInt();
   } catch (e, stk) {
     logError(e, stk);
     // GOLDRETRY: cache را پاک کن تا فراخوانی بعدی دوباره تلاش کند
@@ -1491,8 +1481,6 @@ String _goldEncode() => jsonEncode({
       ],
       'dns': [for (final e in _goldDns.entries) [e.key, e.value]],
       'scan': _goldScan,
-      'day': _goldDay,
-      'cnt': _goldCnt,
     });
 
 Future<bool> _goldWrite(SharedPreferences p) =>
@@ -1679,7 +1667,7 @@ Future<void> _goldIpStep() async {
   }
 
   _goldTop = null;
-  dbg('گلد: IP تازه $found از ${batch.length} • پوشه ${_goldIps.length} • شمار ثبت‌شده $_goldCnt');
+  dbg('گلد: IP تازه $found از ${batch.length} • پوشه ${_goldIps.length}');
 }
 
 Future<void> _goldSrvStep(_HomePageState h) async {
