@@ -2174,7 +2174,7 @@ List<String> natSeedBlocks(List<String> hosts) {
     final octets = parsed.address.split('.');
     out.add('${octets[0]}.${octets[1]}.${octets[2]}.0/24');
   }
-  return out.toList(growable: false);
+  return out.toList()..sort();
 }
 
 int natMemQueued = 0;
