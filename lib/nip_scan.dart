@@ -269,6 +269,18 @@ Future<void> _nipFrontEndpointsAdd(List<NipHit> hits, int port) async {
   }
 }
 
+Future<void> _nipFrontEndpointsRemove(List<String> endpoints, int port) async {
+  await _nipFrontEndpointsLoad();
+  final remove = endpoints.map((ip) => '$ip|$port').toSet();
+  _nipFrontEndpoints.removeWhere(remove.contains);
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_nipFrontEndpointsKey, _nipFrontEndpoints);
+  } catch (e, st) {
+    logError(e, st);
+  }
+}
+
 Future<void> _nipFrontEndpointsPrune(
   List<NipHit> hits,
   int port,
@@ -451,6 +463,7 @@ extension NipHunt on _HomePageState {
     }
     _nipLastHunt = DateTime.now();
 
+    await _nipFrontEndpointsLoad();
     final templates = <Server>[];
     final seen = <String>{};
     final pool = <Server>[];
@@ -469,6 +482,30 @@ extension NipHunt on _HomePageState {
     }
     final cdnT = templates.where((s) => s.cdn).toList();
     final direct = templates.where((s) => !s.cdn).toList();
+
+    // Resume unfinished SNI work before discovering a fresh address batch.
+    if (_nipFrontEndpoints.isNotEmpty) {
+      final byPort = <int, List<String>>{};
+      for (final entry in _nipFrontEndpoints) {
+        final parts = entry.split('|');
+        if (parts.length != 2) continue;
+        final port = int.tryParse(parts[1]);
+        if (port == null || port < 1 || port > 65535) continue;
+        byPort.putIfAbsent(port, () => <String>[]).add(parts[0]);
+      }
+      final pendingPorts = byPort.keys.toList(growable: false);
+      if (pendingPorts.isNotEmpty) {
+        final port = pendingPorts[_nipCdnPortCursor % pendingPorts.length];
+        _nipCdnPortCursor = (_nipCdnPortCursor + 1) % pendingPorts.length;
+        final portTemplates = templates.where((s) => s.port == port).toList();
+        if (portTemplates.isNotEmpty) {
+          await _natTryScan(portTemplates, byPort[port]!, port: port,
+              label: 'ادامه‌ی آزمون SNI', front: true);
+          if (abort) return false;
+          return false;
+        }
+      }
+    }
 
     // مرحله ۱: کانفیگ‌های CDN (SNI/Host) ← لبه‌های باز چند CDN
     // CDNDIV: Cloudflare + Fastly + AWS CloudFront + Google، نه فقط Cloudflare
@@ -547,6 +584,7 @@ extension NipHunt on _HomePageState {
         cancelled: () => abort);
     if (abort) return false;
     if (hits.isEmpty) {
+      if (front) await _nipFrontEndpointsRemove(ips, port);
       _set('نت ملی: هیچ $label بازی پیدا نشد');
       return false;
     }
