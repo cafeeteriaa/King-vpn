@@ -218,7 +218,7 @@ Future<void> autoScanRun(void Function(String) say,
       ...cdnRanges,
       if (base.isEmpty && dnsResolvedIps.isEmpty && cdnRanges.isEmpty)
         ...kAutoFallbackIps,
-    }.toList(growable: false);
+    }.toList()..sort();
     final ips = _getCfIps(
       batchSize: _autoScanCdnBatchSize,
       liveRanges: targetRanges,
