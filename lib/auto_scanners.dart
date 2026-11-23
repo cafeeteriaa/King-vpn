@@ -132,9 +132,15 @@ Future<void> autoScanRun(void Function(String) say,
         if (cancelled()) break sniLoop;
       }
       var ok = false;
-      for (final ip in ips) {
+      // Bounded parallel probes reduce worst-case scan time without creating
+      // an unbounded socket burst on low-memory/mobile networks.
+      for (var offset = 0; offset < ips.length; offset += 8) {
         if (cancelled()) break sniLoop;
-        if (await _autoSniOk(ip, 443, d) != null) {
+        final batch = ips.skip(offset).take(8);
+        final checks = await Future.wait(
+          batch.map((ip) => _autoSniOk(ip, 443, d)),
+        );
+        if (checks.any((latency) => latency != null)) {
           ok = true;
           break;
         }
@@ -159,9 +165,14 @@ Future<void> autoScanRun(void Function(String) say,
         if (cancelled()) break portLoop;
       }
       var ok = false;
-      for (final ip in ips) {
+      // Keep concurrency bounded; stop scheduling new batches after a hit.
+      for (var offset = 0; offset < ips.length; offset += 8) {
         if (cancelled()) break portLoop;
-        if (await _autoPortOk(ip, p)) {
+        final batch = ips.skip(offset).take(8);
+        final checks = await Future.wait(
+          batch.map((ip) => _autoPortOk(ip, p)),
+        );
+        if (checks.any((reachable) => reachable)) {
           ok = true;
           break;
         }
