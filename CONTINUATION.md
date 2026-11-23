@@ -212,3 +212,42 @@
 - This exact-head CI result supersedes the earlier historical notes above that described CI as pending for earlier checkpoints. No physical-device, IPv4/IPv6 traffic-leak, VPN carrier, Iranian operator-network, production-signing, or Play-install validation is claimed. CI's APK uses the configured CI signing key and is not a production release.
 - Smart Pilot standby candidates now require positive endpoint ping evidence no older than four minutes; NNIE history is separated by domestic/global route. Endpoint ping and TLS reachability are not equivalent to proof of application traffic through the Android VPN TUN.
 - Next integration decision: only integrate this exact tested head after reconfirming the PR head and successful checks; preserve this distinction between automated CI evidence and real-device acceptance.
+
+
+## Latest continuation — 2026-11-23 (VPN transport ownership)
+
+### Source of truth
+- Repository: `cafeeteriaa/King-vpn`
+- Checkpoint branch: `fix/vpn-owner-uid-checkpoint-20261123`
+- Source development branch: `audit/final-master`
+- Source-code HEAD: `649147e8a3c96979f1bbab82c14ccff09f6bbf2d`
+- Parent before this checkpoint branch: `audit/final-master@649147e8a3c96979f1bbab82c14ccff09f6bbf2d`
+- PR #44 remains open Draft, based on `codex/continuation-mainline-20261122`; PR #42 remains open Draft to `main`. Neither was merged. `main` was not changed.
+- This checkpoint branch carries the same source-code commit plus this continuation update. The source branch's active CI was left untouched; no commit was made to `audit/final-master` while its build was running.
+
+### Change in this run
+- Audit found `tunUp()` required plugin daemon-process liveness plus `TRANSPORT_VPN`, but the latter can describe a VPN owned by another provider.
+- `android_src/MainActivity.kt` now checks `NetworkCapabilities.ownerUid == applicationInfo.uid` on Android 11 / API 30+ before reporting the active VPN transport as King VPN's.
+- Android 10 and earlier keep the existing daemon + VPN-transport compatibility path because `getOwnerUid()` is unavailable there.
+- Added source guard `test_vpn_transport_proof_checks_owner_uid_on_android_11_plus` in `test/test_source_guards.py`.
+- Code commit: `649147e8a3c96979f1bbab82c14ccff09f6bbf2d` (`fix(android): verify active VPN network ownership`).
+
+### Validation and CI
+- Exact-head CI run 2157: https://github.com/cafeeteriaa/King-vpn/actions/runs/45132996395
+- Run head SHA: `649147e8a3c96979f1bbab82c14ccff09f6bbf2d`
+- Last observed status: `in_progress`; job `build` is in the optimized Android arm64 release APK build step.
+- Completed successfully before the build step: source-repair guards (including the new owner-UID guard), Flutter unit tests, dependency/plugin setup, and `flutter analyze`.
+- Not yet verified for this commit: arm64 APK build completion, 16 KiB ELF alignment, 16 KiB APK ZIP alignment, and artifact upload. Do not claim a successful build or provide an APK yet.
+- The workflow log endpoint returned BlobNotFound while the job was still running; this is not evidence of a build failure.
+- Previous exact-head baseline run 2156 for `b73b600aaa16fd4b74c9c8570774425b94d74b52` completed successfully, but it does not validate the new owner-UID change.
+- No physical-device, competing-VPN, OEM, IPv4/IPv6 data-plane, or Iranian carrier test was performed.
+
+### Open issues
+- On Android 10 and earlier, the public API does not expose the VPN owner UID; the legacy compatibility check remains less specific.
+- Owner UID plus daemon liveness proves the active VPN network belongs to this app on supported Android versions, but does not prove Xray core health or successful user traffic.
+- Continue auditing DNS resolver routing/leak behavior, plugin/native stop-start ordering, and failover races. Keep the full IP Clean inventory unchanged.
+
+### First next action
+1. Poll run 2157 to completion without cancelling it. If it fails, inspect the failing step/log and fix only the demonstrated cause; if it succeeds, inspect artifact metadata and checksum before discussing any APK.
+2. Then validate owner-UID behavior on Android 11+ devices, including a competing VPN scenario, and test Android 10 fallback separately.
+3. Keep PR #44 Draft and do not merge to `main`.
