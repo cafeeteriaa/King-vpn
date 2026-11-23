@@ -333,11 +333,11 @@ List<_NatSpec> _natGenerate() {
       if (!topSet.contains(i)) i
   ];
 
-  // V13: SNI-swap x fragment combos (bypass SNI + DPI in one shot).
-  for (var sniIdx = 0; sniIdx < 4; sniIdx++) {
-    final realIdx = const [0, 1, 2, 7][sniIdx];
+  // Generate every SNI candidate across every base fragmentation profile.
+  // Compatibility checks later decide which combinations fit a given protocol.
+  for (var sniIdx = 0; sniIdx < natFrontSnis.length; sniIdx++) {
     for (var fi = 0; fi < _natFragBase.length; fi++) {
-      add(_natMk(frag: fi, sniSwap: realIdx));
+      add(_natMk(frag: fi, sniSwap: sniIdx));
     }
   }
 
