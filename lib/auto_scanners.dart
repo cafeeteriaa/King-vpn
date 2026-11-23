@@ -70,6 +70,37 @@ Future<bool> _autoPortOk(String ip, int port) async {
   }
 }
 
+/// Resolve the project's SNI names to IPv6 endpoints in small cancellable batches.
+/// The hostname remains the TLS SNI; only the TCP destination is the AAAA address.
+Future<List<String>> _autoResolveIpv6Targets({bool Function()? cancelled}) async {
+  final out = <String>{};
+  const batchSize = 4;
+  for (var offset = 0; offset < kAutoSniDomains.length; offset += batchSize) {
+    if (cancelled?.call() ?? false) break;
+    final batch = kAutoSniDomains.skip(offset).take(batchSize);
+    final resolved = await Future.wait(batch.map((domain) async {
+      try {
+        return await InternetAddress.lookup(
+          domain,
+          type: InternetAddressType.IPv6,
+        ).timeout(const Duration(seconds: 2));
+      } catch (_) {
+        return const <InternetAddress>[];
+      }
+    }));
+    if (cancelled?.call() ?? false) break;
+    for (final addresses in resolved) {
+      for (final address in addresses) {
+        if (address.type == InternetAddressType.IPv6 &&
+            !address.isLoopback && !address.isLinkLocal && !address.isMulticast) {
+          out.add(address.address);
+        }
+      }
+    }
+  }
+  return out.toList(growable: false);
+}
+
 Future<void> autoScanRun(void Function(String) say,
     {bool Function()? isVpnActive, bool Function()? isVpnWanted}) async {
   bool vpnActive() => isVpnActive?.call() ?? false;
@@ -133,12 +164,21 @@ Future<void> autoScanRun(void Function(String) say,
       liveRanges: cdnRanges,
       cursors: stagedCdnCursors,
     );
+    // Add AAAA answers from the same project SNI inventory. These exact
+    // endpoints feed the same SNI, TLS/ALPN, and TCP-port phases as IPv4.
+    final ipv6DnsIps = await _autoResolveIpv6Targets(cancelled: cancelled);
+    if (cancelled()) {
+      say(cancellationMessage());
+      return;
+    }
     final ips = <String>{
       ...base,
       ...cdnIps,
-      if (base.isEmpty && cdnIps.isEmpty) ...kAutoFallbackIps,
+      ...ipv6DnsIps,
+      if (base.isEmpty && cdnIps.isEmpty && ipv6DnsIps.isEmpty)
+        ...kAutoFallbackIps,
     }.toList(growable: false);
-    say('تست با ${ips.length} IP (پوشه جهانی / CDN مستقل از نت ملی)');
+    say('تست با ${ips.length} IP از IPv4 و IPv6 (پوشه جهانی / CDN مستقل از نت ملی)');
 
     // SNI: خروجی خود دامنه‌هاست. هر دامنه یک بار؛ به محض یک IP سالم، همان دامنه ثبت می‌شود
     final sniHits = <String>[];
