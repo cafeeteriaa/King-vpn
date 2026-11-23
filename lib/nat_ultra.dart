@@ -20,7 +20,7 @@ const int _natBaseCount = 54; // V13: +4 SNI swap
 // V7: bumped to 3 because the meaning of the port-hopping index changed
 // (port 80 added to the CF port list), so old saved generated variants
 // no longer point at the same meaning.
-const int _natGenVer = 3;
+const int _natGenVer = 4; // SNI candidate inventory and generated variant order expanded
 
 final Map<String, int> natVar = {};
 // NORMALCACHE: variant موفق در حالت عادی (جدا از natVar نت ملی).
@@ -334,11 +334,14 @@ List<_NatSpec> _natGenerate() {
       if (!topSet.contains(i)) i
   ];
 
-  // V13: SNI-swap x fragment combos (bypass SNI + DPI in one shot).
-  for (var sniIdx = 0; sniIdx < 4; sniIdx++) {
-    final realIdx = const [0, 1, 2, 7][sniIdx];
+  // Restore every discovered hostname as a standalone SNI candidate and
+  // combine each one with every base Fragment profile. Keep the search space
+  // generated lazily in the existing ranked matrix rather than truncating the
+  // SNI inventory to four hard-coded indices.
+  for (var sniIdx = 0; sniIdx < natFrontSnis.length; sniIdx++) {
+    add(_natMk(sniSwap: sniIdx));
     for (var fi = 0; fi < _natFragBase.length; fi++) {
-      add(_natMk(frag: fi, sniSwap: realIdx));
+      add(_natMk(frag: fi, sniSwap: sniIdx));
     }
   }
 
