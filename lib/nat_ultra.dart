@@ -1927,7 +1927,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
       final hits = await natScanIps(
         entry.value,
         port: entry.key,
-        concurrency: conc.clamp(1, 32).toInt(),
+        concurrency: natAdaptiveConcurrency(conc),
         want: entry.value.length,
         timeout: const Duration(milliseconds: 1200),
         cancelled: cancelled,
@@ -2152,7 +2152,7 @@ bool _natRangeScanBusy = false;
 Future<List<String>> natRangeScanStep({
   required List<Server> known,
   int maxAddrs = 256,
-  int conc = 4,
+  int conc = 0,
   bool Function()? stop,
   Duration? budget,
 }) async {
@@ -2160,7 +2160,7 @@ Future<List<String>> natRangeScanStep({
   // Iterable.take() throws for a negative count; zero-sized requests should be
   // a cheap no-op rather than starting compute/network work.
   if (maxAddrs <= 0 || (budget != null && budget <= Duration.zero)) return const <String>[];
-  conc = conc.clamp(1, 32).toInt();
+  conc = natAdaptiveConcurrency(conc);
   if (_natRangeScanBusy) return const <String>[];
   _natRangeScanBusy = true;
   try {
