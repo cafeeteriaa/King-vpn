@@ -3924,6 +3924,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("label.startsWith('-')", helper)
         self.assertIn("label.endsWith('-')", helper)
 
+    def test_dns_probe_checks_a_and_aaaa_per_domain(self):
+        source = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        start = source.index('Future<DnsxHit?> dnsxProbe(')
+        end = source.index('Future<List<DnsxHit>> dnsxScan(', start)
+        probe = source[start:end]
+        self.assertIn('recordType: 1', probe)
+        self.assertIn('recordType: 28', probe)
+        self.assertIn('final valid = familyResults.where((r) => r.ok)', probe)
+        self.assertIn('tested += part.length', probe)
+
     def test_dns_probe_sanitizes_domains_at_probe_boundary(self):
         source = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
         helper_start = source.index('List<String> _dnsxHostsFrom(')
