@@ -2821,6 +2821,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_autoPortOk(ip, p)', auto)
         self.assertIn('_autoAlpnOk(ip, tlsSni, alpn)', auto)
 
+    def test_nip_hunt_resumes_every_dual_stack_range_and_scans_all_open_hits(self):
+        nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        self.assertIn("const String _nipHuntCursorKey = 'nip_hunt_range_cursors_v1';", nip)
+        self.assertIn("required String namespace,", nip)
+        self.assertIn("'__nip_${namespace}_range_cursor'", nip)
+        self.assertIn("cursors['$namespace:$range']", nip)
+        self.assertIn('natExpandIpRangeCursor(', nip)
+        self.assertIn("namespace: 'cdn'", nip)
+        self.assertIn("namespace: 'asn'", nip)
+        self.assertIn('batchSize: 1000', nip)
+        self.assertIn('want: ips.length,', nip)
+        self.assertIn('onProgress: (done, total) => completed = done,', nip)
+        self.assertIn('if (completed >= ips.length)', nip)
+        self.assertIn('await onComplete?.call();', nip)
+        self.assertIn('for (var offset = 0; offset < hits.length; offset += 8)', nip)
+        self.assertNotIn('hits.take(8)', nip)
+        self.assertNotIn('prefixes.take(80)', nip)
+
     def test_nip_hunt_and_ripe_asn_scanning_accept_both_address_families(self):
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         self.assertIn('natExpandIpv6Cidr(cidr, maxPerBlock: maxPerBlock)', nip)
