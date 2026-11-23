@@ -62,6 +62,17 @@ class NationalIpScannerGuardTests(unittest.TestCase):
         self.assertIn("Socket.connect(ip, port, timeout: timeout)", block)
         self.assertIn("s.destroy();", block)
 
+    def test_explicit_ipv6_cidr_sampling_is_bounded_and_numeric_only(self):
+        source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('List<String> natExpandIpv6Cidr(')
+        end = source.index('/// بازه‌ی خطی', start)
+        block = source[start:end]
+        self.assertIn('InternetAddressType.IPv6', block)
+        self.assertIn('prefix < 0 ||', block)
+        self.assertIn('min(maxPerBlock, kNatMaxScanAddresses)', block)
+        self.assertIn('BigInt', block)
+        self.assertIn('InternetAddress.fromRawAddress', block)
+
     def test_front_tls_probe_keeps_certificate_validation_and_closes_sockets(self):
         start = self.source.index("Future<String?> nipFrontProbe(")
         end = self.source.index("Future<String?> nipFindFrontSni(", start)
