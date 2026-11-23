@@ -119,10 +119,14 @@ Future<List<String>> nipIranCidrs() async {
     if (response.statusCode != 200) return cached;
     final body = await response.transform(utf8.decoder).join();
     final decoded = jsonDecode(body);
-    final raw = ((decoded['data']?['resources']?['ipv4']) as List?) ?? const [];
+    final resources = decoded['data']?['resources'];
+    final raw = <dynamic>[
+      ...((resources is Map && resources['ipv4'] is List) ? resources['ipv4'] as List : const []),
+      ...((resources is Map && resources['ipv6'] is List) ? resources['ipv6'] as List : const []),
+    ];
     final ranges = raw
         .map((entry) => '$entry'.trim())
-        .where((entry) => entry.contains('/') && !entry.contains(':'))
+        .where((entry) => entry.contains('/'))
         .toSet()
         .toList(growable: false);
     if (ranges.isNotEmpty) {
