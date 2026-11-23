@@ -3621,6 +3621,8 @@ class Server {
         h.contains('cloudflare')) {
       return true;
     }
+    // _isCfIp checks both Cloudflare IPv4 and IPv6 published ranges.
+    if (_isCfIp(h)) return true;
     final p = h.split('.');
     if (p.length != 4) return false;
     final a = int.tryParse(p[0]) ?? 0, b = int.tryParse(p[1]) ?? 0;
