@@ -183,7 +183,7 @@ Future<void> natRelayHostsLoad() async {
 
 Future<void> natRelayHostsSave(String text) async {
   natRelayHosts = natBoundScanTargets(
-    text.split(RegExp(r'[\\r\\n\\s]+')),
+    text.split(RegExp(r'[\s,;]+')),
   );
   try {
     final p = await SharedPreferences.getInstance();
@@ -421,31 +421,41 @@ extension NipHunt on _HomePageState {
     }
     if (direct.isEmpty) return false;
 
-    // مرحله ۲: واسط‌های تعریف‌شده (natRelayHosts) — مستقیم امتحان می‌شوند
+    // مرحله ۲: همه‌ی واسط‌ها با همه‌ی الگوهای قابل‌تبدیل ترکیب می‌شوند.
     if (natRelayHosts.isNotEmpty) {
-      final cands = <Server>[];
-      for (final ip in natRelayHosts) {
-        final link = nipSwapLink(direct[cands.length % direct.length], ip);
-        if (link == null) continue;
-        final c = Server.parse(link);
-        if (c != null) cands.add(c);
-      }
-      if (cands.isNotEmpty) {
-        _set('نت ملی: امتحان ${cands.length} واسط…');
-        if (await _connectLoop(cands, trust: false)) {
-          final w = current;
-          if (w != null) _natAdd(w);
+      final relayBatch = <Server>[];
+      final relayLinks = <String>{};
+      Future<bool> flushRelays() async {
+        if (relayBatch.isEmpty) return false;
+        final batch = List<Server>.of(relayBatch);
+        relayBatch.clear();
+        relayLinks.clear();
+        if (await _connectLoop(batch, trust: false)) {
+          final winner = current;
+          if (winner != null) _natAdd(winner);
           return true;
         }
-        if (abort) return false;
+        return false;
       }
+      for (final ip in natRelayHosts) {
+        for (final template in direct) {
+          final link = nipSwapLink(template, ip);
+          if (link == null || !relayLinks.add(link)) continue;
+          final candidate = Server.parse(link);
+          if (candidate != null) relayBatch.add(candidate);
+          if (relayBatch.length >= 64) {
+            _set('نت ملی: آزمون دسته‌ای واسط‌ها (${relayBatch.length})…');
+            if (await flushRelays()) return true;
+            if (abort) return false;
+          }
+        }
+      }
+      if (relayBatch.isNotEmpty && await flushRelays()) return true;
+      if (abort) return false;
     }
 
-    // مرحله ۳: اسکن همسایه‌های ASN عمداً اجرا نمی‌شود.
-    // داشتن یک hostname/IP از یک شرکت، مجوز اسکن بقیه‌ی prefixهای همان ASN نیست.
-    // محدوده‌های دستیِ مالک و فهرست relayهای صریح همچنان از مسیرهای جداگانه قابل آزمون‌اند.
-    // مرحله ۴ (IP های باز ایران) حذف شد: یک IP باز ایران فوروارد نمی‌کند،
-    // پس برای REALITY/TCP وقت تلف می‌کرد و هیچ‌وقت وصل نمی‌شد.
+    // Country-resource and published CDN ranges are traversed by the
+    // resumable range engine; this hunt keeps testing the full template/relay inventory.
     _set('نت ملی: واسط یا IP هم‌شرکت سالم پیدا نشد');
     return false;
   }
