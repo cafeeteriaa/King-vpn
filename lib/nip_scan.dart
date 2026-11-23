@@ -130,21 +130,26 @@ String? nipSwapLink(Server t, String ip) {
 // مثال: const natRelayHosts = <String>['1.2.3.4'];
 List<String> natRelayHosts = <String>[];
 
-// RELAYHOSTS: واسط‌های IP که کاربر اضافه می‌کند
+// RELAYHOSTS: explicit user-supplied relay endpoints only; never discover peers implicitly.
+const int kNatMaxRelayHosts = 32;
+
 Future<void> natRelayHostsLoad() async {
   try {
     final p = await SharedPreferences.getInstance();
-    natRelayHosts = p.getStringList('nat_relay_hosts') ?? <String>[];
+    natRelayHosts = natBoundScanTargets(
+      p.getStringList('nat_relay_hosts') ?? <String>[],
+      maxCount: kNatMaxRelayHosts,
+    );
   } catch (e, st) {
     logError(e, st);
   }
 }
 
 Future<void> natRelayHostsSave(String text) async {
-  natRelayHosts = text
-      .split(RegExp(r'[\r\n\s]+'))
-      .where((x) => InternetAddress.tryParse(x) != null)
-      .toList();
+  natRelayHosts = natBoundScanTargets(
+    text.split(RegExp(r'[\\r\\n\\s]+')),
+    maxCount: kNatMaxRelayHosts,
+  );
   try {
     final p = await SharedPreferences.getInstance();
     await p.setStringList('nat_relay_hosts', natRelayHosts);
