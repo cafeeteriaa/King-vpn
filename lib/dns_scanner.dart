@@ -222,18 +222,23 @@ Future<DnsxHit?> dnsxProbe(String server,
     // Cancellation may arrive while waiting between DNS batches.
     if (stop != null && stop()) break;
     final part = list.sublist(i, min(i + chunk, list.length));
-    // NNIE: strict response validation includes transaction ID, QR/opcode,
-    // question/type/class, source IP/port, RCODE and usable A answer.
-    final res = await Future.wait(part.map((d) => NatDnsWireProbe.probe(
-          server,
-          d,
-          timeout: timeout,
-          cancelled: stop,
-        )));
+    // Query both A and AAAA. A domain counts once when either address
+    // family returns a validated usable answer.
+    final res = await Future.wait(part.map((d) => Future.wait([
+          NatDnsWireProbe.probe(
+            server, d, timeout: timeout, cancelled: stop, recordType: 1,
+          ),
+          NatDnsWireProbe.probe(
+            server, d, timeout: timeout, cancelled: stop, recordType: 28,
+          ),
+        ])));
     if (stop != null && stop()) return null;
     tested += part.length;
-    for (final r in res) {
-      if (r.ok) times.add(r.elapsedMs!);
+    for (final familyResults in res) {
+      final successful = familyResults.where((result) => result.ok).toList();
+      if (successful.isNotEmpty) {
+        times.add(successful.map((result) => result.elapsedMs!).reduce(min));
+      }
     }
   }
   // ملاک: حداقل ۲۵٪ از دامنه‌هایی که واقعاً سنجیده شدند باید جواب بدهند
