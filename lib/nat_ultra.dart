@@ -2071,11 +2071,10 @@ Future<List<String>> _natDomainFirst(List<Server> known,
           : <InternetAddress>[parsed];
       if (addresses.isEmpty && !NatNetworkDiagnosis.preferDomestic) {
         final dohAddresses = await dohResolveAll(entry.key);
-        addresses = [
-          for (final value in dohAddresses)
-            if (InternetAddress.tryParse(value) != null)
-              InternetAddress.parse(value),
-        ];
+        addresses = dohAddresses
+            .map(InternetAddress.tryParse)
+            .whereType<InternetAddress>()
+            .toList(growable: false);
       }
       if (cancelled()) return const <String>[];
       for (final address in addresses) {
