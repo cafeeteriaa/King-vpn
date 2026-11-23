@@ -10838,13 +10838,9 @@ ListTile( // KINGEXTRAS row
           ),
           TextButton(
             onPressed: () async {
-              if (nationalMode) {
-                _set('در نت ملی بازه‌ی دستی ذخیره نمی‌شود؛ جستجو خودکار است.');
-                return;
-              }
               await natRangesSave(c.text);
               if (ctx.mounted) Navigator.pop(ctx);
-              _set('بازه‌ها ذخیره شد (${natRanges.length} بازه)');
+              _set('بازه‌های IPv4/IPv6 ذخیره شد (${natRanges.length} بازه) و در اسکن حالت فعلی ادامه می‌یابد.');
             },
             child: const Text('ذخیره'),
           ),
