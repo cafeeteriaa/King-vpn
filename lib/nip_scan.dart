@@ -27,11 +27,12 @@ List<String> nipExpandCidr(String cidr, {int maxPerBlock = 4096}) {
     base = (base << 8) | v;
   }
   if (maxPerBlock <= 0) return const [];
+  final limit = min(maxPerBlock, 4096);
   final size = 1 << (32 - prefix);
   final start = base & ~(size - 1) & 0xFFFFFFFF;
   // Ceiling division ensures the sampled output never exceeds the caller's cap.
-  final step = size > maxPerBlock
-      ? (size + maxPerBlock - 1) ~/ maxPerBlock
+  final step = size > limit
+      ? (size + limit - 1) ~/ limit
       : 1;
   final out = <String>[];
   for (var i = 0; i < size; i += step) {
