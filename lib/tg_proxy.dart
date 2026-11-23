@@ -193,6 +193,7 @@ class _TgProxyPanelState extends State<_TgProxyPanel> {
     final uri = Uri.parse(link);
     final kind = uri.pathSegments.first == 'socks' ? 'SOCKS5' : 'MTProto';
     final current = List<_TgPx>.from(_items ?? await _tgPxReadCache());
+    if (!mounted) return;
     if (current.any((item) => item.link == link)) {
       setState(() => _status = 'این پروکسی قبلاً ذخیره شده است');
       return;
