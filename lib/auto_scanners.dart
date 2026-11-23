@@ -106,12 +106,24 @@ Future<void> autoScanRun(void Function(String) say,
     // FOLDERALL: IPهای پوشه اول؛ در نت ملی IPهای ISP داخلی هم اضافه می‌شود (بهینه برای نت ملی)
     // This is the generic/global SNI and port scanner. National ISP ranges
     // belong exclusively to the National Net engine and are never borrowed here.
-    final base = [for (final entry in _goldIps.values) entry.ip];
+    final base = <String>{
+      for (final entry in _goldIps.values) entry.ip,
+      for (final entry in cleanIps) entry.ip,
+      for (final entry in natIpMem) (entry['ip'] ?? '').toString(),
+    }.where((ip) => ip.isNotEmpty).toList(growable: false);
     final cdnSample = <String>[];
     if (base.isEmpty) {
-      for (final r in _cfRanges.take(8)) {
-        cdnSample.addAll(natExpandCidr(r, maxPerBlock: 3));
-        if (cdnSample.length >= 20) break;
+      // Discover from all published CDN inventories, with Cloudflare kept last.
+      final ranges = <String>{
+        ..._fastlyRanges,
+        ..._awsCfRanges,
+        ..._gcpCdnRanges,
+        ..._liveCdnRanges.where((range) => !_cfRanges.contains(range)),
+        ..._cfRanges,
+      };
+      final perRangeCandidates = natAdaptiveConcurrency(0) * 4;
+      for (final range in ranges) {
+        cdnSample.addAll(natExpandCidr(range, maxPerBlock: perRangeCandidates));
       }
     }
     final ips = base.isNotEmpty
