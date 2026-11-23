@@ -2314,25 +2314,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('DateTime.now().isBefore(verifyDeadline)', connect)
         self.assertNotIn('pingSec', connect)
 
-    def test_nat_range_scan_uses_one_monotonic_budget_across_ports(self):
+    def test_nat_range_scan_uses_budget_sized_per_port_batches(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('Future<List<String>> _natRangeScanStepBody(')
         end = source.index('List<String> userListUrls', start)
         body = source[start:end]
-        self.assertIn('final scanClock = Stopwatch()..start();', body)
-        self.assertIn('final remainingBudget = budget - scanClock.elapsed;', body)
-        self.assertIn('final portBudget = perPortCap < remainingBudget', body)
-        self.assertIn('milliseconds: max(20000, budget.inMilliseconds ~/ max(1, portList.length)).toInt()', body)
+        self.assertIn('final effectiveConcurrency = natAdaptiveConcurrency(conc);', body)
+        self.assertIn('final estimatedCapacity = max(', body)
+        self.assertIn('final scanLimit = min(maxAddrs, estimatedCapacity).toInt();', body)
+        self.assertIn('final portIndex = (_natRangePortCursors[modeKey] ?? 0) % portList.length;', body)
+        self.assertIn('final portPrefix = \'$modeKey:port:$port:\';', body)
         scan = body.index('final hits = await natScanIps(')
-        self.assertIn('budget: portBudget,', body[scan:scan + 500])
+        self.assertIn('budget: budget,', body[scan:scan + 500])
         self.assertIn('want: slice.length,', body[scan:scan + 500])
-        self.assertNotIn('want: 50,', body)
-        self.assertIn('int maxAddrs = 2048,', source[source.index('Future<List<String>> natRangeScanStep('):source.index('Future<List<String>> _natRangeScanStepBody(')])
-        expiry = body.index('if (shouldAbort() || scanExpired()) return const <String>[];', scan)
-        cursor = body.index('_cfRangeCursors\n    ..clear()')
-        self.assertLess(scan, expiry)
-        self.assertLess(expiry, cursor)
+        self.assertIn('onProgress: (done, total, _) => completed = done,', body[scan:scan + 500])
+        self.assertIn('completed < slice.length', body)
+        self.assertIn('if (shouldAbort() ||', body)
+        self.assertNotIn('perPortCap', body)
+        self.assertNotIn('for (final port in portList)', body)
         self.assertNotIn('DateTime.now().add(budget)', body)
+        self.assertIn('int maxAddrs = 2048,', source[source.index('Future<List<String>> natRangeScanStep('):source.index('Future<List<String>> _natRangeScanStepBody(')])
 
     def test_dns_wire_probe_cancellation_closes_pending_udp_work(self):
         core = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
