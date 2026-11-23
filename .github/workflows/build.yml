@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # Keep the dedicated dual-stack engineering branch continuously validated.
+  # Keep the dedicated dual-stack engineering branch continuously validated, including source-guard repairs.
   group: android-${{ github.ref }}
   cancel-in-progress: false
 
