@@ -1930,32 +1930,7 @@ String _intToIp(int v) =>
 
 List<String> natExpandAny(String item, {int maxPerBlock = 65536}) {
   if (maxPerBlock <= 0) return const [];
-  if (!item.contains('-')) return natExpandCidr(item, maxPerBlock: maxPerBlock);
-  final parts = item.split('-');
-  if (parts.length != 2) return const [];
-  final a = InternetAddress.tryParse(parts[0].trim());
-  final b = InternetAddress.tryParse(parts[1].trim());
-  if (a == null || b == null ||
-      a.type != InternetAddressType.IPv4 ||
-      b.type != InternetAddressType.IPv4) {
-    return const [];
-  }
-  var start = _ipToInt(a.address);
-  var end = _ipToInt(b.address);
-  if (end < start) {
-    final t = start;
-    start = end;
-    end = t;
-  }
-  final out = <String>[];
-  final count = end - start + 1;
-  final step = count > maxPerBlock
-      ? (count + maxPerBlock - 1) ~/ maxPerBlock
-      : 1;
-  for (var v = start; v <= end && out.length < maxPerBlock; v += step) {
-    out.add(_intToIp(v));
-  }
-  return out;
+  return _natExpandAnyCursor(item, 0, maxPerBlock).$1;
 }
 
 const List<String> natIranDnsHosts = [
