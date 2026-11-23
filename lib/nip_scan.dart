@@ -12,7 +12,7 @@ class NipHit {
 
 /// بلوک CIDR مثل «5.160.0.0/16» را به فهرست IP تبدیل می‌کند.
 /// برای بلوک‌های بزرگ فقط [maxPerBlock] آدرس پراکنده برمی‌گرداند.
-List<String> nipExpandCidr(String cidr, {int maxPerBlock = 4096}) {
+List<String> nipExpandCidr(String cidr, {int maxPerBlock = 65536}) {
   final parts = cidr.trim().split('/');
   if (parts.length != 2) return const [];
   final octets = parts[0].split('.');
@@ -103,8 +103,12 @@ Future<List<NipHit>> nipScan(
 /// this function discovers ranges and does not itself send probes.
 Future<List<String>> nipIranCidrs() async {
   final prefs = await SharedPreferences.getInstance();
-  final cached = prefs.getStringList('plus_ir_cidr');
-  if (cached != null && cached.isNotEmpty) return cached;
+  final cached = prefs.getStringList('plus_ir_cidr') ?? const <String>[];
+  final cachedAt = prefs.getInt('plus_ir_cidr_at') ?? 0;
+  final now = DateTime.now().millisecondsSinceEpoch;
+  if (cached.isNotEmpty && now - cachedAt < const Duration(hours: 6).inMilliseconds) {
+    return cached;
+  }
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
   try {
     final request = await client
@@ -123,11 +127,13 @@ Future<List<String>> nipIranCidrs() async {
         .toList(growable: false);
     if (ranges.isNotEmpty) {
       await prefs.setStringList('plus_ir_cidr', ranges);
+      await prefs.setInt('plus_ir_cidr_at', now);
+      return ranges;
     }
-    return ranges;
+    return cached;
   } catch (e, st) {
     logError(e, st);
-    return const <String>[];
+    return cached;
   } finally {
     client.close(force: true);
   }
