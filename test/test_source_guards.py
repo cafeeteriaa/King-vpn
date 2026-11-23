@@ -4292,5 +4292,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (!natDisabled.contains(v)) v', auto_test)
 
 
+    def test_successful_nat_history_and_candidate_queues_have_no_eviction_ceiling(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('void _gcCaches()')
+        end = source.index('\n  Future<void> _init()', start)
+        gc = source[start:end]
+        self.assertNotIn('natScanHits.length >', gc)
+        self.assertNotIn('natGood.length >', gc)
+        self.assertNotIn('natSubstSearched.length >', gc)
+        self.assertNotIn('_resMax', source)
+        self.assertNotIn('pending.length > 3000', source)
+        self.assertNotIn('natIpMem.take(40)', source)
+        self.assertNotIn('...good].take(2)', source)
+        self.assertNotIn('.take(3000)', source)
+
+
 if __name__ == '__main__':
     unittest.main()
