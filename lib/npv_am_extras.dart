@@ -719,7 +719,8 @@ Future<void> refreshCdnRanges() async {
     });
 
     if (merged.length >= 10) {
-      _liveCdnRanges = merged.toList();
+      // Stable ordering is required because the outer range cursor is an index.
+      _liveCdnRanges = merged.toList()..sort();
       if (liveOk > 0) _cdnRangesFetchedAt = DateTime.now();
       dbg('CDNDIV: live CDN ranges refreshed (${_liveCdnRanges.length} blocks)');
     }
