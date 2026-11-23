@@ -272,7 +272,7 @@
 | NET-IP-01 | IPv6 route در custom service وجود دارد ولی custom service غیرفعال است | اختلاف پوشش IPv6 در مسیر plugin-managed | بررسی plugin builder و تست IPv4/IPv6 روی دستگاه با VPN فعال | OPEN |
 | NET-MTU-01 | MTU ثابت 1500 است | blackhole/fragmentation در مسیرهای با MTU کمتر | PMTU/UDP/TCP test و اندازه‌گیری روی Wi-Fi و cellular | OPEN |
 | NET-SNI-01 | SNI fallback فقط از WS Host در حالت TLS خالی استفاده می‌کند | کانفیگ‌های غیر-WS یا Host نامعتبر ممکن است شکست بخورند | تست ماتریس پروتکل و جلوگیری از اعتماد به Host بدون validation | OPEN |
-| NET-SNI-02 | probe SNI گواهی را نادیده می‌گیرد و HTTP را اعتبارسنجی نمی‌کند | false positive برای TLS reachability | تفکیک TLS handshake، certificate validation و HTTP response | OPEN |
+| NET-SNI-02 | وضعیت فعلی `nipFrontProbe` و اسکنر خودکار، TLS certificate/hostname را اعتبارسنجی می‌کنند؛ پاسخ HTTP و پذیرش Host/CDN همچنان اعتبارسنجی نمی‌شود | TLS معتبر ممکن است بدون virtual-host/HTTP route صحیح باشد | افزودن HTTP Host/path response validation مستقل و data-plane tunnel acceptance | OPEN (TLS validation implemented; HTTP/data-plane pending) |
 | NET-DPI-01 | اثر Fragment/Mux/fingerprint/ALPN فقط از سورس قابل مشاهده است | احتمال ادعای عملکرد بدون شاهد | A/B روی اپراتورهای مشخص، packet capture و data-plane | OPEN |
 | NET-HOST-01 | IP/ASN/geolocation برای اثبات میزبانی داخلی کافی نیست | انتخاب اشتباه سرور ملی | شواهد DNS/ASN/route/hosting و data-plane محلی | OPEN |
 
