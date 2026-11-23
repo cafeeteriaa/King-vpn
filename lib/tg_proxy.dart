@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'prefs_store.dart';
 
 // =============================================================================
 // پروکسی تلگرام — لیست پروکسی‌های عمومی (MTProto / SOCKS) برای کپی یا باز کردن
