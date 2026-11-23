@@ -2373,7 +2373,7 @@ Future<List<String>> _natRangeScanStepBody({
       logError(e, st);
     }
   }());
-  natTemplateSeeds = seeds.take(2).toList();
+  natTemplateSeeds = List<Server>.of(seeds);
   natRandomLast = 0;
   natIpScanned += slice.length;
   return out;
