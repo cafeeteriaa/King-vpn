@@ -1213,6 +1213,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('if (nationalMode)', standby)
 
 
+    def test_nnie_discards_probe_results_after_network_handover(self):
+        engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        start = engine.index('static Future<NatNetworkClass> _refreshImpl')
+        end = engine.index('/// Dedicated Smart Pilot link scanner', start)
+        diagnosis = engine[start:end]
+        identity_check = diagnosis.index('final identityAfter = await _identityHash();')
+        classification = diagnosis.index('current = ev.classify();')
+        self.assertLess(identity_check, classification)
+        self.assertIn('id.isEmpty || identityAfter.isEmpty || identityAfter != id', diagnosis)
+        self.assertIn('current = NatNetworkClass.unknown;', diagnosis)
+        self.assertIn('_identityAtCheck = null;', diagnosis)
+
     def test_nnie_evidence_threshold_counts_successful_probes_only(self):
         engine = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
         start = engine.index('final ev = NatProbeEvidence(')
