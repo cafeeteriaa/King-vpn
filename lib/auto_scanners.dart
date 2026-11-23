@@ -111,9 +111,10 @@ Future<void> autoScanRun(void Function(String) say,
     final base = [for (final entry in _goldIps.values) entry.ip];
     final cdnSample = <String>[];
     if (base.isEmpty) {
-      for (final r in _cfRanges.take(8)) {
-        cdnSample.addAll(natExpandCidr(r, maxPerBlock: 3));
-        if (cdnSample.length >= 20) break;
+      // Cover every configured range with a bounded, evenly distributed
+      // sample per range. The scan deadline and socket batches cap total work.
+      for (final r in _cfRanges) {
+        cdnSample.addAll(natExpandCidr(r, maxPerBlock: 64));
       }
     }
     final ips = base.isNotEmpty
