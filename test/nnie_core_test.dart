@@ -193,6 +193,16 @@ void main() {
       );
     });
 
+    test('rejects the full ORCHID /28 ranges, not only their first /32', () {
+      for (final fourth in [0x11, 0x2f]) {
+        final bytes = <int>[
+          0x20, 0x01, 0, fourth, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0, 0, 1,
+        ];
+        expect(NatDnsWireProbe.publicV6(bytes, 0), isFalse);
+      }
+    });
+
     test('rejects documentation-range AAAA answers', () {
       final bytes = _response(
         id: 0x1234,
