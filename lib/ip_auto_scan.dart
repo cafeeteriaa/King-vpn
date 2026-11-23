@@ -12,8 +12,8 @@ const String _ipAutoKeyNat = 'ipauto_nat_v1';
 const String _ipAutoKeyGlob = 'ipauto_glob_v1';
 const String _ipAutoCursorKey = 'ipauto_cursor_v1';
 const String _ipAutoPosKey = 'ipauto_pos_v1'; // جای فعلی در فهرست آدرس‌ها
-const int _ipAutoBatch = kNatMaxScanAddresses; // Hard cap shared with every other IP scanner
-const String _ipAutoAtKey = 'ipauto_at_v1'; // زمان آخرین اسکن خودکار نت ملی
+const int _ipAutoBatch = kNatMaxScanAddresses; // Resumable work chunk; cursors continue through the complete inventory
+const String _ipAutoAtKey = 'ipauto_at_v1'; // زمان آخرین اجرای اسکن خودکار
 const int _ipAutoConc = 48; // اتصال TCP همزمان
 
 bool ipAutoBusy = false;
@@ -235,10 +235,10 @@ extension IpAutoExt on _HomePageState {
     if (runNationalMode) {
       say('دریافت الگوهای مستقل نت ملی...');
       try {
-        final nationalSeeds = await natHotNext(50, fetch: false);
+        final nationalSeeds = await natHotNext(800, fetch: false);
         if (halted()) return false;
         if (nationalSeeds.isNotEmpty) {
-          natTemplateSeeds = nationalSeeds.take(2).toList();
+          natTemplateSeeds = List<Server>.of(nationalSeeds);
           pool = [...nationalSeeds, ...good, ...pending];
         } else {
           pool = <Server>[...natTemplateSeeds, ...good, ...pending];
@@ -251,7 +251,7 @@ extension IpAutoExt on _HomePageState {
     } else {
       say('دریافت سرور نمونه از منابع جهانی...');
       try {
-        pool = await fetchServers(stop: () => halted(), quickCap: 200);
+        pool = await fetchServers(stop: () => halted());
       } catch (e, stk) {
         logError(e, stk);
         if (halted()) return false;
@@ -265,7 +265,8 @@ extension IpAutoExt on _HomePageState {
       say('دریافت لیست سرورها ناموفق بود. اینترنت را بررسی کنید و دوباره اجرا کنید.');
       return false;
     }
-    final tpl = pool.take(2).toList();
+    final tplSeen = <String>{};
+    final tpl = pool.where((server) => tplSeen.add(server.link)).toList();
     say('ساخت آدرس‌ها...');
     final addrs = await _ipAutoNextAddrs(
       runNationalMode ? const <Server>[] : [...good, ...pending, ...fetchedAll],
@@ -302,12 +303,12 @@ extension IpAutoExt on _HomePageState {
     // مرحله‌ی ۲: تست واقعی با هسته‌ی VPN، دو بار پشت سر هم
     final url = runNationalMode ? _natTestUrls.first : delayTestUrl;
     final seen = ipAutoHits.toSet();
-    final tplSrv = tpl.first;
     var found = 0;
     var checked = 0;
-    // Every TCP-responsive endpoint is eligible for a real core/tunnel test.
+    // Every TCP-responsive endpoint is checked against every available template
+    // until one template produces repeatable core reachability.
     final toTest = candidates;
-    say('${candidates.length} پورت باز؛ تست همه با هسته‌ی VPN...');
+    say('${candidates.length} پورت باز؛ آزمون همه‌ی الگوها با هسته‌ی VPN...');
     for (final c in toTest) {
       if (halted()) break;
       checked++;
@@ -315,25 +316,27 @@ extension IpAutoExt on _HomePageState {
       final parts = c.split('|');
       final ip = parts[0];
       final port = int.tryParse(parts[1]) ?? 443;
-      final ipLink = _natSetPort(_natSetHost(tplSrv.link, ip, tplSrv.host), port);
-      final s = Server(ipLink, tplSrv.name, ip, port);
-      final firstOk = await _ipAutoCoreOk(s, url);
-      if (halted()) return false;
-      if (!firstOk) {
-        say('تست $checked/${toTest.length} • جواب‌داده: $found');
-        continue;
+      var endpointOk = false;
+      for (final tplSrv in tpl) {
+        if (halted()) return false;
+        final ipLink = _natSetPort(_natSetHost(tplSrv.link, ip, tplSrv.host), port);
+        final candidate = Server(ipLink, tplSrv.name, ip, port);
+        final firstOk = await _ipAutoCoreOk(candidate, url);
+        if (halted()) return false;
+        if (!firstOk) continue;
+        final secondOk = await _ipAutoCoreOk(candidate, url);
+        if (halted()) return false;
+        if (!secondOk) continue;
+        endpointOk = true;
+        break;
       }
-      final secondOk = await _ipAutoCoreOk(s, url);
-      if (halted()) return false;
-      if (!secondOk) {
-        say('تست $checked/${toTest.length} • جواب‌داده: $found');
-        continue;
+      if (endpointOk) {
+        ipAutoHits.insert(0, c);
+        // Core outbound delay is only candidate evidence; tunnel health is
+        // confirmed later by the full VPN traffic test.
+        seen.add(c);
+        found++;
       }
-      ipAutoHits.insert(0, c);
-      // Core outbound delay is not proof of a clean IP or Android TUN health.
-      // Keep it as a candidate only; promotion requires a real user tunnel test.
-      seen.add(c);
-      found++;
       say('تست $checked/${toTest.length} • جواب‌داده: $found');
     }
     if (halted()) {
