@@ -3082,7 +3082,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('return blocks.toList()..sort();', ip_auto)
 
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
-        self.assertIn('}.toList()..sort();\\n    final ips = _getCfIps(', auto)
+        self.assertIn('}.toList()..sort();\n    final ips = _getCfIps(', auto)
 
     def test_persisted_dual_stack_scan_indexes_are_normalized_before_list_access(self):
         nat_scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
