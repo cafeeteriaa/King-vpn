@@ -168,24 +168,21 @@ Future<void> natRelayHostsSave(String text) async {
 Future<List<String>> nipResolveAll(String host) async {
   final literal = InternetAddress.tryParse(host.trim());
   if (literal != null) return [literal.address];
-  // Keep all system A/AAAA answers so the caller can inspect both families.
+  // Preserve the existing global-mode DoH preference, then collect all system
+  // A/AAAA answers so both address families can feed ASN discovery.
+  final doh = NatNetworkDiagnosis.preferDomestic ? null : await dohResolve(host);
+  final out = <String>{if (doh != null) doh};
   try {
     final addresses = await InternetAddress.lookup(host)
         .timeout(const Duration(seconds: 5));
-    final out = <String>{};
     for (final address in addresses) {
       if (address.type == InternetAddressType.IPv4 ||
           address.type == InternetAddressType.IPv6) {
         out.add(address.address);
       }
     }
-    if (out.isNotEmpty) return out.toList(growable: false);
   } catch (_) {}
-  if (!NatNetworkDiagnosis.preferDomestic) {
-    final doh = await dohResolve(host);
-    if (doh != null) return [doh];
-  }
-  return const <String>[];
+  return out.toList(growable: false);
 }
 
 Future<String?> nipResolve(String host) async {
