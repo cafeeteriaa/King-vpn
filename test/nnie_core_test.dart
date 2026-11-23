@@ -15,6 +15,7 @@ List<int> _response({
   String qname = 'google.com',
   required List<int> rdata,
   int an = 1,
+  int recordType = 1,
 }) {
   final out = <int>[
     ..._u16(id), ..._u16(flags), ..._u16(1), ..._u16(an), ..._u16(0), ..._u16(0),
@@ -22,11 +23,11 @@ List<int> _response({
   for (final label in qname.split('.')) {
     out..add(label.length)..addAll(label.codeUnits);
   }
-  out.addAll([0, 0, 1, 0, 1]); // root, QTYPE=A, QCLASS=IN
+  out.addAll([0, 0, (recordType >> 8) & 255, recordType & 255, 0, 1]); // root, QTYPE, QCLASS=IN
   if (an > 0) {
     out.addAll([
       0xc0, 0x0c, // name: pointer to the question name
-      ..._u16(1), ..._u16(1), // TYPE=A, CLASS=IN
+      ..._u16(recordType), ..._u16(1), // TYPE, CLASS=IN
       0, 0, 0, 60, // TTL
       ..._u16(rdata.length), ...rdata,
     ]);
@@ -153,6 +154,35 @@ void main() {
       expect(q.sublist(0, 2), [0x12, 0x34]); // transaction ID
       expect(q[12], 6); // "google"
       expect(q.length, 12 + 7 + 4 + 1 + 4); // header + labels + root + type/class
+    });
+
+    test('buildQuery can request AAAA records', () {
+      final q = NatDnsWireProbe.buildQuery('google.com', 0x1234, recordType: 28);
+      expect(q.sublist(q.length - 4), [0, 28, 0, 1]);
+    });
+
+    test('accepts a valid global-unicast AAAA answer', () {
+      final bytes = _response(
+        id: 0x1234,
+        recordType: 28,
+        rdata: [0x26, 0x06, 0x47, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x88],
+      );
+      expect(
+        NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com', recordType: 28),
+        ['2606:4700::88'],
+      );
+    });
+
+    test('rejects documentation IPv6 AAAA answers', () {
+      final bytes = _response(
+        id: 0x1234,
+        recordType: 28,
+        rdata: [0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+      );
+      expect(
+        () => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com', recordType: 28),
+        throwsA(isA<FormatException>()),
+      );
     });
 
     test('accepts a valid public A answer', () {
