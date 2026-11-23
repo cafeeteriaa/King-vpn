@@ -1,18 +1,22 @@
 # King VPN — Engineering Project State
 
-Updated: 2026-11-22
+Updated: 2026-11-23
 Repository: `cafeeteriaa/King-vpn`
-Active branch: `codex/continuation-mainline-20261122`
+Active audit/continuation branch: `audit/final-master`
+Primary VPN implementation branch under separate review: `codex/continuation-mainline-20261122`
 Base branch: `main`
 
-## Source of truth
+## Live source of truth — refresh on every resume
 
-- Latest code HEAD validated by CI 2130: `0ad29bfe7eb30b13eff2f3949b0b6086bedc6545`.
-- Checkpoint documentation commit: `25483910a388eecfca7db07aa7bf017e4bf1c913` (documentation-only; does not change the tested code).
-- Resolve the live branch/PR HEAD from GitHub PR #42 metadata on every resume; documentation-only checkpoint commits may advance it.
-- Base `main` SHA: `c43d325f9803d4f6306415e511f6790deff9d87e`.
-- PR #42 is OPEN, DRAFT, mergeable, and NOT merged. Keep it Draft and do not merge without explicit owner authorization.
-- PR #41 / domestic-ranking work remains separate; do not retarget or merge it without a full diff audit.
+- Current audit branch HEAD at this checkpoint: `36f4af0172aa78b6fc1777e735bbdb0465af7021`.
+- PR #44 is OPEN, DRAFT, mergeable, and NOT merged; its current head is the audit branch above. Keep it Draft; do not merge without explicit owner authorization.
+- Current `main` SHA: `c43d325f9803d4f6306415e511f6790deff9d87e`; no changes were made to `main`.
+- PR #42 remains OPEN and DRAFT at `05fcad8c5c046e647ae62584ba0ac0ed6baf57dd`; PR #43 and #41 remain separate Draft workstreams. Re-read live PR metadata before relying on any of these values.
+- Exact-head CI for audit HEAD `36f4af0172aa78b6fc1777e735bbdb0465af7021`: Run `45094289369`, observed `pending` at 2026-11-23 01:23 UTC.
+- Previous audit CI Run `45094163106` for documentation checkpoint `9a4b0cddeff3f9ee132b5996e496b7db54029ac0`: observed `in_progress`; Unit Tests and Dart Analysis had passed, ARM64 release APK build was still running, and alignment/artifact steps had not yet completed.
+- Last completed exact-code CI Run `45075391129` for `da2733be49b96497edf166311401271e8d2ef2fb`: SUCCESS, including unit tests, Dart analysis, ARM64 release build, 16 KiB ELF/ZIP alignment and artifact upload. This result does not certify later source commits or device runtime.
+- Latest code-changing commit in PR #44 at this checkpoint: `da2733be49b96497edf166311401271e8d2ef2fb` (test fixture aligned with the three-probe contract); later commits `9a4b0cd` and `36f4af0` are documentation-only.
+- PR #44 contains 13 changed files (README, MainActivity, engineering/AI/roadmap docs, Smart Pilot/network-health implementation and tests, patch gate and repair orchestrator). Re-read its live diff before making changes.
 - Repository write permission was confirmed. No changes were made to `main`.
 
 ## Latest implementation under review
@@ -82,6 +86,32 @@ Latest test-only code commit: `0ad29bfe7eb30b13eff2f3949b0b6086bedc6545`.
 - Production release / install-ready: NOT VERIFIED.
 
 Final status: VERIFIED WITH LIMITATIONS. This CI artifact is not declared production-ready or device-accepted.
+
+## Resume checkpoint — 2026-11-23
+
+### Work completed in the current audit stream
+
+- Smart Pilot evidence hardening: invalid/unknown latency is not accepted as a route-switch signal; the dedicated probe uses a 2-of-3 TLS quorum, validates sample counters, and only caches evidence against a known transient Android network identity.
+- Network handover protection: before/after physical-network identity must match; mixed snapshots are discarded and retried once. Forced refreshes are serialized behind an active ordinary refresh.
+- AI repair security: automatic patches are limited to `lib/` and `test/`; executable, native, workflow, dependency and tooling paths require owner review. The repair orchestrator no longer executes untrusted patch code on the developer host; CI on the exact PR commit is the validation boundary.
+- Native lifecycle ownership review was added to `FINAL_MASTER_AUDIT.md`: `kOwnVpnService=false) remains the active default; custom service stop acknowledgement is asynchronous and is not proof that the core/TUN is down. Potential interaction with plugin stop remains a device-validation item, not a proven production bug.
+- Existing code and features were preserved; no engine activation, main-branch change, PR merge, or release was performed.
+
+### Current validation boundary
+
+- Latest fully completed CI evidence: Run `45075391129` / commit `da2733be` — SUCCESS.
+- A subsequent run for `9a4b0cdd` had passed Unit Tests and Dart Analysis and was observed building the ARM64 APK; final completion was not yet observed.
+- Run `45094289369` for current audit HEAD `36f4af01` was pending when checked.
+- Device-level Start/Stop, process death, VPN revocation, DNS leak, IPv4/IPv6 packet flow, and Iranian operator-network validation remain NOT TESTED.
+- Do not describe any CI artifact as production-signed, install-ready, leak-free, or carrier-validated without separate evidence.
+
+### Immediate continuation order
+
+1. Recheck completion of Runs `45094163106` and `45094289369`; inspect failed steps/logs if either fails.
+2. Continue the Android plugin/custom-service ownership audit without changing `kOwnVpnService=false) until device acceptance.
+3. Add deterministic coverage for process-death recovery and stop/start ownership only where existing tests do not already cover the interleavings.
+4. Continue DNS resolver path and IPv4/IPv6 data-plane audit; require packet/device evidence before acceptance.
+5. Review CI permissions, workflow triggers, dependency/license inventory and AI patch gate before broadening autonomous write scope.
 
 ## Next engineering priorities
 
