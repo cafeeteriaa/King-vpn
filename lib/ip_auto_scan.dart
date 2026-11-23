@@ -14,7 +14,6 @@ const String _ipAutoCursorKey = 'ipauto_cursor_v1';
 const String _ipAutoPosKey = 'ipauto_pos_v1'; // جای فعلی در فهرست آدرس‌ها
 const String _ipAutoPendingKey = 'ipauto_pending_core_v1';
 const int _ipAutoBatch = 6000; // آدرس در هر اجرا
-const int _ipAutoMaxHits = 1000; // سقف نتایج ذخیره‌شده
 // TCP scanning uses every discovered/configured port; no fixed port-count cap.
 const String _ipAutoAtKey = 'ipauto_at_v1'; // زمان آخرین اسکن خودکار نت ملی
 const int _ipAutoConc = 48; // اتصال TCP همزمان
@@ -377,9 +376,6 @@ extension IpAutoExt on _HomePageState {
       // Keep it as a candidate only; promotion requires a real user tunnel test.
       seen.add(c);
       found++;
-      if (ipAutoHits.length > _ipAutoMaxHits) {
-        ipAutoHits.removeRange(_ipAutoMaxHits, ipAutoHits.length);
-      }
       say('تست $checked • جواب‌داده: $found');
     }
     if (halted()) {
