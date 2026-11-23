@@ -241,7 +241,7 @@ Future<DnsxHit?> dnsxProbe(String server,
   final list = uniqueDomains;
   final times = <int>[];
   var tested = 0; // تعداد دامنه‌هایی که واقعاً سنجیده شدند (اگر توقف زده شود، کمتر از کل است)
-  const chunk = 8; // دامنه‌ها در هر بسته‌ی همزمان
+  final chunk = natAdaptiveConcurrency(0); // adaptive per-device parallel DNS batch size
   for (var i = 0; i < list.length; i += chunk) {
     if (stop != null && stop()) break;
     // فاصله بین بسته‌ها: اسکن پس‌زمینه بار ناگهانی روی اتصال نمی‌گذارد
