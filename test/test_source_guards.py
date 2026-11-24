@@ -3258,7 +3258,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("not be inferred from a single endpoint", inventory)
 
 
-    def test_port_inventory_covers_zero_through_65535_for_tcp_and_udp(self):
+    def test_port_inventory_covers_all_connect_ports_1_through_65535_for_tcp_and_udp(self):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         start = source.index('List<int> natBuildFullPortInventory(')
         end = source.index('class NatIpHit', start)
