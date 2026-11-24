@@ -3279,6 +3279,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         acceptance = main[start:end]
         self.assertIn('if (proxyMode || !await _tunnelTrafficOk())', acceptance)
         self.assertIn('_verifiedRouteKeys.remove(s.key)', acceptance)
+        self.assertIn('NationalNetworkIntelligence.record(', acceptance)
+        self.assertIn('current = null;', acceptance)
+        self.assertIn('connected = false;', acceptance)
+        self.assertIn("${s.name} did not pass the central real-TUN traffic gate", acceptance)
         self.assertIn('return false;', acceptance)
         self.assertIn('_verifiedRouteKeys.add(s.key);', acceptance)
         self.assertIn('if (!s.personal) _resAdd(s);', acceptance)
