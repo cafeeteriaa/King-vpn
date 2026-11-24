@@ -3,8 +3,9 @@ part of 'main.dart';
 // IPAUTO: اسکن خودکار IP با هسته‌ی VPN، کاملاً جدا از نت ملی.
 // - فقط وقتی VPN قطع است و جستجوی نت ملی یا اسکن DNS در حال اجرا نیست، شروع می‌شود.
 // - هیچ صف، حافظه یا بازه‌ی نت ملی را تغییر نمی‌دهد (natRanges، natIpMem، pending، good).
-//   فقط برای خواندن، سرور نمونه و پورت‌های پرتکرار را از آن‌ها می‌گیرد.
-// - هر IP اول با TCP سنجیده می‌شود؛ فقط پورت‌های باز با هسته‌ی VPN دو بار تست می‌شوند.
+// - موجودی نامزدهای IP را مستقل از کانفیگ‌ها از DNS دوپشته، پوشه‌ی جهانی و رنج‌های CDN می‌سازد.
+// - تست فعال TCP و هسته فقط روی جفت IP:port دقیقِ endpointهای VPN موجود انجام می‌شود.
+// - نامزدهای کشف‌شده با endpoint پاسخ‌گو یا مسیر تونل تأییدشده اشتباه گرفته نمی‌شوند.
 // - نتیجه بر اساس حالت فعلی (ملی یا جهانی) در فهرست جدا ذخیره می‌شود و کپی‌پذیر است.
 // - هر اجرا بخش بعدیِ آدرس‌ها را برمی‌دارد (کرسر خودش)، پس با اجراهای متوالی بلوک‌ها پوشش داده می‌شوند.
 
@@ -420,8 +421,8 @@ extension IpAutoExt on _HomePageState {
     final addrs = generatedBatch.addresses;
     if (halted()) return false;
     if (addrs.isEmpty) {
-      say('آدرسی برای اسکن پیدا نشد.');
-      return false;
+      say('موجودی مستقل IP ذخیره شد؛ endpointهای نمونه در این نوبت به آدرس قابل‌بررسی resolve نشدند.');
+      return true;
     }
     // Build exact endpoint pairs; never cross-product unrelated IPs and ports.
     final endpointTargets = <int, Set<String>>{};
