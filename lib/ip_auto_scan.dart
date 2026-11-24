@@ -111,7 +111,7 @@ Future<void> _ipAutoSave() async {
 
 /// Inventory پویا برای اسکن IP؛ رنج‌های تنظیم‌شده و بلوک‌های کشف‌شده
 /// به‌صورت چرخشی پیمایش می‌شوند تا هیچ بخش ثابتِ ابتدای فهرست انحصاری نشود.
-Future<List<String>> _ipAutoBlocks(Iterable<Server> knownServers) async {
+Future<List<String>> _ipAutoBlocks(Iterable<Server> knownServers, {required bool useNationalMode}) async {
   final blocks = <String>{};
   final ips = <String>{};
 
@@ -131,7 +131,7 @@ Future<List<String>> _ipAutoBlocks(Iterable<Server> knownServers) async {
     }
   }
 
-  if (nationalMode) {
+  if (useNationalMode) {
     // تمام رنج‌های واردشده در موتور نت ملی + بلوک‌های حاصل از حافظه‌ی موفقیت.
     blocks.addAll(natRanges);
     blocks.addAll(natAutoBlocks(const <Server>[]));
@@ -176,7 +176,7 @@ Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddr
     // uses only the user's configured national ranges and national hit memory.
     'cfIpsBatch': modeSnapshot ? 0 : batchSize,
     'maxAddrs': batchSize,
-    'blocks': await _ipAutoBlocks(knownServers),
+    'blocks': await _ipAutoBlocks(knownServers, useNationalMode: modeSnapshot),
     'nationalMode': modeSnapshot,
     'liveRanges': modeSnapshot ? <String>[] : List<String>.of(_liveCdnRanges),
     'cursors': cursorSnapshot,
