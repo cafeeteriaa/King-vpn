@@ -1960,7 +1960,11 @@ List<int> natFullPortInventory(List<Server> known) {
     counts.keys,
     (a, b) => counts[b]! - counts[a]!,
   );
-  return natBuildFullPortInventory([...observed, ...natCommonPorts]);
+  return natBuildFullPortInventory(
+    [...observed, ...natCommonPorts],
+    firstPort: 1, // TCP connect() cannot target port zero.
+    lastPort: 65535,
+  );
 }
 
 List<int>? _ipTriple(String host) {
