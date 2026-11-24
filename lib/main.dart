@@ -10689,14 +10689,13 @@ ListTile( // KINGEXTRAS row
       const scanBudget = Duration(seconds: 90);
       const dnsTimeout = Duration(seconds: 3);
       const dnsBatch = 16;
-      final deadline = Stopwatch()..start();
       final ipOf = <String, String>{};
       final hosts = {
         for (final s in cands)
           if (s.host.isNotEmpty) s.host,
       }.toList(growable: false);
-      // Resolve in bounded parallel batches. DNS time counts against the same
-      // monotonic budget as TCP probes; unresolved candidates remain queued.
+      // Resolve every current-round hostname in bounded batches. The independent
+      // monotonic TCP budget starts only after DNS resolution; unresolved candidates remain queued.
       for (var i = 0; i < hosts.length && !abort; i += dnsBatch) {
         final chunk = <String>[];
         for (var j = i; j < min(i + dnsBatch, hosts.length); j++) {
@@ -10712,7 +10711,7 @@ ListTile( // KINGEXTRAS row
           chunk.map((host) => safeLookup(host, timeout: dnsTimeout)),
         );
         for (var j = 0; j < chunk.length; j++) {
-          if (abort || deadline.elapsed >= scanBudget) break;
+          if (abort) break;
           if (resolved[j].isNotEmpty) ipOf[chunk[j]] = resolved[j].first.address;
         }
       }

@@ -2375,6 +2375,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('const scanBudget = Duration(seconds: 90);', body)
         self.assertIn('const dnsBatch = 16;', body)
         self.assertIn('final deadline = Stopwatch()..start();', body)
+        self.assertEqual(body.count('final deadline = Stopwatch()..start();'), 1)
         self.assertIn('Future.wait(', body)
         self.assertIn('safeLookup(host, timeout: dnsTimeout)', body)
         self.assertIn('Preserve the original 90-second TCP budget independently of DNS time.', body)
