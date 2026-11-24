@@ -2031,11 +2031,16 @@ Future<void> goldShowList(BuildContext context) async {
                 for (final e in dnsL.take(200))
                   Text('${e.value} ms  •  ${e.key}',
                       style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
-                for (final k in const ['sni', 'port', 'tls']) ...[
+                for (final k in const ['sni_candidates', 'ip_candidates', 'sni', 'port', 'tls']) ...[
                   const Divider(),
                   Text(
-                      {'sni': 'SNI سالم', 'port': 'پورت سالم', 'tls': 'پروتکل TLS سالم'}[k]! +
-                          ' (${(_goldScan[k] ?? const []).length}):',
+                      {
+                        'sni_candidates': 'دامنه‌های SNI کشف‌شده (تأییدنشده)',
+                        'ip_candidates': 'IPهای کشف‌شده (تأییدنشده)',
+                        'sni': 'SNI دارای پاسخ HTTPS در محدودهٔ تنظیم‌شده',
+                        'port': 'پورت دارای پاسخ TCP در محدودهٔ تنظیم‌شده',
+                        'tls': 'پروتکل TLS مشاهده‌شده',
+                      }[k]! + ' (${(_goldScan[k] ?? const []).length}):',
                       style: const TextStyle(fontWeight: FontWeight.bold)),
                   for (final x in (_goldScan[k] ?? const <String>[]).take(200))
                     Text(x, style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
@@ -2105,6 +2110,24 @@ Future<void> goldShowList(BuildContext context) async {
                 }
               },
               child: const Text('کپی DNSها'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: (_goldScan['sni_candidates'] ?? const <String>[]).join('\n')));
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('دامنه‌های کاندیدای SNI کپی شد')));
+                }
+              },
+              child: const Text('کپی دامنه‌های کاندیدا'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: (_goldScan['ip_candidates'] ?? const <String>[]).join('\n')));
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('IPهای کاندیدا کپی شد')));
+                }
+              },
+              child: const Text('کپی IPهای کاندیدا'),
             ),
             TextButton(
               onPressed: () async {
