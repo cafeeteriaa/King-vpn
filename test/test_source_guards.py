@@ -3107,7 +3107,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('return blocks;', inventory)
 
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
-        self.assertIn('}.toList()..sort();\\n    final ips = _getCfIps(', auto)
+        self.assertIn('}.toList()..sort();', auto)
+        self.assertIn('final ips = _getCfIps(', auto)
 
 
     def test_persisted_dual_stack_scan_indexes_are_normalized_before_list_access(self):
