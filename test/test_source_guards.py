@@ -2934,14 +2934,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Future<void> autoScanRun(')
         end = source.index('Future<void> autoScanSheet(', start)
         body = source[start:end]
-        self.assertGreaterEqual(body.count('offset += 8'), 2)
-        self.assertGreaterEqual(body.count('await Future.wait('), 2)
-        self.assertIn('batch.map((ip) => _autoSniOk(ip, target.key, d))', body)
+        self.assertGreaterEqual(body.count('await Future.wait('), 3)
+        self.assertIn('batch.map((ip) => _autoSniOk(ip, 443, d))', body)
         self.assertIn('batch.map((ip) => _autoPortOk(ip, p))', body)
         self.assertIn('checks.any((latency) => latency != null)', body)
-        self.assertIn('final configuredSniTargets = configuredPortTargets;', body)
         sni_loop = body[body.index('sniLoop:'):body.index('if (cancelled()) {', body.index('sniLoop:'))]
-        self.assertIn('configuredSniTargets.entries', sni_loop)
+        self.assertIn('_autoResolveDualStackTargets(', sni_loop)
+        self.assertNotIn('_goldSrv', sni_loop)
         self.assertNotIn('ips.skip(offset)', sni_loop)
         self.assertIn('checks.any((reachable) => reachable)', body)
 
@@ -3119,10 +3118,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         )
         self.assertIn('type: InternetAddressType.any', auto)
         self.assertIn('address.type == InternetAddressType.IPv4 ||', auto)
-        self.assertIn('_autoSniOk(ip, target.key, d)', auto)
+        self.assertIn('_autoSniOk(ip, 443, d)', auto)
         self.assertIn('batch.map((ip) => _autoPortOk(ip, p))', auto)
         self.assertIn('portIps.skip(offset)', auto)
-        self.assertIn('_autoAlpnOk(ip, target.key, tlsSni, alpn)', auto)
+        self.assertIn('_autoAlpnOk(ip, 443, d, alpn)', auto)
 
     def test_clean_ip_scan_uses_resumable_dual_stack_range_batches(self):
         extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
@@ -3268,8 +3267,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('address.type == InternetAddressType.IPv4 ||', auto)
         self.assertIn('...dnsResolvedIps', auto)
         self.assertIn('_autoSniOk(ip, target.key, d)', auto)
-        self.assertIn('final configuredSniTargets = configuredPortTargets;', auto)
-        self.assertIn('configuredSniTargets.entries', auto)
         self.assertIn('_autoPortOk(ip, p)', auto)
         self.assertIn('_autoAlpnOk(ip, target.key, tlsSni, alpn)', auto)
 
