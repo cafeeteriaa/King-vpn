@@ -436,7 +436,7 @@ int _natGrowCounter = 0;
 // Keep the static front-SNI ordering stable for persisted variant indices,
 // then append domains proven by the HTTPS traffic probe.
 List<String> _natSniPool() {
-  final out = List<String>.of(natFrontSnis);
+  final out = <String>{...natFrontSnis}.toList();
   for (final name in _goldScan['sni'] ?? const <String>[]) {
     if (!out.contains(name)) out.add(name);
   }
