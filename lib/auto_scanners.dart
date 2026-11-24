@@ -33,7 +33,7 @@ const List<String> kAutoSniDomains = [
   'www.disneyplus.com', 'www.pinterest.com', 'www.tiktok.com',
   'www.snapchat.com', 'www.dropbox.com', 'www.notion.so',
   // Search, documentation, package and developer services.
-  'www.wikipedia.org', 'wikipedia.org', 'www.wikimedia.org',
+  'wikipedia.org', 'www.wikimedia.org',
   'www.stackoverflow.com', 'stackoverflow.com', 'serverfault.com',
   'www.python.org', 'pypi.org', 'www.npmjs.com', 'registry.npmjs.org',
   'pub.dev', 'dart.dev', 'flutter.dev', 'www.rust-lang.org',
