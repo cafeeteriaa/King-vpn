@@ -2383,6 +2383,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('cancelled: () =>', body)
         self.assertIn('deadline.elapsed >= scanBudget', body)
 
+    def test_nat_ip_scan_callbacks_fail_closed_and_progress_isolated(self):
+        source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<List<NatIpHit>> natScanIps(')
+        scan = source[start:]
+        self.assertIn('var cancellationFaulted = false;', scan)
+        self.assertIn('SILENT-NATIP-CANCEL-CALLBACK', scan)
+        self.assertIn('if (cancellationFaulted) return true;', scan)
+        self.assertIn('var progressFaulted = false;', scan)
+        self.assertIn('SILENT-NATIP-PROGRESS-CALLBACK', scan)
+        self.assertIn('if (progressFaulted || onProgress == null) return;', scan)
+        self.assertEqual(scan.count('onProgress(done, total, hits.length)'), 1)
+
     def test_nat_ip_scan_discards_in_flight_results_after_cancellation(self):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> worker() async {')

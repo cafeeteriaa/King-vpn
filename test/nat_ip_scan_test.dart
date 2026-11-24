@@ -362,6 +362,42 @@ void main() {
       expect(result, isEmpty);
     });
 
+    test('throwing cancellation callback fails closed without opening sockets', () async {
+      var attempts = 0;
+      final result = await IOOverrides.runZoned(
+        () => natScanIps(
+          ['127.0.0.1'],
+          cancelled: () => throw StateError('cancellation state unavailable'),
+        ),
+        socketStartConnect: (host, port, {sourceAddress, sourcePort = 0}) async {
+          attempts++;
+          throw const SocketException('must not be reached');
+        },
+      );
+      expect(result, isEmpty);
+      expect(attempts, 0);
+    });
+
+    test('throwing progress callback cannot discard a successful hit', () async {
+      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      try {
+        final result = await natScanIps(
+          [InternetAddress.loopbackIPv4.address],
+          port: server.port,
+          concurrency: 1,
+          want: 1,
+          budget: const Duration(seconds: 2),
+          timeout: const Duration(seconds: 1),
+          onProgress: (done, total, hits) =>
+              throw StateError('progress consumer disposed'),
+        );
+        expect(result, hasLength(1));
+        expect(result.single.ip, InternetAddress.loopbackIPv4.address);
+      } finally {
+        await server.close();
+      }
+    });
+
     test('valid limits preserve expected expansion', () {
       expect(natExpandCidr('10.0.0.0/30', maxPerBlock: 4), hasLength(4));
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: 3), hasLength(3));

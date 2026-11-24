@@ -530,7 +530,32 @@ Future<List<NatIpHit>> natScanIps(
   var done = 0;
   final total = source.length;
 
-  bool aborted() => cancelled?.call() ?? false;
+  // A broken cancellation callback must stop the scan rather than strand workers.
+  // Latch the first failure so concurrent workers do not flood the error journal.
+  var cancellationFaulted = false;
+  bool aborted() {
+    if (cancellationFaulted) return true;
+    try {
+      return cancelled?.call() ?? false;
+    } catch (e) {
+      cancellationFaulted = true;
+      errJournalAdd(e, kind: 'SILENT-NATIP-CANCEL-CALLBACK');
+      return true;
+    }
+  }
+
+  // Progress is observational only: a UI/reporting callback must never abort
+  // network work or discard valid hits. Disable it after its first exception.
+  var progressFaulted = false;
+  void reportProgress() {
+    if (progressFaulted || onProgress == null) return;
+    try {
+      onProgress(done, total, hits.length);
+    } catch (e) {
+      progressFaulted = true;
+      errJournalAdd(e, kind: 'SILENT-NATIP-PROGRESS-CALLBACK');
+    }
+  }
 
   Future<void> worker() async {
     while (true) {
@@ -553,7 +578,7 @@ Future<List<NatIpHit>> natScanIps(
       // In-flight socket connects are cancelled on stop; late results are discarded.
       if (aborted() || elapsed.elapsed >= budget) {
         done++;
-        if (onProgress != null) onProgress(done, total, hits.length);
+        reportProgress();
         return;
       }
       // Several workers may finish successful probes in the same event-loop turn.
@@ -565,9 +590,7 @@ Future<List<NatIpHit>> natScanIps(
       done++;
       // Report every 5 completions (or immediately on a hit) — keeps UI fresh
       // without spamming the callback for thousands of failures.
-      if (onProgress != null && (done % 5 == 0 || ms != null)) {
-        onProgress(done, total, hits.length);
-      }
+      if (done % 5 == 0 || ms != null) reportProgress();
     }
   }
 
@@ -578,6 +601,6 @@ Future<List<NatIpHit>> natScanIps(
   await Future.wait(workers);
 
   natStableSort(hits, (a, b) => a.ms.compareTo(b.ms));
-  if (onProgress != null) onProgress(done, total, hits.length);
+  reportProgress();
   return hits;
 }
