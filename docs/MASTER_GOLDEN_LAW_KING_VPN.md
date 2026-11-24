@@ -3,6 +3,14 @@
 
 This policy governs discovery and evaluation for IP, DNS, SNI, DPI, ports, Host and Domain candidates in KING VPN.
 
+## 0. Exclusive KING VPN purpose
+
+Every discovery result, endpoint, protocol hint, port, DNS answer, SNI/Host value, DPI strategy and transport candidate exists solely to establish, maintain, recover or verify connectivity for the KING VPN application. Scanner traffic and candidate data must not be exposed as a general-purpose port scanner, proxy service, relay service, traffic generator, vulnerability scanner or unrelated network utility. Do not add a second-purpose consumer for these results.
+
+A candidate may be used only as an input to the KING VPN connection workflow. Endpoint reachability is preliminary evidence; only the central real-core + Android TUN + actual in-tunnel application-response gate can promote it to a usable VPN route. Stop or pause discovery when it would interfere with an active/starting VPN session, and do not route unrelated application traffic through discovered endpoints outside the VPN tunnel.
+
+The discovery inventory is source-neutral: do not discard candidates because they are unfamiliar, absent from saved configs, non-Cloudflare, or associated with a particular ISP, country, CDN or provider. Keep discovered candidates and failures resumable. The complete TCP and UDP port-number inventories cover 1..65535 (port 0 is not a normal connect target); preferred/configured ports may affect scheduling only, not inventory membership.
+
 ## 1. Discovery inventory
 
 Maintain a federated, continuously refreshed inventory from:
@@ -12,7 +20,7 @@ Maintain a federated, continuously refreshed inventory from:
 - Announced/published network ranges and project-maintained sources.
 - DPI/transport strategies and native engines, with honest implementation status.
 
-The theoretical address spaces (all IPv4 and IPv6 addresses) and all 65,536 TCP/UDP port numbers are inventory bounds, not a promise that every possible value can be exhaustively probed. Use resumable cursors, bounded batches, deduplication and fair rotation so known sources are not starved.
+The theoretical address spaces (all IPv4 and IPv6 addresses) are not finite practical scan jobs; continuously discover from federated sources and resolve observed domains instead of claiming exhaustive Internet enumeration. The TCP and UDP port inventories each contain every connect port from 1 through 65535. Keep inventory generation separate from active probing: inventory completeness does not authorize indiscriminate probes against unrelated public hosts. Use resumable cursors, bounded batches, deduplication and fair rotation so known sources are not starved.
 
 ## 2. No label-based exclusion
 
@@ -20,7 +28,7 @@ Do not reject a candidate solely because of country, ISP, operator, provider, ow
 
 ## 3. Authorized active testing
 
-Passive discovery and public metadata collection may be broad. Active connection or port probes must be limited to endpoints the user controls, has permission to test, or has explicitly configured for use. In particular, do not sweep the full TCP/UDP port space or adjacent /24s across unrelated public CDN/ISP or third-party address ranges. The IP auto-scanner resolves exact A/AAAA addresses from configured VPN server hosts, then probes only each record's declared port; stale queued endpoints outside the current configured scope remain deferred. A configured server's declared host and port may be checked as an endpoint candidate; that check alone does not make it a usable VPN route.
+Passive discovery and public metadata collection may be broad and source-neutral. Active tests are strictly VPN-connectivity checks, not a general scanning feature. Run protocol-appropriate checks only for candidates within a defined, user-controlled or explicitly configured test scope; do not blindly sweep all 65535 ports across every third-party IP discovered on the Internet. Unknown ports and hosts remain in the candidate inventory and are not silently deleted merely because they are not configured yet. A candidate outside the current active-test scope stays queued for later VPN-specific evaluation when a suitable scope/configuration exists. Any reachability result remains preliminary and cannot independently make a usable route.
 
 ## 4. One acceptance contract
 
