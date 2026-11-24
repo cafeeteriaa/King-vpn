@@ -753,7 +753,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('king-vpn-full-source-${{ github.run_number }}.zip', workflow)
         self.assertIn('build_app/android/local.properties', workflow)
         self.assertIn('Upload complete project ZIP', workflow)
-        self.assertIn('${{ runner.temp }}', workflow)
+        self.assertIn('build-evidence/king-vpn-full-source-${{ github.run_number }}.zip', workflow)
+        self.assertNotIn('${{ runner.temp }}', workflow)
 
     def test_android_toolchain_matches_flutter_350_and_kotlin_2420(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
