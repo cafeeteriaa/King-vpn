@@ -3245,6 +3245,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('only the core/TUN validation', source)
         self.assertIn('usable route', source)
 
+    def test_sni_probe_accepts_http_error_status_as_valid_tls_sni_evidence(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        start = source.index('Future<int?> _autoSniOk(')
+        end = source.index('// ALPN', start)
+        probe = source[start:end]
+        self.assertIn('Any syntactically valid HTTP status', probe)
+        self.assertIn('status < 100 || status > 599', probe)
+        self.assertNotIn('status >= 400', probe)
+
     def test_proxy_only_mode_cannot_pass_the_vpn_tunnel_acceptance_gate(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('Future<bool> _tunnelTrafficOk() async {')
