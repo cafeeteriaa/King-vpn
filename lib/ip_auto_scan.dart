@@ -113,8 +113,7 @@ Future<void> _ipAutoSave() async {
 /// به‌صورت چرخشی پیمایش می‌شوند تا هیچ بخش ثابتِ ابتدای فهرست انحصاری نشود.
 Future<List<String>> _ipAutoBlocks(Iterable<Server> knownServers) async {
   // Active probes are restricted to exact A/AAAA endpoints declared by
-  // configured VPN server records. Published CIDRs remain passive inventory;
-  // do not sweep unrelated ISP/CDN address space.
+  // configured VPN server records. Do not enumerate unrelated ISP/CDN CIDRs.
   final ips = <String>{};
   final servers = knownServers.toList(growable: false);
   for (var offset = 0; offset < servers.length; offset += 8) {
