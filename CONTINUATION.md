@@ -176,3 +176,34 @@ These are three distinct technical review passes by the same assistant, not thre
 2. Run exact-HEAD CI after this documentation-only checkpoint commit and retain the resulting artifacts/digests.
 3. Obtain real Android device and network-matrix evidence before marking any device-level behavior TESTED or DEPLOYED.
 4. Preserve existing scanner behavior and user-selected ranges; any active probe beyond exact configured endpoints or explicit user-authorized ranges requires an explicit target scope.
+
+
+## 2026-11-24 — Exact HEAD CI 2582 completion
+
+### CI result
+- Exact source commit: `ac6435c286e17bfc6c4df7156be68e9435a0ed3b` on `fix/dns-auto-full-domain-inventory-20261124`.
+- GitHub Actions run 2582 (`45440202559`) completed with conclusion SUCCESS at 2026-11-24 16:47:29 UTC. Workflow: https://github.com/cafeeteriaa/King-vpn/actions/runs/45440202559
+- Source-repair guard, dependency resolution, Flutter unit tests, Dart analysis, optimized ARM64 release APK build, APK size reporting, symbols packaging/upload, complete source packaging/upload, APK upload, and post-job cleanup all succeeded. Repair diagnostics were skipped because the build succeeded.
+- Build log reports the APK as 123.0 MB. Artifact archive `king-vpn-arm64-release-2582`: 49,061,209 bytes; GitHub archive digest `sha256:eb068b57723052eeb1c7c1a9232bdc57066bb9af43f73dcc9c018f5c743e6ac8`.
+- Full source artifact `king-vpn-full-source-2582`: 1,516,389 bytes; archive digest `sha256:7b271ecf66804b331f1eccf84bcd0054b0b43f5575ff99f5eb978d93a9bc1900`.
+- Symbols artifact `king-vpn-symbols-2582`: 1,331,925 bytes; archive digest `sha256:6eec144e0f4f0a17fea04dec4f4831da8f071741271191fb85d9ae24dba31f70`.
+- APK and source artifacts expire 2026-12-08; symbols expire 2026-12-24. All artifacts were present and unexpired at verification.
+- Workflow explicitly reports signing with generated Flutter debug key; this is not production-signed. CI success does not establish device-level connectivity, leak freedom, or deployment.
+
+### Build-log observations (not build blockers)
+- Flutter analysis emitted informational deprecation notices for `package:flutter/material.dart` migration and `withOpacity`; analyze still passed under configured no-fatal-infos policy.
+- Java compiler warned that source/target 8 are obsolete; several plugins reported deprecated APIs; workflow actions setup-java@v4 / upload-artifact@v4 / checkout@v4 / setup-gradle@v4 emitted Node.js 20 deprecation notices.
+- Build log noted generated ELF libraries contain unobfuscated DWARF debugging information. This requires a deliberate symbols/packaging review before production release; do not silently strip or alter build flags in this continuation.
+- APK reported size is 123.0 MB while the uploaded ZIP artifact is 49,061,209 bytes; these are different measurements (uncompressed APK vs compressed artifact archive), not contradictory sizes.
+
+### Repository and release gate
+- PR #48 remains open, Draft, and unmerged; base `audit/unlimit-known-scanner-candidates-20261123`.
+- Feature branch HEAD remains `ac6435c286e17bfc6c4df7156be68e9435a0ed3b`; main remains `c43d325f9803d4f6306415e511f6790deff9d87e` and was not modified.
+- No code changes were made in this continuation; this entry records the exact-head CI evidence only.
+- Device runtime verification remains NOT TESTED: Android 10/11+, VPN consent/revoke, competing VPN, TUN lifecycle races, end-to-end traffic, DNS leak capture, IPv4/IPv6 data plane, failover, network handover, generic UDP reachability, and CPU/memory/battery profiling.
+- Production signing and production deployment remain NOT DONE.
+
+### Next actions
+1. Continue with device/runtime test matrix when a physical Android device and controlled test networks are available.
+2. Review 123 MB APK size, ELF DWARF/debug-symbol handling, Java 8 compatibility and deprecated workflow actions as separate evidence-led maintenance tasks; avoid changing release semantics without validation.
+3. Keep PR #48 Draft and do not merge to main until required review, device validation, and release signing gates are complete.
