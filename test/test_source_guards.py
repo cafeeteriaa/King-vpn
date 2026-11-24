@@ -3119,12 +3119,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('configuredPortTargets[p]', source)
         self.assertIn('Server.parse(entry.link)', source)
         self.assertNotIn('for (var port = 1; port <= 65535; port++)', source)
-        self.assertNotIn('batch.map((ip) => _autoPortOk(ip, p))', source[source.index('portLoop:'):])
+        port_loop = source[source.index('portLoop:'):source.index('if (cancelled()) {', source.index('portLoop:'))]
+        self.assertIn('portIps.skip(offset)', port_loop)
+        self.assertNotIn('ips.skip(offset)', port_loop)
 
     def test_sni_discovery_is_not_mislabeled_as_tunnel_verification(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         self.assertIn('does NOT prove', source)
-        self.assertIn('not a verified tunnel route', source.lower())
+        self.assertIn('only the core/TUN validation', source)
+        self.assertIn('usable route', source)
 
 
 if __name__ == '__main__':
