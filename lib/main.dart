@@ -8815,7 +8815,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  void _onConnected(Server s) {
+  Future<bool> _onConnected(Server s) async {
+    // CENTRAL ACCEPTANCE LOCK: every caller, including personal/manual/social
+    // reconnect paths, must prove real HTTP traffic through the Android TUN.
+    // Never let a caller's ping, proxy-only check, or social-site result bypass it.
+    if (proxyMode || !await _tunnelTrafficOk()) {
+      _verifiedRouteKeys.remove(s.key);
+      if (identical(current, s)) {
+        current = null;
+        connected = false;
+      }
+      dbg('ROUTE-REJECTED: undefined did not pass the central real-TUN traffic gate');
+      await _stopV2();
+      return false;
+    }
     // NNIE: measure only this server's own start-to-data-plane verification time.
     final nnieElapsedMs = _nnieFinishAttempt(s);
     if (_listPartial) unawaited(_fetchFullListBg());
@@ -8905,6 +8918,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
       });
     }
+    return true;
   }
 
   String _short(String t, [int n = 90]) => t.length > n ? t.substring(0, n) : t;
@@ -9303,7 +9317,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               return false;
             }
             if (ladderOk) {
-              _onConnected(s);
+              if (!await _onConnected(s)) return false;
               return true;
             }
           }
@@ -9494,7 +9508,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               if (socialOk) {
                 s.svc = (tg ? 1 : 0) | (yt ? 2 : 0) | (ig ? 4 : 0);
                 if (s.svc == 0) s.svc = 1;
-                _onConnected(s);
+                if (!await _onConnected(s)) return false;
                 return true;
               }
               await _stopV2();
@@ -9532,7 +9546,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
       }
       if (abort || !wantVpn) return false; // V8: abort guard
-      _onConnected(s);
+      if (!await _onConnected(s)) return false;
       return true;
     }
     return false;
@@ -11822,7 +11836,7 @@ ListTile( // KINGEXTRAS row
         if (abort) return false; // ABORT-STUCK: stop right after a long step
         final up = upServer;
         if (up != null) {
-          _onConnected(up);
+          if (!await _onConnected(up)) return false;
           return true;
         }
         list = pickRow();
@@ -12134,9 +12148,12 @@ ListTile( // KINGEXTRAS row
                 ? 'PERSFAST ترافیک نداشت: ${ms()}ms'
                 : 'PERSFAST هسته بالا نیامد: ${ms()}ms'));
         if (ok) {
-          unawaited(setPersonalLastGood(s.link));
-          _startWatch();
-          _onConnected(s);
+          if (await _onConnected(s)) {
+            unawaited(setPersonalLastGood(s.link));
+            _startWatch();
+          } else {
+            _set('اتصال سرور شخصی از آزمون واقعی ترافیک تونل عبور نکرد');
+          }
         } else {
           if (!abort) _checkPersonal(force: true);
           _set(abort ? 'لغو شد' : 'سرور شخصی وصل نشد: ${lastFail.isEmpty ? 'دوباره بزن' : lastFail}');
@@ -13858,13 +13875,13 @@ ListTile( // KINGEXTRAS row
                 '${oldSp.toStringAsFixed(1)} MB/s)';
           }
           if (live != null && identical(live, best)) {
-            _onConnected(best); // already running
+            await _onConnected(best); // revalidate even an already-running route
           } else {
             if (live != null) await _stopCore();
             if (await _start(best)) {
-              _onConnected(best);
+              await _onConnected(best);
             } else if (!identical(best, old) && await _start(old)) {
-              _onConnected(old);
+              await _onConnected(old);
             } else {
               current = null;
               await _acquire();
@@ -13895,7 +13912,11 @@ ListTile( // KINGEXTRAS row
         await _stopCore();
         if (mounted) setState(() => connected = false);
         if (await _start(s)) {
-          _onConnected(s);
+          if (!await _onConnected(s)) {
+            s.badAt = DateTime.now();
+            current = null;
+            await _acquire();
+          }
         } else {
           s.badAt = DateTime.now();
           current = null;
