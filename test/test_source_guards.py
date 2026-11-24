@@ -3252,6 +3252,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         disconnect_end = main.index('good.clear();', disconnect_start)
         disconnect = main[disconnect_start:disconnect_end]
         self.assertNotIn('_resAdd(', disconnect)
+        restore_start = main.index('// checkedAt stays null: these are tested FIRST at the next connect')
+        restore_end = main.index('// servers that failed recently', restore_start)
+        self.assertNotIn('_resAdd(', main[restore_start:restore_end])
 
 
 if __name__ == '__main__':
