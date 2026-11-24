@@ -253,6 +253,107 @@ extension IpAutoExt on _HomePageState {
     bool halted() => _ipAutoHalt(modeSnapshot: runNationalMode);
     if (halted()) return false;
 
+    // Passive candidate discovery is independent of saved VPN configurations.
+    // It merges the complete project domain catalogs, dual-stack DNS answers,
+    // global-folder IP observations and the rotating CDN range inventory.
+    // These candidates are inventory only; active endpoint checks below remain
+    // tied to exact VPN server host:port pairs.
+    await goldLoad();
+    if (halted()) return false;
+    final discoveryPrefs = await SharedPreferences.getInstance();
+    final baseCandidates = <String>{
+      for (final entry in _goldIps.values) entry.ip,
+    };
+    final domainSources = <String>{
+      ...kAutoSniDomains,
+      ...dnsxFullDomains(),
+      ...natFrontSnis,
+      ...natRelayHosts,
+    };
+    final domainInventory = domainSources
+        .map((domain) => domain.trim().toLowerCase())
+        .where((domain) => domain.isNotEmpty && domain.contains('.'))
+        .toList()
+      ..sort();
+    final savedDomainCursor =
+        discoveryPrefs.getString(_autoScanDomainCursorKey);
+    final previousDomainIndex = savedDomainCursor == null
+        ? -1
+        : domainInventory.indexOf(savedDomainCursor);
+    final domainStart = previousDomainIndex < 0
+        ? 0
+        : (previousDomainIndex + 1) % domainInventory.length;
+    final domainBatch = <String>[
+      for (var i = 0; i < min(_autoScanDomainBatchSize, domainInventory.length); i++)
+        domainInventory[(domainStart + i) % domainInventory.length],
+    ];
+    final stagedDomainCursor =
+        domainBatch.isEmpty ? savedDomainCursor : domainBatch.last;
+
+    final savedCdnCursorJson =
+        discoveryPrefs.getString(_autoScanCdnCursorKey);
+    final stagedCdnCursors = <String, dynamic>{};
+    if (savedCdnCursorJson != null && savedCdnCursorJson.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(savedCdnCursorJson);
+        if (decoded is Map) {
+          for (final entry in decoded.entries) {
+            if (entry.value is num || entry.value is String) {
+              stagedCdnCursors['${entry.key}'] = entry.value;
+            }
+          }
+        }
+      } catch (e, stk) {
+        logError(e, stk);
+      }
+    }
+    await refreshCdnRanges();
+    if (halted()) return false;
+    final dnsCandidates = await _autoResolveDualStackTargets(
+      domains: domainBatch,
+      cancelled: halted,
+    );
+    if (halted()) return false;
+    final cdnRanges = _liveCdnRanges.isNotEmpty
+        ? _liveCdnRanges
+        : [..._cfRanges, ..._cfRangesV6];
+    final candidateRanges = <String>{
+      ...baseCandidates,
+      ...dnsCandidates,
+      ...cdnRanges,
+      if (baseCandidates.isEmpty &&
+          dnsCandidates.isEmpty &&
+          cdnRanges.isEmpty)
+        ...kAutoFallbackIps,
+    }.toList()
+      ..sort();
+    final cdnCandidates = _getCfIps(
+      batchSize: _autoScanCdnBatchSize,
+      liveRanges: candidateRanges,
+      cursors: stagedCdnCursors,
+    );
+    final independentIpCandidates = <String>{
+      ...baseCandidates,
+      ...dnsCandidates,
+      ...cdnCandidates,
+    }.toList()
+      ..sort();
+    final inventorySaved = await goldAddScans(
+      {'ip_candidates': independentIpCandidates},
+      shouldAbort: halted,
+    );
+    if (!inventorySaved || halted()) return false;
+    await discoveryPrefs.setString(
+      _autoScanCdnCursorKey,
+      jsonEncode(stagedCdnCursors),
+    );
+    if (stagedDomainCursor != null) {
+      await discoveryPrefs.setString(
+        _autoScanDomainCursorKey,
+        stagedDomainCursor,
+      );
+    }
+
     // A national scan uses the national hot-source/template pipeline; it must
     // not fetch or fall back to the global discovered-server pool.
     var pool = <Server>[];
@@ -286,8 +387,7 @@ extension IpAutoExt on _HomePageState {
     }
     if (halted()) return false;
     if (pool.isEmpty) {
-      say('هنوز الگو یا بازه‌ای برای ساخت موجودی اسکن نیست؛ منابع را تازه‌سازی کن و دوباره اجرا کن.');
-      return false;
+      say('موجودی مستقل IP ذخیره شد؛ برای بررسی فعال، ابتدا یک endpoint دقیق VPN در منابع پروژه موجود باشد.');
     }
     final tpl = pool.take(2).toList();
     say('ساخت آدرس‌ها...');
@@ -308,6 +408,10 @@ extension IpAutoExt on _HomePageState {
         server.link: server,
     };
     final knownEndpoints = knownEndpointByLink.values.toList(growable: false);
+    if (knownEndpoints.isEmpty) {
+      say('موجودی مستقل ذخیره شد: ${independentIpCandidates.length} IP کاندیدا؛ endpoint پیکربندی‌شده‌ای برای تست فعال وجود ندارد.');
+      return true;
+    }
     final generatedBatch = await _ipAutoNextAddrs(
       knownEndpoints,
       shouldAbort: halted,
@@ -545,6 +649,21 @@ extension IpAutoExt on _HomePageState {
                     ),
                   ]),
                   const Divider(height: 20),
+                  if ((_goldScan['ip_candidates'] ?? const <String>[]).isNotEmpty) ...[
+                    Text('موجودی مستقل IP: ${(_goldScan['ip_candidates'] ?? const <String>[]).length} نامزد (IPv4/IPv6، تأییدنشده)'),
+                    OutlinedButton(
+                      onPressed: () async {
+                        final values = _goldScan['ip_candidates'] ?? const <String>[];
+                        await Clipboard.setData(ClipboardData(text: values.join('\\n')));
+                        if (!ctx0.mounted) return;
+                        ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(SnackBar(
+                            content: Text('${values.length} IP کاندیدا کپی شد')));
+                      },
+                      child: Text('کپی همهٔ IPهای کاندیدا (${(_goldScan['ip_candidates'] ?? const <String>[]).length})'),
+                    ),
+                    SelectableText((_goldScan['ip_candidates'] ?? const <String>[]).join('\\n')),
+                    const Divider(height: 20),
+                  ],
                   if (ipAutoHits.isNotEmpty)
                     OutlinedButton(
                       onPressed: () async {
