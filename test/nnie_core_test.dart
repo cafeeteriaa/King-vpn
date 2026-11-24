@@ -37,47 +37,72 @@ List<int> _response({
 
 void main() {
   group('androidVpnTunnelEvidence', () {
-    test('requires both the live King service TUN and owned VPN transport', () {
+    test('plugin-managed path accepts an active VPN owned by this app', () {
       expect(
         androidVpnTunnelEvidence(
-          serviceTunnelActive: true,
+          serviceTunnelActive: null,
+          activeVpnTransport: true,
           activeVpnOwnedByApp: true,
+          requireServiceTunnel: false,
         ),
         isTrue,
       );
     });
 
-    test('either definitive negative rejects the tunnel', () {
+    test('plugin-managed path stays unknown when owner UID is unavailable', () {
       expect(
         androidVpnTunnelEvidence(
-          serviceTunnelActive: false,
-          activeVpnOwnedByApp: true,
+          serviceTunnelActive: null,
+          activeVpnTransport: true,
+          activeVpnOwnedByApp: null,
+          requireServiceTunnel: false,
         ),
-        isFalse,
+        isNull,
       );
+    });
+
+    test('another VPN owner is rejected even when VPN transport is active', () {
       expect(
         androidVpnTunnelEvidence(
           serviceTunnelActive: true,
+          activeVpnTransport: true,
           activeVpnOwnedByApp: false,
+          requireServiceTunnel: true,
         ),
         isFalse,
       );
     });
 
-    test('incomplete native evidence remains unknown', () {
+    test('custom service path accepts its live TUN and active VPN transport', () {
       expect(
         androidVpnTunnelEvidence(
-          serviceTunnelActive: null,
-          activeVpnOwnedByApp: true,
+          serviceTunnelActive: true,
+          activeVpnTransport: true,
+          activeVpnOwnedByApp: null,
+          requireServiceTunnel: true,
         ),
-        isNull,
+        isTrue,
+      );
+    });
+
+    test('custom service path rejects a missing TUN or VPN transport', () {
+      expect(
+        androidVpnTunnelEvidence(
+          serviceTunnelActive: false,
+          activeVpnTransport: true,
+          activeVpnOwnedByApp: null,
+          requireServiceTunnel: true,
+        ),
+        isFalse,
       );
       expect(
         androidVpnTunnelEvidence(
           serviceTunnelActive: true,
+          activeVpnTransport: false,
           activeVpnOwnedByApp: null,
+          requireServiceTunnel: true,
         ),
-        isNull,
+        isFalse,
       );
     });
   });

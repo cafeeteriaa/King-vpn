@@ -4172,24 +4172,32 @@ String tunNames = ''; // interface names seen by the last tunUp() (diagnostics)
 Future<bool?> tunUp() async {
   if (Platform.isAndroid) {
     try {
-      // A generic tun0/ppp interface may belong to another VPN provider.
-      // Require both the custom service's live TUN descriptor and Android's
-      // active VPN transport ownership before accepting this tunnel.
+      // The default Flutter plugin path does not start the optional
+      // KingVpnService, so its dormant TUN descriptor must not be required.
+      // Plugin mode is accepted only when Android proves this app owns the
+      // active VPN (API 30+); custom-service mode also requires its live TUN.
       for (var attempt = 0; attempt < 5; attempt++) {
-        final serviceActive =
-            await bgChannel.invokeMethod<bool>('kingVpnTunnelActive');
-        final vpnOwned =
+        final serviceActive = kOwnVpnService
+            ? await bgChannel.invokeMethod<bool>('kingVpnTunnelActive')
+            : null;
+        final vpnTransportActive =
             await bgChannel.invokeMethod<bool>('kingVpnTransportActive');
+        final vpnOwned =
+            await bgChannel.invokeMethod<bool>('kingVpnTransportOwnedByApp');
         final evidence = androidVpnTunnelEvidence(
           serviceTunnelActive: serviceActive,
+          activeVpnTransport: vpnTransportActive,
           activeVpnOwnedByApp: vpnOwned,
+          requireServiceTunnel: kOwnVpnService,
         );
         if (evidence == true) {
-          tunNames = 'android:KINGVPN_TUN_AND_OWNED_TRANSPORT';
+          tunNames = kOwnVpnService
+              ? 'android:KINGVPN_TUN_AND_OWNED_TRANSPORT'
+              : 'android:PLUGIN_OWNED_VPN_TRANSPORT';
           return true;
         }
         tunNames =
-            'android:KINGVPN_TUN_UNVERIFIED(service=$serviceActive, owned=$vpnOwned)';
+            'android:KINGVPN_TUN_UNVERIFIED(service=$serviceActive, transport=$vpnTransportActive, owned=$vpnOwned, custom=$kOwnVpnService)';
         if (attempt < 4) {
           await Future.delayed(const Duration(milliseconds: 800));
         }

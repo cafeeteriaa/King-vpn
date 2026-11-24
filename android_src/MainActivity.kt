@@ -136,17 +136,34 @@ class MainActivity : FlutterActivity() {
                             } else {
                                 connectivity.getNetworkCapabilities(network)
                             }
-                            val isVpnTransport = capabilities?.hasTransport(
-                                android.net.NetworkCapabilities.TRANSPORT_VPN
-                            ) == true
-                            // Android 11+ identifies the active VPN's owner. On older
-                            // releases, the service-owned TUN check is the additional proof.
-                            val ownerMatches = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                capabilities?.ownerUid == applicationInfo.uid
+                            result.success(
+                                capabilities?.hasTransport(
+                                    android.net.NetworkCapabilities.TRANSPORT_VPN
+                                ) == true
+                            )
+                        }
+                        "kingVpnTransportOwnedByApp" -> {
+                            // getOwnerUid is public from Android 11 (API 30).
+                            // Return unknown on older releases; transport alone cannot
+                            // distinguish the plugin VPN from a competing provider.
+                            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                                result.success(null)
                             } else {
-                                true
+                                val connectivity =
+                                    getSystemService(android.net.ConnectivityManager::class.java)
+                                val network = connectivity?.activeNetwork
+                                val capabilities = if (network == null) {
+                                    null
+                                } else {
+                                    connectivity.getNetworkCapabilities(network)
+                                }
+                                val isVpnTransport = capabilities?.hasTransport(
+                                    android.net.NetworkCapabilities.TRANSPORT_VPN
+                                ) == true
+                                val ownerMatches =
+                                    capabilities?.ownerUid == applicationInfo.uid
+                                result.success(isVpnTransport && ownerMatches)
                             }
-                            result.success(isVpnTransport && ownerMatches)
                         }
                         "back" -> {
                             moveTaskToBack(true)

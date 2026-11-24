@@ -3268,15 +3268,28 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         self.assertIn("'android.permission.ACCESS_NETWORK_STATE'", prepare)
 
-    def test_android_vpn_transport_status_checks_owner_uid(self):
+    def test_android_vpn_transport_and_owner_proofs_are_separate(self):
         native = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
-        start = native.index('"kingVpnTransportActive" -> {')
-        end = native.index('"back" -> {', start)
-        body = native[start:end]
-        self.assertIn('TRANSPORT_VPN', body)
-        self.assertIn('Build.VERSION.SDK_INT >= Build.VERSION_CODES.R', body)
-        self.assertIn('capabilities?.ownerUid == applicationInfo.uid', body)
-        self.assertIn('result.success(isVpnTransport && ownerMatches)', body)
+        transport_start = native.index('"kingVpnTransportActive" -> {')
+        owner_start = native.index('"kingVpnTransportOwnedByApp" -> {', transport_start)
+        end = native.index('"back" -> {', owner_start)
+        transport_body = native[transport_start:owner_start]
+        owner_body = native[owner_start:end]
+        self.assertIn('TRANSPORT_VPN', transport_body)
+        self.assertIn('result.success(', transport_body)
+        self.assertIn('Build.VERSION.SDK_INT < Build.VERSION_CODES.R', owner_body)
+        self.assertIn('result.success(null)', owner_body)
+        self.assertIn('capabilities?.ownerUid == applicationInfo.uid', owner_body)
+        self.assertIn('result.success(isVpnTransport && ownerMatches)', owner_body)
+
+    def test_default_plugin_tunnel_check_does_not_require_dormant_custom_service(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<bool?> tunUp()')
+        end = main.index('// Non-Android compatibility path', start)
+        body = main[start:end]
+        self.assertIn('final serviceActive = kOwnVpnService', body)
+        self.assertIn("kingVpnTransportOwnedByApp", body)
+        self.assertIn('requireServiceTunnel: kOwnVpnService', body)
 
     def test_failover_clears_stale_active_state_before_trying_another_server(self):
         native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
