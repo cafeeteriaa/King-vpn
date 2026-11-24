@@ -11,12 +11,15 @@ void main() {
         [4, 2, 1, 3, 5],
       );
       final allPorts = natBuildFullPortInventory([443, 443, 65535]);
-      expect(allPorts, hasLength(65535));
-      expect(allPorts.toSet(), hasLength(65535));
+      expect(allPorts, hasLength(65536));
+      expect(allPorts.toSet(), hasLength(65536));
       expect(allPorts.take(2), [443, 65535]);
+      expect(allPorts, contains(0));
       expect(allPorts, contains(1));
       expect(allPorts, contains(65535));
-      expect(natBuildFullPortInventory([443], firstPort: 0), isEmpty);
+      final zeroBased = natBuildFullPortInventory([443], firstPort: 0);
+      expect(zeroBased, hasLength(65536));
+      expect(zeroBased, contains(0));
       expect(natBuildFullPortInventory([443], firstPort: 5, lastPort: 4), isEmpty);
     });
 
