@@ -1,68 +1,99 @@
-# MASTER GOLDEN LAW — KING VPN
-## Universal discovery, scanning and real tunnel traffic validation
+# MASTER GOLDEN LAW — KING VPN SCANNER ENGINE
+## Manual and automatic discovery, protocol checks, and real-tunnel validation
 
-This policy governs discovery and evaluation for IP, DNS, SNI, DPI, ports, Host and Domain candidates in KING VPN.
+This policy governs every KING VPN scanner and its connection workflow.
 
-## 0. Exclusive KING VPN purpose
+## 1. Two independent scanner modes
 
-Every discovery result, endpoint, protocol hint, port, DNS answer, SNI/Host value, DPI strategy and transport candidate exists solely to establish, maintain, recover or verify connectivity for the KING VPN application. Scanner traffic and candidate data must not be exposed as a general-purpose port scanner, proxy service, relay service, traffic generator, vulnerability scanner or unrelated network utility. Do not add a second-purpose consumer for these results.
+### Manual scanner
+- Receives the IP range and port range explicitly entered by the user.
+- Supports IPv4 and IPv6 input.
+- Runs protocol-appropriate checks within the supplied test scope.
+- Reports reachability, latency, DNS/TLS/HTTP evidence and errors separately.
+- Presents results for inspection and copying, and may pass selected values to the KING VPN configuration builder.
+- Does not require saved server configurations or the automatic scanner.
 
-A candidate may be used only as an input to the KING VPN connection workflow. Endpoint reachability is preliminary evidence; only the central real-core + Android TUN + actual in-tunnel application-response gate can promote it to a usable VPN route. Stop or pause discovery when it would interfere with an active/starting VPN session, and do not route unrelated application traffic through discovered endpoints outside the VPN tunnel.
+### Automatic scanner
+- Runs without the user entering an IP range for each run.
+- Discovery inventory generation must not require saved server IPs, ports, SNI values, Host values or saved configuration records.
+- Maintains independent discovery state, deduplication, cursors and resumable batches.
+- Supports IPv4 and IPv6 and does not exclude observations because of provider, ISP, country, CDN or brand labels.
+- May use saved configurations only as protocol-format examples during connection construction, never as the prerequisite or exclusive source for discovery.
+- Pauses or yields when it would interfere with an active or starting VPN session.
 
-The discovery inventory is source-neutral: do not discard candidates because they are unfamiliar, absent from saved configs, non-Cloudflare, or associated with a particular ISP, country, CDN or provider. Keep discovered candidates and failures resumable. The complete TCP and UDP port-number inventories cover 1..65535 (port 0 is not a normal connect target); preferred/configured ports may affect scheduling only, not inventory membership.
+The manual and automatic scanners must not depend on each other's queues, cursors, UI state or result stores.
 
-## 1. Discovery inventory
+## 2. Discovery inventory
 
-Maintain a federated, continuously refreshed inventory from:
-- IPv4 and IPv6 literals and DNS A/AAAA answers.
-- Publicly published DNS, domain, SNI, Host and relay catalogs.
-- Hosts and ports explicitly present in configured VPN server records.
-- Announced/published network ranges and project-maintained sources.
-- DPI/transport strategies and native engines, with honest implementation status.
+Maintain distinct observations for IP addresses, domains, DNS answers, ports, SNI/Host values, TLS/ALPN behavior, transport hints and route diagnostics. Record provenance, first/last observation, last test, evidence and retry state.
 
-The theoretical address spaces (all IPv4 and IPv6 addresses) are not finite practical scan jobs; continuously discover from federated sources and resolve observed domains instead of claiming exhaustive Internet enumeration. The TCP and UDP port inventories each contain every connect port from 1 through 65535. Keep inventory generation separate from active probing: inventory completeness does not authorize indiscriminate probes against unrelated public hosts. Use resumable cursors, bounded batches, deduplication and fair rotation so known sources are not starved.
+Discovery must not silently discard an observation merely because its provider, owner, geography or technology label is unknown. Metadata labels are descriptive, not proof of reachability or quality.
 
-## 2. No label-based exclusion
+IPv4 and IPv6 address spaces and global DNS/SNI/Host names are not practically enumerable as finite jobs. The implementation must not claim complete Internet-wide enumeration. Use independently maintained discovery mechanisms, bounded work, deduplication and resumable state. The TCP and UDP port-number inventories cover connect ports 1 through 65535; port zero is not a normal connect target.
 
-Do not reject a candidate solely because of country, ISP, operator, provider, ownership category, technology label, or domestic/global classification. These labels may be recorded as metadata but are not evidence of reachability or quality.
+## 3. Active testing boundary
 
-## 3. Authorized active testing
+Keep discovery inventory separate from active network testing. Active checks must be protocol-appropriate, rate-controlled and confined to user-controlled or explicitly authorized test scope. Do not turn broad passive discovery into indiscriminate active port sweeps against arbitrary third-party public addresses.
 
-Passive discovery and public metadata collection may be broad and source-neutral. Active tests are strictly VPN-connectivity checks, not a general scanning feature. Run protocol-appropriate checks only for candidates within a defined, user-controlled or explicitly configured test scope; do not blindly sweep all 65535 ports across every third-party IP discovered on the Internet. Unknown ports and hosts remain in the candidate inventory and are not silently deleted merely because they are not configured yet. A candidate outside the current active-test scope stays queued for later VPN-specific evaluation when a suitable scope/configuration exists. Any reachability result remains preliminary and cannot independently make a usable route.
+This boundary must not be implemented by making discovery dependent on _goldSrv, saved configurations, a fixed provider list or a Cloudflare-only source. Unknown or not-yet-tested observations must remain distinguishable from failed observations; they must not be represented as verified healthy endpoints.
 
-## 4. One acceptance contract
+## 4. Scanner responsibilities
 
-A candidate becomes a usable route only after:
-1. The VPN core starts with that candidate's configuration.
+- IP/NAT: dual-stack parsing, range handling, address classification, route evidence and deduplication.
+- TCP/Port: complete port-number inventory, bounded protocol-aware checks and distinct Open/Closed/Timeout/Error states.
+- UDP: complete port-number inventory and protocol-specific validation; silence alone is not proof of closure or success.
+- DNS: A/AAAA, resolver comparison, timeout/error classification and answer provenance.
+- SNI/Host: protocol-compatible TLS/HTTP checks with exact evidence; a successful handshake is not a tunnel.
+- TLS/ALPN: negotiated protocol, certificate/handshake evidence and errors.
+- DPI/transport diagnostics: identify observable interference symptoms; a strategy catalog is not a native DPI engine.
+
+## 5. Connection construction
+
+Scanner observations may be combined with a protocol template to construct a KING VPN connection attempt. The saved configuration may supply protocol structure only; it must not define the discovery universe.
+
+Only parameters supported by the selected core/protocol may be varied: IP, port, DNS/resolve method, SNI, Host, TLS, ALPN, transport and protocol-specific connection parameters. Do not emit malformed or unsupported combinations.
+
+## 6. Real tunnel acceptance
+
+An endpoint observation is not a verified VPN route. A route may be accepted only when:
+1. The actual supported VPN core starts with the generated configuration.
 2. The Android VPN/TUN path is active where applicable.
-3. An application request is sent through the actual tunnel/core data path.
-4. A real HTTP/application response is received and validated.
-5. Latency, response status/bytes, throughput and repeat stability are recorded where available.
+3. A real application request traverses that core/TUN path.
+4. A valid application response is received and checked.
+5. Stability evidence is collected where available.
 
-DNS resolution, ICMP/Ping, TCP connect, TLS handshake, ALPN selection, or an HTTP response made outside the candidate tunnel are discovery evidence only. They must never independently promote a candidate into the usable-route pool.
+Ping, DNS resolution, TCP connect, TLS handshake, ALPN selection or direct HTTP outside the tunnel must never independently mark a route healthy.
 
-The connection path's _tunnelTrafficOk / _stableTunnelTrafficOk gates are the current application-level tunnel verification points. Keep scanner reachability results separate from verified route results.
+Keep endpoint reachability, core-start, TUN-active, in-tunnel-response and stable-route states separate. Only the central real-tunnel acceptance gate may promote a route into the usable connection pool.
 
-## 5. Retry and persistence
+## 7. Automatic replacement and retry
 
-- Preserve failed candidates as retryable observations; do not permanently blacklist on a single transient failure.
-- Persist per-source cursors only after a batch completes and its results are committed.
-- Resume incomplete batches without skipping candidates.
-- Keep candidate, endpoint-reachability, core-outbound, tunnel-verified and stable-route states distinct.
-- Record last attempt, failure class and next retry eligibility.
+- A successfully verified route may be stored and made available to KING VPN's automatic connection selection.
+- Failed or transient observations must be classified accurately; a timeout is not automatically a permanent failure.
+- Preserve retry state and resume incomplete batches.
+- Remove a route from the healthy pool when it fails the applicable real-tunnel health gate.
+- Never interrupt the user's active connection merely to run background scans.
 
-## 6. DPI and native engines
+## 8. Resource management
 
-A strategy catalog is not a DPI engine. A native DPI/packet adaptation engine must have real Android TUN integration, lifecycle handling, protocol adapter, licensing/security review, CPU/RAM bounds and device-level tests before it can be marked executable.
+Bound CPU, memory, battery use, socket count and concurrency. Use independent queues, cancellation, persisted cursors, deduplication and backoff. Prevent conflicting scanners from running simultaneously. Pause or yield when the VPN is active or starting if scanning could distort results or impair the tunnel.
 
-Use only honest states: IMPLEMENTED, TESTED, VERIFIED, BLOCKED, NOT IMPLEMENTED.
+## 9. DPI and native engines
 
-## 7. Engineering acceptance
+A strategy list or diagnostic heuristic is not a DPI engine. Native packet/TUN adaptation requires actual Android integration, lifecycle handling, protocol adapter implementation, licensing/security review, resource bounds and device-level tests before it may be described as implemented.
 
-Do not claim full Internet-wide IPv4/IPv6 enumeration or complete global DNS/SNI/Host inventories; those are not finite, practically enumerable public lists. Maximize coverage through published sources, federated inventories, dual-stack resolution, resumable scans and repeat discovery.
+## 10. Engineering status and tests
 
-A change is complete only when source-level tests and available CI/build checks pass. Clearly distinguish code written, tests run, tests passed, and device verification.
+Use honest statuses:
+- IMPLEMENTED
+- TESTED
+- PARTIAL
+- NOT_IMPLEMENTED
+
+Test manual/automatic independence, absence of saved-config prerequisites in discovery, dual-stack handling, complete port inventory, protocol-specific UDP behavior, DNS/SNI/TLS evidence, deduplication, resumability, VPN-session collision prevention and the real TUN traffic gate.
+
+A CI pass proves only the checks that actually ran. It does not prove device-level behavior unless device tests ran.
 
 ## Golden rule
 
-**No ownership, geography, ISP, provider or technology label may by itself prevent discovery or evaluation. A candidate may enter KING VPN's usable-route pool only after real Internet traffic is proven through the actual VPN tunnel, within an authorized testing scope.**
+**Manual scanning uses the range entered by the user. Automatic discovery runs independently of saved configurations. Neither mode may confuse endpoint reachability with real VPN tunnel traffic. Only verified in-tunnel application traffic can establish a healthy KING VPN route.**
