@@ -22,6 +22,9 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:math';
+import 'errjournal.dart';
+import 'nnie_core.dart'; // natStableSort
+
 
 /// A bounded active queue plus a lossless overflow queue.
 /// The caller can keep the hot portion small without discarding candidates.
@@ -61,8 +64,6 @@ NatQueueSplit<T> natQueueSplit<T>({
   return NatQueueSplit<T>(active: nextActive, overflow: nextOverflow);
 }
 
-import 'errjournal.dart';
-import 'nnie_core.dart'; // natStableSort
 
 /// Normalize persisted list/range cursors before using them as indexes.
 /// Corrupt, negative, or non-numeric state restarts at the first item.

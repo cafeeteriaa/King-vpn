@@ -2354,6 +2354,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (elapsed.elapsed >= budget) return;', source)
         self.assertNotIn('DateTime.now().add(budget)', source)
 
+    def test_nat_ip_scan_imports_precede_top_level_declarations(self):
+        source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        imports_end = max(
+            source.index("import 'dart:math';"),
+            source.index("import 'errjournal.dart';"),
+            source.index("import 'nnie_core.dart';"),
+        )
+        declaration = source.index('class NatQueueSplit<T>')
+        self.assertLess(imports_end, declaration)
+
     def test_nat_queue_split_preserves_overflow_without_dropping_candidates(self):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         start = source.index('NatQueueSplit<T> natQueueSplit<T>(')
