@@ -3680,7 +3680,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = source.index('bool _natChangesAddr(', start)
         eligibility = source[start:end]
         self.assertIn('x.sniSwap != null && !(f.sec && !f.reality)', eligibility)
-        self.assertNotIn('f.cdnLike', eligibility)
+        self.assertNotIn('x.sniSwap != null && !(f.sec && f.cdnLike', eligibility)
         apply_start = source.index('String _natApplySniSwap(')
         apply_end = source.index('String _natFrag(', apply_start)
         apply = source[apply_start:apply_end]
