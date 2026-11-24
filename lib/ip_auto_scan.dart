@@ -111,7 +111,7 @@ Future<void> _ipAutoSave() async {
 
 /// Inventory پویا برای اسکن IP؛ رنج‌های تنظیم‌شده و بلوک‌های کشف‌شده
 /// به‌صورت چرخشی پیمایش می‌شوند تا هیچ بخش ثابتِ ابتدای فهرست انحصاری نشود.
-Future<List<String>> _ipAutoBlocks(Iterable<Server> knownServers, {required bool useNationalMode}) async {
+Future<List<String>> _ipAutoBlocks(Iterable<Server> knownServers) async {
   // Active probes are restricted to exact A/AAAA endpoints declared by
   // configured VPN server records. Published CIDRs remain passive inventory;
   // do not sweep unrelated ISP/CDN address space.
@@ -150,7 +150,7 @@ Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddr
     // are actively probed. CDN/ISP CIDRs are not swept as third-party networks.
     'cfIpsBatch': 0,
     'maxAddrs': batchSize,
-    'blocks': await _ipAutoBlocks(knownServers, useNationalMode: modeSnapshot),
+    'blocks': await _ipAutoBlocks(knownServers),
     'nationalMode': modeSnapshot,
     'liveRanges': <String>[],
     'cursors': cursorSnapshot,
@@ -286,8 +286,7 @@ extension IpAutoExt on _HomePageState {
       if (pool.isEmpty) pool = <Server>[...good, ...pending, ...fetchedAll];
     }
     if (halted()) return false;
-    final hasRangeInventory = pool.isNotEmpty;
-    if (pool.isEmpty && !hasRangeInventory) {
+    if (pool.isEmpty) {
       say('هنوز الگو یا بازه‌ای برای ساخت موجودی اسکن نیست؛ منابع را تازه‌سازی کن و دوباره اجرا کن.');
       return false;
     }
@@ -513,7 +512,7 @@ extension IpAutoExt on _HomePageState {
                   const SizedBox(height: 4),
                   const Text(
                       'اسکن خودکار است: لازم نیست بازه‌ای وارد کنید. فقط وقتی VPN قطع باشد اجرا می‌شود. '
-                      'هر IP که با هسته‌ی VPN جواب بدهد در فهرست می‌آید.'),
+                      'IPهای پاسخ‌گو فقط کاندیدا هستند؛ پذیرش نهایی نیازمند عبور واقعی ترافیک از تونل است.'),
                   const SizedBox(height: 8),
                   Text(ipAutoStatus.isEmpty ? 'آماده' : ipAutoStatus),
                   const SizedBox(height: 6),
