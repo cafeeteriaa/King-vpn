@@ -3113,5 +3113,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("natCursorIndex(cursors['__nip_${namespace}_range_cursor'], ranges.length)", nip)
 
 
+    def test_auto_port_scan_never_sweeps_arbitrary_public_ip_ranges(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        self.assertIn('_autoConfiguredPortTargets(', source)
+        self.assertIn('configuredPortTargets[p]', source)
+        self.assertIn('Server.parse(entry.link)', source)
+        self.assertNotIn('for (var port = 1; port <= 65535; port++)', source)
+        self.assertNotIn('batch.map((ip) => _autoPortOk(ip, p))', source[source.index('portLoop:'):])
+
+    def test_sni_discovery_is_not_mislabeled_as_tunnel_verification(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        self.assertIn('does NOT prove', source)
+        self.assertIn('not a verified tunnel route', source.lower())
+
+
 if __name__ == '__main__':
     unittest.main()
