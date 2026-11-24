@@ -3166,6 +3166,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         stable_end = main.index('Future<void> _verifyPendingConnect', stable_start)
         stable = main[stable_start:stable_end]
         self.assertIn('if (await tunUp() != true) return false;', stable)
+        tun_start = main.index('Future<bool?> tunUp()')
+        tun_end = main.index('// real ping: HTTP request to gstatic', tun_start)
+        tun_check = main[tun_start:tun_end]
+        self.assertIn('if (hasTunnel) return true;', tun_check)
+        self.assertIn('return false;', tun_check)
+        self.assertNotIn("if (kVpnLastStateTop == 'CONNECTED') return true;", tun_check)
+        self.assertNotIn("kVpnLastStateTop == 'CONNECTED' ? true : null", tun_check)
 
 
 if __name__ == '__main__':
