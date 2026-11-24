@@ -133,6 +133,20 @@ Future<String?> _autoAlpnOk(String ip, String sni, String alpn) async {
   }
 }
 
+Future<bool> _autoPortOk(String ip, int port) async {
+  try {
+    final socket = await Socket.connect(
+      ip,
+      port,
+      timeout: const Duration(milliseconds: 1500),
+    );
+    socket.destroy();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 // Port reachability is limited to the exact host:port pairs present in
 // saved server configurations. Never sweep arbitrary ports across public CDN/IP ranges.
 Future<Map<int, List<String>>> _autoConfiguredPortTargets(
