@@ -207,3 +207,9 @@ These are three distinct technical review passes by the same assistant, not thre
 1. Continue with device/runtime test matrix when a physical Android device and controlled test networks are available.
 2. Review 123 MB APK size, ELF DWARF/debug-symbol handling, Java 8 compatibility and deprecated workflow actions as separate evidence-led maintenance tasks; avoid changing release semantics without validation.
 3. Keep PR #48 Draft and do not merge to main until required review, device validation, and release signing gates are complete.
+
+
+### 2582 APK archive integrity spot-check
+- Downloaded the exact GitHub artifact ZIP `king-vpn-arm64-release-2582` (artifact ID `14943536256`) and independently recomputed its SHA-256: `eb068b57723052eeb1c7c1a9232bdc57066bb9af43f73dcc9c018f5c743e6ac8`, matching GitHub's artifact digest.
+- Inspected the ZIP: it contains exactly `app-arm64-v8a-release.apk`, uncompressed size 122,951,294 bytes. Independently computed APK SHA-256: `d49b6380c973850eec803e971e52017cc1157606e6897c952fef94d9da4ca9cb`.
+- This verifies archive integrity and the expected APK payload, not Android installation, signature trust, or runtime VPN behavior. The workflow log states the APK was signed with the generated Flutter debug key, not a production key.
