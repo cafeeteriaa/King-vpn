@@ -265,3 +265,12 @@ These are three distinct technical review passes by the same assistant, not thre
 - Range scanning and source merging pause when the combined queue reaches its backpressure threshold; the range cursor is not advanced while paused. The existing range/domain/IP/IPv4/IPv6/port search scope is unchanged.
 - Range scans also defer before advancing the cursor when no configuration template is available.
 - Added unit and source-guard tests proving that bounded active queues preserve all unique overflow entries.
+
+
+## 2026-11-24 — National-mode source isolation repair
+
+- Added a dedicated Iranian-service domain seed list for automatic discovery while national mode is active.
+- National-mode candidate discovery no longer mixes in the global domain catalog, global front-SNI/relay seeds, Cloudflare/CDN CIDR ranges, hard-coded global fallback IPs, or the mixed global-folder IP cache.
+- Global mode retains its prior global catalog/CDN/cache sources. National mode still includes exact saved VPN endpoint hosts/configurations for endpoint validation; no active scan scope was broadened.
+- This is a candidate-source relevance fix only. It does not prove that any discovered address is reachable from an Iranian carrier during an international outage.
+- Exact-head CI and Iranian-network/device tests have not yet been observed for this repair. Do not mark it TESTED until those runs/evidence exist.
