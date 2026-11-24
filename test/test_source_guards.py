@@ -3263,6 +3263,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('status < 100 || status > 599', probe)
         self.assertNotIn('status >= 400', probe)
 
+    def test_front_sni_probe_accepts_all_valid_http_statuses(self):
+        source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<String?> nipFrontProbe(')
+        end = source.index('Future<String?> nipFindFrontSni(', start)
+        probe = source[start:end]
+        self.assertIn('status < 100 || status > 599', probe)
+        self.assertNotIn('status >= 400', probe)
+
     def test_proxy_only_mode_cannot_pass_the_vpn_tunnel_acceptance_gate(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('Future<bool> _tunnelTrafficOk() async {')
