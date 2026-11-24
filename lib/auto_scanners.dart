@@ -1,7 +1,8 @@
 part of 'main.dart';
 
-// AUTOSCAN: اسکنر خودکار SNI و پورت. بدون ورودی دستی؛ IPهای تمیز پوشه‌ی جهانی را تست می‌کند
-// و نتیجه را همان‌جا ذخیره می‌کند (کلیدهای 'sni' و 'port').
+// AUTOSCAN: inventories for SNI/IP candidates are generated independently of saved servers.
+// Active SNI/TLS/port validation remains limited to configured KING VPN endpoint scope.
+// Candidate inventory is never presented as a verified endpoint or healthy tunnel.
 // Broad seed catalog. This is only one source: the scanner also merges the
 // full project DNS inventory, front-SNI/relay catalogs and saved server hosts.
 const List<String> kAutoSniDomains = [
@@ -366,7 +367,12 @@ Future<void> autoScanRun(void Function(String) say,
       liveRanges: targetRanges,
       cursors: stagedCdnCursors,
     );
-    say('تست با ${ips.length} IP از IPv4 و IPv6 (پوشه جهانی / CDN مستقل از نت ملی)');
+    final discoveredIpCandidates = <String>{
+      ...base,
+      ...dnsResolvedIps,
+      ...ips,
+    }.toList()..sort();
+    say('موجودی مستقل کشف شد: ${domainInventory.length} دامنه و ${discoveredIpCandidates.length} IP کاندیدا (بدون تأیید اتصال)');
 
     // Active SNI/TLS probes are limited to exact IP:port endpoints in saved
     // server configurations. Public CDN/DNS inventories remain discovery data;
@@ -475,7 +481,15 @@ Future<void> autoScanRun(void Function(String) say,
     }
     // Commit the three result groups together only after every scan phase completes.
     final saved = await goldAddScans(
-      {'tls': tlsHits, 'sni': sniHits, 'port': portHits},
+      {
+        'tls': tlsHits,
+        'sni': sniHits,
+        'port': portHits,
+        // Passive discovery candidates are persisted even when no saved VPN
+        // server exists; they are separate from actively verified SNI/IP data.
+        'sni_candidates': domainInventory,
+        'ip_candidates': discoveredIpCandidates,
+      },
       shouldAbort: () => cancelled(),
     );
     if (!saved) {
@@ -490,7 +504,7 @@ Future<void> autoScanRun(void Function(String) say,
     if (stagedPortCursor != null) {
       await prefs.setInt(_autoScanPortCursorKey, stagedPortCursor);
     }
-    say('تمام شد: ${sniHits.length} نام SNI و ${portHits.length} پورت TCP از موجودی کامل بررسی‌شده روی میزبان‌های VPN تنظیم‌شده ذخیره شد؛ این نتایج کاندیدا هستند، نه تأیید نهایی تونل.');
+    say('تمام شد: ${domainInventory.length} دامنه و ${discoveredIpCandidates.length} IP کاندیدا مستقل ذخیره شد؛ ${sniHits.length} SNI و ${portHits.length} پورت نیز در محدودهٔ سرورهای تنظیم‌شده بررسی شدند. کاندیداها تأیید اتصال یا تونل نیستند.');
   } catch (e, stk) {
     logError(e, stk);
     say('خطا در اسکن خودکار');
@@ -525,12 +539,19 @@ Future<void> autoScanSheet(BuildContext context,
               const SizedBox(height: 8),
               Text(status),
               const SizedBox(height: 8),
-              Text('SNI: ${(_goldScan['sni'] ?? const []).length} • پورت: ${(_goldScan['port'] ?? const []).length} • TLS: ${(_goldScan['tls'] ?? const []).length}'),
+              Text('کاندیدای SNI: ${(_goldScan['sni_candidates'] ?? const []).length} • کاندیدای IP: ${(_goldScan['ip_candidates'] ?? const []).length}'),
+              Text('SNI پاسخ‌داده: ${(_goldScan['sni'] ?? const []).length} • پورت TCP پاسخ‌داده: ${(_goldScan['port'] ?? const []).length} • ALPN: ${(_goldScan['tls'] ?? const []).length}'),
               // SCANSHOW: نتایج همین‌جا روی صفحه با دکمه‌ی کپی
-              for (final k in const ['sni', 'port', 'tls'])
+              for (final k in const ['sni_candidates', 'ip_candidates', 'sni', 'port', 'tls'])
                 if ((_goldScan[k] ?? const <String>[]).isNotEmpty) ...[
                   const SizedBox(height: 6),
-                  Text(k == 'sni' ? 'SNIهای دارای پاسخ HTTPS (کاندیدا):' : (k == 'port' ? 'پورت‌های دارای پاسخ TCP (کاندیدا):' : 'پروتکل‌های TLS مشاهده‌شده (کاندیدا):')),
+                  Text({
+                    'sni_candidates': 'دامنه‌های SNI کشف‌شده (تأییدنشده):',
+                    'ip_candidates': 'IPهای کشف‌شده (تأییدنشده):',
+                    'sni': 'SNIهای دارای پاسخ HTTPS روی سرورهای تنظیم‌شده:',
+                    'port': 'پورت‌های دارای پاسخ TCP روی IPهای تنظیم‌شده:',
+                    'tls': 'پروتکل‌های TLS مشاهده‌شده:',
+                  }[k]!),
                   SelectableText((_goldScan[k] ?? const <String>[]).join('\n')),
                   TextButton.icon(
                     onPressed: () => Clipboard.setData(ClipboardData(
