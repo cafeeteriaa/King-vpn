@@ -368,7 +368,7 @@ Future<void> autoScanRun(void Function(String) say,
         }
       }
       if (ok) sniHits.add(d);
-      say('SNI $n/${domainBatch.length} • سالم: ${sniHits.length}');
+      say('SNI $n/${domainBatch.length} • پاسخ HTTPS (کاندیدا): ${sniHits.length}');
     }
 
     if (cancelled()) {
@@ -401,7 +401,7 @@ Future<void> autoScanRun(void Function(String) say,
         }
       }
       if (ok) portHits.add('$p');
-      say('پورت $m/${portBatch.length} • سالم: ${portHits.length}');
+      say('پورت $m/${portBatch.length} • پاسخ TCP (کاندیدا): ${portHits.length}');
     }
 
     if (cancelled()) {
@@ -431,7 +431,7 @@ Future<void> autoScanRun(void Function(String) say,
         }
         if (ok) break;
       }
-      if (ok) say('TLS: $alpn ✓');
+      if (ok) say('TLS/ALPN مشاهده شد: $alpn (کاندیدا)');
     }
 
     if (cancelled()) {
@@ -495,7 +495,7 @@ Future<void> autoScanSheet(BuildContext context,
               for (final k in const ['sni', 'port', 'tls'])
                 if ((_goldScan[k] ?? const <String>[]).isNotEmpty) ...[
                   const SizedBox(height: 6),
-                  Text(k == 'sni' ? 'SNIهای سالم:' : (k == 'port' ? 'پورت‌های سالم:' : 'TLSهای سالم:')),
+                  Text(k == 'sni' ? 'SNIهای دارای پاسخ HTTPS (کاندیدا):' : (k == 'port' ? 'پورت‌های دارای پاسخ TCP (کاندیدا):' : 'پروتکل‌های TLS مشاهده‌شده (کاندیدا):')),
                   SelectableText((_goldScan[k] ?? const <String>[]).join('\n')),
                   TextButton.icon(
                     onPressed: () => Clipboard.setData(ClipboardData(
