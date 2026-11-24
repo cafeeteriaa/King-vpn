@@ -5,6 +5,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KingVpnSourceGuardTests(unittest.TestCase):
+    def test_ping_alone_never_accepts_a_vpn_route(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<bool> _connectLoop(')
+        end = main.index('Future<bool> ', start + 20)
+        connect = main[start:end]
+        self.assertIn('final tunOk = await _tunnelTrafficOk();', connect)
+        self.assertNotIn('personalPingPassed ||', connect)
+        self.assertNotIn('personalPingPassed =', connect)
+
     def test_ip_auto_keeps_transient_core_failures_retryable(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         start = source.index('final firstOk = await _ipAutoCoreOk(s, url);')
