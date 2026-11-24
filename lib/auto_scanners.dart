@@ -2,12 +2,60 @@ part of 'main.dart';
 
 // AUTOSCAN: اسکنر خودکار SNI و پورت. بدون ورودی دستی؛ IPهای تمیز پوشه‌ی جهانی را تست می‌کند
 // و نتیجه را همان‌جا ذخیره می‌کند (کلیدهای 'sni' و 'port').
+// Broad seed catalog. This is only one source: the scanner also merges the
+// full project DNS inventory, front-SNI/relay catalogs and saved server hosts.
 const List<String> kAutoSniDomains = [
-  'www.google.com', 'www.youtube.com', 'www.instagram.com', 'www.microsoft.com',
-  'www.apple.com', 'www.cloudflare.com', 'speed.cloudflare.com', 'www.digikala.com',
-  'www.aparat.com', 'www.snapp.ir', 'www.divar.ir', 'www.wikipedia.org',
-  'www.amazon.com', 'dl.google.com', 'www.whatsapp.com', 'www.telegram.org',
-  'www.spotify.com', 'www.github.com',
+  // Global infrastructure, software and content delivery.
+  'www.google.com', 'www.youtube.com', 'www.gstatic.com', 'fonts.googleapis.com',
+  'fonts.gstatic.com', 'dl.google.com', 'accounts.google.com', 'drive.google.com',
+  'www.googleusercontent.com', 'www.googleapis.com', 'android.com',
+  'www.microsoft.com', 'login.microsoftonline.com', 'www.office.com',
+  'www.live.com', 'www.bing.com', 'edge.microsoft.com', 'www.azure.com',
+  'www.apple.com', 'icloud.com', 'www.icloud.com', 'apps.apple.com',
+  'developer.apple.com', 'www.cloudflare.com', 'cloudflare.com',
+  'www.cloudflarestatus.com', 'speed.cloudflare.com', 'one.one.one.one',
+  'www.amazon.com', 'aws.amazon.com', 'www.amazontrust.com',
+  'www.github.com', 'github.com', 'raw.githubusercontent.com',
+  'objects.githubusercontent.com', 'githubusercontent.com',
+  'www.fastly.com', 'www.akamai.com', 'www.akamaized.net',
+  'www.jsdelivr.com', 'cdn.jsdelivr.net', 'unpkg.com', 'cdnjs.cloudflare.com',
+  'www.digitalocean.com', 'www.oracle.com', 'www.ibm.com', 'www.intel.com',
+  'www.nvidia.com', 'www.docker.com', 'hub.docker.com',
+  // Communication, social, media and collaboration.
+  'www.instagram.com', 'instagram.com', 'www.facebook.com', 'www.meta.com',
+  'www.whatsapp.com', 'web.whatsapp.com', 'www.messenger.com',
+  'www.telegram.org', 'telegram.org', 'web.telegram.org',
+  'www.reddit.com', 'reddit.com', 'www.x.com', 'x.com', 'twitter.com',
+  'www.linkedin.com', 'linkedin.com', 'www.discord.com', 'discord.com',
+  'www.slack.com', 'slack.com', 'www.zoom.us', 'zoom.us',
+  'www.spotify.com', 'open.spotify.com', 'www.soundcloud.com',
+  'www.netflix.com', 'www.twitch.tv', 'www.primevideo.com',
+  'www.disneyplus.com', 'www.pinterest.com', 'www.tiktok.com',
+  'www.snapchat.com', 'www.dropbox.com', 'www.notion.so',
+  // Search, documentation, package and developer services.
+  'www.wikipedia.org', 'wikipedia.org', 'www.wikimedia.org',
+  'www.stackoverflow.com', 'stackoverflow.com', 'serverfault.com',
+  'www.python.org', 'pypi.org', 'www.npmjs.com', 'registry.npmjs.org',
+  'pub.dev', 'dart.dev', 'flutter.dev', 'www.rust-lang.org',
+  'go.dev', 'pkg.go.dev', 'www.gnu.org', 'www.kernel.org',
+  'www.mozilla.org', 'developer.mozilla.org', 'www.chromium.org',
+  // Iranian public services and high-availability content sites.
+  'www.digikala.com', 'digikala.com', 'www.aparat.com', 'aparat.com',
+  'www.snapp.ir', 'snapp.ir', 'www.divar.ir', 'divar.ir',
+  'www.telewebion.com', 'www.tasnimnews.com', 'www.isna.ir',
+  'www.irna.ir', 'www.mehrnews.com', 'www.khabaronline.ir',
+  'www.varzesh3.com', 'www.zoomit.ir', 'www.zdnet.com',
+  'www.sheypoor.com', 'www.bale.ai', 'web.eitaa.com',
+  'www.namasha.com', 'www.filimo.com', 'www.namava.ir',
+  'www.torob.com', 'www.basalam.com', 'www.alibaba.ir',
+  'www.irancell.ir', 'www.mci.ir', 'www.rightel.ir',
+  // Additional globally distributed sites.
+  'www.yandex.com', 'yandex.com', 'www.baidu.com', 'www.qq.com',
+  'www.wikipedia.org', 'www.nytimes.com', 'www.bbc.com', 'www.cnn.com',
+  'www.reuters.com', 'www.theguardian.com', 'www.weather.com',
+  'www.booking.com', 'www.airbnb.com', 'www.ebay.com', 'www.paypal.com',
+  'www.shopify.com', 'www.salesforce.com', 'www.atlassian.com',
+  'www.canva.com', 'www.figma.com', 'www.openai.com',
 ];
 const List<int> kAutoPorts = [443, 8443, 2053, 2083, 2087, 2096];
 // AUTOFALLBACK: IPهای داخلی برای وقتی پوشه‌ی جهانی هنوز IP تمیز ندارد
@@ -25,16 +73,37 @@ const int _autoScanCdnBatchSize = 8;
 const int _autoScanDomainBatchSize = 18;
 const int _autoScanPortBatchSize = 24; // full SNI/port/TLS pass fits the shared four-minute budget
 
-// TLS با SNI مشخص: اگر هندشیک کامل شود، SNI برای آن IP قابل استفاده است
+// SNI is only accepted after an end-to-end HTTPS response, not merely
+// a TCP connect or TLS handshake. A 2xx/3xx response proves application data
+// crossed the candidate route and came back.
 Future<int?> _autoSniOk(String ip, int port, String sni) async {
   final sw = Stopwatch()..start();
   Socket? raw;
   SecureSocket? secure;
   try {
     raw = await Socket.connect(ip, port, timeout: const Duration(seconds: 4));
-    secure = await SecureSocket.secure(raw,
-        host: sni, onBadCertificate: (_) => true)
+    secure = await SecureSocket.secure(
+      raw,
+      host: sni,
+      supportedProtocols: const ['http/1.1'],
+      onBadCertificate: (_) => true,
+    ).timeout(const Duration(seconds: 4));
+    secure.write(
+      'GET / HTTP/1.1\\r\\n'
+      'Host: $sni\\r\\n'
+      'User-Agent: KING-VPN-Connectivity-Probe/1.0\\r\\n'
+      'Accept: */*\\r\\n'
+      'Connection: close\\r\\n\\r\\n',
+    );
+    await secure.flush().timeout(const Duration(seconds: 3));
+    final statusLine = await utf8.decoder
+        .bind(secure)
+        .transform(const LineSplitter())
+        .first
         .timeout(const Duration(seconds: 4));
+    final match = RegExp(r'^HTTP/1\\.[01]\\s+(\\d{3})').firstMatch(statusLine);
+    final status = int.tryParse(match?.group(1) ?? '');
+    if (status == null || status < 200 || status >= 400) return null;
     return sw.elapsedMilliseconds;
   } catch (_) {
     return null;
