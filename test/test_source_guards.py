@@ -3673,5 +3673,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_autoAlpnOk(ip, 443, d, alpn)', alpn)
         self.assertNotIn('configuredSniTargets', source)
 
+
+    def test_sni_swap_variants_are_not_artificially_restricted_to_cdn_hosts(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('bool _natCanUse(')
+        end = source.index('bool _natChangesAddr(', start)
+        eligibility = source[start:end]
+        self.assertIn('x.sniSwap != null && !(f.sec && !f.reality)', eligibility)
+        self.assertNotIn('f.cdnLike', eligibility)
+        apply_start = source.index('String _natApplySniSwap(')
+        apply_end = source.index('String _natFrag(', apply_start)
+        apply = source[apply_start:apply_end]
+        self.assertIn("tls['serverName'] = sni", apply)
+        self.assertIn('if (tlsHasEch(tls)) continue;', apply)
+
+
 if __name__ == '__main__':
     unittest.main()
