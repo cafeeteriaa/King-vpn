@@ -3141,6 +3141,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('if (proxyMode) return true;', gate)
         self.assertIn('_siteOpens(u, viaCore: true)', gate)
 
+    def test_tunnel_acceptance_requires_android_tun_and_records_http_evidence(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        site_start = main.index('Future<bool> _siteOpens(')
+        site_end = main.index('Future<int> _sitesOpen()', site_start)
+        site = main[site_start:site_end]
+        self.assertIn('responseBytes += chunk.length', site)
+        self.assertIn('TUNNEL-EVIDENCE status=', site)
+        self.assertIn('res.statusCode >= 200 && res.statusCode < 400', site)
+        tunnel_start = main.index('Future<bool> _tunnelTrafficOk() async {')
+        stable_start = main.index('Future<bool> _stableTunnelTrafficOk', tunnel_start)
+        tunnel = main[tunnel_start:stable_start]
+        self.assertIn('if (await tunUp() != true)', tunnel)
+        stable_end = main.index('Future<void> _verifyPendingConnect', stable_start)
+        stable = main[stable_start:stable_end]
+        self.assertIn('if (await tunUp() != true) return false;', stable)
+
 
 if __name__ == '__main__':
     unittest.main()
