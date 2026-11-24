@@ -45,8 +45,7 @@ const List<String> kDnsxNationalProbeDomains = <String>[
 
 /// اسکن خودکار و دستی DNS هر دو از تمام دامنه‌های موجود در منابع پروژه استفاده می‌کنند.
 /// شکست موقت یک دامنه باعث حذف آن از موجودی نمی‌شود؛ چرخه‌های بعدی دوباره آن را می‌آزمایند.
-List<String> dnsxAutoDomains({int sampleSize = 64}) =>
-    dnsxFullDomains();
+List<String> dnsxAutoDomains() => dnsxFullDomains();
 
 /// تبدیل فهرست‌های پروژه (مثل `domain:divar.ir`) به نام میزبان ساده
 List<String> _dnsxHostsFrom(Iterable<String> src) {
