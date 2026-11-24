@@ -3676,7 +3676,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_sni_swap_variants_are_not_artificially_restricted_to_cdn_hosts(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
-        start = source.index('bool _natCanUse(')
+        start = source.index('bool _natAppliesF(')
         end = source.index('bool _natChangesAddr(', start)
         eligibility = source[start:end]
         self.assertIn('x.sniSwap != null && !(f.sec && !f.reality)', eligibility)
