@@ -35,8 +35,7 @@ int natCursorIndex(Object? value, int length) {
   return parsed % length;
 }
 
-/// Build a complete port-number inventory (default: 1..65535).
-/// Set [firstPort] to zero only when a caller explicitly needs reserved port 0.
+/// Build the complete 0..65535 port-number inventory for one transport.
 /// Preferred values affect order only; they never exclude another port.
 List<int> natBuildFullPortInventory(
   Iterable<int> preferredPorts, {
