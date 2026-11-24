@@ -253,6 +253,6 @@ These are three distinct technical review passes by the same assistant, not thre
 
 - Replaced `Socket.connect` in the shared NAT TCP probe with `Socket.startConnect` and `ConnectionTask.cancel()`. In-flight probes now stop within the cancellation watcher interval instead of waiting for the full socket timeout.
 - The main NAT scanner passes a combined cancellation predicate for user stop, elapsed budget and already-reached hit target, so sibling workers do not continue unnecessary connects. The existing post-probe stale-result guard remains.
-- The national pre-scan now resolves hostnames in bounded concurrent batches and includes DNS time in the same monotonic 90-second budget as TCP probing. Unresolved candidates remain queued for later rounds.
+- The national pre-scan now resolves hostnames in bounded concurrent batches (all candidates in the current 400-item round are attempted unless aborted), then preserves the original independent monotonic 90-second TCP budget. Unresolved candidates remain queued for later rounds.
 - Added deterministic `IOOverrides` tests for cancellation during socket connection, cancellation while `startConnect` is still resolving, and timeout cancellation; source guards cover both scanner call paths.
 - This is source/CI validation only; physical Android network handover and real-world socket cancellation behavior remain untested on devices.

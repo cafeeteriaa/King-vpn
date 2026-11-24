@@ -10697,9 +10697,7 @@ ListTile( // KINGEXTRAS row
       }.toList(growable: false);
       // Resolve in bounded parallel batches. DNS time counts against the same
       // monotonic budget as TCP probes; unresolved candidates remain queued.
-      for (var i = 0;
-          i < hosts.length && !abort && deadline.elapsed < scanBudget;
-          i += dnsBatch) {
+      for (var i = 0; i < hosts.length && !abort; i += dnsBatch) {
         final chunk = <String>[];
         for (var j = i; j < min(i + dnsBatch, hosts.length); j++) {
           final host = hosts[j];
@@ -10710,11 +10708,8 @@ ListTile( // KINGEXTRAS row
           }
         }
         if (chunk.isEmpty) continue;
-        final remaining = scanBudget - deadline.elapsed;
-        if (remaining <= Duration.zero) break;
-        final lookupTimeout = remaining < dnsTimeout ? remaining : dnsTimeout;
         final resolved = await Future.wait(
-          chunk.map((host) => safeLookup(host, timeout: lookupTimeout)),
+          chunk.map((host) => safeLookup(host, timeout: dnsTimeout)),
         );
         for (var j = 0; j < chunk.length; j++) {
           if (abort || deadline.elapsed >= scanBudget) break;
@@ -10724,6 +10719,8 @@ ListTile( // KINGEXTRAS row
       final targets = [for (final s in cands) if (ipOf.containsKey(s.host)) s];
       final ok = <Server>[];
       const batch = 20;
+      // Preserve the original 90-second TCP budget independently of DNS time.
+      final deadline = Stopwatch()..start();
       for (var i = 0;
           i < targets.length && !abort && deadline.elapsed < scanBudget;
           i += batch) {
