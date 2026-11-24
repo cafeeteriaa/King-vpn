@@ -3382,7 +3382,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("not be inferred from a single endpoint", inventory)
 
 
-    def test_port_inventory_covers_all_connect_ports_1_through_65535_for_tcp_and_udp(self):
+    def test_tcp_and_udp_port_number_inventories_cover_ports_1_through_65535(self):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         start = source.index('List<int> natBuildFullPortInventory(')
         end = source.index('class NatIpHit', start)
@@ -3394,6 +3394,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         self.assertIn('firstPort: 1, // TCP connect() cannot target port zero.', nat)
 
+
+    def test_udp_port_inventory_is_not_mislabeled_as_a_udp_probe(self):
+        source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('/// Builds UDP port numbers only.')
+        end = source.index('class NatIpHit', start)
+        inventory = source[start:end]
+        self.assertIn('no datagram is sent', inventory)
+        self.assertIn('natBuildFullUdpPortInventory', inventory)
+        self.assertNotIn('RawDatagramSocket', inventory)
 
     def test_ping_only_candidates_never_enter_verified_resource_store(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
