@@ -114,11 +114,11 @@ Future<int?> _autoSniOk(String ip, int port, String sni) async {
 }
 
 // ALPN (پروتکل لایه‌ی TLS): خروجی خود نام پروتکل است، مثل h2 یا http/1.1
-Future<String?> _autoAlpnOk(String ip, String sni, String alpn) async {
+Future<String?> _autoAlpnOk(String ip, int port, String sni, String alpn) async {
   Socket? raw;
   SecureSocket? secure;
   try {
-    raw = await Socket.connect(ip, 443, timeout: const Duration(seconds: 4));
+    raw = await Socket.connect(ip, port, timeout: const Duration(seconds: 4));
     secure = await SecureSocket.secure(raw,
         host: sni,
         supportedProtocols: [alpn],
@@ -343,8 +343,11 @@ Future<void> autoScanRun(void Function(String) say,
     );
     say('تست با ${ips.length} IP از IPv4 و IPv6 (پوشه جهانی / CDN مستقل از نت ملی)');
 
-    // SNI: خروجی خود دامنه‌هاست. هر دامنه یک بار؛ به محض یک IP سالم، همان دامنه ثبت می‌شود
+    // Active SNI/TLS probes are limited to exact IP:port endpoints in saved
+    // server configurations. Public CDN/DNS inventories remain discovery data;
+    // they are never treated as permission to probe unrelated third-party hosts.
     final sniHits = <String>[];
+    final configuredSniTargets = configuredPortTargets;
     var n = 0;
     sniLoop:
     for (final d in domainBatch) {
@@ -354,18 +357,20 @@ Future<void> autoScanRun(void Function(String) say,
         if (cancelled()) break sniLoop;
       }
       var ok = false;
-      // Bounded parallel probes reduce worst-case scan time without creating
-      // an unbounded socket burst on low-memory/mobile networks.
-      for (var offset = 0; offset < ips.length; offset += 8) {
-        if (cancelled()) break sniLoop;
-        final batch = ips.skip(offset).take(8);
-        final checks = await Future.wait(
-          batch.map((ip) => _autoSniOk(ip, 443, d)),
-        );
-        if (checks.any((latency) => latency != null)) {
-          ok = true;
-          break;
+      for (final target in configuredSniTargets.entries) {
+        final targetIps = target.value;
+        for (var offset = 0; offset < targetIps.length; offset += 8) {
+          if (cancelled()) break sniLoop;
+          final batch = targetIps.skip(offset).take(8);
+          final checks = await Future.wait(
+            batch.map((ip) => _autoSniOk(ip, target.key, d)),
+          );
+          if (checks.any((latency) => latency != null)) {
+            ok = true;
+            break;
+          }
         }
+        if (ok) break;
       }
       if (ok) sniHits.add(d);
       say('SNI $n/${domainBatch.length} • پاسخ HTTPS (کاندیدا): ${sniHits.length}');
@@ -409,7 +414,7 @@ Future<void> autoScanRun(void Function(String) say,
       return;
     }
 
-    // TLS/ALPN: خروجی نام پروتکل‌های TLS است؛ روی اولین دامنه‌ی سالم (یا پیش‌فرض) تست می‌شود
+    // TLS/ALPN uses the same configured endpoint scope as SNI.
     final tlsHits = <String>[];
     final tlsSni = sniHits.isNotEmpty
         ? sniHits.first
@@ -417,17 +422,21 @@ Future<void> autoScanRun(void Function(String) say,
     for (final alpn in const ['h2', 'http/1.1']) {
       if (cancelled()) break;
       var ok = false;
-      for (var offset = 0; offset < ips.length; offset += 8) {
-        if (cancelled()) break;
-        final batch = ips.skip(offset).take(8);
-        final selected = await Future.wait(
-          batch.map((ip) => _autoAlpnOk(ip, tlsSni, alpn)),
-        );
-        for (final protocol in selected.whereType<String>()) {
-          if (protocol.isNotEmpty && !tlsHits.contains(protocol)) {
-            tlsHits.add(protocol);
-            ok = true;
+      for (final target in configuredSniTargets.entries) {
+        final targetIps = target.value;
+        for (var offset = 0; offset < targetIps.length; offset += 8) {
+          if (cancelled()) break;
+          final batch = targetIps.skip(offset).take(8);
+          final selected = await Future.wait(
+            batch.map((ip) => _autoAlpnOk(ip, target.key, tlsSni, alpn)),
+          );
+          for (final protocol in selected.whereType<String>()) {
+            if (protocol.isNotEmpty && !tlsHits.contains(protocol)) {
+              tlsHits.add(protocol);
+              ok = true;
+            }
           }
+          if (ok) break;
         }
         if (ok) break;
       }
