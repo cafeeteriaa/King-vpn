@@ -432,6 +432,17 @@ List<_NatSpec> _natGenerate() {
 }
 
 int _natGrowCounter = 0;
+
+// Keep the static front-SNI ordering stable for persisted variant indices,
+// then append domains proven by the HTTPS traffic probe.
+List<String> _natSniPool() {
+  final out = List<String>.of(natFrontSnis);
+  for (final name in _goldScan['sni'] ?? const <String>[]) {
+    if (!out.contains(name)) out.add(name);
+  }
+  return out;
+}
+
 int natGrow(int n) {
   if (_natSpecs.length > 500000) return 0;
   final rnd = Random(DateTime.now().millisecondsSinceEpoch + _natGrowCounter++);
@@ -453,7 +464,8 @@ int natGrow(int n) {
     final v4 = rnd.nextBool();
     final tfo = rnd.nextBool();
     final keep = rnd.nextBool() ? rnd.nextInt(30) + 1 : null;
-    final sniSwap = rnd.nextBool() ? rnd.nextInt(natFrontSnis.length) : null;
+    final sniPool = _natSniPool();
+    final sniSwap = rnd.nextBool() ? rnd.nextInt(sniPool.length) : null;
     _natSpecs.add(_natMk(
       fp: fp, alpn: alpn, frag: frag, port: port, portIdx: portIdx,
       clean: clean, cleanIdx: cleanIdx, v4: v4, tfo: tfo, keep: keep, doh: doh,
@@ -1191,8 +1203,9 @@ Map? _natProxyOut(Map<String, dynamic> j) {
 // jitter, so the test and the real connection use identical byte counts.
 String _natApplySniSwap(String cfg, int sniIdx) {
   try {
-    if (sniIdx < 0 || sniIdx >= natFrontSnis.length) return cfg;
-    final sni = natFrontSnis[sniIdx];
+    final sniPool = _natSniPool();
+    if (sniIdx < 0 || sniIdx >= sniPool.length) return cfg;
+    final sni = sniPool[sniIdx];
     final j = jsonDecode(cfg);
     if (j is! Map<String, dynamic>) return cfg;
     final outs = (j['outbounds'] as List?) ?? <dynamic>[];
