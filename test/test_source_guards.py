@@ -756,6 +756,25 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('build-evidence/king-vpn-full-source-${{ github.run_number }}.zip', workflow)
         self.assertNotIn('${{ runner.temp }}', workflow)
 
+    def test_source_archive_uses_secret_filtered_deterministic_packager(self):
+        workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
+        packager = (ROOT / 'tools' / 'package_source_archive.py').read_text(encoding='utf-8')
+        self.assertIn('python3 tools/package_source_archive.py', workflow)
+        self.assertIn('--output "build-evidence/king-vpn-full-source-', workflow)
+        self.assertNotIn('zip -qr', workflow)
+        for marker in (
+            'key.properties', 'google-services.json', '.netrc', '.npmrc',
+            '.pypirc', '.ssh', '.aws', '.docker', '.terraform', '.env.*',
+            '.jks', '.keystore', '.p12', '.pfx', '.pem', '.key', '.p8',
+        ):
+            self.assertIn(marker, packager)
+        self.assertIn('entry.is_symlink()', packager)
+        self.assertIn('archive.testzip()', packager)
+        self.assertIn('_contains_secret_content', packager)
+        self.assertIn('PRIVATE_KEY_HEADERS', packager)
+        self.assertIn('REQUIRED_FILES', packager)
+        self.assertIn('os.replace(temporary, output)', packager)
+
     def test_android_toolchain_matches_flutter_350_and_kotlin_2420(self):
         prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
         self.assertIn("AGP_VERSION = '9.3.1'", prepare)
