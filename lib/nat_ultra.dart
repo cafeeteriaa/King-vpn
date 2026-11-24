@@ -662,8 +662,9 @@ bool _natAppliesF(_NatFacts f, int v) {
   if (x.noise) return false;
   if (x.mode != null && (!x.mode!.startsWith('kcp:') || f.reality)) return false;
   if (x.doh != null && f.isIp) return false;
-  // V13: SNI swap only makes sense for CDN configs with TLS (not reality).
-  if (x.sniSwap != null && !(f.sec && f.cdnLike && !f.reality)) return false;
+  // SNI replacement is valid for any TLS transport supported by the core;
+  // CDN classification is not a protocol requirement. Reality/ECH remain excluded.
+  if (x.sniSwap != null && !(f.sec && !f.reality)) return false;
   return true;
 }
 
