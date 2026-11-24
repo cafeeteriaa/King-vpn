@@ -3320,5 +3320,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             self.assertIn('await _onConnected(', line, line)
 
 
+    def test_scanner_data_is_exclusively_for_king_vpn_and_port_inventory_is_complete(self):
+        policy = (ROOT / 'docs' / 'MASTER_GOLDEN_LAW_KING_VPN.md').read_text(encoding='utf-8')
+        self.assertIn('solely to establish, maintain, recover or verify connectivity for the KING VPN application', policy)
+        self.assertIn('must not be exposed as a general-purpose port scanner', policy)
+        self.assertIn('1..65535', policy)
+        self.assertIn('inventory generation separate from active probing', policy)
+
+        ports = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        start = ports.index('List<int> natBuildFullPortInventory(')
+        end = ports.index('class NatIpHit', start)
+        inventory = ports[start:end]
+        self.assertIn('int firstPort = 0', inventory)
+        self.assertIn('int lastPort = 65535', inventory)
+        self.assertIn('natBuildFullUdpPortInventory', inventory)
+
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn('Future<bool> _tunnelTrafficOk() async {', main)
+        self.assertIn('if (proxyMode || !await _tunnelTrafficOk())', main)
+
 if __name__ == '__main__':
     unittest.main()
