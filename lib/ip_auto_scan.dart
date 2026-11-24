@@ -176,7 +176,7 @@ Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddr
     // uses only the user's configured national ranges and national hit memory.
     'cfIpsBatch': modeSnapshot ? 0 : batchSize,
     'maxAddrs': batchSize,
-    'blocks': _ipAutoBlocks(knownServers),
+    'blocks': await _ipAutoBlocks(knownServers),
     'nationalMode': modeSnapshot,
     'liveRanges': modeSnapshot ? <String>[] : List<String>.of(_liveCdnRanges),
     'cursors': cursorSnapshot,
