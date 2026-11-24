@@ -2843,27 +2843,34 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('for (final candidate in candidates)', source)
 
 
-    def test_ip_auto_scans_configured_ranges_and_rotating_global_cdn_inventory(self):
+    def test_ip_auto_scans_only_exact_configured_dual_stack_endpoints(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         start = source.index('Future<List<String>> _ipAutoBlocks(')
         end = source.index('Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(', start)
         inventory = source[start:end]
-        self.assertIn('blocks.addAll(natRanges);', inventory)
-        self.assertIn('blocks.addAll(natAutoBlocks(const <Server>[]));', inventory)
-        self.assertIn('await nipResolveAll(server.host)', inventory)
-        self.assertIn("'${parsed.address}/128'", inventory)
-        self.assertIn("blocks.add('${octets[0]}.${octets[1]}.${octets[2]}.0/24');", inventory)
-        self.assertNotIn('exact known endpoints only', source)
-        self.assertNotIn("'cfIpsBatch': 0, // exact known endpoints only", source)
-        self.assertIn("'cfIpsBatch': modeSnapshot ? 0 : batchSize,", source)
-        self.assertIn("List<String>.of(_liveCdnRanges)", source)
-        self.assertIn("'cursors': cursorSnapshot,", source)
+        self.assertIn('return await nipResolveAll(server.host);', inventory)
+        self.assertIn("'\u0024{parsed.address}/128'", inventory)
+        self.assertIn("'\u0024ip/32'", inventory)
+        self.assertNotIn('natRanges', inventory)
+        self.assertNotIn('natAutoBlocks', inventory)
+        self.assertNotIn('/24', inventory)
         next_start = source.index('Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(')
         next_end = source.index('extension IpAutoExt', next_start)
         next_batch = source[next_start:next_end]
+        self.assertIn("'cfIpsBatch': 0,", next_batch)
+        self.assertIn("'liveRanges': <String>[]", next_batch)
+        self.assertIn("'cursors': cursorSnapshot,", next_batch)
         self.assertIn('final slice = all.toList(growable: false);', next_batch)
         self.assertIn('return (addresses: slice, cursors: generatedCursors);', next_batch)
-        self.assertNotIn('ipAutoCursors\n    ..clear()', next_batch)
+        self.assertNotIn('ipAutoCursors\\n    ..clear()', next_batch)
+        run_start = source.index('Future<bool> _ipAutoRunOnce(')
+        run_end = source.index('Future<void> ipAutoSheet(', run_start)
+        run = source[run_start:run_end]
+        self.assertIn('endpointTargets[server.port]', run)
+        self.assertIn('endpointIps', run)
+        self.assertIn('server.port == port', run)
+        self.assertIn('Core outbound delay is not proof', run)
+        self.assertIn('promotion requires a real user tunnel test', run)
 
 
     def test_auto_sni_scan_uses_a_fair_resumable_dual_stack_batch(self):
