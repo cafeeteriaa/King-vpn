@@ -173,10 +173,11 @@ Future<void> autoScanRun(void Function(String) say,
       ...dnsxFullDomains(),
       ...natFrontSnis,
       ...natRelayHosts,
-      for (final entry in _goldSrv.values)
-        if (Server.parse(entry.link) case final server?)
-          if (!server.isIp) server.host,
     };
+    for (final entry in _goldSrv.values) {
+      final server = Server.parse(entry.link);
+      if (server != null && !server.isIp) domainSources.add(server.host);
+    }
     final domainInventory = domainSources
         .map((domain) => domain.trim().toLowerCase())
         .where((domain) => domain.isNotEmpty && domain.contains('.'))
