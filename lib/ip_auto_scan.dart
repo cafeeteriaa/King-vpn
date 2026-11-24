@@ -274,6 +274,15 @@ extension IpAutoExt on _HomePageState {
       if (!runNationalMode) ...natFrontSnis,
       if (!runNationalMode) ...natRelayHosts,
     };
+    if (runNationalMode) {
+      for (final server in <Server>{
+        ...natTemplateSeeds,
+        ...good,
+        ...pending,
+      }) {
+        if (!server.isIp) domainSources.add(server.host);
+      }
+    }
     final domainInventory = domainSources
         .map((domain) => domain.trim().toLowerCase())
         .where((domain) => domain.isNotEmpty && domain.contains('.'))
