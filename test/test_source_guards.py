@@ -1447,6 +1447,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(watchdog.index('catch (Throwable stateError)'),
                         watchdog.index('ProbeResult pr = coreUp ? probeResult()'))
 
+    def test_vpn_health_probe_accepts_all_valid_http_statuses(self):
+        service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = service.index('private ProbeResult probeOne(String url)')
+        end = service.index('private ParcelFileDescriptor establish(', start)
+        probe = service[start:end]
+        self.assertIn('Any valid HTTP status proves the request reached an HTTP peer', probe)
+        self.assertIn('code >= 100 && code <= 599', probe)
+        self.assertNotIn('code < 500', probe)
+
     def test_vpn_service_defers_tun_close_until_native_stop_is_verified(self):
         service = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
         start = service.index('private boolean stopCoreNow()')
