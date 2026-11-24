@@ -356,7 +356,10 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
 // خودت می‌توانی دامنه‌های بیشتری به این لیست اضافه کنی.
 // Seed domains are only starting points; the full project domain inventory
 // is rotated through by nipFindFrontSni on subsequent calls.
+// Front-SNI candidates include the expanded seed catalog. The scanner
+// separately adds only SNI names that returned a real HTTPS response.
 const natFrontSnis = <String>[
+  ...kAutoSniDomains,
   'cdnjs.cloudflare.com',
   'www.cloudflare.com',
   'speed.cloudflare.com',
@@ -411,9 +414,12 @@ Future<String?> nipFrontProbe(String ip, int port, String sni) async {
 
 Future<String?> nipFindFrontSni(String ip, int port, {bool Function()? cancelled}) async {
   await _nipEnsureFrontSniCursorLoaded();
+  // Previously verified SNI names are promoted into the fronting candidate
+  // pool, while the complete domain catalog remains available for discovery.
   final inventory = <String>{
     ...natFrontSnis,
     ...dnsxFullDomains(),
+    ...(_goldScan['sni'] ?? const <String>[]),
   }.toList()..sort();
   if (inventory.isEmpty) return null;
   final start = _nipFrontSniCursor % inventory.length;
