@@ -261,7 +261,12 @@ Future<void> autoScanRun(void Function(String) say,
     // Keep the discovered pool and CDN inventory independent, then rotate
     // through every configured CDN range with persisted per-range cursors.
     // Each run handles a memory-safe slice; later runs resume at the next IP.
-    final base = [for (final entry in _goldIps.values) entry.ip];
+    // The global-folder IP pool may contain internationally hosted addresses
+    // that are unusable during national-network isolation. Keep that pool in
+    // global mode only; national mode derives candidates from domestic DNS seeds.
+    final base = scanNationalMode
+        ? <String>[]
+        : [for (final entry in _goldIps.values) entry.ip];
     final prefs = await SharedPreferences.getInstance();
     final savedCursorJson = prefs.getString(_autoScanCdnCursorKey);
     final cdnCursors = <String, dynamic>{};
