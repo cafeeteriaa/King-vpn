@@ -91,3 +91,17 @@ PR #48 remains open and Draft; do not merge or modify `main`.
 - Static follow-up also confirmed that `_tunnelTrafficOk()` rejects proxy-only mode, requires positive Android tunnel evidence, and then performs an HTTP request through the core proxy to a mode-appropriate destination. Endpoint discovery records remain separate from healthy-route acceptance.
 - These checks are code/CI evidence only. They do not establish physical-device connectivity, end-to-end data-plane correctness, DNS leak freedom, IPv6 traffic, failover stability, competing-VPN takeover, or CPU/battery behavior.
 - Next actions: obtain device test evidence for Android 10 and Android 11+, competing VPN ownership, stop/revoke and network handover; capture DNS and IPv4/IPv6 traffic through the TUN; test real tunnel responses and failover; profile CPU, memory and battery. Do not mark these as TESTED until evidence is recorded.
+
+
+## 2026-11-24 — Front-SNI evidence and UDP scope clarification
+
+- Front-SNI probe in `lib/nip_scan.dart` now accepts every syntactically valid HTTP status (100..599) as evidence that the TLS/SNI request reached an HTTP peer. HTTP 4xx/5xx responses are not treated as proof of a usable VPN route; central core/TUN traffic acceptance remains authoritative.
+- Added source guard `test_front_sni_probe_accepts_all_valid_http_statuses`.
+- Follow-up review found that `natBuildFullUdpPortInventory` generates the complete UDP port-number inventory only. It does not send datagrams, consume UDP responses, or validate UDP reachability; no caller of this helper was found in the reviewed `lib/nat_ultra.dart` path. UDP protocol probing is therefore NOT_IMPLEMENTED / NOT_TESTED and must not be represented as UDP-tested.
+- Clarified the UDP inventory contract in `lib/nat_ip_scan.dart`, renamed the broad inventory test to avoid implying reachability, and added a source guard that protects the distinction.
+- Commits: front-SNI source fix `553ce7e6650fb70228243fa6cedfd6fb7966ea12`; front-SNI guard `f874ce6fb34b14dac0356af035f8912bf54a65ac`; UDP inventory clarification `931795d76f3f9def8773179c6720ead4a77994ca`; UDP scope guard `c883fe52a1f55e1c4678f1ccf9c251013a10585a`.
+- CI run 2577 (`45435575873`) for the earlier documentation checkpoint `65b2306b16200b51c9b8b12b017f8b7fa7ac28c8` completed successfully: source guard, Flutter unit tests, Dart analysis, ARM64 release APK, source package and artifact uploads passed. This result does not validate later code commits.
+- CI run 2578 (`45436621353`) was triggered for the front-SNI fix commit and reached ARM64 release APK build after source guards, Flutter unit tests and Dart analysis passed. At this checkpoint it remained in progress; its final result and artifacts are not yet confirmed. It does not include the subsequent UDP documentation/guard commits.
+- Current branch head at checkpoint: `c883fe52a1f55e1c4678f1ccf9c251013a10585a`. Exact-head CI has not yet appeared for this commit.
+- PR #48 remains open Draft, base `audit/unlimit-known-scanner-candidates-20261123`; do not merge or modify `main`.
+- Physical-device tests, end-to-end UDP, DNS leak, IPv4/IPv6 data-plane, competing VPN, failover and CPU/battery profiling remain outstanding.
