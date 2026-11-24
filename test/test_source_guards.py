@@ -3440,5 +3440,32 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Future<bool> _tunnelTrafficOk() async {', main)
         self.assertIn('if (proxyMode || !await _tunnelTrafficOk())', main)
 
+
+    def test_ip_auto_scanner_discovers_dual_stack_candidates_without_saved_servers(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Passive candidate discovery is independent')
+        end = source.index('// A national scan uses the national hot-source/template pipeline', start)
+        inventory = source[start:end]
+        self.assertIn('...kAutoSniDomains', inventory)
+        self.assertIn('...dnsxFullDomains()', inventory)
+        self.assertIn('...natFrontSnis', inventory)
+        self.assertIn('...natRelayHosts', inventory)
+        self.assertIn('_autoResolveDualStackTargets(', inventory)
+        self.assertIn('_getCfIps(', inventory)
+        self.assertIn('goldAddScans(', inventory)
+        self.assertIn("'ip_candidates': independentIpCandidates", inventory)
+        self.assertIn('_autoScanDomainCursorKey', inventory)
+        self.assertIn('_autoScanCdnCursorKey', inventory)
+
+        run_start = source.index('Future<bool> _ipAutoRunOnce(')
+        run_end = source.index('Future<void> ipAutoBackground()', run_start)
+        run = source[run_start:run_end]
+        self.assertNotIn('if (pool.isEmpty) {\n      return false;', run)
+        self.assertIn('if (knownEndpoints.isEmpty)', run)
+        self.assertIn('final endpointIps = (endpointTargets[port] ?? <String>{}).toList();', run)
+        self.assertIn('natScanIps(\n        endpointIps,', run)
+        self.assertNotIn('natScanIps(\n        independentIpCandidates,', run)
+        self.assertIn("_goldScan['ip_candidates']", source)
+
 if __name__ == '__main__':
     unittest.main()
