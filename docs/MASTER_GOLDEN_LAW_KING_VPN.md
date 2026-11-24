@@ -98,6 +98,13 @@ Test manual/automatic independence, absence of saved-config prerequisites in dis
 
 A CI pass proves only the checks that actually ran. It does not prove device-level behavior unless device tests ran.
 
+### Implementation checkpoint — 2026-11-24
+- Automatic SNI/IP candidate inventories are now generated from project-owned domain catalogs, DNS A/AAAA answers and CDN range inventory, and persisted under separate `sni_candidates` / `ip_candidates` result groups.
+- Candidate inventories are saved and displayed even when no saved VPN server exists. They are explicitly unverified and are not promoted into healthy IP/server pools.
+- Active SNI/TLS/TCP checks remain limited to exact configured KING VPN endpoint scope; passive discovery is not treated as permission for arbitrary third-party probing.
+- This implements independent candidate discovery, not independent active endpoint verification. The latter still requires a product-approved, explicitly authorized endpoint source.
+- CI run 2562 passed source guards, Flutter tests, Dart analysis and ARM64 release build. The subsequent candidate-inventory change is awaiting exact-HEAD CI; no device-level verification is claimed.
+
 ## Golden rule
 
 **Manual scanning uses the range entered by the user. Automatic discovery runs independently of saved configurations. Neither mode may confuse endpoint reachability with real VPN tunnel traffic. Only verified in-tunnel application traffic can establish a healthy KING VPN route.**
