@@ -359,7 +359,7 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
 // Front-SNI candidates include the expanded seed catalog. The scanner
 // separately adds only SNI names that returned a real HTTPS response.
 const natFrontSnis = <String>[
-  ...kAutoSniDomains,
+  // Preserve the original seven indices: saved variants refer to these slots.
   'cdnjs.cloudflare.com',
   'www.cloudflare.com',
   'speed.cloudflare.com',
@@ -367,6 +367,7 @@ const natFrontSnis = <String>[
   'www.aparat.com',
   'www.digikala.com',
   'divar.ir',
+  ...kAutoSniDomains,
 ];
 const int _nipFrontSniBatchSize = 8;
 const String _nipFrontSniCursorKey = 'nip_front_sni_cursor_v1';
