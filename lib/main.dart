@@ -5260,7 +5260,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // native VPN service so it can switch servers while this app is closed.
   String _backupsJson(Server cur) {
     final out = <Map<String, String>>[];
-    for (final x in _usable()) {
+    // Native failover receives only routes verified through real TUN traffic
+    // in this app session; ping-only candidates must never be advertised as backups.
+    for (final x in _usable().where((candidate) =>
+        _verifiedRouteKeys.contains(candidate.key))) {
       if (identical(x, cur) || out.length >= 8) continue;
       try {
         out.add({
@@ -8832,6 +8835,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     betterRun = 0;
     aiGen++; // FASTPATCH-AI: analyse+apply after ANY connection
     _aiLoop(aiGen);
+    // Mark the route only after _connectLoop/_verifyPendingConnect has
+    // accepted real application traffic through the Android TUN and core.
+    _verifiedRouteKeys.add(s.key);
     // the personal server has its own row, it never joins the healthy list
     if (!s.personal && !good.contains(s)) good.add(s);
     if (nationalMode && !s.personal) unawaited(_natAdd(s));
@@ -9761,6 +9767,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   // NATRESPATCH ---- folder of healthy servers (key 'natres2') ----
   final Map<String, _NatResItem> _resMap = {};
+  // Session-scoped proof set: legacy natres2 entries may predate the tunnel
+  // acceptance gate, so they are not trusted as native failover routes.
+  final Set<String> _verifiedRouteKeys = <String>{};
   Timer? _resT, _resSaveT;
   bool _resBusy = false, _resDirty = false, _resNext = false;
   DateTime? _resHold, _resLast, _resUi;
