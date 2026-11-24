@@ -150,34 +150,6 @@ Future<bool> _autoPortOk(String ip, int port) async {
   }
 }
 
-// Port reachability is limited to the exact host:port pairs present in
-// saved server configurations. Never sweep arbitrary ports across public CDN/IP ranges.
-Future<Map<int, List<String>>> _autoConfiguredPortTargets(
-    {bool Function()? cancelled}) async {
-  final byPort = <int, Set<String>>{};
-  for (final entry in _goldSrv.values) {
-    if (cancelled?.call() ?? false) break;
-    final server = Server.parse(entry.link);
-    if (server == null || server.port < 1 || server.port > 65535) continue;
-    final addresses = server.isIp
-        ? <String>[server.host]
-        : await nipResolveAll(server.host);
-    if (cancelled?.call() ?? false) break;
-    for (final address in addresses) {
-      final parsed = InternetAddress.tryParse(address);
-      if (parsed == null ||
-          (parsed.type != InternetAddressType.IPv4 &&
-              parsed.type != InternetAddressType.IPv6)) continue;
-      (byPort[server.port] ??= <String>{}).add(parsed.address);
-    }
-  }
-  return <int, List<String>>{
-    for (final entry in byPort.entries)
-      entry.key: (entry.value.toList()..sort()),
-  };
-}
-
-
 /// Collect only the exact IP addresses of saved VPN server endpoints.
 /// The full TCP port inventory is tested against these configured VPN hosts;
 /// discovered public DNS/CDN ranges are never converted into port-scan targets.
@@ -329,9 +301,6 @@ Future<void> autoScanRun(void Function(String) say,
     // Keep the full TCP port-number inventory (1..65535), independently
     // of the smaller set of ports already present in saved configs. Active
     // TCP checks use only exact IPs of saved VPN server endpoints.
-    final configuredPortTargets = await _autoConfiguredPortTargets(
-      cancelled: cancelled,
-    );
     final portTargetIps = await _autoConfiguredServerIps(
       cancelled: cancelled,
     );
