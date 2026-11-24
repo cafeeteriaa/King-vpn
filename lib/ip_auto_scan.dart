@@ -266,10 +266,10 @@ extension IpAutoExt on _HomePageState {
       for (final entry in _goldIps.values) entry.ip,
     };
     final domainSources = <String>{
-      ...kAutoSniDomains,
-      ...dnsxFullDomains(),
-      ...natFrontSnis,
-      ...natRelayHosts,
+      ...(runNationalMode ? kAutoNationalSniDomains : kAutoSniDomains),
+      if (!runNationalMode) ...dnsxFullDomains(),
+      if (!runNationalMode) ...natFrontSnis,
+      if (!runNationalMode) ...natRelayHosts,
     };
     final domainInventory = domainSources
         .map((domain) => domain.trim().toLowerCase())
@@ -308,21 +308,25 @@ extension IpAutoExt on _HomePageState {
         logError(e, stk);
       }
     }
-    await refreshCdnRanges();
+    if (!runNationalMode) await refreshCdnRanges();
     if (halted()) return false;
     final dnsCandidates = await _autoResolveDualStackTargets(
       domains: domainBatch,
       cancelled: halted,
     );
     if (halted()) return false;
-    final cdnRanges = _liveCdnRanges.isNotEmpty
-        ? _liveCdnRanges
-        : [..._cfRanges, ..._cfRangesV6];
+    // National mode must not seed its inventory with global CDN ranges.
+    final cdnRanges = runNationalMode
+        ? const <String>[]
+        : (_liveCdnRanges.isNotEmpty
+            ? _liveCdnRanges
+            : [..._cfRanges, ..._cfRangesV6]);
     final candidateRanges = <String>{
       ...baseCandidates,
       ...dnsCandidates,
       ...cdnRanges,
-      if (baseCandidates.isEmpty &&
+      if (!runNationalMode &&
+          baseCandidates.isEmpty &&
           dnsCandidates.isEmpty &&
           cdnRanges.isEmpty)
         ...kAutoFallbackIps,
