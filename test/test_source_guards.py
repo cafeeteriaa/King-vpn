@@ -2354,13 +2354,42 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (elapsed.elapsed >= budget) return;', source)
         self.assertNotIn('DateTime.now().add(budget)', source)
 
+    def test_nat_tcp_probe_uses_cancelable_connection_tasks_and_bounded_polling(self):
+        source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<int?> natTcpProbe(')
+        end = source.index('/// Clamp a user-supplied concurrency', start)
+        probe = source[start:end]
+        self.assertIn('Socket.startConnect(ip, port)', probe)
+        self.assertIn('Timer.periodic(const Duration(milliseconds: 100)', probe)
+        self.assertIn('Future.any<Object>', probe)
+        self.assertIn('cancelLateTask(startTask)', probe)
+        self.assertIn('current.cancel();', probe)
+        self.assertIn('connectTask.socket.timeout(remaining', probe)
+        self.assertIn('cancelWatcher?.cancel();', probe)
+
+    def test_nat_prescan_uses_monotonic_deadline_and_cancellable_tcp_probes(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> _natPrescan() async {')
+        end = source.index('Future<void> _natMemoryReuse()', start)
+        body = source[start:end]
+        self.assertIn('const scanBudget = Duration(seconds: 90);', body)
+        self.assertIn('const dnsBatch = 16;', body)
+        self.assertIn('final deadline = Stopwatch()..start();', body)
+        self.assertIn('Future.wait(', body)
+        self.assertIn('safeLookup(host, timeout: lookupTimeout)', body)
+        self.assertIn('deadline.elapsed < scanBudget', body)
+        self.assertIn('cancelled: () =>', body)
+        self.assertIn('deadline.elapsed >= scanBudget', body)
+
     def test_nat_ip_scan_discards_in_flight_results_after_cancellation(self):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> worker() async {')
         end = source.index('\n  }', start)
         worker = source[start:end]
-        probe = worker.index('final ms = await natTcpProbe(ip, port, timeout);')
-        stale_guard = worker.index('if (aborted() || elapsed.elapsed >= budget)', probe)
+        probe = worker.index('final ms = await natTcpProbe(')
+        call_end = worker.index(');', probe)
+        self.assertIn('cancelled: () =>', worker[probe:call_end])
+        stale_guard = worker.index('if (aborted() || elapsed.elapsed >= budget)', call_end)
         insert = worker.index('if (ms != null && hits.length < want)', stale_guard)
         self.assertLess(probe, stale_guard)
         self.assertLess(stale_guard, insert)

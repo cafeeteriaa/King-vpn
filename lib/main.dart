@@ -10686,26 +10686,56 @@ ListTile( // KINGEXTRAS row
       const checkCap = 400; // فیکس ۱۹: قبلاً ۳۰۰۰؛ بقیه در overflow می‌روند و دور بعد بررسی می‌شوند
       final overflow = cands.length > checkCap ? cands.sublist(checkCap) : <Server>[];
       if (cands.length > checkCap) cands.removeRange(checkCap, cands.length);
+      const scanBudget = Duration(seconds: 90);
+      const dnsTimeout = Duration(seconds: 3);
+      const dnsBatch = 16;
+      final deadline = Stopwatch()..start();
       final ipOf = <String, String>{};
-      for (final h in {for (final s in cands) if (s.host.isNotEmpty) s.host}) {
-        if (InternetAddress.tryParse(h) != null) {
-          ipOf[h] = h;
-          continue;
+      final hosts = {
+        for (final s in cands)
+          if (s.host.isNotEmpty) s.host,
+      }.toList(growable: false);
+      // Resolve in bounded parallel batches. DNS time counts against the same
+      // monotonic budget as TCP probes; unresolved candidates remain queued.
+      for (var i = 0;
+          i < hosts.length && !abort && deadline.elapsed < scanBudget;
+          i += dnsBatch) {
+        final chunk = <String>[];
+        for (var j = i; j < min(i + dnsBatch, hosts.length); j++) {
+          final host = hosts[j];
+          if (InternetAddress.tryParse(host) != null) {
+            ipOf[host] = host;
+          } else {
+            chunk.add(host);
+          }
         }
-        final r = await safeLookup(h);
-        if (r.isNotEmpty) ipOf[h] = r.first.address;
+        if (chunk.isEmpty) continue;
+        final remaining = scanBudget - deadline.elapsed;
+        if (remaining <= Duration.zero) break;
+        final lookupTimeout = remaining < dnsTimeout ? remaining : dnsTimeout;
+        final resolved = await Future.wait(
+          chunk.map((host) => safeLookup(host, timeout: lookupTimeout)),
+        );
+        for (var j = 0; j < chunk.length; j++) {
+          if (abort || deadline.elapsed >= scanBudget) break;
+          if (resolved[j].isNotEmpty) ipOf[chunk[j]] = resolved[j].first.address;
+        }
       }
       final targets = [for (final s in cands) if (ipOf.containsKey(s.host)) s];
       final ok = <Server>[];
       const batch = 20;
-      final deadline = DateTime.now().add(const Duration(seconds: 90));
       for (var i = 0;
-          i < targets.length && !abort && DateTime.now().isBefore(deadline);
+          i < targets.length && !abort && deadline.elapsed < scanBudget;
           i += batch) {
         final chunk = targets.sublist(i, min(i + batch, targets.length));
         _set('نت ملی: بررسی IP ${i + chunk.length}/${targets.length}...');
         final res = await Future.wait(chunk.map((s) => natTcpProbe(
-            ipOf[s.host]!, s.port, const Duration(milliseconds: 1500))));
+              ipOf[s.host]!,
+              s.port,
+              const Duration(milliseconds: 1500),
+              cancelled: () =>
+                  abort || deadline.elapsed >= scanBudget,
+            )));
         natIpScanned += chunk.length;
         // DEADSKIP: IPهایی که در همین نشست رد شده‌اند دوباره تست نمی‌شوند
         for (var k = 0; k < chunk.length; k++) {

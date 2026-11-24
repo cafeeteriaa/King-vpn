@@ -247,3 +247,12 @@ These are three distinct technical review passes by the same assistant, not thre
 - The result remains fail-closed: no active VPN transport means false; a missing VPN grant means false. The existing Dart acceptance policy still requires both transport and ownership evidence, and the separate core-proxy traffic check remains in place.
 - Added an isolated source-guard test for API 24–29 fallback, API 30+ owner UID, minimum SDK preservation and the existing competing-VPN rejection tests.
 - Validation is source-only until exact-head CI and physical Android tests complete. VPN revoke/takeover, API 24–29 device tests, end-to-end traffic and DNS leak checks remain NOT TESTED.
+
+
+## 2026-11-24 — Live TCP probe cancellation and monotonic pre-scan budget
+
+- Replaced `Socket.connect` in the shared NAT TCP probe with `Socket.startConnect` and `ConnectionTask.cancel()`. In-flight probes now stop within the cancellation watcher interval instead of waiting for the full socket timeout.
+- The main NAT scanner passes a combined cancellation predicate for user stop, elapsed budget and already-reached hit target, so sibling workers do not continue unnecessary connects. The existing post-probe stale-result guard remains.
+- The national pre-scan now resolves hostnames in bounded concurrent batches and includes DNS time in the same monotonic 90-second budget as TCP probing. Unresolved candidates remain queued for later rounds.
+- Added deterministic `IOOverrides` tests for cancellation during socket connection, cancellation while `startConnect` is still resolving, and timeout cancellation; source guards cover both scanner call paths.
+- This is source/CI validation only; physical Android network handover and real-world socket cancellation behavior remain untested on devices.

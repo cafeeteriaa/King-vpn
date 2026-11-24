@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -226,6 +227,82 @@ void main() {
     test('dash range expansion rejects non-positive output limits', () {
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: 0), isEmpty);
       expect(natExpandDash('10.0.0.1-10.0.0.3', maxCount: -1), isEmpty);
+    });
+
+    test('TCP probe cancels an in-flight connection when the caller stops', () async {
+      var stop = false;
+      var cancelCalls = 0;
+      final pending = Completer<Socket>();
+      final task = ConnectionTask.fromSocket<Socket>(pending.future, () {
+        cancelCalls++;
+        if (!pending.isCompleted) {
+          pending.completeError(const SocketException('cancelled'));
+        }
+      });
+      final probe = IOOverrides.runZoned(
+        () => natTcpProbe(
+          '192.0.2.1',
+          443,
+          const Duration(seconds: 5),
+          cancelled: () => stop,
+        ),
+        socketStartConnect: (host, port, {sourceAddress, sourcePort = 0}) async => task,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      stop = true;
+      expect(await probe.timeout(const Duration(milliseconds: 300)), isNull);
+      expect(cancelCalls, 1);
+    });
+
+    test('TCP probe stops waiting for startConnect when the caller cancels', () async {
+      var stop = false;
+      var cancelCalls = 0;
+      final startPending = Completer<ConnectionTask<Socket>>();
+      final pendingSocket = Completer<Socket>();
+      final lateTask = ConnectionTask.fromSocket<Socket>(pendingSocket.future, () {
+        cancelCalls++;
+        if (!pendingSocket.isCompleted) {
+          pendingSocket.completeError(const SocketException('cancelled before connect'));
+        }
+      });
+      lateTask.socket.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+      final probe = IOOverrides.runZoned(
+        () => natTcpProbe(
+          '192.0.2.1',
+          443,
+          const Duration(seconds: 5),
+          cancelled: () => stop,
+        ),
+        socketStartConnect: (host, port, {sourceAddress, sourcePort = 0}) =>
+            startPending.future,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      stop = true;
+      expect(await probe.timeout(const Duration(milliseconds: 300)), isNull);
+      startPending.complete(lateTask);
+      await Future<void>.delayed(Duration.zero);
+      expect(cancelCalls, 1);
+    });
+
+    test('TCP probe cancels its pending task when the connect timeout expires', () async {
+      var cancelCalls = 0;
+      final pending = Completer<Socket>();
+      final task = ConnectionTask.fromSocket<Socket>(pending.future, () {
+        cancelCalls++;
+        if (!pending.isCompleted) {
+          pending.completeError(const SocketException('timed out'));
+        }
+      });
+      final result = await IOOverrides.runZoned(
+        () => natTcpProbe(
+          '192.0.2.1',
+          443,
+          const Duration(milliseconds: 40),
+        ),
+        socketStartConnect: (host, port, {sourceAddress, sourcePort = 0}) async => task,
+      );
+      expect(result, isNull);
+      expect(cancelCalls, 1);
     });
 
     test('TCP probe reaches a local IPv4 listener', () async {
