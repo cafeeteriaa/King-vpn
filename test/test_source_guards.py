@@ -3262,5 +3262,28 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('_resAdd(', main[restore_start:restore_end])
 
 
+    def test_every_connection_acceptance_uses_the_central_real_tun_gate(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<bool> _onConnected(Server s) async {')
+        end = main.index('String _short', start)
+        acceptance = main[start:end]
+        self.assertIn('if (proxyMode || !await _tunnelTrafficOk())', acceptance)
+        self.assertIn('_verifiedRouteKeys.remove(s.key)', acceptance)
+        self.assertIn('return false;', acceptance)
+        self.assertIn('_verifiedRouteKeys.add(s.key);', acceptance)
+        self.assertIn('if (!s.personal) _resAdd(s);', acceptance)
+        # Every real call site must await the boolean gate result. This catches
+        # personal, social-only, manual-upgrade and restart bypass regressions.
+        call_lines = [
+            line.strip() for line in main.splitlines()
+            if '_onConnected(' in line
+            and not line.lstrip().startswith('//')
+            and not line.strip().startswith('Future<bool> _onConnected')
+        ]
+        self.assertTrue(call_lines)
+        for line in call_lines:
+            self.assertIn('await _onConnected(', line, line)
+
+
 if __name__ == '__main__':
     unittest.main()
