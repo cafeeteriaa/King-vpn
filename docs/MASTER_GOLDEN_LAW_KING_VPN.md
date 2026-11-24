@@ -20,7 +20,7 @@ Do not reject a candidate solely because of country, ISP, operator, provider, ow
 
 ## 3. Authorized active testing
 
-Passive discovery and public metadata collection may be broad. Active connection or port probes must be limited to endpoints the user controls, has permission to test, or has explicitly configured for use. In particular, do not sweep the full TCP/UDP port space across unrelated public CDN or third-party address ranges. A configured server's declared host and port may be checked as an endpoint candidate; that check alone does not make it a usable VPN route.
+Passive discovery and public metadata collection may be broad. Active connection or port probes must be limited to endpoints the user controls, has permission to test, or has explicitly configured for use. In particular, do not sweep the full TCP/UDP port space or adjacent /24s across unrelated public CDN/ISP or third-party address ranges. The IP auto-scanner resolves exact A/AAAA addresses from configured VPN server hosts, then probes only each record's declared port; stale queued endpoints outside the current configured scope remain deferred. A configured server's declared host and port may be checked as an endpoint candidate; that check alone does not make it a usable VPN route.
 
 ## 4. One acceptance contract
 
