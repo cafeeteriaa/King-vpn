@@ -146,7 +146,7 @@ Future<List<String>> _ipAutoBlocks(Iterable<Server> knownServers, {required bool
       final batch = servers.skip(offset).take(8);
       final resolved = await Future.wait(batch.map((server) async {
         if (server.isIp) return <String>[server.host];
-        return nipResolveAll(server.host);
+        return await nipResolveAll(server.host);
       }));
       for (var index = 0; index < resolved.length; index++) {
         for (final address in resolved[index]) {
