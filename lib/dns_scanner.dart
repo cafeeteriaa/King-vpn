@@ -43,9 +43,23 @@ const List<String> kDnsxNationalProbeDomains = <String>[
   'www.digikala.com',
 ];
 
-/// دامنه‌های اسکن خودکار از کل موجودی دامنه‌های پروژه استفاده می‌کند؛
-/// حالت ملی/جهانی فقط برچسب شبکه و اولویت ارزیابی را تعیین می‌کند، نه فهرست ثابت کوچک.
-List<String> dnsxAutoDomains() => dnsxFullDomains();
+/// اسکن خودکار DNS از نمونه‌های واقعی و پخش‌شده در کل موجودی پروژه استفاده می‌کند.
+/// اسکن دستی همچنان می‌تواند dnsxFullDomains() را برای پوشش کامل دریافت کند.
+/// هدف DNS auto سنجش کیفیت resolver است، نه تولید پرس‌وجوی بی‌فایده برای تمام دامنه‌ها.
+List<String> dnsxAutoDomains({int sampleSize = 64}) {
+  final inventory = dnsxFullDomains();
+  if (inventory.length <= sampleSize || sampleSize <= 0) return inventory;
+  // نمونه‌گیری یکنواخت از ابتدا تا انتهای موجودی مرتب‌شده؛
+  // با این روش فقط دامنه‌های ابتدای فهرست انتخاب نمی‌شوند.
+  final selected = <String>[];
+  final seen = <String>{};
+  for (var i = 0; i < sampleSize; i++) {
+    final index = ((i * (inventory.length - 1)) / (sampleSize - 1)).round();
+    final domain = inventory[index];
+    if (seen.add(domain)) selected.add(domain);
+  }
+  return selected;
+}
 
 /// تبدیل فهرست‌های پروژه (مثل `domain:divar.ir`) به نام میزبان ساده
 List<String> _dnsxHostsFrom(Iterable<String> src) {
