@@ -174,6 +174,33 @@ Future<Map<int, List<String>>> _autoConfiguredPortTargets(
   };
 }
 
+
+/// Collect only the exact IP addresses of saved VPN server endpoints.
+/// The full TCP port inventory is tested against these configured VPN hosts;
+/// discovered public DNS/CDN ranges are never converted into port-scan targets.
+Future<List<String>> _autoConfiguredServerIps(
+    {bool Function()? cancelled}) async {
+  final addresses = <String>{};
+  for (final entry in _goldSrv.values) {
+    if (cancelled?.call() ?? false) break;
+    final server = Server.parse(entry.link);
+    if (server == null) continue;
+    final resolved = server.isIp
+        ? <String>[server.host]
+        : await nipResolveAll(server.host);
+    if (cancelled?.call() ?? false) break;
+    for (final value in resolved) {
+      final parsed = InternetAddress.tryParse(value);
+      if (parsed != null &&
+          (parsed.type == InternetAddressType.IPv4 ||
+              parsed.type == InternetAddressType.IPv6)) {
+        addresses.add(parsed.address);
+      }
+    }
+  }
+  return addresses.toList()..sort();
+}
+
 /// Resolve the project's SNI names to both IPv4 and IPv6 endpoints in small cancellable batches.
 /// The hostname remains the TLS SNI; only the TCP destination is the AAAA address.
 Future<List<String>> _autoResolveDualStackTargets({required List<String> domains, bool Function()? cancelled}) async {
@@ -294,18 +321,16 @@ Future<void> autoScanRun(void Function(String) say,
         domainInventory[(domainStart + i) % domainInventory.length],
     ];
     final stagedDomainCursor = domainBatch.isEmpty ? savedDomainCursor : domainBatch.last;
-    // Port candidates come only from exact endpoints in saved server configs.
-    // The scanner must not sweep 65,535 ports over unrelated public/CDN hosts.
+    // Keep the full TCP port-number inventory (1..65535), independently
+    // of the smaller set of ports already present in saved configs. Active
+    // TCP checks use only exact IPs of saved VPN server endpoints.
     final configuredPortTargets = await _autoConfiguredPortTargets(
       cancelled: cancelled,
     );
-    final priorityPorts = <int>{
-      ...kAutoPorts.where(configuredPortTargets.containsKey),
-    };
-    final portInventory = <int>{
-      ...priorityPorts,
-      ...configuredPortTargets.keys,
-    }.toList()..sort();
+    final portTargetIps = await _autoConfiguredServerIps(
+      cancelled: cancelled,
+    );
+    final portInventory = natBuildFullPortInventory(kAutoPorts);
     final savedPortCursor = prefs.getInt(_autoScanPortCursorKey) ?? 0;
     final previousPortIndex = portInventory.indexOf(savedPortCursor);
     final portStart = previousPortIndex < 0
@@ -392,8 +417,9 @@ Future<void> autoScanRun(void Function(String) say,
         if (cancelled()) break portLoop;
       }
       var ok = false;
-      final portIps = configuredPortTargets[p] ?? const <String>[];
-      // Probe only the configured server's resolved addresses on its declared port.
+      final portIps = portTargetIps;
+      // Probe each TCP port only on exact saved VPN server IPs, never on
+      // arbitrary discovered CDN/DNS/public address ranges.
       for (var offset = 0; offset < portIps.length; offset += 8) {
         if (cancelled()) break portLoop;
         final batch = portIps.skip(offset).take(8);
@@ -406,7 +432,7 @@ Future<void> autoScanRun(void Function(String) say,
         }
       }
       if (ok) portHits.add('$p');
-      say('پورت $m/${portBatch.length} • پاسخ TCP (کاندیدا): ${portHits.length}');
+      say('پورت TCP $m/${portBatch.length} از موجودی کامل ۱..۶۵۵۳۵ • کاندیدا: ${portHits.length}');
     }
 
     if (cancelled()) {
@@ -464,7 +490,7 @@ Future<void> autoScanRun(void Function(String) say,
     if (stagedPortCursor != null) {
       await prefs.setInt(_autoScanPortCursorKey, stagedPortCursor);
     }
-    say('تمام شد: ${sniHits.length} نام SNI و ${portHits.length} پورتِ مربوط به endpointهای تنظیم‌شده ذخیره شد؛ این نتایج کاندیدا هستند، نه تأیید نهایی تونل.');
+    say('تمام شد: ${sniHits.length} نام SNI و ${portHits.length} پورت TCP از موجودی کامل بررسی‌شده روی میزبان‌های VPN تنظیم‌شده ذخیره شد؛ این نتایج کاندیدا هستند، نه تأیید نهایی تونل.');
   } catch (e, stk) {
     logError(e, stk);
     say('خطا در اسکن خودکار');
@@ -495,7 +521,7 @@ Future<void> autoScanSheet(BuildContext context,
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('کشف SNI و بررسی پورت‌های تعریف‌شده در کانفیگ‌های ذخیره‌شده؛ تأیید نهایی مسیر فقط با عبور واقعی ترافیک از تونل انجام می‌شود.'),
+              const Text('کشف منابع SNI و بررسی چرخشی تمام پورت‌های TCP (۱ تا ۶۵۵۳۵) فقط روی IP میزبان‌های VPN ذخیره‌شده؛ موجودی UDP نیز جداگانه نگهداری می‌شود و تست آن باید پروتکل‌محور باشد. تأیید نهایی مسیر فقط با عبور واقعی ترافیک از تونل انجام می‌شود.'),
               const SizedBox(height: 8),
               Text(status),
               const SizedBox(height: 8),
