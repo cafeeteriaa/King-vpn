@@ -144,3 +144,35 @@ PR #48 remains open and Draft; do not merge or modify `main`.
 3. Perform three independent reviews of scanner scope/cursor semantics, native TUN lifecycle/ownership, and tunnel traffic acceptance.
 4. Execute physical-device test matrix and record each outcome separately as IMPLEMENTED / CI-TESTED / DEVICE-TESTED / DEPLOYED.
 5. Design generic UDP probing only with explicit, user-authorized target scopes and protocol-aware response semantics; never label port inventory as reachability.
+
+
+## 2026-11-24 — Exact HEAD CI 2581 and three-pass static review
+
+### Exact-head CI evidence
+- Exact HEAD: `df33e0a0ce8d96cfe3d4111dc6e82c4182ba8cbf` on `fix/dns-auto-full-domain-inventory-20261124`.
+- GitHub Actions run 2581 (`45438946875`) completed with conclusion SUCCESS on this exact commit.
+- Source-repair guard, Flutter dependency resolution, unit tests, Dart analysis, optimized ARM64 Release APK build, APK size reporting, source packaging, all three artifact uploads, and Post-Job cleanup completed successfully. Diagnostic-only steps were skipped as expected.
+- ARM64 APK artifact: `king-vpn-arm64-release-2581`, 49,061,202 bytes; GitHub artifact archive digest `sha256:7c3363c67187837aaa5f390ec990b10ec620d4195c041fd706487d6bafc463bd`.
+- Full source artifact: `king-vpn-full-source-2581`, 1,515,238 bytes; GitHub artifact archive digest `sha256:47533df239bc0d20d07b20efc7ad28111bde59c69759755650ab9084e82fffe8`.
+- Symbols artifact: `king-vpn-symbols-2581`, 1,331,925 bytes; GitHub artifact archive digest `sha256:86b5ab33dbda5342776661e781b5f63b93db5d4358f481eba2881d2306c87060`.
+- Artifacts expire 2026-12-08 (APK/source) and 2026-12-24 (symbols). Workflow: https://github.com/cafeeteriaa/King-vpn/actions/runs/45438946875
+- CI validates this source tree, automated tests, analysis and packaging. It is not evidence of device-level connectivity, DNS leak freedom, IPv6 data-plane correctness or deployed status.
+
+### Three focused static review passes on exact HEAD
+These are three distinct technical review passes by the same assistant, not three independent external reviewers:
+1. **Scanner scope and cursor semantics:** reviewed `autoScanRun`, `_ipAutoRunOnce`, `natScanIps`, and the TCP/UDP inventory helpers. Confirmed bounded TCP workers/timeouts, socket cleanup, cancellation checks, independent passive candidate persistence, full 1..65535 TCP port-number inventory, and active endpoint tests restricted to exact configured VPN endpoint pairs (with explicit IP Clean ranges handled separately). Candidate inventory remains distinct from endpoint reachability and verified tunnel status. No static blocker found in the inspected paths.
+2. **Android native TUN lifecycle and ownership:** reviewed `KingVpnService` start/stop/revoke/destroy paths, attempt sequence fencing, `coreLock` / `tunLock`, native-stop verification, deferred TUN close, plus MainActivity's VPN transport and owner-UID probes. No static blocker found in the inspected paths; native timing, API-level behavior and races still require physical-device tests.
+3. **Central tunnel traffic acceptance:** reviewed `tunUp()`, `androidVpnTunnelEvidence`, `_tunnelTrafficOk()`, `_siteOpens()`, and all `_onConnected` acceptance call sites/source guards. Proxy-only mode is rejected; Android tunnel evidence is required before HTTP acceptance; proxy requests are forced to fail rather than silently falling back to DIRECT when the core inbound is unavailable; HTTP success is separately required before a route is marked verified. No static blocker found in the inspected paths.
+
+### Review and release status
+- PR #48 remains open, Draft, and unmerged; base remains `audit/unlimit-known-scanner-candidates-20261123`. `main` remains untouched.
+- GitHub currently reports no submitted PR reviews or inline review threads. Do not describe the three passes above as independent reviewer approvals.
+- No code was changed during these review passes; this checkpoint records evidence only.
+- Device tests remain NOT TESTED: Android 10 and 11+, VPN consent/revoke, competing VPN, TUN start/stop races, real end-to-end traffic, DNS capture/leaks, IPv4/IPv6 data-plane, failover, network handover, generic UDP protocol probes, and CPU/memory/battery profiling.
+- Generic UDP port reachability remains NOT_IMPLEMENTED / NOT_TESTED. UDP port inventory is not UDP probing.
+
+### Next gate
+1. Keep PR #48 Draft and do not merge or modify `main`.
+2. Run exact-HEAD CI after this documentation-only checkpoint commit and retain the resulting artifacts/digests.
+3. Obtain real Android device and network-matrix evidence before marking any device-level behavior TESTED or DEPLOYED.
+4. Preserve existing scanner behavior and user-selected ranges; any active probe beyond exact configured endpoints or explicit user-authorized ranges requires an explicit target scope.
