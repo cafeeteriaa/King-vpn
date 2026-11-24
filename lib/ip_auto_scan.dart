@@ -262,8 +262,11 @@ extension IpAutoExt on _HomePageState {
     await goldLoad();
     if (halted()) return false;
     final discoveryPrefs = await SharedPreferences.getInstance();
+    // Do not reuse the mixed global-folder IP inventory in national mode:
+    // it can be dominated by globally hosted/CDN addresses unavailable there.
     final baseCandidates = <String>{
-      for (final entry in _goldIps.values) entry.ip,
+      if (!runNationalMode)
+        for (final entry in _goldIps.values) entry.ip,
     };
     final domainSources = <String>{
       ...(runNationalMode ? kAutoNationalSniDomains : kAutoSniDomains),
