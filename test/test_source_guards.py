@@ -2977,32 +2977,37 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(step.index('if (r.length >= batch.length)'),
                         step.index('_cleanRangeCursorKey,'))
 
-    def test_nip_hunt_resumes_every_dual_stack_range_and_scans_all_open_hits(self):
+    def test_nip_hunt_rotates_configured_dual_stack_endpoints_and_validates_all_hits(self):
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
-        self.assertIn("const String _nipHuntCursorKey = 'nip_hunt_range_cursors_v1';", nip)
-        self.assertIn("const templateCursorKey = 'nip_hunt_template_cursor_v1';", nip)
-        self.assertIn('final templateInventory = uniqueTemplates.values.toList()', nip)
-        self.assertIn('const templateBatchSize = 40;', nip)
-        self.assertIn('await templatePrefs.setString(templateCursorKey, templates.last.link);', nip)
-        self.assertNotIn('templates.length >= 40', nip)
-        self.assertIn("required String namespace,", nip)
-        self.assertIn("'__nip_${namespace}_range_cursor'", nip)
-        self.assertIn("cursors['$namespace:$range']", nip)
-        self.assertIn('natExpandIpRangeCursor(', nip)
-        self.assertIn("namespace: 'cdn'", nip)
-        self.assertIn("namespace: 'asn'", nip)
-        self.assertIn('batchSize: 1000', nip)
-        self.assertIn('want: ips.length,', nip)
-        self.assertIn('onProgress: (done, total) => completed = done,', nip)
-        self.assertIn('if (completed >= ips.length)', nip)
-        self.assertIn('await onComplete?.call();', nip)
-        self.assertIn('for (var offset = 0; offset < hits.length; offset += 8)', nip)
-        self.assertNotIn('hits.take(8)', nip)
-        self.assertIn('...dnsxFullDomains()', nip)
-        self.assertIn('_nipFrontSniCursor', nip)
-        self.assertIn('Future<String?> nipFindFrontSni(String ip, int port, {bool Function()? cancelled})', nip)
-        self.assertIn('cancelled?.call()', nip)
-        self.assertNotIn('prefixes.take(80)', nip)
+        hunt_start = nip.index('Future<bool> _natIpHunt() async {')
+        hunt_end = nip.index('Future<bool> _natTryScan(', hunt_start)
+        hunt = nip[hunt_start:hunt_end]
+        self.assertIn('final sourceServers = <Server>[...good, ...pending];', hunt)
+        self.assertIn('for (final entry in _resMap.values)', hunt)
+        self.assertIn("const templateCursorKey = 'nip_hunt_template_cursor_v1';", hunt)
+        self.assertIn('const templateBatchSize = 40;', hunt)
+        self.assertIn('saveTemplateCursor(template)', hunt)
+        self.assertIn('await templatePrefs.setString(templateCursorKey, completed.link);', hunt)
+        self.assertIn('Only the exact host:port endpoints present in saved server configurations', hunt)
+        self.assertIn('await nipResolveAll(template.host)', hunt)
+        self.assertIn('address.type == InternetAddressType.IPv4', hunt)
+        self.assertIn('address.type == InternetAddressType.IPv6', hunt)
+        self.assertNotIn('..._cfRangesV6', hunt)
+
+        scan_start = nip.index('Future<bool> _natTryScan(')
+        scan = nip[scan_start:]
+        self.assertIn('want: ips.length,', scan)
+        self.assertIn('for (var offset = 0; offset < hits.length; offset += 8)', scan)
+        self.assertIn('_connectLoop(candidates, trust: false)', scan)
+        self.assertIn('final winner = current;', scan)
+        self.assertIn('if (winner != null) _natAdd(winner);', scan)
+
+        # Discovery supports both families, but ASN/CDN metadata does not
+        # authorize active probes against unrelated third-party address ranges.
+        self.assertIn("if (address?.type == InternetAddressType.IPv6)", nip)
+        self.assertIn('natExpandIpv6Cidr(cidr, maxPerBlock: maxPerBlock)', nip)
+        self.assertIn("if (ipv6 is List) ...ipv6.map((value) => '$value').where((value) => value.contains('/'))", nip)
+        self.assertIn("if (prefix.contains('/')) out.add(prefix);", nip)
 
     def test_nip_hunt_and_ripe_asn_scanning_accept_both_address_families(self):
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
@@ -3258,7 +3263,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         backup_end = main.index('List<Server> _usable()', backup_start)
         backups = main[backup_start:backup_end]
         self.assertIn('_verifiedRouteKeys.contains(candidate.key)', backups)
-        disconnect_start = main.index('current = null;', main.index('Future<void> _disconnect'))
+        disconnect_start = main.index('current = null;', main.index('Future<void> disconnect('))
         disconnect_end = main.index('good.clear();', disconnect_start)
         disconnect = main[disconnect_start:disconnect_end]
         self.assertNotIn('_resAdd(', disconnect)
