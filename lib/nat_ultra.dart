@@ -1978,6 +1978,7 @@ List<int>? _ipTriple(String host) {
 /// Wider prefixes must come from an explicitly supplied range or an authorized
 /// range source, not be inferred from a single endpoint.
 List<String> natAutoBlocks(List<Server> known) {
+  // A neighboring prefix must not be inferred from a single endpoint.
   final out = <String>{};
   for (final entry in natIpMem) {
     final parsed = InternetAddress.tryParse('${entry['ip']}');
