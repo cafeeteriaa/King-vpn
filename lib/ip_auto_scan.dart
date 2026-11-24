@@ -421,15 +421,18 @@ extension IpAutoExt on _HomePageState {
       final firstOk = await _ipAutoCoreOk(s, url);
       if (halted()) return false;
       if (!firstOk) {
-        ipAutoPendingCore.remove(c);
-        say('تست $checked • جواب‌داده: $found');
+        // RETRY-FAILED-ENDPOINT: a transient core-delay failure is not a
+        // permanent rejection. Keep the endpoint in the durable pending queue
+        // so a later scan can retry it with refreshed network/core conditions.
+        say('تست $checked • جواب‌داده: $found • ناموفق موقت؛ برای نوبت بعد حفظ شد');
         continue;
       }
       final secondOk = await _ipAutoCoreOk(s, url);
       if (halted()) return false;
       if (!secondOk) {
-        ipAutoPendingCore.remove(c);
-        say('تست $checked • جواب‌داده: $found');
+        // The confirmation pass can fail transiently too; preserve the
+        // candidate for a later retry instead of dropping it from persistence.
+        say('تست $checked • جواب‌داده: $found • تأیید دوم ناموفق؛ برای نوبت بعد حفظ شد');
         continue;
       }
       ipAutoPendingCore.remove(c);
