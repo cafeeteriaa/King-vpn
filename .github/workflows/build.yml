@@ -155,6 +155,35 @@ jobs:
                'build_app/android/app/build/*' 'build_app/android/build/*' \
                'build_app/android/local.properties' 'build_app/.flutter-plugins*'
 
+      - name: Create build provenance manifest and checksums
+        if: success()
+        run: |
+          set -euo pipefail
+          mkdir -p build-evidence
+          {
+            flutter --version
+            dart --version
+            java -version
+          } > build-evidence/toolchain.txt 2>&1
+          python3 tools/write_build_manifest.py \
+            --root . \
+            --apk build_app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
+            --source-archive "$RUNNER_TEMP/king-vpn-full-source-${GITHUB_RUN_NUMBER}.zip" \
+            --dependency-lock build_app/pubspec.lock \
+            --symbols-dir build_app/build/symbols \
+            --toolchain-report build-evidence/toolchain.txt \
+            --output-dir build-evidence
+          cat build-evidence/build-manifest.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload build provenance
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: king-vpn-build-evidence-${{ github.run_number }}
+          path: build-evidence/
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Upload complete project ZIP
         if: success()
         uses: actions/upload-artifact@v4
