@@ -3085,9 +3085,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('const int _autoScanCdnBatchSize = 8;', auto)
         self.assertIn("const String _autoScanPortCursorKey = 'auto_scan_port_cursor_v1';", auto)
         self.assertIn('const int _autoScanPortBatchSize = 24;', auto)
+        self.assertIn('sniTargets[d] = resolved;', auto)
+        self.assertIn('_autoSniOk(ip, 443, d)', auto)
+        self.assertIn('_autoAlpnOk(ip, 443, d, alpn)', auto)
         self.assertIn('final portInventory = natBuildFullPortInventory(kAutoPorts);', auto)
         self.assertNotIn('natAutoPorts([...good, ...pending, ...fetchedAll])', auto)
-        self.assertIn('_autoConfiguredPortTargets(', auto)
+        self.assertNotIn('_autoConfiguredPortTargets(', auto)
         self.assertIn('final portIps = portTargetIps;', auto)
         self.assertIn('_autoConfiguredServerIps(', auto)
         self.assertNotIn('for (var port = 1; port <= 65535; port++)', auto)
@@ -3641,6 +3644,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('address.type == InternetAddressType.IPv6', resolver)
         self.assertIn('out.add(address.address)', resolver)
         self.assertNotIn('_privateIp(address)', resolver)
+
+
+    def test_auto_sni_and_alpn_probes_do_not_require_saved_vpn_configs(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        start = source.index('// Probe each domain only at its own DNS-resolved A/AAAA addresses.')
+        end = source.index('// پورت: خروجی خود شماره‌ی پورت است.', start)
+        sni = source[start:end]
+        self.assertIn('_autoResolveDualStackTargets(', sni)
+        self.assertIn('_autoSniOk(ip, 443, d)', sni)
+        self.assertNotIn('_goldSrv', sni)
+        alpn_start = source.index('// ALPN is checked against the DNS-resolved addresses')
+        alpn_end = source.index('if (cancelled()) {', alpn_start)
+        alpn = source[alpn_start:alpn_end]
+        self.assertIn('_autoAlpnOk(ip, 443, d, alpn)', alpn)
+        self.assertNotIn('configuredSniTargets', source)
 
 if __name__ == '__main__':
     unittest.main()
