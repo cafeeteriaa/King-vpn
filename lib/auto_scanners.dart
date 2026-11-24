@@ -378,11 +378,11 @@ Future<void> autoScanRun(void Function(String) say,
     }.toList()..sort();
     say('موجودی مستقل کشف شد: ${domainInventory.length} دامنه و ${discoveredIpCandidates.length} IP کاندیدا (بدون تأیید اتصال)');
 
-    // Active SNI/TLS probes are limited to exact IP:port endpoints in saved
-    // server configurations. Public CDN/DNS inventories remain discovery data;
-    // they are never treated as permission to probe unrelated third-party hosts.
+    // Probe each domain only at its own DNS-resolved A/AAAA addresses.
+    // This no longer depends on saved VPN configurations; DNS observations
+    // are used for ordinary HTTPS/SNI reachability on TCP/443, not port sweeps.
     final sniHits = <String>[];
-    final configuredSniTargets = configuredPortTargets;
+    final sniTargets = <String, List<String>>{};
     var n = 0;
     sniLoop:
     for (final d in domainBatch) {
@@ -391,21 +391,22 @@ Future<void> autoScanRun(void Function(String) say,
         await natManualYield(shouldAbort: () => cancelled());
         if (cancelled()) break sniLoop;
       }
+      final resolved = await _autoResolveDualStackTargets(
+        domains: [d],
+        cancelled: cancelled,
+      );
+      sniTargets[d] = resolved;
       var ok = false;
-      for (final target in configuredSniTargets.entries) {
-        final targetIps = target.value;
-        for (var offset = 0; offset < targetIps.length; offset += 8) {
-          if (cancelled()) break sniLoop;
-          final batch = targetIps.skip(offset).take(8);
-          final checks = await Future.wait(
-            batch.map((ip) => _autoSniOk(ip, target.key, d)),
-          );
-          if (checks.any((latency) => latency != null)) {
-            ok = true;
-            break;
-          }
+      for (var offset = 0; offset < resolved.length; offset += 4) {
+        if (cancelled()) break sniLoop;
+        final batch = resolved.skip(offset).take(4);
+        final checks = await Future.wait(
+          batch.map((ip) => _autoSniOk(ip, 443, d)),
+        );
+        if (checks.any((latency) => latency != null)) {
+          ok = true;
+          break;
         }
-        if (ok) break;
       }
       if (ok) sniHits.add(d);
       say('SNI $n/${domainBatch.length} • پاسخ HTTPS (کاندیدا): ${sniHits.length}');
@@ -450,21 +451,19 @@ Future<void> autoScanRun(void Function(String) say,
       return;
     }
 
-    // TLS/ALPN uses the same configured endpoint scope as SNI.
+    // ALPN is checked against the DNS-resolved addresses for the same SNI.
+    // No saved server record is required for this independent TLS inventory.
     final tlsHits = <String>[];
-    final tlsSni = sniHits.isNotEmpty
-        ? sniHits.first
-        : (domainBatch.isNotEmpty ? domainBatch.first : 'www.google.com');
     for (final alpn in const ['h2', 'http/1.1']) {
       if (cancelled()) break;
       var ok = false;
-      for (final target in configuredSniTargets.entries) {
-        final targetIps = target.value;
-        for (var offset = 0; offset < targetIps.length; offset += 8) {
+      for (final d in domainBatch) {
+        final targetIps = sniTargets[d] ?? const <String>[];
+        for (var offset = 0; offset < targetIps.length; offset += 4) {
           if (cancelled()) break;
-          final batch = targetIps.skip(offset).take(8);
+          final batch = targetIps.skip(offset).take(4);
           final selected = await Future.wait(
-            batch.map((ip) => _autoAlpnOk(ip, target.key, tlsSni, alpn)),
+            batch.map((ip) => _autoAlpnOk(ip, 443, d, alpn)),
           );
           for (final protocol in selected.whereType<String>()) {
             if (protocol.isNotEmpty && !tlsHits.contains(protocol)) {
