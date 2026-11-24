@@ -238,3 +238,12 @@ These are three distinct technical review passes by the same assistant, not thre
 - Run 2583 validates its exact source commit `6b1859b...`, not the later documentation-only HEAD. Run 2584 (`45441562865`) was triggered for `079db875...` and was in progress at checkpoint time. After this documentation edit, require a new exact-HEAD CI run for the new HEAD as well.
 - No executable code or scanner scope changed in this checkpoint. Keep PR #48 Draft and do not merge to `main`.
 - Physical-device runtime checks, production signing, and production deployment remain NOT TESTED / NOT DONE.
+
+
+## 2026-11-24 — Android 7–10 VPN ownership fallback
+
+- Static audit found that the default plugin path could never satisfy the ownership gate on API 24–29: `NetworkCapabilities.ownerUid` is only available from API 30, while `minSdk` is 24.
+- Repaired `kingVpnTransportOwnedByApp` on API 24–29 by requiring both an active `TRANSPORT_VPN` network and `VpnService.prepare(this) == null`. Android grants VPN preparation to one application at a time and revokes the previous grant when another VPN app is selected. Android 11+ continues to use `ownerUid` directly.
+- The result remains fail-closed: no active VPN transport means false; a missing VPN grant means false. The existing Dart acceptance policy still requires both transport and ownership evidence, and the separate core-proxy traffic check remains in place.
+- Added an isolated source-guard test for API 24–29 fallback, API 30+ owner UID, minimum SDK preservation and the existing competing-VPN rejection tests.
+- Validation is source-only until exact-head CI and physical Android tests complete. VPN revoke/takeover, API 24–29 device tests, end-to-end traffic and DNS leak checks remain NOT TESTED.

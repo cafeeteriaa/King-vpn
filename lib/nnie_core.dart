@@ -17,10 +17,10 @@ enum NatNetworkClass {
 enum NatAttemptStage { quick, alternate, expensive }
 
 /// Validates Android VPN evidence for the selected service path.
-/// The default Flutter plugin path has no KingVpnService descriptor, so it
-/// requires Android's active VPN owner UID (API 30+). The optional custom
-/// service path requires its live TUN plus an active VPN transport; when the
-/// owner UID is available it must also match this app.
+/// The default Flutter plugin path has no KingVpnService descriptor. It uses
+/// Android's active VPN owner UID on API 30+, or the active VPN transport plus
+/// this package's current VpnService grant on API 24–29. The optional custom
+/// service path requires its live TUN plus an active VPN transport.
 bool? androidVpnTunnelEvidence({
   required bool? serviceTunnelActive,
   required bool? activeVpnTransport,

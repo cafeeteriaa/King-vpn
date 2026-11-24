@@ -3336,7 +3336,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('TRANSPORT_VPN', transport_body)
         self.assertIn('result.success(', transport_body)
         self.assertIn('Build.VERSION.SDK_INT < Build.VERSION_CODES.R', owner_body)
-        self.assertIn('result.success(null)', owner_body)
+        self.assertIn('android.net.VpnService.prepare(this) == null', owner_body)
+        self.assertIn('result.success(isVpnTransport && vpnPermissionGranted)', owner_body)
         self.assertIn('capabilities?.ownerUid == applicationInfo.uid', owner_body)
         self.assertIn('result.success(isVpnTransport && ownerMatches)', owner_body)
 
