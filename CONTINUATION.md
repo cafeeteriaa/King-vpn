@@ -33,3 +33,22 @@
 1. Run exact-head CI for this checkpoint; require source guards, all Flutter tests, `flutter analyze`, and ARM64 release build to pass.
 2. If successful, inspect the exact-head artifact and checksum.
 3. Then perform physical-device tests for competing VPN takeover, stop/revoke, Android 10 compatibility, Android 11+ owner UID, network handover, and DNS routing through TUN/core.
+
+
+## Chat-submitted scanner review checkpoint — 2026-11-24
+
+- User supplied a standalone Dart snippet named `KingUltimateScanner` (`part of 'main.dart';`) for review.
+- The snippet has **not** been integrated into `lib/main.dart` or committed as executable scanner code. It is an intake/review checkpoint only, so the submitted implementation must not be mistaken for an existing project module.
+- Static review recorded the following issues to avoid repeating the same audit:
+  - Part-file structure/import placement must be reconciled with the owning Dart library.
+  - `X509Certificate.subjectAltNames` is not part of the standard Dart `X509Certificate` API.
+  - Start/stop lifecycle can race because `isRunning` is cleared before active work has fully exited.
+  - UDP probe does not consume the received datagram and does not reliably close its socket on all paths.
+  - DNS response parsing validates only a weak length/count condition and does not validate transaction ID, flags, question, or answer records.
+  - IPv6 targets are not consistently supported by the IPv4-bound UDP socket.
+  - SNI extraction does not explicitly supply the intended TLS hostname.
+  - CDN request construction does not correctly bracket IPv6 literals and does not preserve the parsed endpoint port.
+  - HTTP client/socket cleanup is incomplete on exceptional paths.
+  - Manual text controllers are not disposed; counters omit some probe categories.
+- No scanner algorithm, inventory, range, port list, or user-selected scan behavior has been changed by this checkpoint.
+- Next step when explicitly requested: reconcile the snippet with the actual project symbols and Dart/Flutter APIs, fix compile/runtime defects, add focused tests, then commit the reviewed integration to this PR branch. Keep PR #48 open and Draft; do not merge or modify `main`.
