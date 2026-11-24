@@ -395,14 +395,34 @@ void _nipPersistFrontSniCursor(int value) {
   });
 }
 
-/// روی IP:port یک TLS با SNI داده‌شده کامل شود؟ برمی‌گرداند همان SNI یا null.
+/// Accept an SNI only when an HTTPS request receives a real successful response.
 Future<String?> nipFrontProbe(String ip, int port, String sni) async {
   Socket? raw;
   SecureSocket? sec;
   try {
-    raw = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 2000));
-    sec = await SecureSocket.secure(raw, host: sni, onBadCertificate: (_) => true)
-        .timeout(const Duration(seconds: 3));
+    raw = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 2500));
+    sec = await SecureSocket.secure(
+      raw,
+      host: sni,
+      supportedProtocols: const ['http/1.1'],
+      onBadCertificate: (_) => true,
+    ).timeout(const Duration(seconds: 4));
+    sec.write(
+      'GET / HTTP/1.1\r\n'
+      'Host: $sni\r\n'
+      'User-Agent: KING-VPN-Front-SNI-Probe/1.0\r\n'
+      'Accept: */*\r\n'
+      'Connection: close\r\n\r\n',
+    );
+    await sec.flush().timeout(const Duration(seconds: 3));
+    final statusLine = await utf8.decoder
+        .bind(sec)
+        .transform(const LineSplitter())
+        .first
+        .timeout(const Duration(seconds: 4));
+    final match = RegExp(r'^HTTP/1\.[01]\s+(\d{3})').firstMatch(statusLine);
+    final status = int.tryParse(match?.group(1) ?? '');
+    if (status == null || status < 200 || status >= 400) return null;
     return sni;
   } catch (_) {
     return null;
