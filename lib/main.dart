@@ -7800,7 +7800,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (d != null &&
           tunnelMode &&
           keepUp &&
-          nationalMode &&
           (row != 'r:ai' || s.ai == true)) {
         // NATVERIFY: سرور قبل از «سالم» شدن باید ترافیک واقعی تونل بدهد. اگر حالت فعلی نداد،
         // نردبان حالت‌ها و جایگزین‌ها همین‌جا (قبل از اعلام سلامت) روی همین سرور امتحان می‌شود.
@@ -8893,8 +8892,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // server that almost works is not discarded after one failed traffic check.
   Future<bool> _natLadder(Server s,
       {Future<bool> Function()? socialGate, int? maxTries}) async {
-    // NATONLYLADDER: نردبان حالت‌ها فقط در نت ملی اجرا می‌شود
-    if (!nationalMode) return false;
+    // DPI ladder is used in both global and national modes. Every candidate
+    // is accepted only after the caller's real tunnel-traffic gate succeeds.
     if (abort || !wantVpn) return false; // FIXLADDERABORT: قبل از هر کار سنگین
     final first = natVarFor(s);
     // CACHEGUARD: نسخه‌ی کش‌شده همین الان fail شد (فقط بعد از fail به
