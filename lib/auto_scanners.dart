@@ -168,13 +168,17 @@ Future<bool> _autoPortOk(String ip, int port) async {
 /// Collect only the exact IP addresses of saved VPN server endpoints.
 /// The full TCP port inventory is tested against these configured VPN hosts;
 /// discovered public DNS/CDN ranges are never converted into port-scan targets.
-Future<List<String>> _autoConfiguredServerIps(
-    {bool Function()? cancelled}) async {
+Future<List<String>> _autoConfiguredServerIps({
+  Iterable<Server>? servers,
+  bool Function()? cancelled,
+}) async {
   final addresses = <String>{};
-  for (final entry in _goldSrv.values) {
+  final configured = servers ??
+      _goldSrv.values
+          .map((entry) => Server.parse(entry.link))
+          .whereType<Server>();
+  for (final server in configured) {
     if (cancelled?.call() ?? false) break;
-    final server = Server.parse(entry.link);
-    if (server == null) continue;
     final resolved = server.isIp
         ? <String>[server.host]
         : await nipResolveAll(server.host);
@@ -298,9 +302,20 @@ Future<void> autoScanRun(void Function(String) say,
       if (!scanNationalMode) ...natFrontSnis,
       if (!scanNationalMode) ...natRelayHosts,
     };
-    for (final entry in _goldSrv.values) {
-      final server = Server.parse(entry.link);
-      if (server != null && !server.isIp) domainSources.add(server.host);
+    final nationalEndpointServers = <Server>{
+      ...natTemplateSeeds,
+      ...good,
+      ...pending,
+    };
+    if (scanNationalMode) {
+      for (final server in nationalEndpointServers) {
+        if (!server.isIp) domainSources.add(server.host);
+      }
+    } else {
+      for (final entry in _goldSrv.values) {
+        final server = Server.parse(entry.link);
+        if (server != null && !server.isIp) domainSources.add(server.host);
+      }
     }
     final domainInventory = domainSources
         .map((domain) => domain.trim().toLowerCase())
@@ -322,6 +337,7 @@ Future<void> autoScanRun(void Function(String) say,
     // of the smaller set of ports already present in saved configs. Active
     // TCP checks use only exact IPs of saved VPN server endpoints.
     final portTargetIps = await _autoConfiguredServerIps(
+      servers: scanNationalMode ? nationalEndpointServers : null,
       cancelled: cancelled,
     );
     final portInventory = natBuildFullPortInventory(kAutoPorts);
