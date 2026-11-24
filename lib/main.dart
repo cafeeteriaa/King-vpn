@@ -9220,8 +9220,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
       }
       coreUpCount++; // CORE-SYSTEMIC: the core started for this config
-      // PERSPING: سرور شخصی: اگر پینگ از داخل تونل جواب داد، ترافیک هم OK حساب می‌شود (تست google/youtube جدا رد می‌کرد)
-      var personalPingPassed = false;
+      // A ping is diagnostic only; every candidate still needs real HTTP traffic through the core.
       // مشکل ۸: در proxyMode هیچ تأیید outbound دیگری نیست؛ trusted/pinned هم سنجیده شوند
       if ((!trust && !pin) || proxyMode) {
         int? p;
@@ -9271,7 +9270,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _nnieClearAttempt(s);
           return false;
         }
-        personalPingPassed = p != null && s.personal;
         dbg(p == null
             ? 'اتصال: ${s.name} هسته CONNECTED ولی پینگ از تونل رد نشد '
                 '(${DateTime.now().difference(pingT0).inSeconds}s) • خطا: '
@@ -9371,7 +9369,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // TUNCHK: همه‌ی مسیرها: اگر ترافیک واقعی از تونل رد شد، سرور رد می‌شود
       var tunChecked = false;
       if (!abort && wantVpn) {
-        final tunOk = personalPingPassed || await _tunnelTrafficOk();
+        final tunOk = await _tunnelTrafficOk();
         if (abort) return false;
         if (!tunOk) {
           // CACHEINVALID-TUN: variantی که از natVarNormal اومد، ترافیک تونل رد نکرد.
