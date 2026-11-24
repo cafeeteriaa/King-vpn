@@ -132,7 +132,31 @@ class _NatDnsProbeCancelled implements Exception {
 class NatDnsWireProbe {
   static List<int> buildQuery(String domain, int id, {int recordType = 1}) {
     if (recordType != 1 && recordType != 28) throw ArgumentError.value(recordType, 'recordType');
-    final labels = domain.toLowerCase().replaceAll(RegExp(r'\.
+    final labels = domain.toLowerCase().replaceAll(RegExp(r'\.$'), '').split('.');
+    final out = <int>[
+      (id >> 8) & 255, id & 255,
+      0x01, 0x00, // RD=1
+      0x00, 0x01, // QDCOUNT=1
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+    var wireNameLength = 1;
+    final encodedLabels = <List<int>>[];
+    for (final label in labels) {
+      final bytes = ascii.encode(label);
+      if (bytes.isEmpty || bytes.length > 63) {
+        throw FormatException('Invalid DNS label');
+      }
+      wireNameLength += bytes.length + 1;
+      if (wireNameLength > 255) {
+        throw const FormatException('DNS name exceeds 255 wire octets');
+      }
+      encodedLabels.add(bytes);
+    }
+    for (final bytes in encodedLabels) {
+      out..add(bytes.length)..addAll(bytes);
+    }
+    out.addAll(<int>[0, (recordType >> 8) & 255, recordType & 255, 0, 1]); // root, QTYPE, IN
+    return out;
   }
 
   static bool publicV4(List<int> b, int p) {
@@ -347,8 +371,10 @@ class NatDnsWireProbe {
       final bindAddress = target.type == InternetAddressType.IPv6
           ? InternetAddress.anyIPv6 : InternetAddress.anyIPv4;
       final bindFuture = RawDatagramSocket.bind(bindAddress, 0);
+      late final RawDatagramSocket activeSocket;
       try {
-        socket = await _waitForProbe(bindFuture, timeout, cancellationSignal?.future);
+        activeSocket = await _waitForProbe(bindFuture, timeout, cancellationSignal?.future);
+        socket = activeSocket;
       } catch (_) {
         // The underlying bind cannot be cancelled by Future.timeout/Future.any.
         // Close a socket that the OS may deliver after timeout or cancellation.
@@ -360,9 +386,9 @@ class NatDnsWireProbe {
       }
       final sw = Stopwatch()..start();
       final completer = Completer<List<String>>();
-      subscription = socket.listen((event) {
+      subscription = activeSocket.listen((event) {
         if (event != RawSocketEvent.read || completer.isCompleted) return;
-        final dg = socket!.receive();
+        final dg = activeSocket.receive();
         if (dg == null) return;
         // RFC 5452: a matching ID alone is insufficient; verify source tuple.
         if (dg.port != 53 || dg.address.address != target.address) return;
@@ -372,7 +398,7 @@ class NatDnsWireProbe {
           // Ignore unrelated/malformed datagrams until timeout.
         }
       });
-      if (socket.send(packet, target, 53) <= 0) {
+      if (activeSocket.send(packet, target, 53) <= 0) {
         throw const SocketException('DNS send failed');
       }
       final ips = await _waitForProbe(completer.future, timeout, cancellationSignal?.future);

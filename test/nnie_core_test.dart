@@ -297,6 +297,15 @@ void main() {
           throwsA(isA<FormatException>()));
     });
 
+    test('rejects compression pointers into the DNS header', () {
+      final bytes = _response(id: 0x1234, rdata: [8, 8, 8, 8]);
+      final answerOwner = bytes.length - 16;
+      bytes[answerOwner] = 0xc0;
+      bytes[answerOwner + 1] = 0;
+      expect(() => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
+          throwsA(isA<FormatException>()));
+    });
+
     test('rejects a truncated packet instead of crashing', () {
       expect(() => NatDnsWireProbe.parseResponse([0, 1, 2], 1, 'google.com'),
           throwsA(isA<FormatException>()));

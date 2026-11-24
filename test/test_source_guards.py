@@ -2523,7 +2523,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_dns_wire_probe_cancellation_closes_pending_udp_work(self):
         core = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
         start = core.index('static Future<NatDnsProbeResult> probe(')
-        end = core.index('\\n  }\\n}', start)
+        end = core.index('\n  }\n}', start)
         probe = core[start:end]
         self.assertIn('bool Function()? cancelled', probe)
         self.assertIn('cancellationRequested()', probe)
