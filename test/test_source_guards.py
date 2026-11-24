@@ -3264,6 +3264,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('synchronized (service.tunLock)', body)
         self.assertIn('currentTun.getFileDescriptor().valid()', body)
 
+    def test_android_network_owner_probe_declares_access_network_state_permission(self):
+        prepare = (ROOT / 'prepare_android.py').read_text(encoding='utf-8')
+        self.assertIn("'android.permission.ACCESS_NETWORK_STATE'", prepare)
+
     def test_android_vpn_transport_status_checks_owner_uid(self):
         native = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
         start = native.index('"kingVpnTransportActive" -> {')
