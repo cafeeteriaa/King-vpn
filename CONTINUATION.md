@@ -1,9 +1,10 @@
 # King VPN — continuation checkpoint
 
 ## Source of truth
+- Latest checkpoint recorded below supersedes older status summaries; historical checkpoints are retained for traceability.
 - Repository: `cafeeteriaa/King-vpn`
 - Active VPN feature branch: `fix/dns-auto-full-domain-inventory-20261124`
-- Historical checkpoint below: `647eea8feac0b34d3b66f24cfd399ed14f55e11e`. For the latest authoritative state, see the final section `2026-11-24 — Exact HEAD CI 2580 and engineering continuation`.
+- Historical checkpoint below: `647eea8feac0b34d3b66f24cfd399ed14f55e11e`. For the latest authoritative state, see the newest dated CI checkpoint at the end of this file.
 - PR #48 remains open Draft against `audit/unlimit-known-scanner-candidates-20261123`; no merge to `main`.
 - No active GitHub Actions at repair preparation. No workflow was cancelled.
 
@@ -213,3 +214,27 @@ These are three distinct technical review passes by the same assistant, not thre
 - Downloaded the exact GitHub artifact ZIP `king-vpn-arm64-release-2582` (artifact ID `14943536256`) and independently recomputed its SHA-256: `eb068b57723052eeb1c7c1a9232bdc57066bb9af43f73dcc9c018f5c743e6ac8`, matching GitHub's artifact digest.
 - Inspected the ZIP: it contains exactly `app-arm64-v8a-release.apk`, uncompressed size 122,951,294 bytes. Independently computed APK SHA-256: `d49b6380c973850eec803e971e52017cc1157606e6897c952fef94d9da4ca9cb`.
 - This verifies archive integrity and the expected APK payload, not Android installation, signature trust, or runtime VPN behavior. The workflow log states the APK was signed with the generated Flutter debug key, not a production key.
+
+
+## 2026-11-24 — Exact HEAD CI 2583 and APK artifact verification
+
+### Exact-head CI
+- Source commit tested: `6b1859b8144285e158d661d6d74b70c781bd9430` on `fix/dns-auto-full-domain-inventory-20261124`.
+- GitHub Actions run 2583 (`45441336928`) completed SUCCESS at 2026-11-24 16:53:01 UTC: https://github.com/cafeeteriaa/King-vpn/actions/runs/45441336928
+- Source Guard, Flutter dependency resolution, unit tests, Dart analysis, optimized ARM64 release build, APK size report, symbols/source/APK artifact uploads, and all post-job cleanup passed. Diagnostic-only repair steps were skipped as expected.
+- ARM64 artifact `king-vpn-arm64-release-2583` (artifact ID `14943194110`): 49,061,200 bytes; GitHub archive digest `sha256:35b3bfca454c24f86342f303d156cd1c776e0d83a665a511be18cfe489a5e87e`.
+- Full source artifact `king-vpn-full-source-2583` (artifact ID `14943707072`): 1,517,566 bytes; archive digest `sha256:7d436c6d87c2185f6277470991885dca1116777c45e16d1a5ce72cb959c50b14`.
+- Symbols artifact `king-vpn-symbols-2583` (artifact ID `14943841865`): 1,331,925 bytes; archive digest `sha256:9a03d6f4dc171b08977328d5bcfb3837d2ac29649c40608221e5b82f0ff39dc2`.
+- Downloaded the ARM64 ZIP and independently verified its SHA-256 against GitHub's digest. The ZIP contains exactly `app-arm64-v8a-release.apk` (122,951,294 bytes); independently computed APK SHA-256: `69f4b809d1b63c94959bb6447417e812dd243f981dce1adecb312969530fdf51`.
+- Workflow log reports APK size 123.0 MB. The compressed artifact archive size and uncompressed APK size are different measures.
+
+### Build observations
+- Non-blocking notices remain: Flutter Material API and `withOpacity` deprecations, Java source/target 8 obsolescence, deprecated plugin APIs, Node.js 20 action deprecation notices, and generated ELF DWARF debug information. No build flags or runtime dependencies were changed in response.
+- The APK is generated with the workflow's Flutter debug key; it is not production-signed. Archive integrity and CI success do not prove installation, live tunnel operation, or leak freedom.
+
+### Repository state and exact-head follow-up
+- At the time of this checkpoint, PR #48 is open, Draft, and unmerged; base remains `audit/unlimit-known-scanner-candidates-20261123`.
+- Feature branch HEAD after the prior documentation checkpoint was `079db875fb51c7cd900f39fef7b0c28df09aa580`; `main` remains `c43d325f9803d4f6306415e511f6790deff9d87e` and was not modified.
+- Run 2583 validates its exact source commit `6b1859b...`, not the later documentation-only HEAD. Run 2584 (`45441562865`) was triggered for `079db875...` and was in progress at checkpoint time. After this documentation edit, require a new exact-HEAD CI run for the new HEAD as well.
+- No executable code or scanner scope changed in this checkpoint. Keep PR #48 Draft and do not merge to `main`.
+- Physical-device runtime checks, production signing, and production deployment remain NOT TESTED / NOT DONE.
