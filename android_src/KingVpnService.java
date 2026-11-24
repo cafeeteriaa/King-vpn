@@ -929,9 +929,10 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
             c.setUseCaches(false);
             c.setInstanceFollowRedirects(false);
             c.setRequestProperty("User-Agent", "Mozilla/5.0");
-            // Any real HTTP answer (2xx, 3xx, even 403) proves the request went through the tunnel.
+            // Any valid HTTP status proves the request reached an HTTP peer through the proxy.
+            // A 5xx is an application/server failure, not evidence that the VPN tunnel is down.
             int code = c.getResponseCode();
-            return (code >= 200 && code < 500) ? ProbeResult.OK : ProbeResult.SOFT_FAIL;
+            return (code >= 100 && code <= 599) ? ProbeResult.OK : ProbeResult.SOFT_FAIL;
         } catch (ConnectException | NoRouteToHostException e) {
             // جدید: the core is running (checked before probing), so a refused connection to the
             // local port means only that this config has no HTTP inbound. That must not switch
