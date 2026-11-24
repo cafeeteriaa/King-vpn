@@ -4186,12 +4186,12 @@ Future<bool?> tunUp() async {
       if (hasTunnel) return true;
       if (attempt < 4) await Future.delayed(const Duration(milliseconds: 800));
     }
-    // kVpnLastStateTop آینه‌ی lastState است (tunUp سراسری است و به فیلد کلاس دسترسی ندارد)
-    if (kVpnLastStateTop == 'CONNECTED') return true;
+    // CONNECTED is only a core state event, not proof that Android created a TUN.
+    // If no VPN interface can be observed, report unverified instead of passing.
     return false;
   } catch (_swE) {
     _swl('tunUp#1', _swE);
-    return kVpnLastStateTop == 'CONNECTED' ? true : null;
+    return null;
   }
 }
 
