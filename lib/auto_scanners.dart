@@ -163,10 +163,24 @@ Future<void> autoScanRun(void Function(String) say,
     final stagedCdnCursors = Map<String, dynamic>.of(cdnCursors);
     // Use the entire project domain inventory, not only the small seed list.
     // A persisted last-domain cursor rotates through it across completed runs.
-    final domainInventory = <String>{
+    // SNI inventory is federated from independent project sources: dedicated
+    // SNI seeds, the complete DNS/domain catalog, front-SNI candidates, relay
+    // hosts, and hostnames already present in the saved working server pool.
+    // A failed handshake never removes a name; the persisted cursor rotates
+    // through the complete merged inventory on subsequent completed runs.
+    final domainSources = <String>{
       ...kAutoSniDomains,
       ...dnsxFullDomains(),
-    }.where((domain) => domain.trim().isNotEmpty).toList()..sort();
+      ...natFrontSnis,
+      ...natRelayHosts,
+      for (final entry in _goldSrv.values)
+        if (Server.parse(entry.link) case final server?)
+          if (!server.isIp) server.host,
+    };
+    final domainInventory = domainSources
+        .map((domain) => domain.trim().toLowerCase())
+        .where((domain) => domain.isNotEmpty && domain.contains('.'))
+        .toList()..sort();
     final savedDomainCursor = prefs.getString(_autoScanDomainCursorKey);
     final previousDomainIndex = savedDomainCursor == null
         ? -1
