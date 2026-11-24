@@ -104,7 +104,9 @@ Future<int?> _autoSniOk(String ip, int port, String sni) async {
         .timeout(const Duration(seconds: 4));
     final match = RegExp(r'^HTTP/1\.[01]\s+(\d{3})').firstMatch(statusLine);
     final status = int.tryParse(match?.group(1) ?? '');
-    if (status == null || status < 200 || status >= 400) return null;
+    // Any syntactically valid HTTP status proves the TLS/SNI request reached
+    // an HTTP-speaking peer. 4xx/5xx are application outcomes, not SNI failure.
+    if (status == null || status < 100 || status > 599) return null;
     return sw.elapsedMilliseconds;
   } catch (_) {
     return null;
