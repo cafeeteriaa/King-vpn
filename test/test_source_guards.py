@@ -5,6 +5,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KingVpnSourceGuardTests(unittest.TestCase):
+    def test_ip_auto_keeps_transient_core_failures_retryable(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        start = source.index('final firstOk = await _ipAutoCoreOk(s, url);')
+        end = source.index('ipAutoHits.insert(0, c);', start)
+        verification = source[start:end]
+        self.assertIn('RETRY-FAILED-ENDPOINT', verification)
+        self.assertIn('تأیید دوم ناموفق؛ برای نوبت بعد حفظ شد', verification)
+        self.assertNotIn('ipAutoPendingCore.remove(c)', verification)
+
     def test_auto_scan_sheet_forwards_live_vpn_guards(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> autoScanSheet(')
