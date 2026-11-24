@@ -7797,12 +7797,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // SPEEDKEEP: فقط نت ملی همان اولین سرور را نگه می‌دارد. سایر مسیرها باید
       // بعد از جمع شدن ۱۵ سرور، تست سرعت ۵ برتر را اجرا کنند؛ قبلاً همین‌جا
       // اولین سرور سالم وصل می‌شد و تست سرعت هیچ‌وقت اجرا نمی‌شد.
-      if (d != null &&
-          tunnelMode &&
+      if (tunnelMode &&
           keepUp &&
           (row != 'r:ai' || s.ai == true)) {
-        // NATVERIFY: سرور قبل از «سالم» شدن باید ترافیک واقعی تونل بدهد. اگر حالت فعلی نداد،
-        // نردبان حالت‌ها و جایگزین‌ها همین‌جا (قبل از اعلام سلامت) روی همین سرور امتحان می‌شود.
+        // Golden rule: do not require a preliminary ping to pass. DPI-blocked
+        // candidates often fail that probe before a working variant is tried.
+        // A server is healthy only after a real request crosses the tunnel.
+        final trafficCheck = Stopwatch()..start();
         var natOk = await _tunnelTrafficOk();
         final natOverBudget = natVerifyClock.elapsed > kNatVerifyBudget;
         if (!natOk && natOverBudget && wantVpn) {
@@ -7814,6 +7815,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           natOk = true; // جستجوی بی‌اتصال: رفتار قبلی (فقط پینگ) حفظ شود
         }
         if (natOk) {
+          // If the preliminary core ping failed but the end-to-end tunnel
+          // request succeeded, retain a measured verification latency.
+          d ??= max(1, trafficCheck.elapsedMilliseconds);
           _record(s, d);
           realTested++;
           upServer = s;
