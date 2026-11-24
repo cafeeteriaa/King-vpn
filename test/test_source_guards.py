@@ -2849,7 +2849,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = source.index('Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(', start)
         inventory = source[start:end]
         self.assertIn('return await nipResolveAll(server.host);', inventory)
-        self.assertIn("'\u0024{parsed.address}/128'", inventory)
+        self.assertIn("'\u0024ip/128'", inventory)
         self.assertIn("'\u0024ip/32'", inventory)
         self.assertNotIn('natRanges', inventory)
         self.assertNotIn('natAutoBlocks', inventory)
