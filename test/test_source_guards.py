@@ -3248,6 +3248,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         connected_end = main.index('Future<bool> _tunnelTrafficOk()', connected_start)
         connected = main[connected_start:connected_end]
         self.assertIn('if (!s.personal) _resAdd(s);', connected)
+        self.assertIn('_verifiedRouteKeys.add(s.key);', connected)
+        backup_start = main.index('String _backupsJson(Server cur) {')
+        backup_end = main.index('List<Server> _usable()', backup_start)
+        backups = main[backup_start:backup_end]
+        self.assertIn('_verifiedRouteKeys.contains(candidate.key)', backups)
         disconnect_start = main.index('current = null;', main.index('Future<void> _disconnect'))
         disconnect_end = main.index('good.clear();', disconnect_start)
         disconnect = main[disconnect_start:disconnect_end]
