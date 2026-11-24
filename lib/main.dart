@@ -8820,12 +8820,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // reconnect paths, must prove real HTTP traffic through the Android TUN.
     // Never let a caller's ping, proxy-only check, or social-site result bypass it.
     if (proxyMode || !await _tunnelTrafficOk()) {
+      final failedElapsedMs = _nnieFinishAttempt(s) ?? 0;
+      unawaited(NationalNetworkIntelligence.record(
+        endpointKey: NationalNetworkIntelligence.keyOfServer(s),
+        success: false,
+        elapsedMs: failedElapsedMs,
+        stableForFiveMinutes: false,
+      ));
       _verifiedRouteKeys.remove(s.key);
-      if (identical(current, s)) {
-        current = null;
-        connected = false;
-      }
-      dbg('ROUTE-REJECTED: undefined did not pass the central real-TUN traffic gate');
+      current = null;
+      connected = false;
+      dbg('ROUTE-REJECTED: ${s.name} did not pass the central real-TUN traffic gate');
       await _stopV2();
       return false;
     }
