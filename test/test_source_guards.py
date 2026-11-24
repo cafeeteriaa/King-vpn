@@ -3193,15 +3193,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (configuredPorts.contains(port))', body)
         self.assertIn('...configuredRanges', body)
 
-    def test_auto_port_scan_never_sweeps_arbitrary_public_ip_ranges(self):
+    def test_full_tcp_port_inventory_runs_only_on_saved_vpn_server_ips(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         self.assertIn('_autoConfiguredPortTargets(', source)
-        self.assertIn('configuredPortTargets[p]', source)
+        self.assertIn('_autoConfiguredServerIps(', source)
+        self.assertIn('final portInventory = natBuildFullPortInventory(kAutoPorts);', source)
+        self.assertIn('final portIps = portTargetIps;', source)
         self.assertIn('Server.parse(entry.link)', source)
         self.assertNotIn('for (var port = 1; port <= 65535; port++)', source)
         port_loop = source[source.index('portLoop:'):source.index('if (cancelled()) {', source.index('portLoop:'))]
         self.assertIn('portIps.skip(offset)', port_loop)
         self.assertNotIn('ips.skip(offset)', port_loop)
+        self.assertNotIn('final portIps = ips;', port_loop)
 
     def test_sni_discovery_is_not_mislabeled_as_tunnel_verification(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
