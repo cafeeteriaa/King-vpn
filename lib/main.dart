@@ -4081,18 +4081,31 @@ String lastPingErr = '';
 // SPEEDSWITCHPATCH: does a real site answer through the tunnel?
 // (only the headers are read, then the connection is closed)
 Future<bool> _siteOpens(String url, {bool viaCore = true}) async {
-  // Default viaCore=true: verify through the core proxy (real tunnel path)
+  // Default viaCore=true: verify through the core proxy (real tunnel path).
   final useProxy = await _useCoreProxy(viaCore);
   final c = HttpClient()
     ..findProxy = ((_) =>
         useProxy ? 'PROXY 127.0.0.1:$httpProxyPort' : 'DIRECT')
     ..connectionTimeout = const Duration(seconds: 6);
+  final clock = Stopwatch()..start();
   try {
     final req =
         await c.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 7));
     final res = await req.close().timeout(const Duration(seconds: 7));
-    // STATUSFIX: DPI ایرانی 403 برمی‌گرداند؛ هر status>0 را قبول نکن
-    return res.statusCode >= 200 && res.statusCode < 400;
+    // Read a bounded amount of the response body. HTTP 204 is also valid:
+    // its successful status headers are the complete application response.
+    var responseBytes = 0;
+    await for (final chunk in res.timeout(const Duration(seconds: 7))) {
+      responseBytes += chunk.length;
+      if (responseBytes >= 65536) break;
+    }
+    // STATUSFIX: DPI ایرانی 403 برمی‌گرداند؛ هر status>0 را قبول نکن.
+    final accepted = res.statusCode >= 200 && res.statusCode < 400;
+    if (accepted) {
+      dbg('TUNNEL-EVIDENCE status=${res.statusCode} bodyBytes=$responseBytes '
+          'elapsedMs=${clock.elapsedMilliseconds} viaCore=$useProxy url=$url');
+    }
+    return accepted;
   } catch (_swE) { _swl('_siteOpens#1', _swE);
     return false;
   } finally {
