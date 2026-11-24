@@ -2829,14 +2829,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('_ipAutoCoreMax', source)
         self.assertNotIn('_ipAutoMaxHits', source)
         self.assertNotIn('ipAutoHits.removeRange(', source)
-        self.assertIn('final ports = natAutoPorts(pool);', source)
-        self.assertIn('final hasRangeInventory = runNationalMode', source)
+        self.assertIn('final ports = endpointTargets.keys.toList()..sort();', source)
+        self.assertIn('if (pool.isEmpty)', source)
         self.assertIn('if (tpl.isEmpty)', source)
-        self.assertIn('Keep its candidates', source)
-        self.assertIn('want: addrs.length,', source)
+        self.assertIn('want: endpointIps.length,', source)
         self.assertIn('const Duration _ipAutoCoreBudget = Duration(minutes: 4);', source)
-        self.assertIn('while (ipAutoPendingCore.isNotEmpty &&', source)
-        self.assertIn('ipAutoPendingCore.removeAt(0);', source)
+        self.assertIn('while (activeQueue.isNotEmpty &&', source)
+        self.assertIn('activeQueue.removeAt(0)', source)
+        self.assertIn('ipAutoPendingCore.remove(c);', source)
         self.assertIn('final savedPending = p.getString(pendingKey) ??', source)
         self.assertIn('..addAll(savedPending.split', source)
         self.assertIn('await p.setString(pendingKey, pending.join', source)
@@ -3025,7 +3025,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("final expanded = _natExpandAnyCursorWide(", nat)
         self.assertIn("return _natExpandAnyCursorWide(item, '0', maxPerBlock).$1;", nat)
         ip_auto = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        self.assertIn("blocks.add('${parsed.address}/128');", ip_auto)
+        self.assertIn("return parsed?.type == InternetAddressType.IPv6 ? '$ip/128' : '$ip/32';", ip_auto)
         core = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
         self.assertIn('int recordType = 1', core)
         self.assertIn('recordType == 28', core)
@@ -3100,10 +3100,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_liveCdnRanges = merged.toList()..sort();', extras)
 
         ip_auto = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        self.assertIn('return blocks.toList()..sort();', ip_auto)
+        inventory_start = ip_auto.index('Future<List<String>> _ipAutoBlocks(')
+        inventory_end = ip_auto.index('Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(', inventory_start)
+        inventory = ip_auto[inventory_start:inventory_end]
+        self.assertIn('}).toList()..sort();', inventory)
+        self.assertIn('return blocks;', inventory)
 
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
-        self.assertIn('}.toList()..sort();\n    final ips = _getCfIps(', auto)
+        self.assertIn('}.toList()..sort();\\n    final ips = _getCfIps(', auto)
+
 
     def test_persisted_dual_stack_scan_indexes_are_normalized_before_list_access(self):
         nat_scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
