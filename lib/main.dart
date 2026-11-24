@@ -9053,6 +9053,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // connectivity as verified VPN tunnel traffic.
     if (proxyMode) return false;
     await Future.delayed(const Duration(seconds: 2));
+    // Require the Android VPN interface/state before accepting any successful
+    // HTTP response; otherwise the phone's ordinary Internet could false-pass.
+    if (await tunUp() != true) {
+      dbg('TUNNEL-EVIDENCE rejected: Android VPN/TUN is not confirmed active');
+      return false;
+    }
     // TUNFIX: viaCore true = the core's outbound, which is what must be measured. The app is NOT
     // excluded from its own tunnel (FIX #49, KingVpnService.java), so DIRECT requests also pass
     // the TUN; viaCore is therefore the explicit choice for the server check.
@@ -9069,6 +9075,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // This also covers proxy mode: the core's local proxy is the measured data path.
   Future<bool> _stableTunnelTrafficOk(Server server) async {
     if (!connected || !identical(current, server)) return false;
+    if (await tunUp() != true) return false;
     final urls = nationalMode ? _tunnelTestUrlsNational : _tunnelTestUrlsGlobal;
     if (urls.length < 2) return false;
     final results = await Future.wait(urls.map((url) =>
