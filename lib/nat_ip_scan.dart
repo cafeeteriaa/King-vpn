@@ -82,7 +82,10 @@ List<int> natPortsForActiveScan({
   return out;
 }
 
-/// UDP and TCP have independent inventories/cursors at their consumers.
+/// Builds UDP port numbers only. This is inventory generation, not a UDP
+/// reachability probe: no datagram is sent and no UDP service is validated.
+/// Keep UDP cursors independent from TCP; add an explicit protocol probe before
+/// describing any result as UDP-tested or UDP-reachable.
 List<int> natBuildFullUdpPortInventory(Iterable<int> preferredPorts) =>
     natBuildFullPortInventory(preferredPorts, firstPort: 1, lastPort: 65535);
 
