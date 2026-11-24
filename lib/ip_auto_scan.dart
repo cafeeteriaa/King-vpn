@@ -429,7 +429,7 @@ extension IpAutoExt on _HomePageState {
       final secondOk = await _ipAutoCoreOk(s, url);
       if (halted()) return false;
       if (!secondOk) {
-        ipAutoPendingCore.removeAt(0);
+        ipAutoPendingCore.remove(c);
         say('تست $checked • جواب‌داده: $found');
         continue;
       }
