@@ -112,58 +112,32 @@ Future<void> _ipAutoSave() async {
 /// Inventory پویا برای اسکن IP؛ رنج‌های تنظیم‌شده و بلوک‌های کشف‌شده
 /// به‌صورت چرخشی پیمایش می‌شوند تا هیچ بخش ثابتِ ابتدای فهرست انحصاری نشود.
 Future<List<String>> _ipAutoBlocks(Iterable<Server> knownServers, {required bool useNationalMode}) async {
-  final blocks = <String>{};
+  // Active probes are restricted to exact A/AAAA endpoints declared by
+  // configured VPN server records. Published CIDRs remain passive inventory;
+  // do not sweep unrelated ISP/CDN address space.
   final ips = <String>{};
-
-  void addHostBlock(String host, {bool expandIpv4Subnet = false}) {
-    final parsed = InternetAddress.tryParse(host.trim());
-    if (parsed == null) return;
-    ips.add(parsed.address);
-    if (parsed.type == InternetAddressType.IPv6) {
-      // Preserve the exact IPv6 endpoint as /128. Never guess a /64 or
-      // enumerate an enormous IPv6 allocation from one observed address.
-      blocks.add('${parsed.address}/128');
-      return;
-    }
-    if (expandIpv4Subnet) {
-      final octets = parsed.address.split('.');
-      blocks.add('${octets[0]}.${octets[1]}.${octets[2]}.0/24');
-    }
-  }
-
-  if (useNationalMode) {
-    // تمام رنج‌های واردشده در موتور نت ملی + بلوک‌های حاصل از حافظه‌ی موفقیت.
-    blocks.addAll(natRanges);
-    blocks.addAll(natAutoBlocks(const <Server>[]));
-    ips
-      ..addAll(natIpMemHosts())
-      ..addAll(natScanHits.map((hit) => hit.split('|').first));
-  } else {
-    // Resolve every known hostname to both A and AAAA records. Domain-backed
-    // servers used to be skipped entirely by the global IP inventory.
-    final servers = knownServers.toList(growable: false);
-    for (var offset = 0; offset < servers.length; offset += 8) {
-      final batch = servers.skip(offset).take(8);
-      final resolved = await Future.wait(batch.map((server) async {
-        if (server.isIp) return <String>[server.host];
-        return await nipResolveAll(server.host);
-      }));
-      for (var index = 0; index < resolved.length; index++) {
-        for (final address in resolved[index]) {
-          // Literal IPv4 server entries retain the existing nearby /24 seed;
-          // DNS answers are exact /32 or /128 targets to avoid broad expansion.
-          addHostBlock(address,
-              expandIpv4Subnet: servers[offset + index].isIp);
-        }
+  final servers = knownServers.toList(growable: false);
+  for (var offset = 0; offset < servers.length; offset += 8) {
+    final batch = servers.skip(offset).take(8);
+    final resolved = await Future.wait(batch.map((server) async {
+      if (server.isIp) return <String>[server.host];
+      return await nipResolveAll(server.host);
+    }));
+    for (final addresses in resolved) {
+      for (final address in addresses) {
+        final parsed = InternetAddress.tryParse(address);
+        if (parsed == null ||
+            (parsed.type != InternetAddressType.IPv4 &&
+                parsed.type != InternetAddressType.IPv6)) continue;
+        ips.add(parsed.address);
       }
     }
   }
-
-  blocks.addAll(ips.map((ip) {
+  final blocks = ips.map((ip) {
     final parsed = InternetAddress.tryParse(ip);
     return parsed?.type == InternetAddressType.IPv6 ? '$ip/128' : '$ip/32';
-  }));
-  return blocks.toList()..sort();
+  }).toList()..sort();
+  return blocks;
 }
 
 Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Function()? shouldAbort, int batchSize = _ipAutoBatch}) async {
@@ -172,13 +146,13 @@ Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddr
   final modeSnapshot = nationalMode;
   final cursorSnapshot = Map<String, dynamic>.of(ipAutoCursors);
   final args = <String, dynamic>{
-    // Feed the generator a rotating CDN batch in global mode. National mode
-    // uses only the user's configured national ranges and national hit memory.
-    'cfIpsBatch': modeSnapshot ? 0 : batchSize,
+    // Only exact addresses resolved from configured VPN server endpoints
+    // are actively probed. CDN/ISP CIDRs are not swept as third-party networks.
+    'cfIpsBatch': 0,
     'maxAddrs': batchSize,
     'blocks': await _ipAutoBlocks(knownServers, useNationalMode: modeSnapshot),
     'nationalMode': modeSnapshot,
-    'liveRanges': modeSnapshot ? <String>[] : List<String>.of(_liveCdnRanges),
+    'liveRanges': <String>[],
     'cursors': cursorSnapshot,
   };
   final gen = await compute(_genAddrsIso, args);
@@ -312,9 +286,7 @@ extension IpAutoExt on _HomePageState {
       if (pool.isEmpty) pool = <Server>[...good, ...pending, ...fetchedAll];
     }
     if (halted()) return false;
-    final hasRangeInventory = runNationalMode
-        ? natRanges.isNotEmpty || natIpMemHosts().isNotEmpty
-        : _liveCdnRanges.isNotEmpty;
+    final hasRangeInventory = pool.isNotEmpty;
     if (pool.isEmpty && !hasRangeInventory) {
       say('هنوز الگو یا بازه‌ای برای ساخت موجودی اسکن نیست؛ منابع را تازه‌سازی کن و دوباره اجرا کن.');
       return false;
@@ -333,8 +305,13 @@ extension IpAutoExt on _HomePageState {
             .floor(),
       ),
     ).toInt();
+    final knownEndpointByLink = <String, Server>{
+      for (final server in [...pool, ...good, ...pending, ...fetchedAll])
+        server.link: server,
+    };
+    final knownEndpoints = knownEndpointByLink.values.toList(growable: false);
     final generatedBatch = await _ipAutoNextAddrs(
-      runNationalMode ? const <Server>[] : [...good, ...pending, ...fetchedAll],
+      knownEndpoints,
       shouldAbort: halted,
       batchSize: batchCapacity,
     );
@@ -344,28 +321,44 @@ extension IpAutoExt on _HomePageState {
       say('آدرسی برای اسکن پیدا نشد.');
       return false;
     }
-    final ports = natAutoPorts(pool);
-    if (ports.isEmpty) ports.add(443);
+    // Build exact endpoint pairs; never cross-product unrelated IPs and ports.
+    final endpointTargets = <int, Set<String>>{};
+    final addressSet = addrs.toSet();
+    for (final server in knownEndpoints) {
+      if (halted()) return false;
+      if (server.port < 1 || server.port > 65535) continue;
+      final resolved = server.isIp
+          ? <String>[server.host]
+          : await nipResolveAll(server.host);
+      if (halted()) return false;
+      for (final address in resolved) {
+        if (addressSet.contains(address)) {
+          (endpointTargets[server.port] ??= <String>{}).add(address);
+        }
+      }
+    }
+    final ports = endpointTargets.keys.toList()..sort();
 
-    // مرحله‌ی ۱: TCP روی همه‌ی آدرس‌ها
+    // مرحله‌ی ۱: TCP فقط روی host:portهای اعلام‌شده در کانفیگ‌ها
     final candidates = <String>[];
     for (final port in ports) {
       if (halted()) break;
-      say('بررسی TCP روی پورت $port (${addrs.length} آدرس)...');
+      final endpointIps = (endpointTargets[port] ?? <String>{}).toList();
+      say('بررسی endpointهای تنظیم‌شده روی پورت $port (${endpointIps.length} آدرس)...');
       var completed = 0;
       final hits = await natScanIps(
-        addrs,
+        endpointIps,
         port: port,
         concurrency: tcpConcurrency,
-        want: addrs.length,
+        want: endpointIps.length,
         budget: const Duration(minutes: 5),
         timeout: const Duration(milliseconds: 1500),
         cancelled: halted,
         onProgress: (done, total, _) => completed = done,
       );
       if (halted()) return false;
-      if (completed < addrs.length) {
-        say('بسته TCP روی پورت $port کامل نشد؛ Cursor دست‌نخورده ماند و همین بازه در اجرای بعدی ادامه می‌یابد.');
+      if (completed < endpointIps.length) {
+        say('بسته endpointهای پورت $port کامل نشد؛ Cursor دست‌نخورده ماند و همین دسته در اجرای بعدی ادامه می‌یابد.');
         return false;
       }
       for (final h in hits) {
@@ -395,7 +388,7 @@ extension IpAutoExt on _HomePageState {
       say('بسته TCP کامل شد؛ ${ipAutoPendingCore.length} نامزد برای بررسی هسته ذخیره شد و منتظر الگوی کانفیگ است.');
       return true;
     }
-    final tplSrv = tpl.first;
+    final fallbackTemplate = tpl.first;
     var found = 0;
     var checked = 0;
     // No fixed candidate-count cap: work until the adaptive time budget expires.
@@ -414,8 +407,12 @@ extension IpAutoExt on _HomePageState {
       final parts = c.split('|');
       final ip = parts[0];
       final port = int.tryParse(parts[1]) ?? 443;
-      final ipLink = _natSetPort(_natSetHost(tplSrv.link, ip, tplSrv.host), port);
-      final s = Server(ipLink, tplSrv.name, ip, port);
+      final template = knownEndpoints.firstWhere(
+        (server) => server.port == port,
+        orElse: () => fallbackTemplate,
+      );
+      final ipLink = _natSetPort(_natSetHost(template.link, ip, template.host), port);
+      final s = Server(ipLink, template.name, ip, port);
       final firstOk = await _ipAutoCoreOk(s, url);
       if (halted()) return false;
       if (!firstOk) {
