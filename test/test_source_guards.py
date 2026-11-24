@@ -3099,6 +3099,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("const String _autoScanDomainCursorKey = 'auto_scan_domain_cursor_v1';", auto)
         self.assertIn('if (!scanNationalMode) ...dnsxFullDomains(),', auto)
         self.assertIn('...(scanNationalMode ? kAutoNationalSniDomains : kAutoSniDomains)', auto)
+        self.assertIn('final base = scanNationalMode', auto)
         self.assertIn('if (!scanNationalMode) ...natFrontSnis,', auto)
         self.assertIn('if (!scanNationalMode) ...natRelayHosts,', auto)
         self.assertIn('if (!scanNationalMode) unawaited(refreshCdnRanges());', auto)
@@ -3616,6 +3617,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = source.index('// A national scan uses the national hot-source/template pipeline', start)
         inventory = source[start:end]
         self.assertIn('...(runNationalMode ? kAutoNationalSniDomains : kAutoSniDomains)', inventory)
+        self.assertIn('if (!runNationalMode)', inventory)
         self.assertIn('if (!runNationalMode) ...dnsxFullDomains()', inventory)
         self.assertIn('if (!runNationalMode) ...natFrontSnis', inventory)
         self.assertIn('if (!runNationalMode) ...natRelayHosts', inventory)
