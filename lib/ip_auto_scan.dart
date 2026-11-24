@@ -563,6 +563,7 @@ extension IpAutoExt on _HomePageState {
   Future<void> ipAutoSheet(BuildContext ctx0) async {
     var sheetScanRunning = false;
     await ipAutoLoad();
+    await goldLoad();
     if (!ctx0.mounted) return;
     showModalBottomSheet(
       context: ctx0,
