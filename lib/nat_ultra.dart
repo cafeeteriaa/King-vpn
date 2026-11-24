@@ -1969,48 +1969,29 @@ List<int>? _ipTriple(String host) {
   return [for (final x in p.take(3)) int.parse(x)];
 }
 
+/// Candidate inventory only: retain exact observed/configured IPs.
+/// A remembered public address does not authorize probing its neighbouring /24.
+/// Wider prefixes must come from an explicitly supplied range or an authorized
+/// range source, not be inferred from a single endpoint.
 List<String> natAutoBlocks(List<Server> known) {
-  String blk(int a, int b, int c) => '$a.$b.$c.0/24';
-  final ipv6Blocks = <String>{};
-  final hitBlocks = <String>[];
-  final near = <String>[];
-  final rest = <String>[];
-  final hitTriples = <List<int>>[];
-  for (final e in natIpMem) {
-    final remembered = InternetAddress.tryParse('${e['ip']}');
-    if (remembered?.type == InternetAddressType.IPv6) {
-      ipv6Blocks.add('${remembered!.address}/128');
-      continue;
-    }
-    final t = _ipTriple('${e['ip']}');
-    if (t != null) {
-      hitTriples.add(t);
-      final b = blk(t[0], t[1], t[2]);
-      if (!hitBlocks.contains(b)) hitBlocks.add(b);
+  final out = <String>{};
+  for (final entry in natIpMem) {
+    final parsed = InternetAddress.tryParse('${entry['ip']}');
+    if (parsed == null) continue;
+    if (parsed.type == InternetAddressType.IPv4 ||
+        parsed.type == InternetAddressType.IPv6) {
+      out.add('${parsed.address}/${parsed.type == InternetAddressType.IPv6 ? 128 : 32}');
     }
   }
-  for (final t in hitTriples) {
-    for (final d in const [-1, 1]) {
-      final c = t[2] + d;
-      if (c < 0 || c > 255) continue;
-      final b = blk(t[0], t[1], c);
-      if (!hitBlocks.contains(b) && !near.contains(b)) near.add(b);
+  for (final server in known) {
+    final parsed = InternetAddress.tryParse(server.host.trim());
+    if (parsed == null) continue;
+    if (parsed.type == InternetAddressType.IPv4 ||
+        parsed.type == InternetAddressType.IPv6) {
+      out.add('${parsed.address}/${parsed.type == InternetAddressType.IPv6 ? 128 : 32}');
     }
   }
-  for (final s in known) {
-    final parsed = InternetAddress.tryParse(s.host);
-    if (parsed?.type == InternetAddressType.IPv6) {
-      ipv6Blocks.add('${parsed!.address}/128');
-      continue;
-    }
-    final t = _ipTriple(s.host);
-    if (t == null) continue;
-    final b = blk(t[0], t[1], t[2]);
-    if (!hitBlocks.contains(b) && !near.contains(b) && !rest.contains(b)) {
-      rest.add(b);
-    }
-  }
-  return [...ipv6Blocks, ...hitBlocks, ...near, ...rest];
+  return out.toList()..sort();
 }
 
 BigInt _natIpv6ToBigInt(InternetAddress address) {
