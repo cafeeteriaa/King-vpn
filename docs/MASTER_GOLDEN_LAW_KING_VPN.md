@@ -101,8 +101,10 @@ A CI pass proves only the checks that actually ran. It does not prove device-lev
 ### Implementation checkpoint — 2026-11-24
 - Automatic SNI/IP candidate inventories are now generated from project-owned domain catalogs, DNS A/AAAA answers and CDN range inventory, and persisted under separate `sni_candidates` / `ip_candidates` result groups.
 - Candidate inventories are saved and displayed even when no saved VPN server exists. They are explicitly unverified and are not promoted into healthy IP/server pools.
-- Active SNI/TLS/TCP checks remain limited to exact configured KING VPN endpoint scope; passive discovery is not treated as permission for arbitrary third-party probing.
-- This implements independent candidate discovery, not independent active endpoint verification. The latter still requires a product-approved, explicitly authorized endpoint source.
+- Active SNI/TLS/ALPN checks now resolve each inventory domain independently and test its own DNS A/AAAA answers on TCP/443; saved VPN configurations are not required for those checks.
+- Passive DNS inventory retains all valid IPv4/IPv6 observations, including private, link-local and ULA addresses; address scope is metadata, not a discovery filter.
+- Automatic full TCP port checks remain bound to exact saved KING VPN endpoint IPs. User-supplied explicit ranges continue through the manual/range scanner. Do not turn passive global DNS/CDN observations into indiscriminate 1..65535 public-address sweeps.
+- Active probe results remain reachability evidence only and are never promoted to verified VPN routes without a real core/TUN traffic test.
 - CI run 2562 passed source guards, Flutter tests, Dart analysis and ARM64 release build. The subsequent candidate-inventory change is awaiting exact-HEAD CI; no device-level verification is claimed.
 
 ## Golden rule
