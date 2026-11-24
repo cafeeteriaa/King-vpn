@@ -2537,6 +2537,38 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('ipAutoCursors\\n    ..clear()', body)
 
 
+    def test_auto_discovery_candidates_persist_without_saved_server_prerequisite(self):
+        auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        start = auto.index('Future<void> autoScanRun(')
+        end = auto.index('Future<void> autoScanSheet(', start)
+        body = auto[start:end]
+
+        sources_start = body.index('final domainSources = <String>{')
+        inventory_start = body.index('final domainInventory = domainSources')
+        sources = body[sources_start:inventory_start]
+        for independent_source in (
+            '...kAutoSniDomains',
+            '...dnsxFullDomains()',
+            '...natFrontSnis',
+            '...natRelayHosts',
+        ):
+            self.assertIn(independent_source, sources)
+
+        # Candidate inventory is committed independently of whether a saved
+        # server exists for active protocol-specific validation.
+        self.assertIn('final discoveredIpCandidates = <String>{', body)
+        self.assertIn('...dnsResolvedIps,', body)
+        self.assertIn('...ips,', body)
+        self.assertIn("'sni_candidates': domainInventory", body)
+        self.assertIn("'ip_candidates': discoveredIpCandidates", body)
+        self.assertLess(body.index('final domainInventory ='), body.index('final configuredPortTargets ='))
+        self.assertIn("for (final k in const ['sni_candidates', 'ip_candidates', 'sni', 'port', 'tls'])", auto)
+        self.assertIn("for (final k in const ['sni_candidates', 'ip_candidates', 'sni', 'port', 'tls'])", extras)
+        self.assertIn("_goldScan['sni_candidates']", extras)
+        self.assertIn("_goldScan['ip_candidates']", extras)
+
+
     def test_auto_scan_dialog_close_requests_cancellation(self):
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = auto.index('Future<void> autoScanSheet(')
