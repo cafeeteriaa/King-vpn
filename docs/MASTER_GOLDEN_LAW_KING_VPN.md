@@ -110,3 +110,11 @@ A CI pass proves only the checks that actually ran. It does not prove device-lev
 ## Golden rule
 
 **Manual scanning uses the range entered by the user. Automatic discovery runs independently of saved configurations. Neither mode may confuse endpoint reachability with real VPN tunnel traffic. Only verified in-tunnel application traffic can establish a healthy KING VPN route.**
+
+
+## 2026-11-24 — National-mode candidate source separation
+
+- Automatic scanner candidate discovery now uses a dedicated Iranian-service domain seed catalog while national mode is active.
+- Global domain catalogs, front-SNI/relay seeds, live Cloudflare/CDN ranges, and hard-coded global fallback IPs are excluded from national-mode candidate inventory; these remain available in global mode.
+- Saved VPN endpoint hosts remain included as project-specific candidates. Active endpoint validation scope and all user-configured IP/range scanning behavior are unchanged.
+- This is a source-selection correction, not proof that any Iranian service IP is reachable during a national-network outage. Real reachability still requires tests from an actual Iranian carrier/network and final core/TUN traffic verification.
