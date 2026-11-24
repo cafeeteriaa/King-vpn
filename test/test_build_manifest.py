@@ -1,10 +1,8 @@
 import hashlib
 import json
-import os
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
 
 from tools.write_build_manifest import create_manifest
 

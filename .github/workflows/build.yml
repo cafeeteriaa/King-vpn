@@ -148,12 +148,14 @@ jobs:
       - name: Package complete source and generated Flutter project
         if: success()
         run: |
-          zip -qr "$RUNNER_TEMP/king-vpn-full-source-${GITHUB_RUN_NUMBER}.zip" . \
+          mkdir -p build-evidence
+          zip -qr "build-evidence/king-vpn-full-source-${GITHUB_RUN_NUMBER}.zip" . \
             -x '.git/*' '__pycache__/*' '*/__pycache__/*' '*.pyc' \
                '.dart_tool/*' 'build/*' 'build_app/.dart_tool/*' \
                'build_app/build/*' 'build_app/android/.gradle/*' \
                'build_app/android/app/build/*' 'build_app/android/build/*' \
-               'build_app/android/local.properties' 'build_app/.flutter-plugins*'
+               'build_app/android/local.properties' 'build_app/.flutter-plugins*' \
+               'build-evidence/*'
 
       - name: Create build provenance manifest and checksums
         if: success()
@@ -168,7 +170,7 @@ jobs:
           python3 tools/write_build_manifest.py \
             --root . \
             --apk build_app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
-            --source-archive "$RUNNER_TEMP/king-vpn-full-source-${GITHUB_RUN_NUMBER}.zip" \
+            --source-archive "build-evidence/king-vpn-full-source-${GITHUB_RUN_NUMBER}.zip" \
             --dependency-lock build_app/pubspec.lock \
             --symbols-dir build_app/build/symbols \
             --toolchain-report build-evidence/toolchain.txt \
@@ -189,7 +191,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: king-vpn-full-source-${{ github.run_number }}
-          path: ${{ runner.temp }}/king-vpn-full-source-${{ github.run_number }}.zip
+          path: build-evidence/king-vpn-full-source-${{ github.run_number }}.zip
           if-no-files-found: error
           retention-days: 14
 
