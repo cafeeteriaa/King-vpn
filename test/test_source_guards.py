@@ -10,9 +10,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('final firstOk = await _ipAutoCoreOk(s, url);')
         end = source.index('ipAutoHits.insert(0, c);', start)
         verification = source[start:end]
-        self.assertIn('RETRY-FAILED-ENDPOINT', verification)
-        self.assertIn('تأیید دوم ناموفق؛ برای نوبت بعد حفظ شد', verification)
-        self.assertNotIn('ipAutoPendingCore.remove(c)', verification)
+        first_failure = verification.split('if (!firstOk) {', 1)[1].split('final secondOk', 1)[0]
+        second_failure = verification.split('if (!secondOk) {', 1)[1].split('ipAutoPendingCore.remove(c);', 1)[0]
+        self.assertIn('RETRY-FAILED-ENDPOINT', first_failure)
+        self.assertIn('ناموفق موقت؛ برای نوبت بعد حفظ شد', first_failure)
+        self.assertIn('تأیید دوم ناموفق؛ برای نوبت بعد حفظ شد', second_failure)
+        self.assertNotIn('ipAutoPendingCore.remove(c)', first_failure)
+        self.assertNotIn('ipAutoPendingCore.remove(c)', second_failure)
 
     def test_auto_scan_sheet_forwards_live_vpn_guards(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
