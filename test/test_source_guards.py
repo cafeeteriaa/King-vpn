@@ -3194,5 +3194,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("kVpnLastStateTop == 'CONNECTED' ? true : null", tun_check)
 
 
+    def test_nat_candidate_blocks_never_expand_a_single_public_ip_to_neighbouring_ranges(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('List<String> natAutoBlocks(List<Server> known)')
+        end = source.index('BigInt _natIpv6ToBigInt', start)
+        inventory = source[start:end]
+        self.assertIn("parsed.type == InternetAddressType.IPv4", inventory)
+        self.assertIn("parsed.type == InternetAddressType.IPv6", inventory)
+        self.assertIn("? 128 : 32", inventory)
+        self.assertNotIn("t[2] + d", inventory)
+        self.assertNotIn("0/24", inventory)
+        self.assertIn("not be inferred from a single endpoint", inventory)
+
+
 if __name__ == '__main__':
     unittest.main()
