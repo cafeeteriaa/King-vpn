@@ -35,6 +35,8 @@ IPv4 and IPv6 address spaces and global DNS/SNI/Host names are not practically e
 
 ## 3. Active testing boundary
 
+The scanner feature must not be exposed as a general-purpose port scanner. Keep inventory generation separate from active probing; KING VPN connectivity workflows are the only product purpose.
+
 Keep discovery inventory separate from active network testing. Active checks must be protocol-appropriate, rate-controlled and confined to user-controlled or explicitly authorized test scope. Do not turn broad passive discovery into indiscriminate active port sweeps against arbitrary third-party public addresses.
 
 This boundary must not be implemented by making discovery dependent on _goldSrv, saved configurations, a fixed provider list or a Cloudflare-only source. Unknown or not-yet-tested observations must remain distinguishable from failed observations; they must not be represented as verified healthy endpoints.
