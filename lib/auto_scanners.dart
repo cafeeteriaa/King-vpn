@@ -73,9 +73,9 @@ const int _autoScanCdnBatchSize = 8;
 const int _autoScanDomainBatchSize = 18;
 const int _autoScanPortBatchSize = 24; // full SNI/port/TLS pass fits the shared four-minute budget
 
-// SNI is only accepted after an end-to-end HTTPS response, not merely
-// a TCP connect or TLS handshake. A 2xx/3xx response proves application data
-// crossed the candidate route and came back.
+// SNI discovery checks endpoint-level HTTPS reachability. It does NOT prove
+// that the Android VPN tunnel carries this traffic; only the core/TUN validation
+// in the connection path can promote a server to a usable route.
 Future<int?> _autoSniOk(String ip, int port, String sni) async {
   final sw = Stopwatch()..start();
   Socket? raw;
@@ -133,14 +133,31 @@ Future<String?> _autoAlpnOk(String ip, String sni, String alpn) async {
   }
 }
 
-Future<bool> _autoPortOk(String ip, int port) async {
-  try {
-    final s = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 1500));
-    s.destroy();
-    return true;
-  } catch (_) {
-    return false;
+// Port reachability is limited to the exact host:port pairs present in
+// saved server configurations. Never sweep arbitrary ports across public CDN/IP ranges.
+Future<Map<int, List<String>>> _autoConfiguredPortTargets(
+    {bool Function()? cancelled}) async {
+  final byPort = <int, Set<String>>{};
+  for (final entry in _goldSrv.values) {
+    if (cancelled?.call() ?? false) break;
+    final server = Server.parse(entry.link);
+    if (server == null || server.port < 1 || server.port > 65535) continue;
+    final addresses = server.isIp
+        ? <String>[server.host]
+        : await nipResolveAll(server.host);
+    if (cancelled?.call() ?? false) break;
+    for (final address in addresses) {
+      final parsed = InternetAddress.tryParse(address);
+      if (parsed == null ||
+          (parsed.type != InternetAddressType.IPv4 &&
+              parsed.type != InternetAddressType.IPv6)) continue;
+      (byPort[server.port] ??= <String>{}).add(parsed.address);
+    }
   }
+  return <int, List<String>>{
+    for (final entry in byPort.entries)
+      entry.key: (entry.value.toList()..sort()),
+  };
 }
 
 /// Resolve the project's SNI names to both IPv4 and IPv6 endpoints in small cancellable batches.
@@ -263,16 +280,18 @@ Future<void> autoScanRun(void Function(String) say,
         domainInventory[(domainStart + i) % domainInventory.length],
     ];
     final stagedDomainCursor = domainBatch.isEmpty ? savedDomainCursor : domainBatch.last;
-    // The familiar ports are priority seeds, not an allowlist. The full valid
-    // TCP port space follows them in resumable slices.
+    // Port candidates come only from exact endpoints in saved server configs.
+    // The scanner must not sweep 65,535 ports over unrelated public/CDN hosts.
+    final configuredPortTargets = await _autoConfiguredPortTargets(
+      cancelled: cancelled,
+    );
     final priorityPorts = <int>{
-      ...kAutoPorts,
-    }..removeWhere((port) => port < 1 || port > 65535);
-    final portInventory = <int>[
+      ...kAutoPorts.where(configuredPortTargets.containsKey),
+    };
+    final portInventory = <int>{
       ...priorityPorts,
-      for (var port = 1; port <= 65535; port++)
-        if (!priorityPorts.contains(port)) port,
-    ];
+      ...configuredPortTargets.keys,
+    }.toList()..sort();
     final savedPortCursor = prefs.getInt(_autoScanPortCursorKey) ?? 0;
     final previousPortIndex = portInventory.indexOf(savedPortCursor);
     final portStart = previousPortIndex < 0
@@ -354,10 +373,11 @@ Future<void> autoScanRun(void Function(String) say,
         if (cancelled()) break portLoop;
       }
       var ok = false;
-      // Keep concurrency bounded; stop scheduling new batches after a hit.
-      for (var offset = 0; offset < ips.length; offset += 8) {
+      final portIps = configuredPortTargets[p] ?? const <String>[];
+      // Probe only the configured server's resolved addresses on its declared port.
+      for (var offset = 0; offset < portIps.length; offset += 8) {
         if (cancelled()) break portLoop;
-        final batch = ips.skip(offset).take(8);
+        final batch = portIps.skip(offset).take(8);
         final checks = await Future.wait(
           batch.map((ip) => _autoPortOk(ip, p)),
         );
@@ -421,7 +441,7 @@ Future<void> autoScanRun(void Function(String) say,
     if (stagedPortCursor != null) {
       await prefs.setInt(_autoScanPortCursorKey, stagedPortCursor);
     }
-    say('تمام شد: ${sniHits.length} SNI و ${portHits.length} پورت در پوشه‌ی جهانی ذخیره شد؛ دامنه‌ها و کل فضای پورت در نوبت‌های بعدی ادامه می‌یابند');
+    say('تمام شد: ${sniHits.length} نام SNI و ${portHits.length} پورتِ مربوط به endpointهای تنظیم‌شده ذخیره شد؛ این نتایج کاندیدا هستند، نه تأیید نهایی تونل.');
   } catch (e, stk) {
     logError(e, stk);
     say('خطا در اسکن خودکار');
@@ -452,7 +472,7 @@ Future<void> autoScanSheet(BuildContext context,
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('بدون ورودی دستی: IPهای تمیز پوشه‌ی جهانی تست می‌شوند و نتیجه همان‌جا ذخیره می‌شود.'),
+              const Text('کشف SNI و بررسی پورت‌های تعریف‌شده در کانفیگ‌های ذخیره‌شده؛ تأیید نهایی مسیر فقط با عبور واقعی ترافیک از تونل انجام می‌شود.'),
               const SizedBox(height: 8),
               Text(status),
               const SizedBox(height: 8),
