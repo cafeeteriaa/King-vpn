@@ -6326,8 +6326,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           s.miss = (j['m'] as num?)?.toInt() ?? 0;
           s.restored = true; // RESTORE: همان سرورهای سالم قبلی؛ حذف نمی‌شوند
           warmKeys.add(s.key);
-          // checkedAt stays null: these are tested FIRST at the next connect
-          _resAdd(s); // SCREENGOOD: بعد از باز شدن برنامه روی صفحه نمی‌آید؛ فقط در پوشه‌ی سالم می‌ماند
+          // Restored cache entries are candidates until the current session
+          // verifies real TUN traffic; do not promote legacy ping-only cache data.
         }
       }
       // servers that failed recently are not tested again (kept on disk)
