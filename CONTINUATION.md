@@ -64,3 +64,17 @@
 - Added a source guard for independent candidate persistence and display.
 - CI run 2562 passed all source guards, Flutter tests, Dart analysis and ARM64 release build. Exact-head CI for the candidate inventory changes was queued as run 2565 at checkpoint time; do not claim it passed until it completes.
 - PR #48 remains open Draft, not merged; `main` is unchanged. No physical-device tunnel verification is claimed.
+
+## 2026-11-24 — Independent IP scanner inventory follow-up
+
+- Extended `lib/ip_auto_scan.dart` so passive IPv4/IPv6 candidate discovery no longer depends on saved or fetched VPN server configurations.
+- Candidate sources are the complete project SNI/domain catalogs (dual-stack DNS A/AAAA answers), global-folder IP observations, and the rotating CDN range inventory; candidates merge into the existing persistent `ip_candidates` inventory.
+- Reuses resumable domain/CDN cursors; per-run batching is resumable and does not cap the accumulated inventory.
+- The IP scanner UI now loads, displays, and copies the full persisted candidate inventory when opened.
+- Active TCP and two-pass VPN-core checks remain separate and restricted to exact endpoint IP:port pairs derived from VPN server records. Passive candidates are not promoted to endpoint hits, healthy servers, or verified tunnel routes.
+- If no endpoint configuration exists, independent candidate discovery still completes and persists; active validation is skipped rather than blocking discovery.
+- Added source guard `test_ip_auto_scanner_discovers_dual_stack_candidates_without_saved_servers`.
+- CI run 2566 passed for the preceding source state. CI for this follow-up code/test commit is pending; do not claim it passed until the exact final HEAD completes.
+- Device-level VPN/TUN verification remains outstanding.
+
+PR #48 remains open and Draft; do not merge or modify `main`.
