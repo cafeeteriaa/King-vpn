@@ -3166,10 +3166,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("natCursorIndex(cursorMap['__cdn_range_cursor'], ranges.length)", nat)
         self.assertIn("natCursorIndex(cursors['__block_cursor'], blocks.length)", nat)
         self.assertIn('final previousPortIndex = portList.indexOf(lastPort);', nat)
-        self.assertIn('final portList = natFullPortInventory(seeds)', nat)
-        self.assertIn('.where(configuredPorts.contains)', nat)
-        self.assertIn('final configuredPorts = seeds', nat)
-        self.assertIn('final previousPortIndex = portList.indexOf(lastPort);', nat)
+        self.assertIn('natPortsForActiveScan(', nat)
+        self.assertIn('hasExplicitRanges: hasExplicitRanges', nat)
+        self.assertIn('if (configuredPorts.contains(port))', nat)
+        self.assertNotIn('.where(configuredPorts.contains)', nat)
         self.assertIn("natRangePortCursorsV3", nat)
 
         extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
@@ -3179,6 +3179,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         self.assertIn("natCursorIndex(cursors['__nip_${namespace}_range_cursor'], ranges.length)", nip)
 
+
+    def test_nat_range_scan_uses_full_ports_only_for_explicit_user_ranges(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = nat.index('Future<List<String>> _natRangeScanStepBody(')
+        end = nat.index('List<String> userListUrls =', start)
+        body = nat[start:end]
+        self.assertIn('final hasExplicitRanges = natRanges.isNotEmpty;', body)
+        self.assertIn('fullInventory: natFullPortInventory(seeds)', body)
+        self.assertIn('configuredEndpointPorts: configuredPorts', body)
+        self.assertIn('if (configuredPorts.contains(port))', body)
+        self.assertIn('...configuredRanges', body)
 
     def test_auto_port_scan_never_sweeps_arbitrary_public_ip_ranges(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')

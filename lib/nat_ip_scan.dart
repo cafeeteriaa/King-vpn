@@ -57,6 +57,30 @@ List<int> natBuildFullPortInventory(
   return out;
 }
 
+/// Select active TCP ports by the configured scan scope.
+///
+/// Explicitly saved user ranges retain the complete 1..65535 inventory.
+/// Exact configured server addresses remain limited to their declared ports.
+/// This keeps broad scanning intentional and resumable without silently
+/// narrowing a user-supplied IP Clean range to ports already seen in configs.
+List<int> natPortsForActiveScan({
+  required Iterable<int> fullInventory,
+  required Iterable<int> configuredEndpointPorts,
+  required bool hasExplicitRanges,
+}) {
+  final configured = configuredEndpointPorts
+      .where((port) => port >= 1 && port <= 65535)
+      .toSet();
+  final seen = <int>{};
+  final out = <int>[];
+  for (final port in fullInventory) {
+    if (port < 1 || port > 65535) continue;
+    if (!hasExplicitRanges && !configured.contains(port)) continue;
+    if (seen.add(port)) out.add(port);
+  }
+  return out;
+}
+
 /// UDP and TCP have independent inventories/cursors at their consumers.
 List<int> natBuildFullUdpPortInventory(Iterable<int> preferredPorts) =>
     natBuildFullPortInventory(preferredPorts, firstPort: 0, lastPort: 65535);

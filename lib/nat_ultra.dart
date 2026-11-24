@@ -2415,16 +2415,19 @@ Future<List<String>> _natRangeScanStepBody({
   }.toList(growable: false);
   final blocks = natSeedBlocks(hosts);
 
-  // Keep the complete TCP port inventory available for discovery/planning,
-  // but actively probe only ports explicitly declared by these configurations.
-  // TCP connect cannot target port zero.
+  // Explicitly saved IP Clean ranges are an intentional scan scope: rotate
+  // through the complete valid TCP port inventory. Exact server IPs outside
+  // those ranges are still probed only on their declared endpoint ports.
   final configuredPorts = seeds
       .map((server) => server.port)
       .where((port) => port >= 1 && port <= 65535)
       .toSet();
-  final portList = natFullPortInventory(seeds)
-      .where(configuredPorts.contains)
-      .toList(growable: false);
+  final hasExplicitRanges = natRanges.isNotEmpty;
+  final portList = natPortsForActiveScan(
+    fullInventory: natFullPortInventory(seeds),
+    configuredEndpointPorts: configuredPorts,
+    hasExplicitRanges: hasExplicitRanges,
+  );
   if (portList.isEmpty) return const <String>[];
   final modeKey = modeSnapshot ? 'nat' : 'global';
   final lastPort = _natRangePortCursors[modeKey] ?? 0;
@@ -2475,7 +2478,15 @@ Future<List<String>> _natRangeScanStepBody({
     'liveRanges': <String>[],
     'cursors': localCursors,
   };
-  final generated = await compute(_genAddrsIso, args);
+  Map<String, dynamic> generated = {
+    'addrs': const <String>[],
+    'cursors': localCursors,
+  };
+  // The generated block inventory contains exact configured server IPs;
+  // never test their undeclared ports merely because a separate range exists.
+  if (configuredPorts.contains(port)) {
+    generated = await compute(_genAddrsIso, args);
+  }
   if (shouldAbort()) return const <String>[];
   final generatedCursors =
       Map<String, dynamic>.from(generated['cursors'] as Map);

@@ -23,6 +23,30 @@ void main() {
       expect(natBuildFullPortInventory([443], firstPort: 5, lastPort: 4), isEmpty);
     });
 
+    test('explicit IP Clean ranges keep the complete TCP port inventory', () {
+      final fullTcp = natBuildFullPortInventory(
+        [443, 2053, 443],
+        firstPort: 1,
+        lastPort: 65535,
+      );
+      final rangePorts = natPortsForActiveScan(
+        fullInventory: fullTcp,
+        configuredEndpointPorts: [443],
+        hasExplicitRanges: true,
+      );
+      expect(rangePorts, hasLength(65535));
+      expect(rangePorts.toSet(), hasLength(65535));
+      expect(rangePorts.take(2), [443, 2053]);
+      expect(rangePorts.last, 65535);
+
+      final exactEndpointPorts = natPortsForActiveScan(
+        fullInventory: fullTcp,
+        configuredEndpointPorts: [443, 0, 65536, 443],
+        hasExplicitRanges: false,
+      );
+      expect(exactEndpointPorts, [443]);
+    });
+
     test('persisted outer cursor indexes recover from negative and malformed values', () {
       expect(natCursorIndex('-1', 7), 0);
       expect(natCursorIndex('broken', 7), 0);
