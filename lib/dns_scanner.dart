@@ -43,23 +43,10 @@ const List<String> kDnsxNationalProbeDomains = <String>[
   'www.digikala.com',
 ];
 
-/// اسکن خودکار DNS از نمونه‌های واقعی و پخش‌شده در کل موجودی پروژه استفاده می‌کند.
-/// اسکن دستی همچنان می‌تواند dnsxFullDomains() را برای پوشش کامل دریافت کند.
-/// هدف DNS auto سنجش کیفیت resolver است، نه تولید پرس‌وجوی بی‌فایده برای تمام دامنه‌ها.
-List<String> dnsxAutoDomains({int sampleSize = 64}) {
-  final inventory = dnsxFullDomains();
-  if (inventory.length <= sampleSize || sampleSize <= 0) return inventory;
-  // نمونه‌گیری یکنواخت از ابتدا تا انتهای موجودی مرتب‌شده؛
-  // با این روش فقط دامنه‌های ابتدای فهرست انتخاب نمی‌شوند.
-  final selected = <String>[];
-  final seen = <String>{};
-  for (var i = 0; i < sampleSize; i++) {
-    final index = ((i * (inventory.length - 1)) / (sampleSize - 1)).round();
-    final domain = inventory[index];
-    if (seen.add(domain)) selected.add(domain);
-  }
-  return selected;
-}
+/// اسکن خودکار و دستی DNS هر دو از تمام دامنه‌های موجود در منابع پروژه استفاده می‌کنند.
+/// شکست موقت یک دامنه باعث حذف آن از موجودی نمی‌شود؛ چرخه‌های بعدی دوباره آن را می‌آزمایند.
+List<String> dnsxAutoDomains({int sampleSize = 64}) =>
+    dnsxFullDomains();
 
 /// تبدیل فهرست‌های پروژه (مثل `domain:divar.ir`) به نام میزبان ساده
 List<String> _dnsxHostsFrom(Iterable<String> src) {
