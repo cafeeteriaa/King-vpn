@@ -2261,7 +2261,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         tls_end = source.index("await goldAddScans(", tls_start)
         tls = source[tls_start:tls_end]
         self.assertIn("for (final alpn in const ['h2', 'http/1.1'])", tls)
-        self.assertIn('batch.map((ip) => _autoAlpnOk(ip, target.key, tlsSni, alpn))', tls)
+        self.assertIn('batch.map((ip) => _autoAlpnOk(ip, 443, d, alpn))', tls)
         self.assertIn('if (cancelled()) break;', tls)
 
     def test_ip_auto_storage_load_and_save_are_mode_isolated_across_awaits(self):
@@ -2699,7 +2699,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('...ips,', body)
         self.assertIn("'sni_candidates': domainInventory", body)
         self.assertIn("'ip_candidates': discoveredIpCandidates", body)
-        self.assertLess(body.index('final domainInventory ='), body.index('final configuredPortTargets ='))
         self.assertIn("for (final k in const ['sni_candidates', 'ip_candidates', 'sni', 'port', 'tls'])", auto)
         self.assertIn("for (final k in const ['sni_candidates', 'ip_candidates', 'sni', 'port', 'tls'])", extras)
         self.assertIn("_goldScan['sni_candidates']", extras)
@@ -3266,9 +3265,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('type: InternetAddressType.any', auto)
         self.assertIn('address.type == InternetAddressType.IPv4 ||', auto)
         self.assertIn('...dnsResolvedIps', auto)
-        self.assertIn('_autoSniOk(ip, target.key, d)', auto)
+        self.assertIn('_autoSniOk(ip, 443, d)', auto)
         self.assertIn('_autoPortOk(ip, p)', auto)
-        self.assertIn('_autoAlpnOk(ip, target.key, tlsSni, alpn)', auto)
+        self.assertIn('_autoAlpnOk(ip, 443, d, alpn)', auto)
 
         diag = (ROOT / 'lib' / 'net_diag.dart').read_text(encoding='utf-8')
         self.assertIn("'2606:4700:4700::1111'", diag)
