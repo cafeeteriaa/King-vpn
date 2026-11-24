@@ -58,6 +58,21 @@ const List<String> kAutoSniDomains = [
   'www.shopify.com', 'www.salesforce.com', 'www.atlassian.com',
   'www.canva.com', 'www.figma.com', 'www.openai.com',
 ];
+// Domestic-mode discovery seeds. Do not mix global CDN/front-SNI catalogs into
+// the national-network candidate inventory; those addresses are commonly
+// unreachable during international isolation. Saved server hosts are added
+// separately because they are actual user/project endpoint candidates.
+const List<String> kAutoNationalSniDomains = [
+  'digikala.com', 'www.digikala.com', 'aparat.com', 'www.aparat.com',
+  'snapp.ir', 'www.snapp.ir', 'divar.ir', 'www.divar.ir',
+  'telewebion.com', 'www.telewebion.com', 'tasnimnews.com', 'www.tasnimnews.com',
+  'isna.ir', 'www.isna.ir', 'irna.ir', 'www.irna.ir',
+  'mehrnews.com', 'www.mehrnews.com', 'khabaronline.com',
+  'varzesh3.com', 'zoomit.ir', 'sheypoor.com', 'torob.com',
+  'basalam.com', 'filimo.com', 'namava.ir',
+  'irancell.ir', 'mci.ir', 'rightel.ir',
+  'bale.ai', 'web.eitaa.com',
+];
 const List<int> kAutoPorts = [443, 8443, 2053, 2083, 2087, 2096];
 // AUTOFALLBACK: IPهای داخلی برای وقتی پوشه‌ی جهانی هنوز IP تمیز ندارد
 const List<String> kAutoFallbackIps = [
@@ -273,10 +288,10 @@ Future<void> autoScanRun(void Function(String) say,
     // A failed handshake never removes a name; the persisted cursor rotates
     // through the complete merged inventory on subsequent completed runs.
     final domainSources = <String>{
-      ...kAutoSniDomains,
-      ...dnsxFullDomains(),
-      ...natFrontSnis,
-      ...natRelayHosts,
+      ...(scanNationalMode ? kAutoNationalSniDomains : kAutoSniDomains),
+      if (!scanNationalMode) ...dnsxFullDomains(),
+      if (!scanNationalMode) ...natFrontSnis,
+      if (!scanNationalMode) ...natRelayHosts,
     };
     for (final entry in _goldSrv.values) {
       final server = Server.parse(entry.link);
@@ -315,8 +330,13 @@ Future<void> autoScanRun(void Function(String) say,
         portInventory[(portStart + i) % portInventory.length],
     ];
     final stagedPortCursor = portBatch.isEmpty ? savedPortCursor : portBatch.last;
-    final cdnRanges = _liveCdnRanges.isNotEmpty ? _liveCdnRanges : [..._cfRanges, ..._cfRangesV6];
-    unawaited(refreshCdnRanges());
+    // Global CDN ranges are not useful national-mode seeds during isolation.
+    // Keep them available in global mode; national mode resolves domestic
+    // service domains and saved endpoint hosts instead.
+    final cdnRanges = scanNationalMode
+        ? const <String>[]
+        : (_liveCdnRanges.isNotEmpty ? _liveCdnRanges : [..._cfRanges, ..._cfRangesV6]);
+    if (!scanNationalMode) unawaited(refreshCdnRanges());
     // Add AAAA answers from the same project SNI inventory. Combine exact
     // A/AAAA endpoints and CDN CIDRs in one fair cursor iterator so no source
     // is permanently starved by the order of a concatenated list.
@@ -332,7 +352,10 @@ Future<void> autoScanRun(void Function(String) say,
       ...base,
       ...dnsResolvedIps,
       ...cdnRanges,
-      if (base.isEmpty && dnsResolvedIps.isEmpty && cdnRanges.isEmpty)
+      if (!scanNationalMode &&
+          base.isEmpty &&
+          dnsResolvedIps.isEmpty &&
+          cdnRanges.isEmpty)
         ...kAutoFallbackIps,
     }.toList()..sort();
     final ips = _getCfIps(
