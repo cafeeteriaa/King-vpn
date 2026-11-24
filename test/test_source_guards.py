@@ -3458,7 +3458,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_autoScanCdnCursorKey', inventory)
 
         run_start = source.index('Future<bool> _ipAutoRunOnce(')
-        run_end = source.index('Future<void> ipAutoBackground()', run_start)
+        run_end = source.index('Future<void> ipAutoSheet(', run_start)
         run = source[run_start:run_end]
         self.assertNotIn('if (pool.isEmpty) {\n      return false;', run)
         self.assertIn('if (knownEndpoints.isEmpty)', run)
