@@ -654,14 +654,14 @@ extension IpAutoExt on _HomePageState {
                     OutlinedButton(
                       onPressed: () async {
                         final values = _goldScan['ip_candidates'] ?? const <String>[];
-                        await Clipboard.setData(ClipboardData(text: values.join('\\n')));
+                        await Clipboard.setData(ClipboardData(text: values.join('\n')));
                         if (!ctx0.mounted) return;
                         ScaffoldMessenger.maybeOf(ctx0)?.showSnackBar(SnackBar(
                             content: Text('${values.length} IP کاندیدا کپی شد')));
                       },
                       child: Text('کپی همهٔ IPهای کاندیدا (${(_goldScan['ip_candidates'] ?? const <String>[]).length})'),
                     ),
-                    SelectableText((_goldScan['ip_candidates'] ?? const <String>[]).join('\\n')),
+                    SelectableText((_goldScan['ip_candidates'] ?? const <String>[]).join('\n')),
                     const Divider(height: 20),
                   ],
                   if (ipAutoHits.isNotEmpty)
