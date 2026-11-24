@@ -2,30 +2,31 @@
 
 ## Source of truth
 - Repository: `cafeeteriaa/King-vpn`
-- Active feature branch: `fix/dns-auto-full-domain-inventory-20261124`
-- Code HEAD under validation: `a749e6dfa3b0a71ebd11d00e8460cc4ed98b9fee` (parent: `7021ed70a7b793d83517ad3ddf8572f959e7a18e`).
-- PR #48 remains open Draft, based on `audit/unlimit-known-scanner-candidates-20261123`; not merged to `main`.
-- All GitHub Actions active at the start of this repair: none. No workflow was cancelled.
+- Active VPN feature branch: `fix/dns-auto-full-domain-inventory-20261124`
+- Implementation parent HEAD before this checkpoint commit: `5e3b34e85202ca10b1f8af48e9e7984a5bede028`.
+- This checkpoint commit advances the branch; resolve its exact HEAD from the branch ref after push.
+- PR #48 remains open Draft against `audit/unlimit-known-scanner-candidates-20261123`; no merge to `main`.
+- Active GitHub Actions at commit preparation: none. No workflow was cancelled.
 
-## Change under validation
-- Explicitly saved IP Clean IPv4/IPv6 ranges use the complete valid TCP port inventory (1–65535), with prioritized ordering and resumable per-port/per-range cursors.
-- Exact configured VPN server IPs outside those ranges are tested only on the ports declared in their server records.
-- Added `natPortsForActiveScan` and a Dart unit test that verifies the full inventory for explicit ranges and declared-port-only behavior for exact endpoints.
-- Source guards now verify the explicit-range full-port path and the exact-endpoint guard.
-- No source lists, range entries, ports, UDP inventory, or IP Clean features were deleted.
+## Changes in this checkpoint
+- Corrected the stale default-port inventory test: the default complete TCP-connect inventory is 1..65535, so it has 65,535 entries and does not include reserved port 0.
+- Kept explicit `firstPort: 0` support and its 65,536-entry test, so the generic inventory helper has not removed that opt-in capability.
+- Clarified the helper documentation to distinguish the default inventory from an explicit request for port 0.
+- No IP Clean sources, CIDRs, ranges, ports, address candidates, UDP inventory, or scan features were removed or narrowed.
 
 ## Validation evidence
-- Previous parent exact-head CI run 2542 succeeded for `7021ed70a7b793d83517ad3ddf8572f959e7a18e`: https://github.com/cafeeteriaa/King-vpn/actions/runs/45349053733.
-- First CI attempt for `a749e6dfa3b0a71ebd11d00e8460cc4ed98b9fee`, run 2543, failed in the Python source-guard stage before Flutter tests/analyze/build. The sole failure was a stale assertion in `test_nat_range_scan_uses_budget_sized_per_port_batches` expecting the removed `.where(configuredPorts.contains)` filter. The production change and new Dart test were not reached by that workflow.
-- Correcting that guard is the only change in the current follow-up commit; a new exact-head CI run is required.
+- Exact HEAD `5e3b34e85202ca10b1f8af48e9e7984a5bede028`, CI run 2552: source-repair guard passed; Flutter unit tests failed with 147 passed / 1 failed. The sole failure was the stale expectation that the default port inventory contains port 0 and has 65,536 entries. Analyze and Android build were skipped after the unit-test failure: https://github.com/cafeeteriaa/King-vpn/actions/runs/45353042246
+- The failing test was inspected from the CI job log and reproduced as an assertion mismatch against the implementation default `firstPort = 1`; this checkpoint changes the test and documents that default.
+- No local Flutter toolchain is available in this automation runtime; exact-head CI is the required validation path after this commit.
 
 ## Open limitations
-- Full TCP port inventory runs incrementally, one port and one bounded address slice per invocation; not an instantaneous exhaustive sweep.
-- Broad active port testing applies only to ranges explicitly entered in IP Clean. Exact configured server addresses remain limited to declared ports; adjacent ranges are not inferred.
-- No Android device, Iranian carrier, packet-level DNS capture, live tunnel, IPv6 data-plane, or CPU/battery profiling was available in this run.
-- Android VPN ownership, DNS route/leak verification, service lifecycle and failover race validation remain open.
+- Full TCP port inventory remains incremental and resumable; it is not an instantaneous exhaustive scan.
+- Broad active port testing remains scoped to explicitly configured IP Clean ranges. Exact saved VPN endpoint IPs use ports declared in their server records; no adjacent ranges are inferred.
+- Port 0 is retained as an explicit helper option, but is excluded from default TCP connect attempts because `Socket.connect` cannot target TCP port 0.
+- Android device/carrier testing, packet-level DNS leak capture, live IPv6 tunnel validation, VPN ownership/rival-VPN scenarios, and CPU/battery profiling remain unverified.
+- DNS route/leak, native service lifecycle, and failover race validation remain open.
 
 ## First next action
-1. Run the source guards again on the corrected exact HEAD, then require Flutter unit tests, `flutter analyze`, and arm64 release build to pass for that same SHA.
-2. If CI passes, record its run URL/status and inspect the exact-head artifact before any APK is presented.
-3. Continue Android device validation of VPN ownership and DNS traffic through the intended core/TUN path.
+1. Wait for the exact new HEAD's CI; require source guards, Flutter unit tests, `flutter analyze`, and the ARM64 release build to pass.
+2. Inspect the artifact only if that exact commit's workflow succeeds.
+3. Then continue device-level validation of DNS through TUN/core, VPN ownership and handover, IPv6 data plane, failover, and CPU/battery behavior.
