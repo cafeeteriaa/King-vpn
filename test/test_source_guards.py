@@ -2868,6 +2868,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         run = source[run_start:run_end]
         self.assertIn('endpointTargets[server.port]', run)
         self.assertIn('endpointIps', run)
+        self.assertIn('allowedEndpointPairs.contains', run)
+        self.assertIn('activeQueue', run)
+        self.assertIn('out-of-scope historical items stay queued', run)
         self.assertIn('server.port == port', run)
         self.assertIn('Core outbound delay is not proof', run)
         self.assertIn('promotion requires a real user tunnel test', run)
