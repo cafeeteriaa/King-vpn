@@ -2685,10 +2685,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         inventory_start = body.index('final domainInventory = domainSources')
         sources = body[sources_start:inventory_start]
         for independent_source in (
-            '...kAutoSniDomains',
-            '...dnsxFullDomains()',
-            '...natFrontSnis',
-            '...natRelayHosts',
+            '...(scanNationalMode ? kAutoNationalSniDomains : kAutoSniDomains)',
+            'if (!scanNationalMode) ...dnsxFullDomains()',
+            'if (!scanNationalMode) ...natFrontSnis',
+            'if (!scanNationalMode) ...natRelayHosts',
         ):
             self.assertIn(independent_source, sources)
 
@@ -2946,7 +2946,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_configured_candidate_inventories_are_not_truncated_by_fixed_counts(self):
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
-        start = auto.index('final base = [for (final entry in _goldIps.values) entry.ip];')
+        start = auto.index('final base = scanNationalMode')
         end = auto.index('final ips =', start)
         inventory = auto[start:end]
         self.assertIn('_getCfIps(', auto)
@@ -3115,7 +3115,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('...base,', auto)
         self.assertIn('...dnsResolvedIps,', auto)
         self.assertIn('...cdnRanges,', auto)
-        self.assertIn('scanNationalMode ? const <String>[]', auto)
+        self.assertIn('final cdnRanges = scanNationalMode', auto)
+        self.assertIn('? const <String>[]', auto)
         self.assertIn('liveRanges: targetRanges,', auto)
         self.assertIn('cursors: stagedCdnCursors,', auto)
         self.assertLess(
@@ -3371,7 +3372,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_full_tcp_port_inventory_runs_only_on_saved_vpn_server_ips(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
-        self.assertIn('_autoConfiguredPortTargets(', source)
+        self.assertNotIn('_autoConfiguredPortTargets(', source)
         self.assertIn('_autoConfiguredServerIps(', source)
         self.assertIn('final portInventory = natBuildFullPortInventory(kAutoPorts);', source)
         self.assertIn('final portIps = portTargetIps;', source)
