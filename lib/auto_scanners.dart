@@ -225,9 +225,11 @@ Future<List<String>> _autoResolveDualStackTargets({required List<String> domains
     if (cancelled?.call() ?? false) break;
     for (final addresses in resolved) {
       for (final address in addresses) {
-        if ((address.type == InternetAddressType.IPv4 ||
-                address.type == InternetAddressType.IPv6) &&
-            !_privateIp(address)) {
+        // Passive DNS inventory retains every valid A/AAAA observation,
+        // including private, link-local and ULA addresses. Address scope is
+        // evidence, not a discovery filter; active probes remain separately gated.
+        if (address.type == InternetAddressType.IPv4 ||
+            address.type == InternetAddressType.IPv6) {
           out.add(address.address);
         }
       }
