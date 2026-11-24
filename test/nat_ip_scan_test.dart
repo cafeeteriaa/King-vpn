@@ -5,6 +5,33 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:king_vpn/nat_ip_scan.dart';
 
 void main() {
+  group('natQueueSplit', () {
+    test('preserves all unique overflow candidates when active queue is bounded', () {
+      final split = natQueueSplit<int>(
+        incoming: [1, 2, 3, 2],
+        active: [3, 4],
+        overflow: [4, 5, 6],
+        keyOf: (value) => '$value',
+        activeLimit: 3,
+      );
+      expect(split.active, [1, 2, 3]);
+      expect(split.overflow, [4, 5, 6]);
+      expect([...split.active, ...split.overflow].toSet(), {1, 2, 3, 4, 5, 6});
+    });
+
+    test('zero active capacity keeps every unique candidate in overflow', () {
+      final split = natQueueSplit<String>(
+        incoming: ['a', 'b'],
+        active: ['b', 'c'],
+        overflow: ['d'],
+        keyOf: (value) => value,
+        activeLimit: 0,
+      );
+      expect(split.active, isEmpty);
+      expect(split.overflow, ['a', 'b', 'c', 'd']);
+    });
+  });
+
   group('IP range expansion limits', () {
     test('full port inventory includes every valid port once after priority seeds', () {
       expect(

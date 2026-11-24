@@ -23,6 +23,44 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:math';
 
+/// A bounded active queue plus a lossless overflow queue.
+/// The caller can keep the hot portion small without discarding candidates.
+class NatQueueSplit<T> {
+  final List<T> active;
+  final List<T> overflow;
+  const NatQueueSplit({required this.active, required this.overflow});
+}
+
+NatQueueSplit<T> natQueueSplit<T>({
+  required Iterable<T> incoming,
+  required Iterable<T> active,
+  required Iterable<T> overflow,
+  required String Function(T) keyOf,
+  required int activeLimit,
+}) {
+  if (activeLimit < 0) {
+    throw ArgumentError.value(activeLimit, 'activeLimit', 'Must not be negative');
+  }
+  final seen = <String>{};
+  final nextActive = <T>[];
+  final nextOverflow = <T>[];
+  void add(Iterable<T> values) {
+    for (final value in values) {
+      if (!seen.add(keyOf(value))) continue;
+      if (nextActive.length < activeLimit) {
+        nextActive.add(value);
+      } else {
+        nextOverflow.add(value);
+      }
+    }
+  }
+
+  add(incoming);
+  add(active);
+  add(overflow);
+  return NatQueueSplit<T>(active: nextActive, overflow: nextOverflow);
+}
+
 import 'errjournal.dart';
 import 'nnie_core.dart'; // natStableSort
 

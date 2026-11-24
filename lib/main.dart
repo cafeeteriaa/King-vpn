@@ -10353,11 +10353,14 @@ ListTile( // KINGEXTRAS row
           autoUpgrade = true;
           autoCycle = true;
           // NATRANGE: پس‌زمینه، هر ۵ دقیقه، بخشی کم از بازه‌های IP با سرعت کم
-          // NATPENDCAP: اگر pending از سقف گذشته، اسکن بازه‌ی جدید اضافه نکن
-          if (localPilotOn && cpuHot == 0 &&
+          // NATPENDCAP: وقتی صف فعال و سرریز با هم پرند، اسکن بازه‌ی تازه را موقتاً مکث کن
+          final hasRangeTemplate = pending.isNotEmpty ||
+              natRestPending.isNotEmpty || natTemplateSeeds.isNotEmpty || good.isNotEmpty;
+          if (localPilotOn && cpuHot == 0 && hasRangeTemplate &&
               DateTime.now().difference(natRangeLast) >
                   const Duration(minutes: 5) &&
-              pending.length < max(3000, natAdaptiveWorkers() * 1500)) {
+              pending.length + natRestPending.length <
+                  max(3000, natAdaptiveWorkers() * 1500)) {
             natRangeLast = DateTime.now();
             unawaited(() async {
               final ips = await natRangeScanStep(
@@ -10634,6 +10637,8 @@ ListTile( // KINGEXTRAS row
     // سرورهای سالم (_resMap) با نسبت ثابت به صف اضافه می‌شوند
     // (منابع تازه ۴۰۰، پوشه ۳۰۰ با چرخش _resMergeCursor).
     if (!nationalMode || !kNatMergeCache) return;
+    final queueLimit = max(3000, natAdaptiveWorkers() * 1500);
+    if (pending.length + natRestPending.length >= queueLimit) return;
     // FOLDERS: سهم ثابت در هر دور. منابع تازه ۴۰۰ کانفیگ، سرورهای سالم ۳۰۰ تا
     // (با چرخش، تا همه‌ی پوشه نوبت بگیرد). سرورهایی که همین الان در صف یا در
     // لیست سالم هستند دوباره اضافه نمی‌شوند.
@@ -10658,11 +10663,17 @@ ListTile( // KINGEXTRAS row
     if (c.isEmpty) return;
     final add = [for (final s in c) if (queued.add(s.link)) s];
     if (add.isEmpty) return;
-    // فیکس ۱۶: درج درجا و حذف انتهای لیست (بدون ساخت دو لیست تازه)
-    pending.insertAll(0, add);
-    if (pending.length > 1200) {
-      pending.removeRange(1200, pending.length); // بدون allocation
-    }
+    // Keep the active queue bounded, but retain every overflow candidate for
+    // later rounds instead of advancing source cursors and silently dropping it.
+    final split = natQueueSplit<Server>(
+      incoming: add,
+      active: pending,
+      overflow: natRestPending,
+      keyOf: (server) => server.link,
+      activeLimit: 1200,
+    );
+    pending = split.active;
+    natRestPending = split.overflow;
     _set('نت ملی: ${add.length} کانفیگ از پوشه‌ها به صف اضافه شد');
   }
 
@@ -10818,7 +10829,7 @@ ListTile( // KINGEXTRAS row
     }
     final made = <Server>[];
     final seenMade = <String>{}; // DEDUPE: IP تکراری در همین دسته حذف شود
-    final existingKeys = {for (final s in pending) s.key};
+    final existingKeys = {for (final s in [...pending, ...natRestPending]) s.key};
     for (final item in items) {
       final parts = item.split('|');
       if (parts.length < 2) continue;
@@ -10837,9 +10848,15 @@ ListTile( // KINGEXTRAS row
     }
     if (made.isEmpty) return;
     if (count) natIpFound += items.length;
-    pending = [...made, ...pending];
-    // NATPENDCAP: pending بیش از ۳۰۰۰ نشود (حافظه و زمان دسته‌بندی)؛ انتهای صف حذف می‌شود
-    if (pending.length > 3000) pending.removeRange(3000, pending.length);
+    final split = natQueueSplit<Server>(
+      incoming: made,
+      active: pending,
+      overflow: natRestPending,
+      keyOf: (server) => server.key,
+      activeLimit: 3000,
+    );
+    pending = split.active;
+    natRestPending = split.overflow;
     natRangeCursor = 0;
   }
 
@@ -11679,6 +11696,17 @@ ListTile( // KINGEXTRAS row
     final runNationalMode = nationalMode;
     try {
       if (!runNationalMode || abort) return;
+      final hasRangeTemplate = pending.isNotEmpty ||
+          natRestPending.isNotEmpty || natTemplateSeeds.isNotEmpty || good.isNotEmpty;
+      if (!hasRangeTemplate) {
+        dbg('NAT range scan deferred: no config template is available');
+        return;
+      }
+      final queueLimit = max(3000, natAdaptiveWorkers() * 1500);
+      if (pending.length + natRestPending.length >= queueLimit) {
+        dbg('NAT range scan deferred: candidate queue is draining');
+        return;
+      }
       final ips = await natRangeScanStep(
           known: [...pending, ...natRestPending],
           maxAddrs: 30000, // SCANCAP: قبلاً ۱۰۰ هزار با بودجه ۱۲ دقیقه

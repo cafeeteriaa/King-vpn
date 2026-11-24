@@ -1603,7 +1603,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('maxAddrs: max(8192, min(16384, natAdaptiveWorkers() * 2048))', keep)
         self.assertIn('conc: min(4, natAdaptiveWorkers())', keep)
         self.assertIn('budget: const Duration(minutes: 3)', keep)
-        self.assertIn('pending.length < max(3000, natAdaptiveWorkers() * 1500)', keep)
+        self.assertIn('pending.length + natRestPending.length <', keep)
         self.assertIn('int maxAddrs = 8192,', (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8'))
         for condition in ('!mounted', '!connected', '!wantVpn', '!nationalMode',
                           '!localPilotOn', 'appGone', 'abort'):
@@ -2353,6 +2353,43 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final elapsed = Stopwatch()..start();', source)
         self.assertIn('if (elapsed.elapsed >= budget) return;', source)
         self.assertNotIn('DateTime.now().add(budget)', source)
+
+    def test_nat_queue_split_preserves_overflow_without_dropping_candidates(self):
+        source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('NatQueueSplit<T> natQueueSplit<T>(')
+        end = source.index('Future<int?> natTcpProbe(', start)
+        helper = source[start:end]
+        self.assertIn('incoming', helper)
+        self.assertIn('active', helper)
+        self.assertIn('overflow', helper)
+        self.assertIn('nextOverflow.add(value);', helper)
+        self.assertIn('keyOf(value)', helper)
+
+    def test_nat_queue_caps_preserve_overflow_and_pause_new_ranges(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        merge_start = source.index('Future<void> _natMergeCache() async {')
+        merge_end = source.index('Future<void> _natPrescan()', merge_start)
+        merge = source[merge_start:merge_end]
+        self.assertIn('pending.length + natRestPending.length >= queueLimit', merge)
+        self.assertIn('activeLimit: 1200', merge)
+        self.assertNotIn('pending.removeRange(1200', merge)
+        range_start = source.index('Future<void> _natRangeAdd(')
+        range_end = source.index('void _userListsDialog', range_start)
+        range_add = source[range_start:range_end]
+        self.assertIn('activeLimit: 3000', range_add)
+        self.assertIn('overflow: natRestPending', range_add)
+        self.assertIn('[...pending, ...natRestPending]', range_add)
+        self.assertNotIn('pending.removeRange(3000', range_add)
+        scan_start = source.index('Future<void> _natScanOnly() async {')
+        scan_end = source.index('Future<void> _natQuickStart()', scan_start)
+        scan_only = source[scan_start:scan_end]
+        self.assertIn('pending.length + natRestPending.length >= queueLimit', scan_only)
+        self.assertIn('no config template is available', scan_only)
+        keep_start = source.index('Future<void> _natKeep() async {')
+        keep_end = source.index('Future<void> _natScanOnly() async {', keep_start)
+        keep = source[keep_start:keep_end]
+        self.assertIn('pending.length + natRestPending.length <', keep)
+        self.assertIn('hasRangeTemplate', keep)
 
     def test_nat_tcp_probe_uses_cancelable_connection_tasks_and_bounded_polling(self):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')

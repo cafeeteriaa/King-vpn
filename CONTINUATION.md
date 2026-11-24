@@ -256,3 +256,12 @@ These are three distinct technical review passes by the same assistant, not thre
 - The national pre-scan now resolves hostnames in bounded concurrent batches (all candidates in the current 400-item round are attempted unless aborted), then preserves the original independent monotonic 90-second TCP budget. Unresolved candidates remain queued for later rounds.
 - Added deterministic `IOOverrides` tests for cancellation during socket connection, cancellation while `startConnect` is still resolving, and timeout cancellation; source guards cover both scanner call paths.
 - This is source/CI validation only; physical Android network handover and real-world socket cancellation behavior remain untested on devices.
+
+
+## 2026-11-24 — Lossless NAT candidate queue overflow
+
+- Added a pure, deduplicating queue-split helper: active queue limits now move overflow into `natRestPending` instead of deleting the tail. Applied to the national source merge (1,200 active entries) and range-generated candidates (3,000 active entries).
+- Duplicate detection now includes both active and overflow queues.
+- Range scanning and source merging pause when the combined queue reaches its backpressure threshold; the range cursor is not advanced while paused. The existing range/domain/IP/IPv4/IPv6/port search scope is unchanged.
+- Range scans also defer before advancing the cursor when no configuration template is available.
+- Added unit and source-guard tests proving that bounded active queues preserve all unique overflow entries.
