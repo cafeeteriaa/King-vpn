@@ -39,7 +39,7 @@ int natCursorIndex(Object? value, int length) {
 /// Preferred values affect order only; they never exclude another port.
 List<int> natBuildFullPortInventory(
   Iterable<int> preferredPorts, {
-  int firstPort = 0,
+  int firstPort = 1,
   int lastPort = 65535,
 }) {
   if (firstPort < 0 || lastPort > 65535 || firstPort > lastPort) {
@@ -83,7 +83,7 @@ List<int> natPortsForActiveScan({
 
 /// UDP and TCP have independent inventories/cursors at their consumers.
 List<int> natBuildFullUdpPortInventory(Iterable<int> preferredPorts) =>
-    natBuildFullPortInventory(preferredPorts, firstPort: 0, lastPort: 65535);
+    natBuildFullPortInventory(preferredPorts, firstPort: 1, lastPort: 65535);
 
 class NatIpHit {
   final String ip;
