@@ -2916,10 +2916,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('const int _autoScanCdnBatchSize = 8;', auto)
         self.assertIn("const String _autoScanPortCursorKey = 'auto_scan_port_cursor_v1';", auto)
         self.assertIn('const int _autoScanPortBatchSize = 24;', auto)
-        self.assertIn('final priorityPorts = <int>{', auto)
+        self.assertIn('final portInventory = natBuildFullPortInventory(kAutoPorts);', auto)
         self.assertNotIn('natAutoPorts([...good, ...pending, ...fetchedAll])', auto)
         self.assertIn('_autoConfiguredPortTargets(', auto)
-        self.assertIn('configuredPortTargets[p]', auto)
+        self.assertIn('final portIps = portTargetIps;', auto)
+        self.assertIn('_autoConfiguredServerIps(', auto)
         self.assertNotIn('for (var port = 1; port <= 65535; port++)', auto)
         self.assertIn('final portBatch = <int>[', auto)
         self.assertIn('for (final p in portBatch)', auto)
@@ -3334,7 +3335,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = ports.index('List<int> natBuildFullPortInventory(')
         end = ports.index('class NatIpHit', start)
         inventory = ports[start:end]
-        self.assertIn('int firstPort = 0', inventory)
+        self.assertIn('int firstPort = 1', inventory)
         self.assertIn('int lastPort = 65535', inventory)
         self.assertIn('natBuildFullUdpPortInventory', inventory)
 
