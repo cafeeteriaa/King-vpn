@@ -2523,16 +2523,33 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_dns_wire_probe_cancellation_closes_pending_udp_work(self):
         core = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
         start = core.index('static Future<NatDnsProbeResult> probe(')
-        end = core.index('\n  }\n}', start)
+        end = core.index('\\n  }\\n}', start)
         probe = core[start:end]
         self.assertIn('bool Function()? cancelled', probe)
-        self.assertIn('Timer.periodic(const Duration(milliseconds: 100)', probe)
-        self.assertIn('completer.completeError(const _NatDnsProbeCancelled())', probe)
+        self.assertIn('cancellationRequested()', probe)
+        self.assertIn('cancellationCallbackFailed = true;', probe)
+        self.assertIn('Timer.periodic(', probe)
+        self.assertIn('cancellationSignal?.future', probe)
         self.assertIn('await subscription?.cancel();', probe)
-        self.assertIn('finally {\n        socket?.close();', probe)
+        self.assertIn('socket?.close();', probe)
+        self.assertIn('bindFuture.then<void>(', probe)
+        self.assertIn('lateSocket.close()', probe)
+        wait_helper = core[core.index('static Future<T> _waitForProbe'):start]
+        self.assertIn('Future.any<T>(futures).timeout(timeout)', wait_helper)
         dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
         self.assertIn('cancelled: stop,', dns)
         self.assertIn('if (stop != null && stop()) return null;', dns)
+
+    def test_dns_wire_names_obey_wire_limit_and_pointer_order(self):
+        core = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
+        start = core.index('static List<int> buildQuery(')
+        end = core.index('static bool publicV4(', start)
+        query = core[start:end]
+        self.assertIn('wireNameLength > 255', query)
+        start = core.index('static String _readName(')
+        end = core.index('static List<String> parseResponse(', start)
+        name_reader = core[start:end]
+        self.assertIn('ptr < 12 || ptr >= p || ptr >= b.length', name_reader)
 
     def test_nat_domain_first_discards_partial_results_after_cancel_or_deadline(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')

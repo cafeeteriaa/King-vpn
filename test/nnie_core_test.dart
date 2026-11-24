@@ -227,6 +227,12 @@ void main() {
       expect(q.length, 12 + 7 + 4 + 1 + 4); // header + labels + root + type/class
     });
 
+    test('buildQuery rejects DNS names exceeding the 255-octet wire limit', () {
+      final labels = List<String>.filled(4, 'a' * 63);
+      expect(() => NatDnsWireProbe.buildQuery(labels.join('.'), 0x1234),
+          throwsA(isA<FormatException>()));
+    });
+
     test('buildQuery can request AAAA records', () {
       final q = NatDnsWireProbe.buildQuery('google.com', 0x1234, recordType: 28);
       expect(q.sublist(q.length - 4), [0, 28, 0, 1]);
@@ -304,6 +310,16 @@ void main() {
       );
       expect(result.ok, isFalse);
       expect(result.error, 'cancelled');
+    });
+
+    test('cancellation callback exceptions fail closed before socket allocation', () async {
+      final result = await NatDnsWireProbe.probe(
+        '127.0.0.1',
+        'example.com',
+        cancelled: () => throw StateError('cancel state disposed'),
+      );
+      expect(result.ok, isFalse);
+      expect(result.error, 'cancellation callback failed');
     });
 
     test('publicV4 rejects special-use ranges and accepts public addresses', () {
