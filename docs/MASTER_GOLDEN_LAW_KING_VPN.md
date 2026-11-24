@@ -31,7 +31,7 @@ Maintain distinct observations for IP addresses, domains, DNS answers, ports, SN
 
 Discovery must not silently discard an observation merely because its provider, owner, geography or technology label is unknown. Metadata labels are descriptive, not proof of reachability or quality.
 
-IPv4 and IPv6 address spaces and global DNS/SNI/Host names are not practically enumerable as finite jobs. The implementation must not claim complete Internet-wide enumeration. Use independently maintained discovery mechanisms, bounded work, deduplication and resumable state. The TCP and UDP port-number inventories cover connect ports 1 through 65535; port zero is not a normal connect target.
+IPv4 and IPv6 address spaces and global DNS/SNI/Host names are not practically enumerable as finite jobs. The implementation must not claim complete Internet-wide enumeration. Use independently maintained discovery mechanisms, bounded work, deduplication and resumable state. The TCP and UDP port-number inventories cover the complete numeric interval 1..65535 (ports 1 through 65535); port zero is not a normal connect target.
 
 ## 3. Active testing boundary
 
