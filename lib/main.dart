@@ -7436,10 +7436,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         good.add(s);
         _saveSoon();
       }
-      // FOLDER-ALL: every server that passes a test goes into the healthy folder now,
-      // not only the one that ends up connected (_resAdd ignores personal servers and
-      // only refreshes an entry that is already saved)
-      _resAdd(s);
+      // A delay/core ping is discovery evidence only. Do not write it to the
+      // verified-resource folder; _onConnected() persists only after the
+      // real TUN + core HTTP-response acceptance gate has passed.
     } else {
       // The timestamp belongs to the failed check, not to the previous ping.
       // Clear that ping so freshness gates cannot promote stale latency evidence.
@@ -12837,11 +12836,10 @@ ListTile( // KINGEXTRAS row
     }
     current = null;
     upServer = null;
-    // قطع اتصال: سرورهای صفحه همان لحظه حذف می‌شوند و همه‌ی سرورهای سالم به پوشه‌ی سالم می‌روند.
-    // ذخیره‌ی صفحه فقط وقتی برنامه روشن است انجام می‌شود، تا بستن برنامه لیست ذخیره‌شده را خالی نکند.
-    for (final g in good) {
-      _resAdd(g);
-    }
+    // The in-memory 'good' list is a discovery/candidate queue, not a
+    // verified-route store. Verified routes were persisted by _onConnected()
+    // only after real tunnel traffic passed; never promote ping-only entries
+    // during disconnect cleanup.
     good.clear();
     _personalShown = <Server>[]; // مشکل ۱۳: قبلاً شرط !switching همیشه false بود و لیست پاک نمی‌شد
     unawaited(_persistScreenLists());
