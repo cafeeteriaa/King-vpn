@@ -3631,5 +3631,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('natScanIps(\n        independentIpCandidates,', run)
         self.assertIn("_goldScan['ip_candidates']", source)
 
+
+    def test_passive_dual_stack_dns_inventory_retains_private_and_special_scope_addresses(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        start = source.index('Future<List<String>> _autoResolveDualStackTargets(')
+        end = source.index('Future<void> autoScanRun(', start)
+        resolver = source[start:end]
+        self.assertIn('address.type == InternetAddressType.IPv4', resolver)
+        self.assertIn('address.type == InternetAddressType.IPv6', resolver)
+        self.assertIn('out.add(address.address)', resolver)
+        self.assertNotIn('_privateIp(address)', resolver)
+
 if __name__ == '__main__':
     unittest.main()
