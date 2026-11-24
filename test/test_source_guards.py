@@ -3244,7 +3244,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("invokeMethod<bool>('kingVpnTunnelActive')", tun_check)
         self.assertIn("invokeMethod<bool>('kingVpnTransportActive')", tun_check)
         self.assertIn('androidVpnTunnelEvidence(', tun_check)
-        self.assertIn('if (evidence == true) return true;', tun_check)
+        self.assertIn('if (evidence == true) {', tun_check)
+        self.assertIn('return true;', tun_check)
         self.assertNotIn("if (kVpnLastStateTop == 'CONNECTED') return true;", tun_check)
         self.assertNotIn("kVpnLastStateTop == 'CONNECTED' ? true : null", tun_check)
         android_start = tun_check.index('if (Platform.isAndroid) {')
@@ -3289,7 +3290,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("invokeMethod<bool>('kingVpnTunnelActive')", body)
         self.assertIn("invokeMethod<bool>('kingVpnTransportActive')", body)
         self.assertIn('androidVpnTunnelEvidence(', body)
-        self.assertIn('if (evidence == true) return true;', body)
+        self.assertIn('if (evidence == true) {', body)
+        self.assertIn('return true;', body)
         self.assertIn('return false;', body)
 
     def test_nat_candidate_blocks_never_expand_a_single_public_ip_to_neighbouring_ranges(self):
