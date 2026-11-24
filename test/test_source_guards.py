@@ -3237,5 +3237,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('firstPort: 1, // TCP connect() cannot target port zero.', nat)
 
 
+    def test_ping_only_candidates_never_enter_verified_resource_store(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        record_start = main.index('void _record(Server s, int? d) {')
+        record_end = main.index('// TCP prefilter', record_start)
+        record = main[record_start:record_end]
+        self.assertIn('good.add(s)', record)
+        self.assertNotIn('_resAdd(s)', record)
+        connected_start = main.index('void _onConnected(Server s) {')
+        connected_end = main.index('Future<bool> _tunnelTrafficOk()', connected_start)
+        connected = main[connected_start:connected_end]
+        self.assertIn('if (!s.personal) _resAdd(s);', connected)
+        disconnect_start = main.index('current = null;', main.index('Future<void> _disconnect'))
+        disconnect_end = main.index('good.clear();', disconnect_start)
+        disconnect = main[disconnect_start:disconnect_end]
+        self.assertNotIn('_resAdd(', disconnect)
+
+
 if __name__ == '__main__':
     unittest.main()
