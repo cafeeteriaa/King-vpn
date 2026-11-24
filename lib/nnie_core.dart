@@ -16,6 +16,22 @@ enum NatNetworkClass {
 
 enum NatAttemptStage { quick, alternate, expensive }
 
+/// Combines the two independent Android VPN signals.
+/// A live KingVpnService TUN descriptor and an active VPN owned by this app
+/// are both required; a generic interface or another provider's VPN is not proof.
+bool? androidVpnTunnelEvidence({
+  required bool? serviceTunnelActive,
+  required bool? activeVpnOwnedByApp,
+}) {
+  if (serviceTunnelActive == false || activeVpnOwnedByApp == false) {
+    return false;
+  }
+  if (serviceTunnelActive == true && activeVpnOwnedByApp == true) {
+    return true;
+  }
+  return null;
+}
+
 /// Coalesces concurrent requests for the same asynchronous operation.
 /// Every caller receives the same result/error; a later call can retry after
 /// completion. This prevents overlapping network diagnosis from returning a

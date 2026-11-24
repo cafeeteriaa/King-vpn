@@ -36,6 +36,52 @@ List<int> _response({
 }
 
 void main() {
+  group('androidVpnTunnelEvidence', () {
+    test('requires both the live King service TUN and owned VPN transport', () {
+      expect(
+        androidVpnTunnelEvidence(
+          serviceTunnelActive: true,
+          activeVpnOwnedByApp: true,
+        ),
+        isTrue,
+      );
+    });
+
+    test('either definitive negative rejects the tunnel', () {
+      expect(
+        androidVpnTunnelEvidence(
+          serviceTunnelActive: false,
+          activeVpnOwnedByApp: true,
+        ),
+        isFalse,
+      );
+      expect(
+        androidVpnTunnelEvidence(
+          serviceTunnelActive: true,
+          activeVpnOwnedByApp: false,
+        ),
+        isFalse,
+      );
+    });
+
+    test('incomplete native evidence remains unknown', () {
+      expect(
+        androidVpnTunnelEvidence(
+          serviceTunnelActive: null,
+          activeVpnOwnedByApp: true,
+        ),
+        isNull,
+      );
+      expect(
+        androidVpnTunnelEvidence(
+          serviceTunnelActive: true,
+          activeVpnOwnedByApp: null,
+        ),
+        isNull,
+      );
+    });
+  });
+
   stableSortTests();
   group('NatSingleFlight', () {
     test('concurrent callers share one result and later calls can run again', () async {

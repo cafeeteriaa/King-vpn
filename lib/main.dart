@@ -4170,27 +4170,62 @@ bool lastStartNoTunnel = false; // last _start failed because Android built no t
 String kVpnLastStateTop = ''; // TUNSTATE-FIX: آینه‌ی سراسری lastState برای tunUp()
 String tunNames = ''; // interface names seen by the last tunUp() (diagnostics)
 Future<bool?> tunUp() async {
+  if (Platform.isAndroid) {
+    try {
+      // A generic tun0/ppp interface may belong to another VPN provider.
+      // Require both the custom service's live TUN descriptor and Android's
+      // active VPN transport ownership before accepting this tunnel.
+      for (var attempt = 0; attempt < 5; attempt++) {
+        final serviceActive =
+            await bgChannel.invokeMethod<bool>('kingVpnTunnelActive');
+        final vpnOwned =
+            await bgChannel.invokeMethod<bool>('kingVpnTransportActive');
+        final evidence = androidVpnTunnelEvidence(
+          serviceTunnelActive: serviceActive,
+          activeVpnOwnedByApp: vpnOwned,
+        );
+        if (evidence == true) {
+          tunNames = 'android:KINGVPN_TUN_AND_OWNED_TRANSPORT';
+          return true;
+        }
+        tunNames =
+            'android:KINGVPN_TUN_UNVERIFIED(service=$serviceActive, owned=$vpnOwned)';
+        if (attempt < 4) {
+          await Future.delayed(const Duration(milliseconds: 800));
+        }
+      }
+      return false;
+    } catch (_nativeTunError) {
+      // Do not fall back to generic interface names on Android: that can
+      // mistake a competing VPN's interface for King VPN's own tunnel.
+      _swl('tunUp#native', _nativeTunError);
+      tunNames = 'android:KINGVPN_NATIVE_EVIDENCE_UNAVAILABLE';
+      return false;
+    }
+  }
+
+  // Non-Android compatibility path. Android always uses the native ownership proof above.
   try {
     for (var attempt = 0; attempt < 5; attempt++) {
-      final l = await NetworkInterface.list(includeLoopback: false);
-      tunNames = l.map((i) => i.name).join(',');
-      final hasTunnel = l.any((i) {
-        final n = i.name.toLowerCase();
-        return n.startsWith('tun') ||
-            n.startsWith('ppp') ||
-            n.startsWith('vpn') ||
-            n.startsWith('utun') ||
-            n.contains('xray') ||
-            n.contains('v2ray');
+      final interfaces = await NetworkInterface.list(includeLoopback: false);
+      tunNames = interfaces.map((i) => i.name).join(',');
+      final hasTunnel = interfaces.any((i) {
+        final name = i.name.toLowerCase();
+        return name.startsWith('tun') ||
+            name.startsWith('ppp') ||
+            name.startsWith('vpn') ||
+            name.startsWith('utun') ||
+            name.contains('xray') ||
+            name.contains('v2ray');
       });
       if (hasTunnel) return true;
-      if (attempt < 4) await Future.delayed(const Duration(milliseconds: 800));
+      if (attempt < 4) {
+        await Future.delayed(const Duration(milliseconds: 800));
+      }
     }
-    // CONNECTED is only a core state event, not proof that Android created a TUN.
-    // If no VPN interface can be observed, report unverified instead of passing.
     return false;
-  } catch (_swE) {
-    _swl('tunUp#1', _swE);
+  } catch (_interfaceError) {
+    _swl('tunUp#interfaces', _interfaceError);
     return null;
   }
 }

@@ -124,6 +124,30 @@ class MainActivity : FlutterActivity() {
                         "alive" -> result.success(
                             engineAttached && !isFinishing && !isDestroyed
                         )
+                        "kingVpnTunnelActive" -> {
+                            result.success(KingVpnService.isKingVpnTunnelActive())
+                        }
+                        "kingVpnTransportActive" -> {
+                            val connectivity =
+                                getSystemService(android.net.ConnectivityManager::class.java)
+                            val network = connectivity?.activeNetwork
+                            val capabilities = if (network == null) {
+                                null
+                            } else {
+                                connectivity.getNetworkCapabilities(network)
+                            }
+                            val isVpnTransport = capabilities?.hasTransport(
+                                android.net.NetworkCapabilities.TRANSPORT_VPN
+                            ) == true
+                            // Android 11+ identifies the active VPN's owner. On older
+                            // releases, the service-owned TUN check is the additional proof.
+                            val ownerMatches = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                capabilities?.ownerUid == applicationInfo.uid
+                            } else {
+                                true
+                            }
+                            result.success(isVpnTransport && ownerMatches)
+                        }
                         "back" -> {
                             moveTaskToBack(true)
                             result.success(true)

@@ -3240,11 +3240,57 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         tun_start = main.index('Future<bool?> tunUp()')
         tun_end = main.index('// real ping: HTTP request to gstatic', tun_start)
         tun_check = main[tun_start:tun_end]
-        self.assertIn('if (hasTunnel) return true;', tun_check)
-        self.assertIn('return false;', tun_check)
+        self.assertIn('if (Platform.isAndroid) {', tun_check)
+        self.assertIn("invokeMethod<bool>('kingVpnTunnelActive')", tun_check)
+        self.assertIn("invokeMethod<bool>('kingVpnTransportActive')", tun_check)
+        self.assertIn('androidVpnTunnelEvidence(', tun_check)
+        self.assertIn('if (evidence == true) return true;', tun_check)
         self.assertNotIn("if (kVpnLastStateTop == 'CONNECTED') return true;", tun_check)
         self.assertNotIn("kVpnLastStateTop == 'CONNECTED' ? true : null", tun_check)
+        android_start = tun_check.index('if (Platform.isAndroid) {')
+        interface_start = tun_check.index('NetworkInterface.list')
+        self.assertLess(android_start, interface_start)
+        self.assertIn('return false;', tun_check[android_start:interface_start])
 
+
+    def test_king_vpn_tunnel_status_requires_its_live_tun_descriptor(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = native.index('public static boolean isKingVpnTunnelActive()')
+        end = native.index('private static class Srv', start)
+        body = native[start:end]
+        self.assertIn('KingVpnService service = instance;', body)
+        self.assertIn('!service.active || service.stopping', body)
+        self.assertIn('synchronized (service.tunLock)', body)
+        self.assertIn('currentTun.getFileDescriptor().valid()', body)
+
+    def test_android_vpn_transport_status_checks_owner_uid(self):
+        native = (ROOT / 'android_src' / 'MainActivity.kt').read_text(encoding='utf-8')
+        start = native.index('"kingVpnTransportActive" -> {')
+        end = native.index('"back" -> {', start)
+        body = native[start:end]
+        self.assertIn('TRANSPORT_VPN', body)
+        self.assertIn('Build.VERSION.SDK_INT >= Build.VERSION_CODES.R', body)
+        self.assertIn('capabilities?.ownerUid == applicationInfo.uid', body)
+        self.assertIn('result.success(isVpnTransport && ownerMatches)', body)
+
+    def test_failover_clears_stale_active_state_before_trying_another_server(self):
+        native = (ROOT / 'android_src' / 'KingVpnService.java').read_text(encoding='utf-8')
+        start = native.index('private boolean connectFrom(int first)')
+        end = native.index('private boolean bringUpWithTimeout', start)
+        body = native[start:end]
+        self.assertIn('active = false;', body)
+        self.assertLess(body.index('active = false;'), body.index('for (int k = 0; k < n; k++)'))
+
+    def test_android_tun_acceptance_requires_both_native_signals(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<bool?> tunUp()')
+        end = main.index('// real ping: HTTP request to gstatic', start)
+        body = main[start:end]
+        self.assertIn("invokeMethod<bool>('kingVpnTunnelActive')", body)
+        self.assertIn("invokeMethod<bool>('kingVpnTransportActive')", body)
+        self.assertIn('androidVpnTunnelEvidence(', body)
+        self.assertIn('if (evidence == true) return true;', body)
+        self.assertIn('return false;', body)
 
     def test_nat_candidate_blocks_never_expand_a_single_public_ip_to_neighbouring_ranges(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')

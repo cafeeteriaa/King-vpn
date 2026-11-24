@@ -208,6 +208,16 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
     /** جدید: the running instance, so the app can stop it directly (no background startService). */
     public static volatile KingVpnService instance = null;
 
+    /** True only while this service owns a live TUN fd after a successful core start. */
+    public static boolean isKingVpnTunnelActive() {
+        KingVpnService service = instance;
+        if (service == null || !service.active || service.stopping) return false;
+        synchronized (service.tunLock) {
+            ParcelFileDescriptor currentTun = service.tun;
+            return currentTun != null && currentTun.getFileDescriptor().valid();
+        }
+    }
+
     /** جدید: sends a status to Dart if a sink is registered. Never throws. */
     private void emit(String state, String error, int attempt) {
         StatusSink s = statusSink;
@@ -416,6 +426,8 @@ public class KingVpnService extends VpnService implements V2rayServicesListener 
 
     /** Try each server starting at [first]; the first one that comes up wins. */
     private boolean connectFrom(int first) {
+        // Do not expose the previous server as active while failover is replacing its TUN.
+        active = false;
         int n = servers.size();
         for (int k = 0; k < n; k++) {
             if (stopping) return false; // جدید: a Stop stops the list walk at once; no next server starts
