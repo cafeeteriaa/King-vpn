@@ -3,6 +3,8 @@
 
 This policy governs every KING VPN scanner and its connection workflow.
 
+All scanner observations, endpoint checks and traffic are used solely to establish, maintain, recover or verify connectivity for the KING VPN application.
+
 ## 1. Two independent scanner modes
 
 ### Manual scanner
