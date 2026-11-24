@@ -2873,7 +2873,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('const int _autoScanPortBatchSize = 24;', auto)
         self.assertIn('final priorityPorts = <int>{', auto)
         self.assertNotIn('natAutoPorts([...good, ...pending, ...fetchedAll])', auto)
-        self.assertIn('for (var port = 1; port <= 65535; port++)', auto)
+        self.assertIn('_autoConfiguredPortTargets(', auto)
+        self.assertIn('configuredPortTargets[p]', auto)
+        self.assertNotIn('for (var port = 1; port <= 65535; port++)', auto)
         self.assertIn('final portBatch = <int>[', auto)
         self.assertIn('for (final p in portBatch)', auto)
         self.assertIn('prefs.setInt(_autoScanPortCursorKey, stagedPortCursor)', auto)
@@ -2900,7 +2902,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('type: InternetAddressType.any', auto)
         self.assertIn('address.type == InternetAddressType.IPv4 ||', auto)
         self.assertIn('_autoSniOk(ip, 443, d)', auto)
-        self.assertIn('_autoPortOk(ip, p)', auto)
+        self.assertIn('batch.map((ip) => _autoPortOk(ip, p))', auto)
+        self.assertIn('portIps.skip(offset)', auto)
         self.assertIn('_autoAlpnOk(ip, tlsSni, alpn)', auto)
 
     def test_clean_ip_scan_uses_resumable_dual_stack_range_batches(self):
