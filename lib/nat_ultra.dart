@@ -2403,29 +2403,28 @@ Future<List<String>> _natRangeScanStepBody({
   await _natLoadRangeCursors();
   if (shouldAbort()) return const <String>[];
 
-  var seeds = known;
-  if (seeds.length < 50) {
-    try {
-      final hotSeeds = await natHotNext(800, fetch: false);
-      if (shouldAbort()) return const <String>[];
-      seeds = [...known, ...hotSeeds];
-    } catch (e, stk) {
-      logError(e, stk);
-      if (shouldAbort()) return const <String>[];
-    }
-  }
+  // Active probes are scoped to endpoints supplied in the current saved
+  // server configurations and explicitly configured address ranges. Historical
+  // natIpMem observations and fetched hot-list entries are discovery evidence,
+  // not authorization to scan those hosts or their other ports.
+  final seeds = known;
   if (shouldAbort()) return const <String>[];
-
-  // Keep the existing scan scope: exact previously successful endpoints,
-  // current config IPs, and user-entered ranges. Both families use the same
-  // cursor engine; no address-prefix floor is applied.
   final hosts = <String>{
-    ...natIpMemHosts(),
-    for (final server in seeds) if (server.isIp) server.host,
+    for (final server in seeds)
+      if (server.isIp) server.host,
   }.toList(growable: false);
   final blocks = natSeedBlocks(hosts);
 
-  final portList = natFullPortInventory(seeds);
+  // Keep the complete TCP port inventory available for discovery/planning,
+  // but actively probe only ports explicitly declared by these configurations.
+  // TCP connect cannot target port zero.
+  final configuredPorts = seeds
+      .map((server) => server.port)
+      .where((port) => port >= 1 && port <= 65535)
+      .toSet();
+  final portList = natFullPortInventory(seeds)
+      .where(configuredPorts.contains)
+      .toList(growable: false);
   if (portList.isEmpty) return const <String>[];
   final modeKey = modeSnapshot ? 'nat' : 'global';
   final lastPort = _natRangePortCursors[modeKey] ?? 0;
