@@ -111,22 +111,24 @@ Future<void> _ipAutoSave() async {
 
 /// Inventory پویا برای اسکن IP؛ رنج‌های تنظیم‌شده و بلوک‌های کشف‌شده
 /// به‌صورت چرخشی پیمایش می‌شوند تا هیچ بخش ثابتِ ابتدای فهرست انحصاری نشود.
-List<String> _ipAutoBlocks(Iterable<Server> knownServers) {
+Future<List<String>> _ipAutoBlocks(Iterable<Server> knownServers) async {
   final blocks = <String>{};
   final ips = <String>{};
 
-  void addHostBlock(String host) {
+  void addHostBlock(String host, {bool expandIpv4Subnet = false}) {
     final parsed = InternetAddress.tryParse(host.trim());
     if (parsed == null) return;
     ips.add(parsed.address);
     if (parsed.type == InternetAddressType.IPv6) {
-      // A discovered IPv6 endpoint is tested as that exact address; do not
-      // infer or enumerate an enormous neighbouring IPv6 prefix.
+      // Preserve the exact IPv6 endpoint as /128. Never guess a /64 or
+      // enumerate an enormous IPv6 allocation from one observed address.
       blocks.add('${parsed.address}/128');
       return;
     }
-    final octets = parsed.address.split('.');
-    blocks.add('${octets[0]}.${octets[1]}.${octets[2]}.0/24');
+    if (expandIpv4Subnet) {
+      final octets = parsed.address.split('.');
+      blocks.add('${octets[0]}.${octets[1]}.${octets[2]}.0/24');
+    }
   }
 
   if (nationalMode) {
@@ -137,9 +139,23 @@ List<String> _ipAutoBlocks(Iterable<Server> knownServers) {
       ..addAll(natIpMemHosts())
       ..addAll(natScanHits.map((hit) => hit.split('|').first));
   } else {
-    // حالت جهانی مستقل می‌ماند؛ فقط از IPهای pool جهانی بلوک می‌سازد.
-    for (final server in knownServers) {
-      if (server.isIp) addHostBlock(server.host);
+    // Resolve every known hostname to both A and AAAA records. Domain-backed
+    // servers used to be skipped entirely by the global IP inventory.
+    final servers = knownServers.toList(growable: false);
+    for (var offset = 0; offset < servers.length; offset += 8) {
+      final batch = servers.skip(offset).take(8);
+      final resolved = await Future.wait(batch.map((server) async {
+        if (server.isIp) return <String>[server.host];
+        return nipResolveAll(server.host);
+      }));
+      for (var index = 0; index < resolved.length; index++) {
+        for (final address in resolved[index]) {
+          // Literal IPv4 server entries retain the existing nearby /24 seed;
+          // DNS answers are exact /32 or /128 targets to avoid broad expansion.
+          addHostBlock(address,
+              expandIpv4Subnet: servers[offset + index].isIp);
+        }
+      }
     }
   }
 
