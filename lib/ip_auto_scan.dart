@@ -337,6 +337,10 @@ extension IpAutoExt on _HomePageState {
       }
     }
     final ports = endpointTargets.keys.toList()..sort();
+    final allowedEndpointPairs = <String>{
+      for (final entry in endpointTargets.entries)
+        for (final ip in entry.value) '$ip|${entry.key}',
+    };
 
     // مرحله‌ی ۱: TCP فقط روی host:portهای اعلام‌شده در کانفیگ‌ها
     final candidates = <String>[];
@@ -388,19 +392,22 @@ extension IpAutoExt on _HomePageState {
       return true;
     }
     final fallbackTemplate = tpl.first;
+    final activeQueue = ipAutoPendingCore
+        .where(allowedEndpointPairs.contains)
+        .toList(growable: true);
     var found = 0;
     var checked = 0;
-    // No fixed candidate-count cap: work until the adaptive time budget expires.
-    // Every untested item remains persisted in the queue for the next run.
+    // Only pending pairs still present in the current configured endpoint
+    // inventory are actively tested; out-of-scope historical items stay queued.
     final coreClock = Stopwatch()..start();
-    say('${candidates.length} پورت باز • ${ipAutoPendingCore.length} مورد در صف تست هسته');
-    while (ipAutoPendingCore.isNotEmpty &&
+    say('${candidates.length} endpointها • ${activeQueue.length} مورد مجاز برای تست هسته');
+    while (activeQueue.isNotEmpty &&
         coreClock.elapsed < _ipAutoCoreBudget) {
       if (halted()) break;
-      final c = ipAutoPendingCore.first;
+      final c = activeQueue.removeAt(0);
       checked++;
       if (seen.contains(c)) {
-        ipAutoPendingCore.removeAt(0);
+        ipAutoPendingCore.remove(c);
         continue;
       }
       final parts = c.split('|');
@@ -415,7 +422,7 @@ extension IpAutoExt on _HomePageState {
       final firstOk = await _ipAutoCoreOk(s, url);
       if (halted()) return false;
       if (!firstOk) {
-        ipAutoPendingCore.removeAt(0);
+        ipAutoPendingCore.remove(c);
         say('تست $checked • جواب‌داده: $found');
         continue;
       }
@@ -426,7 +433,7 @@ extension IpAutoExt on _HomePageState {
         say('تست $checked • جواب‌داده: $found');
         continue;
       }
-      ipAutoPendingCore.removeAt(0);
+      ipAutoPendingCore.remove(c);
       ipAutoHits.insert(0, c);
       // Core outbound delay is not proof of a clean IP or Android TUN health.
       // Keep it as a candidate only; promotion requires a real user tunnel test.
