@@ -3132,6 +3132,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('only the core/TUN validation', source)
         self.assertIn('usable route', source)
 
+    def test_proxy_only_mode_cannot_pass_the_vpn_tunnel_acceptance_gate(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<bool> _tunnelTrafficOk() async {')
+        end = main.index('Future<bool> _stableTunnelTrafficOk', start)
+        gate = main[start:end]
+        self.assertIn('if (proxyMode) return false;', gate)
+        self.assertNotIn('if (proxyMode) return true;', gate)
+        self.assertIn('_siteOpens(u, viaCore: true)', gate)
+
 
 if __name__ == '__main__':
     unittest.main()
