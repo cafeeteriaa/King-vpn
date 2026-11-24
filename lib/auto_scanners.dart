@@ -89,11 +89,11 @@ Future<int?> _autoSniOk(String ip, int port, String sni) async {
       onBadCertificate: (_) => true,
     ).timeout(const Duration(seconds: 4));
     secure.write(
-      'GET / HTTP/1.1\\r\\n'
-      'Host: $sni\\r\\n'
-      'User-Agent: KING-VPN-Connectivity-Probe/1.0\\r\\n'
-      'Accept: */*\\r\\n'
-      'Connection: close\\r\\n\\r\\n',
+      'GET / HTTP/1.1\r\n'
+      'Host: $sni\r\n'
+      'User-Agent: KING-VPN-Connectivity-Probe/1.0\r\n'
+      'Accept: */*\r\n'
+      'Connection: close\r\n\r\n',
     );
     await secure.flush().timeout(const Duration(seconds: 3));
     final statusLine = await utf8.decoder
@@ -101,7 +101,7 @@ Future<int?> _autoSniOk(String ip, int port, String sni) async {
         .transform(const LineSplitter())
         .first
         .timeout(const Duration(seconds: 4));
-    final match = RegExp(r'^HTTP/1\\.[01]\\s+(\\d{3})').firstMatch(statusLine);
+    final match = RegExp(r'^HTTP/1\.[01]\s+(\d{3})').firstMatch(statusLine);
     final status = int.tryParse(match?.group(1) ?? '');
     if (status == null || status < 200 || status >= 400) return null;
     return sw.elapsedMilliseconds;
