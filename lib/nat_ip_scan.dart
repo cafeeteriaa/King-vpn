@@ -35,15 +35,14 @@ int natCursorIndex(Object? value, int length) {
   return parsed % length;
 }
 
-/// Build a complete TCP port inventory, placing preferred ports first.
-/// Preferred ports affect order only; every valid port in the requested range
-/// is included exactly once.
+/// Build the complete 0..65535 port-number inventory for one transport.
+/// Preferred values affect order only; they never exclude another port.
 List<int> natBuildFullPortInventory(
   Iterable<int> preferredPorts, {
-  int firstPort = 1,
+  int firstPort = 0,
   int lastPort = 65535,
 }) {
-  if (firstPort < 1 || lastPort > 65535 || firstPort > lastPort) {
+  if (firstPort < 0 || lastPort > 65535 || firstPort > lastPort) {
     return const <int>[];
   }
   final seen = <int>{};
@@ -57,6 +56,10 @@ List<int> natBuildFullPortInventory(
   }
   return out;
 }
+
+/// UDP and TCP have independent inventories/cursors at their consumers.
+List<int> natBuildFullUdpPortInventory(Iterable<int> preferredPorts) =>
+    natBuildFullPortInventory(preferredPorts, firstPort: 0, lastPort: 65535);
 
 class NatIpHit {
   final String ip;
