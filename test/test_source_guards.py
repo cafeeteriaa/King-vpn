@@ -3791,6 +3791,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_national_mode_prioritizes_domestic_inventory_without_dropping_global_sources(self):
         dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        full_start = dns.index('List<String> dnsxFullDomains()')
+        full_end = dns.index('/// Full project domain inventory', full_start)
+        full = dns[full_start:full_end]
+        for source in (
+            '...kDnsxNationalProbeDomains,',
+            '...kDnsxGlobalDomains,',
+            '...kAutoNationalSniDomains,',
+            '...kAutoSniDomains,',
+            '..._dnsxHostsFrom(natFrontSnis),',
+            '..._dnsxHostsFrom(natRelayHosts),',
+        ):
+            self.assertIn(source, full)
+        self.assertNotIn('.take(', full)
+
         start = dns.index('List<String> dnsxNationalFirstDomains(')
         end = dns.index('/// متن نمایشی دامنه‌ها', start)
         ordered = dns[start:end]
