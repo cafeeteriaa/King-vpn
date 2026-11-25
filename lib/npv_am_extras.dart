@@ -1564,8 +1564,6 @@ extension NpvAmExtras on _HomePageState {
   }
 }
 
-const int kGoldIpCap = 100000;
-const int kGoldSrvCap = 20000;
 const int kGoldDailyProbes = 250000;
 const int kGoldRetestBatch = 500;
 const int kGoldEveryMin = 5;
@@ -1671,23 +1669,6 @@ Future<void> goldSave() async {
     await _goldWrite(p);
   } catch (e, stk) {
     logError(e, stk);
-  }
-}
-
-void _goldTrimIps() {
-  if (_goldIps.length <= kGoldIpCap) return;
-  final keep = kGoldIpCap * 95 ~/ 100;
-  final l = _goldIps.values.toList()..sort((a, b) => a.ms.compareTo(b.ms));
-  for (final v in l.skip(keep)) {
-    _goldIps.remove(v.ip);
-  }
-}
-
-void _goldTrimSrv() {
-  if (_goldSrv.length <= kGoldSrvCap) return;
-  final l = _goldSrv.values.toList()..sort((a, b) => a.ping.compareTo(b.ping));
-  for (final v in l.skip(kGoldSrvCap)) {
-    _goldSrv.remove(v.link);
   }
 }
 
@@ -1807,7 +1788,6 @@ Future<void> goldMergeIps(
   for (final c in res) {
     _goldIps[c.ip] = _GoldIp(c.ip, c.ms, c.port, now, now);
   }
-  _goldTrimIps();
   _goldTop = null;
   await _goldWrite(p);
 }
@@ -1870,7 +1850,6 @@ Future<void> _goldIpStep() async {
     }
   }
   _goldCnt += batch.length;
-  _goldTrimIps();
   _goldTop = null;
   // _cleanCandidates stages a resumable dual-stack cursor. Gold background
   // discovery must commit it too, but only after every candidate in this slice
@@ -1903,7 +1882,6 @@ Future<void> _goldSrvStep(_HomePageState h) async {
     }
     changed = true;
   }
-  _goldTrimSrv();
 
   if (!nationalMode) {
     final retestMs = kGoldRetestHours * 3600 * 1000;
@@ -2174,7 +2152,6 @@ void goldNoteServer(Server srv) {
     ex.okAt = now;
     ex.testAt = now;
   }
-  _goldTrimSrv();
   _goldSaveT ??= Timer(const Duration(seconds: 20), () {
     _goldSaveT = null;
     unawaited(goldSave());
