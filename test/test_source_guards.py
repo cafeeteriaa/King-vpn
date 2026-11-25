@@ -4013,13 +4013,27 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_readLinksUnlocked()', store)
         self.assertNotIn('FreshResourceStore.maxEntries', page)
         self.assertNotIn('_maxEntries', nnie)
-        self.assertIn('_memory.map((k, v) => MapEntry(k, v.toJson()))', nnie)
+        self.assertIn('_memory.map((key, value) => MapEntry(key, value.toJson()))', nnie)
+        self.assertIn('static Future<void> _saveTail', nnie)
+        self.assertIn('_loaded = true;', nnie)
+        self.assertIn('rethrow;', nnie)
         self.assertNotIn('maxEntries', research)
         self.assertIn('return entries.map(jsonEncode).toList();', research)
         self.assertIn('static Future<void> _researchWriteQueue', local_ai)
         self.assertIn('await temp.rename(file.path);', local_ai)
 
 
+
+    def test_fusion_disconnect_is_cancellation_safe_and_cleanup_is_retryable(self):
+        fusion = (ROOT / 'lib' / 'king_fusion_engine.dart').read_text(encoding='utf-8')
+        tests = (ROOT / 'test' / 'king_fusion_engine_test.dart').read_text(encoding='utf-8')
+        self.assertIn('_disconnectRequested = true;', fusion)
+        self.assertIn("'E-FUSION-CANCELLED'", fusion)
+        self.assertIn('cleanupFailedEngineIds', fusion)
+        self.assertIn('..addAll(failed.reversed)', fusion)
+        self.assertIn('disconnect waits for an in-flight native start', tests)
+        self.assertIn('retains failed native stops', tests)
+        self.assertIn('reports and retains cleanup failures', tests)
 
 if __name__ == '__main__':
     unittest.main()
