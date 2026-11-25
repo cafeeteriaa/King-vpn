@@ -185,6 +185,28 @@ void main() {
       ), isFalse);
     });
 
+    test('sub-quorum TLS observations do not earn a confidence bonus', () {
+      const withoutTls = NetworkEvidence(
+        domestic: LinkHealth.degraded,
+        global: LinkHealth.unreachable,
+        domesticSamples: 5,
+        globalSamples: 5,
+        domesticSuccesses: 3,
+        globalSuccesses: 0,
+      );
+      const withTls = NetworkEvidence(
+        domestic: LinkHealth.degraded,
+        global: LinkHealth.unreachable,
+        domesticSamples: 5,
+        globalSamples: 5,
+        domesticSuccesses: 3,
+        globalSuccesses: 0,
+        domesticTlsReachabilityVerified: true,
+      );
+      expect(withTls.acceptsTlsReachability(nationalOnly: true), isFalse);
+      expect(withTls.confidence, withoutTls.confidence);
+    });
+
     test('inconsistent counters cannot inflate confidence or TLS reachability', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.healthy,

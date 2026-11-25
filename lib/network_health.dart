@@ -223,9 +223,11 @@ class NetworkEvidence {
     // Average both independent groups so an unobserved side cannot disappear
     // from the denominator and make one-sided evidence look fully certain.
     final coverage = ((domesticRate + globalRate) / 2).clamp(0, 1).toDouble();
+    // A TLS flag earns confidence only when the same group has a valid
+    // healthy quorum; a minority of successful endpoints is not enough.
     final verified =
-        (domesticTlsReachabilityVerified && domesticSuccesses >= 2 ? 1 : 0) +
-        (globalTlsReachabilityVerified && globalSuccesses >= 2 ? 1 : 0);
+        (acceptsTlsReachability(nationalOnly: true) ? 1 : 0) +
+        (acceptsTlsReachability(nationalOnly: false) ? 1 : 0);
     return (coverage * (0.55 + verified * 0.225)).clamp(0, 1).toDouble();
   }
 }
