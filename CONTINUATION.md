@@ -371,3 +371,15 @@ These are three distinct technical review passes by the same assistant, not thre
 - Both the active endpoint and address-scope paths now use the same canonical representation before exact pair matching.
 - Added regression tests for expanded/compressed IPv6 equivalence, all-zero and trailing-zero runs, and unchanged IPv4 formatting.
 - The latest source-guard run before this correction exposed one stale source assertion; it was updated to check the canonicalizer. The newest exact-head CI run is pending.
+
+
+## 2026-11-25 — IP Auto atomic recovery checkpoint
+
+- Added versioned per-mode `ipauto_snapshot_v2_nat` / `ipauto_snapshot_v2_glob` snapshots. Each serialized value contains IP:port observations, the pending core-verification backlog, all range cursors, and the current position.
+- `ipAutoLoad` treats a valid v2 snapshot as authoritative and migrates from existing independent preference keys only when v2 is absent or malformed. Legacy keys remain intact for compatibility.
+- `ipAutoSave` commits the full state through one `SharedPreferences.setString` operation instead of four independently awaited writes. This is a single-key application checkpoint, not a filesystem-fsync guarantee.
+- The IP Auto run persists the completed TCP cursor with the complete pending core-verification queue before lengthy native-core checks. Successful queue removals/promotions are checkpointed, allowing process-death recovery during verification.
+- Added tests for round-trip, legacy migration, valid-empty authority, corrupt fallback and invalid positions, plus a source guard enforcing the single-write save path.
+- Three-pass review: (1) state model and nat/global separation; (2) crash windows and queue durability; (3) legacy migration and single-write regression guard.
+- Exact-head CI run 2984 is in progress for commit `46be052d79bf8c5ec06da441ee966b2b96cd541f`. Do not claim this stage validated until source guards, Flutter tests, Dart analysis and ARM64 release build all complete successfully.
+- Device-level tunnel, DNS-leak, IPv4/IPv6 data-plane, network-handover and battery tests remain NOT TESTED.
