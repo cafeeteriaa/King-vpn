@@ -3029,8 +3029,8 @@ Future<List<Server>> _natHotNextUnlocked(int n,
         await raf.setPosition(from);
         final bytes = await raf.read(to - from);
         final pageText = utf8.decode(bytes, allowMalformed: true);
-        for (final entry in pageText.split('\\n')) {
-          final tab = entry.indexOf('\\t');
+        for (final entry in pageText.split('\n')) {
+          final tab = entry.indexOf('\t');
           if (tab < 0) continue;
           final server = Server.parse(entry.substring(tab + 1));
           if (server != null) {
