@@ -471,3 +471,16 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) compatibility — no changes to the base adapter interface and no new requirements for existing adapters; (2) lifecycle/safety — stop calls are serialized per adapter and handles remain retained until successful cleanup; (3) regression — misplaced compile-time assertion removed and timeout/overlap/retry behavior covered by a focused test.
 - Commits: `cf6ccda3cbff4ee5a614b482f57463b21f3aaf96` (serialized stop operations), `58d2f6ced0b733ace590e07fc85f3b5bb41c8a35` (test correction and stop-concurrency regression).
 - The exact latest branch head is `58d2f6ced0b733ace590e07fc85f3b5bb41c8a35`. The new exact-head CI run must complete before claiming tests, analyzer or Android release build are validated. Physical device/data-plane tests remain outstanding.
+
+
+## 2026-11-25 — Fusion preflight containment and dependency-safe rollback
+
+- Hardened preflight against adapter-owned compatibility code throwing unexpectedly. A thrown `canChainTo()` now becomes the stable `E-FUSION-VALIDATION-EXCEPTION` result before any native adapter starts; adapter compatibility checks are documented as side-effect-free.
+- Added a regression test proving a compatibility-check exception does not start either hop and does not escape as an uncaught exception.
+- Continued the cleanup-order audit and corrected a dependency hazard: if stopping a downstream hop fails or times out, rollback now stops at that point and retains that hop plus every upstream hop. It no longer tears down an upstream dependency while the downstream engine may still be running.
+- A later disconnect retries in reverse dependency order: downstream first, then upstream only after downstream cleanup succeeds.
+- The in-flight stop map now uses identity semantics, avoiding accidental collisions if adapter classes implement value-based equality.
+- Added a two-hop regression test that forces the downstream stop to fail, verifies the upstream stop is not attempted, then verifies a later retry stops downstream and upstream in the correct order.
+- Three-pass review: (1) compatibility — base adapter methods unchanged; preflight errors are now represented as result codes; (2) lifecycle — strict reverse dependency cleanup and identity-keyed serialization preserve native handle ownership; (3) regression — preflight exception and two-hop cleanup retry tests added.
+- Commits: `d5859428a6d0e95e4e63979fcf4ba835c7b7005f` (preflight exception containment), `52aff9ca4d0d02c40e698e2d277f1cd24d4e0e04` (preflight regression), `8cd647d5bb0ee88e8995f13786d71f9ec3351cbe` (dependency-safe cleanup), `c39ae3f521757db274d8192eee4ac5afb64fb174` (reverse-order regression).
+- Exact latest-head CI is required before validation claims. Earlier workflow attempts are still processing/cancelled for intermediate heads; no current-head test/analyze/Android build result is claimed.
