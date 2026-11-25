@@ -2637,7 +2637,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_nat_variant_inventory_has_no_hidden_retirement_or_cooldown(self):
         ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        auto_test = (ROOT / 'lib' / 'auto_test.dart').read_text(encoding='utf-8')
         self.assertNotIn('_natRetiredNames', ultra)
+        self.assertNotIn('natRetired(', auto_test)
         self.assertNotIn('natRetired(', ultra)
         self.assertNotIn('_varcbLimit', ultra)
         self.assertNotIn('_varcbCooldown', ultra)
