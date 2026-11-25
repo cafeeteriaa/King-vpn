@@ -2661,6 +2661,25 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('pending.length + natRestPending.length <', keep)
         self.assertIn('natRanges.isNotEmpty', keep)
 
+    def test_diagnostics_persist_and_report_all_error_groups_without_truncation(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        save_start = main.index('Future<void> _dbgProbSave() async {')
+        save_end = main.index('// "پاک کردن": everything goes', save_start)
+        save = main[save_start:save_end]
+        self.assertIn('for (final e in l)', save)
+        self.assertNotIn('take(400)', save)
+
+        auto = (ROOT / 'lib' / 'auto_test.dart').read_text(encoding='utf-8')
+        report_start = auto.index('final groups = <String, List<ErrEntry>>{}')
+        report_end = auto.index('String _atDiagnosis()', report_start)
+        report = auto[report_start:report_end]
+        self.assertIn('final important = keys;', report)
+        self.assertIn('for (final k in important)', report)
+        self.assertIn('پیام کامل: $m', report)
+        self.assertNotIn('take(40)', report)
+        self.assertNotIn('substring(0, 300)', report)
+        self.assertNotIn('bool noisy(', report)
+
     def test_background_scanners_have_no_fixed_time_or_cycle_cooldowns(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
