@@ -1016,7 +1016,7 @@ Future<void> _doRefreshClean() async {
     final workers = min(20, candidates.length);
     await Future.wait(List.generate(workers, (_) => worker()));
     results.sort((a, b) => a.ms.compareTo(b.ms));
-    cleanIps = results.take(20).toList();
+    cleanIps = results.toList();
     cleanIpsAt = DateTime.now();
     final complete = done >= candidates.length;
     cleanIpStatus = complete
@@ -1880,7 +1880,6 @@ Future<void> _goldSrvStep(_HomePageState h) async {
     final retestMs = kGoldRetestHours * 3600 * 1000;
     final due = _goldSrv.values
         .where((v) => nowMs - v.testAt >= retestMs)
-        .take(20)
         .toList();
     // GATEMAX: سقف گیت تست قبل از حلقه‌ی due
     // DSGETTER: از مقدار مؤثر
