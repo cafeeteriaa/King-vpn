@@ -493,3 +493,12 @@ These are three distinct technical review passes by the same assistant, not thre
 - Added a two-hop regression test: the first hop starts, the second start is held, disconnect is requested, and the second adapter then throws. The result is cancellation, the first hop is stopped, and the engine returns to idle.
 - Three-pass review: (1) API consistency — thrown and returned start failures follow the same cancellation semantics; (2) lifecycle — already-started handles still enter reverse-order rollback; (3) regression — explicit test covers the exception/disconnect interleaving.
 - Commits: `77066d5c032ddbb7704b6896edff66ed4090e255` (cancellation result mapping), `287a7019bdee76a7c376219f7db13f05664ed9c3` (race regression test).
+
+
+## 2026-11-25 — Reconnect guard while native cleanup is pending
+
+- Split the previous active-connection guard into two precise states: a healthy connected route returns `E-FUSION-ALREADY-ACTIVE`, while retained native handles from failed/timed-out cleanup return `E-FUSION-CLEANUP-PENDING`.
+- This prevents a new route from starting while an earlier native engine may still be alive. Reconnect becomes available only after a later disconnect successfully clears the retained handles.
+- Extended the failed-stop retry test to attempt a new connection before cleanup retry; it verifies the explicit cleanup-pending result and confirms no second native start occurs.
+- Three-pass review: (1) state semantics — connected and cleanup-pending are distinct; (2) lifecycle safety — no new engine can overlap a still-owned native handle; (3) regression — reconnect is blocked until reverse-order cleanup succeeds.
+- Commits: `2aa5b14650cea4a485484882948de61eaee28f10` (cleanup-pending guard), `3cfc20a107c48fa483f6ac7823a4efe6f9077298` (reconnect regression test).
