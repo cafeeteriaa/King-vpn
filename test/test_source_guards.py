@@ -4001,5 +4001,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('git push', workflow)
 
 
+    def test_persistent_resource_and_endpoint_inventories_have_no_fixed_count_ceiling(self):
+        store = (ROOT / 'lib' / 'fresh_resource_store.dart').read_text(encoding='utf-8')
+        page = (ROOT / 'lib' / 'fresh_resources_page.dart').read_text(encoding='utf-8')
+        nnie = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        self.assertNotIn('maxEntries', store)
+        self.assertNotIn('result.length >=', store)
+        self.assertIn('Iterable<String> values', store)
+        self.assertNotIn('FreshResourceStore.maxEntries', page)
+        self.assertNotIn('_maxEntries', nnie)
+        self.assertIn('_memory.map((k, v) => MapEntry(k, v.toJson()))', nnie)
+
+
+
 if __name__ == '__main__':
     unittest.main()
