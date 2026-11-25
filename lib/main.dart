@@ -5114,6 +5114,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   late final V2ray v2ray;
   // The active Fusion coordinator owns only starts issued through its V2Ray adapter.
   KingFusionEngine? _activeV2RayFusion;
+  Future<void>? _legacyV2RayStopInFlight;
   // ALL healthy servers (no count limit). Servers saved from the last session
   // are loaded here too (checkedAt == null) and tested first.
   final List<Server> good = [];
@@ -6136,6 +6137,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return false;
   }
 
+  /// Serializes fallback cleanup for a legacy core that predates Fusion
+  /// ownership. The original platform Future remains tracked after timeout.
+  Future<void> _stopLegacyV2RaySerialized() {
+    final current = _legacyV2RayStopInFlight;
+    if (current != null) return current;
+    final operation = Future<void>.sync(() => v2ray.stopV2Ray());
+    _legacyV2RayStopInFlight = operation;
+    operation.then<void>(
+      (_) {
+        if (identical(_legacyV2RayStopInFlight, operation)) {
+          _legacyV2RayStopInFlight = null;
+        }
+      },
+      onError: (Object _, StackTrace __) {
+        if (identical(_legacyV2RayStopInFlight, operation)) {
+          _legacyV2RayStopInFlight = null;
+        }
+      },
+    );
+    return operation;
+  }
+
   // stops V2Ray through the same Fusion owner that started it. If native
   // cleanup times out, Fusion retains the handle and prevents a new start from
   // silently replacing an engine whose stop outcome is still unknown.
@@ -6157,7 +6180,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           dbg('FUSION-CLEANUP-PENDING: ${fusion.cleanupPendingEngineIds.join(',')}');
         }
       } else {
-        await v2ray.stopV2Ray().timeout(
+        await _stopLegacyV2RaySerialized().timeout(
           const Duration(seconds: 8),
           onTimeout: () {},
         );
