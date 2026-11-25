@@ -65,3 +65,20 @@ double? medianThroughput(List<double> samples) {
 /// Only positive finite body throughput is a valid timestamped observation.
 bool isValidThroughputSample(double? value) =>
     value != null && value.isFinite && value > 0;
+
+/// One shared ranking score for sorting and automatic ping-swap safeguards.
+/// Missing/stale evidence stays unknown; it is never converted into a measured zero.
+double? effectiveThroughputScore({
+  required double? currentSpeed,
+  required List<double> history,
+  required DateTime? measuredAt,
+  required DateTime now,
+}) {
+  final base = ageAdjustedThroughput(
+    megabytesPerSecond: medianThroughput(history) ?? currentSpeed,
+    measuredAt: measuredAt,
+    now: now,
+  );
+  if (base == null) return null;
+  return base * throughputStabilityFactor(history);
+}
