@@ -2674,9 +2674,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(guard, save)
 
 
-if __name__ == '__main__':
-    unittest.main()
-
     def test_full_source_discovery_has_no_per_source_or_global_deadline_ceiling(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('Future<List<Server>> fetchServers(')
@@ -2716,3 +2713,7 @@ if __name__ == '__main__':
         method = dns[start:end]
         self.assertIn('...savedDns,', method)
         self.assertNotIn('savedDns.take(40)', method)
+
+
+if __name__ == '__main__':
+    unittest.main()
