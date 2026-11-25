@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path_provider/path_provider.dart';
 
 /// Persistent, app-private store for freshly downloaded public VPN profiles.
@@ -18,6 +19,13 @@ class FreshResourceStore {
   static const String _configFileName = 'configs.txt';
   static const String _metadataFileName = 'metadata.json';
   static const int _metadataSchema = 2;
+  static Directory? _rootDirectoryForTesting;
+
+  /// Overrides the platform directory only in tests; pass null to restore it.
+  @visibleForTesting
+  static void setRootDirectoryForTesting(Directory? directory) {
+    _rootDirectoryForTesting = directory;
+  }
 
   // All mutations and snapshots share one serialized lane. The tail itself
   // never remains failed, so one failed write cannot poison later operations.
@@ -36,7 +44,7 @@ class FreshResourceStore {
   }
 
   static Future<Directory> directory() async {
-    final root = await getApplicationSupportDirectory();
+    final root = _rootDirectoryForTesting ?? await getApplicationSupportDirectory();
     final dir = Directory('${root.path}/$directoryName');
     if (!await dir.exists()) await dir.create(recursive: true);
     return dir;
