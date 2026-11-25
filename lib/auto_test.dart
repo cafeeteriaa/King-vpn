@@ -1928,7 +1928,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     // هیچ حالتی بی‌صدا رد نمی‌شود: یا تست می‌شود، یا با دلیل مشخص در گزارش «جواب نداد» / «تست نشد» می‌آید.
     final allVars = [
       for (var v = 1; v < _natSpecs.length; v++)
-        if (!natDisabled.contains(v) && !natRetired(v)) v
+        if (!natDisabled.contains(v)) v
     ];
     final untried = <int>[...allVars]; // هنوز روی هیچ سروری امتحان نشده
     final failedOnce = <int>{}; // یک بار امتحان شده و ترافیک نداده (برای دور دوم)
