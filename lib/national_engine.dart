@@ -12,6 +12,7 @@ class NationalNetworkIntelligence {
   static Map<String, NatEndpointMemory> _memory = <String, NatEndpointMemory>{};
   static bool _loaded = false;
   static Future<void>? _loading;
+  static Future<void> _saveTail = Future<void>.value();
 
   static Future<void> load() async {
     if (_loaded) return;
@@ -25,17 +26,24 @@ class NationalNetworkIntelligence {
       final raw = prefs.getString(_prefsKey);
       if (raw != null) {
         final decoded = jsonDecode(raw);
-        if (decoded is Map) {
-          _memory = <String, NatEndpointMemory>{};
-          for (final e in decoded.entries) {
-            if (e.key is String) _memory[e.key as String] = NatEndpointMemory.fromJson(e.value);
+        if (decoded is! Map) {
+          throw const FormatException('Invalid NNIE endpoint memory format');
+        }
+        final restored = <String, NatEndpointMemory>{};
+        for (final entry in decoded.entries) {
+          if (entry.key is String) {
+            restored[entry.key as String] = NatEndpointMemory.fromJson(entry.value);
           }
         }
+        _memory = restored;
       }
-    } catch (e, st) {
-      logError(e, st);
-    } finally {
+      // Mark loaded only after a complete successful read/parse. A transient
+      // storage error must never make the next record() overwrite old history.
       _loaded = true;
+    } catch (error, stackTrace) {
+      logError(error, stackTrace);
+      rethrow;
+    } finally {
       _loading = null;
     }
   }
@@ -114,16 +122,21 @@ class NationalNetworkIntelligence {
     await _save();
   }
 
-  static Future<void> _save() async {
-    try {
-      // Persist the complete endpoint-memory inventory. Ranking belongs in
-      // rank(), not in storage retention: low-scoring and newly failed endpoints
-      // must not disappear just because more endpoints were observed.
+  static Future<void> _save() {
+    // Serialize snapshots: concurrent record()/recordStable() calls must not
+    // let an older JSON snapshot finish after and overwrite a newer one.
+    final previous = _saveTail;
+    final write = previous.then((_) async {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_prefsKey, jsonEncode(_memory.map((k, v) => MapEntry(k, v.toJson()))));
-    } catch (e, st) {
-      logError(e, st);
-    }
+      final snapshot = jsonEncode(
+        _memory.map((key, value) => MapEntry(key, value.toJson())),
+      );
+      await prefs.setString(_prefsKey, snapshot);
+    });
+    _saveTail = write.catchError((Object error, StackTrace stackTrace) {
+      logError(error, stackTrace);
+    });
+    return write;
   }
 
   /// First stage is cheap and broad; expensive transports are deferred until
