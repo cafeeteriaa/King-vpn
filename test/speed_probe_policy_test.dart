@@ -63,6 +63,35 @@ void main() {
     });
   });
 
+  group('unified effective throughput score', () {
+    final now = DateTime.utc(2026, 11, 25, 12);
+
+    test('uses median, freshness and stability together', () {
+      final score = effectiveThroughputScore(
+        currentSpeed: 99,
+        history: [8, 8, 8],
+        measuredAt: now,
+        now: now,
+      );
+      expect(score, 8);
+    });
+
+    test('stale and missing evidence remain unknown', () {
+      expect(effectiveThroughputScore(
+        currentSpeed: 8,
+        history: const [],
+        measuredAt: null,
+        now: now,
+      ), isNull);
+      expect(effectiveThroughputScore(
+        currentSpeed: 8,
+        history: const [],
+        measuredAt: now.subtract(const Duration(minutes: 15)),
+        now: now,
+      ), 4);
+    });
+  });
+
   group('throughput sample validity', () {
     test('only positive finite samples are valid', () {
       expect(isValidThroughputSample(0.01), isTrue);
