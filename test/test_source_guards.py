@@ -2700,13 +2700,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         body = auto[start:end]
 
         sources_start = body.index('final domainSources = <String>{')
-        inventory_start = body.index('final domainInventory = domainSources')
+        inventory_start = body.index('final domainInventory = scanNationalMode')
         sources = body[sources_start:inventory_start]
         for independent_source in (
-            '...(scanNationalMode ? kAutoNationalSniDomains : kAutoSniDomains)',
-            'if (!scanNationalMode) ...dnsxFullDomains()',
-            'if (!scanNationalMode) ...natFrontSnis',
-            'if (!scanNationalMode) ...natRelayHosts',
+            '...kAutoNationalSniDomains,',
+            '...kAutoSniDomains,',
+            '...dnsxFullDomains(),',
+            '...natFrontSnis,',
+            '...natRelayHosts,',
         ):
             self.assertIn(independent_source, sources)
 
@@ -3117,13 +3118,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('prefs.setInt(_autoScanPortCursorKey, stagedPortCursor)', auto)
         self.assertNotIn('for (final p in kAutoPorts)', auto)
         self.assertIn("const String _autoScanDomainCursorKey = 'auto_scan_domain_cursor_v1';", auto)
-        self.assertIn('if (!scanNationalMode) ...dnsxFullDomains(),', auto)
-        self.assertIn('...(scanNationalMode ? kAutoNationalSniDomains : kAutoSniDomains)', auto)
-        self.assertIn('final base = scanNationalMode', auto)
-        self.assertIn('if (!scanNationalMode) ...natFrontSnis,', auto)
-        self.assertIn('if (!scanNationalMode) ...natRelayHosts,', auto)
-        self.assertIn('if (!scanNationalMode) unawaited(refreshCdnRanges());', auto)
-        self.assertIn('if (!scanNationalMode &&', auto)
+        self.assertIn('...kAutoNationalSniDomains,', auto)
+        self.assertIn('...kAutoSniDomains,', auto)
+        self.assertIn('...dnsxFullDomains(),', auto)
+        self.assertIn('final base = [for (final entry in _goldIps.values) entry.ip];', auto)
+        self.assertIn('...natFrontSnis,', auto)
+        self.assertIn('...natRelayHosts,', auto)
+        self.assertIn('unawaited(refreshCdnRanges());', auto)
+        self.assertIn('if (base.isEmpty && dnsResolvedIps.isEmpty && cdnRanges.isEmpty)', auto)
         self.assertNotIn('good.where', auto)
         self.assertNotIn('pending.where', auto)
         self.assertNotIn('fetchedAll.where', auto)
@@ -3132,11 +3134,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('for (final d in domainBatch)', auto)
         self.assertIn('prefs.setString(_autoScanDomainCursorKey, stagedDomainCursor)', auto)
         self.assertIn('final targetRanges = <String>{', auto)
-        self.assertIn('...base,', auto)
         self.assertIn('...dnsResolvedIps,', auto)
+        self.assertIn('...base,', auto)
         self.assertIn('...cdnRanges,', auto)
-        self.assertIn('final cdnRanges = scanNationalMode', auto)
-        self.assertIn('? const <String>[]', auto)
+        self.assertIn('final cdnRanges = _liveCdnRanges.isNotEmpty', auto)
+        self.assertNotIn('scanNationalMode ? const <String>[]', auto)
         self.assertIn('liveRanges: targetRanges,', auto)
         self.assertIn('cursors: stagedCdnCursors,', auto)
         self.assertLess(
@@ -3637,17 +3639,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Passive candidate discovery is independent')
         end = source.index('// A national scan uses the national hot-source/template pipeline', start)
         inventory = source[start:end]
-        self.assertIn('...(runNationalMode ? kAutoNationalSniDomains : kAutoSniDomains)', inventory)
-        self.assertIn('if (!runNationalMode)', inventory)
-        self.assertIn('if (!runNationalMode) ...dnsxFullDomains()', inventory)
-        self.assertIn('if (!runNationalMode) ...natFrontSnis', inventory)
-        self.assertIn('if (!runNationalMode) ...natRelayHosts', inventory)
+        self.assertIn('...kAutoNationalSniDomains,', inventory)
+        self.assertIn('...kAutoSniDomains,', inventory)
+        self.assertIn('...dnsxFullDomains(),', inventory)
+        self.assertIn('...natFrontSnis,', inventory)
+        self.assertIn('...natRelayHosts,', inventory)
+        self.assertIn('for (final entry in _goldIps.values) entry.ip', inventory)
         self.assertIn('if (runNationalMode) {', inventory)
         self.assertIn('...natTemplateSeeds,', inventory)
-        self.assertIn('if (!runNationalMode) await refreshCdnRanges();', inventory)
-        self.assertIn('if (!runNationalMode &&', inventory)
+        self.assertIn('await refreshCdnRanges();', inventory)
+        self.assertIn('if (baseCandidates.isEmpty &&', inventory)
         self.assertIn('...kAutoFallbackIps,', inventory)
-        self.assertIn('runNationalMode\n        ? const <String>[]', inventory)
+        self.assertIn('final cdnRanges = _liveCdnRanges.isNotEmpty', inventory)
+        self.assertNotIn('runNationalMode\n        ? const <String>[]', inventory)
         self.assertIn('_autoResolveDualStackTargets(', inventory)
         self.assertIn('_getCfIps(', inventory)
         self.assertIn('goldAddScans(', inventory)
