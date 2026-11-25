@@ -1364,6 +1364,25 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         export_end = source.index('List<String> natHotUrls()', export_start)
         self.assertIn('await hotStorageAllow()', source[export_start:export_end])
 
+    def test_hot_source_cursor_survives_restart_and_serializes_page_reads(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn("const String _hotCursorKey = 'nat_hot_cursor_v1';", source)
+        self.assertIn("const String _hotCursorSignatureKey = 'nat_hot_cursor_signature_v1';", source)
+        self.assertIn('while (_hotNextBusy)', source)
+        self.assertIn('await waiting.future;', source)
+        self.assertIn('return await _natHotNextUnlocked(n, fetch: fetch, retried: retried);', source)
+        start = source.index('Future<List<Server>> _natHotNextUnlocked(')
+        end = source.index('const String kNatMemKey', start)
+        body = source[start:end]
+        self.assertIn('final signature =', body)
+        self.assertIn('savedSignature == signature', body)
+        self.assertIn('savedCursor', body)
+        self.assertIn("pageText.split('\\n')", body)
+        self.assertIn("entry.indexOf('\\t')", body)
+        self.assertLess(body.index('prefs.setInt(_hotCursorKey, cursor)'), body.index('prefs.setString(_hotCursorSignatureKey, signature)'))
+        self.assertIn('if (cursor < 0 || cursor >= lines) cursor = 0;', body)
+        self.assertIn('if (await raf.length() != h.offs.last)', body)
+
     def test_active_v2ray_plugin_lifecycle_patch_is_fail_closed(self):
         patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
         self.assertIn('Lifecycle foreground promotion reports success/failure', patch)
