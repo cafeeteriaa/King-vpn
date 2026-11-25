@@ -352,3 +352,12 @@ These are three distinct technical review passes by the same assistant, not thre
 - The scanner now stages all three inventory cursors, saves scan observations first, then commits the combined checkpoint in one preference write. If that write reports failure, it leaves the previous checkpoint authoritative and reports that the next run will safely rediscover already-saved observations.
 - Added Dart tests for round-trip, legacy migration, intentionally empty state, corrupt-state fallback and invalid ports; added source guards against reintroducing separate cursor writes.
 - This reduces partial-progress inconsistencies; it is not a claim of filesystem-level fsync or transactional guarantees beyond the single preference operation exposed by the platform API.
+
+
+## 2026-11-25 — Shared fair batching for domain and TCP-port inventories
+
+- Added `kingNextInventoryBatch<T>` as a common cursor-based round-robin slicer for complete inventories.
+- Replaced duplicated domain and port wraparound calculations with the shared helper.
+- The helper returns an immutable slice, leaves the source inventory unchanged, handles stale cursors by safely restarting at the beginning, and returns an empty result for empty inventories or non-positive batch sizes without modulo-by-zero risk.
+- The per-run batch size controls only work performed in one pass. The complete hostname and 1–65535 TCP port inventories remain available across subsequent cursor-backed runs.
+- Added Dart tests for wraparound, stale cursors, larger-than-inventory batches, empty inventories, non-positive batch sizes and immutable results.
