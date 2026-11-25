@@ -6772,7 +6772,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       final hotOff = await natHotNext(300, fetch: false); // هر دور ۳۰۰ تا؛ اگر پیدا نشد دور بعد ادامه می‌دهد
       // FRESH-DISK: منابع تازه‌ی ذخیره‌شده روی گوشی در اتصال آفلاین هم قابل استفاده‌اند.
-      final diskLinks = await FreshResourceStore.readLinks();
+      List<String> diskLinks = <String>[];
+      try {
+        diskLinks = await FreshResourceStore.readLinks();
+      } catch (e, st) {
+        // A damaged/unavailable optional cache must not abort offline
+        // discovery; continue with the independent national hot inventory.
+        logError(e, st);
+      }
       final diskOff = <Server>[];
       for (final link in diskLinks) {
         final parsed = Server.parse(link);
