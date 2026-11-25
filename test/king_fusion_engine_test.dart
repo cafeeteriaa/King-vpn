@@ -124,6 +124,21 @@ class _CancellableStartAdapter
   }
 }
 
+class _MutableDescriptorAdapter implements KingEngineAdapter {
+  @override
+  final KingEngineDescriptor descriptor;
+  _MutableDescriptorAdapter(this.descriptor);
+  @override
+  bool canChainTo(KingEngineAdapter next) => false;
+  @override
+  Future<KingEngineStartResult> start({
+    required String configuration,
+    Object? upstreamHandle,
+  }) async => const KingEngineStartResult.connected();
+  @override
+  Future<void> stop(Object? handle) async {}
+}
+
 class _UnavailableAdapter implements KingEngineAdapter {
   @override
   final KingEngineDescriptor descriptor = const KingEngineDescriptor(
@@ -1372,6 +1387,36 @@ void main() {
       expect(engine.isBusy, isFalse);
       expect(engine.snapshot.disconnectRequested, isFalse);
       expect(engine.snapshot.activeEngineIds, isEmpty);
+    });
+
+    test('engine descriptor snapshot isolates mutable adapter metadata', () async {
+      final transports = <String>{'TCP'};
+      final adapter = _MutableDescriptorAdapter(KingEngineDescriptor(
+        id: 'mutable',
+        title: 'Mutable descriptor',
+        family: KingEngineFamily.custom,
+        availability: KingEngineAvailability.integrated,
+        supportedTransports: transports,
+        supportsMultiHop: true,
+      ));
+      final engine = KingFusionEngine([adapter]);
+
+      transports
+        ..clear()
+        ..add('udp');
+
+      final descriptor = engine.availableEngines.single;
+      expect(descriptor.id, 'mutable');
+      expect(descriptor.supportedTransports, {'tcp'});
+      expect(descriptor.supportsMultiHop, isTrue);
+      expect(
+        () => descriptor.supportedTransports.add('quic'),
+        throwsUnsupportedError,
+      );
+      expect(
+        () => engine.availableEngines.add(descriptor),
+        throwsUnsupportedError,
+      );
     });
 
     test('verificationStarted observer cancellation prevents verifier invocation', () async {
