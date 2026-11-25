@@ -374,5 +374,26 @@ void main() {
       expect(events, ['start:first:-', 'stop:first:handle-first']);
       expect(engine.state, KingFusionState.idle);
     });
+
+    test('verification timeout rolls back every started adapter', () async {
+      final events = <String>[];
+      final verifier = _DelayedTrafficVerifier();
+      final adapter = _FakeAdapter('first', events);
+      final engine = KingFusionEngine(
+        [adapter],
+        trafficVerifier: verifier,
+        trafficVerificationTimeout: const Duration(milliseconds: 1),
+      );
+      final result = await engine.connect(KingFusionPlan(
+        [const KingFusionHop(engineId: 'first', configuration: 'cfg')],
+        requireTrafficVerification: true,
+      ));
+
+      expect(result.connected, isFalse);
+      expect(result.failureCode, 'E-FUSION-EXCEPTION');
+      expect(events, ['start:first:-', 'stop:first:handle-first']);
+      expect(engine.cleanupPendingEngineIds, isEmpty);
+      expect(engine.state, KingFusionState.failed);
+    });
   });
 }
