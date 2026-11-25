@@ -48,20 +48,8 @@ const List<String> kDnsxNationalProbeDomains = <String>[
 List<String> dnsxAutoDomains() => dnsxFullDomains();
 
 /// تبدیل فهرست‌های پروژه (مثل `domain:divar.ir`) به نام میزبان ساده
-List<String> _dnsxHostsFrom(Iterable<String> src) {
-  final out = <String>[];
-  final okChars = RegExp(r'^[a-z0-9.-]+$');
-  for (var s in src) {
-    s = s.trim().toLowerCase();
-    if (s.startsWith('domain:')) s = s.substring(7);
-    if (s.startsWith('full:')) s = s.substring(5);
-    // فقط نام دامنه‌ی واقعی؛ TLD تنها (مثل ir) و قانون‌های geoip و کلمه‌ی کلیدی کنار گذاشته می‌شوند
-    if (!s.contains('.') || !okChars.hasMatch(s)) continue;
-    out.add(s);
-  }
-  return out;
-}
-
+List<String> _dnsxHostsFrom(Iterable<String> src) =>
+    kingNormalizeDomainHosts(src);
 /// سایت‌های خارجی پرکاربرد برای سنجیدن اینکه DNS بین‌المللی را درست جواب می‌دهد یا نه
 /// فهرست گسترده‌ی سایت‌های خارجی پرکاربرد، دسته‌بندی‌شده (جستجو، شبکه‌های اجتماعی، پیام‌رسان،
 /// ویدیو، خبر، مرجع، فنی و ابری، هوش مصنوعی، خرید و مالی، سفر، بازی).
