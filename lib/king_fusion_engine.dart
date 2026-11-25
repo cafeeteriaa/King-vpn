@@ -81,6 +81,14 @@ class KingEngineStartResult {
         handle = null;
 }
 
+/// Optional cancellation contract for adapters whose native start can block.
+/// cancelPendingStart() must be idempotent and cause the outstanding start()
+/// future to settle; a successful late start is still stopped by the engine.
+abstract interface class KingFusionCancellableEngineAdapter
+    implements KingEngineAdapter {
+  Future<void> cancelPendingStart();
+}
+
 abstract interface class KingEngineAdapter {
   KingEngineDescriptor get descriptor;
 
@@ -183,6 +191,7 @@ class KingFusionEngine {
   final Duration nativeStopTimeout;
   final List<({KingEngineAdapter adapter, Object? handle})> _active = [];
   KingFusionCancellableTrafficVerifier? _activeVerifier;
+  KingFusionCancellableEngineAdapter? _startingAdapter;
   Completer<void>? _disconnectSignal;
 
   KingFusionState state = KingFusionState.idle;
@@ -298,11 +307,32 @@ class KingFusionEngine {
         }
         currentEngineId = hop.engineId.trim();
         final adapter = _adapters[currentEngineId]!;
-        final result = await adapter.start(
-          configuration: hop.configuration,
-          upstreamHandle: upstreamHandle,
-        );
+        KingEngineStartResult result;
+        try {
+          if (adapter is KingFusionCancellableEngineAdapter) {
+            _startingAdapter = adapter;
+          }
+          result = await adapter.start(
+            configuration: hop.configuration,
+            upstreamHandle: upstreamHandle,
+          );
+        } finally {
+          if (identical(_startingAdapter, adapter)) {
+            _startingAdapter = null;
+          }
+        }
         if (!result.connected) {
+          if (_disconnectRequested) {
+            final startedCount = _active.length;
+            final cleanupFailures = await _rollback();
+            state = KingFusionState.failed;
+            return KingFusionResult.failure(
+              failedEngineId: currentEngineId,
+              failureCode: 'E-FUSION-CANCELLED',
+              startedHops: startedCount,
+              cleanupFailedEngineIds: cleanupFailures,
+            );
+          }
           final startedCount = _active.length;
           final cleanupFailures = await _rollback();
           state = KingFusionState.failed;
@@ -417,6 +447,7 @@ class KingFusionEngine {
     } finally {
       _busy = false;
       _activeVerifier = null;
+      _startingAdapter = null;
       _disconnectSignal = null;
       // Keep the cancellation latch raised until the waiting disconnect()
       // acquires the operation slot; otherwise a new connect could slip into
@@ -468,6 +499,10 @@ class KingFusionEngine {
       if (verifier != null) {
         unawaited(_requestVerifierCancellation(verifier));
       }
+      final startingAdapter = _startingAdapter;
+      if (startingAdapter != null) {
+        unawaited(_requestStartCancellation(startingAdapter));
+      }
       final pending = _operationDone?.future;
       if (pending != null) await pending;
     }
@@ -483,6 +518,17 @@ class KingFusionEngine {
       _busy = false;
       _operationDone?.complete();
       _operationDone = null;
+    }
+  }
+
+  Future<void> _requestStartCancellation(
+    KingFusionCancellableEngineAdapter adapter,
+  ) async {
+    try {
+      await adapter.cancelPendingStart();
+    } catch (_) {
+      // Adapter start failure will be mapped by connect(); do not lose the
+      // disconnect request if the cancellation hook itself fails.
     }
   }
 
