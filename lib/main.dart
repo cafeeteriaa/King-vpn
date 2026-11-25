@@ -3,6 +3,7 @@ import 'network_health.dart';
 import 'cf_trace_validation.dart';
 import 'http_response_policy.dart';
 import 'background_concurrency_policy.dart';
+import 'proc_stat_cpu.dart';
 import 'king_local_ai.dart';
 import 'king_ai_console.dart';
 import 'king_chat_page.dart';
@@ -145,9 +146,11 @@ Future<void> _cpuTick() async {
     final dt = now.difference(_cpuPrevAt).inMilliseconds;
     if (dt < 7500) return;
     final raw = await File('/proc/self/stat').readAsString();
-    final f = raw.substring(raw.lastIndexOf(')') + 2).split(' ');
-    // فیلد ۱۴ و ۱۵ مستند proc: utime و stime (هر tick = ۱۰ms)؛ بعد از «)» از فیلد ۳ شروع می‌شود
-    final ticks = (int.tryParse(f[11]) ?? 0) + (int.tryParse(f[12]) ?? 0);
+    final ticks = parseProcStatCpuTicks(raw);
+    if (ticks == null) {
+      dbg('CPU-GOV: قالب /proc/self/stat نامعتبر است؛ نمونه‌گیری بعدی تلاش می‌شود');
+      return;
+    }
     final prevTicks = _cpuPrevTicks;
     _cpuPrevAt = now;
     _cpuPrevTicks = ticks;
