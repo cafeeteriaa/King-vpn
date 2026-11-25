@@ -826,3 +826,5 @@ These are three distinct technical review passes by the same assistant, not thre
 - Added focused Flutter tests for event ordering, duplicate delivery, failure classification, cleanup priority, verified-traffic reset and snapshot immutability, plus a Python source guard for the integration and privacy boundary.
 - This is an evidence/observability integration, not model training or autonomous repair. Runtime tuning, source edits, native-core changes and release publication remain behind their existing authorization gates.
 - Exact-head CI for the resulting commit must pass source guards, all Flutter tests, Dart analysis and ARM64 release build before this checkpoint is considered validated.
+
+- Follow-up integration makes the current-session bridge a shared singleton. Each new Fusion coordinator starts a fresh evidence session; the ordinary KING AI chat receives the compact sanitized summary through its existing untrusted `appContext` channel. This gives KING AI real connection-lifecycle context without granting it execution authority or exposing configuration/native handles.

@@ -52,6 +52,17 @@ class KingFusionLearningBridge {
   String? _lastFailureCode;
   KingFusionRecoveryHint _recoveryHint = KingFusionRecoveryHint.observe;
 
+  /// Starts a fresh coordinator session; sequence numbers are scoped to a coordinator.
+  void beginSession() {
+    _eventCounts.clear();
+    _failureStreaks.clear();
+    _lastSequence = 0;
+    _totalEvents = 0;
+    _failureEvents = 0;
+    _lastFailureCode = null;
+    _recoveryHint = KingFusionRecoveryHint.observe;
+  }
+
   /// Returns false for duplicate or out-of-order delivery.
   bool observe(KingFusionEvent event) {
     if (event.sequence <= _lastSequence) return false;
@@ -100,6 +111,24 @@ class KingFusionLearningBridge {
     }
   }
 
+  /// Compact, secret-free context that the conversational KING AI can inspect.
+  /// It is evidence only and is wrapped by the caller as untrusted app telemetry.
+  String toPromptContext() {
+    final current = snapshot;
+    if (current.totalEvents == 0) return '';
+    final engineStreaks = current.consecutiveFailuresByEngine.entries
+        .map((entry) => '${entry.key}:${entry.value}')
+        .join(',');
+    return <String>[
+      'Fusion events=${current.totalEvents}',
+      'failures=${current.failureEvents}',
+      'recovery_hint=${current.recoveryHint.name}',
+      if (current.lastFailureCode != null)
+        'last_failure=${current.lastFailureCode}',
+      if (engineStreaks.isNotEmpty) 'engine_failure_streaks=$engineStreaks',
+    ].join('; ');
+  }
+
   KingFusionLearningSnapshot get snapshot => KingFusionLearningSnapshot(
         lastSequence: _lastSequence,
         totalEvents: _totalEvents,
@@ -110,3 +139,6 @@ class KingFusionLearningBridge {
         consecutiveFailuresByEngine: _failureStreaks,
       );
 }
+
+/// Shared current-session evidence consumed by the app and conversational KING AI.
+final KingFusionLearningBridge kingFusionLearning = KingFusionLearningBridge();

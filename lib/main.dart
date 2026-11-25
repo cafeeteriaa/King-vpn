@@ -6107,15 +6107,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // retains the in-flight Future, preventing overlapping native stop calls.
       stop: () => v2ray.stopV2Ray(),
     );
-    final fusionLearning = KingFusionLearningBridge();
+    kingFusionLearning.beginSession();
     final coordinator = KingFusionEngine(
       [adapter],
       nativeStopTimeout: const Duration(seconds: 9),
       onEvent: (event) {
         // The bridge aggregates only safe lifecycle metadata. It cannot see
         // configurations/handles and never changes the native connection path.
-        fusionLearning.observe(event);
-        final learning = fusionLearning.snapshot;
+        kingFusionLearning.observe(event);
+        final learning = kingFusionLearning.snapshot;
         dbg(
           'FUSION seq=${event.sequence} type=${event.type.name} '
           'state=${event.state.name} engine=${event.engineId ?? '-'} '

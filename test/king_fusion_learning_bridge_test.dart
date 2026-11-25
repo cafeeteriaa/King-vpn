@@ -58,6 +58,9 @@ void main() {
       expect(snapshot.recoveryHint, KingFusionRecoveryHint.inspectEngine);
       expect(snapshot.consecutiveFailuresByEngine, {'v2ray': 1});
       expect(snapshot.eventCounts[KingFusionEventType.hopFailed], 1);
+      expect(bridge.toPromptContext(), contains('recovery_hint=inspectEngine'));
+      expect(bridge.toPromptContext(), contains('last_failure=E-V2RAY-START'));
+      expect(bridge.toPromptContext(), isNot(contains('private-config')));
     });
 
     test('cleanup failure takes priority and retains retryable engine evidence', () {
@@ -100,6 +103,25 @@ void main() {
       ));
       expect(bridge.snapshot.recoveryHint, KingFusionRecoveryHint.observe);
       expect(bridge.snapshot.consecutiveFailuresByEngine, isEmpty);
+    });
+
+    test('new coordinator session resets sequence and prompt evidence', () {
+      final bridge = KingFusionLearningBridge();
+      bridge.observe(_event(
+        4,
+        KingFusionEventType.hopFailed,
+        failureCode: 'E-OLD',
+      ));
+      bridge.beginSession();
+
+      expect(bridge.snapshot.totalEvents, 0);
+      expect(bridge.toPromptContext(), isEmpty);
+      expect(
+        bridge.observe(_event(1, KingFusionEventType.connectStarted)),
+        isTrue,
+      );
+      expect(bridge.snapshot.lastSequence, 1);
+      expect(bridge.snapshot.failureEvents, 0);
     });
 
     test('snapshot maps are immutable copies', () {
