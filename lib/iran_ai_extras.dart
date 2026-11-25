@@ -317,11 +317,60 @@ Future<http.Response?> _raceGet(List<String> urls, Duration t) {
   return c.future;
 }
 
-Future<http.Response> getListMirror(String u) async {
+/// Prefer a streamed raw-source response. If the raw endpoint is unavailable,
+/// preserve the existing mirror race as a buffered compatibility fallback.
+Future<void> withListMirrorStream(
+  String u,
+  Future<void> Function(Stream<List<int>> bytes) consume,
+) async {
+  final client = http.Client();
+  http.StreamedResponse? response;
+  try {
+    response = await client
+        .send(http.Request('GET', Uri.parse(u)))
+        .timeout(const Duration(seconds: 8));
+  } catch (error, stack) {
+    logError(error, stack);
+  }
+
+  if (response != null && response.statusCode == 200) {
+    var bytesRead = 0;
+    try {
+      await consume(
+        response.stream
+            .map((chunk) {
+              bytesRead += chunk.length;
+              return chunk;
+            })
+            .timeout(const Duration(seconds: 8)),
+      );
+    } finally {
+      client.close();
+    }
+    if (bytesRead > 0) return;
+  } else {
+    if (response != null) {
+      try {
+        await response.stream.drain<void>();
+      } catch (_) {}
+    }
+    client.close();
+  }
+
+  // The legacy mirror race still provides broad fallback coverage. It is
+  // buffered by design for now; the direct raw path above is end-to-end streamed.
+  final fallback = await getListMirror(u, skipRaw: true);
+  if (fallback.statusCode != 200 || fallback.bodyBytes.isEmpty) {
+    throw StateError('No usable raw source or configured mirror response');
+  }
+  await consume(Stream<List<int>>.value(fallback.bodyBytes));
+}
+
+Future<http.Response> getListMirror(String u, {bool skipRaw = false}) async {
   final ms = _mirrorsOf(u);
   // raw is completely blocked: go straight to the mirrors
-  final skipRaw = ms.isNotEmpty && _rawOk == 0 && _rawFail >= 6;
-  if (!skipRaw) {
+  final rawBlocked = ms.isNotEmpty && _rawOk == 0 && _rawFail >= 6;
+  if (!skipRaw && !rawBlocked) {
     try {
       final r =
           await http.get(Uri.parse(u)).timeout(const Duration(seconds: 8));
