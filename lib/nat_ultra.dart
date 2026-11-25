@@ -2632,14 +2632,12 @@ Future<void> userListsSave(String text) async {
   }
 }
 
-// The source inventory is not truncated per URL. The cache-wide bound below
-// remains a temporary memory-safety guard until the sparse on-disk index lands.
+// Source inventory is traversed without a fixed total-record ceiling.
 const int natHotMin = 30000;
 // Sparse index stores one byte offset per 256 records, not one per record.
 const int _hotIndexStride = 256;
 List<Server> Function()? natExtraSource;
 const Duration natHotTtl = Duration(hours: 72);
-const Duration natHotFetchDeadline = Duration(seconds: 900);
 bool _hotBusy = false;
 DateTime? _hotFailAt;
 int _hotCursor = 0;
@@ -2827,11 +2825,9 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
     final dir = '/data/data/com.kingvpn.king_vpn/files';
     final parts = [for (var i = 0; i < urls.length; i++) '$dir/hot_part_$i.txt'];
     final extraPath = '$dir/hot_part_extra.txt';
-    final sw = Stopwatch()..start();
     try {
       await pool<int>([for (var i = 0; i < urls.length; i++) i], fetchWorkers,
           (i) async {
-        if (sw.elapsed > natHotFetchDeadline) return;
         await _hotFetchOne(urls[i], parts[i]);
       });
       final extraSrc = natExtraSource?.call() ?? const <Server>[];
@@ -2916,7 +2912,7 @@ bool natHotReady() {
 }
 
 // Build a sparse index: one byte offset per stride-sized block.
-// Packed result: [lineCount, offset0, offset1, ...].
+// Packed result: [lineCount, byteLength, offset0, offset1, ...].
 Future<List<int>> _hotBuildSparseIndex(String path) =>
     compute(_hotSparseOffsetsIso, path);
 
