@@ -1771,6 +1771,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(write, guard)
         self.assertLess(guard, mutate)
 
+    def test_nat_variant_growth_has_no_unused_total_ceiling_or_ten_ip_selection_cap(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn('natMaxVariants', source)
+        start = source.index('int natGrow(')
+        end = source.index('List<String>? _natNamesC', start)
+        grow = source[start:end]
+        self.assertIn('rnd.nextInt(cleanIps.length)', grow)
+        self.assertNotIn('rnd.nextInt(10)', grow)
+        self.assertIn('No fixed inventory ceiling', grow)
+
     def test_nat_range_and_cloudflare_sweeps_share_exclusive_cursor_ownership(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
