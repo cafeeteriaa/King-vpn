@@ -2623,27 +2623,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         name_reader = core[start:end]
         self.assertIn('ptr < 12 || ptr >= p || ptr >= b.length', name_reader)
 
-    def test_nat_domain_first_discards_partial_results_after_cancel_or_deadline(self):
+    def test_nat_domain_first_preserves_completed_batches_without_global_deadline(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('Future<List<String>> _natDomainFirst(')
         end = source.index('Future<List<String>> natDeviceHosts()', start)
         body = source[start:end]
-        self.assertIn('final scanClock = Stopwatch()..start();', body)
-        self.assertIn('const scanBudget = Duration(seconds: 45);', body)
-        self.assertLess(body.index('final scanClock'), body.index('for (final entry in endpoints.entries)'))
-        lookup = body.index('await safeLookup(entry.key)')
-        lookup_guard = body.index('if (cancelled()) return const <String>[];', lookup)
-        self.assertLess(lookup, lookup_guard)
-        self.assertIn('bool expired() => scanClock.elapsed >= scanBudget;', body)
-        scan = body.index('final hits = await natScanIps(')
-        self.assertIn('cancelled: cancelled,', body)
-        discard = body.index('if (cancelled())', scan)
-        append = body.index('out.add(', discard)
-        self.assertLess(scan, discard)
-        self.assertLess(discard, append)
-        self.assertIn('return const <String>[];', body[discard:append])
-        self.assertGreaterEqual(body.count('if (cancelled())'), 5)
-        self.assertIn('if (cancelled()) return const <String>[];', body[body.index('} catch (e, stk)'):])
+        self.assertNotIn('scanClock', body)
+        self.assertNotIn('scanBudget', body)
+        self.assertIn('for (final entry in endpoints.entries)', body)
+        self.assertIn('for (var offset = 0; offset < ips.length; offset += batchSize)', body)
+        self.assertIn('while (completed < batch.length)', body)
+        self.assertIn('onProgress: (done, total, _) => completed = done,', body)
+        self.assertIn('if (cancelled()) return out;', body)
+        self.assertIn('out.addAll(batchHits.values.map(', body)
+        self.assertIn('natDomainOpen = out.length;', body)
+        self.assertNotIn('return const <String>[];', body)
+
 
     def test_nat_ip_scan_never_exceeds_requested_hit_limit_under_concurrency(self):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
@@ -3080,7 +3075,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         domain_end = nat.index('Future<List<String>> natDeviceHosts()', domain_start)
         domain = nat[domain_start:domain_end]
         self.assertIn('for (final server in known)', domain)
-        self.assertIn('want: entry.value.length', domain)
+        self.assertIn('want: batch.length', domain)
+        self.assertIn('for (final port in entry.value)', nat)
+        self.assertIn('while (completed < batch.length)', domain)
         self.assertNotIn('known.take(1200)', domain)
 
         dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
