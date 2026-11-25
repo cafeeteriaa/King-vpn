@@ -189,12 +189,13 @@ class KingFusionEngine {
           upstreamHandle: upstreamHandle,
         );
         if (!result.connected) {
+          final startedCount = _active.length;
           await _rollback();
           state = KingFusionState.failed;
           return KingFusionResult.failure(
             failedEngineId: currentEngineId,
             failureCode: result.failureCode ?? 'E-FUSION-START',
-            startedHops: 0,
+            startedHops: startedCount,
           );
         }
         _active.add((adapter: adapter, handle: result.handle));
@@ -203,12 +204,13 @@ class KingFusionEngine {
       state = KingFusionState.connected;
       return KingFusionResult.success(_active.length);
     } catch (_) {
+      final startedCount = _active.length;
       await _rollback();
       state = KingFusionState.failed;
       return KingFusionResult.failure(
         failedEngineId: currentEngineId,
         failureCode: 'E-FUSION-EXCEPTION',
-        startedHops: 0,
+        startedHops: startedCount,
       );
     } finally {
       _busy = false;
