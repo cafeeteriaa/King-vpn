@@ -13068,7 +13068,7 @@ ListTile( // KINGEXTRAS row
         await Future.delayed(const Duration(milliseconds: 400));
         if (lastState != 'CONNECTED') break;
         try {
-          await v2ray.stopV2Ray();
+          await _stopV2();
         } catch (_swE) { _swl('disconnect#orphan', _swE);}
       }
     } catch (e, stk) {
@@ -14965,7 +14965,7 @@ ListTile( // KINGEXTRAS row
         _insOrphan = 0;
         dbg('هسته‌ی بی‌صاحب خاموش شد (CONNECTED بدون اتصال اپ)');
         try {
-          unawaited(v2ray.stopV2Ray().catchError((e) { logError(e); }));
+          unawaited(_stopV2());
         } catch (_swE) { _swl('_inspect#orphan', _swE);}
       }
     } else {
