@@ -4139,7 +4139,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         save_start = source.index('Future<bool> _ipAutoSave()', load_start)
         inventory_start = source.index('/// Inventory پویا', save_start)
         persistence = source[load_start:inventory_start]
-        save_body = persistence[persistence.index('Future<void> _ipAutoSave()'):]
+        save_body = persistence[persistence.index('Future<bool> _ipAutoSave()'):]
         self.assertIn('ipauto_snapshot_v2_', persistence)
         self.assertIn('ipAutoDecodeSnapshot(', persistence)
         self.assertIn('ipAutoEncodeSnapshot(', persistence)
