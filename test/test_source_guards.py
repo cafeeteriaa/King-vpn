@@ -3931,5 +3931,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final list = await fetchSubscription(url);', ai)
 
 
+    def test_nat_success_memory_is_not_count_or_age_truncated(self):
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn('_ipMemMax', ultra)
+        self.assertNotIn('_domMemMax', ultra)
+        self.assertNotIn('natIpMem.length >', ultra)
+        self.assertNotIn('natDomMem.length >', ultra)
+        self.assertNotIn('natIpMem.removeWhere((e) => ((e[\'t\'] as num?)?.toInt() ?? 0) < cutoff)', ultra)
+        self.assertNotIn('natDomMem.removeWhere((e) => ((e[\'t\'] as num?)?.toInt() ?? 0) < cutoff)', ultra)
+        self.assertIn('await prefs.setString(_ipMemKey, jsonEncode(natIpMem));', ultra)
+        self.assertIn('await p.setString(_domMemKey, jsonEncode(natDomMem));', ultra)
+
+
 if __name__ == '__main__':
     unittest.main()
