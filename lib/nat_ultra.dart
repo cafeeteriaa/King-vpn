@@ -1751,7 +1751,6 @@ const String _ipMemKey = 'natIpMem';
 const String _rangeKey = 'natRanges';
 
 final List<Map<String, dynamic>> natIpMem = [];
-final Set<String> natIpDeadRun = {};
 List<String> natRanges = [];
 int natRangeCursor = 0; // generic range cursor
 int _natConfiguredRangeCursor = 0; // next range index for fair round-robin coverage
