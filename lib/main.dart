@@ -6235,6 +6235,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         failWindow = Duration(minutes: failMin);
         recheckAfter = Duration(minutes: recheckMin);
       }
+      // Full discovery is always cyclic: reaching the end of one source snapshot
+      // triggers another fetch instead of silently ending the scanner.
+      autoCycle = true;
       // LOWDATA: lowest internet usage, applied ONCE (fastWorkers stays 50,
       // batch stays 500). After that the user's own changes are kept.
       if (p.getBool('lowdata_v1') != true) {
@@ -6259,7 +6262,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         autoSpeed = false;
         autoUpgrade = false;
         badPingSwitch = false;
-        autoCycle = false;
         ipMode = false;
         cleanIpMode = false;
         secureDns = false;
