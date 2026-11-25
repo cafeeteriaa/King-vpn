@@ -730,3 +730,12 @@ These are three distinct technical review passes by the same assistant, not thre
 - Commits: `aafacf57ea9ac57e3236277041b4504af2bcc3b9` (defensive constructor snapshot), `9ca23748a31360925fdd6b97bfa5007c52a2c0c1` (regression test).
 - CI runs for exact head `9ca23748a31360925fdd6b97bfa5007c52a2c0c1`: push run 3191 and pull-request run 3192 were queued/pending at checkpoint time. Check their final status before claiming validation.
 - PR #53 remains open Draft against `feature/king-vpn-audit-hardening-20261125`; do not merge automatically and do not modify `main`.
+
+
+## 2026-11-25 — CI source guard for immutable Fusion failure reports
+
+- Added a Python source guard for the public failure-result boundary introduced in the preceding checkpoint.
+- The guard verifies the constructor accepts an `Iterable<String>`, snapshots it with `List<String>.unmodifiable`, rejects reintroduction of const failure construction, and confirms the Dart regression test covers caller-owned list mutation and output mutation.
+- Three-pass review: (1) source-contract review — the guard targets the constructor rather than unrelated success-result semantics; (2) regression coupling — the guard requires the focused Dart test to remain present; (3) compatibility — no production source or VPN connection behavior changed in this guard-only commit.
+- Commit: `7d1770bb8316323b8f13b73aeae20ee47145b839`.
+- Exact-head CI for this commit must still complete; no test/analyzer/build success is claimed.
