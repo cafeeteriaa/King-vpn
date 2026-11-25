@@ -2635,6 +2635,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('pending.length + natRestPending.length <', keep)
         self.assertIn('natRanges.isNotEmpty', keep)
 
+    def test_nat_variant_inventory_has_no_hidden_retirement_or_cooldown(self):
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn('_natRetiredNames', ultra)
+        self.assertNotIn('natRetired(', ultra)
+        self.assertNotIn('_varcbLimit', ultra)
+        self.assertNotIn('_varcbCooldown', ultra)
+        self.assertNotIn('natVariantCooling(', ultra)
+        self.assertNotIn('VARCB', ultra)
+
     def test_nat_prescan_covers_all_config_sources_and_dns_answers_without_blacklists(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('Future<void> _natPrescan() async {')
