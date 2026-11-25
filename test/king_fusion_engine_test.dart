@@ -101,6 +101,7 @@ void main() {
 
       expect(result.connected, isFalse);
       expect(result.failureCode, 'E-TEST-START');
+      expect(result.startedHops, 1);
       expect(events, [
         'start:first:-',
         'start:second:handle-first',
