@@ -2600,7 +2600,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('nextOverflow.add(value);', helper)
         self.assertIn('keyOf(value)', helper)
 
-    def test_nat_queue_caps_preserve_overflow_and_pause_new_ranges(self):
+    def test_nat_queue_overflow_is_lossless_without_pausing_range_scans(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         merge_start = source.index('Future<void> _natMergeCache() async {')
         merge_end = source.index('Future<void> _natPrescan()', merge_start)
@@ -2618,13 +2618,46 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         scan_start = source.index('Future<void> _natScanOnly() async {')
         scan_end = source.index('Future<void> _natQuickStart()', scan_start)
         scan_only = source[scan_start:scan_end]
-        self.assertIn('pending.length + natRestPending.length >= queueLimit', scan_only)
-        self.assertIn('no config template is available', scan_only)
+        self.assertNotIn('queueLimit', scan_only)
+        self.assertNotIn('no config template is available', scan_only)
         keep_start = source.index('Future<void> _natKeep() async {')
         keep_end = source.index('Future<void> _natScanOnly() async {', keep_start)
         keep = source[keep_start:keep_end]
-        self.assertIn('pending.length + natRestPending.length <', keep)
-        self.assertIn('hasRangeTemplate', keep)
+        self.assertNotIn('pending.length + natRestPending.length <', keep)
+        self.assertIn('natRanges.isNotEmpty', keep)
+
+    def test_nat_prescan_covers_all_config_sources_and_dns_answers_without_blacklists(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<void> _natPrescan() async {')
+        end = main.index('Future<void> _natMemoryReuse()', start)
+        scan = main[start:end]
+        self.assertIn('...natTemplateSeeds', scan)
+        self.assertIn('...good', scan)
+        self.assertIn('...fetchedAll', scan)
+        self.assertIn('_resMap.values.map((entry) => entry.s)', scan)
+        self.assertIn('List<String>', scan)
+        self.assertIn('resolved[j].map((address) => address.address)', scan)
+        self.assertIn('target.ip', scan)
+        self.assertNotIn('checkCap', scan)
+        self.assertNotIn('natIpDeadRun', scan)
+        self.assertNotIn('if (ok.isNotEmpty) break', scan)
+        self.assertNotIn('_recentFail(s)', scan)
+        self.assertNotIn('_bad(s)', scan)
+
+    def test_explicit_nat_ranges_run_without_server_templates_or_queue_thresholds(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<void> _natScanOnly() async {')
+        end = main.index('Future<void> _natQuickStart()', start)
+        scan = main[start:end]
+        self.assertNotIn('hasRangeTemplate', scan)
+        self.assertNotIn('queueLimit', scan)
+        self.assertIn('natRangeScanStep(', scan)
+        keep_start = main.index('Future<void> _natKeep() async {')
+        keep_end = main.index('Future<void> _natScanOnly() async {', keep_start)
+        self.assertIn('natRanges.isNotEmpty', main[keep_start:keep_end])
+        escalate_start = main.index('Future<void> _natEscalate(int round) async {')
+        escalate_end = main.index('if (abort || modeChanged()) return;', escalate_start)
+        self.assertIn('natRanges.isNotEmpty', main[escalate_start:escalate_end])
 
     def test_nat_tcp_probe_uses_cancelable_connection_tasks_and_bounded_polling(self):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
@@ -4141,7 +4174,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('natScanHits.remove', gc)
         self.assertNotIn('natGood.remove', gc)
         self.assertNotIn('natSubstSearched.remove', gc)
-        self.assertNotIn('natIpDeadRun.remove', gc)
+        self.assertNotIn('natIpDeadRun', main)
+        self.assertNotIn('natIpDeadRun', ultra)
         memory_start = main.index('Future<void> _natMemoryReuse()')
         memory_end = main.index('Future<void> _natRangeAdd(', memory_start)
         memory = main[memory_start:memory_end]
