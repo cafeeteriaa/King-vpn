@@ -1393,6 +1393,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('SecureSocket.secure(', probe)
         self.assertNotIn('onBadCertificate', probe)
 
+    def test_nip_front_sni_waits_for_cursor_persistence_before_returning(self):
+        source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> _nipPersistFrontSniCursor(')
+        end = source.index('/// Accept an SNI only', start)
+        persist = source[start:end]
+        self.assertIn('Future<void> _nipPersistFrontSniCursor(int value)', persist)
+        self.assertIn('return _nipFrontSniCursorSaveQueue =', persist)
+        hunt_start = source.index('Future<String?> nipFindFrontSni(')
+        hunt_end = source.index('/// همان کانفیگ را', hunt_start)
+        hunt = source[hunt_start:hunt_end]
+        self.assertIn('await _nipPersistFrontSniCursor(_nipFrontSniCursor);', hunt)
+        self.assertNotIn('_nipPersistFrontSniCursor(_nipFrontSniCursor);', hunt.replace('await _nipPersistFrontSniCursor(_nipFrontSniCursor);', ''))
+
     def test_network_diagnostics_use_platform_tls_certificate_validation(self):
         source = (ROOT / 'lib' / 'net_diag.dart').read_text(encoding='utf-8')
         start = source.index('Future<_DiagItem> _diagTls(')
