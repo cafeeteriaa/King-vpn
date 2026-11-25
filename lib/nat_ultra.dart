@@ -1830,38 +1830,40 @@ Future<void> natDomMemSave(String host, int port) async {
   }
 }
 
-Future<bool> natIpMemSaveMany(Iterable<String> ips, int port) async {
+Future<bool> _natIpMemSaveQueue = Future<bool>.value(true);
+
+Future<bool> natIpMemSaveMany(Iterable<String> ips, int port) {
   final values = ips.toSet().toList(growable: false);
-  if (values.isEmpty) return true;
-  final timestamp = DateTime.now().millisecondsSinceEpoch;
-  final nextMem = List<Map<String, dynamic>>.of(natIpMem);
-  for (final ip in values.reversed) {
-    nextMem.removeWhere((entry) => entry['ip'] == ip && entry['port'] == port);
-    nextMem.insert(0, {'ip': ip, 'port': port, 't': timestamp});
-  }
-  try {
-    final prefs = await SharedPreferences.getInstance();
-    final committed = await prefs.setString(_ipMemKey, jsonEncode(nextMem));
-    if (!committed) return false;
-    natIpMem
-      ..clear()
-      ..addAll(nextMem);
-    return true;
-  } catch (e, stk) {
+  final operation = _natIpMemSaveQueue.then((_) async {
+    if (values.isEmpty) return true;
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final nextMem = List<Map<String, dynamic>>.of(natIpMem);
+    for (final ip in values.reversed) {
+      nextMem.removeWhere((entry) => entry['ip'] == ip && entry['port'] == port);
+      nextMem.insert(0, {'ip': ip, 'port': port, 't': timestamp});
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final committed = await prefs.setString(_ipMemKey, jsonEncode(nextMem));
+      if (!committed) return false;
+      natIpMem
+        ..clear()
+        ..addAll(nextMem);
+      return true;
+    } catch (e, stk) {
+      logError(e, stk);
+      return false;
+    }
+  });
+  _natIpMemSaveQueue = operation.catchError((Object e, StackTrace stk) {
     logError(e, stk);
     return false;
-  }
+  });
+  return operation;
 }
 
 Future<void> natIpMemSave(String ip, int port) async {
-  natIpMem.removeWhere((e) => e['ip'] == ip && e['port'] == port);
-  natIpMem.insert(0, {'ip': ip, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
-  try {
-    final p = await SharedPreferences.getInstance();
-    await p.setString(_ipMemKey, jsonEncode(natIpMem));
-  } catch (e, stk) {
-    logError(e, stk);
-  }
+  await natIpMemSaveMany([ip], port);
 }
 
 
