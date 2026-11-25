@@ -384,7 +384,6 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
     final r = await dnsxScan(
       list,
       domains: dnsxFullDomains(),
-      gap: const Duration(milliseconds: 150),
       stop: () => nationalMode != scanNationalMode || (stop?.call() ?? false),
     );
     // Discard partial or cross-mode results before writing anything.

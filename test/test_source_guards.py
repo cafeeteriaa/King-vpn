@@ -4322,6 +4322,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('natManualYield', scan)
         self.assertNotIn('final gapMs', auto)
         self.assertNotIn('now - last < gapMs', auto)
+        self.assertNotIn('gap: const Duration(milliseconds: 150)', auto)
         self.assertIn('last-run timestamp for diagnostics only', auto)
 
 

@@ -884,3 +884,5 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three review passes: (1) result semantics — any valid answer contributes evidence; (2) coverage — all input domains/resolvers continue through the loops with only cancellation as an early exit; (3) scheduling — concurrency follows runtime processor capacity, and the national path no longer has a separate quota or yield.
 
 - Source-guard alignment: updated the older shared national-yield test so it continues to protect cancellable yielding in SNI/port/manual-range scanners while asserting that DNS no longer waits on that quota path.
+
+- Removed the automatic DNS path's fixed 150 ms inter-batch delay as well; auto scans now use the same unthrottled caller-selected gap (default zero), with only per-request network timeouts and runtime resource scheduling remaining.
