@@ -3748,6 +3748,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('sniPool[rnd.nextInt(sniPool.length)]', grow)
 
 
+    def test_full_subscription_discovery_has_no_fixed_source_or_per_list_cap(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<List<Server>> fetchServers(')
+        end = main.index('// ---------- rows (categories) ----------', start)
+        fetch = main[start:end]
+        self.assertIn('final sourceTimeout = quickCap != null', fetch)
+        self.assertIn('await getListMirror(u).timeout(sourceTimeout)', fetch)
+        self.assertIn('if ((stop?.call() ?? false) || (quickCap != null && all.length >= quickCap))', fetch)
+        self.assertIn('for (final l in quickCap != null ? lines.take(30) : lines)', fetch)
+        self.assertNotIn('maxPerSource', main)
+        self.assertNotIn('sw.elapsed > dl', fetch)
+
+        ip_scan = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        self.assertIn('pool = await fetchServers(stop: () => halted());', ip_scan)
+        self.assertNotIn('quickCap: 200', ip_scan)
+
+
     def test_national_mode_prioritizes_domestic_inventory_without_dropping_global_sources(self):
         dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
         start = dns.index('List<String> dnsxNationalFirstDomains(')
