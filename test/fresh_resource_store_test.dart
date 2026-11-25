@@ -103,6 +103,39 @@ void main() {
       expect(metadata['source'], 'test');
     });
 
+    test('reads consecutive pages without loading the complete inventory', () async {
+      final values = List<String>.generate(
+        257,
+        (index) => 'vless://page$index@example.com:443',
+      );
+      await FreshResourceStore.saveSnapshot(values);
+
+      final first = await FreshResourceStore.readPage(limit: 100);
+      final second = await FreshResourceStore.readPage(offset: 100, limit: 100);
+      final third = await FreshResourceStore.readPage(offset: 200, limit: 100);
+      final fourth = await FreshResourceStore.readPage(offset: 300, limit: 100);
+
+      expect(first.items, values.sublist(0, 100));
+      expect(first.hasMore, isTrue);
+      expect(second.items, values.sublist(100, 200));
+      expect(second.hasMore, isTrue);
+      expect(third.items, values.sublist(200, 257));
+      expect(third.hasMore, isFalse);
+      expect(fourth.items, isEmpty);
+      expect(fourth.hasMore, isFalse);
+    });
+
+    test('paged reads reject invalid offsets and page sizes', () async {
+      await expectLater(
+        FreshResourceStore.readPage(offset: -1),
+        throwsArgumentError,
+      );
+      await expectLater(
+        FreshResourceStore.readPage(limit: 0),
+        throwsArgumentError,
+      );
+    });
+
     test('stream-native merge persists records without requiring an Iterable input', () async {
       final total = await FreshResourceStore.mergeStream(
         Stream<String>.fromIterable([
