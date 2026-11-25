@@ -6931,8 +6931,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // QUICKLIST: اولین دریافت (و نه بعد از اتصال) فقط ~۲۰۰ سرور؛ لیست کامل بعد از اتصال می‌آید
         // FASTLIST: اتصال عادی هم مثل خلبان با ~۲۰۰ سرور اول شروع می‌کند و سقف ۲۵ ثانیه‌ای دارد
         final quick = !bg && !connected && !nationalMode && !offlineOnly;
-        final f = await fetchServers(stop: () => abort, quickCap: quick ? 200 : null)
-            .timeout(const Duration(seconds: 25), onTimeout: () => <Server>[]);
+        final f = quick
+            ? await fetchServers(stop: () => abort, quickCap: 200)
+                .timeout(const Duration(seconds: 25), onTimeout: () => <Server>[])
+            : await fetchServers(stop: () => abort);
         _listPartial = quick && f.isNotEmpty;
         if (f.isNotEmpty) {
           // lists that were "dead" get a new chance with the new content
