@@ -698,3 +698,12 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) compatibility — transport matching continues to use the normalized constructor-time contract; (2) isolation — adapter-owned mutable collections cannot rewrite validation behavior; (3) regression — both acceptance of the original capability and rejection of the mutated capability are asserted, with cleanup between attempts.
 - Dedicated Fusion test count: 50 declarations remain; the existing regression was expanded rather than adding a new test declaration. Exact-head CI is pending; no local Flutter execution is claimed.
 - Commit: `d1581f0a1b852d82d488e85c498d19d30cce9cff`.
+
+## 2026-11-25 — Reentrant cleanup-failure observer regression
+
+- Added an integration-style lifecycle test where the synchronous `cleanupFailed` observer calls `disconnect()` while the original disconnect is still rolling back.
+- The nested call must join the already-published disconnect future: it must not recursively emit another teardown, invoke native stop twice, or erase the retained failed handle.
+- The test then issues a later independent disconnect and verifies the retained cleanup can be retried successfully, returning the engine to idle and not busy.
+- Three-pass review: (1) lifecycle ordering — the original disconnect owns cleanup through observer delivery; (2) resource safety — no duplicate stop is launched from a reentrant observer; (3) recovery regression — a subsequent independent call retries the retained handle.
+- Dedicated Fusion test count: 51 declarations by source inspection. Exact-head CI remains pending; no local Flutter execution is claimed.
+- Commit: `f280d9aa964724580cf8af80089041024d3d8828`.
