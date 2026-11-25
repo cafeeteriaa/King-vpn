@@ -1745,7 +1745,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         stop_guard = body.index('if (abort || !wantVpn) {', stop)
         ladder = body.index('final ladderOk = await _natLadder', null_branch)
         ladder_guard = body.index('if (abort || !wantVpn) {', ladder)
-        connected = body.index('if (!await _onConnected(s)) return false;', ladder)
+        connected = body.index('if (!await _onConnected(s)) { _nnieClearAttempt(s); return false; }', ladder)
         self.assertLess(stop, stop_guard)
         self.assertLess(stop_guard, ladder)
         self.assertLess(ladder, ladder_guard)
