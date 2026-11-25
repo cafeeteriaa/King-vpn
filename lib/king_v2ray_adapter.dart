@@ -50,7 +50,6 @@ class KingV2RayAdapter implements KingFusionCancellableEngineAdapter {
   bool _failedStartCleanupDone = false;
   int _generation = 0;
   Future<void>? _pendingStart;
-  Future<void>? _startCancellationSignal;
   Completer<void>? _startCancellationCompleter;
   Future<void>? _stopInFlight;
 
@@ -101,7 +100,6 @@ class KingV2RayAdapter implements KingFusionCancellableEngineAdapter {
     final generation = ++_generation;
     final cancellation = Completer<void>();
     _startCancellationCompleter = cancellation;
-    _startCancellationSignal = cancellation.future;
     final nativeStart = Future<void>.sync(() => _startNative(configuration));
     _pendingStart = nativeStart;
     var nativeSettled = false;
@@ -181,7 +179,6 @@ class KingV2RayAdapter implements KingFusionCancellableEngineAdapter {
     } finally {
       _starting = false;
       _startCancellationCompleter = null;
-      _startCancellationSignal = null;
     }
   }
 
@@ -200,6 +197,12 @@ class KingV2RayAdapter implements KingFusionCancellableEngineAdapter {
 
   @override
   Future<void> stop(Object? handle) async {
+    if (handle == null &&
+        _failedStartCleanupDone &&
+        !_cleanupRequired &&
+        _pendingStart == null) {
+      return;
+    }
     if (handle == null &&
         (_cleanupRequired || _pendingStart != null || _failedStartCleanupDone)) {
       final pending = _pendingStart;
