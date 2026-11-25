@@ -1,24 +1,19 @@
 import 'dart:io';
 
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import '../lib/fresh_resource_store.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  const pathChannel = MethodChannel('plugins.flutter.io/path_provider');
   late Directory testRoot;
 
   setUp(() async {
     testRoot = await Directory.systemTemp.createTemp('king-vpn-resource-store-');
-    pathChannel.setMockMethodCallHandler((call) async {
-      if (call.method == 'getApplicationSupportPath') return testRoot.path;
-      return null;
-    });
+    FreshResourceStore.setRootDirectoryForTesting(testRoot);
   });
 
   tearDown(() async {
-    pathChannel.setMockMethodCallHandler(null);
+    FreshResourceStore.setRootDirectoryForTesting(null);
     if (await testRoot.exists()) await testRoot.delete(recursive: true);
   });
 
