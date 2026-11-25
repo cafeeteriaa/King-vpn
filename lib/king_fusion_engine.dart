@@ -176,6 +176,25 @@ class KingFusionSnapshot {
 /// Adapter-provided failure strings cross a public API boundary. Keep only
 /// stable machine-readable codes; never let arbitrary adapter text (which may
 /// accidentally contain configuration fragments or credentials) escape.
+bool _isSafeEngineIdentifier(String value) {
+  if (value.isEmpty || value.length > 64) return false;
+  for (final unit in value.codeUnits) {
+    final upper = unit >= 65 && unit <= 90;
+    final lower = unit >= 97 && unit <= 122;
+    final digit = unit >= 48 && unit <= 57;
+    if (!upper && !lower && !digit && unit != 95 && unit != 45 && unit != 46) {
+      return false;
+    }
+  }
+  return true;
+}
+
+String? _safeEngineIdentifier(String? value) {
+  if (value == null) return null;
+  final id = value.trim();
+  return _isSafeEngineIdentifier(id) ? id : null;
+}
+
 String _safeAdapterFailureCode(String? value) {
   if (value == null) return 'E-FUSION-START';
   final code = value.trim();
@@ -306,6 +325,9 @@ class KingFusionEngine {
       if (id.isEmpty) {
         throw ArgumentError('Engine adapter id must not be empty');
       }
+      if (!_isSafeEngineIdentifier(id)) {
+        throw ArgumentError('Engine adapter id contains unsupported characters');
+      }
       if (result.containsKey(id)) {
         throw ArgumentError('Duplicate engine adapter: $id');
       }
@@ -358,7 +380,7 @@ class KingFusionEngine {
       timestamp: DateTime.now(),
       type: type,
       state: _state,
-      engineId: engineId,
+      engineId: _safeEngineIdentifier(engineId),
       failureCode: failureCode == null
           ? null
           : _safeAdapterFailureCode(failureCode),
