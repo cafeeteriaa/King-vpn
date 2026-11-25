@@ -22,6 +22,15 @@ const List<String> kDnsxDefaults = [
   '2606:4700:4700::1001',
   '2620:fe::fe',
   '2620:fe::9',
+  // Additional independently operated public recursive DNS providers.
+  '8.26.56.26', '8.20.247.20',
+  '64.6.64.6', '64.6.65.6',
+  '156.154.70.1', '156.154.71.1',
+  '76.76.2.0', '76.76.10.0', '76.76.19.19',
+  '185.228.168.9', '185.228.169.9',
+  '77.88.8.1', '77.88.8.2', '77.88.8.8', '77.88.8.88',
+  '193.110.81.0', '185.253.5.0',
+  '194.242.2.2', '194.242.2.3',
 ];
 
 // DNSهای داخلی که از قبل در پروژه (npv_am_extras.dart) آمده‌اند
@@ -379,8 +388,19 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
     // Repeated requests are coalesced by _dnsxAutoBusy rather than a fixed timer.
     final savedDns = await goldDnsList();
     if (nationalMode != scanNationalMode) return;
-    final list = {...savedDns, ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults)}.toList();
-    // کامل: همه‌ی دامنه‌های پروژه، با فاصله‌ی ۱۵۰ میلی‌ثانیه بین بسته‌ها
+    // Public mode expands from the live resolver catalogue on every scan.
+    // National mode deliberately uses its own resolver seeds and never imports
+    // the global catalogue. Catalogue failure does not shrink saved inventory.
+    final discoveredPublicDns = scanNationalMode
+        ? const <String>[]
+        : await kingDiscoverPublicDnsResolvers();
+    if (nationalMode != scanNationalMode) return;
+    final list = {
+      ...savedDns,
+      ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults),
+      ...discoveredPublicDns,
+    }.toList();
+    // کامل: همه‌ی دامنه‌های موجود پروژه؛ بدون سقف ثابت برای موجودی دامنه‌ها
     final r = await dnsxScan(
       list,
       domains: dnsxFullDomains(),
@@ -473,12 +493,21 @@ extension DnsxExt on _HomePageState {
                   .toList();
               final saved = await goldDnsList();
               if (!mounted || !sheetOpen) return;
+              // Manual DNS scan includes the live public resolver inventory;
+              // the user's saved and built-in domestic sources remain merged.
+              final discoveredPublicDns = await kingDiscoverPublicDnsResolvers();
+              if (!mounted || !sheetOpen) return;
               if (stopFlag) {
                 upd(() => note = 'اسکن متوقف شد؛ نتایج ذخیره نشد.');
                 return;
               }
-              final list = {...saved, ...kDnsxDefaults, ...kDnsxNationalDefaults, ...extra}
-                  .toList();
+              final list = {
+                ...saved,
+                ...kDnsxDefaults,
+                ...kDnsxNationalDefaults,
+                ...discoveredPublicDns,
+                ...extra,
+              }.toList();
               upd(() => total = list.length);
               r = await dnsxScan(
                 list,
