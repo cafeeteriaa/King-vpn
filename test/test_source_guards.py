@@ -4005,12 +4005,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         store = (ROOT / 'lib' / 'fresh_resource_store.dart').read_text(encoding='utf-8')
         page = (ROOT / 'lib' / 'fresh_resources_page.dart').read_text(encoding='utf-8')
         nnie = (ROOT / 'lib' / 'national_engine.dart').read_text(encoding='utf-8')
+        research = (ROOT / 'lib' / 'king_ai_research_policy.dart').read_text(encoding='utf-8')
         self.assertNotIn('maxEntries', store)
         self.assertNotIn('result.length >=', store)
         self.assertIn('Iterable<String> values', store)
         self.assertNotIn('FreshResourceStore.maxEntries', page)
         self.assertNotIn('_maxEntries', nnie)
         self.assertIn('_memory.map((k, v) => MapEntry(k, v.toJson()))', nnie)
+        self.assertNotIn('maxEntries', research)
+        self.assertIn('return entries.map(jsonEncode).toList();', research)
 
 
 
