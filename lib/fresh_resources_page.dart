@@ -91,11 +91,15 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
       ),
     );
     if (accepted != true || !mounted) return;
-    await FreshResourceStore.clear();
-    if (!mounted) return;
-    await _refresh();
-    if (!mounted) return;
-    setState(() => _message = 'پوشه منابع تازه پاک شد.');
+    try {
+      await FreshResourceStore.clear();
+      if (!mounted) return;
+      await _refresh();
+      if (!mounted) return;
+      setState(() => _message = 'پوشه منابع تازه پاک شد.');
+    } catch (error) {
+      if (mounted) setState(() => _message = 'پاک‌سازی پوشه انجام نشد: $error');
+    }
   }
 
   @override
