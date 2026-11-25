@@ -376,7 +376,7 @@ class KingFusionEngine {
         state: _state,
         isBusy: _busy,
         disconnectRequested: _disconnectRequested,
-        activeEngineIds: _active.map((item) => item.adapter.descriptor.id),
+        activeEngineIds: _active.map((item) => _idByAdapter[item.adapter]!),
         cleanupPendingEngineIds: cleanupPendingEngineIds,
         eventSequence: _eventSequence,
       );
