@@ -1,3 +1,5 @@
+import 'dart:async';
+
 /// KING Fusion Engine foundation.
 ///
 /// This module defines an honest adapter boundary for multi-engine routing.
