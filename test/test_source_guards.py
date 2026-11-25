@@ -4048,6 +4048,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('endpointTemplates[c]', scanner)
         self.assertNotIn('knownEndpoints.firstWhere(', scanner)
         self.assertIn("final pair = '$address|${source.port}';", index)
+        self.assertIn('normalizedScope!.add(parsed.address)', index)
+        self.assertIn('2001:0db8:0000:0000:0000:0000:0000:0010', tests)
         self.assertIn('Every source configuration', scanner)
         self.assertIn('retains every matching configuration', tests)
 
