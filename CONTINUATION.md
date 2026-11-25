@@ -690,3 +690,11 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) API contract — callers receive a stable metadata snapshot rather than a live adapter-owned collection; (2) isolation — adapter-side mutations cannot silently rewrite Fusion's public capability view; (3) regression — mutation attempts and source mutation are explicitly covered.
 - Dedicated Fusion test count: 50 by source test declaration count. Exact-head CI required; no local Flutter execution is claimed.
 - Commit: `42e58180022ccaa03d5b2b9c45f3ab8f56b83297`.
+
+## 2026-11-25 — Capability snapshot behavior under adapter mutation
+
+- Strengthened the descriptor-isolation regression beyond checking immutable presentation: after the adapter mutates its original transport Set from TCP to UDP, the engine still accepts TCP from the captured capability snapshot and rejects UDP as unsupported.
+- This verifies that the snapshot is authoritative for preflight validation, not merely a read-only copy returned by `availableEngines`.
+- Three-pass review: (1) compatibility — transport matching continues to use the normalized constructor-time contract; (2) isolation — adapter-owned mutable collections cannot rewrite validation behavior; (3) regression — both acceptance of the original capability and rejection of the mutated capability are asserted, with cleanup between attempts.
+- Dedicated Fusion test count: 50 declarations remain; the existing regression was expanded rather than adding a new test declaration. Exact-head CI is pending; no local Flutter execution is claimed.
+- Commit: `d1581f0a1b852d82d488e85c498d19d30cce9cff`.
