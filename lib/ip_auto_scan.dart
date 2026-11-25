@@ -105,14 +105,11 @@ Future<bool> _ipAutoSave() async {
   // Persist one immutable mode-specific checkpoint so hits, pending work and
   // cursors can never be restored from different points in the same run.
   final saveNationalMode = nationalMode;
-  if (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode) return;
+  if (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode) return false;
   final hits = List<String>.of(ipAutoHits);
   final pending = List<String>.of(ipAutoPendingCore);
   final cursors = Map<String, dynamic>.of(ipAutoCursors);
   final position = ipAutoPos;
-  final hitsKey = saveNationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
-  final cursorKey = '${_ipAutoCursorKey}_${saveNationalMode ? 'nat' : 'glob'}';
-  final posKey = '${_ipAutoPosKey}_${saveNationalMode ? 'nat' : 'glob'}';
   final checkpointKey = 'ipauto_checkpoint_v2_${saveNationalMode ? 'nat' : 'glob'}';
   try {
     final p = await SharedPreferences.getInstance();
