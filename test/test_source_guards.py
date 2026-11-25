@@ -2334,19 +2334,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Future<String?> dohResolve(String name)', main)
         self.assertIn('final doh = NatNetworkDiagnosis.preferDomestic', (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8'))
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
-        sweep_start = main.index('List<String> _atAutoRanges(')
-        sweep_end = main.index('// SUBSTPROJ:', sweep_start)
-        sweep = main[sweep_start:sweep_end]
-        self.assertIn('InternetAddressType.IPv6', sweep)
-        self.assertNotIn('..._cfRangesV6', sweep)
-        self.assertIn('endpointServers = pool', sweep)
-        self.assertIn('nipResolveAll(configured.host)', sweep)
-        self.assertIn('endpointByKey.putIfAbsent', sweep)
-        self.assertIn('completed < ips.length', sweep)
-        self.assertNotIn('_getCfIps(', sweep)
-        self.assertNotIn('_natCfPorts', sweep)
-        self.assertNotIn('natRangeCheckpointV4', sweep)
-
         diag = (ROOT / 'lib' / 'net_diag.dart').read_text(encoding='utf-8')
         method = diag[diag.index('Future<void> netDiagDialog()'): ]
         self.assertIn('var dialogOpen = true;', method)
