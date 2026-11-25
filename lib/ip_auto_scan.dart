@@ -268,7 +268,8 @@ extension IpAutoExt on _HomePageState {
       for (final entry in _goldIps.values) entry.ip,
     };
     final domainSources = <String>{
-      ...(runNationalMode ? kAutoNationalSniDomains : kAutoSniDomains),
+      ...kAutoNationalSniDomains,
+      ...kAutoSniDomains,
       ...dnsxFullDomains(),
       ...natFrontSnis,
       ...natRelayHosts,
