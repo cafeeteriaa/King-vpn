@@ -1787,6 +1787,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("prefs.setString('natRangeCheckpointV4', jsonEncode({", main)
         self.assertIn("'cursors': nextCursors,", main)
         self.assertIn("'configuredCursor': _natConfiguredRangeCursor,", main)
+        sweep_body = main[main.index('Future<List<CleanIp>> _atIpSweepUnlocked('):main.index('// SUBSTPROJ:', main.index('Future<List<CleanIp>> _atIpSweepUnlocked('))]
+        self.assertNotIn('winners.length >= 10', sweep_body)
+        self.assertIn('همه‌ی IPهایی که ترافیک تونل', sweep_body)
 
     def test_nat_range_scan_commits_per_port_cursors_only_after_full_batch(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
