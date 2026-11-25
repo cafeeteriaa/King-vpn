@@ -4,6 +4,7 @@ import 'cf_trace_validation.dart';
 import 'http_response_policy.dart';
 import 'background_concurrency_policy.dart';
 import 'proc_stat_cpu.dart';
+import 'speed_probe_policy.dart';
 import 'king_local_ai.dart';
 import 'king_ai_console.dart';
 import 'king_chat_page.dart';
@@ -4052,15 +4053,24 @@ Future<double?> measure(
     return await () async {
       final req = await c.getUrl(Uri.parse(url));
       final res = await req.close();
+      // Do not mistake a captive-portal page, proxy error, redirect, or rate
+      // limit response for tunnel throughput. Only actual content counts.
+      if (!isUsableSpeedProbeStatus(res.statusCode)) {
+        dbg('SPEED-PROBE-REJECT status=${res.statusCode} url=$url');
+        return null;
+      }
       var bytes = 0;
       final sw = Stopwatch()..start();
       await for (final chunk in res) {
-        bytes += chunk.length;
-        if (sw.elapsed >= win) break;
+        final remaining = maxBytes > 0 ? maxBytes - bytes : chunk.length;
+        if (remaining <= 0) break;
+        bytes += min(chunk.length, remaining);
+        if ((maxBytes > 0 && bytes >= maxBytes) || sw.elapsed >= win) break;
       }
-      final secs = sw.elapsedMilliseconds / 1000;
-      if (secs == 0 || bytes == 0) return null;
-      return bytes / 1048576 / secs;
+      return throughputMegabytesPerSecond(
+        bytes: bytes,
+        elapsedMilliseconds: sw.elapsedMilliseconds,
+      );
     }()
         .timeout(total);
   } catch (_swE) { _swl('measure#1', _swE);
