@@ -385,8 +385,8 @@ Future<void> _nipEnsureFrontSniCursorLoaded() {
   }();
 }
 Future<void> _nipFrontSniCursorSaveQueue = Future<void>.value();
-void _nipPersistFrontSniCursor(int value) {
-  _nipFrontSniCursorSaveQueue = _nipFrontSniCursorSaveQueue.then((_) async {
+Future<void> _nipPersistFrontSniCursor(int value) {
+  return _nipFrontSniCursorSaveQueue = _nipFrontSniCursorSaveQueue.then((_) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_nipFrontSniCursorKey, value);
@@ -459,7 +459,7 @@ Future<String?> nipFindFrontSni(String ip, int port, {bool Function()? cancelled
       completed++;
       if (ok != null) {
         _nipFrontSniCursor = (start + completed) % inventory.length;
-        _nipPersistFrontSniCursor(_nipFrontSniCursor);
+        await _nipPersistFrontSniCursor(_nipFrontSniCursor);
         return ok;
       }
     }
@@ -467,7 +467,7 @@ Future<String?> nipFindFrontSni(String ip, int port, {bool Function()? cancelled
     // queued after cancellation or interruption.
     if (completed > 0) {
       _nipFrontSniCursor = (start + completed) % inventory.length;
-      _nipPersistFrontSniCursor(_nipFrontSniCursor);
+      await _nipPersistFrontSniCursor(_nipFrontSniCursor);
     }
     return null;
   } finally {
