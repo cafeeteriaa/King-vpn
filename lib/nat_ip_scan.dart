@@ -127,6 +127,39 @@ List<int> natPortsForActiveScan({
 /// describing any result as UDP-tested or UDP-reachable.
 List<int> natBuildFullUdpPortInventory(Iterable<int> preferredPorts) =>
     natBuildFullPortInventory(preferredPorts, firstPort: 1, lastPort: 65535);
+/// Canonicalize IPv4/IPv6 literals so equivalent IPv6 spellings share one key.
+String natCanonicalIpAddress(InternetAddress address) {
+  if (address.type == InternetAddressType.IPv4) return address.address;
+  final bytes = address.rawAddress;
+  if (bytes.length != 16) return address.address;
+  final groups = <int>[
+    for (var i = 0; i < 16; i += 2) (bytes[i] << 8) | bytes[i + 1],
+  ];
+  var bestStart = -1;
+  var bestLength = 1;
+  for (var i = 0; i < groups.length;) {
+    if (groups[i] != 0) {
+      i++;
+      continue;
+    }
+    var end = i;
+    while (end < groups.length && groups[end] == 0) {
+      end++;
+    }
+    final length = end - i;
+    if (length > bestLength) {
+      bestStart = i;
+      bestLength = length;
+    }
+    i = end;
+  }
+  final hex = groups.map((group) => group.toRadixString(16)).toList();
+  if (bestStart < 0) return hex.join(':');
+  final left = hex.take(bestStart).join(':');
+  final right = hex.skip(bestStart + bestLength).join(':');
+  return '$left::$right';
+}
+
 /// Index each configured server template by its exact resolved IP:port pair.
 /// Several independent configurations may legitimately share one pair; keep
 /// all of them in stable input order so core verification never substitutes an
@@ -146,7 +179,7 @@ Map<String, List<T>> natIndexEndpointTemplates<T>({
       if (parsed != null &&
           (parsed.type == InternetAddressType.IPv4 ||
               parsed.type == InternetAddressType.IPv6)) {
-        normalizedScope!.add(parsed.address);
+        normalizedScope!.add(natCanonicalIpAddress(parsed));
       }
     }
   }
@@ -159,7 +192,7 @@ Map<String, List<T>> natIndexEndpointTemplates<T>({
               parsed.type != InternetAddressType.IPv6)) {
         continue;
       }
-      final address = parsed.address;
+      final address = natCanonicalIpAddress(parsed);
       if (normalizedScope != null && !normalizedScope.contains(address)) continue;
       final pair = '$address|${source.port}';
       final identity = keyOf(source.endpoint);
