@@ -14,6 +14,6 @@ int adaptiveBackgroundConcurrency({
   final safeMaximum = maxWorkers < 1 ? 1 : maxWorkers;
   final normalized = requested.clamp(1, safeMaximum);
   if (cpuHeat >= 2) return 1;
-  if (cpuHeat == 1) return normalized.clamp(1, 2);
-  return normalized;
+  if (cpuHeat == 1) return normalized.clamp(1, 2).toInt();
+  return normalized.toInt();
 }
