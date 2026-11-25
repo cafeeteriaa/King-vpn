@@ -4068,6 +4068,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('client.close();', stream_fetch)
 
 
+    def test_nat_html_inventory_extraction_is_streamed(self):
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = ultra.index('Future<int> _hotFetchOne(')
+        end = ultra.index('Future<void>? _hotEnsureFuture', start)
+        fetch = ultra[start:end]
+        self.assertIn('_hotHtmlLinks(htmlChunks)', fetch)
+        self.assertNotIn('spool.readAsString()', fetch)
+        self.assertIn('Stream<String> _hotHtmlLinks(Stream<String> chunks)', fetch)
+        self.assertIn("const schemes = <String>['vmess://', 'vless://', 'trojan://', 'ss://'];", fetch)
+        self.assertIn("ch.trim().isEmpty || ch == '<' || ch == '>' || ch == '"'", fetch)
+        self.assertIn('Future<int> _hotWriteSourceLines(', fetch)
+        self.assertIn('String path, Stream<String> lines)', fetch)
+        self.assertIn('await for (final line in lines)', fetch)
+        self.assertIn(".split(RegExp(r'[\\r\\n,; ]+'))", ultra)
+
+
     def test_king_ai_multimodel_provider_keys_are_secure_and_cloud_use_is_opt_in(self):
         provider = (ROOT / 'lib' / 'king_ai_provider_orchestrator.dart').read_text(encoding='utf-8')
         settings = (ROOT / 'lib' / 'king_ai_provider_settings.dart').read_text(encoding='utf-8')
