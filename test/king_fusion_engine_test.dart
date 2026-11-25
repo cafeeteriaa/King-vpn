@@ -954,6 +954,10 @@ void main() {
 
       expect(result.connected, isFalse);
       expect(result.cleanupFailedEngineIds, ['first']);
+      expect(
+        () => result.cleanupFailedEngineIds[0] = 'tampered',
+        throwsUnsupportedError,
+      );
       expect(engine.state, KingFusionState.failed);
       await engine.disconnect();
       expect(engine.state, KingFusionState.idle);
