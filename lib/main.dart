@@ -6451,6 +6451,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     saveT = Timer(const Duration(seconds: 20), _saveCache);
   }
 
+  void _scheduleCacheSaveRetry() {
+    if (saveT?.isActive == true) return;
+    saveT = Timer(const Duration(seconds: 30), _saveCache);
+  }
+
   // ALL healthy servers (no count limit), best speed first, kept on disk
   // A healthy server is only dropped after [missLimit] failed re-checks.
   Future<void> _saveCache() async {
@@ -6465,12 +6470,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           .where((e) => now.difference(e.value) < failWindow)
           .toList()
         ..sort((a, b) => b.value.compareTo(a.value));
-      await p.setString('failed2',
+      final failedSaved = await p.setString('failed2',
           await _shJson({for (final e in fl) e.key: e.value.millisecondsSinceEpoch}));
       final keep = good.where((s) => s.miss < missLimit).toList()
         ..sort(bySpeedThenPing);
       // KEEPLIST: همیشه ذخیره می‌شود (حتی اگر فعلاً خالی باشد)
-      await p.setString(
+      final goodSaved = await p.setString(
           'cache',
           await _shJson(keep
               .map((s) => {
@@ -6481,8 +6486,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     'm': s.miss
                   })
               .toList()));
+      if (!failedSaved || !goodSaved) _scheduleCacheSaveRetry();
     } catch (e, stk) {
       logError(e, stk);
+      _scheduleCacheSaveRetry();
     }
   }
 
