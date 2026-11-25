@@ -318,6 +318,9 @@ class KingFusionEngine {
     final descriptorSnapshots = <String, KingEngineDescriptor>{};
     final adapterIds = HashMap<KingEngineAdapter, String>.identity();
     for (final adapter in adapters) {
+      if (adapterIds.containsKey(adapter)) {
+        throw ArgumentError('The same engine adapter instance cannot be registered twice');
+      }
       final source = adapter.descriptor;
       final id = source.id.trim();
       if (id.isEmpty) {
