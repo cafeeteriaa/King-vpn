@@ -7528,7 +7528,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (ipMode && !abort) {
       final top = (alive.toList()..sort(_cmpAlive))
           .where((s) => s.ipLink == null && !s.ipTried)
-          .take(40)
           .toList();
       await pool<Server>(top, 24, (s) async {
         s.ipTried = true;
@@ -10540,7 +10539,7 @@ ListTile( // KINGEXTRAS row
       final r = _natRank(b) - _natRank(a); // NATIONALPATCH
       return r != 0 ? r : bySpeedThenPing(a, b);
     });
-    final run = l.take(80).toList();
+    final run = l;
     // NATFIRST: نت ملی همان لحظه‌ی اولین سرور سالم را وصل می‌کند؛ بقیه در پس‌زمینه گشته می‌شوند
     final need = nationalMode ? 1 : max(fastPickN, 6);
     final fsw = Stopwatch()..start();
@@ -14740,13 +14739,6 @@ ListTile( // KINGEXTRAS row
       if (failed.length > 80) {
         final cut = now.subtract(const Duration(minutes: 15));
         failed.removeWhere((_, t) => t.isBefore(cut));
-        if (failed.length > 120) {
-          final keys = failed.keys.toList();
-          final n = (keys.length * 0.4).round();
-          for (var i = 0; i < n && i < keys.length; i++) {
-            failed.remove(keys[i]);
-          }
-        }
       }
       dbg('♥ متصل ${up}s • ${current?.name ?? '-'} • پینگ ${current?.ping ?? '-'}'
           ' • سرعت ${current?.speed == null ? '-' : current!.speed!.toStringAsFixed(2)} • سالم ${good.length}'
@@ -16033,7 +16025,7 @@ ListTile( // KINGEXTRAS row
     final waiting = pending.where((s) => !favs.containsKey(s.key)).toList();
     if (waiting.isNotEmpty) {
       rows.add(header('تست‌نشده'));
-      rows.addAll(waiting.take(30));
+      rows.addAll(waiting);
     }
     final el = (searchSw?.elapsedMilliseconds ?? 0) / 1000;
     final rate = el > 0 ? totalTested / el : 0.0;
