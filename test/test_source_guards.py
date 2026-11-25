@@ -1386,6 +1386,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('oldTotal ~/ 2', body)
         self.assertIn("line.indexOf('\\t')", body)
 
+    def test_hot_source_inventory_uses_sparse_index_without_total_record_cap(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn('natHotMax', source)
+        self.assertIn('const int _hotIndexStride = 256;', source)
+        self.assertIn('Future<List<int>> _hotBuildSparseIndex(String path)', source)
+        self.assertIn('packed.add(pos + i + 1)', source)
+        self.assertIn('final int lineCount;', source)
+        self.assertIn('final int byteLength;', source)
+        self.assertIn('_hotOffsetAtLine(raf, h, start)', source)
+        self.assertIn('_hotOffsetAtLine(raf, h, endLine)', source)
+        self.assertNotIn('final List<int> offs;', source)
+        self.assertNotIn('final seenKeys = <String>{};', source)
+
     def test_hot_source_cursor_survives_restart_and_serializes_page_reads(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         self.assertIn("const String _hotCursorKey = 'nat_hot_cursor_v1';", source)
@@ -1403,7 +1416,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("entry.indexOf('\\t')", body)
         self.assertLess(body.index('prefs.setInt(_hotCursorKey, cursor)'), body.index('prefs.setString(_hotCursorSignatureKey, signature)'))
         self.assertIn('if (cursor < 0 || cursor >= lines) cursor = 0;', body)
-        self.assertIn('if (await raf.length() != h.offs.last)', body)
+        self.assertIn('if (await raf.length() != h.byteLength)', body)
 
     def test_active_v2ray_plugin_lifecycle_patch_is_fail_closed(self):
         patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
