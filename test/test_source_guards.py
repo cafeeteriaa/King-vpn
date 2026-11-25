@@ -3892,6 +3892,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final templateBatchSize = templateInventory.length;', nip)
         self.assertIn('natTemplateSeeds = nationalSeeds.toList();', ip_auto)
         self.assertIn('final tpl = pool.toList();', ip_auto)
+        nat_ip = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        self.assertIn('int? want,', nat_ip)
+        self.assertNotIn('int want = 20,', nat_ip)
+        self.assertIn('want == null || hits.length < want', nat_ip)
+        self.assertIn('int? want,', nip)
+        self.assertNotIn('int want = 12,', nip)
 
 
     def test_national_scanner_schedule_is_70_domestic_30_global_without_truncation(self):
