@@ -1364,6 +1364,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         export_end = source.index('List<String> natHotUrls()', export_start)
         self.assertIn('await hotStorageAllow()', source[export_start:export_end])
 
+    def test_hot_source_fetch_does_not_truncate_each_source_inventory(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn('natHotPerSource', source)
+        fetch_start = source.index('Future<List<String>> _hotFetchOne(')
+        fetch_end = source.index('Future<void>? _hotEnsureFuture', fetch_start)
+        fetch_body = source[fetch_start:fetch_end]
+        self.assertIn('for (final l in lines)', fetch_body)
+        self.assertNotIn('out.length >=', fetch_body)
+        self.assertIn("out.add('$u\\t$t');", fetch_body)
+
     def test_hot_source_cursor_survives_restart_and_serializes_page_reads(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         self.assertIn("const String _hotCursorKey = 'nat_hot_cursor_v1';", source)
