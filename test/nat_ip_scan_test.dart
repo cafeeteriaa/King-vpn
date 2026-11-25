@@ -36,7 +36,7 @@ void main() {
     test('retains every matching configuration without cross-port substitution', () {
       final indexed = natIndexEndpointTemplates<String>(
         sources: [
-          (endpoint: 'vless-ws-config', addresses: ['192.0.2.10', '2001:db8::10'], port: 443),
+          (endpoint: 'vless-ws-config', addresses: ['192.0.2.10', '2001:0db8:0000:0000:0000:0000:0000:0010'], port: 443),
           (endpoint: 'trojan-tls-config', addresses: ['192.0.2.10'], port: 443),
           (endpoint: 'different-port-config', addresses: ['192.0.2.10'], port: 8443),
           (endpoint: 'outside-active-scope', addresses: ['192.0.2.99'], port: 443),
