@@ -222,7 +222,7 @@ void main() {
       expect(engine.snapshot.cleanupPendingEngineIds, isEmpty);
       expect(
         () => engine.snapshot.activeEngineIds.add('injected'),
-        throwsUnsupportedError,
+        throwsA(isA<UnsupportedError>()),
       );
       expect(events.map((event) => event.sequence).toList(),
           List<int>.generate(events.length, (index) => index + 1));
