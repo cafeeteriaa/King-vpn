@@ -125,6 +125,7 @@ enum KingFusionEventType {
   hopStopped,
   cleanupFailed,
   disconnectRequested,
+  operationCancelled,
   disconnectCompleted,
 }
 
@@ -436,6 +437,7 @@ class KingFusionEngine {
     _setState(KingFusionState.starting);
     String? currentEngineId;
     Object? upstreamHandle;
+    var verificationInProgress = false;
     try {
       for (final hop in plan.hops) {
         if (_disconnectRequested) {
@@ -509,6 +511,7 @@ class KingFusionEngine {
         }
       }
       if (plan.requireTrafficVerification) {
+        verificationInProgress = true;
         _emit(KingFusionEventType.verificationStarted);
         final verifier = _trafficVerifier;
         if (verifier == null) {
@@ -534,6 +537,7 @@ class KingFusionEngine {
             (_) => throw _KingFusionCancelled(),
           ),
         ]);
+        verificationInProgress = false;
         if (_disconnectRequested) {
           final startedCount = _active.length;
           final cleanupFailures = await _rollback();
@@ -568,6 +572,8 @@ class KingFusionEngine {
         trafficVerified: plan.requireTrafficVerification,
       );
     } on _KingFusionCancelled {
+      _emit(KingFusionEventType.operationCancelled,
+          engineId: currentEngineId, failureCode: 'E-FUSION-CANCELLED');
       final startedCount = _active.length;
       final cleanupFailures = await _rollback();
       _setState(KingFusionState.failed);
@@ -578,6 +584,8 @@ class KingFusionEngine {
         cleanupFailedEngineIds: cleanupFailures,
       );
     } on _KingFusionVerificationTimeout {
+      _emit(KingFusionEventType.verificationFailed,
+          failureCode: 'E-FUSION-VERIFY-TIMEOUT');
       final verifier = _activeVerifier;
       if (verifier != null) {
         unawaited(_requestVerifierCancellation(verifier));
@@ -594,10 +602,14 @@ class KingFusionEngine {
     } catch (_) {
       final failureCode = _disconnectRequested
           ? 'E-FUSION-CANCELLED'
-          : 'E-FUSION-EXCEPTION';
+          : verificationInProgress
+              ? 'E-FUSION-VERIFY-EXCEPTION'
+              : 'E-FUSION-EXCEPTION';
       _emit(
-        KingFusionEventType.hopFailed,
-        engineId: currentEngineId,
+        verificationInProgress
+            ? KingFusionEventType.verificationFailed
+            : KingFusionEventType.hopFailed,
+        engineId: verificationInProgress ? null : currentEngineId,
         failureCode: failureCode,
       );
       final startedCount = _active.length;
@@ -654,8 +666,8 @@ class KingFusionEngine {
   }
 
   Future<void> disconnect() async {
+    _emit(KingFusionEventType.disconnectRequested);
     if (_busy) {
-      _emit(KingFusionEventType.disconnectRequested);
       // A disconnect request must not disappear while a native start is in
       // flight. Ask connect() to roll back as soon as that start completes.
       _disconnectRequested = true;
@@ -680,7 +692,10 @@ class KingFusionEngine {
     try {
       await _rollback();
       _setState(_active.isEmpty ? KingFusionState.idle : KingFusionState.failed);
-      _emit(KingFusionEventType.disconnectCompleted);
+      _emit(
+        KingFusionEventType.disconnectCompleted,
+        failureCode: _active.isEmpty ? null : 'E-FUSION-CLEANUP-PENDING',
+      );
     } finally {
       _busy = false;
       _operationDone?.complete();
