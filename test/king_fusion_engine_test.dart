@@ -1223,5 +1223,36 @@ void main() {
       expect(engine.state, KingFusionState.idle);
       expect(engine.isBusy, isFalse);
     });
+
+    test('disconnect requested by verification observer prevents success result', () async {
+      final events = <String>[];
+      final adapter = _FakeAdapter('first', events);
+      late final KingFusionEngine engine;
+      Future<void>? disconnecting;
+      engine = KingFusionEngine(
+        [adapter],
+        trafficVerifier: _FakeTrafficVerifier(true),
+        onEvent: (event) {
+          if (event.type == KingFusionEventType.verificationPassed) {
+            disconnecting = engine.disconnect();
+          }
+        },
+      );
+
+      final result = await engine.connect(KingFusionPlan(
+        [const KingFusionHop(engineId: 'first', configuration: 'cfg')],
+        requireTrafficVerification: true,
+      ));
+      await disconnecting;
+
+      expect(result.connected, isFalse);
+      expect(result.trafficVerified, isFalse);
+      expect(result.failureCode, 'E-FUSION-CANCELLED');
+      expect(result.startedHops, 1);
+      expect(events.where((event) => event.startsWith('start:first:')).length, 1);
+      expect(events.where((event) => event.startsWith('stop:first:')).length, 1);
+      expect(engine.state, KingFusionState.idle);
+      expect(engine.isBusy, isFalse);
+    });
   });
 }
