@@ -681,3 +681,12 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) API compatibility — preflight still reports the original validation failure rather than rewriting it as a cancellation; (2) lifecycle — disconnect waits on the reserved operation completion and does not manufacture native cleanup work; (3) regression — both observer boundaries have explicit final-state assertions.
 - Dedicated Fusion test count: 49 by source test declaration count. Exact-head CI is required; no local Flutter execution is claimed.
 - Commits: `9127cd7ceb1f6d0804d8508091000b0bb38caf8c` (validation-rejection observer), `766598447dfbd80388d44f1838593caf6b675b07` (failed-state observer), `6918c768b998ae8ecf032b7f1c3aca7e1a89839b` (assertion correction).
+
+## 2026-11-25 — Defensive engine descriptor snapshots
+
+- Extended the public-metadata boundary audit. Adapter descriptors are supplied by external implementations; their `supportedTransports` Set can be mutable even though the descriptor fields themselves are final.
+- Added a focused adapter fixture that exposes mutable transport metadata, constructs the Fusion engine, then mutates the source Set. The public descriptor snapshot must preserve the normalized original transport inventory.
+- The regression also asserts that both the descriptor transport Set and the returned `availableEngines` collection reject mutation.
+- Three-pass review: (1) API contract — callers receive a stable metadata snapshot rather than a live adapter-owned collection; (2) isolation — adapter-side mutations cannot silently rewrite Fusion's public capability view; (3) regression — mutation attempts and source mutation are explicitly covered.
+- Dedicated Fusion test count: 50 by source test declaration count. Exact-head CI required; no local Flutter execution is claimed.
+- Commit: `42e58180022ccaa03d5b2b9c45f3ab8f56b83297`.
