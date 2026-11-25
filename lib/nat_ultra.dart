@@ -853,7 +853,7 @@ List<int> _natOrder(Server s, {bool full = false}) {
   final f = _NatFacts(s);
   final known = natVar[_nk(s)];
   final cursor = _natCursor[_natCk(s)] ?? 0;
-  final again = cursor > 0 && lvl >= 2;
+  final again = cursor > 0;
   final out = <int>[];
   final used = <int>{};
   void put(int c) {
@@ -861,10 +861,9 @@ List<int> _natOrder(Server s, {bool full = false}) {
   }
 
   final preferLight = !nationalMode;
-  final skipHeavy = !nationalMode;
 
   final knownOk = known != null && _natAppliesF(f, known);
-  if (knownOk && (!skipHeavy || !_natIsSlowHeavy(known!))) put(known!);
+  if (knownOk) put(known!);
 
   if (preferLight) {
     // FRAGLADDER: Fragment variants در رأس لیست تا ladder حالت عادی
@@ -898,16 +897,11 @@ List<int> _natOrder(Server s, {bool full = false}) {
   // winner can still be tried first through knownOk above; otherwise KCP stays
   // in the later generated matrix rather than being an unconditional first pick.
 
-  if (lvl >= 2) {
-    for (final w in _natTopWinners(6)) {
-      if (skipHeavy && _natIsSlowHeavy(w)) continue;
-      if (_natAppliesF(f, w)) put(w);
-    }
+  for (final w in _natTopWinners(6)) {
+    if (_natAppliesF(f, w)) put(w);
   }
 
-  final cand = (lvl >= 2
-      ? <int>[for (var i = 0; i < _natBaseCount; i++) i]
-      : <int>[0, 1, 2, 8])
+  final cand = <int>[for (var i = 0; i < _natBaseCount; i++) i]
     ..sort((a, b) {
       final d = (natWins['$natOpKey#$b'] ?? 0) -
           (natWins['$natOpKey#$a'] ?? 0);
@@ -916,20 +910,16 @@ List<int> _natOrder(Server s, {bool full = false}) {
   if (!again) {
     if (!knownOk || (preferLight && knownOk && _natIsSlowHeavy(known!))) {
       for (final v in cand) {
-        if (skipHeavy && _natIsSlowHeavy(v)) continue;
         if (_natAppliesF(f, v)) {
           put(v);
           break;
         }
       }
     }
-    if (lvl >= 2) {
-      for (final i in const <int>[1, 2, 3]) {
-        put(i * _natCodeBase);
-      }
+    for (final i in const <int>[1, 2, 3]) {
+      put(i * _natCodeBase);
     }
     for (final v in cand) {
-      if (skipHeavy && _natIsSlowHeavy(v)) continue;
       if (v != known && _natAppliesF(f, v)) put(v);
     }
   } else if (_natAppliesF(f, 0)) {
@@ -970,7 +960,6 @@ List<int> _natOrder(Server s, {bool full = false}) {
       final start = cursor < app.length ? cursor : 0;
       for (var k = start; k < app.length; k++) {
         final gv = app[k];
-        if (skipHeavy && _natIsSlowHeavy(gv)) continue;
         gens.add(gv);
       }
     }
@@ -979,12 +968,12 @@ List<int> _natOrder(Server s, {bool full = false}) {
   for (var k = 0; k < head; k++) {
     put(gens[k]);
   }
-  if (lvl >= 2 && !again) {
+  if (!again) {
     for (var i = 4; i <= 8; i++) {
       put(i * _natCodeBase);
     }
   }
-  if (lvl >= 3 && !again) {
+  if (!again) {
     for (var i = 9; i <= _natTestUrls.length; i++) {
       put(i * _natCodeBase);
     }
@@ -999,7 +988,7 @@ List<int> _natOrder(Server s, {bool full = false}) {
       }
     }
   }
-  if (lvl >= 4 && !again) {
+  if (!again) {
     for (final w in _natTopWinners(3)) {
       for (var i = 1; i <= 8; i++) {
         if (_natAppliesF(f, w)) put(i * _natCodeBase + w);
@@ -1840,9 +1829,6 @@ Future<bool> natIpMemSaveMany(Iterable<String> ips, int port) async {
 Future<void> natIpMemSave(String ip, int port) async {
   natIpMem.removeWhere((e) => e['ip'] == ip && e['port'] == port);
   natIpMem.insert(0, {'ip': ip, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
-  if (natIpMem.length > _ipMemMax) {
-    natIpMem.removeRange(_ipMemMax, natIpMem.length);
-  }
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString(_ipMemKey, jsonEncode(natIpMem));
@@ -2131,11 +2117,10 @@ Future<List<String>> _natDomainFirst(List<Server> known,
       final hits = await natScanIps(
         entry.value,
         port: entry.key,
-        concurrency: conc.clamp(1, 32).toInt(),
-        // Probe every resolved endpoint in this port group; the shared 45s
-        // deadline and adaptive concurrency bound the discovery phase.
+        concurrency: natAdaptiveConcurrency(conc),
+        // Probe every resolved endpoint in this configured endpoint group.
+        // There is no implicit hit or wall-clock ceiling; cancellation is explicit.
         want: entry.value.length,
-        budget: const Duration(seconds: 5),
         timeout: const Duration(milliseconds: 1200),
         cancelled: cancelled,
       );
