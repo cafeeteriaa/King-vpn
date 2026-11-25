@@ -299,7 +299,7 @@ extension IpAutoExt on _HomePageState {
         ? 0
         : (previousDomainIndex + 1) % domainInventory.length;
     final domainBatch = <String>[
-      for (var i = 0; i < min(_autoScanDomainBatchSize, domainInventory.length); i++)
+      for (var i = 0; i < domainInventory.length; i++)
         domainInventory[(domainStart + i) % domainInventory.length],
     ];
     final stagedDomainCursor =
@@ -381,7 +381,7 @@ extension IpAutoExt on _HomePageState {
         final nationalSeeds = await natHotNext(50, fetch: false);
         if (halted()) return false;
         if (nationalSeeds.isNotEmpty) {
-          natTemplateSeeds = nationalSeeds.take(2).toList();
+          natTemplateSeeds = nationalSeeds.toList();
           pool = [...nationalSeeds, ...good, ...pending];
         } else {
           pool = <Server>[...natTemplateSeeds, ...good, ...pending];
@@ -407,7 +407,7 @@ extension IpAutoExt on _HomePageState {
     if (pool.isEmpty) {
       say('موجودی مستقل IP ذخیره شد؛ برای بررسی فعال، ابتدا یک endpoint دقیق VPN در منابع پروژه موجود باشد.');
     }
-    final tpl = pool.take(2).toList();
+    final tpl = pool.toList();
     say('ساخت آدرس‌ها...');
     final tcpConcurrency =
         (manual && runNationalMode) ? kNatManualConc : _ipAutoConc;
