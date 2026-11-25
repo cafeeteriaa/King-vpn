@@ -63,6 +63,16 @@ void main() {
     expect(lines, ['vless://id@example.com:443?x=1&y=2']);
   });
 
+  test('keeps lenient UTF-8 behavior for malformed source bytes', () async {
+    final bytes = <int>[0xff, 0x0a, ...utf8.encode('vless://id@example.com:443')];
+    final lines = await decodeConfigSourceLines(
+      Stream<List<int>>.value(bytes),
+      linkRegex: linkRegex,
+    ).toList();
+
+    expect(lines, ['�', 'vless://id@example.com:443']);
+  });
+
   test('returns no lines for an empty response', () async {
     final lines = await decodeConfigSourceLines(
       const Stream<List<int>>.empty(),
