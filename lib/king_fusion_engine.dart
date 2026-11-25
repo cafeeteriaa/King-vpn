@@ -97,7 +97,22 @@ enum KingFusionState { idle, starting, connected, stopping, failed }
 String _safeAdapterFailureCode(String? value) {
   if (value == null) return 'E-FUSION-START';
   final code = value.trim();
-  return RegExp(r'^[A-Z][A-Z0-9_-]{0,63}
+  if (code.isEmpty || code.length > 64) {
+    return 'E-FUSION-ADAPTER-START';
+  }
+  final first = code.codeUnitAt(0);
+  if (first < 65 || first > 90) return 'E-FUSION-ADAPTER-START';
+  for (final unit in code.codeUnits.skip(1)) {
+    final isUpper = unit >= 65 && unit <= 90;
+    final isDigit = unit >= 48 && unit <= 57;
+    if (!isUpper && !isDigit && unit != 95 && unit != 45) {
+      return 'E-FUSION-ADAPTER-START';
+    }
+  }
+  return code;
+}
+
+class _KingFusionVerificationTimeout implements Exception {}
 
 class KingFusionResult {
   /// All adapters accepted their start calls; this is not end-to-end traffic proof.
