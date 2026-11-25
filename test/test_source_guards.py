@@ -3826,5 +3826,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             self.assertNotIn('if (!runNationalMode) ...dnsxFullDomains()', source)
 
 
+    def test_scanner_cycles_and_saved_inventories_have_no_daily_or_round_ceiling(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+
+        self.assertNotIn('int maxBatches = 8;', main)
+        self.assertNotIn('batches < maxB', main)
+        self.assertNotIn('difference(startedAt) < const Duration(hours: 8)', main)
+        self.assertIn('pass 2 exhausted → restarting full national discovery', main)
+        self.assertNotIn('kGoldDailyProbes', extras)
+        self.assertIn('return 1 << 60;', extras)
+        self.assertIn('cleanIps = results.toList();', extras)
+        self.assertNotIn('.take(20)', extras[extras.index('Future<void> _goldSrvStep'):extras.index('Future<void> _goldMergeGood')])
+        self.assertNotIn('_natPick.length > 3000', ultra)
+        self.assertNotIn('_natCursor.length > 4000', ultra)
+        self.assertIn('_topWinCache = [for (final r in rows) r.key];', ultra)
+
+
 if __name__ == '__main__':
     unittest.main()
