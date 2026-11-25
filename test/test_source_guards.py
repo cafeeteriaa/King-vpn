@@ -2496,7 +2496,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         connect_end = main.index('Future<bool> ', connect_start + 20)
         connect = main[connect_start:connect_end]
         self.assertIn('final verifyClock = Stopwatch()..start();', connect)
-        self.assertIn('Duration verifyRemaining() => verifyBudget - verifyClock.elapsed;', connect)
+        self.assertIn('Duration verifyRemaining() => nationalMode', connect)
+        self.assertIn('verifyBudget - verifyClock.elapsed', connect)
         self.assertIn('microseconds: max(1, remaining.inMicroseconds ~/ 2).toInt()', connect)
         self.assertIn('cancelled: () => abort || !wantVpn,', connect)
         self.assertIn('bool Function()? cancelled', ping)
@@ -2837,7 +2838,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('_goldTrimSrv', extras)
         self.assertIn('final Map<String, _GoldIp> _goldIps = {};', extras)
         self.assertIn('final Map<String, _GoldSrv> _goldSrv = {};', extras)
-        self.assertIn("await p.setString('gold_v1', _goldEncode())", extras)
+        self.assertIn("p.setString('gold_v1', _goldEncode())", extras)
         start = extras.index('List<CleanIp> goldIpList()')
         end = extras.index('// NATHELP:', start)
         ranked_inventory = extras[start:end]
