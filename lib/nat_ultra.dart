@@ -2585,7 +2585,6 @@ Future<void> userListsSave(String text) async {
 
 // HOTCAP: کاهش از ۲ میلیون برای جلوگیری از OOM روی گوشی ضعیف
 List<Server> Function()? natExtraSource;
-const Duration natHotTtl = Duration(hours: 72);
 bool _hotBusy = false;
 DateTime? _hotFailAt;
 int _hotCursor = 0;
@@ -2748,10 +2747,8 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
   final f = File(_hotPath());
   try {
     final exists = f.existsSync() && f.lengthSync() > 0;
-    final age = f.existsSync()
-        ? DateTime.now().difference(f.lastModifiedSync())
-        : const Duration(days: 365);
-    if (!force && exists && age < natHotTtl) return;
+    // No fixed 72-hour refresh cooldown: explicit scan/refresh requests
+    // re-read configured source inventories. Existing cache survives failures.
     _hotBusy = true;
     final urls = natHotUrls();
     final dir = '/data/data/com.kingvpn.king_vpn/files';

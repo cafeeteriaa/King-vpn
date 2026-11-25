@@ -10510,19 +10510,14 @@ ListTile( // KINGEXTRAS row
           // NATPENDCAP: وقتی صف فعال و سرریز با هم پرند، اسکن بازه‌ی تازه را موقتاً مکث کن
           final hasRangeTemplate = pending.isNotEmpty ||
               natRestPending.isNotEmpty || natTemplateSeeds.isNotEmpty || good.isNotEmpty;
-          if (localPilotOn && cpuHot == 0 && hasRangeTemplate &&
-              DateTime.now().difference(natRangeLast) >
-                  const Duration(minutes: 5) &&
-              pending.length + natRestPending.length <
-                  max(3000, natAdaptiveWorkers() * 1500)) {
+          if (localPilotOn && cpuHot == 0 && hasRangeTemplate) {
             natRangeLast = DateTime.now();
             unawaited(() async {
               final ips = await natRangeScanStep(
                   known: [...pending, ...natRestPending],
-                  // Scale each scan slice with device capacity; the shared
-                  // monotonic deadline below remains the hard runtime budget.
-                  maxAddrs: max(8192, min(16384, natAdaptiveWorkers() * 2048)),
-                  conc: min(4, natAdaptiveWorkers()),
+                  // A resumable slice is sized by the range scanner from
+                  // current device capacity; no fixed address-count ceiling.
+                  conc: natAdaptiveConcurrency(0),
                   stop: () => !mounted ||
                       !connected ||
                       !wantVpn ||
@@ -10787,15 +10782,9 @@ ListTile( // KINGEXTRAS row
   // دامنه‌ها ابتدا به IP تبدیل می‌شوند. سرورهایی که پورتشان باز است جلوی صف
   // می‌آیند؛ بقیه حذف نمی‌شوند. اعتبار واقعی همچنان با تست اتصال از تونل است.
   Future<void> _natMergeCache() async {
-    // NATIONAL-MERGE: در nationalMode، منابع تازه (natHotNext) + پوشه‌ی
-    // سرورهای سالم (_resMap) با نسبت ثابت به صف اضافه می‌شوند
-    // (منابع تازه ۴۰۰، پوشه ۳۰۰ با چرخش _resMergeCursor).
+    // Merge the complete saved/learned pool without a total queue ceiling.
+    // Active work is sized to device capacity; every overflow item is retained.
     if (!nationalMode || !kNatMergeCache) return;
-    final queueLimit = max(3000, natAdaptiveWorkers() * 1500);
-    if (pending.length + natRestPending.length >= queueLimit) return;
-    // FOLDERS: سهم ثابت در هر دور. منابع تازه ۴۰۰ کانفیگ، سرورهای سالم ۳۰۰ تا
-    // (با چرخش، تا همه‌ی پوشه نوبت بگیرد). سرورهایی که همین الان در صف یا در
-    // لیست سالم هستند دوباره اضافه نمی‌شوند.
     final queued = {for (final s in [...pending, ...natRestPending]) s.link};
     final goodLinks = {for (final g in good) g.link};
     final rest = <Server>[];
@@ -10803,16 +10792,8 @@ ListTile( // KINGEXTRAS row
       final hs = Server.parse(e.link);
       if (hs != null && !goodLinks.contains(hs.link)) rest.add(hs);
     }
-    final fromHealthy = <Server>[];
-    if (rest.isNotEmpty) {
-      final st = _resMergeCursor % rest.length;
-      final take = min(300, rest.length);
-      for (var i = 0; i < take; i++) {
-        fromHealthy.add(rest[(st + i) % rest.length]);
-      }
-      _resMergeCursor = (st + take) % rest.length;
-    }
-    final fromFresh = await natHotNext(400);
+    final fromHealthy = rest;
+    final fromFresh = await natHotNext(max(1, Platform.numberOfProcessors * 4096));
     final c = [...fromFresh, ...fromHealthy];
     if (c.isEmpty) return;
     final add = [for (final s in c) if (queued.add(s.link)) s];
@@ -10824,7 +10805,7 @@ ListTile( // KINGEXTRAS row
       active: pending,
       overflow: natRestPending,
       keyOf: (server) => server.link,
-      activeLimit: 1200,
+      activeLimit: max(1, natAdaptiveWorkers() * 1024),
     );
     pending = split.active;
     natRestPending = split.overflow;
@@ -10847,20 +10828,17 @@ ListTile( // KINGEXTRAS row
       cands.sort((a, b) =>
           (memHosts.contains(a.host) ? 0 : 1) -
           (memHosts.contains(b.host) ? 0 : 1));
-      // سقف بررسی در هر دور: بقیه برای دور بعد نگه داشته می‌شوند
-      const checkCap = 400; // فیکس ۱۹: قبلاً ۳۰۰۰؛ بقیه در overflow می‌روند و دور بعد بررسی می‌شوند
-      final overflow = cands.length > checkCap ? cands.sublist(checkCap) : <Server>[];
-      if (cands.length > checkCap) cands.removeRange(checkCap, cands.length);
-      const scanBudget = Duration(seconds: 90);
+      // Process the complete current queue; adaptive batches control only
+      // simultaneous DNS/TCP work and do not truncate the inventory.
+      final overflow = <Server>[];
       const dnsTimeout = Duration(seconds: 3);
-      const dnsBatch = 16;
+      final dnsBatch = natAdaptiveConcurrency(0);
       final ipOf = <String, String>{};
       final hosts = {
         for (final s in cands)
           if (s.host.isNotEmpty) s.host,
       }.toList(growable: false);
-      // Resolve every current-round hostname in bounded batches. The independent
-      // monotonic TCP budget starts only after DNS resolution; unresolved candidates remain queued.
+      // Resolve every queued hostname in adaptive, cancellable batches.
       for (var i = 0; i < hosts.length && !abort; i += dnsBatch) {
         final chunk = <String>[];
         for (var j = i; j < min(i + dnsBatch, hosts.length); j++) {
@@ -10882,40 +10860,30 @@ ListTile( // KINGEXTRAS row
       }
       final targets = [for (final s in cands) if (ipOf.containsKey(s.host)) s];
       final ok = <Server>[];
-      const batch = 20;
-      // Preserve the original 90-second TCP budget independently of DNS time.
-      final deadline = Stopwatch()..start();
-      for (var i = 0;
-          i < targets.length && !abort && deadline.elapsed < scanBudget;
-          i += batch) {
+      final batch = natAdaptiveConcurrency(0);
+      for (var i = 0; i < targets.length && !abort; i += batch) {
         final chunk = targets.sublist(i, min(i + batch, targets.length));
         _set('نت ملی: بررسی IP ${i + chunk.length}/${targets.length}...');
         final res = await Future.wait(chunk.map((s) => natTcpProbe(
               ipOf[s.host]!,
               s.port,
               const Duration(milliseconds: 1500),
-              cancelled: () =>
-                  abort || deadline.elapsed >= scanBudget,
+              cancelled: () => abort,
             )));
         natIpScanned += chunk.length;
         // DEADSKIP: IPهایی که در همین نشست رد شده‌اند دوباره تست نمی‌شوند
         for (var k = 0; k < chunk.length; k++) {
           final s = chunk[k];
-          if (natIpDeadRun.contains('${s.host}|${s.port}')) continue;
           if (res[k] != null) {
             ok.add(s);
             natIpFound++;
           }
         }
-        if (ok.isNotEmpty) break; // اولین دسته‌ی باز را فوراً تست می‌کنیم
       }
       if (ok.isEmpty) {
-        // هیچ IP ای باز نشد: همه‌ی سرورها تست می‌شوند (چیزی حذف نمی‌شود)
-        // DEADSKIP: فقط سرورهایی که اخیراً شکست نخورده‌اند دوباره به صف می‌روند
-        pending = [
-          for (final s in [...cands, ...overflow])
-            if (!_recentFail(s) && !_bad(s)) s
-        ];
+        // No endpoint was reachable in this pass. Preserve every source item
+        // so transient DNS/TCP failures are retried on the next pass.
+        pending = [...cands, ...overflow];
         natRestPending = [];
         return;
       }
@@ -10928,12 +10896,11 @@ ListTile( // KINGEXTRAS row
       }
       final okLinks = {for (final s in ok) s.link};
       pending = ok;
-      // DEADSKIP: همان قاعده برای باقی‌مانده‌ی صف نت ملی
+      // Preserve every non-hit item for later rounds; one failed probe is
+      // never a permanent exclusion from the scan inventory.
       natRestPending = [
-        for (final s in cands)
-          if (!okLinks.contains(s.link) && !_recentFail(s) && !_bad(s)) s,
-        for (final s in overflow)
-          if (!_recentFail(s) && !_bad(s)) s,
+        for (final s in cands) if (!okLinks.contains(s.link)) s,
+        ...overflow,
       ];
       _set('نت ملی: ${ok.length} سرور با IP باز پیدا شد، تست می‌شود');
     } catch (e, stk) {
@@ -10949,17 +10916,16 @@ ListTile( // KINGEXTRAS row
         for (final s in [...pending, ...natRestPending]) '${s.host}|${s.port}'
       };
       final items = <String>[];
-      for (final e in natIpMem.take(40)) {
+      for (final e in natIpMem) {
         final ip = '${e['ip']}';
         final port = (e['port'] as num?)?.toInt() ?? 0;
         if (InternetAddress.tryParse(ip) == null || port <= 0) continue;
         if (have.contains('$ip|$port') || have.contains('$ip:$port')) continue;
-        if (natIpDeadRun.contains('$ip|$port')) continue; // DEADRUN: failed this run
         items.add('$ip|$port');
       }
       if (items.isEmpty) return;
       if (natTemplateSeeds.isEmpty) {
-        natTemplateSeeds = await natHotNext(2, fetch: false);
+        natTemplateSeeds = await natHotNext(max(1, Platform.numberOfProcessors * 4096), fetch: false);
       }
       final before = pending.length;
       await _natRangeAdd(items, count: false);
@@ -10976,7 +10942,7 @@ ListTile( // KINGEXTRAS row
     for (final it in items) {
       natScanHits.add(it.split('|')[0]);
     }
-    final tpl = [...pending, ...natRestPending, ...natTemplateSeeds, ...good].take(2).toList();
+    final tpl = [...pending, ...natRestPending, ...natTemplateSeeds, ...good];
     if (tpl.isEmpty) {
       dbg('V8: no template - skipping');
       return;
@@ -11860,15 +11826,9 @@ ListTile( // KINGEXTRAS row
         dbg('NAT range scan deferred: no config template is available');
         return;
       }
-      final queueLimit = max(3000, natAdaptiveWorkers() * 1500);
-      if (pending.length + natRestPending.length >= queueLimit) {
-        dbg('NAT range scan deferred: candidate queue is draining');
-        return;
-      }
       final ips = await natRangeScanStep(
           known: [...pending, ...natRestPending],
-          maxAddrs: 30000, // SCANCAP: قبلاً ۱۰۰ هزار با بودجه ۱۲ دقیقه
-          conc: natAdaptiveWorkers(),
+          conc: natAdaptiveConcurrency(0),
           stop: () => abort || nationalMode != runNationalMode,
           budget: const Duration(minutes: 3));
       if (abort || nationalMode != runNationalMode) return;

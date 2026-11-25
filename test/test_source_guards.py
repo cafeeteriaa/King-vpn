@@ -2451,30 +2451,32 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('nextOverflow.add(value);', helper)
         self.assertIn('keyOf(value)', helper)
 
-    def test_nat_queue_caps_preserve_overflow_and_pause_new_ranges(self):
+    def test_nat_queue_has_no_total_inventory_ceiling_and_preserves_overflow(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         merge_start = source.index('Future<void> _natMergeCache() async {')
         merge_end = source.index('Future<void> _natPrescan()', merge_start)
         merge = source[merge_start:merge_end]
-        self.assertIn('pending.length + natRestPending.length >= queueLimit', merge)
-        self.assertIn('activeLimit: 1200', merge)
-        self.assertNotIn('pending.removeRange(1200', merge)
+        self.assertNotIn('queueLimit', merge)
+        self.assertIn('fromHealthy = rest;', merge)
+        self.assertIn('natHotNext(max(1, Platform.numberOfProcessors * 4096))', merge)
+        self.assertIn('activeLimit: max(1, natAdaptiveWorkers() * 1024)', merge)
+        self.assertIn('overflow: natRestPending', merge)
         range_start = source.index('Future<void> _natRangeAdd(')
         range_end = source.index('void _userListsDialog', range_start)
         range_add = source[range_start:range_end]
-        self.assertIn('activeLimit: 3000', range_add)
+        self.assertNotIn('.take(2)', range_add)
         self.assertIn('overflow: natRestPending', range_add)
-        self.assertIn('[...pending, ...natRestPending]', range_add)
-        self.assertNotIn('pending.removeRange(3000', range_add)
         scan_start = source.index('Future<void> _natScanOnly() async {')
         scan_end = source.index('Future<void> _natQuickStart()', scan_start)
         scan_only = source[scan_start:scan_end]
-        self.assertIn('pending.length + natRestPending.length >= queueLimit', scan_only)
+        self.assertNotIn('queueLimit', scan_only)
         self.assertIn('no config template is available', scan_only)
+        self.assertNotIn('maxAddrs: 30000', scan_only)
         keep_start = source.index('Future<void> _natKeep() async {')
         keep_end = source.index('Future<void> _natScanOnly() async {', keep_start)
         keep = source[keep_start:keep_end]
-        self.assertIn('pending.length + natRestPending.length <', keep)
+        self.assertNotIn('Duration(minutes: 5)', keep)
+        self.assertNotIn('queueLimit', keep)
         self.assertIn('hasRangeTemplate', keep)
 
     def test_nat_tcp_probe_uses_cancelable_connection_tasks_and_bounded_polling(self):
@@ -2490,21 +2492,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('connectTask.socket.timeout(remaining', probe)
         self.assertIn('cancelWatcher?.cancel();', probe)
 
-    def test_nat_prescan_uses_monotonic_deadline_and_cancellable_tcp_probes(self):
+    def test_nat_prescan_scans_complete_queue_until_explicit_cancellation(self):
         source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> _natPrescan() async {')
         end = source.index('Future<void> _natMemoryReuse()', start)
         body = source[start:end]
-        self.assertIn('const scanBudget = Duration(seconds: 90);', body)
-        self.assertIn('const dnsBatch = 16;', body)
-        self.assertIn('final deadline = Stopwatch()..start();', body)
-        self.assertEqual(body.count('final deadline = Stopwatch()..start();'), 1)
-        self.assertIn('Future.wait(', body)
+        self.assertNotIn('checkCap', body)
+        self.assertNotIn('scanBudget', body)
+        self.assertNotIn('deadline', body)
+        self.assertIn('final dnsBatch = natAdaptiveConcurrency(0);', body)
+        self.assertIn('final batch = natAdaptiveConcurrency(0);', body)
+        self.assertIn('i < targets.length && !abort', body)
         self.assertIn('safeLookup(host, timeout: dnsTimeout)', body)
-        self.assertIn('Preserve the original 90-second TCP budget independently of DNS time.', body)
-        self.assertIn('deadline.elapsed < scanBudget', body)
-        self.assertIn('cancelled: () =>', body)
-        self.assertIn('deadline.elapsed >= scanBudget', body)
+        self.assertIn('cancelled: () => abort,', body)
+        self.assertNotIn('natIpDeadRun.contains', body)
+        self.assertNotIn('_recentFail(s)', body)
+        self.assertNotIn('_bad(s)', body)
+        self.assertNotIn('if (ok.isNotEmpty) break;', body)
+        self.assertIn('pending = [...cands, ...overflow];', body)
 
     def test_nat_ip_scan_callbacks_fail_closed_and_progress_isolated(self):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
