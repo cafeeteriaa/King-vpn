@@ -4023,6 +4023,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         run = source[run_start:run_end]
         self.assertNotIn('if (pool.isEmpty) {\n      return false;', run)
         self.assertIn('if (knownEndpoints.isEmpty)', run)
+        self.assertIn('natHotNext(null, fetch: false)', run)
+        self.assertNotIn('natHotNext(50, fetch: false)', run)
         self.assertIn('final endpointIps = (endpointTargets[port] ?? <String>{}).toList();', run)
         self.assertIn('natScanIps(\n        endpointIps,', run)
         self.assertNotIn('natScanIps(\n        independentIpCandidates,', run)
