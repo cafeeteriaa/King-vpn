@@ -2337,17 +2337,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_ip_auto_storage_load_and_save_are_mode_isolated_across_awaits(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         load_start = source.index('Future<void> ipAutoLoad() async {')
-        save_start = source.index('Future<void> _ipAutoSave() async {', load_start)
+        save_start = source.index('Future<bool> _ipAutoSave() async {', load_start)
         load = source[load_start:save_start]
         save_end = source.index('/// Inventory پویا', save_start)
         save = source[save_start:save_end]
         self.assertLess(load.index('final loadNationalMode = nationalMode;'),
                         load.index('await SharedPreferences.getInstance();'))
         self.assertIn('if (nationalMode != loadNationalMode) return;', load)
-        self.assertIn('ipAutoCursors\n      ..clear()\n      ..addAll(loadedCursors);', load)
+        self.assertIn('ipAutoCursors\n      ..clear()\n      ..addAll(snapshot.cursors);', load)
         self.assertLess(save.index('final saveNationalMode = nationalMode;'),
                         save.index('await SharedPreferences.getInstance();'))
-        self.assertIn('final hitsKey = saveNationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;', save)
+        self.assertIn("final snapshotKey = 'ipauto_snapshot_v2_${saveNationalMode ? 'nat' : 'glob'}';", save)
+        self.assertIn('final saved = await p.setString(', save)
+        self.assertEqual(save.count('await p.setString('), 1)
         self.assertIn('if (nationalMode != saveNationalMode ||', save)
 
     def test_ip_auto_background_acquires_shared_locks_before_async_work(self):
@@ -3130,9 +3132,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('while (activeQueue.isNotEmpty &&', source)
         self.assertIn('activeQueue.removeAt(0)', source)
         self.assertIn('ipAutoPendingCore.remove(c);', source)
-        self.assertIn('final savedPending = p.getString(pendingKey) ??', source)
-        self.assertIn('..addAll(savedPending.split', source)
-        self.assertIn('await p.setString(pendingKey, pending.join', source)
+        self.assertIn('final snapshot = ipAutoDecodeSnapshot(', source)
+        self.assertIn('..addAll(snapshot.pending)', source)
+        self.assertIn('await p.setString(\n      snapshotKey,', source)
+        run_start = source.index('Future<bool> _ipAutoRunOnce(')
+        run_end = source.index('Future<void> ipAutoSheet(', run_start)
+        run = source[run_start:run_end]
+        self.assertLess(run.index('if (!await _ipAutoSave())'), run.index('final activeQueue ='))
+        self.assertIn('if (!await _ipAutoSave())', run)
         self.assertIn('for (final candidate in candidates)', source)
 
 
@@ -4129,7 +4136,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_ip_auto_persists_results_retry_backlog_and_cursors_in_one_snapshot(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         load_start = source.index('Future<void> ipAutoLoad()')
-        save_start = source.index('Future<void> _ipAutoSave()', load_start)
+        save_start = source.index('Future<bool> _ipAutoSave()', load_start)
         inventory_start = source.index('/// Inventory پویا', save_start)
         persistence = source[load_start:inventory_start]
         save_body = persistence[persistence.index('Future<void> _ipAutoSave()'):]
