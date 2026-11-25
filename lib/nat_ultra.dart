@@ -2148,7 +2148,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
       final ips = entry.value;
       for (var offset = 0; offset < ips.length; offset += batchSize) {
         final batch = ips.skip(offset).take(batchSize).toList(growable: false);
-        var completed = 0;
+        final pending = <String>{...batch};
         final batchHits = <String, NatIpHit>{};
         void flushCompletedBatchHits() {
           for (final hit in batchHits.values) {
@@ -2157,23 +2157,33 @@ Future<List<String>> _natDomainFirst(List<Server> known,
           }
           natDomainOpen = out.length;
         }
-        while (completed < batch.length) {
+
+        // Retry only endpoints that have not completed a TCP attempt. Completed
+        // failures are not needlessly re-probed just because another endpoint
+        // exhausted the current time slice.
+        while (pending.isNotEmpty) {
           if (cancelled()) {
             flushCompletedBatchHits();
             return out;
           }
-          completed = 0;
+          final attempt = pending.toList(growable: false);
           final attemptHits = await natScanIps(
-            batch,
+            attempt,
             port: entry.key,
             concurrency: effectiveConcurrency,
-            want: batch.length,
+            want: attempt.length,
             budget: const Duration(seconds: 10),
             timeout: const Duration(milliseconds: 1200),
             cancelled: cancelled,
-            onProgress: (done, total, _) => completed = done,
+            onIpComplete: (ip, latencyMs) {
+              pending.remove(ip);
+              if (latencyMs != null) {
+                batchHits.putIfAbsent(ip, () => NatIpHit(ip, latencyMs));
+              }
+            },
           );
-          // Preserve completed probes even when cancellation arrives mid-batch.
+          // Defensive merge in case a future scanner implementation returns
+          // hits without invoking the per-endpoint completion callback.
           for (final hit in attemptHits) {
             batchHits.putIfAbsent(hit.ip, () => hit);
           }
