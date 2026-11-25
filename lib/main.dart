@@ -10306,16 +10306,13 @@ ListTile( // KINGEXTRAS row
           idle = 0;
           autoUpgrade = true;
           autoCycle = true;
-          // NATRANGE: پس‌زمینه، هر ۵ دقیقه، بخشی کم از بازه‌های IP با سرعت کم
+          // Continue configured range scanning whenever the previous slice is idle.
           // Configured ranges are independent scan inputs; saved server
           // templates are optional and never gate user-supplied ranges.
           final hasRangeTemplate = pending.isNotEmpty ||
               natRestPending.isNotEmpty || natTemplateSeeds.isNotEmpty ||
               good.isNotEmpty || natRanges.isNotEmpty;
-          if (localPilotOn && cpuHot == 0 && hasRangeTemplate &&
-              DateTime.now().difference(natRangeLast) >
-                  const Duration(minutes: 5)) {
-            natRangeLast = DateTime.now();
+          if (localPilotOn && cpuHot == 0 && hasRangeTemplate && !_natRangeScanBusy) {
             unawaited(() async {
               final ips = await natRangeScanStep(
                   known: <Server>{...pending, ...natRestPending, ...natTemplateSeeds, ...good, ...fetchedAll, ..._resMap.values.map((entry) => entry.s)}.toList(growable: false),
