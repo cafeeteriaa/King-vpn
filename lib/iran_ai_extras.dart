@@ -987,7 +987,6 @@ extension HomeExtras on _HomePageState {
     // خلبان (keepNet) حالت شبکه را دست نمی‌زند.
     _pendingNet = null;
     zeroTrafficRun.clear(); // LOOPCAP: هر بار دکمه‌ی اتصال شمارنده‌ها از نو
-    realStartsRun = 0;
     if (askMode) {
       final ok = forceNet != null
           ? await _askOnlineOfflineNet(forceNet)
@@ -2656,7 +2655,6 @@ extension HomeExtras on _HomePageState {
         'offlineOnly': offlineOnly,
         'minSpeedKB': minSpeedKB,
         'firstBatchSize': firstBatchSize,
-        'maxBatches': maxBatches,
         'ipMode': ipMode,
         'iranRoute': iranRoute,
         'autoUpgrade': autoUpgrade,
@@ -2701,7 +2699,6 @@ extension HomeExtras on _HomePageState {
     if (!_pilotUserTouched.contains('offlineOnly')) offlineOnly = s['offlineOnly'] as bool;
     if (!_pilotUserTouched.contains('minSpeedKB')) minSpeedKB = s['minSpeedKB'] as int;
     if (!_pilotUserTouched.contains('firstBatchSize')) firstBatchSize = s['firstBatchSize'] as int? ?? firstBatchSize;
-    if (!_pilotUserTouched.contains('maxBatches')) maxBatches = s['maxBatches'] as int? ?? maxBatches;
     if (!_pilotUserTouched.contains('ipMode')) ipMode = s['ipMode'] as bool? ?? ipMode;
     if (!_pilotUserTouched.contains('iranRoute')) iranRoute = s['iranRoute'] as bool? ?? iranRoute;
     if (!_pilotUserTouched.contains('autoUpgrade')) autoUpgrade = s['autoUpgrade'] as bool? ?? autoUpgrade;
@@ -2808,8 +2805,6 @@ final List<NumOpt> numOpts = [
   NumOpt('tcpTimeout', 'تایم‌اوت TCP (دهم ثانیه)', 1, 300, 35, 300, true,
       () => tcpTimeout.inMilliseconds ~/ 100,
       (v) => tcpTimeout = Duration(milliseconds: v * 100)),
-  NumOpt('maxPerSource', 'حداکثر سرور از هر منبع', 1, 500, 120, 500, true,
-      () => maxPerSource, (v) => maxPerSource = v),
   NumOpt('fetchWorkers', 'دانلود همزمان لیست‌ها', 1, 20, 8, 20, true,
       () => fetchWorkers, (v) => fetchWorkers = v),
   NumOpt('fetchDeadline', 'مهلت دانلود لیست‌ها (ثانیه)', 5, 120, 45, 120, true,
@@ -2819,8 +2814,6 @@ final List<NumOpt> numOpts = [
       () => firstBatchSize, (v) => firstBatchSize = v),
   NumOpt('standbyBatchSize', 'اندازه دسته (وقتی وصل است)', 1, 300, 40, 300,
       true, () => standbyBatchSize, (v) => standbyBatchSize = v),
-  NumOpt('maxBatches', 'حداکثر تعداد دسته در هر جستجو', 1, 50, 8, 50, true,
-      () => maxBatches, (v) => maxBatches = v),
   NumOpt('watchFailLimit', 'تعداد پینگ ناموفق تا تعویض', 1, 10, 3, 10, true,
       () => watchFailLimit, (v) => watchFailLimit = v),
   NumOpt('badPingLimit', 'تعداد پینگ بد تا تعویض', 1, 10, 3, 10, true,
