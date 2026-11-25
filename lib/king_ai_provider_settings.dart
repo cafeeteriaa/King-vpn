@@ -118,6 +118,7 @@ class _KingAiProviderSettingsPageState extends State<KingAiProviderSettingsPage>
       await _orchestrator.setExternalProcessingEnabled(enabled);
       if (mounted) setState(() {
         _externalEnabled = enabled;
+        if (!enabled) _externalCodeEnabled = false;
         _message = enabled
             ? 'پردازش ابری فعال شد؛ فقط درخواست‌هایی که خودت به مدل آنلاین می‌فرستی ارسال می‌شوند.'
             : 'پردازش ابری غیرفعال شد؛ درخواست‌ها به ارائه‌دهندگان بیرونی ارسال نمی‌شوند.';
