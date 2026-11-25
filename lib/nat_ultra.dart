@@ -967,7 +967,7 @@ List<int> _natOrder(Server s, {bool full = false}) {
       ).index;
       return sa.compareTo(sb);
     });
-    if (cursor >= app.length && lvl >= 2) {
+    if (cursor >= app.length) {
       natGrow(1000);
       app.clear();
       for (final v in _natGenRanked()) {
