@@ -85,6 +85,9 @@ Workflow عادی، APK آزمایشی Release-mode با debug key تولید م
 
 ## دریافت جریانی واقعی منابع عمومی — مرحلهٔ بعدی 2026-11-25
 
+- **IMPLEMENTED** — decoder جریانی به ماژول مستقل `source_stream_decoder.dart` منتقل شد تا بدون راه‌اندازی صفحهٔ اصلی قابل آزمون باشد؛ تست‌های Dart برای chunkهای UTF-8، خطوط عادی، Base64 چندخطی، HTML و پاسخ خالی اضافه شدند.
+- **NOT VERIFIED** — اجرای این تست‌های Dart و تحلیل/بیلد Android هنوز به نتیجهٔ CI آخرین commit وابسته است.
+
 - **IMPLEMENTED** — مسیر مستقیم raw برای `fetchServers` از `http.Client.send` و `StreamedResponse` استفاده می‌کند؛ پاسخ‌های متنی عادی دیگر پیش از parse شدن به `http.Response.body` کامل تبدیل نمی‌شوند.
 - **IMPLEMENTED** — UTF-8 و `LineSplitter` به‌صورت جریانی روی chunkهای شبکه اعمال می‌شوند؛ در حالت کامل هر خط قابل‌بررسی بلافاصله به `Server.parse` می‌رسد و مسیر quick همچنان فقط نمونهٔ reservoir را نگه می‌دارد.
 - **IMPLEMENTED** — پاسخ‌های HTML لینک‌ها را در سطح خط استخراج می‌کنند؛ ورودی Base64 با همان قواعد قبلی normalization و decode می‌شود تا سازگاری حفظ شود.
