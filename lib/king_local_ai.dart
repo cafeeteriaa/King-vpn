@@ -86,6 +86,9 @@ empty changes list and explain what is missing.
   // requests so background reasoning cannot make a user's question fail.
   Future<void> _generationQueue = Future<void>.value();
 
+  /// Serialize cross-instance writes to the shared research-memory file.
+  static Future<void> _researchWriteQueue = Future<void>.value();
+
   Future<T> _runSerializedGeneration<T>(Future<T> Function() task) async {
     final previous = _generationQueue;
     final release = Completer<void>();
@@ -2225,19 +2228,29 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
   }
 
   Future<void> _rememberResearch(List<Map<String, String>> notes) async {
-    final root = await getApplicationSupportDirectory();
-    final file = File('${root.path}/king_ai_research_memory.jsonl');
-    final lines = await file.exists()
-        ? await file.readAsLines()
-        : <String>[];
-    for (final note in notes) {
-      lines.add(jsonEncode(note));
+    final previous = _researchWriteQueue;
+    final release = Completer<void>();
+    _researchWriteQueue = release.future;
+    await previous;
+    try {
+      final root = await getApplicationSupportDirectory();
+      final file = File('${root.path}/king_ai_research_memory.jsonl');
+      // A failed read must abort the write; it must not be interpreted as an
+      // empty memory and replace a valid research history.
+      final lines = await file.exists()
+          ? await file.readAsLines()
+          : <String>[];
+      final retained = mergeKingAiResearchMemory(lines, notes);
+      final temp = File('${file.path}.tmp');
+      await temp.writeAsString(
+        retained.join('\n') + (retained.isEmpty ? '' : '\n'),
+        flush: true,
+      );
+      // Atomic replacement keeps the previous memory intact on write failure.
+      await temp.rename(file.path);
+    } finally {
+      release.complete();
     }
-    final retained = mergeKingAiResearchMemory(lines, notes);
-    await file.writeAsString(
-      retained.join('\n') + (retained.isEmpty ? '' : '\n'),
-      flush: true,
-    );
   }
 
   Future<List<Map<String, String>>> _relevantResearchMemory(String query) async {
