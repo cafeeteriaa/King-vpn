@@ -4126,5 +4126,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('IPv6 equivalents normalize to one compressed representation', tests)
         self.assertIn('all-zero and trailing-zero IPv6 runs compress correctly', tests)
 
+    def test_ip_auto_persists_results_retry_backlog_and_cursors_in_one_snapshot(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        load_start = source.index('Future<void> ipAutoLoad()')
+        save_start = source.index('Future<void> _ipAutoSave()', load_start)
+        inventory_start = source.index('/// Inventory پویا', save_start)
+        persistence = source[load_start:inventory_start]
+        save_body = persistence[persistence.index('Future<void> _ipAutoSave()'):]
+        self.assertIn('ipauto_snapshot_v2_', persistence)
+        self.assertIn('ipAutoDecodeSnapshot(', persistence)
+        self.assertIn('ipAutoEncodeSnapshot(', persistence)
+        self.assertEqual(save_body.count('await p.setString('), 1)
+        self.assertNotIn('await p.setString(hitsKey', save_body)
+        self.assertNotIn('await p.setString(pendingKey', save_body)
+        self.assertNotIn('await p.setString(cursorKey', save_body)
+        self.assertNotIn('await p.setString(posKey', save_body)
+
+
+
 if __name__ == '__main__':
     unittest.main()
