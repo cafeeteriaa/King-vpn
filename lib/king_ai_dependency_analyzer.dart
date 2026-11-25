@@ -32,6 +32,30 @@ class KingAiDependencyAnalyzer {
     return {'files': paths.length, 'edges': edges, 'unresolved': unresolved, 'cycles': _cycles(edges)};
   }
 
+  /// Returns the dependency edges for files in one inference batch. Targets
+  /// outside the batch remain visible as path references without duplicating
+  /// the complete repository graph in every model prompt.
+  static Map<String, Object?> forBatch(
+    Map<String, Object?> analysis,
+    Set<String> batchPaths,
+  ) {
+    final allEdges = analysis['edges'] as Map<String, List<String>>;
+    final allUnresolved = analysis['unresolved'] as Map<String, List<String>>;
+    final allCycles = analysis['cycles'] as List<List<String>>;
+    return {
+      'scope': 'batch files only; edge targets may belong to other batches',
+      'edges': {
+        for (final path in batchPaths)
+          if (allEdges.containsKey(path)) path: allEdges[path],
+      },
+      'unresolved': {
+        for (final path in batchPaths)
+          if (allUnresolved.containsKey(path)) path: allUnresolved[path],
+      },
+      'cycles': allCycles.where((cycle) => cycle.any(batchPaths.contains)).toList(),
+    };
+  }
+
   static List<String> _dartImports(String source) {
     final result = <String>[];
     final pattern = RegExp(r'''(?:import|export|part)\s+['"]([^'"]+)['"]''');

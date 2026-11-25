@@ -105,6 +105,8 @@ class LargeProjectEditingGuards(unittest.TestCase):
         analyzer = Path("lib/king_ai_dependency_analyzer.dart").read_text(encoding="utf-8")
         self.assertIn("KingAiDependencyAnalyzer.analyze(safeFiles)", self.source)
         self.assertIn("CROSS-FILE DEPENDENCY GRAPH", self.source)
+        self.assertIn("KingAiDependencyAnalyzer.forBatch(", self.source)
+        self.assertIn("static Map<String, Object?> forBatch(", analyzer)
         self.assertIn("'edges': edges", analyzer)
         self.assertIn("'unresolved': unresolved", analyzer)
         self.assertIn("'cycles': _cycles(edges)", analyzer)
