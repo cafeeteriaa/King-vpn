@@ -10,7 +10,7 @@ import 'king_ai_owner_auth.dart';
 import 'king_ai_ci_policy.dart';
 
 /// External model providers used only after the owner/user enables cloud use.
-enum KingAiProviderId { openAi, anthropic, gemini, moonshot, deepSeek, qwen, openRouter }
+enum KingAiProviderId { openAi, anthropic, gemini, moonshot, deepSeek, qwen, openRouter, groq, cerebras }
 
 class KingAiProviderDescriptor {
   const KingAiProviderDescriptor({
@@ -104,6 +104,24 @@ class KingAiProviderOrchestrator {
       supportsVision: true,
       protocol: 'openai',
       note: 'مدل‌های رایگان، سهمیه و دسترس‌پذیری دائمی ندارند.',
+    ),
+    KingAiProviderDescriptor(
+      id: KingAiProviderId.groq,
+      title: 'Groq',
+      defaultModel: 'openai/gpt-oss-20b',
+      endpoint: 'https://api.groq.com/openai/v1/chat/completions',
+      supportsVision: false,
+      protocol: 'openai',
+      note: 'مدل‌های سریع متنی؛ سهمیه و طرح رایگان تابع حساب و سیاست سرویس است.',
+    ),
+    KingAiProviderDescriptor(
+      id: KingAiProviderId.cerebras,
+      title: 'Cerebras Inference',
+      defaultModel: 'zai-glm-4.7',
+      endpoint: 'https://api.cerebras.ai/v1/chat/completions',
+      supportsVision: false,
+      protocol: 'openai',
+      note: 'مدل‌های کدنویسی و استدلال؛ تعرفه و دسترسی مدل را در حساب بررسی کن.',
     ),
   ];
 
