@@ -369,7 +369,6 @@ const natFrontSnis = <String>[
   'divar.ir',
   ...kAutoSniDomains,
 ];
-const int _nipFrontSniBatchSize = 8;
 const String _nipFrontSniCursorKey = 'nip_front_sni_cursor_v1';
 int _nipFrontSniCursor = 0;
 Future<void>? _nipFrontSniCursorLoadFuture;
@@ -452,7 +451,7 @@ Future<String?> nipFindFrontSni(String ip, int port, {bool Function()? cancelled
     if (inventory.isEmpty) return null;
 
     final start = _nipFrontSniCursor % inventory.length;
-    final count = min(_nipFrontSniBatchSize, inventory.length);
+    final count = inventory.length;
     var completed = 0;
     for (var offset = 0; offset < count; offset++) {
       if (cancelled?.call() ?? false) break;
@@ -547,7 +546,7 @@ extension NipHunt on _HomePageState {
     final templateStart = previousTemplateIndex < 0
         ? 0
         : (previousTemplateIndex + 1) % templateInventory.length;
-    const templateBatchSize = 40;
+    final templateBatchSize = templateInventory.length;
     final templates = <Server>[
       for (var i = 0; i < min(templateBatchSize, templateInventory.length); i++)
         templateInventory[(templateStart + i) % templateInventory.length],
@@ -616,7 +615,7 @@ extension NipHunt on _HomePageState {
     // A DNS hostname can resolve to more endpoints than one two-minute
     // probe window can cover. Process every resolved address in resumable-size
     // slices; do not advance the template cursor after only the first slice.
-    const ipBatchSize = 256;
+    final ipBatchSize = max(1, ips.length);
     final totalBatches = (ips.length + ipBatchSize - 1) ~/ ipBatchSize;
     for (var ipOffset = 0; ipOffset < ips.length; ipOffset += ipBatchSize) {
       if (abort) return false;
