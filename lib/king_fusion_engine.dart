@@ -761,7 +761,12 @@ class KingFusionEngine {
   }
 
   void _requestDisconnectCancellation() {
-    if (!_busy || _state == KingFusionState.stopping) return;
+    // The first caller owns the cancellation transition. Additional callers
+    // join the same disconnect future and must not invoke native cancellation
+    // hooks repeatedly while startup or verification is unwinding.
+    if (!_busy || _state == KingFusionState.stopping || _disconnectRequested) {
+      return;
+    }
     _disconnectRequested = true;
     final signal = _disconnectSignal;
     if (signal != null && !signal.isCompleted) signal.complete();
