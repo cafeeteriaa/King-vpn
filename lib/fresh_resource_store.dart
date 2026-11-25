@@ -109,16 +109,42 @@ class FreshResourceStore {
   static Future<List<String>> readLinks() =>
       _serialized<List<String>>(_readLinksUnlocked);
 
-  static Future<void> _replaceFile(File target, List<int> bytes) async {
+  static Future<Map<String, int>> _writeSnapshotFile(
+    File target,
+    Stream<String> input,
+  ) async {
     final temp = File(
       '${target.path}.tmp-${pid}-${DateTime.now().microsecondsSinceEpoch}',
     );
+    final sink = temp.openWrite();
+    final seen = <String>{};
+    var count = 0;
+    var byteCount = 0;
     try {
-      await temp.writeAsBytes(bytes, flush: true);
-      // On Android/Linux rename within the same directory is an atomic replace.
-      // If the platform rejects replacement, retain the old target and surface
-      // the failure instead of deleting the only known-good snapshot.
+      // Stream source records directly to the temporary file. Only the
+      // deduplication keys remain resident; payload strings are not assembled
+      // into a second full-size snapshot in memory.
+      await for (final value in input) {
+        final link = normalizeLink(value);
+        if (link == null || !seen.add(link.toLowerCase())) continue;
+        final line = '$link\n';
+        sink.write(line);
+        byteCount += utf8.encode(line).length;
+        count++;
+      }
+      await sink.flush();
+      await sink.close();
+      // Same-directory rename is atomic on Android/Linux. Never delete the
+      // current snapshot first: a failed replacement must leave it intact.
       await temp.rename(target.path);
+      return <String, int>{'count': count, 'bytes': byteCount};
+    } catch (_) {
+      try {
+        await sink.close();
+      } catch (_) {
+        // Keep the original write/rename error.
+      }
+      rethrow;
     } finally {
       if (await temp.exists()) {
         try {
@@ -131,26 +157,40 @@ class FreshResourceStore {
   }
 
   static Future<int> _saveSnapshotUnlocked(
-    Iterable<String> links, {
+    Stream<String> links, {
     required String source,
   }) async {
-    final normalized = normalizeLinks(links);
     final file = await _configFile();
-    final payload = normalized.isEmpty
-        ? ''
-        : '${normalized.join('\n')}\n';
-    await _replaceFile(file, utf8.encode(payload));
+    final written = await _writeSnapshotFile(file, links);
 
     final metadata = await _metadataFile();
     final metadataPayload = <String, Object>{
       'schema': _metadataSchema,
       'source': source,
-      'count': normalized.length,
-      'bytes': utf8.encode(payload).length,
+      'count': written['count']!,
+      'bytes': written['bytes']!,
       'updatedAt': DateTime.now().toUtc().toIso8601String(),
     };
-    await _replaceFile(metadata, utf8.encode(jsonEncode(metadataPayload)));
-    return normalized.length;
+    await _replaceMetadata(metadata, utf8.encode(jsonEncode(metadataPayload)));
+    return written['count']!;
+  }
+
+  static Future<void> _replaceMetadata(File target, List<int> bytes) async {
+    final temp = File(
+      '${target.path}.tmp-${pid}-${DateTime.now().microsecondsSinceEpoch}',
+    );
+    try {
+      await temp.writeAsBytes(bytes, flush: true);
+      await temp.rename(target.path);
+    } finally {
+      if (await temp.exists()) {
+        try {
+          await temp.delete();
+        } on FileSystemException {
+          // Preserve the original operation's error.
+        }
+      }
+    }
   }
 
   /// Replace the complete snapshot without a silent count/size truncation.
@@ -158,17 +198,33 @@ class FreshResourceStore {
     Iterable<String> links, {
     String source = 'online',
   }) =>
-      _serialized<int>(() => _saveSnapshotUnlocked(links, source: source));
+      _serialized<int>(() => _saveSnapshotUnlocked(
+            Stream<String>.fromIterable(links),
+            source: source,
+          ));
 
-  /// Merge is one serialized read-modify-write transaction. Concurrent source
-  /// completions therefore cannot overwrite one another's additions.
+  /// Merge is one serialized streaming read-modify-write transaction.
+  /// Existing entries are copied from disk before new entries; concurrent
+  /// source completions cannot overwrite one another's additions.
   static Future<int> merge(
     Iterable<String> links, {
     String source = 'online',
   }) =>
       _serialized<int>(() async {
-        final old = await _readLinksUnlocked();
-        return _saveSnapshotUnlocked(<String>[...old, ...links], source: source);
+        final current = await _configFile();
+        Stream<String> merged() async* {
+          if (await current.exists()) {
+            await for (final line in current
+                .openRead()
+                .transform(utf8.decoder)
+                .transform(const LineSplitter())) {
+              yield line;
+            }
+          }
+          yield* Stream<String>.fromIterable(links);
+        }
+
+        return _saveSnapshotUnlocked(merged(), source: source);
       });
 
   static Future<Map<String, Object?>> metadata() =>
