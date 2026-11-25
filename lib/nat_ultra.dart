@@ -2966,49 +2966,93 @@ Future<_HotIdx?> _hotLoad() async {
   }
 }
 
+bool _hotNextBusy = false;
+Completer<void>? _hotNextIdle;
+const String _hotCursorKey = 'nat_hot_cursor_v1';
+const String _hotCursorSignatureKey = 'nat_hot_cursor_signature_v1';
+
 Future<List<Server>> natHotNext(int n,
     {bool fetch = true, bool retried = false}) async {
+  // Serialize page reads: concurrent callers must never consume the same
+  // persisted cursor position or overwrite each other's progress.
+  while (_hotNextBusy) {
+    final waiting = _hotNextIdle;
+    if (waiting != null) await waiting.future;
+  }
+  _hotNextBusy = true;
+  _hotNextIdle = Completer<void>();
   try {
+    return await _natHotNextUnlocked(n, fetch: fetch, retried: retried);
+  } finally {
+    _hotNextBusy = false;
+    _hotNextIdle?.complete();
+    _hotNextIdle = null;
+  }
+}
+
+Future<List<Server>> _natHotNextUnlocked(int n,
+    {required bool fetch, required bool retried}) async {
+  try {
+    if (n <= 0) return const [];
     if (fetch) unawaited(natHotEnsure());
     final h = await _hotLoad();
     if (h == null) return const [];
     final lines = h.offs.length - 1;
     if (lines <= 0) return const [];
+    final cacheFile = File(h.file);
+    final stat = await cacheFile.stat();
+    final signature = '${stat.size}:${stat.modified.microsecondsSinceEpoch}';
+    final prefs = await SharedPreferences.getInstance();
+    final savedSignature = prefs.getString(_hotCursorSignatureKey);
+    final savedCursor = prefs.getInt(_hotCursorKey);
+    var cursor = savedSignature == signature && savedCursor != null
+        ? savedCursor
+        : 0;
+    if (cursor < 0 || cursor >= lines) cursor = 0;
     final out = <Server>[];
-    final raf = await File(h.file).open();
+    final raf = await cacheFile.open();
     try {
-      // HOTSTALE: طول handle باز را با ایندکس بسنج؛ handle به inode ثابت است، پس
-      // اگر فایل وسط rename عوض شده باشد، این مقایسه ناهم‌خوانی را می‌گیرد
+      // The open handle is tied to one inode. If its length disagrees with
+      // the index, rebuild once rather than pairing offsets with another file.
       if (await raf.length() != h.offs.last) {
-        _hot = null; // ایندکس قدیمی را دور بریز
+        _hot = null;
         if (retried) return const [];
-        return natHotNext(n, fetch: false, retried: true);
+        return _natHotNextUnlocked(n, fetch: false, retried: true);
       }
       var read = 0;
       while (out.length < n && read < lines) {
-        var start = _hotCursor;
+        var start = cursor;
         if (start >= lines) start = 0;
         final take = min(min(n - out.length, lines - start), lines - read);
         final from = h.offs[start];
         final to = h.offs[start + take];
         await raf.setPosition(from);
         final bytes = await raf.read(to - from);
-        final text = utf8.decode(bytes, allowMalformed: true);
-        for (final e in text.split('\n')) {
-          final i = e.indexOf('\t');
-          if (i < 0) continue;
-          final s = Server.parse(e.substring(i + 1));
-          if (s != null) {
-            s.src = e.substring(0, i);
-            out.add(s);
+        final pageText = utf8.decode(bytes, allowMalformed: true);
+        for (final entry in pageText.split('\\n')) {
+          final tab = entry.indexOf('\\t');
+          if (tab < 0) continue;
+          final server = Server.parse(entry.substring(tab + 1));
+          if (server != null) {
+            server.src = entry.substring(0, tab);
+            out.add(server);
           }
         }
         read += take;
-        _hotCursor = (start + take) % lines;
+        cursor = (start + take) % lines;
       }
     } finally {
       await raf.close();
     }
+    // Save cursor and its cache identity together. A rebuilt cache starts at
+    // zero; an app restart against the same cache resumes at the next page.
+    final cursorSaved = await prefs.setInt(_hotCursorKey, cursor);
+    final signatureSaved =
+        await prefs.setString(_hotCursorSignatureKey, signature);
+    if (!cursorSaved || !signatureSaved) {
+      dbg('natHotNext: ذخیرهٔ Cursor منابع انجام نشد؛ صفحه در اجرای بعد ممکن است تکرار شود');
+    }
+    _hotCursor = cursor;
     return out;
   } catch (e, stk) {
     logError(e, stk);
