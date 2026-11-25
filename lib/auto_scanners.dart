@@ -230,7 +230,10 @@ Future<List<String>> _autoResolveDualStackTargets({required List<String> domains
 }
 
 Future<void> autoScanRun(void Function(String) say,
-    {bool Function()? isVpnActive, bool Function()? isVpnWanted}) async {
+    {required Iterable<Server> goodServers,
+    required Iterable<Server> pendingServers,
+    bool Function()? isVpnActive,
+    bool Function()? isVpnWanted}) async {
   bool vpnActive() => isVpnActive?.call() ?? false;
   bool vpnWanted() => isVpnWanted?.call() ?? false;
   // Scanning through an active VPN tunnel can produce misleading direct-IP results
@@ -304,8 +307,8 @@ Future<void> autoScanRun(void Function(String) say,
     };
     final nationalEndpointServers = <Server>{
       ...natTemplateSeeds,
-      ...good,
-      ...pending,
+      ...goodServers,
+      ...pendingServers,
     };
     if (scanNationalMode) {
       for (final server in nationalEndpointServers) {
@@ -531,7 +534,10 @@ Future<void> autoScanRun(void Function(String) say,
 }
 
 Future<void> autoScanSheet(BuildContext context,
-    {bool Function()? isVpnActive, bool Function()? isVpnWanted}) async {
+    {required Iterable<Server> goodServers,
+    required Iterable<Server> pendingServers,
+    bool Function()? isVpnActive,
+    bool Function()? isVpnWanted}) async {
   var status = _autoScanRunning ? 'در حال اجرا...' : 'آماده';
   var open = true;
   StateSetter? setS;
@@ -584,7 +590,10 @@ Future<void> autoScanSheet(BuildContext context,
             onPressed: _autoScanRunning
                 ? null
                 : () => autoScanRun(say,
-                    isVpnActive: isVpnActive, isVpnWanted: isVpnWanted),
+                    goodServers: goodServers,
+                    pendingServers: pendingServers,
+                    isVpnActive: isVpnActive,
+                    isVpnWanted: isVpnWanted),
             child: const Text('شروع'),
           ),
           TextButton(
