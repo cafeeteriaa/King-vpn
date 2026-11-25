@@ -90,6 +90,36 @@ class LargeProjectEditingGuards(unittest.TestCase):
         self.assertIn("_rejectSecrets(entry.value);", self.source)
         self.assertIn("path.contains('\\\\')", self.source)
 
+    def test_checkpoint_resume_is_atomic_and_bound_to_exact_inputs(self):
+        checkpoint = Path("lib/king_ai_repair_checkpoint.dart").read_text(encoding="utf-8")
+        self.assertIn("checkpointStore.save(", self.source)
+        self.assertIn("checkpointStore.load(", self.source)
+        self.assertIn("KingAiRepairCheckpointStore.deterministicId", self.source)
+        self.assertIn("sourceSnapshotHash", checkpoint)
+        self.assertIn("taskHash", checkpoint)
+        self.assertIn("temporary.rename(target.path)", checkpoint)
+        self.assertIn("Repair checkpoint is stale", checkpoint)
+        self.assertIn("listRepairCheckpoints", self.source)
+
+    def test_cross_file_dependency_graph_is_supplied_to_each_repair_batch(self):
+        analyzer = Path("lib/king_ai_dependency_analyzer.dart").read_text(encoding="utf-8")
+        self.assertIn("KingAiDependencyAnalyzer.analyze(safeFiles)", self.source)
+        self.assertIn("CROSS-FILE DEPENDENCY GRAPH", self.source)
+        self.assertIn("'edges': edges", analyzer)
+        self.assertIn("'unresolved': unresolved", analyzer)
+        self.assertIn("'cycles': _cycles(edges)", analyzer)
+
+    def test_zip_import_has_path_link_duplicate_and_bomb_guards(self):
+        importer = Path("lib/king_ai_zip_import.dart").read_text(encoding="utf-8")
+        self.assertIn("KingAiZipImport.extract(", self.source)
+        self.assertIn("importProjectZip(File archiveFile)", self.source)
+        self.assertIn("normalizeEntryPath", importer)
+        self.assertIn("Duplicate normalized ZIP path", importer)
+        self.assertIn("Symbolic link rejected", importer)
+        self.assertIn("_maxExpansionRatio", importer)
+        self.assertIn("size/CRC mismatch", importer)
+        self.assertIn("Encrypted ZIP entry rejected", importer)
+
 
 if __name__ == "__main__":
     unittest.main()

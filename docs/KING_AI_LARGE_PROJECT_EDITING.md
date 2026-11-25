@@ -63,3 +63,23 @@ instead of a full replacement:
 - Anchors must be present in the supplied chunk and unique in the original source when
   applied. All operations are collected and applied to the original file once.
 - Empty, stale, ambiguous, out-of-chunk, and malformed patches fail closed.
+
+## Resumable multi-stage repair
+
+- Every successfully validated inference batch is checkpointed in the app-private support directory.
+- The checkpoint includes the exact task hash, a canonical source-snapshot hash, completed batch index, validated file changes, pending large-file patch operations, and summaries.
+- Writes use a flushed temporary file followed by an atomic rename; an incomplete temporary write is not treated as a checkpoint.
+- Resume is automatic only for the same task and byte-identical source snapshot. An explicit checkpoint identifier that does not match the current task/source is rejected. Corrupt or stale checkpoints fail visibly.
+- Checkpoint listing and deletion require an active owner session. Completed repairs remove their checkpoint.
+
+## Cross-file dependency planning
+
+Before model generation, the supplied Dart/Python inventory is analyzed for relative and project-package imports, unresolved project references, and import cycles. The graph is passed to each inference batch so coordinated edits can account for callers and importers. SDK and external package imports are distinguished from unresolved in-project paths. This is a static source graph, not a claim of full semantic/type analysis.
+
+## Owner ZIP project import
+
+- Owner-authenticated ZIP imports are extracted into a new app-private workspace.
+- The importer supports stored and DEFLATE entries using Dart SDK streams; it verifies declared expanded size and CRC32 before accepting a file.
+- Absolute paths, drive paths, `..` traversal, normalized duplicates, symbolic links, encrypted entries, unsupported compression methods, ZIP64 entries, invalid local/central metadata, and suspicious expansion ratios are rejected.
+- There is no fixed file-count or total expanded-byte quota. Extraction is streamed; actual storage failures stop the import and the incomplete workspace is deleted rather than reported as complete.
+- ZIP64 is currently rejected explicitly; this is a format-compatibility limitation, not silent truncation. A file-selection UI can pass a selected local `File` to the owner-only `importProjectZip` API.
