@@ -3886,6 +3886,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('fps.take(7)', ultra)
         self.assertNotIn('top.take(12)', ultra)
         self.assertNotIn('top.take(20)', ultra)
+        self.assertNotIn('_natGenCap', ultra)
+        self.assertIn('final end = app.length;', ultra)
         self.assertIn('final count = inventory.length;', nip)
         self.assertIn('final templateBatchSize = templateInventory.length;', nip)
         self.assertIn('natTemplateSeeds = nationalSeeds.toList();', ip_auto)
