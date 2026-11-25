@@ -571,9 +571,9 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     if (maxTokens < 1 || maxTokens > 2048) {
       throw ArgumentError.value(maxTokens, 'maxTokens', 'Must be between 1 and 2048');
     }
-    final safePrompt = prompt.length > 18000
-        ? prompt.substring(0, 18000)
-        : prompt;
+    // Never silently truncate source context: oversized work must either be
+    // processed by the model or fail visibly at the inference layer.
+    final safePrompt = prompt;
     return _runSerializedGeneration(() async {
       final engine = _engine;
       if (engine == null) {
@@ -619,20 +619,14 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     required Map<String, String> sourceFiles,
     List<Map<String, String>> researchNotes = const [],
   }) async {
-    if (sourceFiles.isEmpty || sourceFiles.length > 6) {
-      throw ArgumentError('Provide between 1 and 6 source files');
+    if (sourceFiles.isEmpty) {
+      throw ArgumentError('At least one source file is required');
     }
     final safeFiles = <String, String>{};
-    var total = 0;
     for (final entry in sourceFiles.entries) {
       _validatePath(entry.key);
-      if (entry.value.length > 4000) {
-        throw ArgumentError('Source file too large for local context: ${entry.key}');
-      }
-      total += entry.value.length;
       safeFiles[entry.key] = entry.value;
     }
-    if (total > 7500) throw ArgumentError('Source context exceeds 7.5 KB');
     final memory = await _relevantResearchMemory(task);
     final allResearch = [...memory, ...researchNotes];
     final raw = await _askCoding(
@@ -642,7 +636,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       '${jsonEncode(allResearch)}\n\n'
       'Return the required JSON only. Every changed file must be one of the '
       'provided paths, with its complete replacement content.',
-      maxTokens: 1400,
+      maxTokens: 2048,
     );
     var cleaned = raw
         .replaceFirst(RegExp(r'^\s*```(?:json)?\s*'), '')
@@ -670,14 +664,12 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
         throw FormatException('Model tried to modify a file outside its context: $path');
       }
       final body = item['content'] as String;
-      if (body.length > 24000) throw FormatException('Generated file is too large: $path');
       _rejectSecrets(body);
       changes[path] = body;
     }
     if (changes.isEmpty) {
       return {'summary': decoded['summary'], 'changes': <String, String>{}};
     }
-    if (changes.length > 3) throw const FormatException('Maximum three files per repair');
     return {'summary': decoded['summary'], 'changes': changes};
   }
 
@@ -685,7 +677,6 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     const protectedPaths = <String>{
       'lib/king_ai_owner_auth.dart',
       'lib/king_ai_console.dart',
-      'lib/king_local_ai.dart',
       'lib/king_ai_background.dart',
       'lib/king_ai_ci_policy.dart',
       'lib/king_ai_research_policy.dart',
@@ -1665,7 +1656,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
   ) async {
     final shortlist = candidates.take(40)
         .map((entry) => entry['path'] as String).toList();
-    if (shortlist.length <= 6) return shortlist;
+    if (shortlist.isEmpty) return const [];
     // Keep repository triage deterministic: do not ask the conversational
     // assistant to emit machine-control JSON for the coding pipeline.
     final words = task.toLowerCase()
@@ -1684,8 +1675,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       return (path: path, score: score + testBonus);
     }).toList()
       ..sort((a, b) => b.score.compareTo(a.score));
-    final selected = scored.take(6).map((entry) => entry.path).toList();
-    return selected.isEmpty ? shortlist.take(6).toList() : selected;
+    return scored.map((entry) => entry.path).toList();
   }
 
   /// Reads a small, relevant Dart/Python source subset from GitHub.
@@ -1711,8 +1701,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
           (path.startsWith('lib/') || path.startsWith('test/') || path.startsWith('tools/')) &&
           !_isProtectedGeneratedPath(path) &&
           (path.endsWith('.dart') || path.endsWith('.py')) &&
-          entry['size'] is num &&
-          (entry['size'] as num) <= 16000;
+          entry['size'] is num;
     }).toList();
     final words = task.toLowerCase().split(RegExp(r'[^a-z0-9\u0600-\u06FF]+'))
         .where((word) => word.length > 2).toSet();
@@ -1721,20 +1710,16 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       return words.where(path.contains).length;
     }
     entries.sort((a, b) => relevance(b).compareTo(relevance(a)));
-    final shortlist = entries.take(40).toList();
+    final shortlist = entries;
     final selectedPaths = await _selectRelevantPaths(task, shortlist);
     final byPath = {for (final entry in entries) entry['path'] as String: entry};
     final files = <String, String>{};
-    var total = 0;
     for (final path in selectedPaths) {
-      if (files.length >= 6) break;
       final entry = byPath[path]!;
       final blob = await _github('GET', '/repos/$repo/git/blobs/${entry['sha']}');
       final bytes = base64.decode((blob['content'] as String).replaceAll('\n', ''));
       final content = utf8.decode(bytes, allowMalformed: false);
-      if (content.length > 4000 || total + content.length > 7500) continue;
       files[path] = content;
-      total += content.length;
     }
     return files;
   }
@@ -1774,8 +1759,8 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     await _requireRepositoryOwnerIdentity();
     _rejectSecrets(title);
     _rejectSecrets(summary);
-    if (changes.isEmpty || changes.length > 3) {
-      throw ArgumentError('Repair must contain 1 to 3 changed files');
+    if (changes.isEmpty) {
+      throw ArgumentError('At least one changed file is required');
     }
     for (final entry in changes.entries) {
       _validatePath(entry.key);
