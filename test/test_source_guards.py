@@ -3879,6 +3879,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("== 'true'", provider)
         self.assertIn('if (!explicitApproval && !await externalProcessingEnabled)', provider)
         self.assertIn('configuredProviders(requireVision: requireVision)', provider)
+        self.assertIn('KingAiProviderId.groq', provider)
+        self.assertIn('KingAiProviderId.cerebras', provider)
         self.assertIn('await _complete(', provider)
         self.assertIn('await _secure.delete(key: _key(id,', provider)
         self.assertIn('SwitchListTile(', settings)
