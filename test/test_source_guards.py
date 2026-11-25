@@ -2073,7 +2073,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Future<void> importSubscription(BuildContext ctx, String url) async {')
         end = source.index('void subDialog()', start)
         method = source[start:end]
-        fetch = method.index('final list = (await fetchSubscription(url)).take(300).toList();')
+        fetch = method.index('final list = await fetchSubscription(url);')
         guard = method.index('if (!mounted) return;', fetch)
         mutation = method.index('favs[s.key] = s.link;', fetch)
         self.assertLess(fetch, guard)
