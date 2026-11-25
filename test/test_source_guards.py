@@ -4046,6 +4046,28 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('client.close()', mirrors)
 
 
+    def test_nat_base64_source_payloads_are_decoded_as_a_stream(self):
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = ultra.index('Future<int> _hotFetchOne(')
+        end = ultra.index('Future<int> _hotWriteSourceLines(', start)
+        fetch = ultra[start:end]
+        self.assertIn('.map((chunk) => chunk', fetch)
+        self.assertIn(".replaceAll('-', '+')", fetch)
+        self.assertIn(".replaceAll('_', '/')", fetch)
+        self.assertIn('.transform(base64.decoder)', fetch)
+        self.assertIn('.transform(utf8.decoder)', fetch)
+        self.assertNotIn('spool.readAsString()', fetch)
+        self.assertNotIn('base64.decode(', fetch)
+
+    def test_nat_streamed_mirror_client_closes_on_consumer_cancel(self):
+        mirrors = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        start = mirrors.index('Future<http.StreamedResponse> getListMirrorStream(')
+        end = mirrors.index('Future<http.Response> getListMirror(', start)
+        stream_fetch = mirrors[start:end]
+        self.assertIn('handleCancel: () {', stream_fetch)
+        self.assertIn('client.close();', stream_fetch)
+
+
     def test_king_ai_multimodel_provider_keys_are_secure_and_cloud_use_is_opt_in(self):
         provider = (ROOT / 'lib' / 'king_ai_provider_orchestrator.dart').read_text(encoding='utf-8')
         settings = (ROOT / 'lib' / 'king_ai_provider_settings.dart').read_text(encoding='utf-8')
