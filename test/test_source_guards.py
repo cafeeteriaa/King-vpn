@@ -4096,7 +4096,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('natDomMem.length >', ultra)
         self.assertNotIn('natIpMem.removeWhere((e) => ((e[\'t\'] as num?)?.toInt() ?? 0) < cutoff)', ultra)
         self.assertNotIn('natDomMem.removeWhere((e) => ((e[\'t\'] as num?)?.toInt() ?? 0) < cutoff)', ultra)
-        self.assertIn('await prefs.setString(_ipMemKey, jsonEncode(natIpMem));', ultra)
+        save_start = ultra.index('Future<bool> natIpMemSaveMany(')
+        save_end = ultra.index('Future<void> natIpMemSave(', save_start)
+        save_many = ultra[save_start:save_end]
+        self.assertIn('final nextMem = List<Map<String, dynamic>>.of(natIpMem);', save_many)
+        self.assertIn('final committed = await prefs.setString(_ipMemKey, jsonEncode(nextMem));', save_many)
+        self.assertIn('if (!committed) return false;', save_many)
+        self.assertIn('..addAll(nextMem);', save_many)
         self.assertIn('await p.setString(_domMemKey, jsonEncode(natDomMem));', ultra)
 
 
