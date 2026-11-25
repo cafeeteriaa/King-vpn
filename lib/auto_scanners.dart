@@ -301,9 +301,9 @@ Future<void> autoScanRun(void Function(String) say,
     // through the complete merged inventory on subsequent completed runs.
     final domainSources = <String>{
       ...(scanNationalMode ? kAutoNationalSniDomains : kAutoSniDomains),
+      ...natFrontSnis,
+      ...natRelayHosts,
       if (!scanNationalMode) ...dnsxFullDomains(),
-      if (!scanNationalMode) ...natFrontSnis,
-      if (!scanNationalMode) ...natRelayHosts,
     };
     final nationalEndpointServers = <Server>{
       ...natTemplateSeeds,
@@ -320,10 +320,12 @@ Future<void> autoScanRun(void Function(String) say,
         if (server != null && !server.isIp) domainSources.add(server.host);
       }
     }
-    final domainInventory = domainSources
-        .map((domain) => domain.trim().toLowerCase())
-        .where((domain) => domain.isNotEmpty && domain.contains('.'))
-        .toList()..sort();
+    final domainInventory = scanNationalMode
+        ? dnsxNationalFirstDomains(extra: domainSources)
+        : (domainSources
+            .map((domain) => domain.trim().toLowerCase())
+            .where((domain) => domain.isNotEmpty && domain.contains('.'))
+            .toList()..sort());
     final savedDomainCursor = prefs.getString(_autoScanDomainCursorKey);
     final previousDomainIndex = savedDomainCursor == null
         ? -1
