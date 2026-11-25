@@ -13,6 +13,10 @@ void main() {
       expect(nextFailoverRetryStage(1000000), 4);
     });
 
+    test('loop breaker cooldown has a stable recovery interval', () {
+      expect(failoverLoopCooldown, const Duration(minutes: 3));
+    });
+
     test('retry delay grows exponentially and remains bounded', () {
       expect(failoverBusyRetryDelay(-1), const Duration(seconds: 10));
       expect(failoverBusyRetryDelay(0), const Duration(seconds: 10));
