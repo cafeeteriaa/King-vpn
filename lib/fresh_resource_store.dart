@@ -76,11 +76,15 @@ class FreshResourceStore {
     return result;
   }
 
+  static Future<List<String>> _readLinksUnlocked() async {
+    final file = await _configFile();
+    if (!await file.exists()) return <String>[];
+    return normalizeLinks(await file.readAsLines());
+  }
+
   static Future<List<String>> readLinks() async {
     try {
-      final file = await _configFile();
-      if (!await file.exists()) return <String>[];
-      return normalizeLinks(await file.readAsLines());
+      return await _readLinksUnlocked();
     } catch (_) {
       return <String>[];
     }
@@ -128,7 +132,9 @@ class FreshResourceStore {
     Iterable<String> links, {
     String source = 'online',
   }) => _serializeWrite(() async {
-        final old = await readLinks();
+        // A read failure must abort the merge, never masquerade as an empty
+        // cache and overwrite previously stored resources.
+        final old = await _readLinksUnlocked();
         return _saveSnapshotUnlocked(<String>[...old, ...links], source: source);
       });
 
