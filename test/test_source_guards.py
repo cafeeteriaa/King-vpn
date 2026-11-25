@@ -110,12 +110,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_seed_inventory_expands_host_network_and_domain_scan_stays_config_scoped(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = nat.index('List<String> natSeedBlocks(')
-        end = nat.index('\\nint natMemQueued', start)
+        end = nat.index('int natMemQueued', start)
         seed_block = nat[start:end]
         self.assertIn("${octets[0]}.${octets[1]}.${octets[2]}.0/24", seed_block)
         self.assertNotIn('/32', seed_block)
         domain_start = nat.index('Future<List<String>> _natDomainFirst(')
-        domain_end = nat.index('\\nFuture<List<String>> natDeviceHosts()', domain_start)
+        domain_end = nat.index('Future<List<String>> natDeviceHosts()', domain_start)
         domain_scan = nat[domain_start:domain_end]
         self.assertIn('for (final server in known)', domain_scan)
         self.assertNotIn('for (var p = 1; p < 65536; p++)', domain_scan)
