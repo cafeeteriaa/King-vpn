@@ -621,3 +621,5 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) API/concurrency — the guard checks the published disconnect future, not only `_busy`; (2) lifecycle/security — no new configuration is passed to a native adapter once teardown is committed; (3) regression — observer reentrancy test asserts failure code, exactly one start/stop, and final idle state.
 - Commits: `2e0e2ff55167e23d18d3a3e7e0b786265196ead4` (guard), `6d040bad06fa6a1e4866d2e5815abd1f7b18efff` (test).
 - Dedicated Fusion test count: 42. Exact latest-head CI is required.
+
+- Follow-up test-quality refinement: the reentrant-connect regression now captures and awaits the returned `Future<KingFusionResult>` directly, rather than observing completion through a detached callback. This makes the assertion deterministic and ensures the rejection result is observed by the test. Commit: `34146d04c8f935bc0f0f376a8da167bddba73cc1`.
