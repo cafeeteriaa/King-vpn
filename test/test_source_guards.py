@@ -1373,6 +1373,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('if (offs.length - 1 >=', ensure)
         self.assertIn('for (final pth in mergeFrom)', ensure)
 
+    def test_auto_sni_and_alpn_keep_platform_tls_certificate_validation(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        sni_start = source.index('Future<int?> _autoSniOk(')
+        alpn_start = source.index('Future<String?> _autoAlpnOk(', sni_start)
+        port_start = source.index('Future<bool> _autoPortOk(', alpn_start)
+        sni = source[sni_start:alpn_start]
+        alpn = source[alpn_start:port_start]
+        self.assertIn('SecureSocket.secure(', sni)
+        self.assertIn('SecureSocket.secure(', alpn)
+        self.assertNotIn('onBadCertificate', sni)
+        self.assertNotIn('onBadCertificate', alpn)
+
     def test_active_v2ray_plugin_lifecycle_patch_is_fail_closed(self):
         patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
         self.assertIn('Lifecycle foreground promotion reports success/failure', patch)
