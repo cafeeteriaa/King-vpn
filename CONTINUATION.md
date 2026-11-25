@@ -342,3 +342,13 @@ These are three distinct technical review passes by the same assistant, not thre
 - Static review result: 15/15 assertions passed across the three passes. This is a source-level review, not a substitute for exact-head CI or Android device tests.
 - Corrected a source-guard wording mismatch before final CI; no product behavior was changed by that guard-only correction.
 - Latest exact-head CI is queued; run 2945 is still processing a prior commit's ARM64 build. Wait for the latest head's source guard, Flutter tests, Dart analysis and ARM64 build before marking this stage validated.
+
+
+## 2026-11-25 — Unified auto-scan checkpoint
+
+- Replaced three separately-written SharedPreferences cursor keys (CDN, hostname and TCP-port progress) with one versioned `auto_scan_checkpoint_v2` JSON value.
+- Added a pure decoder that validates checkpoint version and cursor value types, detaches decoded maps, and migrates legacy cursor keys when no valid v2 checkpoint exists.
+- A valid v2 checkpoint preserves intentional empty/null cursor values instead of resurrecting stale legacy progress. Malformed v2 data falls back to independently readable legacy values; malformed legacy CDN JSON does not discard valid domain/port cursors.
+- The scanner now stages all three inventory cursors, saves scan observations first, then commits the combined checkpoint in one preference write. If that write reports failure, it leaves the previous checkpoint authoritative and reports that the next run will safely rediscover already-saved observations.
+- Added Dart tests for round-trip, legacy migration, intentionally empty state, corrupt-state fallback and invalid ports; added source guards against reintroducing separate cursor writes.
+- This reduces partial-progress inconsistencies; it is not a claim of filesystem-level fsync or transactional guarantees beyond the single preference operation exposed by the platform API.
