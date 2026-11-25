@@ -9,6 +9,7 @@ class _FakeAdapter implements KingEngineAdapter {
   final List<String> events;
   final bool failStart;
   final bool throwTimeoutOnStart;
+  final String? startFailureCode;
   final Set<String> chainTargets;
   final Completer<void>? startGate;
   final Completer<void>? startEntered;
@@ -19,6 +20,7 @@ class _FakeAdapter implements KingEngineAdapter {
     this.events, {
     this.failStart = false,
     this.throwTimeoutOnStart = false,
+    this.startFailureCode = 'E-TEST-START',
     this.chainTargets = const <String>{},
     this.startGate,
     this.startEntered,
@@ -47,7 +49,7 @@ class _FakeAdapter implements KingEngineAdapter {
     }
     if (startGate != null) await startGate!.future;
     if (throwTimeoutOnStart) throw TimeoutException('native start timeout');
-    if (failStart) return const KingEngineStartResult.failed('E-TEST-START');
+    if (failStart) return KingEngineStartResult.failed(startFailureCode);
     return KingEngineStartResult.connected('handle-${descriptor.id}');
   }
 
@@ -174,6 +176,28 @@ void main() {
         'stop:first:handle-first',
       ]);
       expect(engine.state, KingFusionState.failed);
+    });
+
+    test('sanitizes malformed adapter failure text before exposing it', () async {
+      final events = <String>[];
+      final adapter = _FakeAdapter(
+        'first',
+        events,
+        failStart: true,
+        startFailureCode: 'E-REMOTE-ERROR: token=private-config-secret',
+      );
+      final engine = KingFusionEngine([adapter]);
+      final result = await engine.connect(KingFusionPlan([
+        const KingFusionHop(
+          engineId: 'first',
+          configuration: 'private-config-secret',
+        ),
+      ]));
+
+      expect(result.connected, isFalse);
+      expect(result.failureCode, 'E-FUSION-ADAPTER-START');
+      expect(result.failureCode, isNot(contains('private-config-secret')));
+      expect(events, ['start:first:-']);
     });
 
     test('rejects unsupported chaining and duplicate engine hops', () async {
