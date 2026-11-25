@@ -191,6 +191,57 @@ void main() {
       expect(restored, hasLength(3));
     });
 
+    test('uses a sparse on-disk index for deep pages', () async {
+      final values = List<String>.generate(
+        777,
+        (index) => 'vless://indexed$index@example.com:443',
+      );
+      await FreshResourceStore.saveSnapshot(values);
+      final firstRead = await FreshResourceStore.readPage(offset: 600, limit: 25);
+      expect(firstRead.items, values.sublist(600, 625));
+      expect(firstRead.hasMore, isTrue);
+
+      final path = await FreshResourceStore.storagePath;
+      final indexFile = File('$path/configs.txt.idx');
+      expect(await indexFile.exists(), isTrue);
+      expect(await indexFile.length(), greaterThan(36));
+    });
+
+    test('rebuilds a truncated or corrupt offset index from the snapshot', () async {
+      final values = List<String>.generate(
+        300,
+        (index) => 'vless://repair$index@example.com:443',
+      );
+      await FreshResourceStore.saveSnapshot(values);
+      await FreshResourceStore.readPage(offset: 270, limit: 20);
+
+      final path = await FreshResourceStore.storagePath;
+      final indexFile = File('$path/configs.txt.idx');
+      await indexFile.writeAsBytes([0, 1, 2, 3], flush: true);
+
+      final repaired = await FreshResourceStore.readPage(offset: 270, limit: 20);
+      expect(repaired.items, values.sublist(270, 290));
+      expect(await indexFile.length(), greaterThan(36));
+    });
+
+    test('rebuilds the index after the snapshot changes outside the store', () async {
+      await FreshResourceStore.saveSnapshot(['vless://old@example.com:443']);
+      await FreshResourceStore.readPage();
+      final path = await FreshResourceStore.storagePath;
+      final snapshot = File('$path/configs.txt');
+      await snapshot.writeAsString(
+        'vless://new-a@example.com:443\\n'
+        'vless://new-b@example.com:443\\n',
+        flush: true,
+      );
+
+      final refreshed = await FreshResourceStore.readPage();
+      expect(refreshed.items, [
+        'vless://new-a@example.com:443',
+        'vless://new-b@example.com:443',
+      ]);
+    });
+
     test('reads legacy schema 1 metadata without inventing schema 2 fields', () async {
       final path = await FreshResourceStore.storagePath;
       final metadataFile = File('$path/metadata.json');
