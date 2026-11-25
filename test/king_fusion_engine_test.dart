@@ -8,6 +8,7 @@ class _FakeAdapter implements KingEngineAdapter {
   final KingEngineDescriptor descriptor;
   final List<String> events;
   final bool failStart;
+  final bool throwTimeoutOnStart;
   final Set<String> chainTargets;
   final Completer<void>? startGate;
   final Completer<void>? startEntered;
@@ -17,6 +18,7 @@ class _FakeAdapter implements KingEngineAdapter {
     String id,
     this.events, {
     this.failStart = false,
+    this.throwTimeoutOnStart = false,
     this.chainTargets = const <String>{},
     this.startGate,
     this.startEntered,
@@ -44,6 +46,7 @@ class _FakeAdapter implements KingEngineAdapter {
       startEntered!.complete();
     }
     if (startGate != null) await startGate!.future;
+    if (throwTimeoutOnStart) throw TimeoutException('native start timeout');
     if (failStart) return const KingEngineStartResult.failed('E-TEST-START');
     return KingEngineStartResult.connected('handle-${descriptor.id}');
   }
@@ -396,6 +399,24 @@ void main() {
       expect(result.trafficVerified, isFalse);
       expect(events, ['start:first:-', 'stop:first:handle-first']);
       expect(engine.cleanupPendingEngineIds, isEmpty);
+      expect(engine.state, KingFusionState.failed);
+    });
+
+    test('native adapter TimeoutException is not mislabeled as verifier timeout', () async {
+      final events = <String>[];
+      final adapter = _FakeAdapter(
+        'first',
+        events,
+        throwTimeoutOnStart: true,
+      );
+      final engine = KingFusionEngine([adapter]);
+      final result = await engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'first', configuration: 'cfg'),
+      ]));
+
+      expect(result.connected, isFalse);
+      expect(result.failureCode, 'E-FUSION-EXCEPTION');
+      expect(result.trafficVerified, isFalse);
       expect(engine.state, KingFusionState.failed);
     });
   });
