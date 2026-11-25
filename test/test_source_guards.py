@@ -1973,7 +1973,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = source.index('void _handleSpeechResult', start)
         send = source[start:end]
         self.assertLess(send.index('if (!mounted) return;'),
-                        send.index('final prompt = _input.text.trim();'))
+                        send.index('final typedPrompt = _input.text.trim();'))
         self.assertIn('if (mounted && (_speak || voice))', send)
 
 
@@ -1982,7 +1982,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Future<void> _send() async {')
         end = source.index('void _handleSpeechResult', start)
         send = source[start:end]
-        inference = send.index('final answer = await KingLocalAi.instance.ask(prompt, maxTokens: 1400);')
+        inference = send.index('answer = await KingLocalAi.instance.ask(prompt, maxTokens: 1400);')
         disposed_guard = send.index('if (!mounted) return;', inference)
         add_answer = send.index('_add(answer, true);', inference)
         voice_output = send.index('KingVoiceOutput.instance.speakPersian(answer)')
