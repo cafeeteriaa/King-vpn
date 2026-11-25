@@ -356,9 +356,8 @@ Future<http.Response> getListMirror(String u) async {
 // ======================= لینک اشتراک (subscription) =======================
 Future<List<Server>> fetchSubscription(String url) async {
   try {
-    final r =
-        await http.get(Uri.parse(url)).timeout(const Duration(seconds: 20));
-    if (r.statusCode != 200) return [];
+    final r = await getListMirror(url);
+    if (r.statusCode != 200 || r.bodyBytes.isEmpty) return [];
     var body = r.body.trim();
     if (!body.contains('://')) {
       try {
@@ -2816,9 +2815,7 @@ final List<NumOpt> numOpts = [
   // Full source ingestion is exhaustive; no per-source count preference is exposed.
   NumOpt('fetchWorkers', 'دانلود همزمان لیست‌ها', 1, 20, 8, 20, true,
       () => fetchWorkers, (v) => fetchWorkers = v),
-  NumOpt('fetchDeadline', 'مهلت دانلود لیست‌ها (ثانیه)', 5, 120, 45, 120, true,
-      () => fetchDeadline.inSeconds,
-      (v) => fetchDeadline = Duration(seconds: v)),
+  // Full discovery now drains every configured source; network-level request timeouts remain per endpoint.
   NumOpt('firstBatchSize', 'اندازه دسته‌ی اول', 1, 300, 50, 300, true,
       () => firstBatchSize, (v) => firstBatchSize = v),
   NumOpt('standbyBatchSize', 'اندازه دسته (وقتی وصل است)', 1, 300, 40, 300,
