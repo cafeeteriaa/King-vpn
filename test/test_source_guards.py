@@ -4065,6 +4065,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('snapshots caller-owned cleanup identifiers immutably', tests)
         self.assertIn('throwsA(isA<UnsupportedError>())', tests)
 
+    def test_fusion_registry_captures_each_adapter_descriptor_once(self):
+        fusion = (ROOT / 'lib' / 'king_fusion_engine.dart').read_text(encoding='utf-8')
+        tests = (ROOT / 'test' / 'king_fusion_engine_test.dart').read_text(encoding='utf-8')
+        self.assertIn('final source = adapter.descriptor;', fusion)
+        self.assertEqual(fusion.count('final source = adapter.descriptor;'), 1)
+        self.assertIn('KingFusionEngine._(', fusion)
+        self.assertNotIn('_indexAdapters(', fusion)
+        self.assertIn('Map<String, KingEngineDescriptor>.unmodifiable(descriptorSnapshots)', fusion)
+        self.assertIn('reads each adapter descriptor once for a coherent registry snapshot', tests)
+
     def test_ip_auto_preserves_all_exact_endpoint_templates(self):
         scanner = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         index = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
