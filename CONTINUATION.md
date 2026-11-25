@@ -869,3 +869,5 @@ These are three distinct technical review passes by the same assistant, not thre
 - DNS scanner domain discovery, source inventory, queues and scan coverage were not reduced by this patch. This change removes address-class answer filtering; it does not claim that every other existing scheduling or pacing policy has already been audited.
 - Three review passes: (1) packet structure and address-family lengths remain validated; (2) all three answer-acceptance paths no longer branch on public/private address class; (3) explicit regression and source guards cover private IPv4, documentation IPv6 and all three call sites.
 - Exact-head GitHub Actions must pass source guards, Flutter tests and Dart analysis before the patch is considered validated. Live network behavior still needs device testing.
+
+- Test harness follow-up: imported `dart:io` in the NNIE unit test file for explicit IPv6 byte-level assertions using `InternetAddress.tryParse`. This keeps the IPv6 test independent of textual address-compression formatting.
