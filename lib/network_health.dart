@@ -60,14 +60,25 @@ enum DetectedNetworkMode { unknown, domesticOnly, globalOnly, dualStack, offline
 
 /// Classifies one independent probe group without treating absent attempts as
 /// failures. Only two or more actual successes establish a healthy group.
+/// Two-thirds success quorum, with a minimum of two independent responses.
+/// Integer arithmetic keeps the boundary deterministic for arbitrarily growing
+/// endpoint inventories without imposing an inventory-size ceiling.
+int requiredProbeSuccessQuorum(int attempted) {
+  if (attempted <= 0) return 0;
+  final twoThirds = (attempted * 2 + 2) ~/ 3;
+  return twoThirds < 2 ? 2 : twoThirds;
+}
+
 LinkHealth classifyLinkHealth({
   required int attempted,
   required int successful,
 }) {
   if (attempted <= 0) return LinkHealth.unknown;
   final observedSuccesses = successful.clamp(0, attempted).toInt();
-  if (observedSuccesses >= 2) return LinkHealth.healthy;
-  if (observedSuccesses == 1) return LinkHealth.degraded;
+  if (observedSuccesses >= requiredProbeSuccessQuorum(attempted)) {
+    return LinkHealth.healthy;
+  }
+  if (observedSuccesses > 0) return LinkHealth.degraded;
   return LinkHealth.unreachable;
 }
 
