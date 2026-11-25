@@ -59,6 +59,13 @@ abstract interface class KingFusionTrafficVerifier {
   Future<bool> verify(KingFusionPlan plan);
 }
 
+/// Optional cancellation contract for verifiers that own sockets, probes or
+/// other resources. Implementations should make cancel idempotent.
+abstract interface class KingFusionCancellableTrafficVerifier
+    implements KingFusionTrafficVerifier {
+  Future<void> cancel();
+}
+
 class KingEngineStartResult {
   final bool connected;
   /// Opaque native handle; never serialize or log it.
@@ -113,6 +120,8 @@ String _safeAdapterFailureCode(String? value) {
 }
 
 class _KingFusionVerificationTimeout implements Exception {}
+
+class _KingFusionCancelled implements Exception {}
 
 class KingFusionResult {
   /// All adapters accepted their start calls; this is not end-to-end traffic proof.
@@ -169,7 +178,11 @@ class KingFusionEngine {
   final Map<String, KingEngineAdapter> _adapters;
   final KingFusionTrafficVerifier? _trafficVerifier;
   final Duration trafficVerificationTimeout;
+  /// Upper bound for each native stop attempt; timed-out handles remain tracked.
+  final Duration nativeStopTimeout;
   final List<({KingEngineAdapter adapter, Object? handle})> _active = [];
+  KingFusionCancellableTrafficVerifier? _activeVerifier;
+  Completer<void>? _disconnectSignal;
 
   KingFusionState state = KingFusionState.idle;
   bool _busy = false;
@@ -180,8 +193,16 @@ class KingFusionEngine {
     Iterable<KingEngineAdapter> adapters, {
     KingFusionTrafficVerifier? trafficVerifier,
     this.trafficVerificationTimeout = const Duration(seconds: 12),
+    this.nativeStopTimeout = const Duration(seconds: 8),
   })  : _adapters = _indexAdapters(adapters),
         _trafficVerifier = trafficVerifier {
+    if (nativeStopTimeout <= Duration.zero) {
+      throw ArgumentError.value(
+        nativeStopTimeout,
+        'nativeStopTimeout',
+        'Must be positive',
+      );
+    }
     if (trafficVerificationTimeout <= Duration.zero) {
       throw ArgumentError.value(
         trafficVerificationTimeout,
@@ -257,6 +278,7 @@ class KingFusionEngine {
     _busy = true;
     _disconnectRequested = false;
     _operationDone = Completer<void>();
+    _disconnectSignal = Completer<void>();
     state = KingFusionState.starting;
     String? currentEngineId;
     Object? upstreamHandle;
@@ -317,12 +339,18 @@ class KingFusionEngine {
             cleanupFailedEngineIds: cleanupFailures,
           );
         }
-        final verified = await verifier
-            .verify(plan)
-            .timeout(
-              trafficVerificationTimeout,
-              onTimeout: () => throw _KingFusionVerificationTimeout(),
-            );
+        if (verifier is KingFusionCancellableTrafficVerifier) {
+          _activeVerifier = verifier;
+        }
+        final verified = await Future.any<bool>([
+          verifier.verify(plan).timeout(
+            trafficVerificationTimeout,
+            onTimeout: () => throw _KingFusionVerificationTimeout(),
+          ),
+          _disconnectSignal!.future.then<bool>(
+            (_) => throw _KingFusionCancelled(),
+          ),
+        ]);
         if (_disconnectRequested) {
           final startedCount = _active.length;
           final cleanupFailures = await _rollback();
@@ -351,6 +379,16 @@ class KingFusionEngine {
         _active.length,
         trafficVerified: plan.requireTrafficVerification,
       );
+    } on _KingFusionCancelled {
+      final startedCount = _active.length;
+      final cleanupFailures = await _rollback();
+      state = KingFusionState.failed;
+      return KingFusionResult.failure(
+        failedEngineId: currentEngineId,
+        failureCode: 'E-FUSION-CANCELLED',
+        startedHops: startedCount,
+        cleanupFailedEngineIds: cleanupFailures,
+      );
     } on _KingFusionVerificationTimeout {
       final startedCount = _active.length;
       final cleanupFailures = await _rollback();
@@ -373,6 +411,8 @@ class KingFusionEngine {
       );
     } finally {
       _busy = false;
+      _activeVerifier = null;
+      _disconnectSignal = null;
       // Keep the cancellation latch raised until the waiting disconnect()
       // acquires the operation slot; otherwise a new connect could slip into
       // the microtask gap between completing this operation and its waiter.
@@ -417,6 +457,12 @@ class KingFusionEngine {
       // A disconnect request must not disappear while a native start is in
       // flight. Ask connect() to roll back as soon as that start completes.
       _disconnectRequested = true;
+      final signal = _disconnectSignal;
+      if (signal != null && !signal.isCompleted) signal.complete();
+      final verifier = _activeVerifier;
+      if (verifier != null) {
+        unawaited(_requestVerifierCancellation(verifier));
+      }
       final pending = _operationDone?.future;
       if (pending != null) await pending;
     }
@@ -435,12 +481,23 @@ class KingFusionEngine {
     }
   }
 
-  /// Failed stops remain tracked so a later disconnect can retry cleanup.
+  Future<void> _requestVerifierCancellation(
+    KingFusionCancellableTrafficVerifier verifier,
+  ) async {
+    try {
+      await verifier.cancel();
+    } catch (_) {
+      // The disconnect signal still releases the coordinator; late verifier
+      // results are ignored even if the adapter cannot cancel its own work.
+    }
+  }
+
+  /// Failed or timed-out stops remain tracked so a later disconnect can retry.
   Future<List<String>> _rollback() async {
     final failed = <({KingEngineAdapter adapter, Object? handle})>[];
     for (final item in _active.reversed.toList(growable: false)) {
       try {
-        await item.adapter.stop(item.handle);
+        await item.adapter.stop(item.handle).timeout(nativeStopTimeout);
       } catch (_) {
         failed.add(item);
       }
