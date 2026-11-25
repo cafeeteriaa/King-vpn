@@ -2606,12 +2606,9 @@ Future<void> userListsSave(String text) async {
 }
 
 // HOTCAP: کاهش از ۲ میلیون برای جلوگیری از OOM روی گوشی ضعیف
-const int natHotPerSource = 80000;
 const int natHotMin = 30000;
-const int natHotMax = 400000;
 List<Server> Function()? natExtraSource;
 const Duration natHotTtl = Duration(hours: 72);
-const Duration natHotFetchDeadline = Duration(seconds: 900);
 bool _hotBusy = false;
 DateTime? _hotFailAt;
 int _hotCursor = 0;
@@ -2741,7 +2738,6 @@ Future<List<String>> _hotFetchOne(String u) async {
     // فیکس ۱۱: split روی رشته‌ی چند مگابایتی در isolate انجام می‌شود
     final lines = await compute(_hotSplitIso, body);
     for (final l in lines) {
-      if (out.length >= natHotPerSource) break;
       final t = l.trim();
       if (!t.contains('://') || t.contains('[email') || t.contains('protected]')) {
         continue;
@@ -2786,11 +2782,9 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
     final dir = '/data/data/com.kingvpn.king_vpn/files';
     final parts = [for (var i = 0; i < urls.length; i++) '$dir/hot_part_$i.txt'];
     final extraPath = '$dir/hot_part_extra.txt';
-    final sw = Stopwatch()..start();
     try {
       await pool<int>([for (var i = 0; i < urls.length; i++) i], fetchWorkers,
           (i) async {
-        if (sw.elapsed > natHotFetchDeadline) return;
         final lines = await _hotFetchOne(urls[i]);
         if (lines.isEmpty) return;
         await File(parts[i]).writeAsString(lines.join('\n'), flush: true);
@@ -2813,14 +2807,12 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
       var pos = 0;
       final sink = File(newPath).openWrite();
       try {
-        var full = false;
         final seenKeys = <String>{};
         final mergeFrom = <String>[
           if (File(extraPath).existsSync()) extraPath,
           for (final i in mixed) parts[i],
         ];
         for (final pth in mergeFrom) {
-          if (full) break;
           final pf = File(pth);
           if (!pf.existsSync()) continue;
           await for (final line in pf
@@ -2836,10 +2828,6 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
             sink.add(const [10]);
             pos += b.length + 1;
             offs.add(pos);
-            if (offs.length - 1 >= natHotMax) {
-              full = true;
-              break;
-            }
           }
         }
       } finally {
