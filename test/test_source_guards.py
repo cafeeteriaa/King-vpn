@@ -124,7 +124,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('Future<bool> _connectLoop(')
         begin = main.index('_nnieBeginAttempt(s);', start)
-        end = main.index('\\n    return false;\\n  }\\n\\n  // REAL speed test right after connecting', begin)
+        end = main.index('\n    return false;\n  }\n\n  // REAL speed test right after connecting', begin)
         attempt = main[begin:end]
         for previous in attempt.split('return false;')[:-1]:
             self.assertIn(
@@ -197,9 +197,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = ai.index('final generation = engine.generate(', ai.index('Future<String> _generateWithSystemPrompt'))
         end = ai.index('GenerationOptions(', start)
         template = ai[start:end]
-        self.assertIn("'<|im_start|>system\\n$systemPrompt", template)
-        self.assertIn("'<|im_start|>user\\n$safePrompt", template)
-        self.assertNotIn('\\\\n', template)
+        self.assertIn("'<|im_start|>system\n$systemPrompt", template)
+        self.assertIn("'<|im_start|>user\n$safePrompt", template)
+        self.assertNotIn('\\\n', template)
 
     def test_github_token_is_verified_as_repository_owner_before_use(self):
         ai = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
@@ -379,9 +379,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         for method in ('_submitFeatureRequest', '_repair', '_enableBackground',
                        '_enableAutomaticDiscovery', '_saveToken', '_clearToken'):
             start = console.index('Future<void> ' + method)
-            end = console.find('\\n  Future<void> ', start + 1)
+            end = console.find('\n  Future<void> ', start + 1)
             if end < 0:
-                end = console.find('\\n  @override', start + 1)
+                end = console.find('\n  @override', start + 1)
             self.assertIn('_reauthenticateOwnerForCodeChange()', console[start:end], method)
 
     def test_national_network_optimization_requests_enter_owner_code_flow(self):
@@ -1195,7 +1195,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = source.index("if 'androidx.core.content.FileProvider'", start)
         provider = source[start:end]
         self.assertIn(r'FileProvider"\n', provider)
-        self.assertNotIn(r'FileProvider"\\n', provider)
+        self.assertNotIn(r'FileProvider"\n', provider)
         self.assertIn('@xml/king_file_paths', provider)
 
     def test_explicit_network_command_pins_smart_pilot_mode_for_session(self):
@@ -1613,7 +1613,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("if proxy_service_name not in m and '</application>' in m:", prepare)
         self.assertIn("if service_match and 'android:foregroundServiceType=' not in service_match.group(0):", prepare)
         self.assertIn(r'r"<service\b(?=[^>]*android:name=', prepare)
-        self.assertNotIn(r'\\n    ', prepare)
+        self.assertNotIn(r'\n    ', prepare)
 
     def test_signed_release_retries_only_transient_build_failures_and_verifies_signer(self):
         release = (ROOT / '.github' / 'workflows' / 'signed-release.yml').read_text(encoding='utf-8')
@@ -1936,7 +1936,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             'class CloudflareAutoDeployPage',
         ):
             self.assertEqual(source.count(declaration), 1, declaration)
-        self.assertNotIn(').hasMatch(normalizedHost);\\n    if (normalizedHost.isEmpty', source)
+        self.assertNotIn(').hasMatch(normalizedHost);\n    if (normalizedHost.isEmpty', source)
 
 
     def test_cloudflare_deploy_guards_state_after_async_token_and_folder_writes(self):
@@ -2378,7 +2378,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(compute, abort)
         self.assertLess(abort, generated)
         self.assertLess(generated, staged)
-        self.assertNotIn('ipAutoCursors\\n    ..clear()', body)
+        self.assertNotIn('ipAutoCursors\n    ..clear()', body)
         self.assertIn('bool Function()? shouldAbort', body)
 
     def test_ip_auto_scan_aborts_when_network_mode_changes_mid_run(self):
@@ -2734,7 +2734,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(generated, staged)
         self.assertIn("'nationalMode': modeSnapshot", body)
         self.assertNotIn('startPosSnapshot', body)
-        self.assertNotIn('ipAutoCursors\\n    ..clear()', body)
+        self.assertNotIn('ipAutoCursors\n    ..clear()', body)
 
 
     def test_auto_discovery_candidates_persist_without_saved_server_prerequisite(self):
@@ -3145,7 +3145,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("'cursors': cursorSnapshot,", next_batch)
         self.assertIn('final slice = all.toList(growable: false);', next_batch)
         self.assertIn('return (addresses: slice, cursors: generatedCursors);', next_batch)
-        self.assertNotIn('ipAutoCursors\\n    ..clear()', next_batch)
+        self.assertNotIn('ipAutoCursors\n    ..clear()', next_batch)
         run_start = source.index('Future<bool> _ipAutoRunOnce(')
         run_end = source.index('Future<void> ipAutoSheet(', run_start)
         run = source[run_start:run_end]
