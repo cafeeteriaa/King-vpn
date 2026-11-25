@@ -20,11 +20,13 @@ changes are represented as one coherent change set and one review-only pull requ
 ## Boundaries that are not arbitrary product quotas
 
 The local inference engine still has finite context, memory, and output-token capacity.
-GitHub also imposes API, blob, tree, and request-size limits. Removing application-level
-quotas does not make those physical/provider limits infinite. Large tasks must fail
-visibly rather than silently discard source context. A later staged/chunked inference
-pipeline is required for files that exceed the loaded model's actual context window or
-its practical complete-file generation capacity.
+Project-wide input is now divided into sequential inference batches (targeting about
+9,000 source characters per batch); this is an execution slice, not an inventory or
+project-size ceiling. A single file larger than the target remains intact in its own
+batch and is never silently truncated. GitHub also imposes API, blob, tree, and request-size
+limits. If one individual file exceeds the loaded model's actual context window or its
+practical complete-file generation capacity, the operation must fail visibly; patch-based
+editing for oversized individual files remains a further engineering stage.
 
 ## Safety and delivery
 

@@ -30,6 +30,9 @@ class LargeProjectEditingGuards(unittest.TestCase):
     def test_source_context_is_not_silently_truncated(self):
         self.assertIn("final safePrompt = prompt;", self.source)
         self.assertNotIn("prompt.substring(0, 18000)", self.source)
+        self.assertIn("inferenceBatchTargetChars = 9000", self.source)
+        self.assertIn("batches.add(currentBatch)", self.source)
+        self.assertIn("for (var batchIndex = 0; batchIndex < batches.length; batchIndex++)", self.source)
 
     def test_owner_authenticated_engine_can_be_updated_by_its_own_pipeline(self):
         protected = self.source.split("const protectedPaths = <String>{", 1)[1]
