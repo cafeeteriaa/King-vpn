@@ -1825,7 +1825,18 @@ Future<void> _goldIpStep() async {
       .where((ip) => !_goldIps.containsKey(ip))
       .take(240)
       .toList();
-  if (batch.isEmpty) return;
+  if (batch.isEmpty) {
+    // Already-known addresses are completed work too: advance the staged
+    // range cursor so a fully-known slice cannot starve later prefixes.
+    if (cands.isNotEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _cleanRangeCursorKey,
+        jsonEncode(_cleanStagedRangeCursors),
+      );
+    }
+    return;
+  }
   final r = await _goldProbe(batch);
   var found = 0;
   for (final ip in batch) {
