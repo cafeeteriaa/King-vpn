@@ -59,3 +59,7 @@ double? medianThroughput(List<double> samples) {
   if (valid.length.isOdd) return valid[middle];
   return (valid[middle - 1] + valid[middle]) / 2;
 }
+
+/// Only positive finite body throughput is a valid timestamped observation.
+bool isValidThroughputSample(double? value) =>
+    value != null && value.isFinite && value > 0;
