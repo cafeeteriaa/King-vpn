@@ -182,8 +182,8 @@ class KingFusionEngine {
     Object? upstreamHandle;
     try {
       for (final hop in plan.hops) {
-        currentEngineId = hop.engineId;
-        final adapter = _adapters[hop.engineId]!;
+        currentEngineId = hop.engineId.trim();
+        final adapter = _adapters[currentEngineId]!;
         final result = await adapter.start(
           configuration: hop.configuration,
           upstreamHandle: upstreamHandle,
@@ -218,7 +218,7 @@ class KingFusionEngine {
   }
 
   (String, String)? _validate(KingFusionPlan plan) {
-    if (plan.hops.isEmpty) return ( '', 'E-FUSION-EMPTY-PLAN');
+    if (plan.hops.isEmpty) return ('', 'E-FUSION-EMPTY-PLAN');
     final seen = <String>{};
     final resolved = <KingEngineAdapter>[];
     for (final hop in plan.hops) {
@@ -226,6 +226,9 @@ class KingFusionEngine {
       if (!seen.add(id)) return (id, 'E-FUSION-DUPLICATE-HOP');
       final adapter = _adapters[id];
       if (adapter == null) return (id, 'E-FUSION-ADAPTER-MISSING');
+      if (adapter.descriptor.availability != KingEngineAvailability.integrated) {
+        return (id, 'E-FUSION-ADAPTER-NOT-INTEGRATED');
+      }
       if (hop.configuration.trim().isEmpty) {
         return (id, 'E-FUSION-CONFIG-EMPTY');
       }
