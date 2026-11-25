@@ -271,6 +271,7 @@ void main() {
         const KingFusionHop(engineId: 'first', configuration: 'cfg'),
       ]));
       expect(connected.connected, isTrue);
+      expect(connected.trafficVerified, isFalse);
 
       await engine.disconnect();
       expect(engine.state, KingFusionState.failed);
@@ -349,6 +350,7 @@ void main() {
       ));
 
       expect(result.connected, isTrue);
+      expect(result.trafficVerified, isTrue);
       expect(verifier.calls, 1);
       expect(engine.state, KingFusionState.connected);
       await engine.disconnect();
@@ -390,7 +392,8 @@ void main() {
       ));
 
       expect(result.connected, isFalse);
-      expect(result.failureCode, 'E-FUSION-EXCEPTION');
+      expect(result.failureCode, 'E-FUSION-VERIFY-TIMEOUT');
+      expect(result.trafficVerified, isFalse);
       expect(events, ['start:first:-', 'stop:first:handle-first']);
       expect(engine.cleanupPendingEngineIds, isEmpty);
       expect(engine.state, KingFusionState.failed);
