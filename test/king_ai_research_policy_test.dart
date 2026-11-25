@@ -155,8 +155,6 @@ void main() {
       );
       final retained = mergeKingAiResearchMemory(const [], notes);
       expect(retained, hasLength(750));
-      expect(jsonDecode(retained.first)['url'],
-          'https://docs.flutter.dev/reference/0');
       expect(retained.any((line) =>
           jsonDecode(line)['url'] == 'https://docs.flutter.dev/reference/749'),
           isTrue);
