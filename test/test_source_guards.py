@@ -3915,6 +3915,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('configuredProviders()', review)
         self.assertIn('REDACTED_VPN_CONFIG', review)
         self.assertIn('REDACTED_UUID', review)
+        self.assertIn('_redactExternalContext(task)', review)
+        self.assertIn('redactKingAiCiEvidence(value', provider)
         self.assertIn('Future.wait(ids.map(', review)
         self.assertIn('_redactConversationSecrets(jsonEncode({', local)
         self.assertIn('reviewCodeBatch(', local)
