@@ -38,3 +38,14 @@ double? ageAdjustedThroughput({
   final halfLives = age.inMicroseconds / halfLife.inMicroseconds;
   return megabytesPerSecond * math.pow(0.5, halfLives).toDouble();
 }
+
+/// Robust stability multiplier derived from recent positive throughput samples.
+/// Median absolute deviation prevents one unusually fast/slow run from dominating.
+double throughputStabilityFactor(List<double> samples) {
+  final valid = samples.where((value) => value.isFinite && value > 0).toList()..sort();
+  if (valid.length < 2) return 1;
+  final median = valid[valid.length ~/ 2];
+  final deviations = valid.map((value) => (value - median).abs()).toList()..sort();
+  final mad = deviations[deviations.length ~/ 2];
+  return 1 / (1 + mad / median);
+}
