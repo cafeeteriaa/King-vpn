@@ -449,3 +449,14 @@ These are three distinct technical review passes by the same assistant, not thre
 - Commits: `49574a82010826f6d634e8cbafc0e501f2ac542c` (coordinator cancellation/stop timeout), `456650ffb06afc930faae5c0ba5605e37a6c0784` (new tests), `d6c138234d33bb5e6446c2a76b870f5a620a5c2b` (cancel verifier work on timeout), `ccd66b8bcae75e9c2a9a91174735f9590bb1371b` (assert cancellation behavior).
 - CI run 3012 passed on the prior syntax-repair commit `bf8bba4bc4f115309cce09876bb28aa044d188e5`. CI run 3021 is pending for the current test commit `ccd66b8bcae75e9c2a9a91174735f9590bb1371b`; current cancellation changes are not yet CI-validated.
 - Existing application V2Ray route remains unchanged. No device-level VPN tunnel verification or native engine integration is claimed.
+
+
+## 2026-11-25 — Cancellable native startup
+
+- Added optional `KingFusionCancellableEngineAdapter` for native engines whose start operation can block. A disconnect now requests cancellation from the in-flight adapter; the interface contract requires the cancellation hook to be idempotent and make the pending `start()` future settle.
+- A successful late start returned while disconnect is pending is tracked and immediately rolled back; a failed/cancelled start is reported as `E-FUSION-CANCELLED` rather than leaking adapter-specific cancellation details.
+- Added a deterministic fake adapter and regression test proving disconnect requests startup cancellation and stops a late-created native handle.
+- Three-pass review: (1) compatibility — existing adapters need not implement the optional interface; (2) lifecycle — late successful handles enter the normal reverse-order rollback path; (3) regression — dedicated startup cancellation test added, and all previous verifier cancellation/timeout and cleanup retry cases remain present.
+- Commits: `f6d2b1f71fca8d5d6192bc6407e9840a9a1f74b5` (optional native start cancellation), `168a76e19f136c0ca0a23b6c0417e31ad7d056b6` (startup cancellation test).
+- Current fetched source/test checks: one `KingFusionEngine` declaration; cancellation-aware verifier and startup interfaces present; bounded stop timeout present; 20 Fusion tests in the test file.
+- CI run 3021 for an earlier intermediate test commit was cancelled when a newer branch push superseded it. CI run 3026 is pending for current test commit `168a76e19f136c0ca0a23b6c0417e31ad7d056b6`. Do not claim current-stage CI success until this exact-head run completes successfully.
