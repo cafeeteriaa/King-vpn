@@ -299,3 +299,13 @@ These are three distinct technical review passes by the same assistant, not thre
 - The Fusion engine remains an adapter foundation only. The existing `flutter_v2ray_client` lifecycle in `lib/main.dart` has not been replaced, and no new native engine is claimed to be bundled or operational.
 - Exact-head CI for the latest source changes must pass source guards, Flutter tests, Dart analysis and ARM64 release build before validation is claimed. The preceding CI failure at run 2938 was a stale source-guard expectation for the NNIE serialization refactor; the guard was corrected in the following commit. Physical-device tunnel, DNS-leak, IPv4/IPv6 data-plane, network-handover and battery tests remain NOT TESTED.
 - Main is expected to remain at `c43d325f9803d4f6306415e511f6790deff9d87e`; verify this ref before future work. Do not modify or merge to main.
+
+
+## 2026-11-25 — Final Fusion handoff race review
+
+- Added the missing `dart:async` import required by Fusion's operation completers after exact CI exposed the compile error; the source guard now checks this import.
+- Closed the reconnect handoff window: while a disconnect waiter is waiting for an in-flight connect to unwind, new connect requests receive `E-FUSION-DISCONNECT-PENDING`. The cancellation latch is cleared only after disconnect acquires the operation slot.
+- Three-pass static review checked adapter lifecycle, persistence ordering, regression guards and branch/PR state. All 13 reviewed invariants passed at the latest source snapshot.
+- CI run 2941 exposed the missing async import; it was corrected. On the subsequent run 2942 (pre-handoff-race snapshot), source guards, Flutter unit tests and Dart analysis passed; the ARM64 release build was still running at the last observation. Run 2944 is queued for the handoff-race follow-up; require a completed exact-head run before calling this branch fully validated.
+- The active Flutter V2Ray connection path in `lib/main.dart` remains unchanged. Fusion is not yet wired into the production connection path; no additional native engine is claimed as integrated.
+- The default branch must remain at `c43d325f9803d4f6306415e511f6790deff9d87e`. PR #53 remains open Draft; no merge has been performed.
