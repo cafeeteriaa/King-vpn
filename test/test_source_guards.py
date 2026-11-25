@@ -3220,9 +3220,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('while (activeQueue.isNotEmpty &&', source)
         self.assertIn('activeQueue.removeAt(0)', source)
         self.assertIn('ipAutoPendingCore.remove(c);', source)
-        self.assertIn('final savedPending = p.getString(pendingKey) ??', source)
+        self.assertIn("savedPending = (checkpoint['pending'] ?? '').toString();", source)
         self.assertIn('..addAll(savedPending.split', source)
-        self.assertIn('await p.setString(pendingKey, pending.join', source)
+        self.assertIn("'pending': pending.join('\\n')", source)
+        self.assertIn("return await p.setString(checkpointKey, jsonEncode({", source)
+        self.assertNotIn('await p.setString(pendingKey, pending.join', source)
         self.assertIn('for (final candidate in candidates)', source)
 
 
