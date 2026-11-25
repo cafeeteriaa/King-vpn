@@ -265,7 +265,7 @@ class KingFusionEngine {
   KingFusionCancellableEngineAdapter? _startingAdapter;
   Completer<void>? _disconnectSignal;
 
-  KingFusionState __setState(KingFusionState.idle);
+  KingFusionState _state = KingFusionState.idle;
   KingFusionState get state => _state;
   bool _busy = false;
   bool _disconnectRequested = false;
@@ -404,6 +404,10 @@ class KingFusionEngine {
     try {
       validationError = _validate(plan);
     } catch (_) {
+      _emit(
+        KingFusionEventType.validationRejected,
+        failureCode: 'E-FUSION-VALIDATION-EXCEPTION',
+      );
       _setState(KingFusionState.failed);
       return const KingFusionResult.failure(
         failedEngineId: null,
@@ -412,6 +416,11 @@ class KingFusionEngine {
       );
     }
     if (validationError != null) {
+      _emit(
+        KingFusionEventType.validationRejected,
+        engineId: validationError.$1,
+        failureCode: validationError.$2,
+      );
       _setState(KingFusionState.failed);
       return KingFusionResult.failure(
         failedEngineId: validationError.$1,
@@ -583,14 +592,20 @@ class KingFusionEngine {
         cleanupFailedEngineIds: cleanupFailures,
       );
     } catch (_) {
+      final failureCode = _disconnectRequested
+          ? 'E-FUSION-CANCELLED'
+          : 'E-FUSION-EXCEPTION';
+      _emit(
+        KingFusionEventType.hopFailed,
+        engineId: currentEngineId,
+        failureCode: failureCode,
+      );
       final startedCount = _active.length;
       final cleanupFailures = await _rollback();
       _setState(KingFusionState.failed);
       return KingFusionResult.failure(
         failedEngineId: currentEngineId,
-        failureCode: _disconnectRequested
-            ? 'E-FUSION-CANCELLED'
-            : 'E-FUSION-EXCEPTION',
+        failureCode: failureCode,
         startedHops: startedCount,
         cleanupFailedEngineIds: cleanupFailures,
       );
