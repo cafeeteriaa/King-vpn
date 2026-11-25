@@ -322,19 +322,21 @@ class PilotNetworkProbe {
     final globalFuture = Future.wait(globalTargets.map(_probeHttps));
     final domestic = await domesticFuture;
     final global = await globalFuture;
-    LinkHealth health(List<int?> samples) {
-      final successes = samples.whereType<int>().length;
-      if (successes >= 2) return LinkHealth.healthy;
-      if (successes == 1) return LinkHealth.degraded;
-      return LinkHealth.unreachable;
-    }
+    final domesticSuccesses = domestic.whereType<int>().length;
+    final globalSuccesses = global.whereType<int>().length;
     _last = NetworkEvidence(
-      domestic: health(domestic),
-      global: health(global),
+      domestic: classifyLinkHealth(
+        attempted: domestic.length,
+        successful: domesticSuccesses,
+      ),
+      global: classifyLinkHealth(
+        attempted: global.length,
+        successful: globalSuccesses,
+      ),
       domesticSamples: domestic.length,
       globalSamples: global.length,
-      domesticSuccesses: domestic.whereType<int>().length,
-      globalSuccesses: global.whereType<int>().length,
+      domesticSuccesses: domesticSuccesses,
+      globalSuccesses: globalSuccesses,
       domesticLatencyMs: _median(domestic),
       globalLatencyMs: _median(global),
       domesticTlsReachabilityVerified: domestic.whereType<int>().length >= 2,
