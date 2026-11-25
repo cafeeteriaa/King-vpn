@@ -64,15 +64,19 @@ class KingFusionLearningBridge {
       case KingFusionEventType.validationRejected:
       case KingFusionEventType.hopFailed:
         _recordFailure(event, KingFusionRecoveryHint.inspectEngine);
+        break;
       case KingFusionEventType.verificationFailed:
         _recordFailure(event, KingFusionRecoveryHint.verifyTraffic);
+        break;
       case KingFusionEventType.cleanupFailed:
         _recordFailure(event, KingFusionRecoveryHint.retryCleanup);
+        break;
       case KingFusionEventType.verificationPassed:
         // Only verified traffic clears the accumulated failure streak.
         _failureStreaks.clear();
         _lastFailureCode = null;
         _recoveryHint = KingFusionRecoveryHint.observe;
+        break;
       default:
         break;
     }
