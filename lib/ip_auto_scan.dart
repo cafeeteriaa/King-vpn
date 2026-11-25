@@ -128,9 +128,9 @@ Future<void> ipAutoLoad() async {
   final suffix = loadNationalMode ? 'nat' : 'glob';
   final snapshotKey = 'ipauto_snapshot_v2_$suffix';
   final hitsKey = loadNationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
-  final posKey = '\${_ipAutoPosKey}_$suffix';
-  final cursorKey = '\${_ipAutoCursorKey}_$suffix';
-  final pendingKey = '\${_ipAutoPendingKey}_$suffix';
+  final posKey = '${_ipAutoPosKey}_$suffix';
+  final cursorKey = '${_ipAutoCursorKey}_$suffix';
+  final pendingKey = '${_ipAutoPendingKey}_$suffix';
   try {
     final p = await SharedPreferences.getInstance();
     if (nationalMode != loadNationalMode) return;
@@ -167,7 +167,7 @@ Future<void> _ipAutoSave() async {
   final pending = List<String>.unmodifiable(ipAutoPendingCore);
   final cursors = Map<String, dynamic>.unmodifiable(ipAutoCursors);
   final position = ipAutoPos;
-  final snapshotKey = 'ipauto_snapshot_v2_\${saveNationalMode ? 'nat' : 'glob'}';
+  final snapshotKey = 'ipauto_snapshot_v2_${saveNationalMode ? 'nat' : 'glob'}';
   try {
     final p = await SharedPreferences.getInstance();
     if (nationalMode != saveNationalMode ||
