@@ -2647,8 +2647,10 @@ class _HotIdx {
   final String file;
   final int lineCount;
   final int byteLength;
+  final String signature;
   final List<int> sparseOffsets;
-  _HotIdx(this.file, this.lineCount, this.byteLength, this.sparseOffsets);
+  _HotIdx(this.file, this.lineCount, this.byteLength, this.signature,
+      this.sparseOffsets);
 }
 
 _HotIdx? _hot;
@@ -2892,7 +2894,11 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
       if (freshTotal > 0 && total > 0) {
         _hotFailAt = null;
         await File(newPath).rename(_hotPath());
-        _hot = _HotIdx(_hotPath(), sparseIndex[0], sparseIndex[1], sparseIndex.skip(2).toList(growable: false));
+        final cacheStat = await File(_hotPath()).stat();
+        final cacheSignature =
+            '${cacheStat.size}:${cacheStat.modified.microsecondsSinceEpoch}';
+        _hot = _HotIdx(_hotPath(), sparseIndex[0], sparseIndex[1],
+            cacheSignature, sparseIndex.skip(2).toList(growable: false));
         _hotCursor = 0;
         if (total < natHotMin) {
           dbg('پوشه‌ی منابع تازه: $total کانفیگ (کمتر از $natHotMin)');
@@ -2993,10 +2999,14 @@ Future<_HotIdx?> _hotLoad() async {
     if (!f.existsSync() || f.lengthSync() == 0) return null;
     final sparseIndex = await _hotBuildSparseIndex(f.path);
     if (sparseIndex.first <= 0) return null;
+    final cacheStat = await f.stat();
+    final cacheSignature =
+        '${cacheStat.size}:${cacheStat.modified.microsecondsSinceEpoch}';
     _hot = _HotIdx(
       f.path,
       sparseIndex[0],
       sparseIndex[1],
+      cacheSignature,
       sparseIndex.skip(2).toList(growable: false),
     );
     _hotCursor = 0;
@@ -3043,6 +3053,11 @@ Future<List<Server>> _natHotNextUnlocked(int n,
     final cacheFile = File(h.file);
     final stat = await cacheFile.stat();
     final signature = '${stat.size}:${stat.modified.microsecondsSinceEpoch}';
+    if (signature != h.signature) {
+      _hot = null;
+      if (retried) return const [];
+      return _natHotNextUnlocked(n, fetch: false, retried: true);
+    }
     final prefs = await SharedPreferences.getInstance();
     final savedSignature = prefs.getString(_hotCursorSignatureKey);
     final savedCursor = prefs.getInt(_hotCursorKey);
