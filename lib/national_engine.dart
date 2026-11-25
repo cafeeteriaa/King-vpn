@@ -408,7 +408,9 @@ class PilotNetworkProbe {
           for (final address in item.addresses)
             '${item.name}=${address.address}',
       ]..sort();
-      return sha256.convert(utf8.encode(values.join(';'))).toString();
+      return sha256
+          .convert(utf8.encode(canonicalNetworkIdentity(values)))
+          .toString();
     } catch (_) {
       return '';
     }
