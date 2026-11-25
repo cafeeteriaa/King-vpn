@@ -154,6 +154,8 @@ class LargeProjectEditingGuards(unittest.TestCase):
         self.assertIn("king-ai-stage-", self.source)
         self.assertIn("king-ai-backup-", self.source)
         self.assertIn("rollback was incomplete", self.source)
+        self.assertIn("final backedUp = <String>[]", self.source)
+        self.assertIn("for (final path in backedUp.reversed)", self.source)
         self.assertIn("Owner authentication is required to apply imported project changes", self.source)
 
     def test_owner_task_descriptions_have_no_fixed_character_ceiling(self):
