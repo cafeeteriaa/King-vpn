@@ -654,3 +654,12 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) API/event semantics — synchronous observer cancellation is honored at the event boundary; (2) resource lifecycle — no handle is acquired, so no unnecessary native cleanup is scheduled; (3) regression — explicit call-count and final-state assertions.
 - Dedicated Fusion test count: 45 by source test declaration count. Exact-head CI remains required; no local Flutter execution is claimed.
 - Commits: `230392f94ad51484d8f0522eaeae3caf13e381da` (pre-start cancellation guard), `08cdaa27504cb5ed79468901ccc915560c9cfb62` (regression test).
+
+## 2026-11-25 — Preflight operation-slot reservation
+
+- Found another synchronous reentrancy window: validation rejection telemetry is delivered before the previous implementation reserved the engine's busy/operation slot. A listener could call `connect()` from `validationRejected` and start a valid second plan while the first request was still unwinding.
+- The coordinator now reserves its operation slot and completion signal before preflight validation. Validation failure/exception paths release that slot through a dedicated completion helper, allowing a concurrent disconnect to wait for the validation operation rather than racing it.
+- Added a regression test where a `validationRejected` observer immediately submits a valid plan. The nested call must return `E-FUSION-BUSY`; no native start is allowed.
+- Three-pass review: (1) API semantics — the first request owns the operation slot throughout synchronous preflight; (2) lifecycle — completion is signaled on both validation failure branches and disconnect can serialize behind it; (3) regression — nested valid connect is explicitly rejected and engine returns to non-busy state.
+- Dedicated Fusion test count: 46 by source test declaration count. Exact-head CI required; no local Flutter execution is claimed.
+- Commits: `84d64ecfd761e9b30b5d4cd24db5d7ca14f580dc` (operation reservation), `4957239d9b35b6b404aadbcc1782a3fa65261d97` (regression test).
