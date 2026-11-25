@@ -4,6 +4,16 @@
 bool isValidHttpResponseLine(String line) =>
     RegExp(r'^HTTP/1\.[01]\s+([2-5][0-9]{2})(?:\s|$)').hasMatch(line.trim());
 
+/// Median of non-negative latency observations; null/invalid samples are ignored.
+int? medianLatencyMs(Iterable<int?> values) {
+  final sorted = values.whereType<int>().where((value) => value >= 0).toList()
+    ..sort();
+  if (sorted.isEmpty) return null;
+  final middle = sorted.length ~/ 2;
+  if (sorted.length.isOdd) return sorted[middle];
+  return ((sorted[middle - 1] + sorted[middle]) / 2).round();
+}
+
 /// Independent domestic/global network evidence model for Smart Pilot ∞.
 enum LinkHealth { unknown, healthy, degraded, unreachable }
 enum DetectedNetworkMode { unknown, domesticOnly, globalOnly, dualStack, offline }
