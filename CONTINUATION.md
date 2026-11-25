@@ -672,3 +672,12 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) API semantics — a committed disconnect wins over verification; (2) resource lifecycle — no probe resources are created after cancellation; (3) regression — explicit verifier call-count and native lifecycle assertions.
 - Dedicated Fusion test count: 47 by source test declaration count. Exact-head CI is required; no local Flutter execution is claimed.
 - Commits: `acceb1369ac66012d2166c9d94860ebe1f8fe06b` (guard), `faccf110ed4762dac55b32361769b64f28d0b1da` (test).
+
+## 2026-11-25 — Disconnect serialization across rejected preflight
+
+- Extended the preflight reentrancy audit to both synchronous observer boundaries that can terminate validation: `validationRejected` and `stateChanged(failed)`.
+- Added a regression where the validation-rejection observer requests disconnect. It verifies the original validation result remains stable, no native start/stop is attempted for a plan rejected before acquisition, the disconnect event is emitted once, and the final snapshot returns to idle with no pending disconnect.
+- Added a second regression where the failed-state observer requests disconnect. It verifies teardown waits for preflight's reserved operation slot to be released and the final snapshot is idle, not busy, and has no active handles.
+- Three-pass review: (1) API compatibility — preflight still reports the original validation failure rather than rewriting it as a cancellation; (2) lifecycle — disconnect waits on the reserved operation completion and does not manufacture native cleanup work; (3) regression — both observer boundaries have explicit final-state assertions.
+- Dedicated Fusion test count: 49 by source test declaration count. Exact-head CI is required; no local Flutter execution is claimed.
+- Commits: `9127cd7ceb1f6d0804d8508091000b0bb38caf8c` (validation-rejection observer), `766598447dfbd80388d44f1838593caf6b675b07` (failed-state observer), `6918c768b998ae8ecf032b7f1c3aca7e1a89839b` (assertion correction).
