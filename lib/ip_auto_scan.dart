@@ -36,47 +36,122 @@ String _ipAutoCursorKeyNow() => '${_ipAutoCursorKey}_${nationalMode ? 'nat' : 'g
 bool? _ipAutoLoadedNat;
 String _ipAutoModeName() => nationalMode ? 'نت ملی' : 'جهانی';
 
+typedef IpAutoSnapshot = ({
+  List<String> hits,
+  List<String> pending,
+  Map<String, dynamic> cursors,
+  int position,
+});
+
+/// Versioned, single-value snapshot for one IP Auto mode. A valid snapshot is
+/// authoritative; legacy keys are read only for migration when v2 is absent
+/// or corrupt. Results, retry backlog and cursors share one commit edge.
+String ipAutoEncodeSnapshot({
+  required Iterable<String> hits,
+  required Iterable<String> pending,
+  required Map<String, dynamic> cursors,
+  required int position,
+}) => jsonEncode({
+  'version': 2,
+  'hits': hits.toList(growable: false),
+  'pending': pending.toList(growable: false),
+  'cursors': cursors,
+  'position': position < 0 ? 0 : position,
+});
+
+IpAutoSnapshot ipAutoDecodeSnapshot({
+  required String? encoded,
+  String legacyHits = '',
+  String legacyPending = '',
+  String? legacyCursors,
+  String? legacyPosition,
+}) {
+  List<String> decodeLines(Object? value) => value is List
+      ? value.whereType<String>().where((line) => line.contains('|')).toList()
+      : <String>[];
+
+  Map<String, dynamic> decodeCursors(Object? value) {
+    final out = <String, dynamic>{};
+    if (value is Map) {
+      for (final entry in value.entries) {
+        if (entry.key is String &&
+            (entry.value is num || entry.value is String)) {
+          out[entry.key as String] = entry.value;
+        }
+      }
+    }
+    return out;
+  }
+
+  final legacyCursorMap = <String, dynamic>{};
+  if (legacyCursors != null && legacyCursors.isNotEmpty) {
+    try {
+      legacyCursorMap.addAll(decodeCursors(jsonDecode(legacyCursors)));
+    } catch (_) {
+      // A corrupt cursor key must not discard the other legacy state.
+    }
+  }
+  final legacyPos = int.tryParse(legacyPosition ?? '');
+  final legacy = (
+    hits: legacyHits.split('\n').where((line) => line.contains('|')).toList(),
+    pending: legacyPending.split('\n').where((line) => line.contains('|')).toList(),
+    cursors: legacyCursorMap,
+    position: legacyPos == null || legacyPos < 0 ? 0 : legacyPos,
+  );
+
+  if (encoded == null || encoded.isEmpty) return legacy;
+  try {
+    final decoded = jsonDecode(encoded);
+    if (decoded is! Map || decoded['version'] != 2) return legacy;
+    final position = decoded['position'];
+    if (position is! int || position < 0 ||
+        decoded['hits'] is! List ||
+        decoded['pending'] is! List ||
+        decoded['cursors'] is! Map) {
+      return legacy;
+    }
+    return (
+      hits: decodeLines(decoded['hits']),
+      pending: decodeLines(decoded['pending']),
+      cursors: decodeCursors(decoded['cursors']),
+      position: position,
+    );
+  } catch (_) {
+    return legacy;
+  }
+}
+
 Future<void> ipAutoLoad() async {
-  // Capture the mode and its storage keys before the first await. A mode
-  // switch during preference I/O must never mix the two independent datasets.
+  // Capture the mode and its keys before the first await: mode-local state
+  // must never be mixed by a network-mode switch during preference I/O.
   final loadNationalMode = nationalMode;
+  final suffix = loadNationalMode ? 'nat' : 'glob';
+  final snapshotKey = 'ipauto_snapshot_v2_$suffix';
   final hitsKey = loadNationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
-  final posKey = '${_ipAutoPosKey}_${loadNationalMode ? 'nat' : 'glob'}';
-  final cursorKey = '${_ipAutoCursorKey}_${loadNationalMode ? 'nat' : 'glob'}';
-  final pendingKey = '${_ipAutoPendingKey}_${loadNationalMode ? 'nat' : 'glob'}';
+  final posKey = '\${_ipAutoPosKey}_$suffix';
+  final cursorKey = '\${_ipAutoCursorKey}_$suffix';
+  final pendingKey = '\${_ipAutoPendingKey}_$suffix';
   try {
     final p = await SharedPreferences.getInstance();
     if (nationalMode != loadNationalMode) return;
-    final savedHits = p.getString(hitsKey) ?? '';
-    final savedPending = p.getString(pendingKey) ?? '';
-    final savedPos = int.tryParse(p.getString(posKey) ?? '') ?? 0;
-    final loadedCursors = <String, dynamic>{};
-    final c = p.getString(cursorKey);
-    if (c != null && c.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(c);
-        if (decoded is Map) {
-          for (final entry in decoded.entries) {
-            if (entry.value is num || entry.value is String) {
-              loadedCursors['${entry.key}'] = entry.value;
-            }
-          }
-        }
-      } catch (e, stk) {
-        logError(e, stk);
-      }
-    }
+    final snapshot = ipAutoDecodeSnapshot(
+      encoded: p.getString(snapshotKey),
+      legacyHits: p.getString(hitsKey) ?? '',
+      legacyPending: p.getString(pendingKey) ?? '',
+      legacyCursors: p.getString(cursorKey),
+      legacyPosition: p.getString(posKey),
+    );
     if (nationalMode != loadNationalMode) return;
     ipAutoHits
       ..clear()
-      ..addAll(savedHits.split('\n').where((x) => x.contains('|')));
+      ..addAll(snapshot.hits);
     ipAutoPendingCore
       ..clear()
-      ..addAll(savedPending.split('\n').where((x) => x.contains('|')));
+      ..addAll(snapshot.pending);
     ipAutoCursors
       ..clear()
-      ..addAll(loadedCursors);
-    ipAutoPos = savedPos;
+      ..addAll(snapshot.cursors);
+    ipAutoPos = snapshot.position;
     _ipAutoLoadedNat = loadNationalMode;
   } catch (e, stk) {
     logError(e, stk);
@@ -84,27 +159,36 @@ Future<void> ipAutoLoad() async {
 }
 
 Future<void> _ipAutoSave() async {
-  // Persist an immutable snapshot under the keys belonging to its captured mode.
+  // Persist all mode-local state with one preference write. Immutable snapshots
+  // prevent result, retry-queue and cursor generations from being interleaved.
   final saveNationalMode = nationalMode;
   if (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode) return;
-  final hits = List<String>.of(ipAutoHits);
-  final pending = List<String>.of(ipAutoPendingCore);
-  final cursors = Map<String, dynamic>.of(ipAutoCursors);
+  final hits = List<String>.unmodifiable(ipAutoHits);
+  final pending = List<String>.unmodifiable(ipAutoPendingCore);
+  final cursors = Map<String, dynamic>.unmodifiable(ipAutoCursors);
   final position = ipAutoPos;
-  final hitsKey = saveNationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
-  final cursorKey = '${_ipAutoCursorKey}_${saveNationalMode ? 'nat' : 'glob'}';
-  final posKey = '${_ipAutoPosKey}_${saveNationalMode ? 'nat' : 'glob'}';
-  final pendingKey = '${_ipAutoPendingKey}_${saveNationalMode ? 'nat' : 'glob'}';
+  final snapshotKey = 'ipauto_snapshot_v2_\${saveNationalMode ? 'nat' : 'glob'}';
   try {
     final p = await SharedPreferences.getInstance();
     if (nationalMode != saveNationalMode ||
         (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode)) {
       return;
     }
-    await p.setString(hitsKey, hits.join('\n'));
-    await p.setString(pendingKey, pending.join('\n'));
-    await p.setString(cursorKey, jsonEncode(cursors));
-    await p.setString(posKey, position.toString());
+    final saved = await p.setString(
+      snapshotKey,
+      ipAutoEncodeSnapshot(
+        hits: hits,
+        pending: pending,
+        cursors: cursors,
+        position: position,
+      ),
+    );
+    if (!saved) {
+      errJournalAdd(
+        StateError('IP Auto snapshot preference write returned false'),
+        kind: 'IP-AUTO-SNAPSHOT-WRITE',
+      );
+    }
   } catch (e, stk) {
     logError(e, stk);
   }
