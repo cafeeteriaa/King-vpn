@@ -160,7 +160,7 @@ class FreshResourceStore {
       var hasMore = false;
       await for (final line in file
           .openRead()
-          .transform(const Utf8Decoder(allowMalformed: true))
+          .transform(utf8.decoder)
           .transform(const LineSplitter())) {
         final link = normalizeLink(line);
         if (link == null) continue;
