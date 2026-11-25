@@ -1074,7 +1074,6 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     final staged = <String, File>{};
     final backups = <String, File>{};
     final backedUp = <String>[];
-    final replaced = <String>[];
     final stamp = DateTime.now().microsecondsSinceEpoch;
     try {
       var index = 0;
@@ -1119,7 +1118,6 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
         await target.rename(backups[entry.key]!.path);
         backedUp.add(entry.key);
         await staged[entry.key]!.rename(targetPath);
-        replaced.add(entry.key);
       }
       // Backup cleanup is best-effort after the commit point. A cleanup
       // failure must not trigger rollback after another backup was removed.
