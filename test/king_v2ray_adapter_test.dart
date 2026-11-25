@@ -74,14 +74,7 @@ void main() {
         },
         stop: () async {},
       );
-      final engine = KingFusionEngine([adapter]);
-
-      final result = await engine.connect(KingFusionPlan([
-        const KingFusionHop(
-          engineId: 'king-v2ray-xray',
-          configuration: '  ',
-        ),
-      ]));
+      final result = await adapter.start(configuration: '  ');
 
       expect(result.connected, isFalse);
       expect(result.failureCode, 'E-V2RAY-CONFIG-EMPTY');
@@ -121,7 +114,7 @@ void main() {
       await disconnecting;
 
       expect(result.connected, isFalse);
-      expect(result.failureCode, 'E-V2RAY-START-CANCELLED');
+      expect(result.failureCode, 'E-FUSION-CANCELLED');
       expect(stops, 2);
       expect(engine.state, KingFusionState.idle);
       expect(engine.snapshot.activeEngineIds, isEmpty);
