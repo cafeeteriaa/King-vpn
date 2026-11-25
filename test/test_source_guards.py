@@ -4037,5 +4037,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('retains failed native stops', tests)
         self.assertIn('reports and retains cleanup failures', tests)
 
+    def test_ip_auto_preserves_all_exact_endpoint_templates(self):
+        scanner = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        index = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        tests = (ROOT / 'test' / 'nat_ip_scan_test.dart').read_text(encoding='utf-8')
+        self.assertIn('natTemplateSeeds = List<Server>.of(nationalSeeds);', scanner)
+        self.assertNotIn('nationalSeeds.take(2)', scanner)
+        self.assertNotIn('pool.take(2)', scanner)
+        self.assertIn('natIndexEndpointTemplates<Server>', scanner)
+        self.assertIn('endpointTemplates[c]', scanner)
+        self.assertNotIn('knownEndpoints.firstWhere(', scanner)
+        self.assertIn("final pair = '$address|${source.port}';", index)
+        self.assertIn('Every source configuration', scanner)
+        self.assertIn('retains every matching configuration', tests)
+
 if __name__ == '__main__':
     unittest.main()
