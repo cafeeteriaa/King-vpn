@@ -4029,6 +4029,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         tests = (ROOT / 'test' / 'king_fusion_engine_test.dart').read_text(encoding='utf-8')
         self.assertIn("import 'dart:async';", fusion)
         self.assertIn('_disconnectRequested = true;', fusion)
+        self.assertIn("'E-FUSION-DISCONNECT-PENDING'", fusion)
         self.assertIn("'E-FUSION-CANCELLED'", fusion)
         self.assertIn('cleanupFailedEngineIds', fusion)
         self.assertIn('..addAll(failed.reversed)', fusion)
