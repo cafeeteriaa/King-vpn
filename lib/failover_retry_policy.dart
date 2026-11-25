@@ -9,7 +9,8 @@ int nextFailoverRetryStage(int currentStage) {
 
 /// Bounded exponential delay: 10s, 20s, 40s, then 60s for all later retries.
 Duration failoverBusyRetryDelay(int stage) {
-  switch (stage) {
+  final normalized = stage < 1 ? 1 : (stage > 4 ? 4 : stage);
+  switch (normalized) {
     case 1:
       return const Duration(seconds: 10);
     case 2:
