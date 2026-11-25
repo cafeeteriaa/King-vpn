@@ -4053,6 +4053,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('retains failed native stops', tests)
         self.assertIn('reports and retains cleanup failures', tests)
 
+    def test_fusion_failure_results_defensively_snapshot_cleanup_identifiers(self):
+        fusion = (ROOT / 'lib' / 'king_fusion_engine.dart').read_text(encoding='utf-8')
+        tests = (ROOT / 'test' / 'king_fusion_engine_test.dart').read_text(encoding='utf-8')
+        failure_start = fusion.index('KingFusionResult.failure({')
+        failure_end = fusion.index('\n}\n', failure_start)
+        failure_constructor = fusion[failure_start:failure_end]
+        self.assertIn('Iterable<String> cleanupFailedEngineIds', failure_constructor)
+        self.assertIn('List<String>.unmodifiable(cleanupFailedEngineIds)', failure_constructor)
+        self.assertNotIn('const KingFusionResult.failure(', fusion)
+        self.assertIn('snapshots caller-owned cleanup identifiers immutably', tests)
+        self.assertIn('throwsA(isA<UnsupportedError>())', tests)
+
     def test_ip_auto_preserves_all_exact_endpoint_templates(self):
         scanner = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         index = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
