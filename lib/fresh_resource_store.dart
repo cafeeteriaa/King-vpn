@@ -124,11 +124,13 @@ class FreshResourceStore {
     final temp = File(
       '${target.path}.tmp-${pid}-${DateTime.now().microsecondsSinceEpoch}',
     );
-    final sink = temp.openWrite();
+    IOSink? sink;
     final seen = <String>{};
     var count = 0;
     var byteCount = 0;
     try {
+      sink = temp.openWrite();
+      final output = sink;
       // Stream source records directly to the temporary file. Only the
       // deduplication keys remain resident; payload strings are not assembled
       // into a second full-size snapshot in memory.
@@ -136,19 +138,20 @@ class FreshResourceStore {
         final link = normalizeLink(value);
         if (link == null || !seen.add(link.toLowerCase())) continue;
         final line = '$link\n';
-        sink.write(line);
+        output.write(line);
         byteCount += utf8.encode(line).length;
         count++;
       }
-      await sink.flush();
-      await sink.close();
+      await output.flush();
+      await output.close();
+      sink = null;
       // Same-directory rename is atomic on Android/Linux. Never delete the
       // current snapshot first: a failed replacement must leave it intact.
       await temp.rename(target.path);
       return <String, int>{'count': count, 'bytes': byteCount};
     } catch (_) {
       try {
-        await sink.close();
+        await sink?.close();
       } catch (_) {
         // Keep the original write/rename error.
       }
