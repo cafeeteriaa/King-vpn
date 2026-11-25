@@ -275,7 +275,6 @@ void main() {
         domesticSamples: 2,
         globalSamples: 3,
         domesticSuccesses: 2,
-        domesticSuccesses: 2,
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
     });
@@ -364,6 +363,8 @@ void main() {
         global: LinkHealth.unreachable,
         domesticSamples: 3,
         globalSamples: 3,
+        domesticSuccesses: 1,
+        globalSuccesses: 0,
       );
       expect(evidence.mode, DetectedNetworkMode.unknown);
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
