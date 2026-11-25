@@ -2495,6 +2495,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('await p.setString(hitsKey,', save)
         self.assertNotIn('await p.setString(pendingKey,', save)
 
+    def test_ip_auto_checkpoints_tcp_backlog_before_core_checks_and_each_success(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> _ipAutoRunOnce(')
+        end = source.index('Future<void> ipAutoSheet(', start)
+        body = source[start:end]
+        backlog = body.index('final tcpCheckpointSaved = await _ipAutoSave();')
+        core_loop = body.index('while (activeQueue.isNotEmpty')
+        success = body.index('ipAutoPendingCore.remove(c);', body.index('final secondOk'))
+        saved_success = body.index('final resultCheckpointSaved = await _ipAutoSave();', success)
+        self.assertLess(backlog, core_loop)
+        self.assertLess(success, saved_success)
+        self.assertIn('if (!tcpCheckpointSaved || halted()) return false;', body)
+        self.assertIn('if (!resultCheckpointSaved || halted()) return false;', body)
+
     def test_ip_auto_background_acquires_shared_locks_before_async_work(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> ipAutoBackground() async {')
