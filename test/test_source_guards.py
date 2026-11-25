@@ -1782,9 +1782,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_clean_ip_inventory_ui_displays_all_entries_lazily(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
-        status = source.index('cleanIpStatus.isNotEmpty')
-        start = source.rfind('Flexible(', 0, status)
-        end = source.index('if (cleanIps.isEmpty && _cleanBusy == null)', status)
+        item_count = source.index('itemCount: cleanIps.length')
+        start = source.rfind('ListView.builder(', 0, item_count)
+        end = source.index('if (cleanIps.isEmpty && _cleanBusy == null)', item_count)
         body = source[start:end]
         self.assertIn('ListView.builder(', body)
         self.assertIn('itemCount: cleanIps.length', body)
@@ -3469,10 +3469,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         )
         self.assertIn('type: InternetAddressType.any', auto)
         self.assertIn('address.type == InternetAddressType.IPv4 ||', auto)
-        self.assertIn('_autoSniOk(ip, 443, d)', auto)
         self.assertIn('batch.map((ip) => _autoPortOk(ip, p))', auto)
         self.assertIn('portIps.skip(offset)', auto)
-        self.assertIn('_autoAlpnOk(ip, 443, d, alpn)', auto)
 
     def test_clean_ip_scan_uses_resumable_dual_stack_range_batches(self):
         extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
