@@ -27,11 +27,29 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('ipAutoPendingCore.remove(c)', first_failure)
         self.assertNotIn('ipAutoPendingCore.remove(c)', second_failure)
 
-    def test_auto_scan_sheet_forwards_live_vpn_guards(self):
+    def test_auto_scan_sheet_forwards_live_vpn_guards_and_server_snapshots(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> autoScanSheet(')
         body = source[start:]
-        self.assertIn('isVpnActive: isVpnActive, isVpnWanted: isVpnWanted', body)
+        self.assertIn('required Iterable<Server> goodServers', body)
+        self.assertIn('required Iterable<Server> pendingServers', body)
+        self.assertIn('goodServers: goodServers', body)
+        self.assertIn('pendingServers: pendingServers', body)
+        self.assertIn('isVpnActive: isVpnActive', body)
+        self.assertIn('isVpnWanted: isVpnWanted', body)
+
+    def test_auto_scan_run_uses_explicit_server_snapshots_not_state_scoped_globals(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> autoScanRun(')
+        end = source.index('Future<void> autoScanSheet(', start)
+        body = source[start:end]
+        self.assertIn('...goodServers', body)
+        self.assertIn('...pendingServers', body)
+        self.assertNotIn('...good,', body)
+        self.assertNotIn('...pending,', body)
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn('goodServers: good', main)
+        self.assertIn('pendingServers: pending', main)
 
     def test_auto_sni_scan_refuses_to_compete_with_live_vpn(self):
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
