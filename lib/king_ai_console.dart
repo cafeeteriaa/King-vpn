@@ -8,6 +8,7 @@ import 'king_ai_background.dart';
 import 'king_ai_owner_auth.dart';
 import 'king_voice_output.dart';
 import 'king_ai_provider_orchestrator.dart';
+import 'king_ai_provider_settings.dart';
 
 /// In-app control surface for the local coding model and guarded GitHub PR workflow.
 class KingAiConsolePage extends StatefulWidget {
@@ -700,6 +701,21 @@ DNS، routing و گزینه‌های دیگر را فقط در صورت مشاه
                         : _analyzeFeatureImage,
                     icon: const Icon(Icons.image_search_outlined),
                     label: const Text('تحلیل عکس تنظیمات و افزودن به درخواست'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _busy
+                        ? null
+                        : () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const KingAiProviderSettingsPage(),
+                              ),
+                            ),
+                    icon: const Icon(Icons.hub_outlined),
+                    label: const Text('تنظیم مدل‌های آنلاین و کلیدهای API'),
                   ),
                 ),
                 const SizedBox(height: 8),
