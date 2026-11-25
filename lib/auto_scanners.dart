@@ -321,12 +321,12 @@ Future<void> autoScanRun(void Function(String) say,
         if (server != null && !server.isIp) domainSources.add(server.host);
       }
     }
+    // Both modes share exactly the same hostname validation and IP-literal
+    // exclusion. National mode changes ordering only; it never narrows the
+    // global inventory or bypasses normalization.
     final domainInventory = scanNationalMode
         ? dnsxNationalFirstDomains(extra: domainSources)
-        : (domainSources
-            .map((domain) => domain.trim().toLowerCase())
-            .where((domain) => domain.isNotEmpty && domain.contains('.'))
-            .toList()..sort());
+        : (kingNormalizeDomainHosts(domainSources)..sort());
     final savedDomainCursor = prefs.getString(_autoScanDomainCursorKey);
     final previousDomainIndex = savedDomainCursor == null
         ? -1
