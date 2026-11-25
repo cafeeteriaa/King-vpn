@@ -116,8 +116,7 @@ List<String> dnsxFullDomains() {
     ..._dnsxHostsFrom(natFrontSnis),
     ..._dnsxHostsFrom(natRelayHosts),
   };
-  final domains = all.where((value) => value.trim().isNotEmpty).toList()
-    ..sort();
+  final domains = kingNormalizeDomainHosts(all)..sort();
   return domains;
 }
 
@@ -135,17 +134,19 @@ List<String> dnsxNationalFirstDomains({
     ...extraHosts,
   };
   final domestic = <String>{
-    ...kDnsxNationalProbeDomains,
-    ...natIrDomains,
-    ..._dnsxHostsFrom(iranDomains),
-    ..._dnsxHostsFrom(_iranMoreDomains),
-    ...kAutoNationalSniDomains,
-    ...extraHosts.where((host) =>
-        host.endsWith('.ir') ||
-        host.endsWith('.ac.ir') ||
-        host.endsWith('.gov.ir') ||
-        host.endsWith('.co.ir') ||
-        host.endsWith('.org.ir')),
+    ...kingNormalizeDomainHosts([
+      ...kDnsxNationalProbeDomains,
+      ...natIrDomains,
+      ...iranDomains,
+      ..._iranMoreDomains,
+      ...kAutoNationalSniDomains,
+      ...extraHosts.where((host) =>
+          host.endsWith('.ir') ||
+          host.endsWith('.ac.ir') ||
+          host.endsWith('.gov.ir') ||
+          host.endsWith('.co.ir') ||
+          host.endsWith('.org.ir')),
+    ]),
   };
   final first = domestic.intersection(all).toList()..sort();
   final remaining = all.difference(domestic).toList()..sort();
