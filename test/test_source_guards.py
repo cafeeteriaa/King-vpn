@@ -3232,14 +3232,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = source.index('Future<void> autoScanSheet(', start)
         body = source[start:end]
         self.assertGreaterEqual(body.count('await Future.wait('), 3)
-        self.assertIn('batch.map((ip) => _autoSniOk(ip, 443, d))', body)
+        self.assertIn('final configuredSniServers = <Server>{...nationalEndpointServers};', body)
+        self.assertIn('sniTargets.putIfAbsent(sni, () => <String>{})', body)
+        self.assertIn('_autoSniOk(parts[0], port, entry.key)', body)
+        self.assertIn('_autoAlpnOk(parts[0], port, entry.key, alpn)', body)
         self.assertIn('batch.map((ip) => _autoPortOk(ip, p))', body)
         self.assertIn('checks.any((latency) => latency != null)', body)
-        sni_loop = body[body.index('sniLoop:'):body.index('if (cancelled()) {', body.index('sniLoop:'))]
-        self.assertIn('_autoResolveDualStackTargets(', sni_loop)
-        self.assertNotIn('_goldSrv', sni_loop)
-        self.assertNotIn('ips.skip(offset)', sni_loop)
         self.assertIn('checks.any((reachable) => reachable)', body)
+        self.assertIn('configuredSniServers', body)
+        self.assertNotIn('sniTargets[d] = resolved;', body)
+        self.assertNotIn('for (final d in domainBatch)', body)
 
 
     def test_configured_candidate_inventories_are_not_truncated_by_fixed_counts(self):
@@ -3387,9 +3389,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('const int _autoScanCdnBatchSize = 8;', auto)
         self.assertIn("const String _autoScanPortCursorKey = 'auto_scan_port_cursor_v1';", auto)
         self.assertNotIn('_autoScanPortBatchSize', auto)
-        self.assertIn('sniTargets[d] = resolved;', auto)
-        self.assertIn('_autoSniOk(ip, 443, d)', auto)
-        self.assertIn('_autoAlpnOk(ip, 443, d, alpn)', auto)
+        self.assertIn('final configuredSniServers = <Server>{...nationalEndpointServers};', auto)
+        self.assertIn('sniTargets.putIfAbsent(sni, () => <String>{})', auto)
+        self.assertIn('_autoSniOk(parts[0], port, entry.key)', auto)
+        self.assertIn('_autoAlpnOk(parts[0], port, entry.key, alpn)', auto)
+        self.assertNotIn('sniTargets[d] = resolved;', auto)
         self.assertIn('final portInventory = natBuildFullPortInventory(kAutoPorts);', auto)
         self.assertNotIn('natAutoPorts([...good, ...pending, ...fetchedAll])', auto)
         self.assertNotIn('_autoConfiguredPortTargets(', auto)
@@ -3584,9 +3588,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('type: InternetAddressType.any', auto)
         self.assertIn('address.type == InternetAddressType.IPv4 ||', auto)
         self.assertIn('...dnsResolvedIps', auto)
-        self.assertIn('_autoSniOk(ip, 443, d)', auto)
+        self.assertIn('_autoSniOk(parts[0], port, entry.key)', auto)
         self.assertIn('_autoPortOk(ip, p)', auto)
-        self.assertIn('_autoAlpnOk(ip, 443, d, alpn)', auto)
+        self.assertIn('_autoAlpnOk(parts[0], port, entry.key, alpn)', auto)
 
         diag = (ROOT / 'lib' / 'net_diag.dart').read_text(encoding='utf-8')
         self.assertIn("'2606:4700:4700::1111'", diag)
@@ -3972,19 +3976,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('_privateIp(address)', resolver)
 
 
-    def test_auto_sni_and_alpn_probes_do_not_require_saved_vpn_configs(self):
+    def test_auto_sni_and_alpn_probes_require_saved_vpn_endpoints(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
-        start = source.index('// Probe each domain only at its own DNS-resolved A/AAAA addresses.')
+        start = source.index('// Passive DNS discovery covers the full domain inventory above.')
         end = source.index('// پورت: خروجی خود شماره‌ی پورت است.', start)
-        sni = source[start:end]
-        self.assertIn('_autoResolveDualStackTargets(', sni)
-        self.assertIn('_autoSniOk(ip, 443, d)', sni)
-        self.assertNotIn('_goldSrv', sni)
-        alpn_start = source.index('// ALPN is checked against the DNS-resolved addresses')
-        alpn_end = source.index('if (cancelled()) {', alpn_start)
-        alpn = source[alpn_start:alpn_end]
-        self.assertIn('_autoAlpnOk(ip, 443, d, alpn)', alpn)
-        self.assertNotIn('configuredSniTargets', source)
+        active = source[start:end]
+        self.assertIn('configuredSniServers', active)
+        self.assertIn('final host = server.host.trim();', active)
+        self.assertIn('server.port < 1 || server.port > 65535', active)
+        self.assertIn('_autoResolveDualStackTargets(\n        domains: [host],', active)
+        self.assertIn('_autoSniOk(parts[0], port, entry.key)', active)
+        self.assertIn('_autoAlpnOk(parts[0], port, entry.key, alpn)', active)
+        self.assertNotIn('for (final d in domainBatch)', active)
+        self.assertIn("'sni_candidates': domainInventory", source)
 
 
     def test_sni_swap_variants_are_not_artificially_restricted_to_cdn_hosts(self):
