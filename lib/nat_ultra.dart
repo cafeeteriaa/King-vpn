@@ -843,10 +843,7 @@ Duration natBudget({bool full = false}) {
   return const Duration(seconds: 240);
 }
 
-// فیکس ۱۷: سقف‌ها کاهش یافت (قبلاً: 0, 0, 200, 1200, 6000, 15000, 30000, 60000, 100000, 150000, 200000)
-const List<int> _natGenCap = [
-  0, 0, 100, 500, 1500, 4000, 8000, 15000, 20000, 30000, 40000
-];
+// Variant generation is cursor-driven and has no fixed per-level inventory ceiling.
 
 // فقط mKCP (UDP) «سنگین و کند» حساب می‌شود؛ Fragment و بقیه در اتصال عادی مجازند
 bool _natIsSlowHeavy(int v) {
@@ -948,8 +945,7 @@ List<int> _natOrder(Server s, {bool full = false}) {
   }
 
   final gens = <int>[];
-  final cap = _natGenCap[lvl];
-  if (cap > 0) {
+  {
     final app = <int>[];
     for (final v in _natGenRanked()) {
       if (_natAppliesF(f, v)) app.add(v);
@@ -979,7 +975,9 @@ List<int> _natOrder(Server s, {bool full = false}) {
       }
     }
     if (app.isNotEmpty && cursor < app.length) {
-      final end = min(app.length, cursor + cap);
+      // Process every remaining compatible variant; the persistent per-server
+      // cursor and the outer retry loop provide continuation without truncation.
+      final end = app.length;
       for (var k = cursor; k < end; k++) {
         final gv = app[k];
         if (skipHeavy && _natIsSlowHeavy(gv)) continue;
