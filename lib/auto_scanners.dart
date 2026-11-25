@@ -85,6 +85,84 @@ bool _autoScanStop = false;
 const String _autoScanCdnCursorKey = 'auto_scan_cdn_cursors_v1';
 const String _autoScanDomainCursorKey = 'auto_scan_domain_cursor_v1';
 const String _autoScanPortCursorKey = 'auto_scan_port_cursor_v1';
+const String _autoScanCheckpointKey = 'auto_scan_checkpoint_v2';
+
+typedef AutoScanCheckpoint = ({
+  Map<String, dynamic> cdn,
+  String? domain,
+  int? port,
+});
+
+/// Decode the unified scan checkpoint, migrating the legacy per-cursor keys
+/// when no valid v2 checkpoint exists. The returned map is detached from the
+/// decoded JSON object so later staging cannot mutate persisted state.
+AutoScanCheckpoint kingDecodeAutoScanCheckpoint({
+  required String? encoded,
+  String? legacyCdnJson,
+  String? legacyDomain,
+  int? legacyPort,
+}) {
+  Map<String, dynamic> decodeCdn(Object? value) {
+    final result = <String, dynamic>{};
+    if (value is Map) {
+      for (final entry in value.entries) {
+        if (entry.value is num || entry.value is String) {
+          result['${entry.key}'] = entry.value;
+        }
+      }
+    }
+    return result;
+  }
+
+  Map<String, dynamic> legacyCdn = <String, dynamic>{};
+  if (legacyCdnJson != null && legacyCdnJson.isNotEmpty) {
+    try {
+      legacyCdn = decodeCdn(jsonDecode(legacyCdnJson));
+    } catch (_) {
+      // A corrupt legacy CDN cursor must not prevent domain/port recovery.
+    }
+  }
+
+  if (encoded != null && encoded.isNotEmpty) {
+    try {
+      final decoded = jsonDecode(encoded);
+      if (decoded is Map && decoded['version'] == 2) {
+        final cdn = decodeCdn(decoded['cdn']);
+        final domainValue = decoded['domain'];
+        final portValue = decoded['port'];
+        final domain = domainValue is String ? domainValue : legacyDomain;
+        final port = portValue is num &&
+                portValue.toInt() >= 1 &&
+                portValue.toInt() <= 65535
+            ? portValue.toInt()
+            : legacyPort;
+        return (
+          cdn: cdn.isEmpty ? legacyCdn : cdn,
+          domain: domain,
+          port: port,
+        );
+      }
+    } catch (_) {
+      // Fall back to legacy keys; never replace them with an empty checkpoint.
+    }
+  }
+  return (cdn: legacyCdn, domain: legacyDomain, port: legacyPort);
+}
+
+/// Encode all auto-scan cursors in one preference value. One write makes the
+/// three independent inventories advance together or not at all.
+String kingEncodeAutoScanCheckpoint({
+  required Map<String, dynamic> cdn,
+  required String? domain,
+  required int? port,
+}) =>
+    jsonEncode({
+      'version': 2,
+      'cdn': cdn,
+      'domain': domain,
+      'port': port,
+    });
+
 const int _autoScanCdnBatchSize = 8;
 const int _autoScanDomainBatchSize = 18;
 const int _autoScanPortBatchSize = 24; // full SNI/port/TLS pass fits the shared four-minute budget
@@ -275,23 +353,14 @@ Future<void> autoScanRun(void Function(String) say,
     // ordering only; it never removes global observations from the inventory.
     final base = [for (final entry in _goldIps.values) entry.ip];
     final prefs = await SharedPreferences.getInstance();
-    final savedCursorJson = prefs.getString(_autoScanCdnCursorKey);
-    final cdnCursors = <String, dynamic>{};
-    if (savedCursorJson != null && savedCursorJson.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(savedCursorJson);
-        if (decoded is Map) {
-          for (final entry in decoded.entries) {
-            if (entry.value is num || entry.value is String) {
-              cdnCursors['${entry.key}'] = entry.value;
-            }
-          }
-        }
-      } catch (e, stk) {
-        logError(e, stk);
-      }
-    }
-    final stagedCdnCursors = Map<String, dynamic>.of(cdnCursors);
+    final savedCheckpoint = kingDecodeAutoScanCheckpoint(
+      encoded: prefs.getString(_autoScanCheckpointKey),
+      legacyCdnJson: prefs.getString(_autoScanCdnCursorKey),
+      legacyDomain: prefs.getString(_autoScanDomainCursorKey),
+      legacyPort: prefs.getInt(_autoScanPortCursorKey),
+    );
+    final stagedCdnCursors =
+        Map<String, dynamic>.of(savedCheckpoint.cdn);
     // Use the entire project domain inventory, not only the small seed list.
     // A persisted last-domain cursor rotates through it across completed runs.
     // SNI inventory is federated from independent project sources: dedicated
@@ -327,7 +396,7 @@ Future<void> autoScanRun(void Function(String) say,
     final domainInventory = scanNationalMode
         ? dnsxNationalFirstDomains(extra: domainSources)
         : (kingNormalizeDomainHosts(domainSources)..sort());
-    final savedDomainCursor = prefs.getString(_autoScanDomainCursorKey);
+    final savedDomainCursor = savedCheckpoint.domain;
     final previousDomainIndex = savedDomainCursor == null
         ? -1
         : domainInventory.indexOf(savedDomainCursor);
@@ -347,7 +416,7 @@ Future<void> autoScanRun(void Function(String) say,
       cancelled: cancelled,
     );
     final portInventory = natBuildFullPortInventory(kAutoPorts);
-    final savedPortCursor = prefs.getInt(_autoScanPortCursorKey) ?? 0;
+    final savedPortCursor = savedCheckpoint.port ?? 0;
     final previousPortIndex = portInventory.indexOf(savedPortCursor);
     final portStart = previousPortIndex < 0
         ? 0
@@ -518,13 +587,20 @@ Future<void> autoScanRun(void Function(String) say,
       say(cancellationMessage());
       return;
     }
-    // Advance the CDN inventory only after the scan results have been committed.
-    await prefs.setString(_autoScanCdnCursorKey, jsonEncode(stagedCdnCursors));
-    if (stagedDomainCursor != null) {
-      await prefs.setString(_autoScanDomainCursorKey, stagedDomainCursor);
-    }
-    if (stagedPortCursor != null) {
-      await prefs.setInt(_autoScanPortCursorKey, stagedPortCursor);
+    // One preference write commits CDN, domain and port progress together.
+    // If it fails, the previous checkpoint remains authoritative and the
+    // already-saved observations can safely be rediscovered on the next run.
+    final checkpointSaved = await prefs.setString(
+      _autoScanCheckpointKey,
+      kingEncodeAutoScanCheckpoint(
+        cdn: stagedCdnCursors,
+        domain: stagedDomainCursor,
+        port: stagedPortCursor,
+      ),
+    );
+    if (!checkpointSaved) {
+      say('ذخیرهٔ نقطهٔ ادامهٔ اسکن انجام نشد؛ Cursor قبلی حفظ شد و اجرای بعدی دوباره بررسی می‌کند.');
+      return;
     }
     say('تمام شد: ${domainInventory.length} دامنه و ${discoveredIpCandidates.length} IP کاندیدا مستقل ذخیره شد؛ ${sniHits.length} SNI و ${portHits.length} پورت نیز در محدودهٔ سرورهای تنظیم‌شده بررسی شدند. کاندیداها تأیید اتصال یا تونل نیستند.');
   } catch (e, stk) {
