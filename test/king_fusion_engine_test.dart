@@ -262,6 +262,37 @@ void main() {
       expect(engine.snapshot.state, KingFusionState.idle);
     });
 
+    test('disconnectRequested observer can reenter without recursive dispatch', () async {
+      final adapterEvents = <String>[];
+      final adapter = _FakeAdapter('first', adapterEvents);
+      late final KingFusionEngine engine;
+      Future<void>? reentrantDisconnect;
+      var disconnectRequestedEvents = 0;
+      engine = KingFusionEngine(
+        [adapter],
+        onEvent: (event) {
+          if (event.type == KingFusionEventType.disconnectRequested) {
+            disconnectRequestedEvents++;
+            reentrantDisconnect ??= engine.disconnect();
+          }
+        },
+      );
+
+      final connected = await engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'first', configuration: 'cfg'),
+      ]));
+      expect(connected.connected, isTrue);
+
+      final disconnecting = engine.disconnect();
+      await disconnecting;
+      await reentrantDisconnect;
+
+      expect(disconnectRequestedEvents, 1);
+      expect(adapterEvents.where((event) => event.startsWith('stop:')).length, 1);
+      expect(engine.state, KingFusionState.idle);
+      expect(engine.isBusy, isFalse);
+    });
+
     test('event listener can request disconnect reentrantly after native start', () async {
       final adapterEvents = <String>[];
       final adapter = _FakeAdapter('first', adapterEvents);
