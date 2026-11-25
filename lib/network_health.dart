@@ -4,6 +4,25 @@
 bool isValidHttpResponseLine(String line) =>
     RegExp(r'^HTTP/1\.[01]\s+([2-5][0-9]{2})(?:\s|$)').hasMatch(line.trim());
 
+/// Reuse cached probe evidence only when its network identity and clock age
+/// are trustworthy. Empty identities (interface lookup failure) and future
+/// timestamps must force a fresh observation rather than freezing stale state.
+bool isProbeCacheFresh({
+  required bool force,
+  required String currentIdentity,
+  required String? cachedIdentity,
+  required DateTime? cachedAt,
+  required DateTime now,
+  required Duration ttl,
+}) {
+  if (force || currentIdentity.isEmpty || cachedAt == null ||
+      cachedIdentity != currentIdentity || ttl <= Duration.zero) {
+    return false;
+  }
+  final age = now.difference(cachedAt);
+  return age >= Duration.zero && age < ttl;
+}
+
 /// Median of non-negative latency observations; null/invalid samples are ignored.
 int? medianLatencyMs(Iterable<int?> values) {
   final sorted = values.whereType<int>().where((value) => value >= 0).toList()
