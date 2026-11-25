@@ -17525,22 +17525,6 @@ extension ProjectNatSweep on _HomePageState {
 
   // Build dual-stack seeds from every known IP endpoint. IPv6 endpoints
   // remain exact /128 seeds; no guessed neighbouring /64 is enumerated.
-  List<String> _atAutoRanges(List<Server> servers) {
-    final blocks = <String>{};
-    for (final server in servers) {
-      if (!server.isIp) continue;
-      final address = InternetAddress.tryParse(server.host.trim());
-      if (address == null) continue;
-      if (address.type == InternetAddressType.IPv6) {
-        blocks.add('${address.address}/128');
-      } else if (address.type == InternetAddressType.IPv4) {
-        final octets = address.address.split('.');
-        blocks.add('${octets[0]}.${octets[1]}.${octets[2]}.0/24');
-      }
-    }
-    return blocks.toList(growable: false);
-  }
-
   // IPSWEEP: endpointهای دقیق Cloudflare ثبت‌شده در کانفیگ‌های پروژه
   // با TCP و سپس ترافیک واقعی تونل اعتبارسنجی می‌شوند؛ CIDRهای عمومی passive می‌مانند.
   Future<List<CleanIp>> _atIpSweep(List<Server> pool, Duration budget) =>
