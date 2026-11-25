@@ -2085,20 +2085,14 @@ Future<List<String>> _natDomainFirst(List<Server> known,
     {required int conc, bool Function()? stop}) async {
   final out = <String>[];
   if (!kNatIpScanOn || known.isEmpty) return out;
-  // Bound endpoint collection, DNS resolution, and TCP probes together.
-  // Starting the monotonic clock only after DNS resolution allowed a slow
-  // resolver to keep this background phase alive far beyond its advertised cap.
-  const scanBudget = Duration(seconds: 45);
-  final scanClock = Stopwatch()..start();
-  bool expired() => scanClock.elapsed >= scanBudget;
-  bool cancelled() => (stop != null && stop()) || expired();
+  bool cancelled() => stop?.call() ?? false;
   try {
-    // Only inspect hosts and ports explicitly present in the user's/current
-    // server configurations. Do not scan unrelated public domains or all
-    // 65,535 ports on third-party hosts.
+    // Active probes stay within exact host:port pairs from the supplied VPN
+    // configurations. There is no aggregate wall-clock deadline: every
+    // resolved endpoint is processed in resumable-size batches.
     final endpoints = <String, Set<int>>{};
     for (final server in known) {
-      if (cancelled()) return const <String>[];
+      if (cancelled()) return out;
       final host = server.host.trim();
       final port = server.port;
       if (host.isEmpty || port <= 0 || port > 65535) continue;
@@ -2107,7 +2101,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
     natDomainHosts = endpoints.length;
     final resolved = <String, Set<int>>{};
     for (final entry in endpoints.entries) {
-      if (cancelled()) return const <String>[];
+      if (cancelled()) return out;
       final parsed = InternetAddress.tryParse(entry.key);
       var addresses = parsed == null
           ? await safeLookup(entry.key)
@@ -2119,7 +2113,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
             .whereType<InternetAddress>()
             .toList(growable: false);
       }
-      if (cancelled()) return const <String>[];
+      if (cancelled()) return out;
       for (final address in addresses) {
         if (address.type != InternetAddressType.IPv4 &&
             address.type != InternetAddressType.IPv6) continue;
@@ -2129,46 +2123,59 @@ Future<List<String>> _natDomainFirst(List<Server> known,
     natDomainIps = resolved.length;
     natDomainOpen = 0;
     dbg('بررسی endpointهای کانفیگ: ${endpoints.length} دامنه/IP • ${resolved.length} IP • فقط پورت‌های تعریف‌شده');
+
     final grouped = <int, List<String>>{};
     for (final entry in resolved.entries) {
       for (final port in entry.value) {
         (grouped[port] ??= <String>[]).add(entry.key);
       }
     }
+    final effectiveConcurrency =
+        natAdaptiveConcurrency(conc.clamp(1, 32).toInt());
+    final batchSize = max(1, effectiveConcurrency * 2);
     for (final entry in grouped.entries) {
-      if (cancelled()) {
-        return const <String>[];
-      }
-      final hits = await natScanIps(
-        entry.value,
-        port: entry.key,
-        concurrency: conc.clamp(1, 32).toInt(),
-        // Probe every resolved endpoint in this port group; the shared 45s
-        // deadline and adaptive concurrency bound the discovery phase.
-        want: entry.value.length,
-        budget: const Duration(seconds: 5),
-        timeout: const Duration(milliseconds: 1200),
-        cancelled: cancelled,
-      );
-      // A cancelled or expired scan must not leak its partial hits to the
-      // caller, which may otherwise persist them as newly discovered servers.
-      if (cancelled()) {
-        return const <String>[];
-      }
-      for (final hit in hits) {
-        out.add('${hit.ip}|${entry.key}');
+      final ips = entry.value;
+      for (var offset = 0; offset < ips.length; offset += batchSize) {
+        if (cancelled()) return out;
+        final batch = ips.skip(offset).take(batchSize).toList(growable: false);
+        var completed = 0;
+        final hits = await natScanIps(
+          batch,
+          port: entry.key,
+          concurrency: effectiveConcurrency,
+          want: batch.length,
+          budget: const Duration(seconds: 10),
+          timeout: const Duration(milliseconds: 1200),
+          cancelled: cancelled,
+          onProgress: (done, total, _) => completed = done,
+        );
+        if (cancelled()) return out;
+        // A batch is committed only when every endpoint received a result.
+        // Per-socket timeouts bound each attempt; a retry never skips its tail.
+        while (completed < batch.length) {
+          if (cancelled()) return out;
+          completed = 0;
+          final retryHits = await natScanIps(
+            batch,
+            port: entry.key,
+            concurrency: effectiveConcurrency,
+            want: batch.length,
+            budget: const Duration(seconds: 10),
+            timeout: const Duration(milliseconds: 1200),
+            cancelled: cancelled,
+            onProgress: (done, total, _) => completed = done,
+          );
+          if (cancelled()) return out;
+          out.addAll(retryHits.map((hit) => '${hit.ip}|${entry.key}'));
+          natDomainOpen = out.length;
+        }
+        out.addAll(hits.map((hit) => '${hit.ip}|${entry.key}'));
         natDomainOpen = out.length;
       }
-    }
-    if (cancelled()) {
-      return const <String>[];
     }
   } catch (e, stk) {
     logError(e, stk);
   }
-  // Exceptions can race the deadline/cancel signal too; never return a partial
-  // result set once the caller has invalidated this discovery batch.
-  if (cancelled()) return const <String>[];
   return out;
 }
 
