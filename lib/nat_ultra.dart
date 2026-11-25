@@ -2635,7 +2635,8 @@ Future<void> userListsSave(String text) async {
 // The source inventory is not truncated per URL. The cache-wide bound below
 // remains a temporary memory-safety guard until the sparse on-disk index lands.
 const int natHotMin = 30000;
-const int natHotMax = 400000;
+// Sparse index stores one byte offset per 256 records, not one per record.
+const int _hotIndexStride = 256;
 List<Server> Function()? natExtraSource;
 const Duration natHotTtl = Duration(hours: 72);
 const Duration natHotFetchDeadline = Duration(seconds: 900);
@@ -2646,8 +2647,9 @@ Map<String, double> natSrcRates = {};
 
 class _HotIdx {
   final String file;
-  final List<int> offs;
-  _HotIdx(this.file, this.offs);
+  final int lineCount;
+  final List<int> sparseOffsets;
+  _HotIdx(this.file, this.lineCount, this.sparseOffsets);
 }
 
 _HotIdx? _hot;
@@ -2835,21 +2837,16 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
               .compareTo(natSrcRates[urls[a]] ?? 0.3));
       final mixed = order;
       final newPath = '${_hotPath()}.new';
-      final offs = <int>[0];
-      var pos = 0;
       var freshTotal = 0;
       final oldCachePath = _hotPath();
       final sink = File(newPath).openWrite();
       try {
-        var full = false;
-        final seenKeys = <String>{};
         final mergeFrom = <String>[
           if (File(extraPath).existsSync()) extraPath,
           for (final i in mixed) parts[i],
           if (File(oldCachePath).existsSync()) oldCachePath,
         ];
         for (final pth in mergeFrom) {
-          if (full) break;
           final isOldCache = pth == oldCachePath;
           final pf = File(pth);
           if (!pf.existsSync()) continue;
@@ -2860,27 +2857,21 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
             if (line.isEmpty) continue;
             final tab = line.indexOf('\t');
             final cfg = tab >= 0 ? line.substring(tab + 1) : line;
-            if (!seenKeys.add(cfg)) continue;
             final b = utf8.encode(line);
             sink.add(b);
             sink.add(const [10]);
-            pos += b.length + 1;
-            offs.add(pos);
             if (!isOldCache) freshTotal++;
-            if (offs.length - 1 >= natHotMax) {
-              full = true;
-              break;
-            }
           }
         }
       } finally {
         await sink.close();
       }
-      final total = offs.length - 1;
+      final sparseIndex = await _hotBuildSparseIndex(newPath);
+      final total = sparseIndex.first;
       if (freshTotal > 0 && total > 0) {
         _hotFailAt = null;
         await File(newPath).rename(_hotPath());
-        _hot = _HotIdx(_hotPath(), offs);
+        _hot = _HotIdx(_hotPath(), sparseIndex.first, sparseIndex.skip(1).toList(growable: false));
         _hotCursor = 0;
         if (total < natHotMin) {
           dbg('پوشه‌ی منابع تازه: $total کانفیگ (کمتر از $natHotMin)');
@@ -2915,22 +2906,61 @@ bool natHotReady() {
   }
 }
 
-// فیکس ۴: ساخت جدول offset خط‌ها برای فایل‌های بزرگ (> 512KB) در isolate انجام می‌شود
-// تا حلقه‌ی بایت‌به‌بایت روی چند مگابایت ترد UI را نگیرد. منطق offs عیناً همان است.
-Future<List<int>> _hotBuildOffsets(String path) =>
-    compute(_hotOffsetsIso, path);
+// Build a sparse index: one byte offset per stride-sized block.
+// Packed result: [lineCount, offset0, offset1, ...].
+Future<List<int>> _hotBuildSparseIndex(String path) =>
+    compute(_hotSparseOffsetsIso, path);
 
-Future<List<int>> _hotOffsetsIso(String path) async {
-  final offs = <int>[0];
+List<int> _hotSparseOffsetsIso(String path) {
+  final packed = <int>[0, 0];
+  var lineCount = 0;
   var pos = 0;
-  await for (final chunk in File(path).openRead()) {
-    for (var i = 0; i < chunk.length; i++) {
-      if (chunk[i] == 10) offs.add(pos + i + 1);
+  var lastByte = -1;
+  final raf = File(path).openSync();
+  try {
+    while (true) {
+      final chunk = raf.readSync(64 * 1024);
+      if (chunk.isEmpty) break;
+      for (var i = 0; i < chunk.length; i++) {
+        if (chunk[i] == 10) {
+          lineCount++;
+          if (lineCount % _hotIndexStride == 0) {
+            packed.add(pos + i + 1);
+          }
+        }
+      }
+      lastByte = chunk.last;
+      pos += chunk.length;
     }
-    pos += chunk.length;
+  } finally {
+    raf.closeSync();
   }
-  if (offs.last != pos) offs.add(pos);
-  return offs;
+  if (pos > 0 && lastByte != 10) lineCount++;
+  packed[0] = lineCount;
+  return packed;
+}
+
+Future<int> _hotOffsetAtLine(
+    RandomAccessFile raf, _HotIdx index, int line) async {
+  if (line <= 0) return 0;
+  if (line >= index.lineCount) return await raf.length();
+  final block = line ~/ _hotIndexStride;
+  final baseLine = block * _hotIndexStride;
+  var position = index.sparseOffsets[block];
+  var separators = line - baseLine;
+  await raf.setPosition(position);
+  while (separators > 0) {
+    final chunk = await raf.read(64 * 1024);
+    if (chunk.isEmpty) return await raf.length();
+    for (var i = 0; i < chunk.length; i++) {
+      if (chunk[i] == 10) {
+        separators--;
+        if (separators == 0) return position + i + 1;
+      }
+    }
+    position += chunk.length;
+  }
+  return position;
 }
 
 Future<_HotIdx?> _hotLoad() async {
@@ -2939,21 +2969,13 @@ Future<_HotIdx?> _hotLoad() async {
   final f = File(_hotPath());
   try {
     if (!f.existsSync() || f.lengthSync() == 0) return null;
-    List<int> offs;
-    if (f.lengthSync() > 512 * 1024) {
-      offs = await _hotBuildOffsets(f.path);
-    } else {
-      offs = <int>[0];
-      var pos = 0;
-      await for (final chunk in f.openRead()) {
-        for (var i = 0; i < chunk.length; i++) {
-          if (chunk[i] == 10) offs.add(pos + i + 1);
-        }
-        pos += chunk.length;
-      }
-      if (offs.last != pos) offs.add(pos);
-    }
-    _hot = _HotIdx(f.path, offs);
+    final sparseIndex = await _hotBuildSparseIndex(f.path);
+    if (sparseIndex.first <= 0) return null;
+    _hot = _HotIdx(
+      f.path,
+      sparseIndex.first,
+      sparseIndex.skip(1).toList(growable: false),
+    );
     _hotCursor = 0;
     return _hot;
   } catch (e, stk) {
@@ -2993,7 +3015,7 @@ Future<List<Server>> _natHotNextUnlocked(int n,
     if (fetch) unawaited(natHotEnsure());
     final h = await _hotLoad();
     if (h == null) return const [];
-    final lines = h.offs.length - 1;
+    final lines = h.lineCount;
     if (lines <= 0) return const [];
     final cacheFile = File(h.file);
     final stat = await cacheFile.stat();
@@ -3020,8 +3042,9 @@ Future<List<Server>> _natHotNextUnlocked(int n,
         var start = cursor;
         if (start >= lines) start = 0;
         final take = min(min(n - out.length, lines - start), lines - read);
-        final from = h.offs[start];
-        final to = h.offs[start + take];
+        final from = await _hotOffsetAtLine(raf, h, start);
+        final endLine = start + take;
+        final to = await _hotOffsetAtLine(raf, h, endLine);
         await raf.setPosition(from);
         final bytes = await raf.read(to - from);
         final pageText = utf8.decode(bytes, allowMalformed: true);
