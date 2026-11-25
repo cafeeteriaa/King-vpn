@@ -2614,7 +2614,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         merge_start = source.index('Future<void> _natMergeCache() async {')
         merge_end = source.index('Future<void> _natPrescan()', merge_start)
         merge = source[merge_start:merge_end]
-        self.assertIn('pending.length + natRestPending.length >= queueLimit', merge)
+        self.assertNotIn('queueLimit', merge)
+        self.assertIn('natHotNext(null)', merge)
         self.assertIn('activeLimit: 1200', merge)
         self.assertNotIn('pending.removeRange(1200', merge)
         range_start = source.index('Future<void> _natRangeAdd(')
