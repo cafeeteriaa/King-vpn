@@ -1564,8 +1564,7 @@ extension NpvAmExtras on _HomePageState {
   }
 }
 
-const int kGoldDailyProbes = 250000;
-const int kGoldRetestBatch = 500;
+const int kGoldRetestBatch = 500; // resumable work slice; not a daily inventory quota
 const int kGoldEveryMin = 5;
 const int kGoldRetestHours = 24;
 
@@ -1598,12 +1597,13 @@ String _goldToday() {
 }
 
 int _goldBudgetLeft() {
+  // No daily probe quota: work is limited only by resumable slices and safe concurrency.
   final d = _goldToday();
   if (_goldDay != d) {
     _goldDay = d;
     _goldCnt = 0;
   }
-  return kGoldDailyProbes - _goldCnt;
+  return 1 << 60;
 }
 
 Future<void>? _goldLoadF;
@@ -1854,7 +1854,7 @@ Future<void> _goldIpStep() async {
       jsonEncode(_cleanStagedRangeCursors),
     );
   }
-  dbg('گلد: IP تازه $found از ${batch.length} • پوشه ${_goldIps.length} • امروز $_goldCnt/$kGoldDailyProbes');
+  dbg('گلد: IP تازه $found از ${batch.length} • پوشه ${_goldIps.length} • امروز $_goldCnt');
 }
 
 Future<void> _goldSrvStep(_HomePageState h) async {
