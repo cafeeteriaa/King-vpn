@@ -4173,6 +4173,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('v2ray.startV2Ray(', main)
         self.assertIn('await fusion.disconnect();', main)
         self.assertIn('fusion.cleanupPendingEngineIds', main)
+        self.assertIn('stop: () => v2ray.stopV2Ray(),', main)
+        self.assertIn('nativeStopTimeout: const Duration(seconds: 9)', main)
         self.assertIn('implements KingFusionCancellableEngineAdapter', adapter)
         self.assertIn('supportsMultiHop: false', adapter)
         self.assertIn('verify real outbound traffic', adapter)
