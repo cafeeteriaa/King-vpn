@@ -1780,7 +1780,7 @@ Future<void> natIpMemLoad() async {
       natIpMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
     }
     natRanges = (p.getString(_rangeKey) ?? '')
-        if (ch.trim().isEmpty || ch == '<' || ch == '>' || ch == '"') {
+        .split(RegExp(r'[\\r\\n,; ]+'))
         .map((value) => value.trim())
         .where((value) => value.isNotEmpty)
         .where((value) => natExpandIpRangeCursor(
@@ -2827,7 +2827,7 @@ Stream<String> _hotHtmlLinks(Stream<String> chunks) async* {
     for (final unit in chunk.codeUnits) {
       final ch = String.fromCharCode(unit);
       if (link != null) {
-        if (RegExp(r'[\\s<>"]').hasMatch(ch)) {
+        if (ch.trim().isEmpty || ch == '<' || ch == '>' || ch == '"') {
           final value = link.toString().replaceAll('&amp;', '&');
           if (value.isNotEmpty) yield value;
           link = null;
