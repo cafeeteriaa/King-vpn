@@ -3101,6 +3101,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('..addAll(savedPending.split', source)
         self.assertIn('await p.setString(pendingKey, pending.join', source)
         self.assertIn('for (final candidate in candidates)', source)
+        save_start = source.index('Future<bool> _ipAutoSave()')
+        save_end = source.index('/// Inventory', save_start)
+        save_body = source[save_start:save_end]
+        self.assertLess(save_body.index('pendingKey, pending.join'), save_body.index('cursorKey, jsonEncode(cursors)'))
+        run_start = source.index('Future<bool> _ipAutoRunOnce(')
+        run_end = source.index('Future<void> ipAutoSheet(', run_start)
+        run_body = source[run_start:run_end]
+        checkpoint = run_body.index("if (!await _ipAutoSave() || halted())")
+        queue = run_body.index('for (final candidate in candidates)')
+        core = run_body.index('while (activeQueue.isNotEmpty &&', checkpoint)
+        self.assertLess(queue, checkpoint)
+        self.assertLess(checkpoint, core)
 
 
     def test_ip_auto_scans_only_exact_configured_dual_stack_endpoints(self):
