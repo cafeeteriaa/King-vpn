@@ -2237,8 +2237,40 @@ Future<void> _natLoadRangeCursors() async {
   if (_natRangeCursorsLoaded) return;
   try {
     final prefs = await SharedPreferences.getInstance();
-    // V3 stores the last completed TCP port value, not an index into a
-    // changing priority list. Legacy V1/V2 values were indexes and are reset.
+    // V4 is a single atomic checkpoint for address, port and configured-range cursors.
+    // Read it first; retain V2/V3 and configured-offset keys as migration fallback.
+    final checkpointRaw = prefs.getString('natRangeCheckpointV4');
+    if (checkpointRaw != null && checkpointRaw.isNotEmpty) {
+      final checkpoint = jsonDecode(checkpointRaw);
+      if (checkpoint is Map) {
+        final savedPorts = checkpoint['ports'];
+        if (savedPorts is Map) {
+          for (final entry in savedPorts.entries) {
+            if (entry.value is num) {
+              final port = (entry.value as num).toInt();
+              if (port >= 0 && port <= 65535) _natRangePortCursors['${entry.key}'] = port;
+            }
+          }
+        }
+        final savedCursors = checkpoint['cursors'];
+        if (savedCursors is Map) {
+          for (final entry in savedCursors.entries) {
+            if (entry.value is num || entry.value is String) _cfRangeCursors['${entry.key}'] = entry.value;
+          }
+        }
+        final savedOffsets = checkpoint['offsets'];
+        if (savedOffsets is Map) {
+          _natConfiguredRangeOffsets
+            ..clear()
+            ..addEntries(savedOffsets.entries.where((entry) => entry.value is num || entry.value is String).map((entry) => MapEntry('${entry.key}', '${entry.value}')));
+        }
+        final configuredCursor = checkpoint['configuredCursor'];
+        if (configuredCursor is num) _natConfiguredRangeCursor = configuredCursor.toInt().clamp(0, 1 << 31).toInt();
+        _natRangeCursorsLoaded = true;
+        return;
+      }
+    }
+    // Legacy fallback for installations without a V4 checkpoint.
     final rawPortCursors = prefs.getString('natRangePortCursorsV3');
     if (rawPortCursors != null && rawPortCursors.isNotEmpty) {
       final decodedPorts = jsonDecode(rawPortCursors);
@@ -2538,38 +2570,53 @@ Future<List<String>> _natRangeScanStepBody({
   );
   if (!savedHits || shouldAbort()) return const <String>[];
 
-  // Commit only this port's cursors after every address in its slice finished.
-  _cfRangeCursors.removeWhere((key, _) => key.startsWith(portPrefix));
+  // Build a complete next checkpoint off to the side. One preference write
+  // commits every cursor together; a failed write leaves the in-memory cursors
+  // untouched so this exact slice can be retried safely.
+  final nextCursors = Map<String, dynamic>.from(_cfRangeCursors)
+    ..removeWhere((key, _) => key.startsWith(portPrefix));
   for (final entry in generatedCursors.entries) {
-    _cfRangeCursors['$portPrefix${entry.key}'] = entry.value;
+    nextCursors['$portPrefix${entry.key}'] = entry.value;
   }
+  final nextOffsets = Map<String, dynamic>.from(_natConfiguredRangeOffsets);
+  var nextConfiguredCursor = _natConfiguredRangeCursor;
   if (configuredRanges.isNotEmpty) {
-    _natConfiguredRangeOffsets.removeWhere((key, _) => key.startsWith(portPrefix));
+    nextOffsets.removeWhere((key, _) => key.startsWith(portPrefix));
     for (final entry in configuredBatch.nextOffsets.entries) {
-      _natConfiguredRangeOffsets['$portPrefix${entry.key}'] = entry.value;
+      nextOffsets['$portPrefix${entry.key}'] = entry.value;
     }
-    _natConfiguredRangeOffsets[portPrefix + '__range_cursor'] =
-        configuredBatch.nextCursor.toString();
-    _natConfiguredRangeCursor = configuredBatch.nextCursor;
+    nextOffsets[portPrefix + '__range_cursor'] = configuredBatch.nextCursor.toString();
+    nextConfiguredCursor = configuredBatch.nextCursor;
   }
-  _natRangePortCursors[modeKey] = port;
+  final nextPorts = Map<String, int>.from(_natRangePortCursors)
+    ..[modeKey] = port;
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final committed = await prefs.setString('natRangeCheckpointV4', jsonEncode({
+      'cursors': nextCursors,
+      'ports': nextPorts,
+      'offsets': nextOffsets,
+      'configuredCursor': nextConfiguredCursor,
+    }));
+    if (!committed || shouldAbort()) return const <String>[];
+  } catch (e, stk) {
+    logError(e, stk);
+    return const <String>[];
+  }
 
+  _cfRangeCursors
+    ..clear()
+    ..addAll(nextCursors);
+  _natConfiguredRangeOffsets
+    ..clear()
+    ..addAll(nextOffsets);
+  _natConfiguredRangeCursor = nextConfiguredCursor;
+  _natRangePortCursors
+    ..clear()
+    ..addAll(nextPorts);
   natTemplateSeeds = seeds.toList();
   natRandomLast = 0;
   natIpScanned += slice.length;
-
-  try {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('natRangeScanCursorsV2', jsonEncode(_cfRangeCursors));
-    await prefs.setString('natRangePortCursorsV3', jsonEncode(_natRangePortCursors));
-    if (configuredRanges.isNotEmpty) {
-      await prefs.setString(
-          'natConfiguredRangeOffsetsV1', jsonEncode(_natConfiguredRangeOffsets));
-      await prefs.setInt('natConfiguredRangeCursor', _natConfiguredRangeCursor);
-    }
-  } catch (e, stk) {
-    logError(e, stk);
-  }
 
   return hits.map((hit) => '${hit.ip}|$port').toList(growable: false);
 }
