@@ -303,17 +303,37 @@ class PilotNetworkProbe {
     global: LinkHealth.unknown,
   );
   static Future<NetworkEvidence>? _flight;
+  static bool _flightForced = false;
   static NetworkEvidence get current => _last;
 
   static Future<NetworkEvidence> refresh({bool force = false}) async {
     final active = _flight;
-    if (active != null) return active;
+    if (active != null) {
+      if (shouldJoinInFlightProbe(
+        requestForce: force,
+        activeForced: _flightForced,
+      )) {
+        return active;
+      }
+      // A forced refresh cannot be satisfied by a weaker in-flight refresh.
+      // Wait for it to finish, then start a fresh observation pass.
+      try {
+        await active;
+      } catch (_) {
+        // The forced pass below gets its own opportunity to recover.
+      }
+      return refresh(force: true);
+    }
     final future = _refresh(force: force);
     _flight = future;
+    _flightForced = force;
     try {
       return await future;
     } finally {
-      if (identical(_flight, future)) _flight = null;
+      if (identical(_flight, future)) {
+        _flight = null;
+        _flightForced = false;
+      }
     }
   }
 

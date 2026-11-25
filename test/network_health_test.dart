@@ -25,6 +25,30 @@ void main() {
     });
   });
 
+  group('single-flight probe refresh policy', () {
+    test('ordinary refresh joins an existing refresh', () {
+      expect(shouldJoinInFlightProbe(
+        requestForce: false,
+        activeForced: false,
+      ), isTrue);
+      expect(shouldJoinInFlightProbe(
+        requestForce: false,
+        activeForced: true,
+      ), isTrue);
+    });
+
+    test('forced refresh joins only an already-forced refresh', () {
+      expect(shouldJoinInFlightProbe(
+        requestForce: true,
+        activeForced: true,
+      ), isTrue);
+      expect(shouldJoinInFlightProbe(
+        requestForce: true,
+        activeForced: false,
+      ), isFalse);
+    });
+  });
+
   group('network probe cache validity', () {
     final now = DateTime.utc(2026, 11, 25, 12);
 

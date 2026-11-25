@@ -43,6 +43,13 @@ String buildPilotHttpHeadRequest(String host) =>
     'User-Agent: KING-VPN-Pilot/1.0\r\n'
     'Connection: close\r\n\r\n';
 
+/// Whether a concurrent Smart Pilot refresh may share an in-flight probe.
+/// A forced request must not silently inherit a non-forced cached refresh.
+bool shouldJoinInFlightProbe({
+  required bool requestForce,
+  required bool activeForced,
+}) => !requestForce || activeForced;
+
 /// Median of non-negative latency observations; null/invalid samples are ignored.
 int? medianLatencyMs(Iterable<int?> values) {
   final sorted = values.whereType<int>().where((value) => value >= 0).toList()
