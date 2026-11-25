@@ -2776,7 +2776,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = dns.index('Future<void> dnsxAutoPick(')
         end = dns.index('extension DnsxExt', start)
         body = dns[start:end]
-        self.assertIn('final best = [for (final e in r) e.ip];', body)
+        self.assertIn('...dnsxBestCache,', body)
+        self.assertIn('for (final e in r) e.ip,', body)
+        self.assertIn('if (best.isNotEmpty)', body)
+        self.assertIn("p.setStringList('dnsx_best_v1_$sfx', best)", body)
         self.assertNotIn('r.take(', body)
 
     def test_dns_probe_checks_cancellation_after_inter_batch_delay(self):
