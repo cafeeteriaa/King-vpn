@@ -812,7 +812,7 @@ List<int> _natTopWinners(int n) {
       if (v != null && v > 0 && v < _natSpecs.length) rows.add(MapEntry(v, c));
     });
     rows.sort((a, b) => b.value.compareTo(a.value));
-    _topWinCache = [for (final r in rows.take(30)) r.key];
+    _topWinCache = [for (final r in rows) r.key];
     _topWinKey = key;
   }
   return _topWinCache!.take(n).toList();
@@ -824,7 +824,6 @@ String _natCk(Server s) => '$natOpKey#${s.key}';
 void natCursorAdvance(Server s, int n) {
   if (n <= 0) return;
   final k = _natCk(s);
-  if (_natCursor.length > 4000) _natCursor.remove(_natCursor.keys.first);
   _natCursor[k] = (_natCursor[k] ?? 0) + n;
 }
 
