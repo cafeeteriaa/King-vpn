@@ -2208,7 +2208,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Future<void> importSubscription(BuildContext ctx, String url) async {')
         end = source.index('void subDialog()', start)
         method = source[start:end]
-        fetch = method.index('final list = (await fetchSubscription(url)).take(300).toList();')
+        fetch = method.index('final list = await fetchSubscription(url);')
         guard = method.index('if (!mounted) return;', fetch)
         mutation = method.index('favs[s.key] = s.link;', fetch)
         self.assertLess(fetch, guard)
@@ -2498,7 +2498,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         call_end = worker.index(');', probe)
         self.assertIn('cancelled: () =>', worker[probe:call_end])
         stale_guard = worker.index('if (aborted() || elapsed.elapsed >= budget)', call_end)
-        insert = worker.index('if (ms != null && hits.length < want)', stale_guard)
+        insert = worker.index('if (ms != null && (want == null || hits.length < want))', stale_guard)
         self.assertLess(probe, stale_guard)
         self.assertLess(stale_guard, insert)
         self.assertIn('return;', worker[stale_guard:insert])
@@ -2625,8 +2625,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         source = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         start = source.index('Future<List<NatIpHit>> natScanIps(')
         body = source[start:]
-        self.assertIn('if (ips.isEmpty || want <= 0) return <NatIpHit>[];', body)
-        self.assertIn('if (ms != null && hits.length < want)', body)
+        self.assertIn('if (ips.isEmpty || (want != null && want <= 0)) return <NatIpHit>[];', body)
+        self.assertIn('if (ms != null && (want == null || hits.length < want))', body)
 
     def test_auto_sni_scan_uses_shared_scanner_lock(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
@@ -3844,9 +3844,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         ordered = dns[start:end]
         self.assertIn('...dnsxFullDomains(),', ordered)
         self.assertIn('...extraHosts,', ordered)
-        self.assertIn('final first = domestic.intersection(all).toList()..sort();', ordered)
-        self.assertIn('final remaining = all.difference(domestic).toList()..sort();', ordered)
-        self.assertIn('return <String>[...first, ...remaining];', ordered)
+        self.assertIn('final domesticQueue = all.where(domestic.contains).toList()..sort();', ordered)
+        self.assertIn('final globalQueue = all.where((host) => !domestic.contains(host)).toList()..sort();', ordered)
+        self.assertIn('while (domesticOffset < domesticQueue.length ||', ordered)
+        self.assertIn('slot < 7 && domesticOffset < domesticQueue.length', ordered)
+        self.assertIn('slot < 3 && globalOffset < globalQueue.length', ordered)
+        self.assertIn('return scheduled;', ordered)
 
         for path in ('lib/auto_scanners.dart', 'lib/ip_auto_scan.dart'):
             source = (ROOT / path).read_text(encoding='utf-8')
