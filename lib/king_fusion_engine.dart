@@ -255,18 +255,19 @@ class KingFusionResult {
           startedHops: startedHops,
         );
 
-  const KingFusionResult.failure({
+  KingFusionResult.failure({
     required String? failedEngineId,
     required String? failureCode,
     required int startedHops,
-    List<String> cleanupFailedEngineIds = const <String>[],
+    Iterable<String> cleanupFailedEngineIds = const <String>[],
   }) : this._(
           connected: false,
           trafficVerified: false,
           failedEngineId: failedEngineId,
           failureCode: failureCode,
           startedHops: startedHops,
-          cleanupFailedEngineIds: cleanupFailedEngineIds,
+          cleanupFailedEngineIds:
+              List<String>.unmodifiable(cleanupFailedEngineIds),
         );
 }
 
@@ -462,28 +463,28 @@ class KingFusionEngine {
     // Reject a reentrant connect from disconnectRequested rather than allowing
     // a new native start to race the teardown that is about to begin.
     if (_disconnectOperation != null || _disconnectRequested) {
-      return const KingFusionResult.failure(
+      return KingFusionResult.failure(
         failedEngineId: null,
         failureCode: 'E-FUSION-DISCONNECT-PENDING',
         startedHops: 0,
       );
     }
     if (_busy) {
-      return const KingFusionResult.failure(
+      return KingFusionResult.failure(
         failedEngineId: null,
         failureCode: 'E-FUSION-BUSY',
         startedHops: 0,
       );
     }
     if (state == KingFusionState.connected) {
-      return const KingFusionResult.failure(
+      return KingFusionResult.failure(
         failedEngineId: null,
         failureCode: 'E-FUSION-ALREADY-ACTIVE',
         startedHops: 0,
       );
     }
     if (_active.isNotEmpty) {
-      return const KingFusionResult.failure(
+      return KingFusionResult.failure(
         failedEngineId: null,
         failureCode: 'E-FUSION-CLEANUP-PENDING',
         startedHops: 0,
@@ -508,7 +509,7 @@ class KingFusionEngine {
       );
       _setState(KingFusionState.failed);
       _finishPreflight();
-      return const KingFusionResult.failure(
+      return KingFusionResult.failure(
         failedEngineId: null,
         failureCode: 'E-FUSION-VALIDATION-EXCEPTION',
         startedHops: 0,
