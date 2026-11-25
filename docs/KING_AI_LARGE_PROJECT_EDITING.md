@@ -25,7 +25,7 @@ Project-wide input is now divided into sequential inference batches (targeting a
 project-size ceiling. A single file larger than the target remains intact in its own
 batch and is never silently truncated. GitHub also imposes API, blob, tree, and request-size
 limits. If one individual file exceeds the loaded model's actual context window or its
-practical complete-file generation capacity, the operation must fail visibly; large-file editing now supports SHA-256-anchored exact-text operations. Each anchor must match exactly once, operations are applied sequentially, and stale source hashes or ambiguous anchors fail visibly. The model's context and output capacities remain finite.
+practical complete-file generation capacity, the operation must fail visibly; Patch-based output now supports SHA-256-anchored exact-text operations. Each anchor must match exactly once, operations are applied sequentially, and stale source hashes or ambiguous anchors fail visibly. This reduces output-token pressure and avoids regenerating unchanged sections. Important: the current proposal pipeline still supplies each complete source file as model input; a single file that exceeds the model's actual input context still fails visibly. Symbol-aware, chunked per-file input is a separate next stage.
 
 ## Safety and delivery
 
