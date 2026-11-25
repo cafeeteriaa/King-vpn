@@ -120,9 +120,13 @@ List<String> dnsxFullDomains() {
   final all = <String>{
     ...kDnsxNationalProbeDomains,
     ...kDnsxGlobalDomains,
+    ...kAutoNationalSniDomains,
+    ...kAutoSniDomains,
     ...natIrDomains,
     ..._dnsxHostsFrom(iranDomains),
     ..._dnsxHostsFrom(_iranMoreDomains),
+    ..._dnsxHostsFrom(natFrontSnis),
+    ..._dnsxHostsFrom(natRelayHosts),
   };
   final domains = all.where((value) => value.trim().isNotEmpty).toList()
     ..sort();
