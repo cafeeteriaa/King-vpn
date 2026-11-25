@@ -4154,6 +4154,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn(' فقط پورت‌های تعریف‌شده', scanner)
 
 
+    def test_nat_escalation_persists_completed_scan_results_before_cancellation_exit(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<void> _natEscalate(int round)')
+        end = main.index('// CRITICAL for نت ملی:', start)
+        flow = main[start:end]
+        domain = flow.index('final domHits = await _natDomainFirst(')
+        domain_save = flow.index('await _natRangeAdd(domHits);', domain)
+        domain_stop = flow.index('if (abort || modeChanged()) return;', domain_save)
+        range_scan = flow.index('final ips = await natRangeScanStep(', domain_stop)
+        range_save = flow.index('await _natRangeAdd(ips);', range_scan)
+        range_stop = flow.index('if (abort || modeChanged()) return;', range_save)
+        self.assertLess(domain_save, domain_stop)
+        self.assertLess(range_save, range_stop)
+
     def test_nat_domain_discovery_flushes_completed_hits_when_cancelled_mid_batch(self):
         ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = ultra.index('Future<List<String>> _natDomainFirst(')
