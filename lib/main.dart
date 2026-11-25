@@ -13289,7 +13289,9 @@ ListTile( // KINGEXTRAS row
       dbg('E-FAILOVER-JOIN-DEFER: دیالوگ کانال باز است؛ failover بعد از بسته شدن اجرا می‌شود');
       final waitDone = _uiJoinDone!;
       unawaited(waitDone.future.then((_) {
-        if (mounted && wantVpn && !connected && !busy && !switching) {
+        // Re-enter even while busy: _failover's retry timer owns the backoff.
+        // The busy guard here used to discard the only recovery wake-up.
+        if (mounted && wantVpn && !connected && !switching) {
           unawaited(_failover().catchError((e) => logError(e)));
         }
       }));
