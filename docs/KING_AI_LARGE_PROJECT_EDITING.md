@@ -80,7 +80,7 @@ Before model generation, the supplied Dart/Python inventory is analyzed for rela
 ## Owner ZIP project import
 
 - Owner-authenticated ZIP imports are extracted into a new app-private workspace.
-- The importer supports stored and DEFLATE entries using Dart SDK streams; it verifies declared expanded size and CRC32 before accepting a file.
+- The importer supports stored and DEFLATE entries using Dart SDK streams; it verifies declared expanded size and CRC32 before accepting a file. The central directory is parsed entry-by-entry instead of being loaded as one archive-sized allocation.
 - Absolute paths, drive paths, `..` traversal, normalized duplicates, symbolic links, encrypted entries, unsupported compression methods, multi-disk archives, invalid local/central metadata, and suspicious expansion ratios are rejected.
 - There is no fixed file-count or total expanded-byte quota. Extraction is streamed; actual storage failures stop the import and the incomplete workspace is deleted rather than reported as complete.
 - ZIP64 end records and ZIP64 entry sizes/offsets are supported within the platform's signed-integer range. Multi-disk archives remain explicitly unsupported. The owner-only `importProjectZip` API accepts a selected local `File`; a native file-picker UI is not wired into the screen yet.

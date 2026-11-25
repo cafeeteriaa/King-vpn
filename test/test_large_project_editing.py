@@ -126,6 +126,8 @@ class LargeProjectEditingGuards(unittest.TestCase):
         self.assertIn("Encrypted ZIP entry rejected", importer)
         self.assertIn("_zip64Eocd", importer)
         self.assertIn("_zip64ExtraValues", importer)
+        self.assertIn("centralDirectoryEnd", importer)
+        self.assertIn("await file.setPosition(centralCursor)", importer)
         self.assertIn("ZIP64 end record", importer)
 
     def test_owner_task_descriptions_have_no_fixed_character_ceiling(self):

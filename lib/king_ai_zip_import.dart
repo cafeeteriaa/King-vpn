@@ -121,43 +121,50 @@ class KingAiZipImport {
       if (centralOffset + centralSize > directoryLimit) {
         throw const FormatException('ZIP directory bounds are invalid.');
       }
+      final centralDirectoryEnd = centralOffset + centralSize;
       await file.setPosition(centralOffset);
-      final centralBytes = await file.read(centralSize);
-      if (centralBytes.length != centralSize) {
-        throw const FormatException('ZIP central directory is truncated.');
-      }
-      final directory = ByteData.sublistView(centralBytes);
-      var cursor = 0;
+      var centralCursor = centralOffset;
       for (var i = 0; i < count; i++) {
-        if (cursor + 46 > centralBytes.length ||
-            directory.getUint32(cursor, Endian.little) != _central) {
-          throw FormatException('Malformed ZIP entry ' + i.toString());
+        if (centralCursor + 46 > centralDirectoryEnd) {
+          throw const FormatException('ZIP central directory is truncated.');
         }
-        final madeBy = directory.getUint16(cursor + 4, Endian.little);
-        final flags = directory.getUint16(cursor + 8, Endian.little);
-        final method = directory.getUint16(cursor + 10, Endian.little);
-        final crc = directory.getUint32(cursor + 16, Endian.little);
-        var compressed = directory.getUint32(cursor + 20, Endian.little);
-        var expanded = directory.getUint32(cursor + 24, Endian.little);
-        final nameLength = directory.getUint16(cursor + 28, Endian.little);
-        final extraLength = directory.getUint16(cursor + 30, Endian.little);
-        final commentSize = directory.getUint16(cursor + 32, Endian.little);
-        final diskStart = directory.getUint16(cursor + 34, Endian.little);
-        final external = directory.getUint32(cursor + 38, Endian.little);
-        var localOffset = directory.getUint32(cursor + 42, Endian.little);
-        final recordLength = 46 + nameLength + extraLength + commentSize;
-        if (cursor + recordLength > centralBytes.length) {
+        await file.setPosition(centralCursor);
+        final fixedHeader = await file.read(46);
+        if (fixedHeader.length != 46) {
           throw const FormatException('ZIP central directory entry is truncated.');
         }
+        final directory = ByteData.sublistView(fixedHeader);
+        if (directory.getUint32(0, Endian.little) != _central) {
+          throw FormatException('Malformed ZIP entry ' + i.toString());
+        }
+        final madeBy = directory.getUint16(4, Endian.little);
+        final flags = directory.getUint16(8, Endian.little);
+        final method = directory.getUint16(10, Endian.little);
+        final crc = directory.getUint32(16, Endian.little);
+        var compressed = directory.getUint32(20, Endian.little);
+        var expanded = directory.getUint32(24, Endian.little);
+        final nameLength = directory.getUint16(28, Endian.little);
+        final extraLength = directory.getUint16(30, Endian.little);
+        final commentSize = directory.getUint16(32, Endian.little);
+        final diskStart = directory.getUint16(34, Endian.little);
+        final external = directory.getUint32(38, Endian.little);
+        var localOffset = directory.getUint32(42, Endian.little);
+        final recordLength = 46 + nameLength + extraLength + commentSize;
+        if (centralCursor + recordLength > centralDirectoryEnd) {
+          throw const FormatException('ZIP central directory entry is truncated.');
+        }
+        final nameBytes = await file.read(nameLength);
+        final extraBytes = await file.read(extraLength);
+        final commentBytes = await file.read(commentSize);
+        if (nameBytes.length != nameLength || extraBytes.length != extraLength ||
+            commentBytes.length != commentSize) {
+          throw const FormatException('ZIP central directory variable fields are truncated.');
+        }
+        centralCursor += recordLength;
         if ((flags & 1) != 0) throw const FormatException('Encrypted ZIP entry rejected.');
         if (method != 0 && method != 8) {
           throw FormatException('Unsupported ZIP compression method: ' + method.toString());
         }
-        final nameBytes = centralBytes.sublist(cursor + 46, cursor + 46 + nameLength);
-        final extraBytes = centralBytes.sublist(
-          cursor + 46 + nameLength,
-          cursor + 46 + nameLength + extraLength,
-        );
         final rawName = (flags & 0x800) != 0
             ? utf8.decode(nameBytes, allowMalformed: false)
             : latin1.decode(nameBytes);
@@ -182,7 +189,6 @@ class KingAiZipImport {
           }
         }
         final path = normalizeEntryPath(rawName);
-        cursor += recordLength;
         if (path == null) throw FormatException('Unsafe ZIP path: ' + rawName);
         if (!seen.add(path)) throw FormatException('Duplicate normalized ZIP path: ' + path);
         final unixHost = (madeBy >> 8) == 3;
@@ -256,7 +262,7 @@ class KingAiZipImport {
         );
         extracted.add(path);
       }
-      if (cursor != centralBytes.length) {
+      if (centralCursor != centralDirectoryEnd) {
         throw const FormatException('Unexpected trailing central-directory bytes.');
       }
       return extracted;
