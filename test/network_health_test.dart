@@ -80,6 +80,45 @@ void main() {
     });
   });
 
+  group('probe evidence consistency', () {
+    test('requires health labels to match real sample counters', () {
+      expect(isProbeGroupEvidenceConsistent(
+        health: LinkHealth.healthy, attempted: 3, successful: 2,
+      ), isTrue);
+      expect(isProbeGroupEvidenceConsistent(
+        health: LinkHealth.degraded, attempted: 3, successful: 1,
+      ), isTrue);
+      expect(isProbeGroupEvidenceConsistent(
+        health: LinkHealth.unreachable, attempted: 3, successful: 0,
+      ), isTrue);
+    });
+
+    test('rejects contradictory labels and impossible counters', () {
+      expect(isProbeGroupEvidenceConsistent(
+        health: LinkHealth.healthy, attempted: 3, successful: 0,
+      ), isFalse);
+      expect(isProbeGroupEvidenceConsistent(
+        health: LinkHealth.unreachable, attempted: 3, successful: 1,
+      ), isFalse);
+      expect(isProbeGroupEvidenceConsistent(
+        health: LinkHealth.healthy, attempted: 2, successful: 3,
+      ), isFalse);
+    });
+
+    test('inconsistent group evidence cannot trigger route changes', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 0,
+        globalSuccesses: 0,
+      );
+      expect(evidence.mode, DetectedNetworkMode.unknown);
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
+    });
+  });
+
   group('independent probe-group classification', () {
     test('two successful handshakes establish a healthy group', () {
       expect(classifyLinkHealth(attempted: 3, successful: 2), LinkHealth.healthy);
@@ -236,6 +275,7 @@ void main() {
         domesticSamples: 2,
         globalSamples: 3,
         domesticSuccesses: 2,
+        domesticSuccesses: 2,
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
     });
@@ -269,6 +309,7 @@ void main() {
         globalSamples: 3,
         domesticLatencyMs: 140,
         domesticTlsReachabilityVerified: true,
+        domesticSuccesses: 2,
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.domestic);
     });
@@ -281,6 +322,7 @@ void main() {
         globalSamples: 3,
         globalLatencyMs: 190,
         globalTlsReachabilityVerified: true,
+        globalSuccesses: 2,
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.global);
     });
@@ -295,6 +337,8 @@ void main() {
         globalLatencyMs: 280,
         domesticTlsReachabilityVerified: true,
         globalTlsReachabilityVerified: true,
+        domesticSuccesses: 2,
+        globalSuccesses: 2,
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.domestic);
     });
@@ -307,6 +351,8 @@ void main() {
         globalSamples: 3,
         domesticLatencyMs: 180,
         globalLatencyMs: 200,
+        domesticSuccesses: 2,
+        globalSuccesses: 2,
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
     });
@@ -330,6 +376,7 @@ void main() {
         domesticSamples: 3,
         globalSamples: 3,
         domesticTlsReachabilityVerified: false,
+        domesticSuccesses: 1,
       );
       expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
     });
