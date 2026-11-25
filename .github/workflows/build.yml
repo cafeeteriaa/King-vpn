@@ -2,7 +2,7 @@ name: King VPN Android CI
 
 on:
   push:
-    branches: [main, master, audit/unlimit-known-scanner-candidates-20261123]
+    branches: [main, master, audit/unlimit-known-scanner-candidates-20261123, feature/king-ai-multimodal-orchestrator-20261125]
   pull_request:
   workflow_dispatch:
 
