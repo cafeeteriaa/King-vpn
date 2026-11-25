@@ -1377,7 +1377,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_hot_source_refresh_merges_previous_inventory_without_replacing_on_empty_fetch(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('final newPath =')
-        end = source.index('} finally:', start)
+        end = source.index('    } finally:\n      for (final p in [...parts, extraPath])', start)
         body = source[start:end]
         self.assertIn('final oldCachePath = _hotPath();', body)
         self.assertIn('if (File(oldCachePath).existsSync()) oldCachePath,', body)
