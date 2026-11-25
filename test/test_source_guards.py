@@ -3856,6 +3856,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_nipFrontSniCursor = (start + completed) % inventory.length;', front)
         self.assertIn('Commit only probes that actually completed', front)
 
+        hunt_start = nip.index('Future<bool> _natTryScan(')
+        hunt_end = nip.index('\n  }\n}', hunt_start)
+        hunt = nip[hunt_start:hunt_end]
+        self.assertIn('const ipBatchSize = 256;', hunt)
+        self.assertIn('while (completed < scanBatch.length)', hunt)
+        self.assertIn('onProgress: (done, total) => completed = done', hunt)
+        self.assertNotIn('if (abort || hits.isEmpty) return false;', hunt)
+
 
 if __name__ == '__main__':
     unittest.main()
