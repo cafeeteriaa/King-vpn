@@ -4766,7 +4766,7 @@ Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async 
         srcFetchState[u] =
             (stop?.call() ?? false) ? 'skip' : (okN > 0 ? 'ok' : 'fail');
         srcFetchCount[u] = okN;
-      });
+      }, stop: stop);
     } catch (_swE) { _swl('build#2', _swE);
       srcFetchState[u] = 'fail';
       // a slow / dead list is normal: it is skipped silently
