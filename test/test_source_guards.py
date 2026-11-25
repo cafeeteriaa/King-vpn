@@ -3199,6 +3199,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn("await p.setString(", save)
 
 
+    def test_gold_discovery_advances_cursor_when_batch_is_already_known(self):
+        source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> _goldIpStep() async {')
+        end = source.index('Future<void> _goldSrvStep(', start)
+        step = source[start:end]
+        known = step.index('if (batch.isEmpty) {')
+        known_end = step.index('\n  }', known)
+        branch = step[known:known_end]
+        self.assertIn('if (cands.isNotEmpty)', branch)
+        self.assertIn('jsonEncode(_cleanStagedRangeCursors)', branch)
+        self.assertLess(branch.index('if (cands.isNotEmpty)'), branch.index('prefs.setString('))
+        self.assertIn('if (r.length >= batch.length)', step)
+
     def test_gold_saved_ip_and_server_inventories_have_no_fixed_trim_caps(self):
         extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         self.assertNotIn('kGoldIpCap', extras)
