@@ -25,10 +25,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (!verifiedWithMatchingConfig)', verification)
         self.assertIn('برای نوبت بعد حفظ شد', verification)
         self.assertIn('continue;', verification)
-        self.assertNotIn('ipAutoPendingCore.remove(c)', verification)
+        failure_path = verification.split('if (!verifiedWithMatchingConfig)', 1)[1]
+        self.assertNotIn('ipAutoPendingCore.remove(c)', failure_path)
         self.assertLess(
             verification.index('if (!verifiedWithMatchingConfig)'),
-            source.index('ipAutoPendingCore.remove(c);', start),
+            verification.index('ipAutoPendingCore.remove(c);'),
         )
 
     def test_auto_scan_sheet_forwards_live_vpn_guards_and_server_snapshots(self):
@@ -2807,7 +2808,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = dns.index('List<String> dnsxFullDomains()')
         end = dns.index('String dnsxProbeDomain()', start)
         body = dns[start:end]
-        self.assertIn('final domains = all.where((value) => value.trim().isNotEmpty).toList()', body)
+        self.assertIn('final domains = kingNormalizeDomainHosts(all)..sort();', body)
         self.assertIn('..sort();', body)
         self.assertNotIn('good', body)
         self.assertNotIn('pending', body)
@@ -3157,12 +3158,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         run_start = source.index('Future<bool> _ipAutoRunOnce(')
         run_end = source.index('Future<void> ipAutoSheet(', run_start)
         run = source[run_start:run_end]
-        self.assertIn('endpointTargets[server.port]', run)
-        self.assertIn('endpointIps', run)
-        self.assertIn('allowedEndpointPairs.contains', run)
+        self.assertIn('natIndexEndpointTemplates<Server>', run)
+        self.assertIn('endpointTemplates.keys', run)
+        self.assertIn('allowedEndpointPairs', run)
         self.assertIn('activeQueue', run)
         self.assertIn('out-of-scope historical items stay queued', run)
-        self.assertIn('server.port == port', run)
+        self.assertIn('endpointTemplates[c]', run)
+        self.assertIn('for (final template in matchingTemplates)', run)
         self.assertIn('Core outbound delay is not proof', run)
         self.assertIn('promotion requires a real user tunnel test', run)
 
