@@ -64,7 +64,7 @@ class FreshResourceStore {
   /// the downstream protocol parser remain responsible for interpreting data.
   static String? normalizeLink(String value) {
     final link = value.trim().replaceAll('\r', '');
-    if (link.isEmpty) return null;
+    if (link.isEmpty || link.contains('\n')) return null;
     final separator = link.indexOf('://');
     if (separator <= 0) return null;
     final scheme = link.substring(0, separator).toLowerCase();
@@ -209,16 +209,29 @@ class FreshResourceStore {
     Iterable<String> links, {
     String source = 'online',
   }) =>
-      _serialized<int>(() => _saveSnapshotUnlocked(
-            Stream<String>.fromIterable(links),
-            source: source,
-          ));
+      saveSnapshotStream(Stream<String>.fromIterable(links), source: source);
+
+  /// Stream-based replacement entry point for large/network-backed imports.
+  /// The caller retains ownership of the stream until this Future completes.
+  static Future<int> saveSnapshotStream(
+    Stream<String> links, {
+    String source = 'online',
+  }) =>
+      _serialized<int>(() => _saveSnapshotUnlocked(links, source: source));
 
   /// Merge is one serialized streaming read-modify-write transaction.
   /// Existing entries are copied from disk before new entries; concurrent
   /// source completions cannot overwrite one another's additions.
   static Future<int> merge(
     Iterable<String> links, {
+    String source = 'online',
+  }) =>
+      mergeStream(Stream<String>.fromIterable(links), source: source);
+
+  /// Stream-based merge avoids requiring the source adapter to materialize
+  /// every discovered profile in a second in-memory collection.
+  static Future<int> mergeStream(
+    Stream<String> links, {
     String source = 'online',
   }) =>
       _serialized<int>(() async {
@@ -232,7 +245,7 @@ class FreshResourceStore {
               yield line;
             }
           }
-          yield* Stream<String>.fromIterable(links);
+          yield* links;
         }
 
         return _saveSnapshotUnlocked(merged(), source: source);
