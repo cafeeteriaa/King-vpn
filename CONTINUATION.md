@@ -546,3 +546,14 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) compatibility — all current built-in test identifiers use the supported stable-ID grammar; (2) security — identifiers cannot smuggle arbitrary text into telemetry; (3) regression — constructor rejects unsafe IDs and retains duplicate-ID handling.
 - Commits: `61250956fd099d21e121ebe9cf038208dc8d7d3c` (identifier validation), `32f0f2ffb2c4876bbbc9f1c0099be12d44561cd4` (unsafe-ID regression test).
 - Test count: 31. Latest-head CI is still required.
+
+
+## 2026-11-25 — Declarative transport-capability preflight
+
+- Extended `KingFusionHop` with an optional `requiredTransport` declaration. This is explicitly separate from the opaque native configuration string; the coordinator never parses or rewrites user configuration to guess transport.
+- Preflight normalizes the requested transport and checks it against the adapter descriptor's advertised `supportedTransports`. Unsupported requirements fail before any native adapter starts with `E-FUSION-TRANSPORT-UNSUPPORTED`; malformed values fail with `E-FUSION-TRANSPORT-INVALID`.
+- Existing callers remain compatible because the transport requirement is optional. Existing descriptors with empty transport capability sets retain their previous behavior unless a caller explicitly requests a transport.
+- Added regression tests for case/whitespace-normalized supported transport, unsupported transport, and malformed transport values; no opaque configuration contents enter diagnostics.
+- Three-pass review: (1) compatibility — additive optional plan field; (2) correctness/security — transport is declarative, validated and never inferred from config; (3) regression — accepted/rejected/malformed cases covered before native execution.
+- Commits: `9e7b5e0f12c13a8a747bc7d4ee9e863d69314773` (transport preflight), `edc91d4fe35437cfbf5c19c5bee1a96ffd67aedf` (transport tests).
+- Test count: 33. Exact latest-head CI remains required.
