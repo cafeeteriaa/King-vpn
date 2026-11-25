@@ -127,6 +127,40 @@ List<int> natPortsForActiveScan({
 /// describing any result as UDP-tested or UDP-reachable.
 List<int> natBuildFullUdpPortInventory(Iterable<int> preferredPorts) =>
     natBuildFullPortInventory(preferredPorts, firstPort: 1, lastPort: 65535);
+/// Index each configured server template by its exact resolved IP:port pair.
+/// Several independent configurations may legitimately share one pair; keep
+/// all of them in stable input order so core verification never substitutes an
+/// unrelated first server merely because its port happens to match.
+Map<String, List<T>> natIndexEndpointTemplates<T>({
+  required Iterable<({T endpoint, Iterable<String> addresses, int port})> sources,
+  required String Function(T endpoint) keyOf,
+  Set<String>? addressScope,
+}) {
+  final result = <String, List<T>>{};
+  final seenByPair = <String, Set<String>>{};
+  for (final source in sources) {
+    if (source.port < 1 || source.port > 65535) continue;
+    for (final rawAddress in source.addresses) {
+      final parsed = InternetAddress.tryParse(rawAddress.trim());
+      if (parsed == null ||
+          (parsed.type != InternetAddressType.IPv4 &&
+              parsed.type != InternetAddressType.IPv6)) {
+        continue;
+      }
+      final address = parsed.address;
+      if (addressScope != null && !addressScope.contains(address)) continue;
+      final pair = '\$address|\${source.port}';
+      final identity = keyOf(source.endpoint);
+      final seen = seenByPair.putIfAbsent(pair, () => <String>{});
+      if (!seen.add(identity)) continue;
+      result.putIfAbsent(pair, () => <T>[]).add(source.endpoint);
+    }
+  }
+  return Map<String, List<T>>.unmodifiable({
+    for (final entry in result.entries)
+      entry.key: List<T>.unmodifiable(entry.value),
+  });
+}
 
 class NatIpHit {
   final String ip;
