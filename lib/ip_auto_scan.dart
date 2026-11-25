@@ -158,11 +158,11 @@ Future<void> ipAutoLoad() async {
   }
 }
 
-Future<void> _ipAutoSave() async {
+Future<bool> _ipAutoSave() async {
   // Persist all mode-local state with one preference write. Immutable snapshots
   // prevent result, retry-queue and cursor generations from being interleaved.
   final saveNationalMode = nationalMode;
-  if (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode) return;
+  if (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode) return false;
   final hits = List<String>.unmodifiable(ipAutoHits);
   final pending = List<String>.unmodifiable(ipAutoPendingCore);
   final cursors = Map<String, dynamic>.unmodifiable(ipAutoCursors);
@@ -172,7 +172,7 @@ Future<void> _ipAutoSave() async {
     final p = await SharedPreferences.getInstance();
     if (nationalMode != saveNationalMode ||
         (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode)) {
-      return;
+      return false;
     }
     final saved = await p.setString(
       snapshotKey,
@@ -189,8 +189,10 @@ Future<void> _ipAutoSave() async {
         kind: 'IP-AUTO-SNAPSHOT-WRITE',
       );
     }
+    return saved;
   } catch (e, stk) {
     logError(e, stk);
+    return false;
   }
 }
 
@@ -602,6 +604,12 @@ extension IpAutoExt on _HomePageState {
         ipAutoPendingCore.add(candidate);
       }
     }
+    // Persist the completed TCP cursor with its complete core-verification
+    // backlog before lengthy native tests. Process death can then resume safely.
+    if (!await _ipAutoSave()) {
+      say('ذخیرهٔ نقطهٔ ادامهٔ IP Auto ناموفق بود؛ دسته دوباره بررسی خواهد شد.');
+      return false;
+    }
     if (endpointTemplates.isEmpty) {
       // Never borrow a different server just because its port happens to match.
       say('بسته TCP کامل شد؛ ${ipAutoPendingCore.length} نامزد برای بررسی هسته ذخیره شد و منتظر الگوی دقیق endpoint است.');
@@ -623,6 +631,7 @@ extension IpAutoExt on _HomePageState {
       checked++;
       if (seen.contains(c)) {
         ipAutoPendingCore.remove(c);
+        if (!await _ipAutoSave()) return false;
         continue;
       }
       final parts = c.split('|');
@@ -660,6 +669,10 @@ extension IpAutoExt on _HomePageState {
       // Keep it as a candidate only; promotion requires a real user tunnel test.
       seen.add(c);
       found++;
+      if (!await _ipAutoSave()) {
+        say('ذخیرهٔ نتیجهٔ IP Auto ناموفق بود؛ صف بازیابی برای اجرای بعد حفظ می‌شود.');
+        return false;
+      }
       say('تست $checked • جواب‌داده: $found');
     }
     if (halted()) {
