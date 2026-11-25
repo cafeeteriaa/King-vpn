@@ -341,7 +341,9 @@ Future<http.StreamedResponse> getListMirrorStream(String u) async {
           final w = ms.indexOf(url);
           if (w >= 0) _mirrorBest = w;
         }
-        final managed = response.stream.transform(
+        final managed = response.stream
+            .timeout(const Duration(seconds: 10))
+            .transform(
           StreamTransformer<List<int>, List<int>>.fromHandlers(
             handleError: (error, stack, sink) {
               client.close();
