@@ -102,7 +102,8 @@ Future<int?> _autoSniOk(String ip, int port, String sni) async {
       raw,
       host: sni,
       supportedProtocols: const ['http/1.1'],
-      onBadCertificate: (_) => true,
+      // Keep platform certificate validation enabled. A probe must not treat
+      // an invalid or self-signed certificate as trusted reachability evidence.
     ).timeout(const Duration(seconds: 4));
     secure.write(
       'GET / HTTP/1.1\r\n'
@@ -137,11 +138,13 @@ Future<String?> _autoAlpnOk(String ip, int port, String sni, String alpn) async 
   SecureSocket? secure;
   try {
     raw = await Socket.connect(ip, port, timeout: const Duration(seconds: 4));
-    secure = await SecureSocket.secure(raw,
-        host: sni,
-        supportedProtocols: [alpn],
-        onBadCertificate: (_) => true)
-        .timeout(const Duration(seconds: 4));
+    secure = await SecureSocket.secure(
+      raw,
+      host: sni,
+      supportedProtocols: [alpn],
+      // Use the platform trust store. ALPN discovery is not allowed to
+      // classify an invalid or self-signed certificate as trusted TLS evidence.
+    ).timeout(const Duration(seconds: 4));
     return secure.selectedProtocol;
   } catch (_) {
     return null;

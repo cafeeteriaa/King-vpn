@@ -1,0 +1,84 @@
+import 'dart:math' as math;
+
+/// Validation and unit conversion for real HTTP throughput probes.
+/// A non-success HTTP page must never be ranked as downloaded tunnel traffic.
+bool isUsableSpeedProbeResponse(int statusCode, String? contentType) {
+  if (statusCode != 200 && statusCode != 206) return false;
+  final mime = (contentType ?? '').split(';').first.trim().toLowerCase();
+  // A captive portal often answers HTTP 200 with an HTML login/error page.
+  if (mime == 'text/html' || mime == 'application/xhtml+xml' ||
+      mime == 'application/json') {
+    return false;
+  }
+  return true;
+}
+
+double? throughputMegabytesPerSecond({
+  required int bytes,
+  required int elapsedMilliseconds,
+}) {
+  if (bytes <= 0 || elapsedMilliseconds <= 0) return null;
+  return bytes / 1048576 / (elapsedMilliseconds / 1000);
+}
+
+/// Continuous age decay keeps older measurements useful as history without
+/// allowing yesterday's peak speed to outrank a recently measured route.
+/// A 15-minute half-life is a ranking weight, not a candidate-removal cutoff.
+double? ageAdjustedThroughput({
+  required double? megabytesPerSecond,
+  required DateTime? measuredAt,
+  required DateTime now,
+  Duration halfLife = const Duration(minutes: 15),
+}) {
+  if (megabytesPerSecond == null || megabytesPerSecond <= 0 || measuredAt == null) {
+    return null;
+  }
+  final age = now.difference(measuredAt);
+  if (age.isNegative || halfLife <= Duration.zero) return null;
+  final halfLives = age.inMicroseconds / halfLife.inMicroseconds;
+  return megabytesPerSecond * math.pow(0.5, halfLives).toDouble();
+}
+
+/// Robust stability multiplier derived from recent positive throughput samples.
+/// Median absolute deviation prevents one unusually fast/slow run from dominating.
+double throughputStabilityFactor(List<double> samples) {
+  final valid = samples.where((value) => value.isFinite && value > 0).toList();
+  if (valid.length < 2) return 1;
+  final median = medianThroughput(valid);
+  if (median == null || median <= 0) return 1;
+  final deviations = valid.map((value) => (value - median).abs()).toList();
+  final mad = medianThroughput(deviations);
+  if (mad == null) return 1;
+  return 1 / (1 + mad / median);
+}
+
+/// Median of positive finite throughput observations. For even-sized windows,
+/// average the two central values rather than biasing toward the upper sample.
+double? medianThroughput(List<double> samples) {
+  final valid = samples.where((value) => value.isFinite && value > 0).toList()..sort();
+  if (valid.isEmpty) return null;
+  final middle = valid.length ~/ 2;
+  if (valid.length.isOdd) return valid[middle];
+  return (valid[middle - 1] + valid[middle]) / 2;
+}
+
+/// Only positive finite body throughput is a valid timestamped observation.
+bool isValidThroughputSample(double? value) =>
+    value != null && value.isFinite && value > 0;
+
+/// One shared ranking score for sorting and automatic ping-swap safeguards.
+/// Missing/stale evidence stays unknown; it is never converted into a measured zero.
+double? effectiveThroughputScore({
+  required double? currentSpeed,
+  required List<double> history,
+  required DateTime? measuredAt,
+  required DateTime now,
+}) {
+  final base = ageAdjustedThroughput(
+    megabytesPerSecond: medianThroughput(history) ?? currentSpeed,
+    measuredAt: measuredAt,
+    now: now,
+  );
+  if (base == null) return null;
+  return base * throughputStabilityFactor(history);
+}

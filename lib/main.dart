@@ -1,5 +1,11 @@
 import 'dart:async';
 import 'network_health.dart';
+import 'cf_trace_validation.dart';
+import 'http_response_policy.dart';
+import 'background_concurrency_policy.dart';
+import 'proc_stat_cpu.dart';
+import 'speed_probe_policy.dart';
+import 'failover_retry_policy.dart';
 import 'king_local_ai.dart';
 import 'king_ai_console.dart';
 import 'king_chat_page.dart';
@@ -109,12 +115,12 @@ bool poolStop = false; // ABORTPOOL: stop taking new items in parallel tests // 
 int bgWorkers = 3; // تست همزمان (وقتی وصل است) — پیش‌فرض ۳
 // BGPAR: تعداد تست همزمان وقتی وصلیم = تنظیم «تست همزمان (وقتی وصل است)» (۱ تا ۳)
 // CPUGOV: وقتی CPU خود برنامه داغ است فقط ۱ تست همزمان؛ تنظیم کاربر (bgWorkers) هم رعایت می‌شود
-int _bgPar() {
-  if (nationalMode) return kNatDelayConcurrency; // نت ملی: ۳ (پایداری هسته)
-  // DSGETTER: از مقدار مؤثر (dataSaver رعایت شود)
-  final n = effBgWorkers < 1 ? 1 : effBgWorkers;
-  return n.clamp(1, 32); // کاربر هر عددی گذاشت همان؛ سقف ایمنی ۳۲
-}
+int _bgPar() => adaptiveBackgroundConcurrency(
+      requestedWorkers: effBgWorkers,
+      cpuHeat: cpuHot,
+      nationalMode: nationalMode,
+      nationalWorkers: kNatDelayConcurrency,
+    );
 
 // CPUGOV: مصرف CPU خود برنامه (همه‌ی ترد‌ها، از جمله هسته‌ی Xray داخل همین پردازه) از
 // /proc/self/stat. اندروید پردازه‌ای را که میانگین CPU آن در ۵ دقیقه از ~۲۵٪ بالاتر برود
@@ -142,9 +148,11 @@ Future<void> _cpuTick() async {
     final dt = now.difference(_cpuPrevAt).inMilliseconds;
     if (dt < 7500) return;
     final raw = await File('/proc/self/stat').readAsString();
-    final f = raw.substring(raw.lastIndexOf(')') + 2).split(' ');
-    // فیلد ۱۴ و ۱۵ مستند proc: utime و stime (هر tick = ۱۰ms)؛ بعد از «)» از فیلد ۳ شروع می‌شود
-    final ticks = (int.tryParse(f[11]) ?? 0) + (int.tryParse(f[12]) ?? 0);
+    final ticks = parseProcStatCpuTicks(raw);
+    if (ticks == null) {
+      dbg('CPU-GOV: قالب /proc/self/stat نامعتبر است؛ نمونه‌گیری بعدی تلاش می‌شود');
+      return;
+    }
     final prevTicks = _cpuPrevTicks;
     _cpuPrevAt = now;
     _cpuPrevTicks = ticks;
@@ -692,17 +700,23 @@ Future<double?> _tuneSpeedKB() async {
     return await () async {
       final req = await c.getUrl(Uri.parse(smallSpeedUrl));
       final res = await req.close();
+      if (!isUsableSpeedProbeResponse(
+          res.statusCode, res.headers.contentType?.mimeType)) {
+        dbg('TUNE-SPEED-REJECT status=${res.statusCode}');
+        return null;
+      }
       var bytes = 0;
       final sw = Stopwatch()..start();
       await for (final chunk in res) {
         bytes += chunk.length;
         if (sw.elapsed >= const Duration(seconds: 3)) break;
       }
-      final secs = sw.elapsedMilliseconds / 1000;
-      if (secs <= 0 || bytes == 0) return null;
-      return bytes / 1024 / secs;
-    }()
-        .timeout(const Duration(seconds: 9));
+      final mbps = throughputMegabytesPerSecond(
+        bytes: bytes,
+        elapsedMilliseconds: sw.elapsedMilliseconds,
+      );
+      return mbps == null ? null : mbps * 1024;
+    }().timeout(const Duration(seconds: 9));
   } catch (e, stk) {
     logError(e, stk);
     return null;
@@ -3261,6 +3275,7 @@ bool _validHost(String h) {
 
 // BUSYDROP: how many times a dropped failover was re-scheduled
 int _failoverRetries = 0;
+Timer? _failoverRetryTimer;
 
 // a broken %XX / UTF-8 sequence in a name must never throw
 String _safeDecodeComp(String t) {
@@ -3583,18 +3598,25 @@ class Server {
   double? speed;
   DateTime? speedAt; // time of the last real speed test
   DateTime? badAt;
-  // MEDIAN: last 3 real speed tests, so one lucky/unlucky test does not decide
+  // Rolling history keeps more signal than a 3-sample window while remaining
+  // bounded per server; this is telemetry retention, never a server scan limit.
   final List<double> speedHist = [];
   void remember(double? v) {
-    if (v == null || v <= 0) return;
-    speedHist.add(v);
-    if (speedHist.length > 3) speedHist.removeAt(0);
+    if (!isValidThroughputSample(v)) return;
+    speedHist.add(v!);
+    if (speedHist.length > 9) speedHist.removeAt(0);
   }
-  double? get medianSpeed {
-    if (speedHist.isEmpty) return null;
-    final l = [...speedHist]..sort();
-    return l[l.length ~/ 2];
+  // A failed probe updates the current display to zero but MUST NOT refresh
+  // the timestamp of the last successful throughput observation. Otherwise
+  // an old median is accidentally treated as freshly measured and outranks
+  // genuinely current routes.
+  void recordSpeed(double? value) {
+    speed = isValidThroughputSample(value) ? value : 0;
+    if (!isValidThroughputSample(value)) return;
+    remember(value);
+    speedAt = DateTime.now();
   }
+  double? get medianSpeed => medianThroughput(speedHist);
   int score = 0;
   int miss = 0; // consecutive failed re-checks (missLimit in a row -> removed)
   // RESTORE: سرور از حافظه‌ی دستگاه آمده (بعد از بستن و باز کردن برنامه) و هنوز در این نشست تست نشده
@@ -3794,8 +3816,20 @@ int byScoreThenPing(Server a, Server b) {
 }
 
 int bySpeedThenPing(Server a, Server b) {
-  final c = (b.medianSpeed ?? b.speed ?? -1)
-      .compareTo(a.medianSpeed ?? a.speed ?? -1);
+  final now = DateTime.now();
+  final aSpeed = effectiveThroughputScore(
+        currentSpeed: a.speed,
+        history: a.speedHist,
+        measuredAt: a.speedAt,
+        now: now,
+      ) ?? -1;
+  final bSpeed = effectiveThroughputScore(
+        currentSpeed: b.speed,
+        history: b.speedHist,
+        measuredAt: b.speedAt,
+        now: now,
+      ) ?? -1;
+  final c = bSpeed.compareTo(aSpeed);
   return c != 0 ? c : byPing(a, b);
 }
 
@@ -3813,7 +3847,7 @@ Future<int?> probe(Server s) async {
     final name = s.sni.isNotEmpty ? s.sni : s.host;
     if (s.tls && probeTls) {
       final sec = await SecureSocket.secure(sock,
-              host: name, onBadCertificate: (_) => true)
+              host: name)
           .timeout(tcpTimeout);
       sec.destroy();
     } else {
@@ -4046,15 +4080,24 @@ Future<double?> measure(
     return await () async {
       final req = await c.getUrl(Uri.parse(url));
       final res = await req.close();
+      // Do not mistake a captive-portal page, proxy error, redirect, or rate
+      // limit response for tunnel throughput. Only actual content counts.
+      if (!isUsableSpeedProbeResponse(res.statusCode, res.headers.contentType?.mimeType)) {
+        dbg('SPEED-PROBE-REJECT status=${res.statusCode} url=$url');
+        return null;
+      }
       var bytes = 0;
       final sw = Stopwatch()..start();
       await for (final chunk in res) {
-        bytes += chunk.length;
-        if (sw.elapsed >= win) break;
+        final remaining = maxBytes > 0 ? maxBytes - bytes : chunk.length;
+        if (remaining <= 0) break;
+        bytes += chunk.length < remaining ? chunk.length : remaining;
+        if ((maxBytes > 0 && bytes >= maxBytes) || sw.elapsed >= win) break;
       }
-      final secs = sw.elapsedMilliseconds / 1000;
-      if (secs == 0 || bytes == 0) return null;
-      return bytes / 1048576 / secs;
+      return throughputMegabytesPerSecond(
+        bytes: bytes,
+        elapsedMilliseconds: sw.elapsedMilliseconds,
+      );
     }()
         .timeout(total);
   } catch (_swE) { _swl('measure#1', _swE);
@@ -5791,6 +5834,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _failoverRetryTimer?.cancel();
+    _failoverRetryTimer = null;
     watch?.cancel();
     dropTimer?.cancel();
     tick?.cancel();
@@ -9180,7 +9225,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // it must NOT be blacklisted or reported as E-CONFIG-FAIL.
         if (abort || !wantVpn) {
           lastFail = '';
-          return false;
+          _nnieClearAttempt(s); return false;
         }
         final noAct = lastFail.contains('Activity');
         // CACHEINVALID-START: اگر _start با variant کش‌شده fail داد (نه خطای
@@ -9233,7 +9278,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // Give the Activity more time to come back (common after ad / screen)
           await Future.delayed(Duration(
               milliseconds: inForeground ? 800 : 1500));
-          if (abort) return false;
+          if (abort) { _nnieClearAttempt(s); return false; }
           // up to 2 quiet retries (Activity may have resumed)
           var recovered = false;
           for (var r = 0; r < 2 && !recovered && !abort; r++) {
@@ -9247,7 +9292,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
           if (!recovered) {
             dbg('رد شد (Activity): ${s.name} • ${lastFail}');
-            continue;
+            _nnieClearAttempt(s); continue;
           }
           // success — fall through to post-start checks
         } else if (lastStartNoTunnel) {
@@ -9256,7 +9301,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           errorLog.value =
               'خطای هسته/تونل اندروید برای ${s.name}: ${lastFail} • سرور جریمه نشد';
           dbg('رد موقت ${s.name}: خطای هسته/تونل؛ شمارنده سلامت سرور تغییر نکرد');
-          continue;
+          _nnieClearAttempt(s); continue;
         } else {
           // BADCFG: a config that fails end-to-end twice in a row is not healthy;
           // remove it from the candidate list (pinned servers are never removed).
@@ -9271,7 +9316,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             lastFail.isEmpty ? 'شروع نشد' : lastFail,
             knownIp: ip0,
           ));
-          continue;
+          _nnieClearAttempt(s); continue;
         }
       }
       coreUpCount++; // CORE-SYSTEMIC: the core started for this config
@@ -9354,7 +9399,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               return false;
             }
             if (ladderOk) {
-              if (!await _onConnected(s)) return false;
+              if (!await _onConnected(s)) { _nnieClearAttempt(s); return false; }
               return true;
             }
           }
@@ -9387,7 +9432,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (nationalMode) failed[s.key] = DateTime.now(); // NATSKIP
           // اطلاعاتی است، نه خطا: اتصال برقرار شد ولی ترافیک رد نشد
           dbg('ℹ ${s.name}: وصل شد ولی اینترنت رد نشد (${_short(lastPingErr, 70)}) • اطلاعاتی، خطا نیست • سرور بعدی');
-          continue;
+          _nnieClearAttempt(s); continue;
         }
         // PINGRETRY: the first ping after connect is often slow while the tunnel
         // warms up (9346 ms seen in the logs); measure once more before judging
@@ -9419,14 +9464,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           badPingRounds++;
           dbg('پینگ از تونل بد بود (${p}ms) • ${s.name} • '
               'سرور بعدی / تست سریع بعدی • دور $badPingRounds/$badPingMaxRounds');
-          continue;
+          _nnieClearAttempt(s); continue;
         }
       }
       // TUNCHK: همه‌ی مسیرها: اگر ترافیک واقعی از تونل رد شد، سرور رد می‌شود
       var tunChecked = false;
       if (!abort && wantVpn) {
         final tunOk = await _tunnelTrafficOk();
-        if (abort) return false;
+        if (abort) { _nnieClearAttempt(s); return false; }
         if (!tunOk) {
           // CACHEINVALID-TUN: variantی که از natVarNormal اومد، ترافیک تونل رد نکرد.
           if (!nationalMode) natVarNormal.remove(s.key); // NORMALKEY
@@ -9438,7 +9483,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             await _stopV2();
             ladderOk = await _natLadder(s,
                 socialGate: _tunnelTrafficOk, maxTries: 3);
-            if (abort) return false;
+            if (abort) { _nnieClearAttempt(s); return false; }
           }
           if (ladderOk) {
             tunChecked = true;
@@ -9451,7 +9496,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             await _stopV2();
             dbg('اتصال: ${s.name} رد شد — ترافیک تونل (google/youtube) رد نشد • سرور بعدی');
             errorLog.value = '${s.name}: ترافیک تونل رد شد — سرور بعدی…';
-            continue;
+            _nnieClearAttempt(s); continue;
           }
         } else {
           tunChecked = true;
@@ -9462,7 +9507,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             natSubstSearched.add(s.key);
             await _stopV2();
             final sub = await _natLadder(s, socialGate: _tunnelTrafficOk);
-            if (abort) return false;
+            if (abort) { _nnieClearAttempt(s); return false; }
             if (!sub) {
               // جایگزینی نبود: پایه‌ی قبلاً سالم را دوباره بالا می‌آوریم
               if (!await _start(s)) {
@@ -9473,7 +9518,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 siteSkips++;
                 s.svc = 0;
                 s.badAt = DateTime.now();
-                continue;
+                _nnieClearAttempt(s); continue;
               }
             } else {
               dbg('اتصال: ${s.name} با جایگزین ذخیره‌شده ترافیک تونل OK');
@@ -9495,7 +9540,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             await waitProxyPort(
                 max: Duration(seconds: nationalMode ? 8 : 4));
           }
-          if (abort) return false;
+          if (abort) { _nnieClearAttempt(s); return false; }
 
           Future<List<bool>> runSocial() async {
             try {
@@ -9510,7 +9555,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
 
           var r = await runSocial();
-          if (abort) return false;
+          if (abort) { _nnieClearAttempt(s); return false; }
           bool tg = r[0] || r[1];
           bool yt = false;
           bool ig = false;
@@ -9545,7 +9590,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               if (socialOk) {
                 s.svc = (tg ? 1 : 0) | (yt ? 2 : 0) | (ig ? 4 : 0);
                 if (s.svc == 0) s.svc = 1;
-                if (!await _onConnected(s)) return false;
+                if (!await _onConnected(s)) { _nnieClearAttempt(s); return false; }
                 return true;
               }
               await _stopV2();
@@ -9557,7 +9602,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               win: const Duration(seconds: 2),
               total: Duration(seconds: nationalMode ? 10 : 6),
               viaCore: true);
-          if (abort) return false;
+          if (abort) { _nnieClearAttempt(s); return false; }
           // فقط تلگرام باید از تونل باز شود
           // IPTEST: in national mode the server is accepted when YouTube or
           // Instagram opens through the tunnel (Telegram was too strict for IPs)
@@ -9573,7 +9618,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             final why = 'تلگرام از تونل باز نشد (tg=$tg)';
             dbg('اتصال: ${s.name} رد شد — $why • سرور بعدی');
             errorLog.value = '${s.name}: $why — سرور بعدی…';
-            continue;
+            _nnieClearAttempt(s); continue;
           }
           if (sp != null) s.speed = sp;
           s.svc = (tg ? 1 : 0) | (yt ? 2 : 0) | (ig ? 4 : 0);
@@ -9582,8 +9627,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               'سرعت=${sp?.toStringAsFixed(2) ?? "-"} MB/s');
         }
       }
-      if (abort || !wantVpn) return false; // V8: abort guard
-      if (!await _onConnected(s)) return false;
+      if (abort || !wantVpn) { _nnieClearAttempt(s); return false; } // V8: abort guard
+      if (!await _onConnected(s)) { _nnieClearAttempt(s); return false; }
       return true;
     }
     return false;
@@ -9657,17 +9702,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
     }
     if (sp != null) {
-      s.speed = sp;
-      s.remember(sp);
-      s.speedAt = DateTime.now();
+      s.recordSpeed(sp);
     } else if (!sitesAlive &&
         !s.personal &&
         !favs.containsKey(s.key) &&
         wantVpn) {
       // no data at all: the ping was fake. Replace it
       // در طول توربو failover نکن (ریستارت عمدی هسته است)
-      s.speed = 0;
-      s.speedAt = DateTime.now();
+      s.recordSpeed(null);
       lastWhy = 'سرعت واقعی صفر بود';
       if (!busy && !switching) {
         await _failover();
@@ -12926,6 +12968,9 @@ ListTile( // KINGEXTRAS row
 
     abort = true; // جستجوی در جریان را هم قطع کن
     wantVpn = false;
+    _failoverRetryTimer?.cancel();
+    _failoverRetryTimer = null;
+    _failoverRetries = 0;
     _connGen++; // DISCONNECTFIX: cancel any connect still in flight
     pendingFailover = false;
     switching = true;
@@ -13034,10 +13079,23 @@ ListTile( // KINGEXTRAS row
   // real speed is known and clearly below the connected server's speed (or
   // zero = no data) is not used for a ping swap.
   bool _spSpeedOk(Server c) {
-    final cs = c.speed;
-    if (cs == null) return true; // unknown: allowed, checked after the swap
+    final now = DateTime.now();
+    final cs = effectiveThroughputScore(
+      currentSpeed: c.speed,
+      history: c.speedHist,
+      measuredAt: c.speedAt,
+      now: now,
+    );
+    if (cs == null) return true; // unknown/stale: allowed, verified after swap
     if (cs <= 0) return false;
-    final cur = current?.speed;
+    final cur = current == null
+        ? null
+        : effectiveThroughputScore(
+            currentSpeed: current!.speed,
+            history: current!.speedHist,
+            measuredAt: current!.speedAt,
+            now: now,
+          );
     if (cur == null || cur < 0.3) return true;
     return cs >= cur * 0.7;
   }
@@ -13048,8 +13106,13 @@ ListTile( // KINGEXTRAS row
   Future<void> _spCheckSpeed(Server t, Server old) async {
     if (nationalMode) return; // NONATSPEED
     try {
-      final oldSp = old.speed ?? 0;
-      if (oldSp < 0.3) return;
+      final oldSp = effectiveThroughputScore(
+        currentSpeed: old.speed,
+        history: old.speedHist,
+        measuredAt: old.speedAt,
+        now: DateTime.now(),
+      );
+      if (oldSp == null || oldSp < 0.3) return;
       final t0 = DateTime.now();
       for (var i = 0; i < 30; i++) {
         await Future.delayed(const Duration(seconds: 1));
@@ -13059,8 +13122,13 @@ ListTile( // KINGEXTRAS row
       }
       final at = t.speedAt;
       if (at == null || !at.isAfter(t0)) return;
-      final sp = t.speed ?? 0;
-      if (sp <= 0) return; // no data: _measureCurrent handles it
+      final sp = effectiveThroughputScore(
+        currentSpeed: t.speed,
+        history: t.speedHist,
+        measuredAt: t.speedAt,
+        now: DateTime.now(),
+      );
+      if (sp == null || sp <= 0) return; // no fresh data: _measureCurrent handles it
       if (sp >= oldSp * 0.6) return;
       dbg('سرعت سرور جدید ${sp.toStringAsFixed(2)} MB/s کمتر از سرور قبلی '
           '(${oldSp.toStringAsFixed(2)} MB/s) بود؛ برگشت به سرور قبلی');
@@ -13215,30 +13283,45 @@ ListTile( // KINGEXTRAS row
     });
   }
 
+  void _scheduleFailoverWake(Duration delay, String reason) {
+    if (_failoverRetryTimer?.isActive == true) return;
+    dbg('FAILOVER-RETRY-WAKE: reason=$reason delay=${delay.inSeconds}s');
+    _failoverRetryTimer = Timer(delay, () {
+      _failoverRetryTimer = null;
+      if (mounted && wantVpn && !connected) {
+        unawaited(_failover().catchError((e) => logError(e)));
+      }
+    });
+  }
+
   Future<void> _failover() async {
     if (_uiJoinDone != null) {
       // UIJOIN-GUARD: failover دقیقاً وقتی دیالوگ کانال بسته شود اجرا می‌شود
       dbg('E-FAILOVER-JOIN-DEFER: دیالوگ کانال باز است؛ failover بعد از بسته شدن اجرا می‌شود');
       final waitDone = _uiJoinDone!;
       unawaited(waitDone.future.then((_) {
-        if (mounted && wantVpn && !connected && !busy && !switching) {
+        // Re-enter even while busy: _failover's retry timer owns the backoff.
+        // The busy guard here used to discard the only recovery wake-up.
+        if (mounted && wantVpn && !connected && !switching) {
           unawaited(_failover().catchError((e) => logError(e)));
         }
       }));
       return;
     }
     if (busy) {
-      // BUSYDROP: busy → try again in 10 s (max 30 times) instead of dropping it
-      if (_failoverRetries < 30) {
-        _failoverRetries++;
-        Future.delayed(const Duration(seconds: 10), () {
-          if (mounted && wantVpn && !connected && !busy) {
-            unawaited(_failover().catchError((e) => logError(e)));
-          }
-        });
+      // BUSYDROP-V2: keep one retry scheduled while work is busy. The retry
+      // callback re-enters _failover even if busy is still true, so it can
+      // schedule the next backoff instead of silently dropping the recovery.
+      if (_failoverRetryTimer?.isActive != true) {
+        _failoverRetries =
+            nextFailoverRetryStage(_failoverRetries);
+        final delay = failoverBusyRetryDelay(_failoverRetries);
+        _scheduleFailoverWake(delay, 'busy-stage=$_failoverRetries');
       }
       return;
     }
+    _failoverRetryTimer?.cancel();
+    _failoverRetryTimer = null;
     _failoverRetries = 0;
     // STOP-RACE: a switch must not undo a stop the user already asked for
     if (!wantVpn) return;
@@ -13246,14 +13329,17 @@ ListTile( // KINGEXTRAS row
     // تعویض خودکار ۳ دقیقه متوقف می‌شود تا حلقه‌ی بی‌پایان نشکند.
     final nowFB = DateTime.now();
     if (_failoverPauseUntil != null && nowFB.isBefore(_failoverPauseUntil!)) {
-      dbg('E-FAILOVER-LOOP: تعویض خودکار موقتاً متوقف است تا ${_failoverPauseUntil!.hour.toString().padLeft(2, '0')}:${_failoverPauseUntil!.minute.toString().padLeft(2, '0')}');
+      final remaining = _failoverPauseUntil!.difference(nowFB);
+      dbg('E-FAILOVER-LOOP: تعویض خودکار موقتاً متوقف است؛ بازیابی پس از ${remaining.inSeconds}s');
+      _scheduleFailoverWake(remaining, 'loop-cooldown');
       return;
     }
     _failoverTimes.removeWhere((t) => nowFB.difference(t).inMinutes >= 5);
     if (_failoverTimes.length >= 6) {
-      _failoverPauseUntil = nowFB.add(const Duration(minutes: 3));
+      _failoverPauseUntil = nowFB.add(failoverLoopCooldown);
       _failoverTimes.clear();
       dbg('E-FAILOVER-LOOP: ۶ تعویض در ۵ دقیقه ثبت شد؛ حلقه‌ی تعویض قطع شد و ۳ دقیقه صبر می‌شود');
+      _scheduleFailoverWake(failoverLoopCooldown, 'loop-breaker');
       return;
     }
     _failoverTimes.add(nowFB);
@@ -13892,9 +13978,7 @@ ListTile( // KINGEXTRAS row
                     total: const Duration(seconds: 10),
                     direct: true) ??
                 0;
-            old.speed = oldSp;
-            old.remember(oldSp);
-            old.speedAt = DateTime.now();
+            old.recordSpeed(oldSp);
           }
           changed = true;
           await _stopCore();
@@ -13926,9 +14010,7 @@ ListTile( // KINGEXTRAS row
                     0;
               }
             }
-            c.speed = sp;
-            c.remember(sp);
-            c.speedAt = DateTime.now();
+            c.recordSpeed(sp);
             if (sp == 0 && !abort) {
               c.badAt = DateTime.now();
               if (++c.miss >= 2) good.remove(c); // no data twice: deleted
@@ -14297,9 +14379,7 @@ ListTile( // KINGEXTRAS row
               } else {
               noData = 0;
               // keep the real speed of the connected server up to date
-              current?.speed = sp;
-              current?.remember(sp);
-              current?.speedAt = DateTime.now();
+              current?.recordSpeed(sp);
               // فقط وقتی سرعت واقعاً نزدیک صفر است (زیر ۴۰ KB/s) حساب شود
               // ۱۰۰ یا ۲۰۰ کیلوبایت دیگر باعث تعویض نمی‌شود
               stallRun = (sp * 1024 < 40) ? stallRun + 1 : 0;
@@ -15217,9 +15297,7 @@ ListTile( // KINGEXTRAS row
                 direct: tunnel) ??
             0;
       }
-      s.speed = sp;
-      s.remember(sp);
-      s.speedAt = DateTime.now();
+      s.recordSpeed(sp);
       // under national cut the speed target is unreachable: do not mark servers dead
       if (sp == 0 && !nationalMode && !indestructibleMode) {
         s.badAt = DateTime.now();

@@ -11,6 +11,8 @@ void main() {
         global: LinkHealth.unreachable,
         domesticSamples: 4,
         globalSamples: 4,
+        domesticSuccesses: 3,
+        globalSuccesses: 0,
         domesticTlsReachabilityVerified: true,
       );
       expect(evidence.mode, DetectedNetworkMode.domesticOnly);

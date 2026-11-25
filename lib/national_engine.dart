@@ -209,8 +209,14 @@ class NatNetworkDiagnosis {
     try {
       final at = _checkedAt;
       final id = await _identityHash();
-      if (!force && at != null && id == _identityAtCheck &&
-          DateTime.now().difference(at) < _ttl) {
+      if (isProbeCacheFresh(
+        force: force,
+        currentIdentity: id,
+        cachedIdentity: _identityAtCheck,
+        cachedAt: at,
+        now: DateTime.now(),
+        ttl: _ttl,
+      )) {
         return current;
       }
       // All probes start together. Awaiting the groups one after another made
@@ -297,44 +303,72 @@ class PilotNetworkProbe {
     global: LinkHealth.unknown,
   );
   static Future<NetworkEvidence>? _flight;
+  static bool _flightForced = false;
   static NetworkEvidence get current => _last;
 
   static Future<NetworkEvidence> refresh({bool force = false}) async {
     final active = _flight;
-    if (active != null) return active;
+    if (active != null) {
+      if (shouldJoinInFlightProbe(
+        requestForce: force,
+        activeForced: _flightForced,
+      )) {
+        return active;
+      }
+      // A forced refresh cannot be satisfied by a weaker in-flight refresh.
+      // Wait for it to finish, then start a fresh observation pass.
+      try {
+        await active;
+      } catch (_) {
+        // The forced pass below gets its own opportunity to recover.
+      }
+      return refresh(force: true);
+    }
     final future = _refresh(force: force);
     _flight = future;
+    _flightForced = force;
     try {
       return await future;
     } finally {
-      if (identical(_flight, future)) _flight = null;
+      if (identical(_flight, future)) {
+        _flight = null;
+        _flightForced = false;
+      }
     }
   }
 
   static Future<NetworkEvidence> _refresh({required bool force}) async {
     final identity = await _networkIdentity();
     final lastAt = _lastAt;
-    if (!force && lastAt != null && identity == _lastIdentity &&
-        DateTime.now().difference(lastAt) < const Duration(minutes: 2)) {
+    if (isProbeCacheFresh(
+      force: force,
+      currentIdentity: identity,
+      cachedIdentity: _lastIdentity,
+      cachedAt: lastAt,
+      now: DateTime.now(),
+      ttl: const Duration(minutes: 2),
+    )) {
       return _last;
     }
     final domesticFuture = Future.wait(domesticTargets.map(_probeHttps));
     final globalFuture = Future.wait(globalTargets.map(_probeHttps));
     final domestic = await domesticFuture;
     final global = await globalFuture;
-    LinkHealth health(List<int?> samples) {
-      final successes = samples.whereType<int>().length;
-      if (successes >= 2) return LinkHealth.healthy;
-      if (successes == 1) return LinkHealth.degraded;
-      return LinkHealth.unreachable;
-    }
+    final domesticSuccesses = domestic.whereType<int>().length;
+    final globalSuccesses = global.whereType<int>().length;
     _last = NetworkEvidence(
-      domestic: health(domestic),
-      global: health(global),
+      domestic: classifyLinkHealth(
+        attempted: domestic.length,
+        successful: domesticSuccesses,
+      ),
+      global: classifyLinkHealth(
+        attempted: global.length,
+        successful: globalSuccesses,
+      ),
       domesticSamples: domestic.length,
       globalSamples: global.length,
-      domesticSuccesses: domestic.whereType<int>().length,
-      globalSuccesses: global.whereType<int>().length,
+      domesticSuccesses: domesticSuccesses,
+      globalSuccesses: globalSuccesses,
       domesticLatencyMs: _median(domestic),
       globalLatencyMs: _median(global),
       domesticTlsReachabilityVerified: domestic.whereType<int>().length >= 2,
@@ -342,7 +376,7 @@ class PilotNetworkProbe {
     );
     _lastAt = DateTime.now();
     _lastIdentity = identity;
-    dbg('PILOT-TLS-PROBE: domestic=${domestic.whereType<int>().length}/${domestic.length} '
+    dbg('PILOT-HTTP-TLS-PROBE: domestic=${domestic.whereType<int>().length}/${domestic.length} '
         'global=${global.whereType<int>().length}/${global.length} '
         'latencyDomestic=${_median(domestic)}ms latencyGlobal=${_median(global)}ms');
     return _last;
@@ -352,7 +386,27 @@ class PilotNetworkProbe {
     final watch = Stopwatch()..start();
     SecureSocket? socket;
     try {
-      socket = await SecureSocket.connect(host, 443, timeout: _timeout);
+      // A completed TLS handshake alone can overstate usable connectivity.
+      // Negotiate HTTP/1.1 explicitly and require a syntactically valid HTTP
+      // response line. 4xx/5xx still prove end-to-end reachability; they do not
+      // mean the target website is healthy, only that the route responded.
+      socket = await SecureSocket.connect(
+        host,
+        443,
+        timeout: _timeout,
+        supportedProtocols: const <String>['http/1.1'],
+      );
+      socket.write(buildPilotHttpHeadRequest(host));
+      await socket.flush().timeout(_timeout);
+      // SecureSocket emits Uint8List chunks while utf8.decoder accepts
+      // List<int>; cast the stream element type explicitly before decoding.
+      final statusLine = await socket
+          .cast<List<int>>()
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .first
+          .timeout(_timeout);
+      if (!isValidHttpResponseLine(statusLine)) return null;
       watch.stop();
       return watch.elapsedMilliseconds;
     } catch (_) {
@@ -362,10 +416,7 @@ class PilotNetworkProbe {
     }
   }
 
-  static int? _median(List<int?> values) {
-    final sorted = values.whereType<int>().toList()..sort();
-    return sorted.isEmpty ? null : sorted[sorted.length ~/ 2];
-  }
+  static int? _median(List<int?> values) => medianLatencyMs(values);
 
   static Future<String> _networkIdentity() async {
     try {
@@ -375,7 +426,9 @@ class PilotNetworkProbe {
           for (final address in item.addresses)
             '${item.name}=${address.address}',
       ]..sort();
-      return sha256.convert(utf8.encode(values.join(';'))).toString();
+      return sha256
+          .convert(utf8.encode(canonicalNetworkIdentity(values)))
+          .toString();
     } catch (_) {
       return '';
     }

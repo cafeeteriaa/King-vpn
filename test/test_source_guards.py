@@ -120,6 +120,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('for (final server in known)', domain_scan)
         self.assertNotIn('for (var p = 1; p < 65536; p++)', domain_scan)
 
+    def test_connect_loop_clears_per_server_learning_timer_on_every_early_return(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<bool> _connectLoop(')
+        begin = main.index('_nnieBeginAttempt(s);', start)
+        end = main.index('\n    return false;\n  }\n\n  // REAL speed test right after connecting', begin)
+        attempt = main[begin:end]
+        for exit_statement in ('return false;', 'continue;'):
+            for previous in attempt.split(exit_statement)[:-1]:
+                self.assertIn(
+                    '_nnieClearAttempt(s);',
+                    previous[-180:],
+                    'Every per-server exit after _nnieBeginAttempt must clear the attempt timer',
+                )
+
     def test_connect_path_uses_mode_aware_tunnel_probe(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn('networkAware: true', main)
@@ -623,6 +637,33 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('autoTuneNow()', tick)
 
 
+    def test_failover_busy_retry_has_no_finite_attempt_ceiling(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        policy = (ROOT / 'lib' / 'failover_retry_policy.dart').read_text(encoding='utf-8')
+        self.assertIn('Timer? _failoverRetryTimer;', main)
+        self.assertIn('nextFailoverRetryStage(_failoverRetries)', main)
+        self.assertIn('failoverBusyRetryDelay(_failoverRetries)', main)
+        self.assertNotIn('_failoverRetries < 30', main)
+        self.assertIn('if (mounted && wantVpn && !connected)', main)
+        self.assertIn('Timer(delay, () {', main)
+        self.assertIn('failoverBusyRetryDelay', policy)
+        self.assertIn('void _scheduleFailoverWake(Duration delay, String reason)', main)
+        self.assertIn("_scheduleFailoverWake(remaining, 'loop-cooldown')", main)
+        self.assertIn("_scheduleFailoverWake(failoverLoopCooldown, 'loop-breaker')", main)
+        self.assertIn('const Duration failoverLoopCooldown', policy)
+        network_policy = (ROOT / 'lib' / 'network_health.dart').read_text(encoding='utf-8')
+        self.assertIn('requiredProbeSuccessQuorum(attempted)', network_policy)
+        self.assertIn('final quotient = attempted ~/ 3;', network_policy)
+        self.assertIn('final remainder = attempted % 3;', network_policy)
+        self.assertIn('quotient * 2 + (remainder * 2 + 2) ~/ 3', network_policy)
+        self.assertNotIn('attempted.clamp(0, 3)', network_policy)
+        failover_start = main.index('Future<void> _failover()')
+        join_start = main.index('if (_uiJoinDone != null)', failover_start)
+        busy_start = main.index('if (busy)', join_start)
+        join_defer = main[join_start:busy_start]
+        self.assertIn('if (mounted && wantVpn && !connected && !switching)', join_defer)
+        self.assertNotIn('!busy', join_defer)
+
     def test_pilot_scanner_and_ip_ranges_are_isolated_from_general_scanners(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         pilot = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
@@ -630,7 +671,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('class PilotNetworkProbe', national)
         self.assertIn('domesticTargets', national)
         self.assertIn('globalTargets', national)
-        self.assertIn('SecureSocket.connect(host, 443', national)
+        self.assertIn('SecureSocket.connect(', national)
+        self.assertIn('host, 443,', national)
+        self.assertIn('.cast<List<int>>()', national)
+        self.assertIn('.transform(utf8.decoder)', national)
+        self.assertIn('socket.write(buildPilotHttpHeadRequest(host));', national)
         self.assertIn("command.contains('بازه') && command.contains('خلبان')", main)
         self.assertIn("command.contains('اسکن') && command.contains('خلبان')", main)
         self.assertNotIn("label: const Text('بازه‌های IP اختصاصی خلبان')", main)
@@ -1703,7 +1748,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         stop_guard = body.index('if (abort || !wantVpn) {', stop)
         ladder = body.index('final ladderOk = await _natLadder', null_branch)
         ladder_guard = body.index('if (abort || !wantVpn) {', ladder)
-        connected = body.index('if (!await _onConnected(s)) return false;', ladder)
+        connected = body.index('if (!await _onConnected(s)) { _nnieClearAttempt(s); return false; }', ladder)
         self.assertLess(stop, stop_guard)
         self.assertLess(stop_guard, ladder)
         self.assertLess(ladder, ladder_guard)
