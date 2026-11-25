@@ -1374,6 +1374,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('out.length >=', fetch_body)
         self.assertIn("out.add('$u\\t$t');", fetch_body)
 
+    def test_hot_source_refresh_merges_previous_inventory_without_replacing_on_empty_fetch(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('final newPath =')
+        end = source.index('} finally:', start)
+        body = source[start:end]
+        self.assertIn('final oldCachePath = _hotPath();', body)
+        self.assertIn('if (File(oldCachePath).existsSync()) oldCachePath,', body)
+        self.assertIn('if (!isOldCache) freshTotal++;', body)
+        self.assertIn('if (freshTotal > 0 && total > 0)', body)
+        self.assertNotIn('oldTotal ~/ 2', body)
+        self.assertIn("line.indexOf('\\t')", body)
+
     def test_hot_source_cursor_survives_restart_and_serializes_page_reads(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         self.assertIn("const String _hotCursorKey = 'nat_hot_cursor_v1';", source)
