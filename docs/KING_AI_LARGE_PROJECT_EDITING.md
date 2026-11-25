@@ -15,6 +15,7 @@ changes are represented as one coherent change set and one review-only pull requ
 - Documentation under `docs/` and root-level Markdown files can be included in project context; native VPN/service code, owner/security policy, CI, and dependency manifests remain protected.
 - Owner-requested feature proposals and CI repair changes have no two-file quota. The separate autonomous background maintenance audit intentionally retains its two-file safety boundary and review-only behavior.
 - Pull-request creation accepts the complete validated change map.
+- Owner task descriptions have no fixed character ceiling; they are passed intact. If the task plus a source batch exceeds the actual model context, inference must fail visibly rather than truncate the request.
 - Source prompts are no longer silently truncated at 18 KB; incomplete context must not
   be passed off as complete context.
 - The owner-authenticated coding engine may update its own implementation. Owner

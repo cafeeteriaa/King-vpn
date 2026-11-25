@@ -122,6 +122,11 @@ class LargeProjectEditingGuards(unittest.TestCase):
         self.assertIn("size/CRC mismatch", importer)
         self.assertIn("Encrypted ZIP entry rejected", importer)
 
+    def test_owner_task_descriptions_have_no_fixed_character_ceiling(self):
+        self.assertNotIn("request.length > 2000", self.source)
+        self.assertIn("final request = task.trim();", self.source)
+        self.assertNotIn("task.substring", self.source)
+
 
 if __name__ == "__main__":
     unittest.main()
