@@ -272,6 +272,17 @@ void main() {
       expect(events, isEmpty);
     });
 
+    test('rejects unsafe adapter identifiers before exposing registry data', () {
+      final events = <String>[];
+      final unsafe = _FakeAdapter('xray\\nprivate-secret', events);
+
+      expect(
+        () => KingFusionEngine([unsafe]),
+        throwsArgumentError,
+      );
+      expect(events, isEmpty);
+    });
+
     test('rejects non-positive native and verifier timeouts', () {
       final events = <String>[];
       final adapter = _FakeAdapter('first', events);
