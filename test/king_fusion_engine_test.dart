@@ -297,19 +297,16 @@ void main() {
       final adapterEvents = <String>[];
       final adapter = _FakeAdapter('first', adapterEvents);
       late final KingFusionEngine engine;
-      KingFusionResult? reentrantConnectResult;
+      Future<KingFusionResult>? reentrantConnect;
       engine = KingFusionEngine(
         [adapter],
         onEvent: (event) {
           if (event.type == KingFusionEventType.disconnectRequested) {
-            reentrantConnectResult ??= null;
             // The observer runs synchronously while the disconnect operation
             // is already published but before native cleanup starts.
-            unawaited(engine.connect(KingFusionPlan([
+            reentrantConnect ??= engine.connect(KingFusionPlan([
               const KingFusionHop(engineId: 'first', configuration: 'racing'),
-            ])).then((result) {
-              reentrantConnectResult = result;
-            }));
+            ]));
           }
         },
       );
@@ -320,9 +317,10 @@ void main() {
       expect(connected.connected, isTrue);
 
       await engine.disconnect();
+      final attemptedConnection = await reentrantConnect;
 
-      expect(reentrantConnectResult?.connected, isFalse);
-      expect(reentrantConnectResult?.failureCode, 'E-FUSION-DISCONNECT-PENDING');
+      expect(attemptedConnection?.connected, isFalse);
+      expect(attemptedConnection?.failureCode, 'E-FUSION-DISCONNECT-PENDING');
       expect(adapterEvents.where((event) => event.startsWith('start:')).length, 1);
       expect(adapterEvents.where((event) => event.startsWith('stop:')).length, 1);
       expect(engine.state, KingFusionState.idle);
