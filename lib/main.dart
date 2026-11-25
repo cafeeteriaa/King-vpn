@@ -5737,18 +5737,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _capMap(natWinCount, 2000);
     _capMap(slowStrikes, 500);
     _capMap(_cfgDumpAt, 3000);
-    while (natScanHits.length > 20000) {
-      natScanHits.remove(natScanHits.first);
-    }
-    while (natGood.length > 50000) {
-      natGood.remove(natGood.first);
-    }
-    while (natSubstSearched.length > 5000) {
-      natSubstSearched.remove(natSubstSearched.first);
-    }
-    while (natIpDeadRun.length > 10000) {
-      natIpDeadRun.remove(natIpDeadRun.first);
-    }
+    // Scan observations, good endpoints, substitution history and failed-run
+    // markers are complete inventories; do not evict their tails by fixed count.
     if (_dohCache.length > 5000) {
       final keys = _dohCache.keys.take(1000).toList();
       for (final k in keys) {
@@ -9033,10 +9023,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           natVarSet(s, v);
         } else {
           // NORMALCACHE: برای اتصال بعدی هم به خاطر بسپار
-          if (natVarNormal.length > 3000) {
-            natVarNormal.remove(natVarNormal.keys.first);
-          }
-          // NORMALKEY: keyed by s.key only so the cache survives operator
+                    // NORMALKEY: keyed by s.key only so the cache survives operator
           // changes and restarts (natOpKey is 'x' at startup).
           natVarNormal[s.key] = v;
           natSaveSoon(); // NORMALCACHE: پایدار کن
@@ -10782,7 +10769,7 @@ ListTile( // KINGEXTRAS row
         for (final s in [...pending, ...natRestPending]) '${s.host}|${s.port}'
       };
       final items = <String>[];
-      for (final e in natIpMem.take(40)) {
+      for (final e in natIpMem) {
         final ip = '${e['ip']}';
         final port = (e['port'] as num?)?.toInt() ?? 0;
         if (InternetAddress.tryParse(ip) == null || port <= 0) continue;
@@ -10792,7 +10779,7 @@ ListTile( // KINGEXTRAS row
       }
       if (items.isEmpty) return;
       if (natTemplateSeeds.isEmpty) {
-        natTemplateSeeds = await natHotNext(2, fetch: false);
+        natTemplateSeeds = await natHotNext(null, fetch: false);
       }
       final before = pending.length;
       await _natRangeAdd(items, count: false);
@@ -10809,7 +10796,7 @@ ListTile( // KINGEXTRAS row
     for (final it in items) {
       natScanHits.add(it.split('|')[0]);
     }
-    final tpl = [...pending, ...natRestPending, ...natTemplateSeeds, ...good].take(2).toList();
+    final tpl = [...pending, ...natRestPending, ...natTemplateSeeds, ...good];
     if (tpl.isEmpty) {
       dbg('V8: no template - skipping');
       return;
@@ -11862,10 +11849,10 @@ ListTile( // KINGEXTRAS row
           if (pending.isEmpty) {
             try {
               final goldIps = goldIpList();
-              final tpl = [...good, ...natTemplateSeeds].take(2).toList();
+              final tpl = [...good, ...natTemplateSeeds];
               if (goldIps.isNotEmpty && tpl.isNotEmpty) {
                 final made = <Server>[];
-                for (final gip in goldIps.take(20)) {
+                for (final gip in goldIps) {
                   for (final t in tpl) {
                     try {
                       made.add(Server(
