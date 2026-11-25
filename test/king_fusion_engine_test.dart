@@ -262,6 +262,34 @@ void main() {
       expect(engine.snapshot.state, KingFusionState.idle);
     });
 
+    test('event listener can request disconnect reentrantly after native start', () async {
+      final adapterEvents = <String>[];
+      final adapter = _FakeAdapter('first', adapterEvents);
+      late KingFusionEngine engine;
+      Future<void>? disconnectFuture;
+      engine = KingFusionEngine(
+        [adapter],
+        onEvent: (event) {
+          if (event.type == KingFusionEventType.hopStarted) {
+            disconnectFuture ??= engine.disconnect();
+          }
+        },
+      );
+
+      final result = await engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'first', configuration: 'cfg'),
+      ]));
+      await disconnectFuture;
+
+      expect(result.connected, isFalse);
+      expect(result.failureCode, 'E-FUSION-CANCELLED');
+      expect(adapterEvents.where((event) => event.startsWith('stop:first:')).length, 1);
+      expect(engine.snapshot.state, KingFusionState.idle);
+      expect(engine.snapshot.activeEngineIds, isEmpty);
+      expect(engine.isBusy, isFalse);
+      expect(engine.snapshot.disconnectRequested, isFalse);
+    });
+
     test('event listener exceptions cannot interrupt native lifecycle', () async {
       final adapterEvents = <String>[];
       final adapter = _FakeAdapter('first', adapterEvents);
