@@ -275,10 +275,17 @@ class KingFusionEngine {
         startedHops: 0,
       );
     }
-    if (_active.isNotEmpty || state == KingFusionState.connected) {
+    if (state == KingFusionState.connected) {
       return const KingFusionResult.failure(
         failedEngineId: null,
         failureCode: 'E-FUSION-ALREADY-ACTIVE',
+        startedHops: 0,
+      );
+    }
+    if (_active.isNotEmpty) {
+      return const KingFusionResult.failure(
+        failedEngineId: null,
+        failureCode: 'E-FUSION-CLEANUP-PENDING',
         startedHops: 0,
       );
     }
