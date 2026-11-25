@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -11,10 +12,28 @@ import 'package:path_provider/path_provider.dart';
 class FreshResourceStore {
   FreshResourceStore._();
 
-  static const int maxEntries = 20000;
+  static Future<void> _writeTail = Future<void>.value();
   static const String directoryName = 'KingVPN/ResourcesFresh';
   static const String _configFileName = 'configs.txt';
   static const String _metadataFileName = 'metadata.json';
+
+  /// Serialize mutations so overlapping refreshes cannot overwrite one another.
+  static Future<T> _serializeWrite<T>(Future<T> Function() action) {
+    final completer = Completer<T>();
+    final previous = _writeTail;
+    _writeTail = completer.future.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace __) {},
+    );
+    previous.then((_) async {
+      try {
+        completer.complete(await action());
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
 
   static Future<Directory> directory() async {
     final root = await getApplicationSupportDirectory();
@@ -53,7 +72,6 @@ class FreshResourceStore {
       if (link == null) continue;
       final key = link.toLowerCase();
       if (seen.add(key)) result.add(link);
-      if (result.length >= maxEntries) break;
     }
     return result;
   }
@@ -70,34 +88,49 @@ class FreshResourceStore {
 
   /// Replaces the snapshot atomically, so an interrupted write keeps the
   /// previous usable resource file intact.
-  static Future<int> saveSnapshot(
+  static Future<int> _saveSnapshotUnlocked(
     Iterable<String> links, {
-    String source = 'online',
+    required String source,
   }) async {
     final normalized = normalizeLinks(links);
-    final file = await _configFile();
+    final dir = await directory();
+    final file = File('${dir.path}/$_configFileName');
     final temp = File('${file.path}.tmp');
     await temp.writeAsString(
       normalized.join('\n') + (normalized.isEmpty ? '' : '\n'),
       flush: true,
     );
-    if (await file.exists()) await file.delete();
+    // Rename the completed temp file over the previous snapshot. Do not
+    // delete the old file first: a failed rename must leave it readable.
     await temp.rename(file.path);
-    final metadata = File('${(await directory()).path}/$_metadataFileName');
-    await metadata.writeAsString(jsonEncode(<String, Object>{
+    final metadata = File('${dir.path}/$_metadataFileName');
+    final metadataTemp = File('${metadata.path}.tmp');
+    await metadataTemp.writeAsString(jsonEncode(<String, Object>{
       'schema': 1,
       'source': source,
       'count': normalized.length,
       'updatedAt': DateTime.now().toUtc().toIso8601String(),
     }), flush: true);
+    await metadataTemp.rename(metadata.path);
     return normalized.length;
   }
 
-  /// Merges newly discovered links with the existing offline cache.
-  static Future<int> merge(Iterable<String> links, {String source = 'online'}) async {
-    final old = await readLinks();
-    return saveSnapshot(<String>[...old, ...links], source: source);
-  }
+  static Future<int> saveSnapshot(
+    Iterable<String> links, {
+    String source = 'online',
+  }) => _serializeWrite(
+        () => _saveSnapshotUnlocked(links, source: source),
+      );
+
+  /// Merges newly discovered links with the existing offline cache under the
+  /// same write lock, preventing two concurrent refreshes from losing updates.
+  static Future<int> merge(
+    Iterable<String> links, {
+    String source = 'online',
+  }) => _serializeWrite(() async {
+        final old = await readLinks();
+        return _saveSnapshotUnlocked(<String>[...old, ...links], source: source);
+      });
 
   static Future<Map<String, Object?>> metadata() async {
     try {
@@ -109,10 +142,11 @@ class FreshResourceStore {
     return <String, Object?>{};
   }
 
-  static Future<void> clear() async {
-    final file = await _configFile();
-    if (await file.exists()) await file.delete();
-    final metadata = File('${(await directory()).path}/$_metadataFileName');
-    if (await metadata.exists()) await metadata.delete();
-  }
+  static Future<void> clear() => _serializeWrite(() async {
+        final dir = await directory();
+        final file = File('${dir.path}/$_configFileName');
+        final metadata = File('${dir.path}/$_metadataFileName');
+        if (await file.exists()) await file.delete();
+        if (await metadata.exists()) await metadata.delete();
+      });
 }
