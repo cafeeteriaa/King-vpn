@@ -1487,6 +1487,17 @@ void main() {
       expect(engine.snapshot.activeEngineIds, isEmpty);
     });
 
+    test('rejects duplicate registration of the same adapter instance by identity', () {
+      final adapter = _ChangingDescriptorAdapter();
+
+      expect(
+        () => KingFusionEngine([adapter, adapter]),
+        throwsA(isA<ArgumentError>()),
+      );
+      // The second occurrence is rejected before another descriptor read.
+      expect(adapter.descriptorReads, 1);
+    });
+
     test('reads each adapter descriptor once for a coherent registry snapshot', () async {
       final adapter = _ChangingDescriptorAdapter();
       final engine = KingFusionEngine([adapter]);
