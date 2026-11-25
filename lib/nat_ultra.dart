@@ -2759,33 +2759,56 @@ List<String> natHotUrls() {
   ];
 }
 
-// Parse source responses incrementally into their per-source disk files.
+// Stream ordinary text responses to disk instead of retaining the full body.
 Future<int> _hotFetchOne(String u, String path) async {
+  final spool = File('$path.download');
   try {
-    final r = await getListMirror(u);
-    if (r.statusCode != 200) return 0;
-    var body = r.body.trim();
-    if (body.contains('<html') || body.contains('<!DOCTYPE')) {
-      final html = body.replaceAll('&amp;', '&');
-      final lines = _linkRe.allMatches(html).map((m) => m.group(0)!);
-      return await _hotWriteSourceLines(u, path, lines);
+    final response = await getListMirrorStream(u);
+    if (response.statusCode != 200) return 0;
+    final sink = spool.openWrite();
+    try {
+      await response.stream.pipe(sink);
+    } finally {
+      await sink.flush();
+      await sink.close();
     }
-    if (!body.contains('://')) {
-      if (!RegExp(r'^[A-Za-z0-9+/=_\-\s]+$').hasMatch(body)) return 0;
-      try {
-        body = utf8.decode(
-          base64.decode(base64.normalize(body.replaceAll(RegExp(r'\s'), ''))),
-          allowMalformed: true,
-        );
-      } catch (e, st) {
-        errJournalAdd(e, st: st);
-        return 0;
-      }
+    final size = await spool.length();
+    if (size == 0) return 0;
+    final prefix = await spool.openRead(0, size < 4096 ? size : 4096)
+        .transform(utf8.decoder)
+        .join();
+    if (prefix.contains('<html') || prefix.contains('<!DOCTYPE')) {
+      // Preserve HTML-link extraction; this compatibility path is disk-spooled.
+      final html = (await spool.readAsString()).replaceAll('&amp;', '&');
+      return await _hotWriteSourceLines(
+          u, path, _linkRe.allMatches(html).map((m) => m.group(0)!));
     }
-    return await _hotWriteSourceLines(u, path, const LineSplitter().split(body));
+    if (prefix.contains('://')) {
+      return await _hotWriteSourceLines(
+        u,
+        path,
+        spool.openRead().transform(utf8.decoder).transform(const LineSplitter()),
+      );
+    }
+    // Keep base64 compatibility isolated; the common plain-text path above
+    // remains streaming from the network spool into the per-source file.
+    final body = (await spool.readAsString()).trim();
+    if (!RegExp(r'^[A-Za-z0-9+/=_\-\s]+$').hasMatch(body)) return 0;
+    final decoded = utf8.decode(
+      base64.decode(base64.normalize(body.replaceAll(RegExp(r'\s'), ''))),
+      allowMalformed: true,
+    );
+    return await _hotWriteSourceLines(
+        u, path, const LineSplitter().convert(decoded));
   } catch (e, stk) {
     logError(e, stk);
     return 0;
+  } finally {
+    try {
+      if (await spool.exists()) await spool.delete();
+    } catch (e, st) {
+      errJournalAdd(e, st: st, kind: 'SILENT-FILE');
+    }
   }
 }
 
