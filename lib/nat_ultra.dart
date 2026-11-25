@@ -2232,18 +2232,19 @@ Future<List<String>> natDeviceHosts() async {
 }
 
 List<String> natSeedBlocks(List<String> hosts) {
-  // Saved endpoint IPs authorize probes of those exact addresses only.
-  // Broader CIDRs must come from the operator's explicit configured ranges.
-  // Keep both address families without inferring neighboring hosts or subnets.
+  // Seed discovered IPv4 hosts with their /24 and IPv6 hosts with exact /128s.
+  // Do not infer an enormous neighbouring IPv6 /64 from one endpoint.
   final out = <String>{};
   for (final host in hosts) {
     final parsed = InternetAddress.tryParse(host.trim());
     if (parsed == null) continue;
-    if (parsed.type == InternetAddressType.IPv4 ||
-        parsed.type == InternetAddressType.IPv6) {
-      final prefix = parsed.type == InternetAddressType.IPv4 ? 32 : 128;
-      out.add('${parsed.address}/$prefix');
+    if (parsed.type == InternetAddressType.IPv6) {
+      out.add('${parsed.address}/128');
+      continue;
     }
+    if (parsed.type != InternetAddressType.IPv4) continue;
+    final octets = parsed.address.split('.');
+    out.add('${octets[0]}.${octets[1]}.${octets[2]}.0/24');
   }
   return out.toList()..sort();
 }
