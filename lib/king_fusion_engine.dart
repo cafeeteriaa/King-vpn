@@ -45,9 +45,18 @@ class KingFusionHop {
 
 class KingFusionPlan {
   final List<KingFusionHop> hops;
+  /// Require a real data-plane probe after every native hop has started.
+  final bool requireTrafficVerification;
 
-  KingFusionPlan(Iterable<KingFusionHop> hops)
-      : hops = List<KingFusionHop>.unmodifiable(hops);
+  KingFusionPlan(
+    Iterable<KingFusionHop> hops, {
+    this.requireTrafficVerification = false,
+  }) : hops = List<KingFusionHop>.unmodifiable(hops);
+}
+
+/// Verifies traffic through the resulting route, not merely native start state.
+abstract interface class KingFusionTrafficVerifier {
+  Future<bool> verify(KingFusionPlan plan);
 }
 
 class KingEngineStartResult {
@@ -128,6 +137,8 @@ class KingFusionResult {
 /// later hop fails, previously started hops are stopped in reverse order.
 class KingFusionEngine {
   final Map<String, KingEngineAdapter> _adapters;
+  final KingFusionTrafficVerifier? _trafficVerifier;
+  final Duration trafficVerificationTimeout;
   final List<({KingEngineAdapter adapter, Object? handle})> _active = [];
 
   KingFusionState state = KingFusionState.idle;
@@ -135,8 +146,20 @@ class KingFusionEngine {
   bool _disconnectRequested = false;
   Completer<void>? _operationDone;
 
-  KingFusionEngine(Iterable<KingEngineAdapter> adapters)
-      : _adapters = _indexAdapters(adapters);
+  KingFusionEngine(
+    Iterable<KingEngineAdapter> adapters, {
+    KingFusionTrafficVerifier? trafficVerifier,
+    this.trafficVerificationTimeout = const Duration(seconds: 12),
+  })  : _adapters = _indexAdapters(adapters),
+        _trafficVerifier = trafficVerifier {
+    if (trafficVerificationTimeout <= Duration.zero) {
+      throw ArgumentError.value(
+        trafficVerificationTimeout,
+        'trafficVerificationTimeout',
+        'Must be positive',
+      );
+    }
+  }
 
   static Map<String, KingEngineAdapter> _indexAdapters(
     Iterable<KingEngineAdapter> adapters,
@@ -251,6 +274,34 @@ class KingFusionEngine {
           );
         }
       }
+      if (plan.requireTrafficVerification) {
+        final verifier = _trafficVerifier;
+        if (verifier == null) {
+          final startedCount = _active.length;
+          final cleanupFailures = await _rollback();
+          state = KingFusionState.failed;
+          return KingFusionResult.failure(
+            failedEngineId: null,
+            failureCode: 'E-FUSION-VERIFIER-MISSING',
+            startedHops: startedCount,
+            cleanupFailedEngineIds: cleanupFailures,
+          );
+        }
+        final verified = await verifier
+            .verify(plan)
+            .timeout(trafficVerificationTimeout);
+        if (!verified) {
+          final startedCount = _active.length;
+          final cleanupFailures = await _rollback();
+          state = KingFusionState.failed;
+          return KingFusionResult.failure(
+            failedEngineId: null,
+            failureCode: 'E-FUSION-TRAFFIC-UNVERIFIED',
+            startedHops: startedCount,
+            cleanupFailedEngineIds: cleanupFailures,
+          );
+        }
+      }
       state = KingFusionState.connected;
       return KingFusionResult.success(_active.length);
     } catch (_) {
@@ -275,6 +326,9 @@ class KingFusionEngine {
 
   (String, String)? _validate(KingFusionPlan plan) {
     if (plan.hops.isEmpty) return ('', 'E-FUSION-EMPTY-PLAN');
+    if (plan.requireTrafficVerification && _trafficVerifier == null) {
+      return ('', 'E-FUSION-VERIFIER-MISSING');
+    }
     final seen = <String>{};
     final resolved = <KingEngineAdapter>[];
     for (final hop in plan.hops) {
