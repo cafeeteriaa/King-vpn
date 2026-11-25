@@ -4087,5 +4087,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('...dnsxFullDomains()', auto)
 
 
+    def test_auto_scan_progress_uses_one_atomic_multi_inventory_checkpoint(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        tests = (ROOT / 'test' / 'auto_scan_checkpoint_test.dart').read_text(encoding='utf-8')
+        self.assertIn("const String _autoScanCheckpointKey = 'auto_scan_checkpoint_v2';", source)
+        self.assertIn('kingDecodeAutoScanCheckpoint(', source)
+        self.assertIn('kingEncodeAutoScanCheckpoint(', source)
+        self.assertIn('final checkpointSaved = await prefs.setString(', source)
+        self.assertIn('_autoScanCheckpointKey,', source)
+        self.assertNotIn('await prefs.setString(_autoScanCdnCursorKey', source)
+        self.assertNotIn('await prefs.setString(_autoScanDomainCursorKey', source)
+        self.assertNotIn('await prefs.setInt(_autoScanPortCursorKey', source)
+        self.assertIn('migrates legacy cursor keys', tests)
+        self.assertIn('valid empty v2 cursor', tests)
+        self.assertIn('corrupt v2 state falls back', tests)
+
 if __name__ == '__main__':
     unittest.main()
