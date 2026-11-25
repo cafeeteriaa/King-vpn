@@ -410,7 +410,7 @@ extension HomeExtras on _HomePageState {
   Future<void> importSubscription(BuildContext ctx, String url) async {
     Navigator.pop(ctx);
     _set('دریافت اشتراک...');
-    final list = (await fetchSubscription(url)).take(300).toList();
+    final list = await fetchSubscription(url);
     if (!mounted) return;
     if (list.isEmpty) {
       _set('اشتراک خالی بود یا دریافت نشد');
@@ -2808,8 +2808,7 @@ final List<NumOpt> numOpts = [
   NumOpt('tcpTimeout', 'تایم‌اوت TCP (دهم ثانیه)', 1, 300, 35, 300, true,
       () => tcpTimeout.inMilliseconds ~/ 100,
       (v) => tcpTimeout = Duration(milliseconds: v * 100)),
-  NumOpt('maxPerSource', 'حداکثر سرور از هر منبع', 1, 500, 120, 500, true,
-      () => maxPerSource, (v) => maxPerSource = v),
+  // Full source ingestion is exhaustive; no per-source count preference is exposed.
   NumOpt('fetchWorkers', 'دانلود همزمان لیست‌ها', 1, 20, 8, 20, true,
       () => fetchWorkers, (v) => fetchWorkers = v),
   NumOpt('fetchDeadline', 'مهلت دانلود لیست‌ها (ثانیه)', 5, 120, 45, 120, true,
