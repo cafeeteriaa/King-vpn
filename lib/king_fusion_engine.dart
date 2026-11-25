@@ -625,7 +625,6 @@ class KingFusionEngine {
               cleanupFailedEngineIds: cleanupFailures,
             );
           }
-          final startedCount = _active.length;
           final cleanupFailures = await _rollback();
           _setState(KingFusionState.failed);
           return KingFusionResult.failure(
