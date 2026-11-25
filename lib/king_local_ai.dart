@@ -1084,7 +1084,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     if (changes.isEmpty) throw ArgumentError('No imported project changes supplied.');
     final inventory = await inspectImportedProject(workspacePath);
     if (inventory['snapshotHash'] != expectedSnapshotHash) {
-      throw const StateError('Imported project changed after proposal generation; create a fresh proposal.');
+      throw StateError('Imported project changed after proposal generation; create a fresh proposal.');
     }
     final root = inventory['workspacePath'] as String;
     final originals = inventory['sourceFiles'] as Map<String, String>;
