@@ -151,6 +151,7 @@ class KingAiProviderOrchestrator {
       await _secure.write(key: 'king_ai_external_processing_enabled', value: 'true');
     } else {
       await _secure.delete(key: 'king_ai_external_processing_enabled');
+      await _secure.delete(key: 'king_ai_external_code_review_enabled');
     }
   }
 
