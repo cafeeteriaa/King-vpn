@@ -4053,5 +4053,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Every source configuration', scanner)
         self.assertIn('retains every matching configuration', tests)
 
+
+    def test_dns_hostname_inventory_rejects_ip_literals_and_invalid_labels(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        normalizer = (ROOT / 'lib' / 'king_domain_inventory.dart').read_text(encoding='utf-8')
+        tests = (ROOT / 'test' / 'king_domain_inventory_test.dart').read_text(encoding='utf-8')
+        self.assertIn("import 'king_domain_inventory.dart';", main)
+        self.assertIn('kingNormalizeDomainHosts(src)', dns)
+        self.assertIn('InternetAddress.tryParse(host) != null', normalizer)
+        self.assertIn('label.length > 63', normalizer)
+        self.assertIn('host.length > 253', normalizer)
+        self.assertIn('keeps IPv4 and IPv6 relay literals out', tests)
+
+
 if __name__ == '__main__':
     unittest.main()
