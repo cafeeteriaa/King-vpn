@@ -4024,6 +4024,24 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("await temporary.rename(target.path);", ultra)
 
 
+    def test_nat_large_plain_text_sources_use_streamed_mirror_transport(self):
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        mirrors = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        start = ultra.index('Future<int> _hotFetchOne(')
+        end = ultra.index('Future<int> _hotWriteSourceLines(', start)
+        fetch = ultra[start:end]
+        self.assertIn('getListMirrorStream(u)', fetch)
+        self.assertIn('await for (final chunk in response.stream)', fetch)
+        self.assertIn('spool.openRead().transform(utf8.decoder)', fetch)
+        self.assertNotIn('getListMirror(u)', fetch)
+        self.assertNotIn('response.body', fetch)
+        self.assertIn('Future<http.StreamedResponse> getListMirrorStream(String u)', mirrors)
+        self.assertIn('client.send(request)', mirrors)
+        self.assertIn('response.stream', mirrors)
+        self.assertIn("timeout(const Duration(seconds: 10))", mirrors)
+        self.assertIn('client.close()', mirrors)
+
+
     def test_king_ai_multimodel_provider_keys_are_secure_and_cloud_use_is_opt_in(self):
         provider = (ROOT / 'lib' / 'king_ai_provider_orchestrator.dart').read_text(encoding='utf-8')
         settings = (ROOT / 'lib' / 'king_ai_provider_settings.dart').read_text(encoding='utf-8')
