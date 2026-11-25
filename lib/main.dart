@@ -17541,7 +17541,10 @@ extension ProjectNatSweep on _HomePageState {
   // فقط IP‌هایی که ترافیک تونل (google و youtube) بدهند نگه داشته می‌شوند (حداکثر ۱۰ تا).
   // IPSWEEP: IP‌های باز را روی همه‌ی پورت‌های CDN (_natCfPorts) پیدا می‌کند، سپس هر جفت IP:پورت
   // را با اتصال واقعی و بررسی تونل (google و youtube) می‌سنجد. فقط جفت‌های ترافیک‌دار نگه داشته می‌شوند.
-  Future<List<CleanIp>> _atIpSweep(List<Server> pool, Duration budget) async {
+  Future<List<CleanIp>> _atIpSweep(List<Server> pool, Duration budget) =>
+      natWithSharedRangeCursorLock(() => _atIpSweepUnlocked(pool, budget));
+
+  Future<List<CleanIp>> _atIpSweepUnlocked(List<Server> pool, Duration budget) async {
     Server? server;
     for (final x in pool) {
       if (_natCdnNets.contains(x.net)) {
