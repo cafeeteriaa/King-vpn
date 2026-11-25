@@ -3469,6 +3469,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         probe = source[start:end]
         self.assertIn('status < 100 || status > 599', probe)
         self.assertNotIn('status >= 400', probe)
+        self.assertNotIn('onBadCertificate', probe)
+
+    def test_diagnostic_and_cdn_tls_probes_require_valid_certificates(self):
+        diag = (ROOT / 'lib' / 'net_diag.dart').read_text(encoding='utf-8')
+        start = diag.index('Future<_DiagItem> _diagTls(')
+        end = diag.index('Future<String> netDiagnose()', start)
+        self.assertNotIn('onBadCertificate', diag[start:end])
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        start = extras.index('Future<int?> _cfProbeMs(')
+        end = extras.index('Socket? h;', start)
+        self.assertNotIn('onBadCertificate', extras[start:end])
 
     def test_proxy_only_mode_cannot_pass_the_vpn_tunnel_acceptance_gate(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
