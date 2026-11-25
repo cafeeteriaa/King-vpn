@@ -117,6 +117,7 @@ void main() {
 
       expect(first.items, values.sublist(0, 100));
       expect(first.hasMore, isTrue);
+      expect(first.totalCount, 257);
       expect(second.items, values.sublist(100, 200));
       expect(second.hasMore, isTrue);
       expect(third.items, values.sublist(200, 257));
@@ -205,6 +206,24 @@ void main() {
       final indexFile = File('$path/configs.txt.idx');
       expect(await indexFile.exists(), isTrue);
       expect(await indexFile.length(), greaterThan(36));
+    });
+
+    test('indexes CRLF snapshots and skips invalid legacy lines correctly', () async {
+      final path = await FreshResourceStore.storagePath;
+      final snapshot = File('$path/configs.txt');
+      final expected = List<String>.generate(
+        300,
+        (index) => 'vless://legacy$index@example.com:443',
+      );
+      final buffer = StringBuffer();
+      for (final link in expected) {
+        buffer.write('not-a-config\\r\\n$link\\r\\n');
+      }
+      await snapshot.writeAsString(buffer.toString(), flush: true);
+
+      final page = await FreshResourceStore.readPage(offset: 260, limit: 25);
+      expect(page.items, expected.sublist(260, 285));
+      expect(page.totalCount, expected.length);
     });
 
     test('rebuilds a truncated or corrupt offset index from the snapshot', () async {
