@@ -185,8 +185,12 @@ Future<List<String>> nipIranCidrs() async {
 String? nipSwapLink(Server t, String ip) {
   final l = t.link;
   final lower = l.toLowerCase();
-  if (lower.startsWith('ss://')) return null;
   try {
+    if (lower.startsWith('ss://')) {
+      final swapped = _natSetHost(l, ip, t.host);
+      final parsed = Server.parse(swapped);
+      return parsed != null && parsed.host == ip ? swapped : null;
+    }
     if (lower.startsWith('vmess://')) {
       var b = natB64Normalize(l.substring(8));
       final j = jsonDecode(utf8.decode(base64.decode(b)));
@@ -264,7 +268,7 @@ Future<String?> nipResolve(String host) async {
 
 /// بلوک‌های هاست یک IP را برای نت ملی ذخیره می‌کند (کلید: IP).
 Future<void> natPrefetchAsn(List<Server> list) async {
-  final hosts = list.where((server) => !server.cdn).toList(growable: false);
+  final hosts = list.toList(growable: false);
   final ips = <String>{};
   for (var offset = 0; offset < hosts.length; offset += 8) {
     final batch = hosts.skip(offset).take(8);
@@ -508,20 +512,27 @@ extension NipHunt on _HomePageState {
   /// موفق‌ها ذخیره می‌شوند تا دفعه‌ی بعد اول امتحان شوند.
   Future<bool> _natIpHunt() async {
     if (!nationalMode || connected || abort) return false;
-    final sourceServers = <Server>[...good, ...pending];
+    final sourceServers = <Server>[
+      ...good,
+      ...pending,
+      ...natRestPending,
+      ...natTemplateSeeds,
+      ...fetchedAll,
+    ];
     final seenLinks = sourceServers.map((server) => server.link).toSet();
     for (final entry in _resMap.values) {
       if (seenLinks.add(entry.link)) sourceServers.add(entry.s);
     }
     final uniqueTemplates = <String, Server>{};
     for (final server in sourceServers) {
-      if (server.link.toLowerCase().startsWith('ss://')) continue;
-      uniqueTemplates.putIfAbsent(server.host, () => server);
+      uniqueTemplates.putIfAbsent(server.link, () => server);
     }
     final templateInventory = uniqueTemplates.values.toList()
       ..sort((a, b) {
         final hostOrder = a.host.compareTo(b.host);
-        return hostOrder != 0 ? hostOrder : a.link.compareTo(b.link);
+        if (hostOrder != 0) return hostOrder;
+        final portOrder = a.port.compareTo(b.port);
+        return portOrder != 0 ? portOrder : a.link.compareTo(b.link);
       });
     if (templateInventory.isEmpty) {
       _set('برای جستجوی IP سرور نمونه نداریم؛ یک بار با سرورهای پوشه وصل شو');
