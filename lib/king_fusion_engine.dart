@@ -365,10 +365,15 @@ class KingFusionEngine {
       List<KingEngineDescriptor>.unmodifiable(_descriptors.values);
 
   /// Adapter IDs still tracked because native cleanup has not succeeded.
-  List<String> get cleanupPendingEngineIds =>
-      List<String>.unmodifiable(
-        _active.map((item) => _idByAdapter[item.adapter]!),
-      );
+  List<String> get cleanupPendingEngineIds {
+    // Active handles are not cleanup failures while the route is healthy or
+    // while a normal disconnect is still in progress. Expose only retained
+    // handles after rollback has completed with a failure.
+    if (_state != KingFusionState.failed) return const <String>[];
+    return List<String>.unmodifiable(
+      _active.map((item) => _idByAdapter[item.adapter]!),
+    );
+  }
 
   bool get isBusy => _busy;
 
