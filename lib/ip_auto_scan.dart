@@ -224,12 +224,9 @@ extension IpAutoExt on _HomePageState {
       final p = await SharedPreferences.getInstance();
       if (_ipAutoHalt(modeSnapshot: runNationalMode)) return;
 
-      final last = int.tryParse(p.getString(_ipAutoAtKey) ?? '') ?? 0;
       final now = DateTime.now().millisecondsSinceEpoch;
-      // اگر هنوز IP سالمی پیدا نشده، زودتر دوباره امتحان می‌شود (۶ ساعت)؛ وگرنه هر ۲۴ ساعت
-      final gapMs = ipAutoHits.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
-      if (now - last < gapMs) return;
-
+      // No fixed retry interval: each scheduler invocation resumes the next
+      // persisted inventory slice after the previous run releases its locks.
       final completed = await _ipAutoRunOnce((s) => ipAutoStatus = s);
       // Failed, cancelled, or mode-switched scans must not consume the retry interval.
       if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode)) {
