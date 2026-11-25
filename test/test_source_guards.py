@@ -3223,7 +3223,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
         scan_start = nip.index('Future<bool> _natTryScan(')
         scan = nip[scan_start:]
-        self.assertIn('want: ips.length,', scan)
+        self.assertIn('const ipBatchSize = 256;', scan)
+        self.assertIn('want: scanBatch.length,', scan)
+        self.assertIn('while (completed < scanBatch.length)', scan)
+        self.assertIn('onProgress: (done, total) {', scan)
+        self.assertIn('completed = done;', scan)
         self.assertIn('for (var offset = 0; offset < hits.length; offset += 8)', scan)
         self.assertIn('_connectLoop(candidates, trust: false)', scan)
         self.assertIn('final winner = current;', scan)
