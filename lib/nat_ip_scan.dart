@@ -138,6 +138,15 @@ Map<String, List<T>> natIndexEndpointTemplates<T>({
 }) {
   final result = <String, List<T>>{};
   final seenByPair = <String, Set<String>>{};
+  final normalizedScope = addressScope == null
+      ? null
+      : <String>{
+          for (final raw in addressScope)
+            if (InternetAddress.tryParse(raw.trim()) case final parsed?
+                when parsed.type == InternetAddressType.IPv4 ||
+                    parsed.type == InternetAddressType.IPv6)
+              parsed.address,
+        };
   for (final source in sources) {
     if (source.port < 1 || source.port > 65535) continue;
     for (final rawAddress in source.addresses) {
@@ -148,7 +157,7 @@ Map<String, List<T>> natIndexEndpointTemplates<T>({
         continue;
       }
       final address = parsed.address;
-      if (addressScope != null && !addressScope.contains(address)) continue;
+      if (normalizedScope != null && !normalizedScope.contains(address)) continue;
       final pair = '$address|${source.port}';
       final identity = keyOf(source.endpoint);
       final seen = seenByPair.putIfAbsent(pair, () => <String>{});
