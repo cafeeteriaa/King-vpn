@@ -50,6 +50,8 @@ class _KingAiProviderSettingsPageState extends State<KingAiProviderSettingsPage>
       final states = <KingAiProviderId, bool>{};
       for (final provider in KingAiProviderOrchestrator.providers) {
         states[provider.id] = await _orchestrator.isConfigured(provider.id);
+        _models[provider.id]!.text =
+            await _orchestrator.getProviderModel(provider.id);
       }
       if (!mounted) return;
       setState(() {
