@@ -536,6 +536,20 @@ class KingFusionEngine {
         currentEngineId = hop.engineId.trim();
         final adapter = _adapters[currentEngineId]!;
         _emit(KingFusionEventType.hopStarting, engineId: currentEngineId);
+        // A synchronous lifecycle observer may request disconnect here.
+        // Re-check before crossing the native boundary to avoid starting a
+        // hop after cancellation has already been committed.
+        if (_disconnectRequested) {
+          final startedCount = _active.length;
+          final cleanupFailures = await _rollback();
+          _setState(KingFusionState.failed);
+          return KingFusionResult.failure(
+            failedEngineId: currentEngineId,
+            failureCode: 'E-FUSION-CANCELLED',
+            startedHops: startedCount,
+            cleanupFailedEngineIds: cleanupFailures,
+          );
+        }
         KingEngineStartResult result;
         try {
           if (adapter is KingFusionCancellableEngineAdapter) {
