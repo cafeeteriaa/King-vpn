@@ -2,7 +2,7 @@
 /// Any final status (including 4xx/5xx) proves the TLS peer completed an
 /// application-layer exchange; status alone is not interpreted as site health.
 bool isValidHttpResponseLine(String line) =>
-    RegExp(r'^HTTP/1\\.[01]\\s+([2-5][0-9]{2})(?:\\s|$)').hasMatch(line.trim());
+    RegExp(r'^HTTP/1\.[01]\s+([2-5][0-9]{2})(?:\s|$)').hasMatch(line.trim());
 
 /// Independent domestic/global network evidence model for Smart Pilot ∞.
 enum LinkHealth { unknown, healthy, degraded, unreachable }
