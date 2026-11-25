@@ -122,9 +122,11 @@ class _KingChatPageState extends State<KingChatPage> {
       final orchestrator = KingAiProviderOrchestrator.instance;
       if (!await orchestrator.externalProcessingEnabled) {
         if (!await _confirmCloudProcessing()) return;
+        if (!mounted) return;
         oneTimeConsent = true;
       }
     }
+    if (!mounted) return;
     _input.clear();
     _pendingImage = null;
     final voice = _voiceTurn;
