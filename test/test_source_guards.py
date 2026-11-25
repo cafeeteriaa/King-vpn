@@ -3323,7 +3323,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("if (address?.type == InternetAddressType.IPv6)", nip)
         self.assertIn('natExpandIpv6Cidr(cidr, maxPerBlock: effectiveBatch)', nip)
         self.assertIn("if (ipv6 is List) ...ipv6.map((value) => '$value').where((value) => value.contains('/'))", nip)
-        self.assertIn("if (prefix.contains('/')) out.add(prefix);", nip)
+        self.assertIn("if (prefix.contains('/')) discovered.add(prefix);", nip)
 
     def test_nip_hunt_and_ripe_asn_scanning_accept_both_address_families(self):
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
@@ -3334,7 +3334,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("if (prefix.contains('/')) out.add(prefix);", nip)
         self.assertIn("if (ipv6 is List) ...ipv6.map((value) => '$value').where((value) => value.contains('/'))", nip)
         self.assertIn("if (address?.type == InternetAddressType.IPv6)", nip)
-        self.assertIn('natExpandIpv6Cidr(cidr, maxPerBlock: maxPerBlock)', nip)
+        self.assertIn('natExpandIpv6Cidr(cidr, maxPerBlock: effectiveBatch)', nip)
         self.assertIn('prefix.contains(\'/\')', nip)
         self.assertIn('Only the exact host:port endpoints present in saved server configurations', nip)
         self.assertNotIn('..._cfRangesV6', nip)
@@ -3765,7 +3765,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (baseCandidates.isEmpty &&', inventory)
         self.assertIn('...kAutoFallbackIps,', inventory)
         self.assertIn('final cdnRanges = _liveCdnRanges.isNotEmpty', inventory)
-        self.assertNotIn('runNationalMode\n        ? const <String>[]', inventory)
+        self.assertIn('final discoveredGlobalDomains = runNationalMode', inventory)
+        self.assertIn('...discoveredGlobalDomains,', inventory)
         self.assertIn('_autoResolveDualStackTargets(', inventory)
         self.assertIn('_getCfIps(', inventory)
         self.assertIn('goldAddScans(', inventory)

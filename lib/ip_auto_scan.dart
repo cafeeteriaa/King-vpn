@@ -226,7 +226,8 @@ Future<List<String>> _ipAutoBlocks(Iterable<Server> knownServers) async {
   return blocks;
 }
 
-Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Function()? shouldAbort, int batchSize = _ipAutoBatch}) async {
+Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Function()? shouldAbort, int? batchSize}) async {
+  final effectiveBatchSize = batchSize ?? _ipAutoBatch;
   // A mode switch while compute() is running must not apply stale cursors
   // or a stale batch position to the newly selected network mode.
   final modeSnapshot = nationalMode;
