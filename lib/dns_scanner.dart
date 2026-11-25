@@ -125,7 +125,6 @@ List<String> dnsxFullDomains() {
     ...natIrDomains,
     ..._dnsxHostsFrom(iranDomains),
     ..._dnsxHostsFrom(_iranMoreDomains),
-    ..._dnsxHostsFrom(natFrontSnis),
     ..._dnsxHostsFrom(natRelayHosts),
   };
   final domains = all.where((value) => value.trim().isNotEmpty).toList()
