@@ -1715,7 +1715,6 @@ List<String> natRanges = [];
 int natRangeCursor = 0; // generic range cursor
 int _natConfiguredRangeCursor = 0; // next range index for fair round-robin coverage
 final Map<String, dynamic> _natConfiguredRangeOffsets = {}; // per-range address cursor
-DateTime natRangeLast = DateTime.fromMillisecondsSinceEpoch(0);
 
 Set<String> natIpMemHosts() => {for (final e in natIpMem) '${e['ip']}'};
 
