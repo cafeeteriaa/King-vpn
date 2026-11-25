@@ -751,3 +751,13 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) Registry coherence — ID, adapter map and capabilities are derived from one descriptor observation. (2) Mutability/identity — descriptor transport sets and maps remain immutable; adapter identity mapping continues to use identity semantics. (3) Runtime regression — a changing descriptor getter is exercised through construction, validation, connect and disconnect; the test asserts no subsequent descriptor reads.
 - Commits: 16ff225843b1a1654e204106ee787f66d0ce415f (registry refactor), 4d09d2d5654ea02ed1d8d68d0354c084f4ceda55 (Dart regression), 9c057088b74b42b197394af141df4735e22ff195 (CI source guard).
 - Exact-head CI has not been confirmed. Some earlier workflow runs were cancelled; do not report a passing test/analyzer/build until a run for the final head completes successfully.
+
+
+## 2026-11-25 — Reject duplicate adapter object registrations
+
+- Follow-up review of the new identity-based registry found a second edge case: the same adapter object could appear twice in a caller-provided iterable if its descriptor getter returned a different ID on successive reads. That would overwrite the identity-to-ID entry and make active-hop telemetry/cleanup attribution ambiguous.
+- The registry factory now rejects a repeated adapter object by identity before reading its descriptor for a second time. This preserves the invariant that one native adapter instance maps to exactly one registry ID.
+- Added a Dart regression using the changing-descriptor fake and a Python source guard. The regression confirms duplicate registration is rejected and the descriptor getter is still read only once.
+- Three-pass review: (1) Identity semantics — duplicate detection uses the existing identity HashMap, not adapter equality. (2) Side-effect ordering — rejection occurs before a second descriptor getter invocation. (3) Regression coupling — Dart behavior and CI source guard both assert the invariant.
+- Commits: 08068f07a41d3df1e30293feae8b6374b5c0ab17 (runtime guard), d93c57b74b00a61c278112bbfff59d2fa41a93c9 (Dart test), 16cd134e78f56a644717e2cf48c8c9c977735f65 (CI guard).
+- Exact-head CI remains pending/unknown; no green result is claimed.
