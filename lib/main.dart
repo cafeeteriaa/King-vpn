@@ -6464,7 +6464,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           .where((e) => now.difference(e.value) < failWindow)
           .toList()
         ..sort((a, b) => b.value.compareTo(a.value));
-      if (fl.length > 4000) fl = fl.take(4000).toList();
       await p.setString('failed2',
           await _shJson({for (final e in fl) e.key: e.value.millisecondsSinceEpoch}));
       final keep = good.where((s) => s.miss < missLimit).toList()
@@ -6526,7 +6525,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final keepList = <Server>[
           if (cur != null && !cur.personal) cur,
           ..._usable().where((x) => !identical(x, cur) && !x.personal),
-        ].take(60).toList();
+        ];
         await p.setString(
             'screen_good_v1',
             jsonEncode([
@@ -6594,8 +6593,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final p = await SharedPreferences.getInstance();
       await p.setStringList(
           'list_cache',
-          (fetchedAll.toList()..shuffle())
-              .take(3000)
+          fetchedAll
               .map((s) => '${s.src ?? ''}\t${s.link}')
               .toList());
       await p.setInt('list_time', DateTime.now().millisecondsSinceEpoch);
