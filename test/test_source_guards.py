@@ -14,18 +14,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('personalPingPassed ||', connect)
         self.assertNotIn('personalPingPassed =', connect)
 
-    def test_ip_auto_keeps_transient_core_failures_retryable(self):
+    def test_ip_auto_keeps_unverified_exact_endpoints_retryable(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        start = source.index('final firstOk = await _ipAutoCoreOk(s, url);')
+        start = source.index('final matchingTemplates = endpointTemplates[c]')
         end = source.index('ipAutoHits.insert(0, c);', start)
         verification = source[start:end]
-        first_failure = verification.split('if (!firstOk) {', 1)[1].split('final secondOk', 1)[0]
-        second_failure = verification.split('if (!secondOk) {', 1)[1].split('ipAutoPendingCore.remove(c);', 1)[0]
-        self.assertIn('RETRY-FAILED-ENDPOINT', first_failure)
-        self.assertIn('ناموفق موقت؛ برای نوبت بعد حفظ شد', first_failure)
-        self.assertIn('تأیید دوم ناموفق؛ برای نوبت بعد حفظ شد', second_failure)
-        self.assertNotIn('ipAutoPendingCore.remove(c)', first_failure)
-        self.assertNotIn('ipAutoPendingCore.remove(c)', second_failure)
+        self.assertIn('for (final template in matchingTemplates)', verification)
+        self.assertIn('if (!firstOk) continue;', verification)
+        self.assertIn('if (secondOk)', verification)
+        self.assertIn('if (!verifiedWithMatchingConfig)', verification)
+        self.assertIn('برای نوبت بعد حفظ شد', verification)
+        self.assertIn('continue;', verification)
+        self.assertNotIn('ipAutoPendingCore.remove(c)', verification)
+        self.assertLess(
+            verification.index('if (!verifiedWithMatchingConfig)'),
+            source.index('ipAutoPendingCore.remove(c);', start),
+        )
 
     def test_auto_scan_sheet_forwards_live_vpn_guards_and_server_snapshots(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
@@ -3117,7 +3121,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('ipAutoHits.removeRange(', source)
         self.assertIn('final ports = endpointTargets.keys.toList()..sort();', source)
         self.assertIn('if (pool.isEmpty)', source)
-        self.assertIn('if (tpl.isEmpty)', source)
+        self.assertIn('if (endpointTemplates.isEmpty)', source)
+        self.assertNotIn('fallbackTemplate', source)
         self.assertIn('want: endpointIps.length,', source)
         self.assertIn('const Duration _ipAutoCoreBudget = Duration(minutes: 4);', source)
         self.assertIn('while (activeQueue.isNotEmpty &&', source)
