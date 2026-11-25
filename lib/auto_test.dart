@@ -1830,8 +1830,6 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
   // SUBST: تست فقط برای جایگزینی پورت / IP تمیز / DNS / SNI روی سرورهای سالم
   static const String _atSubstName =
       'نت ملی: جایگزینی پورت/هاست/DNS روی سرورهای سالم';
-  static const int _atSubstServers = 20; // سرورهای سالم (سریع‌ترین‌ها)
-  static const int _atSubstPerServer = 12; // سقف حالت جایگزینی برای هر سرور (SUBSTFAST)
   static const Duration _atSubstTimeout = Duration(seconds: 5); // مهلت هر تست
 
   List<String> _atSubstDims(int v) {
@@ -1874,7 +1872,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
 
     // HEALTHYFIRST: تا پوشه‌ی سرورهای سالم پر نشده، تست شروع نمی‌شود.
     // اگر خالی بود، همان جستجوی نت ملی برنامه اجرا می‌شود تا سرور سالم پیدا شود.
-    var healthy = _usable().take(_atSubstServers).toList();
+    var healthy = _usable().toList();
     if (healthy.isEmpty && !_abortRequested) {
       _set('پوشه‌ی سرورهای سالم خالی است؛ جستجو از پوشه‌ی منابع تازه...');
       try {
@@ -1891,7 +1889,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
       } catch (e, stk) {
         logError(e, stk);
       }
-      healthy = _usable().take(_atSubstServers).toList();
+      healthy = _usable().toList();
     }
     if (healthy.isEmpty) {
       _atAdd('SUBST-NOHEALTHY',
@@ -1903,7 +1901,6 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
     final dead = good
         .where((x) => !healthySet.contains(x) &&
             (x.badAt != null || x.checkedAt != null))
-        .take(_atSubstServers)
         .toList();
     // IPSWEEP: IP‌ها اول با ترافیک تونل سنجیده می‌شوند؛ فقط IP‌های ترافیک‌دار در پروژه می‌مانند
     autoTestText.value = 'سنجش IP تمیز با تونل...';
@@ -2002,8 +1999,8 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
 
         // (ب) حالت‌های این سرور
         final cands = pass == 0
-            ? untried.where((v) => _natAppliesF(f, v)).take(_atSubstPerServer).toList()
-            : failedOnce.where((v) => _natAppliesF(f, v)).take(_atSubstPerServer).toList();
+            ? untried.where((v) => _natAppliesF(f, v)).toList()
+            : failedOnce.where((v) => _natAppliesF(f, v)).toList();
         final passed = <String>[];
         int? winner;
         for (final v in cands) {
