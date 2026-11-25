@@ -10321,14 +10321,12 @@ ListTile( // KINGEXTRAS row
     _natKeepOn = true;
     var seen = false; // was connected at least once
     var idle = 0;
-    final startedAt = DateTime.now(); // NATKEEP-CAP: سقف کلی ۸ ساعت
     try {
       while (mounted &&
           nationalMode &&
           localPilotOn &&
           !appGone &&
-          !abort &&
-          DateTime.now().difference(startedAt) < const Duration(hours: 8)) {
+          !abort) {
         await Future.delayed(const Duration(seconds: 2));
         if (connected) {
           seen = true;
