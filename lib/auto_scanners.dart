@@ -168,6 +168,28 @@ String kingEncodeAutoScanCheckpoint({
       'port': port,
     });
 
+/// Return the next fair, wrapping slice from a complete inventory.
+///
+/// [batchSize] limits work in one execution only; it never truncates the
+/// supplied inventory. An unknown/stale cursor safely restarts at the first
+/// item, and an empty inventory never performs modulo arithmetic.
+List<T> kingNextInventoryBatch<T>(
+  Iterable<T> inventory, {
+  required int batchSize,
+  T? lastValue,
+}) {
+  if (batchSize <= 0) return const <T>[];
+  final items = inventory.toList(growable: false);
+  if (items.isEmpty) return const <T>[];
+  final previousIndex = lastValue == null ? -1 : items.indexOf(lastValue);
+  final start = previousIndex < 0 ? 0 : (previousIndex + 1) % items.length;
+  final count = min(batchSize, items.length);
+  return List<T>.unmodifiable([
+    for (var offset = 0; offset < count; offset++)
+      items[(start + offset) % items.length],
+  ]);
+}
+
 const int _autoScanCdnBatchSize = 8;
 const int _autoScanDomainBatchSize = 18;
 const int _autoScanPortBatchSize = 24; // full SNI/port/TLS pass fits the shared four-minute budget
@@ -402,16 +424,11 @@ Future<void> autoScanRun(void Function(String) say,
         ? dnsxNationalFirstDomains(extra: domainSources)
         : (kingNormalizeDomainHosts(domainSources)..sort());
     final savedDomainCursor = savedCheckpoint.domain;
-    final previousDomainIndex = savedDomainCursor == null
-        ? -1
-        : domainInventory.indexOf(savedDomainCursor);
-    final domainStart = previousDomainIndex < 0
-        ? 0
-        : (previousDomainIndex + 1) % domainInventory.length;
-    final domainBatch = <String>[
-      for (var i = 0; i < min(_autoScanDomainBatchSize, domainInventory.length); i++)
-        domainInventory[(domainStart + i) % domainInventory.length],
-    ];
+    final domainBatch = kingNextInventoryBatch(
+      domainInventory,
+      batchSize: _autoScanDomainBatchSize,
+      lastValue: savedDomainCursor,
+    );
     final stagedDomainCursor = domainBatch.isEmpty ? savedDomainCursor : domainBatch.last;
     // Keep the full TCP port-number inventory (1..65535), independently
     // of the smaller set of ports already present in saved configs. Active
@@ -422,14 +439,11 @@ Future<void> autoScanRun(void Function(String) say,
     );
     final portInventory = natBuildFullPortInventory(kAutoPorts);
     final savedPortCursor = savedCheckpoint.port ?? 0;
-    final previousPortIndex = portInventory.indexOf(savedPortCursor);
-    final portStart = previousPortIndex < 0
-        ? 0
-        : (previousPortIndex + 1) % portInventory.length;
-    final portBatch = <int>[
-      for (var i = 0; i < min(_autoScanPortBatchSize, portInventory.length); i++)
-        portInventory[(portStart + i) % portInventory.length],
-    ];
+    final portBatch = kingNextInventoryBatch(
+      portInventory,
+      batchSize: _autoScanPortBatchSize,
+      lastValue: savedPortCursor,
+    );
     final stagedPortCursor = portBatch.isEmpty ? savedPortCursor : portBatch.last;
     // Refresh and retain CDN ranges in both modes. National-first ordering is
     // applied to domains and DNS observations; it does not discard global IP
