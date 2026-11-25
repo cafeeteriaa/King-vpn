@@ -126,6 +126,16 @@ void main() {
       expect(bridge.toPromptContext(), contains('traffic_verified=1'));
     });
 
+    test('external-only traffic evidence is still available to KING AI', () {
+      final bridge = KingFusionLearningBridge();
+      bridge.recordExternalTrafficVerification(false);
+
+      final context = bridge.toPromptContext();
+      expect(context, contains('Fusion events=0'));
+      expect(context, contains('traffic_unverified=1'));
+      expect(context, contains('recovery_hint=verifyTraffic'));
+    });
+
     test('new coordinator session resets sequence and prompt evidence', () {
       final bridge = KingFusionLearningBridge();
       bridge.observe(_event(

@@ -139,7 +139,11 @@ class KingFusionLearningBridge {
   /// It is evidence only and is wrapped by the caller as untrusted app telemetry.
   String toPromptContext() {
     final current = snapshot;
-    if (current.totalEvents == 0) return '';
+    if (current.totalEvents == 0 &&
+        current.trafficVerificationPassed == 0 &&
+        current.trafficVerificationFailed == 0) {
+      return '';
+    }
     final engineStreaks = current.consecutiveFailuresByEngine.entries
         .map((entry) => '${entry.key}:${entry.value}')
         .join(',');

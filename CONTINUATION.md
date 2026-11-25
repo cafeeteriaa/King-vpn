@@ -830,3 +830,7 @@ These are three distinct technical review passes by the same assistant, not thre
 - Follow-up integration makes the current-session bridge a shared singleton. Each new Fusion coordinator starts a fresh evidence session; the ordinary KING AI chat receives the compact sanitized summary through its existing untrusted `appContext` channel. This gives KING AI real connection-lifecycle context without granting it execution authority or exposing configuration/native handles.
 
 - The bridge now also receives the independent central Android-TUN traffic verdict from `_onConnected` for V2Ray-owned sessions. This records passed/failed data-plane verification separately from Fusion's native-start events, without forging event sequence numbers. A real traffic pass clears failure streaks; proxy-only and non-Fusion service paths are not misclassified.
+
+
+- Full diagnostic export (`exportFullDiag`) now includes the current Fusion/KING AI evidence snapshot: event/failure totals, verified/unverified Android-TUN checks, advisory recovery hint, safe failure code and per-engine failure streaks. It deliberately excludes configuration strings and native handles.
+- Hardened the prompt-context empty-state condition so an external Android-TUN verdict is visible even if no Fusion lifecycle event has yet been observed; added a regression test and source guard.

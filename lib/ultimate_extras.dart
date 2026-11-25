@@ -231,6 +231,24 @@ extension UltimateExt on _HomePageState {
     }
     b.writeln('lastWhy: $lastWhy');
     b.writeln('status: $status');
+    // Secret-free Fusion evidence: counts/codes only, never configs or handles.
+    final fusion = kingFusionLearning.snapshot;
+    b.writeln('--- Fusion / KING AI evidence ---');
+    b.writeln(
+      'events=${fusion.totalEvents} failures=${fusion.failureEvents} '
+      'trafficVerified=${fusion.trafficVerificationPassed} '
+      'trafficUnverified=${fusion.trafficVerificationFailed}',
+    );
+    b.writeln('recoveryHint=${fusion.recoveryHint.name}');
+    if (fusion.lastFailureCode != null) {
+      b.writeln('lastFailureCode=${fusion.lastFailureCode}');
+    }
+    if (fusion.consecutiveFailuresByEngine.isNotEmpty) {
+      final streaks = fusion.consecutiveFailuresByEngine.entries
+          .map((entry) => '${entry.key}:${entry.value}')
+          .join(',');
+      b.writeln('engineFailureStreaks=$streaks');
+    }
     b.writeln('--- DNA top ---');
     b.writeln(_plusStats());
     return b.toString();
