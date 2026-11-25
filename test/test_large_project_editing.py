@@ -139,7 +139,7 @@ class LargeProjectEditingGuards(unittest.TestCase):
         self.assertIn("collectionKey: 'check_runs'", inspector)
         self.assertIn("collectionKey: 'workflow_runs'", inspector)
         self.assertIn("collectionKey: 'jobs'", inspector)
-        self.assertIn("item['conclusion'] != 'success'", inspector)
+        self.assertIn("!['success', 'neutral', 'skipped'].contains(item['conclusion'])", inspector)
         self.assertIn("!['success', 'neutral', 'skipped'].contains(item['conclusion'])", inspector)
         self.assertNotIn(".take(", inspector)
 
