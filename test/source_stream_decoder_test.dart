@@ -15,7 +15,7 @@ Stream<List<int>> _chunked(String value, int chunkSize) async* {
 
 void main() {
   final linkRegex = RegExp(
-    r'(vmess|vless|trojan|ss)://[^\\s<>"]+',
+    r'(vmess|vless|trojan|ss)://[^\s<>"]+',
     caseSensitive: false,
   );
 
