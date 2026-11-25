@@ -230,6 +230,8 @@ void main() {
       expect(stopCalls, 3);
       expect(engine.cleanupPendingEngineIds, isEmpty);
       expect(engine.state, KingFusionState.idle);
+      await adapter.stop(null);
+      expect(stopCalls, 3);
     });
 
     test('stop is idempotent for an already released native handle', () async {
