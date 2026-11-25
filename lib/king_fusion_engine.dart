@@ -111,10 +111,12 @@ class KingFusionResult {
     this.cleanupFailedEngineIds = const <String>[],
   });
 
-  const KingFusionResult.success(int startedHops)
-      : this._(
+  const KingFusionResult.success(
+    int startedHops, {
+    bool trafficVerified = false,
+  }) : this._(
           connected: true,
-          trafficVerified: false,
+          trafficVerified: trafficVerified,
           failedEngineId: null,
           failureCode: null,
           startedHops: startedHops,
