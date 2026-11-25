@@ -2853,6 +2853,7 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
       final offs = <int>[0];
       var pos = 0;
       final sink = File(newPath).openWrite();
+      var freshTotal = 0;
       try {
         final seenKeys = <String>{};
         Future<void> appendInventoryFile(String path) async {
@@ -2882,7 +2883,7 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
         for (final path in mergeFrom) {
           await appendInventoryFile(path);
         }
-        final freshTotal = offs.length - 1;
+        freshTotal = offs.length - 1;
         // A temporarily partial source response must never erase older entries.
         if (f.existsSync()) await appendInventoryFile(f.path);
       } finally {
