@@ -4027,6 +4027,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_fusion_disconnect_is_cancellation_safe_and_cleanup_is_retryable(self):
         fusion = (ROOT / 'lib' / 'king_fusion_engine.dart').read_text(encoding='utf-8')
         tests = (ROOT / 'test' / 'king_fusion_engine_test.dart').read_text(encoding='utf-8')
+        self.assertIn("import 'dart:async';", fusion)
         self.assertIn('_disconnectRequested = true;', fusion)
         self.assertIn("'E-FUSION-CANCELLED'", fusion)
         self.assertIn('cleanupFailedEngineIds', fusion)
