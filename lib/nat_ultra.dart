@@ -2632,8 +2632,8 @@ Future<void> userListsSave(String text) async {
   }
 }
 
-// HOTCAP: کاهش از ۲ میلیون برای جلوگیری از OOM روی گوشی ضعیف
-const int natHotPerSource = 80000;
+// The source inventory is not truncated per URL. The cache-wide bound below
+// remains a temporary memory-safety guard until the sparse on-disk index lands.
 const int natHotMin = 30000;
 const int natHotMax = 400000;
 List<Server> Function()? natExtraSource;
@@ -2768,7 +2768,6 @@ Future<List<String>> _hotFetchOne(String u) async {
     // فیکس ۱۱: split روی رشته‌ی چند مگابایتی در isolate انجام می‌شود
     final lines = await compute(_hotSplitIso, body);
     for (final l in lines) {
-      if (out.length >= natHotPerSource) break;
       final t = l.trim();
       if (!t.contains('://') || t.contains('[email') || t.contains('protected]')) {
         continue;
