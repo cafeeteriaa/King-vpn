@@ -407,7 +407,6 @@ Future<String?> nipFrontProbe(String ip, int port, String sni) async {
       raw,
       host: sni,
       supportedProtocols: const ['http/1.1'],
-      onBadCertificate: (_) => true,
     ).timeout(const Duration(seconds: 4));
     sec.write(
       'GET / HTTP/1.1\r\n'
