@@ -10726,7 +10726,7 @@ ListTile( // KINGEXTRAS row
                   abort || deadline.elapsed >= scanBudget,
             )));
         natIpScanned += chunk.length;
-        // DEADSKIP: IPهایی که در همین نشست رد شده‌اند دوباره تست نمی‌شوند
+        // Every configured endpoint is retried on future scan cycles; failures do not blacklist it.
         for (var k = 0; k < chunk.length; k++) {
           final s = chunk[k].server;
           if (res[k] != null && okSeen.add(s.link)) {
@@ -10738,7 +10738,7 @@ ListTile( // KINGEXTRAS row
       }
       if (ok.isEmpty) {
         // هیچ IP ای باز نشد: همه‌ی سرورها تست می‌شوند (چیزی حذف نمی‌شود)
-        // DEADSKIP: فقط سرورهایی که اخیراً شکست نخورده‌اند دوباره به صف می‌روند
+        // Keep the complete configured endpoint inventory for subsequent scan cycles.
         pending = [...cands];
         natRestPending = [];
         return;
@@ -10752,7 +10752,7 @@ ListTile( // KINGEXTRAS row
       }
       final okLinks = {for (final s in ok) s.link};
       pending = ok;
-      // DEADSKIP: همان قاعده برای باقی‌مانده‌ی صف نت ملی
+      // Unverified endpoints remain in the overflow queue without failure filters.
       natRestPending = [
         for (final s in cands)
           if (!okLinks.contains(s.link)) s,
