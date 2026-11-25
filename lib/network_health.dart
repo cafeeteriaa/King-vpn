@@ -37,6 +37,11 @@ class NetworkEvidence {
   final bool globalTlsReachabilityVerified;
 
   DetectedNetworkMode get mode {
+    // A route class requires observations from both independent groups.
+    // Empty/partial snapshots must never be promoted to an offline verdict.
+    if (domesticSamples < 2 || globalSamples < 2) {
+      return DetectedNetworkMode.unknown;
+    }
     if (domestic == LinkHealth.unknown && global == LinkHealth.unknown) {
       return DetectedNetworkMode.unknown;
     }
