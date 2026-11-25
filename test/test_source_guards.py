@@ -4335,5 +4335,37 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('last-run timestamp for diagnostics only', auto)
 
 
+    def test_dns_inventories_are_dynamic_uncapped_and_mode_isolated(self):
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        resolver = (ROOT / 'lib' / 'dns_resolver_discovery.dart').read_text(encoding='utf-8')
+        domains = (ROOT / 'lib' / 'dns_domain_discovery.dart').read_text(encoding='utf-8')
+
+        self.assertIn('dnsxNationalModeDomains()', dns)
+        self.assertIn('dnsxGlobalModeDomains(', dns)
+        national_start = dns.index('List<String> dnsxNationalModeDomains()')
+        global_start = dns.index('List<String> dnsxGlobalModeDomains(', national_start)
+        national_inventory = dns[national_start:global_start]
+        self.assertNotIn('kDnsxGlobalDomains', national_inventory)
+        self.assertNotIn('kAutoSniDomains', national_inventory)
+
+        self.assertIn('await kingDiscoverGlobalDnsDomains()', dns)
+        self.assertIn('...discoveredPublicDns,', dns)
+        self.assertIn('final best = [for (final e in r) e.ip];', dns)
+        self.assertNotIn('r.take(4)', dns)
+
+        self.assertIn("Uri.https('public-dns.info', '/nameservers.txt')", resolver)
+        self.assertIn("Uri.https('public-dns.info', '/nameservers.csv')", resolver)
+        self.assertIn('blacklanternsecurity/public-dns-servers', resolver)
+        self.assertNotIn('.take(', resolver)
+        self.assertNotIn('sublist(', resolver)
+
+        self.assertIn('kingMajesticDomainFromCsvLine', domains)
+        self.assertIn('await for (final line in response.stream', domains)
+        self.assertIn('await tempFile.rename(cache.path);', domains)
+        self.assertIn('Duration(hours: 24)', domains)
+        self.assertNotIn('.take(', domains)
+        self.assertNotIn('sublist(', domains)
+
+
 if __name__ == '__main__':
     unittest.main()

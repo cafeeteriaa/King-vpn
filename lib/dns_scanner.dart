@@ -191,7 +191,7 @@ List<String> dnsxNationalFirstDomains({
 }
 
 /// متن نمایشی دامنه‌ها در شیت
-String dnsxProbeDomain() => '${dnsxFullDomains().length} دامنه (ایرانی و جهانی)';
+String dnsxProbeDomain() => 'موجودی کامل پروژه + دامنه‌های جهانی پویا (منبع روزانه)';
 
 /// بسته‌ی پرس‌وجوی DNS برای نوع A (RD=1)
 List<int> dnsxQuery(String name, int id, {int recordType = 1}) {
