@@ -335,6 +335,7 @@ Future<void> withListMirrorStream(
 
   if (response != null && response.statusCode == 200) {
     var bytesRead = 0;
+    var streamConsumed = false;
     try {
       await consume(
         response.stream
@@ -344,15 +345,24 @@ Future<void> withListMirrorStream(
             })
             .timeout(const Duration(seconds: 8)),
       );
+      streamConsumed = true;
+    } catch (error, stack) {
+      // A partial raw transfer may be retried through mirrors. Parsed entries
+      // already accepted are deduplicated by the caller's existing key map.
+      logError(error, stack);
     } finally {
       client.close();
     }
-    if (bytesRead > 0) return;
+    if (streamConsumed && bytesRead > 0) return;
   } else {
     if (response != null) {
       try {
-        await response.stream.drain<void>();
-      } catch (_) {}
+        await response.stream
+            .timeout(const Duration(seconds: 8))
+            .drain<void>();
+      } catch (error, stack) {
+        logError(error, stack);
+      }
     }
     client.close();
   }
