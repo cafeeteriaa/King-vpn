@@ -1401,6 +1401,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('final List<int> offs;', source)
         self.assertNotIn('final seenKeys = <String>{};', source)
 
+    def test_hot_source_sparse_index_counts_unterminated_final_record(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('List<int> _hotSparseOffsetsIso(String path)')
+        end = source.index('Future<int> _hotOffsetAtLine', start)
+        body = source[start:end]
+        self.assertIn('if (pos > 0 && lastByte != 10) lineCount++;', body)
+        self.assertIn('packed[1] = pos;', body)
+        self.assertIn('packed.add(pos + i + 1);', body)
+
+    def test_hot_source_refresh_has_no_fixed_wall_clock_deadline(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn('natHotFetchDeadline', source)
+        self.assertNotIn('sw.elapsed >', source)
+        self.assertNotIn('natHotMax', source)
+
     def test_hot_source_cursor_survives_restart_and_serializes_page_reads(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         self.assertIn("const String _hotCursorKey = 'nat_hot_cursor_v1';", source)
