@@ -2799,7 +2799,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('for (final hit in attemptHits)', body)
         self.assertNotIn('while (completed < batch.length)', body)
         self.assertIn('if (cancelled()) return out;', body)
-        self.assertIn('out.addAll(batchHits.values.map(', body)
+        self.assertIn('for (final hit in batchHits.values)', body)
+        self.assertIn('if (outKeys.add(key)) out.add(key);', body)
         self.assertIn('natDomainOpen = out.length;', body)
         self.assertNotIn('return const <String>[];', body)
 
@@ -3221,8 +3222,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         seed_start = nat.index('List<String> natSeedBlocks(')
         seed_end = nat.index('int natMemQueued', seed_start)
         seed_blocks = nat[seed_start:seed_end]
-        self.assertIn("${octets[0]}.${octets[1]}.${octets[2]}.0/24", seed_blocks)
-        self.assertNotIn('/32', seed_blocks)
+        self.assertIn('parsed.type == InternetAddressType.IPv4 ? 32 : 128', seed_blocks)
+        self.assertIn("out.add('${parsed.address}/$prefix');", seed_blocks)
+        self.assertNotIn('.0/24', seed_blocks)
         ports_start = nat.index('List<int> natAutoPorts(')
         ports_end = nat.index('List<int>? _ipTriple', ports_start)
         ports = nat[ports_start:ports_end]
@@ -3551,7 +3553,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final expanded = _natExpandAnyCursorWide(', nat)
         seed_start = nat.index('List<String> natSeedBlocks(')
         seed_end = nat.index('int natMemQueued', seed_start)
-        self.assertIn("out.add('${parsed.address}/128');", nat[seed_start:seed_end])
+        self.assertIn('parsed.type == InternetAddressType.IPv4 ||', nat[seed_start:seed_end])
+        self.assertIn('final prefix = parsed.type == InternetAddressType.IPv4 ? 32 : 128;', nat[seed_start:seed_end])
+        self.assertIn("out.add('${parsed.address}/$prefix');", nat[seed_start:seed_end])
 
         extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         self.assertIn("'https://www.cloudflare.com/ips-v6'", extras)
