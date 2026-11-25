@@ -3815,18 +3815,18 @@ int byScoreThenPing(Server a, Server b) {
 
 int bySpeedThenPing(Server a, Server b) {
   final now = DateTime.now();
-  final aSpeed = (ageAdjustedThroughput(
-        megabytesPerSecond: a.medianSpeed ?? a.speed,
+  final aSpeed = effectiveThroughputScore(
+        currentSpeed: a.speed,
+        history: a.speedHist,
         measuredAt: a.speedAt,
         now: now,
-      ) ?? -1) *
-      throughputStabilityFactor(a.speedHist);
-  final bSpeed = (ageAdjustedThroughput(
-        megabytesPerSecond: b.medianSpeed ?? b.speed,
+      ) ?? -1;
+  final bSpeed = effectiveThroughputScore(
+        currentSpeed: b.speed,
+        history: b.speedHist,
         measuredAt: b.speedAt,
         now: now,
-      ) ?? -1) *
-      throughputStabilityFactor(b.speedHist);
+      ) ?? -1;
   final c = bSpeed.compareTo(aSpeed);
   return c != 0 ? c : byPing(a, b);
 }
@@ -13072,10 +13072,23 @@ ListTile( // KINGEXTRAS row
   // real speed is known and clearly below the connected server's speed (or
   // zero = no data) is not used for a ping swap.
   bool _spSpeedOk(Server c) {
-    final cs = c.speed;
-    if (cs == null) return true; // unknown: allowed, checked after the swap
+    final now = DateTime.now();
+    final cs = effectiveThroughputScore(
+      currentSpeed: c.speed,
+      history: c.speedHist,
+      measuredAt: c.speedAt,
+      now: now,
+    );
+    if (cs == null) return true; // unknown/stale: allowed, verified after swap
     if (cs <= 0) return false;
-    final cur = current?.speed;
+    final cur = current == null
+        ? null
+        : effectiveThroughputScore(
+            currentSpeed: current!.speed,
+            history: current!.speedHist,
+            measuredAt: current!.speedAt,
+            now: now,
+          );
     if (cur == null || cur < 0.3) return true;
     return cs >= cur * 0.7;
   }
@@ -13086,8 +13099,13 @@ ListTile( // KINGEXTRAS row
   Future<void> _spCheckSpeed(Server t, Server old) async {
     if (nationalMode) return; // NONATSPEED
     try {
-      final oldSp = old.speed ?? 0;
-      if (oldSp < 0.3) return;
+      final oldSp = effectiveThroughputScore(
+        currentSpeed: old.speed,
+        history: old.speedHist,
+        measuredAt: old.speedAt,
+        now: DateTime.now(),
+      );
+      if (oldSp == null || oldSp < 0.3) return;
       final t0 = DateTime.now();
       for (var i = 0; i < 30; i++) {
         await Future.delayed(const Duration(seconds: 1));
@@ -13097,8 +13115,13 @@ ListTile( // KINGEXTRAS row
       }
       final at = t.speedAt;
       if (at == null || !at.isAfter(t0)) return;
-      final sp = t.speed ?? 0;
-      if (sp <= 0) return; // no data: _measureCurrent handles it
+      final sp = effectiveThroughputScore(
+        currentSpeed: t.speed,
+        history: t.speedHist,
+        measuredAt: t.speedAt,
+        now: DateTime.now(),
+      );
+      if (sp == null || sp <= 0) return; // no fresh data: _measureCurrent handles it
       if (sp >= oldSp * 0.6) return;
       dbg('سرعت سرور جدید ${sp.toStringAsFixed(2)} MB/s کمتر از سرور قبلی '
           '(${oldSp.toStringAsFixed(2)} MB/s) بود؛ برگشت به سرور قبلی');
