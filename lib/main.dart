@@ -4742,6 +4742,7 @@ Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async 
           final random = Random();
           var seenQuickLines = 0;
           await for (final line in lines) {
+            if (stop?.call() ?? false) break;
             if (quickSample.length < sampleSize) {
               quickSample.add(line);
             } else {
@@ -4758,10 +4759,12 @@ Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async 
         } else {
           // Exhaustive mode drains the network stream through the parser.
           await for (final line in lines) {
+            if (stop?.call() ?? false) break;
             await consumeLine(line);
           }
         }
-        srcFetchState[u] = okN > 0 ? 'ok' : 'fail';
+        srcFetchState[u] =
+            (stop?.call() ?? false) ? 'skip' : (okN > 0 ? 'ok' : 'fail');
         srcFetchCount[u] = okN;
       });
     } catch (_swE) { _swl('build#2', _swE);
