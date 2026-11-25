@@ -108,6 +108,9 @@ void main() {
       final disconnecting = engine.disconnect();
       await firstStopEntered.future;
       expect(stops, 1);
+      // Let the first stop Future settle before allowing a deliberately late
+      // start completion; the adapter must then issue a fresh cleanup stop.
+      await Future<void>.delayed(Duration.zero);
 
       startGate.complete();
       final result = await connecting;
@@ -157,7 +160,7 @@ void main() {
       await disconnecting;
 
       expect(result.connected, isFalse);
-      expect(result.failureCode, 'E-V2RAY-START-CANCELLED');
+      expect(result.failureCode, 'E-FUSION-CANCELLED');
       expect(stopCalls, 1);
       expect(engine.state, KingFusionState.idle);
     });
