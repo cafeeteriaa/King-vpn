@@ -38,7 +38,7 @@ class LargeProjectEditingGuards(unittest.TestCase):
         patch = Path("lib/king_ai_patch_engine.dart").read_text(encoding="utf-8")
         self.assertIn("baseSha256", self.source)
         self.assertIn("KingAiPatchEngine.apply(", self.source)
-        self.assertIn("operations: item['operations'] as List", self.source)
+        self.assertIn("final operations = item['operations'] as List;", self.source)
         self.assertIn("must match exactly once", patch)
         self.assertIn("sha256.convert(utf8.encode(original))", patch)
         protected = self.source.split("const protectedPaths = <String>{", 1)[1].split("};", 1)[0]
