@@ -101,32 +101,41 @@ Future<void> ipAutoLoad() async {
   }
 }
 
-Future<bool> _ipAutoSave() async {
-  // Persist one immutable mode-specific checkpoint so hits, pending work and
-  // cursors can never be restored from different points in the same run.
+Future<bool> _ipAutoSaveQueue = Future<bool>.value(true);
+
+Future<bool> _ipAutoSave() {
+  // Capture immutable snapshots synchronously, then serialize writes so an
+  // older slow write can never overwrite a newer checkpoint.
   final saveNationalMode = nationalMode;
-  if (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode) return false;
   final hits = List<String>.of(ipAutoHits);
   final pending = List<String>.of(ipAutoPendingCore);
   final cursors = Map<String, dynamic>.of(ipAutoCursors);
   final position = ipAutoPos;
   final checkpointKey = 'ipauto_checkpoint_v2_${saveNationalMode ? 'nat' : 'glob'}';
-  try {
-    final p = await SharedPreferences.getInstance();
-    if (nationalMode != saveNationalMode ||
-        (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode)) {
+  final operation = _ipAutoSaveQueue.then((_) async {
+    if (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode) return false;
+    try {
+      final p = await SharedPreferences.getInstance();
+      if (nationalMode != saveNationalMode ||
+          (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode)) {
+        return false;
+      }
+      return await p.setString(checkpointKey, jsonEncode({
+        'hits': hits.join('\n'),
+        'pending': pending.join('\n'),
+        'cursors': cursors,
+        'position': position,
+      }));
+    } catch (e, stk) {
+      logError(e, stk);
       return false;
     }
-    return await p.setString(checkpointKey, jsonEncode({
-      'hits': hits.join('\n'),
-      'pending': pending.join('\n'),
-      'cursors': cursors,
-      'position': position,
-    }));
-  } catch (e, stk) {
+  });
+  _ipAutoSaveQueue = operation.catchError((Object e, StackTrace stk) {
     logError(e, stk);
     return false;
-  }
+  });
+  return operation;
 }
 
 /// Inventory پویا برای اسکن IP؛ رنج‌های تنظیم‌شده و بلوک‌های کشف‌شده
