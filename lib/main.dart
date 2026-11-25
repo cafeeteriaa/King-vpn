@@ -50,6 +50,7 @@ import 'tg_proxy.dart' show tgProxyRow; // فقط پروکسی تلگرام
 import 'nat_ip_scan.dart'; // اسکن TCP آدرس IP و دامنه
 import 'king_domain_inventory.dart'; // shared hostname inventory normalization
 import 'dns_resolver_discovery.dart'; // live public recursive-resolver discovery
+import 'dns_domain_discovery.dart'; // daily, uncapped global domain inventory
 import 'help_page.dart';
 import 'conn_specs.dart';
 import 'transport_capabilities.dart'; // Dual-stack transport and DPI engine capability registry

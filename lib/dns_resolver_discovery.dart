@@ -2,16 +2,15 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
-/// Parse a public resolver inventory without imposing an address-count ceiling.
-/// Every syntactically valid IPv4/IPv6 literal is retained, regardless of
-/// address scope; reachability and DNS response validation happen in the
-/// scanner, not in this discovery parser.
+/// Parse plain-text and CSV resolver inventories without imposing an
+/// address-count ceiling. Every valid IPv4/IPv6 literal is retained,
+/// irrespective of scope; reachability is tested by the DNS scanner.
 List<String> kingParsePublicDnsResolvers(String source) {
   final found = <String>{};
-  for (final rawLine in source.split(RegExp(r'[\r\n]+'))) {
+  for (final rawLine in source.split(RegExp(r'[\\r\\n]+'))) {
     final line = rawLine.split('#').first.trim();
     if (line.isEmpty) continue;
-    for (var token in line.split(RegExp(r'[\s,;]+'))) {
+    for (var token in line.split(RegExp(r'[\\s,;]+'))) {
       token = token.trim();
       if (token.startsWith('[') && token.endsWith(']')) {
         token = token.substring(1, token.length - 1);
@@ -27,22 +26,30 @@ List<String> kingParsePublicDnsResolvers(String source) {
   return found.toList(growable: false);
 }
 
-/// Pull the current public recursive-resolver inventory from a live catalogue.
-/// The catalogue is a discovery source, not an allowlist: saved, built-in and
-/// user-supplied resolvers are merged separately and are never replaced by it.
-/// A failed download is non-destructive; existing inventories remain usable.
+/// Merge independent public resolver catalogues. No source is an allowlist:
+/// built-in, saved and user-entered addresses are merged by the caller.
+/// Failure of one feed never prevents the others or erases prior inventory.
 Future<List<String>> kingDiscoverPublicDnsResolvers() async {
+  const sources = <String>[
+    'https://public-dns.info/nameservers.txt',
+    'https://public-dns.info/nameservers.csv',
+    'https://raw.githubusercontent.com/blacklanternsecurity/public-dns-servers/master/nameservers.txt',
+  ];
+  final client = http.Client();
   try {
-    final response = await http
-        .get(
-          Uri.https('public-dns.info', '/nameservers.txt'),
-          headers: const {'Accept': 'text/plain'},
-        )
-        .timeout(const Duration(seconds: 15));
-    if (response.statusCode != HttpStatus.ok) return const <String>[];
-    return kingParsePublicDnsResolvers(response.body);
-  } catch (_) {
-    // Discovery is best-effort; never erase or block previously known sources.
-    return const <String>[];
+    final results = await Future.wait(sources.map((source) async {
+      try {
+        final response = await client
+            .get(Uri.parse(source), headers: const {'Accept': 'text/plain,text/csv'})
+            .timeout(const Duration(seconds: 30));
+        if (response.statusCode != HttpStatus.ok) return const <String>[];
+        return kingParsePublicDnsResolvers(response.body);
+      } catch (_) {
+        return const <String>[];
+      }
+    }));
+    return results.expand((items) => items).toSet().toList(growable: false);
+  } finally {
+    client.close();
   }
 }

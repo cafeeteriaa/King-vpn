@@ -129,6 +129,34 @@ List<String> dnsxFullDomains() {
   return domains;
 }
 
+/// Domain inventory for the domestic DNS path only. Global feeds and global
+/// SNI seeds are deliberately not injected into this independent path.
+List<String> dnsxNationalModeDomains() {
+  final all = <String>{
+    ...kDnsxNationalProbeDomains,
+    ..._dnsxHostsFrom(kAutoNationalSniDomains),
+    ..._dnsxHostsFrom(natIrDomains),
+    ..._dnsxHostsFrom(iranDomains),
+    ..._dnsxHostsFrom(_iranMoreDomains),
+    ..._dnsxHostsFrom(natFrontSnis),
+    ..._dnsxHostsFrom(natRelayHosts),
+  };
+  return kingNormalizeDomainHosts(all)..sort();
+}
+
+/// Domain inventory for the global DNS path. Local/user inventories are merged
+/// by the caller; discovered feed rows are all retained without a count cap.
+List<String> dnsxGlobalModeDomains({
+  Iterable<String> discovered = const <String>[],
+}) {
+  final all = <String>{
+    ...kDnsxGlobalDomains,
+    ..._dnsxHostsFrom(kAutoSniDomains),
+    ..._dnsxHostsFrom(discovered),
+  };
+  return kingNormalizeDomainHosts(all)..sort();
+}
+
 /// Full project domain inventory with domestic candidates first during national
 /// network conditions. The global remainder is retained as a fallback; it is
 /// never discarded merely because the current network is domestic-only.
@@ -395,15 +423,23 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
         ? const <String>[]
         : await kingDiscoverPublicDnsResolvers();
     if (nationalMode != scanNationalMode) return;
+    final discoveredGlobalDomains = scanNationalMode
+        ? const <String>[]
+        : await kingDiscoverGlobalDnsDomains();
+    if (nationalMode != scanNationalMode) return;
     final list = {
       ...savedDns,
       ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults),
       ...discoveredPublicDns,
     }.toList();
-    // کامل: همه‌ی دامنه‌های موجود پروژه؛ بدون سقف ثابت برای موجودی دامنه‌ها
+    // Each mode scans its own complete inventory. The global path merges every
+    // row from the live catalogue; the domestic path never imports that feed.
+    final scanDomains = scanNationalMode
+        ? dnsxNationalModeDomains()
+        : dnsxGlobalModeDomains(discovered: discoveredGlobalDomains);
     final r = await dnsxScan(
       list,
-      domains: dnsxFullDomains(),
+      domains: scanDomains,
       stop: () => nationalMode != scanNationalMode || (stop?.call() ?? false),
     );
     // Discard partial or cross-mode results before writing anything.
@@ -416,7 +452,8 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
       final saved = await goldAddDns(r, shouldAbort: shouldAbort);
       if (!saved || shouldAbort()) return;
     }
-    final best = [for (final e in r.take(4)) e.ip];
+    // Persist every verified resolver; this cache is not a top-N inventory.
+    final best = [for (final e in r) e.ip];
     await p.setStringList('dnsx_best_v1_$sfx', best);
     if (shouldAbort()) return;
     await p.setInt('dnsx_at_v1_$sfx', now);
@@ -495,23 +532,32 @@ extension DnsxExt on _HomePageState {
               if (!mounted || !sheetOpen) return;
               // Manual DNS scan includes the live public resolver inventory;
               // the user's saved and built-in domestic sources remain merged.
-              final discoveredPublicDns = await kingDiscoverPublicDnsResolvers();
+              final scanNationalMode = nationalMode;
+              final discoveredPublicDns = scanNationalMode
+                  ? const <String>[]
+                  : await kingDiscoverPublicDnsResolvers();
               if (!mounted || !sheetOpen) return;
+              final discoveredGlobalDomains = scanNationalMode
+                  ? const <String>[]
+                  : await kingDiscoverGlobalDnsDomains();
+              if (!mounted || !sheetOpen || nationalMode != scanNationalMode) return;
               if (stopFlag) {
                 upd(() => note = 'اسکن متوقف شد؛ نتایج ذخیره نشد.');
                 return;
               }
               final list = {
                 ...saved,
-                ...kDnsxDefaults,
-                ...kDnsxNationalDefaults,
+                ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults),
                 ...discoveredPublicDns,
                 ...extra,
               }.toList();
+              final scanDomains = scanNationalMode
+                  ? dnsxNationalModeDomains()
+                  : dnsxGlobalModeDomains(discovered: discoveredGlobalDomains);
               upd(() => total = list.length);
               r = await dnsxScan(
                 list,
-                domains: dnsxFullDomains(),
+                domains: scanDomains,
                 manual: true,
                 stop: () => stopFlag || !sheetOpen,
                 onProgress: (d, t) => upd(() {
