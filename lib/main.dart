@@ -2,6 +2,7 @@ import 'dart:async';
 import 'network_health.dart';
 import 'cf_trace_validation.dart';
 import 'http_response_policy.dart';
+import 'background_concurrency_policy.dart';
 import 'king_local_ai.dart';
 import 'king_ai_console.dart';
 import 'king_chat_page.dart';
@@ -111,12 +112,12 @@ bool poolStop = false; // ABORTPOOL: stop taking new items in parallel tests // 
 int bgWorkers = 3; // تست همزمان (وقتی وصل است) — پیش‌فرض ۳
 // BGPAR: تعداد تست همزمان وقتی وصلیم = تنظیم «تست همزمان (وقتی وصل است)» (۱ تا ۳)
 // CPUGOV: وقتی CPU خود برنامه داغ است فقط ۱ تست همزمان؛ تنظیم کاربر (bgWorkers) هم رعایت می‌شود
-int _bgPar() {
-  if (nationalMode) return kNatDelayConcurrency; // نت ملی: ۳ (پایداری هسته)
-  // DSGETTER: از مقدار مؤثر (dataSaver رعایت شود)
-  final n = effBgWorkers < 1 ? 1 : effBgWorkers;
-  return n.clamp(1, 32); // کاربر هر عددی گذاشت همان؛ سقف ایمنی ۳۲
-}
+int _bgPar() => adaptiveBackgroundConcurrency(
+      requestedWorkers: effBgWorkers,
+      cpuHeat: cpuHot,
+      nationalMode: nationalMode,
+      nationalWorkers: kNatDelayConcurrency,
+    );
 
 // CPUGOV: مصرف CPU خود برنامه (همه‌ی ترد‌ها، از جمله هسته‌ی Xray داخل همین پردازه) از
 // /proc/self/stat. اندروید پردازه‌ای را که میانگین CPU آن در ۵ دقیقه از ~۲۵٪ بالاتر برود
