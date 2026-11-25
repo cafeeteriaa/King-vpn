@@ -3892,5 +3892,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final tpl = pool.toList();', ip_auto)
 
 
+    def test_national_scanner_schedule_is_70_domestic_30_global_without_truncation(self):
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        start = dns.index('List<String> dnsxNationalFirstDomains(')
+        end = dns.index('/// متن نمایشی دامنه‌ها', start)
+        schedule = dns[start:end]
+        self.assertIn('for (var slot = 0; slot < 7', schedule)
+        self.assertIn('for (var slot = 0; slot < 3', schedule)
+        self.assertIn('domesticQueue.length', schedule)
+        self.assertIn('globalQueue.length', schedule)
+        self.assertIn('final scheduled = <String>[];', schedule)
+        self.assertNotIn('take(', schedule)
+
+
 if __name__ == '__main__':
     unittest.main()
