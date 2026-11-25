@@ -1436,10 +1436,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         saved = source[saved_start:saved_end]
         self.assertIn('final run = l;', saved)
         self.assertNotIn('l.take(80)', saved)
-        acquire_start = source.index('Future<Set<Server>> _acquireInner(')
-        acquire_end = source.index('Future<', acquire_start + 30)
-        acquire = source[acquire_start:acquire_end]
-        self.assertNotIn('.take(40)', acquire)
+        self.assertNotIn('.take(40)', source)
         self.assertNotIn('failed.length > 120', source)
         self.assertIn('rows.addAll(waiting);', source)
         self.assertNotIn('waiting.take(30)', source)
