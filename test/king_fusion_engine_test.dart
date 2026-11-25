@@ -290,6 +290,46 @@ void main() {
       expect(engine.snapshot.disconnectRequested, isFalse);
     });
 
+    test('retains a bounded immutable lifecycle history without an observer', () async {
+      final events = <String>[];
+      final adapter = _FakeAdapter('first', events);
+      final engine = KingFusionEngine([adapter], eventHistoryLimit: 3);
+
+      final connected = await engine.connect(KingFusionPlan([
+        const KingFusionHop(
+          engineId: 'first',
+          configuration: 'private-config-must-not-enter-history',
+        ),
+      ]));
+
+      expect(connected.connected, isTrue);
+      expect(engine.recentEvents, hasLength(3));
+      expect(engine.recentEvents.last.sequence, engine.snapshot.eventSequence);
+      expect(engine.recentEvents.every((event) =>
+          event.engineId == null || event.engineId == 'first'), isTrue);
+      expect(engine.recentEvents.toString(),
+          isNot(contains('private-config-must-not-enter-history')));
+      expect(() => engine.recentEvents.clear(), throwsUnsupportedError);
+      expect(() => engine.snapshot.recentEvents.clear(), throwsUnsupportedError);
+
+      await engine.disconnect();
+      expect(engine.recentEvents, hasLength(3));
+      expect(engine.recentEvents.last.type,
+          KingFusionEventType.disconnectCompleted);
+      expect(engine.recentEvents.first.sequence,
+          engine.snapshot.eventSequence - 2);
+    });
+
+    test('rejects a non-positive lifecycle history limit', () {
+      expect(
+        () => KingFusionEngine(
+          [_FakeAdapter('first', <String>[])],
+          eventHistoryLimit: 0,
+        ),
+        throwsArgumentError,
+      );
+    });
+
     test('event listener exceptions cannot interrupt native lifecycle', () async {
       final adapterEvents = <String>[];
       final adapter = _FakeAdapter('first', adapterEvents);
