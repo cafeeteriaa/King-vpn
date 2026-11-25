@@ -6114,6 +6114,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final coordinator = KingFusionEngine(
       [adapter],
       nativeStopTimeout: const Duration(seconds: 9),
+      onEvent: (event) {
+        // Fusion telemetry is deliberately limited to safe IDs/codes/counts;
+        // configurations and native handles never enter the diagnostic journal.
+        dbg(
+          'FUSION seq=${event.sequence} type=${event.type.name} '
+          'state=${event.state.name} engine=${event.engineId ?? '-'} '
+          'failure=${event.failureCode ?? '-'} active=${event.activeHopCount}',
+        );
+      },
     );
     _activeV2RayFusion = coordinator;
     final result = await coordinator.connect(
