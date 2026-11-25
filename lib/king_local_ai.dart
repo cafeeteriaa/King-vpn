@@ -1095,6 +1095,11 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
             !canonicalParent.startsWith('${root}${Platform.pathSeparator}')) {
           throw FormatException('Imported target escaped its workspace: ${entry.key}');
         }
+        // Close the inspect-to-stage race: a concurrent local edit invalidates
+        // the proposal even if it happened after the initial inventory read.
+        if (await target.readAsString() != originals[entry.key]) {
+          throw StateError('Imported source changed while staging: ${entry.key}');
+        }
         final temporary = File('${targetPath}.king-ai-stage-${stamp}-${index}');
         final backup = File('${targetPath}.king-ai-backup-${stamp}-${index}');
         if (await temporary.exists() || await backup.exists()) {
@@ -1119,8 +1124,14 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
           rethrow;
         }
       }
+      // Backup cleanup is best-effort after the commit point. A cleanup
+      // failure must not trigger rollback after another backup was removed.
       for (final backup in backups.values) {
-        if (await backup.exists()) await backup.delete();
+        try {
+          if (await backup.exists()) await backup.delete();
+        } catch (_) {
+          // Preserve an orphaned backup rather than risk losing committed data.
+        }
       }
       return {
         'status': 'applied',
