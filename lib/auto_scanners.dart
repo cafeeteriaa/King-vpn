@@ -128,16 +128,21 @@ AutoScanCheckpoint kingDecodeAutoScanCheckpoint({
       final decoded = jsonDecode(encoded);
       if (decoded is Map && decoded['version'] == 2) {
         final cdn = decodeCdn(decoded['cdn']);
+        final hasCdn = decoded['cdn'] is Map;
         final domainValue = decoded['domain'];
         final portValue = decoded['port'];
-        final domain = domainValue is String ? domainValue : legacyDomain;
-        final port = portValue is num &&
-                portValue.toInt() >= 1 &&
-                portValue.toInt() <= 65535
-            ? portValue.toInt()
+        final domain = decoded.containsKey('domain')
+            ? (domainValue is String ? domainValue : null)
+            : legacyDomain;
+        final port = decoded.containsKey('port')
+            ? (portValue is num &&
+                    portValue.toInt() >= 1 &&
+                    portValue.toInt() <= 65535
+                ? portValue.toInt()
+                : null)
             : legacyPort;
         return (
-          cdn: cdn.isEmpty ? legacyCdn : cdn,
+          cdn: hasCdn ? cdn : legacyCdn,
           domain: domain,
           port: port,
         );
