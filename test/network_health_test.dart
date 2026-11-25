@@ -52,6 +52,22 @@ void main() {
       }
     });
 
+    test('cache is fresh immediately before TTL but stale at the exact boundary', () {
+      for (final sample in <({DateTime at, bool fresh})>[
+        (at: now.subtract(const Duration(minutes: 2) - Duration(microseconds: 1)), fresh: true),
+        (at: now.subtract(const Duration(minutes: 2)), fresh: false),
+      ]) {
+        expect(isProbeCacheFresh(
+          force: false,
+          currentIdentity: 'network-a',
+          cachedIdentity: 'network-a',
+          cachedAt: sample.at,
+          now: now,
+          ttl: const Duration(minutes: 2),
+        ), sample.fresh);
+      }
+    });
+
     test('forces refresh for expired, missing or future-dated cache entries', () {
       final old = now.subtract(const Duration(minutes: 3));
       for (final cachedAt in <DateTime?>[
