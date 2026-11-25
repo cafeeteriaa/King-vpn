@@ -589,3 +589,15 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) API/concurrency — all concurrent callers share one future; (2) lifecycle — joining teardown does not create overlapping native cleanup or stale cancellation state; (3) regression — blocked-stop test asserts both callers observe completion.
 - Commits: `65f8c66b137b3d3d5e7c9c129988229581a92c95` (concurrent disconnect test), `9621086cbf5795811c4e92797bddee00d08b2b04` (coalesced disconnect and stable cleanup identity).
 - CI for `9621086cbf5795811c4e92797bddee00d08b2b04` is pending. The immediately preceding exact-head commit `4a1274f599eeb4a92d40e40c373313b96e5fd7a3` passed both push and pull-request workflows, including Flutter tests, Dart analysis and Android arm64 release APK build; this does not pre-validate the new concurrency change.
+
+
+## 2026-11-25 — Bounded secret-free Fusion lifecycle history
+
+- Added configurable in-memory lifecycle event retention to `KingFusionEngine`. The default history window is 256 events and callers may choose any positive capacity; non-positive capacities are rejected at construction.
+- Event history is populated even when no observer callback is registered, so diagnostic snapshots remain useful in production integrations that do not attach a listener.
+- Added immutable `recentEvents` access on both the engine and `KingFusionSnapshot`. The retained window is trimmed from the oldest end and never grows beyond the configured capacity.
+- The history stores only the existing sanitized `KingFusionEvent` fields: sequence, timestamp, lifecycle type/state, validated engine ID, sanitized failure code and active-hop count. Opaque configurations and native handles are not introduced into telemetry.
+- Added tests for retention without a listener, bounded eviction, immutable history/snapshot collections, sequence continuity, configuration secrecy, and invalid capacity.
+- Three-pass review: (1) compatibility — additive constructor option with a default; existing listeners and event sequencing remain intact; (2) security/lifecycle — no config/native handle fields are retained and memory use is bounded/configurable; (3) regression — 2 new tests cover history behavior and validation.
+- Commits: `1704b51268988059226d89c2ce6fe9000cf00d6e` (engine history), `11460856dbcaaff71f8183c076000531a9e37f9e` (history tests).
+- Dedicated Fusion test count: 40. CI for the exact latest head is pending; do not treat older CI results as validation of this change.
