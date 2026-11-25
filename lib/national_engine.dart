@@ -4,11 +4,11 @@ part of 'main.dart';
 // This module is deliberately additive: it records evidence and ranks candidates;
 // it does not rewrite a V2Ray URI or claim that a probe proves tunnel reachability.
 
-/// Bounded, privacy-preserving history. Only a SHA-256 key is persisted, never
-/// the raw V2Ray link, UUID, password, server name, or full endpoint string.
+/// Privacy-preserving endpoint history. Only a SHA-256 key is persisted,
+/// never the raw V2Ray link, UUID, password, server name, or full endpoint string.
+/// The inventory is not truncated to a fixed number of remembered endpoints.
 class NationalNetworkIntelligence {
   static const String _prefsKey = 'nnie_profiles_v2'; // v2: key includes transport + TLS
-  static const int _maxEntries = 500;
   static Map<String, NatEndpointMemory> _memory = <String, NatEndpointMemory>{};
   static bool _loaded = false;
   static Future<void>? _loading;
@@ -116,12 +116,9 @@ class NationalNetworkIntelligence {
 
   static Future<void> _save() async {
     try {
-      // Keep most useful/recent entries; do not let history grow indefinitely.
-      final entries = _memory.entries.toList()
-        ..sort((a, b) => b.value.score.compareTo(a.value.score));
-      if (entries.length > _maxEntries) {
-        _memory = Map<String, NatEndpointMemory>.fromEntries(entries.take(_maxEntries));
-      }
+      // Persist the complete endpoint-memory inventory. Ranking belongs in
+      // rank(), not in storage retention: low-scoring and newly failed endpoints
+      // must not disappear just because more endpoints were observed.
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_prefsKey, jsonEncode(_memory.map((k, v) => MapEntry(k, v.toJson()))));
     } catch (e, st) {
