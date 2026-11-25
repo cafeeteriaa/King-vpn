@@ -325,8 +325,13 @@ Future<http.Response> getListMirror(String u) async {
     try {
       final r =
           await http.get(Uri.parse(u)).timeout(const Duration(seconds: 8));
-      _rawOk++;
-      return _safeResp(r);
+      // HTTP errors and empty bodies are source failures, not mirror successes.
+      // Try every configured mirror before declaring the source unavailable.
+      if (r.statusCode == 200 && r.bodyBytes.isNotEmpty) {
+        _rawOk++;
+        return _safeResp(r);
+      }
+      _rawFail++;
     } catch (e, stk) {
       logError(e, stk);
       _rawFail++;
