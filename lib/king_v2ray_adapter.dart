@@ -15,6 +15,7 @@ class KingV2RayAdapter implements KingFusionCancellableEngineAdapter {
     required KingV2RayStartCallback start,
     required KingV2RayStopCallback stop,
     String id = 'king-v2ray-xray',
+    this.nativeStartTimeout = const Duration(seconds: 30),
   })  : _startNative = start,
         _stopNative = stop,
         _descriptor = KingEngineDescriptor(
@@ -26,27 +27,48 @@ class KingV2RayAdapter implements KingFusionCancellableEngineAdapter {
           // parsed or narrowed by this lifecycle bridge.
           supportedTransports: const <String>{},
           supportsMultiHop: false,
-        );
+        ) {
+    if (nativeStartTimeout <= Duration.zero) {
+      throw ArgumentError.value(
+        nativeStartTimeout,
+        'nativeStartTimeout',
+        'Must be positive',
+      );
+    }
+  }
 
   final KingV2RayStartCallback _startNative;
   final KingV2RayStopCallback _stopNative;
   final KingEngineDescriptor _descriptor;
+  final Duration nativeStartTimeout;
 
   Object? _activeHandle;
   Object? _lastStoppedHandle;
   bool _starting = false;
   bool _cancelRequested = false;
+  bool _cleanupRequired = false;
+  bool _failedStartCleanupDone = false;
   int _generation = 0;
+  Future<void>? _pendingStart;
+  Future<void>? _startCancellationSignal;
+  Completer<void>? _startCancellationCompleter;
   Future<void>? _stopInFlight;
 
   Future<void> _stopNativeSerialized() {
     final current = _stopInFlight;
     if (current != null) return current;
-    final operation = _stopNative();
+
+    final operation = Future<void>.sync(_stopNative);
     _stopInFlight = operation;
-    return operation.whenComplete(() {
-      if (identical(_stopInFlight, operation)) _stopInFlight = null;
-    });
+    operation.then<void>(
+      (_) {
+        if (identical(_stopInFlight, operation)) _stopInFlight = null;
+      },
+      onError: (Object _, StackTrace __) {
+        if (identical(_stopInFlight, operation)) _stopInFlight = null;
+      },
+    );
+    return operation;
   }
 
   @override
@@ -63,38 +85,103 @@ class KingV2RayAdapter implements KingFusionCancellableEngineAdapter {
     if (_starting || _activeHandle != null) {
       return const KingEngineStartResult.failed('E-V2RAY-ALREADY-ACTIVE');
     }
+    if (_cleanupRequired || _pendingStart != null) {
+      return const KingEngineStartResult.failed(
+        'E-V2RAY-CLEANUP-PENDING',
+        cleanupRequired: true,
+      );
+    }
     if (configuration.trim().isEmpty) {
       return const KingEngineStartResult.failed('E-V2RAY-CONFIG-EMPTY');
     }
 
     _starting = true;
     _cancelRequested = false;
+    _failedStartCleanupDone = false;
     final generation = ++_generation;
+    final cancellation = Completer<void>();
+    _startCancellationCompleter = cancellation;
+    _startCancellationSignal = cancellation.future;
+    final nativeStart = Future<void>.sync(() => _startNative(configuration));
+    _pendingStart = nativeStart;
+    var nativeSettled = false;
+    nativeStart.then<void>(
+      (_) {
+        nativeSettled = true;
+        if (identical(_pendingStart, nativeStart)) _pendingStart = null;
+      },
+      onError: (Object _, StackTrace __) {
+        nativeSettled = true;
+        if (identical(_pendingStart, nativeStart)) _pendingStart = null;
+      },
+    );
+
     try {
-      await _startNative(configuration);
+      await Future.any<void>([
+        nativeStart.timeout(
+          nativeStartTimeout,
+          onTimeout: () => throw TimeoutException('E-V2RAY-START-TIMEOUT'),
+        ),
+        cancellation.future.then<void>(
+          (_) => throw StateError('E-V2RAY-START-CANCELLED'),
+        ),
+      ]);
+
       if (generation != _generation || _cancelRequested) {
-        // A stop can race a platform start method. Stop again after that
-        // method settles so a late native start cannot become an orphan.
-        await _stopNativeSerialized();
-        return const KingEngineStartResult.failed('E-V2RAY-START-CANCELLED');
+        _cleanupRequired = true;
+        try {
+          await _stopNativeSerialized();
+          _cleanupRequired = false;
+          _failedStartCleanupDone = true;
+          return const KingEngineStartResult.failed(
+            'E-V2RAY-START-CANCELLED',
+          );
+        } catch (_) {
+          return const KingEngineStartResult.failed(
+            'E-V2RAY-START-CANCELLED',
+            cleanupRequired: true,
+          );
+        }
       }
+
       final handle = Object();
       _activeHandle = handle;
       _lastStoppedHandle = null;
       return KingEngineStartResult.connected(handle);
     } catch (_) {
-      // A platform exception may arrive after native startup partially began.
-      // Best-effort cleanup is intentionally followed by the normal app
-      // recovery path; the exception text/configuration never leaves adapter.
+      final cancelled = generation != _generation || _cancelRequested;
+      final failureCode = cancelled
+          ? 'E-V2RAY-START-CANCELLED'
+          : nativeSettled
+              ? 'E-V2RAY-START'
+              : 'E-V2RAY-START-TIMEOUT';
+
+      if (!nativeSettled) {
+        // Keep the original platform Future, not its timeout wrapper. Fusion
+        // retains this failed start as a cleanup handle and waits/retries stop.
+        _cleanupRequired = true;
+        return KingEngineStartResult.failed(
+          failureCode,
+          cleanupRequired: true,
+        );
+      }
+
       try {
         await _stopNativeSerialized();
+        _cleanupRequired = false;
+        _failedStartCleanupDone = true;
+        return KingEngineStartResult.failed(failureCode);
       } catch (_) {
-        // The Fusion coordinator retains cleanup only for acquired handles.
-        // The host's existing stop/recovery path remains the final fallback.
+        _cleanupRequired = true;
+        return KingEngineStartResult.failed(
+          failureCode,
+          cleanupRequired: true,
+        );
       }
-      return const KingEngineStartResult.failed('E-V2RAY-START');
     } finally {
       _starting = false;
+      _startCancellationCompleter = null;
+      _startCancellationSignal = null;
     }
   }
 
@@ -103,11 +190,33 @@ class KingV2RayAdapter implements KingFusionCancellableEngineAdapter {
     if (!_starting) return;
     _cancelRequested = true;
     _generation++;
+    _cleanupRequired = true;
+    final signal = _startCancellationCompleter;
+    if (signal != null && !signal.isCompleted) signal.complete();
+    // Stop immediately, then keep the unresolved start Future as a cleanup
+    // dependency. stop(null) waits for it and performs a final late-start stop.
     await _stopNativeSerialized();
   }
 
   @override
   Future<void> stop(Object? handle) async {
+    if (handle == null &&
+        (_cleanupRequired || _pendingStart != null || _failedStartCleanupDone)) {
+      final pending = _pendingStart;
+      if (pending != null) {
+        try {
+          await pending;
+        } catch (_) {
+          // A failed start has settled; cleanup is still required below.
+        }
+      }
+      await _stopNativeSerialized();
+      _cleanupRequired = false;
+      _failedStartCleanupDone = true;
+      _activeHandle = null;
+      return;
+    }
+
     if (identical(handle, _lastStoppedHandle)) return;
     if (!identical(handle, _activeHandle)) {
       throw StateError('E-V2RAY-HANDLE-MISMATCH');
