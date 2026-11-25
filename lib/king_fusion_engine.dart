@@ -449,7 +449,10 @@ class KingFusionEngine {
   }
 
   Future<KingFusionResult> connect(KingFusionPlan plan) async {
-    if (_disconnectRequested) {
+    // disconnect() publishes its shared future before observer callbacks run.
+    // Reject a reentrant connect from disconnectRequested rather than allowing
+    // a new native start to race the teardown that is about to begin.
+    if (_disconnectOperation != null || _disconnectRequested) {
       return const KingFusionResult.failure(
         failedEngineId: null,
         failureCode: 'E-FUSION-DISCONNECT-PENDING',
