@@ -51,7 +51,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
         _links = page.items;
         _hasMore = page.hasMore;
         _metadata = metadata;
-        _totalCount = (metadata['count'] as num?)?.toInt() ?? 0;
+        _totalCount = page.totalCount;
         _path = values[2] as String;
         _message = '';
       });
