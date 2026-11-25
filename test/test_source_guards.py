@@ -3925,6 +3925,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('INDEPENDENT MULTI-MODEL REVIEWS', local)
         self.assertIn('setExternalCodeReviewEnabled(enabled)', settings)
         self.assertIn('king_ai_external_code_review_enabled', provider)
+        self.assertIn("await _secure.delete(key: 'king_ai_external_code_review_enabled')", provider)
 
 
     def test_owner_console_can_analyze_reference_images_into_feature_requests(self):
