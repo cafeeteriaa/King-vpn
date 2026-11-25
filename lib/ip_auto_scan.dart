@@ -528,6 +528,11 @@ extension IpAutoExt on _HomePageState {
         ipAutoPendingCore.add(candidate);
       }
     }
+    // Persist the completed TCP cursor and the full core-verification backlog
+    // before starting slower VPN-core checks. A process death can then resume
+    // verification without rescanning the already completed TCP inventory.
+    final tcpCheckpointSaved = await _ipAutoSave();
+    if (!tcpCheckpointSaved || halted()) return false;
     if (tpl.isEmpty) {
       // TCP discovery can proceed without a VPN template. Keep its candidates
       // in the durable core-verification queue until a real template is known.
@@ -551,6 +556,8 @@ extension IpAutoExt on _HomePageState {
       checked++;
       if (seen.contains(c)) {
         ipAutoPendingCore.remove(c);
+        final checkpointSaved = await _ipAutoSave();
+        if (!checkpointSaved || halted()) return false;
         continue;
       }
       final parts = c.split('|');
@@ -581,6 +588,10 @@ extension IpAutoExt on _HomePageState {
       }
       ipAutoPendingCore.remove(c);
       ipAutoHits.insert(0, c);
+      // Commit each confirmed result with its pending-queue removal so a crash
+      // cannot lose a success or resurrect it as unverified work.
+      final resultCheckpointSaved = await _ipAutoSave();
+      if (!resultCheckpointSaved || halted()) return false;
       // Core outbound delay is not proof of a clean IP or Android TUN health.
       // Keep it as a candidate only; promotion requires a real user tunnel test.
       seen.add(c);
