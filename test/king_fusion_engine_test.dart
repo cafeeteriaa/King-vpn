@@ -670,6 +670,45 @@ void main() {
       expect(events.where((event) => event.startsWith('stop:first:')).length, 1);
     });
 
+    test('native start exception after disconnect is classified as cancellation', () async {
+      final events = <String>[];
+      final first = _FakeAdapter(
+        'first',
+        events,
+        chainTargets: const {'second'},
+      );
+      final gate = Completer<void>();
+      final entered = Completer<void>();
+      final second = _FakeAdapter(
+        'second',
+        events,
+        startGate: gate,
+        startEntered: entered,
+        throwTimeoutOnStart: true,
+      );
+      final engine = KingFusionEngine([first, second]);
+      final connecting = engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'first', configuration: 'cfg-1'),
+        const KingFusionHop(engineId: 'second', configuration: 'cfg-2'),
+      ]));
+
+      await entered.future;
+      final disconnecting = engine.disconnect();
+      gate.complete();
+
+      final result = await connecting;
+      await disconnecting;
+      expect(result.connected, isFalse);
+      expect(result.failureCode, 'E-FUSION-CANCELLED');
+      expect(result.startedHops, 1);
+      expect(events, [
+        'start:first:-',
+        'start:second:handle-first',
+        'stop:first:handle-first',
+      ]);
+      expect(engine.state, KingFusionState.idle);
+    });
+
     test('native adapter TimeoutException is not mislabeled as verifier timeout', () async {
       final events = <String>[];
       final adapter = _FakeAdapter(
