@@ -270,9 +270,9 @@ extension IpAutoExt on _HomePageState {
     };
     final domainSources = <String>{
       ...(runNationalMode ? kAutoNationalSniDomains : kAutoSniDomains),
+      ...natFrontSnis,
+      ...natRelayHosts,
       if (!runNationalMode) ...dnsxFullDomains(),
-      if (!runNationalMode) ...natFrontSnis,
-      if (!runNationalMode) ...natRelayHosts,
     };
     if (runNationalMode) {
       for (final server in <Server>{
@@ -283,11 +283,13 @@ extension IpAutoExt on _HomePageState {
         if (!server.isIp) domainSources.add(server.host);
       }
     }
-    final domainInventory = domainSources
-        .map((domain) => domain.trim().toLowerCase())
-        .where((domain) => domain.isNotEmpty && domain.contains('.'))
-        .toList()
-      ..sort();
+    final domainInventory = runNationalMode
+        ? dnsxNationalFirstDomains(extra: domainSources)
+        : (domainSources
+            .map((domain) => domain.trim().toLowerCase())
+            .where((domain) => domain.isNotEmpty && domain.contains('.'))
+            .toList()
+          ..sort());
     final savedDomainCursor =
         discoveryPrefs.getString(_autoScanDomainCursorKey);
     final previousDomainIndex = savedDomainCursor == null
