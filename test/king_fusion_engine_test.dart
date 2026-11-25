@@ -254,5 +254,29 @@ void main() {
       expect(engine.state, KingFusionState.idle);
     });
 
+    test('reports and retains cleanup failures after a later hop fails', () async {
+      final events = <String>[];
+      final first = _FakeAdapter(
+        'first',
+        events,
+        chainTargets: const {'second'},
+        stopFailuresRemaining: 1,
+      );
+      final second = _FakeAdapter('second', events, failStart: true);
+      final engine = KingFusionEngine([first, second]);
+
+      final result = await engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'first', configuration: 'cfg-1'),
+        const KingFusionHop(engineId: 'second', configuration: 'cfg-2'),
+      ]));
+
+      expect(result.connected, isFalse);
+      expect(result.cleanupFailedEngineIds, ['first']);
+      expect(engine.state, KingFusionState.failed);
+      await engine.disconnect();
+      expect(engine.state, KingFusionState.idle);
+      expect(events.where((event) => event.startsWith('stop:first:')).length, 2);
+    });
+
   });
 }
