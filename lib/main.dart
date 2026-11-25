@@ -6881,7 +6881,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!natHotReady()) {
         _set('پوشه‌ی منابع تازه هنوز ساخته نشده: روی «پوشه منابع تازه» بزن و حدود ۱۰ دقیقه صبر کن');
       }
-      final hotOff = await natHotNext(300, fetch: false); // هر دور ۳۰۰ تا؛ اگر پیدا نشد دور بعد ادامه می‌دهد
+      final hotOff = await natHotNext(null, fetch: false); // complete local hot inventory
       // FRESH-DISK: منابع تازه‌ی ذخیره‌شده روی گوشی در اتصال آفلاین هم قابل استفاده‌اند.
       final diskLinks = await FreshResourceStore.readLinks();
       final diskOff = <Server>[];
@@ -9809,8 +9809,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int _resDone = 0, _resTotal = 0;
   static const int _resMax = 5000;
   static const Duration _resEvery = Duration(hours: 48); // FOLDERS: تست خودکار هر ۴۸ ساعت
-  int _resMergeCursor = 0; // FOLDERS: چرخش سهم سرورهای سالم در صف نت ملی
-  bool _resFull = false; // second-chance pass: every variant
+    bool _resFull = false; // second-chance pass: every variant
 
   Future<void> _resLoad() async {
     try {
@@ -10602,32 +10601,18 @@ ListTile( // KINGEXTRAS row
   // دامنه‌ها ابتدا به IP تبدیل می‌شوند. سرورهایی که پورتشان باز است جلوی صف
   // می‌آیند؛ بقیه حذف نمی‌شوند. اعتبار واقعی همچنان با تست اتصال از تونل است.
   Future<void> _natMergeCache() async {
-    // NATIONAL-MERGE: در nationalMode، منابع تازه (natHotNext) + پوشه‌ی
-    // سرورهای سالم (_resMap) با نسبت ثابت به صف اضافه می‌شوند
-    // (منابع تازه ۴۰۰، پوشه ۳۰۰ با چرخش _resMergeCursor).
+    // Merge the complete fresh-resource and saved-healthy inventories.
+    // Queue partitioning is lossless and never pauses source reads.
     if (!nationalMode || !kNatMergeCache) return;
-    final queueLimit = max(3000, natAdaptiveWorkers() * 1500);
-    if (pending.length + natRestPending.length >= queueLimit) return;
-    // FOLDERS: سهم ثابت در هر دور. منابع تازه ۴۰۰ کانفیگ، سرورهای سالم ۳۰۰ تا
-    // (با چرخش، تا همه‌ی پوشه نوبت بگیرد). سرورهایی که همین الان در صف یا در
-    // لیست سالم هستند دوباره اضافه نمی‌شوند.
     final queued = {for (final s in [...pending, ...natRestPending]) s.link};
     final goodLinks = {for (final g in good) g.link};
-    final rest = <Server>[];
-    for (final e in _resMap.values) {
-      final hs = Server.parse(e.link);
-      if (hs != null && !goodLinks.contains(hs.link)) rest.add(hs);
-    }
     final fromHealthy = <Server>[];
-    if (rest.isNotEmpty) {
-      final st = _resMergeCursor % rest.length;
-      final take = min(300, rest.length);
-      for (var i = 0; i < take; i++) {
-        fromHealthy.add(rest[(st + i) % rest.length]);
-      }
-      _resMergeCursor = (st + take) % rest.length;
+    for (final entry in _resMap.values) {
+      if (goodLinks.contains(entry.link)) continue;
+      final server = Server.parse(entry.link);
+      if (server != null) fromHealthy.add(server);
     }
-    final fromFresh = await natHotNext(400);
+    final fromFresh = await natHotNext(null);
     final c = [...fromFresh, ...fromHealthy];
     if (c.isEmpty) return;
     final add = [for (final s in c) if (queued.add(s.link)) s];
