@@ -180,7 +180,7 @@ List<T> kingNextInventoryBatch<T>(
 }) {
   if (batchSize <= 0) return <T>[];
   final items = inventory.toList(growable: false);
-  if (items.isEmpty) return const <T>[];
+  if (items.isEmpty) return <T>[];
   final previousIndex = lastValue == null ? -1 : items.indexOf(lastValue);
   final start = previousIndex < 0 ? 0 : (previousIndex + 1) % items.length;
   final count = min(batchSize, items.length);
