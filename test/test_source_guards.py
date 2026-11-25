@@ -113,8 +113,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = nat.index('int natMemQueued', start)
         seed_block = nat[start:end]
         self.assertIn('parsed.type == InternetAddressType.IPv4 ||', seed_block)
-        self.assertIn("out.add('${octets[0]}.${octets[1]}.${octets[2]}.0/24');", seed_block)
-        self.assertIn("out.add('${parsed.address}/128');", seed_block)
+        self.assertIn('final prefix = parsed.type == InternetAddressType.IPv4 ? 32 : 128;', seed_block)
+        self.assertIn("out.add('${parsed.address}/$prefix');", seed_block)
+        self.assertNotIn('.0/24', seed_block)
         domain_start = nat.index('Future<List<String>> _natDomainFirst(')
         domain_end = nat.index('Future<List<String>> natDeviceHosts()', domain_start)
         domain_scan = nat[domain_start:domain_end]
@@ -3303,8 +3304,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         seed_start = nat.index('List<String> natSeedBlocks(')
         seed_end = nat.index('int natMemQueued', seed_start)
         seed_blocks = nat[seed_start:seed_end]
-        self.assertIn("'${octets[0]}.${octets[1]}.${octets[2]}.0/24'", seed_blocks)
-        self.assertIn("'${parsed.address}/128'", seed_blocks)
+        self.assertIn('parsed.type == InternetAddressType.IPv4 ? 32 : 128', seed_blocks)
+        self.assertIn("out.add('${parsed.address}/$prefix');", seed_blocks)
+        self.assertNotIn('.0/24', seed_blocks)
         ports_start = nat.index('List<int> natAutoPorts(')
         ports_end = nat.index('List<int>? _ipTriple', ports_start)
         ports = nat[ports_start:ports_end]
