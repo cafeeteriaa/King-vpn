@@ -30,17 +30,20 @@ List<String> kingParsePublicDnsResolvers(String source) {
 /// built-in, saved and user-entered addresses are merged by the caller.
 /// Failure of one feed never prevents the others or erases prior inventory.
 Future<List<String>> kingDiscoverPublicDnsResolvers() async {
-  const sources = <String>[
-    'https://public-dns.info/nameservers.txt',
-    'https://public-dns.info/nameservers.csv',
-    'https://raw.githubusercontent.com/blacklanternsecurity/public-dns-servers/master/nameservers.txt',
+  final sources = <Uri>[
+    Uri.https('public-dns.info', '/nameservers.txt'),
+    Uri.https('public-dns.info', '/nameservers.csv'),
+    Uri.https(
+      'raw.githubusercontent.com',
+      '/blacklanternsecurity/public-dns-servers/master/nameservers.txt',
+    ),
   ];
   final client = http.Client();
   try {
     final results = await Future.wait(sources.map((source) async {
       try {
         final response = await client
-            .get(Uri.parse(source), headers: const {'Accept': 'text/plain,text/csv'})
+            .get(source, headers: const {'Accept': 'text/plain,text/csv'})
             .timeout(const Duration(seconds: 30));
         if (response.statusCode != HttpStatus.ok) return const <String>[];
         return kingParsePublicDnsResolvers(response.body);
