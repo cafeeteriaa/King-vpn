@@ -332,3 +332,13 @@ These are three distinct technical review passes by the same assistant, not thre
 - Added a source guard that ensures the shared normalizer remains wired into DNS scanner inventory construction.
 - This is normalization only: no domain source is removed by a fixed list, no inventory count ceiling is introduced, and DNS/endpoint resources remain separate.
 - Exact-head CI is pending for the domain-normalization additions as well as the preceding exact endpoint/template changes. Physical device and network-path tests remain outstanding.
+
+
+## 2026-11-25 — Three-pass scanner review
+
+- Pass 1 (semantics): verified complete national template retention, removal of two-item template truncation, exact IP:port association, and trying all source configurations for a pair. No port-only fallback remains.
+- Pass 2 (scope/safety): verified that active IP checks remain constrained to the generated address slice resolved from the existing endpoint inventory; endpoint ports and IPv4/IPv6 values are validated; DNS host normalization excludes IP literals and malformed labels.
+- Pass 3 (regression): verified main.dart imports the standalone normalizer, dns_scanner.dart uses it, unit tests cover endpoint indexing and hostname normalization, and source guards match the final implementation.
+- Static review result: 15/15 assertions passed across the three passes. This is a source-level review, not a substitute for exact-head CI or Android device tests.
+- Corrected a source-guard wording mismatch before final CI; no product behavior was changed by that guard-only correction.
+- Latest exact-head CI is queued; run 2945 is still processing a prior commit's ARM64 build. Wait for the latest head's source guard, Flutter tests, Dart analysis and ARM64 build before marking this stage validated.
