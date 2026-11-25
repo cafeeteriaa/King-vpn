@@ -165,6 +165,73 @@ void main() {
       expect(engine.state, KingFusionState.idle);
     });
 
+    test('retains a timed-out native start until late completion can be stopped', () async {
+      final startGate = Completer<void>();
+      var stopCalls = 0;
+      final adapter = KingV2RayAdapter(
+        nativeStartTimeout: const Duration(milliseconds: 5),
+        start: (_) => startGate.future,
+        stop: () async {
+          stopCalls++;
+        },
+      );
+      final engine = KingFusionEngine(
+        [adapter],
+        nativeStopTimeout: const Duration(milliseconds: 5),
+      );
+
+      final result = await engine.connect(KingFusionPlan([
+        const KingFusionHop(
+          engineId: 'king-v2ray-xray',
+          configuration: 'opaque-config',
+        ),
+      ]));
+
+      expect(result.connected, isFalse);
+      expect(result.failureCode, 'E-V2RAY-START-TIMEOUT');
+      expect(result.cleanupFailedEngineIds, ['king-v2ray-xray']);
+      expect(engine.cleanupPendingEngineIds, ['king-v2ray-xray']);
+      expect(stopCalls, 0);
+
+      startGate.complete();
+      await engine.disconnect();
+
+      expect(stopCalls, 1);
+      expect(engine.cleanupPendingEngineIds, isEmpty);
+      expect(engine.state, KingFusionState.idle);
+    });
+
+    test('retains partially started native core when initial cleanup fails', () async {
+      var stopCalls = 0;
+      final adapter = KingV2RayAdapter(
+        start: (_) async => throw StateError('native core partially started'),
+        stop: () async {
+          stopCalls++;
+          if (stopCalls < 3) throw StateError('native stop not confirmed');
+        },
+      );
+      final engine = KingFusionEngine([adapter]);
+
+      final result = await engine.connect(KingFusionPlan([
+        const KingFusionHop(
+          engineId: 'king-v2ray-xray',
+          configuration: 'opaque-config',
+        ),
+      ]));
+
+      expect(result.connected, isFalse);
+      expect(result.failureCode, 'E-V2RAY-START');
+      expect(result.cleanupFailedEngineIds, ['king-v2ray-xray']);
+      expect(engine.cleanupPendingEngineIds, ['king-v2ray-xray']);
+      expect(stopCalls, 2);
+
+      await engine.disconnect();
+
+      expect(stopCalls, 3);
+      expect(engine.cleanupPendingEngineIds, isEmpty);
+      expect(engine.state, KingFusionState.idle);
+    });
+
     test('stop is idempotent for an already released native handle', () async {
       var stops = 0;
       final adapter = KingV2RayAdapter(
