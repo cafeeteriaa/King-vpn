@@ -4072,5 +4072,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('keeps IPv4 and IPv6 relay literals out', tests)
 
 
+
+    def test_all_dns_and_sni_modes_share_the_complete_normalized_hostname_inventory(self):
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        self.assertIn('kingNormalizeDomainHosts(all)', dns)
+        self.assertIn('kingNormalizeDomainHosts([', dns)
+        self.assertIn('dnsxNationalFirstDomains(extra: domainSources)', auto)
+        self.assertIn('kingNormalizeDomainHosts(domainSources)..sort()', auto)
+        self.assertNotIn(".where((domain) => domain.isNotEmpty && domain.contains('.'))", auto)
+        self.assertIn('final domainSources = <String>{', auto)
+        self.assertIn('...dnsxFullDomains()', auto)
+
+
 if __name__ == '__main__':
     unittest.main()
