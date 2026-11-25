@@ -101,6 +101,26 @@ void main() {
       expect(metadata['source'], 'test');
     });
 
+    test('failed replacement preserves the previous committed snapshot', () async {
+      await FreshResourceStore.saveSnapshot([
+        'vless://previous@example.com:443',
+      ]);
+
+      Iterable<String> interruptedInput() sync* {
+        yield 'vless://partial@example.com:443';
+        throw StateError('simulated interrupted source');
+      }
+
+      await expectLater(
+        FreshResourceStore.saveSnapshot(interruptedInput()),
+        throwsA(isA<StateError>()),
+      );
+      expect(
+        await FreshResourceStore.readLinks(),
+        ['vless://previous@example.com:443'],
+      );
+    });
+
     test('serializes concurrent merges without losing either source', () async {
       await FreshResourceStore.saveSnapshot(['vless://base@example.com:443']);
       await Future.wait([
