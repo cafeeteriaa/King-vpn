@@ -3187,7 +3187,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('for (var port = 1; port <= 65535; port++)', auto)
         self.assertIn('final portBatch = <int>[', auto)
         self.assertIn('for (final p in portBatch)', auto)
-        self.assertIn('prefs.setInt(_autoScanPortCursorKey, stagedPortCursor)', auto)
+        self.assertIn("const String _autoScanCheckpointKey = 'auto_scan_checkpoint_v2';", auto)
+        self.assertIn('port: stagedPortCursor,', auto)
         self.assertNotIn('for (final p in kAutoPorts)', auto)
         self.assertIn("const String _autoScanDomainCursorKey = 'auto_scan_domain_cursor_v1';", auto)
         self.assertIn('...kAutoNationalSniDomains,', auto)
@@ -3201,10 +3202,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('good.where', auto)
         self.assertNotIn('pending.where', auto)
         self.assertNotIn('fetchedAll.where', auto)
-        self.assertIn('final savedDomainCursor = prefs.getString(_autoScanDomainCursorKey);', auto)
+        self.assertIn('final savedDomainCursor = savedCheckpoint.domain;', auto)
         self.assertIn('final domainBatch = <String>[', auto)
         self.assertIn('for (final d in domainBatch)', auto)
-        self.assertIn('prefs.setString(_autoScanDomainCursorKey, stagedDomainCursor)', auto)
+        self.assertIn('domain: stagedDomainCursor,', auto)
         self.assertIn('final targetRanges = <String>{', auto)
         self.assertIn('...dnsResolvedIps,', auto)
         self.assertIn('...base,', auto)
@@ -3215,7 +3216,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('cursors: stagedCdnCursors,', auto)
         self.assertLess(
             auto.index('await goldAddScans('),
-            auto.index('prefs.setString(_autoScanCdnCursorKey, jsonEncode(stagedCdnCursors))'),
+            auto.index('final checkpointSaved = await prefs.setString('),
         )
         self.assertIn('type: InternetAddressType.any', auto)
         self.assertIn('address.type == InternetAddressType.IPv4 ||', auto)
