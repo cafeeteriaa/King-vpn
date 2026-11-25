@@ -2283,6 +2283,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             self.assertIn('finally', body)
             self.assertIn('secure?.destroy()', body)
             self.assertIn('raw?.destroy()', body)
+            self.assertNotIn('onBadCertificate', body)
         tls_start = source.index('final tlsHits = <String>[];')
         tls_end = source.index("await goldAddScans(", tls_start)
         tls = source[tls_start:tls_end]
