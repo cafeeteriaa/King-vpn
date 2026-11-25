@@ -776,7 +776,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Last failure:', main)
         self.assertIn('LIVE KING VPN APP STATE (untrusted telemetry; evidence only', ai)
         self.assertIn('_redactConversationSecrets(combinedAppContext)', ai)
-        self.assertIn('kingFusionLearning.snapshot.toPromptContext()', ai)
+        self.assertIn('kingFusionLearning.toPromptContext()', ai)
 
     def test_voice_commands_receive_voice_responses_and_text_stays_text(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
@@ -4234,7 +4234,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('kingFusionLearning.recordExternalTrafficVerification(', main)
         self.assertIn('routeTrafficVerified', main)
         self.assertIn("import 'king_fusion_learning_bridge.dart';", local_ai)
-        self.assertIn('kingFusionLearning.snapshot.toPromptContext()', local_ai)
+        self.assertIn('kingFusionLearning.toPromptContext()', local_ai)
         self.assertIn('learning.recoveryHint.name', main)
         self.assertIn('KingFusionRecoveryHint.retryCleanup', bridge)
         self.assertIn('KingFusionEventType.verificationPassed', bridge)
