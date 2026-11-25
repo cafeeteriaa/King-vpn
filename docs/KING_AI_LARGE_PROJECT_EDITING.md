@@ -9,6 +9,7 @@ changes are represented as one coherent change set and one review-only pull requ
 ## Changes in this revision
 
 - Repository discovery no longer truncates candidates to 40 files or selected paths to 6.
+- Repository inventory walks Git trees iteratively, one directory at a time, rather than using GitHub's truncating recursive-tree response. If a single directory response is itself truncated, the scan fails visibly instead of returning an incomplete inventory.
 - Repository source reads no longer reject files at 16 KB, 4 KB, or an aggregate 7.5 KB.
 - Proposal generation no longer rejects more than 6 source files or more than 3 changed files.
 - Documentation under `docs/` and root-level Markdown files can be included in project context; native VPN/service code, owner/security policy, CI, and dependency manifests remain protected.
