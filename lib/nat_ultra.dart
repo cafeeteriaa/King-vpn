@@ -2648,8 +2648,9 @@ Map<String, double> natSrcRates = {};
 class _HotIdx {
   final String file;
   final int lineCount;
+  final int byteLength;
   final List<int> sparseOffsets;
-  _HotIdx(this.file, this.lineCount, this.sparseOffsets);
+  _HotIdx(this.file, this.lineCount, this.byteLength, this.sparseOffsets);
 }
 
 _HotIdx? _hot;
@@ -2855,8 +2856,6 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
               .transform(utf8.decoder)
               .transform(const LineSplitter())) {
             if (line.isEmpty) continue;
-            final tab = line.indexOf('\t');
-            final cfg = tab >= 0 ? line.substring(tab + 1) : line;
             final b = utf8.encode(line);
             sink.add(b);
             sink.add(const [10]);
@@ -2871,7 +2870,7 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
       if (freshTotal > 0 && total > 0) {
         _hotFailAt = null;
         await File(newPath).rename(_hotPath());
-        _hot = _HotIdx(_hotPath(), sparseIndex.first, sparseIndex.skip(1).toList(growable: false));
+        _hot = _HotIdx(_hotPath(), sparseIndex[0], sparseIndex[1], sparseIndex.skip(2).toList(growable: false));
         _hotCursor = 0;
         if (total < natHotMin) {
           dbg('پوشه‌ی منابع تازه: $total کانفیگ (کمتر از $natHotMin)');
@@ -2912,7 +2911,7 @@ Future<List<int>> _hotBuildSparseIndex(String path) =>
     compute(_hotSparseOffsetsIso, path);
 
 List<int> _hotSparseOffsetsIso(String path) {
-  final packed = <int>[0, 0];
+  final packed = <int>[0, 0, 0];
   var lineCount = 0;
   var pos = 0;
   var lastByte = -1;
@@ -2937,6 +2936,7 @@ List<int> _hotSparseOffsetsIso(String path) {
   }
   if (pos > 0 && lastByte != 10) lineCount++;
   packed[0] = lineCount;
+  packed[1] = pos;
   return packed;
 }
 
@@ -2973,8 +2973,9 @@ Future<_HotIdx?> _hotLoad() async {
     if (sparseIndex.first <= 0) return null;
     _hot = _HotIdx(
       f.path,
-      sparseIndex.first,
-      sparseIndex.skip(1).toList(growable: false),
+      sparseIndex[0],
+      sparseIndex[1],
+      sparseIndex.skip(2).toList(growable: false),
     );
     _hotCursor = 0;
     return _hot;
@@ -3032,7 +3033,7 @@ Future<List<Server>> _natHotNextUnlocked(int n,
     try {
       // The open handle is tied to one inode. If its length disagrees with
       // the index, rebuild once rather than pairing offsets with another file.
-      if (await raf.length() != h.offs.last) {
+      if (await raf.length() != h.byteLength) {
         _hot = null;
         if (retried) return const [];
         return _natHotNextUnlocked(n, fetch: false, retried: true);
