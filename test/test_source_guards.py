@@ -4300,5 +4300,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('preserves documentation-space IPv6', tests)
 
 
+    def test_dns_scan_has_no_fixed_result_ratio_manual_national_quota_or_cooldown(self):
+        source = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        probe_start = source.index('Future<DnsxHit?> dnsxProbe(')
+        scan_start = source.index('Future<List<DnsxHit>> dnsxScan(', probe_start)
+        auto_start = source.index('Future<void> dnsxAutoPick(', scan_start)
+        sheet_start = source.index('extension DnsxExt', auto_start)
+        probe = source[probe_start:scan_start]
+        scan = source[scan_start:auto_start]
+        auto = source[auto_start:sheet_start]
+
+        self.assertIn('Platform.numberOfProcessors', probe)
+        self.assertNotIn('times.length * 4 < tested', probe)
+        self.assertIn('if (tested == 0 || times.isEmpty) return null;', probe)
+        self.assertIn('Platform.numberOfProcessors', scan)
+        self.assertNotIn('kNatManualConc', scan)
+        self.assertNotIn('natManualYield', scan)
+        self.assertNotIn('final gapMs', auto)
+        self.assertNotIn('now - last < gapMs', auto)
+        self.assertIn('last-run timestamp for diagnostics only', auto)
+
+
 if __name__ == '__main__':
     unittest.main()

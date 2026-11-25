@@ -267,8 +267,8 @@ class DnsxHit {
   final int total;
 }
 
-/// سنجش یک DNS روی فهرست دامنه‌ها. برای جلوگیری از سیل پرس‌وجو، بسته‌به‌بسته (۸ تا ۸ تا) می‌رود.
-/// ملاک: حداقل ۲۵٪ دامنه‌ها باید پاسخ معتبر بدهند.
+/// سنجش یک DNS روی تمام دامنه‌های ورودی. دسته‌بندی هم‌زمانی بر اساس ظرفیت
+/// پردازشی runtime است؛ هیچ دامنه‌ای به‌خاطر موقعیتش در فهرست حذف نمی‌شود.
 Future<DnsxHit?> dnsxProbe(String server,
     {List<String>? domains,
     Duration timeout = const Duration(seconds: 3),
@@ -277,7 +277,10 @@ Future<DnsxHit?> dnsxProbe(String server,
   final list = domains ?? dnsxAutoDomains();
   final times = <int>[];
   var tested = 0; // تعداد دامنه‌هایی که واقعاً سنجیده شدند (اگر توقف زده شود، کمتر از کل است)
-  const chunk = 8; // دامنه‌ها در هر بسته‌ی همزمان
+  // Hardware-aware work width replaces the former fixed batch size of eight.
+  // The loop continues across the entire supplied inventory.
+  final processors = Platform.numberOfProcessors;
+  final chunk = processors > 0 ? processors : 1;
   for (var i = 0; i < list.length; i += chunk) {
     if (stop != null && stop()) break;
     // فاصله بین بسته‌ها: اسکن پس‌زمینه بار ناگهانی روی اتصال نمی‌گذارد
@@ -304,14 +307,15 @@ Future<DnsxHit?> dnsxProbe(String server,
       }
     }
   }
-  // ملاک: حداقل ۲۵٪ از دامنه‌هایی که واقعاً سنجیده شدند باید جواب بدهند
-  if (tested == 0 || times.isEmpty || times.length * 4 < tested) return null;
+  // Any structurally valid A/AAAA response is retained as evidence.
+  // A fixed percentage threshold must not hide resolvers with partial coverage.
+  if (tested == 0 || times.isEmpty) return null;
   final avg = times.reduce((a, b) => a + b) ~/ times.length;
   return DnsxHit(server, avg, times.length, tested);
 }
 
-/// اسکن گروهی (۱۲ تا ۱۲ تا). خروجی: DNSهای سالم؛ اول آن‌که بیشترین دامنه را جواب داده،
-/// و در برابر تساوی، آن‌که سریع‌تر است.
+/// اسکن گروهی تمام resolverهای ورودی. هم‌زمانی با ظرفیت پردازشی runtime
+/// تنظیم می‌شود؛ حالت دستی/ملی سهمیه یا صف انتظار جداگانه ندارد.
 Future<List<DnsxHit>> dnsxScan(List<String> list,
     {List<String>? domains,
     Duration gap = Duration.zero,
@@ -320,15 +324,12 @@ Future<List<DnsxHit>> dnsxScan(List<String> list,
     bool manual = false}) async {
   final results = <DnsxHit>[];
   var done = 0;
-  // NATQUOTA: اسکن دستی در نت ملی سهمیه‌ی کم دارد و منتظر جستجوی نت ملی می‌ماند
-  final limited = manual && nationalMode;
-  final dnsBatch = limited ? kNatManualConc : 12; // DNS در هر دسته‌ی همزمان
+  // The [manual] argument remains for call-site compatibility only.
+  // DNS no longer yields to another scanner or receives a national-mode quota.
+  final processors = Platform.numberOfProcessors;
+  final dnsBatch = processors > 0 ? processors : 1;
   for (var i = 0; i < list.length; i += dnsBatch) {
     if (stop != null && stop()) break;
-    if (limited) {
-      await natManualYield(shouldAbort: stop);
-      if (stop != null && stop()) break;
-    }
     final batch = list.sublist(i, min(i + dnsBatch, list.length));
     await Future.wait(batch.map((server) async {
       final hit =
@@ -352,8 +353,9 @@ bool _dnsxAutoBusy = false;
 /// اسکن دستی در حال اجراست؛ تا تمام نشده، اسکن خودکار شروع نمی‌شود
 bool dnsxManualBusy = false;
 
-/// اسکن خودکار: فقط در نت ملی و وقتی VPN قطع است. هر ۲۴ ساعت (یا ۶ ساعت اگر DNS سالمی نبود)، با همه‌ی دامنه‌های پروژه.
-/// اگر وسط کار اتصال برقرار شود (stop=true)، اسکن نیمه‌کاره ذخیره نمی‌شود.
+/// اسکن خودکار با همه‌ی دامنه‌های پروژه در حالت ملی یا جهانی.
+/// از اجرای هم‌زمان تکراری جلوگیری می‌شود، اما cooldown ثابت ۶/۲۴ ساعته وجود ندارد؛
+/// هر بار که scheduler درخواست معتبر بدهد، موجودی کامل دوباره سنجیده می‌شود.
 Future<void> dnsxAutoPick({bool Function()? stop}) async {
   if (_dnsxAutoBusy || dnsxManualBusy) return;
   _dnsxAutoBusy = true;
@@ -372,13 +374,9 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
     if (cached is List && dnsxBestCache.isEmpty) {
       dnsxBestCache = [for (final x in cached) x.toString()];
     }
-    final at = p.get('dnsx_at_v1_$sfx');
-    final last = at is int ? at : 0;
     final now = DateTime.now().millisecondsSinceEpoch;
-    // فاصله‌ی ۲۴ ساعته همیشه رعایت شود، حتی وقتی نتیجه‌ای نبود (جلوگیری از اسکن تکراری)
-    // اگر DNS سالمی نداریم، زودتر دوباره اسکن می‌شود (۶ ساعت)؛ وگرنه هر ۲۴ ساعت
-    final gapMs = dnsxBestCache.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
-    if (now - last < gapMs) return;
+    // Keep the last-run timestamp for diagnostics only; it is not a scan gate.
+    // Repeated requests are coalesced by _dnsxAutoBusy rather than a fixed timer.
     final savedDns = await goldDnsList();
     if (nationalMode != scanNationalMode) return;
     final list = {...savedDns, ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults)}.toList();

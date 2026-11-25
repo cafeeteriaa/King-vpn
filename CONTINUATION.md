@@ -871,3 +871,14 @@ These are three distinct technical review passes by the same assistant, not thre
 - Exact-head GitHub Actions must pass source guards, Flutter tests and Dart analysis before the patch is considered validated. Live network behavior still needs device testing.
 
 - Test harness follow-up: imported `dart:io` in the NNIE unit test file for explicit IPv6 byte-level assertions using `InternetAddress.tryParse`. This keeps the IPv6 test independent of textual address-compression formatting.
+
+
+## 2026-11-25 — DNS scan coverage and scheduling gates removed
+
+- Removed the fixed 25% successful-domain ratio from resolver acceptance. A resolver with at least one structurally valid A/AAAA result is now retained; per-domain successes are still counted and used for ranking.
+- Removed the special national-mode manual DNS quota (`kNatManualConc=3`) and its wait/yield dependency on the national scanner. Manual DNS scans no longer wait behind a different scanner or receive a separate lower concurrency quota.
+- Replaced the fixed per-resolver domain batch of 8 and resolver batch of 12 with runtime processor-aware work widths. These are scheduling widths only: every supplied domain and resolver is traversed; no input list is truncated or dropped.
+- Removed the fixed 6-hour/24-hour automatic DNS scan cooldown. The previous run timestamp is retained for diagnostics, while the in-flight lock still coalesces overlapping duplicate invocations.
+- Added source guards that reject reintroduction of the percentage gate, national manual quota/yield, fixed batch sizes and time-based cooldown.
+- The domain inventory remains the union of existing project inventories and dynamic scanner-fed lists; no fixed maximum inventory size is imposed by the DNS scanner.
+- Three review passes: (1) result semantics — any valid answer contributes evidence; (2) coverage — all input domains/resolvers continue through the loops with only cancellation as an early exit; (3) scheduling — concurrency follows runtime processor capacity, and the national path no longer has a separate quota or yield.
