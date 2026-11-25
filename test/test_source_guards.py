@@ -1782,6 +1782,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('rnd.nextInt(cleanIps.length)', grow)
         self.assertNotIn('rnd.nextInt(10)', grow)
         self.assertIn('No fixed inventory ceiling', grow)
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn("? <int>[0, ..._natOrder(s, full: _resFull).where((v) => v != 0)]", main)
+        self.assertNotIn('natMaxVariants', main)
 
     def test_nat_scan_reports_each_completed_endpoint_and_nat_domain_retries_only_pending(self):
         scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
