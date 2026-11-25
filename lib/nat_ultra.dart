@@ -650,50 +650,11 @@ class _NatFacts {
         port = s.port;
 }
 
-const Set<String> _natRetiredNames = {
-  'Fragment ریز و کند',
-  'fp=android',
-};
-
-bool natRetired(int v) =>
-    v > 0 && v < _natSpecs.length && _natRetiredNames.contains(_natSpecs[v].name);
-
-// VARCB: circuit breaker برای variantها (فقط نت ملی)
-// هر variant بعد از ۲۰ شکست پشت‌سرهم، یک ساعت غیرفعال می‌شود
-const int _varcbLimit = 20;
-const Duration _varcbCooldown = Duration(hours: 1);
-final Map<int, int> _variantFailStreak = {};
-final Map<int, DateTime> _variantCooldown = {};
-
-void natVariantResult(int v, bool ok) {
-  if (v <= 0) return;
-  final cd = _variantCooldown[v];
-  if (cd != null && DateTime.now().isBefore(cd)) return;
-  if (ok) {
-    _variantFailStreak.remove(v);
-    _variantCooldown.remove(v);
-    return;
-  }
-  final n = (_variantFailStreak[v] ?? 0) + 1;
-  if (n >= _varcbLimit) {
-    _variantFailStreak.remove(v);
-    _variantCooldown[v] = DateTime.now().add(_varcbCooldown);
-    dbg('VARCB: حالت #$v بعد از $n شکست پیاپی، یک ساعت غیرفعال شد');
-  } else {
-    _variantFailStreak[v] = n;
-  }
-}
-
-bool natVariantCooling(int v) {
-  final cd = _variantCooldown[v];
-  return cd != null && DateTime.now().isBefore(cd);
-}
 
 bool _natAppliesF(_NatFacts f, int v) {
   if (v < 0 || v >= _natSpecs.length) return false;
   if (v == 0) return true;
   if (natDisabled.contains(v)) return false;
-  if (natVariantCooling(v)) return false; // VARCB
   if (natRetired(v)) return false;
   final x = _natSpecs[v];
   if (x.other && !f.hasOther) return false;
