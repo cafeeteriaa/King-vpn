@@ -278,8 +278,8 @@ class KingFusionResult {
 /// later hop fails, previously started hops are stopped in reverse order.
 class KingFusionEngine {
   final Map<String, KingEngineAdapter> _adapters;
-  late final Map<String, KingEngineDescriptor> _descriptors;
-  late final Map<KingEngineAdapter, String> _idByAdapter;
+  final Map<String, KingEngineDescriptor> _descriptors;
+  final Map<KingEngineAdapter, String> _idByAdapter;
   final KingFusionTrafficVerifier? _trafficVerifier;
   final Duration trafficVerificationTimeout;
   /// Upper bound for each native stop attempt; timed-out handles remain tracked.
@@ -304,36 +304,72 @@ class KingFusionEngine {
   bool _disconnectRequested = false;
   Completer<void>? _operationDone;
 
-  KingFusionEngine(
+  factory KingFusionEngine(
     Iterable<KingEngineAdapter> adapters, {
     KingFusionTrafficVerifier? trafficVerifier,
-    this.trafficVerificationTimeout = const Duration(seconds: 12),
-    this.nativeStopTimeout = const Duration(seconds: 8),
-    this.eventHistoryLimit = 256,
+    Duration trafficVerificationTimeout = const Duration(seconds: 12),
+    Duration nativeStopTimeout = const Duration(seconds: 8),
+    int eventHistoryLimit = 256,
     KingFusionEventListener? onEvent,
-  })  : _adapters = _indexAdapters(adapters),
-        _trafficVerifier = trafficVerifier,
-        _eventListener = onEvent {
+  }) {
+    // Read each adapter's descriptor exactly once. The ID, capability snapshot
+    // and adapter lookup must all originate from the same observation.
+    final indexed = <String, KingEngineAdapter>{};
     final descriptorSnapshots = <String, KingEngineDescriptor>{};
     final adapterIds = HashMap<KingEngineAdapter, String>.identity();
-    for (final entry in _adapters.entries) {
-      final source = entry.value.descriptor;
-      descriptorSnapshots[entry.key] = KingEngineDescriptor(
-        id: entry.key,
+    for (final adapter in adapters) {
+      final source = adapter.descriptor;
+      final id = source.id.trim();
+      if (id.isEmpty) {
+        throw ArgumentError('Engine adapter id must not be empty');
+      }
+      if (!_isSafeEngineIdentifier(id)) {
+        throw ArgumentError('Engine adapter id contains unsupported characters');
+      }
+      if (indexed.containsKey(id)) {
+        throw ArgumentError('Duplicate engine adapter: $id');
+      }
+      indexed[id] = adapter;
+      descriptorSnapshots[id] = KingEngineDescriptor(
+        id: id,
         title: source.title,
         family: source.family,
         availability: source.availability,
         supportedTransports: Set<String>.unmodifiable(
-          source.supportedTransports.map((transport) => transport.trim().toLowerCase()),
+          source.supportedTransports
+              .map((transport) => transport.trim().toLowerCase()),
         ),
         supportsMultiHop: source.supportsMultiHop,
       );
-      adapterIds[entry.value] = entry.key;
+      adapterIds[adapter] = id;
     }
-    _descriptors = Map<String, KingEngineDescriptor>.unmodifiable(
-      descriptorSnapshots,
+    return KingFusionEngine._(
+      adapters: Map<String, KingEngineAdapter>.unmodifiable(indexed),
+      descriptors:
+          Map<String, KingEngineDescriptor>.unmodifiable(descriptorSnapshots),
+      adapterIds: adapterIds,
+      trafficVerifier: trafficVerifier,
+      trafficVerificationTimeout: trafficVerificationTimeout,
+      nativeStopTimeout: nativeStopTimeout,
+      eventHistoryLimit: eventHistoryLimit,
+      onEvent: onEvent,
     );
-    _idByAdapter = adapterIds;
+  }
+
+  KingFusionEngine._({
+    required Map<String, KingEngineAdapter> adapters,
+    required Map<String, KingEngineDescriptor> descriptors,
+    required Map<KingEngineAdapter, String> adapterIds,
+    required KingFusionTrafficVerifier? trafficVerifier,
+    required this.trafficVerificationTimeout,
+    required this.nativeStopTimeout,
+    required this.eventHistoryLimit,
+    required KingFusionEventListener? onEvent,
+  })  : _adapters = adapters,
+        _descriptors = descriptors,
+        _idByAdapter = adapterIds,
+        _trafficVerifier = trafficVerifier,
+        _eventListener = onEvent {
     if (eventHistoryLimit <= 0) {
       throw ArgumentError.value(
         eventHistoryLimit,
@@ -355,26 +391,6 @@ class KingFusionEngine {
         'Must be positive',
       );
     }
-  }
-
-  static Map<String, KingEngineAdapter> _indexAdapters(
-    Iterable<KingEngineAdapter> adapters,
-  ) {
-    final result = <String, KingEngineAdapter>{};
-    for (final adapter in adapters) {
-      final id = adapter.descriptor.id.trim();
-      if (id.isEmpty) {
-        throw ArgumentError('Engine adapter id must not be empty');
-      }
-      if (!_isSafeEngineIdentifier(id)) {
-        throw ArgumentError('Engine adapter id contains unsupported characters');
-      }
-      if (result.containsKey(id)) {
-        throw ArgumentError('Duplicate engine adapter: $id');
-      }
-      result[id] = adapter;
-    }
-    return Map<String, KingEngineAdapter>.unmodifiable(result);
   }
 
   List<KingEngineDescriptor> get availableEngines =>
