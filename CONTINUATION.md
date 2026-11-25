@@ -413,3 +413,16 @@ These are three distinct technical review passes by the same assistant, not thre
 - This change does not weaken or skip any checks: source guards, Flutter tests, Dart analysis, and optimized Android arm64 release build remain in the existing workflow.
 - CI trigger change commit: `afc8fff165af5f812c4f6ea44308a87b2ffe485e`.
 - Awaiting the workflow result for this exact commit; do not report success until the run and all required jobs complete.
+
+
+## 2026-11-25 — Fusion adapter failure-code boundary hardening
+
+- Added a strict public failure-code normalizer for native adapter start failures. Only stable uppercase machine codes matching `^[A-Z][A-Z0-9_-]{0,63}$` are allowed through; null retains the existing generic `E-FUSION-START` behavior and malformed/free-form adapter text becomes `E-FUSION-ADAPTER-START`.
+- This prevents arbitrary adapter error strings from crossing the Fusion result boundary. Such strings can accidentally contain fragments of VPN configuration, tokens, endpoint credentials, or other sensitive details.
+- Added a regression test that supplies an adapter failure string containing a private configuration marker and verifies the returned result contains only the safe generic code.
+- Three-pass review: (1) API compatibility — existing safe adapter codes such as `E-TEST-START` remain unchanged and null remains generic; (2) security — free-form detail is not propagated and no configuration is added to logs/results; (3) regression — a focused test covers malformed detail while the existing rollback and lifecycle tests remain in place.
+- During post-write source inspection, a duplicated trailing source fragment was detected in the engine file and removed in a separate repair commit. The current fetched file has one `KingFusionEngine` declaration, one normalizer definition, one call site, and a clean class/file ending.
+- Commits: `3346ad0540f6d6f4011df6ddf09a361b82766f89` (normalizer), `8fb679970f635904722f2ce20da650d701a25a3b` (regression test), `6694f78dce6c91c207a163b082a18b067252c2a6` (duplicate-tail repair).
+- Exact prior-head CI run 3003 passed on `f54294e23ad4aad7e14dabac6065b0956c3d8ce6`, including source guard, Flutter unit tests, Dart analysis, ARM64 release APK build, source packaging and provenance steps. This does not validate the new failure-code changes.
+- Exact-head CI run 3008 is pending for `6694f78dce6c91c207a163b082a18b067252c2a6`; do not mark this change CI-validated until the run completes successfully.
+- PR #53 remains open Draft and unmerged. Existing `lib/main.dart` V2Ray connection path remains untouched. Device-level tunnel/data-plane validation remains outstanding.
