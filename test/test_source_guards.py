@@ -107,15 +107,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertNotIn("import 'engine_registry.dart';", main)
 
-    def test_seed_inventory_expands_host_network_and_domain_scan_stays_config_scoped(self):
+    def test_seed_inventory_scans_exact_saved_endpoints_and_keeps_explicit_ranges(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = nat.index('List<String> natSeedBlocks(')
-        end = nat.index('\nint natMemQueued', start)
+        end = nat.index('\\nint natMemQueued', start)
         seed_block = nat[start:end]
-        self.assertIn("${octets[0]}.${octets[1]}.${octets[2]}.0/24", seed_block)
-        self.assertNotIn('/32', seed_block)
+        self.assertIn('parsed.type == InternetAddressType.IPv4 ? 32 : 128', seed_block)
+        self.assertNotIn('.0/24', seed_block)
+        self.assertIn("Broader CIDRs must come from the operator's explicit configured ranges", seed_block)
         domain_start = nat.index('Future<List<String>> _natDomainFirst(')
-        domain_end = nat.index('\nFuture<List<String>> natDeviceHosts()', domain_start)
+        domain_end = nat.index('\\nFuture<List<String>> natDeviceHosts()', domain_start)
         domain_scan = nat[domain_start:domain_end]
         self.assertIn('for (final server in known)', domain_scan)
         self.assertNotIn('for (var p = 1; p < 65536; p++)', domain_scan)
