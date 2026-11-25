@@ -9225,7 +9225,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // it must NOT be blacklisted or reported as E-CONFIG-FAIL.
         if (abort || !wantVpn) {
           lastFail = '';
-          return false;
+          _nnieClearAttempt(s); return false;
         }
         final noAct = lastFail.contains('Activity');
         // CACHEINVALID-START: اگر _start با variant کش‌شده fail داد (نه خطای
@@ -9278,7 +9278,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // Give the Activity more time to come back (common after ad / screen)
           await Future.delayed(Duration(
               milliseconds: inForeground ? 800 : 1500));
-          if (abort) return false;
+          if (abort) { _nnieClearAttempt(s); return false; }
           // up to 2 quiet retries (Activity may have resumed)
           var recovered = false;
           for (var r = 0; r < 2 && !recovered && !abort; r++) {
@@ -9399,7 +9399,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               return false;
             }
             if (ladderOk) {
-              if (!await _onConnected(s)) return false;
+              if (!await _onConnected(s)) { _nnieClearAttempt(s); return false; }
               return true;
             }
           }
@@ -9471,7 +9471,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       var tunChecked = false;
       if (!abort && wantVpn) {
         final tunOk = await _tunnelTrafficOk();
-        if (abort) return false;
+        if (abort) { _nnieClearAttempt(s); return false; }
         if (!tunOk) {
           // CACHEINVALID-TUN: variantی که از natVarNormal اومد، ترافیک تونل رد نکرد.
           if (!nationalMode) natVarNormal.remove(s.key); // NORMALKEY
@@ -9483,7 +9483,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             await _stopV2();
             ladderOk = await _natLadder(s,
                 socialGate: _tunnelTrafficOk, maxTries: 3);
-            if (abort) return false;
+            if (abort) { _nnieClearAttempt(s); return false; }
           }
           if (ladderOk) {
             tunChecked = true;
@@ -9507,7 +9507,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             natSubstSearched.add(s.key);
             await _stopV2();
             final sub = await _natLadder(s, socialGate: _tunnelTrafficOk);
-            if (abort) return false;
+            if (abort) { _nnieClearAttempt(s); return false; }
             if (!sub) {
               // جایگزینی نبود: پایه‌ی قبلاً سالم را دوباره بالا می‌آوریم
               if (!await _start(s)) {
@@ -9540,7 +9540,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             await waitProxyPort(
                 max: Duration(seconds: nationalMode ? 8 : 4));
           }
-          if (abort) return false;
+          if (abort) { _nnieClearAttempt(s); return false; }
 
           Future<List<bool>> runSocial() async {
             try {
@@ -9555,7 +9555,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
 
           var r = await runSocial();
-          if (abort) return false;
+          if (abort) { _nnieClearAttempt(s); return false; }
           bool tg = r[0] || r[1];
           bool yt = false;
           bool ig = false;
@@ -9590,7 +9590,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               if (socialOk) {
                 s.svc = (tg ? 1 : 0) | (yt ? 2 : 0) | (ig ? 4 : 0);
                 if (s.svc == 0) s.svc = 1;
-                if (!await _onConnected(s)) return false;
+                if (!await _onConnected(s)) { _nnieClearAttempt(s); return false; }
                 return true;
               }
               await _stopV2();
@@ -9602,7 +9602,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               win: const Duration(seconds: 2),
               total: Duration(seconds: nationalMode ? 10 : 6),
               viaCore: true);
-          if (abort) return false;
+          if (abort) { _nnieClearAttempt(s); return false; }
           // فقط تلگرام باید از تونل باز شود
           // IPTEST: in national mode the server is accepted when YouTube or
           // Instagram opens through the tunnel (Telegram was too strict for IPs)
@@ -9627,8 +9627,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               'سرعت=${sp?.toStringAsFixed(2) ?? "-"} MB/s');
         }
       }
-      if (abort || !wantVpn) return false; // V8: abort guard
-      if (!await _onConnected(s)) return false;
+      if (abort || !wantVpn) { _nnieClearAttempt(s); return false; } // V8: abort guard
+      if (!await _onConnected(s)) { _nnieClearAttempt(s); return false; }
       return true;
     }
     return false;

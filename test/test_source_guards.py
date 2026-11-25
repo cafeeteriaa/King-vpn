@@ -120,6 +120,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('for (final server in known)', domain_scan)
         self.assertNotIn('for (var p = 1; p < 65536; p++)', domain_scan)
 
+    def test_connect_loop_clears_per_server_learning_timer_on_every_early_return(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<bool> _connectLoop(')
+        begin = main.index('_nnieBeginAttempt(s);', start)
+        end = main.index('Future<void> _measureCurrent', begin)
+        attempt = main[begin:end]
+        for previous in attempt.split('return false;')[:-1]:
+            self.assertIn(
+                '_nnieClearAttempt(s);',
+                previous[-180:],
+                'Every early return after _nnieBeginAttempt must clear the attempt timer',
+            )
+
     def test_connect_path_uses_mode_aware_tunnel_probe(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn('networkAware: true', main)
