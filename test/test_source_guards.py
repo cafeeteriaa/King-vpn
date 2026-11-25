@@ -2424,7 +2424,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('(cores * 2).clamp(8, 64).toInt()', source)
         self.assertIn('port < 1 || port > 65535', source)
         self.assertIn('final elapsed = Stopwatch()..start();', source)
-        self.assertIn('if (elapsed.elapsed >= budget) return;', source)
+        self.assertIn('if (budget != null && elapsed.elapsed >= budget) return;', source)
+        self.assertIn('int concurrency = 0,', source)
+        self.assertIn('int? want,', source)
+        self.assertIn('Duration? budget,', source)
         self.assertNotIn('DateTime.now().add(budget)', source)
 
     def test_nat_ip_scan_imports_precede_top_level_declarations(self):

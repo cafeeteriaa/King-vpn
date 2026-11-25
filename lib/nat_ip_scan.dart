@@ -621,7 +621,7 @@ int natAdaptiveConcurrency(int requested) {
 Future<List<NatIpHit>> natScanIps(
   List<String> ips, {
   int port = 443,
-  int concurrency = 16,
+  int concurrency = 0,
   int? want,
   Duration? budget,
   Duration timeout = const Duration(milliseconds: 1500),
