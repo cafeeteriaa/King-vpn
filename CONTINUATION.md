@@ -460,3 +460,14 @@ These are three distinct technical review passes by the same assistant, not thre
 - Commits: `f6d2b1f71fca8d5d6192bc6407e9840a9a1f74b5` (optional native start cancellation), `168a76e19f136c0ca0a23b6c0417e31ad7d056b6` (startup cancellation test).
 - Current fetched source/test checks: one `KingFusionEngine` declaration; cancellation-aware verifier and startup interfaces present; bounded stop timeout present; 20 Fusion tests in the test file.
 - CI run 3021 for an earlier intermediate test commit was cancelled when a newer branch push superseded it. CI run 3026 is pending for current test commit `168a76e19f136c0ca0a23b6c0417e31ad7d056b6`. Do not claim current-stage CI success until this exact-head run completes successfully.
+
+
+## 2026-11-25 — Fusion CI correction and native-stop concurrency hardening
+
+- Exact-head CI for commit `3c050481c981dfeba7965f09031599c52af6fda9` completed with failure in the Flutter test-loading stage. The compiler identified one misplaced `verifier.cancelCalls` assertion in the native-start cancellation test; the variable was not in scope there. Removed the invalid assertion while retaining the verifier cancellation assertions in the dedicated verifier tests.
+- A lifecycle audit found a second-order cleanup race: Dart's `Future.timeout` does not cancel the underlying native `stop()` operation. A subsequent disconnect could therefore issue a second stop while the first native stop was still running.
+- Added per-adapter in-flight stop tracking. Timed-out stop futures remain registered until they actually settle; repeated disconnects wait on the same operation instead of overlapping native stop calls. Once the prior operation settles, a later disconnect may safely retry cleanup.
+- Added a deterministic regression test that times out twice against one still-running stop, verifies only one native stop was issued, releases the original operation, and verifies a later disconnect performs the retry and reaches idle.
+- Three-pass review: (1) compatibility — no changes to the base adapter interface and no new requirements for existing adapters; (2) lifecycle/safety — stop calls are serialized per adapter and handles remain retained until successful cleanup; (3) regression — misplaced compile-time assertion removed and timeout/overlap/retry behavior covered by a focused test.
+- Commits: `cf6ccda3cbff4ee5a614b482f57463b21f3aaf96` (serialized stop operations), `58d2f6ced0b733ace590e07fc85f3b5bb41c8a35` (test correction and stop-concurrency regression).
+- The exact latest branch head is `58d2f6ced0b733ace590e07fc85f3b5bb41c8a35`. The new exact-head CI run must complete before claiming tests, analyzer or Android release build are validated. Physical device/data-plane tests remain outstanding.
