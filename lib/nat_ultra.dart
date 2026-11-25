@@ -2421,7 +2421,23 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   return {'addrs': addrs, 'cursors': cursors};
 }
 
-// RANGEGUARD: یک اسکن بازه در هر لحظه؛ _natKeep و _natEscalate روی cursors مشترک نمی‌نویسند
+// Shared ownership for every scanner that reads or commits _cfRangeCursors.
+// Hold the gate for the complete scan, not only the final preference write:
+// otherwise a stale local cursor snapshot could overwrite another scanner.
+Future<void> _natSharedRangeCursorQueue = Future<void>.value();
+Future<T> natWithSharedRangeCursorLock<T>(Future<T> Function() action) async {
+  final previous = _natSharedRangeCursorQueue;
+  final release = Completer<void>();
+  _natSharedRangeCursorQueue = release.future;
+  await previous;
+  try {
+    return await action();
+  } finally {
+    release.complete();
+  }
+}
+
+// RANGEGUARD: all shared range-cursor scanners use the same exclusive gate.
 bool _natRangeScanBusy = false;
 
 Future<List<String>> natRangeScanStep({
@@ -2430,7 +2446,7 @@ Future<List<String>> natRangeScanStep({
   int conc = 4,
   bool Function()? stop,
   Duration budget = const Duration(minutes: 2),
-}) async {
+}) => natWithSharedRangeCursorLock(() async {
   if (_natRangeScanBusy) return const <String>[];
   _natRangeScanBusy = true;
   try {
@@ -2439,7 +2455,7 @@ Future<List<String>> natRangeScanStep({
   } finally {
     _natRangeScanBusy = false;
   }
-}
+});
 
 Future<List<String>> _natRangeScanStepBody({
   required List<Server> known,
