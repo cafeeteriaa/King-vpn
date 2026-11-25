@@ -10,7 +10,8 @@ changes are represented as one coherent change set and one review-only pull requ
 
 - Repository discovery no longer truncates candidates to 40 files or selected paths to 6.
 - Repository source reads no longer reject files at 16 KB, 4 KB, or an aggregate 7.5 KB.
-- Proposal generation no longer rejects more than 6 source files or more than 3 changed files.
+- Proposal generation no longer rejects more than 6 source files or more than 3 changed files. The autonomous maintenance proposal also no longer imposes its former two-file ceiling.
+- Documentation under `docs/` and root-level Markdown files can be included in project context; native VPN/service code, owner/security policy, CI, and dependency manifests remain protected.
 - Pull-request creation accepts the complete validated change map.
 - Source prompts are no longer silently truncated at 18 KB; incomplete context must not
   be passed off as complete context.
@@ -22,10 +23,9 @@ changes are represented as one coherent change set and one review-only pull requ
 The local inference engine still has finite context, memory, and output-token capacity.
 Project-wide input is now divided into sequential inference batches (targeting about
 9,000 source characters per batch); this is an execution slice, not an inventory or
-project-size ceiling. A single file larger than the target remains intact in its own
-batch and is never silently truncated. GitHub also imposes API, blob, tree, and request-size
+project-size ceiling. A single file larger than the target is split into lossless Unicode-safe source chunks and is never silently truncated. Each chunk carries the original file SHA-256 and its index/count. Large files must be changed with anchored operations against the original complete file; chunk operations are accumulated and applied once to that exact source. GitHub also imposes API, blob, tree, and request-size
 limits. If one individual file exceeds the loaded model's actual context window or its
-practical complete-file generation capacity, the operation must fail visibly; Patch-based output now supports SHA-256-anchored exact-text operations. Each anchor must match exactly once, operations are applied sequentially, and stale source hashes or ambiguous anchors fail visibly. This reduces output-token pressure and avoids regenerating unchanged sections. Important: the current proposal pipeline still supplies each complete source file as model input; a single file that exceeds the model's actual input context still fails visibly. Symbol-aware, chunked per-file input is a separate next stage.
+practical complete-file generation capacity, the operation must fail visibly; Patch-based output now supports SHA-256-anchored exact-text operations. Each anchor must match exactly once, operations are applied sequentially, and stale source hashes or ambiguous anchors fail visibly. This reduces output-token pressure and avoids regenerating unchanged sections. The number of chunks grows with file size; the 6,000-character chunk size and 9,000-character batch target are processing sizes, not project/file inventory ceilings.
 
 ## Safety and delivery
 
@@ -50,3 +50,14 @@ instead of a full replacement:
   missing anchors, ambiguous anchors, malformed operations, and generated secrets fail.
 - Full-file replacements remain supported for small files. A patch does not bypass
   owner authentication, path policy, secret checks, review, or CI.
+
+
+## Lossless per-file chunking
+
+- Each source file is hashed before chunking; chunks preserve the original Unicode text
+  exactly when concatenated.
+- Chunk metadata includes path, zero-based index, total count, and the full-source SHA-256.
+- Large-file responses must be anchored operations, not partial-file replacements.
+- Anchors must be present in the supplied chunk and unique in the original source when
+  applied. All operations are collected and applied to the original file once.
+- Empty, stale, ambiguous, out-of-chunk, and malformed patches fail closed.

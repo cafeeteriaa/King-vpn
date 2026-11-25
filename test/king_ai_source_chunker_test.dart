@@ -22,7 +22,7 @@ void main() {
     });
 
     test('splits very long single lines without dropping content', () {
-      final source = 'x' * 50001;
+      final source = List<String>.filled(50001, 'x').join();
       final chunks = KingAiSourceChunker.split(
         path: 'lib/one_line.dart',
         source: source,
@@ -33,7 +33,7 @@ void main() {
     });
 
     test('preserves non-BMP Unicode characters', () {
-      final source = 'الف😀' * 5000;
+      final source = List<String>.filled(5000, 'الف😀').join();
       final chunks = KingAiSourceChunker.split(
         path: 'lib/unicode.dart',
         source: source,
