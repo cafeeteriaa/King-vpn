@@ -10,8 +10,12 @@ void main() {
     test('bridges plugin start and stop while preserving host verification boundary', () async {
       final calls = <String>[];
       final adapter = KingV2RayAdapter(
-        start: (configuration) async => calls.add('start:$configuration'),
-        stop: () async => calls.add('stop'),
+        start: (configuration) async {
+          calls.add('start:$configuration');
+        },
+        stop: () async {
+          calls.add('stop');
+        },
       );
       final engine = KingFusionEngine([adapter]);
 
@@ -65,7 +69,9 @@ void main() {
     test('rejects empty config without crossing native boundary', () async {
       var starts = 0;
       final adapter = KingV2RayAdapter(
-        start: (_) async => starts++,
+        start: (_) async {
+          starts++;
+        },
         stop: () async {},
       );
       final engine = KingFusionEngine([adapter]);
@@ -167,7 +173,9 @@ void main() {
       var stops = 0;
       final adapter = KingV2RayAdapter(
         start: (_) async {},
-        stop: () async => stops++,
+        stop: () async {
+          stops++;
+        },
       );
       final result = await adapter.start(configuration: 'opaque-config');
       expect(result.connected, isTrue);
