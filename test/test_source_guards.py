@@ -1922,7 +1922,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('FreshResourceOffsetIndex.readPage(', store)
         self.assertIn('snapshot.openRead()', index)
         self.assertIn('_readValidHeader(', index)
-        self.assertIn('hasMore: hasMore', store)
+        self.assertIn('hasMore: page.hasMore', store)
+        self.assertIn('totalCount: page.totalCount', store)
         self.assertIn('FreshResourceStore.readLinks()', page[page.index('Future<void> _copyAll()'):page.index('Future<void> _clear()')])
 
     def test_fresh_resources_refresh_checks_mounted_before_set_state(self):
