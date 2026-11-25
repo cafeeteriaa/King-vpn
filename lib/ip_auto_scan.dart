@@ -262,17 +262,16 @@ extension IpAutoExt on _HomePageState {
     await goldLoad();
     if (halted()) return false;
     final discoveryPrefs = await SharedPreferences.getInstance();
-    // Do not reuse the mixed global-folder IP inventory in national mode:
-    // it can be dominated by globally hosted/CDN addresses unavailable there.
+    // Keep every previously discovered IP in both modes. National mode changes
+    // scan order, never the set of retained global observations.
     final baseCandidates = <String>{
-      if (!runNationalMode)
-        for (final entry in _goldIps.values) entry.ip,
+      for (final entry in _goldIps.values) entry.ip,
     };
     final domainSources = <String>{
       ...(runNationalMode ? kAutoNationalSniDomains : kAutoSniDomains),
+      ...dnsxFullDomains(),
       ...natFrontSnis,
       ...natRelayHosts,
-      if (!runNationalMode) ...dnsxFullDomains(),
     };
     if (runNationalMode) {
       for (final server in <Server>{
@@ -322,30 +321,29 @@ extension IpAutoExt on _HomePageState {
         logError(e, stk);
       }
     }
-    if (!runNationalMode) await refreshCdnRanges();
+    await refreshCdnRanges();
     if (halted()) return false;
     final dnsCandidates = await _autoResolveDualStackTargets(
       domains: domainBatch,
       cancelled: halted,
     );
     if (halted()) return false;
-    // National mode must not seed its inventory with global CDN ranges.
-    final cdnRanges = runNationalMode
-        ? const <String>[]
-        : (_liveCdnRanges.isNotEmpty
-            ? _liveCdnRanges
-            : [..._cfRanges, ..._cfRangesV6]);
+    // Keep CDN ranges in the inventory in both modes; domestic DNS candidates
+    // are placed first below, while global ranges remain queued for later work.
+    final cdnRanges = _liveCdnRanges.isNotEmpty
+        ? _liveCdnRanges
+        : [..._cfRanges, ..._cfRangesV6];
+    // Preserve insertion order so domestic-first DNS observations are
+    // consumed before saved global IPs and CDN ranges, without dropping them.
     final candidateRanges = <String>{
-      ...baseCandidates,
       ...dnsCandidates,
+      ...baseCandidates,
       ...cdnRanges,
-      if (!runNationalMode &&
-          baseCandidates.isEmpty &&
+      if (baseCandidates.isEmpty &&
           dnsCandidates.isEmpty &&
           cdnRanges.isEmpty)
         ...kAutoFallbackIps,
-    }.toList()
-      ..sort();
+    }.toList();
     final cdnCandidates = _getCfIps(
       batchSize: _autoScanCdnBatchSize,
       liveRanges: candidateRanges,
