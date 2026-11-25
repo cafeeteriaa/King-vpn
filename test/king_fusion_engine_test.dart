@@ -84,6 +84,17 @@ class _UnavailableAdapter implements KingEngineAdapter {
   }
 }
 
+class _FakeTrafficVerifier implements KingFusionTrafficVerifier {
+  final bool result;
+  int calls = 0;
+  _FakeTrafficVerifier(this.result);
+  @override
+  Future<bool> verify(KingFusionPlan plan) async {
+    calls++;
+    return result;
+  }
+}
+
 void main() {
   group('KING Fusion Engine', () {
     test('validates every hop before starting any native adapter', () async {
@@ -284,5 +295,53 @@ void main() {
       expect(events.where((event) => event.startsWith('stop:first:')).length, 2);
     });
 
+
+    test('requires a data-plane verifier before starting when requested', () async {
+      final events = <String>[];
+      final adapter = _FakeAdapter('first', events);
+      final engine = KingFusionEngine([adapter]);
+      final result = await engine.connect(KingFusionPlan(
+        [const KingFusionHop(engineId: 'first', configuration: 'cfg')],
+        requireTrafficVerification: true,
+      ));
+
+      expect(result.failureCode, 'E-FUSION-VERIFIER-MISSING');
+      expect(events, isEmpty);
+    });
+
+    test('rolls back native hops when data-plane verification fails', () async {
+      final events = <String>[];
+      final adapter = _FakeAdapter('first', events);
+      final engine = KingFusionEngine(
+        [adapter],
+        trafficVerifier: _FakeTrafficVerifier(false),
+      );
+      final result = await engine.connect(KingFusionPlan(
+        [const KingFusionHop(engineId: 'first', configuration: 'cfg')],
+        requireTrafficVerification: true,
+      ));
+
+      expect(result.connected, isFalse);
+      expect(result.failureCode, 'E-FUSION-TRAFFIC-UNVERIFIED');
+      expect(result.startedHops, 1);
+      expect(events, ['start:first:-', 'stop:first:handle-first']);
+      expect(engine.state, KingFusionState.failed);
+    });
+
+    test('accepts the chain only after positive data-plane verification', () async {
+      final events = <String>[];
+      final verifier = _FakeTrafficVerifier(true);
+      final adapter = _FakeAdapter('first', events);
+      final engine = KingFusionEngine([adapter], trafficVerifier: verifier);
+      final result = await engine.connect(KingFusionPlan(
+        [const KingFusionHop(engineId: 'first', configuration: 'cfg')],
+        requireTrafficVerification: true,
+      ));
+
+      expect(result.connected, isTrue);
+      expect(verifier.calls, 1);
+      expect(engine.state, KingFusionState.connected);
+      await engine.disconnect();
+    });
   });
 }
