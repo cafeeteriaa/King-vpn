@@ -380,7 +380,10 @@ class PilotNetworkProbe {
           'User-Agent: KING-VPN-Pilot/1.0\\r\\n'
           'Connection: close\\r\\n\\r\\n');
       await socket.flush().timeout(_timeout);
+      // SecureSocket emits Uint8List chunks while utf8.decoder accepts
+      // List<int>; cast the stream element type explicitly before decoding.
       final statusLine = await socket
+          .cast<List<int>>()
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .first
