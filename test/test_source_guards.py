@@ -5,6 +5,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KingVpnSourceGuardTests(unittest.TestCase):
+    def test_android_ci_runs_on_the_active_king_ai_engineering_branch(self):
+        workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
+        self.assertIn('feature/king-ai-multimodal-orchestrator-20261125', workflow)
+        self.assertIn('pull_request:', workflow)
     def test_ping_alone_never_accepts_a_vpn_route(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('Future<bool> _connectLoop(')
@@ -16,16 +20,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_ip_auto_keeps_transient_core_failures_retryable(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        start = source.index('final firstOk = await _ipAutoCoreOk(s, url);')
+        start = source.index('final templates = endpointConfigsByPair[c]')
         end = source.index('ipAutoHits.insert(0, c);', start)
         verification = source[start:end]
-        first_failure = verification.split('if (!firstOk) {', 1)[1].split('final secondOk', 1)[0]
-        second_failure = verification.split('if (!secondOk) {', 1)[1].split('ipAutoPendingCore.remove(c);', 1)[0]
-        self.assertIn('RETRY-FAILED-ENDPOINT', first_failure)
-        self.assertIn('ناموفق موقت؛ برای نوبت بعد حفظ شد', first_failure)
-        self.assertIn('تأیید دوم ناموفق؛ برای نوبت بعد حفظ شد', second_failure)
-        self.assertNotIn('ipAutoPendingCore.remove(c)', first_failure)
-        self.assertNotIn('ipAutoPendingCore.remove(c)', second_failure)
+        self.assertIn('for (final template in templates)', verification)
+        self.assertIn('_ipAutoCoreOk(serverWithIp, url)', verification)
+        self.assertIn('if (!firstOk) continue;', verification)
+        self.assertIn('if (!secondOk) continue;', verification)
+        self.assertIn('if (!verified)', verification)
+        self.assertIn('همهٔ الگوهای دقیق موقتاً ناموفق؛ برای نوبت بعد حفظ شد', verification)
+        self.assertNotIn('ipAutoPendingCore.remove(c)', verification)
 
     def test_auto_scan_sheet_forwards_live_vpn_guards_and_server_snapshots(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
