@@ -1313,6 +1313,40 @@ void main() {
       expect(engine.isBusy, isFalse);
     });
 
+    test('disconnect during validation rejection waits for preflight release', () async {
+      final events = <String>[];
+      final adapter = _FakeAdapter('first', events);
+      late final KingFusionEngine engine;
+      Future<void>? disconnecting;
+      var disconnectEvents = 0;
+      engine = KingFusionEngine(
+        [adapter],
+        onEvent: (event) {
+          if (event.type == KingFusionEventType.validationRejected) {
+            disconnecting ??= engine.disconnect();
+          }
+          if (event.type == KingFusionEventType.disconnectRequested) {
+            disconnectEvents++;
+          }
+        },
+      );
+
+      final result = await engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'missing', configuration: 'invalid-cfg'),
+      ]));
+      await disconnecting;
+
+      expect(result.connected, isFalse);
+      expect(result.failureCode, 'E-FUSION-ADAPTER-MISSING');
+      expect(result.startedHops, 0);
+      expect(disconnectEvents, 1);
+      expect(events.where((event) => event.startsWith('start:first:')), isEmpty);
+      expect(events.where((event) => event.startsWith('stop:first:')), isEmpty);
+      expect(engine.state, KingFusionState.idle);
+      expect(engine.isBusy, isFalse);
+      expect(engine.snapshot.disconnectRequested, isFalse);
+    });
+
     test('verificationStarted observer cancellation prevents verifier invocation', () async {
       final events = <String>[];
       final adapter = _FakeAdapter('first', events);
