@@ -2819,7 +2819,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_gold_write_serializes_shared_state_once_and_reuses_preferences(self):
         extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         start = extras.index('String _goldEncode()')
-        end = extras.index('void _goldTrimIps()', start)
+        end = extras.index('List<CleanIp>? _goldTop;', start)
         persistence = extras[start:end]
         self.assertIn('Future<bool> _goldWrite(SharedPreferences p)', persistence)
         self.assertIn("p.setString('gold_v1', _goldEncode())", persistence)
@@ -2827,6 +2827,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final p = await SharedPreferences.getInstance();', save)
         self.assertIn('await _goldWrite(p);', save)
         self.assertNotIn("await p.setString(", save)
+
+
+    def test_gold_saved_ip_and_server_inventories_have_no_fixed_trim_caps(self):
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        self.assertNotIn('kGoldIpCap', extras)
+        self.assertNotIn('kGoldSrvCap', extras)
+        self.assertNotIn('_goldTrimIps', extras)
+        self.assertNotIn('_goldTrimSrv', extras)
+        self.assertIn('final Map<String, _GoldIp> _goldIps = {};', extras)
+        self.assertIn('final Map<String, _GoldSrv> _goldSrv = {};', extras)
+        self.assertIn("await p.setString('gold_v1', _goldEncode())", extras)
 
 
     def test_national_yield_wait_is_cancellable_for_manual_scans(self):
