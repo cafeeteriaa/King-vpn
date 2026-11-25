@@ -2682,7 +2682,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('maxPerSource', main)
         self.assertNotIn('fetchDeadline', main)
         self.assertIn('withListMirrorStream(u,', fetch)
-        self.assertIn('_streamSourceLines(bytes)', fetch)
+        self.assertIn('decodeConfigSourceLines(bytes, linkRegex: _linkRe)', fetch)
         self.assertIn('await for (final line in lines)', fetch)
         self.assertIn('final quickSample = <String>[]', fetch)
         self.assertNotIn('quickLines.toList()', fetch)
@@ -2749,10 +2749,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('r.body', fetch)
 
     def test_streamed_source_decoder_preserves_plain_html_and_base64_inputs(self):
-        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
-        start = main.index('Stream<String> _streamSourceLines(')
-        end = main.index('Future<List<Server>> fetchServers(', start)
-        decoder = main[start:end]
+        decoder = (ROOT / 'lib' / 'source_stream_decoder.dart').read_text(encoding='utf-8')
         self.assertIn('utf8.decoder', decoder)
         self.assertIn('base64.decode(b64)', decoder)
         self.assertIn("lower.contains('<html')", decoder)
