@@ -4779,10 +4779,24 @@ Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async 
       }
 
       if (quickCap != null) {
-        // The fast-connect path intentionally samples a small randomized prefix.
-        final quickLines = await lines.toList();
-        quickLines.shuffle();
-        for (final line in quickLines.take(30)) {
+        // Reservoir sampling keeps the quick path's randomized per-source
+        // sample without materializing every line from a large response.
+        const sampleSize = 30;
+        final quickSample = <String>[];
+        final random = Random();
+        var seenQuickLines = 0;
+        await for (final line in lines) {
+          if (quickSample.length < sampleSize) {
+            quickSample.add(line);
+          } else {
+            final replacement = random.nextInt(seenQuickLines + 1);
+            if (replacement < sampleSize) {
+              quickSample[replacement] = line;
+            }
+          }
+          seenQuickLines++;
+        }
+        for (final line in quickSample) {
           await consumeLine(line);
         }
       } else {
