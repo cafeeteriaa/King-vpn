@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:king_vpn/auto_scanners.dart';
+import 'package:king_vpn/main.dart';
 
 void main() {
   group('KING auto-scan checkpoint', () {
