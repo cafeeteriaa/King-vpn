@@ -23,6 +23,18 @@ bool isProbeCacheFresh({
   return age >= Duration.zero && age < ttl;
 }
 
+/// Canonical, order-independent representation of active interface addresses.
+/// Empty entries are ignored; duplicate observations are preserved rather than
+/// silently changing the source inventory.
+String canonicalNetworkIdentity(Iterable<String> interfaceAddresses) {
+  final values = interfaceAddresses
+      .map((value) => value.trim())
+      .where((value) => value.isNotEmpty)
+      .toList()
+    ..sort();
+  return values.join(';');
+}
+
 /// Median of non-negative latency observations; null/invalid samples are ignored.
 int? medianLatencyMs(Iterable<int?> values) {
   final sorted = values.whereType<int>().where((value) => value >= 0).toList()
