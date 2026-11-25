@@ -231,7 +231,10 @@ extension IpAutoExt on _HomePageState {
     } finally {
       // Persist while the locks are still held so another scan cannot mutate
       // the shared result lists before their snapshot is taken.
-      await _ipAutoSave();
+      final checkpointSaved = await _ipAutoSave();
+      if (!checkpointSaved) {
+        ipAutoStatus = 'ذخیره checkpoint ناموفق بود؛ پیشرفت ذخیره‌شده قبلی برای بازیابی حفظ شد.';
+      }
       ipAutoBusy = false;
       dnsxManualBusy = false;
     }
