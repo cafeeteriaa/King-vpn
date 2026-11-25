@@ -1501,15 +1501,16 @@ extension NpvAmExtras on _HomePageState {
                     ),
                   const SizedBox(height: 8),
                   Flexible(
-                    child: ListView(
+                    child: ListView.builder(
                       shrinkWrap: true,
-                      children: [
-                        for (final e in cleanIps.take(10))
-                          Directionality(
-                            textDirection: TextDirection.ltr,
-                            child: Text('${e.ip}    ${e.ms} ms'),
-                          ),
-                      ],
+                      itemCount: cleanIps.length,
+                      itemBuilder: (context, index) {
+                        final e = cleanIps[index];
+                        return Directionality(
+                          textDirection: TextDirection.ltr,
+                          child: Text('${e.ip}    ${e.ms} ms'),
+                        );
+                      },
                     ),
                   ),
                   if (cleanIps.isEmpty && _cleanBusy == null)
