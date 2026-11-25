@@ -2681,8 +2681,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         fetch = main[start:end]
         self.assertNotIn('maxPerSource', main)
         self.assertNotIn('fetchDeadline', main)
-        self.assertIn('final sourceLines = quickCap == null ? lines : lines.take(30);', fetch)
-        self.assertIn('for (final l in sourceLines)', fetch)
+        self.assertIn('Stream<String>.value(body)', fetch)
+        self.assertIn('await for (final line in lines)', fetch)
+        self.assertIn('for (final line in quickLines.take(30))', fetch)
         self.assertIn('quickCap != null', fetch)
 
     def test_raw_subscription_http_errors_fall_through_to_configured_mirrors(self):
