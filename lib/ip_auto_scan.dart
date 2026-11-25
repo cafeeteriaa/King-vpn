@@ -381,7 +381,7 @@ extension IpAutoExt on _HomePageState {
         final nationalSeeds = await natHotNext(50, fetch: false);
         if (halted()) return false;
         if (nationalSeeds.isNotEmpty) {
-          natTemplateSeeds = nationalSeeds.take(2).toList();
+          natTemplateSeeds = nationalSeeds.toList();
           pool = [...nationalSeeds, ...good, ...pending];
         } else {
           pool = <Server>[...natTemplateSeeds, ...good, ...pending];
@@ -407,7 +407,6 @@ extension IpAutoExt on _HomePageState {
     if (pool.isEmpty) {
       say('موجودی مستقل IP ذخیره شد؛ برای بررسی فعال، ابتدا یک endpoint دقیق VPN در منابع پروژه موجود باشد.');
     }
-    final tpl = pool.take(2).toList();
     say('ساخت آدرس‌ها...');
     final tcpConcurrency =
         (manual && runNationalMode) ? kNatManualConc : _ipAutoConc;
@@ -443,6 +442,7 @@ extension IpAutoExt on _HomePageState {
     }
     // Build exact endpoint pairs; never cross-product unrelated IPs and ports.
     final endpointTargets = <int, Set<String>>{};
+    final endpointConfigsByPair = <String, List<Server>>{};
     final addressSet = addrs.toSet();
     for (final server in knownEndpoints) {
       if (halted()) return false;
@@ -454,14 +454,13 @@ extension IpAutoExt on _HomePageState {
       for (final address in resolved) {
         if (addressSet.contains(address)) {
           (endpointTargets[server.port] ??= <String>{}).add(address);
+          final pair = '$address|${server.port}';
+          endpointConfigsByPair.putIfAbsent(pair, () => <Server>[]).add(server);
         }
       }
     }
     final ports = endpointTargets.keys.toList()..sort();
-    final allowedEndpointPairs = <String>{
-      for (final entry in endpointTargets.entries)
-        for (final ip in entry.value) '$ip|${entry.key}',
-    };
+    final allowedEndpointPairs = endpointConfigsByPair.keys.toSet();
 
     // مرحله‌ی ۱: TCP فقط روی host:portهای اعلام‌شده در کانفیگ‌ها
     final candidates = <String>[];
@@ -506,13 +505,6 @@ extension IpAutoExt on _HomePageState {
         ipAutoPendingCore.add(candidate);
       }
     }
-    if (tpl.isEmpty) {
-      // TCP discovery can proceed without a VPN template. Keep its candidates
-      // in the durable core-verification queue until a real template is known.
-      say('بسته TCP کامل شد؛ ${ipAutoPendingCore.length} نامزد برای بررسی هسته ذخیره شد و منتظر الگوی کانفیگ است.');
-      return true;
-    }
-    final fallbackTemplate = tpl.first;
     final activeQueue = ipAutoPendingCore
         .where(allowedEndpointPairs.contains)
         .toList(growable: true);
@@ -534,27 +526,27 @@ extension IpAutoExt on _HomePageState {
       final parts = c.split('|');
       final ip = parts[0];
       final port = int.tryParse(parts[1]) ?? 443;
-      final template = knownEndpoints.firstWhere(
-        (server) => server.port == port,
-        orElse: () => fallbackTemplate,
-      );
-      final ipLink = _natSetPort(_natSetHost(template.link, ip, template.host), port);
-      final s = Server(ipLink, template.name, ip, port);
-      final firstOk = await _ipAutoCoreOk(s, url);
-      if (halted()) return false;
-      if (!firstOk) {
-        // RETRY-FAILED-ENDPOINT: a transient core-delay failure is not a
-        // permanent rejection. Keep the endpoint in the durable pending queue
-        // so a later scan can retry it with refreshed network/core conditions.
-        say('تست $checked • جواب‌داده: $found • ناموفق موقت؛ برای نوبت بعد حفظ شد');
-        continue;
+      final templates = endpointConfigsByPair[c] ?? const <Server>[];
+      var verified = false;
+      // Preserve every exact IP:port configuration. A port match alone is
+      // insufficient: transport, TLS, SNI, host and credentials can differ.
+      for (final template in templates) {
+        if (halted()) return false;
+        final ipLink = _natSetPort(_natSetHost(template.link, ip, template.host), port);
+        final serverWithIp = Server(ipLink, template.name, ip, port);
+        final firstOk = await _ipAutoCoreOk(serverWithIp, url);
+        if (halted()) return false;
+        if (!firstOk) continue;
+        final secondOk = await _ipAutoCoreOk(serverWithIp, url);
+        if (halted()) return false;
+        if (!secondOk) continue;
+        verified = true;
+        break;
       }
-      final secondOk = await _ipAutoCoreOk(s, url);
-      if (halted()) return false;
-      if (!secondOk) {
-        // The confirmation pass can fail transiently too; preserve the
-        // candidate for a later retry instead of dropping it from persistence.
-        say('تست $checked • جواب‌داده: $found • تأیید دوم ناموفق؛ برای نوبت بعد حفظ شد');
+      if (!verified) {
+        // Transient failure of one or more exact configurations is not a
+        // permanent rejection; retain the pair for a later retry.
+        say('تست $checked • جواب‌داده: $found • همهٔ الگوهای دقیق موقتاً ناموفق؛ برای نوبت بعد حفظ شد');
         continue;
       }
       ipAutoPendingCore.remove(c);
