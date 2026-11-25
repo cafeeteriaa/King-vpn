@@ -111,6 +111,67 @@ abstract interface class KingEngineAdapter {
 
 enum KingFusionState { idle, starting, connected, stopping, failed }
 
+enum KingFusionEventType {
+  stateChanged,
+  connectStarted,
+  validationRejected,
+  hopStarting,
+  hopStarted,
+  hopFailed,
+  verificationStarted,
+  verificationPassed,
+  verificationFailed,
+  rollbackStarted,
+  hopStopped,
+  cleanupFailed,
+  disconnectRequested,
+  disconnectCompleted,
+}
+
+/// Safe lifecycle telemetry. Never contains configuration text or native handles.
+class KingFusionEvent {
+  final int sequence;
+  final DateTime timestamp;
+  final KingFusionEventType type;
+  final KingFusionState state;
+  final String? engineId;
+  final String? failureCode;
+  final int activeHopCount;
+
+  const KingFusionEvent({
+    required this.sequence,
+    required this.timestamp,
+    required this.type,
+    required this.state,
+    required this.engineId,
+    required this.failureCode,
+    required this.activeHopCount,
+  });
+}
+
+typedef KingFusionEventListener = void Function(KingFusionEvent event);
+
+/// Immutable, secret-free view of the coordinator's current lifecycle.
+class KingFusionSnapshot {
+  final KingFusionState state;
+  final bool isBusy;
+  final bool disconnectRequested;
+  final List<String> activeEngineIds;
+  final List<String> cleanupPendingEngineIds;
+  final int eventSequence;
+
+  KingFusionSnapshot({
+    required this.state,
+    required this.isBusy,
+    required this.disconnectRequested,
+    required Iterable<String> activeEngineIds,
+    required Iterable<String> cleanupPendingEngineIds,
+    required this.eventSequence,
+  })  : activeEngineIds = List<String>.unmodifiable(activeEngineIds),
+        cleanupPendingEngineIds =
+            List<String>.unmodifiable(cleanupPendingEngineIds);
+}
+
 /// Adapter-provided failure strings cross a public API boundary. Keep only
 /// stable machine-readable codes; never let arbitrary adapter text (which may
 /// accidentally contain configuration fragments or credentials) escape.
@@ -193,6 +254,8 @@ class KingFusionEngine {
   final Duration trafficVerificationTimeout;
   /// Upper bound for each native stop attempt; timed-out handles remain tracked.
   final Duration nativeStopTimeout;
+  final KingFusionEventListener? _eventListener;
+  int _eventSequence = 0;
   final List<({KingEngineAdapter adapter, Object? handle})> _active = [];
   // Future.timeout does not cancel a native stop. Keep the in-flight future
   // so repeated disconnects cannot issue overlapping stop calls.
@@ -202,7 +265,8 @@ class KingFusionEngine {
   KingFusionCancellableEngineAdapter? _startingAdapter;
   Completer<void>? _disconnectSignal;
 
-  KingFusionState state = KingFusionState.idle;
+  KingFusionState __setState(KingFusionState.idle);
+  KingFusionState get state => _state;
   bool _busy = false;
   bool _disconnectRequested = false;
   Completer<void>? _operationDone;
@@ -212,8 +276,10 @@ class KingFusionEngine {
     KingFusionTrafficVerifier? trafficVerifier,
     this.trafficVerificationTimeout = const Duration(seconds: 12),
     this.nativeStopTimeout = const Duration(seconds: 8),
+    KingFusionEventListener? onEvent,
   })  : _adapters = _indexAdapters(adapters),
-        _trafficVerifier = trafficVerifier {
+        _trafficVerifier = trafficVerifier,
+        _eventListener = onEvent {
     if (nativeStopTimeout <= Duration.zero) {
       throw ArgumentError.value(
         nativeStopTimeout,
@@ -260,6 +326,50 @@ class KingFusionEngine {
 
   bool get isBusy => _busy;
 
+  KingFusionSnapshot get snapshot => KingFusionSnapshot(
+        state: _state,
+        isBusy: _busy,
+        disconnectRequested: _disconnectRequested,
+        activeEngineIds: _active.map((item) => item.adapter.descriptor.id),
+        cleanupPendingEngineIds: cleanupPendingEngineIds,
+        eventSequence: _eventSequence,
+      );
+
+  void _setState(KingFusionState next, {String? engineId, String? failureCode}) {
+    if (_state == next) return;
+    _state = next;
+    _emit(
+      KingFusionEventType.stateChanged,
+      engineId: engineId,
+      failureCode: failureCode,
+    );
+  }
+
+  void _emit(
+    KingFusionEventType type, {
+    String? engineId,
+    String? failureCode,
+  }) {
+    final listener = _eventListener;
+    if (listener == null) return;
+    final event = KingFusionEvent(
+      sequence: ++_eventSequence,
+      timestamp: DateTime.now(),
+      type: type,
+      state: _state,
+      engineId: engineId,
+      failureCode: failureCode == null
+          ? null
+          : _safeAdapterFailureCode(failureCode),
+      activeHopCount: _active.length,
+    );
+    try {
+      listener(event);
+    } catch (_) {
+      // Telemetry is observational and must never alter connection behavior.
+    }
+  }
+
   Future<KingFusionResult> connect(KingFusionPlan plan) async {
     if (_disconnectRequested) {
       return const KingFusionResult.failure(
@@ -294,7 +404,7 @@ class KingFusionEngine {
     try {
       validationError = _validate(plan);
     } catch (_) {
-      state = KingFusionState.failed;
+      _setState(KingFusionState.failed);
       return const KingFusionResult.failure(
         failedEngineId: null,
         failureCode: 'E-FUSION-VALIDATION-EXCEPTION',
@@ -302,7 +412,7 @@ class KingFusionEngine {
       );
     }
     if (validationError != null) {
-      state = KingFusionState.failed;
+      _setState(KingFusionState.failed);
       return KingFusionResult.failure(
         failedEngineId: validationError.$1,
         failureCode: validationError.$2,
@@ -314,7 +424,7 @@ class KingFusionEngine {
     _disconnectRequested = false;
     _operationDone = Completer<void>();
     _disconnectSignal = Completer<void>();
-    state = KingFusionState.starting;
+    _setState(KingFusionState.starting);
     String? currentEngineId;
     Object? upstreamHandle;
     try {
@@ -322,7 +432,7 @@ class KingFusionEngine {
         if (_disconnectRequested) {
           final startedCount = _active.length;
           final cleanupFailures = await _rollback();
-          state = KingFusionState.failed;
+          _setState(KingFusionState.failed);
           return KingFusionResult.failure(
             failedEngineId: null,
             failureCode: 'E-FUSION-CANCELLED',
@@ -332,6 +442,7 @@ class KingFusionEngine {
         }
         currentEngineId = hop.engineId.trim();
         final adapter = _adapters[currentEngineId]!;
+        _emit(KingFusionEventType.hopStarting, engineId: currentEngineId);
         KingEngineStartResult result;
         try {
           if (adapter is KingFusionCancellableEngineAdapter) {
@@ -347,10 +458,15 @@ class KingFusionEngine {
           }
         }
         if (!result.connected) {
+          _emit(
+            KingFusionEventType.hopFailed,
+            engineId: currentEngineId,
+            failureCode: _safeAdapterFailureCode(result.failureCode),
+          );
           if (_disconnectRequested) {
             final startedCount = _active.length;
             final cleanupFailures = await _rollback();
-            state = KingFusionState.failed;
+            _setState(KingFusionState.failed);
             return KingFusionResult.failure(
               failedEngineId: currentEngineId,
               failureCode: 'E-FUSION-CANCELLED',
@@ -360,7 +476,7 @@ class KingFusionEngine {
           }
           final startedCount = _active.length;
           final cleanupFailures = await _rollback();
-          state = KingFusionState.failed;
+          _setState(KingFusionState.failed);
           return KingFusionResult.failure(
             failedEngineId: currentEngineId,
             failureCode: _safeAdapterFailureCode(result.failureCode),
@@ -369,11 +485,12 @@ class KingFusionEngine {
           );
         }
         _active.add((adapter: adapter, handle: result.handle));
+        _emit(KingFusionEventType.hopStarted, engineId: currentEngineId);
         upstreamHandle = result.handle;
         if (_disconnectRequested) {
           final startedCount = _active.length;
           final cleanupFailures = await _rollback();
-          state = KingFusionState.failed;
+          _setState(KingFusionState.failed);
           return KingFusionResult.failure(
             failedEngineId: currentEngineId,
             failureCode: 'E-FUSION-CANCELLED',
@@ -383,11 +500,12 @@ class KingFusionEngine {
         }
       }
       if (plan.requireTrafficVerification) {
+        _emit(KingFusionEventType.verificationStarted);
         final verifier = _trafficVerifier;
         if (verifier == null) {
           final startedCount = _active.length;
           final cleanupFailures = await _rollback();
-          state = KingFusionState.failed;
+          _setState(KingFusionState.failed);
           return KingFusionResult.failure(
             failedEngineId: null,
             failureCode: 'E-FUSION-VERIFIER-MISSING',
@@ -410,7 +528,7 @@ class KingFusionEngine {
         if (_disconnectRequested) {
           final startedCount = _active.length;
           final cleanupFailures = await _rollback();
-          state = KingFusionState.failed;
+          _setState(KingFusionState.failed);
           return KingFusionResult.failure(
             failedEngineId: null,
             failureCode: 'E-FUSION-CANCELLED',
@@ -419,9 +537,11 @@ class KingFusionEngine {
           );
         }
         if (!verified) {
+          _emit(KingFusionEventType.verificationFailed,
+              failureCode: 'E-FUSION-TRAFFIC-UNVERIFIED');
           final startedCount = _active.length;
           final cleanupFailures = await _rollback();
-          state = KingFusionState.failed;
+          _setState(KingFusionState.failed);
           return KingFusionResult.failure(
             failedEngineId: null,
             failureCode: 'E-FUSION-TRAFFIC-UNVERIFIED',
@@ -430,7 +550,10 @@ class KingFusionEngine {
           );
         }
       }
-      state = KingFusionState.connected;
+      _setState(KingFusionState.connected);
+      if (plan.requireTrafficVerification) {
+        _emit(KingFusionEventType.verificationPassed);
+      }
       return KingFusionResult.success(
         _active.length,
         trafficVerified: plan.requireTrafficVerification,
@@ -438,7 +561,7 @@ class KingFusionEngine {
     } on _KingFusionCancelled {
       final startedCount = _active.length;
       final cleanupFailures = await _rollback();
-      state = KingFusionState.failed;
+      _setState(KingFusionState.failed);
       return KingFusionResult.failure(
         failedEngineId: currentEngineId,
         failureCode: 'E-FUSION-CANCELLED',
@@ -452,7 +575,7 @@ class KingFusionEngine {
       }
       final startedCount = _active.length;
       final cleanupFailures = await _rollback();
-      state = KingFusionState.failed;
+      _setState(KingFusionState.failed);
       return KingFusionResult.failure(
         failedEngineId: currentEngineId,
         failureCode: 'E-FUSION-VERIFY-TIMEOUT',
@@ -462,7 +585,7 @@ class KingFusionEngine {
     } catch (_) {
       final startedCount = _active.length;
       final cleanupFailures = await _rollback();
-      state = KingFusionState.failed;
+      _setState(KingFusionState.failed);
       return KingFusionResult.failure(
         failedEngineId: currentEngineId,
         failureCode: _disconnectRequested
@@ -517,6 +640,7 @@ class KingFusionEngine {
 
   Future<void> disconnect() async {
     if (_busy) {
+      _emit(KingFusionEventType.disconnectRequested);
       // A disconnect request must not disappear while a native start is in
       // flight. Ask connect() to roll back as soon as that start completes.
       _disconnectRequested = true;
@@ -537,10 +661,11 @@ class KingFusionEngine {
     _busy = true;
     _disconnectRequested = false;
     _operationDone = Completer<void>();
-    state = KingFusionState.stopping;
+    _setState(KingFusionState.stopping);
     try {
       await _rollback();
-      state = _active.isEmpty ? KingFusionState.idle : KingFusionState.failed;
+      _setState(_active.isEmpty ? KingFusionState.idle : KingFusionState.failed);
+      _emit(KingFusionEventType.disconnectCompleted);
     } finally {
       _busy = false;
       _operationDone?.complete();
@@ -574,6 +699,7 @@ class KingFusionEngine {
   /// Cleanup halts at the first reverse-order failure to keep upstream hops
   /// alive while a downstream hop may still depend on them.
   Future<List<String>> _rollback() async {
+    if (_active.isNotEmpty) _emit(KingFusionEventType.rollbackStarted);
     final failed = <({KingEngineAdapter adapter, Object? handle})>[];
     final reverseOrder = _active.reversed.toList(growable: false);
     for (var index = 0; index < reverseOrder.length; index++) {
@@ -606,9 +732,14 @@ class KingFusionEngine {
           );
         }
         await stopOperation.timeout(nativeStopTimeout);
+        _emit(KingFusionEventType.hopStopped,
+            engineId: item.adapter.descriptor.id);
       } catch (_) {
         // A downstream hop must be stopped before its upstream dependency.
         // Retain this hop and every earlier hop; do not tear down underneath it.
+        _emit(KingFusionEventType.cleanupFailed,
+            engineId: item.adapter.descriptor.id,
+            failureCode: 'E-FUSION-CLEANUP');
         failed.addAll(reverseOrder.skip(index));
         break;
       }
