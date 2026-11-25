@@ -2858,7 +2858,7 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
               .transform(utf8.decoder)
               .transform(const LineSplitter())) {
             if (line.isEmpty) continue;
-            final tab = line.indexOf('\\t');
+            final tab = line.indexOf('\t');
             final cfg = tab >= 0 ? line.substring(tab + 1) : line;
             if (!seenKeys.add(cfg)) continue;
             final b = utf8.encode(line);
