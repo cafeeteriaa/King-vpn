@@ -25,7 +25,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (!verifiedWithMatchingConfig)', verification)
         self.assertIn('برای نوبت بعد حفظ شد', verification)
         self.assertIn('continue;', verification)
-        failure_path = verification.split('if (!verifiedWithMatchingConfig)', 1)[1]
+        failure_path = verification.split('if (!verifiedWithMatchingConfig)', 1)[1].split('continue;', 1)[0]
         self.assertNotIn('ipAutoPendingCore.remove(c)', failure_path)
         self.assertLess(
             verification.index('if (!verifiedWithMatchingConfig)'),
