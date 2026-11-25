@@ -514,3 +514,15 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) API compatibility — event listener is optional and all additions are additive; existing adapter interfaces and call sites remain unchanged; (2) security/lifecycle — state is read-only externally and telemetry excludes secrets/handles; (3) regression — tests cover event ordering, snapshot contents and observer failures.
 - Commits: `dcaf38d76b24232d7c7959b9f5a29555d1558918` (snapshot/event API), `affca07a66d94ba066ef51fa4aac090715b9c773` (telemetry tests), `e64f46f565075e986ec8b19f7eaef566c838b012` (state-storage and validation telemetry correction).
 - The newest exact-head CI run is pending. The earlier `c41cb6c` run has passed Flutter tests and Dart analysis but its Android arm64 APK step is still in progress; it does not validate this newer telemetry revision.
+
+
+## 2026-11-25 — Precise verification telemetry
+
+- Corrected the state storage introduced with snapshots: the coordinator now has a real private `_state` field and exposes only its getter. The earlier mechanical rename was caught in immediate source review before claiming CI validation.
+- Added a dedicated `operationCancelled` lifecycle event and moved disconnect-request telemetry so idle and active disconnect calls are both observable.
+- Traffic-verifier exceptions now have their own `E-FUSION-VERIFY-EXCEPTION` result and `verificationFailed` event, rather than being misreported as a native engine-hop failure. Verification timeouts also emit a typed failure event; cleanup-pending disconnect completion reports its pending status.
+- Added a regression test that makes the verifier throw, confirms the specific failure code/event, ensures no native-hop failure event is emitted, and verifies rollback of the started adapter.
+- Test count: 27 in `test/king_fusion_engine_test.dart`.
+- Three-pass review: (1) correctness — internal state declaration and all state writes checked; (2) observability/security — typed failure events carry sanitized codes only; (3) regression — verifier-exception behavior and rollback covered.
+- Commits: `e64f46f565075e986ec8b19f7eaef566c838b012` (private state storage correction), `f06a3d5031d2000000a21504b07cb0ee66c6a1e2` (verification failure classification), `5aa622774ace91396542ad55f0f08216d64f7ef3` (verifier regression test).
+- The exact latest-head CI run must complete before claiming the snapshot/telemetry work passes tests, analysis or Android build.
