@@ -410,7 +410,7 @@ extension HomeExtras on _HomePageState {
   Future<void> importSubscription(BuildContext ctx, String url) async {
     Navigator.pop(ctx);
     _set('دریافت اشتراک...');
-    final list = (await fetchSubscription(url)).take(300).toList();
+    final list = await fetchSubscription(url);
     if (!mounted) return;
     if (list.isEmpty) {
       _set('اشتراک خالی بود یا دریافت نشد');
