@@ -882,3 +882,5 @@ These are three distinct technical review passes by the same assistant, not thre
 - Added source guards that reject reintroduction of the percentage gate, national manual quota/yield, fixed batch sizes and time-based cooldown.
 - The domain inventory remains the union of existing project inventories and dynamic scanner-fed lists; no fixed maximum inventory size is imposed by the DNS scanner.
 - Three review passes: (1) result semantics — any valid answer contributes evidence; (2) coverage — all input domains/resolvers continue through the loops with only cancellation as an early exit; (3) scheduling — concurrency follows runtime processor capacity, and the national path no longer has a separate quota or yield.
+
+- Source-guard alignment: updated the older shared national-yield test so it continues to protect cancellable yielding in SNI/port/manual-range scanners while asserting that DNS no longer waits on that quota path.

@@ -2917,7 +2917,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertEqual(auto.count('natManualYield(shouldAbort: () => cancelled())'), 2)
         self.assertIn('if (cancelled()) break sniLoop;', auto)
         self.assertIn('if (cancelled()) break portLoop;', auto)
-        self.assertIn('await natManualYield(shouldAbort: stop);', dns)
+        # DNS scanning no longer queues behind national IP/SNI/port scans.
+        # The shared cancellable yield helper remains for those other scanners.
+        self.assertNotIn('natManualYield', dns)
+        self.assertNotIn('kNatManualConc', dns)
+        self.assertIn('Platform.numberOfProcessors', dns)
         self.assertIn('if (stop != null && stop()) break;', dns)
 
 
