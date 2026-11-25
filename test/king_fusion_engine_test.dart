@@ -1348,7 +1348,6 @@ void main() {
     });
 
     test('disconnect from failed-state observer serializes after validation', () async {
-      final events = <String>[];
       late final KingFusionEngine engine;
       Future<void>? disconnecting;
       engine = KingFusionEngine(
