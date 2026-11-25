@@ -159,9 +159,25 @@ List<String> dnsxNationalFirstDomains({
         host.endsWith('.co.ir') ||
         host.endsWith('.org.ir')),
   };
-  final first = domestic.intersection(all).toList()..sort();
-  final remaining = all.difference(domestic).toList()..sort();
-  return <String>[...first, ...remaining];
+  final domesticQueue = all.where(domestic.contains).toList()..sort();
+  final globalQueue = all.where((host) => !domestic.contains(host)).toList()..sort();
+
+  // National discovery uses a stable 70/30 domestic/global schedule.
+  // Both queues are exhausted: the ratio is a priority, never an inventory cap.
+  final scheduled = <String>[];
+  var domesticOffset = 0;
+  var globalOffset = 0;
+  while (domesticOffset < domesticQueue.length ||
+      globalOffset < globalQueue.length) {
+    for (var slot = 0; slot < 7 && domesticOffset < domesticQueue.length; slot++) {
+      scheduled.add(domesticQueue[domesticOffset++]);
+    }
+    for (var slot = 0; slot < 3 && globalOffset < globalQueue.length; slot++) {
+      scheduled.add(globalQueue[globalOffset++]);
+    }
+    // If one queue is exhausted, the next cycle drains the remaining queue.
+  }
+  return scheduled;
 }
 
 /// متن نمایشی دامنه‌ها در شیت
