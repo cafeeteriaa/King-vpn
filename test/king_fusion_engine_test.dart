@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import '../lib/king_fusion_engine.dart';
 
@@ -7,12 +9,18 @@ class _FakeAdapter implements KingEngineAdapter {
   final List<String> events;
   final bool failStart;
   final Set<String> chainTargets;
+  final Completer<void>? startGate;
+  final Completer<void>? startEntered;
+  int stopFailuresRemaining;
 
   _FakeAdapter(
     String id,
     this.events, {
     this.failStart = false,
     this.chainTargets = const <String>{},
+    this.startGate,
+    this.startEntered,
+    this.stopFailuresRemaining = 0,
     bool supportsMultiHop = true,
   }) : descriptor = KingEngineDescriptor(
           id: id,
@@ -32,6 +40,10 @@ class _FakeAdapter implements KingEngineAdapter {
     Object? upstreamHandle,
   }) async {
     events.add('start:${descriptor.id}:${upstreamHandle ?? '-'}');
+    if (startEntered != null && !startEntered!.isCompleted) {
+      startEntered!.complete();
+    }
+    if (startGate != null) await startGate!.future;
     if (failStart) return const KingEngineStartResult.failed('E-TEST-START');
     return KingEngineStartResult.connected('handle-${descriptor.id}');
   }
@@ -39,6 +51,10 @@ class _FakeAdapter implements KingEngineAdapter {
   @override
   Future<void> stop(Object? handle) async {
     events.add('stop:${descriptor.id}:$handle');
+    if (stopFailuresRemaining > 0) {
+      stopFailuresRemaining--;
+      throw StateError('simulated native stop failure');
+    }
   }
 }
 
@@ -190,5 +206,53 @@ void main() {
       expect(result.failureCode, 'E-FUSION-CONFIG-EMPTY');
       expect(events, isEmpty);
     });
+    test('disconnect waits for an in-flight native start and cancels the plan', () async {
+      final events = <String>[];
+      final gate = Completer<void>();
+      final entered = Completer<void>();
+      final adapter = _FakeAdapter(
+        'first',
+        events,
+        startGate: gate,
+        startEntered: entered,
+      );
+      final engine = KingFusionEngine([adapter]);
+      final connecting = engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'first', configuration: 'cfg'),
+      ]));
+
+      await entered.future;
+      final disconnecting = engine.disconnect();
+      gate.complete();
+
+      final result = await connecting;
+      await disconnecting;
+      expect(result.connected, isFalse);
+      expect(result.failureCode, 'E-FUSION-CANCELLED');
+      expect(events, ['start:first:-', 'stop:first:handle-first']);
+      expect(engine.state, KingFusionState.idle);
+    });
+
+    test('retains failed native stops so disconnect can retry cleanup', () async {
+      final events = <String>[];
+      final adapter = _FakeAdapter(
+        'first',
+        events,
+        stopFailuresRemaining: 1,
+      );
+      final engine = KingFusionEngine([adapter]);
+      final connected = await engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'first', configuration: 'cfg'),
+      ]));
+      expect(connected.connected, isTrue);
+
+      await engine.disconnect();
+      expect(engine.state, KingFusionState.failed);
+      await engine.disconnect();
+
+      expect(events.where((event) => event.startsWith('stop:first:')).length, 2);
+      expect(engine.state, KingFusionState.idle);
+    });
+
   });
 }
