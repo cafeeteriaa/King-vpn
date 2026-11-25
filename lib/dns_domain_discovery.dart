@@ -35,8 +35,8 @@ Future<List<String>> kingDiscoverGlobalDnsDomains() async {
       await for (final line in file.openRead()
           .transform(utf8.decoder)
           .transform(const LineSplitter())) {
-        final host = kingMajesticDomainFromCsvLine(line);
-        if (host != null) hosts.add(host);
+        final normalized = kingNormalizeDomainHosts([line]);
+        if (normalized.isNotEmpty) hosts.add(normalized.first);
       }
       return hosts.toList(growable: false);
     } catch (_) {
@@ -52,8 +52,9 @@ Future<List<String>> kingDiscoverGlobalDnsDomains() async {
       if (age < const Duration(hours: 24)) return await readCache();
     }
 
-    temporary = File('${cache.path}.download');
-    if (await temporary.exists()) await temporary.delete();
+    final tempFile = File('${cache.path}.download');
+    temporary = tempFile;
+    if (await tempFile.exists()) await tempFile.delete();
     final request = http.Request(
       'GET',
       Uri.https('downloads.majestic.com', '/majestic_million.csv'),
@@ -65,7 +66,7 @@ Future<List<String>> kingDiscoverGlobalDnsDomains() async {
     }
 
     final hosts = <String>{};
-    final sink = temporary.openWrite();
+    final sink = tempFile.openWrite();
     try {
       await for (final line in response.stream
           .transform(utf8.decoder)
@@ -80,11 +81,11 @@ Future<List<String>> kingDiscoverGlobalDnsDomains() async {
     }
 
     if (hosts.isEmpty) {
-      await temporary.delete().catchError((_) => temporary!);
+      await tempFile.delete();
       return await readCache();
     }
     // Rename only after a complete, non-empty feed; old cache survives errors.
-    await temporary.rename(cache.path);
+    await tempFile.rename(cache.path);
     temporary = null;
     return hosts.toList(growable: false);
   } catch (_) {
