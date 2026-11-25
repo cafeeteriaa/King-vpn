@@ -557,3 +557,14 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) compatibility — additive optional plan field; (2) correctness/security — transport is declarative, validated and never inferred from config; (3) regression — accepted/rejected/malformed cases covered before native execution.
 - Commits: `9e7b5e0f12c13a8a747bc7d4ee9e863d69314773` (transport preflight), `edc91d4fe35437cfbf5c19c5bee1a96ffd67aedf` (transport tests).
 - Test count: 33. Exact latest-head CI remains required.
+
+
+## 2026-11-25 — Frozen adapter registry metadata
+
+- The coordinator now snapshots adapter descriptors at construction, including a defensive immutable copy of the advertised transport capability set. Later mutation of an adapter-owned Set cannot silently change what the registry advertises or what preflight accepts.
+- Added an identity-keyed adapter-to-ID map so active handles, cleanup diagnostics, snapshots and lifecycle events use the stable registry identifier rather than repeatedly querying a potentially dynamic adapter descriptor.
+- `availableEngines` now returns the frozen descriptor snapshots, not mutable adapter-owned metadata.
+- Added a regression test that mutates the original transport Set after coordinator construction, confirms the advertised snapshot remains unchanged and immutable, and verifies that preflight still uses the original captured capability.
+- Three-pass review: (1) compatibility — public descriptor fields are preserved; (2) lifecycle/security — registry identity and capabilities cannot drift after registration; (3) regression — post-registration mutation and snapshot immutability are covered.
+- Commits: `abb124448ec405050b80e8f0e31e0f44f7497b7d` (descriptor snapshots), `fb9d48a14b9f3fa907e73b350226c19dbb822489` (frozen identity in chain validation), `37fce6c2eab1aafb93bf4d704ba89926c03a9ac4` (snapshot ID correction), `d6c9042b05adf2b7b889228319c0b91f76de19fc` (capability immutability test).
+- Test count: 34. Latest-head CI required.
