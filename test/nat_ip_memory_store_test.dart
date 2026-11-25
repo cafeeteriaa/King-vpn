@@ -106,6 +106,61 @@ void main() {
     expect(await File('${store.file.path}.tmp').exists(), isFalse);
   });
 
+  test('prepend and filter updates a large snapshot without readAll', () async {
+    final records = List<Map<String, dynamic>>.generate(
+      12000,
+      (index) => <String, dynamic>{
+        'ip': '198.51.100.$index',
+        'port': index.isEven ? 443 : 8443,
+        't': index,
+      },
+      growable: false,
+    );
+    await store.replaceAll(records);
+
+    await store.prependAndFilter(
+      <Map<String, dynamic>>[
+        <String, dynamic>{'ip': '198.51.100.2', 'port': 443, 't': 20000},
+        <String, dynamic>{'ip': '203.0.113.9', 'port': 443, 't': 20001},
+      ],
+      removeExisting: (record) =>
+          record['port'] == 443 && record['ip'] == '198.51.100.2',
+    );
+
+    final first = await store.readRecords().first;
+    expect(first['ip'], '198.51.100.2');
+    expect(first['t'], 20000);
+    var count = 0;
+    var retainedOtherPort = false;
+    await for (final record in store.readRecords()) {
+      count++;
+      if (record['ip'] == '198.51.100.2' && record['port'] == 8443) {
+        retainedOtherPort = true;
+      }
+    }
+    expect(count, records.length + 1);
+    expect(retainedOtherPort, isTrue);
+  });
+
+  test('failed streaming filter preserves malformed original snapshot', () async {
+    const original = '{"ip":"192.0.2.1","port":443}\\nnot-json\\n';
+    await store.file.parent.create(recursive: true);
+    await store.file.writeAsString(original);
+
+    await expectLater(
+      store.prependAndFilter(
+        <Map<String, dynamic>>[
+          <String, dynamic>{'ip': '203.0.113.7', 'port': 443},
+        ],
+        removeExisting: (_) => false,
+      ),
+      throwsFormatException,
+    );
+
+    expect(await store.file.readAsString(), original);
+    expect(await File('${store.file.path}.tmp').exists(), isFalse);
+  });
+
   test('malformed records fail visibly instead of silently dropping data', () async {
     await store.file.parent.create(recursive: true);
     await store.file.writeAsString('{"ip":"192.0.2.1","port":443}\nnot-json\n');

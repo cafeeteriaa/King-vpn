@@ -46,6 +46,50 @@ class JsonLinesInventoryStore {
     return operation;
   }
 
+  /// Writes [prefix] first, then streams the existing snapshot and retains
+  /// every record for which [removeExisting] is false.
+  ///
+  /// Memory use is proportional to the prefix, not the complete inventory.
+  Future<void> prependAndFilter(
+    Iterable<Map<String, dynamic>> prefix, {
+    required bool Function(Map<String, dynamic> record) removeExisting,
+  }) {
+    final operation =
+        _writeQueue.then((_) => _prependAndFilter(prefix, removeExisting));
+    _writeQueue = operation.catchError((Object _) {});
+    return operation;
+  }
+
+  Future<void> _prependAndFilter(
+    Iterable<Map<String, dynamic>> prefix,
+    bool Function(Map<String, dynamic> record) removeExisting,
+  ) async {
+    await file.parent.create(recursive: true);
+    final temporary = File('${file.path}.tmp');
+    try {
+      final sink = temporary.openWrite(mode: FileMode.writeOnly);
+      try {
+        for (final record in prefix) {
+          sink.writeln(jsonEncode(record));
+        }
+        await for (final record in readRecords()) {
+          if (!removeExisting(record)) sink.writeln(jsonEncode(record));
+        }
+        await sink.flush();
+      } finally {
+        await sink.close();
+      }
+      await temporary.rename(file.path);
+    } catch (_) {
+      try {
+        if (await temporary.exists()) await temporary.delete();
+      } catch (_) {
+        // Preserve the original write/parse/rename error.
+      }
+      rethrow;
+    }
+  }
+
   Future<void> _replaceAll(Iterable<Map<String, dynamic>> records) async {
     await file.parent.create(recursive: true);
     final temporary = File('${file.path}.tmp');
