@@ -217,7 +217,7 @@ void main() {
       );
       final buffer = StringBuffer();
       for (final link in expected) {
-        buffer.write('not-a-config\\r$link\\r\\n');
+        buffer.write('not-a-config\r$link\r\n');
       }
       await snapshot.writeAsString(buffer.toString(), flush: true);
 
@@ -249,8 +249,8 @@ void main() {
       final path = await FreshResourceStore.storagePath;
       final snapshot = File('$path/configs.txt');
       await snapshot.writeAsString(
-        'vless://new-a@example.com:443\\n'
-        'vless://new-b@example.com:443\\n',
+        'vless://new-a@example.com:443\n'
+        'vless://new-b@example.com:443\n',
         flush: true,
       );
 
