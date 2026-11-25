@@ -17543,8 +17543,6 @@ extension ProjectNatSweep on _HomePageState {
 
   // IPSWEEP: هر IP تمیز را با اتصال واقعی روی یک سرور پشت کلودفلر امتحان می‌کند.
   // همه‌ی IPهایی که ترافیک تونل (google و youtube) بدهند نگه داشته می‌شوند؛ بدون سقف تعداد نتیجه.
-  // IPSWEEP: IP‌های باز را روی همه‌ی پورت‌های CDN (_natCfPorts) پیدا می‌کند، سپس هر جفت IP:پورت
-  // را با اتصال واقعی و بررسی تونل (google و youtube) می‌سنجد. فقط جفت‌های ترافیک‌دار نگه داشته می‌شوند.
   Future<List<CleanIp>> _atIpSweep(List<Server> pool, Duration budget) =>
       natWithSharedRangeCursorLock(() => _atIpSweepUnlocked(pool, budget));
 
