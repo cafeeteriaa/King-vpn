@@ -2918,7 +2918,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         yield_body = extras[start:end]
         self.assertIn('bool Function()? shouldAbort', yield_body)
         self.assertIn('!(shouldAbort?.call() ?? false)', yield_body)
-        self.assertEqual(auto.count('natManualYield(shouldAbort: () => cancelled())'), 2)
+        self.assertEqual(auto.count('natManualYield(shouldAbort: () => cancelled())'), 0)
         self.assertIn('if (cancelled()) break sniLoop;', auto)
         self.assertIn('if (cancelled()) break portLoop;', auto)
         # DNS scanning no longer queues behind national IP/SNI/port scans.
@@ -3128,7 +3128,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('for (; visited < ranges.length && out.length < batchSize; visited++)', cf)
         self.assertIn("'maxAddrs': max(0, scanLimit - configuredRanges.length),", nat)
         ip = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        self.assertIn("'maxAddrs': batchSize,", ip)
+        self.assertIn("'maxAddrs': effectiveBatchSize,", ip)
         start = ip.index('Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(')
         end = ip.index('extension IpAutoExt', start)
         body = ip[start:end]
