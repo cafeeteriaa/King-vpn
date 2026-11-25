@@ -361,3 +361,13 @@ These are three distinct technical review passes by the same assistant, not thre
 - The helper returns an immutable slice, leaves the source inventory unchanged, handles stale cursors by safely restarting at the beginning, and returns an empty result for empty inventories or non-positive batch sizes without modulo-by-zero risk.
 - The per-run batch size controls only work performed in one pass. The complete hostname and 1–65535 TCP port inventories remain available across subsequent cursor-backed runs.
 - Added Dart tests for wraparound, stale cursors, larger-than-inventory batches, empty inventories, non-positive batch sizes and immutable results.
+
+
+## 2026-11-25 — CI-driven generic batching and canonical IPv6 correction
+
+- The first Dart CI pass caught that generic type variables cannot be used in const collection expressions. Both empty-result paths in `kingNextInventoryBatch<T>` now return runtime-typed empty lists.
+- The endpoint-template test exposed that equivalent IPv6 spellings were not guaranteed to compare equal through the platform's textual `InternetAddress.address` representation alone.
+- Added byte-based IPv6 canonicalization: parse the 16 address bytes, split into eight 16-bit groups, compress the longest zero run (leftmost on ties), and use lowercase hexadecimal. IPv4 formatting remains unchanged.
+- Both the active endpoint and address-scope paths now use the same canonical representation before exact pair matching.
+- Added regression tests for expanded/compressed IPv6 equivalence, all-zero and trailing-zero runs, and unchanged IPv4 formatting.
+- The latest source-guard run before this correction exposed one stale source assertion; it was updated to check the canonicalizer. The newest exact-head CI run is pending.
