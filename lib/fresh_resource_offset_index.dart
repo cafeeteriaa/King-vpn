@@ -102,7 +102,8 @@ class FreshResourceOffsetIndex {
     try {
       await input.setPosition(offset - 1);
       final previous = await input.read(1);
-      return previous.length == 1 && previous.single == 0x0a;
+      return previous.length == 1 &&
+          (previous.single == 0x0a || previous.single == 0x0d);
     } finally {
       await input.close();
     }
@@ -155,6 +156,7 @@ class FreshResourceOffsetIndex {
     var count = 0;
     var byteOffset = 0;
     var lineStart = 0;
+    var previousWasCarriageReturn = false;
     final lineBytes = BytesBuilder(copy: false);
 
     Future<void> consumeLine() async {
@@ -173,11 +175,19 @@ class FreshResourceOffsetIndex {
       await output.writeFrom(List<int>.filled(_headerSize, 0));
       await for (final chunk in snapshot.openRead()) {
         for (final byte in chunk) {
-          if (byte == 0x0a) {
+          if (byte == 0x0d) {
             await consumeLine();
             lineStart = byteOffset + 1;
+            previousWasCarriageReturn = true;
+          } else if (byte == 0x0a) {
+            if (!previousWasCarriageReturn) {
+              await consumeLine();
+            }
+            lineStart = byteOffset + 1;
+            previousWasCarriageReturn = false;
           } else {
             lineBytes.addByte(byte);
+            previousWasCarriageReturn = false;
           }
           byteOffset++;
         }
