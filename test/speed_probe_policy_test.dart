@@ -4,14 +4,20 @@ import '../lib/speed_probe_policy.dart';
 void main() {
   group('speed probe response policy', () {
     test('accepts complete and partial content responses', () {
-      expect(isUsableSpeedProbeStatus(200), isTrue);
-      expect(isUsableSpeedProbeStatus(206), isTrue);
+      expect(isUsableSpeedProbeResponse(200, 'application/octet-stream'), isTrue);
+      expect(isUsableSpeedProbeResponse(206, 'application/octet-stream'), isTrue);
     });
 
     test('rejects redirects, auth failures, rate limits and server errors', () {
       for (final status in [301, 302, 304, 401, 403, 404, 429, 500, 503]) {
-        expect(isUsableSpeedProbeStatus(status), isFalse, reason: '$status');
+        expect(isUsableSpeedProbeResponse(status, 'application/octet-stream'), isFalse, reason: '$status');
       }
+    });
+
+    test('rejects HTML captive portals and JSON error pages even on HTTP 200', () {
+      expect(isUsableSpeedProbeResponse(200, 'text/html; charset=utf-8'), isFalse);
+      expect(isUsableSpeedProbeResponse(200, 'application/json'), isFalse);
+      expect(isUsableSpeedProbeResponse(200, null), isTrue);
     });
 
     test('converts bytes and elapsed time to MiB per second', () {
