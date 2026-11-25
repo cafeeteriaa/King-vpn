@@ -1,5 +1,14 @@
 # King VPN — continuation checkpoint
 
+## Current active workstream — 2026-11-25
+- Repository: `cafeeteriaa/King-vpn`.
+- Current engineering branch: `feature/king-fusion-engine-foundation-20261125`.
+- Current pull request: #53, open Draft, targeting `feature/king-vpn-audit-hardening-20261125`; do not merge automatically.
+- The older PR #48 / DNS scanner checkpoints below are retained as historical project context and are not the active branch for this Fusion workstream.
+- Main remains at the previously recorded commit `c43d325f9803d4f6306415e511f6790deff9d87e`; no feature changes are intended for main.
+- Keep the existing `lib/main.dart` Flutter V2Ray connection path intact until a separately reviewed, tested adapter integration is ready.
+
+
 ## Source of truth
 - Latest checkpoint recorded below supersedes older status summaries; historical checkpoints are retained for traceability.
 - Repository: `cafeeteriaa/King-vpn`
@@ -274,3 +283,606 @@ These are three distinct technical review passes by the same assistant, not thre
 - Global mode retains its prior global catalog/CDN/cache sources. National mode still includes exact saved VPN endpoint hosts/configurations for endpoint validation; no active scan scope was broadened.
 - This is a candidate-source relevance fix only. It does not prove that any discovered address is reachable from an Iranian carrier during an international outage.
 - Exact-head CI and Iranian-network/device tests have not yet been observed for this repair. Do not mark it TESTED until those runs/evidence exist.
+
+
+## 2026-11-25 — Fusion lifecycle hardening and persistent-memory integrity
+
+- Active branch: `feature/king-fusion-engine-foundation-20261125`; PR #53 remains open and Draft against `feature/king-vpn-audit-hardening-20261125`. Do not merge automatically.
+- Fusion now treats a disconnect arriving during an in-flight native start as a cancellation request. It waits for the start call to settle, then rolls back the just-started adapter instead of silently ignoring the disconnect.
+- Native stop failures are no longer discarded: failed adapter handles remain tracked, are exposed through `cleanupPendingEngineIds`, and can be retried by a later disconnect. `KingFusionResult.cleanupFailedEngineIds` reports rollback failures after a failed start.
+- Fusion tests now cover busy-start rejection, disconnect-during-start cancellation, reverse-order rollback, stop failure retention, and successful retry.
+- Clarified that Fusion's `connected` result means every adapter accepted its start call; it is not proof of end-to-end traffic or a verified VPN tunnel.
+- NNIE endpoint-history writes are serialized so concurrent record/stability updates cannot finish out of order and overwrite newer snapshots.
+- NNIE history loading now marks the store loaded only after a successful read/parse. A storage or parse failure is rethrown and does not silently initialize an empty inventory that could overwrite persisted history.
+- Fresh resource writes remain serialized and use temporary-file replacement; merge reads fail closed instead of treating a read error as an empty cache.
+- KING AI research-memory writes remain serialized and atomically replaced; the fixed 500-note truncation remains removed.
+- The Fusion engine remains an adapter foundation only. The existing `flutter_v2ray_client` lifecycle in `lib/main.dart` has not been replaced, and no new native engine is claimed to be bundled or operational.
+- Exact-head CI for the latest source changes must pass source guards, Flutter tests, Dart analysis and ARM64 release build before validation is claimed. The preceding CI failure at run 2938 was a stale source-guard expectation for the NNIE serialization refactor; the guard was corrected in the following commit. Physical-device tunnel, DNS-leak, IPv4/IPv6 data-plane, network-handover and battery tests remain NOT TESTED.
+- Main is expected to remain at `c43d325f9803d4f6306415e511f6790deff9d87e`; verify this ref before future work. Do not modify or merge to main.
+
+
+## 2026-11-25 — Final Fusion handoff race review
+
+- Added the missing `dart:async` import required by Fusion's operation completers after exact CI exposed the compile error; the source guard now checks this import.
+- Closed the reconnect handoff window: while a disconnect waiter is waiting for an in-flight connect to unwind, new connect requests receive `E-FUSION-DISCONNECT-PENDING`. The cancellation latch is cleared only after disconnect acquires the operation slot.
+- Three-pass static review checked adapter lifecycle, persistence ordering, regression guards and branch/PR state. All 13 reviewed invariants passed at the latest source snapshot.
+- CI run 2941 exposed the missing async import; it was corrected. On the subsequent run 2942 (pre-handoff-race snapshot), source guards, Flutter unit tests and Dart analysis passed; the ARM64 release build was still running at the last observation. Run 2944 is queued for the handoff-race follow-up; require a completed exact-head run before calling this branch fully validated.
+- The active Flutter V2Ray connection path in `lib/main.dart` remains unchanged. Fusion is not yet wired into the production connection path; no additional native engine is claimed as integrated.
+- The default branch must remain at `c43d325f9803d4f6306415e511f6790deff9d87e`. PR #53 remains open Draft; no merge has been performed.
+
+
+## 2026-11-25 — IP Auto exact endpoint/template integrity
+
+- Removed the two-template truncation from the national IP Auto template inventory. All templates returned by the national source are retained; the per-run address batch remains a resumable execution slice, not an inventory deletion.
+- Replaced port-only template selection with an exact resolved `IP:port -> all matching source configurations` index. A shared port no longer causes a candidate IP to be tested with an unrelated server configuration.
+- Core verification now tries every original configuration that actually resolves to the exact IP:port pair, preserving each configuration's transport, TLS, SNI, host and credentials. A pair remains in the retry queue if none of its matching configurations passes the two-pass check.
+- Added a reusable immutable endpoint-template index helper in `lib/nat_ip_scan.dart`. It validates IPv4/IPv6 literals and ports, normalizes equivalent IPv6 spellings, optionally constrains indexing to the current generated address slice, deduplicates repeated source identities, and preserves all distinct templates.
+- Added unit coverage for multiple configurations sharing one IP:port, separate ports, IPv4/IPv6, canonical IPv6 normalization, scope exclusion, invalid values and immutable results. Added source guards against restoring `take(2)` truncation or port-only `firstWhere` fallback.
+- This change does not widen active probing to unrelated public/CDN ranges. Active checks remain limited to exact addresses resolved from configured VPN endpoint records; passive inventory and active endpoint verification remain separate.
+- Latest exact-head CI is pending after the scanner/test/source-guard changes. Previous exact-head run 2942 completed successfully for the prior Fusion-only snapshot (unit tests, Dart analysis and ARM64 build); do not transfer that success to the new scanner commits.
+- PR #53 remains open Draft and unmerged. Main remains at `c43d325f9803d4f6306415e511f6790deff9d87e`.
+
+
+## 2026-11-25 — DNS hostname inventory normalization
+
+- Extracted shared hostname normalization into `lib/king_domain_inventory.dart` so scanner input parsing is independently unit-testable.
+- DNS inventory normalization now accepts project `domain:` and `full:` rules, case-folds names, removes a terminal DNS root dot, deduplicates, and validates total name length and each label.
+- IPv4 and IPv6 literals are no longer misclassified as hostnames. This matters because user-configured relay IPs share source collections with hostname catalogs; they remain valid endpoint data but do not enter DNS/SNI hostname queues.
+- Added standalone tests for project rule prefixes, mixed case, root dots, duplicate names, IPv4/IPv6 exclusion, malformed labels, overlong labels/names, single-character labels and punycode names.
+- Added a source guard that ensures the shared normalizer remains wired into DNS scanner inventory construction.
+- This is normalization only: no domain source is removed by a fixed list, no inventory count ceiling is introduced, and DNS/endpoint resources remain separate.
+- Exact-head CI is pending for the domain-normalization additions as well as the preceding exact endpoint/template changes. Physical device and network-path tests remain outstanding.
+
+
+## 2026-11-25 — Three-pass scanner review
+
+- Pass 1 (semantics): verified complete national template retention, removal of two-item template truncation, exact IP:port association, and trying all source configurations for a pair. No port-only fallback remains.
+- Pass 2 (scope/safety): verified that active IP checks remain constrained to the generated address slice resolved from the existing endpoint inventory; endpoint ports and IPv4/IPv6 values are validated; DNS host normalization excludes IP literals and malformed labels.
+- Pass 3 (regression): verified main.dart imports the standalone normalizer, dns_scanner.dart uses it, unit tests cover endpoint indexing and hostname normalization, and source guards match the final implementation.
+- Static review result: 15/15 assertions passed across the three passes. This is a source-level review, not a substitute for exact-head CI or Android device tests.
+- Corrected a source-guard wording mismatch before final CI; no product behavior was changed by that guard-only correction.
+- Latest exact-head CI is queued; run 2945 is still processing a prior commit's ARM64 build. Wait for the latest head's source guard, Flutter tests, Dart analysis and ARM64 build before marking this stage validated.
+
+
+## 2026-11-25 — Unified auto-scan checkpoint
+
+- Replaced three separately-written SharedPreferences cursor keys (CDN, hostname and TCP-port progress) with one versioned `auto_scan_checkpoint_v2` JSON value.
+- Added a pure decoder that validates checkpoint version and cursor value types, detaches decoded maps, and migrates legacy cursor keys when no valid v2 checkpoint exists.
+- A valid v2 checkpoint preserves intentional empty/null cursor values instead of resurrecting stale legacy progress. Malformed v2 data falls back to independently readable legacy values; malformed legacy CDN JSON does not discard valid domain/port cursors.
+- The scanner now stages all three inventory cursors, saves scan observations first, then commits the combined checkpoint in one preference write. If that write reports failure, it leaves the previous checkpoint authoritative and reports that the next run will safely rediscover already-saved observations.
+- Added Dart tests for round-trip, legacy migration, intentionally empty state, corrupt-state fallback and invalid ports; added source guards against reintroducing separate cursor writes.
+- This reduces partial-progress inconsistencies; it is not a claim of filesystem-level fsync or transactional guarantees beyond the single preference operation exposed by the platform API.
+
+
+## 2026-11-25 — Shared fair batching for domain and TCP-port inventories
+
+- Added `kingNextInventoryBatch<T>` as a common cursor-based round-robin slicer for complete inventories.
+- Replaced duplicated domain and port wraparound calculations with the shared helper.
+- The helper returns an immutable slice, leaves the source inventory unchanged, handles stale cursors by safely restarting at the beginning, and returns an empty result for empty inventories or non-positive batch sizes without modulo-by-zero risk.
+- The per-run batch size controls only work performed in one pass. The complete hostname and 1–65535 TCP port inventories remain available across subsequent cursor-backed runs.
+- Added Dart tests for wraparound, stale cursors, larger-than-inventory batches, empty inventories, non-positive batch sizes and immutable results.
+
+
+## 2026-11-25 — CI-driven generic batching and canonical IPv6 correction
+
+- The first Dart CI pass caught that generic type variables cannot be used in const collection expressions. Both empty-result paths in `kingNextInventoryBatch<T>` now return runtime-typed empty lists.
+- The endpoint-template test exposed that equivalent IPv6 spellings were not guaranteed to compare equal through the platform's textual `InternetAddress.address` representation alone.
+- Added byte-based IPv6 canonicalization: parse the 16 address bytes, split into eight 16-bit groups, compress the longest zero run (leftmost on ties), and use lowercase hexadecimal. IPv4 formatting remains unchanged.
+- Both the active endpoint and address-scope paths now use the same canonical representation before exact pair matching.
+- Added regression tests for expanded/compressed IPv6 equivalence, all-zero and trailing-zero runs, and unchanged IPv4 formatting.
+- The latest source-guard run before this correction exposed one stale source assertion; it was updated to check the canonicalizer. The newest exact-head CI run is pending.
+
+
+## 2026-11-25 — IP Auto atomic recovery checkpoint
+
+- Added versioned per-mode `ipauto_snapshot_v2_nat` / `ipauto_snapshot_v2_glob` snapshots. Each serialized value contains IP:port observations, the pending core-verification backlog, all range cursors, and the current position.
+- `ipAutoLoad` treats a valid v2 snapshot as authoritative and migrates from existing independent preference keys only when v2 is absent or malformed. Legacy keys remain intact for compatibility.
+- `ipAutoSave` commits the full state through one `SharedPreferences.setString` operation instead of four independently awaited writes. This is a single-key application checkpoint, not a filesystem-fsync guarantee.
+- The IP Auto run persists the completed TCP cursor with the complete pending core-verification queue before lengthy native-core checks. Successful queue removals/promotions are checkpointed, allowing process-death recovery during verification.
+- Added tests for round-trip, legacy migration, valid-empty authority, corrupt fallback and invalid positions, plus a source guard enforcing the single-write save path.
+- Three-pass review: (1) state model and nat/global separation; (2) crash windows and queue durability; (3) legacy migration and single-write regression guard.
+- Exact-head CI run 2984 is in progress for commit `46be052d79bf8c5ec06da441ee966b2b96cd541f`. Do not claim this stage validated until source guards, Flutter tests, Dart analysis and ARM64 release build all complete successfully.
+- Device-level tunnel, DNS-leak, IPv4/IPv6 data-plane, network-handover and battery tests remain NOT TESTED.
+
+
+## 2026-11-25 — Fusion data-plane acceptance gate (latest)
+- Extended `lib/king_fusion_engine.dart` with an explicit `KingFusionTrafficVerifier` contract and per-plan `requireTrafficVerification` opt-in.
+- When a plan requires end-to-end evidence, a missing verifier is rejected during preflight, before any adapter starts. Native adapter start success alone cannot satisfy the requested verified-connectivity contract.
+- After all hops start, the verifier must return positive evidence within the configurable positive timeout (default 12 seconds). A negative result rolls back all started hops in reverse order and returns `E-FUSION-TRAFFIC-UNVERIFIED`; verifier exceptions/timeouts use the normal failure cleanup path.
+- Added cancellation fencing after the asynchronous verification await. A disconnect requested while traffic verification is pending now wins over a late positive probe and triggers rollback with `E-FUSION-CANCELLED`.
+- Added regression tests for missing-verifier preflight, negative data-plane evidence and rollback, positive verification, disconnect during verification, and verification-timeout cleanup.
+- Commits on this feature branch: `12e5ed7efc74109501f83d903fb72350be3d153d`, `e9dcf25e996fc3fcc665f82e333e9fb3d8701ea0`, `7d8a0062251ec7aa879720a1afc030f2862ce4e4`, `fc5045a12ac25adf9d40b031290fd870e3417673`, `67a887b33a9597495d8c1f562578c3610a7710c9`.
+- Three review passes: (1) architecture — verifier is injected and opt-in, preserving existing app connection paths; (2) lifecycle/security — no config or native handle logging, bounded verification wait, reverse rollback and cancellation fencing; (3) regression — added focused unit tests for each new branch.
+- Validation status: latest exact-head workflow lookup returned no PR-triggered workflow run for `fc5045a12ac25adf9d40b031290fd870e3417673`. Do not claim tests, analyzer, or APK build passed until exact-head CI is observed. No device-level data-plane verification is claimed.
+- Next: inspect workflow trigger behavior / PR head, run exact-head CI, fix any failures, then wire a real verifier only to an existing app-owned tunnel probe after confirming it traverses the intended route. Do not replace the current `flutter_v2ray_client` connection lifecycle or claim Xray/Sing-box/WireGuard adapters are integrated without native implementations and device tests.
+
+
+## 2026-11-25 — Fusion verified-connectivity result semantics (continued)
+- Added `KingFusionResult.trafficVerified`. It is true only when the plan explicitly required traffic verification and the injected verifier returned positive evidence. Ordinary adapter-start success leaves it false, so callers cannot confuse native startup with data-plane proof.
+- Added a dedicated `E-FUSION-VERIFY-TIMEOUT` result for the verifier's bounded wait. Timeout classification is isolated to the verifier await; a `TimeoutException` raised by a native adapter start is not mislabeled as a traffic-probe timeout.
+- Added regression assertions for verified and unverified success, verifier timeout cleanup, and native-start timeout classification.
+- New commits: `795d59b442c1eb2716171e3bdb332521853a52a4`, `f071cd258773f76e74722a5d4f14c00e17332b0a`, `93399d04b3aa21ad0fb9d9f217f1353c278cf26d`, `36225f0aaeb365ca07a4809f82f92ac5dd1cdcc2`, `0c4d9fff5fffbd279c5313801442decda31bf025`.
+- Review passes: (1) API semantics — `connected` remains adapter-start state while `trafficVerified` is separate; (2) timeout correctness — only verifier timeout receives the dedicated code; (3) regression coverage — explicit tests distinguish native start timeout from verifier timeout.
+- Validation: the repository workflow `.github/workflows/build.yml` is configured for all pull requests, but the GitHub workflow-run lookup returned no run for the earlier exact PR head. Latest commits have not been run through Flutter tests, Dart analysis, or Android build in this session. Do not claim CI success.
+- Latest work remains on `feature/king-fusion-engine-foundation-20261125`, PR #53 Draft and unmerged. Main connection path remains unchanged. Device-level traffic proof remains untested.
+- Next: obtain an exact-head CI run, then inspect and implement a real application-owned traffic verifier only after proving the probe uses the active VPN route; separately audit native adapter startup and stop semantics before integrating any additional VPN engine.
+
+
+## 2026-11-25 — Exact-branch CI trigger repair
+- Updated `.github/workflows/build.yml` so pushes to `feature/king-fusion-engine-foundation-20261125` also run the full Android validation workflow. Previously the push branch filter omitted this active feature branch; PR-triggered runs were not visible through the exact-commit workflow lookup, leaving the latest code without observed validation.
+- This change does not weaken or skip any checks: source guards, Flutter tests, Dart analysis, and optimized Android arm64 release build remain in the existing workflow.
+- CI trigger change commit: `afc8fff165af5f812c4f6ea44308a87b2ffe485e`.
+- Awaiting the workflow result for this exact commit; do not report success until the run and all required jobs complete.
+
+
+## 2026-11-25 — Fusion adapter failure-code boundary hardening
+
+- Added a strict public failure-code normalizer for native adapter start failures. Only stable uppercase machine codes matching `^[A-Z][A-Z0-9_-]{0,63}$` are allowed through; null retains the existing generic `E-FUSION-START` behavior and malformed/free-form adapter text becomes `E-FUSION-ADAPTER-START`.
+- This prevents arbitrary adapter error strings from crossing the Fusion result boundary. Such strings can accidentally contain fragments of VPN configuration, tokens, endpoint credentials, or other sensitive details.
+- Added a regression test that supplies an adapter failure string containing a private configuration marker and verifies the returned result contains only the safe generic code.
+- Three-pass review: (1) API compatibility — existing safe adapter codes such as `E-TEST-START` remain unchanged and null remains generic; (2) security — free-form detail is not propagated and no configuration is added to logs/results; (3) regression — a focused test covers malformed detail while the existing rollback and lifecycle tests remain in place.
+- During post-write source inspection, a duplicated trailing source fragment was detected in the engine file and removed in a separate repair commit. The current fetched file has one `KingFusionEngine` declaration, one normalizer definition, one call site, and a clean class/file ending.
+- Commits: `3346ad0540f6d6f4011df6ddf09a361b82766f89` (normalizer), `8fb679970f635904722f2ce20da650d701a25a3b` (regression test), `6694f78dce6c91c207a163b082a18b067252c2a6` (duplicate-tail repair).
+- Exact prior-head CI run 3003 passed on `f54294e23ad4aad7e14dabac6065b0956c3d8ce6`, including source guard, Flutter unit tests, Dart analysis, ARM64 release APK build, source packaging and provenance steps. This does not validate the new failure-code changes.
+- Exact-head CI run 3008 is pending for `6694f78dce6c91c207a163b082a18b067252c2a6`; do not mark this change CI-validated until the run completes successfully.
+- PR #53 remains open Draft and unmerged. Existing `lib/main.dart` V2Ray connection path remains untouched. Device-level tunnel/data-plane validation remains outstanding.
+
+
+## 2026-11-25 — CI syntax failure diagnosis and corrective follow-up
+
+- Exact run 3006 for test commit `8fb679970f635904722f2ce20da650d701a25a3b` failed during Flutter unit-test compilation (281 tests passed, 1 test file failed to load). The failure was in the newly added normalizer's raw-regex literal, which had been truncated in the committed source; analyzer and APK build were skipped.
+- Run 3008 was triggered for the intermediate duplicate-tail repair commit. It is not accepted as validation evidence for the corrected source.
+- Replaced the regex with a straightforward ASCII code-unit validator to avoid quoting/escaping ambiguity. It accepts only uppercase A–Z, digits, underscore and hyphen, with a maximum length of 64 and an uppercase initial character. It also restores the dedicated verifier-timeout exception declaration that was within the malformed duplicated tail.
+- Current engine file was re-fetched after the correction: one `KingFusionEngine` declaration, one normalizer definition, one normalizer call site, and the verifier-timeout exception declaration are present. The regression test remains present.
+- Corrective commit: `bf8bba4bc4f115309cce09876bb28aa044d188e5`.
+- Exact-head CI run 3012 is pending for that corrective commit. Do not call the change validated until source guard, all Flutter tests, Dart analysis and ARM64 release build pass on the final head.
+
+
+## 2026-11-25 — Fusion cancellation and bounded native cleanup
+
+- Added optional `KingFusionCancellableTrafficVerifier`. The coordinator now races verification against a disconnect signal, so disconnect no longer waits for a verifier future that never completes. Cancellation is requested on both user disconnect and verifier timeout; late verifier completion is not allowed to turn a cancelled operation into success.
+- The base `KingFusionTrafficVerifier` contract remains source-compatible. Existing verifiers need not implement cancellation, but implementations that own sockets/probes should implement the optional cancellation interface and make `cancel()` idempotent.
+- Added configurable `nativeStopTimeout` (default 8 seconds, must be positive). Each native stop attempt is bounded; a timed-out/failed stop remains in the cleanup-pending list so a later disconnect can retry. Adapter `stop()` implementations must tolerate retries.
+- Added regression coverage for a verifier that never completes, cancellation requests on disconnect and timeout, and a native stop that never completes while retaining its cleanup handle.
+- Three-pass review: (1) lifecycle/API — cancellation is optional and the base verifier API is unchanged; (2) safety — disconnect signal wins over late verifier results, cleanup is bounded and failed handles are retained; (3) regression — new tests cover hung verifier and hung stop paths alongside prior start/rollback/verification cases.
+- Current source/test files re-fetched from the branch: `lib/king_fusion_engine.dart` contains one coordinator declaration and one failure-code normalizer/call site; `test/king_fusion_engine_test.dart` contains 19 Fusion tests including the new cancellation/timeout cases.
+- Commits: `49574a82010826f6d634e8cbafc0e501f2ac542c` (coordinator cancellation/stop timeout), `456650ffb06afc930faae5c0ba5605e37a6c0784` (new tests), `d6c138234d33bb5e6446c2a76b870f5a620a5c2b` (cancel verifier work on timeout), `ccd66b8bcae75e9c2a9a91174735f9590bb1371b` (assert cancellation behavior).
+- CI run 3012 passed on the prior syntax-repair commit `bf8bba4bc4f115309cce09876bb28aa044d188e5`. CI run 3021 is pending for the current test commit `ccd66b8bcae75e9c2a9a91174735f9590bb1371b`; current cancellation changes are not yet CI-validated.
+- Existing application V2Ray route remains unchanged. No device-level VPN tunnel verification or native engine integration is claimed.
+
+
+## 2026-11-25 — Cancellable native startup
+
+- Added optional `KingFusionCancellableEngineAdapter` for native engines whose start operation can block. A disconnect now requests cancellation from the in-flight adapter; the interface contract requires the cancellation hook to be idempotent and make the pending `start()` future settle.
+- A successful late start returned while disconnect is pending is tracked and immediately rolled back; a failed/cancelled start is reported as `E-FUSION-CANCELLED` rather than leaking adapter-specific cancellation details.
+- Added a deterministic fake adapter and regression test proving disconnect requests startup cancellation and stops a late-created native handle.
+- Three-pass review: (1) compatibility — existing adapters need not implement the optional interface; (2) lifecycle — late successful handles enter the normal reverse-order rollback path; (3) regression — dedicated startup cancellation test added, and all previous verifier cancellation/timeout and cleanup retry cases remain present.
+- Commits: `f6d2b1f71fca8d5d6192bc6407e9840a9a1f74b5` (optional native start cancellation), `168a76e19f136c0ca0a23b6c0417e31ad7d056b6` (startup cancellation test).
+- Current fetched source/test checks: one `KingFusionEngine` declaration; cancellation-aware verifier and startup interfaces present; bounded stop timeout present; 20 Fusion tests in the test file.
+- CI run 3021 for an earlier intermediate test commit was cancelled when a newer branch push superseded it. CI run 3026 is pending for current test commit `168a76e19f136c0ca0a23b6c0417e31ad7d056b6`. Do not claim current-stage CI success until this exact-head run completes successfully.
+
+
+## 2026-11-25 — Fusion CI correction and native-stop concurrency hardening
+
+- Exact-head CI for commit `3c050481c981dfeba7965f09031599c52af6fda9` completed with failure in the Flutter test-loading stage. The compiler identified one misplaced `verifier.cancelCalls` assertion in the native-start cancellation test; the variable was not in scope there. Removed the invalid assertion while retaining the verifier cancellation assertions in the dedicated verifier tests.
+- A lifecycle audit found a second-order cleanup race: Dart's `Future.timeout` does not cancel the underlying native `stop()` operation. A subsequent disconnect could therefore issue a second stop while the first native stop was still running.
+- Added per-adapter in-flight stop tracking. Timed-out stop futures remain registered until they actually settle; repeated disconnects wait on the same operation instead of overlapping native stop calls. Once the prior operation settles, a later disconnect may safely retry cleanup.
+- Added a deterministic regression test that times out twice against one still-running stop, verifies only one native stop was issued, releases the original operation, and verifies a later disconnect performs the retry and reaches idle.
+- Three-pass review: (1) compatibility — no changes to the base adapter interface and no new requirements for existing adapters; (2) lifecycle/safety — stop calls are serialized per adapter and handles remain retained until successful cleanup; (3) regression — misplaced compile-time assertion removed and timeout/overlap/retry behavior covered by a focused test.
+- Commits: `cf6ccda3cbff4ee5a614b482f57463b21f3aaf96` (serialized stop operations), `58d2f6ced0b733ace590e07fc85f3b5bb41c8a35` (test correction and stop-concurrency regression).
+- The exact latest branch head is `58d2f6ced0b733ace590e07fc85f3b5bb41c8a35`. The new exact-head CI run must complete before claiming tests, analyzer or Android release build are validated. Physical device/data-plane tests remain outstanding.
+
+
+## 2026-11-25 — Fusion preflight containment and dependency-safe rollback
+
+- Hardened preflight against adapter-owned compatibility code throwing unexpectedly. A thrown `canChainTo()` now becomes the stable `E-FUSION-VALIDATION-EXCEPTION` result before any native adapter starts; adapter compatibility checks are documented as side-effect-free.
+- Added a regression test proving a compatibility-check exception does not start either hop and does not escape as an uncaught exception.
+- Continued the cleanup-order audit and corrected a dependency hazard: if stopping a downstream hop fails or times out, rollback now stops at that point and retains that hop plus every upstream hop. It no longer tears down an upstream dependency while the downstream engine may still be running.
+- A later disconnect retries in reverse dependency order: downstream first, then upstream only after downstream cleanup succeeds.
+- The in-flight stop map now uses identity semantics, avoiding accidental collisions if adapter classes implement value-based equality.
+- Added a two-hop regression test that forces the downstream stop to fail, verifies the upstream stop is not attempted, then verifies a later retry stops downstream and upstream in the correct order.
+- Three-pass review: (1) compatibility — base adapter methods unchanged; preflight errors are now represented as result codes; (2) lifecycle — strict reverse dependency cleanup and identity-keyed serialization preserve native handle ownership; (3) regression — preflight exception and two-hop cleanup retry tests added.
+- Commits: `d5859428a6d0e95e4e63979fcf4ba835c7b7005f` (preflight exception containment), `52aff9ca4d0d02c40e698e2d277f1cd24d4e0e04` (preflight regression), `8cd647d5bb0ee88e8995f13786d71f9ec3351cbe` (dependency-safe cleanup), `c39ae3f521757db274d8192eee4ac5afb64fb174` (reverse-order regression).
+- Exact latest-head CI is required before validation claims. Earlier workflow attempts are still processing/cancelled for intermediate heads; no current-head test/analyze/Android build result is claimed.
+
+
+## 2026-11-25 — Native-start exception cancellation race
+
+- Corrected the generic native-start exception path so an exception raised after the user has requested disconnect is classified as `E-FUSION-CANCELLED`, not `E-FUSION-EXCEPTION`.
+- Previously, adapters returning a failed result after disconnect were already classified as cancellation, but adapters throwing during the same cancellation race could leak a generic exception result. Both outcomes now honor the same cancellation state while rolling back earlier successful hops.
+- Added a two-hop regression test: the first hop starts, the second start is held, disconnect is requested, and the second adapter then throws. The result is cancellation, the first hop is stopped, and the engine returns to idle.
+- Three-pass review: (1) API consistency — thrown and returned start failures follow the same cancellation semantics; (2) lifecycle — already-started handles still enter reverse-order rollback; (3) regression — explicit test covers the exception/disconnect interleaving.
+- Commits: `77066d5c032ddbb7704b6896edff66ed4090e255` (cancellation result mapping), `287a7019bdee76a7c376219f7db13f05664ed9c3` (race regression test).
+
+
+## 2026-11-25 — Reconnect guard while native cleanup is pending
+
+- Split the previous active-connection guard into two precise states: a healthy connected route returns `E-FUSION-ALREADY-ACTIVE`, while retained native handles from failed/timed-out cleanup return `E-FUSION-CLEANUP-PENDING`.
+- This prevents a new route from starting while an earlier native engine may still be alive. Reconnect becomes available only after a later disconnect successfully clears the retained handles.
+- Extended the failed-stop retry test to attempt a new connection before cleanup retry; it verifies the explicit cleanup-pending result and confirms no second native start occurs.
+- Three-pass review: (1) state semantics — connected and cleanup-pending are distinct; (2) lifecycle safety — no new engine can overlap a still-owned native handle; (3) regression — reconnect is blocked until reverse-order cleanup succeeds.
+- Commits: `2aa5b14650cea4a485484882948de61eaee28f10` (cleanup-pending guard), `3cfc20a107c48fa483f6ac7823a4efe6f9077298` (reconnect regression test).
+
+
+## 2026-11-25 — Read-only lifecycle state and safe Fusion telemetry
+
+- Added an additive, immutable `KingFusionSnapshot` exposing coordinator state, busy/disconnect flags, active engine IDs, pending cleanup IDs and the lifecycle event sequence. Native handles and configuration payloads are deliberately excluded.
+- Made the coordinator's state internally owned and externally read-only (`state` getter). Callers can no longer mutate the state machine independently of native resource ownership.
+- Added opt-in lifecycle telemetry with monotonically increasing sequence numbers, timestamps, safe event types, engine IDs, sanitized failure codes and active-hop counts. Events cover state transitions, preflight rejection, hop start/failure, traffic verification, rollback, cleanup and disconnect.
+- Observer exceptions are isolated; a faulty telemetry consumer cannot break connection startup or cleanup. No raw adapter exception strings, user configuration, credentials or native handles are included in event fields.
+- Added regression coverage for immutable snapshots, monotonic event sequencing, secret-free event content and listener exception isolation. Fusion test count is now 26.
+- Three-pass review: (1) API compatibility — event listener is optional and all additions are additive; existing adapter interfaces and call sites remain unchanged; (2) security/lifecycle — state is read-only externally and telemetry excludes secrets/handles; (3) regression — tests cover event ordering, snapshot contents and observer failures.
+- Commits: `dcaf38d76b24232d7c7959b9f5a29555d1558918` (snapshot/event API), `affca07a66d94ba066ef51fa4aac090715b9c773` (telemetry tests), `e64f46f565075e986ec8b19f7eaef566c838b012` (state-storage and validation telemetry correction).
+- The newest exact-head CI run is pending. The earlier `c41cb6c` run has passed Flutter tests and Dart analysis but its Android arm64 APK step is still in progress; it does not validate this newer telemetry revision.
+
+
+## 2026-11-25 — Precise verification telemetry
+
+- Corrected the state storage introduced with snapshots: the coordinator now has a real private `_state` field and exposes only its getter. The earlier mechanical rename was caught in immediate source review before claiming CI validation.
+- Added a dedicated `operationCancelled` lifecycle event and moved disconnect-request telemetry so idle and active disconnect calls are both observable.
+- Traffic-verifier exceptions now have their own `E-FUSION-VERIFY-EXCEPTION` result and `verificationFailed` event, rather than being misreported as a native engine-hop failure. Verification timeouts also emit a typed failure event; cleanup-pending disconnect completion reports its pending status.
+- Added a regression test that makes the verifier throw, confirms the specific failure code/event, ensures no native-hop failure event is emitted, and verifies rollback of the started adapter.
+- Test count: 27 in `test/king_fusion_engine_test.dart`.
+- Three-pass review: (1) correctness — internal state declaration and all state writes checked; (2) observability/security — typed failure events carry sanitized codes only; (3) regression — verifier-exception behavior and rollback covered.
+- Commits: `e64f46f565075e986ec8b19f7eaef566c838b012` (private state storage correction), `f06a3d5031d2000000a21504b07cb0ee66c6a1e2` (verification failure classification), `5aa622774ace91396542ad55f0f08216d64f7ef3` (verifier regression test).
+- The exact latest-head CI run must complete before claiming the snapshot/telemetry work passes tests, analysis or Android build.
+
+
+## 2026-11-25 — Registry, timeout and snapshot invariants
+
+- Expanded the lifecycle test suite to 30 tests.
+- Added constructor-time duplicate adapter-ID rejection (including whitespace-normalized duplicates), positive-timeout validation for both native stop and traffic verification, and validation-rejection telemetry assertions.
+- Added an explicit immutability assertion proving snapshot engine-ID lists cannot be modified by callers.
+- The tests verify rejected plans never start native adapters and that rejected-plan telemetry contains only a stable sanitized code and engine ID, never the supplied configuration text.
+- Three-pass review: (1) compatibility — constructor validation only rejects ambiguous/invalid registry or timeout configuration; (2) security — snapshot collections are unmodifiable and telemetry remains configuration-free; (3) regression — duplicate IDs, invalid durations, rejected plans and snapshot mutation are covered.
+- Commits: `2b64091a9c80709f4833b722b9312733763bba23` (invariant tests), `9ccb12c95703f31cc2be119a32b2002ff72ac495` (portable matcher correction).
+
+
+## 2026-11-25 — Engine identifier boundary hardening
+
+- Added a strict, bounded identifier grammar for adapter registry IDs (ASCII letters, digits, dot, underscore and hyphen; maximum 64 characters). Invalid IDs are rejected during registry construction before they can enter public engine listings or lifecycle telemetry.
+- Lifecycle event engine IDs are normalized through the same safe identifier check; malformed identifiers are omitted rather than copied into diagnostics.
+- Added a regression test proving identifiers containing unsupported characters are rejected before any adapter is started.
+- Three-pass review: (1) compatibility — all current built-in test identifiers use the supported stable-ID grammar; (2) security — identifiers cannot smuggle arbitrary text into telemetry; (3) regression — constructor rejects unsafe IDs and retains duplicate-ID handling.
+- Commits: `61250956fd099d21e121ebe9cf038208dc8d7d3c` (identifier validation), `32f0f2ffb2c4876bbbc9f1c0099be12d44561cd4` (unsafe-ID regression test).
+- Test count: 31. Latest-head CI is still required.
+
+
+## 2026-11-25 — Declarative transport-capability preflight
+
+- Extended `KingFusionHop` with an optional `requiredTransport` declaration. This is explicitly separate from the opaque native configuration string; the coordinator never parses or rewrites user configuration to guess transport.
+- Preflight normalizes the requested transport and checks it against the adapter descriptor's advertised `supportedTransports`. Unsupported requirements fail before any native adapter starts with `E-FUSION-TRANSPORT-UNSUPPORTED`; malformed values fail with `E-FUSION-TRANSPORT-INVALID`.
+- Existing callers remain compatible because the transport requirement is optional. Existing descriptors with empty transport capability sets retain their previous behavior unless a caller explicitly requests a transport.
+- Added regression tests for case/whitespace-normalized supported transport, unsupported transport, and malformed transport values; no opaque configuration contents enter diagnostics.
+- Three-pass review: (1) compatibility — additive optional plan field; (2) correctness/security — transport is declarative, validated and never inferred from config; (3) regression — accepted/rejected/malformed cases covered before native execution.
+- Commits: `9e7b5e0f12c13a8a747bc7d4ee9e863d69314773` (transport preflight), `edc91d4fe35437cfbf5c19c5bee1a96ffd67aedf` (transport tests).
+- Test count: 33. Exact latest-head CI remains required.
+
+
+## 2026-11-25 — Frozen adapter registry metadata
+
+- The coordinator now snapshots adapter descriptors at construction, including a defensive immutable copy of the advertised transport capability set. Later mutation of an adapter-owned Set cannot silently change what the registry advertises or what preflight accepts.
+- Added an identity-keyed adapter-to-ID map so active handles, cleanup diagnostics, snapshots and lifecycle events use the stable registry identifier rather than repeatedly querying a potentially dynamic adapter descriptor.
+- `availableEngines` now returns the frozen descriptor snapshots, not mutable adapter-owned metadata.
+- Added a regression test that mutates the original transport Set after coordinator construction, confirms the advertised snapshot remains unchanged and immutable, and verifies that preflight still uses the original captured capability.
+- Three-pass review: (1) compatibility — public descriptor fields are preserved; (2) lifecycle/security — registry identity and capabilities cannot drift after registration; (3) regression — post-registration mutation and snapshot immutability are covered.
+- Commits: `abb124448ec405050b80e8f0e31e0f44f7497b7d` (descriptor snapshots), `fb9d48a14b9f3fa907e73b350226c19dbb822489` (frozen identity in chain validation), `37fce6c2eab1aafb93bf4d704ba89926c03a9ac4` (snapshot ID correction), `d6c9042b05adf2b7b889228319c0b91f76de19fc` (capability immutability test).
+- Test count: 34. Latest-head CI required.
+
+
+## 2026-11-25 — CI-discovered active-vs-cleanup snapshot correction
+
+- The CI run for `3bb1ee5778513c0bcd046fa88ed1617d2abd22ed` exposed a semantic bug in the new snapshot: `cleanupPendingEngineIds` was reporting every live active hop as pending cleanup, even while the route was healthy.
+- Corrected the getter to expose retained IDs only after the coordinator has entered the failed state with cleanup still outstanding. Healthy active routes and ordinary in-progress disconnects no longer appear as cleanup failures.
+- The failed CI run had 313 passing tests and one failing snapshot assertion; the failure was isolated to this reporting semantic, not compilation. The assertion now matches the corrected lifecycle distinction.
+- Three-pass review: (1) state semantics — active and cleanup-pending are distinct; (2) lifecycle — retained handles remain visible after failed rollback; (3) regression — the existing snapshot test covers healthy-active state while cleanup-retry tests cover failed state.
+- Fix commit: `f1bb315f5885d3421e25b63073d5d73f422d1dac`. Latest-head CI must verify this correction and the later registry/transport changes.
+
+
+## 2026-11-25 — Concurrent disconnect coalescing
+
+- Added a shared in-flight disconnect future. All callers that request disconnect during the same native cleanup operation now join the exact same future; a second caller can no longer return while the first caller is still waiting for a blocked native `stop()`.
+- The cancellation signal is raised only when disconnect is joining an active connect/verification operation. Additional callers joining an already-running teardown do not set a stale cancellation latch.
+- Retained the previous cancellation behavior: disconnect during native startup or traffic verification still signals the active operation, requests optional adapter/verifier cancellation, waits for connect rollback, and then performs any remaining cleanup.
+- Cleanup-failure IDs now use the frozen adapter registry identity instead of re-reading a mutable adapter descriptor after registration.
+- Added a deterministic concurrency regression test: hold native stop, invoke disconnect twice, verify the second future remains pending, release stop, await both callers, and assert exactly one native stop call and final idle state.
+- Three-pass review: (1) API/concurrency — all concurrent callers share one future; (2) lifecycle — joining teardown does not create overlapping native cleanup or stale cancellation state; (3) regression — blocked-stop test asserts both callers observe completion.
+- Commits: `65f8c66b137b3d3d5e7c9c129988229581a92c95` (concurrent disconnect test), `9621086cbf5795811c4e92797bddee00d08b2b04` (coalesced disconnect and stable cleanup identity).
+- CI for `9621086cbf5795811c4e92797bddee00d08b2b04` is pending. The immediately preceding exact-head commit `4a1274f599eeb4a92d40e40c373313b96e5fd7a3` passed both push and pull-request workflows, including Flutter tests, Dart analysis and Android arm64 release APK build; this does not pre-validate the new concurrency change.
+
+
+## 2026-11-25 — Bounded secret-free Fusion lifecycle history
+
+- Added configurable in-memory lifecycle event retention to `KingFusionEngine`. The default history window is 256 events and callers may choose any positive capacity; non-positive capacities are rejected at construction.
+- Event history is populated even when no observer callback is registered, so diagnostic snapshots remain useful in production integrations that do not attach a listener.
+- Added immutable `recentEvents` access on both the engine and `KingFusionSnapshot`. The retained window is trimmed from the oldest end and never grows beyond the configured capacity.
+- The history stores only the existing sanitized `KingFusionEvent` fields: sequence, timestamp, lifecycle type/state, validated engine ID, sanitized failure code and active-hop count. Opaque configurations and native handles are not introduced into telemetry.
+- Added tests for retention without a listener, bounded eviction, immutable history/snapshot collections, sequence continuity, configuration secrecy, and invalid capacity.
+- Three-pass review: (1) compatibility — additive constructor option with a default; existing listeners and event sequencing remain intact; (2) security/lifecycle — no config/native handle fields are retained and memory use is bounded/configurable; (3) regression — 2 new tests cover history behavior and validation.
+- Commits: `1704b51268988059226d89c2ce6fe9000cf00d6e` (engine history), `11460856dbcaaff71f8183c076000531a9e37f9e` (history tests).
+- Dedicated Fusion test count: 40. CI for the exact latest head is pending; do not treat older CI results as validation of this change.
+
+
+## 2026-11-25 — Reentrant disconnect observer safety
+
+- A lifecycle observer could synchronously call `disconnect()` while handling `disconnectRequested`. The old order emitted the event before publishing `_disconnectOperation`, allowing recursive event dispatch before the first call had installed its coalescing future.
+- Corrected the ordering: the first caller publishes the shared disconnect future before notifying observers. Reentrant and concurrent callers now join that same operation. Joiners do not re-emit `disconnectRequested`, preventing observer recursion while preserving one event for the teardown transition.
+- Added a deterministic regression test whose observer calls `disconnect()` directly from `disconnectRequested`; it asserts one event, one native stop, no recursion, and final idle/not-busy state.
+- Three-pass review: (1) concurrency/API — the shared future is visible before callbacks run; (2) lifecycle — reentrant callers cannot start duplicate teardown or recursively dispatch the same event; (3) regression — the callback-driven test asserts exactly-once event and stop behavior.
+- Commits: `467802307f8364959445e615bfbc8a9a5b61b1ca` (reentrancy fix), `73dfadc35cad05b37367e940ebfdd413732ff66c` (regression test).
+- Dedicated Fusion test count: 41. Exact latest-head CI is required.
+
+
+## 2026-11-25 — Block reentrant connection during disconnect notification
+
+- Found a lifecycle race in the synchronous `disconnectRequested` observer window: `disconnect()` had published its shared future, but `_performDisconnect()` had not yet started and `_busy` was still false. An observer could call `connect()` in that window and begin a new native start immediately before teardown.
+- `connect()` now rejects when either `_disconnectOperation` is already published or `_disconnectRequested` is active, returning `E-FUSION-DISCONNECT-PENDING` before validation or adapter invocation.
+- Added a regression test that attempts a new connection directly from the `disconnectRequested` observer. It verifies the attempted connection is rejected, only the original start and one stop occur, and the coordinator returns to idle.
+- Three-pass review: (1) API/concurrency — the guard checks the published disconnect future, not only `_busy`; (2) lifecycle/security — no new configuration is passed to a native adapter once teardown is committed; (3) regression — observer reentrancy test asserts failure code, exactly one start/stop, and final idle state.
+- Commits: `2e0e2ff55167e23d18d3a3e7e0b786265196ead4` (guard), `6d040bad06fa6a1e4866d2e5815abd1f7b18efff` (test).
+- Dedicated Fusion test count: 42. Exact latest-head CI is required.
+
+- Follow-up test-quality refinement: the reentrant-connect regression now captures and awaits the returned `Future<KingFusionResult>` directly, rather than observing completion through a detached callback. This makes the assertion deterministic and ensures the rejection result is observed by the test. Commit: `34146d04c8f935bc0f0f376a8da167bddba73cc1`.
+
+
+## 2026-11-25 — Snapshot visibility for pending disconnect operations
+
+- Found that the snapshot's `disconnectRequested` flag remained false during the synchronous `disconnectRequested` event callback: the shared disconnect future was already published, but `_disconnectRequested` is reserved for cancelling an in-flight connect and had not yet been set.
+- Snapshot projection now reports `disconnectRequested` when either the in-flight cancellation flag is set or the shared disconnect operation exists. This keeps the observable snapshot consistent with the lifecycle event and the connection guard without changing the cancellation signal's internal semantics.
+- Extended the reentrant disconnect observer regression to capture the snapshot during `disconnectRequested` and assert it is true then, and false again after disconnect completes.
+- Three-pass review: (1) compatibility — additive correction to the existing snapshot boolean; (2) lifecycle — public snapshot now reflects the committed disconnect transition during observer callbacks; (3) regression — assertions cover both pending and completed states.
+- Commits: `008d4d3de4cf84dfbf80b5200bccd9a5a3bdc67b` (snapshot projection), `232e169e73fe90445ba8bf830898653e16c93ba9` (regression assertion). Dedicated Fusion test count remains 42.
+
+
+## 2026-11-25 — Final-state observer disconnect race
+
+- Found a completion-window race during the final transition to `connected`: a synchronous lifecycle observer could call `disconnect()` from the `stateChanged(connected)` event. The disconnect operation was committed and waiting for the current connect operation, but `connect()` could still return a successful result before unwinding.
+- Added a final cancellation check after final lifecycle notifications and before constructing the success result. If an observer committed teardown in that window, the connect operation now rolls back its started handles and returns `E-FUSION-CANCELLED`; the waiting disconnect then completes the serialized cleanup.
+- Added a regression test that requests disconnect synchronously from the connected-state observer and asserts a cancellation result, exactly one native start, exactly one native stop, idle state and cleared busy state.
+- Three-pass review: (1) API semantics — success is no longer returned after a disconnect transition has been committed; (2) lifecycle — the active handle is rolled back before the waiting disconnect completes; (3) regression — deterministic observer reentrancy coverage checks result, call counts and final state.
+- Dedicated Fusion test count: 43 by source test declaration count. Exact-head CI is required; no local Flutter execution is claimed.
+- Commits: `1865d2980ad774c5caca22f14fc1951f27c56b08` (completion-window guard), `445937186afd52ea4ad05d719c0c3966617af1a8` (regression test).
+
+- Additional regression: a `verificationPassed` observer can also request teardown synchronously. The test verifies the result is cancellation (not traffic-verified success), with exactly one native start/stop and an idle final state. Dedicated Fusion test count: 44 by source test declaration count.
+- Additional test commit: `41ab80eb8b91e13c2431701eb683bd58ba36d8b7`.
+
+## 2026-11-25 — Cancellation at the hopStarting observer boundary
+
+- Found a pre-native-start reentrancy gap: `hopStarting` is synchronously delivered, so an observer could call `disconnect()` after the loop's cancellation check but immediately before `adapter.start()`. The coordinator previously still invoked native start and only rolled it back after the future settled.
+- Added a second cancellation check immediately after `hopStarting` delivery and before crossing the adapter boundary. A committed disconnect now returns `E-FUSION-CANCELLED` without starting a native hop.
+- Added a regression test asserting zero native start calls, zero stop calls, zero started hops, and an idle/non-busy final state after the waiting disconnect completes.
+- Three-pass review: (1) API/event semantics — synchronous observer cancellation is honored at the event boundary; (2) resource lifecycle — no handle is acquired, so no unnecessary native cleanup is scheduled; (3) regression — explicit call-count and final-state assertions.
+- Dedicated Fusion test count: 45 by source test declaration count. Exact-head CI remains required; no local Flutter execution is claimed.
+- Commits: `230392f94ad51484d8f0522eaeae3caf13e381da` (pre-start cancellation guard), `08cdaa27504cb5ed79468901ccc915560c9cfb62` (regression test).
+
+## 2026-11-25 — Preflight operation-slot reservation
+
+- Found another synchronous reentrancy window: validation rejection telemetry is delivered before the previous implementation reserved the engine's busy/operation slot. A listener could call `connect()` from `validationRejected` and start a valid second plan while the first request was still unwinding.
+- The coordinator now reserves its operation slot and completion signal before preflight validation. Validation failure/exception paths release that slot through a dedicated completion helper, allowing a concurrent disconnect to wait for the validation operation rather than racing it.
+- Added a regression test where a `validationRejected` observer immediately submits a valid plan. The nested call must return `E-FUSION-BUSY`; no native start is allowed.
+- Three-pass review: (1) API semantics — the first request owns the operation slot throughout synchronous preflight; (2) lifecycle — completion is signaled on both validation failure branches and disconnect can serialize behind it; (3) regression — nested valid connect is explicitly rejected and engine returns to non-busy state.
+- Dedicated Fusion test count: 46 by source test declaration count. Exact-head CI required; no local Flutter execution is claimed.
+- Commits: `84d64ecfd761e9b30b5d4cd24db5d7ca14f580dc` (operation reservation), `4957239d9b35b6b404aadbcc1782a3fa65261d97` (regression test).
+
+## 2026-11-25 — Verifier startup cancellation boundary
+
+- Found a resource-start race at the verification event boundary. `verificationStarted` is synchronously delivered; an observer could call `disconnect()`, completing the cancellation signal, but the current code still evaluated `verifier.verify(plan)` while constructing the `Future.any` inputs. This could allocate probe sockets or other verifier resources after teardown was committed.
+- Added a cancellation check immediately after `verificationStarted` and before reading/invoking the verifier. The active native hops are rolled back and the connect result is `E-FUSION-CANCELLED`; no verifier work is started.
+- Added a regression test asserting verifier invocation count is zero, native start/stop each occur once, and the engine ends idle and not busy.
+- Three-pass review: (1) API semantics — a committed disconnect wins over verification; (2) resource lifecycle — no probe resources are created after cancellation; (3) regression — explicit verifier call-count and native lifecycle assertions.
+- Dedicated Fusion test count: 47 by source test declaration count. Exact-head CI is required; no local Flutter execution is claimed.
+- Commits: `acceb1369ac66012d2166c9d94860ebe1f8fe06b` (guard), `faccf110ed4762dac55b32361769b64f28d0b1da` (test).
+
+## 2026-11-25 — Disconnect serialization across rejected preflight
+
+- Extended the preflight reentrancy audit to both synchronous observer boundaries that can terminate validation: `validationRejected` and `stateChanged(failed)`.
+- Added a regression where the validation-rejection observer requests disconnect. It verifies the original validation result remains stable, no native start/stop is attempted for a plan rejected before acquisition, the disconnect event is emitted once, and the final snapshot returns to idle with no pending disconnect.
+- Added a second regression where the failed-state observer requests disconnect. It verifies teardown waits for preflight's reserved operation slot to be released and the final snapshot is idle, not busy, and has no active handles.
+- Three-pass review: (1) API compatibility — preflight still reports the original validation failure rather than rewriting it as a cancellation; (2) lifecycle — disconnect waits on the reserved operation completion and does not manufacture native cleanup work; (3) regression — both observer boundaries have explicit final-state assertions.
+- Dedicated Fusion test count: 49 by source test declaration count. Exact-head CI is required; no local Flutter execution is claimed.
+- Commits: `9127cd7ceb1f6d0804d8508091000b0bb38caf8c` (validation-rejection observer), `766598447dfbd80388d44f1838593caf6b675b07` (failed-state observer), `6918c768b998ae8ecf032b7f1c3aca7e1a89839b` (assertion correction).
+
+## 2026-11-25 — Defensive engine descriptor snapshots
+
+- Extended the public-metadata boundary audit. Adapter descriptors are supplied by external implementations; their `supportedTransports` Set can be mutable even though the descriptor fields themselves are final.
+- Added a focused adapter fixture that exposes mutable transport metadata, constructs the Fusion engine, then mutates the source Set. The public descriptor snapshot must preserve the normalized original transport inventory.
+- The regression also asserts that both the descriptor transport Set and the returned `availableEngines` collection reject mutation.
+- Three-pass review: (1) API contract — callers receive a stable metadata snapshot rather than a live adapter-owned collection; (2) isolation — adapter-side mutations cannot silently rewrite Fusion's public capability view; (3) regression — mutation attempts and source mutation are explicitly covered.
+- Dedicated Fusion test count: 50 by source test declaration count. Exact-head CI required; no local Flutter execution is claimed.
+- Commit: `42e58180022ccaa03d5b2b9c45f3ab8f56b83297`.
+
+## 2026-11-25 — Capability snapshot behavior under adapter mutation
+
+- Strengthened the descriptor-isolation regression beyond checking immutable presentation: after the adapter mutates its original transport Set from TCP to UDP, the engine still accepts TCP from the captured capability snapshot and rejects UDP as unsupported.
+- This verifies that the snapshot is authoritative for preflight validation, not merely a read-only copy returned by `availableEngines`.
+- Three-pass review: (1) compatibility — transport matching continues to use the normalized constructor-time contract; (2) isolation — adapter-owned mutable collections cannot rewrite validation behavior; (3) regression — both acceptance of the original capability and rejection of the mutated capability are asserted, with cleanup between attempts.
+- Dedicated Fusion test count: 50 declarations remain; the existing regression was expanded rather than adding a new test declaration. Exact-head CI is pending; no local Flutter execution is claimed.
+- Commit: `d1581f0a1b852d82d488e85c498d19d30cce9cff`.
+
+## 2026-11-25 — Reentrant cleanup-failure observer regression
+
+- Added an integration-style lifecycle test where the synchronous `cleanupFailed` observer calls `disconnect()` while the original disconnect is still rolling back.
+- The nested call must join the already-published disconnect future: it must not recursively emit another teardown, invoke native stop twice, or erase the retained failed handle.
+- The test then issues a later independent disconnect and verifies the retained cleanup can be retried successfully, returning the engine to idle and not busy.
+- Three-pass review: (1) lifecycle ordering — the original disconnect owns cleanup through observer delivery; (2) resource safety — no duplicate stop is launched from a reentrant observer; (3) recovery regression — a subsequent independent call retries the retained handle.
+- Dedicated Fusion test count: 51 declarations by source inspection. Exact-head CI remains pending; no local Flutter execution is claimed.
+- Commit: `f280d9aa964724580cf8af80089041024d3d8828`.
+
+## 2026-11-25 — Immutable cleanup-failure result boundary
+
+- Corrected a subtle API immutability gap: `toList(growable: false)` prevents resizing but still permits callers to overwrite existing elements. Fusion now publishes rollback failure identifiers through `List.unmodifiable`.
+- Added a regression that attempts to overwrite a returned cleanup-failure engine ID and requires `UnsupportedError`, while retaining the existing cleanup retry assertions.
+- Three-pass review: (1) API semantics — the result's cleanup report is immutable rather than merely fixed-length; (2) integrity — consumers cannot rewrite which engine Fusion reports as requiring cleanup; (3) regression — mutation rejection is tested on a real partial rollback result.
+- Dedicated Fusion test count: 51 declarations; one existing test expanded. Exact-head CI pending; no local Flutter execution is claimed.
+- Commits: `e9828768c2fc3a2a464c5ea97e93112a6b3d5444`, `a6d7867a5da168b9b0139aa4fc0268687bd78806`.
+
+
+## 2026-11-25 — Defensive immutability for public Fusion failure results
+
+- Continued the API-boundary audit after the rollback report itself was made unmodifiable. A remaining aliasing path existed: callers could construct a public `KingFusionResult.failure` with a mutable list and mutate the result later through that original list.
+- Changed the failure-result constructor to accept an `Iterable<String>` and snapshot it with `List<String>.unmodifiable`. The constructor is intentionally no longer const because it must defensively copy caller-owned input; all internal const failure call sites were updated.
+- Added a focused regression that mutates and repopulates the original caller-owned list after result construction, then verifies the result still contains the original engine ID and rejects element assignment.
+- Three-pass review:
+  1. Public API semantics — the failure result owns its cleanup report; it no longer aliases caller-owned mutable memory.
+  2. Data integrity — the returned list rejects both structural and element mutation, and retains the exact snapshot captured at construction.
+  3. Regression and compatibility — internal const failure call sites were removed, successful result construction remains const, and the dedicated test exercises both source-list mutation and output-list mutation.
+- Dedicated Fusion test declarations: 52 by source inspection. Exact-head GitHub Actions validation is pending; no local Flutter test/analyze/build execution is claimed.
+- Commits: `aafacf57ea9ac57e3236277041b4504af2bcc3b9` (defensive constructor snapshot), `9ca23748a31360925fdd6b97bfa5007c52a2c0c1` (regression test).
+- CI runs for exact head `9ca23748a31360925fdd6b97bfa5007c52a2c0c1`: push run 3191 and pull-request run 3192 were queued/pending at checkpoint time. Check their final status before claiming validation.
+- PR #53 remains open Draft against `feature/king-vpn-audit-hardening-20261125`; do not merge automatically and do not modify `main`.
+
+
+## 2026-11-25 — CI source guard for immutable Fusion failure reports
+
+- Added a Python source guard for the public failure-result boundary introduced in the preceding checkpoint.
+- The guard verifies the constructor accepts an `Iterable<String>`, snapshots it with `List<String>.unmodifiable`, rejects reintroduction of const failure construction, and confirms the Dart regression test covers caller-owned list mutation and output mutation.
+- Three-pass review: (1) source-contract review — the guard targets the constructor rather than unrelated success-result semantics; (2) regression coupling — the guard requires the focused Dart test to remain present; (3) compatibility — no production source or VPN connection behavior changed in this guard-only commit.
+- Commit: `7d1770bb8316323b8f13b73aeae20ee47145b839`.
+- Exact-head CI for this commit must still complete; no test/analyzer/build success is claimed.
+
+
+## 2026-11-25 — Atomic single-read Fusion adapter registry
+
+- Deeper lifecycle/API audit found the adapter descriptor was read twice during registry construction: once to choose the adapter-map key, then again to snapshot its capabilities. An adapter with a dynamic or stateful descriptor getter could therefore produce an ID/capability snapshot that did not belong to the same observation.
+- Replaced the two-pass index/snapshot constructor with a factory that reads each descriptor once, validates the captured ID, and derives the adapter index, immutable descriptor snapshot and identity-based adapter-ID lookup from that same captured value.
+- The private constructor now receives the already-built immutable registries and validates the coordinator timeouts/history limit. Removed the old index pass to prevent future accidental re-reading.
+- Added a Dart regression adapter whose descriptor getter deliberately changes its ID/title/transport after the first read. The test verifies one getter read, stable public registry metadata, and successful use of the originally captured ID and transport.
+- Added a Python source guard to preserve the single-read registry contract and require the Dart regression.
+- Three-pass review: (1) Registry coherence — ID, adapter map and capabilities are derived from one descriptor observation. (2) Mutability/identity — descriptor transport sets and maps remain immutable; adapter identity mapping continues to use identity semantics. (3) Runtime regression — a changing descriptor getter is exercised through construction, validation, connect and disconnect; the test asserts no subsequent descriptor reads.
+- Commits: 16ff225843b1a1654e204106ee787f66d0ce415f (registry refactor), 4d09d2d5654ea02ed1d8d68d0354c084f4ceda55 (Dart regression), 9c057088b74b42b197394af141df4735e22ff195 (CI source guard).
+- Exact-head CI has not been confirmed. Some earlier workflow runs were cancelled; do not report a passing test/analyzer/build until a run for the final head completes successfully.
+
+
+## 2026-11-25 — Reject duplicate adapter object registrations
+
+- Follow-up review of the new identity-based registry found a second edge case: the same adapter object could appear twice in a caller-provided iterable if its descriptor getter returned a different ID on successive reads. That would overwrite the identity-to-ID entry and make active-hop telemetry/cleanup attribution ambiguous.
+- The registry factory now rejects a repeated adapter object by identity before reading its descriptor for a second time. This preserves the invariant that one native adapter instance maps to exactly one registry ID.
+- Added a Dart regression using the changing-descriptor fake and a Python source guard. The regression confirms duplicate registration is rejected and the descriptor getter is still read only once.
+- Three-pass review: (1) Identity semantics — duplicate detection uses the existing identity HashMap, not adapter equality. (2) Side-effect ordering — rejection occurs before a second descriptor getter invocation. (3) Regression coupling — Dart behavior and CI source guard both assert the invariant.
+- Commits: 08068f07a41d3df1e30293feae8b6374b5c0ab17 (runtime guard), d93c57b74b00a61c278112bbfff59d2fa41a93c9 (Dart test), 16cd134e78f56a644717e2cf48c8c9c977735f65 (CI guard).
+- Exact-head CI remains pending/unknown; no green result is claimed.
+
+
+## 2026-11-25 — Real V2Ray lifecycle routed through KING Fusion
+
+- Closed the architecture gap between the Fusion coordinator and the app's actual V2Ray plugin path. Both existing plugin start sites (proxy-only test starts and normal VPN starts) now go through `_startV2RayViaFusion`; there are no remaining direct `v2ray.startV2Ray(` calls in `lib/main.dart`.
+- Added `KingV2RayAdapter`, an injected callback adapter for the installed V2Ray/Xray plugin. It reports only that the native start request returned; it explicitly does not claim traffic verification or multi-hop support. The app's existing status listener, CONNECTED waiter, Android TUN checks, and outbound `pingAny` traffic verification remain authoritative and unchanged.
+- The app retains the Fusion coordinator for the active native session. `_stopV2` now disconnects through that same coordinator; unresolved native stop handles remain visible in `cleanupPendingEngineIds` and block replacing the active coordinator until cleanup is confirmed. The legacy own-VPN service path remains separate and unchanged.
+- Adapter hardening: stable secret-free error codes, opaque native handles, idempotent stop, cancellation of pending startup, a second stop after a late start completion, and serialized/coalesced stop calls so cancellation and late completion cannot issue overlapping native stop operations.
+- Added six focused adapter tests covering start/stop integration, secret-safe failure mapping, empty config rejection, pending-start cancellation, concurrent stop coalescing, and idempotent handle release. Added a Python source guard proving the app has no direct V2Ray start calls and that the existing TUN/traffic/status checks remain in place.
+- Three-pass review: (1) Native lifecycle — both real plugin start call sites are routed through one coordinator and stop uses the same owner. (2) Correctness/safety — adapter success is explicitly request-accepted only; configuration and native handles never enter telemetry; cleanup timeouts retain ownership; cancellation stop operations are coalesced. (3) Regression boundary — existing app CONNECTED/TUN/outbound traffic checks remain in `_startImpl`, and the own-VPN service path is untouched.
+- Commits: d1d5c4be936e3a7191d9152be2c0ecd3c9fb21b3 (adapter), f1b6cd53a5187dd99dee89908eae89c5886f2912 (adapter tests), 04660a25ed2c61dfef23a8f9788788f38a4b9a4f (app integration), 0b878b979ebd11e98afde2726f9558ce8968bcf6 (serialized stop), 7814b1a835b3b07ddd68c4b4b229f54ede8b0b33 (CI source guard), ffc98de8e15d46efa6fb785d468469d42bee74af (cancellation concurrency test), 29eb51d88840a566510cebf10786c1485e767a2d (explicit void test callbacks).
+- CI for the final head must be checked before claiming tests/analyzer/APK success. Previous workflow cancellations are not evidence of a passing build.
+
+
+## 2026-11-25 — V2Ray plugin lifecycle is now Fusion-owned
+
+### Production integration
+- Added `lib/king_v2ray_adapter.dart` as the concrete callback bridge to the already-installed `flutter_v2ray_client` runtime. The adapter is intentionally single-hop (`supportsMultiHop: false`) and advertises no inferred transport capabilities; it does not parse, rewrite, narrow, or log opaque configuration strings.
+- Routed both plugin startup paths in `lib/main.dart` (proxy-only/proxy-mode and normal VPN) through `_startV2RayViaFusion`. A source audit confirms zero remaining direct `v2ray.startV2Ray(` calls in `main.dart`.
+- The adapter's `connected` result means only that the plugin start method returned. The app's existing status event/`CONNECTED` waiter, Android TUN checks (`tunUp()`), and outbound data-plane checks (`pingAny()`) remain the authority for actual VPN connectivity. Fusion does not mark traffic as verified.
+- `_stopV2` now uses the same Fusion coordinator that owns the start. Orphan-core recovery and repeated disconnect cleanup also route through `_stopV2`; the only direct plugin stop calls left are the adapter callback and the fallback for an untracked legacy/native core.
+- Native stop Futures are passed unwrapped to Fusion. The coordinator's bounded timeout retains the original in-flight Future, preventing a second stop request from overlapping a native stop that has timed out at the Dart wait boundary. Unresolved handles stay in `cleanupPendingEngineIds` and block a replacement start.
+- Added secret-free lifecycle event journaling using Fusion sequence/type/state/engine ID/failure code/active count only. Configurations and native handles are not included.
+
+### Adapter and regression coverage
+- Added six adapter tests: native start/stop lifecycle, stable secret-free error mapping, empty-config rejection before native calls, cancellation during a pending start, coalescing concurrent cancellation/late-start cleanup, and idempotent stop by handle identity.
+- Added Python source guards for the absence of direct plugin starts, single Fusion ownership for orphan stops, the retained native stop Future, the original CONNECTED/TUN/traffic checks, and adapter cancellation/multi-hop boundaries.
+- CI initially exposed three test/guard expectation mismatches (the source guard phrase, the coordinator-owned error code for empty configs, and the coordinator-owned cancellation code). These were corrected to assert the public coordinator contract rather than private adapter codes. The adapter stop path was then hardened so every stop entry point uses one serialized in-flight operation.
+- Three-pass review: (1) integration coverage — both plugin start paths and orphan cleanup are Fusion-owned; (2) lifecycle safety — cancellation, native stop timeout, handle retention, and non-overlapping stop retries; (3) behavior preservation — existing permission, status, TUN, traffic, proxy-only, failover and own-VPN branches remain in place.
+
+### Commit set
+- `d1d5c4be936e3a7191d9152be2c0ecd3c9fb21b3` adapter; `f1b6cd53a5187dd99dee89908eae89c5886f2912` tests; `04660a25ed2c61dfef23a8f9788788f38a4b9a4f` app integration; `0b878b979ebd11e98afde2726f9558ce8968bcf6` serialized stop; `7814b1a835b3b07ddd68c4b4b229f54ede8b0b33` source guard; `ffc98de8e15d46efa6fb785d468469d42bee74af` cancellation concurrency test; `29eb51d88840a566510cebf10786c1485e767a2d` explicit void test callbacks.
+- Follow-up fixes/reviews: `3d454d7e15a0d28cc7f8b411eb1837f3e2452763`, `afccbaabd0fb4ee9b6a6566aa117bd9c9168c851`, `5957b21fa3d2b68bf278246c13c749af51c977ba`, `3d3c28943938915ed0d9b6a7bb7665e0c71bf731`, `e63c5be2c175dd66837945a2ba690ef49f97f9f3`, `02e1fed3fb0b10702b6b74018bcd400cf89bbfbd`, `1ee98ff6eb58c3857145db4514045c9a4ff2df37`, `f5d66c23762d94c48a10ada230507f33bc921fd3`, `d320cf83a32dfc54fee28909b67a9154b0194775`, `35635d0b36508a428c22111c3f6dda50042e35f9`.
+- Validation evidence: on commit `1ee98ff6eb58c3857145db4514045c9a4ff2df37`, GitHub Actions source guards, Flutter unit tests, and Dart analysis completed successfully; the arm64 release APK step was still running at the last check. Later changes route orphan recovery through Fusion and add safe lifecycle telemetry, so the final head `35635d0b36508a428c22111c3f6dda50042e35f9` still requires its own completed CI result. Do not infer APK success from the earlier commit.
+
+
+## 2026-11-25 — Fusion now retains failed and timed-out V2Ray startup resources
+
+### Failure ownership and bounded cancellation
+- Extended `KingEngineStartResult` with the explicit `cleanupRequired` contract. A failed adapter start can now report that a partially created native resource still needs cleanup, even when no public native handle was returned.
+- `KingFusionEngine.connect` now registers such failed-start adapters in its active cleanup ledger before rollback. A failed start with uncertain native state therefore cannot disappear from the coordinator's resource accounting.
+- Reworked `KingV2RayAdapter` to retain the original native start Future separately from its 30-second wait timeout. The adapter no longer loses track of a platform start that times out at the Dart boundary but may still complete later.
+- Cancellation is now prompt at the adapter boundary: the cancellation signal releases the Fusion start operation, an immediate native stop is requested, and the unresolved original start remains a cleanup dependency. Fusion's bounded stop timeout retains the adapter if that Future does not settle in time; after late completion, the adapter performs a final serialized stop.
+- A native start exception that occurs after partial initialization triggers best-effort cleanup. If that cleanup fails, the adapter returns `cleanupRequired: true`; Fusion performs rollback and retains the adapter for subsequent disconnect retries until native stop succeeds.
+- Failed-start cleanup uses a null opaque handle only under the explicit cleanup-required contract. The adapter makes this cleanup idempotent after success and refuses a new start while the previous native start or cleanup is unresolved.
+- The app now passes the original `v2ray.startV2Ray` Future into the adapter and sets `nativeStartTimeout: 30s` there. This avoids wrapping the native Future in `Future.timeout` before the adapter can retain it.
+- Added a serialized legacy-stop fallback for native cores that predate Fusion ownership. Its original platform Future remains tracked even after the 8-second caller wait expires, preventing repeated fallback disconnects from issuing overlapping stop calls.
+
+### Regression tests and three-pass review
+- Expanded `test/king_v2ray_adapter_test.dart` to eight focused tests, including timed-out start retention, late native completion cleanup, partially started core cleanup failure, retry through a later disconnect, cleanup idempotence, and cancellation/stop coalescing.
+- The Python source guard now checks the failed-start cleanup contract, original native start Future ownership, 30-second Fusion timeout, serialized legacy cleanup, and continued preservation of the app's CONNECTED/TUN/outbound traffic verification.
+- Three-pass review: (1) lifecycle ownership — native start, stop, cancellation and legacy fallback have explicit owners; (2) timeout/failure recovery — original Futures and cleanup handles remain tracked after caller timeouts, and later disconnect retries can finish cleanup; (3) compatibility — the existing V2Ray configuration remains opaque, proxy-only and normal start paths are preserved, the app's real traffic checks remain authoritative, and the separate own-VPN service path is untouched.
+- Relevant commits: `16aba6b01238b26e97fff2a605890c7a57595f5b` (Fusion failed-start resource tracking), `185b834febee34dfe3cecd9896a1be8b9c85ceb7` (early cancellation hop accounting), `ad07a5ecfb4689dcb6f30f7e5e40b382a5556e3e` (adapter retains original timed-out start), `22c11be206a297e7c2da8d263c6e055539346345` (app passes original plugin Future), `80c0e7f7c7d2420c2891328612cc561926ff7193` (timeout/partial-start tests), `08f6627020f16d7275b3587f0f2ec92f2300efc1` (source guard), `2c4fabbc626c970dc12940172d06d479cb868bb0` (idempotent cleanup), `e0267301e1ba0f78e03648c2225bd3d291f05e1e` (cleanup idempotence test), `a8fbb109772efed51201071dc66ceb342a8fad19` (early cancellation count correction), `01d618419b9d8b31d0bf6e5bbfd27456a7b0e01a` (serialized legacy stop fallback), and `8b13fb275250c4ef10e665b7789b8790862b891f` (legacy fallback source guard).
+- Validation evidence: on commit `a8fbb109772efed51201071dc66ceb342a8fad19`, GitHub Actions source guards, all Flutter unit tests, and Dart analysis passed; the arm64 release APK build was still running at the last observation. The later legacy-stop fallback change and its guard are included in `8b13fb275250c4ef10e665b7789b8790862b891f` and require that head's own completed CI before release claims. Earlier failures on `e0267301` were traced to an early-cancellation counter declaration removed during patching; it was restored in `a8fbb109`.
+
+
+## 2026-11-25 — Fusion lifecycle evidence bridge for KING AI
+
+- Added `lib/king_fusion_learning_bridge.dart` as a pure, testable observer over the Fusion engine's existing secret-free lifecycle events.
+- The bridge aggregates event counts, per-engine consecutive failure evidence, the last stable failure code, and an advisory recovery hint (inspect engine, verify traffic, retry cleanup, or observe).
+- Duplicate and out-of-order event delivery is ignored by sequence number. Snapshot maps are immutable copies; only a successful traffic-verification event clears accumulated failure streaks.
+- Integrated the bridge into the existing V2Ray Fusion event callback. KING AI receives compact lifecycle evidence in the existing diagnostic trace; the bridge cannot access configuration strings or native handles and does not execute recovery actions or mutate VPN settings.
+- Added focused Flutter tests for event ordering, duplicate delivery, failure classification, cleanup priority, verified-traffic reset and snapshot immutability, plus a Python source guard for the integration and privacy boundary.
+- This is an evidence/observability integration, not model training or autonomous repair. Runtime tuning, source edits, native-core changes and release publication remain behind their existing authorization gates.
+- Exact-head CI for the resulting commit must pass source guards, all Flutter tests, Dart analysis and ARM64 release build before this checkpoint is considered validated.
+
+- Follow-up integration makes the current-session bridge a shared singleton. Each new Fusion coordinator starts a fresh evidence session; the ordinary KING AI chat receives the compact sanitized summary through its existing untrusted `appContext` channel. This gives KING AI real connection-lifecycle context without granting it execution authority or exposing configuration/native handles.
+
+- The bridge now also receives the independent central Android-TUN traffic verdict from `_onConnected` for V2Ray-owned sessions. This records passed/failed data-plane verification separately from Fusion's native-start events, without forging event sequence numbers. A real traffic pass clears failure streaks; proxy-only and non-Fusion service paths are not misclassified.
+
+
+- Full diagnostic export (`exportFullDiag`) now includes the current Fusion/KING AI evidence snapshot: event/failure totals, verified/unverified Android-TUN checks, advisory recovery hint, safe failure code and per-engine failure streaks. It deliberately excludes configuration strings and native handles.
+- Hardened the prompt-context empty-state condition so an external Android-TUN verdict is visible even if no Fusion lifecycle event has yet been observed; added a regression test and source guard.
+
+
+## 2026-11-25 — DNS CNAME wire-format integrity follow-up
+
+- Baseline branch before this patch: `feature/king-fusion-engine-foundation-20261125`, commit `eecd0ae7d561f705e4218fa76cd892d4dd74c548`; PR #53 remains open Draft and is not to be merged automatically.
+- Exact-head baseline GitHub Actions run 45666444977 completed successfully: source-repair guard, Flutter unit tests, Dart analysis, ARM64 release APK build, source packaging and provenance upload all succeeded.
+- Baseline ARM64 artifact: `king-vpn-arm64-release-3289`, 49,187,502 bytes, SHA-256 `5d745a0c1c2f1c89c953fd111cbce2a2c999d3efe935356090490810d93d77b9`. Baseline full-source artifact: `king-vpn-full-source-3289`, SHA-256 `bc7664e7b76062019ef636334f0f1d318f79b9ae43f38d3d5cda1e86df33f51b`.
+- DNS parser review found that CNAME RDATA names were decoded against the whole packet without verifying that the encoded name consumed exactly the declared RDLENGTH. It also found an arbitrary 16-hop CNAME traversal ceiling.
+- The parser now returns the exact encoded-name end offset, bounds the original CNAME RDATA bytes, rejects trailing/short CNAME RDATA and conflicting CNAME targets, and validates the expanded DNS name wire length.
+- CNAME traversal now follows the finite records actually present in the answer section with cycle detection rather than a fixed hop count. FQDN inputs with a terminal root dot are normalized consistently.
+- Reserved DNS header Z-bit responses are rejected. Existing transaction-ID, QR/opcode, TC, RCODE, QNAME/QTYPE/QCLASS, compression-pointer, source-address/port and usable-address checks remain in place.
+- Added regressions for a 17-hop CNAME chain, trailing CNAME RDATA bytes, terminal-root-dot QNAME and the reserved Z bit; added a source guard for the RDATA boundary and no-fixed-hop invariant.
+- Three review passes: (1) protocol semantics — compression pointers retain their original encoded end while the pointed-to suffix is decoded; (2) integrity — CNAME RDATA cannot read beyond RDLENGTH, conflicting aliases and cycles cannot promote an unrelated address, and the chain has no arbitrary ceiling; (3) regression — A/AAAA, IPv6, malformed pointer, RCODE, question mismatch and cancellation tests remain intact alongside the new fixtures.
+- This patch is not validated until a GitHub Actions run completes successfully on its exact new commit. No physical-device or live-network behavior is claimed.
+
+
+## 2026-11-25 — DNS parser regression-guard alignment
+
+- Exact-head CI for the first DNS parser patch exposed two stale source-guard assumptions: one searched for the removed `_readName` helper, and another expected the AAAA branch to use a generic `else` rather than the explicit `recordType == 28` condition.
+- Updated the source guard to inspect the new bounded `_decodeName` implementation, including backward-only compression pointers, encoded RDATA bounds and the 255-octet expanded-name rule.
+- Made the AAAA branch explicit without changing its public-address validation or returned address format.
+- Corrected the terminal-root-dot normalization literal and added an exact source-level check for the updated parser contract.
+- The failed intermediate CI runs are not validation evidence. The latest branch head must complete its own source guards, Flutter tests, Dart analysis and ARM64 build before this patch is considered validated.
+
+
+## 2026-11-25 — DNS answer preservation; address classification decoupled from scan acceptance
+
+- Follow-up review identified three independent address-class drop gates that were inherited in the DNS implementation: the UDP A/AAAA parser in `nnie_core.dart`, the DoH resolver probe in `npv_am_extras.dart`, and the `dnsxAnswerOk` helper in `dns_scanner.dart`.
+- Removed the public-only requirement from all three acceptance paths. Any structurally valid A (4-byte) or AAAA (16-byte) answer associated with the queried name/CNAME chain is retained, including private, loopback, link-local, documentation, CGNAT, special-use and globally routable values.
+- Kept DNS integrity checks: response transaction ID, QR/opcode, truncation/reserved flags, RCODE, exact question/type/class, answer owner/CNAME relationship, compression-pointer ordering, RDATA bounds and exact A/AAAA wire lengths.
+- Kept `publicV4`, `publicV6`, `dnsxIsPublicV4` and `dnsxIsPublicV6` only as separate address-class metadata helpers; they must not gate discovery, answer retention or resolver health acceptance.
+- Replaced the former block-page/private-address rejection test with positive regressions for 10.10.34.34, 192.168.1.1 and 2001:db8::1. Added a Python source guard that forbids reintroducing public-only filtering into any of these three paths.
+- DNS scanner domain discovery, source inventory, queues and scan coverage were not reduced by this patch. This change removes address-class answer filtering; it does not claim that every other existing scheduling or pacing policy has already been audited.
+- Three review passes: (1) packet structure and address-family lengths remain validated; (2) all three answer-acceptance paths no longer branch on public/private address class; (3) explicit regression and source guards cover private IPv4, documentation IPv6 and all three call sites.
+- Exact-head GitHub Actions must pass source guards, Flutter tests and Dart analysis before the patch is considered validated. Live network behavior still needs device testing.
+
+- Test harness follow-up: imported `dart:io` in the NNIE unit test file for explicit IPv6 byte-level assertions using `InternetAddress.tryParse`. This keeps the IPv6 test independent of textual address-compression formatting.
+
+
+## 2026-11-25 — DNS scan coverage and scheduling gates removed
+
+- Removed the fixed 25% successful-domain ratio from resolver acceptance. A resolver with at least one structurally valid A/AAAA result is now retained; per-domain successes are still counted and used for ranking.
+- Removed the special national-mode manual DNS quota (`kNatManualConc=3`) and its wait/yield dependency on the national scanner. Manual DNS scans no longer wait behind a different scanner or receive a separate lower concurrency quota.
+- Replaced the fixed per-resolver domain batch of 8 and resolver batch of 12 with runtime processor-aware work widths. These are scheduling widths only: every supplied domain and resolver is traversed; no input list is truncated or dropped.
+- Removed the fixed 6-hour/24-hour automatic DNS scan cooldown. The previous run timestamp is retained for diagnostics, while the in-flight lock still coalesces overlapping duplicate invocations.
+- Added source guards that reject reintroduction of the percentage gate, national manual quota/yield, fixed batch sizes and time-based cooldown.
+- The domain inventory remains the union of existing project inventories and dynamic scanner-fed lists; no fixed maximum inventory size is imposed by the DNS scanner.
+- Three review passes: (1) result semantics — any valid answer contributes evidence; (2) coverage — all input domains/resolvers continue through the loops with only cancellation as an early exit; (3) scheduling — concurrency follows runtime processor capacity, and the national path no longer has a separate quota or yield.
+
+- Source-guard alignment: updated the older shared national-yield test so it continues to protect cancellable yielding in SNI/port/manual-range scanners while asserting that DNS no longer waits on that quota path.
+
+- Removed the automatic DNS path's fixed 150 ms inter-batch delay as well; auto scans now use the same unthrottled caller-selected gap (default zero), with only per-request network timeouts and runtime resource scheduling remaining.

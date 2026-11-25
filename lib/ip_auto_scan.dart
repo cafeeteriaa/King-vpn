@@ -14,11 +14,10 @@ const String _ipAutoKeyGlob = 'ipauto_glob_v1';
 const String _ipAutoCursorKey = 'ipauto_cursor_v1';
 const String _ipAutoPosKey = 'ipauto_pos_v1'; // جای فعلی در فهرست آدرس‌ها
 const String _ipAutoPendingKey = 'ipauto_pending_core_v1';
-const int _ipAutoBatch = 6000; // آدرس در هر اجرا
+int get _ipAutoBatch => max(1, Platform.numberOfProcessors * 4096); // resumable device-sized work slice
 // TCP scanning uses every discovered/configured port; no fixed port-count cap.
 const String _ipAutoAtKey = 'ipauto_at_v1'; // زمان آخرین اسکن خودکار نت ملی
-const int _ipAutoConc = 48; // اتصال TCP همزمان
-const Duration _ipAutoCoreBudget = Duration(minutes: 4);
+int get _ipAutoConc => natAdaptiveConcurrency(0); // hardware-aware concurrent probes
 
 bool ipAutoBusy = false;
 bool ipAutoStopFlag = false;
@@ -36,77 +35,163 @@ String _ipAutoCursorKeyNow() => '${_ipAutoCursorKey}_${nationalMode ? 'nat' : 'g
 bool? _ipAutoLoadedNat;
 String _ipAutoModeName() => nationalMode ? 'نت ملی' : 'جهانی';
 
+typedef IpAutoSnapshot = ({
+  List<String> hits,
+  List<String> pending,
+  Map<String, dynamic> cursors,
+  int position,
+});
+
+/// Versioned, single-value snapshot for one IP Auto mode. A valid snapshot is
+/// authoritative; legacy keys are read only for migration when v2 is absent
+/// or corrupt. Results, retry backlog and cursors share one commit edge.
+String ipAutoEncodeSnapshot({
+  required Iterable<String> hits,
+  required Iterable<String> pending,
+  required Map<String, dynamic> cursors,
+  required int position,
+}) => jsonEncode({
+  'version': 2,
+  'hits': hits.toList(growable: false),
+  'pending': pending.toList(growable: false),
+  'cursors': cursors,
+  'position': position < 0 ? 0 : position,
+});
+
+IpAutoSnapshot ipAutoDecodeSnapshot({
+  required String? encoded,
+  String legacyHits = '',
+  String legacyPending = '',
+  String? legacyCursors,
+  String? legacyPosition,
+}) {
+  List<String> decodeLines(Object? value) => value is List
+      ? value.whereType<String>().where((line) => line.contains('|')).toList()
+      : <String>[];
+
+  Map<String, dynamic> decodeCursors(Object? value) {
+    final out = <String, dynamic>{};
+    if (value is Map) {
+      for (final entry in value.entries) {
+        if (entry.key is String &&
+            (entry.value is num || entry.value is String)) {
+          out[entry.key as String] = entry.value;
+        }
+      }
+    }
+    return out;
+  }
+
+  final legacyCursorMap = <String, dynamic>{};
+  if (legacyCursors != null && legacyCursors.isNotEmpty) {
+    try {
+      legacyCursorMap.addAll(decodeCursors(jsonDecode(legacyCursors)));
+    } catch (_) {
+      // A corrupt cursor key must not discard the other legacy state.
+    }
+  }
+  final legacyPos = int.tryParse(legacyPosition ?? '');
+  final legacy = (
+    hits: legacyHits.split('\n').where((line) => line.contains('|')).toList(),
+    pending: legacyPending.split('\n').where((line) => line.contains('|')).toList(),
+    cursors: legacyCursorMap,
+    position: legacyPos == null || legacyPos < 0 ? 0 : legacyPos,
+  );
+
+  if (encoded == null || encoded.isEmpty) return legacy;
+  try {
+    final decoded = jsonDecode(encoded);
+    if (decoded is! Map || decoded['version'] != 2) return legacy;
+    final position = decoded['position'];
+    if (position is! int || position < 0 ||
+        decoded['hits'] is! List ||
+        decoded['pending'] is! List ||
+        decoded['cursors'] is! Map) {
+      return legacy;
+    }
+    return (
+      hits: decodeLines(decoded['hits']),
+      pending: decodeLines(decoded['pending']),
+      cursors: decodeCursors(decoded['cursors']),
+      position: position,
+    );
+  } catch (_) {
+    return legacy;
+  }
+}
+
 Future<void> ipAutoLoad() async {
-  // Capture the mode and its storage keys before the first await. A mode
-  // switch during preference I/O must never mix the two independent datasets.
+  // Capture the mode and its keys before the first await: mode-local state
+  // must never be mixed by a network-mode switch during preference I/O.
   final loadNationalMode = nationalMode;
+  final suffix = loadNationalMode ? 'nat' : 'glob';
+  final snapshotKey = 'ipauto_snapshot_v2_$suffix';
   final hitsKey = loadNationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
-  final posKey = '${_ipAutoPosKey}_${loadNationalMode ? 'nat' : 'glob'}';
-  final cursorKey = '${_ipAutoCursorKey}_${loadNationalMode ? 'nat' : 'glob'}';
-  final pendingKey = '${_ipAutoPendingKey}_${loadNationalMode ? 'nat' : 'glob'}';
+  final posKey = '${_ipAutoPosKey}_$suffix';
+  final cursorKey = '${_ipAutoCursorKey}_$suffix';
+  final pendingKey = '${_ipAutoPendingKey}_$suffix';
   try {
     final p = await SharedPreferences.getInstance();
     if (nationalMode != loadNationalMode) return;
-    final savedHits = p.getString(hitsKey) ?? '';
-    final savedPending = p.getString(pendingKey) ?? '';
-    final savedPos = int.tryParse(p.getString(posKey) ?? '') ?? 0;
-    final loadedCursors = <String, dynamic>{};
-    final c = p.getString(cursorKey);
-    if (c != null && c.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(c);
-        if (decoded is Map) {
-          for (final entry in decoded.entries) {
-            if (entry.value is num || entry.value is String) {
-              loadedCursors['${entry.key}'] = entry.value;
-            }
-          }
-        }
-      } catch (e, stk) {
-        logError(e, stk);
-      }
-    }
+    final snapshot = ipAutoDecodeSnapshot(
+      encoded: p.getString(snapshotKey),
+      legacyHits: p.getString(hitsKey) ?? '',
+      legacyPending: p.getString(pendingKey) ?? '',
+      legacyCursors: p.getString(cursorKey),
+      legacyPosition: p.getString(posKey),
+    );
     if (nationalMode != loadNationalMode) return;
     ipAutoHits
       ..clear()
-      ..addAll(savedHits.split('\n').where((x) => x.contains('|')));
+      ..addAll(snapshot.hits);
     ipAutoPendingCore
       ..clear()
-      ..addAll(savedPending.split('\n').where((x) => x.contains('|')));
+      ..addAll(snapshot.pending);
     ipAutoCursors
       ..clear()
-      ..addAll(loadedCursors);
-    ipAutoPos = savedPos;
+      ..addAll(snapshot.cursors);
+    ipAutoPos = snapshot.position;
     _ipAutoLoadedNat = loadNationalMode;
   } catch (e, stk) {
     logError(e, stk);
   }
 }
 
-Future<void> _ipAutoSave() async {
-  // Persist an immutable snapshot under the keys belonging to its captured mode.
+Future<bool> _ipAutoSave() async {
+  // Persist all mode-local state with one preference write. Immutable snapshots
+  // prevent result, retry-queue and cursor generations from being interleaved.
   final saveNationalMode = nationalMode;
-  if (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode) return;
-  final hits = List<String>.of(ipAutoHits);
-  final pending = List<String>.of(ipAutoPendingCore);
-  final cursors = Map<String, dynamic>.of(ipAutoCursors);
+  if (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode) return false;
+  final hits = List<String>.unmodifiable(ipAutoHits);
+  final pending = List<String>.unmodifiable(ipAutoPendingCore);
+  final cursors = Map<String, dynamic>.unmodifiable(ipAutoCursors);
   final position = ipAutoPos;
-  final hitsKey = saveNationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;
-  final cursorKey = '${_ipAutoCursorKey}_${saveNationalMode ? 'nat' : 'glob'}';
-  final posKey = '${_ipAutoPosKey}_${saveNationalMode ? 'nat' : 'glob'}';
-  final pendingKey = '${_ipAutoPendingKey}_${saveNationalMode ? 'nat' : 'glob'}';
+  final snapshotKey = 'ipauto_snapshot_v2_${saveNationalMode ? 'nat' : 'glob'}';
   try {
     final p = await SharedPreferences.getInstance();
     if (nationalMode != saveNationalMode ||
         (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode)) {
-      return;
+      return false;
     }
-    await p.setString(hitsKey, hits.join('\n'));
-    await p.setString(pendingKey, pending.join('\n'));
-    await p.setString(cursorKey, jsonEncode(cursors));
-    await p.setString(posKey, position.toString());
+    final saved = await p.setString(
+      snapshotKey,
+      ipAutoEncodeSnapshot(
+        hits: hits,
+        pending: pending,
+        cursors: cursors,
+        position: position,
+      ),
+    );
+    if (!saved) {
+      errJournalAdd(
+        StateError('IP Auto snapshot preference write returned false'),
+        kind: 'IP-AUTO-SNAPSHOT-WRITE',
+      );
+    }
+    return saved;
   } catch (e, stk) {
     logError(e, stk);
+    return false;
   }
 }
 
@@ -117,8 +202,9 @@ Future<List<String>> _ipAutoBlocks(Iterable<Server> knownServers) async {
   // configured VPN server records. Do not enumerate unrelated ISP/CDN CIDRs.
   final ips = <String>{};
   final servers = knownServers.toList(growable: false);
-  for (var offset = 0; offset < servers.length; offset += 8) {
-    final batch = servers.skip(offset).take(8);
+  final resolveConcurrency = natAdaptiveConcurrency(0);
+  for (var offset = 0; offset < servers.length; offset += resolveConcurrency) {
+    final batch = servers.skip(offset).take(resolveConcurrency);
     final resolved = await Future.wait(batch.map((server) async {
       if (server.isIp) return <String>[server.host];
       return await nipResolveAll(server.host);
@@ -140,7 +226,8 @@ Future<List<String>> _ipAutoBlocks(Iterable<Server> knownServers) async {
   return blocks;
 }
 
-Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Function()? shouldAbort, int batchSize = _ipAutoBatch}) async {
+Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddrs(Iterable<Server> knownServers, {bool Function()? shouldAbort, int? batchSize}) async {
+  final effectiveBatchSize = batchSize ?? _ipAutoBatch;
   // A mode switch while compute() is running must not apply stale cursors
   // or a stale batch position to the newly selected network mode.
   final modeSnapshot = nationalMode;
@@ -149,7 +236,7 @@ Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddr
     // Only exact addresses resolved from configured VPN server endpoints
     // are actively probed. CDN/ISP CIDRs are not swept as third-party networks.
     'cfIpsBatch': 0,
-    'maxAddrs': batchSize,
+    'maxAddrs': effectiveBatchSize,
     'blocks': await _ipAutoBlocks(knownServers),
     'nationalMode': modeSnapshot,
     'liveRanges': <String>[],
@@ -196,12 +283,8 @@ extension IpAutoExt on _HomePageState {
       final p = await SharedPreferences.getInstance();
       if (_ipAutoHalt(modeSnapshot: runNationalMode)) return;
 
-      final last = int.tryParse(p.getString(_ipAutoAtKey) ?? '') ?? 0;
       final now = DateTime.now().millisecondsSinceEpoch;
-      // اگر هنوز IP سالمی پیدا نشده، زودتر دوباره امتحان می‌شود (۶ ساعت)؛ وگرنه هر ۲۴ ساعت
-      final gapMs = ipAutoHits.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
-      if (now - last < gapMs) return;
-
+      // Last-run time is diagnostic metadata only; no 6/24-hour scan cooldown.
       final completed = await _ipAutoRunOnce((s) => ipAutoStatus = s);
       // Failed, cancelled, or mode-switched scans must not consume the retry interval.
       if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode)) {
@@ -267,7 +350,12 @@ extension IpAutoExt on _HomePageState {
     final baseCandidates = <String>{
       for (final entry in _goldIps.values) entry.ip,
     };
+    final discoveredGlobalDomains = runNationalMode
+        ? const <String>[]
+        : await kingDiscoverGlobalDnsDomains();
+    if (halted()) return false;
     final domainSources = <String>{
+      ...discoveredGlobalDomains,
       ...kAutoNationalSniDomains,
       ...kAutoSniDomains,
       ...dnsxFullDomains(),
@@ -378,10 +466,10 @@ extension IpAutoExt on _HomePageState {
     if (runNationalMode) {
       say('دریافت الگوهای مستقل نت ملی...');
       try {
-        final nationalSeeds = await natHotNext(50, fetch: false);
+        final nationalSeeds = await natHotNext(max(1, Platform.numberOfProcessors * 4096), fetch: false);
         if (halted()) return false;
         if (nationalSeeds.isNotEmpty) {
-          natTemplateSeeds = nationalSeeds.take(2).toList();
+          natTemplateSeeds = List<Server>.of(nationalSeeds);
           pool = [...nationalSeeds, ...good, ...pending];
         } else {
           pool = <Server>[...natTemplateSeeds, ...good, ...pending];
@@ -407,20 +495,11 @@ extension IpAutoExt on _HomePageState {
     if (pool.isEmpty) {
       say('موجودی مستقل IP ذخیره شد؛ برای بررسی فعال، ابتدا یک endpoint دقیق VPN در منابع پروژه موجود باشد.');
     }
-    final tpl = pool.take(2).toList();
     say('ساخت آدرس‌ها...');
     final tcpConcurrency =
         (manual && runNationalMode) ? kNatManualConc : _ipAutoConc;
     final effectiveTcpConcurrency = natAdaptiveConcurrency(tcpConcurrency);
-    final batchCapacity = min(
-      _ipAutoBatch,
-      max(
-        1,
-        (const Duration(minutes: 5).inMilliseconds / 1500 *
-                effectiveTcpConcurrency * 0.65)
-            .floor(),
-      ),
-    ).toInt();
+    final batchCapacity = _ipAutoBatch;
     final knownEndpointByLink = <String, Server>{
       for (final server in [...pool, ...good, ...pending, ...fetchedAll])
         server.link: server,
@@ -441,8 +520,10 @@ extension IpAutoExt on _HomePageState {
       say('موجودی مستقل IP ذخیره شد؛ endpointهای نمونه در این نوبت به آدرس قابل‌بررسی resolve نشدند.');
       return true;
     }
-    // Build exact endpoint pairs; never cross-product unrelated IPs and ports.
-    final endpointTargets = <int, Set<String>>{};
+    // Keep every source configuration associated with its exact IP:port pair.
+    // Port equality alone cannot identify transport, TLS, SNI or credentials.
+    final endpointSources =
+        <({Server endpoint, Iterable<String> addresses, int port})>[];
     final addressSet = addrs.toSet();
     for (final server in knownEndpoints) {
       if (halted()) return false;
@@ -451,17 +532,28 @@ extension IpAutoExt on _HomePageState {
           ? <String>[server.host]
           : await nipResolveAll(server.host);
       if (halted()) return false;
-      for (final address in resolved) {
-        if (addressSet.contains(address)) {
-          (endpointTargets[server.port] ??= <String>{}).add(address);
-        }
-      }
+      endpointSources.add((
+        endpoint: server,
+        addresses: resolved,
+        port: server.port,
+      ));
+    }
+    final endpointTemplates = natIndexEndpointTemplates<Server>(
+      sources: endpointSources,
+      keyOf: (server) => server.link,
+      addressScope: addressSet,
+    );
+    final endpointTargets = <int, Set<String>>{};
+    for (final pair in endpointTemplates.keys) {
+      final separator = pair.lastIndexOf('|');
+      if (separator <= 0) continue;
+      final address = pair.substring(0, separator);
+      final port = int.tryParse(pair.substring(separator + 1));
+      if (port == null) continue;
+      (endpointTargets[port] ??= <String>{}).add(address);
     }
     final ports = endpointTargets.keys.toList()..sort();
-    final allowedEndpointPairs = <String>{
-      for (final entry in endpointTargets.entries)
-        for (final ip in entry.value) '$ip|${entry.key}',
-    };
+    final allowedEndpointPairs = endpointTemplates.keys.toSet();
 
     // مرحله‌ی ۱: TCP فقط روی host:portهای اعلام‌شده در کانفیگ‌ها
     final candidates = <String>[];
@@ -475,7 +567,6 @@ extension IpAutoExt on _HomePageState {
         port: port,
         concurrency: tcpConcurrency,
         want: endpointIps.length,
-        budget: const Duration(minutes: 5),
         timeout: const Duration(milliseconds: 1500),
         cancelled: halted,
         onProgress: (done, total, _) => completed = done,
@@ -506,13 +597,17 @@ extension IpAutoExt on _HomePageState {
         ipAutoPendingCore.add(candidate);
       }
     }
-    if (tpl.isEmpty) {
-      // TCP discovery can proceed without a VPN template. Keep its candidates
-      // in the durable core-verification queue until a real template is known.
-      say('بسته TCP کامل شد؛ ${ipAutoPendingCore.length} نامزد برای بررسی هسته ذخیره شد و منتظر الگوی کانفیگ است.');
+    // Persist the completed TCP cursor with its complete core-verification
+    // backlog before lengthy native tests. Process death can then resume safely.
+    if (!await _ipAutoSave()) {
+      say('ذخیرهٔ نقطهٔ ادامهٔ IP Auto ناموفق بود؛ دسته دوباره بررسی خواهد شد.');
+      return false;
+    }
+    if (endpointTemplates.isEmpty) {
+      // Never borrow a different server just because its port happens to match.
+      say('بسته TCP کامل شد؛ ${ipAutoPendingCore.length} نامزد برای بررسی هسته ذخیره شد و منتظر الگوی دقیق endpoint است.');
       return true;
     }
-    final fallbackTemplate = tpl.first;
     final activeQueue = ipAutoPendingCore
         .where(allowedEndpointPairs.contains)
         .toList(growable: true);
@@ -520,41 +615,43 @@ extension IpAutoExt on _HomePageState {
     var checked = 0;
     // Only pending pairs still present in the current configured endpoint
     // inventory are actively tested; out-of-scope historical items stay queued.
-    final coreClock = Stopwatch()..start();
     say('${candidates.length} endpointها • ${activeQueue.length} مورد مجاز برای تست هسته');
-    while (activeQueue.isNotEmpty &&
-        coreClock.elapsed < _ipAutoCoreBudget) {
+    while (activeQueue.isNotEmpty) {
       if (halted()) break;
       final c = activeQueue.removeAt(0);
       checked++;
       if (seen.contains(c)) {
         ipAutoPendingCore.remove(c);
+        if (!await _ipAutoSave()) return false;
         continue;
       }
       final parts = c.split('|');
       final ip = parts[0];
       final port = int.tryParse(parts[1]) ?? 443;
-      final template = knownEndpoints.firstWhere(
-        (server) => server.port == port,
-        orElse: () => fallbackTemplate,
-      );
-      final ipLink = _natSetPort(_natSetHost(template.link, ip, template.host), port);
-      final s = Server(ipLink, template.name, ip, port);
-      final firstOk = await _ipAutoCoreOk(s, url);
-      if (halted()) return false;
-      if (!firstOk) {
-        // RETRY-FAILED-ENDPOINT: a transient core-delay failure is not a
-        // permanent rejection. Keep the endpoint in the durable pending queue
-        // so a later scan can retry it with refreshed network/core conditions.
-        say('تست $checked • جواب‌داده: $found • ناموفق موقت؛ برای نوبت بعد حفظ شد');
-        continue;
+      final matchingTemplates = endpointTemplates[c] ?? const <Server>[];
+      var verifiedWithMatchingConfig = false;
+      for (final template in matchingTemplates) {
+        if (halted()) return false;
+        final ipLink = _natSetPort(
+          _natSetHost(template.link, ip, template.host),
+          port,
+        );
+        final serverWithCandidateIp =
+            Server(ipLink, template.name, ip, port);
+        final firstOk = await _ipAutoCoreOk(serverWithCandidateIp, url);
+        if (halted()) return false;
+        if (!firstOk) continue;
+        final secondOk = await _ipAutoCoreOk(serverWithCandidateIp, url);
+        if (halted()) return false;
+        if (secondOk) {
+          verifiedWithMatchingConfig = true;
+          break;
+        }
       }
-      final secondOk = await _ipAutoCoreOk(s, url);
-      if (halted()) return false;
-      if (!secondOk) {
-        // The confirmation pass can fail transiently too; preserve the
-        // candidate for a later retry instead of dropping it from persistence.
-        say('تست $checked • جواب‌داده: $found • تأیید دوم ناموفق؛ برای نوبت بعد حفظ شد');
+      if (!verifiedWithMatchingConfig) {
+        // Every original configuration for this exact pair gets a chance.
+        // A transient failure keeps the pair queued for a later retry.
+        say('تست $checked • جواب‌داده: $found • هیچ‌یک از کانفیگ‌های دقیق تأیید نشد؛ برای نوبت بعد حفظ شد');
         continue;
       }
       ipAutoPendingCore.remove(c);
@@ -563,6 +660,10 @@ extension IpAutoExt on _HomePageState {
       // Keep it as a candidate only; promotion requires a real user tunnel test.
       seen.add(c);
       found++;
+      if (!await _ipAutoSave()) {
+        say('ذخیرهٔ نتیجهٔ IP Auto ناموفق بود؛ صف بازیابی برای اجرای بعد حفظ می‌شود.');
+        return false;
+      }
       say('تست $checked • جواب‌داده: $found');
     }
     if (halted()) {

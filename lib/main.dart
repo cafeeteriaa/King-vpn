@@ -37,6 +37,9 @@ import 'prefs_store.dart';
 import 'online_count.dart'; // ONLINECOUNT: شمارش کاربران آنلاین
 import 'nnie_core.dart'; // NNIE: کد خالص و قابل تست
 import 'own_vpn.dart'; // KINGVPN: سرویس VPN خودمان (پیش‌فرض خاموش)
+import 'king_fusion_engine.dart';
+import 'king_v2ray_adapter.dart';
+import 'king_fusion_learning_bridge.dart';
 import 'package:crypto/crypto.dart'; // فیکس ۱: sha256 برای APK آپدیت
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // فیکس ۲: کلیدهای AI
 import 'package:speech_to_text/speech_to_text.dart' as stt;
@@ -45,6 +48,9 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'tg_proxy.dart' show tgProxyRow; // فقط پروکسی تلگرام
 import 'nat_ip_scan.dart'; // اسکن TCP آدرس IP و دامنه
+import 'king_domain_inventory.dart'; // shared hostname inventory normalization
+import 'dns_resolver_discovery.dart'; // live public recursive-resolver discovery
+import 'dns_domain_discovery.dart'; // daily, uncapped global domain inventory
 import 'help_page.dart';
 import 'conn_specs.dart';
 import 'transport_capabilities.dart'; // Dual-stack transport and DPI engine capability registry
@@ -4965,9 +4971,6 @@ bool inRowGid(Server s, String gid) {
 final Map<String, String> _dohCache = {};
 final Map<String, List<String>> _dohCacheAll = {};
 final Map<String, DateTime> _dohCacheAt = {};
-int _dohFail = 0;
-DateTime? _dohFailAt;
-
 Future<List<String>> dohResolveAll(String name) async {
   final cached = _dohCacheAll[name];
   final single = _dohCache[name];
@@ -4986,18 +4989,10 @@ Future<List<String>> dohResolveAll(String name) async {
         ? List<String>.of(cached)
         : (single == null ? const <String>[] : [single]);
   }
-  if (_dohFail >= 6) {
-    final failAt = _dohFailAt;
-    if (failAt != null &&
-        DateTime.now().difference(failAt) < const Duration(minutes: 5)) {
-      return const <String>[];
-    }
-    _dohFail = 0;
-  }
-
   final found = <String>{};
-  for (var offset = 0; offset < _dohEps.length; offset += 4) {
-    final batch = _dohEps.skip(offset).take(4);
+  final dohConcurrency = natAdaptiveConcurrency(0);
+  for (var offset = 0; offset < _dohEps.length; offset += dohConcurrency) {
+    final batch = _dohEps.skip(offset).take(dohConcurrency);
     await Future.wait(batch.map((endpoint) async {
       final uri =
           Uri.parse(endpoint.replaceAll('%N', Uri.encodeComponent(name)));
@@ -5051,11 +5046,8 @@ Future<List<String>> dohResolveAll(String name) async {
     _dohCacheAll[name] = addresses;
     _dohCache[name] = preferred;
     _dohCacheAt[name] = DateTime.now();
-    _dohFail = 0;
     return addresses;
   }
-  _dohFail++;
-  _dohFailAt = DateTime.now();
   return const <String>[];
 }
 
@@ -5109,6 +5101,9 @@ bool sniCfOn = false;
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   late final V2ray v2ray;
+  // The active Fusion coordinator owns only starts issued through its V2Ray adapter.
+  KingFusionEngine? _activeV2RayFusion;
+  Future<void>? _legacyV2RayStopInFlight;
   // ALL healthy servers (no count limit). Servers saved from the last session
   // are loaded here too (checkedAt == null) and tested first.
   final List<Server> good = [];
@@ -6070,7 +6065,98 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!busy && switching) _unlockLater();
   }
 
-  // stops V2Ray (the only engine)
+  /// Starts the existing plugin through Fusion without weakening the app's
+  /// CONNECTED/TUN/traffic checks, which remain in _startImpl.
+  Future<bool> _startV2RayViaFusion({
+    required String configuration,
+    required String remark,
+    required bool proxyOnly,
+    List<String>? blockedApps,
+  }) async {
+    final previous = _activeV2RayFusion;
+    if (previous != null) {
+      await previous.disconnect();
+      if (previous.cleanupPendingEngineIds.isNotEmpty) {
+        lastFail = 'توقف موتور قبلی هنوز تأیید نشده است';
+        return false;
+      }
+      _activeV2RayFusion = null;
+    }
+
+    final adapter = KingV2RayAdapter(
+      nativeStartTimeout: const Duration(seconds: 30),
+      start: (config) => v2ray.startV2Ray(
+        remark: remark,
+        config: config,
+        proxyOnly: proxyOnly,
+        blockedApps: blockedApps,
+      ),
+      // Leave the original platform Future visible to Fusion. Its bounded wait
+      // retains the in-flight Future, preventing overlapping native stop calls.
+      stop: () => v2ray.stopV2Ray(),
+    );
+    kingFusionLearning.beginSession();
+    final coordinator = KingFusionEngine(
+      [adapter],
+      nativeStopTimeout: const Duration(seconds: 9),
+      onEvent: (event) {
+        // The bridge aggregates only safe lifecycle metadata. It cannot see
+        // configurations/handles and never changes the native connection path.
+        kingFusionLearning.observe(event);
+        final learning = kingFusionLearning.snapshot;
+        dbg(
+          'FUSION seq=${event.sequence} type=${event.type.name} '
+          'state=${event.state.name} engine=${event.engineId ?? '-'} '
+          'failure=${event.failureCode ?? '-'} active=${event.activeHopCount} '
+          'aiHint=${learning.recoveryHint.name} '
+          'aiFailures=${learning.failureEvents} '
+          'aiStreak=${learning.consecutiveFailureCount}',
+        );
+      },
+    );
+    _activeV2RayFusion = coordinator;
+    final result = await coordinator.connect(
+      KingFusionPlan([
+        KingFusionHop(
+          engineId: adapter.descriptor.id,
+          configuration: configuration,
+        ),
+      ]),
+    );
+    if (result.connected) return true;
+
+    lastFail = result.failureCode ?? 'E-FUSION-V2RAY-START';
+    if (coordinator.cleanupPendingEngineIds.isEmpty) {
+      _activeV2RayFusion = null;
+    }
+    return false;
+  }
+
+  /// Serializes fallback cleanup for a legacy core that predates Fusion
+  /// ownership. The original platform Future remains tracked after timeout.
+  Future<void> _stopLegacyV2RaySerialized() {
+    final current = _legacyV2RayStopInFlight;
+    if (current != null) return current;
+    final operation = Future<void>.sync(() => v2ray.stopV2Ray());
+    _legacyV2RayStopInFlight = operation;
+    operation.then<void>(
+      (_) {
+        if (identical(_legacyV2RayStopInFlight, operation)) {
+          _legacyV2RayStopInFlight = null;
+        }
+      },
+      onError: (Object _, StackTrace __) {
+        if (identical(_legacyV2RayStopInFlight, operation)) {
+          _legacyV2RayStopInFlight = null;
+        }
+      },
+    );
+    return operation;
+  }
+
+  // stops V2Ray through the same Fusion owner that started it. If native
+  // cleanup times out, Fusion retains the handle and prevents a new start from
+  // silently replacing an engine whose stop outcome is still unknown.
   Future<void> _stopV2() async {
     // OWNSTOP-FIX: every stop through this function is ours (speed tests, searches,
     // switches). Mark it before the stop so the DISCONNECTED event it produces is
@@ -6080,9 +6166,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _dropDeferred = false;
     try {
       if (kOwnVpnService) await ownVpnStop(); // KINGVPN
-      await v2ray.stopV2Ray().timeout(const Duration(seconds: 8), onTimeout: () {});
-    } catch (_swE) { _swl('_stopV2#1', _swE);}
-    finally {
+      final fusion = _activeV2RayFusion;
+      if (fusion != null) {
+        await fusion.disconnect();
+        if (fusion.cleanupPendingEngineIds.isEmpty) {
+          _activeV2RayFusion = null;
+        } else {
+          dbg('FUSION-CLEANUP-PENDING: ${fusion.cleanupPendingEngineIds.join(',')}');
+        }
+      } else {
+        await _stopLegacyV2RaySerialized().timeout(
+          const Duration(seconds: 8),
+          onTimeout: () {},
+        );
+      }
+    } catch (_swE) {
+      _swl('_stopV2#1', _swE);
+    } finally {
       _lastOwnStop = DateTime.now();
       _dropDeferred = false;
     }
@@ -7991,7 +8091,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final useMatrix = nationalMode;
     final multi = useMatrix;
     final order = useMatrix
-        ? <int>[0, ..._natOrder(s, full: _resFull).where((v) => v != 0).take(max(0, natMaxVariants - 1))]
+        ? <int>[0, ..._natOrder(s, full: _resFull).where((v) => v != 0)]
         : const [0]; // اول کانفیگ اصلی، سپس variantهای سازگار
     // NATBUDGET: one server may only use a limited time per pass; the rest of
     // its variants continue in the next pass (natCursorAdvance)
@@ -8522,11 +8622,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       if (po) {
         // START-TIMEOUT: اگر هسته بالا نیامد، کار گیر نمی‌کند و قفل busy آزاد می‌شود
-        await v2ray.startV2Ray(
-                remark: s.name, config: sanitizeCfg(cfg), proxyOnly: true)
-            .timeout(const Duration(seconds: 30),
-                onTimeout: () => throw TimeoutException(
-                    'هسته در ۳۰ ثانیه بالا نیامد (حالت پروکسی)'));
+        final proxyStarted = await _startV2RayViaFusion(
+          configuration: sanitizeCfg(cfg),
+          remark: s.name,
+          proxyOnly: true,
+        );
+        if (!proxyStarted) {
+          throw StateError(lastFail.isEmpty ? 'E-FUSION-V2RAY-START' : lastFail);
+        }
         if (proxyOnly) return true;
         // proxy mode as the real connection: the local proxy port must open
         if (abort || !await waitProxyPort(max: const Duration(seconds: 8))) { // ABORTWAIT
@@ -8634,14 +8737,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             if (!sig.isCompleted) sig.complete(true);
           } else {
             // START-TIMEOUT: هسته‌ی گیرکرده نباید کل اتصال را قفل کند
-            await v2ray.startV2Ray(
-                remark: s.name,
-                config: sanitizeCfg(cfgTries[ci]),
-                proxyOnly: false,
-                blockedApps: bypassApps.isEmpty ? null : bypassApps)
-                .timeout(const Duration(seconds: 30),
-                    onTimeout: () => throw TimeoutException(
-                        'هسته در ۳۰ ثانیه بالا نیامد'));
+            final nativeStarted = await _startV2RayViaFusion(
+              configuration: sanitizeCfg(cfgTries[ci]),
+              remark: s.name,
+              proxyOnly: false,
+              blockedApps: bypassApps.isEmpty ? null : bypassApps,
+            );
+            if (!nativeStarted) {
+              throw StateError(lastFail.isEmpty ? 'E-FUSION-V2RAY-START' : lastFail);
+            }
           }
           dbg('V2RAY-START-RETURNED ${s.name}');
         } catch (e) {
@@ -8895,7 +8999,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // CENTRAL ACCEPTANCE LOCK: every caller, including personal/manual/social
     // reconnect paths, must prove real HTTP traffic through the Android TUN.
     // Never let a caller's ping, proxy-only check, or social-site result bypass it.
-    if (proxyMode || !await _tunnelTrafficOk()) {
+    final routeTrafficVerified =
+        !proxyMode && await _tunnelTrafficOk();
+    if (_activeV2RayFusion != null && !proxyMode) {
+      kingFusionLearning.recordExternalTrafficVerification(
+        routeTrafficVerified,
+      );
+    }
+    if (!routeTrafficVerified) {
       final failedElapsedMs = _nnieFinishAttempt(s) ?? 0;
       unawaited(NationalNetworkIntelligence.record(
         endpointKey: NationalNetworkIntelligence.keyOfServer(s),
@@ -10381,23 +10492,18 @@ ListTile( // KINGEXTRAS row
           idle = 0;
           autoUpgrade = true;
           autoCycle = true;
-          // NATRANGE: پس‌زمینه، هر ۵ دقیقه، بخشی کم از بازه‌های IP با سرعت کم
+          // NATRANGE: اسکن پس‌زمینه با Cursor مستقل و دستهٔ متناسب با دستگاه ادامه می‌یابد.
           // NATPENDCAP: وقتی صف فعال و سرریز با هم پرند، اسکن بازه‌ی تازه را موقتاً مکث کن
           final hasRangeTemplate = pending.isNotEmpty ||
               natRestPending.isNotEmpty || natTemplateSeeds.isNotEmpty || good.isNotEmpty;
-          if (localPilotOn && cpuHot == 0 && hasRangeTemplate &&
-              DateTime.now().difference(natRangeLast) >
-                  const Duration(minutes: 5) &&
-              pending.length + natRestPending.length <
-                  max(3000, natAdaptiveWorkers() * 1500)) {
+          if (localPilotOn && cpuHot == 0 && hasRangeTemplate) {
             natRangeLast = DateTime.now();
             unawaited(() async {
               final ips = await natRangeScanStep(
-                  known: [...pending, ...natRestPending],
-                  // Scale each scan slice with device capacity; the shared
-                  // monotonic deadline below remains the hard runtime budget.
-                  maxAddrs: max(8192, min(16384, natAdaptiveWorkers() * 2048)),
-                  conc: min(4, natAdaptiveWorkers()),
+                  known: [...pending, ...natRestPending, ...natTemplateSeeds, ...good],
+                  // A resumable slice is sized by the range scanner from
+                  // current device capacity; no fixed address-count ceiling.
+                  conc: natAdaptiveConcurrency(0),
                   stop: () => !mounted ||
                       !connected ||
                       !wantVpn ||
@@ -10405,7 +10511,7 @@ ListTile( // KINGEXTRAS row
                       !localPilotOn ||
                       appGone ||
                       abort,
-                  budget: const Duration(minutes: 3));
+                  );
               // Do not publish stale discoveries after the tunnel/pilot stops.
               if (mounted &&
                   connected &&
@@ -10662,15 +10768,9 @@ ListTile( // KINGEXTRAS row
   // دامنه‌ها ابتدا به IP تبدیل می‌شوند. سرورهایی که پورتشان باز است جلوی صف
   // می‌آیند؛ بقیه حذف نمی‌شوند. اعتبار واقعی همچنان با تست اتصال از تونل است.
   Future<void> _natMergeCache() async {
-    // NATIONAL-MERGE: در nationalMode، منابع تازه (natHotNext) + پوشه‌ی
-    // سرورهای سالم (_resMap) با نسبت ثابت به صف اضافه می‌شوند
-    // (منابع تازه ۴۰۰، پوشه ۳۰۰ با چرخش _resMergeCursor).
+    // Merge the complete saved/learned pool without a total queue ceiling.
+    // Active work is sized to device capacity; every overflow item is retained.
     if (!nationalMode || !kNatMergeCache) return;
-    final queueLimit = max(3000, natAdaptiveWorkers() * 1500);
-    if (pending.length + natRestPending.length >= queueLimit) return;
-    // FOLDERS: سهم ثابت در هر دور. منابع تازه ۴۰۰ کانفیگ، سرورهای سالم ۳۰۰ تا
-    // (با چرخش، تا همه‌ی پوشه نوبت بگیرد). سرورهایی که همین الان در صف یا در
-    // لیست سالم هستند دوباره اضافه نمی‌شوند.
     final queued = {for (final s in [...pending, ...natRestPending]) s.link};
     final goodLinks = {for (final g in good) g.link};
     final rest = <Server>[];
@@ -10678,16 +10778,8 @@ ListTile( // KINGEXTRAS row
       final hs = Server.parse(e.link);
       if (hs != null && !goodLinks.contains(hs.link)) rest.add(hs);
     }
-    final fromHealthy = <Server>[];
-    if (rest.isNotEmpty) {
-      final st = _resMergeCursor % rest.length;
-      final take = min(300, rest.length);
-      for (var i = 0; i < take; i++) {
-        fromHealthy.add(rest[(st + i) % rest.length]);
-      }
-      _resMergeCursor = (st + take) % rest.length;
-    }
-    final fromFresh = await natHotNext(400);
+    final fromHealthy = rest;
+    final fromFresh = await natHotNext(max(1, Platform.numberOfProcessors * 4096));
     final c = [...fromFresh, ...fromHealthy];
     if (c.isEmpty) return;
     final add = [for (final s in c) if (queued.add(s.link)) s];
@@ -10699,7 +10791,7 @@ ListTile( // KINGEXTRAS row
       active: pending,
       overflow: natRestPending,
       keyOf: (server) => server.link,
-      activeLimit: 1200,
+      activeLimit: max(1, natAdaptiveWorkers() * 1024),
     );
     pending = split.active;
     natRestPending = split.overflow;
@@ -10722,20 +10814,17 @@ ListTile( // KINGEXTRAS row
       cands.sort((a, b) =>
           (memHosts.contains(a.host) ? 0 : 1) -
           (memHosts.contains(b.host) ? 0 : 1));
-      // سقف بررسی در هر دور: بقیه برای دور بعد نگه داشته می‌شوند
-      const checkCap = 400; // فیکس ۱۹: قبلاً ۳۰۰۰؛ بقیه در overflow می‌روند و دور بعد بررسی می‌شوند
-      final overflow = cands.length > checkCap ? cands.sublist(checkCap) : <Server>[];
-      if (cands.length > checkCap) cands.removeRange(checkCap, cands.length);
-      const scanBudget = Duration(seconds: 90);
+      // Process the complete current queue; adaptive batches control only
+      // simultaneous DNS/TCP work and do not truncate the inventory.
+      final overflow = <Server>[];
       const dnsTimeout = Duration(seconds: 3);
-      const dnsBatch = 16;
+      final dnsBatch = natAdaptiveConcurrency(0);
       final ipOf = <String, String>{};
       final hosts = {
         for (final s in cands)
           if (s.host.isNotEmpty) s.host,
       }.toList(growable: false);
-      // Resolve every current-round hostname in bounded batches. The independent
-      // monotonic TCP budget starts only after DNS resolution; unresolved candidates remain queued.
+      // Resolve every queued hostname in adaptive, cancellable batches.
       for (var i = 0; i < hosts.length && !abort; i += dnsBatch) {
         final chunk = <String>[];
         for (var j = i; j < min(i + dnsBatch, hosts.length); j++) {
@@ -10757,40 +10846,30 @@ ListTile( // KINGEXTRAS row
       }
       final targets = [for (final s in cands) if (ipOf.containsKey(s.host)) s];
       final ok = <Server>[];
-      const batch = 20;
-      // Preserve the original 90-second TCP budget independently of DNS time.
-      final deadline = Stopwatch()..start();
-      for (var i = 0;
-          i < targets.length && !abort && deadline.elapsed < scanBudget;
-          i += batch) {
+      final batch = natAdaptiveConcurrency(0);
+      for (var i = 0; i < targets.length && !abort; i += batch) {
         final chunk = targets.sublist(i, min(i + batch, targets.length));
         _set('نت ملی: بررسی IP ${i + chunk.length}/${targets.length}...');
         final res = await Future.wait(chunk.map((s) => natTcpProbe(
               ipOf[s.host]!,
               s.port,
               const Duration(milliseconds: 1500),
-              cancelled: () =>
-                  abort || deadline.elapsed >= scanBudget,
+              cancelled: () => abort,
             )));
         natIpScanned += chunk.length;
         // DEADSKIP: IPهایی که در همین نشست رد شده‌اند دوباره تست نمی‌شوند
         for (var k = 0; k < chunk.length; k++) {
           final s = chunk[k];
-          if (natIpDeadRun.contains('${s.host}|${s.port}')) continue;
           if (res[k] != null) {
             ok.add(s);
             natIpFound++;
           }
         }
-        if (ok.isNotEmpty) break; // اولین دسته‌ی باز را فوراً تست می‌کنیم
       }
       if (ok.isEmpty) {
-        // هیچ IP ای باز نشد: همه‌ی سرورها تست می‌شوند (چیزی حذف نمی‌شود)
-        // DEADSKIP: فقط سرورهایی که اخیراً شکست نخورده‌اند دوباره به صف می‌روند
-        pending = [
-          for (final s in [...cands, ...overflow])
-            if (!_recentFail(s) && !_bad(s)) s
-        ];
+        // No endpoint was reachable in this pass. Preserve every source item
+        // so transient DNS/TCP failures are retried on the next pass.
+        pending = [...cands, ...overflow];
         natRestPending = [];
         return;
       }
@@ -10803,12 +10882,11 @@ ListTile( // KINGEXTRAS row
       }
       final okLinks = {for (final s in ok) s.link};
       pending = ok;
-      // DEADSKIP: همان قاعده برای باقی‌مانده‌ی صف نت ملی
+      // Preserve every non-hit item for later rounds; one failed probe is
+      // never a permanent exclusion from the scan inventory.
       natRestPending = [
-        for (final s in cands)
-          if (!okLinks.contains(s.link) && !_recentFail(s) && !_bad(s)) s,
-        for (final s in overflow)
-          if (!_recentFail(s) && !_bad(s)) s,
+        for (final s in cands) if (!okLinks.contains(s.link)) s,
+        ...overflow,
       ];
       _set('نت ملی: ${ok.length} سرور با IP باز پیدا شد، تست می‌شود');
     } catch (e, stk) {
@@ -10824,17 +10902,16 @@ ListTile( // KINGEXTRAS row
         for (final s in [...pending, ...natRestPending]) '${s.host}|${s.port}'
       };
       final items = <String>[];
-      for (final e in natIpMem.take(40)) {
+      for (final e in natIpMem) {
         final ip = '${e['ip']}';
         final port = (e['port'] as num?)?.toInt() ?? 0;
         if (InternetAddress.tryParse(ip) == null || port <= 0) continue;
         if (have.contains('$ip|$port') || have.contains('$ip:$port')) continue;
-        if (natIpDeadRun.contains('$ip|$port')) continue; // DEADRUN: failed this run
         items.add('$ip|$port');
       }
       if (items.isEmpty) return;
       if (natTemplateSeeds.isEmpty) {
-        natTemplateSeeds = await natHotNext(2, fetch: false);
+        natTemplateSeeds = await natHotNext(max(1, Platform.numberOfProcessors * 4096), fetch: false);
       }
       final before = pending.length;
       await _natRangeAdd(items, count: false);
@@ -10851,7 +10928,7 @@ ListTile( // KINGEXTRAS row
     for (final it in items) {
       natScanHits.add(it.split('|')[0]);
     }
-    final tpl = [...pending, ...natRestPending, ...natTemplateSeeds, ...good].take(2).toList();
+    final tpl = [...pending, ...natRestPending, ...natTemplateSeeds, ...good];
     if (tpl.isEmpty) {
       dbg('V8: no template - skipping');
       return;
@@ -11219,9 +11296,10 @@ ListTile( // KINGEXTRAS row
   ({List<String> addresses, Map<String, dynamic> cursors}) _pilotExpandRanges(
     String raw,
     Map<String, dynamic> savedCursors, {
-    int batchSize = 6000,
+    int? batchSize,
   }) {
-    if (batchSize <= 0) {
+    final effectiveBatchSize = batchSize ?? max(1, Platform.numberOfProcessors * 4096);
+    if (effectiveBatchSize <= 0) {
       return (addresses: const <String>[], cursors: Map<String, dynamic>.of(savedCursors));
     }
     final ranges = raw.split(String.fromCharCode(10))
@@ -11238,10 +11316,10 @@ ListTile( // KINGEXTRAS row
         (int.tryParse(cursors['__pilot_range_cursor']?.toString() ?? '') ?? 0) %
             ranges.length;
     var visited = 0;
-    for (; visited < ranges.length && out.length < batchSize; visited++) {
+    for (; visited < ranges.length && out.length < effectiveBatchSize; visited++) {
       final index = (start + visited) % ranges.length;
       final range = ranges[index];
-      final remaining = batchSize - out.length;
+      final remaining = effectiveBatchSize - out.length;
       final rangesLeft = ranges.length - visited;
       final quota = max(1, (remaining + rangesLeft - 1) ~/ rangesLeft);
       final batch = natExpandIpRangeCursor(
@@ -11327,10 +11405,11 @@ ListTile( // KINGEXTRAS row
     setState(() => _pilotRangeBusy = true);
     _set('اسکن مستقل خلبان آغاز شد: ${targets.length} نشانی از IPv4/IPv6، فقط TCP/443؛ ادامه با Cursor.');
     final alive = <String>[];
+    final probeConcurrency = natAdaptiveConcurrency(0);
     try {
-      for (var i = 0; i < targets.length; i += 12) {
+      for (var i = 0; i < targets.length; i += probeConcurrency) {
         if (_pilotRangeCancelRequested) break;
-        final batch = targets.skip(i).take(12).toList();
+        final batch = targets.skip(i).take(probeConcurrency).toList();
         final result = await Future.wait(batch.map((host) async {
           Socket? socket;
           try {
@@ -11735,17 +11814,11 @@ ListTile( // KINGEXTRAS row
         dbg('NAT range scan deferred: no config template is available');
         return;
       }
-      final queueLimit = max(3000, natAdaptiveWorkers() * 1500);
-      if (pending.length + natRestPending.length >= queueLimit) {
-        dbg('NAT range scan deferred: candidate queue is draining');
-        return;
-      }
       final ips = await natRangeScanStep(
-          known: [...pending, ...natRestPending],
-          maxAddrs: 30000, // SCANCAP: قبلاً ۱۰۰ هزار با بودجه ۱۲ دقیقه
-          conc: natAdaptiveWorkers(),
+          known: [...pending, ...natRestPending, ...natTemplateSeeds, ...good],
+          conc: natAdaptiveConcurrency(0),
           stop: () => abort || nationalMode != runNationalMode,
-          budget: const Duration(minutes: 3));
+          );
       if (abort || nationalMode != runNationalMode) return;
       await _natRangeAdd(ips);
     } catch (e, stk) {
@@ -11765,8 +11838,7 @@ ListTile( // KINGEXTRAS row
       tcpTimeout = const Duration(seconds: 6);
       delayTimeout = Duration(seconds: max(delayTimeout.inSeconds, 8).clamp(8, 12));
       natWorkers = natAdaptiveWorkers();
-      _dohFail = 0;
-    } catch (e, stk) {
+      } catch (e, stk) {
       logError(e, stk);
     }
   }
@@ -11785,9 +11857,8 @@ ListTile( // KINGEXTRAS row
       if (natFloor >= 10) natLevel = 10;
       tcpTimeout = Duration(seconds: round >= 8 ? 10 : (round >= 4 ? 8 : 6));
       delayTimeout = Duration(seconds: max(delayTimeout.inSeconds, round >= 8 ? 18 : 14));
-      natWorkers = natAdaptiveWorkers(); // NATGATE: national matrix tests max 3
-      _dohFail = 0;
-      // NATSCAN: IP و دامنه‌ی سرورها قبل از تست سنگین بررسی می‌شوند
+      natWorkers = natAdaptiveWorkers();
+        // NATSCAN: IP و دامنه‌ی سرورها قبل از تست سنگین بررسی می‌شوند
       if (runNationalMode) await _natMergeCache();
       if (abort || modeChanged()) return;
       if (runNationalMode) await _natMemoryReuse();
@@ -11797,10 +11868,8 @@ ListTile( // KINGEXTRAS row
       // FREEZEFIX2: IP servers already found are tested first. The long scan
       // (up to 12 min) used to run before them, which is what looked like a freeze.
       // IPFIX: فقط IP های تازه‌ی همین prescan منتظر تست‌اند (نه همه‌ی IP های کانفیگ‌ها)
-      final ipWaiting = [...pending, ...natRestPending]
-          .any((s) => natFreshHosts.contains(s.host));
-      // DOMAINALWAYS2: دامنه‌های .ir در هر دور اجرا می‌شوند (سقف ۳ دقیقه)
-      if (runNationalMode && !abort && (round % 2 == 0)) {
+      // DOMAINALWAYS2: دامنه‌های .ir در هر دور بررسی می‌شوند.
+      if (runNationalMode && !abort) {
         final domHits = await _natDomainFirst(
             [...pending, ...natRestPending],
             conc: natAdaptiveWorkers(),
@@ -11810,13 +11879,12 @@ ListTile( // KINGEXTRAS row
       }
       final hasTpl = pending.isNotEmpty || natRestPending.isNotEmpty ||
           natTemplateSeeds.isNotEmpty || good.isNotEmpty;
-      if (runNationalMode && !abort && !ipWaiting && pending.isEmpty && hasTpl) {
+      if (runNationalMode && !abort && hasTpl) {
         final ips = await natRangeScanStep(
-            known: [...pending, ...natRestPending],
-            maxAddrs: 100000, // هر دور تا ۱۰۰ هزار آدرس
+            known: [...pending, ...natRestPending, ...natTemplateSeeds, ...good],
             conc: natAdaptiveWorkers(),
             stop: () => abort || modeChanged(),
-            budget: const Duration(minutes: 3));
+            );
         if (abort || modeChanged()) return;
         await _natRangeAdd(ips);
       }
@@ -12792,7 +12860,7 @@ ListTile( // KINGEXTRAS row
         // از حالت‌های مداد/پروفایل) سرورهای سالم ولی با پینگ بالاتر حذف می‌شدند
         badPingMs = max(badPingMs, 6000);
         if (natLevel < 2) natLevel = 2;
-        natWorkers = natAdaptiveWorkers(); // NATGATE: national matrix tests max 3
+        natWorkers = natAdaptiveWorkers();
         delayTimeout = Duration(
             seconds: max(delayTimeout.inSeconds, 16));
         tcpTimeout = Duration(
@@ -12802,7 +12870,7 @@ ListTile( // KINGEXTRAS row
         // NORMAL: start light (level 1) so many servers get a quick ping first;
         // bestEffort in _acquire escalates 2→4 only if needed. No folder inject.
         if (natLevel < 1) natLevel = 1;
-        natWorkers = natAdaptiveWorkers(); // NATGATE: national matrix tests max 3
+        natWorkers = natAdaptiveWorkers();
         delayTimeout = Duration(
             seconds: max(delayTimeout.inSeconds, 12));
         tcpTimeout = Duration(
@@ -12985,7 +13053,7 @@ ListTile( // KINGEXTRAS row
         await Future.delayed(const Duration(milliseconds: 400));
         if (lastState != 'CONNECTED') break;
         try {
-          await v2ray.stopV2Ray();
+          await _stopV2();
         } catch (_swE) { _swl('disconnect#orphan', _swE);}
       }
     } catch (e, stk) {
@@ -14882,7 +14950,7 @@ ListTile( // KINGEXTRAS row
         _insOrphan = 0;
         dbg('هسته‌ی بی‌صاحب خاموش شد (CONNECTED بدون اتصال اپ)');
         try {
-          unawaited(v2ray.stopV2Ray().catchError((e) { logError(e); }));
+          unawaited(_stopV2());
         } catch (_swE) { _swl('_inspect#orphan', _swE);}
       }
     } else {

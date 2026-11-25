@@ -143,12 +143,12 @@ Future<int?> _probeDoh(String url, {String expectedDomain = 'google.com'}) async
             (answer['type'] as num?)?.toInt() != recordType) return false;
         final address = InternetAddress.tryParse(answer['data']?.toString() ?? '');
         if (address == null) return false;
+        // DoH selection records the resolver's actual DNS answer. Do not
+        // discard private/special/documentation ranges via an address allowlist.
         if (recordType == 1) {
-          return address.type == InternetAddressType.IPv4 &&
-              NatDnsWireProbe.publicV4(address.rawAddress, 0);
+          return address.type == InternetAddressType.IPv4;
         }
-        return address.type == InternetAddressType.IPv6 &&
-            NatDnsWireProbe.publicV6(address.rawAddress, 0);
+        return address.type == InternetAddressType.IPv6;
       });
       if (valid) return sw.elapsedMilliseconds;
     }

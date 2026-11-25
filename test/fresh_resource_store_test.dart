@@ -29,13 +29,23 @@ void main() {
       );
     });
 
-    test('deduplicates case-insensitively and enforces input bounds', () {
+    test('deduplicates case-insensitively', () {
       final values = FreshResourceStore.normalizeLinks([
         'vless://id@example.com:443',
         'VLESS://id@example.com:443',
         'vmess://abc',
       ]);
       expect(values, hasLength(2));
+    });
+
+    test('retains inventories larger than the former fixed entry ceiling', () {
+      final values = FreshResourceStore.normalizeLinks(
+        Iterable<int>.generate(20005)
+            .map((index) => 'vless://node$index@example.com:443'),
+      );
+      expect(values, hasLength(20005));
+      expect(values.first, 'vless://node0@example.com:443');
+      expect(values.last, 'vless://node20004@example.com:443');
     });
 
     test('rejects oversized individual links', () {

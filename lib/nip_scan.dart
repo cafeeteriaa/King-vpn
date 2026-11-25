@@ -12,22 +12,23 @@ class NipHit {
 
 /// بلوک CIDR مثل «5.160.0.0/16» را به فهرست IP تبدیل می‌کند.
 /// برای بلوک‌های بزرگ فقط [maxPerBlock] آدرس پراکنده برمی‌گرداند.
-List<String> nipExpandCidr(String cidr, {int maxPerBlock = 4096}) {
-  if (maxPerBlock <= 0) return const <String>[];
+List<String> nipExpandCidr(String cidr, {int? maxPerBlock}) {
+  final effectiveBatch = maxPerBlock ?? max(1, Platform.numberOfProcessors * 4096);
+  if (effectiveBatch <= 0) return const <String>[];
   final parts = cidr.trim().split('/');
   if (parts.length == 2) {
     final address = InternetAddress.tryParse(parts[0].trim());
     if (address?.type == InternetAddressType.IPv4) {
-      return natExpandCidr(cidr, maxPerBlock: maxPerBlock);
+      return natExpandCidr(cidr, maxPerBlock: effectiveBatch);
     }
     if (address?.type == InternetAddressType.IPv6) {
-      return natExpandIpv6Cidr(cidr, maxPerBlock: maxPerBlock);
+      return natExpandIpv6Cidr(cidr, maxPerBlock: effectiveBatch);
     }
   }
   return natExpandIpRangeCursor(
     cidr,
     '0',
-    maxPerBlock: maxPerBlock,
+    maxPerBlock: effectiveBatch,
   ).addresses;
 }
 
@@ -48,9 +49,9 @@ Future<int?> nipTcpProbe(String ip, int port, Duration timeout) async {
 Future<List<NipHit>> nipScan(
   List<String> ips, {
   int port = 443,
-  int concurrency = 16,
-  int want = 12,
-  Duration budget = const Duration(minutes: 2),
+  int concurrency = 0,
+  int? want,
+  Duration? budget,
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
   void Function(int done, int total)? onProgress,
@@ -62,20 +63,20 @@ Future<List<NipHit>> nipScan(
 
   Future<void> worker() async {
     while (true) {
-      if (hits.length >= want) return;
+      if (want != null && hits.length >= want) return;
       if (cancelled != null && cancelled()) return;
-      if (clock.elapsed >= budget) return;
+      if (budget != null && clock.elapsed >= budget) return;
       if (next >= ips.length) return;
       final ip = ips[next++];
       final ms = await nipTcpProbe(ip, port, timeout);
       if (cancelled != null && cancelled()) return;
-      if (ms != null && hits.length < want) hits.add(NipHit(ip, ms));
+      if (ms != null && (want == null || hits.length < want)) hits.add(NipHit(ip, ms));
       done++;
       onProgress?.call(done, ips.length);
     }
   }
 
-  final n = min(concurrency.clamp(1, 16), max(ips.length, 1)).toInt();
+  final n = min(natAdaptiveConcurrency(concurrency), max(ips.length, 1)).toInt();
   await Future.wait(List.generate(n, (_) => worker()));
   onProgress?.call(done, ips.length);
   natStableSort(hits, (a, b) => a.ms.compareTo(b.ms));
@@ -116,19 +117,20 @@ Future<void> _nipSaveHuntCursors(Map<String, dynamic> cursors) async {
   List<String> ranges,
   Map<String, dynamic> saved, {
   required String namespace,
-  int batchSize = 1000,
+  int? batchSize,
 }) {
   final cursors = Map<String, dynamic>.of(saved);
-  if (ranges.isEmpty || batchSize <= 0) {
+  final effectiveBatchSize = batchSize ?? max(1, Platform.numberOfProcessors * 4096);
+  if (ranges.isEmpty || effectiveBatchSize <= 0) {
     return (addresses: const <String>[], cursors: cursors);
   }
   final start = natCursorIndex(cursors['__nip_${namespace}_range_cursor'], ranges.length);
   final out = <String>{};
   var visited = 0;
-  for (; visited < ranges.length && out.length < batchSize; visited++) {
+  for (; visited < ranges.length && out.length < effectiveBatchSize; visited++) {
     final index = (start + visited) % ranges.length;
     final range = ranges[index];
-    final remaining = batchSize - out.length;
+    final remaining = effectiveBatchSize - out.length;
     final rangesLeft = ranges.length - visited;
     final quota = max(1, (remaining + rangesLeft - 1) ~/ rangesLeft);
     final batch = natExpandIpRangeCursor(
@@ -149,8 +151,7 @@ Future<void> _nipSaveHuntCursors(Map<String, dynamic> cursors) async {
 /// IPv4 and IPv6 prefixes announced for Iran by RIPE, cached together.
 Future<List<String>> nipIranCidrs() async {
   final prefs = await SharedPreferences.getInstance();
-  final cached = prefs.getStringList('plus_ir_cidr_v2');
-  if (cached != null && cached.isNotEmpty) return cached;
+  final cached = prefs.getStringList('plus_ir_cidr_v2') ?? const <String>[];
   final legacyV4 = prefs.getStringList('plus_ir_cidr') ?? const <String>[];
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
   try {
@@ -161,13 +162,14 @@ Future<List<String>> nipIranCidrs() async {
     final response = await request.close().timeout(const Duration(seconds: 20));
     final body = await response.transform(utf8.decoder).join();
     final decoded = jsonDecode(body);
-    if (decoded is! Map) return legacyV4;
+    if (decoded is! Map) return {...cached, ...legacyV4}.toList(growable: false);
     final data = decoded['data'];
     final resources = data is Map ? data['resources'] : null;
-    if (resources is! Map) return legacyV4;
+    if (resources is! Map) return {...cached, ...legacyV4}.toList(growable: false);
     final ipv4 = resources['ipv4'];
     final ipv6 = resources['ipv6'];
     final ranges = <String>{
+      ...cached,
       ...legacyV4,
       if (ipv4 is List) ...ipv4.map((value) => '$value').where((value) => value.contains('/')),
       if (ipv6 is List) ...ipv6.map((value) => '$value').where((value) => value.contains('/')),
@@ -175,7 +177,7 @@ Future<List<String>> nipIranCidrs() async {
     if (ranges.isNotEmpty) await prefs.setStringList('plus_ir_cidr_v2', ranges);
     return ranges;
   } catch (_) {
-    return legacyV4;
+    return {...cached, ...legacyV4}.toList(growable: false);
   } finally {
     client.close(force: true);
   }
@@ -266,8 +268,9 @@ Future<String?> nipResolve(String host) async {
 Future<void> natPrefetchAsn(List<Server> list) async {
   final hosts = list.where((server) => !server.cdn).toList(growable: false);
   final ips = <String>{};
-  for (var offset = 0; offset < hosts.length; offset += 8) {
-    final batch = hosts.skip(offset).take(8);
+  final hostConcurrency = natAdaptiveConcurrency(0);
+  for (var offset = 0; offset < hosts.length; offset += hostConcurrency) {
+    final batch = hosts.skip(offset).take(hostConcurrency);
     final resolved = await Future.wait(batch.map((server) async {
       if (server.isIp) return <String>[server.host];
       return nipResolveAll(server.host);
@@ -277,44 +280,32 @@ Future<void> natPrefetchAsn(List<Server> list) async {
     }
   }
   final allIps = ips.toList(growable: false);
-  for (var offset = 0; offset < allIps.length; offset += 4) {
-    final batch = allIps.skip(offset).take(4);
+  final ipConcurrency = natAdaptiveConcurrency(0);
+  for (var offset = 0; offset < allIps.length; offset += ipConcurrency) {
+    final batch = allIps.skip(offset).take(ipConcurrency);
     await Future.wait(batch.map((ip) async {
       await nipAsnPrefixes(ip); // each A/AAAA endpoint has its own RIPE cache
     }));
   }
 }
 
-/// آخرین شکست RIPE برای هر IP (حافظه‌ی موقت، جدا از کش دائمی).
-final Map<String, DateTime> _asnFailAt = <String, DateTime>{};
-
 /// All announced IPv4 and IPv6 prefixes for every ASN owning this address.
 Future<List<String>> nipAsnPrefixes(String ip) async {
   final prefs = await SharedPreferences.getInstance();
   final cacheKey = 'nip_asn_v1_$ip';
-  final cached = prefs.getStringList(cacheKey);
-  if (cached != null && cached.isNotEmpty) return cached;
-  // RIPE is external; while international access is unavailable, use valid cache only.
-  if (NatNetworkDiagnosis.preferDomestic) return const [];
-  final failAt = _asnFailAt[ip];
-  if (failAt != null &&
-      DateTime.now().difference(failAt) < const Duration(minutes: 15)) {
-    return const [];
-  }
+  final cached = prefs.getStringList(cacheKey) ?? const <String>[];
   try {
     final response = await http
         .get(Uri.parse('https://stat.ripe.net/data/network-info/data.json?resource=$ip'))
         .timeout(const Duration(seconds: 12));
-    if (response.statusCode != 200) {
-      _asnFailAt[ip] = DateTime.now();
-      return const [];
-    }
+    if (response.statusCode != 200) return cached;
     final rawAsns =
         ((jsonDecode(response.body)['data']?['asns']) as List?) ?? const [];
     final asns = rawAsns.map((value) => value.toString()).toList(growable: false);
-    final out = <String>{};
-    for (var offset = 0; offset < asns.length; offset += 4) {
-      final batch = asns.skip(offset).take(4);
+    final discovered = <String>{};
+    final asnConcurrency = natAdaptiveConcurrency(0);
+    for (var offset = 0; offset < asns.length; offset += asnConcurrency) {
+      final batch = asns.skip(offset).take(asnConcurrency);
       await Future.wait(batch.map((asn) async {
         try {
           final result = await http
@@ -329,24 +320,20 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
           for (final entry in prefixes) {
             if (entry is! Map) continue;
             final prefix = '${entry['prefix']}';
-            if (prefix.contains('/')) out.add(prefix);
+            if (prefix.contains('/')) discovered.add(prefix);
           }
         } catch (e, stk) {
           logError(e, stk);
         }
       }));
     }
-    final ranges = out.toList(growable: false);
-    if (ranges.isNotEmpty) {
-      await prefs.setStringList(cacheKey, ranges);
-    } else {
-      _asnFailAt[ip] = DateTime.now();
-    }
-    return ranges;
+    // Keep every previously learned prefix while adding all fresh announcements.
+    final merged = <String>{...cached, ...discovered}.toList(growable: false);
+    if (merged.isNotEmpty) await prefs.setStringList(cacheKey, merged);
+    return merged;
   } catch (e, stk) {
     logError(e, stk);
-    _asnFailAt[ip] = DateTime.now();
-    return const [];
+    return cached;
   }
 }
 
@@ -369,7 +356,6 @@ const natFrontSnis = <String>[
   'divar.ir',
   ...kAutoSniDomains,
 ];
-const int _nipFrontSniBatchSize = 8;
 const String _nipFrontSniCursorKey = 'nip_front_sni_cursor_v1';
 int _nipFrontSniCursor = 0;
 Future<void>? _nipFrontSniCursorLoadFuture;
@@ -443,15 +429,19 @@ Future<String?> nipFindFrontSni(String ip, int port, {bool Function()? cancelled
   _nipFrontSniScanQueue = release.future;
   await previous;
   try {
+    final discoveredGlobalDomains = nationalMode
+        ? const <String>[]
+        : await kingDiscoverGlobalDnsDomains();
     final inventory = <String>{
       ...natFrontSnis,
       ...dnsxFullDomains(),
+      ...discoveredGlobalDomains,
       ...(_goldScan['sni'] ?? const <String>[]),
     }.toList()..sort();
     if (inventory.isEmpty) return null;
 
     final start = _nipFrontSniCursor % inventory.length;
-    final count = min(_nipFrontSniBatchSize, inventory.length);
+    final count = inventory.length;
     var completed = 0;
     for (var offset = 0; offset < count; offset++) {
       if (cancelled?.call() ?? false) break;
@@ -511,12 +501,7 @@ extension NipHunt on _HomePageState {
   /// موفق‌ها ذخیره می‌شوند تا دفعه‌ی بعد اول امتحان شوند.
   Future<bool> _natIpHunt() async {
     if (!nationalMode || connected || abort) return false;
-    final last = _nipLastHunt;
-    if (last != null &&
-        DateTime.now().difference(last) < const Duration(minutes: 4)) {
-      return false;
-    }
-    _nipLastHunt = DateTime.now();
+    _nipLastHunt = DateTime.now(); // diagnostics only; no fixed hunt cooldown
 
     final sourceServers = <Server>[...good, ...pending];
     final seenLinks = sourceServers.map((server) => server.link).toSet();
@@ -546,9 +531,8 @@ extension NipHunt on _HomePageState {
     final templateStart = previousTemplateIndex < 0
         ? 0
         : (previousTemplateIndex + 1) % templateInventory.length;
-    const templateBatchSize = 40;
     final templates = <Server>[
-      for (var i = 0; i < min(templateBatchSize, templateInventory.length); i++)
+      for (var i = 0; i < templateInventory.length; i++)
         templateInventory[(templateStart + i) % templateInventory.length],
     ];
     // Only the exact host:port endpoints present in saved server configurations
@@ -612,10 +596,9 @@ extension NipHunt on _HomePageState {
     if (ips.isEmpty || templates.isEmpty || port < 1 || port > 65535) {
       return false;
     }
-    // A DNS hostname can resolve to more endpoints than one two-minute
-    // probe window can cover. Process every resolved address in resumable-size
-    // slices; do not advance the template cursor after only the first slice.
-    const ipBatchSize = 256;
+    // Process every resolved endpoint in adaptive slices; no wall-clock cutoff
+    // is applied and the template cursor advances only after full completion.
+    final ipBatchSize = max(1, natAdaptiveConcurrency(0) * 32);
     final totalBatches = (ips.length + ipBatchSize - 1) ~/ ipBatchSize;
     for (var ipOffset = 0; ipOffset < ips.length; ipOffset += ipBatchSize) {
       if (abort) return false;
@@ -625,16 +608,14 @@ extension NipHunt on _HomePageState {
 
       var completed = 0;
       var hits = <NipHit>[];
-      // The slice is deliberately small enough to fit comfortably inside the
-      // per-batch budget. If the OS still interrupts it, retry this exact slice
-      // rather than committing the template cursor and skipping its tail.
+      // If the OS interrupts a slice, retry that exact slice rather than
+      // committing the template cursor and skipping its tail.
       while (completed < scanBatch.length) {
         completed = 0;
         hits = await nipScan(
           scanBatch,
           port: port,
           want: scanBatch.length,
-          budget: const Duration(minutes: 2),
           cancelled: () => abort,
           onProgress: (done, total) {
             completed = done;
@@ -643,9 +624,10 @@ extension NipHunt on _HomePageState {
         if (abort) return false;
       }
 
-      for (var offset = 0; offset < hits.length; offset += 8) {
+      final validationBatchSize = natAdaptiveConcurrency(0);
+      for (var offset = 0; offset < hits.length; offset += validationBatchSize) {
         if (abort) return false;
-        final batch = hits.skip(offset).take(8).toList(growable: false);
+        final batch = hits.skip(offset).take(validationBatchSize).toList(growable: false);
         final candidates = <Server>[];
         for (var i = 0; i < batch.length; i++) {
           final hit = batch[i];

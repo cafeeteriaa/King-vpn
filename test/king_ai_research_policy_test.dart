@@ -143,18 +143,21 @@ void main() {
           isNot(contains('https://ooni.org.attacker.example/fake')));
     });
 
-    test('bounds retained history', () {
+    test('retains trusted research inventories larger than the former 500-note ceiling', () {
       final notes = List<Map<String, String>>.generate(
-        5,
+        750,
         (i) => note(
-          url: 'https://docs.flutter.dev/$i',
-          title: 'Flutter $i',
-          excerpt: 'Flutter documentation $i',
-          date: '2026-11-${(i + 1).toString().padLeft(2, '0')}T00:00:00Z',
+          url: 'https://docs.flutter.dev/reference/$i',
+          title: 'Flutter reference $i',
+          excerpt: 'Flutter documentation reference $i',
+          date: '2026-11-19T00:00:00Z',
         ),
       );
-      expect(mergeKingAiResearchMemory(const [], notes, maxEntries: 3),
-          hasLength(3));
+      final retained = mergeKingAiResearchMemory(const [], notes);
+      expect(retained, hasLength(750));
+      expect(retained.any((line) =>
+          jsonDecode(line)['url'] == 'https://docs.flutter.dev/reference/749'),
+          isTrue);
     });
   });
 }

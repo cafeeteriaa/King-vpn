@@ -1,8 +1,8 @@
 part of 'main.dart';
 
 // DNSSCAN: اسکنر DNS. هر resolver با یک پرس‌وجوی UDP به پورت 53 امتحان می‌شود.
-// پاسخ فقط وقتی «سالم» است که IP عمومی واقعی بدهد. پاسخ‌های جعلی یا صفحه‌ی بلاک
-// (مثل 10.10.34.34 یا آی‌پی خصوصی) رد می‌شوند.
+// اعتبار پاسخ بر اساس ساختار DNS، شناسه، سؤال و رکورد واقعی سنجیده می‌شود.
+// خصوصی/ویژه/مستنداتی بودن IP به‌تنهایی مجوز حذف پاسخ از نتایج اسکن نیست.
 // در نت ملی: دامنه‌ی تست داخلی و DNSهای داخلی؛ اسکن به‌صورت خودکار و در پس‌زمینه انجام می‌شود.
 const List<String> kDnsxDefaults = [
   '8.8.8.8',
@@ -22,6 +22,15 @@ const List<String> kDnsxDefaults = [
   '2606:4700:4700::1001',
   '2620:fe::fe',
   '2620:fe::9',
+  // Additional independently operated public recursive DNS providers.
+  '8.26.56.26', '8.20.247.20',
+  '64.6.64.6', '64.6.65.6',
+  '156.154.70.1', '156.154.71.1',
+  '76.76.2.0', '76.76.10.0', '76.76.19.19',
+  '185.228.168.9', '185.228.169.9',
+  '77.88.8.1', '77.88.8.2', '77.88.8.8', '77.88.8.88',
+  '193.110.81.0', '185.253.5.0',
+  '194.242.2.2', '194.242.2.3',
 ];
 
 // DNSهای داخلی که از قبل در پروژه (npv_am_extras.dart) آمده‌اند
@@ -48,20 +57,8 @@ const List<String> kDnsxNationalProbeDomains = <String>[
 List<String> dnsxAutoDomains() => dnsxFullDomains();
 
 /// تبدیل فهرست‌های پروژه (مثل `domain:divar.ir`) به نام میزبان ساده
-List<String> _dnsxHostsFrom(Iterable<String> src) {
-  final out = <String>[];
-  final okChars = RegExp(r'^[a-z0-9.-]+$');
-  for (var s in src) {
-    s = s.trim().toLowerCase();
-    if (s.startsWith('domain:')) s = s.substring(7);
-    if (s.startsWith('full:')) s = s.substring(5);
-    // فقط نام دامنه‌ی واقعی؛ TLD تنها (مثل ir) و قانون‌های geoip و کلمه‌ی کلیدی کنار گذاشته می‌شوند
-    if (!s.contains('.') || !okChars.hasMatch(s)) continue;
-    out.add(s);
-  }
-  return out;
-}
-
+List<String> _dnsxHostsFrom(Iterable<String> src) =>
+    kingNormalizeDomainHosts(src);
 /// سایت‌های خارجی پرکاربرد برای سنجیدن اینکه DNS بین‌المللی را درست جواب می‌دهد یا نه
 /// فهرست گسترده‌ی سایت‌های خارجی پرکاربرد، دسته‌بندی‌شده (جستجو، شبکه‌های اجتماعی، پیام‌رسان،
 /// ویدیو، خبر، مرجع، فنی و ابری، هوش مصنوعی، خرید و مالی، سفر، بازی).
@@ -128,9 +125,36 @@ List<String> dnsxFullDomains() {
     ..._dnsxHostsFrom(natFrontSnis),
     ..._dnsxHostsFrom(natRelayHosts),
   };
-  final domains = all.where((value) => value.trim().isNotEmpty).toList()
-    ..sort();
+  final domains = kingNormalizeDomainHosts(all)..sort();
   return domains;
+}
+
+/// Domain inventory for the domestic DNS path only. Global feeds and global
+/// SNI seeds are deliberately not injected into this independent path.
+List<String> dnsxNationalModeDomains() {
+  final all = <String>{
+    ...kDnsxNationalProbeDomains,
+    ..._dnsxHostsFrom(kAutoNationalSniDomains),
+    ..._dnsxHostsFrom(natIrDomains),
+    ..._dnsxHostsFrom(iranDomains),
+    ..._dnsxHostsFrom(_iranMoreDomains),
+    ..._dnsxHostsFrom(natFrontSnis),
+    ..._dnsxHostsFrom(natRelayHosts),
+  };
+  return kingNormalizeDomainHosts(all)..sort();
+}
+
+/// Domain inventory for the global DNS path. Local/user inventories are merged
+/// by the caller; discovered feed rows are all retained without a count cap.
+List<String> dnsxGlobalModeDomains({
+  Iterable<String> discovered = const <String>[],
+}) {
+  final all = <String>{
+    ...kDnsxGlobalDomains,
+    ..._dnsxHostsFrom(kAutoSniDomains),
+    ..._dnsxHostsFrom(discovered),
+  };
+  return kingNormalizeDomainHosts(all)..sort();
 }
 
 /// Full project domain inventory with domestic candidates first during national
@@ -147,17 +171,19 @@ List<String> dnsxNationalFirstDomains({
     ...extraHosts,
   };
   final domestic = <String>{
-    ...kDnsxNationalProbeDomains,
-    ...natIrDomains,
-    ..._dnsxHostsFrom(iranDomains),
-    ..._dnsxHostsFrom(_iranMoreDomains),
-    ...kAutoNationalSniDomains,
-    ...extraHosts.where((host) =>
-        host.endsWith('.ir') ||
-        host.endsWith('.ac.ir') ||
-        host.endsWith('.gov.ir') ||
-        host.endsWith('.co.ir') ||
-        host.endsWith('.org.ir')),
+    ...kingNormalizeDomainHosts([
+      ...kDnsxNationalProbeDomains,
+      ...natIrDomains,
+      ...iranDomains,
+      ..._iranMoreDomains,
+      ...kAutoNationalSniDomains,
+      ...extraHosts.where((host) =>
+          host.endsWith('.ir') ||
+          host.endsWith('.ac.ir') ||
+          host.endsWith('.gov.ir') ||
+          host.endsWith('.co.ir') ||
+          host.endsWith('.org.ir')),
+    ]),
   };
   final first = domestic.intersection(all).toList()..sort();
   final remaining = all.difference(domestic).toList()..sort();
@@ -165,7 +191,7 @@ List<String> dnsxNationalFirstDomains({
 }
 
 /// متن نمایشی دامنه‌ها در شیت
-String dnsxProbeDomain() => '${dnsxFullDomains().length} دامنه (ایرانی و جهانی)';
+String dnsxProbeDomain() => 'موجودی کامل پروژه + دامنه‌های جهانی پویا (منبع روزانه)';
 
 /// بسته‌ی پرس‌وجوی DNS برای نوع A (RD=1)
 List<int> dnsxQuery(String name, int id, {int recordType = 1}) {
@@ -189,7 +215,7 @@ List<int> dnsxQuery(String name, int id, {int recordType = 1}) {
   return b;
 }
 
-/// آیا این IPv4 عمومی و واقعی است؟ (خصوصی، لوپ‌بک، صفر و بلاک‌پیج رد می‌شوند)
+/// ابزار طبقه‌بندی IPv4 برای نمایش/تحلیل جداگانه؛ نباید پاسخ DNS را حذف کند.
 bool dnsxIsPublicV4(int a, int b, int c, int d) {
   if (a == 0 || a == 10 || a == 127 || a >= 224) return false;
   if (a == 169 && b == 254) return false;
@@ -200,8 +226,7 @@ bool dnsxIsPublicV4(int a, int b, int c, int d) {
   return true;
 }
 
-/// پاسخ معتبر برای A یا AAAA؛ حداقل یک رکورد عمومی از همان خانواده لازم است.
-/// IPv6 DNS answer validation shares the NNIE global-unicast checks.
+/// پذیرش ساختاری پاسخ A/AAAA؛ کلاس آدرس معیار حذف پاسخ از اسکن نیست.
 bool dnsxIsPublicV6(List<int> bytes, int offset) =>
     NatDnsWireProbe.publicV6(bytes, offset);
 
@@ -209,50 +234,65 @@ bool dnsxAnswerOk(List<int> d, int id, {int recordType = 1}) {
   if (recordType != 1 && recordType != 28) return false;
   if (d.length < 12) return false;
   final rid = (d[0] << 8) | d[1];
-  if (rid != id) return false;
-  final rcode = d[3] & 0x0f;
-  if (rcode != 0) return false;
+  final flags = (d[2] << 8) | d[3];
+  if (rid != id ||
+      (flags & 0x8000) == 0 ||
+      (flags & 0x7800) != 0 ||
+      (flags & 0x0200) != 0 ||
+      (flags & 0x0040) != 0 ||
+      (flags & 0x000f) != 0) {
+    return false;
+  }
   final qd = (d[4] << 8) | d[5];
   final an = (d[6] << 8) | d[7];
-  if (an == 0) return false;
+  if (qd != 1 || an == 0) return false;
   var pos = 12;
+
   int skipName(int p) {
     while (p < d.length) {
       final len = d[p];
       if (len == 0) return p + 1;
-      if ((len & 0xC0) == 0xC0) return p + 2;
+      if ((len & 0xC0) == 0xC0) {
+        if (p + 1 >= d.length) return -1;
+        final pointer = ((len & 0x3F) << 8) | d[p + 1];
+        if (pointer < 12 || pointer >= p || pointer >= d.length) return -1;
+        return p + 2;
+      }
+      if ((len & 0xC0) != 0 || len > 63 || p + 1 + len > d.length) {
+        return -1;
+      }
       p += len + 1;
     }
-    return p;
+    return -1;
   }
-  for (var i = 0; i < qd; i++) {
+
+  pos = skipName(pos);
+  if (pos < 0 || pos + 4 > d.length) return false;
+  final qtype = (d[pos] << 8) | d[pos + 1];
+  final qclass = (d[pos + 2] << 8) | d[pos + 3];
+  if (qtype != recordType || qclass != 1) return false;
+  pos += 4;
+
+  var hasTypedAddress = false;
+  for (var i = 0; i < an; i++) {
     pos = skipName(pos);
-    if (pos + 4 > d.length) return false;
-    final qtype = (d[pos] << 8) | d[pos + 1];
-    if (qtype != recordType || ((d[pos + 2] << 8) | d[pos + 3]) != 1) return false;
-    pos += 4;
-  }
-  var goodA = false;
-  for (var i = 0; i < an && pos + 10 <= d.length; i++) {
-    pos = skipName(pos);
-    if (pos + 10 > d.length) break;
+    if (pos < 0 || pos + 10 > d.length) return false;
     final type = (d[pos] << 8) | d[pos + 1];
+    final rrClass = (d[pos + 2] << 8) | d[pos + 3];
     final rdlen = (d[pos + 8] << 8) | d[pos + 9];
     final rd = pos + 10;
-    if (type == recordType) {
-      final valid = recordType == 1
-          ? rdlen == 4 && rd + 4 <= d.length &&
-              dnsxIsPublicV4(d[rd], d[rd + 1], d[rd + 2], d[rd + 3])
-          : rdlen == 16 && rd + 16 <= d.length && dnsxIsPublicV6(d, rd);
-      if (valid) {
-        goodA = true;
-      } else {
-        return false; // پاسخ ناقص، جعلی یا خارج از محدوده‌ی آدرس‌دهی عمومی
-      }
+    final rdEnd = rd + rdlen;
+    if (rdEnd > d.length) return false;
+    if (type == recordType && rrClass == 1) {
+      final expectedLength = recordType == 1 ? 4 : 16;
+      if (rdlen != expectedLength) return false;
+      // Address class is intentionally not tested here. Valid A/AAAA data
+      // remains observable, including private and special-use address ranges.
+      hasTypedAddress = true;
     }
-    pos = rd + rdlen;
+    pos = rdEnd;
   }
-  return goodA;
+  return hasTypedAddress;
 }
 
 /// نتیجه‌ی یک DNS: چند دامنه جواب داد و میانگین زمان آن‌ها
@@ -264,8 +304,8 @@ class DnsxHit {
   final int total;
 }
 
-/// سنجش یک DNS روی فهرست دامنه‌ها. برای جلوگیری از سیل پرس‌وجو، بسته‌به‌بسته (۸ تا ۸ تا) می‌رود.
-/// ملاک: حداقل ۲۵٪ دامنه‌ها باید پاسخ معتبر بدهند.
+/// سنجش یک DNS روی تمام دامنه‌های ورودی. دسته‌بندی هم‌زمانی بر اساس ظرفیت
+/// پردازشی runtime است؛ هیچ دامنه‌ای به‌خاطر موقعیتش در فهرست حذف نمی‌شود.
 Future<DnsxHit?> dnsxProbe(String server,
     {List<String>? domains,
     Duration timeout = const Duration(seconds: 3),
@@ -274,7 +314,10 @@ Future<DnsxHit?> dnsxProbe(String server,
   final list = domains ?? dnsxAutoDomains();
   final times = <int>[];
   var tested = 0; // تعداد دامنه‌هایی که واقعاً سنجیده شدند (اگر توقف زده شود، کمتر از کل است)
-  const chunk = 8; // دامنه‌ها در هر بسته‌ی همزمان
+  // Hardware-aware work width replaces the former fixed batch size of eight.
+  // The loop continues across the entire supplied inventory.
+  final processors = Platform.numberOfProcessors;
+  final chunk = processors > 0 ? processors : 1;
   for (var i = 0; i < list.length; i += chunk) {
     if (stop != null && stop()) break;
     // فاصله بین بسته‌ها: اسکن پس‌زمینه بار ناگهانی روی اتصال نمی‌گذارد
@@ -301,14 +344,15 @@ Future<DnsxHit?> dnsxProbe(String server,
       }
     }
   }
-  // ملاک: حداقل ۲۵٪ از دامنه‌هایی که واقعاً سنجیده شدند باید جواب بدهند
-  if (tested == 0 || times.isEmpty || times.length * 4 < tested) return null;
+  // Any structurally valid A/AAAA response is retained as evidence.
+  // A fixed percentage threshold must not hide resolvers with partial coverage.
+  if (tested == 0 || times.isEmpty) return null;
   final avg = times.reduce((a, b) => a + b) ~/ times.length;
   return DnsxHit(server, avg, times.length, tested);
 }
 
-/// اسکن گروهی (۱۲ تا ۱۲ تا). خروجی: DNSهای سالم؛ اول آن‌که بیشترین دامنه را جواب داده،
-/// و در برابر تساوی، آن‌که سریع‌تر است.
+/// اسکن گروهی تمام resolverهای ورودی. هم‌زمانی با ظرفیت پردازشی runtime
+/// تنظیم می‌شود؛ حالت دستی/ملی سهمیه یا صف انتظار جداگانه ندارد.
 Future<List<DnsxHit>> dnsxScan(List<String> list,
     {List<String>? domains,
     Duration gap = Duration.zero,
@@ -317,15 +361,12 @@ Future<List<DnsxHit>> dnsxScan(List<String> list,
     bool manual = false}) async {
   final results = <DnsxHit>[];
   var done = 0;
-  // NATQUOTA: اسکن دستی در نت ملی سهمیه‌ی کم دارد و منتظر جستجوی نت ملی می‌ماند
-  final limited = manual && nationalMode;
-  final dnsBatch = limited ? kNatManualConc : 12; // DNS در هر دسته‌ی همزمان
+  // The [manual] argument remains for call-site compatibility only.
+  // DNS no longer yields to another scanner or receives a national-mode quota.
+  final processors = Platform.numberOfProcessors;
+  final dnsBatch = processors > 0 ? processors : 1;
   for (var i = 0; i < list.length; i += dnsBatch) {
     if (stop != null && stop()) break;
-    if (limited) {
-      await natManualYield(shouldAbort: stop);
-      if (stop != null && stop()) break;
-    }
     final batch = list.sublist(i, min(i + dnsBatch, list.length));
     await Future.wait(batch.map((server) async {
       final hit =
@@ -349,8 +390,9 @@ bool _dnsxAutoBusy = false;
 /// اسکن دستی در حال اجراست؛ تا تمام نشده، اسکن خودکار شروع نمی‌شود
 bool dnsxManualBusy = false;
 
-/// اسکن خودکار: فقط در نت ملی و وقتی VPN قطع است. هر ۲۴ ساعت (یا ۶ ساعت اگر DNS سالمی نبود)، با همه‌ی دامنه‌های پروژه.
-/// اگر وسط کار اتصال برقرار شود (stop=true)، اسکن نیمه‌کاره ذخیره نمی‌شود.
+/// اسکن خودکار با همه‌ی دامنه‌های پروژه در حالت ملی یا جهانی.
+/// از اجرای هم‌زمان تکراری جلوگیری می‌شود، اما cooldown ثابت ۶/۲۴ ساعته وجود ندارد؛
+/// هر بار که scheduler درخواست معتبر بدهد، موجودی کامل دوباره سنجیده می‌شود.
 Future<void> dnsxAutoPick({bool Function()? stop}) async {
   if (_dnsxAutoBusy || dnsxManualBusy) return;
   _dnsxAutoBusy = true;
@@ -369,21 +411,35 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
     if (cached is List && dnsxBestCache.isEmpty) {
       dnsxBestCache = [for (final x in cached) x.toString()];
     }
-    final at = p.get('dnsx_at_v1_$sfx');
-    final last = at is int ? at : 0;
     final now = DateTime.now().millisecondsSinceEpoch;
-    // فاصله‌ی ۲۴ ساعته همیشه رعایت شود، حتی وقتی نتیجه‌ای نبود (جلوگیری از اسکن تکراری)
-    // اگر DNS سالمی نداریم، زودتر دوباره اسکن می‌شود (۶ ساعت)؛ وگرنه هر ۲۴ ساعت
-    final gapMs = dnsxBestCache.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
-    if (now - last < gapMs) return;
+    // Keep the last-run timestamp for diagnostics only; it is not a scan gate.
+    // Repeated requests are coalesced by _dnsxAutoBusy rather than a fixed timer.
     final savedDns = await goldDnsList();
     if (nationalMode != scanNationalMode) return;
-    final list = {...savedDns, ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults)}.toList();
-    // کامل: همه‌ی دامنه‌های پروژه، با فاصله‌ی ۱۵۰ میلی‌ثانیه بین بسته‌ها
+    // Public mode expands from the live resolver catalogue on every scan.
+    // National mode deliberately uses its own resolver seeds and never imports
+    // the global catalogue. Catalogue failure does not shrink saved inventory.
+    final discoveredPublicDns = scanNationalMode
+        ? const <String>[]
+        : await kingDiscoverPublicDnsResolvers();
+    if (nationalMode != scanNationalMode) return;
+    final discoveredGlobalDomains = scanNationalMode
+        ? const <String>[]
+        : await kingDiscoverGlobalDnsDomains();
+    if (nationalMode != scanNationalMode) return;
+    final list = {
+      ...savedDns,
+      ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults),
+      ...discoveredPublicDns,
+    }.toList();
+    // Each mode scans its own complete inventory. The global path merges every
+    // row from the live catalogue; the domestic path never imports that feed.
+    final scanDomains = scanNationalMode
+        ? dnsxNationalModeDomains()
+        : dnsxGlobalModeDomains(discovered: discoveredGlobalDomains);
     final r = await dnsxScan(
       list,
-      domains: dnsxFullDomains(),
-      gap: const Duration(milliseconds: 150),
+      domains: scanDomains,
       stop: () => nationalMode != scanNationalMode || (stop?.call() ?? false),
     );
     // Discard partial or cross-mode results before writing anything.
@@ -396,7 +452,8 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
       final saved = await goldAddDns(r, shouldAbort: shouldAbort);
       if (!saved || shouldAbort()) return;
     }
-    final best = [for (final e in r.take(4)) e.ip];
+    // Persist every verified resolver; this cache is not a top-N inventory.
+    final best = [for (final e in r) e.ip];
     await p.setStringList('dnsx_best_v1_$sfx', best);
     if (shouldAbort()) return;
     await p.setInt('dnsx_at_v1_$sfx', now);
@@ -473,16 +530,34 @@ extension DnsxExt on _HomePageState {
                   .toList();
               final saved = await goldDnsList();
               if (!mounted || !sheetOpen) return;
+              // Manual DNS scan includes the live public resolver inventory;
+              // the user's saved and built-in domestic sources remain merged.
+              final scanNationalMode = nationalMode;
+              final discoveredPublicDns = scanNationalMode
+                  ? const <String>[]
+                  : await kingDiscoverPublicDnsResolvers();
+              if (!mounted || !sheetOpen) return;
+              final discoveredGlobalDomains = scanNationalMode
+                  ? const <String>[]
+                  : await kingDiscoverGlobalDnsDomains();
+              if (!mounted || !sheetOpen || nationalMode != scanNationalMode) return;
               if (stopFlag) {
                 upd(() => note = 'اسکن متوقف شد؛ نتایج ذخیره نشد.');
                 return;
               }
-              final list = {...saved, ...kDnsxDefaults, ...kDnsxNationalDefaults, ...extra}
-                  .toList();
+              final list = {
+                ...saved,
+                ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults),
+                ...discoveredPublicDns,
+                ...extra,
+              }.toList();
+              final scanDomains = scanNationalMode
+                  ? dnsxNationalModeDomains()
+                  : dnsxGlobalModeDomains(discovered: discoveredGlobalDomains);
               upd(() => total = list.length);
               r = await dnsxScan(
                 list,
-                domains: dnsxFullDomains(),
+                domains: scanDomains,
                 manual: true,
                 stop: () => stopFlag || !sheetOpen,
                 onProgress: (d, t) => upd(() {

@@ -2,6 +2,7 @@
 //   flutter test test/nnie_core_test.dart
 // These cover logic only; they do not test real networks, VPN, or Android.
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:king_vpn/nnie_core.dart';
@@ -32,6 +33,56 @@ List<int> _response({
       ..._u16(rdata.length), ...rdata,
     ]);
   }
+  return out;
+}
+
+List<int> _dnsNameWire(String name) {
+  final out = <int>[];
+  for (final label in name.split('.')) {
+    out..add(label.length)..addAll(label.codeUnits);
+  }
+  out.add(0);
+  return out;
+}
+
+/// Builds a valid CNAME chain followed by one A record. Each owner uses a
+/// compression pointer to the prior encoded name, so the fixture also covers
+/// pointer decoding across successive records.
+List<int> _cnameChainResponse({
+  int hops = 17,
+  bool trailingByteInFirstCname = false,
+}) {
+  if (hops < 1) throw ArgumentError.value(hops, 'hops');
+  const queryName = 'host0.example.com';
+  final question = _dnsNameWire(queryName);
+  final out = <int>[
+    ..._u16(0x1234), ..._u16(0x8180),
+    ..._u16(1), ..._u16(hops + 1), ..._u16(0), ..._u16(0),
+    ...question, 0, 1, 0, 1,
+  ];
+  var previousNameOffset = 12;
+  for (var i = 0; i < hops; i++) {
+    final targetWire = _dnsNameWire('host${i + 1}.example.com');
+    final rdata = <int>[
+      ...targetWire,
+      if (i == 0 && trailingByteInFirstCname) 0x7f,
+    ];
+    out.addAll([
+      0xc0 | ((previousNameOffset >> 8) & 0x3f),
+      previousNameOffset & 0xff,
+      ..._u16(5), ..._u16(1),
+      0, 0, 0, 60,
+      ..._u16(rdata.length), ...rdata,
+    ]);
+    previousNameOffset = out.length - rdata.length;
+  }
+  out.addAll([
+    0xc0 | ((previousNameOffset >> 8) & 0x3f),
+    previousNameOffset & 0xff,
+    ..._u16(1), ..._u16(1),
+    0, 0, 0, 60,
+    ..._u16(4), 8, 8, 8, 8,
+  ]);
   return out;
 }
 
@@ -250,15 +301,15 @@ void main() {
       );
     });
 
-    test('rejects documentation IPv6 AAAA answers', () {
+    test('preserves documentation IPv6 AAAA answers as DNS observations', () {
       final bytes = _response(
         id: 0x1234,
         recordType: 28,
         rdata: [0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
       );
       expect(
-        () => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com', recordType: 28),
-        throwsA(isA<FormatException>()),
+        NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com', recordType: 28),
+        ['2001:db8::1'],
       );
     });
 
@@ -285,10 +336,38 @@ void main() {
           throwsA(isA<FormatException>()));
     });
 
-    test('rejects a block-page answer in private space', () {
+    test('preserves block-page-looking private IPv4 as a DNS observation', () {
       final bytes = _response(id: 0x1234, rdata: [10, 10, 34, 34]);
-      expect(() => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
-          throwsA(isA<FormatException>()));
+      expect(
+        NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
+        ['10.10.34.34'],
+      );
+    });
+
+    test('preserves RFC1918 IPv4 DNS answers for network-specific evaluation', () {
+      final bytes = _response(id: 0x1234, rdata: [192, 168, 1, 1]);
+      expect(
+        NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
+        ['192.168.1.1'],
+      );
+    });
+
+    test('preserves documentation-space IPv6 as a DNS observation', () {
+      final bytes = _response(
+        id: 0x1234,
+        recordType: 28,
+        rdata: [
+          0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0, 0, 1,
+        ],
+      );
+      final answer = NatDnsWireProbe.parseResponse(
+        bytes, 0x1234, 'google.com', recordType: 28,
+      ).single;
+      expect(InternetAddress.tryParse(answer)?.rawAddress, [
+        0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 1,
+      ]);
     });
 
     test('rejects a question for a different name', () {
@@ -311,6 +390,45 @@ void main() {
           throwsA(isA<FormatException>()));
     });
 
+    test('accepts a CNAME chain longer than the former 16-hop ceiling', () {
+      final bytes = _cnameChainResponse(hops: 17);
+      expect(
+        NatDnsWireProbe.parseResponse(bytes, 0x1234, 'host0.example.com'),
+        ['8.8.8.8'],
+      );
+    });
+
+    test('rejects CNAME RDATA with trailing bytes outside the encoded name', () {
+      final bytes = _cnameChainResponse(
+        hops: 1,
+        trailingByteInFirstCname: true,
+      );
+      expect(
+        () => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'host0.example.com'),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('accepts a fully qualified query name with a terminal root dot', () {
+      final bytes = _response(id: 0x1234, rdata: [8, 8, 8, 8]);
+      expect(
+        NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com.'),
+        ['8.8.8.8'],
+      );
+    });
+
+    test('rejects the reserved DNS header Z bit', () {
+      final bytes = _response(
+        id: 0x1234,
+        flags: 0x81c0,
+        rdata: [8, 8, 8, 8],
+      );
+      expect(
+        () => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
     test('pre-cancelled DNS probes return without opening a socket', () async {
       final result = await NatDnsWireProbe.probe(
         '127.0.0.1',
@@ -331,7 +449,7 @@ void main() {
       expect(result.error, 'cancellation callback failed');
     });
 
-    test('publicV4 rejects special-use ranges and accepts public addresses', () {
+    test('publicV4 classifies address ranges independently of DNS answer acceptance', () {
       expect(NatDnsWireProbe.publicV4([100, 64, 1, 1], 0), isFalse); // CGNAT
       expect(NatDnsWireProbe.publicV4([192, 168, 1, 1], 0), isFalse);
       expect(NatDnsWireProbe.publicV4([198, 18, 0, 1], 0), isFalse); // benchmarking

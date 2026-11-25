@@ -85,9 +85,114 @@ bool _autoScanStop = false;
 const String _autoScanCdnCursorKey = 'auto_scan_cdn_cursors_v1';
 const String _autoScanDomainCursorKey = 'auto_scan_domain_cursor_v1';
 const String _autoScanPortCursorKey = 'auto_scan_port_cursor_v1';
-const int _autoScanCdnBatchSize = 8;
-const int _autoScanDomainBatchSize = 18;
-const int _autoScanPortBatchSize = 24; // full SNI/port/TLS pass fits the shared four-minute budget
+const String _autoScanCheckpointKey = 'auto_scan_checkpoint_v2';
+
+typedef AutoScanCheckpoint = ({
+  Map<String, dynamic> cdn,
+  String? domain,
+  int? port,
+});
+
+/// Decode the unified scan checkpoint, migrating the legacy per-cursor keys
+/// when no valid v2 checkpoint exists. The returned map is detached from the
+/// decoded JSON object so later staging cannot mutate persisted state.
+AutoScanCheckpoint kingDecodeAutoScanCheckpoint({
+  required String? encoded,
+  String? legacyCdnJson,
+  String? legacyDomain,
+  int? legacyPort,
+}) {
+  Map<String, dynamic> decodeCdn(Object? value) {
+    final result = <String, dynamic>{};
+    if (value is Map) {
+      for (final entry in value.entries) {
+        if (entry.value is num || entry.value is String) {
+          result['${entry.key}'] = entry.value;
+        }
+      }
+    }
+    return result;
+  }
+
+  Map<String, dynamic> legacyCdn = <String, dynamic>{};
+  if (legacyCdnJson != null && legacyCdnJson.isNotEmpty) {
+    try {
+      legacyCdn = decodeCdn(jsonDecode(legacyCdnJson));
+    } catch (_) {
+      // A corrupt legacy CDN cursor must not prevent domain/port recovery.
+    }
+  }
+
+  if (encoded != null && encoded.isNotEmpty) {
+    try {
+      final decoded = jsonDecode(encoded);
+      if (decoded is Map && decoded['version'] == 2) {
+        final cdn = decodeCdn(decoded['cdn']);
+        final hasCdn = decoded['cdn'] is Map;
+        final domainValue = decoded['domain'];
+        final portValue = decoded['port'];
+        final domain = decoded.containsKey('domain')
+            ? (domainValue is String ? domainValue : null)
+            : legacyDomain;
+        final port = decoded.containsKey('port')
+            ? (portValue is num &&
+                    portValue.toInt() >= 1 &&
+                    portValue.toInt() <= 65535
+                ? portValue.toInt()
+                : null)
+            : legacyPort;
+        return (
+          cdn: hasCdn ? cdn : legacyCdn,
+          domain: domain,
+          port: port,
+        );
+      }
+    } catch (_) {
+      // Fall back to legacy keys; never replace them with an empty checkpoint.
+    }
+  }
+  return (cdn: legacyCdn, domain: legacyDomain, port: legacyPort);
+}
+
+/// Encode all auto-scan cursors in one preference value. One write makes the
+/// three independent inventories advance together or not at all.
+String kingEncodeAutoScanCheckpoint({
+  required Map<String, dynamic> cdn,
+  required String? domain,
+  required int? port,
+}) =>
+    jsonEncode({
+      'version': 2,
+      'cdn': cdn,
+      'domain': domain,
+      'port': port,
+    });
+
+/// Return the next fair, wrapping slice from a complete inventory.
+///
+/// [batchSize] limits work in one execution only; it never truncates the
+/// supplied inventory. An unknown/stale cursor safely restarts at the first
+/// item, and an empty inventory never performs modulo arithmetic.
+List<T> kingNextInventoryBatch<T>(
+  Iterable<T> inventory, {
+  required int batchSize,
+  T? lastValue,
+}) {
+  if (batchSize <= 0) return <T>[];
+  final items = inventory.toList(growable: false);
+  if (items.isEmpty) return <T>[];
+  final previousIndex = lastValue == null ? -1 : items.indexOf(lastValue);
+  final start = previousIndex < 0 ? 0 : (previousIndex + 1) % items.length;
+  final count = min(batchSize, items.length);
+  return List<T>.unmodifiable([
+    for (var offset = 0; offset < count; offset++)
+      items[(start + offset) % items.length],
+  ]);
+}
+
+int get _autoScanCdnBatchSize => max(1, Platform.numberOfProcessors * 1024);
+int get _autoScanDomainBatchSize => max(1, Platform.numberOfProcessors * 32);
+int get _autoScanPortBatchSize => max(1, Platform.numberOfProcessors * 64);
 
 // SNI discovery checks endpoint-level HTTPS reachability. It does NOT prove
 // that the Android VPN tunnel carries this traffic; only the core/TUN validation
@@ -202,7 +307,7 @@ Future<List<String>> _autoConfiguredServerIps({
 /// The hostname remains the TLS SNI; only the TCP destination is the AAAA address.
 Future<List<String>> _autoResolveDualStackTargets({required List<String> domains, bool Function()? cancelled}) async {
   final out = <String>{};
-  const batchSize = 4;
+  final batchSize = natAdaptiveConcurrency(0);
   for (var offset = 0; offset < domains.length; offset += batchSize) {
     if (cancelled?.call() ?? false) break;
     final batch = domains.skip(offset).take(batchSize);
@@ -275,23 +380,14 @@ Future<void> autoScanRun(void Function(String) say,
     // ordering only; it never removes global observations from the inventory.
     final base = [for (final entry in _goldIps.values) entry.ip];
     final prefs = await SharedPreferences.getInstance();
-    final savedCursorJson = prefs.getString(_autoScanCdnCursorKey);
-    final cdnCursors = <String, dynamic>{};
-    if (savedCursorJson != null && savedCursorJson.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(savedCursorJson);
-        if (decoded is Map) {
-          for (final entry in decoded.entries) {
-            if (entry.value is num || entry.value is String) {
-              cdnCursors['${entry.key}'] = entry.value;
-            }
-          }
-        }
-      } catch (e, stk) {
-        logError(e, stk);
-      }
-    }
-    final stagedCdnCursors = Map<String, dynamic>.of(cdnCursors);
+    final savedCheckpoint = kingDecodeAutoScanCheckpoint(
+      encoded: prefs.getString(_autoScanCheckpointKey),
+      legacyCdnJson: prefs.getString(_autoScanCdnCursorKey),
+      legacyDomain: prefs.getString(_autoScanDomainCursorKey),
+      legacyPort: prefs.getInt(_autoScanPortCursorKey),
+    );
+    final stagedCdnCursors =
+        Map<String, dynamic>.of(savedCheckpoint.cdn);
     // Use the entire project domain inventory, not only the small seed list.
     // A persisted last-domain cursor rotates through it across completed runs.
     // SNI inventory is federated from independent project sources: dedicated
@@ -299,7 +395,15 @@ Future<void> autoScanRun(void Function(String) say,
     // hosts, and hostnames already present in the saved working server pool.
     // A failed handshake never removes a name; the persisted cursor rotates
     // through the complete merged inventory on subsequent completed runs.
+    final discoveredGlobalDomains = scanNationalMode
+        ? const <String>[]
+        : await kingDiscoverGlobalDnsDomains();
+    if (cancelled()) {
+      say(cancellationMessage());
+      return;
+    }
     final domainSources = <String>{
+      ...discoveredGlobalDomains,
       ...kAutoNationalSniDomains,
       ...kAutoSniDomains,
       ...dnsxFullDomains(),
@@ -321,23 +425,18 @@ Future<void> autoScanRun(void Function(String) say,
         if (server != null && !server.isIp) domainSources.add(server.host);
       }
     }
+    // Both modes share exactly the same hostname validation and IP-literal
+    // exclusion. National mode changes ordering only; it never narrows the
+    // global inventory or bypasses normalization.
     final domainInventory = scanNationalMode
         ? dnsxNationalFirstDomains(extra: domainSources)
-        : (domainSources
-            .map((domain) => domain.trim().toLowerCase())
-            .where((domain) => domain.isNotEmpty && domain.contains('.'))
-            .toList()..sort());
-    final savedDomainCursor = prefs.getString(_autoScanDomainCursorKey);
-    final previousDomainIndex = savedDomainCursor == null
-        ? -1
-        : domainInventory.indexOf(savedDomainCursor);
-    final domainStart = previousDomainIndex < 0
-        ? 0
-        : (previousDomainIndex + 1) % domainInventory.length;
-    final domainBatch = <String>[
-      for (var i = 0; i < min(_autoScanDomainBatchSize, domainInventory.length); i++)
-        domainInventory[(domainStart + i) % domainInventory.length],
-    ];
+        : (kingNormalizeDomainHosts(domainSources)..sort());
+    final savedDomainCursor = savedCheckpoint.domain;
+    final domainBatch = kingNextInventoryBatch(
+      domainInventory,
+      batchSize: _autoScanDomainBatchSize,
+      lastValue: savedDomainCursor,
+    );
     final stagedDomainCursor = domainBatch.isEmpty ? savedDomainCursor : domainBatch.last;
     // Keep the full TCP port-number inventory (1..65535), independently
     // of the smaller set of ports already present in saved configs. Active
@@ -347,15 +446,12 @@ Future<void> autoScanRun(void Function(String) say,
       cancelled: cancelled,
     );
     final portInventory = natBuildFullPortInventory(kAutoPorts);
-    final savedPortCursor = prefs.getInt(_autoScanPortCursorKey) ?? 0;
-    final previousPortIndex = portInventory.indexOf(savedPortCursor);
-    final portStart = previousPortIndex < 0
-        ? 0
-        : (previousPortIndex + 1) % portInventory.length;
-    final portBatch = <int>[
-      for (var i = 0; i < min(_autoScanPortBatchSize, portInventory.length); i++)
-        portInventory[(portStart + i) % portInventory.length],
-    ];
+    final savedPortCursor = savedCheckpoint.port ?? 0;
+    final portBatch = kingNextInventoryBatch(
+      portInventory,
+      batchSize: _autoScanPortBatchSize,
+      lastValue: savedPortCursor,
+    );
     final stagedPortCursor = portBatch.isEmpty ? savedPortCursor : portBatch.last;
     // Refresh and retain CDN ranges in both modes. National-first ordering is
     // applied to domains and DNS observations; it does not discard global IP
@@ -407,7 +503,6 @@ Future<void> autoScanRun(void Function(String) say,
     for (final d in domainBatch) {
       n++;
       if (scanNationalMode) {
-        await natManualYield(shouldAbort: () => cancelled());
         if (cancelled()) break sniLoop;
       }
       final resolved = await _autoResolveDualStackTargets(
@@ -416,9 +511,10 @@ Future<void> autoScanRun(void Function(String) say,
       );
       sniTargets[d] = resolved;
       var ok = false;
-      for (var offset = 0; offset < resolved.length; offset += 4) {
+      final probeConcurrency = natAdaptiveConcurrency(0);
+      for (var offset = 0; offset < resolved.length; offset += probeConcurrency) {
         if (cancelled()) break sniLoop;
-        final batch = resolved.skip(offset).take(4);
+        final batch = resolved.skip(offset).take(probeConcurrency);
         final checks = await Future.wait(
           batch.map((ip) => _autoSniOk(ip, 443, d)),
         );
@@ -443,16 +539,16 @@ Future<void> autoScanRun(void Function(String) say,
     for (final p in portBatch) {
       m++;
       if (scanNationalMode) {
-        await natManualYield(shouldAbort: () => cancelled());
         if (cancelled()) break portLoop;
       }
       var ok = false;
       final portIps = portTargetIps;
       // Probe each TCP port only on exact saved VPN server IPs, never on
       // arbitrary discovered CDN/DNS/public address ranges.
-      for (var offset = 0; offset < portIps.length; offset += 8) {
+      final probeConcurrency = natAdaptiveConcurrency(0);
+      for (var offset = 0; offset < portIps.length; offset += probeConcurrency) {
         if (cancelled()) break portLoop;
-        final batch = portIps.skip(offset).take(8);
+        final batch = portIps.skip(offset).take(probeConcurrency);
         final checks = await Future.wait(
           batch.map((ip) => _autoPortOk(ip, p)),
         );
@@ -478,9 +574,10 @@ Future<void> autoScanRun(void Function(String) say,
       var ok = false;
       for (final d in domainBatch) {
         final targetIps = sniTargets[d] ?? const <String>[];
-        for (var offset = 0; offset < targetIps.length; offset += 4) {
+        final probeConcurrency = natAdaptiveConcurrency(0);
+        for (var offset = 0; offset < targetIps.length; offset += probeConcurrency) {
           if (cancelled()) break;
-          final batch = targetIps.skip(offset).take(4);
+          final batch = targetIps.skip(offset).take(probeConcurrency);
           final selected = await Future.wait(
             batch.map((ip) => _autoAlpnOk(ip, 443, d, alpn)),
           );
@@ -518,13 +615,20 @@ Future<void> autoScanRun(void Function(String) say,
       say(cancellationMessage());
       return;
     }
-    // Advance the CDN inventory only after the scan results have been committed.
-    await prefs.setString(_autoScanCdnCursorKey, jsonEncode(stagedCdnCursors));
-    if (stagedDomainCursor != null) {
-      await prefs.setString(_autoScanDomainCursorKey, stagedDomainCursor);
-    }
-    if (stagedPortCursor != null) {
-      await prefs.setInt(_autoScanPortCursorKey, stagedPortCursor);
+    // One preference write commits CDN, domain and port progress together.
+    // If it fails, the previous checkpoint remains authoritative and the
+    // already-saved observations can safely be rediscovered on the next run.
+    final checkpointSaved = await prefs.setString(
+      _autoScanCheckpointKey,
+      kingEncodeAutoScanCheckpoint(
+        cdn: stagedCdnCursors,
+        domain: stagedDomainCursor,
+        port: stagedPortCursor,
+      ),
+    );
+    if (!checkpointSaved) {
+      say('ذخیرهٔ نقطهٔ ادامهٔ اسکن انجام نشد؛ Cursor قبلی حفظ شد و اجرای بعدی دوباره بررسی می‌کند.');
+      return;
     }
     say('تمام شد: ${domainInventory.length} دامنه و ${discoveredIpCandidates.length} IP کاندیدا مستقل ذخیره شد؛ ${sniHits.length} SNI و ${portHits.length} پورت نیز در محدودهٔ سرورهای تنظیم‌شده بررسی شدند. کاندیداها تأیید اتصال یا تونل نیستند.');
   } catch (e, stk) {

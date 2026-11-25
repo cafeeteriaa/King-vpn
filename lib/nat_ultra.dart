@@ -11,7 +11,6 @@ part of 'main.dart';
 
 int natLevel = 1;
 int natRound = 1; // V12: 1 = pass 1 (skip failed), 2 = pass 2 (retry all)
-const int natMaxVariants = 5000; // V8 • فیکس ۱۷: قبلاً 0x7FFFFFFF
 int natFloor = 0;
 List<Server> natRestPending = [];
 
@@ -365,7 +364,7 @@ List<_NatSpec> _natGenerate() {
     add(_natMk(frag: g));
   }
   for (final g in top) {
-    for (final p in fps.take(7)) {
+    for (final p in fps) {
       add(_natMk(frag: g, fp: p));
     }
   }
@@ -402,7 +401,7 @@ List<_NatSpec> _natGenerate() {
     add(m(null, null));
   }
   for (final m in mods) {
-    for (final g in top.take(12)) {
+    for (final g in top) {
       add(m(g, null));
     }
   }
@@ -412,14 +411,14 @@ List<_NatSpec> _natGenerate() {
     }
   }
   for (final m in mods) {
-    for (final g in top.take(6)) {
+    for (final g in top) {
       for (final p in const ['chrome', 'firefox', 'randomized']) {
         add(m(g, p));
       }
     }
   }
-  for (final g in top.take(20)) {
-    for (final p in fps.take(5)) {
+  for (final g in top) {
+    for (final p in fps) {
       for (final a in alpns) {
         add(_natMk(frag: g, fp: p, alpn: a));
       }
@@ -493,7 +492,6 @@ List<String> _natSniPool() {
 }
 
 int natGrow(int n) {
-  if (_natSpecs.length > 500000) return 0;
   final rnd = Random(DateTime.now().millisecondsSinceEpoch + _natGrowCounter++);
   var added = 0;
   const fps = ['chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge', 'random', 'qq', '360', 'hellogolang', 'hellochrome', 'hellofirefox', 'hellosafari', 'helloios', 'helloandroid', 'helloedge', 'hello360', 'helloqq', 'hellorandomized', 'hellorandomizedalpn', 'hellorandomizednoalpn'];
@@ -690,8 +688,6 @@ bool _natAppliesF(_NatFacts f, int v) {
   if (v < 0 || v >= _natSpecs.length) return false;
   if (v == 0) return true;
   if (natDisabled.contains(v)) return false;
-  if (natVariantCooling(v)) return false; // VARCB
-  if (natRetired(v)) return false;
   final x = _natSpecs[v];
   if (x.other && !f.hasOther) return false;
   if ((x.fp != null || x.alpn != null || x.frag != null || x.noise) &&
@@ -708,8 +704,6 @@ bool _natAppliesF(_NatFacts f, int v) {
   if (x.clean && !(f.sec && !f.reality && f.hasClean && f.cdnLike)) {
     return false;
   }
-  if (x.mux) return false;
-  if (x.noise) return false;
   if (x.mode != null && (!x.mode!.startsWith('kcp:') || f.reality)) return false;
   if (x.doh != null && f.isIp) return false;
   // SNI replacement is valid for any TLS transport supported by the core;
@@ -843,11 +837,6 @@ Duration natBudget({bool full = false}) {
   return const Duration(seconds: 240);
 }
 
-// فیکس ۱۷: سقف‌ها کاهش یافت (قبلاً: 0, 0, 200, 1200, 6000, 15000, 30000, 60000, 100000, 150000, 200000)
-const List<int> _natGenCap = [
-  0, 0, 100, 500, 1500, 4000, 8000, 15000, 20000, 30000, 40000
-];
-
 // فقط mKCP (UDP) «سنگین و کند» حساب می‌شود؛ Fragment و بقیه در اتصال عادی مجازند
 bool _natIsSlowHeavy(int v) {
   final base = v % _natCodeBase;
@@ -864,7 +853,7 @@ List<int> _natOrder(Server s, {bool full = false}) {
   final f = _NatFacts(s);
   final known = natVar[_nk(s)];
   final cursor = _natCursor[_natCk(s)] ?? 0;
-  final again = cursor > 0 && lvl >= 2;
+  final again = cursor > 0;
   final out = <int>[];
   final used = <int>{};
   void put(int c) {
@@ -872,10 +861,9 @@ List<int> _natOrder(Server s, {bool full = false}) {
   }
 
   final preferLight = !nationalMode;
-  final skipHeavy = !nationalMode;
 
   final knownOk = known != null && _natAppliesF(f, known);
-  if (knownOk && (!skipHeavy || !_natIsSlowHeavy(known!))) put(known!);
+  if (knownOk) put(known!);
 
   if (preferLight) {
     // FRAGLADDER: Fragment variants در رأس لیست تا ladder حالت عادی
@@ -909,16 +897,11 @@ List<int> _natOrder(Server s, {bool full = false}) {
   // winner can still be tried first through knownOk above; otherwise KCP stays
   // in the later generated matrix rather than being an unconditional first pick.
 
-  if (lvl >= 2) {
-    for (final w in _natTopWinners(6)) {
-      if (skipHeavy && _natIsSlowHeavy(w)) continue;
-      if (_natAppliesF(f, w)) put(w);
-    }
+  for (final w in _natTopWinners(6)) {
+    if (_natAppliesF(f, w)) put(w);
   }
 
-  final cand = (lvl >= 2
-      ? <int>[for (var i = 0; i < _natBaseCount; i++) i]
-      : <int>[0, 1, 2, 8])
+  final cand = <int>[for (var i = 0; i < _natBaseCount; i++) i]
     ..sort((a, b) {
       final d = (natWins['$natOpKey#$b'] ?? 0) -
           (natWins['$natOpKey#$a'] ?? 0);
@@ -927,20 +910,16 @@ List<int> _natOrder(Server s, {bool full = false}) {
   if (!again) {
     if (!knownOk || (preferLight && knownOk && _natIsSlowHeavy(known!))) {
       for (final v in cand) {
-        if (skipHeavy && _natIsSlowHeavy(v)) continue;
         if (_natAppliesF(f, v)) {
           put(v);
           break;
         }
       }
     }
-    if (lvl >= 2) {
-      for (final i in const <int>[1, 2, 3]) {
-        put(i * _natCodeBase);
-      }
+    for (final i in const <int>[1, 2, 3]) {
+      put(i * _natCodeBase);
     }
     for (final v in cand) {
-      if (skipHeavy && _natIsSlowHeavy(v)) continue;
       if (v != known && _natAppliesF(f, v)) put(v);
     }
   } else if (_natAppliesF(f, 0)) {
@@ -948,8 +927,7 @@ List<int> _natOrder(Server s, {bool full = false}) {
   }
 
   final gens = <int>[];
-  final cap = _natGenCap[lvl];
-  if (cap > 0) {
+  {
     final app = <int>[];
     for (final v in _natGenRanked()) {
       if (_natAppliesF(f, v)) app.add(v);
@@ -971,18 +949,17 @@ List<int> _natOrder(Server s, {bool full = false}) {
       ).index;
       return sa.compareTo(sb);
     });
-    if (cursor >= app.length && lvl >= 2) {
+    if (cursor >= app.length) {
       natGrow(1000);
       app.clear();
       for (final v in _natGenRanked()) {
         if (_natAppliesF(f, v)) app.add(v);
       }
     }
-    if (app.isNotEmpty && cursor < app.length) {
-      final end = min(app.length, cursor + cap);
-      for (var k = cursor; k < end; k++) {
+    if (app.isNotEmpty) {
+      final start = cursor < app.length ? cursor : 0;
+      for (var k = start; k < app.length; k++) {
         final gv = app[k];
-        if (skipHeavy && _natIsSlowHeavy(gv)) continue;
         gens.add(gv);
       }
     }
@@ -991,12 +968,12 @@ List<int> _natOrder(Server s, {bool full = false}) {
   for (var k = 0; k < head; k++) {
     put(gens[k]);
   }
-  if (lvl >= 2 && !again) {
+  if (!again) {
     for (var i = 4; i <= 8; i++) {
       put(i * _natCodeBase);
     }
   }
-  if (lvl >= 3 && !again) {
+  if (!again) {
     for (var i = 9; i <= _natTestUrls.length; i++) {
       put(i * _natCodeBase);
     }
@@ -1004,14 +981,14 @@ List<int> _natOrder(Server s, {bool full = false}) {
   for (var k = head; k < gens.length; k++) {
     put(gens[k]);
   }
-  if (lvl >= 3 && !again) {
+  if (!again) {
     for (var i = 1; i <= _natTestUrls.length; i++) {
       for (final v in const [2, 8, 13]) {
         if (_natAppliesF(f, v)) put(i * _natCodeBase + v);
       }
     }
   }
-  if (lvl >= 4 && !again) {
+  if (!again) {
     for (final w in _natTopWinners(3)) {
       for (var i = 1; i <= 8; i++) {
         if (_natAppliesF(f, w)) put(i * _natCodeBase + w);
@@ -1661,10 +1638,6 @@ void natVarSet(Server s, int v) {
     _natLearnVer++;
   }
   _natCursor.remove(_natCk(s));
-  if (natDimWins.length > 6000) natDimWins.remove(natDimWins.keys.first);
-  while (natVar.length > 4000) {
-    natVar.remove(natVar.keys.first);
-  }
   _natSaveT ??= Timer(const Duration(seconds: 5), () {
     _natSaveT = null;
     natSavePersisted();
@@ -1734,9 +1707,6 @@ Future<void> natLoadPersisted() async {
           }
         }
       });
-      while (natVarNormal.length > 3000) {
-        natVarNormal.remove(natVarNormal.keys.first);
-      }
     }
     if (((j['g'] ?? 0) as num).toInt() != _natGenVer) {
       natVar.removeWhere((k, v) => v >= _natBaseCount);
@@ -1754,7 +1724,6 @@ Future<void> natLoadPersisted() async {
 
 const String _ipMemKey = 'natIpMem';
 const String _rangeKey = 'natRanges';
-const int _ipMemMax = 200;
 
 final List<Map<String, dynamic>> natIpMem = [];
 final Set<String> natIpDeadRun = {};
@@ -1774,10 +1743,6 @@ Future<void> natIpMemLoad() async {
       natIpMem
         ..clear()
         ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
-      final cutoff = DateTime.now()
-          .subtract(const Duration(days: 14))
-          .millisecondsSinceEpoch;
-      natIpMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
     }
     natRanges = (p.getString(_rangeKey) ?? '')
         .split(RegExp(r'[\r\n,; ]+'))
@@ -1813,7 +1778,6 @@ Future<void> natIpMemLoad() async {
 }
 
 const String _domMemKey = 'natDomMem';
-const int _domMemMax = 200;
 const int natDelaySecs = 14;
 final List<Map<String, dynamic>> natDomMem = [];
 
@@ -1827,10 +1791,6 @@ Future<void> natDomMemLoad() async {
       natDomMem
         ..clear()
         ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
-      final cutoff = DateTime.now()
-          .subtract(const Duration(days: 14))
-          .millisecondsSinceEpoch;
-      natDomMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
     }
   } catch (e, stk) {
     logError(e, stk);
@@ -1840,9 +1800,6 @@ Future<void> natDomMemLoad() async {
 Future<void> natDomMemSave(String host, int port) async {
   natDomMem.removeWhere((e) => e['h'] == host && e['port'] == port);
   natDomMem.insert(0, {'h': host, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
-  if (natDomMem.length > _domMemMax) {
-    natDomMem.removeRange(_domMemMax, natDomMem.length);
-  }
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString(_domMemKey, jsonEncode(natDomMem));
@@ -1859,9 +1816,6 @@ Future<bool> natIpMemSaveMany(Iterable<String> ips, int port) async {
     natIpMem.removeWhere((entry) => entry['ip'] == ip && entry['port'] == port);
     natIpMem.insert(0, {'ip': ip, 'port': port, 't': timestamp});
   }
-  if (natIpMem.length > _ipMemMax) {
-    natIpMem.removeRange(_ipMemMax, natIpMem.length);
-  }
   try {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_ipMemKey, jsonEncode(natIpMem));
@@ -1875,9 +1829,6 @@ Future<bool> natIpMemSaveMany(Iterable<String> ips, int port) async {
 Future<void> natIpMemSave(String ip, int port) async {
   natIpMem.removeWhere((e) => e['ip'] == ip && e['port'] == port);
   natIpMem.insert(0, {'ip': ip, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
-  if (natIpMem.length > _ipMemMax) {
-    natIpMem.removeRange(_ipMemMax, natIpMem.length);
-  }
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString(_ipMemKey, jsonEncode(natIpMem));
@@ -2063,9 +2014,10 @@ int _ipToInt(String ip) {
 String _intToIp(int v) =>
     '${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}';
 
-List<String> natExpandAny(String item, {int maxPerBlock = 65536}) {
-  if (maxPerBlock <= 0) return const [];
-  return _natExpandAnyCursorWide(item, '0', maxPerBlock).$1;
+List<String> natExpandAny(String item, {int? maxPerBlock}) {
+  final effectiveBatch = maxPerBlock ?? max(1, Platform.numberOfProcessors * 16384);
+  if (effectiveBatch <= 0) return const [];
+  return _natExpandAnyCursorWide(item, '0', effectiveBatch).$1;
 }
 
 const List<String> natIranDnsHosts = [
@@ -2115,10 +2067,7 @@ Future<List<String>> _natDomainFirst(List<Server> known,
   // Bound endpoint collection, DNS resolution, and TCP probes together.
   // Starting the monotonic clock only after DNS resolution allowed a slow
   // resolver to keep this background phase alive far beyond its advertised cap.
-  const scanBudget = Duration(seconds: 45);
-  final scanClock = Stopwatch()..start();
-  bool expired() => scanClock.elapsed >= scanBudget;
-  bool cancelled() => (stop != null && stop()) || expired();
+  bool cancelled() => stop?.call() ?? false;
   try {
     // Only inspect hosts and ports explicitly present in the user's/current
     // server configurations. Do not scan unrelated public domains or all
@@ -2169,11 +2118,10 @@ Future<List<String>> _natDomainFirst(List<Server> known,
       final hits = await natScanIps(
         entry.value,
         port: entry.key,
-        concurrency: conc.clamp(1, 32).toInt(),
-        // Probe every resolved endpoint in this port group; the shared 45s
-        // deadline and adaptive concurrency bound the discovery phase.
+        concurrency: natAdaptiveConcurrency(conc),
+        // Probe every resolved endpoint in this configured endpoint group.
+        // There is no implicit hit or wall-clock ceiling; cancellation is explicit.
         want: entry.value.length,
-        budget: const Duration(seconds: 5),
         timeout: const Duration(milliseconds: 1200),
         cancelled: cancelled,
       );
@@ -2418,16 +2366,13 @@ bool _natRangeScanBusy = false;
 
 Future<List<String>> natRangeScanStep({
   required List<Server> known,
-  int maxAddrs = 8192,
-  int conc = 4,
+  int conc = 0,
   bool Function()? stop,
-  Duration budget = const Duration(minutes: 2),
 }) async {
   if (_natRangeScanBusy) return const <String>[];
   _natRangeScanBusy = true;
   try {
-    return await _natRangeScanStepBody(
-        known: known, maxAddrs: maxAddrs, conc: conc, stop: stop, budget: budget);
+    return await _natRangeScanStepBody(known: known, conc: conc, stop: stop);
   } finally {
     _natRangeScanBusy = false;
   }
@@ -2435,15 +2380,13 @@ Future<List<String>> natRangeScanStep({
 
 Future<List<String>> _natRangeScanStepBody({
   required List<Server> known,
-  int maxAddrs = 2048,
-  int conc = 4,
+  int conc = 0,
   bool Function()? stop,
-  Duration budget = const Duration(minutes: 2),
 }) async {
   final modeSnapshot = nationalMode;
   bool shouldAbort() =>
       (stop?.call() ?? false) || nationalMode != modeSnapshot;
-  if (!kNatIpScanOn || shouldAbort() || budget <= Duration.zero || maxAddrs <= 0) {
+  if (!kNatIpScanOn || shouldAbort()) {
     return const <String>[];
   }
 
@@ -2496,17 +2439,11 @@ Future<List<String>> _natRangeScanStepBody({
         entry.key.substring(portPrefix.length): entry.value,
   };
 
-  // Choose a batch that can normally finish inside this run's time budget.
-  // This is a continuation slice, not a total address-space limit.
+  // A processor-adaptive continuation slice controls transient memory only.
+  // The persisted range and per-port cursors retain the complete address space.
   const probeTimeout = Duration(milliseconds: 1500);
   final effectiveConcurrency = natAdaptiveConcurrency(conc);
-  final estimatedCapacity = max(
-    1,
-    (budget.inMilliseconds / probeTimeout.inMilliseconds *
-            effectiveConcurrency * 0.65)
-        .floor(),
-  );
-  final scanLimit = min(maxAddrs, estimatedCapacity).toInt();
+  final scanLimit = max(1, effectiveConcurrency * 64);
 
   final configuredStart =
       int.tryParse(localOffsets['__range_cursor']?.toString() ?? '') ?? 0;
@@ -2553,7 +2490,6 @@ Future<List<String>> _natRangeScanStepBody({
     port: port,
     concurrency: effectiveConcurrency,
     want: slice.length,
-    budget: budget,
     timeout: probeTimeout,
     cancelled: shouldAbort,
     onProgress: (done, total, _) => completed = done,
@@ -2585,7 +2521,7 @@ Future<List<String>> _natRangeScanStepBody({
   }
   _natRangePortCursors[modeKey] = port;
 
-  natTemplateSeeds = seeds.take(2).toList();
+  natTemplateSeeds = List<Server>.of(seeds);
   natRandomLast = 0;
   natIpScanned += slice.length;
 
@@ -2633,12 +2569,7 @@ Future<void> userListsSave(String text) async {
 }
 
 // HOTCAP: کاهش از ۲ میلیون برای جلوگیری از OOM روی گوشی ضعیف
-const int natHotPerSource = 80000;
-const int natHotMin = 30000;
-const int natHotMax = 400000;
 List<Server> Function()? natExtraSource;
-const Duration natHotTtl = Duration(hours: 72);
-const Duration natHotFetchDeadline = Duration(seconds: 900);
 bool _hotBusy = false;
 DateTime? _hotFailAt;
 int _hotCursor = 0;
@@ -2768,7 +2699,6 @@ Future<List<String>> _hotFetchOne(String u) async {
     // فیکس ۱۱: split روی رشته‌ی چند مگابایتی در isolate انجام می‌شود
     final lines = await compute(_hotSplitIso, body);
     for (final l in lines) {
-      if (out.length >= natHotPerSource) break;
       final t = l.trim();
       if (!t.contains('://') || t.contains('[email') || t.contains('protected]')) {
         continue;
@@ -2801,23 +2731,16 @@ Future<void> natHotEnsure({bool force = false}) async {
 Future<void> _natHotEnsureImpl({bool force = false}) async {
   final f = File(_hotPath());
   try {
-    final exists = f.existsSync() && f.lengthSync() > 0;
-    final age = f.existsSync()
-        ? DateTime.now().difference(f.lastModifiedSync())
-        : const Duration(days: 365);
-    if (!force && exists && age < natHotTtl) return;
-    if (!force && _hotFailAt != null &&
-        DateTime.now().difference(_hotFailAt!) < const Duration(minutes: 30)) return;
+    // No fixed 72-hour refresh cooldown: explicit scan/refresh requests
+    // re-read configured source inventories. Existing cache survives failures.
     _hotBusy = true;
     final urls = natHotUrls();
     final dir = '/data/data/com.kingvpn.king_vpn/files';
     final parts = [for (var i = 0; i < urls.length; i++) '$dir/hot_part_$i.txt'];
     final extraPath = '$dir/hot_part_extra.txt';
-    final sw = Stopwatch()..start();
     try {
       await pool<int>([for (var i = 0; i < urls.length; i++) i], fetchWorkers,
           (i) async {
-        if (sw.elapsed > natHotFetchDeadline) return;
         final lines = await _hotFetchOne(urls[i]);
         if (lines.isEmpty) return;
         await File(parts[i]).writeAsString(lines.join('\n'), flush: true);
@@ -2840,14 +2763,12 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
       var pos = 0;
       final sink = File(newPath).openWrite();
       try {
-        var full = false;
         final seenKeys = <String>{};
         final mergeFrom = <String>[
           if (File(extraPath).existsSync()) extraPath,
           for (final i in mixed) parts[i],
         ];
         for (final pth in mergeFrom) {
-          if (full) break;
           final pf = File(pth);
           if (!pf.existsSync()) continue;
           await for (final line in pf
@@ -2863,10 +2784,6 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
             sink.add(const [10]);
             pos += b.length + 1;
             offs.add(pos);
-            if (offs.length - 1 >= natHotMax) {
-              full = true;
-              break;
-            }
           }
         }
       } finally {
@@ -2886,9 +2803,6 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
         await File(newPath).rename(_hotPath());
         _hot = _HotIdx(_hotPath(), offs);
         _hotCursor = 0;
-        if (total < natHotMin) {
-          dbg('پوشه‌ی منابع تازه: $total کانفیگ (کمتر از $natHotMin)');
-        }
       } else {
         _hotFailAt = DateTime.now();
         try {

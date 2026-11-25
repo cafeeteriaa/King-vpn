@@ -32,6 +32,72 @@ void main() {
     });
   });
 
+  group('canonical IP address formatting', () {
+    test('IPv6 equivalents normalize to one compressed representation', () {
+      final expanded = InternetAddress(
+        '2001:0db8:0000:0000:0000:0000:0000:0010',
+      );
+      final compressed = InternetAddress('2001:db8::10');
+      expect(natCanonicalIpAddress(expanded), '2001:db8::10');
+      expect(
+        natCanonicalIpAddress(expanded),
+        natCanonicalIpAddress(compressed),
+      );
+    });
+
+    test('IPv4 representation remains unchanged', () {
+      expect(
+        natCanonicalIpAddress(InternetAddress('192.0.2.10')),
+        '192.0.2.10',
+      );
+    });
+
+    test('all-zero and trailing-zero IPv6 runs compress correctly', () {
+      expect(
+        natCanonicalIpAddress(InternetAddress('0:0:0:0:0:0:0:0')),
+        '::',
+      );
+      expect(
+        natCanonicalIpAddress(InternetAddress('2001:db8:0:0:0:0:0:0')),
+        '2001:db8::',
+      );
+    });
+  });
+
+  group('exact endpoint template indexing', () {
+    test('retains every matching configuration without cross-port substitution', () {
+      final indexed = natIndexEndpointTemplates<String>(
+        sources: [
+          (endpoint: 'vless-ws-config', addresses: ['192.0.2.10', '2001:0db8:0000:0000:0000:0000:0000:0010'], port: 443),
+          (endpoint: 'trojan-tls-config', addresses: ['192.0.2.10'], port: 443),
+          (endpoint: 'different-port-config', addresses: ['192.0.2.10'], port: 8443),
+          (endpoint: 'outside-active-scope', addresses: ['192.0.2.99'], port: 443),
+          (endpoint: 'vless-ws-config', addresses: ['192.0.2.10'], port: 443),
+          (endpoint: 'invalid-port', addresses: ['192.0.2.10'], port: 65536),
+        ],
+        keyOf: (endpoint) => endpoint,
+        addressScope: {'192.0.2.10', '2001:db8::10'},
+      );
+      expect(indexed.keys, containsAll([
+        '192.0.2.10|443', '2001:db8::10|443', '192.0.2.10|8443',
+      ]));
+      expect(indexed['192.0.2.10|443'], ['vless-ws-config', 'trojan-tls-config']);
+      expect(indexed['192.0.2.10|8443'], ['different-port-config']);
+      expect(indexed.containsKey('192.0.2.99|443'), isFalse);
+      expect(() => indexed['192.0.2.10|443']!.add('mutation'), throwsUnsupportedError);
+    });
+
+    test('rejects malformed addresses and invalid endpoint ports', () {
+      final indexed = natIndexEndpointTemplates<String>(
+        sources: [
+          (endpoint: 'bad-address', addresses: ['not-an-ip'], port: 443),
+          (endpoint: 'bad-port', addresses: ['192.0.2.1'], port: 0),
+        ],
+        keyOf: (endpoint) => endpoint,
+      );
+      expect(indexed, isEmpty);
+    });
+  });
   group('IP range expansion limits', () {
     test('full port inventory includes every valid port once after priority seeds', () {
       expect(
@@ -208,6 +274,24 @@ void main() {
         );
         expect(again.addresses, isEmpty);
       }
+    });
+
+    test('cursor uses the adaptive default batch when maxPerBlock is omitted', () {
+      final ipv4 = natExpandIpRangeCursor(
+        '192.0.2.0/30', '0', wrap: false,
+      );
+      expect(ipv4.addresses, [
+        '192.0.2.0', '192.0.2.1', '192.0.2.2', '192.0.2.3',
+      ]);
+      expect(ipv4.nextCursor, 'done');
+
+      final ipv6 = natExpandIpRangeCursor(
+        '2001:db8::/126', '0', wrap: false,
+      );
+      expect(ipv6.addresses, [
+        '2001:db8::', '2001:db8::1', '2001:db8::2', '2001:db8::3',
+      ]);
+      expect(ipv6.nextCursor, 'done');
     });
 
     test('IPv6 range cursors cover each address and wrap without 64-bit truncation', () {
