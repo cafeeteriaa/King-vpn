@@ -2745,7 +2745,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = main.index('// ---------- rows', start)
         fetch = main[start:end]
         self.assertIn('withListMirrorStream(u,', fetch)
-        self.assertIn('_streamSourceLines(bytes)', fetch)
+        self.assertIn('decodeConfigSourceLines(bytes, linkRegex: _linkRe)', fetch)
         self.assertNotIn('getListMirror(u)', fetch)
         self.assertNotIn('r.body', fetch)
 
