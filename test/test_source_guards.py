@@ -1771,6 +1771,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(write, guard)
         self.assertLess(guard, mutate)
 
+    def test_nat_range_and_cloudflare_sweeps_share_exclusive_cursor_ownership(self):
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertIn('Future<void> _natSharedRangeCursorQueue', nat)
+        self.assertIn('Future<T> natWithSharedRangeCursorLock<T>', nat)
+        range_start = nat.index('Future<List<String>> natRangeScanStep(')
+        range_end = nat.index('Future<List<String>> _natRangeScanStepBody(', range_start)
+        range_entry = nat[range_start:range_end]
+        self.assertIn('natWithSharedRangeCursorLock(() async {', range_entry)
+        sweep_start = main.index('Future<List<CleanIp>> _atIpSweep(')
+        sweep_end = main.index('Future<List<CleanIp>> _atIpSweepUnlocked(', sweep_start)
+        sweep_entry = main[sweep_start:sweep_end]
+        self.assertIn('natWithSharedRangeCursorLock(() => _atIpSweepUnlocked(pool, budget))', sweep_entry)
+
     def test_nat_range_scan_commits_per_port_cursors_only_after_full_batch(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
