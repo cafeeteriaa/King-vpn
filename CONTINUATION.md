@@ -739,3 +739,15 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) source-contract review — the guard targets the constructor rather than unrelated success-result semantics; (2) regression coupling — the guard requires the focused Dart test to remain present; (3) compatibility — no production source or VPN connection behavior changed in this guard-only commit.
 - Commit: `7d1770bb8316323b8f13b73aeae20ee47145b839`.
 - Exact-head CI for this commit must still complete; no test/analyzer/build success is claimed.
+
+
+## 2026-11-25 — Atomic single-read Fusion adapter registry
+
+- Deeper lifecycle/API audit found the adapter descriptor was read twice during registry construction: once to choose the adapter-map key, then again to snapshot its capabilities. An adapter with a dynamic or stateful descriptor getter could therefore produce an ID/capability snapshot that did not belong to the same observation.
+- Replaced the two-pass index/snapshot constructor with a factory that reads each descriptor once, validates the captured ID, and derives the adapter index, immutable descriptor snapshot and identity-based adapter-ID lookup from that same captured value.
+- The private constructor now receives the already-built immutable registries and validates the coordinator timeouts/history limit. Removed the old index pass to prevent future accidental re-reading.
+- Added a Dart regression adapter whose descriptor getter deliberately changes its ID/title/transport after the first read. The test verifies one getter read, stable public registry metadata, and successful use of the originally captured ID and transport.
+- Added a Python source guard to preserve the single-read registry contract and require the Dart regression.
+- Three-pass review: (1) Registry coherence — ID, adapter map and capabilities are derived from one descriptor observation. (2) Mutability/identity — descriptor transport sets and maps remain immutable; adapter identity mapping continues to use identity semantics. (3) Runtime regression — a changing descriptor getter is exercised through construction, validation, connect and disconnect; the test asserts no subsequent descriptor reads.
+- Commits: 16ff225843b1a1654e204106ee787f66d0ce415f (registry refactor), 4d09d2d5654ea02ed1d8d68d0354c084f4ceda55 (Dart regression), 9c057088b74b42b197394af141df4735e22ff195 (CI source guard).
+- Exact-head CI has not been confirmed. Some earlier workflow runs were cancelled; do not report a passing test/analyzer/build until a run for the final head completes successfully.
