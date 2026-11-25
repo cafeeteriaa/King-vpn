@@ -1385,6 +1385,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('onBadCertificate', sni)
         self.assertNotIn('onBadCertificate', alpn)
 
+    def test_nip_front_sni_keeps_platform_tls_certificate_validation(self):
+        source = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        start = source.index('Future<String?> nipFrontProbe(')
+        end = source.index('Future<String?> nipFindFrontSni(', start)
+        probe = source[start:end]
+        self.assertIn('SecureSocket.secure(', probe)
+        self.assertNotIn('onBadCertificate', probe)
+
     def test_active_v2ray_plugin_lifecycle_patch_is_fail_closed(self):
         patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
         self.assertIn('Lifecycle foreground promotion reports success/failure', patch)
