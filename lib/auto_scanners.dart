@@ -138,11 +138,13 @@ Future<String?> _autoAlpnOk(String ip, int port, String sni, String alpn) async 
   SecureSocket? secure;
   try {
     raw = await Socket.connect(ip, port, timeout: const Duration(seconds: 4));
-    secure = await SecureSocket.secure(raw,
-        host: sni,
-        supportedProtocols: [alpn],
-        onBadCertificate: (_) => true)
-        .timeout(const Duration(seconds: 4));
+    secure = await SecureSocket.secure(
+      raw,
+      host: sni,
+      supportedProtocols: [alpn],
+      // Use the platform trust store. ALPN discovery is not allowed to
+      // classify an invalid or self-signed certificate as trusted TLS evidence.
+    ).timeout(const Duration(seconds: 4));
     return secure.selectedProtocol;
   } catch (_) {
     return null;
