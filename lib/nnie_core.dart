@@ -292,7 +292,7 @@ class NatDnsWireProbe {
     final qtype = (b[p] << 8) | b[p + 1];
     final qclass = (b[p + 2] << 8) | b[p + 3];
     p += 4;
-    final expectedName = domain.toLowerCase().replaceAll(RegExp(r'\., '');
+    final expectedName = domain.toLowerCase().replaceAll(RegExp(r'\.$'), '');
     if (question.name != expectedName || qtype != recordType || qclass != 1) {
       throw const FormatException('Question mismatch');
     }
