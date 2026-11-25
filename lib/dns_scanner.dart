@@ -1,8 +1,8 @@
 part of 'main.dart';
 
 // DNSSCAN: اسکنر DNS. هر resolver با یک پرس‌وجوی UDP به پورت 53 امتحان می‌شود.
-// پاسخ فقط وقتی «سالم» است که IP عمومی واقعی بدهد. پاسخ‌های جعلی یا صفحه‌ی بلاک
-// (مثل 10.10.34.34 یا آی‌پی خصوصی) رد می‌شوند.
+// اعتبار پاسخ بر اساس ساختار DNS، شناسه، سؤال و رکورد واقعی سنجیده می‌شود.
+// خصوصی/ویژه/مستنداتی بودن IP به‌تنهایی مجوز حذف پاسخ از نتایج اسکن نیست.
 // در نت ملی: دامنه‌ی تست داخلی و DNSهای داخلی؛ اسکن به‌صورت خودکار و در پس‌زمینه انجام می‌شود.
 const List<String> kDnsxDefaults = [
   '8.8.8.8',
@@ -178,7 +178,7 @@ List<int> dnsxQuery(String name, int id, {int recordType = 1}) {
   return b;
 }
 
-/// آیا این IPv4 عمومی و واقعی است؟ (خصوصی، لوپ‌بک، صفر و بلاک‌پیج رد می‌شوند)
+/// ابزار طبقه‌بندی IPv4 برای نمایش/تحلیل جداگانه؛ نباید پاسخ DNS را حذف کند.
 bool dnsxIsPublicV4(int a, int b, int c, int d) {
   if (a == 0 || a == 10 || a == 127 || a >= 224) return false;
   if (a == 169 && b == 254) return false;
@@ -189,8 +189,7 @@ bool dnsxIsPublicV4(int a, int b, int c, int d) {
   return true;
 }
 
-/// پاسخ معتبر برای A یا AAAA؛ حداقل یک رکورد عمومی از همان خانواده لازم است.
-/// IPv6 DNS answer validation shares the NNIE global-unicast checks.
+/// پذیرش ساختاری پاسخ A/AAAA؛ کلاس آدرس معیار حذف پاسخ از اسکن نیست.
 bool dnsxIsPublicV6(List<int> bytes, int offset) =>
     NatDnsWireProbe.publicV6(bytes, offset);
 
@@ -198,50 +197,65 @@ bool dnsxAnswerOk(List<int> d, int id, {int recordType = 1}) {
   if (recordType != 1 && recordType != 28) return false;
   if (d.length < 12) return false;
   final rid = (d[0] << 8) | d[1];
-  if (rid != id) return false;
-  final rcode = d[3] & 0x0f;
-  if (rcode != 0) return false;
+  final flags = (d[2] << 8) | d[3];
+  if (rid != id ||
+      (flags & 0x8000) == 0 ||
+      (flags & 0x7800) != 0 ||
+      (flags & 0x0200) != 0 ||
+      (flags & 0x0040) != 0 ||
+      (flags & 0x000f) != 0) {
+    return false;
+  }
   final qd = (d[4] << 8) | d[5];
   final an = (d[6] << 8) | d[7];
-  if (an == 0) return false;
+  if (qd != 1 || an == 0) return false;
   var pos = 12;
+
   int skipName(int p) {
     while (p < d.length) {
       final len = d[p];
       if (len == 0) return p + 1;
-      if ((len & 0xC0) == 0xC0) return p + 2;
+      if ((len & 0xC0) == 0xC0) {
+        if (p + 1 >= d.length) return -1;
+        final pointer = ((len & 0x3F) << 8) | d[p + 1];
+        if (pointer < 12 || pointer >= p || pointer >= d.length) return -1;
+        return p + 2;
+      }
+      if ((len & 0xC0) != 0 || len > 63 || p + 1 + len > d.length) {
+        return -1;
+      }
       p += len + 1;
     }
-    return p;
+    return -1;
   }
-  for (var i = 0; i < qd; i++) {
+
+  pos = skipName(pos);
+  if (pos < 0 || pos + 4 > d.length) return false;
+  final qtype = (d[pos] << 8) | d[pos + 1];
+  final qclass = (d[pos + 2] << 8) | d[pos + 3];
+  if (qtype != recordType || qclass != 1) return false;
+  pos += 4;
+
+  var hasTypedAddress = false;
+  for (var i = 0; i < an; i++) {
     pos = skipName(pos);
-    if (pos + 4 > d.length) return false;
-    final qtype = (d[pos] << 8) | d[pos + 1];
-    if (qtype != recordType || ((d[pos + 2] << 8) | d[pos + 3]) != 1) return false;
-    pos += 4;
-  }
-  var goodA = false;
-  for (var i = 0; i < an && pos + 10 <= d.length; i++) {
-    pos = skipName(pos);
-    if (pos + 10 > d.length) break;
+    if (pos < 0 || pos + 10 > d.length) return false;
     final type = (d[pos] << 8) | d[pos + 1];
+    final rrClass = (d[pos + 2] << 8) | d[pos + 3];
     final rdlen = (d[pos + 8] << 8) | d[pos + 9];
     final rd = pos + 10;
-    if (type == recordType) {
-      final valid = recordType == 1
-          ? rdlen == 4 && rd + 4 <= d.length &&
-              dnsxIsPublicV4(d[rd], d[rd + 1], d[rd + 2], d[rd + 3])
-          : rdlen == 16 && rd + 16 <= d.length && dnsxIsPublicV6(d, rd);
-      if (valid) {
-        goodA = true;
-      } else {
-        return false; // پاسخ ناقص، جعلی یا خارج از محدوده‌ی آدرس‌دهی عمومی
-      }
+    final rdEnd = rd + rdlen;
+    if (rdEnd > d.length) return false;
+    if (type == recordType && rrClass == 1) {
+      final expectedLength = recordType == 1 ? 4 : 16;
+      if (rdlen != expectedLength) return false;
+      // Address class is intentionally not tested here. Valid A/AAAA data
+      // remains observable, including private and special-use address ranges.
+      hasTypedAddress = true;
     }
-    pos = rd + rdlen;
+    pos = rdEnd;
   }
-  return goodA;
+  return hasTypedAddress;
 }
 
 /// نتیجه‌ی یک DNS: چند دامنه جواب داد و میانگین زمان آن‌ها

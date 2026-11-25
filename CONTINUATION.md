@@ -857,3 +857,15 @@ These are three distinct technical review passes by the same assistant, not thre
 - Made the AAAA branch explicit without changing its public-address validation or returned address format.
 - Corrected the terminal-root-dot normalization literal and added an exact source-level check for the updated parser contract.
 - The failed intermediate CI runs are not validation evidence. The latest branch head must complete its own source guards, Flutter tests, Dart analysis and ARM64 build before this patch is considered validated.
+
+
+## 2026-11-25 — DNS answer preservation; address classification decoupled from scan acceptance
+
+- Follow-up review identified three independent address-class drop gates that were inherited in the DNS implementation: the UDP A/AAAA parser in `nnie_core.dart`, the DoH resolver probe in `npv_am_extras.dart`, and the `dnsxAnswerOk` helper in `dns_scanner.dart`.
+- Removed the public-only requirement from all three acceptance paths. Any structurally valid A (4-byte) or AAAA (16-byte) answer associated with the queried name/CNAME chain is retained, including private, loopback, link-local, documentation, CGNAT, special-use and globally routable values.
+- Kept DNS integrity checks: response transaction ID, QR/opcode, truncation/reserved flags, RCODE, exact question/type/class, answer owner/CNAME relationship, compression-pointer ordering, RDATA bounds and exact A/AAAA wire lengths.
+- Kept `publicV4`, `publicV6`, `dnsxIsPublicV4` and `dnsxIsPublicV6` only as separate address-class metadata helpers; they must not gate discovery, answer retention or resolver health acceptance.
+- Replaced the former block-page/private-address rejection test with positive regressions for 10.10.34.34, 192.168.1.1 and 2001:db8::1. Added a Python source guard that forbids reintroducing public-only filtering into any of these three paths.
+- DNS scanner domain discovery, source inventory, queues and scan coverage were not reduced by this patch. This change removes address-class answer filtering; it does not claim that every other existing scheduling or pacing policy has already been audited.
+- Three review passes: (1) packet structure and address-family lengths remain validated; (2) all three answer-acceptance paths no longer branch on public/private address class; (3) explicit regression and source guards cover private IPv4, documentation IPv6 and all three call sites.
+- Exact-head GitHub Actions must pass source guards, Flutter tests and Dart analysis before the patch is considered validated. Live network behavior still needs device testing.

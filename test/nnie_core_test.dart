@@ -335,10 +335,38 @@ void main() {
           throwsA(isA<FormatException>()));
     });
 
-    test('rejects a block-page answer in private space', () {
+    test('preserves block-page-looking private IPv4 as a DNS observation', () {
       final bytes = _response(id: 0x1234, rdata: [10, 10, 34, 34]);
-      expect(() => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
-          throwsA(isA<FormatException>()));
+      expect(
+        NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
+        ['10.10.34.34'],
+      );
+    });
+
+    test('preserves RFC1918 IPv4 DNS answers for network-specific evaluation', () {
+      final bytes = _response(id: 0x1234, rdata: [192, 168, 1, 1]);
+      expect(
+        NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com'),
+        ['192.168.1.1'],
+      );
+    });
+
+    test('preserves documentation-space IPv6 as a DNS observation', () {
+      final bytes = _response(
+        id: 0x1234,
+        recordType: 28,
+        rdata: [
+          0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0, 0, 1,
+        ],
+      );
+      final answer = NatDnsWireProbe.parseResponse(
+        bytes, 0x1234, 'google.com', recordType: 28,
+      ).single;
+      expect(InternetAddress.tryParse(answer)?.rawAddress, [
+        0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 1,
+      ]);
     });
 
     test('rejects a question for a different name', () {
@@ -420,7 +448,7 @@ void main() {
       expect(result.error, 'cancellation callback failed');
     });
 
-    test('publicV4 rejects special-use ranges and accepts public addresses', () {
+    test('publicV4 classifies address ranges independently of DNS answer acceptance', () {
       expect(NatDnsWireProbe.publicV4([100, 64, 1, 1], 0), isFalse); // CGNAT
       expect(NatDnsWireProbe.publicV4([192, 168, 1, 1], 0), isFalse);
       expect(NatDnsWireProbe.publicV4([198, 18, 0, 1], 0), isFalse); // benchmarking

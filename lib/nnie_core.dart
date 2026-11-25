@@ -122,9 +122,9 @@ class NatDnsProbeResult {
   bool get ok => elapsedMs != null && addresses.isNotEmpty;
 }
 
-/// Strict DNS-over-UDP A-query probe. It verifies transaction ID, QR/opcode,
-/// question name/type/class, response source IP/port, RCODE and public A answers.
-/// It is a resolver test only; it is NOT a test of the VPN server's reachability.
+/// Strict DNS-over-UDP A/AAAA probe. It verifies transaction ID, QR/opcode,
+/// question name/type/class, response source IP/port, RCODE and RDATA structure.
+/// It preserves every address class; it is a resolver test, not VPN reachability.
 class _NatDnsProbeCancelled implements Exception {
   const _NatDnsProbeCancelled();
 }
@@ -159,6 +159,7 @@ class NatDnsWireProbe {
     return out;
   }
 
+  /// Address-class metadata helper only. Never use it to drop DNS observations.
   static bool publicV4(List<int> b, int p) {
     if (p + 4 > b.length) return false;
     final a = b[p], c = b[p + 1], d = b[p + 2], e = b[p + 3];
@@ -177,6 +178,7 @@ class NatDnsWireProbe {
     return true;
   }
 
+  /// Address-class metadata helper only. Never use it to drop DNS observations.
   static bool publicV6(List<int> b, int p) {
     if (p + 16 > b.length) return false;
     final first = b[p];
@@ -345,17 +347,18 @@ class NatDnsWireProbe {
         continue;
       }
       if (recordType == 1) {
-        if (rr.rdlen != 4 || !publicV4(b, rr.rd)) {
-          throw const FormatException(
-            'Non-public/blockpage A answer for queried name',
-          );
+        // Preserve every structurally valid A answer. Address-range policy
+        // belongs to a later, explicit connection decision, never DNS parsing.
+        if (rr.rdlen != 4 || rr.rd + 4 > b.length) {
+          throw const FormatException('Malformed A RDATA for queried name');
         }
         ips.add('${b[rr.rd]}.${b[rr.rd + 1]}.${b[rr.rd + 2]}.${b[rr.rd + 3]}');
       } else if (recordType == 28) {
-        if (rr.rdlen != 16 || !publicV6(b, rr.rd)) {
-          throw const FormatException(
-            'Non-public/blockpage AAAA answer for queried name',
-          );
+        // Keep ULA, loopback, link-local, documentation and global IPv6
+        // observations. The scanner reports what DNS returned without
+        // silently dropping an address based on a fixed address-class list.
+        if (rr.rdlen != 16 || rr.rd + 16 > b.length) {
+          throw const FormatException('Malformed AAAA RDATA for queried name');
         }
         ips.add(
           InternetAddress.fromRawAddress(

@@ -4268,5 +4268,37 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('trailing bytes outside the encoded name', tests)
 
 
+    def test_dns_observation_does_not_drop_answers_by_ip_address_class(self):
+        core = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        tests = (ROOT / 'test' / 'nnie_core_test.dart').read_text(encoding='utf-8')
+
+        parser_start = core.index('static List<String> parseResponse(')
+        parser_end = core.index('static Future<T> _waitForProbe', parser_start)
+        parser = core[parser_start:parser_end]
+        self.assertIn('rr.rdlen != 4', parser)
+        self.assertIn('rr.rdlen != 16', parser)
+        self.assertNotIn('publicV4(b, rr.rd)', parser)
+        self.assertNotIn('publicV6(b, rr.rd)', parser)
+
+        dns_start = dns.index('bool dnsxAnswerOk(')
+        dns_end = dns.index('/// نتیجه‌ی یک DNS', dns_start)
+        answer_check = dns[dns_start:dns_end]
+        self.assertIn('rdlen != expectedLength', answer_check)
+        self.assertNotIn('dnsxIsPublicV4(', answer_check)
+        self.assertNotIn('dnsxIsPublicV6(', answer_check)
+
+        doh_start = extras.index('Future<int?> _probeDoh(')
+        doh_end = extras.index('Future<int?> _probeDnsIp(', doh_start)
+        doh_probe = extras[doh_start:doh_end]
+        self.assertNotIn('NatDnsWireProbe.publicV4(', doh_probe)
+        self.assertNotIn('NatDnsWireProbe.publicV6(', doh_probe)
+
+        self.assertIn('preserves block-page-looking private IPv4', tests)
+        self.assertIn('preserves RFC1918 IPv4 DNS answers', tests)
+        self.assertIn('preserves documentation-space IPv6', tests)
+
+
 if __name__ == '__main__':
     unittest.main()
