@@ -1,17 +1,24 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-/// Durable, lossless JSONL storage for inventories that can grow beyond the
-/// practical size of a preferences value. Records are streamed on read/write;
-/// no record-count or byte-count truncation is applied.
+/// Lossless JSONL storage for inventories that can grow beyond preferences.
+///
+/// Reads can be consumed as a stream. [readAll] is retained for callers that
+/// need an in-memory snapshot. Writes are serialized per store instance and
+/// publish a replacement only after the complete temporary snapshot is closed.
 class JsonLinesInventoryStore {
   JsonLinesInventoryStore(this.file);
 
   final File file;
+  Future<void> _writeQueue = Future<void>.value();
 
-  Future<List<Map<String, dynamic>>> readAll() async {
-    if (!await file.exists()) return <Map<String, dynamic>>[];
-    final records = <Map<String, dynamic>>[];
+  /// Yields every record in file order without collecting the inventory.
+  ///
+  /// A malformed line is surfaced as an error; records are never silently
+  /// skipped except for empty separator lines.
+  Stream<Map<String, dynamic>> readRecords() async* {
+    if (!await file.exists()) return;
     await for (final line in file
         .openRead()
         .transform(utf8.decoder)
@@ -21,14 +28,25 @@ class JsonLinesInventoryStore {
       if (decoded is! Map) {
         throw const FormatException('Inventory record must be a JSON object');
       }
-      records.add(Map<String, dynamic>.from(decoded));
+      yield Map<String, dynamic>.from(decoded);
     }
-    return records;
   }
 
-  /// Replaces the snapshot through a same-directory temporary file. The old
-  /// snapshot remains intact if encoding or writing the new one fails.
-  Future<void> replaceAll(Iterable<Map<String, dynamic>> records) async {
+  /// Convenience snapshot API. Use [readRecords] for large inventories.
+  Future<List<Map<String, dynamic>>> readAll() => readRecords().toList();
+
+  /// Serializes replacements so concurrent callers cannot share the temp file.
+  ///
+  /// The temporary file is in the same directory as the destination; the final
+  /// rename is atomic on Android's filesystem. No record or byte ceiling is
+  /// applied. A failed encode/write leaves the previous snapshot untouched.
+  Future<void> replaceAll(Iterable<Map<String, dynamic>> records) {
+    final operation = _writeQueue.then((_) => _replaceAll(records));
+    _writeQueue = operation.catchError((Object _) {});
+    return operation;
+  }
+
+  Future<void> _replaceAll(Iterable<Map<String, dynamic>> records) async {
     await file.parent.create(recursive: true);
     final temporary = File('${file.path}.tmp');
     try {

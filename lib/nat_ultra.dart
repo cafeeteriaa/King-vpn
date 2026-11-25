@@ -1852,17 +1852,22 @@ Future<bool> _natIpMemSaveQueue = Future<bool>.value(true);
 
 Future<bool> natIpMemSaveMany(Iterable<String> ips, int port) {
   final values = ips.toSet().toList(growable: false);
+  final valueSet = values.toSet();
   final operation = _natIpMemSaveQueue.then((_) async {
     if (values.isEmpty) return true;
     if (!_natIpMemLoaded) await natIpMemLoad();
     if (!_natIpMemLoaded) return false;
 
     final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final nextMem = List<Map<String, dynamic>>.of(natIpMem);
-    for (final ip in values.reversed) {
-      nextMem.removeWhere((entry) => entry['ip'] == ip && entry['port'] == port);
-      nextMem.insert(0, {'ip': ip, 'port': port, 't': timestamp});
-    }
+    // Build the replacement in O(existing + updates), rather than repeatedly
+    // scanning and shifting the complete inventory for every newly seen IP.
+    // Keep the historical ordering: newest batch entries first, in input order.
+    final nextMem = <Map<String, dynamic>>[
+      for (final ip in values)
+        <String, dynamic>{'ip': ip, 'port': port, 't': timestamp},
+      for (final entry in natIpMem)
+        if (!(entry['port'] == port && valueSet.contains(entry['ip']))) entry,
+    ];
     try {
       final store = await _natIpMemStore();
       await store.replaceAll(nextMem);

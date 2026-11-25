@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -51,6 +52,57 @@ void main() {
     await store.replaceAll(next);
 
     expect(await store.readAll(), next);
+    expect(await File('${store.file.path}.tmp').exists(), isFalse);
+  });
+
+  test('stream API yields the complete inventory without materializing a list', () async {
+    final records = List<Map<String, dynamic>>.generate(
+      24000,
+      (index) => <String, dynamic>{'ip': '198.51.100.$index', 'port': 443, 't': index},
+      growable: false,
+    );
+    await store.replaceAll(records);
+
+    var count = 0;
+    Map<String, dynamic>? last;
+    await for (final record in store.readRecords()) {
+      count++;
+      last = record;
+    }
+
+    expect(count, records.length);
+    expect(last, records.last);
+  });
+
+  test('concurrent replacements are serialized and leave the last snapshot', () async {
+    final first = <Map<String, dynamic>>[
+      <String, dynamic>{'ip': '192.0.2.10', 'port': 443, 't': 10},
+    ];
+    final second = <Map<String, dynamic>>[
+      <String, dynamic>{'ip': '192.0.2.20', 'port': 8443, 't': 20},
+      <String, dynamic>{'ip': '192.0.2.21', 'port': 8443, 't': 21},
+    ];
+
+    await Future.wait([store.replaceAll(first), store.replaceAll(second)]);
+
+    expect(await store.readAll(), second);
+    expect(await File('${store.file.path}.tmp').exists(), isFalse);
+  });
+
+  test('failed encoding preserves the previously committed snapshot', () async {
+    final previous = <Map<String, dynamic>>[
+      <String, dynamic>{'ip': '203.0.113.8', 'port': 443, 't': 8},
+    ];
+    await store.replaceAll(previous);
+
+    await expectLater(
+      store.replaceAll(<Map<String, dynamic>>[
+        <String, dynamic>{'notJson': Object()},
+      ]),
+      throwsA(isA<JsonUnsupportedObjectError>()),
+    );
+
+    expect(await store.readAll(), previous);
     expect(await File('${store.file.path}.tmp').exists(), isFalse);
   });
 
