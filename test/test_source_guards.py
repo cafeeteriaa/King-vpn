@@ -4051,9 +4051,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = ultra.index('Future<int> _hotFetchOne(')
         end = ultra.index('Future<int> _hotWriteSourceLines(', start)
         fetch = ultra[start:end]
-        self.assertIn('.map((chunk) => chunk', fetch)
+        self.assertIn('_hotBase64Chunks(', fetch)
+        self.assertIn('Stream<String> _hotBase64Chunks(Stream<String> chunks)', fetch)
         self.assertIn(".replaceAll('-', '+')", fetch)
         self.assertIn(".replaceAll('_', '/')", fetch)
+        self.assertIn('final completeLength = combined.length - (combined.length % 4);', fetch)
+        self.assertIn('yield carry.padRight(4, '=');', fetch)
         self.assertIn('.transform(base64.decoder)', fetch)
         self.assertIn('.transform(utf8.decoder)', fetch)
         self.assertNotIn('spool.readAsString()', fetch)
