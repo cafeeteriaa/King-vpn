@@ -2753,8 +2753,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         decoder = main[start:end]
         self.assertIn('utf8.decoder', decoder)
         self.assertIn('base64.decode(b64)', decoder)
-        self.assertIn("lower.startsWith('<html')", decoder)
+        self.assertIn("lower.contains('<html')", decoder)
         self.assertIn("_linkRe.allMatches", decoder)
+        self.assertLess(
+            decoder.index("lower.contains('<html')"),
+            decoder.index("line.contains('://')"),
+        )
 
     def test_streamed_raw_fetch_keeps_configured_mirror_fallback(self):
         extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
