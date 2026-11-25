@@ -1758,6 +1758,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final configuredBatch = _natConfiguredRangeBatch(', nat)
         self.assertNotIn('final configuredBatch = modeSnapshot', nat)
 
+    def test_nat_ip_memory_mutates_only_after_persistent_write_succeeds(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('Future<bool> natIpMemSaveMany(')
+        end = source.index('Future<void> natIpMemSave(', start)
+        body = source[start:end]
+        stage = body.index('final nextMem = List<Map<String, dynamic>>.of(natIpMem);')
+        write = body.index('final committed = await prefs.setString(_ipMemKey, jsonEncode(nextMem));')
+        guard = body.index('if (!committed) return false;', write)
+        mutate = body.index('natIpMem\n      ..clear()\n      ..addAll(nextMem);', guard)
+        self.assertLess(stage, write)
+        self.assertLess(write, guard)
+        self.assertLess(guard, mutate)
+
     def test_nat_range_scan_commits_per_port_cursors_only_after_full_batch(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
