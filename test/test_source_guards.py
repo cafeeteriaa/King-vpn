@@ -2676,3 +2676,43 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+    def test_full_source_discovery_has_no_per_source_or_global_deadline_ceiling(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<List<Server>> fetchServers(')
+        end = main.index('// ---------- rows', start)
+        fetch = main[start:end]
+        self.assertNotIn('maxPerSource', main)
+        self.assertNotIn('fetchDeadline', main)
+        self.assertIn('final sourceLines = quickCap == null ? lines : lines.take(30);', fetch)
+        self.assertIn('for (final l in sourceLines)', fetch)
+        self.assertIn('quickCap != null', fetch)
+
+    def test_raw_subscription_http_errors_fall_through_to_configured_mirrors(self):
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        start = extras.index('Future<http.Response> getListMirror(String u)')
+        end = extras.index('// ======================= لینک اشتراک', start)
+        method = extras[start:end]
+        self.assertIn('r.statusCode == 200 && r.bodyBytes.isNotEmpty', method)
+        self.assertIn('return _safeResp(r);', method)
+        self.assertIn('for (var i = 0; i < order.length; i += 4)', method)
+        self.assertIn('return http.Response(\'\', 599);', method)
+
+    def test_subscription_import_does_not_truncate_valid_profiles(self):
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        start = extras.index('Future<void> importSubscription(')
+        end = extras.index('void subDialog()', start)
+        importer = extras[start:end]
+        self.assertIn('final list = await fetchSubscription(url);', importer)
+        self.assertNotIn('.take(300)', importer)
+        fetch_start = extras.index('Future<List<Server>> fetchSubscription(')
+        fetch_end = extras.index('// ======================= بخش‌های رابط', fetch_start)
+        self.assertIn('final r = await getListMirror(url);', extras[fetch_start:fetch_end])
+
+    def test_automatic_dns_scan_uses_all_saved_resolvers(self):
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        start = dns.index('Future<void> dnsxAutoPick(')
+        end = dns.index('extension DnsxExt', start)
+        method = dns[start:end]
+        self.assertIn('...savedDns,', method)
+        self.assertNotIn('savedDns.take(40)', method)
