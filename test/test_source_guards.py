@@ -2701,6 +2701,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('now - last <', dns_auto)
         self.assertNotIn('now - last <', ip_background)
 
+    def test_nip_hunt_keeps_all_configured_templates_and_supports_shadowsocks(self):
+        nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        start = nip.index('Future<bool> _natIpHunt() async {')
+        end = nip.index('Future<bool> _natTryScan(', start)
+        hunt = nip[start:end]
+        self.assertIn('...natRestPending,', hunt)
+        self.assertIn('...natTemplateSeeds,', hunt)
+        self.assertIn('...fetchedAll,', hunt)
+        self.assertIn('uniqueTemplates.putIfAbsent(server.link, () => server);', hunt)
+        self.assertNotIn('putIfAbsent(server.host, () => server)', hunt)
+        self.assertNotIn("startsWith('ss://')", hunt)
+        swap_start = nip.index('String? nipSwapLink(Server t, String ip)')
+        swap_end = nip.index('extension NipHunt', swap_start)
+        swap = nip[swap_start:swap_end]
+        self.assertIn("if (lower.startsWith('ss://'))", swap)
+        self.assertIn('_natSetHost(l, ip, t.host)', swap)
+        prefetch_start = nip.index('Future<void> natPrefetchAsn(')
+        prefetch_end = nip.index('/// آخرین شکست RIPE', prefetch_start)
+        self.assertIn('final hosts = list.toList(growable: false);', nip[prefetch_start:prefetch_end])
+
     def test_nip_hunt_has_no_time_cooldown_or_per_template_truncation(self):
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         hunt_start = nip.index('Future<bool> _natIpHunt() async {')
