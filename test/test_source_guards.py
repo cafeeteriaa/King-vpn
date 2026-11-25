@@ -1909,6 +1909,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Duration(milliseconds: 250)', handler)
 
 
+    def test_fresh_resources_page_uses_paged_store_reads(self):
+        page = (ROOT / 'lib' / 'fresh_resources_page.dart').read_text(encoding='utf-8')
+        store = (ROOT / 'lib' / 'fresh_resource_store.dart').read_text(encoding='utf-8')
+        index = (ROOT / 'lib' / 'fresh_resource_offset_index.dart').read_text(encoding='utf-8')
+        refresh_start = page.index('Future<void> _refresh() async {')
+        refresh_end = page.index('Future<void> _changePage(', refresh_start)
+        refresh = page[refresh_start:refresh_end]
+        self.assertIn('FreshResourceStore.readPage(offset: _pageOffset, limit: _pageSize)', refresh)
+        self.assertNotIn('FreshResourceStore.readLinks()', refresh)
+        self.assertIn('static Future<FreshResourcePage> readPage(', store)
+        self.assertIn('FreshResourceOffsetIndex.readPage(', store)
+        self.assertIn('snapshot.openRead()', index)
+        self.assertIn('_readValidHeader(', index)
+        self.assertIn('hasMore: page.hasMore', store)
+        self.assertIn('totalCount: page.totalCount', store)
+        self.assertIn('FreshResourceStore.readLinks()', page[page.index('Future<void> _copyAll()'):page.index('Future<void> _clear()')])
+
     def test_fresh_resources_refresh_checks_mounted_before_set_state(self):
         source = (ROOT / 'lib' / 'fresh_resources_page.dart').read_text(encoding='utf-8')
         start = source.index('Future<void> _refresh() async {')
@@ -2073,7 +2090,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Future<void> importSubscription(BuildContext ctx, String url) async {')
         end = source.index('void subDialog()', start)
         method = source[start:end]
-        fetch = method.index('final list = (await fetchSubscription(url)).take(300).toList();')
+        fetch = method.index('final list = await fetchSubscription(url);')
         guard = method.index('if (!mounted) return;', fetch)
         mutation = method.index('favs[s.key] = s.link;', fetch)
         self.assertLess(fetch, guard)
@@ -2672,6 +2689,106 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         save = sheet.index('goldAddDns(r, shouldAbort: () => stopFlag || !sheetOpen)', guard)
         self.assertLess(scan, guard)
         self.assertLess(guard, save)
+
+
+    def test_full_source_discovery_has_no_per_source_or_global_deadline_ceiling(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<List<Server>> fetchServers(')
+        end = main.index('// ---------- rows', start)
+        fetch = main[start:end]
+        self.assertNotIn('maxPerSource', main)
+        self.assertNotIn('fetchDeadline', main)
+        self.assertIn('withListMirrorStream(u,', fetch)
+        self.assertIn('decodeConfigSourceLines(bytes, linkRegex: _linkRe)', fetch)
+        self.assertIn('await for (final line in lines)', fetch)
+        self.assertIn('final quickSample = <String>[]', fetch)
+        self.assertNotIn('quickLines.toList()', fetch)
+        self.assertIn('quickCap != null', fetch)
+        self.assertEqual(fetch.count('if (stop?.call() ?? false) break;'), 2)
+
+    def test_raw_subscription_http_errors_fall_through_to_configured_mirrors(self):
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        start = extras.index('Future<http.Response> getListMirror(String u, {bool skipRaw = false})')
+        end = extras.index('// ======================= لینک اشتراک', start)
+        method = extras[start:end]
+        self.assertIn('r.statusCode == 200 && r.bodyBytes.isNotEmpty', method)
+        self.assertIn('return _safeResp(r);', method)
+        self.assertIn('for (var i = 0; i < order.length; i += 4)', method)
+        self.assertIn('return http.Response(\'\', 599);', method)
+
+    def test_subscription_import_does_not_truncate_valid_profiles(self):
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        start = extras.index('Future<void> importSubscription(')
+        end = extras.index('void subDialog()', start)
+        importer = extras[start:end]
+        self.assertIn('final list = await fetchSubscription(url);', importer)
+        self.assertNotIn('.take(300)', importer)
+        fetch_start = extras.index('Future<List<Server>> fetchSubscription(')
+        fetch_end = extras.index('// ======================= بخش‌های رابط', fetch_start)
+        self.assertIn('final r = await getListMirror(url);', extras[fetch_start:fetch_end])
+
+    def test_automatic_dns_scan_uses_all_saved_resolvers(self):
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        start = dns.index('Future<void> dnsxAutoPick(')
+        end = dns.index('extension DnsxExt', start)
+        method = dns[start:end]
+        self.assertIn('...savedDns,', method)
+        self.assertNotIn('savedDns.take(40)', method)
+
+
+    def test_fresh_resource_export_and_hint_use_real_newlines(self):
+        page = (ROOT / 'lib' / 'fresh_resources_page.dart').read_text(encoding='utf-8')
+        self.assertIn(r"allLinks.join('\n')", page)
+        self.assertNotIn(r"allLinks.join('\\n')", page)
+        self.assertIn(r"hintText: 'vless://...\nvmess://...'", page)
+        self.assertNotIn(r"hintText: 'vless://...\\nvmess://...'", page)
+
+
+    def test_quick_discovery_uses_bounded_reservoir_sample(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<List<Server>> fetchServers(')
+        end = main.index('// ---------- rows', start)
+        fetch = main[start:end]
+        self.assertIn('const sampleSize = 30', fetch)
+        self.assertIn('final quickSample = <String>[]', fetch)
+        self.assertIn('random.nextInt(seenQuickLines + 1)', fetch)
+        self.assertNotIn('final quickLines = await lines.toList()', fetch)
+        self.assertNotIn('quickLines.shuffle()', fetch)
+
+
+    def test_public_source_ingestion_streams_raw_http_into_line_parser(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<List<Server>> fetchServers(')
+        end = main.index('// ---------- rows', start)
+        fetch = main[start:end]
+        self.assertIn('withListMirrorStream(u,', fetch)
+        self.assertIn('decodeConfigSourceLines(bytes, linkRegex: _linkRe)', fetch)
+        self.assertNotIn('getListMirror(u)', fetch)
+        self.assertNotIn('r.body', fetch)
+
+    def test_streamed_source_decoder_preserves_plain_html_and_base64_inputs(self):
+        decoder = (ROOT / 'lib' / 'source_stream_decoder.dart').read_text(encoding='utf-8')
+        self.assertIn('Utf8Decoder(allowMalformed: true)', decoder)
+        self.assertIn('base64.decode(b64)', decoder)
+        self.assertIn("lower.contains('<html')", decoder)
+        self.assertIn("linkRegex", decoder)
+        self.assertIn(".allMatches(line.replaceAll", decoder)
+        self.assertLess(
+            decoder.index("lower.contains('<html')"),
+            decoder.index("line.contains('://')"),
+        )
+
+    def test_streamed_raw_fetch_keeps_configured_mirror_fallback(self):
+        extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        start = extras.index('Future<void> withListMirrorStream(')
+        end = extras.index('Future<http.Response> getListMirror(', start)
+        streamed = extras[start:end]
+        self.assertIn('.send(http.Request', streamed)
+        self.assertIn('response.stream', streamed)
+        self.assertIn('getListMirror(u, skipRaw: true)', streamed)
+        self.assertIn('fallback.bodyBytes', streamed)
+        self.assertIn('bool Function()? stop', streamed)
+        self.assertIn('if (stop?.call() ?? false) return;', streamed)
 
 
 if __name__ == '__main__':

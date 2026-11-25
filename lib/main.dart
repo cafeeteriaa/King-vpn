@@ -8,6 +8,7 @@ import 'king_ai_owner_auth.dart';
 import 'king_command_safety.dart';
 import 'fresh_resource_store.dart';
 import 'fresh_resources_page.dart';
+import 'source_stream_decoder.dart';
 import 'package:local_inference_flutter/local_inference_flutter.dart' as local_inference;
 import 'update_integrity.dart';
 import 'errjournal.dart';
@@ -556,9 +557,7 @@ int standbyBatchSize = 40;
 const bgTimeoutSecs = 10;
 int firstBatchSize = 100; // FAST100: دسته اول هم ۱۰۰تایی
 int fetchWorkers = 16;
-Duration fetchDeadline = const Duration(seconds: 60);
 int tcpWorkers = 20;
-int maxPerSource = 120;
 Duration tcpTimeout = const Duration(milliseconds: 3500);
 // TLS handshakes in the prefilter leaked sockets (crash, instant failures)
 const probeTls = false;
@@ -4690,22 +4689,12 @@ class ProviderPage extends StatelessWidget {
 }
 
 // وضعیت دانلود هر منبع در آخرین دریافت لیست‌ها (برای صفحه‌ی «وضعیت منابع»)
-// ok = دانلود شد • fail = جواب نداد/خالی • skip = مهلت دانلود تمام شد و نوبتش نرسید
+// ok = دانلود شد • fail = جواب نداد/خالی • skip = توقف کاربر یا پایان مسیر quick-connect
 final Map<String, String> srcFetchState = {};
 final Map<String, int> srcFetchCount = {};
 
-/// ERRB64-TEXT: فقط وقتی بدنه‌ی منبع واقعاً base64 است (هر خط فقط حروف base64) true می‌دهد
-bool _looksBase64(String body) {
-  final lines = body
-      .split(RegExp(r'[\r\n]+'))
-      .map((l) => l.trim())
-      .where((l) => l.isNotEmpty)
-      .toList();
-  if (lines.isEmpty) return false;
-  final re = RegExp(r'^[A-Za-z0-9+/=_-]+$');
-  return lines.every((l) => re.hasMatch(l)) && lines.join().length >= 16;
-}
-
+/// Decode public source responses line-by-line when they contain plain configs.
+/// Base64 subscriptions retain the legacy whole-payload decoder for compatibility.
 Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async {
   // QUICKLIST: quickCap = دریافت سریع؛ به ~۲۰۰ سرور که رسید بقیه‌ی منابع رها می‌شوند
   // و بعد از اتصال، لیست کامل در پس‌زمینه دریافت می‌شود
@@ -4713,68 +4702,71 @@ Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async 
   srcFetchCount.clear();
   final all = <String, Server>{};
   final sw = Stopwatch()..start();
-  final dl = quickCap != null ? const Duration(seconds: 12) : fetchDeadline;
+  // Full discovery walks every configured source and every parseable record.
+  // Only the explicitly requested quick-connect path has an early-return budget.
   // لینک‌های اضافه‌ی کاربر اول دریافت می‌شوند
   await pool<String>([...userListUrls, ...listUrls], fetchWorkers, (u) async {
-    if ((stop?.call() ?? false) || sw.elapsed > dl || (quickCap != null && all.length >= quickCap)) {
+    if ((stop?.call() ?? false) ||
+        (quickCap != null &&
+            (sw.elapsed >= const Duration(seconds: 12) || all.length >= quickCap))) {
       srcFetchState[u] = 'skip';
       return;
     }
     try {
-      final r =
-          await getListMirror(u);
-      if (r.statusCode != 200) {
-        srcFetchState[u] = 'fail';
-        return;
-      }
-      var body = r.body.trim();
-      if (body.contains('<html') || body.contains('<!DOCTYPE')) {
-        body = _linkRe
-            .allMatches(body.replaceAll('&amp;', '&'))
-            .map((m) => m.group(0)!)
-            .join('\n');
-      }
-      // ERRB64-TEXT: پاسخ متن ساده مثل «Disabled for maintenance» base64 نیست؛ همان منبع رد می‌شود
-      if (!body.contains('://') && !_looksBase64(body)) {
-        srcFetchState[u] = 'fail';
-        return;
-      }
-      if (!body.contains('://')) {
-        var b64 = body.replaceAll(RegExp(r'[^A-Za-z0-9+/=_-]'), '');
-        b64 = b64.replaceAll('-', '+').replaceAll('_', '/');
-        // ERRB64: طول 4k+1 هیچ‌وقت base64 معتبر نیست؛ کاراکتر اضافه‌ی آخر کنار گذاشته می‌شود
-        if (b64.length % 4 == 1) b64 = b64.substring(0, b64.length - 1);
-        while (b64.length % 4 != 0) { b64 += '='; }
-        try {
-          body = utf8.decode(base64.decode(b64), allowMalformed: true);
-        } catch (_swE) {
-          _swl('build#1', _swE);
-          srcFetchState[u] = 'fail';
-          return;
+      await withListMirrorStream(u, (bytes) async {
+        final lines = decodeConfigSourceLines(bytes, linkRegex: _linkRe)
+            .map((line) => line.trim())
+            .where((line) =>
+                line.contains('://') &&
+                !line.contains('[email') &&
+                !line.contains('protected]'));
+        var pn = 0;
+        var okN = 0;
+        Future<void> consumeLine(String line) async {
+          final server = Server.parse(line);
+          if (server != null) {
+            server.src = u;
+            okN++;
+            all.putIfAbsent(server.key, () => server);
+          }
+          // FREEZEFIX: give the UI thread a frame every few parses.
+          if (++pn % 25 == 0) {
+            await Future<void>.delayed(const Duration(milliseconds: 2));
+          }
         }
-      }
-      final lines = body
-          .split(RegExp(r'[\r\n]+'))
-          .where((l) =>
-              l.contains('://') && !l.contains('[email') && !l.contains('protected]'))
-          .toList()
-        ..shuffle();
-      var pn = 0;
-      var okN = 0;
-      for (final l in lines.take(quickCap != null ? 30 : maxPerSource)) {
-        final s = Server.parse(l);
-        if (s != null) {
-          s.src = u;
-          okN++;
-          all.putIfAbsent(s.key, () => s);
+
+        if (quickCap != null) {
+          // Reservoir sampling retains only a randomized per-source sample.
+          const sampleSize = 30;
+          final quickSample = <String>[];
+          final random = Random();
+          var seenQuickLines = 0;
+          await for (final line in lines) {
+            if (stop?.call() ?? false) break;
+            if (quickSample.length < sampleSize) {
+              quickSample.add(line);
+            } else {
+              final replacement = random.nextInt(seenQuickLines + 1);
+              if (replacement < sampleSize) {
+                quickSample[replacement] = line;
+              }
+            }
+            seenQuickLines++;
+          }
+          for (final line in quickSample) {
+            await consumeLine(line);
+          }
+        } else {
+          // Exhaustive mode drains the network stream through the parser.
+          await for (final line in lines) {
+            if (stop?.call() ?? false) break;
+            await consumeLine(line);
+          }
         }
-        // FREEZEFIX: give the UI thread a frame every few parses
-        if (++pn % 25 == 0) {
-          await Future<void>.delayed(const Duration(milliseconds: 2));
-        }
-      }
-      srcFetchState[u] = okN > 0 ? 'ok' : 'fail';
-      srcFetchCount[u] = okN;
+        srcFetchState[u] =
+            (stop?.call() ?? false) ? 'skip' : (okN > 0 ? 'ok' : 'fail');
+        srcFetchCount[u] = okN;
+      }, stop: stop);
     } catch (_swE) { _swl('build#2', _swE);
       srcFetchState[u] = 'fail';
       // a slow / dead list is normal: it is skipped silently
@@ -6126,9 +6118,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         failMin = 120;
         recheckMin = 30;
         tcpWorkers = 50;
-        maxPerSource = 100;
         fetchWorkers = 4;
-        fetchDeadline = const Duration(seconds: 20);
         firstBatchSize = 100;
         standbyBatchSize = 30;
         maxBatches = 5;
@@ -6162,7 +6152,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (p.getBool('best_defaults_v4') != true) {
         fastWorkers = 3;
         fetchWorkers = 8;
-        fetchDeadline = const Duration(seconds: 45);
         await p.setBool('best_defaults_v4', true);
         await saveNumPrefs();
         await _saveSettings();
@@ -6772,7 +6761,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       final hotOff = await natHotNext(300, fetch: false); // هر دور ۳۰۰ تا؛ اگر پیدا نشد دور بعد ادامه می‌دهد
       // FRESH-DISK: منابع تازه‌ی ذخیره‌شده روی گوشی در اتصال آفلاین هم قابل استفاده‌اند.
-      final diskLinks = await FreshResourceStore.readLinks();
+      List<String> diskLinks = <String>[];
+      try {
+        diskLinks = await FreshResourceStore.readLinks();
+      } catch (e, st) {
+        // A damaged/unavailable optional cache must not abort offline
+        // discovery; continue with the independent national hot inventory.
+        logError(e, st);
+      }
       final diskOff = <Server>[];
       for (final link in diskLinks) {
         final parsed = Server.parse(link);
@@ -6808,8 +6804,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // QUICKLIST: اولین دریافت (و نه بعد از اتصال) فقط ~۲۰۰ سرور؛ لیست کامل بعد از اتصال می‌آید
         // FASTLIST: اتصال عادی هم مثل خلبان با ~۲۰۰ سرور اول شروع می‌کند و سقف ۲۵ ثانیه‌ای دارد
         final quick = !bg && !connected && !nationalMode && !offlineOnly;
-        final f = await fetchServers(stop: () => abort, quickCap: quick ? 200 : null)
-            .timeout(const Duration(seconds: 25), onTimeout: () => <Server>[]);
+        final f = await fetchServers(stop: () => abort, quickCap: quick ? 200 : null);
         _listPartial = quick && f.isNotEmpty;
         if (f.isNotEmpty) {
           // lists that were "dead" get a new chance with the new content

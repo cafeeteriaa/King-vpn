@@ -317,16 +317,83 @@ Future<http.Response?> _raceGet(List<String> urls, Duration t) {
   return c.future;
 }
 
-Future<http.Response> getListMirror(String u) async {
+/// Prefer a streamed raw-source response. If the raw endpoint is unavailable,
+/// preserve the existing mirror race as a buffered compatibility fallback.
+Future<void> withListMirrorStream(
+  String u,
+  Future<void> Function(Stream<List<int>> bytes) consume, {
+  bool Function()? stop,
+}) async {
+  final client = http.Client();
+  http.StreamedResponse? response;
+  try {
+    response = await client
+        .send(http.Request('GET', Uri.parse(u)))
+        .timeout(const Duration(seconds: 8));
+  } catch (error, stack) {
+    logError(error, stack);
+  }
+
+  if (response != null && response.statusCode == 200) {
+    var bytesRead = 0;
+    var streamConsumed = false;
+    try {
+      await consume(
+        response.stream
+            .map((chunk) {
+              bytesRead += chunk.length;
+              return chunk;
+            })
+            .timeout(const Duration(seconds: 8)),
+      );
+      streamConsumed = true;
+    } catch (error, stack) {
+      // A partial raw transfer may be retried through mirrors. Parsed entries
+      // already accepted are deduplicated by the caller's existing key map.
+      logError(error, stack);
+    } finally {
+      client.close();
+    }
+    if (streamConsumed && bytesRead > 0) return;
+  } else {
+    if (response != null) {
+      try {
+        await response.stream
+            .timeout(const Duration(seconds: 8))
+            .drain<void>();
+      } catch (error, stack) {
+        logError(error, stack);
+      }
+    }
+    client.close();
+  }
+
+  if (stop?.call() ?? false) return;
+
+  // The legacy mirror race still provides broad fallback coverage. It is
+  // buffered by design for now; the direct raw path above is end-to-end streamed.
+  final fallback = await getListMirror(u, skipRaw: true);
+  if (fallback.statusCode != 200 || fallback.bodyBytes.isEmpty) {
+    throw StateError('No usable raw source or configured mirror response');
+  }
+  await consume(Stream<List<int>>.value(fallback.bodyBytes));
+}
+
+Future<http.Response> getListMirror(String u, {bool skipRaw = false}) async {
   final ms = _mirrorsOf(u);
   // raw is completely blocked: go straight to the mirrors
-  final skipRaw = ms.isNotEmpty && _rawOk == 0 && _rawFail >= 6;
-  if (!skipRaw) {
+  final rawBlocked = ms.isNotEmpty && _rawOk == 0 && _rawFail >= 6;
+  if (!skipRaw && !rawBlocked) {
     try {
       final r =
           await http.get(Uri.parse(u)).timeout(const Duration(seconds: 8));
-      _rawOk++;
-      return _safeResp(r);
+      // HTTP errors and empty bodies are source failures, not mirror successes.
+      // Try every configured mirror before declaring the source unavailable.
+      if (r.statusCode == 200 && r.bodyBytes.isNotEmpty) {
+        _rawOk++;
+        return _safeResp(r);
+      }
+      _rawFail++;
     } catch (e, stk) {
       logError(e, stk);
       _rawFail++;
@@ -351,9 +418,8 @@ Future<http.Response> getListMirror(String u) async {
 // ======================= لینک اشتراک (subscription) =======================
 Future<List<Server>> fetchSubscription(String url) async {
   try {
-    final r =
-        await http.get(Uri.parse(url)).timeout(const Duration(seconds: 20));
-    if (r.statusCode != 200) return [];
+    final r = await getListMirror(url);
+    if (r.statusCode != 200 || r.bodyBytes.isEmpty) return [];
     var body = r.body.trim();
     if (!body.contains('://')) {
       try {
@@ -410,7 +476,7 @@ extension HomeExtras on _HomePageState {
   Future<void> importSubscription(BuildContext ctx, String url) async {
     Navigator.pop(ctx);
     _set('دریافت اشتراک...');
-    final list = (await fetchSubscription(url)).take(300).toList();
+    final list = await fetchSubscription(url);
     if (!mounted) return;
     if (list.isEmpty) {
       _set('اشتراک خالی بود یا دریافت نشد');
@@ -2808,13 +2874,10 @@ final List<NumOpt> numOpts = [
   NumOpt('tcpTimeout', 'تایم‌اوت TCP (دهم ثانیه)', 1, 300, 35, 300, true,
       () => tcpTimeout.inMilliseconds ~/ 100,
       (v) => tcpTimeout = Duration(milliseconds: v * 100)),
-  NumOpt('maxPerSource', 'حداکثر سرور از هر منبع', 1, 500, 120, 500, true,
-      () => maxPerSource, (v) => maxPerSource = v),
+  // Full source ingestion is exhaustive; no per-source count preference is exposed.
   NumOpt('fetchWorkers', 'دانلود همزمان لیست‌ها', 1, 20, 8, 20, true,
       () => fetchWorkers, (v) => fetchWorkers = v),
-  NumOpt('fetchDeadline', 'مهلت دانلود لیست‌ها (ثانیه)', 5, 120, 45, 120, true,
-      () => fetchDeadline.inSeconds,
-      (v) => fetchDeadline = Duration(seconds: v)),
+  // Full discovery now drains every configured source; network-level request timeouts remain per endpoint.
   NumOpt('firstBatchSize', 'اندازه دسته‌ی اول', 1, 300, 50, 300, true,
       () => firstBatchSize, (v) => firstBatchSize = v),
   NumOpt('standbyBatchSize', 'اندازه دسته (وقتی وصل است)', 1, 300, 40, 300,
@@ -3043,9 +3106,7 @@ extension NumHomeExtras on _HomePageState {
       'batch': 300,
       'tcpWorkers': 20,
       'tcpTimeout': 150,
-      'maxPerSource': 200,
       'fetchWorkers': 8,
-      'fetchDeadline': 60,
       'firstBatchSize': 200,
       'standbyBatchSize': 100,
       'maxBatches': 10,
@@ -3118,9 +3179,7 @@ const Map<String, int> _tunedNums = {
   'recheckMin': 20,
   'tcpWorkers': 60,
   'tcpTimeout': 35,
-  'maxPerSource': 120,
   'fetchWorkers': 6,
-  'fetchDeadline': 25,
   'firstBatchSize': 50,
   'standbyBatchSize': 40,
   'maxBatches': 8,
@@ -3168,9 +3227,7 @@ const Map<String, int> _tunedNums2 = {
   'recheckMin': 20,
   'tcpWorkers': 60,
   'tcpTimeout': 35,
-  'maxPerSource': 120,
   'fetchWorkers': 6,
-  'fetchDeadline': 25,
   'firstBatchSize': 50,
   'standbyBatchSize': 40,
   'maxBatches': 8,

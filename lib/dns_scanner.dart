@@ -313,7 +313,12 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
     if (now - last < gapMs) return;
     final savedDns = await goldDnsList();
     if (nationalMode != scanNationalMode) return;
-    final list = {...savedDns.take(40), ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults)}.toList();
+    // Recheck the complete persisted resolver inventory; do not silently ignore
+    // entries beyond an arbitrary first-page count. Linked sets deduplicate it.
+    final list = {
+      ...savedDns,
+      ...(scanNationalMode ? kDnsxNationalDefaults : kDnsxDefaults),
+    }.toList();
     // کامل: همه‌ی دامنه‌های پروژه، با فاصله‌ی ۱۵۰ میلی‌ثانیه بین بسته‌ها
     final r = await dnsxScan(
       list,
