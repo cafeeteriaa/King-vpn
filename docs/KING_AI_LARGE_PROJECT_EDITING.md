@@ -91,3 +91,15 @@ Before model generation, the supplied Dart/Python inventory is analyzed for rela
 - Check runs, workflow runs, job lists, and check annotations are fetched through GitHub's paginated endpoints until the final short page. GitHub's maximum of 100 records per request is respected, but no application-level page or item ceiling discards later failures.
 - Completed CI is reported as fully passed only when all relevant check runs and workflow runs have successful conclusions (with neutral/skipped check runs treated as non-failing). Cancelled, timed-out, stale, and other unsuccessful completed checks are retained as failures rather than omitted.
 - Individual job logs still use a bounded in-memory download path to protect device RAM; oversized logs are reported as unavailable evidence rather than silently treated as complete.
+
+
+## Imported project repair lifecycle
+
+The owner-only ZIP import API now exposes a complete local workspace lifecycle:
+
+1. `importProjectZip(File)` extracts into a fresh app-private workspace.
+2. `inspectImportedProject(workspacePath)` verifies the workspace is a real direct child of the private imports directory, rejects symlinked roots, inventories editable Dart/Python/Markdown files, and returns a canonical source-snapshot hash. Unknown, binary, protected and symlink entries are excluded and left untouched.
+3. `proposeImportedProjectRepair(workspacePath, task)` sends the editable inventory through the same chunked, dependency-aware, checkpointed repair engine used by repository repairs. The result is bound to the exact source snapshot hash.
+4. `applyImportedProjectChanges(workspacePath, expectedSnapshotHash, changes)` rejects stale proposals, validates every existing target path and secret scan, stages every replacement beside its target, then replaces files with rollback backups. It never creates new files or writes outside the imported workspace.
+
+The apply phase rechecks each target immediately before staging to close the inspect-to-write race. Backup deletion after a successful commit is best-effort; an orphaned backup is safer than undoing a committed multi-file edit after another backup has already been removed. This is rollback-capable per-file replacement, not a filesystem-wide atomic transaction.
