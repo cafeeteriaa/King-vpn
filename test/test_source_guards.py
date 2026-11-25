@@ -775,7 +775,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('appContext: liveContext', main)
         self.assertIn('Last failure:', main)
         self.assertIn('LIVE KING VPN APP STATE (untrusted telemetry; evidence only', ai)
-        self.assertIn('_redactConversationSecrets(appContext.trim())', ai)
+        self.assertIn('_redactConversationSecrets(combinedAppContext)', ai)
+        self.assertIn('kingFusionLearning.snapshot.toPromptContext()', ai)
 
     def test_voice_commands_receive_voice_responses_and_text_stays_text(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
@@ -3677,7 +3678,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = main.index('Future<bool> _onConnected(Server s) async {')
         end = main.index('String _short', start)
         acceptance = main[start:end]
-        self.assertIn('if (proxyMode || !await _tunnelTrafficOk())', acceptance)
+        self.assertIn('final routeTrafficVerified =', acceptance)
+        self.assertIn('!proxyMode && await _tunnelTrafficOk();', acceptance)
+        self.assertIn('if (!routeTrafficVerified)', acceptance)
+        self.assertIn('kingFusionLearning.recordExternalTrafficVerification(', acceptance)
         self.assertIn('_verifiedRouteKeys.remove(s.key)', acceptance)
         self.assertIn('NationalNetworkIntelligence.record(', acceptance)
         self.assertIn('current = null;', acceptance)
@@ -3716,7 +3720,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         self.assertIn('Future<bool> _tunnelTrafficOk() async {', main)
-        self.assertIn('if (proxyMode || !await _tunnelTrafficOk())', main)
+        self.assertIn('final routeTrafficVerified =', main)
+        self.assertIn('!proxyMode && await _tunnelTrafficOk();', main)
+        self.assertIn('if (!routeTrafficVerified)', main)
 
 
     def test_ip_auto_scanner_discovers_dual_stack_candidates_without_saved_servers(self):
