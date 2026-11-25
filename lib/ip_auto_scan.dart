@@ -406,7 +406,8 @@ extension IpAutoExt on _HomePageState {
     if (runNationalMode) {
       say('دریافت الگوهای مستقل نت ملی...');
       try {
-        final nationalSeeds = await natHotNext(50, fetch: false);
+        // Load the complete local national inventory; downstream work uses resumable slices.
+        final nationalSeeds = await natHotNext(null, fetch: false);
         if (halted()) return false;
         if (nationalSeeds.isNotEmpty) {
           natTemplateSeeds = nationalSeeds.toList();
