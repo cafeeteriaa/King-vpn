@@ -2837,6 +2837,8 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
       final newPath = '${_hotPath()}.new';
       final offs = <int>[0];
       var pos = 0;
+      var freshTotal = 0;
+      final oldCachePath = _hotPath();
       final sink = File(newPath).openWrite();
       try {
         var full = false;
@@ -2844,9 +2846,11 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
         final mergeFrom = <String>[
           if (File(extraPath).existsSync()) extraPath,
           for (final i in mixed) parts[i],
+          if (File(oldCachePath).existsSync()) oldCachePath,
         ];
         for (final pth in mergeFrom) {
           if (full) break;
+          final isOldCache = pth == oldCachePath;
           final pf = File(pth);
           if (!pf.existsSync()) continue;
           await for (final line in pf
@@ -2854,7 +2858,7 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
               .transform(utf8.decoder)
               .transform(const LineSplitter())) {
             if (line.isEmpty) continue;
-            final tab = line.indexOf('\t');
+            final tab = line.indexOf('\\t');
             final cfg = tab >= 0 ? line.substring(tab + 1) : line;
             if (!seenKeys.add(cfg)) continue;
             final b = utf8.encode(line);
@@ -2862,6 +2866,7 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
             sink.add(const [10]);
             pos += b.length + 1;
             offs.add(pos);
+            if (!isOldCache) freshTotal++;
             if (offs.length - 1 >= natHotMax) {
               full = true;
               break;
@@ -2872,15 +2877,7 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
         await sink.close();
       }
       final total = offs.length - 1;
-      final oldIdx = await _hotLoad();
-      final oldTotal = oldIdx == null ? 0 : oldIdx.offs.length - 1;
-      if (total > 0 && oldTotal > 0 && total < oldTotal ~/ 2) {
-        dbg('پوشه‌ی منابع تازه: ساخت جدید فقط $total کانفیگ داشت (قبلی $oldTotal)؛ پوشه‌ی قبلی نگه داشته شد');
-        _hotFailAt = DateTime.now();
-        try {
-          await File(newPath).delete();
-        } catch (e) { errJournalAdd(e, kind: 'SILENT-FILE'); }
-      } else if (total > 0) {
+      if (freshTotal > 0 && total > 0) {
         _hotFailAt = null;
         await File(newPath).rename(_hotPath());
         _hot = _HotIdx(_hotPath(), offs);
