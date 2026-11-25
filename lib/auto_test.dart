@@ -793,7 +793,7 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
       return [
         'lib/nat_ultra.dart → _natSpecs (لیست حالت‌های پروژه)',
         'این حالت روی چند تلاش با اتصال واقعی ترافیک تونل نداد',
-        'اگر تست دوباره همین را گفت، حالت را در _natRetiredNames (nat_ultra.dart) بگذار؛ کار دیگری لازم نیست',
+        'اگر تست دوباره همین را گفت، علت ناسازگاری را در همان مسیر اصلاح کن؛ حالت از موجودی آزمون حذف نشود',
       ];
     }
     switch (code) {
