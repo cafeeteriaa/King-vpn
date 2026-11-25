@@ -4761,10 +4761,14 @@ Stream<String> _streamSourceLines(Stream<List<int>> bytes) async* {
           .allMatches(line.replaceAll('&amp;', '&'))
           .map((match) => match.group(0)!);
       for (final line in prefix) {
-        yield* extract(line);
+        for (final link in extract(line)) {
+          yield link;
+        }
       }
       while (await iterator.moveNext()) {
-        yield* extract(iterator.current);
+        for (final link in extract(iterator.current)) {
+          yield link;
+        }
       }
     } else {
       for (final line in prefix) {
