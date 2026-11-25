@@ -9292,7 +9292,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
           if (!recovered) {
             dbg('رد شد (Activity): ${s.name} • ${lastFail}');
-            continue;
+            _nnieClearAttempt(s); continue;
           }
           // success — fall through to post-start checks
         } else if (lastStartNoTunnel) {
@@ -9301,7 +9301,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           errorLog.value =
               'خطای هسته/تونل اندروید برای ${s.name}: ${lastFail} • سرور جریمه نشد';
           dbg('رد موقت ${s.name}: خطای هسته/تونل؛ شمارنده سلامت سرور تغییر نکرد');
-          continue;
+          _nnieClearAttempt(s); continue;
         } else {
           // BADCFG: a config that fails end-to-end twice in a row is not healthy;
           // remove it from the candidate list (pinned servers are never removed).
@@ -9316,7 +9316,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             lastFail.isEmpty ? 'شروع نشد' : lastFail,
             knownIp: ip0,
           ));
-          continue;
+          _nnieClearAttempt(s); continue;
         }
       }
       coreUpCount++; // CORE-SYSTEMIC: the core started for this config
@@ -9432,7 +9432,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (nationalMode) failed[s.key] = DateTime.now(); // NATSKIP
           // اطلاعاتی است، نه خطا: اتصال برقرار شد ولی ترافیک رد نشد
           dbg('ℹ ${s.name}: وصل شد ولی اینترنت رد نشد (${_short(lastPingErr, 70)}) • اطلاعاتی، خطا نیست • سرور بعدی');
-          continue;
+          _nnieClearAttempt(s); continue;
         }
         // PINGRETRY: the first ping after connect is often slow while the tunnel
         // warms up (9346 ms seen in the logs); measure once more before judging
@@ -9464,7 +9464,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           badPingRounds++;
           dbg('پینگ از تونل بد بود (${p}ms) • ${s.name} • '
               'سرور بعدی / تست سریع بعدی • دور $badPingRounds/$badPingMaxRounds');
-          continue;
+          _nnieClearAttempt(s); continue;
         }
       }
       // TUNCHK: همه‌ی مسیرها: اگر ترافیک واقعی از تونل رد شد، سرور رد می‌شود
@@ -9496,7 +9496,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             await _stopV2();
             dbg('اتصال: ${s.name} رد شد — ترافیک تونل (google/youtube) رد نشد • سرور بعدی');
             errorLog.value = '${s.name}: ترافیک تونل رد شد — سرور بعدی…';
-            continue;
+            _nnieClearAttempt(s); continue;
           }
         } else {
           tunChecked = true;
@@ -9518,7 +9518,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 siteSkips++;
                 s.svc = 0;
                 s.badAt = DateTime.now();
-                continue;
+                _nnieClearAttempt(s); continue;
               }
             } else {
               dbg('اتصال: ${s.name} با جایگزین ذخیره‌شده ترافیک تونل OK');
@@ -9618,7 +9618,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             final why = 'تلگرام از تونل باز نشد (tg=$tg)';
             dbg('اتصال: ${s.name} رد شد — $why • سرور بعدی');
             errorLog.value = '${s.name}: $why — سرور بعدی…';
-            continue;
+            _nnieClearAttempt(s); continue;
           }
           if (sp != null) s.speed = sp;
           s.svc = (tg ? 1 : 0) | (yt ? 2 : 0) | (ig ? 4 : 0);

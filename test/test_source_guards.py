@@ -126,12 +126,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         begin = main.index('_nnieBeginAttempt(s);', start)
         end = main.index('\n    return false;\n  }\n\n  // REAL speed test right after connecting', begin)
         attempt = main[begin:end]
-        for previous in attempt.split('return false;')[:-1]:
-            self.assertIn(
-                '_nnieClearAttempt(s);',
-                previous[-180:],
-                'Every early return after _nnieBeginAttempt must clear the attempt timer',
-            )
+        for exit_statement in ('return false;', 'continue;'):
+            for previous in attempt.split(exit_statement)[:-1]:
+                self.assertIn(
+                    '_nnieClearAttempt(s);',
+                    previous[-180:],
+                    'Every per-server exit after _nnieBeginAttempt must clear the attempt timer',
+                )
 
     def test_connect_path_uses_mode_aware_tunnel_probe(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
