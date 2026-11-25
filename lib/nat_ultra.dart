@@ -365,7 +365,7 @@ List<_NatSpec> _natGenerate() {
     add(_natMk(frag: g));
   }
   for (final g in top) {
-    for (final p in fps.take(7)) {
+    for (final p in fps) {
       add(_natMk(frag: g, fp: p));
     }
   }
@@ -402,7 +402,7 @@ List<_NatSpec> _natGenerate() {
     add(m(null, null));
   }
   for (final m in mods) {
-    for (final g in top.take(12)) {
+    for (final g in top) {
       add(m(g, null));
     }
   }
@@ -412,14 +412,14 @@ List<_NatSpec> _natGenerate() {
     }
   }
   for (final m in mods) {
-    for (final g in top.take(6)) {
+    for (final g in top) {
       for (final p in const ['chrome', 'firefox', 'randomized']) {
         add(m(g, p));
       }
     }
   }
-  for (final g in top.take(20)) {
-    for (final p in fps.take(5)) {
+  for (final g in top) {
+    for (final p in fps) {
       for (final a in alpns) {
         add(_natMk(frag: g, fp: p, alpn: a));
       }
@@ -493,7 +493,7 @@ List<String> _natSniPool() {
 }
 
 int natGrow(int n) {
-  if (_natSpecs.length > 500000) return 0;
+  // No fixed inventory ceiling: every distinct generated variant is retained.
   final rnd = Random(DateTime.now().millisecondsSinceEpoch + _natGrowCounter++);
   var added = 0;
   const fps = ['chrome', 'firefox', 'randomized', 'ios', 'android', 'safari', 'edge', 'random', 'qq', '360', 'hellogolang', 'hellochrome', 'hellofirefox', 'hellosafari', 'helloios', 'helloandroid', 'helloedge', 'hello360', 'helloqq', 'hellorandomized', 'hellorandomizedalpn', 'hellorandomizednoalpn'];
@@ -1661,10 +1661,7 @@ void natVarSet(Server s, int v) {
     _natLearnVer++;
   }
   _natCursor.remove(_natCk(s));
-  if (natDimWins.length > 6000) natDimWins.remove(natDimWins.keys.first);
-  while (natVar.length > 4000) {
-    natVar.remove(natVar.keys.first);
-  }
+  // Learned variant and dimension inventories are not truncated to top-N caps.
   _natSaveT ??= Timer(const Duration(seconds: 5), () {
     _natSaveT = null;
     natSavePersisted();
@@ -1734,9 +1731,6 @@ Future<void> natLoadPersisted() async {
           }
         }
       });
-      while (natVarNormal.length > 3000) {
-        natVarNormal.remove(natVarNormal.keys.first);
-      }
     }
     if (((j['g'] ?? 0) as num).toInt() != _natGenVer) {
       natVar.removeWhere((k, v) => v >= _natBaseCount);
@@ -2585,7 +2579,7 @@ Future<List<String>> _natRangeScanStepBody({
   }
   _natRangePortCursors[modeKey] = port;
 
-  natTemplateSeeds = seeds.take(2).toList();
+  natTemplateSeeds = seeds.toList();
   natRandomLast = 0;
   natIpScanned += slice.length;
 
