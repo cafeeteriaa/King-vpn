@@ -17549,123 +17549,99 @@ extension ProjectNatSweep on _HomePageState {
       natWithSharedRangeCursorLock(() => _atIpSweepUnlocked(pool, budget));
 
   Future<List<CleanIp>> _atIpSweepUnlocked(List<Server> pool, Duration budget) async {
-    Server? server;
-    for (final x in pool) {
-      if (_natCdnNets.contains(x.net)) {
-        server = x;
-        break;
-      }
+    // Active probing is limited to exact IP:port pairs declared by configured
+    // Cloudflare VPN server records. Public CDN CIDRs remain passive inventory;
+    // they are never expanded into arbitrary third-party port probes here.
+    final endpointServers = pool
+        .where((server) =>
+            _natCdnNets.contains(server.net) &&
+            server.port >= 1 &&
+            server.port <= 65535)
+        .toList(growable: false);
+    if (endpointServers.isEmpty || budget <= Duration.zero) {
+      return <CleanIp>[];
     }
-    if (server == null) return <CleanIp>[];
-    final sv = server;
     final vIdx = _natSpecs.indexWhere((x) => x.name == 'IP تمیز Cloudflare');
     if (vIdx <= 0) {
-      dbg('IPSCAN: حالت «IP تمیز Cloudflare» در ماتریس پیدا نشد '
-          '(vIdx=$vIdx، تعداد ماتریس=${_natSpecs.length})');
+      dbg('IPSCAN: حالت «IP تمیز Cloudflare» در ماتریس پیدا نشد (vIdx=$vIdx)');
       return <CleanIp>[];
     }
 
-    // Dual-stack CDN and discovered endpoint inventory. Each port owns a
-    // persisted cursor, so a bounded slice never becomes a permanent coverage cap.
-    final ranges = <String>{
-      ..._cfRanges,
-      ..._cfRangesV6,
-      ..._atAutoRanges(good),
-    }.toList(growable: false);
-    await _natLoadRangeCursors();
-    final scanDeadline = DateTime.now().add(const Duration(seconds: 35));
-    final opened = <CleanIp>[];
-    const sweepBatchSize = 128;
-    final portStart = (int.tryParse(
-          _cfRangeCursors['atsweep:port_cursor']?.toString() ?? '0') ?? 0) %
-        _natCfPorts.length;
-    for (var portOffset = 0; portOffset < _natCfPorts.length; portOffset++) {
-      final portIndex = (portStart + portOffset) % _natCfPorts.length;
-      final port = _natCfPorts[portIndex];
+    // Resolve only the configured server hosts, preserving each declared port.
+    final endpointByKey = <String, Server>{};
+    for (final configured in endpointServers) {
       if (abort || AutoTestEngine._abortRequested) break;
-      final left = scanDeadline.difference(DateTime.now());
-      if (left <= Duration.zero || ranges.isEmpty) break;
-      final prefix = 'atsweep:$port:';
-      final localCursors = <String, dynamic>{
-        for (final entry in _cfRangeCursors.entries)
-          if (entry.key.startsWith(prefix))
-            entry.key.substring(prefix.length): entry.value,
-      };
-      final pool2 = _getCfIps(
-        batchSize: sweepBatchSize,
-        liveRanges: ranges,
-        cursors: localCursors,
-      );
-      if (pool2.isEmpty) continue;
+      final resolved = configured.isIp
+          ? <String>[configured.host]
+          : await nipResolveAll(configured.host);
+      if (abort || AutoTestEngine._abortRequested) break;
+      for (final ip in resolved) {
+        endpointByKey.putIfAbsent('${ip}|${configured.port}', () => configured);
+      }
+    }
+    if (endpointByKey.isEmpty || abort || AutoTestEngine._abortRequested) {
+      return <CleanIp>[];
+    }
+
+    final byPort = <int, Set<String>>{};
+    for (final entry in endpointByKey.entries) {
+      final split = entry.key.split('|');
+      if (split.length != 2) continue;
+      final port = int.tryParse(split[1]);
+      if (port == null) continue;
+      (byPort[port] ??= <String>{}).add(split[0]);
+    }
+
+    final opened = <CleanIp>[];
+    final scanClock = Stopwatch()..start();
+    for (final entry in byPort.entries) {
+      if (abort || AutoTestEngine._abortRequested) break;
+      final remaining = budget - scanClock.elapsed;
+      if (remaining <= Duration.zero) break;
+      final ips = entry.value.toList(growable: false);
       var completed = 0;
       final hits = await natScanIps(
-        pool2,
-        port: port,
+        ips,
+        port: entry.key,
         concurrency: 24,
-        want: pool2.length,
-        budget: left,
+        want: ips.length,
+        budget: remaining,
+        timeout: const Duration(milliseconds: 1500),
         cancelled: () => abort || AutoTestEngine._abortRequested,
         onProgress: (done, total, hitCount) => completed = done,
       );
-      // Cursor advancement is committed only if every address in this slice
-      // completed for this port. Interrupted slices are retried, never skipped.
-      if (completed < pool2.length) break;
-      // Stage this sweep's cursor independently, then commit it through the
-      // same V4 checkpoint used by NAT Range. A V2-only write is ignored when
-      // a V4 checkpoint exists, which would otherwise lose this cursor on restart.
-      final nextCursors = Map<String, dynamic>.from(_cfRangeCursors)
-        ..removeWhere((key, _) => key.startsWith(prefix));
-      for (final entry in localCursors.entries) {
-        nextCursors['$prefix${entry.key}'] = entry.value;
-      }
-      nextCursors['atsweep:port_cursor'] =
-          (portIndex + 1) % _natCfPorts.length;
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        final committed = await prefs.setString('natRangeCheckpointV4', jsonEncode({
-          'cursors': nextCursors,
-          'ports': _natRangePortCursors,
-          'offsets': _natConfiguredRangeOffsets,
-          'configuredCursor': _natConfiguredRangeCursor,
-        }));
-        if (!committed) break;
-        _cfRangeCursors
-          ..clear()
-          ..addAll(nextCursors);
-        // Keep the legacy mirror for older app versions; V4 is authoritative.
-        await prefs.setString('natRangeScanCursorsV2', jsonEncode(nextCursors));
-      } catch (e, st) {
-        logError(e, st);
-        break;
-      }
+      // A partial slice is retried on the next invocation; it is never promoted.
+      if (completed < ips.length) break;
       for (final hit in hits) {
-        opened.add(CleanIp(hit.ip, hit.ms, port));
+        opened.add(CleanIp(hit.ip, hit.ms, entry.key));
       }
-    }
-    dbg('IPSCAN: ${opened.length} جفت IP:پورت باز');
-    var cands = opened;
-    if (cands.isEmpty && !abort) {
-      cands = [for (final ip in await _cleanCandidates()) CleanIp(ip, 0, 443)];
     }
 
     final winners = <CleanIp>[];
-    final saved = List<CleanIp>.of(cleanIps);
-    final key = _nk(sv);
-    final prevNatVar = natVar[key]; // FIXSWEEP: حالت یادگرفته‌شده‌ی قبلی را پاک نکن
-    final t0 = DateTime.now();
-    final prevWant = wantVpn;
+    final savedCleanIps = List<CleanIp>.of(cleanIps);
+    final previousWant = wantVpn;
+    final validationClock = Stopwatch()..start();
     try {
       wantVpn = true;
-      for (var i = 0; i < cands.length; i++) {
-        if (abort || AutoTestEngine._abortRequested || AutoTestEngine._phase != _AtPhase.running) break;
-        if (DateTime.now().difference(t0) > budget) break;
-        final c = cands[i];
-        cleanIps = [c];
+      for (var i = 0; i < opened.length; i++) {
+        if (abort ||
+            AutoTestEngine._abortRequested ||
+            AutoTestEngine._phase != _AtPhase.running ||
+            validationClock.elapsed > budget) {
+          break;
+        }
+        final candidate = opened[i];
+        final configured = endpointByKey['${candidate.ip}|${candidate.port}'];
+        if (configured == null) continue;
+        final key = _nk(configured);
+        final previousVariant = natVar[key];
+        cleanIps = [candidate];
         natVar[key] = vIdx;
-        autoTestText.value = 'سنجش IP تمیز ${winners.length}/10 • ${i + 1}/${cands.length}';
+        autoTestText.value =
+            'سنجش endpoint تنظیم‌شده ${i + 1}/${opened.length} • نتیجه سالم: ${winners.length}';
         var ok = false;
         try {
-          if (await _start(sv)) {
+          if (await _start(configured)) {
             await Future.delayed(const Duration(seconds: 2));
             ok = await _tunnelTrafficOk();
           }
@@ -17673,19 +17649,19 @@ extension ProjectNatSweep on _HomePageState {
           logError(e, stk);
         } finally {
           await _stopV2();
+          if (previousVariant != null) {
+            natVar[key] = previousVariant;
+          } else {
+            natVar.remove(key);
+          }
         }
-        if (ok) winners.add(c);
+        if (ok) winners.add(candidate);
       }
     } finally {
-      // FIXSWEEP: اگر کاربر وسط اسکن قطع کرده، wantVpn نباید دوباره true شود
-      wantVpn = prevWant && !abort;
-      if (prevNatVar != null) {
-        natVar[key] = prevNatVar;
-      } else {
-        natVar.remove(key);
-      }
-      cleanIps = saved;
+      wantVpn = previousWant && !abort;
+      cleanIps = savedCleanIps;
     }
+    dbg('IPSCAN: ${opened.length} endpoint باز • ${winners.length} تونل تأییدشده');
     return winners;
   }
 }
