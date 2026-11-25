@@ -1780,7 +1780,7 @@ Future<void> natIpMemLoad() async {
       natIpMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
     }
     natRanges = (p.getString(_rangeKey) ?? '')
-        .split(RegExp(r'[\r\n,; ]+'))
+        if (ch.trim().isEmpty || ch == '<' || ch == '>' || ch == '"') {
         .map((value) => value.trim())
         .where((value) => value.isNotEmpty)
         .where((value) => natExpandIpRangeCursor(
