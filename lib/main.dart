@@ -12632,10 +12632,8 @@ ListTile( // KINGEXTRAS row
       if (_automationRunning) wantVpn = false;
       return;
     }
-    // NATVERIFY-AD: بودجه‌ی تأیید تونل از پایان تبلیغ شروع می‌شود، نه از لحظه‌ی تپ
-    natVerifyClock
-      ..reset()
-      ..start();
+    // Tunnel verification continues until success, explicit cancellation, or
+    // the candidate queue is exhausted; no per-tap wall-clock ceiling is applied.
     // سرور شخصی و پوشه: بعد از تبلیغ، با نتیجه‌ی پینگ آماده، مستقیم به بهترین وصل می‌شود
     if ((only != null && only.personal) || (row == 'f:pfolder' && only == null)) {
       await personalFolderConnect();
