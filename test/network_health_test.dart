@@ -115,6 +115,52 @@ void main() {
       expect(evidence.confidence, closeTo(0.55 / 6, 0.0001));
     });
 
+    test('accepts the documented two-of-three success quorum', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 2,
+        domesticSuccesses: 2,
+        globalSuccesses: 0,
+        domesticLatencyMs: 170,
+        domesticTlsReachabilityVerified: true,
+      );
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.domestic);
+    });
+
+    test('does not change route when the healthy group lacks full probe coverage', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 2,
+        globalSamples: 3,
+        domesticSuccesses: 2,
+      );
+      expect(choosePilotNetworkStrategy(evidence), PilotNetworkStrategy.preserve);
+    });
+
+    test('requires at least the full 80ms material latency gain', () {
+      const below = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.healthy,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticLatencyMs: 151,
+        globalLatencyMs: 230,
+      );
+      const atThreshold = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.healthy,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticLatencyMs: 150,
+        globalLatencyMs: 230,
+      );
+      expect(choosePilotNetworkStrategy(below), PilotNetworkStrategy.preserve);
+      expect(choosePilotNetworkStrategy(atThreshold), PilotNetworkStrategy.domestic);
+    });
+
     test('selects domestic only when global probes fail', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.healthy,
