@@ -5,6 +5,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KingVpnSourceGuardTests(unittest.TestCase):
+    def test_android_ci_runs_on_the_active_king_ai_engineering_branch(self):
+        workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
+        self.assertIn('feature/king-ai-multimodal-orchestrator-20261125', workflow)
+        self.assertIn('pull_request:', workflow)
     def test_ping_alone_never_accepts_a_vpn_route(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('Future<bool> _connectLoop(')
@@ -16,16 +20,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_ip_auto_keeps_transient_core_failures_retryable(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
-        start = source.index('final firstOk = await _ipAutoCoreOk(s, url);')
+        start = source.index('final templates = endpointConfigsByPair[c]')
         end = source.index('ipAutoHits.insert(0, c);', start)
         verification = source[start:end]
-        first_failure = verification.split('if (!firstOk) {', 1)[1].split('final secondOk', 1)[0]
-        second_failure = verification.split('if (!secondOk) {', 1)[1].split('ipAutoPendingCore.remove(c);', 1)[0]
-        self.assertIn('RETRY-FAILED-ENDPOINT', first_failure)
-        self.assertIn('ناموفق موقت؛ برای نوبت بعد حفظ شد', first_failure)
-        self.assertIn('تأیید دوم ناموفق؛ برای نوبت بعد حفظ شد', second_failure)
-        self.assertNotIn('ipAutoPendingCore.remove(c)', first_failure)
-        self.assertNotIn('ipAutoPendingCore.remove(c)', second_failure)
+        self.assertIn('for (final template in templates)', verification)
+        self.assertIn('_ipAutoCoreOk(serverWithIp, url)', verification)
+        self.assertIn('if (!firstOk) continue;', verification)
+        self.assertIn('if (!secondOk) continue;', verification)
+        self.assertIn('if (!verified)', verification)
+        self.assertIn('همهٔ الگوهای دقیق موقتاً ناموفق؛ برای نوبت بعد حفظ شد', verification)
+        failure = verification.split('if (!verified) {', 1)[1].split('ipAutoPendingCore.remove(c);', 1)[0]
+        self.assertNotIn('ipAutoPendingCore.remove(c)', failure)
+        self.assertLess(verification.index('if (!verified)'), verification.index('ipAutoPendingCore.remove(c);'))
 
     def test_auto_scan_sheet_forwards_live_vpn_guards_and_server_snapshots(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
@@ -1346,8 +1352,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Future<void>? _hotEnsureFuture;', source)
         self.assertIn('await active;', source)
         self.assertIn('Future<void> _natHotEnsureImpl({bool force = false}) async', source)
-        self.assertIn('final seenKeys = <String>{};', source)
-        self.assertIn('if (!seenKeys.add(cfg)) continue;', source)
+        self.assertNotIn('final seenKeys = <String>{};', source)
+        self.assertIn('final oldCachePath = _hotPath();', source)
+        self.assertIn('if (File(oldCachePath).existsSync()) oldCachePath,', source)
+        self.assertIn('const int _hotIndexStride = 256;', source)
         fill_start = source.index('Future<void> hotAutoFill() async')
         fill_end = source.index('Future<void> hotAutoStart()', fill_start)
         self.assertNotIn('manageExternalStorage', source[fill_start:fill_end])
@@ -1357,6 +1365,92 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         export_start = source.index('Future<void> hotExportToDownload() async')
         export_end = source.index('List<String> natHotUrls()', export_start)
         self.assertIn('await hotStorageAllow()', source[export_start:export_end])
+
+    def test_hot_cache_export_masks_credentials_while_streaming(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> hotExportToDownload() async')
+        end = source.index('List<String> natHotUrls()', start)
+        body = source[start:end]
+        self.assertIn('.openRead()', body)
+        self.assertIn('.transform(const LineSplitter())', body)
+        self.assertIn('_maskUuidsForExport(line)', body)
+        self.assertNotIn('src.readAsString()', body)
+        self.assertIn('if (exportFailed)', body)
+        self.assertIn('await exportSink.close();', body)
+
+    def test_hot_source_fetch_does_not_truncate_each_source_inventory(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn('natHotPerSource', source)
+        fetch_start = source.index('Future<int> _hotFetchOne(String u, String path)')
+        fetch_end = source.index('Future<void>? _hotEnsureFuture', fetch_start)
+        fetch_body = source[fetch_start:fetch_end]
+        self.assertIn('_hotWriteSourceLines(u, path,', fetch_body)
+        self.assertIn('const LineSplitter().split(body)', fetch_body)
+        self.assertNotIn('out.length >=', fetch_body)
+        self.assertNotIn('List<String> _hotSplitIso', source)
+        self.assertIn("sink.writeln('$source\\t$value');", fetch_body)
+
+    def test_hot_source_refresh_merges_previous_inventory_without_replacing_on_empty_fetch(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('final newPath =')
+        end = source.index('    } finally {\n      for (final p in [...parts, extraPath])', start)
+        body = source[start:end]
+        self.assertIn('final oldCachePath = _hotPath();', body)
+        self.assertIn('if (File(oldCachePath).existsSync()) oldCachePath,', body)
+        self.assertIn('if (!isOldCache) freshTotal++;', body)
+        self.assertIn('if (freshTotal > 0 && total > 0)', body)
+        self.assertNotIn('oldTotal ~/ 2', body)
+        self.assertIn('sink.add(b);', body)
+        self.assertNotIn('seenKeys', body)
+
+    def test_hot_source_inventory_uses_sparse_index_without_total_record_cap(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn('natHotMax', source)
+        self.assertIn('const int _hotIndexStride = 256;', source)
+        self.assertIn('Future<List<int>> _hotBuildSparseIndex(String path)', source)
+        self.assertIn('packed.add(pos + i + 1)', source)
+        self.assertIn('final int lineCount;', source)
+        self.assertIn('final int byteLength;', source)
+        self.assertIn('final String signature;', source)
+        self.assertIn('if (signature != h.signature)', source)
+        self.assertIn('_hotOffsetAtLine(raf, h, start)', source)
+        self.assertIn('_hotOffsetAtLine(raf, h, endLine)', source)
+        self.assertNotIn('final List<int> offs;', source)
+        self.assertNotIn('final seenKeys = <String>{};', source)
+
+    def test_hot_source_sparse_index_counts_unterminated_final_record(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = source.index('List<int> _hotSparseOffsetsIso(String path)')
+        end = source.index('Future<int> _hotOffsetAtLine', start)
+        body = source[start:end]
+        self.assertIn('if (pos > 0 && lastByte != 10) lineCount++;', body)
+        self.assertIn('packed[1] = pos;', body)
+        self.assertIn('packed.add(pos + i + 1);', body)
+
+    def test_hot_source_refresh_has_no_fixed_wall_clock_deadline(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn('natHotFetchDeadline', source)
+        self.assertNotIn('sw.elapsed >', source)
+        self.assertNotIn('natHotMax', source)
+
+    def test_hot_source_cursor_survives_restart_and_serializes_page_reads(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn("const String _hotCursorKey = 'nat_hot_cursor_v1';", source)
+        self.assertIn("const String _hotCursorSignatureKey = 'nat_hot_cursor_signature_v1';", source)
+        self.assertIn('while (_hotNextBusy)', source)
+        self.assertIn('await waiting.future;', source)
+        self.assertIn('return await _natHotNextUnlocked(n, fetch: fetch, retried: retried);', source)
+        start = source.index('Future<List<Server>> _natHotNextUnlocked(')
+        end = source.index('const String kNatMemKey', start)
+        body = source[start:end]
+        self.assertIn('final signature =', body)
+        self.assertIn('savedSignature == signature', body)
+        self.assertIn('savedCursor', body)
+        self.assertIn("pageText.split('\\n')", body)
+        self.assertIn("entry.indexOf('\\t')", body)
+        self.assertLess(body.index('prefs.setInt(_hotCursorKey, cursor)'), body.index('prefs.setString(_hotCursorSignatureKey, signature)'))
+        self.assertIn('if (cursor < 0 || cursor >= lines) cursor = 0;', body)
+        self.assertIn('if (await raf.length() != h.byteLength)', body)
 
     def test_active_v2ray_plugin_lifecycle_patch_is_fail_closed(self):
         patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
@@ -1973,7 +2067,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = source.index('void _handleSpeechResult', start)
         send = source[start:end]
         self.assertLess(send.index('if (!mounted) return;'),
-                        send.index('final prompt = _input.text.trim();'))
+                        send.index('final typedPrompt = _input.text.trim();'))
         self.assertIn('if (mounted && (_speak || voice))', send)
 
 
@@ -1982,7 +2076,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Future<void> _send() async {')
         end = source.index('void _handleSpeechResult', start)
         send = source[start:end]
-        inference = send.index('final answer = await KingLocalAi.instance.ask(prompt, maxTokens: 1400);')
+        inference = send.index('answer = await KingLocalAi.instance.ask(prompt, maxTokens: 1400);')
         disposed_guard = send.index('if (!mounted) return;', inference)
         add_answer = send.index('_add(answer, true);', inference)
         voice_output = send.index('KingVoiceOutput.instance.speakPersian(answer)')
@@ -2277,6 +2371,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
             self.assertIn('finally', body)
             self.assertIn('secure?.destroy()', body)
             self.assertIn('raw?.destroy()', body)
+            self.assertNotIn('onBadCertificate', body)
         tls_start = source.index('final tlsHits = <String>[];')
         tls_end = source.index("await goldAddScans(", tls_start)
         tls = source[tls_start:tls_end]
@@ -2287,7 +2382,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_ip_auto_storage_load_and_save_are_mode_isolated_across_awaits(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         load_start = source.index('Future<void> ipAutoLoad() async {')
-        save_start = source.index('Future<void> _ipAutoSave() async {', load_start)
+        save_start = source.index('Future<bool> _ipAutoSave() async {', load_start)
         load = source[load_start:save_start]
         save_end = source.index('/// Inventory پویا', save_start)
         save = source[save_start:save_end]
@@ -2764,6 +2859,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('pending', body)
         self.assertNotIn('fetchedAll', body)
 
+    def test_dns_auto_cache_retains_all_verified_resolvers(self):
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        start = dns.index('Future<void> dnsxAutoPick(')
+        end = dns.index('extension DnsxExt', start)
+        body = dns[start:end]
+        self.assertIn('...dnsxBestCache,', body)
+        self.assertIn('for (final e in r) e.ip,', body)
+        self.assertIn('if (best.isNotEmpty)', body)
+        self.assertIn("p.setStringList('dnsx_best_v1_$sfx', best)", body)
+        self.assertNotIn('r.take(', body)
+
     def test_dns_probe_checks_cancellation_after_inter_batch_delay(self):
         dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
         start = dns.index('Future<DnsxHit?> dnsxProbe(')
@@ -3072,7 +3178,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('ipAutoHits.removeRange(', source)
         self.assertIn('final ports = endpointTargets.keys.toList()..sort();', source)
         self.assertIn('if (pool.isEmpty)', source)
-        self.assertIn('if (tpl.isEmpty)', source)
+        self.assertIn('final endpointConfigsByPair = <String, List<Server>>{};', source)
+        self.assertIn('final templates = endpointConfigsByPair[c] ?? const <Server>[];', source)
         self.assertIn('want: endpointIps.length,', source)
         self.assertIn('const Duration _ipAutoCoreBudget = Duration(minutes: 4);', source)
         self.assertIn('while (activeQueue.isNotEmpty &&', source)
@@ -3082,6 +3189,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('..addAll(savedPending.split', source)
         self.assertIn('await p.setString(pendingKey, pending.join', source)
         self.assertIn('for (final candidate in candidates)', source)
+        save_start = source.index('Future<bool> _ipAutoSave()')
+        save_end = source.index('/// Inventory', save_start)
+        save_body = source[save_start:save_end]
+        self.assertLess(save_body.index('pendingKey, pending.join'), save_body.index('cursorKey, jsonEncode(cursors)'))
+        run_start = source.index('Future<bool> _ipAutoRunOnce(')
+        run_end = source.index('Future<void> ipAutoSheet(', run_start)
+        run_body = source[run_start:run_end]
+        checkpoint = run_body.index("if (!await _ipAutoSave() || halted())")
+        queue = run_body.index('for (final candidate in candidates)')
+        core = run_body.index('while (activeQueue.isNotEmpty &&', checkpoint)
+        self.assertLess(queue, checkpoint)
+        self.assertLess(checkpoint, core)
 
 
     def test_ip_auto_scans_only_exact_configured_dual_stack_endpoints(self):
@@ -3112,7 +3231,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('allowedEndpointPairs.contains', run)
         self.assertIn('activeQueue', run)
         self.assertIn('out-of-scope historical items stay queued', run)
-        self.assertIn('server.port == port', run)
+        self.assertIn("final pair = '$address|${server.port}';", run)
+        self.assertIn('endpointConfigsByPair.putIfAbsent(pair, () => <Server>[]).add(server);', run)
+        self.assertIn('for (final template in templates)', run)
         self.assertIn('Core outbound delay is not proof', run)
         self.assertIn('promotion requires a real user tunnel test', run)
 
@@ -3451,6 +3572,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         probe = source[start:end]
         self.assertIn('status < 100 || status > 599', probe)
         self.assertNotIn('status >= 400', probe)
+        self.assertNotIn('onBadCertificate', probe)
+
+    def test_diagnostic_and_cdn_tls_probes_require_valid_certificates(self):
+        diag = (ROOT / 'lib' / 'net_diag.dart').read_text(encoding='utf-8')
+        start = diag.index('Future<_DiagItem> _diagTls(')
+        end = diag.index('Future<String> netDiagnose()', start)
+        self.assertNotIn('onBadCertificate', diag[start:end])
+        extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        start = extras.index('Future<int?> _cfProbeMs(')
+        end = extras.index('Socket? h;', start)
+        self.assertNotIn('onBadCertificate', extras[start:end])
 
     def test_proxy_only_mode_cannot_pass_the_vpn_tunnel_acceptance_gate(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
@@ -3689,6 +3821,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('if (pool.isEmpty) {\n      return false;', run)
         self.assertIn('if (knownEndpoints.isEmpty)', run)
         self.assertIn('final endpointIps = (endpointTargets[port] ?? <String>{}).toList();', run)
+        self.assertNotIn('nationalSeeds.take(2)', run)
+        self.assertNotIn('pool.take(2)', run)
+        self.assertIn('final endpointConfigsByPair = <String, List<Server>>{};', run)
+        self.assertIn('final pair = \'$address|${server.port}\';', run)
+        self.assertIn('for (final template in templates)', run)
+        self.assertIn('endpointConfigsByPair[c]', run)
         self.assertIn('natScanIps(\n        endpointIps,', run)
         self.assertNotIn('natScanIps(\n        independentIpCandidates,', run)
         self.assertIn("_goldScan['ip_candidates']", source)
@@ -3869,6 +4007,169 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('onProgress: (done, total) {', hunt)
         self.assertIn('completed = done;', hunt)
         self.assertNotIn('if (abort || hits.isEmpty) return false;', hunt)
+
+
+    def test_nat_sparse_index_is_persisted_and_invalidated_by_cache_signature(self):
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn("String _hotIndexPath(String cachePath)", ultra)
+        self.assertIn("Future<List<int>?> _hotReadSparseIndex(", ultra)
+        self.assertIn("Future<void> _hotWriteSparseIndex(", ultra)
+        self.assertIn("'v1|$signature|", ultra)
+        self.assertIn("header[1] != signature", ultra)
+        self.assertIn("final expected = lineCount ~/ _hotIndexStride + 1;", ultra)
+        self.assertIn("var sparseIndex = await _hotReadSparseIndex(f.path, cacheSignature);", ultra)
+        self.assertIn("if (sparseIndex == null) {", ultra)
+        self.assertIn("await _hotWriteSparseIndex(f.path, cacheSignature, sparseIndex);", ultra)
+        self.assertIn("if (sparseIndex[1] != cacheStat.size) return null;", ultra)
+        self.assertIn("await temporary.rename(target.path);", ultra)
+        refresh_start = ultra.index("Future<void> _natHotEnsureImpl(")
+        refresh_end = ultra.index("bool natHotReady()", refresh_start)
+        refresh = ultra[refresh_start:refresh_end]
+        self.assertIn("await _hotWriteSparseIndex(_hotPath(), cacheSignature, sparseIndex);", refresh)
+
+
+    def test_nat_large_plain_text_sources_use_streamed_mirror_transport(self):
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        mirrors = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        start = ultra.index('Future<int> _hotFetchOne(')
+        end = ultra.index('Future<int> _hotWriteSourceLines(', start)
+        fetch = ultra[start:end]
+        self.assertIn('getListMirrorStream(u)', fetch)
+        self.assertIn('await for (final chunk in response.stream)', fetch)
+        self.assertIn('spool.openRead().transform(utf8.decoder)', fetch)
+        self.assertNotIn('getListMirror(u)', fetch)
+        self.assertNotIn('response.body', fetch)
+        self.assertIn('Future<http.StreamedResponse> getListMirrorStream(String u)', mirrors)
+        self.assertIn('client.send(request)', mirrors)
+        self.assertIn('response.stream', mirrors)
+        self.assertIn("timeout(const Duration(seconds: 10))", mirrors)
+        self.assertIn('client.close()', mirrors)
+
+
+    def test_nat_base64_source_payloads_are_decoded_as_a_stream(self):
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = ultra.index('Future<int> _hotFetchOne(')
+        end = ultra.index('Future<int> _hotWriteSourceLines(', start)
+        fetch = ultra[start:end]
+        self.assertIn('_hotBase64Chunks(', fetch)
+        self.assertIn('Stream<String> _hotBase64Chunks(Stream<String> chunks)', fetch)
+        self.assertIn(".replaceAll('-', '+')", fetch)
+        self.assertIn(".replaceAll('_', '/')", fetch)
+        self.assertIn('final completeLength = combined.length - (combined.length % 4);', fetch)
+        self.assertIn("yield carry.padRight(4, '=');", fetch)
+        self.assertIn('.transform(base64.decoder)', fetch)
+        self.assertIn('.transform(utf8.decoder)', fetch)
+        self.assertNotIn('spool.readAsString()', fetch)
+        self.assertNotIn('base64.decode(', fetch)
+
+    def test_nat_streamed_mirror_client_closes_on_consumer_cancel(self):
+        mirrors = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        start = mirrors.index('Future<http.StreamedResponse> getListMirrorStream(')
+        end = mirrors.index('Future<http.Response> getListMirror(', start)
+        stream_fetch = mirrors[start:end]
+        self.assertIn('handleCancel: () {', stream_fetch)
+        self.assertIn('client.close();', stream_fetch)
+
+
+    def test_nat_html_inventory_extraction_is_streamed(self):
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = ultra.index('Future<int> _hotFetchOne(')
+        end = ultra.index('Future<void>? _hotEnsureFuture', start)
+        fetch = ultra[start:end]
+        self.assertIn('_hotHtmlLinks(htmlChunks)', fetch)
+        self.assertNotIn('spool.readAsString()', fetch)
+        self.assertIn('Stream<String> _hotHtmlLinks(Stream<String> chunks)', fetch)
+        self.assertIn("const schemes = <String>['vmess://', 'vless://', 'trojan://', 'ss://'];", fetch)
+        self.assertIn("ch.trim().isEmpty || ch == '<' || ch == '>' || ch == '"'", fetch)
+        self.assertIn('Future<int> _hotWriteSourceLines(', fetch)
+        self.assertIn('String path, Stream<String> lines)', fetch)
+        self.assertIn('await for (final line in lines)', fetch)
+        self.assertIn(".split(RegExp(r'[\\r\\n,; ]+'))", ultra)
+
+
+    def test_king_ai_multimodel_provider_keys_are_secure_and_cloud_use_is_opt_in(self):
+        provider = (ROOT / 'lib' / 'king_ai_provider_orchestrator.dart').read_text(encoding='utf-8')
+        settings = (ROOT / 'lib' / 'king_ai_provider_settings.dart').read_text(encoding='utf-8')
+        self.assertIn('FlutterSecureStorage', provider)
+        self.assertIn('king_ai_external_processing_enabled', provider)
+        self.assertIn("== 'true'", provider)
+        self.assertIn('if (!explicitApproval && !await externalProcessingEnabled)', provider)
+        self.assertIn('configuredProviders(requireVision: requireVision)', provider)
+        self.assertIn('KingAiProviderId.groq', provider)
+        self.assertIn('KingAiProviderId.cerebras', provider)
+        self.assertIn('await _complete(', provider)
+        self.assertIn('await _secure.delete(key: _key(id,', provider)
+        self.assertIn('SwitchListTile(', settings)
+        self.assertIn('setExternalProcessingEnabled(enabled)', settings)
+        self.assertIn('getProviderModel(provider.id)', settings)
+        self.assertIn('Future<String> getProviderModel(', provider)
+        self.assertIn('Cursor یک محیط/عامل برنامه‌نویسی است', settings)
+
+    def test_king_ai_chat_supports_image_analysis_with_ephemeral_consent(self):
+        chat = (ROOT / 'lib' / 'king_chat_page.dart').read_text(encoding='utf-8')
+        provider = (ROOT / 'lib' / 'king_ai_provider_orchestrator.dart').read_text(encoding='utf-8')
+        workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
+        self.assertIn("import 'package:image_picker/image_picker.dart';", chat)
+        self.assertIn('ImageSource.gallery', chat)
+        self.assertIn('analyzeImage(', chat)
+        self.assertIn('explicitApproval: oneTimeConsent', chat)
+        self.assertIn('Future<bool> _confirmCloudProcessing()', chat)
+        self.assertIn('image_picker:', workflow)
+        self.assertIn('inlineData', provider)
+        self.assertIn('image_url', provider)
+        self.assertIn("'type': 'image'", provider)
+
+
+    def test_owner_coding_uses_opted_in_multi_model_reviews_with_redacted_context(self):
+        provider = (ROOT / 'lib' / 'king_ai_provider_orchestrator.dart').read_text(encoding='utf-8')
+        local = (ROOT / 'lib' / 'king_local_ai.dart').read_text(encoding='utf-8')
+        settings = (ROOT / 'lib' / 'king_ai_provider_settings.dart').read_text(encoding='utf-8')
+        review_start = provider.index('Future<List<Map<String, String>>> reviewCodeBatch(')
+        review_end = provider.index('Future<void> saveProvider(', review_start)
+        review = provider[review_start:review_end]
+        self.assertIn('KingAiOwnerAuth.instance.hasActiveSession', review)
+        self.assertIn('externalProcessingEnabled', review)
+        self.assertIn('externalCodeReviewEnabled', review)
+        self.assertIn('configuredProviders()', review)
+        self.assertIn('REDACTED_VPN_CONFIG', provider)
+        self.assertIn('REDACTED_UUID', provider)
+        self.assertIn('_redactExternalContext(task)', review)
+        self.assertIn('redactKingAiCiEvidence(value', provider)
+        self.assertIn('Future.wait(ids.map(', review)
+        self.assertIn('_redactConversationSecrets(jsonEncode({', local)
+        self.assertIn('reviewCodeBatch(', local)
+        self.assertIn('INDEPENDENT MULTI-MODEL REVIEWS', local)
+        self.assertIn('setExternalCodeReviewEnabled(enabled)', settings)
+        self.assertIn('king_ai_external_code_review_enabled', provider)
+        self.assertIn("await _secure.delete(key: 'king_ai_external_code_review_enabled')", provider)
+
+
+    def test_owner_console_can_analyze_reference_images_into_feature_requests(self):
+        console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
+        self.assertIn('ImagePicker _featureImagePicker', console)
+        self.assertIn('Future<void> _analyzeFeatureImage()', console)
+        self.assertIn('_ownerAuth.hasActiveSession', console)
+        self.assertIn('_reauthenticateOwnerForCodeChange()', console)
+        self.assertIn('orchestrator.analyzeImage(', console)
+        self.assertIn('explicitApproval: explicitApproval', console)
+        self.assertIn('_featureRequestController.text = [', console)
+        self.assertIn('image_analysis_added_to_owner_request', console)
+        self.assertIn('KingAiProviderSettingsPage()', console)
+        self.assertIn('کلید API، UUID، رمز', console)
+        self.assertIn('ساخت پیشنهاد کد و Pull Request', console)
+        self.assertNotIn('maxLength: 2000', console)
+
+
+    def test_cursor_cli_review_is_manual_read_only_and_secret_backed(self):
+        workflow = (ROOT / '.github' / 'workflows' / 'king-ai-cursor-review.yml').read_text(encoding='utf-8')
+        self.assertIn('workflow_dispatch:', workflow)
+        self.assertIn('secrets.CURSOR_API_KEY', workflow)
+        self.assertIn('agent -p --mode=ask', workflow)
+        self.assertIn('git check-ref-format --branch', workflow)
+        self.assertIn('actions/upload-artifact@v4', workflow)
+        self.assertNotIn('pull_request:', workflow)
+        self.assertNotIn('--force', workflow)
+        self.assertNotIn('git push', workflow)
 
 
 if __name__ == '__main__':

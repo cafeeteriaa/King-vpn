@@ -396,8 +396,16 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
       final saved = await goldAddDns(r, shouldAbort: shouldAbort);
       if (!saved || shouldAbort()) return;
     }
-    final best = [for (final e in r.take(4)) e.ip];
-    await p.setStringList('dnsx_best_v1_$sfx', best);
+    // Keep previously verified resolvers when a later scan is partial or
+    // temporarily empty; merge newly verified results without truncating the
+    // per-mode inventory. A failed refresh must never erase known-good DNS.
+    final best = <String>{
+      ...dnsxBestCache,
+      for (final e in r) e.ip,
+    }.toList(growable: false);
+    if (best.isNotEmpty) {
+      await p.setStringList('dnsx_best_v1_$sfx', best);
+    }
     if (shouldAbort()) return;
     await p.setInt('dnsx_at_v1_$sfx', now);
     if (!shouldAbort()) {

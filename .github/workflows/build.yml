@@ -2,7 +2,7 @@ name: King VPN Android CI
 
 on:
   push:
-    branches: [main, master, audit/unlimit-known-scanner-candidates-20261123]
+    branches: [main, master, audit/unlimit-known-scanner-candidates-20261123, feature/king-ai-multimodal-orchestrator-20261125]
   pull_request:
   workflow_dispatch:
 
@@ -63,7 +63,7 @@ jobs:
       - name: Resolve Flutter dependencies
         working-directory: build_app
         run: |
-          flutter pub add http webview_flutter flutter_v2ray_client:3.5.0 installed_apps:1.6.0 permission_handler workmanager url_launcher crypto:^3.0.3 flutter_secure_storage:^9.2.2 local_inference:0.1.1 local_inference_flutter:0.1.1 path_provider package_info_plus speech_to_text:^7.4.0 cryptography:^2.7.0 flutter_tts:^4.2.3
+          flutter pub add http webview_flutter flutter_v2ray_client:3.5.0 installed_apps:1.6.0 permission_handler workmanager url_launcher crypto:^3.0.3 flutter_secure_storage:^9.2.2 local_inference:0.1.1 local_inference_flutter:0.1.1 path_provider package_info_plus speech_to_text:^7.4.0 cryptography:^2.7.0 flutter_tts:^4.2.3 image_picker:^1.1.2
           flutter pub get
 
       - name: Patch V2Ray plugin

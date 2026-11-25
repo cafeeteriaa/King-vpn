@@ -1780,7 +1780,7 @@ Future<void> natIpMemLoad() async {
       natIpMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
     }
     natRanges = (p.getString(_rangeKey) ?? '')
-        .split(RegExp(r'[\r\n,; ]+'))
+        .split(RegExp(r'[\\r\\n,; ]+'))
         .map((value) => value.trim())
         .where((value) => value.isNotEmpty)
         .where((value) => natExpandIpRangeCursor(
@@ -2632,13 +2632,12 @@ Future<void> userListsSave(String text) async {
   }
 }
 
-// HOTCAP: کاهش از ۲ میلیون برای جلوگیری از OOM روی گوشی ضعیف
-const int natHotPerSource = 80000;
+// Source inventory is traversed without a fixed total-record ceiling.
 const int natHotMin = 30000;
-const int natHotMax = 400000;
+// Sparse index stores one byte offset per 256 records, not one per record.
+const int _hotIndexStride = 256;
 List<Server> Function()? natExtraSource;
 const Duration natHotTtl = Duration(hours: 72);
-const Duration natHotFetchDeadline = Duration(seconds: 900);
 bool _hotBusy = false;
 DateTime? _hotFailAt;
 int _hotCursor = 0;
@@ -2646,8 +2645,12 @@ Map<String, double> natSrcRates = {};
 
 class _HotIdx {
   final String file;
-  final List<int> offs;
-  _HotIdx(this.file, this.offs);
+  final int lineCount;
+  final int byteLength;
+  final String signature;
+  final List<int> sparseOffsets;
+  _HotIdx(this.file, this.lineCount, this.byteLength, this.signature,
+      this.sparseOffsets);
 }
 
 _HotIdx? _hot;
@@ -2705,13 +2708,29 @@ Future<void> hotExportToDownload() async {
     if (!v.existsSync()) v.createSync(recursive: true);
     final ts = DateTime.now().millisecondsSinceEpoch;
     final dst = File('$hotVisibleDir/hot_configs_$ts.txt');
+    final exportSink = dst.openWrite();
+    var exportFailed = false;
     try {
-      final raw = await src.readAsString();
-      final masked = _maskUuidsForExport(raw);
-      await dst.writeAsString(masked, flush: true);
+      await for (final line in src
+          .openRead()
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())) {
+        exportSink.writeln(_maskUuidsForExport(line));
+      }
+      await exportSink.flush();
     } catch (e) {
-      // فیکس ۳: اگر ماسک شکست خورد، نسخه‌ی بدون ماسک نوشته نمی‌شود (نشت UUID ممنوع)
+      // If masking or streaming fails, do not fall back to an unmasked export.
+      exportFailed = true;
       dbg('hotExport: ماسک ناموفق؛ خروجی نوشته نشد: $e');
+    } finally {
+      await exportSink.close();
+    }
+    if (exportFailed) {
+      try {
+        await dst.delete();
+      } catch (cleanupError) {
+        errJournalAdd(cleanupError, kind: 'SILENT-FILE');
+      }
       return;
     }
     try {
@@ -2740,45 +2759,143 @@ List<String> natHotUrls() {
   ];
 }
 
-// فیکس ۱۱: split خط‌ها برای بدنه‌ی بزرگ لیست (top-level تا با compute کار کند)
-List<String> _hotSplitIso(String body) => body.split(RegExp(r'[\r\n]+'));
-
-Future<List<String>> _hotFetchOne(String u) async {
-  final out = <String>[];
+// Stream ordinary text responses to disk instead of retaining the full body.
+Future<int> _hotFetchOne(String u, String path) async {
+  final spool = File('$path.download');
   try {
-    final r = await getListMirror(u);
-    if (r.statusCode != 200) return out;
-    var body = r.body.trim();
-    if (body.contains('<html') || body.contains('<!DOCTYPE')) {
-      body = _linkRe
-          .allMatches(body.replaceAll('&amp;', '&'))
-          .map((m) => m.group(0)!)
-          .join('\n');
-    }
-    if (!body.contains('://')) {
-      if (!RegExp(r'^[A-Za-z0-9+/=_\-\s]+$').hasMatch(body)) return out;
-      try {
-        body = utf8.decode(
-            base64.decode(base64.normalize(body.replaceAll(RegExp(r'\s'), ''))),
-            allowMalformed: true);
-      } catch (jex, jstk) { errJournalAdd(jex, st: jstk);
-        return out;
+    final response = await getListMirrorStream(u);
+    if (response.statusCode != 200) return 0;
+    final sink = spool.openWrite();
+    try {
+      await for (final chunk in response.stream) {
+        sink.add(chunk);
       }
+      await sink.flush();
+    } finally {
+      await sink.close();
     }
-    // فیکس ۱۱: split روی رشته‌ی چند مگابایتی در isolate انجام می‌شود
-    final lines = await compute(_hotSplitIso, body);
-    for (final l in lines) {
-      if (out.length >= natHotPerSource) break;
-      final t = l.trim();
-      if (!t.contains('://') || t.contains('[email') || t.contains('protected]')) {
-        continue;
-      }
-      out.add('$u\t$t');
+    final size = await spool.length();
+    if (size == 0) return 0;
+    final prefix = await spool.openRead(0, size < 4096 ? size : 4096)
+        .transform(utf8.decoder)
+        .join();
+    if (prefix.contains('<html') || prefix.contains('<!DOCTYPE')) {
+      // Scan HTML incrementally, retaining only the current URL token.
+      final htmlChunks = spool.openRead().transform(utf8.decoder);
+      return await _hotWriteSourceLines(u, path, _hotHtmlLinks(htmlChunks));
     }
+    if (prefix.contains('://')) {
+      return await _hotWriteSourceLines(
+        u,
+        path,
+        spool.openRead().transform(utf8.decoder).transform(const LineSplitter()),
+      );
+    }
+    // Decode base64 payloads incrementally from the disk spool. Whitespace
+    // and URL-safe alphabet variants are normalized per chunk; the converter
+    // retains incomplete quartets between chunks.
+    final normalized = _hotBase64Chunks(
+      spool.openRead().transform(utf8.decoder),
+    );
+    final decodedLines = normalized
+        .transform(base64.decoder)
+        .transform(utf8.decoder)
+        .transform(const LineSplitter());
+    return await _hotWriteSourceLines(u, path, decodedLines);
   } catch (e, stk) {
     logError(e, stk);
+    return 0;
+  } finally {
+    try {
+      if (await spool.exists()) await spool.delete();
+    } catch (e, st) {
+      errJournalAdd(e, st: st, kind: 'SILENT-FILE');
+    }
   }
-  return out;
+}
+
+Stream<String> _hotBase64Chunks(Stream<String> chunks) async* {
+  var carry = '';
+  await for (final chunk in chunks) {
+    final clean = chunk
+        .replaceAll(RegExp(r'\s'), '')
+        .replaceAll('-', '+')
+        .replaceAll('_', '/');
+    final combined = carry + clean;
+    final completeLength = combined.length - (combined.length % 4);
+    if (completeLength > 0) yield combined.substring(0, completeLength);
+    carry = combined.substring(completeLength);
+  }
+  if (carry.isNotEmpty) {
+    if (carry.length == 1) {
+      throw const FormatException('Invalid Base64 source length');
+    }
+    yield carry.padRight(4, '=');
+  }
+}
+
+Stream<String> _hotHtmlLinks(Stream<String> chunks) async* {
+  const schemes = <String>['vmess://', 'vless://', 'trojan://', 'ss://'];
+  final maxPrefix = schemes.map((s) => s.length).reduce((a, b) => a > b ? a : b);
+  var probe = '';
+  StringBuffer? link;
+  await for (final chunk in chunks) {
+    for (final unit in chunk.codeUnits) {
+      final ch = String.fromCharCode(unit);
+      if (link != null) {
+        if (ch.trim().isEmpty || ch == '<' || ch == '>' || ch == '"') {
+          final value = link.toString().replaceAll('&amp;', '&');
+          if (value.isNotEmpty) yield value;
+          link = null;
+          probe = '';
+        } else {
+          link.write(ch);
+        }
+        continue;
+      }
+      probe += ch;
+      final lower = probe.toLowerCase();
+      String? found;
+      for (final scheme in schemes) {
+        if (lower.endsWith(scheme)) {
+          found = scheme;
+          break;
+        }
+      }
+      if (found != null) {
+        link = StringBuffer(found);
+        probe = '';
+      } else if (probe.length >= maxPrefix) {
+        probe = probe.substring(probe.length - maxPrefix + 1);
+      }
+    }
+  }
+  if (link != null) {
+    final value = link.toString().replaceAll('&amp;', '&');
+    if (value.isNotEmpty) yield value;
+  }
+}
+
+Future<int> _hotWriteSourceLines(
+    String source, String path, Stream<String> lines) async {
+  final sink = File(path).openWrite();
+  var count = 0;
+  try {
+    await for (final line in lines) {
+      final value = line.trim();
+      if (!value.contains('://') ||
+          value.contains('[email') ||
+          value.contains('protected]')) {
+        continue;
+      }
+      sink.writeln('$source\t$value');
+      count++;
+    }
+    await sink.flush();
+  } finally {
+    await sink.close();
+  }
+  return count;
 }
 
 Future<void>? _hotEnsureFuture;
@@ -2813,14 +2930,10 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
     final dir = '/data/data/com.kingvpn.king_vpn/files';
     final parts = [for (var i = 0; i < urls.length; i++) '$dir/hot_part_$i.txt'];
     final extraPath = '$dir/hot_part_extra.txt';
-    final sw = Stopwatch()..start();
     try {
       await pool<int>([for (var i = 0; i < urls.length; i++) i], fetchWorkers,
           (i) async {
-        if (sw.elapsed > natHotFetchDeadline) return;
-        final lines = await _hotFetchOne(urls[i]);
-        if (lines.isEmpty) return;
-        await File(parts[i]).writeAsString(lines.join('\n'), flush: true);
+        await _hotFetchOne(urls[i], parts[i]);
       });
       final extraSrc = natExtraSource?.call() ?? const <Server>[];
       if (extraSrc.isNotEmpty) {
@@ -2836,18 +2949,17 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
               .compareTo(natSrcRates[urls[a]] ?? 0.3));
       final mixed = order;
       final newPath = '${_hotPath()}.new';
-      final offs = <int>[0];
-      var pos = 0;
+      var freshTotal = 0;
+      final oldCachePath = _hotPath();
       final sink = File(newPath).openWrite();
       try {
-        var full = false;
-        final seenKeys = <String>{};
         final mergeFrom = <String>[
           if (File(extraPath).existsSync()) extraPath,
           for (final i in mixed) parts[i],
+          if (File(oldCachePath).existsSync()) oldCachePath,
         ];
         for (final pth in mergeFrom) {
-          if (full) break;
+          final isOldCache = pth == oldCachePath;
           final pf = File(pth);
           if (!pf.existsSync()) continue;
           await for (final line in pf
@@ -2855,36 +2967,28 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
               .transform(utf8.decoder)
               .transform(const LineSplitter())) {
             if (line.isEmpty) continue;
-            final tab = line.indexOf('\t');
-            final cfg = tab >= 0 ? line.substring(tab + 1) : line;
-            if (!seenKeys.add(cfg)) continue;
             final b = utf8.encode(line);
             sink.add(b);
             sink.add(const [10]);
-            pos += b.length + 1;
-            offs.add(pos);
-            if (offs.length - 1 >= natHotMax) {
-              full = true;
-              break;
-            }
+            if (!isOldCache) freshTotal++;
           }
         }
       } finally {
         await sink.close();
       }
-      final total = offs.length - 1;
-      final oldIdx = await _hotLoad();
-      final oldTotal = oldIdx == null ? 0 : oldIdx.offs.length - 1;
-      if (total > 0 && oldTotal > 0 && total < oldTotal ~/ 2) {
-        dbg('پوشه‌ی منابع تازه: ساخت جدید فقط $total کانفیگ داشت (قبلی $oldTotal)؛ پوشه‌ی قبلی نگه داشته شد');
-        _hotFailAt = DateTime.now();
-        try {
-          await File(newPath).delete();
-        } catch (e) { errJournalAdd(e, kind: 'SILENT-FILE'); }
-      } else if (total > 0) {
+      final sparseIndex = await _hotBuildSparseIndex(newPath);
+      final total = sparseIndex.first;
+      if (freshTotal > 0 && total > 0) {
         _hotFailAt = null;
         await File(newPath).rename(_hotPath());
-        _hot = _HotIdx(_hotPath(), offs);
+        final cacheStat = await File(_hotPath()).stat();
+        final cacheSignature =
+            '${cacheStat.size}:${cacheStat.modified.microsecondsSinceEpoch}';
+        // Persist the freshly-built index at cache commit time; otherwise the
+        // next process restart would have to scan the complete cache again.
+        await _hotWriteSparseIndex(_hotPath(), cacheSignature, sparseIndex);
+        _hot = _HotIdx(_hotPath(), sparseIndex[0], sparseIndex[1],
+            cacheSignature, sparseIndex.skip(2).toList(growable: false));
         _hotCursor = 0;
         if (total < natHotMin) {
           dbg('پوشه‌ی منابع تازه: $total کانفیگ (کمتر از $natHotMin)');
@@ -2919,22 +3023,118 @@ bool natHotReady() {
   }
 }
 
-// فیکس ۴: ساخت جدول offset خط‌ها برای فایل‌های بزرگ (> 512KB) در isolate انجام می‌شود
-// تا حلقه‌ی بایت‌به‌بایت روی چند مگابایت ترد UI را نگیرد. منطق offs عیناً همان است.
-Future<List<int>> _hotBuildOffsets(String path) =>
-    compute(_hotOffsetsIso, path);
+// Build a sparse index: one byte offset per stride-sized block.
+// Packed result: [lineCount, byteLength, offset0, offset1, ...].
+Future<List<int>> _hotBuildSparseIndex(String path) =>
+    compute(_hotSparseOffsetsIso, path);
 
-Future<List<int>> _hotOffsetsIso(String path) async {
-  final offs = <int>[0];
-  var pos = 0;
-  await for (final chunk in File(path).openRead()) {
-    for (var i = 0; i < chunk.length; i++) {
-      if (chunk[i] == 10) offs.add(pos + i + 1);
+String _hotIndexPath(String cachePath) => '$cachePath.sparse.idx';
+
+Future<List<int>?> _hotReadSparseIndex(
+    String cachePath, String signature) async {
+  try {
+    final indexFile = File(_hotIndexPath(cachePath));
+    if (!await indexFile.exists()) return null;
+    final rows = await indexFile.readAsLines();
+    if (rows.isEmpty) return null;
+    final header = rows.first.split('|');
+    if (header.length != 4 || header[0] != 'v1' || header[1] != signature) {
+      return null;
     }
-    pos += chunk.length;
+    final lineCount = int.tryParse(header[2]);
+    final byteLength = int.tryParse(header[3]);
+    if (lineCount == null || byteLength == null ||
+        lineCount <= 0 || byteLength <= 0) return null;
+    final packed = <int>[lineCount, byteLength];
+    var previous = -1;
+    for (final row in rows.skip(1)) {
+      final offset = int.tryParse(row);
+      if (offset == null || offset < 0 || offset > byteLength ||
+          offset <= previous) return null;
+      packed.add(offset);
+      previous = offset;
+    }
+    // The first sparse block always starts at byte zero.
+    if (packed.length < 3 || packed[2] != 0) return null;
+    final expected = lineCount ~/ _hotIndexStride + 1;
+    if (packed.length - 2 != expected) return null;
+    return packed;
+  } catch (e, st) {
+    logError(e, st);
+    return null;
   }
-  if (offs.last != pos) offs.add(pos);
-  return offs;
+}
+
+Future<void> _hotWriteSparseIndex(
+    String cachePath, String signature, List<int> packed) async {
+  if (packed.length < 3) return;
+  final target = File(_hotIndexPath(cachePath));
+  final temporary = File('${target.path}.new');
+  final sink = temporary.openWrite();
+  try {
+    sink.writeln('v1|$signature|${packed[0]}|${packed[1]}');
+    for (final offset in packed.skip(2)) {
+      sink.writeln(offset);
+    }
+    await sink.flush();
+  } finally {
+    await sink.close();
+  }
+  if (await target.exists()) await target.delete();
+  await temporary.rename(target.path);
+}
+
+List<int> _hotSparseOffsetsIso(String path) {
+  final packed = <int>[0, 0, 0];
+  var lineCount = 0;
+  var pos = 0;
+  var lastByte = -1;
+  final raf = File(path).openSync();
+  try {
+    while (true) {
+      final chunk = raf.readSync(64 * 1024);
+      if (chunk.isEmpty) break;
+      for (var i = 0; i < chunk.length; i++) {
+        if (chunk[i] == 10) {
+          lineCount++;
+          if (lineCount % _hotIndexStride == 0) {
+            packed.add(pos + i + 1);
+          }
+        }
+      }
+      lastByte = chunk.last;
+      pos += chunk.length;
+    }
+  } finally {
+    raf.closeSync();
+  }
+  if (pos > 0 && lastByte != 10) lineCount++;
+  packed[0] = lineCount;
+  packed[1] = pos;
+  return packed;
+}
+
+Future<int> _hotOffsetAtLine(
+    RandomAccessFile raf, _HotIdx index, int line) async {
+  if (line <= 0) return 0;
+  if (line >= index.lineCount) return await raf.length();
+  final block = line ~/ _hotIndexStride;
+  final baseLine = block * _hotIndexStride;
+  var position = index.sparseOffsets[block];
+  var separators = line - baseLine;
+  await raf.setPosition(position);
+  while (separators > 0) {
+    final chunk = await raf.read(64 * 1024);
+    if (chunk.isEmpty) return await raf.length();
+    for (var i = 0; i < chunk.length; i++) {
+      if (chunk[i] == 10) {
+        separators--;
+        if (separators == 0) return position + i + 1;
+      }
+    }
+    position += chunk.length;
+  }
+  return position;
 }
 
 Future<_HotIdx?> _hotLoad() async {
@@ -2942,22 +3142,27 @@ Future<_HotIdx?> _hotLoad() async {
   if (cur != null) return cur;
   final f = File(_hotPath());
   try {
-    if (!f.existsSync() || f.lengthSync() == 0) return null;
-    List<int> offs;
-    if (f.lengthSync() > 512 * 1024) {
-      offs = await _hotBuildOffsets(f.path);
-    } else {
-      offs = <int>[0];
-      var pos = 0;
-      await for (final chunk in f.openRead()) {
-        for (var i = 0; i < chunk.length; i++) {
-          if (chunk[i] == 10) offs.add(pos + i + 1);
-        }
-        pos += chunk.length;
-      }
-      if (offs.last != pos) offs.add(pos);
+    if (!await f.exists()) return null;
+    final cacheStat = await f.stat();
+    if (cacheStat.size <= 0) return null;
+    final cacheSignature =
+        '${cacheStat.size}:${cacheStat.modified.microsecondsSinceEpoch}';
+    // Reuse the on-disk sparse index after restart. A size/mtime mismatch
+    // invalidates it and triggers a complete rebuild from the authoritative cache.
+    var sparseIndex = await _hotReadSparseIndex(f.path, cacheSignature);
+    if (sparseIndex == null) {
+      sparseIndex = await _hotBuildSparseIndex(f.path);
+      if (sparseIndex.first <= 0) return null;
+      if (sparseIndex[1] != cacheStat.size) return null;
+      await _hotWriteSparseIndex(f.path, cacheSignature, sparseIndex);
     }
-    _hot = _HotIdx(f.path, offs);
+    _hot = _HotIdx(
+      f.path,
+      sparseIndex[0],
+      sparseIndex[1],
+      cacheSignature,
+      sparseIndex.skip(2).toList(growable: false),
+    );
     _hotCursor = 0;
     return _hot;
   } catch (e, stk) {
@@ -2966,49 +3171,99 @@ Future<_HotIdx?> _hotLoad() async {
   }
 }
 
+bool _hotNextBusy = false;
+Completer<void>? _hotNextIdle;
+const String _hotCursorKey = 'nat_hot_cursor_v1';
+const String _hotCursorSignatureKey = 'nat_hot_cursor_signature_v1';
+
 Future<List<Server>> natHotNext(int n,
     {bool fetch = true, bool retried = false}) async {
+  // Serialize page reads: concurrent callers must never consume the same
+  // persisted cursor position or overwrite each other's progress.
+  while (_hotNextBusy) {
+    final waiting = _hotNextIdle;
+    if (waiting != null) await waiting.future;
+  }
+  _hotNextBusy = true;
+  _hotNextIdle = Completer<void>();
   try {
+    return await _natHotNextUnlocked(n, fetch: fetch, retried: retried);
+  } finally {
+    _hotNextBusy = false;
+    _hotNextIdle?.complete();
+    _hotNextIdle = null;
+  }
+}
+
+Future<List<Server>> _natHotNextUnlocked(int n,
+    {required bool fetch, required bool retried}) async {
+  try {
+    if (n <= 0) return const [];
     if (fetch) unawaited(natHotEnsure());
     final h = await _hotLoad();
     if (h == null) return const [];
-    final lines = h.offs.length - 1;
+    final lines = h.lineCount;
     if (lines <= 0) return const [];
+    final cacheFile = File(h.file);
+    final stat = await cacheFile.stat();
+    final signature = '${stat.size}:${stat.modified.microsecondsSinceEpoch}';
+    if (signature != h.signature) {
+      _hot = null;
+      if (retried) return const [];
+      return _natHotNextUnlocked(n, fetch: false, retried: true);
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final savedSignature = prefs.getString(_hotCursorSignatureKey);
+    final savedCursor = prefs.getInt(_hotCursorKey);
+    var cursor = savedSignature == signature && savedCursor != null
+        ? savedCursor
+        : 0;
+    if (cursor < 0 || cursor >= lines) cursor = 0;
     final out = <Server>[];
-    final raf = await File(h.file).open();
+    final raf = await cacheFile.open();
     try {
-      // HOTSTALE: طول handle باز را با ایندکس بسنج؛ handle به inode ثابت است، پس
-      // اگر فایل وسط rename عوض شده باشد، این مقایسه ناهم‌خوانی را می‌گیرد
-      if (await raf.length() != h.offs.last) {
-        _hot = null; // ایندکس قدیمی را دور بریز
+      // The open handle is tied to one inode. If its length disagrees with
+      // the index, rebuild once rather than pairing offsets with another file.
+      if (await raf.length() != h.byteLength) {
+        _hot = null;
         if (retried) return const [];
-        return natHotNext(n, fetch: false, retried: true);
+        return _natHotNextUnlocked(n, fetch: false, retried: true);
       }
       var read = 0;
       while (out.length < n && read < lines) {
-        var start = _hotCursor;
+        var start = cursor;
         if (start >= lines) start = 0;
         final take = min(min(n - out.length, lines - start), lines - read);
-        final from = h.offs[start];
-        final to = h.offs[start + take];
+        final from = await _hotOffsetAtLine(raf, h, start);
+        final endLine = start + take;
+        final to = await _hotOffsetAtLine(raf, h, endLine);
         await raf.setPosition(from);
         final bytes = await raf.read(to - from);
-        final text = utf8.decode(bytes, allowMalformed: true);
-        for (final e in text.split('\n')) {
-          final i = e.indexOf('\t');
-          if (i < 0) continue;
-          final s = Server.parse(e.substring(i + 1));
-          if (s != null) {
-            s.src = e.substring(0, i);
-            out.add(s);
+        final pageText = utf8.decode(bytes, allowMalformed: true);
+        for (final entry in pageText.split('\n')) {
+          final tab = entry.indexOf('\t');
+          if (tab < 0) continue;
+          final server = Server.parse(entry.substring(tab + 1));
+          if (server != null) {
+            server.src = entry.substring(0, tab);
+            out.add(server);
           }
         }
         read += take;
-        _hotCursor = (start + take) % lines;
+        cursor = (start + take) % lines;
       }
     } finally {
       await raf.close();
     }
+    // Save cursor and its cache identity together. A rebuilt cache starts at
+    // zero; an app restart against the same cache resumes at the next page.
+    final cursorSaved = await prefs.setInt(_hotCursorKey, cursor);
+    final signatureSaved =
+        await prefs.setString(_hotCursorSignatureKey, signature);
+    if (!cursorSaved || !signatureSaved) {
+      dbg('natHotNext: ذخیرهٔ Cursor منابع انجام نشد؛ صفحه در اجرای بعد ممکن است تکرار شود');
+    }
+    _hotCursor = cursor;
     return out;
   } catch (e, stk) {
     logError(e, stk);

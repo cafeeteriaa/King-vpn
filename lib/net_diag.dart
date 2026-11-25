@@ -84,8 +84,7 @@ Future<_DiagItem> _diagTls(String label, String ip, String sni) async {
   Socket? raw;
   try {
     raw = await Socket.connect(ip, 443, timeout: const Duration(seconds: 4));
-    k = await SecureSocket.secure(raw,
-            host: sni, onBadCertificate: (_) => true)
+    k = await SecureSocket.secure(raw, host: sni)
         .timeout(const Duration(seconds: 5));
     return _DiagItem(label, true, sw.elapsedMilliseconds);
   } catch (e, stk) {

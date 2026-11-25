@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'king_local_ai.dart';
 import 'king_ai_background.dart';
 import 'king_ai_owner_auth.dart';
 import 'king_voice_output.dart';
+import 'king_ai_provider_orchestrator.dart';
+import 'king_ai_provider_settings.dart';
 
 /// In-app control surface for the local coding model and guarded GitHub PR workflow.
 class KingAiConsolePage extends StatefulWidget {
@@ -34,6 +38,8 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
   final TextEditingController _ownerNewPasswordController = TextEditingController();
   final TextEditingController _ownerNewConfirmController = TextEditingController();
   final TextEditingController _featureRequestController = TextEditingController();
+  final ImagePicker _featureImagePicker = ImagePicker();
+  XFile? _featureImage;
   final KingAiOwnerAuth _ownerAuth = KingAiOwnerAuth.instance;
   bool _initialRequestSubmitted = false;
   bool _initialIdeaAnalysisSubmitted = false;
@@ -322,6 +328,96 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
     await _submitFeatureRequest(ownerReauthenticated: true);
   }
 
+  String _featureImageMimeType(XFile file) {
+    final extension = file.path.toLowerCase().split('.').last;
+    if (extension == 'png') return 'image/png';
+    if (extension == 'webp') return 'image/webp';
+    return 'image/jpeg';
+  }
+
+  Future<void> _analyzeFeatureImage() async {
+    if (!mounted || _busy) return;
+    if (!_ownerAuth.hasActiveSession) {
+      setState(() => _output = 'برای تحلیل تصویر در مسیر توسعه‌دهنده، ابتدا مالک باید احراز هویت کند.');
+      return;
+    }
+    if (!await _reauthenticateOwnerForCodeChange()) return;
+    if (!mounted) return;
+
+    final picked = await _featureImagePicker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 2048,
+      maxHeight: 2048,
+      imageQuality: 85,
+    );
+    if (!mounted || picked == null) return;
+    setState(() {
+      _featureImage = picked;
+      _output = 'تصویر انتخاب شد؛ در انتظار اجازه ارسال و تحلیل...';
+    });
+
+    final orchestrator = KingAiProviderOrchestrator.instance;
+    var explicitApproval = false;
+    if (!await orchestrator.externalProcessingEnabled) {
+      final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('اجازه تحلیل آنلاین تصویر؟'),
+            content: const Text(
+              'برای تحلیل، تصویر به یک ارائه‌دهنده هوش مصنوعی بیرونی ارسال می‌شود. پیش از ادامه، مطمئن شو تصویر کلید API، UUID، رمز یا اطلاعات محرمانه ناخواسته ندارد. سیاست نگهداری و هزینه تابع همان سرویس است. این اجازه فقط برای همین درخواست خواهد بود.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('انصراف'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('اجازه می‌دهم'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (!mounted || accepted != true) return;
+      explicitApproval = true;
+    }
+
+    await _run('تحلیل تصویر تنظیمات با مدل بینایی', () async {
+      final analysis = await orchestrator.analyzeImage(
+        prompt: '''
+این تصویر مرجع تنظیمات یک برنامه یا سرویس VPN است. تمام متن‌ها و مقادیر
+قابل مشاهده را استخراج کن. پروتکل، transport، TLS، SNI، Host، Path،
+DNS، routing و گزینه‌های دیگر را فقط در صورت مشاهده گزارش کن.
+موارد نامشخص، پنهان یا ناخوانا را صریحاً نامشخص بنویس و حدس نزن.
+مقادیر محرمانه مانند UUID، رمز، کلید API و token را بازنویسی نکن؛ فقط وجودشان را با [REDACTED] اعلام کن.
+سپس قابلیت‌های قابل انتقال به KING VPN، وابستگی سمت سرور، خطرهای امنیتی،
+تست‌های لازم و مراحل پیشنهادی پیاده‌سازی را جدا کن.
+هیچ تغییری در کد انجام نده؛ خروجی فقط تحلیل فنی فارسی برای درخواست مالک باشد.
+''',
+        imageBytes: await picked.readAsBytes(),
+        mimeType: _featureImageMimeType(picked),
+        explicitApproval: explicitApproval,
+      );
+      if (!mounted) return {'status': 'analysis_completed_but_page_closed'};
+      final existing = _featureRequestController.text.trim();
+      _featureRequestController.text = [
+        if (existing.isNotEmpty) existing,
+        'تحلیل تصویر مرجع (مقادیر استخراج‌شده و پیشنهادهای فنی):',
+        analysis,
+        'دستور مالک: قابلیت‌های مفید و سازگار را با حفظ امکانات فعلی بررسی و در صورت تأیید فنی پیاده‌سازی کن.',
+      ].join('\n\n');
+      return {
+        'status': 'image_analysis_added_to_owner_request',
+        'image': picked.name,
+        'analysis': analysis,
+        'nextStep': 'پس از بازبینی متن درخواست، ساخت پیشنهاد کد و Pull Request را اجرا کن.',
+      };
+    });
+  }
+
   Future<void> _submitFeatureRequest({bool ownerReauthenticated = false}) async {
     if (!mounted) return;
     if (!_ownerAuth.hasActiveSession) {
@@ -578,14 +674,51 @@ class _KingAiConsolePageState extends State<KingAiConsolePage> {
                 TextField(
                   controller: _featureRequestController,
                   minLines: 2,
-                  maxLines: 5,
-                  maxLength: 2000,
+                  maxLines: 8,
                   decoration: const InputDecoration(
                     labelText: 'قابلیت موردنظر را توضیح بده',
                     hintText: 'مثلاً یک قابلیت جدید برای مدیریت هوشمند اتصال...',
                     alignLabelWithHint: true,
                   ),
                 ),
+                if (_featureImage != null) ...[
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.file(
+                      File(_featureImage!.path),
+                      height: 150,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                  Text(_featureImage!.name, style: theme.textTheme.bodySmall),
+                ],
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _busy || !_ownerUnlocked
+                        ? null
+                        : _analyzeFeatureImage,
+                    icon: const Icon(Icons.image_search_outlined),
+                    label: const Text('تحلیل عکس تنظیمات و افزودن به درخواست'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _busy
+                        ? null
+                        : () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const KingAiProviderSettingsPage(),
+                              ),
+                            ),
+                    icon: const Icon(Icons.hub_outlined),
+                    label: const Text('تنظیم مدل‌های آنلاین و کلیدهای API'),
+                  ),
+                ),
+                const SizedBox(height: 8),
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(

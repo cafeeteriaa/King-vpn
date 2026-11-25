@@ -317,6 +317,74 @@ Future<http.Response?> _raceGet(List<String> urls, Duration t) {
   return c.future;
 }
 
+// Streaming counterpart for large source inventories. The client stays alive
+// until the response stream completes; failed/non-200 attempts are drained and
+// closed before trying the next mirror.
+Future<http.StreamedResponse> getListMirrorStream(String u) async {
+  final ms = _mirrorsOf(u);
+  final skipRaw = ms.isNotEmpty && _rawOk == 0 && _rawFail >= 6;
+  final order = <String>[
+    if (!skipRaw) u,
+    for (var k = 0; k < ms.length; k++) ms[(_mirrorBest + k) % ms.length],
+  ];
+  for (final url in order) {
+    final client = http.Client();
+    try {
+      final request = http.Request('GET', Uri.parse(url));
+      final response = await client.send(request).timeout(
+        const Duration(seconds: 20),
+      );
+      if (response.statusCode == 200) {
+        if (url == u) {
+          _rawOk++;
+        } else {
+          final w = ms.indexOf(url);
+          if (w >= 0) _mirrorBest = w;
+        }
+        final managed = response.stream
+            .timeout(const Duration(seconds: 10))
+            .transform(
+          StreamTransformer<List<int>, List<int>>.fromHandlers(
+            handleError: (error, stack, sink) {
+              client.close();
+              sink.addError(error, stack);
+            },
+            handleDone: (sink) {
+              client.close();
+              sink.close();
+            },
+            handleCancel: () {
+              client.close();
+            },
+          ),
+        );
+        return http.StreamedResponse(
+          managed,
+          response.statusCode,
+          contentLength: response.contentLength,
+          request: response.request,
+          headers: response.headers,
+          isRedirect: response.isRedirect,
+          persistentConnection: response.persistentConnection,
+          reasonPhrase: response.reasonPhrase,
+        );
+      }
+      await response.stream.drain<void>();
+      client.close();
+      if (url == u) _rawFail++;
+    } catch (e, st) {
+      client.close();
+      logError(e, st);
+      if (url == u) _rawFail++;
+    }
+  }
+  return http.StreamedResponse(
+    const Stream<List<int>>.empty(),
+    599,
+    request: http.Request('GET', Uri.parse(u)),
+  );
+}
+
 Future<http.Response> getListMirror(String u) async {
   final ms = _mirrorsOf(u);
   // raw is completely blocked: go straight to the mirrors
