@@ -321,8 +321,9 @@ Future<http.Response?> _raceGet(List<String> urls, Duration t) {
 /// preserve the existing mirror race as a buffered compatibility fallback.
 Future<void> withListMirrorStream(
   String u,
-  Future<void> Function(Stream<List<int>> bytes) consume,
-) async {
+  Future<void> Function(Stream<List<int>> bytes) consume, {
+  bool Function()? stop,
+}) async {
   final client = http.Client();
   http.StreamedResponse? response;
   try {
@@ -366,6 +367,8 @@ Future<void> withListMirrorStream(
     }
     client.close();
   }
+
+  if (stop?.call() ?? false) return;
 
   // The legacy mirror race still provides broad fallback coverage. It is
   // buffered by design for now; the direct raw path above is end-to-end streamed.
