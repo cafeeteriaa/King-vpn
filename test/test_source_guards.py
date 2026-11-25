@@ -3186,7 +3186,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('servers: scanNationalMode ? nationalEndpointServers : null', auto)
         self.assertIn('if (scanNationalMode) {', auto)
         self.assertNotIn('for (var port = 1; port <= 65535; port++)', auto)
-        self.assertIn('final portBatch = <int>[', auto)
+        self.assertIn('final portBatch = kingNextInventoryBatch(', auto)
         self.assertIn('for (final p in portBatch)', auto)
         self.assertIn("const String _autoScanCheckpointKey = 'auto_scan_checkpoint_v2';", auto)
         self.assertIn('port: stagedPortCursor,', auto)
@@ -3204,7 +3204,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('pending.where', auto)
         self.assertNotIn('fetchedAll.where', auto)
         self.assertIn('final savedDomainCursor = savedCheckpoint.domain;', auto)
-        self.assertIn('final domainBatch = <String>[', auto)
+        self.assertIn('final domainBatch = kingNextInventoryBatch(', auto)
         self.assertIn('for (final d in domainBatch)', auto)
         self.assertIn('domain: stagedDomainCursor,', auto)
         self.assertIn('final targetRanges = <String>{', auto)
@@ -4103,6 +4103,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('migrates legacy cursor keys', tests)
         self.assertIn('valid empty v2 cursor', tests)
         self.assertIn('corrupt v2 state falls back', tests)
+
+    def test_auto_scan_batches_share_fair_wraparound_cursor_logic(self):
+        source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        tests = (ROOT / 'test' / 'auto_scan_checkpoint_test.dart').read_text(encoding='utf-8')
+        self.assertIn('List<T> kingNextInventoryBatch<T>(', source)
+        self.assertIn('if (items.isEmpty) return const <T>[];', source)
+        self.assertIn('final count = min(batchSize, items.length);', source)
+        self.assertIn('final domainBatch = kingNextInventoryBatch(', source)
+        self.assertIn('final portBatch = kingNextInventoryBatch(', source)
+        self.assertIn('wraps from the saved cursor', tests)
+        self.assertIn('empty inventory and non-positive batch sizes', tests)
 
 if __name__ == '__main__':
     unittest.main()
