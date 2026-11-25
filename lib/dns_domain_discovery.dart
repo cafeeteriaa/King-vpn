@@ -13,6 +13,12 @@ String? kingMajesticDomainFromCsvLine(String line) {
   if (fields.length < 3) return null;
   final host = fields[2].trim();
   if (host.isEmpty || host.toLowerCase() == 'domain') return null;
+  // Four all-numeric labels are an IPv4 literal attempt, not a hostname,
+  // even when one or more octets are outside the valid IPv4 range.
+  final labels = host.split('.');
+  if (labels.length == 4 && labels.every((label) => int.tryParse(label) != null)) {
+    return null;
+  }
   final normalized = kingNormalizeDomainHosts([host]);
   return normalized.isEmpty ? null : normalized.first;
 }

@@ -301,15 +301,15 @@ void main() {
       );
     });
 
-    test('rejects documentation IPv6 AAAA answers', () {
+    test('preserves documentation IPv6 AAAA answers as DNS observations', () {
       final bytes = _response(
         id: 0x1234,
         recordType: 28,
         rdata: [0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
       );
       expect(
-        () => NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com', recordType: 28),
-        throwsA(isA<FormatException>()),
+        NatDnsWireProbe.parseResponse(bytes, 0x1234, 'google.com', recordType: 28),
+        ['2001:db8::1'],
       );
     });
 
