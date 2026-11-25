@@ -399,7 +399,9 @@ class KingFusionEngine {
   KingFusionSnapshot get snapshot => KingFusionSnapshot(
         state: _state,
         isBusy: _busy,
-        disconnectRequested: _disconnectRequested,
+        // Include the published shared operation so observers and snapshots
+        // see the disconnect transition before native cleanup begins.
+        disconnectRequested: _disconnectRequested || _disconnectOperation != null,
         activeEngineIds: _active.map((item) => _idByAdapter[item.adapter]!),
         cleanupPendingEngineIds: cleanupPendingEngineIds,
         recentEvents: _eventHistory,
