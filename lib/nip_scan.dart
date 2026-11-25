@@ -48,9 +48,9 @@ Future<int?> nipTcpProbe(String ip, int port, Duration timeout) async {
 Future<List<NipHit>> nipScan(
   List<String> ips, {
   int port = 443,
-  int concurrency = 16,
-  int want = 12,
-  Duration budget = const Duration(minutes: 2),
+  int concurrency = 0,
+  int? want,
+  Duration? budget,
   Duration timeout = const Duration(milliseconds: 1500),
   bool Function()? cancelled,
   void Function(int done, int total)? onProgress,
@@ -62,20 +62,20 @@ Future<List<NipHit>> nipScan(
 
   Future<void> worker() async {
     while (true) {
-      if (hits.length >= want) return;
+      if (want != null && hits.length >= want) return;
       if (cancelled != null && cancelled()) return;
-      if (clock.elapsed >= budget) return;
+      if (budget != null && clock.elapsed >= budget) return;
       if (next >= ips.length) return;
       final ip = ips[next++];
       final ms = await nipTcpProbe(ip, port, timeout);
       if (cancelled != null && cancelled()) return;
-      if (ms != null && hits.length < want) hits.add(NipHit(ip, ms));
+      if (ms != null && (want == null || hits.length < want)) hits.add(NipHit(ip, ms));
       done++;
       onProgress?.call(done, ips.length);
     }
   }
 
-  final n = min(concurrency.clamp(1, 16), max(ips.length, 1)).toInt();
+  final n = min(natAdaptiveConcurrency(concurrency), max(ips.length, 1)).toInt();
   await Future.wait(List.generate(n, (_) => worker()));
   onProgress?.call(done, ips.length);
   natStableSort(hits, (a, b) => a.ms.compareTo(b.ms));
@@ -266,8 +266,9 @@ Future<String?> nipResolve(String host) async {
 Future<void> natPrefetchAsn(List<Server> list) async {
   final hosts = list.where((server) => !server.cdn).toList(growable: false);
   final ips = <String>{};
-  for (var offset = 0; offset < hosts.length; offset += 8) {
-    final batch = hosts.skip(offset).take(8);
+  final hostConcurrency = natAdaptiveConcurrency(0);
+  for (var offset = 0; offset < hosts.length; offset += hostConcurrency) {
+    final batch = hosts.skip(offset).take(hostConcurrency);
     final resolved = await Future.wait(batch.map((server) async {
       if (server.isIp) return <String>[server.host];
       return nipResolveAll(server.host);
@@ -277,8 +278,9 @@ Future<void> natPrefetchAsn(List<Server> list) async {
     }
   }
   final allIps = ips.toList(growable: false);
-  for (var offset = 0; offset < allIps.length; offset += 4) {
-    final batch = allIps.skip(offset).take(4);
+  final ipConcurrency = natAdaptiveConcurrency(0);
+  for (var offset = 0; offset < allIps.length; offset += ipConcurrency) {
+    final batch = allIps.skip(offset).take(ipConcurrency);
     await Future.wait(batch.map((ip) async {
       await nipAsnPrefixes(ip); // each A/AAAA endpoint has its own RIPE cache
     }));
@@ -297,10 +299,7 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
   // RIPE is external; while international access is unavailable, use valid cache only.
   if (NatNetworkDiagnosis.preferDomestic) return const [];
   final failAt = _asnFailAt[ip];
-  if (failAt != null &&
-      DateTime.now().difference(failAt) < const Duration(minutes: 15)) {
-    return const [];
-  }
+  // Failed RIPE lookups remain retryable; no fixed failure cooldown hides them.
   try {
     final response = await http
         .get(Uri.parse('https://stat.ripe.net/data/network-info/data.json?resource=$ip'))
@@ -369,7 +368,6 @@ const natFrontSnis = <String>[
   'divar.ir',
   ...kAutoSniDomains,
 ];
-const int _nipFrontSniBatchSize = 8;
 const String _nipFrontSniCursorKey = 'nip_front_sni_cursor_v1';
 int _nipFrontSniCursor = 0;
 Future<void>? _nipFrontSniCursorLoadFuture;
@@ -451,7 +449,7 @@ Future<String?> nipFindFrontSni(String ip, int port, {bool Function()? cancelled
     if (inventory.isEmpty) return null;
 
     final start = _nipFrontSniCursor % inventory.length;
-    final count = min(_nipFrontSniBatchSize, inventory.length);
+    final count = inventory.length;
     var completed = 0;
     for (var offset = 0; offset < count; offset++) {
       if (cancelled?.call() ?? false) break;
@@ -511,12 +509,7 @@ extension NipHunt on _HomePageState {
   /// موفق‌ها ذخیره می‌شوند تا دفعه‌ی بعد اول امتحان شوند.
   Future<bool> _natIpHunt() async {
     if (!nationalMode || connected || abort) return false;
-    final last = _nipLastHunt;
-    if (last != null &&
-        DateTime.now().difference(last) < const Duration(minutes: 4)) {
-      return false;
-    }
-    _nipLastHunt = DateTime.now();
+    _nipLastHunt = DateTime.now(); // diagnostics only; no fixed hunt cooldown
 
     final sourceServers = <Server>[...good, ...pending];
     final seenLinks = sourceServers.map((server) => server.link).toSet();
@@ -546,9 +539,8 @@ extension NipHunt on _HomePageState {
     final templateStart = previousTemplateIndex < 0
         ? 0
         : (previousTemplateIndex + 1) % templateInventory.length;
-    const templateBatchSize = 40;
     final templates = <Server>[
-      for (var i = 0; i < min(templateBatchSize, templateInventory.length); i++)
+      for (var i = 0; i < templateInventory.length; i++)
         templateInventory[(templateStart + i) % templateInventory.length],
     ];
     // Only the exact host:port endpoints present in saved server configurations

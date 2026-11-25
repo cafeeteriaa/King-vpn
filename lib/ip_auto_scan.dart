@@ -14,11 +14,10 @@ const String _ipAutoKeyGlob = 'ipauto_glob_v1';
 const String _ipAutoCursorKey = 'ipauto_cursor_v1';
 const String _ipAutoPosKey = 'ipauto_pos_v1'; // جای فعلی در فهرست آدرس‌ها
 const String _ipAutoPendingKey = 'ipauto_pending_core_v1';
-const int _ipAutoBatch = 6000; // آدرس در هر اجرا
+int get _ipAutoBatch => max(1, Platform.numberOfProcessors * 4096); // resumable device-sized work slice
 // TCP scanning uses every discovered/configured port; no fixed port-count cap.
 const String _ipAutoAtKey = 'ipauto_at_v1'; // زمان آخرین اسکن خودکار نت ملی
-const int _ipAutoConc = 48; // اتصال TCP همزمان
-const Duration _ipAutoCoreBudget = Duration(minutes: 4);
+int get _ipAutoConc => natAdaptiveConcurrency(0); // hardware-aware concurrent probes
 
 bool ipAutoBusy = false;
 bool ipAutoStopFlag = false;
@@ -282,12 +281,8 @@ extension IpAutoExt on _HomePageState {
       final p = await SharedPreferences.getInstance();
       if (_ipAutoHalt(modeSnapshot: runNationalMode)) return;
 
-      final last = int.tryParse(p.getString(_ipAutoAtKey) ?? '') ?? 0;
       final now = DateTime.now().millisecondsSinceEpoch;
-      // اگر هنوز IP سالمی پیدا نشده، زودتر دوباره امتحان می‌شود (۶ ساعت)؛ وگرنه هر ۲۴ ساعت
-      final gapMs = ipAutoHits.isEmpty ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
-      if (now - last < gapMs) return;
-
+      // Last-run time is diagnostic metadata only; no 6/24-hour scan cooldown.
       final completed = await _ipAutoRunOnce((s) => ipAutoStatus = s);
       // Failed, cancelled, or mode-switched scans must not consume the retry interval.
       if (completed && !_ipAutoHalt(modeSnapshot: runNationalMode)) {
@@ -497,15 +492,7 @@ extension IpAutoExt on _HomePageState {
     final tcpConcurrency =
         (manual && runNationalMode) ? kNatManualConc : _ipAutoConc;
     final effectiveTcpConcurrency = natAdaptiveConcurrency(tcpConcurrency);
-    final batchCapacity = min(
-      _ipAutoBatch,
-      max(
-        1,
-        (const Duration(minutes: 5).inMilliseconds / 1500 *
-                effectiveTcpConcurrency * 0.65)
-            .floor(),
-      ),
-    ).toInt();
+    final batchCapacity = _ipAutoBatch;
     final knownEndpointByLink = <String, Server>{
       for (final server in [...pool, ...good, ...pending, ...fetchedAll])
         server.link: server,
@@ -573,7 +560,6 @@ extension IpAutoExt on _HomePageState {
         port: port,
         concurrency: tcpConcurrency,
         want: endpointIps.length,
-        budget: const Duration(minutes: 5),
         timeout: const Duration(milliseconds: 1500),
         cancelled: halted,
         onProgress: (done, total, _) => completed = done,
@@ -622,10 +608,8 @@ extension IpAutoExt on _HomePageState {
     var checked = 0;
     // Only pending pairs still present in the current configured endpoint
     // inventory are actively tested; out-of-scope historical items stay queued.
-    final coreClock = Stopwatch()..start();
     say('${candidates.length} endpointها • ${activeQueue.length} مورد مجاز برای تست هسته');
-    while (activeQueue.isNotEmpty &&
-        coreClock.elapsed < _ipAutoCoreBudget) {
+    while (activeQueue.isNotEmpty) {
       if (halted()) break;
       final c = activeQueue.removeAt(0);
       checked++;

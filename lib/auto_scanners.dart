@@ -190,9 +190,9 @@ List<T> kingNextInventoryBatch<T>(
   ]);
 }
 
-const int _autoScanCdnBatchSize = 8;
-const int _autoScanDomainBatchSize = 18;
-const int _autoScanPortBatchSize = 24; // full SNI/port/TLS pass fits the shared four-minute budget
+int get _autoScanCdnBatchSize => max(1, Platform.numberOfProcessors * 1024);
+int get _autoScanDomainBatchSize => max(1, Platform.numberOfProcessors * 32);
+int get _autoScanPortBatchSize => max(1, Platform.numberOfProcessors * 64);
 
 // SNI discovery checks endpoint-level HTTPS reachability. It does NOT prove
 // that the Android VPN tunnel carries this traffic; only the core/TUN validation
@@ -307,7 +307,7 @@ Future<List<String>> _autoConfiguredServerIps({
 /// The hostname remains the TLS SNI; only the TCP destination is the AAAA address.
 Future<List<String>> _autoResolveDualStackTargets({required List<String> domains, bool Function()? cancelled}) async {
   final out = <String>{};
-  const batchSize = 4;
+  final batchSize = natAdaptiveConcurrency(0);
   for (var offset = 0; offset < domains.length; offset += batchSize) {
     if (cancelled?.call() ?? false) break;
     final batch = domains.skip(offset).take(batchSize);
@@ -504,9 +504,10 @@ Future<void> autoScanRun(void Function(String) say,
       );
       sniTargets[d] = resolved;
       var ok = false;
-      for (var offset = 0; offset < resolved.length; offset += 4) {
+      final probeConcurrency = natAdaptiveConcurrency(0);
+      for (var offset = 0; offset < resolved.length; offset += probeConcurrency) {
         if (cancelled()) break sniLoop;
-        final batch = resolved.skip(offset).take(4);
+        final batch = resolved.skip(offset).take(probeConcurrency);
         final checks = await Future.wait(
           batch.map((ip) => _autoSniOk(ip, 443, d)),
         );
@@ -538,9 +539,10 @@ Future<void> autoScanRun(void Function(String) say,
       final portIps = portTargetIps;
       // Probe each TCP port only on exact saved VPN server IPs, never on
       // arbitrary discovered CDN/DNS/public address ranges.
-      for (var offset = 0; offset < portIps.length; offset += 8) {
+      final probeConcurrency = natAdaptiveConcurrency(0);
+      for (var offset = 0; offset < portIps.length; offset += probeConcurrency) {
         if (cancelled()) break portLoop;
-        final batch = portIps.skip(offset).take(8);
+        final batch = portIps.skip(offset).take(probeConcurrency);
         final checks = await Future.wait(
           batch.map((ip) => _autoPortOk(ip, p)),
         );
@@ -566,9 +568,10 @@ Future<void> autoScanRun(void Function(String) say,
       var ok = false;
       for (final d in domainBatch) {
         final targetIps = sniTargets[d] ?? const <String>[];
-        for (var offset = 0; offset < targetIps.length; offset += 4) {
+        final probeConcurrency = natAdaptiveConcurrency(0);
+        for (var offset = 0; offset < targetIps.length; offset += probeConcurrency) {
           if (cancelled()) break;
-          final batch = targetIps.skip(offset).take(4);
+          final batch = targetIps.skip(offset).take(probeConcurrency);
           final selected = await Future.wait(
             batch.map((ip) => _autoAlpnOk(ip, 443, d, alpn)),
           );
