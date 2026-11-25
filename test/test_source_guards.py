@@ -3983,5 +3983,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('await p.setString(_domMemKey, jsonEncode(natDomMem));', ultra)
 
 
+    def test_nat_domain_discovery_has_no_aggregate_deadline_and_drains_batches(self):
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = ultra.index('Future<List<String>> _natDomainFirst(')
+        end = ultra.index('Future<List<String>> natDeviceHosts()', start)
+        scanner = ultra[start:end]
+        self.assertNotIn('scanBudget', scanner)
+        self.assertNotIn('Duration(seconds: 45)', scanner)
+        self.assertIn('for (var offset = 0; offset < ips.length; offset += batchSize)', scanner)
+        self.assertIn('while (completed < batch.length)', scanner)
+        self.assertIn('want: batch.length', scanner)
+        self.assertIn('return out;', scanner)
+        self.assertIn(' فقط پورت‌های تعریف‌شده', scanner)
+
+
 if __name__ == '__main__':
     unittest.main()
