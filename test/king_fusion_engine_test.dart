@@ -222,6 +222,11 @@ void main() {
       ]));
 
       await entered.future;
+      expect(engine.isBusy, isTrue);
+      final competing = await engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'first', configuration: 'other'),
+      ]));
+      expect(competing.failureCode, 'E-FUSION-BUSY');
       final disconnecting = engine.disconnect();
       gate.complete();
 
@@ -248,6 +253,7 @@ void main() {
 
       await engine.disconnect();
       expect(engine.state, KingFusionState.failed);
+      expect(engine.cleanupPendingEngineIds, ['first']);
       await engine.disconnect();
 
       expect(events.where((event) => event.startsWith('stop:first:')).length, 2);
