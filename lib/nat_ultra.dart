@@ -2447,9 +2447,8 @@ Map<String, dynamic> _genAddrsIso(Map<String, dynamic> args) {
   return {'addrs': addrs, 'cursors': cursors};
 }
 
-// Shared ownership for every scanner that reads or commits _cfRangeCursors.
-// Hold the gate for the complete scan, not only the final preference write:
-// otherwise a stale local cursor snapshot could overwrite another scanner.
+// Shared exclusive gate for NAT range discovery and configured-endpoint validation.
+// Hold it for the complete operation so active probes and cursor commits cannot race.
 Future<void> _natSharedRangeCursorQueue = Future<void>.value();
 Future<T> natWithSharedRangeCursorLock<T>(Future<T> Function() action) async {
   final previous = _natSharedRangeCursorQueue;
@@ -2463,7 +2462,7 @@ Future<T> natWithSharedRangeCursorLock<T>(Future<T> Function() action) async {
   }
 }
 
-// RANGEGUARD: all shared range-cursor scanners use the same exclusive gate.
+// RANGEGUARD: range discovery and endpoint validation use one exclusive gate.
 bool _natRangeScanBusy = false;
 
 Future<List<String>> natRangeScanStep({
