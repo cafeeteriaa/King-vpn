@@ -189,9 +189,7 @@ int standbyGoal() => kStandbyPause; // ۵ سالم، همیشه
 const int kStandbyResume = 5; // RESUME5: وقتی سالم‌ها زیر ۵ آمد جستجو دوباره روشن می‌شود
 // FG-TARGET: جستجوی اصلی (غیر ملی) تا این تعداد سرور سالم تست می‌کند
 const int kFgSearchTarget = 1; // V13: connect immediately on first healthy // FG5: تست سریع با ۵ سالم تمام می‌شود و وصل می‌شود
-// FASTONE: تست سریع (جستجوی اصلی) فقط یک دسته را کامل تست می‌کند. اگر آن دسته
-// حداقل یک سرور سالم داد، همان‌جا می‌ایستد. اگر نداد، دسته‌ی بعدی تا سقف «حداکثر
-// تعداد دسته در هر جستجو» (maxBatches) می‌آید. برای برگشت به رفتار قبلی عدد را بزرگ کن.
+// FASTONE: تست سریع با یافتن سرور سالم به اتصال می‌رود؛ چرخه‌ی پس‌زمینه جستجو را ادامه می‌دهد.
 const int kFastBatchesPerSearch = 1;
 bool standbyPaused = false;
 // FAST SEARCH: parallel ping tests (core delay test, no VPN toggling) used
@@ -549,7 +547,6 @@ bool speedTestBusy = false;
 int listRefreshMin = 180;
 int failMin = 90; // minutes a failed server is not tested again
 int recheckMin = 20; // minutes before a healthy server is pinged again
-const standbyBatches = 12; // batches per standby search cycle
 const bgSearchOff = false; // RETRYPATCH // SPEEDSWITCHPATCH: no search while connected
 // while connected the tunnel is shared with the tests, so the batch is bigger
 // and the timeout longer (fewer false "dead" results). The healthy servers
