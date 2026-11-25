@@ -1665,16 +1665,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 
 
-    def test_connected_national_range_scan_is_bounded_and_cancellable(self):
+    def test_connected_national_range_scan_uses_adaptive_resumable_slices(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         start = main.index('Future<void> _natKeep()')
         end = main.index('// NATIONALPATCH: is the international internet cut', start)
         keep = main[start:end]
         self.assertNotIn('maxAddrs:', keep)
         self.assertIn('conc: natAdaptiveConcurrency(0)', keep)
-        self.assertIn('budget: const Duration(minutes: 3)', keep)
+        self.assertNotIn('budget:', keep)
+        self.assertIn('known: [...pending, ...natRestPending, ...natTemplateSeeds, ...good]', keep)
         self.assertNotIn('pending.length + natRestPending.length <', keep)
-        self.assertIn('int? maxAddrs,', (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8'))
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        scan_sig = nat[nat.index('Future<List<String>> natRangeScanStep('):nat.index('Future<List<String>> _natRangeScanStepBody(')]
+        self.assertNotIn('maxAddrs', scan_sig)
+        self.assertNotIn('budget', scan_sig)
         for condition in ('!mounted', '!connected', '!wantVpn', '!nationalMode',
                           '!localPilotOn', 'appGone', 'abort'):
             self.assertIn(condition, keep)
@@ -1705,7 +1709,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         body = nat[start:end]
         self.assertIn('await _natLoadRangeCursors();', body)
         self.assertIn("final portPrefix = '$modeKey:port:$port:';", body)
-        self.assertIn('final scanLimit = maxAddrs == null', body)
+        self.assertIn('final scanLimit = max(1, effectiveConcurrency * 64);', body)
         scan = body.index('await natScanIps(')
         progress = body.index('onProgress: (done, total, _) => completed = done,', scan)
         complete_guard = body.index('completed < slice.length', progress)
@@ -2573,17 +2577,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('DateTime.now().isBefore(verifyDeadline)', connect)
         self.assertNotIn('pingSec', connect)
 
-    def test_nat_range_scan_uses_budget_sized_per_port_batches(self):
+    def test_nat_range_scan_uses_adaptive_resumable_per_port_batches(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = source.index('Future<List<String>> _natRangeScanStepBody(')
         end = source.index('List<String> userListUrls', start)
         body = source[start:end]
         self.assertIn('final effectiveConcurrency = natAdaptiveConcurrency(conc);', body)
-        self.assertIn('final estimatedCapacity = max(', body)
-        self.assertIn('final scanLimit = maxAddrs == null', body)
+        self.assertNotIn('budget:', body)
+        self.assertIn('final scanLimit = max(1, effectiveConcurrency * 64);', body)
         self.assertIn('final previousPortIndex = portList.indexOf(lastPort);', body)
         self.assertIn('final configuredPorts = seeds', body)
         self.assertIn('natPortsForActiveScan(', body)
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        self.assertNotIn('budget: const Duration(minutes: 3)', main)
+        self.assertNotIn('maxAddrs: 100000', main)
         self.assertIn('fullInventory: natFullPortInventory(seeds)', body)
         self.assertIn('hasExplicitRanges: hasExplicitRanges', body)
         self.assertIn('if (configuredPorts.contains(port))', body)
@@ -2592,7 +2599,6 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('for (final server in seeds)', body)
         self.assertIn('final portPrefix = \'$modeKey:port:$port:\';', body)
         scan = body.index('final hits = await natScanIps(')
-        self.assertIn('budget: budget,', body[scan:scan + 500])
         self.assertIn('want: slice.length,', body[scan:scan + 500])
         self.assertIn('onProgress: (done, total, _) => completed = done,', body[scan:scan + 500])
         self.assertIn('completed < slice.length', body)
@@ -2600,7 +2606,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('perPortCap', body)
         self.assertNotIn('for (final port in portList)', body)
         self.assertNotIn('DateTime.now().add(budget)', body)
-        self.assertIn('int? maxAddrs,', source[source.index('Future<List<String>> natRangeScanStep('):source.index('Future<List<String>> _natRangeScanStepBody(')])
+        scan_sig = source[source.index('Future<List<String>> natRangeScanStep('):source.index('Future<List<String>> _natRangeScanStepBody(')]
+        self.assertNotIn('maxAddrs', scan_sig)
+        self.assertNotIn('budget', scan_sig)
 
     def test_dns_wire_probe_cancellation_closes_pending_udp_work(self):
         core = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')

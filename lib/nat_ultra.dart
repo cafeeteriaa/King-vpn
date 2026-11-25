@@ -2366,16 +2366,13 @@ bool _natRangeScanBusy = false;
 
 Future<List<String>> natRangeScanStep({
   required List<Server> known,
-  int? maxAddrs,
   int conc = 0,
   bool Function()? stop,
-  Duration budget = const Duration(minutes: 2),
 }) async {
   if (_natRangeScanBusy) return const <String>[];
   _natRangeScanBusy = true;
   try {
-    return await _natRangeScanStepBody(
-        known: known, maxAddrs: maxAddrs, conc: conc, stop: stop, budget: budget);
+    return await _natRangeScanStepBody(known: known, conc: conc, stop: stop);
   } finally {
     _natRangeScanBusy = false;
   }
@@ -2383,16 +2380,13 @@ Future<List<String>> natRangeScanStep({
 
 Future<List<String>> _natRangeScanStepBody({
   required List<Server> known,
-  int? maxAddrs,
   int conc = 0,
   bool Function()? stop,
-  Duration budget = const Duration(minutes: 2),
 }) async {
   final modeSnapshot = nationalMode;
   bool shouldAbort() =>
       (stop?.call() ?? false) || nationalMode != modeSnapshot;
-  if (!kNatIpScanOn || shouldAbort() || budget <= Duration.zero ||
-      (maxAddrs != null && maxAddrs <= 0)) {
+  if (!kNatIpScanOn || shouldAbort()) {
     return const <String>[];
   }
 
@@ -2445,19 +2439,11 @@ Future<List<String>> _natRangeScanStepBody({
         entry.key.substring(portPrefix.length): entry.value,
   };
 
-  // Choose a batch that can normally finish inside this run's time budget.
-  // This is a continuation slice, not a total address-space limit.
+  // A processor-adaptive continuation slice controls transient memory only.
+  // The persisted range and per-port cursors retain the complete address space.
   const probeTimeout = Duration(milliseconds: 1500);
   final effectiveConcurrency = natAdaptiveConcurrency(conc);
-  final estimatedCapacity = max(
-    1,
-    (budget.inMilliseconds / probeTimeout.inMilliseconds *
-            effectiveConcurrency * 0.65)
-        .floor(),
-  );
-  final scanLimit = maxAddrs == null
-      ? estimatedCapacity
-      : min(maxAddrs, estimatedCapacity).toInt();
+  final scanLimit = max(1, effectiveConcurrency * 64);
 
   final configuredStart =
       int.tryParse(localOffsets['__range_cursor']?.toString() ?? '') ?? 0;
@@ -2504,7 +2490,6 @@ Future<List<String>> _natRangeScanStepBody({
     port: port,
     concurrency: effectiveConcurrency,
     want: slice.length,
-    budget: budget,
     timeout: probeTimeout,
     cancelled: shouldAbort,
     onProgress: (done, total, _) => completed = done,

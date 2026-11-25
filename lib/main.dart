@@ -10506,7 +10506,7 @@ ListTile( // KINGEXTRAS row
           idle = 0;
           autoUpgrade = true;
           autoCycle = true;
-          // NATRANGE: پس‌زمینه، هر ۵ دقیقه، بخشی کم از بازه‌های IP با سرعت کم
+          // NATRANGE: اسکن پس‌زمینه با Cursor مستقل و دستهٔ متناسب با دستگاه ادامه می‌یابد.
           // NATPENDCAP: وقتی صف فعال و سرریز با هم پرند، اسکن بازه‌ی تازه را موقتاً مکث کن
           final hasRangeTemplate = pending.isNotEmpty ||
               natRestPending.isNotEmpty || natTemplateSeeds.isNotEmpty || good.isNotEmpty;
@@ -10514,7 +10514,7 @@ ListTile( // KINGEXTRAS row
             natRangeLast = DateTime.now();
             unawaited(() async {
               final ips = await natRangeScanStep(
-                  known: [...pending, ...natRestPending],
+                  known: [...pending, ...natRestPending, ...natTemplateSeeds, ...good],
                   // A resumable slice is sized by the range scanner from
                   // current device capacity; no fixed address-count ceiling.
                   conc: natAdaptiveConcurrency(0),
@@ -10525,7 +10525,7 @@ ListTile( // KINGEXTRAS row
                       !localPilotOn ||
                       appGone ||
                       abort,
-                  budget: const Duration(minutes: 3));
+                  );
               // Do not publish stale discoveries after the tunnel/pilot stops.
               if (mounted &&
                   connected &&
@@ -11419,10 +11419,11 @@ ListTile( // KINGEXTRAS row
     setState(() => _pilotRangeBusy = true);
     _set('اسکن مستقل خلبان آغاز شد: ${targets.length} نشانی از IPv4/IPv6، فقط TCP/443؛ ادامه با Cursor.');
     final alive = <String>[];
+    final probeConcurrency = natAdaptiveConcurrency(0);
     try {
-      for (var i = 0; i < targets.length; i += 12) {
+      for (var i = 0; i < targets.length; i += probeConcurrency) {
         if (_pilotRangeCancelRequested) break;
-        final batch = targets.skip(i).take(12).toList();
+        final batch = targets.skip(i).take(probeConcurrency).toList();
         final result = await Future.wait(batch.map((host) async {
           Socket? socket;
           try {
@@ -11828,10 +11829,10 @@ ListTile( // KINGEXTRAS row
         return;
       }
       final ips = await natRangeScanStep(
-          known: [...pending, ...natRestPending],
+          known: [...pending, ...natRestPending, ...natTemplateSeeds, ...good],
           conc: natAdaptiveConcurrency(0),
           stop: () => abort || nationalMode != runNationalMode,
-          budget: const Duration(minutes: 3));
+          );
       if (abort || nationalMode != runNationalMode) return;
       await _natRangeAdd(ips);
     } catch (e, stk) {
@@ -11871,7 +11872,7 @@ ListTile( // KINGEXTRAS row
       if (natFloor >= 10) natLevel = 10;
       tcpTimeout = Duration(seconds: round >= 8 ? 10 : (round >= 4 ? 8 : 6));
       delayTimeout = Duration(seconds: max(delayTimeout.inSeconds, round >= 8 ? 18 : 14));
-      natWorkers = natAdaptiveWorkers(); // NATGATE: national matrix tests max 3
+      natWorkers = natAdaptiveWorkers();
       _dohFail = 0;
       // NATSCAN: IP و دامنه‌ی سرورها قبل از تست سنگین بررسی می‌شوند
       if (runNationalMode) await _natMergeCache();
@@ -11883,10 +11884,8 @@ ListTile( // KINGEXTRAS row
       // FREEZEFIX2: IP servers already found are tested first. The long scan
       // (up to 12 min) used to run before them, which is what looked like a freeze.
       // IPFIX: فقط IP های تازه‌ی همین prescan منتظر تست‌اند (نه همه‌ی IP های کانفیگ‌ها)
-      final ipWaiting = [...pending, ...natRestPending]
-          .any((s) => natFreshHosts.contains(s.host));
-      // DOMAINALWAYS2: دامنه‌های .ir در هر دور اجرا می‌شوند (سقف ۳ دقیقه)
-      if (runNationalMode && !abort && (round % 2 == 0)) {
+      // DOMAINALWAYS2: دامنه‌های .ir در هر دور بررسی می‌شوند.
+      if (runNationalMode && !abort) {
         final domHits = await _natDomainFirst(
             [...pending, ...natRestPending],
             conc: natAdaptiveWorkers(),
@@ -11896,13 +11895,12 @@ ListTile( // KINGEXTRAS row
       }
       final hasTpl = pending.isNotEmpty || natRestPending.isNotEmpty ||
           natTemplateSeeds.isNotEmpty || good.isNotEmpty;
-      if (runNationalMode && !abort && !ipWaiting && pending.isEmpty && hasTpl) {
+      if (runNationalMode && !abort && hasTpl) {
         final ips = await natRangeScanStep(
-            known: [...pending, ...natRestPending],
-            maxAddrs: 100000, // هر دور تا ۱۰۰ هزار آدرس
+            known: [...pending, ...natRestPending, ...natTemplateSeeds, ...good],
             conc: natAdaptiveWorkers(),
             stop: () => abort || modeChanged(),
-            budget: const Duration(minutes: 3));
+            );
         if (abort || modeChanged()) return;
         await _natRangeAdd(ips);
       }
@@ -12878,7 +12876,7 @@ ListTile( // KINGEXTRAS row
         // از حالت‌های مداد/پروفایل) سرورهای سالم ولی با پینگ بالاتر حذف می‌شدند
         badPingMs = max(badPingMs, 6000);
         if (natLevel < 2) natLevel = 2;
-        natWorkers = natAdaptiveWorkers(); // NATGATE: national matrix tests max 3
+        natWorkers = natAdaptiveWorkers();
         delayTimeout = Duration(
             seconds: max(delayTimeout.inSeconds, 16));
         tcpTimeout = Duration(
@@ -12888,7 +12886,7 @@ ListTile( // KINGEXTRAS row
         // NORMAL: start light (level 1) so many servers get a quick ping first;
         // bestEffort in _acquire escalates 2→4 only if needed. No folder inject.
         if (natLevel < 1) natLevel = 1;
-        natWorkers = natAdaptiveWorkers(); // NATGATE: national matrix tests max 3
+        natWorkers = natAdaptiveWorkers();
         delayTimeout = Duration(
             seconds: max(delayTimeout.inSeconds, 12));
         tcpTimeout = Duration(
