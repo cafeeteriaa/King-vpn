@@ -74,7 +74,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
 
   Future<void> _copyAll() async {
     if (_links.isEmpty) return;
-    await Clipboard.setData(ClipboardData(text: _links.join('\\n')));
+    await Clipboard.setData(ClipboardData(text: _links.join('\n')));
     if (mounted) setState(() => _message = 'لینک همه منابع کپی شد.');
   }
 
