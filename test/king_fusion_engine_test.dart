@@ -181,6 +181,13 @@ class _NeverCompletingCancellableVerifier
   }
 }
 
+class _ThrowingTrafficVerifier implements KingFusionTrafficVerifier {
+  @override
+  Future<bool> verify(KingFusionPlan plan) async {
+    throw StateError('verifier internal exception');
+  }
+}
+
 class _FakeTrafficVerifier implements KingFusionTrafficVerifier {
   final bool result;
   int calls = 0;
@@ -605,6 +612,34 @@ void main() {
       expect(verifier.calls, 1);
       expect(engine.state, KingFusionState.connected);
       await engine.disconnect();
+    });
+
+    test('classifies verifier exceptions separately from native hop failures', () async {
+      final lifecycle = <KingFusionEvent>[];
+      final adapterEvents = <String>[];
+      final adapter = _FakeAdapter('first', adapterEvents);
+      final engine = KingFusionEngine(
+        [adapter],
+        trafficVerifier: _ThrowingTrafficVerifier(),
+        onEvent: lifecycle.add,
+      );
+      final result = await engine.connect(KingFusionPlan(
+        [const KingFusionHop(engineId: 'first', configuration: 'cfg')],
+        requireTrafficVerification: true,
+      ));
+
+      expect(result.connected, isFalse);
+      expect(result.failureCode, 'E-FUSION-VERIFY-EXCEPTION');
+      expect(lifecycle.any((event) =>
+          event.type == KingFusionEventType.verificationFailed &&
+          event.failureCode == 'E-FUSION-VERIFY-EXCEPTION'), isTrue);
+      expect(lifecycle.where((event) =>
+          event.type == KingFusionEventType.hopFailed), isEmpty);
+      expect(adapterEvents, [
+        'start:first:-',
+        'stop:first:handle-first',
+      ]);
+      expect(engine.state, KingFusionState.failed);
     });
 
     test('disconnect during traffic verification cancels and rolls back', () async {
