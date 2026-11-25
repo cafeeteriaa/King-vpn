@@ -6094,19 +6094,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
 
     final adapter = KingV2RayAdapter(
-      start: (config) => v2ray
-          .startV2Ray(
-            remark: remark,
-            config: config,
-            proxyOnly: proxyOnly,
-            blockedApps: blockedApps,
-          )
-          .timeout(
-            const Duration(seconds: 30),
-            onTimeout: () => throw TimeoutException(
-              'E-V2RAY-START-TIMEOUT',
-            ),
-          ),
+      nativeStartTimeout: const Duration(seconds: 30),
+      start: (config) => v2ray.startV2Ray(
+        remark: remark,
+        config: config,
+        proxyOnly: proxyOnly,
+        blockedApps: blockedApps,
+      ),
       // Leave the original platform Future visible to Fusion. Its bounded wait
       // retains the in-flight Future, preventing overlapping native stop calls.
       stop: () => v2ray.stopV2Ray(),
