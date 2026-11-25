@@ -32,7 +32,7 @@ class LargeProjectEditingGuards(unittest.TestCase):
         self.assertNotIn("prompt.substring(0, 18000)", self.source)
         self.assertIn("inferenceBatchTargetChars = 9000", self.source)
         self.assertIn("batches.add(currentBatch)", self.source)
-        self.assertIn("for (var batchIndex = 0; batchIndex < batches.length; batchIndex++)", self.source)
+        self.assertIn("for (var batchIndex = completedBatches; batchIndex < batches.length; batchIndex++)", self.source)
 
     def test_large_file_patch_operations_are_supported(self):
         patch = Path("lib/king_ai_patch_engine.dart").read_text(encoding="utf-8")
@@ -115,7 +115,7 @@ class LargeProjectEditingGuards(unittest.TestCase):
         self.assertIn("importProjectZip(File archiveFile)", self.source)
         self.assertIn("normalizeEntryPath", importer)
         self.assertIn("Duplicate normalized ZIP path", importer)
-        self.assertIn("Symbolic link rejected", importer)
+        self.assertIn("ZIP symbolic link rejected", importer)
         self.assertIn("_maxExpansionRatio", importer)
         self.assertIn("size/CRC mismatch", importer)
         self.assertIn("Encrypted ZIP entry rejected", importer)
