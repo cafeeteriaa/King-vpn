@@ -1373,9 +1373,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         ensure = source[ensure_start:ensure_end]
         self.assertNotIn('if (full) break;', ensure)
         self.assertNotIn('if (offs.length - 1 >=', ensure)
-        self.assertIn('for (final pth in mergeFrom)', ensure)
-        self.assertIn('if (f.existsSync()) f.path,', ensure)
-        self.assertIn('Merge fresh sources additively with the previous complete inventory.', ensure)
+        self.assertIn('for (final path in mergeFrom)', ensure)
+        self.assertIn('final freshTotal = offs.length - 1;', ensure)
+        self.assertIn('if (f.existsSync()) await appendInventoryFile(f.path);', ensure)
+        self.assertLess(ensure.index('final freshTotal = offs.length - 1;'), ensure.index('if (f.existsSync()) await appendInventoryFile(f.path);'))
+        self.assertIn('A temporarily partial source response must never erase older entries.', ensure)
         self.assertNotIn('oldTotal ~/ 2', ensure)
 
     def test_auto_sni_and_alpn_keep_platform_tls_certificate_validation(self):
