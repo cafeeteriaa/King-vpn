@@ -176,6 +176,22 @@ void main() {
   });
 
   group('independent probe-group classification', () {
+    test('success quorum scales with the observed endpoint inventory', () {
+      expect(requiredProbeSuccessQuorum(1), 2);
+      expect(requiredProbeSuccessQuorum(2), 2);
+      expect(requiredProbeSuccessQuorum(3), 2);
+      expect(requiredProbeSuccessQuorum(4), 3);
+      expect(requiredProbeSuccessQuorum(5), 4);
+      expect(requiredProbeSuccessQuorum(6), 4);
+      expect(requiredProbeSuccessQuorum(100), 67);
+    });
+
+    test('expanded inventories require a proportional healthy quorum', () {
+      expect(classifyLinkHealth(attempted: 5, successful: 4), LinkHealth.healthy);
+      expect(classifyLinkHealth(attempted: 5, successful: 3), LinkHealth.degraded);
+      expect(classifyLinkHealth(attempted: 5, successful: 0), LinkHealth.unreachable);
+    });
+
     test('two successful handshakes establish a healthy group', () {
       expect(classifyLinkHealth(attempted: 3, successful: 2), LinkHealth.healthy);
       expect(classifyLinkHealth(attempted: 2, successful: 2), LinkHealth.healthy);
