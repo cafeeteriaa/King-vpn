@@ -87,7 +87,7 @@ class KingV2RayAdapter implements KingFusionCancellableEngineAdapter {
       // Best-effort cleanup is intentionally followed by the normal app
       // recovery path; the exception text/configuration never leaves adapter.
       try {
-        await _stopNative();
+        await _stopNativeSerialized();
       } catch (_) {
         // The Fusion coordinator retains cleanup only for acquired handles.
         // The host's existing stop/recovery path remains the final fallback.
@@ -103,7 +103,7 @@ class KingV2RayAdapter implements KingFusionCancellableEngineAdapter {
     if (!_starting) return;
     _cancelRequested = true;
     _generation++;
-    await _stopNative();
+    await _stopNativeSerialized();
   }
 
   @override
@@ -112,7 +112,7 @@ class KingV2RayAdapter implements KingFusionCancellableEngineAdapter {
     if (!identical(handle, _activeHandle)) {
       throw StateError('E-V2RAY-HANDLE-MISMATCH');
     }
-    await _stopNative();
+    await _stopNativeSerialized();
     _lastStoppedHandle = handle;
     _activeHandle = null;
   }
