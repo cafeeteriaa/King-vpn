@@ -268,12 +268,9 @@ Future<void> autoScanRun(void Function(String) say,
     // Keep the discovered pool and CDN inventory independent, then rotate
     // through every configured CDN range with persisted per-range cursors.
     // Each run handles a memory-safe slice; later runs resume at the next IP.
-    // The global-folder IP pool may contain internationally hosted addresses
-    // that are unusable during national-network isolation. Keep that pool in
-    // global mode only; national mode derives candidates from domestic DNS seeds.
-    final base = scanNationalMode
-        ? <String>[]
-        : [for (final entry in _goldIps.values) entry.ip];
+    // Keep every previously discovered IP in both modes. National mode changes
+    // ordering only; it never removes global observations from the inventory.
+    final base = [for (final entry in _goldIps.values) entry.ip];
     final prefs = await SharedPreferences.getInstance();
     final savedCursorJson = prefs.getString(_autoScanCdnCursorKey);
     final cdnCursors = <String, dynamic>{};
@@ -301,9 +298,9 @@ Future<void> autoScanRun(void Function(String) say,
     // through the complete merged inventory on subsequent completed runs.
     final domainSources = <String>{
       ...(scanNationalMode ? kAutoNationalSniDomains : kAutoSniDomains),
+      ...dnsxFullDomains(),
       ...natFrontSnis,
       ...natRelayHosts,
-      if (!scanNationalMode) ...dnsxFullDomains(),
     };
     final nationalEndpointServers = <Server>{
       ...natTemplateSeeds,
@@ -356,13 +353,13 @@ Future<void> autoScanRun(void Function(String) say,
         portInventory[(portStart + i) % portInventory.length],
     ];
     final stagedPortCursor = portBatch.isEmpty ? savedPortCursor : portBatch.last;
-    // Global CDN ranges are not useful national-mode seeds during isolation.
-    // Keep them available in global mode; national mode resolves domestic
-    // service domains and saved endpoint hosts instead.
-    final cdnRanges = scanNationalMode
-        ? const <String>[]
-        : (_liveCdnRanges.isNotEmpty ? _liveCdnRanges : [..._cfRanges, ..._cfRangesV6]);
-    if (!scanNationalMode) unawaited(refreshCdnRanges());
+    // Refresh and retain CDN ranges in both modes. National-first ordering is
+    // applied to domains and DNS observations; it does not discard global IP
+    // or CDN inventory when the selected network is domestic.
+    unawaited(refreshCdnRanges());
+    final cdnRanges = _liveCdnRanges.isNotEmpty
+        ? _liveCdnRanges
+        : [..._cfRanges, ..._cfRangesV6];
     // Add AAAA answers from the same project SNI inventory. Combine exact
     // A/AAAA endpoints and CDN CIDRs in one fair cursor iterator so no source
     // is permanently starved by the order of a concatenated list.
@@ -374,16 +371,16 @@ Future<void> autoScanRun(void Function(String) say,
       say(cancellationMessage());
       return;
     }
+    // Preserve source order: national-first DNS answers, then the complete
+    // saved IP pool, then CDN ranges. Set insertion order deduplicates without
+    // sorting away the domestic-first priority.
     final targetRanges = <String>{
-      ...base,
       ...dnsResolvedIps,
+      ...base,
       ...cdnRanges,
-      if (!scanNationalMode &&
-          base.isEmpty &&
-          dnsResolvedIps.isEmpty &&
-          cdnRanges.isEmpty)
+      if (base.isEmpty && dnsResolvedIps.isEmpty && cdnRanges.isEmpty)
         ...kAutoFallbackIps,
-    }.toList()..sort();
+    }.toList();
     final ips = _getCfIps(
       batchSize: _autoScanCdnBatchSize,
       liveRanges: targetRanges,
