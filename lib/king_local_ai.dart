@@ -724,9 +724,13 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
         final chunkIndex = item['chunkIndex'] is int
             ? item['chunkIndex'] as int
             : matchingChunks.length == 1 ? matchingChunks.single.chunkIndex : -1;
-        final sourceChunk = matchingChunks.where(
-          (chunk) => chunk.chunkIndex == chunkIndex,
-        ).firstOrNull;
+        KingAiSourceChunk? sourceChunk;
+        for (final candidate in matchingChunks) {
+          if (candidate.chunkIndex == chunkIndex) {
+            sourceChunk = candidate;
+            break;
+          }
+        }
         if (sourceChunk == null) {
           throw FormatException(
             'Model returned a change for a chunk not present in this inference batch: $path#$chunkIndex',
@@ -836,7 +840,9 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
         path.split('/').any((part) => part == '..' || part.isEmpty) ||
         !(path.startsWith('lib/') ||
           path.startsWith('test/') ||
-          path.startsWith('tools/')) ||
+          path.startsWith('tools/') ||
+          path.startsWith('docs/') ||
+          (!path.contains('/') && path.endsWith('.md'))) ||
         path.startsWith('lib/android') ||
         path.startsWith('lib/own_vpn') ||
         _isProtectedGeneratedPath(path)) {
@@ -1543,7 +1549,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       };
     }
 
-    final safeCandidate = changes.length <= 2 &&
+    final safeCandidate = changes.isNotEmpty &&
         changes.entries.every((entry) =>
             (entry.key.startsWith('lib/') || entry.key.startsWith('test/')) &&
             context.containsKey(entry.key) &&
@@ -1832,9 +1838,11 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       final path = entry['path'];
       return entry['type'] == 'blob' &&
           path is String &&
-          (path.startsWith('lib/') || path.startsWith('test/') || path.startsWith('tools/')) &&
+          (path.startsWith('lib/') || path.startsWith('test/') ||
+              path.startsWith('tools/') || path.startsWith('docs/') ||
+              (!path.contains('/') && path.endsWith('.md'))) &&
           !_isProtectedGeneratedPath(path) &&
-          (path.endsWith('.dart') || path.endsWith('.py')) &&
+          (path.endsWith('.dart') || path.endsWith('.py') || path.endsWith('.md')) &&
           entry['size'] is num;
     }).toList();
     final words = task.toLowerCase().split(RegExp(r'[^a-z0-9\u0600-\u06FF]+'))
