@@ -2706,14 +2706,26 @@ Future<void> hotExportToDownload() async {
     if (!v.existsSync()) v.createSync(recursive: true);
     final ts = DateTime.now().millisecondsSinceEpoch;
     final dst = File('$hotVisibleDir/hot_configs_$ts.txt');
+    final exportSink = dst.openWrite();
     try {
-      final raw = await src.readAsString();
-      final masked = _maskUuidsForExport(raw);
-      await dst.writeAsString(masked, flush: true);
+      await for (final line in src
+          .openRead()
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())) {
+        exportSink.writeln(_maskUuidsForExport(line));
+      }
+      await exportSink.flush();
     } catch (e) {
-      // فیکس ۳: اگر ماسک شکست خورد، نسخه‌ی بدون ماسک نوشته نمی‌شود (نشت UUID ممنوع)
+      // If masking or streaming fails, do not fall back to an unmasked export.
       dbg('hotExport: ماسک ناموفق؛ خروجی نوشته نشد: $e');
+      try {
+        await dst.delete();
+      } catch (cleanupError) {
+        errJournalAdd(cleanupError, kind: 'SILENT-FILE');
+      }
       return;
+    } finally {
+      await exportSink.close();
     }
     try {
       final all = v.listSync()
