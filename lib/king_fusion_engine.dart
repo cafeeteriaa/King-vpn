@@ -622,6 +622,20 @@ class KingFusionEngine {
       if (plan.requireTrafficVerification) {
         verificationInProgress = true;
         _emit(KingFusionEventType.verificationStarted);
+        // The event listener is synchronous and may commit disconnect.
+        // Do not start a verifier (which may allocate sockets or probes)
+        // after cancellation has already been accepted.
+        if (_disconnectRequested) {
+          final startedCount = _active.length;
+          final cleanupFailures = await _rollback();
+          _setState(KingFusionState.failed);
+          return KingFusionResult.failure(
+            failedEngineId: null,
+            failureCode: 'E-FUSION-CANCELLED',
+            startedHops: startedCount,
+            cleanupFailedEngineIds: cleanupFailures,
+          );
+        }
         final verifier = _trafficVerifier;
         if (verifier == null) {
           final startedCount = _active.length;
