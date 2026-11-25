@@ -169,6 +169,13 @@ class KingFusionEngine {
   bool get isBusy => _busy;
 
   Future<KingFusionResult> connect(KingFusionPlan plan) async {
+    if (_disconnectRequested) {
+      return const KingFusionResult.failure(
+        failedEngineId: null,
+        failureCode: 'E-FUSION-DISCONNECT-PENDING',
+        startedHops: 0,
+      );
+    }
     if (_busy) {
       return const KingFusionResult.failure(
         failedEngineId: null,
