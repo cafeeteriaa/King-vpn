@@ -1675,18 +1675,11 @@ Future<void> goldSave() async {
 List<CleanIp>? _goldTop;
 List<CleanIp> goldIpList() {
   if (_goldTop != null) return _goldTop!;
-  final best = <_GoldIp>[];
-  for (final v in _goldIps.values) {
-    if (best.length < 20) {
-      best.add(v);
-      best.sort((a, b) => a.ms.compareTo(b.ms));
-    } else if (v.ms < best.last.ms) {
-      best.removeLast();
-      best.add(v);
-      best.sort((a, b) => a.ms.compareTo(b.ms));
-    }
-  }
-  return _goldTop = [for (final v in best) CleanIp(v.ip, v.ms, v.port)];
+  // Return the complete saved inventory in quality order. Ranking determines
+  // order only; it must never truncate the global pool to a fixed top-N slice.
+  final all = _goldIps.values.toList()
+    ..sort((a, b) => a.ms.compareTo(b.ms));
+  return _goldTop = [for (final v in all) CleanIp(v.ip, v.ms, v.port)];
 }
 
 // NATHELP: نت ملی از IPهای تمیز پوشه‌ی جهانی کمک می‌گیرد (فقط خواندن). اسکنر دستی در نت ملی اجرا نمی‌شود، پس چیزی را خراب نمی‌کند.
