@@ -6128,9 +6128,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         failMin = 120;
         recheckMin = 30;
         tcpWorkers = 50;
-        maxPerSource = 100;
         fetchWorkers = 4;
-        fetchDeadline = const Duration(seconds: 20);
         firstBatchSize = 100;
         standbyBatchSize = 30;
         maxBatches = 5;
@@ -6164,7 +6162,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (p.getBool('best_defaults_v4') != true) {
         fastWorkers = 3;
         fetchWorkers = 8;
-        fetchDeadline = const Duration(seconds: 45);
         await p.setBool('best_defaults_v4', true);
         await saveNumPrefs();
         await _saveSettings();
