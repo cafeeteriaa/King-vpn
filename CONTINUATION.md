@@ -484,3 +484,12 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) compatibility — base adapter methods unchanged; preflight errors are now represented as result codes; (2) lifecycle — strict reverse dependency cleanup and identity-keyed serialization preserve native handle ownership; (3) regression — preflight exception and two-hop cleanup retry tests added.
 - Commits: `d5859428a6d0e95e4e63979fcf4ba835c7b7005f` (preflight exception containment), `52aff9ca4d0d02c40e698e2d277f1cd24d4e0e04` (preflight regression), `8cd647d5bb0ee88e8995f13786d71f9ec3351cbe` (dependency-safe cleanup), `c39ae3f521757db274d8192eee4ac5afb64fb174` (reverse-order regression).
 - Exact latest-head CI is required before validation claims. Earlier workflow attempts are still processing/cancelled for intermediate heads; no current-head test/analyze/Android build result is claimed.
+
+
+## 2026-11-25 — Native-start exception cancellation race
+
+- Corrected the generic native-start exception path so an exception raised after the user has requested disconnect is classified as `E-FUSION-CANCELLED`, not `E-FUSION-EXCEPTION`.
+- Previously, adapters returning a failed result after disconnect were already classified as cancellation, but adapters throwing during the same cancellation race could leak a generic exception result. Both outcomes now honor the same cancellation state while rolling back earlier successful hops.
+- Added a two-hop regression test: the first hop starts, the second start is held, disconnect is requested, and the second adapter then throws. The result is cancellation, the first hop is stopped, and the engine returns to idle.
+- Three-pass review: (1) API consistency — thrown and returned start failures follow the same cancellation semantics; (2) lifecycle — already-started handles still enter reverse-order rollback; (3) regression — explicit test covers the exception/disconnect interleaving.
+- Commits: `77066d5c032ddbb7704b6896edff66ed4090e255` (cancellation result mapping), `287a7019bdee76a7c376219f7db13f05664ed9c3` (race regression test).
