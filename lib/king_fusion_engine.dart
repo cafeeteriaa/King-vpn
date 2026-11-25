@@ -728,26 +728,63 @@ class KingFusionEngine {
     return null;
   }
 
-  Future<void> disconnect() async {
+  Future<void>? _disconnectOperation;
+
+  /// Concurrent callers join the same native cleanup operation.
+  Future<void> disconnect() {
     _emit(KingFusionEventType.disconnectRequested);
+    final existing = _disconnectOperation;
+    if (existing != null) {
+      _requestDisconnectCancellation();
+      return existing;
+    }
+    final completer = Completer<void>();
+    final operation = completer.future;
+    _disconnectOperation = operation;
+    unawaited(
+      _performDisconnect().then<void>(
+        (_) {
+          if (identical(_disconnectOperation, operation)) {
+            _disconnectOperation = null;
+          }
+          completer.complete();
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          if (identical(_disconnectOperation, operation)) {
+            _disconnectOperation = null;
+          }
+          completer.completeError(error, stackTrace);
+        },
+      ),
+    );
+    return operation;
+  }
+
+  void _requestDisconnectCancellation() {
+    if (!_busy || _state == KingFusionState.stopping) return;
+    _disconnectRequested = true;
+    final signal = _disconnectSignal;
+    if (signal != null && !signal.isCompleted) signal.complete();
+    final verifier = _activeVerifier;
+    if (verifier != null) {
+      unawaited(_requestVerifierCancellation(verifier));
+    }
+    final startingAdapter = _startingAdapter;
+    if (startingAdapter != null) {
+      unawaited(_requestStartCancellation(startingAdapter));
+    }
+  }
+
+  Future<void> _performDisconnect() async {
     if (_busy) {
-      // A disconnect request must not disappear while a native start is in
-      // flight. Ask connect() to roll back as soon as that start completes.
-      _disconnectRequested = true;
-      final signal = _disconnectSignal;
-      if (signal != null && !signal.isCompleted) signal.complete();
-      final verifier = _activeVerifier;
-      if (verifier != null) {
-        unawaited(_requestVerifierCancellation(verifier));
-      }
-      final startingAdapter = _startingAdapter;
-      if (startingAdapter != null) {
-        unawaited(_requestStartCancellation(startingAdapter));
-      }
+      _requestDisconnectCancellation();
       final pending = _operationDone?.future;
       if (pending != null) await pending;
     }
-    if (_busy) return;
+    if (_busy) {
+      final pending = _operationDone?.future;
+      if (pending != null) await pending;
+    }
     _busy = true;
     _disconnectRequested = false;
     _operationDone = Completer<void>();
@@ -841,7 +878,7 @@ class KingFusionEngine {
       ..clear()
       ..addAll(failed.reversed);
     return failed
-        .map((item) => item.adapter.descriptor.id)
+        .map((item) => _idByAdapter[item.adapter]!)
         .toList(growable: false);
   }
 
