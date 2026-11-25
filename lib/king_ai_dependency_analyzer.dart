@@ -73,6 +73,8 @@ class KingAiDependencyAnalyzer {
   }
 
   static bool _isExternal(String target) {
+    if (target.endsWith('.dart') || target.endsWith('.py') ||
+        target.startsWith('.') || target.contains('/')) return false;
     if (target.startsWith('dart:') || target.startsWith('http:') || target.startsWith('https:')) return true;
     if (target.startsWith('package:')) return !target.startsWith('package:king_vpn/');
     return !target.startsWith('.') && !target.contains('/');
