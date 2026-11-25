@@ -11,7 +11,6 @@ part of 'main.dart';
 
 int natLevel = 1;
 int natRound = 1; // V12: 1 = pass 1 (skip failed), 2 = pass 2 (retry all)
-const int natMaxVariants = 5000; // V8 • فیکس ۱۷: قبلاً 0x7FFFFFFF
 int natFloor = 0;
 List<Server> natRestPending = [];
 
@@ -507,7 +506,11 @@ int natGrow(int n) {
     final port = rnd.nextBool();
     final portIdx = port ? rnd.nextInt(_natCfPorts.length) : null;
     final clean = rnd.nextBool();
-    final cleanIdx = clean ? rnd.nextInt(10) : null;
+    // Select across the complete currently available clean-IP inventory;
+    // when it is empty, a null index uses the rotating picker after discovery.
+    final cleanIdx = clean && cleanIps.isNotEmpty
+        ? rnd.nextInt(cleanIps.length)
+        : null;
     // DNSNAT: جایگزین‌ها از DNSهای سالم اسکن (اگر هست) انتخاب می‌شوند
     // نیمی از انتخاب‌ها از DNSهای اسکن‌شده و نیمی از لیست ثابت، تا تنوع حفظ شود
     final dnsPool = (dnsxBestCache.isNotEmpty && rnd.nextBool()) ? dnsxBestCache : _natDnsList;
