@@ -37,6 +37,8 @@ import 'prefs_store.dart';
 import 'online_count.dart'; // ONLINECOUNT: شمارش کاربران آنلاین
 import 'nnie_core.dart'; // NNIE: کد خالص و قابل تست
 import 'own_vpn.dart'; // KINGVPN: سرویس VPN خودمان (پیش‌فرض خاموش)
+import 'king_fusion_engine.dart';
+import 'king_v2ray_adapter.dart';
 import 'package:crypto/crypto.dart'; // فیکس ۱: sha256 برای APK آپدیت
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // فیکس ۲: کلیدهای AI
 import 'package:speech_to_text/speech_to_text.dart' as stt;
@@ -5110,6 +5112,8 @@ bool sniCfOn = false;
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   late final V2ray v2ray;
+  // The active Fusion coordinator owns only starts issued through its V2Ray adapter.
+  KingFusionEngine? _activeV2RayFusion;
   // ALL healthy servers (no count limit). Servers saved from the last session
   // are loaded here too (checkedAt == null) and tested first.
   final List<Server> good = [];
@@ -6071,7 +6075,70 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!busy && switching) _unlockLater();
   }
 
-  // stops V2Ray (the only engine)
+  /// Starts the existing plugin through Fusion without weakening the app's
+  /// CONNECTED/TUN/traffic checks, which remain in _startImpl.
+  Future<bool> _startV2RayViaFusion({
+    required String configuration,
+    required String remark,
+    required bool proxyOnly,
+    List<String>? blockedApps,
+  }) async {
+    final previous = _activeV2RayFusion;
+    if (previous != null) {
+      await previous.disconnect();
+      if (previous.cleanupPendingEngineIds.isNotEmpty) {
+        lastFail = 'توقف موتور قبلی هنوز تأیید نشده است';
+        return false;
+      }
+      _activeV2RayFusion = null;
+    }
+
+    final adapter = KingV2RayAdapter(
+      start: (config) => v2ray
+          .startV2Ray(
+            remark: remark,
+            config: config,
+            proxyOnly: proxyOnly,
+            blockedApps: blockedApps,
+          )
+          .timeout(
+            const Duration(seconds: 30),
+            onTimeout: () => throw TimeoutException(
+              'E-V2RAY-START-TIMEOUT',
+            ),
+          ),
+      stop: () => v2ray.stopV2Ray().timeout(
+            const Duration(seconds: 8),
+            onTimeout: () => throw TimeoutException(
+              'E-V2RAY-STOP-TIMEOUT',
+            ),
+          ),
+    );
+    final coordinator = KingFusionEngine(
+      [adapter],
+      nativeStopTimeout: const Duration(seconds: 9),
+    );
+    _activeV2RayFusion = coordinator;
+    final result = await coordinator.connect(
+      KingFusionPlan([
+        KingFusionHop(
+          engineId: adapter.descriptor.id,
+          configuration: configuration,
+        ),
+      ]),
+    );
+    if (result.connected) return true;
+
+    lastFail = result.failureCode ?? 'E-FUSION-V2RAY-START';
+    if (coordinator.cleanupPendingEngineIds.isEmpty) {
+      _activeV2RayFusion = null;
+    }
+    return false;
+  }
+
+  // stops V2Ray through the same Fusion owner that started it. If native
+  // cleanup times out, Fusion retains the handle and prevents a new start from
+  // silently replacing an engine whose stop outcome is still unknown.
   Future<void> _stopV2() async {
     // OWNSTOP-FIX: every stop through this function is ours (speed tests, searches,
     // switches). Mark it before the stop so the DISCONNECTED event it produces is
@@ -6081,9 +6148,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _dropDeferred = false;
     try {
       if (kOwnVpnService) await ownVpnStop(); // KINGVPN
-      await v2ray.stopV2Ray().timeout(const Duration(seconds: 8), onTimeout: () {});
-    } catch (_swE) { _swl('_stopV2#1', _swE);}
-    finally {
+      final fusion = _activeV2RayFusion;
+      if (fusion != null) {
+        await fusion.disconnect();
+        if (fusion.cleanupPendingEngineIds.isEmpty) {
+          _activeV2RayFusion = null;
+        } else {
+          dbg('FUSION-CLEANUP-PENDING: ${fusion.cleanupPendingEngineIds.join(',')}');
+        }
+      } else {
+        await v2ray.stopV2Ray().timeout(
+          const Duration(seconds: 8),
+          onTimeout: () {},
+        );
+      }
+    } catch (_swE) {
+      _swl('_stopV2#1', _swE);
+    } finally {
       _lastOwnStop = DateTime.now();
       _dropDeferred = false;
     }
@@ -8523,11 +8604,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       if (po) {
         // START-TIMEOUT: اگر هسته بالا نیامد، کار گیر نمی‌کند و قفل busy آزاد می‌شود
-        await v2ray.startV2Ray(
-                remark: s.name, config: sanitizeCfg(cfg), proxyOnly: true)
-            .timeout(const Duration(seconds: 30),
-                onTimeout: () => throw TimeoutException(
-                    'هسته در ۳۰ ثانیه بالا نیامد (حالت پروکسی)'));
+        final proxyStarted = await _startV2RayViaFusion(
+          configuration: sanitizeCfg(cfg),
+          remark: s.name,
+          proxyOnly: true,
+        );
+        if (!proxyStarted) {
+          throw StateError(lastFail.isEmpty ? 'E-FUSION-V2RAY-START' : lastFail);
+        }
         if (proxyOnly) return true;
         // proxy mode as the real connection: the local proxy port must open
         if (abort || !await waitProxyPort(max: const Duration(seconds: 8))) { // ABORTWAIT
@@ -8635,14 +8719,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             if (!sig.isCompleted) sig.complete(true);
           } else {
             // START-TIMEOUT: هسته‌ی گیرکرده نباید کل اتصال را قفل کند
-            await v2ray.startV2Ray(
-                remark: s.name,
-                config: sanitizeCfg(cfgTries[ci]),
-                proxyOnly: false,
-                blockedApps: bypassApps.isEmpty ? null : bypassApps)
-                .timeout(const Duration(seconds: 30),
-                    onTimeout: () => throw TimeoutException(
-                        'هسته در ۳۰ ثانیه بالا نیامد'));
+            final nativeStarted = await _startV2RayViaFusion(
+              configuration: sanitizeCfg(cfgTries[ci]),
+              remark: s.name,
+              proxyOnly: false,
+              blockedApps: bypassApps.isEmpty ? null : bypassApps,
+            );
+            if (!nativeStarted) {
+              throw StateError(lastFail.isEmpty ? 'E-FUSION-V2RAY-START' : lastFail);
+            }
           }
           dbg('V2RAY-START-RETURNED ${s.name}');
         } catch (e) {
