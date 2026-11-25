@@ -35,6 +35,14 @@ String canonicalNetworkIdentity(Iterable<String> interfaceAddresses) {
   return values.join(';');
 }
 
+/// Builds a standards-compliant HTTP/1.1 HEAD request for the Smart Pilot
+/// TLS reachability probe. CRLF delimiters are wire bytes, not backslash text.
+String buildPilotHttpHeadRequest(String host) =>
+    'HEAD / HTTP/1.1\r\n'
+    'Host: $host\r\n'
+    'User-Agent: KING-VPN-Pilot/1.0\r\n'
+    'Connection: close\r\n\r\n';
+
 /// Median of non-negative latency observations; null/invalid samples are ignored.
 int? medianLatencyMs(Iterable<int?> values) {
   final sorted = values.whereType<int>().where((value) => value >= 0).toList()
