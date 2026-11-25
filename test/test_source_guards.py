@@ -2751,10 +2751,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_streamed_source_decoder_preserves_plain_html_and_base64_inputs(self):
         decoder = (ROOT / 'lib' / 'source_stream_decoder.dart').read_text(encoding='utf-8')
-        self.assertIn('utf8.decoder', decoder)
+        self.assertIn('Utf8Decoder(allowMalformed: true)', decoder)
         self.assertIn('base64.decode(b64)', decoder)
         self.assertIn("lower.contains('<html')", decoder)
-        self.assertIn("_linkRe", decoder)
+        self.assertIn("linkRegex", decoder)
         self.assertIn(".allMatches(line.replaceAll", decoder)
         self.assertLess(
             decoder.index("lower.contains('<html')"),
