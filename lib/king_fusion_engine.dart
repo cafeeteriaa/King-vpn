@@ -94,6 +94,8 @@ enum KingFusionState { idle, starting, connected, stopping, failed }
 class KingFusionResult {
   /// All adapters accepted their start calls; this is not end-to-end traffic proof.
   final bool connected;
+  /// True only when the plan requested and passed a traffic verifier.
+  final bool trafficVerified;
   final String? failedEngineId;
   final String? failureCode;
   final int startedHops;
@@ -102,6 +104,7 @@ class KingFusionResult {
 
   const KingFusionResult._({
     required this.connected,
+    required this.trafficVerified,
     required this.failedEngineId,
     required this.failureCode,
     required this.startedHops,
@@ -111,6 +114,7 @@ class KingFusionResult {
   const KingFusionResult.success(int startedHops)
       : this._(
           connected: true,
+          trafficVerified: false,
           failedEngineId: null,
           failureCode: null,
           startedHops: startedHops,
@@ -123,6 +127,7 @@ class KingFusionResult {
     List<String> cleanupFailedEngineIds = const <String>[],
   }) : this._(
           connected: false,
+          trafficVerified: false,
           failedEngineId: failedEngineId,
           failureCode: failureCode,
           startedHops: startedHops,
@@ -314,7 +319,20 @@ class KingFusionEngine {
         }
       }
       state = KingFusionState.connected;
-      return KingFusionResult.success(_active.length);
+      return KingFusionResult.success(
+        _active.length,
+        trafficVerified: plan.requireTrafficVerification,
+      );
+    } on TimeoutException {
+      final startedCount = _active.length;
+      final cleanupFailures = await _rollback();
+      state = KingFusionState.failed;
+      return KingFusionResult.failure(
+        failedEngineId: currentEngineId,
+        failureCode: 'E-FUSION-VERIFY-TIMEOUT',
+        startedHops: startedCount,
+        cleanupFailedEngineIds: cleanupFailures,
+      );
     } catch (_) {
       final startedCount = _active.length;
       final cleanupFailures = await _rollback();
