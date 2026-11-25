@@ -63,6 +63,17 @@ void main() {
     });
   });
 
+  group('throughput sample validity', () {
+    test('only positive finite samples are valid', () {
+      expect(isValidThroughputSample(0.01), isTrue);
+      expect(isValidThroughputSample(null), isFalse);
+      expect(isValidThroughputSample(0), isFalse);
+      expect(isValidThroughputSample(-1), isFalse);
+      expect(isValidThroughputSample(double.nan), isFalse);
+      expect(isValidThroughputSample(double.infinity), isFalse);
+    });
+  });
+
   group('rolling throughput history statistics', () {
     test('median handles odd and even sample windows', () {
       expect(medianThroughput([9, 1, 5]), 5);
