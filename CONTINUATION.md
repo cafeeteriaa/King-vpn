@@ -601,3 +601,13 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) compatibility — additive constructor option with a default; existing listeners and event sequencing remain intact; (2) security/lifecycle — no config/native handle fields are retained and memory use is bounded/configurable; (3) regression — 2 new tests cover history behavior and validation.
 - Commits: `1704b51268988059226d89c2ce6fe9000cf00d6e` (engine history), `11460856dbcaaff71f8183c076000531a9e37f9e` (history tests).
 - Dedicated Fusion test count: 40. CI for the exact latest head is pending; do not treat older CI results as validation of this change.
+
+
+## 2026-11-25 — Reentrant disconnect observer safety
+
+- A lifecycle observer could synchronously call `disconnect()` while handling `disconnectRequested`. The old order emitted the event before publishing `_disconnectOperation`, allowing recursive event dispatch before the first call had installed its coalescing future.
+- Corrected the ordering: the first caller publishes the shared disconnect future before notifying observers. Reentrant and concurrent callers now join that same operation. Joiners do not re-emit `disconnectRequested`, preventing observer recursion while preserving one event for the teardown transition.
+- Added a deterministic regression test whose observer calls `disconnect()` directly from `disconnectRequested`; it asserts one event, one native stop, no recursion, and final idle/not-busy state.
+- Three-pass review: (1) concurrency/API — the shared future is visible before callbacks run; (2) lifecycle — reentrant callers cannot start duplicate teardown or recursively dispatch the same event; (3) regression — the callback-driven test asserts exactly-once event and stop behavior.
+- Commits: `467802307f8364959445e615bfbc8a9a5b61b1ca` (reentrancy fix), `73dfadc35cad05b37367e940ebfdd413732ff66c` (regression test).
+- Dedicated Fusion test count: 41. Exact latest-head CI is required.
