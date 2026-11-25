@@ -51,6 +51,16 @@ LinkHealth classifyLinkHealth({
   return LinkHealth.unreachable;
 }
 
+/// Checks that a group's label agrees with the actual attempt/success counts.
+bool isProbeGroupEvidenceConsistent({
+  required LinkHealth health,
+  required int attempted,
+  required int successful,
+}) {
+  if (attempted < 0 || successful < 0 || successful > attempted) return false;
+  return classifyLinkHealth(attempted: attempted, successful: successful) == health;
+}
+
 /// Internal route selected by the single Smart Pilot controller.
 enum PilotNetworkStrategy { domestic, global, preserve, offline }
 
@@ -82,7 +92,17 @@ class NetworkEvidence {
   DetectedNetworkMode get mode {
     // A route class requires observations from both independent groups.
     // Empty/partial snapshots must never be promoted to an offline verdict.
-    if (domesticSamples < 2 || globalSamples < 2) {
+    if (domesticSamples < 2 || globalSamples < 2 ||
+        !isProbeGroupEvidenceConsistent(
+          health: domestic,
+          attempted: domesticSamples,
+          successful: domesticSuccesses,
+        ) ||
+        !isProbeGroupEvidenceConsistent(
+          health: global,
+          attempted: globalSamples,
+          successful: globalSuccesses,
+        )) {
       return DetectedNetworkMode.unknown;
     }
     if (domestic == LinkHealth.unknown && global == LinkHealth.unknown) {
@@ -137,6 +157,19 @@ class NetworkEvidence {
 /// Conservative strategy selection with minimum evidence requirements.
 /// Partial evidence preserves the last strategy instead of guessing.
 PilotNetworkStrategy choosePilotNetworkStrategy(NetworkEvidence evidence) {
+  // Never let contradictory labels/counters steer the user's route.
+  if (!isProbeGroupEvidenceConsistent(
+        health: evidence.domestic,
+        attempted: evidence.domesticSamples,
+        successful: evidence.domesticSuccesses,
+      ) ||
+      !isProbeGroupEvidenceConsistent(
+        health: evidence.global,
+        attempted: evidence.globalSamples,
+        successful: evidence.globalSuccesses,
+      )) {
+    return PilotNetworkStrategy.preserve;
+  }
   // A single successful endpoint is only a hint (degraded), not enough to
   // change the active route. Require the scanner's >=2/3 quorum on each side.
   final domesticConfirmed = evidence.domestic == LinkHealth.healthy &&
