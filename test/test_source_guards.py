@@ -1409,6 +1409,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('SecureSocket.secure(', probe)
         self.assertNotIn('onBadCertificate', probe)
 
+    def test_persistent_server_inventories_are_not_truncated(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        save_cache_start = source.index('Future<void> _saveCache()')
+        save_cache_end = source.index('/// true وقتی در این اجرای برنامه', save_cache_start)
+        save_cache = source[save_cache_start:save_cache_end]
+        self.assertIn("await p.setString('failed2'", save_cache)
+        self.assertNotIn('take(4000)', save_cache)
+        screen_start = source.index('Future<void> _persistScreenLists()')
+        screen_end = source.index('Future<void> _restoreScreenLists()', screen_start)
+        screen = source[screen_start:screen_end]
+        self.assertIn("'screen_good_v1'", screen)
+        self.assertNotIn('take(60)', screen)
+        list_start = source.index('Future<void> _saveList()')
+        list_end = source.index('Future<void> _saveFavs()', list_start)
+        saved_list = source[list_start:list_end]
+        self.assertIn("'list_cache'", saved_list)
+        self.assertIn('fetchedAll', saved_list)
+        self.assertNotIn('take(3000)', saved_list)
+        self.assertNotIn('shuffle()', saved_list)
+
     def test_active_v2ray_plugin_lifecycle_patch_is_fail_closed(self):
         patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
         self.assertIn('Lifecycle foreground promotion reports success/failure', patch)
