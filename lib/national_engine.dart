@@ -342,7 +342,7 @@ class PilotNetworkProbe {
     );
     _lastAt = DateTime.now();
     _lastIdentity = identity;
-    dbg('PILOT-TLS-PROBE: domestic=${domestic.whereType<int>().length}/${domestic.length} '
+    dbg('PILOT-HTTP-TLS-PROBE: domestic=${domestic.whereType<int>().length}/${domestic.length} '
         'global=${global.whereType<int>().length}/${global.length} '
         'latencyDomestic=${_median(domestic)}ms latencyGlobal=${_median(global)}ms');
     return _last;
@@ -352,7 +352,26 @@ class PilotNetworkProbe {
     final watch = Stopwatch()..start();
     SecureSocket? socket;
     try {
-      socket = await SecureSocket.connect(host, 443, timeout: _timeout);
+      // A completed TLS handshake alone can overstate usable connectivity.
+      // Negotiate HTTP/1.1 explicitly and require a syntactically valid HTTP
+      // response line. 4xx/5xx still prove end-to-end reachability; they do not
+      // mean the target website is healthy, only that the route responded.
+      socket = await SecureSocket.connect(
+        host,
+        443,
+        timeout: _timeout,
+        supportedProtocols: const <String>['http/1.1'],
+      );
+      socket.write('HEAD / HTTP/1.1\\r\\nHost: $host\\r\\n'
+          'User-Agent: KING-VPN-Pilot/1.0\\r\\n'
+          'Connection: close\\r\\n\\r\\n');
+      await socket.flush().timeout(_timeout);
+      final statusLine = await socket
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .first
+          .timeout(_timeout);
+      if (!isValidHttpResponseLine(statusLine)) return null;
       watch.stop();
       return watch.elapsedMilliseconds;
     } catch (_) {
