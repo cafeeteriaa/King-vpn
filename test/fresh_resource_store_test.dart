@@ -29,7 +29,7 @@ void main() {
       );
     });
 
-    test('deduplicates case-insensitively and enforces input bounds', () {
+    test('deduplicates case-insensitively', () {
       final values = FreshResourceStore.normalizeLinks([
         'vless://id@example.com:443',
         'VLESS://id@example.com:443',
