@@ -4022,6 +4022,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("await _hotWriteSparseIndex(f.path, cacheSignature, sparseIndex);", ultra)
         self.assertIn("if (sparseIndex[1] != cacheStat.size) return null;", ultra)
         self.assertIn("await temporary.rename(target.path);", ultra)
+        refresh_start = ultra.index("Future<void> _natHotEnsureImpl(")
+        refresh_end = ultra.index("bool natHotReady()", refresh_start)
+        refresh = ultra[refresh_start:refresh_end]
+        self.assertIn("await _hotWriteSparseIndex(_hotPath(), cacheSignature, sparseIndex);", refresh)
 
 
     def test_nat_large_plain_text_sources_use_streamed_mirror_transport(self):
