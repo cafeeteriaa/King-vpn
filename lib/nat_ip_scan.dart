@@ -149,7 +149,7 @@ Map<String, List<T>> natIndexEndpointTemplates<T>({
       }
       final address = parsed.address;
       if (addressScope != null && !addressScope.contains(address)) continue;
-      final pair = '\$address|\${source.port}';
+      final pair = '$address|${source.port}';
       final identity = keyOf(source.endpoint);
       final seen = seenByPair.putIfAbsent(pair, () => <String>{});
       if (!seen.add(identity)) continue;
