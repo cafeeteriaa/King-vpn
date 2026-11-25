@@ -1030,7 +1030,7 @@ Future<void> _dbgProbSave() async {
     final l = dbgProbs.entries.toList()
       ..sort((a, b) => b.value.last.compareTo(a.value.last));
     final out = <String>[];
-    for (final e in l.take(400)) {
+    for (final e in l) {
       out.add([
         e.key,
         e.value.msg,
