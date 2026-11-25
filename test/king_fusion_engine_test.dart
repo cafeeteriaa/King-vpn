@@ -1347,6 +1347,35 @@ void main() {
       expect(engine.snapshot.disconnectRequested, isFalse);
     });
 
+    test('disconnect from failed-state observer serializes after validation', () async {
+      final events = <String>[];
+      late final KingFusionEngine engine;
+      Future<void>? disconnecting;
+      engine = KingFusionEngine(
+        const <KingEngineAdapter>[],
+        onEvent: (event) {
+          if (event.type == KingFusionEventType.stateChanged &&
+              event.state == KingFusionState.failed) {
+            disconnecting ??= engine.disconnect();
+          }
+        },
+      );
+
+      final result = await engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'not-installed', configuration: 'opaque'),
+      ]));
+      await disconnecting;
+
+      expect(result.connected, isFalse);
+      expect(result.failureCode, 'E-FUSION-ADAPTER-MISSING');
+      expect(result.startedHops, 0);
+      expect(engine.state, KingFusionState.idle);
+      expect(engine.isBusy, isFalse);
+      expect(engine.snapshot.disconnectRequested, isFalse);
+      expect(engine.snapshot.activeEngineIds, isEmpty);
+      expect(events, isEmpty);
+    });
+
     test('verificationStarted observer cancellation prevents verifier invocation', () async {
       final events = <String>[];
       final adapter = _FakeAdapter('first', events);
