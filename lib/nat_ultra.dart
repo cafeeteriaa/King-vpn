@@ -2938,6 +2938,62 @@ bool natHotReady() {
 Future<List<int>> _hotBuildSparseIndex(String path) =>
     compute(_hotSparseOffsetsIso, path);
 
+String _hotIndexPath(String cachePath) => '$cachePath.sparse.idx';
+
+Future<List<int>?> _hotReadSparseIndex(
+    String cachePath, String signature) async {
+  try {
+    final indexFile = File(_hotIndexPath(cachePath));
+    if (!await indexFile.exists()) return null;
+    final rows = await indexFile.readAsLines();
+    if (rows.isEmpty) return null;
+    final header = rows.first.split('|');
+    if (header.length != 4 || header[0] != 'v1' || header[1] != signature) {
+      return null;
+    }
+    final lineCount = int.tryParse(header[2]);
+    final byteLength = int.tryParse(header[3]);
+    if (lineCount == null || byteLength == null ||
+        lineCount <= 0 || byteLength <= 0) return null;
+    final packed = <int>[lineCount, byteLength];
+    var previous = -1;
+    for (final row in rows.skip(1)) {
+      final offset = int.tryParse(row);
+      if (offset == null || offset < 0 || offset > byteLength ||
+          offset <= previous) return null;
+      packed.add(offset);
+      previous = offset;
+    }
+    // The first sparse block always starts at byte zero.
+    if (packed.length < 3 || packed[2] != 0) return null;
+    final expected = (lineCount - 1) ~/ _hotIndexStride + 1;
+    if (packed.length - 2 != expected) return null;
+    return packed;
+  } catch (e, st) {
+    logError(e, st);
+    return null;
+  }
+}
+
+Future<void> _hotWriteSparseIndex(
+    String cachePath, String signature, List<int> packed) async {
+  if (packed.length < 3) return;
+  final target = File(_hotIndexPath(cachePath));
+  final temporary = File('${target.path}.new');
+  final sink = temporary.openWrite();
+  try {
+    sink.writeln('v1|$signature|${packed[0]}|${packed[1]}');
+    for (final offset in packed.skip(2)) {
+      sink.writeln(offset);
+    }
+    await sink.flush();
+  } finally {
+    await sink.close();
+  }
+  if (await target.exists()) await target.delete();
+  await temporary.rename(target.path);
+}
+
 List<int> _hotSparseOffsetsIso(String path) {
   final packed = <int>[0, 0, 0];
   var lineCount = 0;
@@ -2996,12 +3052,20 @@ Future<_HotIdx?> _hotLoad() async {
   if (cur != null) return cur;
   final f = File(_hotPath());
   try {
-    if (!f.existsSync() || f.lengthSync() == 0) return null;
-    final sparseIndex = await _hotBuildSparseIndex(f.path);
-    if (sparseIndex.first <= 0) return null;
+    if (!await f.exists()) return null;
     final cacheStat = await f.stat();
+    if (cacheStat.size <= 0) return null;
     final cacheSignature =
         '${cacheStat.size}:${cacheStat.modified.microsecondsSinceEpoch}';
+    // Reuse the on-disk sparse index after restart. A size/mtime mismatch
+    // invalidates it and triggers a complete rebuild from the authoritative cache.
+    var sparseIndex = await _hotReadSparseIndex(f.path, cacheSignature);
+    if (sparseIndex == null) {
+      sparseIndex = await _hotBuildSparseIndex(f.path);
+      if (sparseIndex.first <= 0) return null;
+      if (sparseIndex[1] != cacheStat.size) return null;
+      await _hotWriteSparseIndex(f.path, cacheSignature, sparseIndex);
+    }
     _hot = _HotIdx(
       f.path,
       sparseIndex[0],
