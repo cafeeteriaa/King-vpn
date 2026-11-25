@@ -28,3 +28,33 @@ void main() {
     });
   });
 }
+
+  group('age-adjusted throughput ranking', () {
+    final now = DateTime.utc(2026, 11, 25, 12);
+
+    test('fresh measurements retain their measured throughput', () {
+      expect(ageAdjustedThroughput(
+        megabytesPerSecond: 8,
+        measuredAt: now,
+        now: now,
+      ), 8);
+    });
+
+    test('older measurements decay continuously instead of expiring', () {
+      final value = ageAdjustedThroughput(
+        megabytesPerSecond: 8,
+        measuredAt: now.subtract(const Duration(minutes: 15)),
+        now: now,
+      );
+      expect(value, closeTo(4, 0.000001));
+      expect(value, greaterThan(0));
+    });
+
+    test('missing, invalid and future measurements are not ranked', () {
+      expect(ageAdjustedThroughput(megabytesPerSecond: null, measuredAt: now, now: now), isNull);
+      expect(ageAdjustedThroughput(megabytesPerSecond: 0, measuredAt: now, now: now), isNull);
+      expect(ageAdjustedThroughput(megabytesPerSecond: 2, measuredAt: null, now: now), isNull);
+      expect(ageAdjustedThroughput(megabytesPerSecond: 2, measuredAt: now.add(const Duration(seconds: 1)), now: now), isNull);
+    });
+  });
+}
