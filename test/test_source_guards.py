@@ -2644,6 +2644,27 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('pending.length + natRestPending.length <', keep)
         self.assertIn('natRanges.isNotEmpty', keep)
 
+    def test_background_scanners_have_no_fixed_time_or_cycle_cooldowns(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        ip_auto = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        keep_start = main.index('Future<void> _natKeep() async {')
+        keep_end = main.index('// NATIONALPATCH: is the international internet cut', keep_start)
+        keep = main[keep_start:keep_end]
+        dns_start = dns.index('Future<void> dnsxAutoPick(')
+        dns_end = dns.index('extension DnsxExt', dns_start)
+        dns_auto = dns[dns_start:dns_end]
+        ip_start = ip_auto.index('Future<void> ipAutoBackground() async {')
+        ip_end = ip_auto.index('/// دلیل رد شدن شروع اسکن', ip_start)
+        ip_background = ip_auto[ip_start:ip_end]
+        self.assertNotIn('natRangeLast', keep)
+        self.assertNotIn('Duration(minutes: 5)', keep)
+        self.assertIn('!_natRangeScanBusy', keep)
+        self.assertNotIn('gapMs', dns_auto)
+        self.assertNotIn('gapMs', ip_background)
+        self.assertNotIn('now - last <', dns_auto)
+        self.assertNotIn('now - last <', ip_background)
+
     def test_nip_hunt_has_no_time_cooldown_or_per_template_truncation(self):
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         hunt_start = nip.index('Future<bool> _natIpHunt() async {')
