@@ -91,6 +91,8 @@ abstract interface class KingEngineAdapter {
 
 enum KingFusionState { idle, starting, connected, stopping, failed }
 
+class _KingFusionVerificationTimeout implements Exception {}
+
 class KingFusionResult {
   /// All adapters accepted their start calls; this is not end-to-end traffic proof.
   final bool connected;
@@ -296,7 +298,10 @@ class KingFusionEngine {
         }
         final verified = await verifier
             .verify(plan)
-            .timeout(trafficVerificationTimeout);
+            .timeout(
+              trafficVerificationTimeout,
+              onTimeout: () => throw _KingFusionVerificationTimeout(),
+            );
         if (_disconnectRequested) {
           final startedCount = _active.length;
           final cleanupFailures = await _rollback();
@@ -325,7 +330,7 @@ class KingFusionEngine {
         _active.length,
         trafficVerified: plan.requireTrafficVerification,
       );
-    } on TimeoutException {
+    } on _KingFusionVerificationTimeout {
       final startedCount = _active.length;
       final cleanupFailures = await _rollback();
       state = KingFusionState.failed;
