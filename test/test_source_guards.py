@@ -3905,5 +3905,31 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('take(', schedule)
 
 
+    def test_national_memory_and_subscription_inputs_keep_complete_candidate_sets(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        ai = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
+        gc_start = main.index('void _gcCaches()')
+        gc_end = main.index('Future<void> _init()', gc_start)
+        gc = main[gc_start:gc_end]
+        self.assertNotIn('natScanHits.remove', gc)
+        self.assertNotIn('natGood.remove', gc)
+        self.assertNotIn('natSubstSearched.remove', gc)
+        self.assertNotIn('natIpDeadRun.remove', gc)
+        memory_start = main.index('Future<void> _natMemoryReuse()')
+        memory_end = main.index('Future<void> _natRangeAdd(', memory_start)
+        memory = main[memory_start:memory_end]
+        self.assertIn('for (final e in natIpMem)', memory)
+        self.assertIn('natHotNext(null, fetch: false)', memory)
+        range_start = main.index('Future<void> _natRangeAdd(')
+        range_end = main.index('Future<void> _nat', range_start + 30)
+        self.assertIn('final tpl = [...pending, ...natRestPending, ...natTemplateSeeds, ...good];',
+                      main[range_start:range_end])
+        self.assertNotIn('goldIps.take(20)', main)
+        self.assertIn('Future<List<Server>> natHotNext(int? n,', ultra)
+        self.assertIn('n == null || out.length < n', ultra)
+        self.assertIn('final list = await fetchSubscription(url);', ai)
+
+
 if __name__ == '__main__':
     unittest.main()
