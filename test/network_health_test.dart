@@ -2,6 +2,19 @@ import 'package:flutter_test/flutter_test.dart';
 import '../lib/network_health.dart';
 
 void main() {
+  group('Smart Pilot latency aggregation', () {
+    test('median handles odd and even endpoint counts', () {
+      expect(medianLatencyMs([90, 10, 50]), 50);
+      expect(medianLatencyMs([100, 20, 80, 40]), 60);
+    });
+
+    test('median ignores absent and negative latency samples', () {
+      expect(medianLatencyMs([null, -1, 120, 80]), 100);
+      expect(medianLatencyMs([null, -1]), isNull);
+      expect(medianLatencyMs([]), isNull);
+    });
+  });
+
   group('independent probe-group classification', () {
     test('two successful handshakes establish a healthy group', () {
       expect(classifyLinkHealth(attempted: 3, successful: 2), LinkHealth.healthy);
