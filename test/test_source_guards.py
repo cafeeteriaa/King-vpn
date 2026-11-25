@@ -633,6 +633,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (mounted && wantVpn && !connected)', main)
         self.assertIn('Timer(delay, () {', main)
         self.assertIn('failoverBusyRetryDelay', policy)
+        failover_start = main.index('Future<void> _failover()')
+        join_start = main.index('if (_uiJoinDone != null)', failover_start)
+        busy_start = main.index('if (busy)', join_start)
+        join_defer = main[join_start:busy_start]
+        self.assertIn('if (mounted && wantVpn && !connected && !switching)', join_defer)
+        self.assertNotIn('!busy', join_defer)
 
     def test_pilot_scanner_and_ip_ranges_are_isolated_from_general_scanners(self):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
