@@ -3802,16 +3802,18 @@ int byScoreThenPing(Server a, Server b) {
 
 int bySpeedThenPing(Server a, Server b) {
   final now = DateTime.now();
-  final aSpeed = ageAdjustedThroughput(
-    megabytesPerSecond: a.medianSpeed ?? a.speed,
-    measuredAt: a.speedAt,
-    now: now,
-  ) ?? -1;
-  final bSpeed = ageAdjustedThroughput(
-    megabytesPerSecond: b.medianSpeed ?? b.speed,
-    measuredAt: b.speedAt,
-    now: now,
-  ) ?? -1;
+  final aSpeed = (ageAdjustedThroughput(
+        megabytesPerSecond: a.medianSpeed ?? a.speed,
+        measuredAt: a.speedAt,
+        now: now,
+      ) ?? -1) *
+      throughputStabilityFactor(a.speedHist);
+  final bSpeed = (ageAdjustedThroughput(
+        megabytesPerSecond: b.medianSpeed ?? b.speed,
+        measuredAt: b.speedAt,
+        now: now,
+      ) ?? -1) *
+      throughputStabilityFactor(b.speedHist);
   final c = bSpeed.compareTo(aSpeed);
   return c != 0 ? c : byPing(a, b);
 }
