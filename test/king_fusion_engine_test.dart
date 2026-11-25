@@ -268,11 +268,13 @@ void main() {
       late final KingFusionEngine engine;
       Future<void>? reentrantDisconnect;
       var disconnectRequestedEvents = 0;
+      var snapshotSawPendingDisconnect = false;
       engine = KingFusionEngine(
         [adapter],
         onEvent: (event) {
           if (event.type == KingFusionEventType.disconnectRequested) {
             disconnectRequestedEvents++;
+            snapshotSawPendingDisconnect = engine.snapshot.disconnectRequested;
             reentrantDisconnect ??= engine.disconnect();
           }
         },
@@ -288,6 +290,8 @@ void main() {
       await reentrantDisconnect;
 
       expect(disconnectRequestedEvents, 1);
+      expect(snapshotSawPendingDisconnect, isTrue);
+      expect(engine.snapshot.disconnectRequested, isFalse);
       expect(adapterEvents.where((event) => event.startsWith('stop:')).length, 1);
       expect(engine.state, KingFusionState.idle);
       expect(engine.isBusy, isFalse);
