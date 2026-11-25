@@ -4065,7 +4065,7 @@ Future<double?> measure(
       final res = await req.close();
       // Do not mistake a captive-portal page, proxy error, redirect, or rate
       // limit response for tunnel throughput. Only actual content counts.
-      if (!isUsableSpeedProbeStatus(res.statusCode)) {
+      if (!isUsableSpeedProbeResponse(res.statusCode, res.headers.contentType?.mimeType)) {
         dbg('SPEED-PROBE-REJECT status=${res.statusCode} url=$url');
         return null;
       }
