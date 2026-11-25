@@ -376,9 +376,7 @@ class PilotNetworkProbe {
         timeout: _timeout,
         supportedProtocols: const <String>['http/1.1'],
       );
-      socket.write('HEAD / HTTP/1.1\\r\\nHost: $host\\r\\n'
-          'User-Agent: KING-VPN-Pilot/1.0\\r\\n'
-          'Connection: close\\r\\n\\r\\n');
+      socket.write(buildPilotHttpHeadRequest(host));
       await socket.flush().timeout(_timeout);
       // SecureSocket emits Uint8List chunks while utf8.decoder accepts
       // List<int>; cast the stream element type explicitly before decoding.
