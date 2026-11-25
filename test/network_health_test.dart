@@ -59,6 +59,34 @@ void main() {
       expect(evidence.mode, DetectedNetworkMode.offline);
     });
 
+    test('confidence cannot exceed attempted samples or unearned TLS flags', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.healthy,
+        domesticSamples: 1,
+        globalSamples: 1,
+        domesticSuccesses: 99,
+        globalSuccesses: 99,
+        domesticTlsReachabilityVerified: true,
+        globalTlsReachabilityVerified: true,
+      );
+      expect(evidence.confidence, closeTo(2 / 6 * 0.55, 0.0001));
+    });
+
+    test('negative and inconsistent counters cannot create confidence', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.healthy,
+        domesticSamples: -3,
+        globalSamples: 0,
+        domesticSuccesses: 3,
+        globalSuccesses: 3,
+        domesticTlsReachabilityVerified: true,
+        globalTlsReachabilityVerified: true,
+      );
+      expect(evidence.confidence, 0);
+    });
+
     test('one successful handshake gives only proportional confidence', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.degraded,
