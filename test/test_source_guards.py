@@ -4075,6 +4075,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('Map<String, KingEngineDescriptor>.unmodifiable(descriptorSnapshots)', fusion)
         self.assertIn('reads each adapter descriptor once for a coherent registry snapshot', tests)
 
+    def test_fusion_registry_rejects_duplicate_adapter_instances_by_identity(self):
+        fusion = (ROOT / 'lib' / 'king_fusion_engine.dart').read_text(encoding='utf-8')
+        tests = (ROOT / 'test' / 'king_fusion_engine_test.dart').read_text(encoding='utf-8')
+        self.assertIn('adapterIds.containsKey(adapter)', fusion)
+        self.assertIn('same engine adapter instance cannot be registered twice', fusion)
+        self.assertIn('rejects duplicate registration of the same adapter instance by identity', tests)
+
     def test_ip_auto_preserves_all_exact_endpoint_templates(self):
         scanner = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         index = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
