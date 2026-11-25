@@ -1742,7 +1742,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('maxAddrs: max(8192, min(16384, natAdaptiveWorkers() * 2048))', keep)
         self.assertIn('conc: min(4, natAdaptiveWorkers())', keep)
         self.assertIn('budget: const Duration(minutes: 3)', keep)
-        self.assertIn('pending.length + natRestPending.length <', keep)
+        self.assertIn('final hasRangeTemplate = pending.isNotEmpty ||', keep)
+        self.assertNotIn('queueLimit', keep)
         self.assertIn('int maxAddrs = 8192,', (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8'))
         for condition in ('!mounted', '!connected', '!wantVpn', '!nationalMode',
                           '!localPilotOn', 'appGone', 'abort'):
@@ -2467,7 +2468,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         tls_end = source.index("await goldAddScans(", tls_start)
         tls = source[tls_start:tls_end]
         self.assertIn("for (final alpn in const ['h2', 'http/1.1'])", tls)
-        self.assertIn('batch.map((ip) => _autoAlpnOk(ip, 443, d, alpn))', tls)
+        self.assertIn('_autoAlpnOk(parts[0], port, entry.key, alpn)', tls)
         self.assertIn('if (cancelled()) break;', tls)
 
     def test_ip_auto_storage_load_and_save_are_mode_isolated_across_awaits(self):
@@ -2499,7 +2500,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn("ipauto_checkpoint_v2_${loadNationalMode ? 'nat' : 'glob'}", source)
         self.assertIn("ipauto_checkpoint_v2_${saveNationalMode ? 'nat' : 'glob'}", source)
         load = source[source.index('Future<void> ipAutoLoad() async {'):source.index('Future<bool> _ipAutoSave()')]
-        save = source[source.index('Future<bool> _ipAutoSave() async {'):source.index('/// Inventory پویا')]
+        save = source[source.index('Future<bool> _ipAutoSave()'):source.index('/// Inventory پویا')]
         self.assertIn("final checkpointRaw = p.getString(checkpointKey);", load)
         self.assertIn("if (checkpointRaw != null && checkpointRaw.isNotEmpty)", load)
         self.assertIn('One-time migration path for the original split preference keys.', load)
@@ -3148,7 +3149,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('bool Function()? shouldAbort', yield_body)
         self.assertIn('!(shouldAbort?.call() ?? false)', yield_body)
         self.assertEqual(auto.count('natManualYield(shouldAbort: () => cancelled())'), 2)
-        self.assertIn('if (cancelled()) break sniLoop;', auto)
+        self.assertIn('if (cancelled()) break;', auto)
+        self.assertNotIn('sniLoop:', auto)
         self.assertIn('if (cancelled()) break portLoop;', auto)
         self.assertIn('await natManualYield(shouldAbort: stop);', dns)
         self.assertIn('if (stop != null && stop()) break;', dns)
@@ -3450,7 +3452,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('fetchedAll.where', auto)
         self.assertIn('final savedDomainCursor = prefs.getString(_autoScanDomainCursorKey);', auto)
         self.assertIn('final domainBatch = <String>[', auto)
-        self.assertIn('for (final d in domainBatch)', auto)
+        self.assertIn('domains: domainBatch,', auto)
+        self.assertIn('for (final server in configuredSniServers)', auto)
         self.assertIn('prefs.setString(_autoScanDomainCursorKey, stagedDomainCursor)', auto)
         self.assertIn('final targetRanges = <String>{', auto)
         self.assertIn('...dnsResolvedIps,', auto)
@@ -4016,8 +4019,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('server.port < 1 || server.port > 65535', active)
         self.assertIn('_autoResolveDualStackTargets(\n        domains: [host],', active)
         self.assertIn('_autoSniOk(parts[0], port, entry.key)', active)
-        self.assertIn('_autoAlpnOk(parts[0], port, entry.key, alpn)', active)
         self.assertNotIn('for (final d in domainBatch)', active)
+        tls_start = source.index('// ALPN probes use the same exact configured host:port/SNI tuples.')
+        tls_end = source.index('if (cancelled()) {', tls_start)
+        tls = source[tls_start:tls_end]
+        self.assertIn('_autoAlpnOk(parts[0], port, entry.key, alpn)', tls)
         self.assertIn("'sni_candidates': domainInventory", source)
 
 
