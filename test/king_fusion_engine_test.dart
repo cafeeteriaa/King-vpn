@@ -433,6 +433,11 @@ void main() {
       await engine.disconnect();
       expect(engine.state, KingFusionState.failed);
       expect(engine.cleanupPendingEngineIds, ['first']);
+      final blockedReconnect = await engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'first', configuration: 'new-config'),
+      ]));
+      expect(blockedReconnect.failureCode, 'E-FUSION-CLEANUP-PENDING');
+      expect(events.where((event) => event.startsWith('start:')).length, 1);
       await engine.disconnect();
 
       expect(events.where((event) => event.startsWith('stop:first:')).length, 2);
