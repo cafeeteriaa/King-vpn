@@ -663,3 +663,12 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) API semantics — the first request owns the operation slot throughout synchronous preflight; (2) lifecycle — completion is signaled on both validation failure branches and disconnect can serialize behind it; (3) regression — nested valid connect is explicitly rejected and engine returns to non-busy state.
 - Dedicated Fusion test count: 46 by source test declaration count. Exact-head CI required; no local Flutter execution is claimed.
 - Commits: `84d64ecfd761e9b30b5d4cd24db5d7ca14f580dc` (operation reservation), `4957239d9b35b6b404aadbcc1782a3fa65261d97` (regression test).
+
+## 2026-11-25 — Verifier startup cancellation boundary
+
+- Found a resource-start race at the verification event boundary. `verificationStarted` is synchronously delivered; an observer could call `disconnect()`, completing the cancellation signal, but the current code still evaluated `verifier.verify(plan)` while constructing the `Future.any` inputs. This could allocate probe sockets or other verifier resources after teardown was committed.
+- Added a cancellation check immediately after `verificationStarted` and before reading/invoking the verifier. The active native hops are rolled back and the connect result is `E-FUSION-CANCELLED`; no verifier work is started.
+- Added a regression test asserting verifier invocation count is zero, native start/stop each occur once, and the engine ends idle and not busy.
+- Three-pass review: (1) API semantics — a committed disconnect wins over verification; (2) resource lifecycle — no probe resources are created after cancellation; (3) regression — explicit verifier call-count and native lifecycle assertions.
+- Dedicated Fusion test count: 47 by source test declaration count. Exact-head CI is required; no local Flutter execution is claimed.
+- Commits: `acceb1369ac66012d2166c9d94860ebe1f8fe06b` (guard), `faccf110ed4762dac55b32361769b64f28d0b1da` (test).
