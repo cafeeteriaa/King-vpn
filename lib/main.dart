@@ -11748,8 +11748,10 @@ ListTile( // KINGEXTRAS row
             [...pending, ...natRestPending],
             conc: natAdaptiveWorkers(),
             stop: () => abort || modeChanged());
-        if (abort || modeChanged()) return;
+        // Persist completed endpoint hits even when the user cancels mid-scan.
+        // Cancellation stops new probes; it must not discard already verified data.
         await _natRangeAdd(domHits);
+        if (abort || modeChanged()) return;
       }
       final hasTpl = pending.isNotEmpty || natRestPending.isNotEmpty ||
           natTemplateSeeds.isNotEmpty || good.isNotEmpty;
@@ -11760,8 +11762,10 @@ ListTile( // KINGEXTRAS row
             conc: natAdaptiveWorkers(),
             stop: () => abort || modeChanged(),
             budget: const Duration(minutes: 3));
-        if (abort || modeChanged()) return;
+        // A cancelled range step may still return fully completed addresses.
+        // Commit those results before honoring the stop request.
         await _natRangeAdd(ips);
+        if (abort || modeChanged()) return;
       }
       if (abort || modeChanged()) return;
       // CRITICAL for نت ملی: do NOT destroy existing configs.
