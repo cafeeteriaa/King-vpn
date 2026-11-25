@@ -3702,8 +3702,29 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         apply_start = source.index('String _natApplySniSwap(')
         apply_end = source.index('String _natFrag(', apply_start)
         apply = source[apply_start:apply_end]
+        self.assertIn('String _natApplySniSwap(String cfg, String rawSni)', apply)
+        self.assertIn('final proxy = _natProxyOut(j);', apply)
         self.assertIn("tls['serverName'] = sni", apply)
-        self.assertIn('if (tlsHasEch(tls)) continue;', apply)
+        self.assertIn('tlsHasEch(tls)', apply)
+
+        pool_start = source.index('String? _natNormalizeSniHostname(')
+        pool_end = source.index('int natGrow(', pool_start)
+        pool = source[pool_start:pool_end]
+        for source_name in ('natFrontSnis', 'kAutoSniDomains', 'dnsxFullDomains()', 'natRelayHosts',
+                            "_goldScan['sni']", "_goldScan['sni_candidates']"):
+            self.assertIn(source_name, pool)
+        self.assertIn('List<String>? _natSniCatalogCache', pool)
+        self.assertIn('if (cached != null) return cached;', pool)
+        self.assertIn('_natNormalizeSniHostname(raw)', pool)
+        self.assertIn("sniSwap: 'divar.ir'", source)
+        self.assertNotIn('sniSwap: 7', source)
+        grow_start = source.index('int natGrow(')
+        grow_end = source.index('List<String>? _natNamesC', grow_start)
+        grow = source[grow_start:grow_end]
+        pool_at = grow.index('final sniPool = _natSniPool();')
+        loop_at = grow.index('for (var i = 0; i < n; i++)')
+        self.assertLess(pool_at, loop_at)
+        self.assertIn('sniPool[rnd.nextInt(sniPool.length)]', grow)
 
 
 if __name__ == '__main__':
