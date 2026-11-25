@@ -117,19 +117,20 @@ Future<void> _nipSaveHuntCursors(Map<String, dynamic> cursors) async {
   List<String> ranges,
   Map<String, dynamic> saved, {
   required String namespace,
-  int batchSize = 1000,
+  int? batchSize,
 }) {
   final cursors = Map<String, dynamic>.of(saved);
-  if (ranges.isEmpty || batchSize <= 0) {
+  final effectiveBatchSize = batchSize ?? max(1, Platform.numberOfProcessors * 4096);
+  if (ranges.isEmpty || effectiveBatchSize <= 0) {
     return (addresses: const <String>[], cursors: cursors);
   }
   final start = natCursorIndex(cursors['__nip_${namespace}_range_cursor'], ranges.length);
   final out = <String>{};
   var visited = 0;
-  for (; visited < ranges.length && out.length < batchSize; visited++) {
+  for (; visited < ranges.length && out.length < effectiveBatchSize; visited++) {
     final index = (start + visited) % ranges.length;
     final range = ranges[index];
-    final remaining = batchSize - out.length;
+    final remaining = effectiveBatchSize - out.length;
     final rangesLeft = ranges.length - visited;
     final quota = max(1, (remaining + rangesLeft - 1) ~/ rangesLeft);
     final batch = natExpandIpRangeCursor(
@@ -295,21 +296,16 @@ final Map<String, DateTime> _asnFailAt = <String, DateTime>{};
 Future<List<String>> nipAsnPrefixes(String ip) async {
   final prefs = await SharedPreferences.getInstance();
   final cacheKey = 'nip_asn_v1_$ip';
-  final cached = prefs.getStringList(cacheKey);
-  if (cached != null && cached.isNotEmpty) return cached;
+  final cached = prefs.getStringList(cacheKey) ?? const <String>[];
   // RIPE is external; while international access is unavailable, use valid cache only.
   // ASN/prefix discovery remains available in either network mode; a failed
   // external lookup is retried later rather than hidden by a mode gate.
-  final failAt = _asnFailAt[ip];
   // Failed RIPE lookups remain retryable; no fixed failure cooldown hides them.
   try {
     final response = await http
         .get(Uri.parse('https://stat.ripe.net/data/network-info/data.json?resource=$ip'))
         .timeout(const Duration(seconds: 12));
-    if (response.statusCode != 200) {
-      _asnFailAt[ip] = DateTime.now();
-      return const [];
-    }
+    if (response.statusCode != 200) return cached;
     final rawAsns =
         ((jsonDecode(response.body)['data']?['asns']) as List?) ?? const [];
     final asns = rawAsns.map((value) => value.toString()).toList(growable: false);
@@ -344,11 +340,10 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
     } else {
       _asnFailAt[ip] = DateTime.now();
     }
-    return ranges;
+    return merged;
   } catch (e, stk) {
     logError(e, stk);
-    _asnFailAt[ip] = DateTime.now();
-    return const [];
+    return cached;
   }
 }
 
@@ -444,9 +439,13 @@ Future<String?> nipFindFrontSni(String ip, int port, {bool Function()? cancelled
   _nipFrontSniScanQueue = release.future;
   await previous;
   try {
+    final discoveredGlobalDomains = nationalMode
+        ? const <String>[]
+        : await kingDiscoverGlobalDnsDomains();
     final inventory = <String>{
       ...natFrontSnis,
       ...dnsxFullDomains(),
+      ...discoveredGlobalDomains,
       ...(_goldScan['sni'] ?? const <String>[]),
     }.toList()..sort();
     if (inventory.isEmpty) return null;
@@ -620,16 +619,14 @@ extension NipHunt on _HomePageState {
 
       var completed = 0;
       var hits = <NipHit>[];
-      // The slice is deliberately small enough to fit comfortably inside the
-      // per-batch budget. If the OS still interrupts it, retry this exact slice
-      // rather than committing the template cursor and skipping its tail.
+      // If the OS interrupts a slice, retry that exact slice rather than
+      // committing the template cursor and skipping its tail.
       while (completed < scanBatch.length) {
         completed = 0;
         hits = await nipScan(
           scanBatch,
           port: port,
           want: scanBatch.length,
-          budget: const Duration(minutes: 2),
           cancelled: () => abort,
           onProgress: (done, total) {
             completed = done;
@@ -638,9 +635,10 @@ extension NipHunt on _HomePageState {
         if (abort) return false;
       }
 
-      for (var offset = 0; offset < hits.length; offset += 8) {
+      final validationBatchSize = natAdaptiveConcurrency(0);
+      for (var offset = 0; offset < hits.length; offset += validationBatchSize) {
         if (abort) return false;
-        final batch = hits.skip(offset).take(8).toList(growable: false);
+        final batch = hits.skip(offset).take(validationBatchSize).toList(growable: false);
         final candidates = <Server>[];
         for (var i = 0; i < batch.length; i++) {
           final hit = batch[i];

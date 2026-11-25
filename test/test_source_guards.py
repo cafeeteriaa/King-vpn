@@ -1670,11 +1670,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = main.index('Future<void> _natKeep()')
         end = main.index('// NATIONALPATCH: is the international internet cut', start)
         keep = main[start:end]
-        self.assertIn('maxAddrs: max(8192, min(16384, natAdaptiveWorkers() * 2048))', keep)
-        self.assertIn('conc: min(4, natAdaptiveWorkers())', keep)
+        self.assertNotIn('maxAddrs:', keep)
+        self.assertIn('conc: natAdaptiveConcurrency(0)', keep)
         self.assertIn('budget: const Duration(minutes: 3)', keep)
-        self.assertIn('pending.length + natRestPending.length <', keep)
-        self.assertIn('int maxAddrs = 8192,', (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8'))
+        self.assertNotIn('pending.length + natRestPending.length <', keep)
+        self.assertIn('int? maxAddrs,', (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8'))
         for condition in ('!mounted', '!connected', '!wantVpn', '!nationalMode',
                           '!localPilotOn', 'appGone', 'abort'):
             self.assertIn(condition, keep)
@@ -2311,10 +2311,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
-        self.assertIn('if (maxPerBlock <= 0) return const [];', scan)
-        self.assertIn('if (maxCount <= 0) return const [];', scan)
+        self.assertIn('if (effectiveBatch <= 0) return const [];', scan)
+        self.assertIn('if (effectiveCount <= 0) return const [];', scan)
         start = ultra.index('List<String> natExpandAny(')
-        self.assertIn('if (maxPerBlock <= 0) return const [];', ultra[start:start + 180])
+        self.assertIn('if (effectiveBatch <= 0) return const [];', ultra[start:start + 220])
 
     def test_auto_tls_probes_bound_handshake_and_always_close_sockets(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
@@ -2580,7 +2580,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         body = source[start:end]
         self.assertIn('final effectiveConcurrency = natAdaptiveConcurrency(conc);', body)
         self.assertIn('final estimatedCapacity = max(', body)
-        self.assertIn('final scanLimit = min(maxAddrs, estimatedCapacity).toInt();', body)
+        self.assertIn('final scanLimit = maxAddrs == null', body)
         self.assertIn('final previousPortIndex = portList.indexOf(lastPort);', body)
         self.assertIn('final configuredPorts = seeds', body)
         self.assertIn('natPortsForActiveScan(', body)
@@ -3313,6 +3313,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('onProgress: (done, total)', scan)
         self.assertNotIn('want: ips.length,', scan)
         self.assertIn('for (var offset = 0; offset < hits.length; offset += validationBatchSize)', scan)
+        self.assertNotIn('budget: const Duration(minutes: 2)', scan)
         self.assertIn('_connectLoop(candidates, trust: false)', scan)
         self.assertIn('final winner = current;', scan)
         self.assertIn('if (winner != null) _natAdd(winner);', scan)
@@ -3320,7 +3321,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         # Discovery supports both families, but ASN/CDN metadata does not
         # authorize active probes against unrelated third-party address ranges.
         self.assertIn("if (address?.type == InternetAddressType.IPv6)", nip)
-        self.assertIn('natExpandIpv6Cidr(cidr, maxPerBlock: maxPerBlock)', nip)
+        self.assertIn('natExpandIpv6Cidr(cidr, maxPerBlock: effectiveBatch)', nip)
         self.assertIn("if (ipv6 is List) ...ipv6.map((value) => '$value').where((value) => value.contains('/'))", nip)
         self.assertIn("if (prefix.contains('/')) out.add(prefix);", nip)
 
@@ -3952,7 +3953,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         hunt_start = nip.index('Future<bool> _natTryScan(')
         hunt_end = nip.index('\n  }\n}', hunt_start)
         hunt = nip[hunt_start:hunt_end]
-        self.assertIn('const ipBatchSize = 256;', hunt)
+        self.assertIn('final ipBatchSize = max(1, natAdaptiveConcurrency(0) * 32);', hunt)
         self.assertIn('while (completed < scanBatch.length)', hunt)
         self.assertIn('onProgress: (done, total) {', hunt)
         self.assertIn('completed = done;', hunt)

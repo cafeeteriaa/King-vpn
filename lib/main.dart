@@ -11310,9 +11310,10 @@ ListTile( // KINGEXTRAS row
   ({List<String> addresses, Map<String, dynamic> cursors}) _pilotExpandRanges(
     String raw,
     Map<String, dynamic> savedCursors, {
-    int batchSize = 6000,
+    int? batchSize,
   }) {
-    if (batchSize <= 0) {
+    final effectiveBatchSize = batchSize ?? max(1, Platform.numberOfProcessors * 4096);
+    if (effectiveBatchSize <= 0) {
       return (addresses: const <String>[], cursors: Map<String, dynamic>.of(savedCursors));
     }
     final ranges = raw.split(String.fromCharCode(10))
@@ -11329,10 +11330,10 @@ ListTile( // KINGEXTRAS row
         (int.tryParse(cursors['__pilot_range_cursor']?.toString() ?? '') ?? 0) %
             ranges.length;
     var visited = 0;
-    for (; visited < ranges.length && out.length < batchSize; visited++) {
+    for (; visited < ranges.length && out.length < effectiveBatchSize; visited++) {
       final index = (start + visited) % ranges.length;
       final range = ranges[index];
-      final remaining = batchSize - out.length;
+      final remaining = effectiveBatchSize - out.length;
       final rangesLeft = ranges.length - visited;
       final quota = max(1, (remaining + rangesLeft - 1) ~/ rangesLeft);
       final batch = natExpandIpRangeCursor(

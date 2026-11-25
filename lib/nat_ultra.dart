@@ -2734,7 +2734,7 @@ Future<void> natHotEnsure({bool force = false}) async {
     await active;
     return;
   }
-  final task = _natHotEnsureImpl(force: force);
+  final task = _natHotEnsureImpl();
   _hotEnsureFuture = task;
   try {
     await task;
@@ -2743,10 +2743,9 @@ Future<void> natHotEnsure({bool force = false}) async {
   }
 }
 
-Future<void> _natHotEnsureImpl({bool force = false}) async {
+Future<void> _natHotEnsureImpl() async {
   final f = File(_hotPath());
   try {
-    final exists = f.existsSync() && f.lengthSync() > 0;
     // No fixed 72-hour refresh cooldown: explicit scan/refresh requests
     // re-read configured source inventories. Existing cache survives failures.
     _hotBusy = true;
