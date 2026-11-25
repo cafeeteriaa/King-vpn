@@ -2620,10 +2620,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = core.index('static bool publicV4(', start)
         query = core[start:end]
         self.assertIn('wireNameLength > 255', query)
-        start = core.index('static String _readName(')
+        start = core.index('static ({String name, int nextOffset}) _decodeName(')
         end = core.index('static List<String> parseResponse(', start)
         name_reader = core[start:end]
-        self.assertIn('ptr < 12 || ptr >= p || ptr >= b.length', name_reader)
+        self.assertIn('pointer < 12 || pointer >= p || pointer >= b.length', name_reader)
+        self.assertIn('encodedEnd', name_reader)
+        self.assertIn('expandedWireLength > 255', name_reader)
 
     def test_nat_domain_first_discards_partial_results_after_cancel_or_deadline(self):
         source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')

@@ -848,3 +848,12 @@ These are three distinct technical review passes by the same assistant, not thre
 - Added regressions for a 17-hop CNAME chain, trailing CNAME RDATA bytes, terminal-root-dot QNAME and the reserved Z bit; added a source guard for the RDATA boundary and no-fixed-hop invariant.
 - Three review passes: (1) protocol semantics — compression pointers retain their original encoded end while the pointed-to suffix is decoded; (2) integrity — CNAME RDATA cannot read beyond RDLENGTH, conflicting aliases and cycles cannot promote an unrelated address, and the chain has no arbitrary ceiling; (3) regression — A/AAAA, IPv6, malformed pointer, RCODE, question mismatch and cancellation tests remain intact alongside the new fixtures.
 - This patch is not validated until a GitHub Actions run completes successfully on its exact new commit. No physical-device or live-network behavior is claimed.
+
+
+## 2026-11-25 — DNS parser regression-guard alignment
+
+- Exact-head CI for the first DNS parser patch exposed two stale source-guard assumptions: one searched for the removed `_readName` helper, and another expected the AAAA branch to use a generic `else` rather than the explicit `recordType == 28` condition.
+- Updated the source guard to inspect the new bounded `_decodeName` implementation, including backward-only compression pointers, encoded RDATA bounds and the 255-octet expanded-name rule.
+- Made the AAAA branch explicit without changing its public-address validation or returned address format.
+- Corrected the terminal-root-dot normalization literal and added an exact source-level check for the updated parser contract.
+- The failed intermediate CI runs are not validation evidence. The latest branch head must complete its own source guards, Flutter tests, Dart analysis and ARM64 build before this patch is considered validated.

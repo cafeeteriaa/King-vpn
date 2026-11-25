@@ -351,7 +351,7 @@ class NatDnsWireProbe {
           );
         }
         ips.add('${b[rr.rd]}.${b[rr.rd + 1]}.${b[rr.rd + 2]}.${b[rr.rd + 3]}');
-      } else {
+      } else if (recordType == 28) {
         if (rr.rdlen != 16 || !publicV6(b, rr.rd)) {
           throw const FormatException(
             'Non-public/blockpage AAAA answer for queried name',
