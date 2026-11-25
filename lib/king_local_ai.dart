@@ -926,7 +926,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       _resolveImportedWorkspace(String workspacePath) async {
     final support = await getApplicationSupportDirectory();
     final importsRoot = Directory(
-      '\${support.path}\${Platform.pathSeparator}king_ai_imports',
+      '${support.path}${Platform.pathSeparator}king_ai_imports',
     );
     await importsRoot.create(recursive: true);
     final canonicalImports = await importsRoot.resolveSymbolicLinks();
@@ -1002,7 +1002,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       }
       final canonicalParent = await entity.parent.resolveSymbolicLinks();
       if (canonicalParent != root &&
-          !canonicalParent.startsWith('\${root}\${Platform.pathSeparator}')) {
+          !canonicalParent.startsWith('${root}${Platform.pathSeparator}')) {
         throw FormatException('Imported source escaped its workspace: $relative');
       }
       final content = await File(entity.path).readAsString();
@@ -1080,23 +1080,23 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       for (final entry in changes.entries) {
         _validatePath(entry.key);
         if (!originals.containsKey(entry.key)) {
-          throw FormatException('Change target is not an existing editable source file: \${entry.key}');
+          throw FormatException('Change target is not an existing editable source file: ${entry.key}');
         }
         _rejectSecrets(entry.value);
-        final targetPath = '\${root}\${Platform.pathSeparator}'
-            '\${entry.key.replaceAll('/', Platform.pathSeparator)}';
+        final targetPath = '${root}${Platform.pathSeparator}'
+            '${entry.key.replaceAll('/', Platform.pathSeparator)}';
         final targetType = await FileSystemEntity.type(targetPath, followLinks: false);
         if (targetType != FileSystemEntityType.file) {
-          throw FormatException('Imported target is missing or is not a regular file: \${entry.key}');
+          throw FormatException('Imported target is missing or is not a regular file: ${entry.key}');
         }
         final target = File(targetPath);
         final canonicalParent = await target.parent.resolveSymbolicLinks();
         if (canonicalParent != root &&
-            !canonicalParent.startsWith('\${root}\${Platform.pathSeparator}')) {
-          throw FormatException('Imported target escaped its workspace: \${entry.key}');
+            !canonicalParent.startsWith('${root}${Platform.pathSeparator}')) {
+          throw FormatException('Imported target escaped its workspace: ${entry.key}');
         }
-        final temporary = File('\${targetPath}.king-ai-stage-\${stamp}-\${index}');
-        final backup = File('\${targetPath}.king-ai-backup-\${stamp}-\${index}');
+        final temporary = File('${targetPath}.king-ai-stage-${stamp}-${index}');
+        final backup = File('${targetPath}.king-ai-backup-${stamp}-${index}');
         if (await temporary.exists() || await backup.exists()) {
           throw StateError('Temporary import-edit path collision.');
         }
@@ -1107,8 +1107,8 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       }
 
       for (final entry in changes.entries) {
-        final targetPath = '\${root}\${Platform.pathSeparator}'
-            '\${entry.key.replaceAll('/', Platform.pathSeparator)}';
+        final targetPath = '${root}${Platform.pathSeparator}'
+            '${entry.key.replaceAll('/', Platform.pathSeparator)}';
         final target = File(targetPath);
         await target.rename(backups[entry.key]!.path);
         try {
@@ -1134,8 +1134,8 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     } catch (error) {
       var rollbackFailure = false;
       for (final path in replaced.reversed) {
-        final targetPath = '\${root}\${Platform.pathSeparator}'
-            '\${path.replaceAll('/', Platform.pathSeparator)}';
+        final targetPath = '${root}${Platform.pathSeparator}'
+            '${path.replaceAll('/', Platform.pathSeparator)}';
         try {
           final target = File(targetPath);
           if (await target.exists()) await target.delete();
