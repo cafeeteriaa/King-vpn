@@ -450,6 +450,13 @@ class KingFusionEngine {
     }
   }
 
+  void _finishPreflight() {
+    _busy = false;
+    _disconnectSignal = null;
+    _operationDone?.complete();
+    _operationDone = null;
+  }
+
   Future<KingFusionResult> connect(KingFusionPlan plan) async {
     // disconnect() publishes its shared future before observer callbacks run.
     // Reject a reentrant connect from disconnectRequested rather than allowing
@@ -483,6 +490,14 @@ class KingFusionEngine {
       );
     }
 
+    // Reserve the operation slot before preflight. Validation emits
+    // synchronous observer events and adapter compatibility callbacks; neither
+    // may re-enter connect() and start a second plan before this one is settled.
+    _busy = true;
+    _disconnectRequested = false;
+    _operationDone = Completer<void>();
+    _disconnectSignal = Completer<void>();
+
     (String, String)? validationError;
     try {
       validationError = _validate(plan);
@@ -492,6 +507,7 @@ class KingFusionEngine {
         failureCode: 'E-FUSION-VALIDATION-EXCEPTION',
       );
       _setState(KingFusionState.failed);
+      _finishPreflight();
       return const KingFusionResult.failure(
         failedEngineId: null,
         failureCode: 'E-FUSION-VALIDATION-EXCEPTION',
@@ -505,6 +521,7 @@ class KingFusionEngine {
         failureCode: validationError.$2,
       );
       _setState(KingFusionState.failed);
+      _finishPreflight();
       return KingFusionResult.failure(
         failedEngineId: validationError.$1,
         failureCode: validationError.$2,
@@ -512,10 +529,6 @@ class KingFusionEngine {
       );
     }
 
-    _busy = true;
-    _disconnectRequested = false;
-    _operationDone = Completer<void>();
-    _disconnectSignal = Completer<void>();
     _setState(KingFusionState.starting);
     String? currentEngineId;
     Object? upstreamHandle;
