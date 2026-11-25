@@ -106,6 +106,23 @@ void main() {
     });
   });
 
+  group('Smart Pilot HTTP request serialization', () {
+    test('uses actual CRLF wire delimiters and terminates the header block', () {
+      const request = buildPilotHttpHeadRequest('probe.example');
+      expect(request, contains('HEAD / HTTP/1.1\r\n'));
+      expect(request, contains('Host: probe.example\r\n'));
+      expect(request, contains('Connection: close\r\n\r\n'));
+      expect(request, isNot(contains(r'\r\n')));
+    });
+
+    test('keeps the host value in the HTTP Host header', () {
+      expect(
+        buildPilotHttpHeadRequest('edge.example'),
+        startsWith('HEAD / HTTP/1.1\r\nHost: edge.example\r\n'),
+      );
+    });
+  });
+
   group('Smart Pilot latency aggregation', () {
     test('median handles odd and even endpoint counts', () {
       expect(medianLatencyMs([90, 10, 50]), 50);
