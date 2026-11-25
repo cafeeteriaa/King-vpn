@@ -6350,6 +6350,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           s.ai = null; // force revalidation; cached provider-era flags are not generic web evidence
           s.miss = (j['m'] as num?)?.toInt() ?? 0;
           s.restored = true; // RESTORE: همان سرورهای سالم قبلی؛ حذف نمی‌شوند
+          good.add(s); // Restore the cached server object so warm-first and national revalidation can actually run.
           warmKeys.add(s.key);
           // Restored cache entries are candidates until the current session
           // verifies real TUN traffic; do not promote legacy ping-only cache data.
