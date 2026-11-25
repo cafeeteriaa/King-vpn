@@ -622,8 +622,7 @@ extension NipHunt on _HomePageState {
       if (abort) return false;
       final scanBatch = ips.skip(ipOffset).take(ipBatchSize).toList();
       final batchNumber = ipOffset ~/ ipBatchSize + 1;
-      _set('نت ملی: بررسی $label • دسته $batchNumber/$totalBatches • '
-          '${ips.length} آدرس…');
+      _set('نت ملی: بررسی $label • دسته $batchNumber/$totalBatches • ${ips.length} آدرس…');
 
       var completed = 0;
       var hits = <NipHit>[];
@@ -638,7 +637,9 @@ extension NipHunt on _HomePageState {
           want: scanBatch.length,
           budget: const Duration(minutes: 2),
           cancelled: () => abort,
-          onProgress: (done, total) => completed = done,
+          onProgress: (done, total) {
+            completed = done;
+          },
         );
         if (abort) return false;
       }
