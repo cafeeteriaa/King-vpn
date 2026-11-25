@@ -439,6 +439,40 @@ void main() {
       expect(engine.state, KingFusionState.idle);
     });
 
+    test('does not stop upstream hops while downstream cleanup is failing', () async {
+      final events = <String>[];
+      final first = _FakeAdapter(
+        'first',
+        events,
+        chainTargets: const {'second'},
+      );
+      final second = _FakeAdapter(
+        'second',
+        events,
+        stopFailuresRemaining: 1,
+      );
+      final engine = KingFusionEngine([first, second]);
+      final connected = await engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'first', configuration: 'cfg-1'),
+        const KingFusionHop(engineId: 'second', configuration: 'cfg-2'),
+      ]));
+      expect(connected.connected, isTrue);
+
+      await engine.disconnect();
+      expect(events.where((event) => event.startsWith('stop:')).toList(),
+          ['stop:second:handle-second']);
+      expect(engine.cleanupPendingEngineIds, ['first', 'second']);
+      expect(engine.state, KingFusionState.failed);
+
+      await engine.disconnect();
+      expect(events.where((event) => event.startsWith('stop:')).toList(), [
+        'stop:second:handle-second',
+        'stop:second:handle-second',
+        'stop:first:handle-first',
+      ]);
+      expect(engine.state, KingFusionState.idle);
+    });
+
     test('reports and retains cleanup failures after a later hop fails', () async {
       final events = <String>[];
       final first = _FakeAdapter(
