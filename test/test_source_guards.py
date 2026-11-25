@@ -1374,9 +1374,10 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('if (full) break;', ensure)
         self.assertNotIn('if (offs.length - 1 >=', ensure)
         self.assertIn('for (final path in mergeFrom)', ensure)
-        self.assertIn('final freshTotal = offs.length - 1;', ensure)
+        self.assertIn('var freshTotal = 0;', ensure)
+        self.assertIn('freshTotal = offs.length - 1;', ensure)
         self.assertIn('if (f.existsSync()) await appendInventoryFile(f.path);', ensure)
-        self.assertLess(ensure.index('final freshTotal = offs.length - 1;'), ensure.index('if (f.existsSync()) await appendInventoryFile(f.path);'))
+        self.assertLess(ensure.index('freshTotal = offs.length - 1;'), ensure.index('if (f.existsSync()) await appendInventoryFile(f.path);'))
         self.assertIn('A temporarily partial source response must never erase older entries.', ensure)
         self.assertNotIn('oldTotal ~/ 2', ensure)
 
@@ -3592,15 +3593,25 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (r.length >= batch.length)', step)
         self.assertIn('_cleanRangeCursorKey,', step)
         self.assertIn('jsonEncode(_cleanStagedRangeCursors)', step)
-        self.assertLess(step.index('if (r.length >= batch.length)'),
-                        step.index('_cleanRangeCursorKey,'))
+        known_branch = step.index('if (batch.isEmpty) {')
+        known_cursor = step.index('jsonEncode(_cleanStagedRangeCursors)', known_branch)
+        probe = step.index('final r = await _goldProbe(batch);')
+        full_commit = step.index('if (r.length >= batch.length)', probe)
+        full_cursor = step.index('_cleanRangeCursorKey,', full_commit)
+        self.assertLess(known_branch, known_cursor)
+        self.assertLess(probe, full_commit)
+        self.assertLess(full_commit, full_cursor)
 
     def test_nip_hunt_rotates_configured_dual_stack_endpoints_and_validates_all_hits(self):
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         hunt_start = nip.index('Future<bool> _natIpHunt() async {')
         hunt_end = nip.index('Future<bool> _natTryScan(', hunt_start)
         hunt = nip[hunt_start:hunt_end]
-        self.assertIn('final sourceServers = <Server>[...good, ...pending];', hunt)
+        self.assertIn('final sourceServers = <Server>[', hunt)
+        for source in ('...good,', '...pending,', '...natRestPending,', '...natTemplateSeeds,', '...fetchedAll,'):
+            self.assertIn(source, hunt)
+        self.assertIn('uniqueTemplates.putIfAbsent(server.link, () => server);', hunt)
+        self.assertNotIn('putIfAbsent(server.host, () => server)', hunt)
         self.assertIn('for (final entry in _resMap.values)', hunt)
         self.assertIn("const templateCursorKey = 'nip_hunt_template_cursor_v1';", hunt)
         self.assertIn('final templateBatchSize = templateInventory.length;', hunt)
