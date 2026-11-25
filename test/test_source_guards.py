@@ -3935,6 +3935,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('explicitApproval: explicitApproval', console)
         self.assertIn('_featureRequestController.text = [', console)
         self.assertIn('image_analysis_added_to_owner_request', console)
+        self.assertIn('KingAiProviderSettingsPage()', console)
         self.assertIn('کلید API، UUID، رمز', console)
         self.assertIn('ساخت پیشنهاد کد و Pull Request', console)
         self.assertNotIn('maxLength: 2000', console)
