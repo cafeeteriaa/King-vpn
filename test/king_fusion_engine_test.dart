@@ -158,7 +158,6 @@ void main() {
 
     test('does not execute descriptors that still require a native adapter', () async {
       final events = <String>[];
-      final adapter = _FakeAdapter('future-engine', events);
       final unavailable = _UnavailableAdapter(events);
       final engine = KingFusionEngine([unavailable]);
       final result = await engine.connect(KingFusionPlan([
@@ -166,7 +165,6 @@ void main() {
       ]));
       expect(result.failureCode, 'E-FUSION-ADAPTER-NOT-INTEGRATED');
       expect(events, isEmpty);
-      expect(adapter.descriptor.availability, KingEngineAvailability.integrated);
     });
 
     test('normalizes harmless engine-id whitespace consistently', () async {
