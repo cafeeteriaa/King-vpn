@@ -90,7 +90,7 @@ void main() {
         state: KingFusionState.connected,
       ));
       expect(bridge.snapshot.recoveryHint, KingFusionRecoveryHint.observe);
-      expect(bridge.snapshot.failureStreaks, isNull);
+      expect(bridge.snapshot.consecutiveFailuresByEngine, isEmpty);
     });
 
     test('snapshot maps are immutable copies', () {
