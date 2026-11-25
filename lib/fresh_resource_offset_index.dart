@@ -47,7 +47,8 @@ class FreshResourceOffsetIndex {
       await indexFile.close();
     }
 
-    if (startByte >= header.snapshotLength) {
+    if (startByte >= header.snapshotLength ||
+        !await _isLineStart(snapshot, startByte)) {
       header = await _rebuild(snapshot, index, normalize);
       if (offset >= header.count) {
         return FreshResourceIndexPage(items: const <String>[], hasMore: false, totalCount: header.count);
@@ -92,6 +93,19 @@ class FreshResourceOffsetIndex {
       hasMore: hasMore,
       totalCount: header.count,
     );
+  }
+
+  static Future<bool> _isLineStart(File snapshot, int offset) async {
+    if (offset == 0) return true;
+    if (offset < 0) return false;
+    final input = await snapshot.open();
+    try {
+      await input.setPosition(offset - 1);
+      final previous = await input.read(1);
+      return previous.length == 1 && previous.single == 0x0a;
+    } finally {
+      await input.close();
+    }
   }
 
   static Future<_IndexHeader?> _readValidHeader(
@@ -169,6 +183,13 @@ class FreshResourceOffsetIndex {
         }
       }
       if (lineBytes.length > 0) await consumeLine();
+
+      final finalStat = await snapshot.stat();
+      if (finalStat.size != snapshotStat.size ||
+          finalStat.modified.microsecondsSinceEpoch !=
+              snapshotStat.modified.microsecondsSinceEpoch) {
+        throw FileSystemException('Resource snapshot changed while its index was being built');
+      }
 
       final header = ByteData(_headerSize);
       header.buffer.asUint8List().setAll(0, _magic);
