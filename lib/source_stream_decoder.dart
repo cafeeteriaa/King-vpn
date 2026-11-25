@@ -7,7 +7,7 @@ Stream<String> decodeConfigSourceLines(
   Stream<List<int>> bytes, {
   required RegExp linkRegex,
 }) async* {
-  final sourceLines = utf8.decoder
+  final sourceLines = const Utf8Decoder(allowMalformed: true)
       .bind(bytes)
       .transform(const LineSplitter());
   final iterator = StreamIterator<String>(sourceLines);
