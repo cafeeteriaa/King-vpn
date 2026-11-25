@@ -194,6 +194,61 @@ class _FakeTrafficVerifier implements KingFusionTrafficVerifier {
 
 void main() {
   group('KING Fusion Engine', () {
+    test('exposes immutable secret-free lifecycle snapshots and ordered events', () async {
+      final events = <KingFusionEvent>[];
+      final adapterEvents = <String>[];
+      final adapter = _FakeAdapter('first', adapterEvents);
+      final engine = KingFusionEngine(
+        [adapter],
+        onEvent: events.add,
+      );
+      final result = await engine.connect(KingFusionPlan([
+        const KingFusionHop(
+          engineId: 'first',
+          configuration: 'super-secret-config',
+        ),
+      ]));
+
+      expect(result.connected, isTrue);
+      expect(engine.snapshot.state, KingFusionState.connected);
+      expect(engine.snapshot.activeEngineIds, ['first']);
+      expect(engine.snapshot.cleanupPendingEngineIds, isEmpty);
+      expect(events.map((event) => event.sequence).toList(),
+          List<int>.generate(events.length, (index) => index + 1));
+      expect(events.map((event) => event.type), contains(KingFusionEventType.hopStarted));
+      expect(events.every((event) =>
+          event.failureCode == null ||
+          !event.failureCode!.contains('super-secret-config')), isTrue);
+      expect(events.toString(), isNot(contains('super-secret-config')));
+
+      await engine.disconnect();
+      expect(engine.snapshot.state, KingFusionState.idle);
+      expect(engine.snapshot.activeEngineIds, isEmpty);
+      expect(events.last.type, KingFusionEventType.disconnectCompleted);
+    });
+
+    test('event listener exceptions cannot interrupt native lifecycle', () async {
+      final adapterEvents = <String>[];
+      final adapter = _FakeAdapter('first', adapterEvents);
+      final engine = KingFusionEngine(
+        [adapter],
+        onEvent: (_) => throw StateError('observer failure'),
+      );
+
+      final result = await engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'first', configuration: 'cfg'),
+      ]));
+
+      expect(result.connected, isTrue);
+      expect(engine.state, KingFusionState.connected);
+      await engine.disconnect();
+      expect(engine.state, KingFusionState.idle);
+      expect(adapterEvents, [
+        'start:first:-',
+        'stop:first:handle-first',
+      ]);
+    });
+
     test('validates every hop before starting any native adapter', () async {
       final events = <String>[];
       final first = _FakeAdapter('first', events);
