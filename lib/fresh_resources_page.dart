@@ -74,7 +74,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
 
   Future<void> _copyAll() async {
     if (_links.isEmpty) return;
-    await Clipboard.setData(ClipboardData(text: _links.join('\\n')));
+    await Clipboard.setData(ClipboardData(text: _links.join('\n')));
     if (mounted) setState(() => _message = 'لینک همه منابع کپی شد.');
   }
 
@@ -151,7 +151,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
               textDirection: TextDirection.ltr,
               decoration: const InputDecoration(
                 labelText: 'افزودن کانفیگ‌ها (هر لینک در یک خط)',
-                hintText: 'vless://...\\nvmess://...',
+                hintText: 'vless://...\nvmess://...',
                 border: OutlineInputBorder(),
               ),
             ),
