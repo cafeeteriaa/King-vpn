@@ -90,6 +90,7 @@ abstract interface class KingEngineAdapter {
     Object? upstreamHandle,
   });
 
+  /// Must tolerate retry after timeout or an earlier failed cleanup attempt.
   Future<void> stop(Object? handle);
 
   /// Explicit compatibility contract; false by default in adapters.
@@ -390,6 +391,10 @@ class KingFusionEngine {
         cleanupFailedEngineIds: cleanupFailures,
       );
     } on _KingFusionVerificationTimeout {
+      final verifier = _activeVerifier;
+      if (verifier != null) {
+        unawaited(_requestVerifierCancellation(verifier));
+      }
       final startedCount = _active.length;
       final cleanupFailures = await _rollback();
       state = KingFusionState.failed;
