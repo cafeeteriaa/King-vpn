@@ -85,12 +85,15 @@ class KingFusionResult {
   final String? failedEngineId;
   final String? failureCode;
   final int startedHops;
+  /// Engines whose native stop operation failed and still need cleanup.
+  final List<String> cleanupFailedEngineIds;
 
   const KingFusionResult._({
     required this.connected,
     required this.failedEngineId,
     required this.failureCode,
     required this.startedHops,
+    this.cleanupFailedEngineIds = const <String>[],
   });
 
   const KingFusionResult.success(int startedHops)
@@ -105,11 +108,13 @@ class KingFusionResult {
     required String? failedEngineId,
     required String? failureCode,
     required int startedHops,
+    List<String> cleanupFailedEngineIds = const <String>[],
   }) : this._(
           connected: false,
           failedEngineId: failedEngineId,
           failureCode: failureCode,
           startedHops: startedHops,
+          cleanupFailedEngineIds: cleanupFailedEngineIds,
         );
 }
 
@@ -124,6 +129,8 @@ class KingFusionEngine {
 
   KingFusionState state = KingFusionState.idle;
   bool _busy = false;
+  bool _disconnectRequested = false;
+  Completer<void>? _operationDone;
 
   KingFusionEngine(Iterable<KingEngineAdapter> adapters)
       : _adapters = _indexAdapters(adapters);
@@ -177,11 +184,24 @@ class KingFusionEngine {
     }
 
     _busy = true;
+    _disconnectRequested = false;
+    _operationDone = Completer<void>();
     state = KingFusionState.starting;
     String? currentEngineId;
     Object? upstreamHandle;
     try {
       for (final hop in plan.hops) {
+        if (_disconnectRequested) {
+          final startedCount = _active.length;
+          final cleanupFailures = await _rollback();
+          state = KingFusionState.failed;
+          return KingFusionResult.failure(
+            failedEngineId: null,
+            failureCode: 'E-FUSION-CANCELLED',
+            startedHops: startedCount,
+            cleanupFailedEngineIds: cleanupFailures,
+          );
+        }
         currentEngineId = hop.engineId.trim();
         final adapter = _adapters[currentEngineId]!;
         final result = await adapter.start(
@@ -190,30 +210,46 @@ class KingFusionEngine {
         );
         if (!result.connected) {
           final startedCount = _active.length;
-          await _rollback();
+          final cleanupFailures = await _rollback();
           state = KingFusionState.failed;
           return KingFusionResult.failure(
             failedEngineId: currentEngineId,
             failureCode: result.failureCode ?? 'E-FUSION-START',
             startedHops: startedCount,
+            cleanupFailedEngineIds: cleanupFailures,
           );
         }
         _active.add((adapter: adapter, handle: result.handle));
         upstreamHandle = result.handle;
+        if (_disconnectRequested) {
+          final startedCount = _active.length;
+          final cleanupFailures = await _rollback();
+          state = KingFusionState.failed;
+          return KingFusionResult.failure(
+            failedEngineId: currentEngineId,
+            failureCode: 'E-FUSION-CANCELLED',
+            startedHops: startedCount,
+            cleanupFailedEngineIds: cleanupFailures,
+          );
+        }
       }
       state = KingFusionState.connected;
       return KingFusionResult.success(_active.length);
     } catch (_) {
       final startedCount = _active.length;
-      await _rollback();
+      final cleanupFailures = await _rollback();
       state = KingFusionState.failed;
       return KingFusionResult.failure(
         failedEngineId: currentEngineId,
         failureCode: 'E-FUSION-EXCEPTION',
         startedHops: startedCount,
+        cleanupFailedEngineIds: cleanupFailures,
       );
     } finally {
       _busy = false;
+      _disconnectRequested = false;
+      _operationDone?.complete();
+      _operationDone = null;
     }
   }
 
@@ -246,25 +282,43 @@ class KingFusionEngine {
   }
 
   Future<void> disconnect() async {
+    if (_busy) {
+      // A disconnect request must not disappear while a native start is in
+      // flight. Ask connect() to roll back as soon as that start completes.
+      _disconnectRequested = true;
+      final pending = _operationDone?.future;
+      if (pending != null) await pending;
+    }
     if (_busy) return;
     _busy = true;
+    _operationDone = Completer<void>();
     state = KingFusionState.stopping;
     try {
       await _rollback();
-      state = KingFusionState.idle;
+      state = _active.isEmpty ? KingFusionState.idle : KingFusionState.failed;
     } finally {
       _busy = false;
+      _operationDone?.complete();
+      _operationDone = null;
     }
   }
 
-  Future<void> _rollback() async {
+  /// Failed stops remain tracked so a later disconnect can retry cleanup.
+  Future<List<String>> _rollback() async {
+    final failed = <({KingEngineAdapter adapter, Object? handle})>[];
     for (final item in _active.reversed.toList(growable: false)) {
       try {
         await item.adapter.stop(item.handle);
       } catch (_) {
-        // Continue stopping remaining hops; the host's error journal owns logs.
+        failed.add(item);
       }
     }
-    _active.clear();
+    _active
+      ..clear()
+      ..addAll(failed.reversed);
+    return failed
+        .map((item) => item.adapter.descriptor.id)
+        .toList(growable: false);
   }
+
 }
