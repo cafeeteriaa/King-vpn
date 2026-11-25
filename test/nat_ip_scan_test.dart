@@ -32,6 +32,38 @@ void main() {
     });
   });
 
+  group('canonical IP address formatting', () {
+    test('IPv6 equivalents normalize to one compressed representation', () {
+      final expanded = InternetAddress(
+        '2001:0db8:0000:0000:0000:0000:0000:0010',
+      );
+      final compressed = InternetAddress('2001:db8::10');
+      expect(natCanonicalIpAddress(expanded), '2001:db8::10');
+      expect(
+        natCanonicalIpAddress(expanded),
+        natCanonicalIpAddress(compressed),
+      );
+    });
+
+    test('IPv4 representation remains unchanged', () {
+      expect(
+        natCanonicalIpAddress(InternetAddress('192.0.2.10')),
+        '192.0.2.10',
+      );
+    });
+
+    test('all-zero and trailing-zero IPv6 runs compress correctly', () {
+      expect(
+        natCanonicalIpAddress(InternetAddress('0:0:0:0:0:0:0:0')),
+        '::',
+      );
+      expect(
+        natCanonicalIpAddress(InternetAddress('2001:db8:0:0:0:0:0:0')),
+        '2001:db8::',
+      );
+    });
+  });
+
   group('exact endpoint template indexing', () {
     test('retains every matching configuration without cross-port substitution', () {
       final indexed = natIndexEndpointTemplates<String>(
