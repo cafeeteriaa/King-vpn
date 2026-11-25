@@ -236,7 +236,7 @@ Future<({List<String> addresses, Map<String, dynamic> cursors})> _ipAutoNextAddr
     // Only exact addresses resolved from configured VPN server endpoints
     // are actively probed. CDN/ISP CIDRs are not swept as third-party networks.
     'cfIpsBatch': 0,
-    'maxAddrs': batchSize,
+    'maxAddrs': effectiveBatchSize,
     'blocks': await _ipAutoBlocks(knownServers),
     'nationalMode': modeSnapshot,
     'liveRanges': <String>[],

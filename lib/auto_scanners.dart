@@ -503,7 +503,6 @@ Future<void> autoScanRun(void Function(String) say,
     for (final d in domainBatch) {
       n++;
       if (scanNationalMode) {
-        await natManualYield(shouldAbort: () => cancelled());
         if (cancelled()) break sniLoop;
       }
       final resolved = await _autoResolveDualStackTargets(
@@ -540,7 +539,6 @@ Future<void> autoScanRun(void Function(String) say,
     for (final p in portBatch) {
       m++;
       if (scanNationalMode) {
-        await natManualYield(shouldAbort: () => cancelled());
         if (cancelled()) break portLoop;
       }
       var ok = false;

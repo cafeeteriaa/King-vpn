@@ -3331,7 +3331,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('resources[\'ipv6\']', nip)
         self.assertIn('Future<List<String>> nipResolveAll(', nip)
         self.assertIn('return nipResolveAll(server.host);', nip)
-        self.assertIn("if (prefix.contains('/')) out.add(prefix);", nip)
+        self.assertIn("if (prefix.contains('/')) discovered.add(prefix);", nip)
         self.assertIn("if (ipv6 is List) ...ipv6.map((value) => '$value').where((value) => value.contains('/'))", nip)
         self.assertIn("if (address?.type == InternetAddressType.IPv6)", nip)
         self.assertIn('natExpandIpv6Cidr(cidr, maxPerBlock: effectiveBatch)', nip)

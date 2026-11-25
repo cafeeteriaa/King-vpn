@@ -596,9 +596,8 @@ extension NipHunt on _HomePageState {
     if (ips.isEmpty || templates.isEmpty || port < 1 || port > 65535) {
       return false;
     }
-    // A DNS hostname can resolve to more endpoints than one two-minute
-    // probe window can cover. Process every resolved address in resumable-size
-    // slices; do not advance the template cursor after only the first slice.
+    // Process every resolved endpoint in adaptive slices; no wall-clock cutoff
+    // is applied and the template cursor advances only after full completion.
     final ipBatchSize = max(1, natAdaptiveConcurrency(0) * 32);
     final totalBatches = (ips.length + ipBatchSize - 1) ~/ ipBatchSize;
     for (var ipOffset = 0; ipOffset < ips.length; ipOffset += ipBatchSize) {
