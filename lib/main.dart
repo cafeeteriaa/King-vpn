@@ -13283,6 +13283,17 @@ ListTile( // KINGEXTRAS row
     });
   }
 
+  void _scheduleFailoverWake(Duration delay, String reason) {
+    if (_failoverRetryTimer?.isActive == true) return;
+    dbg('FAILOVER-RETRY-WAKE: reason=$reason delay=${delay.inSeconds}s');
+    _failoverRetryTimer = Timer(delay, () {
+      _failoverRetryTimer = null;
+      if (mounted && wantVpn && !connected) {
+        unawaited(_failover().catchError((e) => logError(e)));
+      }
+    });
+  }
+
   Future<void> _failover() async {
     if (_uiJoinDone != null) {
       // UIJOIN-GUARD: failover دقیقاً وقتی دیالوگ کانال بسته شود اجرا می‌شود
@@ -13305,13 +13316,7 @@ ListTile( // KINGEXTRAS row
         _failoverRetries =
             nextFailoverRetryStage(_failoverRetries);
         final delay = failoverBusyRetryDelay(_failoverRetries);
-        dbg('FAILOVER-BUSY-RETRY: attempt-stage=$_failoverRetries delay=${delay.inSeconds}s');
-        _failoverRetryTimer = Timer(delay, () {
-          _failoverRetryTimer = null;
-          if (mounted && wantVpn && !connected) {
-            unawaited(_failover().catchError((e) => logError(e)));
-          }
-        });
+        _scheduleFailoverWake(delay, 'busy-stage=$_failoverRetries');
       }
       return;
     }
@@ -13324,14 +13329,17 @@ ListTile( // KINGEXTRAS row
     // تعویض خودکار ۳ دقیقه متوقف می‌شود تا حلقه‌ی بی‌پایان نشکند.
     final nowFB = DateTime.now();
     if (_failoverPauseUntil != null && nowFB.isBefore(_failoverPauseUntil!)) {
-      dbg('E-FAILOVER-LOOP: تعویض خودکار موقتاً متوقف است تا ${_failoverPauseUntil!.hour.toString().padLeft(2, '0')}:${_failoverPauseUntil!.minute.toString().padLeft(2, '0')}');
+      final remaining = _failoverPauseUntil!.difference(nowFB);
+      dbg('E-FAILOVER-LOOP: تعویض خودکار موقتاً متوقف است؛ بازیابی پس از ${remaining.inSeconds}s');
+      _scheduleFailoverWake(remaining, 'loop-cooldown');
       return;
     }
     _failoverTimes.removeWhere((t) => nowFB.difference(t).inMinutes >= 5);
     if (_failoverTimes.length >= 6) {
-      _failoverPauseUntil = nowFB.add(const Duration(minutes: 3));
+      _failoverPauseUntil = nowFB.add(failoverLoopCooldown);
       _failoverTimes.clear();
       dbg('E-FAILOVER-LOOP: ۶ تعویض در ۵ دقیقه ثبت شد؛ حلقه‌ی تعویض قطع شد و ۳ دقیقه صبر می‌شود');
+      _scheduleFailoverWake(failoverLoopCooldown, 'loop-breaker');
       return;
     }
     _failoverTimes.add(nowFB);
