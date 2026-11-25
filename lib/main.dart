@@ -699,17 +699,23 @@ Future<double?> _tuneSpeedKB() async {
     return await () async {
       final req = await c.getUrl(Uri.parse(smallSpeedUrl));
       final res = await req.close();
+      if (!isUsableSpeedProbeResponse(
+          res.statusCode, res.headers.contentType?.mimeType)) {
+        dbg('TUNE-SPEED-REJECT status=${res.statusCode}');
+        return null;
+      }
       var bytes = 0;
       final sw = Stopwatch()..start();
       await for (final chunk in res) {
         bytes += chunk.length;
         if (sw.elapsed >= const Duration(seconds: 3)) break;
       }
-      final secs = sw.elapsedMilliseconds / 1000;
-      if (secs <= 0 || bytes == 0) return null;
-      return bytes / 1024 / secs;
-    }()
-        .timeout(const Duration(seconds: 9));
+      final mbps = throughputMegabytesPerSecond(
+        bytes: bytes,
+        elapsedMilliseconds: sw.elapsedMilliseconds,
+      );
+      return mbps == null ? null : mbps * 1024;
+    }().timeout(const Duration(seconds: 9));
   } catch (e, stk) {
     logError(e, stk);
     return null;
@@ -3590,18 +3596,15 @@ class Server {
   double? speed;
   DateTime? speedAt; // time of the last real speed test
   DateTime? badAt;
-  // MEDIAN: last 3 real speed tests, so one lucky/unlucky test does not decide
+  // Rolling history keeps more signal than a 3-sample window while remaining
+  // bounded per server; this is telemetry retention, never a server scan limit.
   final List<double> speedHist = [];
   void remember(double? v) {
-    if (v == null || v <= 0) return;
+    if (v == null || !v.isFinite || v <= 0) return;
     speedHist.add(v);
-    if (speedHist.length > 3) speedHist.removeAt(0);
+    if (speedHist.length > 9) speedHist.removeAt(0);
   }
-  double? get medianSpeed {
-    if (speedHist.isEmpty) return null;
-    final l = [...speedHist]..sort();
-    return l[l.length ~/ 2];
-  }
+  double? get medianSpeed => medianThroughput(speedHist);
   int score = 0;
   int miss = 0; // consecutive failed re-checks (missLimit in a row -> removed)
   // RESTORE: سرور از حافظه‌ی دستگاه آمده (بعد از بستن و باز کردن برنامه) و هنوز در این نشست تست نشده
