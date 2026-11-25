@@ -1748,7 +1748,6 @@ Future<void> natLoadPersisted() async {
 
 const String _ipMemKey = 'natIpMem';
 const String _rangeKey = 'natRanges';
-const int _ipMemMax = 200;
 
 final List<Map<String, dynamic>> natIpMem = [];
 final Set<String> natIpDeadRun = {};
@@ -1768,10 +1767,6 @@ Future<void> natIpMemLoad() async {
       natIpMem
         ..clear()
         ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
-      final cutoff = DateTime.now()
-          .subtract(const Duration(days: 14))
-          .millisecondsSinceEpoch;
-      natIpMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
     }
     natRanges = (p.getString(_rangeKey) ?? '')
         .split(RegExp(r'[\r\n,; ]+'))
@@ -1807,7 +1802,6 @@ Future<void> natIpMemLoad() async {
 }
 
 const String _domMemKey = 'natDomMem';
-const int _domMemMax = 200;
 const int natDelaySecs = 14;
 final List<Map<String, dynamic>> natDomMem = [];
 
@@ -1821,10 +1815,6 @@ Future<void> natDomMemLoad() async {
       natDomMem
         ..clear()
         ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
-      final cutoff = DateTime.now()
-          .subtract(const Duration(days: 14))
-          .millisecondsSinceEpoch;
-      natDomMem.removeWhere((e) => ((e['t'] as num?)?.toInt() ?? 0) < cutoff);
     }
   } catch (e, stk) {
     logError(e, stk);
@@ -1834,9 +1824,6 @@ Future<void> natDomMemLoad() async {
 Future<void> natDomMemSave(String host, int port) async {
   natDomMem.removeWhere((e) => e['h'] == host && e['port'] == port);
   natDomMem.insert(0, {'h': host, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
-  if (natDomMem.length > _domMemMax) {
-    natDomMem.removeRange(_domMemMax, natDomMem.length);
-  }
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString(_domMemKey, jsonEncode(natDomMem));
@@ -1853,9 +1840,6 @@ Future<bool> natIpMemSaveMany(Iterable<String> ips, int port) async {
     natIpMem.removeWhere((entry) => entry['ip'] == ip && entry['port'] == port);
     natIpMem.insert(0, {'ip': ip, 'port': port, 't': timestamp});
   }
-  if (natIpMem.length > _ipMemMax) {
-    natIpMem.removeRange(_ipMemMax, natIpMem.length);
-  }
   try {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_ipMemKey, jsonEncode(natIpMem));
@@ -1869,9 +1853,6 @@ Future<bool> natIpMemSaveMany(Iterable<String> ips, int port) async {
 Future<void> natIpMemSave(String ip, int port) async {
   natIpMem.removeWhere((e) => e['ip'] == ip && e['port'] == port);
   natIpMem.insert(0, {'ip': ip, 'port': port, 't': DateTime.now().millisecondsSinceEpoch});
-  if (natIpMem.length > _ipMemMax) {
-    natIpMem.removeRange(_ipMemMax, natIpMem.length);
-  }
   try {
     final p = await SharedPreferences.getInstance();
     await p.setString(_ipMemKey, jsonEncode(natIpMem));
