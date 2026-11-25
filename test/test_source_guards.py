@@ -3871,5 +3871,34 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('if (abort || hits.isEmpty) return false;', hunt)
 
 
+    def test_king_ai_multimodel_provider_keys_are_secure_and_cloud_use_is_opt_in(self):
+        provider = (ROOT / 'lib' / 'king_ai_provider_orchestrator.dart').read_text(encoding='utf-8')
+        settings = (ROOT / 'lib' / 'king_ai_provider_settings.dart').read_text(encoding='utf-8')
+        self.assertIn('FlutterSecureStorage', provider)
+        self.assertIn('king_ai_external_processing_enabled', provider)
+        self.assertIn("== 'true'", provider)
+        self.assertIn('if (!explicitApproval && !await externalProcessingEnabled)', provider)
+        self.assertIn('configuredProviders(requireVision: requireVision)', provider)
+        self.assertIn('await _complete(', provider)
+        self.assertIn('await _secure.delete(key: _key(id,', provider)
+        self.assertIn('SwitchListTile(', settings)
+        self.assertIn('setExternalProcessingEnabled(enabled)', settings)
+        self.assertIn('Cursor یک محیط/عامل برنامه‌نویسی است', settings)
+
+    def test_king_ai_chat_supports_image_analysis_with_ephemeral_consent(self):
+        chat = (ROOT / 'lib' / 'king_chat_page.dart').read_text(encoding='utf-8')
+        provider = (ROOT / 'lib' / 'king_ai_provider_orchestrator.dart').read_text(encoding='utf-8')
+        workflow = (ROOT / '.github' / 'workflows' / 'build.yml').read_text(encoding='utf-8')
+        self.assertIn("import 'package:image_picker/image_picker.dart';", chat)
+        self.assertIn('ImageSource.gallery', chat)
+        self.assertIn('analyzeImage(', chat)
+        self.assertIn('explicitApproval: oneTimeConsent', chat)
+        self.assertIn('Future<bool> _confirmCloudProcessing()', chat)
+        self.assertIn('image_picker:', workflow)
+        self.assertIn('inlineData', provider)
+        self.assertIn('image_url', provider)
+        self.assertIn("'type': 'image'", provider)
+
+
 if __name__ == '__main__':
     unittest.main()
