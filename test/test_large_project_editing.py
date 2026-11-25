@@ -130,6 +130,17 @@ class LargeProjectEditingGuards(unittest.TestCase):
         self.assertIn("await file.setPosition(centralCursor)", importer)
         self.assertIn("ZIP64 end record", importer)
 
+    def test_ci_diagnostics_paginate_all_checks_annotations_and_workflow_jobs(self):
+        start = self.source.index("Future<Map<String, Object?>> inspectPullRequestCi(")
+        end = self.source.index("Future<int?> findOpenPullRequestForHeadBranch(", start)
+        inspector = self.source[start:end]
+        self.assertIn("Future<List<dynamic>> _githubAllPages(", self.source)
+        self.assertIn("'per_page': '100'", self.source)
+        self.assertIn("collectionKey: 'check_runs'", inspector)
+        self.assertIn("collectionKey: 'workflow_runs'", inspector)
+        self.assertIn("collectionKey: 'jobs'", inspector)
+        self.assertNotIn(".take(", inspector)
+
     def test_owner_task_descriptions_have_no_fixed_character_ceiling(self):
         self.assertNotIn("request.length > 2000", self.source)
         self.assertIn("final request = task.trim();", self.source)

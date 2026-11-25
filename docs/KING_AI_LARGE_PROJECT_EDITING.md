@@ -84,3 +84,10 @@ Before model generation, the supplied Dart/Python inventory is analyzed for rela
 - Absolute paths, drive paths, `..` traversal, normalized duplicates, symbolic links, encrypted entries, unsupported compression methods, multi-disk archives, invalid local/central metadata, and suspicious expansion ratios are rejected.
 - There is no fixed file-count or total expanded-byte quota. Extraction is streamed; actual storage failures stop the import and the incomplete workspace is deleted rather than reported as complete.
 - ZIP64 end records and ZIP64 entry sizes/offsets are supported within the platform's signed-integer range. Multi-disk archives remain explicitly unsupported. The owner-only `importProjectZip` API accepts a selected local `File`; a native file-picker UI is not wired into the screen yet.
+
+
+## Complete CI diagnostics for large matrices
+
+- Check runs, workflow runs, job lists, and check annotations are fetched through GitHub's paginated endpoints until the final short page. GitHub's maximum of 100 records per request is respected, but no application-level page or item ceiling discards later failures.
+- Completed CI is reported as fully passed only when all relevant check runs and workflow runs have successful conclusions (with neutral/skipped check runs treated as non-failing).
+- Individual job logs still use a bounded in-memory download path to protect device RAM; oversized logs are reported as unavailable evidence rather than silently treated as complete.

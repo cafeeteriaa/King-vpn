@@ -1126,6 +1126,60 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
   }
 
   /// Reads a JSON array from a GitHub API endpoint (for check annotations).
+  /// Reads every page of a GitHub list endpoint without a fixed item ceiling.
+  /// GitHub's per-page maximum is a service constraint; pagination continues
+  /// until the server returns a short final page.
+  Future<List<dynamic>> _githubAllPages(
+    String path, {
+    String? collectionKey,
+  }) async {
+    final token = await _secure.read(key: 'king_ai_github_token');
+    if (token == null || token.isEmpty) {
+      throw StateError('ابتدا توکن GitHub را در تنظیمات هوش مصنوعی ذخیره کن');
+    }
+    final uri = Uri.parse('https://api.github.com$path');
+    if (uri.host != 'api.github.com' || uri.scheme != 'https' ||
+        uri.userInfo.isNotEmpty || uri.fragment.isNotEmpty) {
+      throw ArgumentError('Unsafe GitHub API path');
+    }
+    final headers = {
+      'Accept': 'application/vnd.github+json',
+      'Authorization': 'Bearer $token',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'King-VPN-Local-AI',
+    };
+    final query = Map<String, String>.from(uri.queryParameters);
+    final all = <dynamic>[];
+    var page = 1;
+    while (true) {
+      final pageUri = uri.replace(queryParameters: {
+        ...query,
+        'per_page': '100',
+        'page': page.toString(),
+      });
+      final response = await http.get(pageUri, headers: headers)
+          .timeout(const Duration(seconds: 25));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        final end = response.body.length.clamp(0, 800).toInt();
+        throw HttpException(
+          'GitHub API ${response.statusCode}: ${response.body.substring(0, end)}',
+        );
+      }
+      final decoded = jsonDecode(response.body);
+      final rows = collectionKey == null
+          ? decoded
+          : decoded is Map ? decoded[collectionKey] : null;
+      if (rows is! List) {
+        throw FormatException(
+          'Expected GitHub JSON list${collectionKey == null ? '' : ' at $collectionKey'}',
+        );
+      }
+      all.addAll(rows);
+      if (rows.length < 100) return all;
+      page++;
+    }
+  }
+
   Future<List<dynamic>> _githubList(String path) async {
     final token = await _secure.read(key: 'king_ai_github_token');
     if (token == null || token.isEmpty) {
@@ -1157,6 +1211,9 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
 
   /// Collects bounded, redacted GitHub check annotations and failed workflow
   /// steps for the exact head commit of a pull request.
+  /// Collects every paginated GitHub check annotation and failed workflow
+  /// step for the exact head commit. GitHub's per-page limit is handled by
+  /// pagination; no fixed number of failures or annotations is discarded.
   Future<Map<String, Object?>> inspectPullRequestCi({
     required String owner,
     required String repository,
@@ -1179,20 +1236,22 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
         .firstMatch(pullBody);
     final repairRoot = rootMatch?.group(1)?.trim() ?? '$owner/$repository#$pullNumber';
     final sha = head['sha'] as String;
-    final checks = await _github('GET',
-        '/repos/$repo/commits/$sha/check-runs?per_page=100');
-    final checkRuns = (checks['check_runs'] as List? ?? const [])
-        .whereType<Map>().toList();
+    final checkRuns = (await _githubAllPages(
+      '/repos/$repo/commits/$sha/check-runs',
+      collectionKey: 'check_runs',
+    )).whereType<Map>().toList();
     final failures = <Map<String, Object?>>[];
     for (final check in checkRuns.where((item) =>
-        item['status'] == 'completed' && item['conclusion'] == 'failure').take(4)) {
+        item['status'] == 'completed' && item['conclusion'] == 'failure')) {
       final id = check['id'];
       final output = check['output'] is Map ? check['output'] as Map : const {};
       final annotations = <Map<String, Object?>>[];
       if (id is num) {
         try {
-          final rows = await _githubList('/repos/$repo/check-runs/$id/annotations?per_page=50');
-          for (final row in rows.whereType<Map>().take(20)) {
+          final rows = await _githubAllPages(
+            '/repos/$repo/check-runs/$id/annotations',
+          );
+          for (final row in rows.whereType<Map>()) {
             annotations.add({
               'path': row['path']?.toString() ?? '',
               'line': row['start_line'],
@@ -1214,30 +1273,29 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       });
     }
 
-    final runsResponse = await _github('GET',
-        '/repos/$repo/actions/runs?head_sha=$sha&per_page=10');
-    final workflowRuns = (runsResponse['workflow_runs'] as List? ?? const [])
-        .whereType<Map>()
-        .toList();
-    final runs = workflowRuns
-        .where((run) => run['status'] == 'completed' && run['conclusion'] == 'failure')
-        .take(3);
+    final workflowRuns = (await _githubAllPages(
+      '/repos/$repo/actions/runs?head_sha=$sha',
+      collectionKey: 'workflow_runs',
+    )).whereType<Map>().toList();
+    final failedRuns = workflowRuns.where((run) =>
+        run['status'] == 'completed' && run['conclusion'] == 'failure');
     final checksPending = checkRuns.any((item) => item['status'] != 'completed') ||
         workflowRuns.any((run) => run['status'] == 'queued' ||
             run['status'] == 'in_progress' || run['status'] == 'waiting' ||
             run['status'] == 'requested');
-    for (final run in runs) {
+    for (final run in failedRuns) {
       final runId = run['id'];
       if (runId is! num) continue;
-      final jobsResponse = await _github('GET',
-          '/repos/$repo/actions/runs/$runId/jobs?per_page=50');
-      final jobs = (jobsResponse['jobs'] as List? ?? const []).whereType<Map>();
-      for (final job in jobs.where((item) => item['conclusion'] == 'failure').take(2)) {
+      final jobs = (await _githubAllPages(
+        '/repos/$repo/actions/runs/$runId/jobs',
+        collectionKey: 'jobs',
+      )).whereType<Map>();
+      for (final job in jobs.where((item) => item['conclusion'] == 'failure')) {
         final failedSteps = (job['steps'] as List? ?? const [])
             .whereType<Map>()
             .where((step) => step['conclusion'] == 'failure')
             .map((step) => step['name']?.toString() ?? 'unknown step')
-            .take(8).toList();
+            .toList();
         var jobLog = '';
         final jobId = job['id'];
         if (jobId is num) {
@@ -1258,22 +1316,22 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       }
     }
     return {
-      'pullNumber': pullNumber,
       'headSha': sha,
-      'headBranch': head['ref'] as String,
+      'headBranch': head['ref'],
       'repairRoot': repairRoot,
-      'state': pull['state']?.toString() ?? '',
       'failures': failures,
       'hasFailures': failures.isNotEmpty,
       'checksPending': checksPending,
-      'allChecksPassed': failures.isEmpty && checkRuns.isNotEmpty &&
+      'allChecksPassed': !checksPending && failures.isEmpty &&
+          checkRuns.isNotEmpty && workflowRuns.isNotEmpty &&
           checkRuns.every((item) => item['status'] == 'completed' &&
-              item['conclusion'] == 'success'),
+              (item['conclusion'] == 'success' ||
+                  item['conclusion'] == 'neutral' || item['conclusion'] == 'skipped')) &&
+          workflowRuns.every((run) => run['status'] == 'completed' &&
+              run['conclusion'] == 'success'),
     };
   }
 
-  /// One operator-invoked repair iteration. At most two follow-up PRs are
-  /// proposed per source PR; no check is auto-merged or silently retried.
   Future<int?> findOpenPullRequestForHeadBranch({
     required String owner,
     required String repository,
