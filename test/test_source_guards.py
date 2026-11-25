@@ -2636,6 +2636,16 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('pending.length + natRestPending.length <', keep)
         self.assertIn('natRanges.isNotEmpty', keep)
 
+    def test_nip_hunt_has_no_time_cooldown_or_per_template_truncation(self):
+        nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        hunt_start = nip.index('Future<bool> _natIpHunt() async {')
+        hunt_end = nip.index('Future<bool> _natTryScan(', hunt_start)
+        hunt = nip[hunt_start:hunt_end]
+        self.assertNotIn('_nipLastHunt', hunt)
+        self.assertNotIn('Duration(minutes: 4)', hunt)
+        self.assertIn('final templateBatchSize = templateInventory.length;', hunt)
+        self.assertIn('for (final template in templates)', hunt)
+
     def test_nat_variant_inventory_has_no_hidden_retirement_or_cooldown(self):
         ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         auto_test = (ROOT / 'lib' / 'auto_test.dart').read_text(encoding='utf-8')
