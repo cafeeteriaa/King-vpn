@@ -1357,6 +1357,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         export_end = source.index('List<String> natHotUrls()', export_start)
         self.assertIn('await hotStorageAllow()', source[export_start:export_end])
 
+    def test_hot_resource_inventory_has_no_per_source_total_or_wall_clock_ceiling(self):
+        source = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertNotIn('natHotPerSource', source)
+        self.assertNotIn('natHotMax', source)
+        self.assertNotIn('natHotFetchDeadline', source)
+        fetch_start = source.index('Future<List<String>> _hotFetchOne(String u)')
+        fetch_end = source.index('Future<void>? _hotEnsureFuture', fetch_start)
+        fetch = source[fetch_start:fetch_end]
+        self.assertNotIn('out.length >=', fetch)
+        ensure_start = source.index('Future<void> _natHotEnsureImpl({bool force = false}) async')
+        ensure_end = source.index('Future<void> hotAutoFill()', ensure_start)
+        ensure = source[ensure_start:ensure_end]
+        self.assertNotIn('if (full) break;', ensure)
+        self.assertNotIn('if (offs.length - 1 >=', ensure)
+        self.assertIn('for (final pth in mergeFrom)', ensure)
+
     def test_active_v2ray_plugin_lifecycle_patch_is_fail_closed(self):
         patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
         self.assertIn('Lifecycle foreground promotion reports success/failure', patch)
