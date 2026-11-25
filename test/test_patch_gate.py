@@ -43,6 +43,17 @@ class PatchGateTests(unittest.TestCase):
                 self.assertTrue(any('outside allowed source roots' in e
                                     for e in patch_gate.validate(diff)))
 
+    def test_accepts_large_patch_without_an_arbitrary_default_line_ceiling(self):
+        additions = ''.join(f'+line-{index}\n' for index in range(1500))
+        diff = '--- a/lib/large.dart\n+++ b/lib/large.dart\n' + additions
+        self.assertEqual(patch_gate.validate(diff), [])
+
+    def test_explicit_operator_limit_remains_available_when_requested(self):
+        additions = ''.join(f'+line-{index}\n' for index in range(20))
+        diff = '--- a/lib/large.dart\n+++ b/lib/large.dart\n' + additions
+        self.assertTrue(any('explicitly configured limit' in error
+                            for error in patch_gate.validate(diff, max_changed_lines=10)))
+
     def test_accepts_only_the_three_explicit_roots(self):
         for path in ('lib/a.dart', 'test/a_test.dart', 'tools/a.py'):
             with self.subTest(path=path):
