@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -234,6 +235,10 @@ class KingAiProviderOrchestrator {
           imageBytes: imageBytes,
           mimeType: mimeType,
         ).timeout(const Duration(seconds: 90));
+      } on TimeoutException {
+        // A timed-out request may still be executing at the provider. Do not
+        // launch another paid request and accidentally duplicate the task.
+        rethrow;
       } catch (error) {
         failures.add('${descriptor(id).title}: ${_safeError(error)}');
       }
@@ -300,8 +305,9 @@ class KingAiProviderOrchestrator {
     }
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      final safeProviderError = _responseError(response.body).replaceAll(key, '[redacted]');
       throw HttpException(
-        'HTTP ${response.statusCode}: ${_responseError(response.body)}',
+        'HTTP ${response.statusCode}: $safeProviderError',
         uri: Uri.parse(provider.endpoint),
       );
     }
