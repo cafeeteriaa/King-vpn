@@ -297,7 +297,8 @@ Future<void> autoScanRun(void Function(String) say,
     // A failed handshake never removes a name; the persisted cursor rotates
     // through the complete merged inventory on subsequent completed runs.
     final domainSources = <String>{
-      ...(scanNationalMode ? kAutoNationalSniDomains : kAutoSniDomains),
+      ...kAutoNationalSniDomains,
+      ...kAutoSniDomains,
       ...dnsxFullDomains(),
       ...natFrontSnis,
       ...natRelayHosts,
