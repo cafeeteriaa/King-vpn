@@ -8664,8 +8664,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await _stopCore();
           return false;
         }
-        if (nationalMode && nv > 0) natVariantResult(nv, pp != null);
-        if (pp != null) {
+            if (pp != null) {
           trafficFailure = false;
           break;
         }
@@ -8695,8 +8694,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await _stopCore();
           return false;
         }
-        if (nationalMode && nv > 0) natVariantResult(nv, earlyPing != null);
-        if (earlyPing != null) {
+            if (earlyPing != null) {
           trafficFailure = false;
           break; // this config variant has real outbound traffic
         }
