@@ -426,3 +426,13 @@ These are three distinct technical review passes by the same assistant, not thre
 - Exact prior-head CI run 3003 passed on `f54294e23ad4aad7e14dabac6065b0956c3d8ce6`, including source guard, Flutter unit tests, Dart analysis, ARM64 release APK build, source packaging and provenance steps. This does not validate the new failure-code changes.
 - Exact-head CI run 3008 is pending for `6694f78dce6c91c207a163b082a18b067252c2a6`; do not mark this change CI-validated until the run completes successfully.
 - PR #53 remains open Draft and unmerged. Existing `lib/main.dart` V2Ray connection path remains untouched. Device-level tunnel/data-plane validation remains outstanding.
+
+
+## 2026-11-25 — CI syntax failure diagnosis and corrective follow-up
+
+- Exact run 3006 for test commit `8fb679970f635904722f2ce20da650d701a25a3b` failed during Flutter unit-test compilation (281 tests passed, 1 test file failed to load). The failure was in the newly added normalizer's raw-regex literal, which had been truncated in the committed source; analyzer and APK build were skipped.
+- Run 3008 was triggered for the intermediate duplicate-tail repair commit. It is not accepted as validation evidence for the corrected source.
+- Replaced the regex with a straightforward ASCII code-unit validator to avoid quoting/escaping ambiguity. It accepts only uppercase A–Z, digits, underscore and hyphen, with a maximum length of 64 and an uppercase initial character. It also restores the dedicated verifier-timeout exception declaration that was within the malformed duplicated tail.
+- Current engine file was re-fetched after the correction: one `KingFusionEngine` declaration, one normalizer definition, one normalizer call site, and the verifier-timeout exception declaration are present. The regression test remains present.
+- Corrective commit: `bf8bba4bc4f115309cce09876bb28aa044d188e5`.
+- Exact-head CI run 3012 is pending for that corrective commit. Do not call the change validated until source guard, all Flutter tests, Dart analysis and ARM64 release build pass on the final head.
