@@ -63,6 +63,19 @@ void main() {
     });
   });
 
+  group('rolling throughput history statistics', () {
+    test('median handles odd and even sample windows', () {
+      expect(medianThroughput([9, 1, 5]), 5);
+      expect(medianThroughput([10, 2, 8, 4]), 6);
+    });
+
+    test('median ignores invalid observations and handles empty history', () {
+      expect(medianThroughput([double.nan, -1, 0, 6]), 6);
+      expect(medianThroughput([double.nan, -1, 0]), isNull);
+      expect(medianThroughput([]), isNull);
+    });
+  });
+
   group('throughput stability evidence', () {
     test('stable repeated samples keep full ranking weight', () {
       expect(throughputStabilityFactor([8, 8, 8]), 1);
