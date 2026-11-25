@@ -1781,6 +1781,23 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('rnd.nextInt(10)', grow)
         self.assertIn('No fixed inventory ceiling', grow)
 
+    def test_nat_scan_reports_each_completed_endpoint_and_nat_domain_retries_only_pending(self):
+        scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
+        start = scan.index('Future<List<NatIpHit>> natScanIps(')
+        end = scan.index('Future<', start + 20)
+        body = scan[start:end]
+        self.assertIn('void Function(String ip, int? latencyMs)? onIpComplete', body)
+        self.assertIn('onIpComplete(ip, ms);', body)
+        self.assertIn('cancelled: aborted,', body)
+        nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = nat.index('Future<List<String>> _natDomainFirst(')
+        end = nat.index('Future<List<String>> natDeviceHosts(', start)
+        domain = nat[start:end]
+        self.assertIn('final pending = <String>{...batch};', domain)
+        self.assertIn('pending.remove(ip);', domain)
+        self.assertIn('while (pending.isNotEmpty)', domain)
+        self.assertNotIn('while (completed < batch.length)', domain)
+
     def test_nat_range_and_cloudflare_sweeps_share_exclusive_cursor_ownership(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
