@@ -7196,8 +7196,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       while (!abort &&
           !(bg && (!connected || appGone)) &&
           !(bg && _bgYield) &&
-          !enough() &&
-          true) {
+          !enough()) {
         // the whole list was tested: download a new one and go on (endless)
         if (pending.isEmpty && folderQ.isEmpty) {
           // V12: in national mode, two-pass search. When the queue empties,
