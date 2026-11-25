@@ -2724,5 +2724,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn(r"hintText: 'vless://...\\nvmess://...'", page)
 
 
+    def test_quick_discovery_uses_bounded_reservoir_sample(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<List<Server>> fetchServers(')
+        end = main.index('// ---------- rows', start)
+        fetch = main[start:end]
+        self.assertIn('const sampleSize = 30', fetch)
+        self.assertIn('final quickSample = <String>[]', fetch)
+        self.assertIn('random.nextInt(seenQuickLines + 1)', fetch)
+        self.assertNotIn('final quickLines = await lines.toList()', fetch)
+        self.assertNotIn('quickLines.shuffle()', fetch)
+
+
 if __name__ == '__main__':
     unittest.main()
