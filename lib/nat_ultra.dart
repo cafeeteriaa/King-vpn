@@ -592,7 +592,6 @@ String _natPickOf(String k, bool reuse, String Function() gen) {
     if (old != null) return old;
   }
   final v = gen();
-  if (_natPick.length > 3000) _natPick.remove(_natPick.keys.first);
   _natPick[k] = v;
   return v;
 }
