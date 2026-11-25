@@ -241,6 +241,27 @@ void main() {
       expect(events.last.type, KingFusionEventType.disconnectCompleted);
     });
 
+    test('lifecycle event sequence advances when telemetry is not configured', () async {
+      final adapterEvents = <String>[];
+      final engine = KingFusionEngine([
+        _FakeAdapter('first', adapterEvents),
+      ]);
+
+      expect(engine.snapshot.eventSequence, 0);
+      final result = await engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'first', configuration: 'cfg'),
+      ]));
+
+      expect(result.connected, isTrue);
+      final connectedSequence = engine.snapshot.eventSequence;
+      expect(connectedSequence, greaterThan(0));
+
+      await engine.disconnect();
+
+      expect(engine.snapshot.eventSequence, greaterThan(connectedSequence));
+      expect(engine.snapshot.state, KingFusionState.idle);
+    });
+
     test('event listener exceptions cannot interrupt native lifecycle', () async {
       final adapterEvents = <String>[];
       final adapter = _FakeAdapter('first', adapterEvents);
