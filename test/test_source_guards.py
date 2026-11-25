@@ -4009,6 +4009,21 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('if (abort || hits.isEmpty) return false;', hunt)
 
 
+    def test_nat_sparse_index_is_persisted_and_invalidated_by_cache_signature(self):
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        self.assertIn("String _hotIndexPath(String cachePath)", ultra)
+        self.assertIn("Future<List<int>?> _hotReadSparseIndex(", ultra)
+        self.assertIn("Future<void> _hotWriteSparseIndex(", ultra)
+        self.assertIn("'v1|$signature|", ultra)
+        self.assertIn("header[1] != signature", ultra)
+        self.assertIn("final expected = lineCount ~/ _hotIndexStride + 1;", ultra)
+        self.assertIn("var sparseIndex = await _hotReadSparseIndex(f.path, cacheSignature);", ultra)
+        self.assertIn("if (sparseIndex == null) {", ultra)
+        self.assertIn("await _hotWriteSparseIndex(f.path, cacheSignature, sparseIndex);", ultra)
+        self.assertIn("if (sparseIndex[1] != cacheStat.size) return null;", ultra)
+        self.assertIn("await temporary.rename(target.path);", ultra)
+
+
     def test_king_ai_multimodel_provider_keys_are_secure_and_cloud_use_is_opt_in(self):
         provider = (ROOT / 'lib' / 'king_ai_provider_orchestrator.dart').read_text(encoding='utf-8')
         settings = (ROOT / 'lib' / 'king_ai_provider_settings.dart').read_text(encoding='utf-8')
