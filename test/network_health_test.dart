@@ -2,6 +2,28 @@ import 'package:flutter_test/flutter_test.dart';
 import '../lib/network_health.dart';
 
 void main() {
+  group('independent probe-group classification', () {
+    test('two successful handshakes establish a healthy group', () {
+      expect(classifyLinkHealth(attempted: 3, successful: 2), LinkHealth.healthy);
+      expect(classifyLinkHealth(attempted: 2, successful: 2), LinkHealth.healthy);
+    });
+
+    test('one successful handshake is degraded, not healthy', () {
+      expect(classifyLinkHealth(attempted: 3, successful: 1), LinkHealth.degraded);
+    });
+
+    test('attempted probes with no success are unreachable', () {
+      expect(classifyLinkHealth(attempted: 3, successful: 0), LinkHealth.unreachable);
+    });
+
+    test('no attempts and malformed counters cannot imply a failure or success', () {
+      expect(classifyLinkHealth(attempted: 0, successful: 0), LinkHealth.unknown);
+      expect(classifyLinkHealth(attempted: -1, successful: 9), LinkHealth.unknown);
+      expect(classifyLinkHealth(attempted: 2, successful: 99), LinkHealth.healthy);
+      expect(classifyLinkHealth(attempted: 2, successful: -1), LinkHealth.unreachable);
+    });
+  });
+
   group('Smart Pilot route policy', () {
     test('accepts valid HTTP final response lines over the verified TLS channel', () {
       expect(isValidHttpResponseLine('HTTP/1.1 200 OK'), isTrue);
