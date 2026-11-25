@@ -220,6 +220,10 @@ void main() {
       expect(engine.snapshot.state, KingFusionState.connected);
       expect(engine.snapshot.activeEngineIds, ['first']);
       expect(engine.snapshot.cleanupPendingEngineIds, isEmpty);
+      expect(
+        () => engine.snapshot.activeEngineIds.add('injected'),
+        throwsUnsupportedError,
+      );
       expect(events.map((event) => event.sequence).toList(),
           List<int>.generate(events.length, (index) => index + 1));
       expect(events.map((event) => event.type), contains(KingFusionEventType.hopStarted));
@@ -254,6 +258,62 @@ void main() {
         'start:first:-',
         'stop:first:handle-first',
       ]);
+    });
+
+    test('rejects duplicate adapter identifiers at registry construction', () {
+      final events = <String>[];
+      final first = _FakeAdapter('duplicate', events);
+      final second = _FakeAdapter(' duplicate ', events);
+
+      expect(
+        () => KingFusionEngine([first, second]),
+        throwsArgumentError,
+      );
+      expect(events, isEmpty);
+    });
+
+    test('rejects non-positive native and verifier timeouts', () {
+      final events = <String>[];
+      final adapter = _FakeAdapter('first', events);
+
+      expect(
+        () => KingFusionEngine(
+          [adapter],
+          nativeStopTimeout: Duration.zero,
+        ),
+        throwsArgumentError,
+      );
+      expect(
+        () => KingFusionEngine(
+          [adapter],
+          trafficVerificationTimeout: const Duration(microseconds: -1),
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('emits sanitized validation-rejection telemetry', () async {
+      final lifecycle = <KingFusionEvent>[];
+      final adapterEvents = <String>[];
+      final adapter = _FakeAdapter('first', adapterEvents);
+      final engine = KingFusionEngine([adapter], onEvent: lifecycle.add);
+
+      final result = await engine.connect(KingFusionPlan([
+        const KingFusionHop(
+          engineId: 'first',
+          configuration: 'must-not-appear-in-telemetry',
+        ),
+        const KingFusionHop(engineId: 'missing', configuration: 'cfg'),
+      ]));
+
+      expect(result.failureCode, 'E-FUSION-ADAPTER-MISSING');
+      final rejected = lifecycle.singleWhere(
+        (event) => event.type == KingFusionEventType.validationRejected,
+      );
+      expect(rejected.engineId, 'missing');
+      expect(rejected.failureCode, 'E-FUSION-ADAPTER-MISSING');
+      expect(lifecycle.toString(), isNot(contains('must-not-appear-in-telemetry')));
+      expect(adapterEvents, isEmpty);
     });
 
     test('validates every hop before starting any native adapter', () async {
