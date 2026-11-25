@@ -1374,6 +1374,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('if (full) break;', ensure)
         self.assertNotIn('if (offs.length - 1 >=', ensure)
         self.assertIn('for (final pth in mergeFrom)', ensure)
+        self.assertIn('if (f.existsSync()) f.path,', ensure)
+        self.assertIn('Merge fresh sources additively with the previous complete inventory.', ensure)
+        self.assertNotIn('oldTotal ~/ 2', ensure)
 
     def test_auto_sni_and_alpn_keep_platform_tls_certificate_validation(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
