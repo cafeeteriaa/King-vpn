@@ -3600,9 +3600,19 @@ class Server {
   // bounded per server; this is telemetry retention, never a server scan limit.
   final List<double> speedHist = [];
   void remember(double? v) {
-    if (v == null || !v.isFinite || v <= 0) return;
-    speedHist.add(v);
+    if (!isValidThroughputSample(v)) return;
+    speedHist.add(v!);
     if (speedHist.length > 9) speedHist.removeAt(0);
+  }
+  // A failed probe updates the current display to zero but MUST NOT refresh
+  // the timestamp of the last successful throughput observation. Otherwise
+  // an old median is accidentally treated as freshly measured and outranks
+  // genuinely current routes.
+  void recordSpeed(double? value) {
+    speed = isValidThroughputSample(value) ? value : 0;
+    if (!isValidThroughputSample(value)) return;
+    remember(value);
+    speedAt = DateTime.now();
   }
   double? get medianSpeed => medianThroughput(speedHist);
   int score = 0;
@@ -9688,9 +9698,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
     }
     if (sp != null) {
-      s.speed = sp;
-      s.remember(sp);
-      s.speedAt = DateTime.now();
+      s.recordSpeed(sp);
     } else if (!sitesAlive &&
         !s.personal &&
         !favs.containsKey(s.key) &&
@@ -13923,9 +13931,7 @@ ListTile( // KINGEXTRAS row
                     total: const Duration(seconds: 10),
                     direct: true) ??
                 0;
-            old.speed = oldSp;
-            old.remember(oldSp);
-            old.speedAt = DateTime.now();
+            old.recordSpeed(oldSp);
           }
           changed = true;
           await _stopCore();
@@ -13957,9 +13963,7 @@ ListTile( // KINGEXTRAS row
                     0;
               }
             }
-            c.speed = sp;
-            c.remember(sp);
-            c.speedAt = DateTime.now();
+            c.recordSpeed(sp);
             if (sp == 0 && !abort) {
               c.badAt = DateTime.now();
               if (++c.miss >= 2) good.remove(c); // no data twice: deleted
@@ -14328,9 +14332,7 @@ ListTile( // KINGEXTRAS row
               } else {
               noData = 0;
               // keep the real speed of the connected server up to date
-              current?.speed = sp;
-              current?.remember(sp);
-              current?.speedAt = DateTime.now();
+              current?.recordSpeed(sp);
               // فقط وقتی سرعت واقعاً نزدیک صفر است (زیر ۴۰ KB/s) حساب شود
               // ۱۰۰ یا ۲۰۰ کیلوبایت دیگر باعث تعویض نمی‌شود
               stallRun = (sp * 1024 < 40) ? stallRun + 1 : 0;
@@ -15248,9 +15250,7 @@ ListTile( // KINGEXTRAS row
                 direct: tunnel) ??
             0;
       }
-      s.speed = sp;
-      s.remember(sp);
-      s.speedAt = DateTime.now();
+      s.recordSpeed(sp);
       // under national cut the speed target is unreachable: do not mark servers dead
       if (sp == 0 && !nationalMode && !indestructibleMode) {
         s.badAt = DateTime.now();
