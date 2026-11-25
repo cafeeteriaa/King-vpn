@@ -84,6 +84,16 @@ class _UnavailableAdapter implements KingEngineAdapter {
   }
 }
 
+class _DelayedTrafficVerifier implements KingFusionTrafficVerifier {
+  final Completer<bool> gate = Completer<bool>();
+  final Completer<void> entered = Completer<void>();
+  @override
+  Future<bool> verify(KingFusionPlan plan) {
+    if (!entered.isCompleted) entered.complete();
+    return gate.future;
+  }
+}
+
 class _FakeTrafficVerifier implements KingFusionTrafficVerifier {
   final bool result;
   int calls = 0;
@@ -342,6 +352,27 @@ void main() {
       expect(verifier.calls, 1);
       expect(engine.state, KingFusionState.connected);
       await engine.disconnect();
+    });
+
+    test('disconnect during traffic verification cancels and rolls back', () async {
+      final events = <String>[];
+      final verifier = _DelayedTrafficVerifier();
+      final adapter = _FakeAdapter('first', events);
+      final engine = KingFusionEngine([adapter], trafficVerifier: verifier);
+      final connecting = engine.connect(KingFusionPlan(
+        [const KingFusionHop(engineId: 'first', configuration: 'cfg')],
+        requireTrafficVerification: true,
+      ));
+
+      await verifier.entered.future;
+      final disconnecting = engine.disconnect();
+      verifier.gate.complete(true);
+
+      final result = await connecting;
+      await disconnecting;
+      expect(result.failureCode, 'E-FUSION-CANCELLED');
+      expect(events, ['start:first:-', 'stop:first:handle-first']);
+      expect(engine.state, KingFusionState.idle);
     });
   });
 }
