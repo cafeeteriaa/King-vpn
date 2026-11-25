@@ -56,13 +56,12 @@ bool _trustedKingAiResearchNote(Map<String, String> note) {
   return uri != null && isTrustedKingAiResearchUri(uri);
 }
 
-/// Merge research notes by canonical URL, discard malformed/untrusted entries,
-/// and keep a bounded JSONL history. Newer validated notes replace old copies.
+/// Merge research notes by canonical URL and discard malformed/untrusted
+/// entries. The persistent inventory is not truncated by an arbitrary count.
 List<String> mergeKingAiResearchMemory(
   List<String> existingLines,
-  List<Map<String, String>> incoming, {
-  int maxEntries = 200,
-}) {
+  List<Map<String, String>> incoming,
+) {
   final byUrl = <String, Map<String, String>>{};
   for (final line in existingLines) {
     try {
@@ -95,8 +94,7 @@ List<String> mergeKingAiResearchMemory(
   final entries = byUrl.values.toList()
     ..sort((a, b) => DateTime.parse(b['fetchedAt']!)
         .compareTo(DateTime.parse(a['fetchedAt']!)));
-  final bounded = entries.take(maxEntries.clamp(1, 500).toInt()).toList();
-  return bounded.map(jsonEncode).toList();
+  return entries.map(jsonEncode).toList();
 }
 
 /// Retrieve only fresh, official-domain notes. Title matches weigh more than
