@@ -172,10 +172,36 @@ class NetworkEvidence {
 
   /// TLS reachability is not proof that VPN tunnel traffic is passing.
   /// This helper reports only the matching endpoint group's TLS evidence.
-  bool acceptsTlsReachability({required bool nationalOnly}) =>
-      nationalOnly ? domesticTlsReachabilityVerified : globalTlsReachabilityVerified;
+  bool acceptsTlsReachability({required bool nationalOnly}) {
+    final health = nationalOnly ? domestic : global;
+    final attempted = nationalOnly ? domesticSamples : globalSamples;
+    final successful = nationalOnly ? domesticSuccesses : globalSuccesses;
+    final verified = nationalOnly
+        ? domesticTlsReachabilityVerified
+        : globalTlsReachabilityVerified;
+    return verified &&
+        isProbeGroupEvidenceConsistent(
+          health: health,
+          attempted: attempted,
+          successful: successful,
+        ) &&
+        successful >= requiredProbeSuccessQuorum(attempted);
+  }
 
   double get confidence {
+    // A contradictory health label/counter pair has no trustworthy confidence.
+    if (!isProbeGroupEvidenceConsistent(
+          health: domestic,
+          attempted: domesticSamples,
+          successful: domesticSuccesses,
+        ) ||
+        !isProbeGroupEvidenceConsistent(
+          health: global,
+          attempted: globalSamples,
+          successful: globalSuccesses,
+        )) {
+      return 0;
+    }
     // Confidence is computed from observed success rates in each independent
     // group, not a fixed three-target inventory. This remains correct when
     // endpoint inventories grow or the number of completed probes varies.

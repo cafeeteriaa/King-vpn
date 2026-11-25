@@ -185,6 +185,20 @@ void main() {
       ), isFalse);
     });
 
+    test('inconsistent counters cannot inflate confidence or TLS reachability', () {
+      const evidence = NetworkEvidence(
+        domestic: LinkHealth.healthy,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 3,
+        domesticSuccesses: 0,
+        globalSuccesses: 0,
+        domesticTlsReachabilityVerified: true,
+      );
+      expect(evidence.confidence, 0);
+      expect(evidence.acceptsTlsReachability(nationalOnly: true), isFalse);
+    });
+
     test('inconsistent group evidence cannot trigger route changes', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.healthy,
