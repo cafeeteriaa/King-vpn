@@ -121,6 +121,48 @@ void main() {
       expect(engine.snapshot.activeEngineIds, isEmpty);
     });
 
+    test('coalesces cancellation and late-start cleanup while stop is in flight', () async {
+      final startGate = Completer<void>();
+      final stopGate = Completer<void>();
+      final startEntered = Completer<void>();
+      final stopEntered = Completer<void>();
+      var stopCalls = 0;
+      final adapter = KingV2RayAdapter(
+        start: (_) {
+          if (!startEntered.isCompleted) startEntered.complete();
+          return startGate.future;
+        },
+        stop: () async {
+          stopCalls++;
+          if (!stopEntered.isCompleted) stopEntered.complete();
+          await stopGate.future;
+        },
+      );
+      final engine = KingFusionEngine([adapter]);
+      final connecting = engine.connect(KingFusionPlan([
+        const KingFusionHop(
+          engineId: 'king-v2ray-xray',
+          configuration: 'opaque-config',
+        ),
+      ]));
+
+      await startEntered.future;
+      final disconnecting = engine.disconnect();
+      await stopEntered.future;
+      startGate.complete();
+      await Future<void>.delayed(Duration.zero);
+      expect(stopCalls, 1);
+
+      stopGate.complete();
+      final result = await connecting;
+      await disconnecting;
+
+      expect(result.connected, isFalse);
+      expect(result.failureCode, 'E-V2RAY-START-CANCELLED');
+      expect(stopCalls, 1);
+      expect(engine.state, KingFusionState.idle);
+    });
+
     test('stop is idempotent for an already released native handle', () async {
       var stops = 0;
       final adapter = KingV2RayAdapter(
