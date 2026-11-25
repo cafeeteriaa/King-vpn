@@ -715,3 +715,18 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) API semantics — the result's cleanup report is immutable rather than merely fixed-length; (2) integrity — consumers cannot rewrite which engine Fusion reports as requiring cleanup; (3) regression — mutation rejection is tested on a real partial rollback result.
 - Dedicated Fusion test count: 51 declarations; one existing test expanded. Exact-head CI pending; no local Flutter execution is claimed.
 - Commits: `e9828768c2fc3a2a464c5ea97e93112a6b3d5444`, `a6d7867a5da168b9b0139aa4fc0268687bd78806`.
+
+
+## 2026-11-25 — Defensive immutability for public Fusion failure results
+
+- Continued the API-boundary audit after the rollback report itself was made unmodifiable. A remaining aliasing path existed: callers could construct a public `KingFusionResult.failure` with a mutable list and mutate the result later through that original list.
+- Changed the failure-result constructor to accept an `Iterable<String>` and snapshot it with `List<String>.unmodifiable`. The constructor is intentionally no longer const because it must defensively copy caller-owned input; all internal const failure call sites were updated.
+- Added a focused regression that mutates and repopulates the original caller-owned list after result construction, then verifies the result still contains the original engine ID and rejects element assignment.
+- Three-pass review:
+  1. Public API semantics — the failure result owns its cleanup report; it no longer aliases caller-owned mutable memory.
+  2. Data integrity — the returned list rejects both structural and element mutation, and retains the exact snapshot captured at construction.
+  3. Regression and compatibility — internal const failure call sites were removed, successful result construction remains const, and the dedicated test exercises both source-list mutation and output-list mutation.
+- Dedicated Fusion test declarations: 52 by source inspection. Exact-head GitHub Actions validation is pending; no local Flutter test/analyze/build execution is claimed.
+- Commits: `aafacf57ea9ac57e3236277041b4504af2bcc3b9` (defensive constructor snapshot), `9ca23748a31360925fdd6b97bfa5007c52a2c0c1` (regression test).
+- CI runs for exact head `9ca23748a31360925fdd6b97bfa5007c52a2c0c1`: push run 3191 and pull-request run 3192 were queued/pending at checkpoint time. Check their final status before claiming validation.
+- PR #53 remains open Draft against `feature/king-vpn-audit-hardening-20261125`; do not merge automatically and do not modify `main`.
