@@ -102,6 +102,9 @@ abstract interface class KingEngineAdapter {
   Future<void> stop(Object? handle);
 
   /// Explicit compatibility contract; false by default in adapters.
+  ///
+  /// This is called during preflight and must be side-effect-free. Exceptions
+  /// are converted into a stable validation failure before any adapter starts.
   bool canChainTo(KingEngineAdapter next);
 }
 
@@ -279,7 +282,17 @@ class KingFusionEngine {
       );
     }
 
-    final validationError = _validate(plan);
+    (String, String)? validationError;
+    try {
+      validationError = _validate(plan);
+    } catch (_) {
+      state = KingFusionState.failed;
+      return const KingFusionResult.failure(
+        failedEngineId: null,
+        failureCode: 'E-FUSION-VALIDATION-EXCEPTION',
+        startedHops: 0,
+      );
+    }
     if (validationError != null) {
       state = KingFusionState.failed;
       return KingFusionResult.failure(
