@@ -4162,6 +4162,29 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('IPv6 equivalents normalize to one compressed representation', tests)
         self.assertIn('all-zero and trailing-zero IPv6 runs compress correctly', tests)
 
+    def test_v2ray_native_lifecycle_is_owned_by_king_fusion(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        adapter = (ROOT / 'lib' / 'king_v2ray_adapter.dart').read_text(encoding='utf-8')
+        tests = (ROOT / 'test' / 'king_v2ray_adapter_test.dart').read_text(encoding='utf-8')
+        self.assertIn("import 'king_fusion_engine.dart';", main)
+        self.assertIn("import 'king_v2ray_adapter.dart';", main)
+        self.assertIn('Future<bool> _startV2RayViaFusion(', main)
+        self.assertEqual(main.count('_startV2RayViaFusion('), 3)
+        self.assertNotIn('v2ray.startV2Ray(', main)
+        self.assertIn('await fusion.disconnect();', main)
+        self.assertIn('fusion.cleanupPendingEngineIds', main)
+        self.assertIn('implements KingFusionCancellableEngineAdapter', adapter)
+        self.assertIn('supportsMultiHop: false', adapter)
+        self.assertIn('traffic verification', adapter)
+        self.assertIn('Future<void> _stopNativeSerialized()', adapter)
+        self.assertIn('cancels a pending native start', tests)
+        self.assertIn('trafficVerified, isFalse', tests)
+        # Fusion is only the native lifecycle owner; existing app-level
+        # tunnel and data-plane verification remain authoritative.
+        self.assertIn('tunUp()', main)
+        self.assertIn('pingAny(', main)
+        self.assertIn("st.state == 'CONNECTED'", main)
+
     def test_ip_auto_persists_results_retry_backlog_and_cursors_in_one_snapshot(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         load_start = source.index('Future<void> ipAutoLoad()')
