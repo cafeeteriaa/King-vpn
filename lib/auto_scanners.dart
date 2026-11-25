@@ -178,7 +178,7 @@ List<T> kingNextInventoryBatch<T>(
   required int batchSize,
   T? lastValue,
 }) {
-  if (batchSize <= 0) return const <T>[];
+  if (batchSize <= 0) return <T>[];
   final items = inventory.toList(growable: false);
   if (items.isEmpty) return const <T>[];
   final previousIndex = lastValue == null ? -1 : items.indexOf(lastValue);
