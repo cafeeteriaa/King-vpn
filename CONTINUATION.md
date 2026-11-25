@@ -406,3 +406,10 @@ These are three distinct technical review passes by the same assistant, not thre
 - Validation: the repository workflow `.github/workflows/build.yml` is configured for all pull requests, but the GitHub workflow-run lookup returned no run for the earlier exact PR head. Latest commits have not been run through Flutter tests, Dart analysis, or Android build in this session. Do not claim CI success.
 - Latest work remains on `feature/king-fusion-engine-foundation-20261125`, PR #53 Draft and unmerged. Main connection path remains unchanged. Device-level traffic proof remains untested.
 - Next: obtain an exact-head CI run, then inspect and implement a real application-owned traffic verifier only after proving the probe uses the active VPN route; separately audit native adapter startup and stop semantics before integrating any additional VPN engine.
+
+
+## 2026-11-25 — Exact-branch CI trigger repair
+- Updated `.github/workflows/build.yml` so pushes to `feature/king-fusion-engine-foundation-20261125` also run the full Android validation workflow. Previously the push branch filter omitted this active feature branch; PR-triggered runs were not visible through the exact-commit workflow lookup, leaving the latest code without observed validation.
+- This change does not weaken or skip any checks: source guards, Flutter tests, Dart analysis, and optimized Android arm64 release build remain in the existing workflow.
+- CI trigger change commit: `afc8fff165af5f812c4f6ea44308a87b2ffe485e`.
+- Awaiting the workflow result for this exact commit; do not report success until the run and all required jobs complete.
