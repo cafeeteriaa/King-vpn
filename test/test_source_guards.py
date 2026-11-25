@@ -1811,12 +1811,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         sweep_end = main.index('Future<List<CleanIp>> _atIpSweepUnlocked(', sweep_start)
         sweep_entry = main[sweep_start:sweep_end]
         self.assertIn('natWithSharedRangeCursorLock(() => _atIpSweepUnlocked(pool, budget))', sweep_entry)
-        self.assertIn("prefs.setString('natRangeCheckpointV4', jsonEncode({", main)
-        self.assertIn("'cursors': nextCursors,", main)
-        self.assertIn("'configuredCursor': _natConfiguredRangeCursor,", main)
         sweep_body = main[main.index('Future<List<CleanIp>> _atIpSweepUnlocked('):main.index('// SUBSTPROJ:', main.index('Future<List<CleanIp>> _atIpSweepUnlocked('))]
+        self.assertIn('endpointServers = pool', sweep_body)
+        self.assertIn('nipResolveAll(configured.host)', sweep_body)
+        self.assertIn('natScanIps(\n        ips,', sweep_body)
+        self.assertNotIn('_getCfIps(', sweep_body)
+        self.assertNotIn('_natCfPorts', sweep_body)
         self.assertNotIn('winners.length >= 10', sweep_body)
-        self.assertIn('همه‌ی IPهایی که ترافیک تونل', sweep_body)
+        self.assertIn('exact IP:port pairs declared by configured', sweep_body)
 
     def test_nat_range_scan_commits_per_port_cursors_only_after_full_batch(self):
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
@@ -2336,10 +2338,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         sweep = main[sweep_start:sweep_end]
         self.assertIn('InternetAddressType.IPv6', sweep)
         self.assertIn('..._cfRangesV6', sweep)
-        self.assertIn('atsweep:port_cursor', sweep)
-        self.assertIn('sweepBatchSize = 128', sweep)
-        self.assertIn('completed < pool2.length', sweep)
-        self.assertIn('natRangeScanCursorsV2', sweep)
+        self.assertIn('endpointServers = pool', sweep)
+        self.assertIn('endpointByKey.putIfAbsent', sweep)
+        self.assertIn('completed < ips.length', sweep)
+        self.assertNotIn('_getCfIps(', sweep)
+        self.assertNotIn('natRangeCheckpointV4', sweep)
 
         diag = (ROOT / 'lib' / 'net_diag.dart').read_text(encoding='utf-8')
         method = diag[diag.index('Future<void> netDiagDialog()'): ]
