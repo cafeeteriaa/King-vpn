@@ -2966,7 +2966,7 @@ Future<List<int>?> _hotReadSparseIndex(
     }
     // The first sparse block always starts at byte zero.
     if (packed.length < 3 || packed[2] != 0) return null;
-    final expected = (lineCount - 1) ~/ _hotIndexStride + 1;
+    final expected = lineCount ~/ _hotIndexStride + 1;
     if (packed.length - 2 != expected) return null;
     return packed;
   } catch (e, st) {
