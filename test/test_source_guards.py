@@ -2652,6 +2652,18 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final templateBatchSize = templateInventory.length;', hunt)
         self.assertIn('for (final template in templates)', hunt)
 
+    def test_auto_substitution_tests_all_healthy_servers_and_applicable_variants(self):
+        source = (ROOT / 'lib' / 'auto_test.dart').read_text(encoding='utf-8')
+        start = source.index('Future<void> _atItemSubst() async {')
+        end = source.index('Future<void> ', start + 30)
+        subst = source[start:end]
+        self.assertNotIn('_atSubstServers', source)
+        self.assertNotIn('_atSubstPerServer', source)
+        self.assertIn('var healthy = _usable().toList();', subst)
+        self.assertIn('healthy = _usable().toList();', subst)
+        self.assertIn('untried.where((v) => _natAppliesF(f, v)).toList()', subst)
+        self.assertIn('failedOnce.where((v) => _natAppliesF(f, v)).toList()', subst)
+
     def test_nat_variant_inventory_has_no_hidden_retirement_or_cooldown(self):
         ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         auto_test = (ROOT / 'lib' / 'auto_test.dart').read_text(encoding='utf-8')
