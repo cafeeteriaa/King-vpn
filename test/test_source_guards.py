@@ -2258,6 +2258,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_ip_range_expanders_reject_non_positive_limits(self):
         scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
         self.assertIn('if (maxPerBlock <= 0) return const [];', scan)
         self.assertIn('if (maxCount <= 0) return const [];', scan)
         start = ultra.index('List<String> natExpandAny(')
@@ -3844,6 +3845,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('_natPick.length > 3000', ultra)
         self.assertNotIn('_natCursor.length > 4000', ultra)
         self.assertIn('_topWinCache = [for (final r in rows) r.key];', ultra)
+        front = nip[nip.index('Future<String?> nipFindFrontSni('):nip.index('/// همان کانفیگ', nip.index('Future<String?> nipFindFrontSni('))]
+        self.assertIn('Serialize cursor ownership', front)
+        self.assertIn('var completed = 0;', front)
+        self.assertIn('_nipFrontSniCursor = (start + completed) % inventory.length;', front)
+        self.assertIn('Commit only probes that actually completed', front)
 
 
 if __name__ == '__main__':
