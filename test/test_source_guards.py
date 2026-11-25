@@ -4421,5 +4421,25 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertLess(flush, exit_at)
 
 
+class NatIpMemoryPersistenceSourceGuardTests(unittest.TestCase):
+    def test_nat_ip_inventory_uses_lossless_file_backed_storage(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        store = (ROOT / 'lib' / 'nat_ip_memory_store.dart').read_text(encoding='utf-8')
+
+        self.assertIn("import 'nat_ip_memory_store.dart';", main)
+        self.assertIn('nat_ip_memory.jsonl', ultra)
+        self.assertIn('await store.readAll()', ultra)
+        self.assertIn('await store.replaceAll(migrated)', ultra)
+        self.assertIn('await p.remove(_ipMemKey)', ultra)
+        self.assertIn('await store.replaceAll(nextMem)', ultra)
+        self.assertNotIn('prefs.setString(_ipMemKey', ultra)
+        self.assertIn('await for (final line in file', store)
+        self.assertIn('await temporary.rename(file.path)', store)
+        self.assertNotIn('.take(', store)
+        self.assertNotIn('maxRecords', store)
+        self.assertNotIn('maxBytes', store)
+
+
 if __name__ == '__main__':
     unittest.main()
