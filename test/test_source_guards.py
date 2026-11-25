@@ -3120,7 +3120,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
         self.assertIn('const int _autoScanCdnBatchSize = 8;', auto)
         self.assertIn("const String _autoScanPortCursorKey = 'auto_scan_port_cursor_v1';", auto)
-        self.assertIn('const int _autoScanPortBatchSize = 24;', auto)
+        self.assertNotIn('_autoScanPortBatchSize', auto)
         self.assertIn('sniTargets[d] = resolved;', auto)
         self.assertIn('_autoSniOk(ip, 443, d)', auto)
         self.assertIn('_autoAlpnOk(ip, 443, d, alpn)', auto)
@@ -3212,7 +3212,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final sourceServers = <Server>[...good, ...pending];', hunt)
         self.assertIn('for (final entry in _resMap.values)', hunt)
         self.assertIn("const templateCursorKey = 'nip_hunt_template_cursor_v1';", hunt)
-        self.assertIn('const templateBatchSize = 40;', hunt)
+        self.assertIn('final templateBatchSize = templateInventory.length;', hunt)
         self.assertIn('saveTemplateCursor(template)', hunt)
         self.assertIn('await templatePrefs.setString(templateCursorKey, completed.link);', hunt)
         self.assertIn('Only the exact host:port endpoints present in saved server configurations', hunt)
@@ -3868,6 +3868,28 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('onProgress: (done, total) {', hunt)
         self.assertIn('completed = done;', hunt)
         self.assertNotIn('if (abort || hits.isEmpty) return false;', hunt)
+
+
+    def test_scanner_inventories_have_no_fixed_top_n_or_growth_ceiling(self):
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
+        ip_auto = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        self.assertIn('final best = [for (final e in r) e.ip];', dns)
+        self.assertIn('for (var i = 0; i < domainInventory.length; i++)', auto)
+        self.assertIn('for (var i = 0; i < portInventory.length; i++)', auto)
+        self.assertNotIn('if (_natSpecs.length > 500000)', ultra)
+        self.assertNotIn('natDimWins.length > 6000', ultra)
+        self.assertNotIn('natVar.length > 4000', ultra)
+        self.assertNotIn('natVarNormal.length > 3000', ultra)
+        self.assertNotIn('fps.take(7)', ultra)
+        self.assertNotIn('top.take(12)', ultra)
+        self.assertNotIn('top.take(20)', ultra)
+        self.assertIn('final count = inventory.length;', nip)
+        self.assertIn('final templateBatchSize = templateInventory.length;', nip)
+        self.assertIn('natTemplateSeeds = nationalSeeds.toList();', ip_auto)
+        self.assertIn('final tpl = pool.toList();', ip_auto)
 
 
 if __name__ == '__main__':
