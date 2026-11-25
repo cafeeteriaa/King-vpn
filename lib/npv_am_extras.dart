@@ -949,7 +949,6 @@ Future<int?> _cfProbeMs(String ip, Duration t) async {
     raw = await Socket.connect(ip, 443, timeout: t);
     k = await SecureSocket.secure(raw,
             host: 'cloudflare.com',
-            onBadCertificate: (_) => true,
             supportedProtocols: const ['http/1.1'])
         .timeout(t);
     k.write(
