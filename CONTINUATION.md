@@ -642,3 +642,6 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) API semantics — success is no longer returned after a disconnect transition has been committed; (2) lifecycle — the active handle is rolled back before the waiting disconnect completes; (3) regression — deterministic observer reentrancy coverage checks result, call counts and final state.
 - Dedicated Fusion test count: 43 by source test declaration count. Exact-head CI is required; no local Flutter execution is claimed.
 - Commits: `1865d2980ad774c5caca22f14fc1951f27c56b08` (completion-window guard), `445937186afd52ea4ad05d719c0c3966617af1a8` (regression test).
+
+- Additional regression: a `verificationPassed` observer can also request teardown synchronously. The test verifies the result is cancellation (not traffic-verified success), with exactly one native start/stop and an idle final state. Dedicated Fusion test count: 44 by source test declaration count.
+- Additional test commit: `41ab80eb8b91e13c2431701eb683bd58ba36d8b7`.
