@@ -861,6 +861,40 @@ void main() {
       expect(engine.isBusy, isFalse);
     });
 
+    test('concurrent disconnect callers share native cleanup completion', () async {
+      final events = <String>[];
+      final stopGate = Completer<void>();
+      final stopEntered = Completer<void>();
+      final adapter = _FakeAdapter(
+        'first',
+        events,
+        stopGate: stopGate,
+        stopEntered: stopEntered,
+      );
+      final engine = KingFusionEngine([adapter]);
+      final connected = await engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'first', configuration: 'cfg'),
+      ]));
+      expect(connected.connected, isTrue);
+
+      final firstDisconnect = engine.disconnect();
+      await stopEntered.future;
+      var secondCompleted = false;
+      final secondDisconnect = engine.disconnect().then<void>((_) {
+        secondCompleted = true;
+      });
+      await Future<void>.delayed(Duration.zero);
+      expect(secondCompleted, isFalse);
+
+      stopGate.complete();
+      await Future.wait([firstDisconnect, secondDisconnect]);
+
+      expect(secondCompleted, isTrue);
+      expect(engine.state, KingFusionState.idle);
+      expect(engine.snapshot.activeEngineIds, isEmpty);
+      expect(events.where((event) => event.startsWith('stop:first:')).length, 1);
+    });
+
     test('native stop timeout never overlaps a still-running stop attempt', () async {
       final events = <String>[];
       final stopGate = Completer<void>();
