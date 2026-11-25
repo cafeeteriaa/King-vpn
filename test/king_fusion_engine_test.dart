@@ -599,6 +599,34 @@ void main() {
       expect(engine.state, KingFusionState.idle);
     });
 
+    test('concurrent disconnect during native start requests cancellation once', () async {
+      final events = <String>[];
+      final adapter = _CancellableStartAdapter(events);
+      final engine = KingFusionEngine([adapter]);
+      final connecting = engine.connect(KingFusionPlan([
+        const KingFusionHop(
+          engineId: 'cancellable-start',
+          configuration: 'cfg',
+        ),
+      ]));
+
+      await adapter.entered.future;
+      final firstDisconnect = engine.disconnect();
+      final secondDisconnect = engine.disconnect();
+      final result = await connecting;
+      await Future.wait([firstDisconnect, secondDisconnect]);
+
+      expect(result.failureCode, 'E-FUSION-CANCELLED');
+      expect(adapter.cancelCalls, 1);
+      expect(events, [
+        'start:cancellable-start',
+        'stop:cancellable-start:late-handle',
+      ]);
+      expect(engine.state, KingFusionState.idle);
+      expect(engine.isBusy, isFalse);
+      expect(engine.snapshot.disconnectRequested, isFalse);
+    });
+
     test('disconnect waits for an in-flight native start and cancels the plan', () async {
       final events = <String>[];
       final gate = Completer<void>();
