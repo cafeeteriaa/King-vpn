@@ -562,6 +562,7 @@ class KingFusionEngine {
     try {
       for (final hop in plan.hops) {
         if (_disconnectRequested) {
+          final startedCount = _active.length;
           final cleanupFailures = await _rollback();
           _setState(KingFusionState.failed);
           return KingFusionResult.failure(
