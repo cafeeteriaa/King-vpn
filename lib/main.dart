@@ -17606,17 +17606,33 @@ extension ProjectNatSweep on _HomePageState {
       // Cursor advancement is committed only if every address in this slice
       // completed for this port. Interrupted slices are retried, never skipped.
       if (completed < pool2.length) break;
-      _cfRangeCursors.removeWhere((key, _) => key.startsWith(prefix));
+      // Stage this sweep's cursor independently, then commit it through the
+      // same V4 checkpoint used by NAT Range. A V2-only write is ignored when
+      // a V4 checkpoint exists, which would otherwise lose this cursor on restart.
+      final nextCursors = Map<String, dynamic>.from(_cfRangeCursors)
+        ..removeWhere((key, _) => key.startsWith(prefix));
       for (final entry in localCursors.entries) {
-        _cfRangeCursors['$prefix${entry.key}'] = entry.value;
+        nextCursors['$prefix${entry.key}'] = entry.value;
       }
-      _cfRangeCursors['atsweep:port_cursor'] =
+      nextCursors['atsweep:port_cursor'] =
           (portIndex + 1) % _natCfPorts.length;
       try {
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('natRangeScanCursorsV2', jsonEncode(_cfRangeCursors));
+        final committed = await prefs.setString('natRangeCheckpointV4', jsonEncode({
+          'cursors': nextCursors,
+          'ports': _natRangePortCursors,
+          'offsets': _natConfiguredRangeOffsets,
+          'configuredCursor': _natConfiguredRangeCursor,
+        }));
+        if (!committed) break;
+        _cfRangeCursors
+          ..clear()
+          ..addAll(nextCursors);
+        // Keep the legacy mirror for older app versions; V4 is authoritative.
+        await prefs.setString('natRangeScanCursorsV2', jsonEncode(nextCursors));
       } catch (e, st) {
         logError(e, st);
+        break;
       }
       for (final hit in hits) {
         opened.add(CleanIp(hit.ip, hit.ms, port));
