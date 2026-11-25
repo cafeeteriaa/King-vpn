@@ -380,11 +380,10 @@ List<String> natExpandIpv6Cidr(String cidr, {int? maxPerBlock}) {
       : (wrap
           // A wrapped slice may cross the range boundary, but never repeats
           // an address inside the same batch when the range is smaller.
-          ? (size < BigInt.from(effectiveBatch) ? size.toInt() : maxPerBlock)
-          : min(
-              maxPerBlock,
-              remaining > BigInt.from(maxPerBlock) ? maxPerBlock : remaining.toInt(),
-            ));
+          ? (size < BigInt.from(effectiveBatch) ? size.toInt() : effectiveBatch)
+          : (remaining > BigInt.from(effectiveBatch)
+              ? effectiveBatch
+              : remaining.toInt()));
   final addresses = <String>[];
   for (var i = 0; i < take; i++) {
     final value = first + ((offset + BigInt.from(i)) % size);

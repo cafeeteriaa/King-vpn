@@ -3374,6 +3374,15 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('generated.cursors', scan)
         self.assertIn('king_pilot_scan_results_v1', scan)
 
+    def test_nat_variant_matrix_keeps_the_complete_order_without_a_count_cap(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<int?> _delayOf(Server s,')
+        end = main.index('// DEADSRV-FIX:', start)
+        delay = main[start:end]
+        self.assertIn('_natOrder(s, full: _resFull).where((v) => v != 0)', delay)
+        self.assertNotIn('natMaxVariants', delay)
+        self.assertNotIn('.where((v) => v != 0).take(', delay)
+
     def test_ipv6_is_supported_by_ip_inventory_tcp_scan_and_dns_aaaa(self):
         nat_scan = (ROOT / 'lib' / 'nat_ip_scan.dart').read_text(encoding='utf-8')
         self.assertIn('List<String> natExpandIpv6Cidr(', nat_scan)

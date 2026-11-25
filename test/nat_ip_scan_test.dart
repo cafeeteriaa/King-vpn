@@ -276,6 +276,24 @@ void main() {
       }
     });
 
+    test('cursor uses the adaptive default batch when maxPerBlock is omitted', () {
+      final ipv4 = natExpandIpRangeCursor(
+        '192.0.2.0/30', '0', wrap: false,
+      );
+      expect(ipv4.addresses, [
+        '192.0.2.0', '192.0.2.1', '192.0.2.2', '192.0.2.3',
+      ]);
+      expect(ipv4.nextCursor, 'done');
+
+      final ipv6 = natExpandIpRangeCursor(
+        '2001:db8::/126', '0', wrap: false,
+      );
+      expect(ipv6.addresses, [
+        '2001:db8::', '2001:db8::1', '2001:db8::2', '2001:db8::3',
+      ]);
+      expect(ipv6.nextCursor, 'done');
+    });
+
     test('IPv6 range cursors cover each address and wrap without 64-bit truncation', () {
       final first = natExpandIpv6RangeCursor(
         '2001:db8::/126', '0', maxPerBlock: 2,
