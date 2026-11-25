@@ -2922,6 +2922,9 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
         final cacheStat = await File(_hotPath()).stat();
         final cacheSignature =
             '${cacheStat.size}:${cacheStat.modified.microsecondsSinceEpoch}';
+        // Persist the freshly-built index at cache commit time; otherwise the
+        // next process restart would have to scan the complete cache again.
+        await _hotWriteSparseIndex(_hotPath(), cacheSignature, sparseIndex);
         _hot = _HotIdx(_hotPath(), sparseIndex[0], sparseIndex[1],
             cacheSignature, sparseIndex.skip(2).toList(growable: false));
         _hotCursor = 0;
