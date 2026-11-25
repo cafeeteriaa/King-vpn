@@ -53,7 +53,7 @@ class KingAiPatchEngine {
       final index = source.indexOf(needle, offset);
       if (index < 0) return count;
       count++;
-      offset = index + needle.length;
+      offset = index + 1;
     }
   }
 }

@@ -51,6 +51,18 @@ void main() {
       }
     });
 
+    test('counts overlapping anchor matches as ambiguous', () {
+      const source = 'aaaa';
+      expect(
+        () => KingAiPatchEngine.apply(
+          original: source,
+          baseSha256: hashOf(source),
+          operations: [{'find': 'aa', 'replace': 'b'}],
+        ),
+        throwsFormatException,
+      );
+    });
+
     test('applies operations sequentially and permits an anchor created earlier', () {
       const source = 'first';
       final result = KingAiPatchEngine.apply(
