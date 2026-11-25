@@ -46,6 +46,22 @@ void main() {
       expect(evidence.confidence, lessThan(1));
     });
 
+    test('partial or absent probe groups never become an offline mode', () {
+      const noSamples = NetworkEvidence(
+        domestic: LinkHealth.unreachable,
+        global: LinkHealth.unreachable,
+      );
+      const partial = NetworkEvidence(
+        domestic: LinkHealth.unreachable,
+        global: LinkHealth.unreachable,
+        domesticSamples: 3,
+        globalSamples: 1,
+      );
+      expect(noSamples.mode, DetectedNetworkMode.unknown);
+      expect(partial.mode, DetectedNetworkMode.unknown);
+      expect(choosePilotNetworkStrategy(noSamples), PilotNetworkStrategy.preserve);
+    });
+
     test('failed attempts do not inflate reachability confidence', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.unreachable,
