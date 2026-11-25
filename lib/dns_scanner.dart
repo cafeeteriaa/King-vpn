@@ -129,6 +129,37 @@ List<String> dnsxFullDomains() {
   return domains;
 }
 
+/// Full project domain inventory with domestic candidates first during national
+/// network conditions. The global remainder is retained as a fallback; it is
+/// never discarded merely because the current network is domestic-only.
+/// [extra] merges scanner discoveries and user-configured hostnames without
+/// imposing a fixed inventory ceiling.
+List<String> dnsxNationalFirstDomains({
+  Iterable<String> extra = const <String>[],
+}) {
+  final extraHosts = _dnsxHostsFrom(extra);
+  final all = <String>{
+    ...dnsxFullDomains(),
+    ...extraHosts,
+  };
+  final domestic = <String>{
+    ...kDnsxNationalProbeDomains,
+    ...natIrDomains,
+    ..._dnsxHostsFrom(iranDomains),
+    ..._dnsxHostsFrom(_iranMoreDomains),
+    ...kAutoNationalSniDomains,
+    ...extraHosts.where((host) =>
+        host.endsWith('.ir') ||
+        host.endsWith('.ac.ir') ||
+        host.endsWith('.gov.ir') ||
+        host.endsWith('.co.ir') ||
+        host.endsWith('.org.ir')),
+  };
+  final first = domestic.intersection(all).toList()..sort();
+  final remaining = all.difference(domestic).toList()..sort();
+  return <String>[...first, ...remaining];
+}
+
 /// متن نمایشی دامنه‌ها در شیت
 String dnsxProbeDomain() => '${dnsxFullDomains().length} دامنه (ایرانی و جهانی)';
 
