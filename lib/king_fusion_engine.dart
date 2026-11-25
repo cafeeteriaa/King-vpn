@@ -37,10 +37,13 @@ class KingFusionHop {
   /// Stable adapter id. Configuration is intentionally opaque to this layer.
   final String engineId;
   final String configuration;
+  /// Optional explicit transport requirement; never inferred from opaque config.
+  final String? requiredTransport;
 
   const KingFusionHop({
     required this.engineId,
     required this.configuration,
+    this.requiredTransport,
   });
 }
 
@@ -673,6 +676,18 @@ class KingFusionEngine {
       }
       if (hop.configuration.trim().isEmpty) {
         return (id, 'E-FUSION-CONFIG-EMPTY');
+      }
+      final requiredTransport = hop.requiredTransport?.trim().toLowerCase();
+      if (requiredTransport != null) {
+        if (!_isSafeEngineIdentifier(requiredTransport)) {
+          return (id, 'E-FUSION-TRANSPORT-INVALID');
+        }
+        final supported = adapter.descriptor.supportedTransports
+            .map((transport) => transport.trim().toLowerCase())
+            .toSet();
+        if (!supported.contains(requiredTransport)) {
+          return (id, 'E-FUSION-TRANSPORT-UNSUPPORTED');
+        }
       }
       resolved.add(adapter);
     }
