@@ -158,7 +158,7 @@ class _FreshResourcesPageState extends State<FreshResourcesPage> {
             if (_busy) const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator())),
             if (_message.isNotEmpty) Padding(padding: const EdgeInsets.all(8), child: Text(_message)),
             const SizedBox(height: 8),
-            Text('ظرفیت داخلی پوشه: حداکثر ${FreshResourceStore.maxEntries} کانفیگ. هر کانفیگ قبل از ذخیره از نظر قالب لینک بررسی می‌شود.'),
+            const Text('برای تعداد کانفیگ‌ها سقف ثابت داخل برنامه اعمال نمی‌شود. موجودی کامل ذخیره و بازیابی می‌شود؛ ظرفیت نهایی فقط به فضای ذخیره‌سازی آزاد دستگاه و سلامت فایل‌سیستم وابسته است. هر لینک پیش از ذخیره از نظر طرح URI پشتیبانی‌شده بررسی می‌شود.'),
           ],
         ),
       ),
