@@ -83,10 +83,10 @@ Future<void> ipAutoLoad() async {
   }
 }
 
-Future<void> _ipAutoSave() async {
+Future<bool> _ipAutoSave() async {
   // Persist an immutable snapshot under the keys belonging to its captured mode.
   final saveNationalMode = nationalMode;
-  if (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode) return;
+  if (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode) return false;
   final hits = List<String>.of(ipAutoHits);
   final pending = List<String>.of(ipAutoPendingCore);
   final cursors = Map<String, dynamic>.of(ipAutoCursors);
@@ -99,14 +99,20 @@ Future<void> _ipAutoSave() async {
     final p = await SharedPreferences.getInstance();
     if (nationalMode != saveNationalMode ||
         (_ipAutoLoadedNat != null && _ipAutoLoadedNat != saveNationalMode)) {
-      return;
+      return false;
     }
-    await p.setString(hitsKey, hits.join('\n'));
-    await p.setString(pendingKey, pending.join('\n'));
-    await p.setString(cursorKey, jsonEncode(cursors));
-    await p.setString(posKey, position.toString());
+    // Persist the work queue before its cursor. The cursor is the commit marker:
+    // after a process death, a saved cursor can never point beyond an unsaved
+    // TCP hit waiting for core verification.
+    if (!await p.setString(hitsKey, hits.join('\\n'))) return false;
+    if (!await p.setString(pendingKey, pending.join('\\n'))) return false;
+    if (!await p.setString(posKey, position.toString())) return false;
+    if (nationalMode != saveNationalMode) return false;
+    if (!await p.setString(cursorKey, jsonEncode(cursors))) return false;
+    return nationalMode == saveNationalMode;
   } catch (e, stk) {
     logError(e, stk);
+    return false;
   }
 }
 
@@ -504,6 +510,12 @@ extension IpAutoExt on _HomePageState {
       if (!seen.contains(candidate) && queued.add(candidate)) {
         ipAutoPendingCore.add(candidate);
       }
+    }
+    // Durable checkpoint: queue first, then cursor commit marker. If Android
+    // kills the process during later core checks, no TCP hit is skipped.
+    if (!await _ipAutoSave() || halted()) {
+      say('ذخیرهٔ امن صف و Cursor انجام نشد یا حالت شبکه تغییر کرد؛ این دسته دوباره بررسی می‌شود.');
+      return false;
     }
     final activeQueue = ipAutoPendingCore
         .where(allowedEndpointPairs.contains)
