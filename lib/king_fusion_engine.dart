@@ -273,6 +273,8 @@ class KingFusionResult {
 /// later hop fails, previously started hops are stopped in reverse order.
 class KingFusionEngine {
   final Map<String, KingEngineAdapter> _adapters;
+  late final Map<String, KingEngineDescriptor> _descriptors;
+  late final Map<KingEngineAdapter, String> _idByAdapter;
   final KingFusionTrafficVerifier? _trafficVerifier;
   final Duration trafficVerificationTimeout;
   /// Upper bound for each native stop attempt; timed-out handles remain tracked.
@@ -303,6 +305,26 @@ class KingFusionEngine {
   })  : _adapters = _indexAdapters(adapters),
         _trafficVerifier = trafficVerifier,
         _eventListener = onEvent {
+    final descriptorSnapshots = <String, KingEngineDescriptor>{};
+    final adapterIds = HashMap<KingEngineAdapter, String>.identity();
+    for (final entry in _adapters.entries) {
+      final source = entry.value.descriptor;
+      descriptorSnapshots[entry.key] = KingEngineDescriptor(
+        id: entry.key,
+        title: source.title,
+        family: source.family,
+        availability: source.availability,
+        supportedTransports: Set<String>.unmodifiable(
+          source.supportedTransports.map((transport) => transport.trim().toLowerCase()),
+        ),
+        supportsMultiHop: source.supportsMultiHop,
+      );
+      adapterIds[entry.value] = entry.key;
+    }
+    _descriptors = Map<String, KingEngineDescriptor>.unmodifiable(
+      descriptorSnapshots,
+    );
+    _idByAdapter = adapterIds;
     if (nativeStopTimeout <= Duration.zero) {
       throw ArgumentError.value(
         nativeStopTimeout,
@@ -340,14 +362,12 @@ class KingFusionEngine {
   }
 
   List<KingEngineDescriptor> get availableEngines =>
-      List<KingEngineDescriptor>.unmodifiable(
-        _adapters.values.map((adapter) => adapter.descriptor),
-      );
+      List<KingEngineDescriptor>.unmodifiable(_descriptors.values);
 
   /// Adapter IDs still tracked because native cleanup has not succeeded.
   List<String> get cleanupPendingEngineIds =>
       List<String>.unmodifiable(
-        _active.map((item) => item.adapter.descriptor.id),
+        _active.map((item) => _idByAdapter[item.adapter]!),
       );
 
   bool get isBusy => _busy;
@@ -671,7 +691,8 @@ class KingFusionEngine {
       if (!seen.add(id)) return (id, 'E-FUSION-DUPLICATE-HOP');
       final adapter = _adapters[id];
       if (adapter == null) return (id, 'E-FUSION-ADAPTER-MISSING');
-      if (adapter.descriptor.availability != KingEngineAvailability.integrated) {
+      final descriptor = _descriptors[id]!;
+      if (descriptor.availability != KingEngineAvailability.integrated) {
         return (id, 'E-FUSION-ADAPTER-NOT-INTEGRATED');
       }
       if (hop.configuration.trim().isEmpty) {
@@ -682,9 +703,7 @@ class KingFusionEngine {
         if (!_isSafeEngineIdentifier(requiredTransport)) {
           return (id, 'E-FUSION-TRANSPORT-INVALID');
         }
-        final supported = adapter.descriptor.supportedTransports
-            .map((transport) => transport.trim().toLowerCase())
-            .toSet();
+        final supported = descriptor.supportedTransports;
         if (!supported.contains(requiredTransport)) {
           return (id, 'E-FUSION-TRANSPORT-UNSUPPORTED');
         }
@@ -694,9 +713,10 @@ class KingFusionEngine {
     for (var i = 0; i + 1 < resolved.length; i++) {
       final current = resolved[i];
       final next = resolved[i + 1];
-      if (!current.descriptor.supportsMultiHop ||
+      final currentDescriptor = _descriptors[resolved[i].descriptor.id]!;
+      if (!currentDescriptor.supportsMultiHop ||
           !current.canChainTo(next)) {
-        return (current.descriptor.id, 'E-FUSION-CHAIN-UNSUPPORTED');
+        return (currentDescriptor.id, 'E-FUSION-CHAIN-UNSUPPORTED');
       }
     }
     return null;
@@ -800,12 +820,12 @@ class KingFusionEngine {
         }
         await stopOperation.timeout(nativeStopTimeout);
         _emit(KingFusionEventType.hopStopped,
-            engineId: item.adapter.descriptor.id);
+            engineId: _idByAdapter[item.adapter]!);
       } catch (_) {
         // A downstream hop must be stopped before its upstream dependency.
         // Retain this hop and every earlier hop; do not tear down underneath it.
         _emit(KingFusionEventType.cleanupFailed,
-            engineId: item.adapter.descriptor.id,
+            engineId: _idByAdapter[item.adapter]!,
             failureCode: 'E-FUSION-CLEANUP');
         failed.addAll(reverseOrder.skip(index));
         break;
