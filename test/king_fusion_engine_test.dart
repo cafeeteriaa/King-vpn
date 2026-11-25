@@ -14,6 +14,7 @@ class _FakeAdapter implements KingEngineAdapter {
   final Completer<void>? startGate;
   final Completer<void>? startEntered;
   int stopFailuresRemaining;
+  final bool stopNeverCompletes;
 
   _FakeAdapter(
     String id,
@@ -25,6 +26,7 @@ class _FakeAdapter implements KingEngineAdapter {
     this.startGate,
     this.startEntered,
     this.stopFailuresRemaining = 0,
+    this.stopNeverCompletes = false,
     bool supportsMultiHop = true,
   }) : descriptor = KingEngineDescriptor(
           id: id,
@@ -56,6 +58,7 @@ class _FakeAdapter implements KingEngineAdapter {
   @override
   Future<void> stop(Object? handle) async {
     events.add('stop:${descriptor.id}:$handle');
+    if (stopNeverCompletes) await Completer<void>().future;
     if (stopFailuresRemaining > 0) {
       stopFailuresRemaining--;
       throw StateError('simulated native stop failure');
@@ -96,6 +99,23 @@ class _DelayedTrafficVerifier implements KingFusionTrafficVerifier {
   Future<bool> verify(KingFusionPlan plan) {
     if (!entered.isCompleted) entered.complete();
     return gate.future;
+  }
+}
+
+class _NeverCompletingCancellableVerifier
+    implements KingFusionCancellableTrafficVerifier {
+  final Completer<void> entered = Completer<void>();
+  int cancelCalls = 0;
+
+  @override
+  Future<bool> verify(KingFusionPlan plan) {
+    if (!entered.isCompleted) entered.complete();
+    return Completer<bool>().future;
+  }
+
+  @override
+  Future<void> cancel() async {
+    cancelCalls++;
   }
 }
 
@@ -424,6 +444,51 @@ void main() {
       expect(events, ['start:first:-', 'stop:first:handle-first']);
       expect(engine.cleanupPendingEngineIds, isEmpty);
       expect(engine.state, KingFusionState.failed);
+    });
+
+    test('disconnect interrupts a verifier that never completes', () async {
+      final events = <String>[];
+      final verifier = _NeverCompletingCancellableVerifier();
+      final adapter = _FakeAdapter('first', events);
+      final engine = KingFusionEngine([adapter], trafficVerifier: verifier);
+      final connecting = engine.connect(KingFusionPlan(
+        [const KingFusionHop(engineId: 'first', configuration: 'cfg')],
+        requireTrafficVerification: true,
+      ));
+
+      await verifier.entered.future;
+      final disconnecting = engine.disconnect();
+      final result = await connecting;
+      await disconnecting;
+
+      expect(result.failureCode, 'E-FUSION-CANCELLED');
+      expect(verifier.cancelCalls, 1);
+      expect(events, ['start:first:-', 'stop:first:handle-first']);
+      expect(engine.state, KingFusionState.idle);
+      expect(engine.isBusy, isFalse);
+    });
+
+    test('native stop timeout preserves the handle for later cleanup', () async {
+      final events = <String>[];
+      final adapter = _FakeAdapter(
+        'first',
+        events,
+        stopNeverCompletes: true,
+      );
+      final engine = KingFusionEngine(
+        [adapter],
+        nativeStopTimeout: const Duration(milliseconds: 1),
+      );
+      final connected = await engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'first', configuration: 'cfg'),
+      ]));
+      expect(connected.connected, isTrue);
+
+      await engine.disconnect();
+
+      expect(engine.state, KingFusionState.failed);
+      expect(engine.cleanupPendingEngineIds, ['first']);
+      expect(events.where((event) => event.startsWith('stop:first:')).length, 1);
     });
 
     test('native adapter TimeoutException is not mislabeled as verifier timeout', () async {
