@@ -4710,13 +4710,13 @@ Stream<String> _streamSourceLines(Stream<List<int>> bytes) async* {
       final line = iterator.current.trim();
       if (line.isEmpty) continue;
       prefix.add(line);
-      if (line.contains('://')) {
-        mode = 'plain';
+      final lower = line.toLowerCase();
+      if (lower.contains('<html') || lower.contains('<!doctype')) {
+        mode = 'html';
         break;
       }
-      final lower = line.toLowerCase();
-      if (lower.startsWith('<html') || lower.startsWith('<!doctype')) {
-        mode = 'html';
+      if (line.contains('://')) {
+        mode = 'plain';
         break;
       }
       if (!base64Line.hasMatch(line)) {
