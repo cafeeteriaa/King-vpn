@@ -74,7 +74,7 @@ instead of a full replacement:
 
 ## Cross-file dependency planning
 
-Before model generation, the supplied Dart/Python inventory is analyzed for relative and project-package imports, unresolved project references, and import cycles. The graph is passed to each inference batch so coordinated edits can account for callers and importers. SDK and external package imports are distinguished from unresolved in-project paths. This is a static source graph, not a claim of full semantic/type analysis.
+Before model generation, the supplied Dart/Python inventory is analyzed for relative and project-package imports, unresolved project references, and import cycles. Each inference batch receives a scoped graph slice containing its files' outgoing references, unresolved project imports, and relevant cycles. Cross-batch targets remain visible as path references without duplicating the full repository graph in every prompt. SDK and external package imports are distinguished from unresolved in-project paths. This is a static source graph, not a claim of full semantic/type analysis.
 
 ## Owner ZIP project import
 
@@ -82,4 +82,4 @@ Before model generation, the supplied Dart/Python inventory is analyzed for rela
 - The importer supports stored and DEFLATE entries using Dart SDK streams; it verifies declared expanded size and CRC32 before accepting a file.
 - Absolute paths, drive paths, `..` traversal, normalized duplicates, symbolic links, encrypted entries, unsupported compression methods, ZIP64 entries, invalid local/central metadata, and suspicious expansion ratios are rejected.
 - There is no fixed file-count or total expanded-byte quota. Extraction is streamed; actual storage failures stop the import and the incomplete workspace is deleted rather than reported as complete.
-- ZIP64 is currently rejected explicitly; this is a format-compatibility limitation, not silent truncation. A file-selection UI can pass a selected local `File` to the owner-only `importProjectZip` API.
+- ZIP64 is currently rejected explicitly; this is a format-compatibility limitation, not silent truncation. The owner-only `importProjectZip` API accepts a selected local `File`; a native file-picker UI is not wired into the screen yet.
