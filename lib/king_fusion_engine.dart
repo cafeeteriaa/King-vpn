@@ -162,6 +162,8 @@ class KingFusionSnapshot {
   final bool disconnectRequested;
   final List<String> activeEngineIds;
   final List<String> cleanupPendingEngineIds;
+  /// Bounded, immutable lifecycle history retained by the coordinator.
+  final List<KingFusionEvent> recentEvents;
   final int eventSequence;
 
   KingFusionSnapshot({
@@ -170,10 +172,12 @@ class KingFusionSnapshot {
     required this.disconnectRequested,
     required Iterable<String> activeEngineIds,
     required Iterable<String> cleanupPendingEngineIds,
+    required Iterable<KingFusionEvent> recentEvents,
     required this.eventSequence,
   })  : activeEngineIds = List<String>.unmodifiable(activeEngineIds),
         cleanupPendingEngineIds =
-            List<String>.unmodifiable(cleanupPendingEngineIds);
+            List<String>.unmodifiable(cleanupPendingEngineIds),
+        recentEvents = List<KingFusionEvent>.unmodifiable(recentEvents);
 }
 
 /// Adapter-provided failure strings cross a public API boundary. Keep only
@@ -280,6 +284,9 @@ class KingFusionEngine {
   /// Upper bound for each native stop attempt; timed-out handles remain tracked.
   final Duration nativeStopTimeout;
   final KingFusionEventListener? _eventListener;
+  /// Maximum number of secret-free lifecycle events retained for diagnostics.
+  final int eventHistoryLimit;
+  final List<KingFusionEvent> _eventHistory = <KingFusionEvent>[];
   int _eventSequence = 0;
   final List<({KingEngineAdapter adapter, Object? handle})> _active = [];
   // Future.timeout does not cancel a native stop. Keep the in-flight future
@@ -301,6 +308,7 @@ class KingFusionEngine {
     KingFusionTrafficVerifier? trafficVerifier,
     this.trafficVerificationTimeout = const Duration(seconds: 12),
     this.nativeStopTimeout = const Duration(seconds: 8),
+    this.eventHistoryLimit = 256,
     KingFusionEventListener? onEvent,
   })  : _adapters = _indexAdapters(adapters),
         _trafficVerifier = trafficVerifier,
@@ -325,6 +333,13 @@ class KingFusionEngine {
       descriptorSnapshots,
     );
     _idByAdapter = adapterIds;
+    if (eventHistoryLimit <= 0) {
+      throw ArgumentError.value(
+        eventHistoryLimit,
+        'eventHistoryLimit',
+        'Must be positive',
+      );
+    }
     if (nativeStopTimeout <= Duration.zero) {
       throw ArgumentError.value(
         nativeStopTimeout,
@@ -377,12 +392,17 @@ class KingFusionEngine {
 
   bool get isBusy => _busy;
 
+  /// Immutable copy of the most recent lifecycle events, even without a listener.
+  List<KingFusionEvent> get recentEvents =>
+      List<KingFusionEvent>.unmodifiable(_eventHistory);
+
   KingFusionSnapshot get snapshot => KingFusionSnapshot(
         state: _state,
         isBusy: _busy,
         disconnectRequested: _disconnectRequested,
         activeEngineIds: _active.map((item) => _idByAdapter[item.adapter]!),
         cleanupPendingEngineIds: cleanupPendingEngineIds,
+        recentEvents: _eventHistory,
         eventSequence: _eventSequence,
       );
 
@@ -404,8 +424,6 @@ class KingFusionEngine {
     // Sequence numbers describe coordinator activity, not observer delivery.
     // Keep snapshots meaningful even when telemetry is not configured.
     final sequence = ++_eventSequence;
-    final listener = _eventListener;
-    if (listener == null) return;
     final event = KingFusionEvent(
       sequence: sequence,
       timestamp: DateTime.now(),
@@ -417,6 +435,12 @@ class KingFusionEngine {
           : _safeAdapterFailureCode(failureCode),
       activeHopCount: _active.length,
     );
+    _eventHistory.add(event);
+    if (_eventHistory.length > eventHistoryLimit) {
+      _eventHistory.removeRange(0, _eventHistory.length - eventHistoryLimit);
+    }
+    final listener = _eventListener;
+    if (listener == null) return;
     try {
       listener(event);
     } catch (_) {
