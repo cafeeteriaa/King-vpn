@@ -23,13 +23,13 @@ class FreshResourceOffsetIndex {
     if (offset < 0) throw ArgumentError.value(offset, 'offset');
     if (limit < 1) throw ArgumentError.value(limit, 'limit');
     if (!await snapshot.exists()) {
-      return FreshResourceIndexPage(items: const <String>[], hasMore: false);
+      return FreshResourceIndexPage(items: const <String>[], hasMore: false, totalCount: 0);
     }
 
     var header = await _readValidHeader(snapshot, index);
     header ??= await _rebuild(snapshot, index, normalize);
     if (offset >= header.count) {
-      return FreshResourceIndexPage(items: const <String>[], hasMore: false);
+      return FreshResourceIndexPage(items: const <String>[], hasMore: false, totalCount: header.count);
     }
 
     final slot = offset ~/ stride;
@@ -50,7 +50,7 @@ class FreshResourceOffsetIndex {
     if (startByte >= header.snapshotLength) {
       header = await _rebuild(snapshot, index, normalize);
       if (offset >= header.count) {
-        return FreshResourceIndexPage(items: const <String>[], hasMore: false);
+        return FreshResourceIndexPage(items: const <String>[], hasMore: false, totalCount: header.count);
       }
       final retry = await index.open();
       try {
@@ -90,6 +90,7 @@ class FreshResourceOffsetIndex {
     return FreshResourceIndexPage(
       items: List<String>.unmodifiable(items),
       hasMore: hasMore,
+      totalCount: header.count,
     );
   }
 
@@ -200,9 +201,10 @@ class FreshResourceOffsetIndex {
 }
 
 class FreshResourceIndexPage {
-  const FreshResourceIndexPage({required this.items, required this.hasMore});
+  const FreshResourceIndexPage({required this.items, required this.hasMore, required this.totalCount});
   final List<String> items;
   final bool hasMore;
+  final int totalCount;
 }
 
 class _IndexHeader {
