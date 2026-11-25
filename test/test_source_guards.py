@@ -2687,6 +2687,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final quickSample = <String>[]', fetch)
         self.assertNotIn('quickLines.toList()', fetch)
         self.assertIn('quickCap != null', fetch)
+        self.assertEqual(fetch.count('if (stop?.call() ?? false) break;'), 2)
 
     def test_raw_subscription_http_errors_fall_through_to_configured_mirrors(self):
         extras = (ROOT / 'lib' / 'iran_ai_extras.dart').read_text(encoding='utf-8')
