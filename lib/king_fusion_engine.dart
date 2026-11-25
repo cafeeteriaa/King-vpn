@@ -759,15 +759,21 @@ class KingFusionEngine {
 
   /// Concurrent callers join the same native cleanup operation.
   Future<void> disconnect() {
-    _emit(KingFusionEventType.disconnectRequested);
     final existing = _disconnectOperation;
     if (existing != null) {
+      // Do not re-emit disconnectRequested for joiners. An observer may
+      // synchronously call disconnect() from that event; emitting it again
+      // would recursively re-enter the same observer before unwinding.
       _requestDisconnectCancellation();
       return existing;
     }
     final completer = Completer<void>();
     final operation = completer.future;
+    // Publish the shared operation before notifying observers. Reentrant
+    // disconnect() calls now join this future instead of starting a second
+    // teardown or recursively dispatching disconnectRequested.
     _disconnectOperation = operation;
+    _emit(KingFusionEventType.disconnectRequested);
     unawaited(
       _performDisconnect().then<void>(
         (_) {
