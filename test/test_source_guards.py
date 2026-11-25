@@ -1429,6 +1429,32 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('take(3000)', saved_list)
         self.assertNotIn('shuffle()', saved_list)
 
+    def test_saved_server_and_pending_queues_are_not_count_truncated(self):
+        source = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        saved_start = source.index('Future<void> _checkSaved()')
+        saved_end = source.index('Future<', saved_start + 20)
+        saved = source[saved_start:saved_end]
+        self.assertIn('final run = l;', saved)
+        self.assertNotIn('l.take(80)', saved)
+        acquire_start = source.index('Future<Set<Server>> _acquireInner(')
+        acquire_end = source.index('Future<', acquire_start + 30)
+        acquire = source[acquire_start:acquire_end]
+        self.assertNotIn('.take(40)', acquire)
+        self.assertNotIn('failed.length > 120', source)
+        self.assertIn('rows.addAll(waiting);', source)
+        self.assertNotIn('waiting.take(30)', source)
+
+    def test_global_folder_displays_complete_persisted_inventories(self):
+        source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        start = source.index("title: const Text('پوشه‌ی جهانی')")
+        end = source.index('actions: [', start)
+        dialog = source[start:end]
+        self.assertIn('for (final v in srvL)', dialog)
+        self.assertIn('for (final v in ipL)', dialog)
+        self.assertIn('for (final e in dnsL)', dialog)
+        self.assertIn('for (final x in (_goldScan[k] ?? const <String>[]))', dialog)
+        self.assertNotIn('.take(200)', dialog)
+
     def test_active_v2ray_plugin_lifecycle_patch_is_fail_closed(self):
         patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
         self.assertIn('Lifecycle foreground promotion reports success/failure', patch)
