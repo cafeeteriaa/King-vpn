@@ -484,6 +484,35 @@ void main() {
       await engine.disconnect();
     });
 
+    test('snapshots adapter capabilities so external mutation cannot rewrite registry', () async {
+      final events = <String>[];
+      final mutableTransports = <String>{'tcp'};
+      final adapter = _FakeAdapter(
+        'first',
+        events,
+        supportedTransports: mutableTransports,
+      );
+      final engine = KingFusionEngine([adapter]);
+
+      mutableTransports.clear();
+      final published = engine.availableEngines.single;
+      expect(published.supportedTransports, contains('tcp'));
+      expect(
+        () => published.supportedTransports.add('grpc'),
+        throwsA(isA<UnsupportedError>()),
+      );
+
+      final result = await engine.connect(KingFusionPlan([
+        const KingFusionHop(
+          engineId: 'first',
+          configuration: 'opaque',
+          requiredTransport: 'tcp',
+        ),
+      ]));
+      expect(result.connected, isTrue);
+      await engine.disconnect();
+    });
+
     test('validates an explicitly requested transport against adapter capabilities', () async {
       final events = <String>[];
       final adapter = _FakeAdapter(
