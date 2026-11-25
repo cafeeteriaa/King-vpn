@@ -124,6 +124,39 @@ class _CancellableStartAdapter
   }
 }
 
+class _ChangingDescriptorAdapter implements KingEngineAdapter {
+  int descriptorReads = 0;
+  int starts = 0;
+
+  @override
+  KingEngineDescriptor get descriptor {
+    descriptorReads++;
+    return KingEngineDescriptor(
+      id: descriptorReads == 1 ? 'captured-engine' : 'changed-engine',
+      title: descriptorReads == 1 ? 'Captured engine' : 'Changed engine',
+      family: KingEngineFamily.custom,
+      availability: KingEngineAvailability.integrated,
+      supportedTransports:
+          descriptorReads == 1 ? const <String>{'tcp'} : const <String>{'udp'},
+    );
+  }
+
+  @override
+  bool canChainTo(KingEngineAdapter next) => false;
+
+  @override
+  Future<KingEngineStartResult> start({
+    required String configuration,
+    Object? upstreamHandle,
+  }) async {
+    starts++;
+    return const KingEngineStartResult.connected('captured-handle');
+  }
+
+  @override
+  Future<void> stop(Object? handle) async {}
+}
+
 class _MutableDescriptorAdapter implements KingEngineAdapter {
   @override
   final KingEngineDescriptor descriptor;
@@ -1452,6 +1485,30 @@ void main() {
       expect(engine.isBusy, isFalse);
       expect(engine.snapshot.disconnectRequested, isFalse);
       expect(engine.snapshot.activeEngineIds, isEmpty);
+    });
+
+    test('reads each adapter descriptor once for a coherent registry snapshot', () async {
+      final adapter = _ChangingDescriptorAdapter();
+      final engine = KingFusionEngine([adapter]);
+
+      expect(adapter.descriptorReads, 1);
+      expect(engine.availableEngines.single.id, 'captured-engine');
+      expect(engine.availableEngines.single.title, 'Captured engine');
+      expect(engine.availableEngines.single.supportedTransports, {'tcp'});
+
+      final connected = await engine.connect(KingFusionPlan([
+        const KingFusionHop(
+          engineId: 'captured-engine',
+          configuration: 'opaque-config',
+          requiredTransport: 'tcp',
+        ),
+      ]));
+
+      expect(connected.connected, isTrue);
+      expect(adapter.descriptorReads, 1);
+      expect(adapter.starts, 1);
+      await engine.disconnect();
+      expect(adapter.descriptorReads, 1);
     });
 
     test('engine descriptor snapshot isolates mutable adapter metadata', () async {
