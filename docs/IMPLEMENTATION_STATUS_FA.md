@@ -81,3 +81,13 @@ Workflow عادی، APK آزمایشی Release-mode با debug key تولید م
 - **PRESERVED** — نمونه‌گیری سریع همچنان فقط مسیر شروع اتصال است و دریافت کامل پس‌زمینه را محدود یا جایگزین نمی‌کند.
 - **NOT VERIFIED** — بدنهٔ HTTP در این مرحله هنوز توسط مسیر mirror به‌صورت کامل buffer می‌شود؛ streaming شبکه‌ای end-to-end و decode افزایشی Base64 موضوع مرحلهٔ مستقل بعدی است.
 - **NOT VERIFIED** — اجرای تست‌ها و CI برای commitهای جدید این مرحله در انتظار نتیجهٔ GitHub Actions است؛ تست اتصال روی دستگاه واقعی انجام نشده است.
+
+
+## دریافت جریانی واقعی منابع عمومی — مرحلهٔ بعدی 2026-11-25
+
+- **IMPLEMENTED** — مسیر مستقیم raw برای `fetchServers` از `http.Client.send` و `StreamedResponse` استفاده می‌کند؛ پاسخ‌های متنی عادی دیگر پیش از parse شدن به `http.Response.body` کامل تبدیل نمی‌شوند.
+- **IMPLEMENTED** — UTF-8 و `LineSplitter` به‌صورت جریانی روی chunkهای شبکه اعمال می‌شوند؛ در حالت کامل هر خط قابل‌بررسی بلافاصله به `Server.parse` می‌رسد و مسیر quick همچنان فقط نمونهٔ reservoir را نگه می‌دارد.
+- **IMPLEMENTED** — پاسخ‌های HTML لینک‌ها را در سطح خط استخراج می‌کنند؛ ورودی Base64 با همان قواعد قبلی normalization و decode می‌شود تا سازگاری حفظ شود.
+- **PRESERVED** — اگر raw پاسخ معتبر ندهد، مسیر mirrorهای موجود همچنان امتحان می‌شود؛ این fallback فعلاً پاسخ را buffer می‌کند تا رفتار race/fallback قبلی حفظ شود.
+- **NOT VERIFIED** — Base64 در این مرحله هنوز برای decode کامل buffer می‌شود؛ decoder افزایشی Base64، لغو زودهنگام request و آزمون chunk-boundary در مرحلهٔ مستقل بعدی بررسی می‌شوند.
+- **NOT VERIFIED** — آزمون CI برای commit نهایی این مرحله، رفتار شبکه‌ای واقعی mirrorها، مصرف حافظه روی منبع بسیار بزرگ و اتصال روی دستگاه هنوز باید تأیید شوند.
