@@ -2091,6 +2091,7 @@ const List<String> natIrDomains = [
 Future<List<String>> _natDomainFirst(List<Server> known,
     {required int conc, bool Function()? stop}) async {
   final out = <String>[];
+  final outKeys = <String>{};
   if (!kNatIpScanOn || known.isEmpty) return out;
   bool cancelled() => stop?.call() ?? false;
   try {
@@ -2143,12 +2144,21 @@ Future<List<String>> _natDomainFirst(List<Server> known,
     for (final entry in grouped.entries) {
       final ips = entry.value;
       for (var offset = 0; offset < ips.length; offset += batchSize) {
-        if (cancelled()) return out;
         final batch = ips.skip(offset).take(batchSize).toList(growable: false);
         var completed = 0;
         final batchHits = <String, NatIpHit>{};
+        void flushCompletedBatchHits() {
+          for (final hit in batchHits.values) {
+            final key = '${hit.ip}|${entry.key}';
+            if (outKeys.add(key)) out.add(key);
+          }
+          natDomainOpen = out.length;
+        }
         while (completed < batch.length) {
-          if (cancelled()) return out;
+          if (cancelled()) {
+            flushCompletedBatchHits();
+            return out;
+          }
           completed = 0;
           final attemptHits = await natScanIps(
             batch,
@@ -2160,13 +2170,16 @@ Future<List<String>> _natDomainFirst(List<Server> known,
             cancelled: cancelled,
             onProgress: (done, total, _) => completed = done,
           );
-          if (cancelled()) return out;
+          // Preserve completed probes even when cancellation arrives mid-batch.
           for (final hit in attemptHits) {
             batchHits.putIfAbsent(hit.ip, () => hit);
           }
+          if (cancelled()) {
+            flushCompletedBatchHits();
+            return out;
+          }
         }
-        out.addAll(batchHits.values.map((hit) => '${hit.ip}|${entry.key}'));
-        natDomainOpen = out.length;
+        flushCompletedBatchHits();
       }
     }
   } catch (e, stk) {
