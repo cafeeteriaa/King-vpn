@@ -311,7 +311,7 @@ void main() {
     test('confidence remains bounded and lower when probe coverage is partial', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.degraded,
-        global: LinkHealth.unknown,
+        global: LinkHealth.unreachable,
         domesticSamples: 3,
         globalSamples: 3,
         domesticSuccesses: 1,
@@ -367,7 +367,7 @@ void main() {
     test('confidence scales with expanded probe inventories without a three-target cap', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.healthy,
-        global: LinkHealth.healthy,
+        global: LinkHealth.degraded,
         domesticSamples: 5,
         globalSamples: 5,
         domesticSuccesses: 4,
@@ -375,7 +375,7 @@ void main() {
         domesticTlsReachabilityVerified: true,
         globalTlsReachabilityVerified: true,
       );
-      expect(evidence.confidence, closeTo(0.7, 0.0001));
+      expect(evidence.confidence, closeTo(0.5425, 0.0001));
     });
 
     test('an unobserved group contributes zero coverage instead of disappearing', () {
