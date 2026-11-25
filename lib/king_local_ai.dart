@@ -1073,6 +1073,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     final originals = inventory['sourceFiles'] as Map<String, String>;
     final staged = <String, File>{};
     final backups = <String, File>{};
+    final backedUp = <String>[];
     final replaced = <String>[];
     final stamp = DateTime.now().microsecondsSinceEpoch;
     try {
@@ -1116,13 +1117,9 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
             '${entry.key.replaceAll('/', Platform.pathSeparator)}';
         final target = File(targetPath);
         await target.rename(backups[entry.key]!.path);
-        try {
-          await staged[entry.key]!.rename(targetPath);
-          replaced.add(entry.key);
-        } catch (_) {
-          await backups[entry.key]!.rename(targetPath);
-          rethrow;
-        }
+        backedUp.add(entry.key);
+        await staged[entry.key]!.rename(targetPath);
+        replaced.add(entry.key);
       }
       // Backup cleanup is best-effort after the commit point. A cleanup
       // failure must not trigger rollback after another backup was removed.
@@ -1144,7 +1141,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       };
     } catch (error) {
       var rollbackFailure = false;
-      for (final path in replaced.reversed) {
+      for (final path in backedUp.reversed) {
         final targetPath = '${root}${Platform.pathSeparator}'
             '${path.replaceAll('/', Platform.pathSeparator)}';
         try {
