@@ -208,6 +208,10 @@ void main() {
       expect(requiredProbeSuccessQuorum(5), 4);
       expect(requiredProbeSuccessQuorum(6), 4);
       expect(requiredProbeSuccessQuorum(100), 67);
+      expect(
+        requiredProbeSuccessQuorum(0x7fffffffffffffff),
+        0x5555555555555555,
+      );
     });
 
     test('expanded inventories require a proportional healthy quorum', () {
@@ -232,8 +236,8 @@ void main() {
     test('no attempts and malformed counters cannot imply a failure or success', () {
       expect(classifyLinkHealth(attempted: 0, successful: 0), LinkHealth.unknown);
       expect(classifyLinkHealth(attempted: -1, successful: 9), LinkHealth.unknown);
-      expect(classifyLinkHealth(attempted: 2, successful: 99), LinkHealth.healthy);
-      expect(classifyLinkHealth(attempted: 2, successful: -1), LinkHealth.unreachable);
+      expect(classifyLinkHealth(attempted: 2, successful: 99), LinkHealth.unknown);
+      expect(classifyLinkHealth(attempted: 2, successful: -1), LinkHealth.unknown);
     });
   });
 

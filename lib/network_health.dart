@@ -72,7 +72,11 @@ enum DetectedNetworkMode { unknown, domesticOnly, globalOnly, dualStack, offline
 /// endpoint inventories without imposing an inventory-size ceiling.
 int requiredProbeSuccessQuorum(int attempted) {
   if (attempted <= 0) return 0;
-  final twoThirds = (attempted * 2 + 2) ~/ 3;
+  // Divide before multiplying so very large, dynamically discovered
+  // endpoint inventories cannot overflow the intermediate 2 * attempted.
+  final quotient = attempted ~/ 3;
+  final remainder = attempted % 3;
+  final twoThirds = quotient * 2 + (remainder * 2 + 2) ~/ 3;
   return twoThirds < 2 ? 2 : twoThirds;
 }
 
@@ -80,8 +84,10 @@ LinkHealth classifyLinkHealth({
   required int attempted,
   required int successful,
 }) {
-  if (attempted <= 0) return LinkHealth.unknown;
-  final observedSuccesses = successful.clamp(0, attempted).toInt();
+  if (attempted <= 0 || successful < 0 || successful > attempted) {
+    return LinkHealth.unknown;
+  }
+  final observedSuccesses = successful;
   if (observedSuccesses >= requiredProbeSuccessQuorum(attempted)) {
     return LinkHealth.healthy;
   }
