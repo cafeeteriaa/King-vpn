@@ -70,6 +70,14 @@ class LargeProjectEditingGuards(unittest.TestCase):
         self.assertIn("path.startsWith('lib/android')", self.source)
         self.assertIn("path.startsWith('lib/own_vpn')", self.source)
 
+    def test_repository_tree_walk_avoids_recursive_api_truncation(self):
+        self.assertIn("final pendingTrees =", self.source)
+        self.assertIn("while (pendingTrees.isNotEmpty)", self.source)
+        self.assertIn("visitedTrees", self.source)
+        self.assertIn("directoryTree['truncated'] == true", self.source)
+        self.assertNotIn("git/trees/$treeSha?recursive=1", self.source)
+        self.assertIn("child['mode'] == '120000'", self.source)
+
     def test_owner_authenticated_engine_can_be_updated_by_its_own_pipeline(self):
         protected = self.source.split("const protectedPaths = <String>{", 1)[1]
         protected = protected.split("};", 1)[0]

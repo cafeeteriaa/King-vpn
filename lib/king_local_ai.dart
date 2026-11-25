@@ -1845,14 +1845,50 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
     final commitSha = (ref['object'] as Map)['sha'] as String;
     final commit = await _github('GET', '/repos/$repo/git/commits/$commitSha');
     final treeSha = (commit['tree'] as Map)['sha'] as String;
-    final tree = await _github('GET', '/repos/$repo/git/trees/$treeSha?recursive=1');
-    if (tree['truncated'] == true) {
-      throw StateError('GitHub returned a truncated repository tree; refusing incomplete code context');
+    // Walk each directory tree separately. GitHub's recursive tree endpoint
+    // truncates very large repositories; iterative traversal keeps the complete
+    // inventory without a fixed file-count ceiling.
+    final pendingTrees = <({String sha, String prefix})>[
+      (sha: treeSha, prefix: ''),
+    ];
+    final visitedTrees = <String>{};
+    final entries = <Map<String, dynamic>>[];
+    while (pendingTrees.isNotEmpty) {
+      final current = pendingTrees.removeLast();
+      final currentSha = current.sha;
+      final currentPrefix = current.prefix;
+      final visitKey = '$currentSha:$currentPrefix';
+      if (!visitedTrees.add(visitKey)) continue;
+      final directoryTree = await _github(
+        'GET',
+        '/repos/$repo/git/trees/$currentSha',
+      );
+      if (directoryTree['truncated'] == true) {
+        throw StateError(
+          'GitHub truncated one directory tree; refusing incomplete code context: $currentPrefix',
+        );
+      }
+      final children = directoryTree['tree'];
+      if (children is! List) {
+        throw FormatException('Malformed GitHub tree response at $currentPrefix');
+      }
+      for (final child in children.whereType<Map>()) {
+        final name = child['path'];
+        if (name is! String || name.isEmpty) continue;
+        final path = currentPrefix.isEmpty ? name : '$currentPrefix/$name';
+        if (child['type'] == 'tree' && child['sha'] is String) {
+          pendingTrees.add((sha: child['sha'] as String, prefix: path));
+          continue;
+        }
+        if (child['type'] != 'blob' || child['mode'] == '120000') continue;
+        final entry = Map<String, dynamic>.from(child);
+        entry['path'] = path;
+        entries.add(entry);
+      }
     }
-    final entries = (tree['tree'] as List).whereType<Map>().where((entry) {
+    final eligibleEntries = entries.where((entry) {
       final path = entry['path'];
-      return entry['type'] == 'blob' &&
-          path is String &&
+      return path is String &&
           (path.startsWith('lib/') || path.startsWith('test/') ||
               path.startsWith('tools/') || path.startsWith('docs/') ||
               (!path.contains('/') && path.endsWith('.md'))) &&
@@ -1866,10 +1902,9 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       final path = (entry['path'] as String).toLowerCase();
       return words.where(path.contains).length;
     }
-    entries.sort((a, b) => relevance(b).compareTo(relevance(a)));
-    final shortlist = entries;
-    final selectedPaths = await _selectRelevantPaths(task, shortlist);
-    final byPath = {for (final entry in entries) entry['path'] as String: entry};
+    eligibleEntries.sort((a, b) => relevance(b).compareTo(relevance(a)));
+    final selectedPaths = await _selectRelevantPaths(task, eligibleEntries);
+    final byPath = {for (final entry in eligibleEntries) entry['path'] as String: entry};
     final files = <String, String>{};
     for (final path in selectedPaths) {
       final entry = byPath[path]!;
