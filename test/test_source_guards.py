@@ -2770,6 +2770,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('response.stream', streamed)
         self.assertIn('getListMirror(u, skipRaw: true)', streamed)
         self.assertIn('fallback.bodyBytes', streamed)
+        self.assertIn('bool Function()? stop', streamed)
+        self.assertIn('if (stop?.call() ?? false) return;', streamed)
 
 
 if __name__ == '__main__':
