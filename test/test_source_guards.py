@@ -29,7 +29,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('if (!secondOk) continue;', verification)
         self.assertIn('if (!verified)', verification)
         self.assertIn('همهٔ الگوهای دقیق موقتاً ناموفق؛ برای نوبت بعد حفظ شد', verification)
-        self.assertNotIn('ipAutoPendingCore.remove(c)', verification)
+        failure = verification.split('if (!verified) {', 1)[1].split('ipAutoPendingCore.remove(c);', 1)[0]
+        self.assertNotIn('ipAutoPendingCore.remove(c)', failure)
+        self.assertLess(verification.index('if (!verified)'), verification.index('ipAutoPendingCore.remove(c);'))
 
     def test_auto_scan_sheet_forwards_live_vpn_guards_and_server_snapshots(self):
         source = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
@@ -3084,7 +3086,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('ipAutoHits.removeRange(', source)
         self.assertIn('final ports = endpointTargets.keys.toList()..sort();', source)
         self.assertIn('if (pool.isEmpty)', source)
-        self.assertIn('if (tpl.isEmpty)', source)
+        self.assertIn('final endpointConfigsByPair = <String, List<Server>>{};', source)
+        self.assertIn('final templates = endpointConfigsByPair[c] ?? const <Server>[];', source)
         self.assertIn('want: endpointIps.length,', source)
         self.assertIn('const Duration _ipAutoCoreBudget = Duration(minutes: 4);', source)
         self.assertIn('while (activeQueue.isNotEmpty &&', source)
@@ -3124,7 +3127,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('allowedEndpointPairs.contains', run)
         self.assertIn('activeQueue', run)
         self.assertIn('out-of-scope historical items stay queued', run)
-        self.assertIn('server.port == port', run)
+        self.assertIn("final pair = '$address|${server.port}';", run)
+        self.assertIn('endpointConfigsByPair.putIfAbsent(pair, () => <Server>[]).add(server);', run)
+        self.assertIn('for (final template in templates)', run)
         self.assertIn('Core outbound delay is not proof', run)
         self.assertIn('promotion requires a real user tunnel test', run)
 
