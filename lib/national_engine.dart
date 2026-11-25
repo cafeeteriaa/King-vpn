@@ -383,10 +383,7 @@ class PilotNetworkProbe {
     }
   }
 
-  static int? _median(List<int?> values) {
-    final sorted = values.whereType<int>().toList()..sort();
-    return sorted.isEmpty ? null : sorted[sorted.length ~/ 2];
-  }
+  static int? _median(List<int?> values) => medianLatencyMs(values);
 
   static Future<String> _networkIdentity() async {
     try {
