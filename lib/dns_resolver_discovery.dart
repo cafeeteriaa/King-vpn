@@ -8,10 +8,10 @@ import 'package:http/http.dart' as http;
 /// scanner, not in this discovery parser.
 List<String> kingParsePublicDnsResolvers(String source) {
   final found = <String>{};
-  for (final rawLine in source.split(RegExp(r'[\\r\\n]+'))) {
+  for (final rawLine in source.split(RegExp(r'[\r\n]+'))) {
     final line = rawLine.split('#').first.trim();
     if (line.isEmpty) continue;
-    for (var token in line.split(RegExp(r'[\\s,;]+'))) {
+    for (var token in line.split(RegExp(r'[\s,;]+'))) {
       token = token.trim();
       if (token.startsWith('[') && token.endsWith(']')) {
         token = token.substring(1, token.length - 1);
