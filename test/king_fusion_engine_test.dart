@@ -42,6 +42,32 @@ class _FakeAdapter implements KingEngineAdapter {
   }
 }
 
+class _UnavailableAdapter implements KingEngineAdapter {
+  @override
+  final KingEngineDescriptor descriptor = const KingEngineDescriptor(
+    id: 'future-engine',
+    title: 'Future engine',
+    family: KingEngineFamily.custom,
+    availability: KingEngineAvailability.adapterRequired,
+  );
+  final List<String> events;
+  _UnavailableAdapter(this.events);
+  @override
+  bool canChainTo(KingEngineAdapter next) => false;
+  @override
+  Future<KingEngineStartResult> start({
+    required String configuration,
+    Object? upstreamHandle,
+  }) async {
+    events.add('must-not-start');
+    return const KingEngineStartResult.connected();
+  }
+  @override
+  Future<void> stop(Object? handle) async {
+    events.add('must-not-stop');
+  }
+}
+
 void main() {
   group('KING Fusion Engine', () {
     test('validates every hop before starting any native adapter', () async {
@@ -128,6 +154,31 @@ void main() {
       ]));
       expect(duplicate.failureCode, 'E-FUSION-DUPLICATE-HOP');
       expect(events, isEmpty);
+    });
+
+    test('does not execute descriptors that still require a native adapter', () async {
+      final events = <String>[];
+      final adapter = _FakeAdapter('future-engine', events);
+      final unavailable = _UnavailableAdapter(events);
+      final engine = KingFusionEngine([unavailable]);
+      final result = await engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'future-engine', configuration: 'cfg'),
+      ]));
+      expect(result.failureCode, 'E-FUSION-ADAPTER-NOT-INTEGRATED');
+      expect(events, isEmpty);
+      expect(adapter.descriptor.availability, KingEngineAvailability.integrated);
+    });
+
+    test('normalizes harmless engine-id whitespace consistently', () async {
+      final events = <String>[];
+      final adapter = _FakeAdapter('first', events);
+      final engine = KingFusionEngine([adapter]);
+      final result = await engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: ' first ', configuration: 'cfg'),
+      ]));
+      expect(result.connected, isTrue);
+      expect(result.startedHops, 1);
+      await engine.disconnect();
     });
 
     test('empty configuration is rejected without exposing configuration data', () async {
