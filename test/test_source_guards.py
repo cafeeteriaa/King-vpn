@@ -4144,5 +4144,22 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn(' فقط پورت‌های تعریف‌شده', scanner)
 
 
+    def test_nat_domain_discovery_flushes_completed_hits_when_cancelled_mid_batch(self):
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        start = ultra.index('Future<List<String>> _natDomainFirst(')
+        end = ultra.index('Future<List<String>> natDeviceHosts()', start)
+        scanner = ultra[start:end]
+        self.assertIn('final outKeys = <String>{};', scanner)
+        self.assertIn('void flushCompletedBatchHits()', scanner)
+        self.assertIn('if (outKeys.add(key)) out.add(key);', scanner)
+        self.assertIn('for (final hit of attemptHits)', scanner)
+        merge = scanner.index('for (final hit of attemptHits)')
+        cancel = scanner.index('if (cancelled()) {', merge)
+        flush = scanner.index('flushCompletedBatchHits();', cancel)
+        exit_at = scanner.index('return out;', flush)
+        self.assertLess(merge, cancel)
+        self.assertLess(flush, exit_at)
+
+
 if __name__ == '__main__':
     unittest.main()
