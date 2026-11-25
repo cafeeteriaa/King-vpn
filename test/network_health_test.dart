@@ -108,7 +108,7 @@ void main() {
 
   group('Smart Pilot HTTP request serialization', () {
     test('uses actual CRLF wire delimiters and terminates the header block', () {
-      const request = buildPilotHttpHeadRequest('probe.example');
+      final request = buildPilotHttpHeadRequest('probe.example');
       expect(request, contains('HEAD / HTTP/1.1\r\n'));
       expect(request, contains('Host: probe.example\r\n'));
       expect(request, contains('Connection: close\r\n\r\n'));
