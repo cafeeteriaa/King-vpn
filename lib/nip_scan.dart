@@ -177,7 +177,7 @@ Future<List<String>> nipIranCidrs() async {
     if (ranges.isNotEmpty) await prefs.setStringList('plus_ir_cidr_v2', ranges);
     return ranges;
   } catch (_) {
-    return legacyV4;
+    return {...cached, ...legacyV4}.toList(growable: false);
   } finally {
     client.close(force: true);
   }
@@ -289,18 +289,11 @@ Future<void> natPrefetchAsn(List<Server> list) async {
   }
 }
 
-/// آخرین شکست RIPE برای هر IP (حافظه‌ی موقت، جدا از کش دائمی).
-final Map<String, DateTime> _asnFailAt = <String, DateTime>{};
-
 /// All announced IPv4 and IPv6 prefixes for every ASN owning this address.
 Future<List<String>> nipAsnPrefixes(String ip) async {
   final prefs = await SharedPreferences.getInstance();
   final cacheKey = 'nip_asn_v1_$ip';
   final cached = prefs.getStringList(cacheKey) ?? const <String>[];
-  // RIPE is external; while international access is unavailable, use valid cache only.
-  // ASN/prefix discovery remains available in either network mode; a failed
-  // external lookup is retried later rather than hidden by a mode gate.
-  // Failed RIPE lookups remain retryable; no fixed failure cooldown hides them.
   try {
     final response = await http
         .get(Uri.parse('https://stat.ripe.net/data/network-info/data.json?resource=$ip'))
@@ -309,7 +302,7 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
     final rawAsns =
         ((jsonDecode(response.body)['data']?['asns']) as List?) ?? const [];
     final asns = rawAsns.map((value) => value.toString()).toList(growable: false);
-    final out = <String>{};
+    final discovered = <String>{};
     final asnConcurrency = natAdaptiveConcurrency(0);
     for (var offset = 0; offset < asns.length; offset += asnConcurrency) {
       final batch = asns.skip(offset).take(asnConcurrency);
@@ -327,19 +320,16 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
           for (final entry in prefixes) {
             if (entry is! Map) continue;
             final prefix = '${entry['prefix']}';
-            if (prefix.contains('/')) out.add(prefix);
+            if (prefix.contains('/')) discovered.add(prefix);
           }
         } catch (e, stk) {
           logError(e, stk);
         }
       }));
     }
-    final ranges = out.toList(growable: false);
-    if (ranges.isNotEmpty) {
-      await prefs.setStringList(cacheKey, ranges);
-    } else {
-      _asnFailAt[ip] = DateTime.now();
-    }
+    // Keep every previously learned prefix while adding all fresh announcements.
+    final merged = <String>{...cached, ...discovered}.toList(growable: false);
+    if (merged.isNotEmpty) await prefs.setStringList(cacheKey, merged);
     return merged;
   } catch (e, stk) {
     logError(e, stk);

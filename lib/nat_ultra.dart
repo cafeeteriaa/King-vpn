@@ -2734,7 +2734,7 @@ Future<void> natHotEnsure({bool force = false}) async {
     await active;
     return;
   }
-  final task = _natHotEnsureImpl();
+  final task = _natHotEnsureImpl(force: force);
   _hotEnsureFuture = task;
   try {
     await task;
@@ -2743,7 +2743,7 @@ Future<void> natHotEnsure({bool force = false}) async {
   }
 }
 
-Future<void> _natHotEnsureImpl() async {
+Future<void> _natHotEnsureImpl({bool force = false}) async {
   final f = File(_hotPath());
   try {
     // No fixed 72-hour refresh cooldown: explicit scan/refresh requests

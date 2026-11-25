@@ -3327,7 +3327,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_nip_hunt_and_ripe_asn_scanning_accept_both_address_families(self):
         nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
-        self.assertIn('natExpandIpv6Cidr(cidr, maxPerBlock: maxPerBlock)', nip)
+        self.assertIn('natExpandIpv6Cidr(cidr, maxPerBlock: effectiveBatch)', nip)
         self.assertIn('resources[\'ipv6\']', nip)
         self.assertIn('Future<List<String>> nipResolveAll(', nip)
         self.assertIn('return nipResolveAll(server.host);', nip)
@@ -3348,7 +3348,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         end = main.index('Future<void> _pilotRangesDialog(', start)
         expand = main[start:end]
         self.assertIn('natExpandIpRangeCursor(', expand)
-        self.assertIn('batchSize = 6000', expand)
+        self.assertIn('int? batchSize,', expand)
+        self.assertIn('final effectiveBatchSize = batchSize ?? max(1, Platform.numberOfProcessors * 4096);', expand)
         self.assertIn('cursors[range]?.toString()', expand)
         self.assertNotIn('prefix < 24', main)
         self.assertNotIn('out.length < 256', main)
@@ -3377,7 +3378,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('(start + visited) % ranges.length', nat)
         self.assertIn("Map<String, dynamic> _cfRangeCursors", nat)
         self.assertIn("final expanded = _natExpandAnyCursorWide(", nat)
-        self.assertIn("return _natExpandAnyCursorWide(item, '0', maxPerBlock).$1;", nat)
+        self.assertIn("return _natExpandAnyCursorWide(item, '0', effectiveBatch).$1;", nat)
         ip_auto = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         self.assertIn("return parsed?.type == InternetAddressType.IPv6 ? '$ip/128' : '$ip/32';", ip_auto)
         core = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
