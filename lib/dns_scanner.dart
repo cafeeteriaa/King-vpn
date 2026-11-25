@@ -396,7 +396,7 @@ Future<void> dnsxAutoPick({bool Function()? stop}) async {
       final saved = await goldAddDns(r, shouldAbort: shouldAbort);
       if (!saved || shouldAbort()) return;
     }
-    final best = [for (final e in r.take(4)) e.ip];
+    final best = [for (final e in r) e.ip];
     await p.setStringList('dnsx_best_v1_$sfx', best);
     if (shouldAbort()) return;
     await p.setInt('dnsx_at_v1_$sfx', now);
