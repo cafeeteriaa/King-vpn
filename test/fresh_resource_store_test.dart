@@ -74,7 +74,7 @@ void main() {
 
     test('preserves distinct payloads and rejects a missing URI scheme', () {
       expect(FreshResourceStore.normalizeLink('vless:missing-separator'), isNull);
-      expect(FreshResourceStore.normalizeLink('vless://one@example.com:443\\nvless://two@example.com:443'), isNull);
+      expect(FreshResourceStore.normalizeLink('vless://one@example.com:443\nvless://two@example.com:443'), isNull);
       expect(
         FreshResourceStore.normalizeLinks([
           'vless://one@example.com:443',
