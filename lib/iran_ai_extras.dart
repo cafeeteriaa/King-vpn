@@ -353,6 +353,9 @@ Future<http.StreamedResponse> getListMirrorStream(String u) async {
               client.close();
               sink.close();
             },
+            handleCancel: () {
+              client.close();
+            },
           ),
         );
         return http.StreamedResponse(
