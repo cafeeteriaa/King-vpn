@@ -2671,7 +2671,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('timedOut()', body)
         self.assertIn('_autoScanCdnCursorKey', body)
         self.assertIn('_autoScanDomainCursorKey', body)
-        self.assertIn('prefs.setString(_autoScanCdnCursorKey, jsonEncode(stagedCdnCursors))', body)
+        self.assertIn('_autoScanCheckpointKey', body)
+        self.assertIn('final checkpointSaved = await prefs.setString(', body)
         self.assertIn('shouldAbort: () => cancelled(),', body)
 
     def test_auto_sni_scan_aborts_when_network_mode_changes_mid_run(self):
@@ -3041,11 +3042,11 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('_getCfIps(', auto)
         self.assertIn('liveRanges: targetRanges', auto)
         self.assertIn('cursors: stagedCdnCursors', auto)
-        self.assertIn('Map<String, dynamic>.of(cdnCursors)', inventory)
+        self.assertIn('Map<String, dynamic>.of(savedCheckpoint.cdn)', inventory)
         self.assertNotIn('natExpandCidr(', inventory)
         self.assertNotIn('_cfRanges.take(', inventory)
         self.assertIn("_autoScanCdnCursorKey = 'auto_scan_cdn_cursors_v1'", auto)
-        self.assertIn('prefs.setString(_autoScanCdnCursorKey, jsonEncode(stagedCdnCursors))', auto)
+        self.assertIn('kingEncodeAutoScanCheckpoint(', auto)
 
         nat = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
         start = nat.index('({List<String> addresses, int nextCursor, Map<String, dynamic> nextOffsets})')
