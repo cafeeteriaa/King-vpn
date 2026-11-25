@@ -526,3 +526,13 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) correctness — internal state declaration and all state writes checked; (2) observability/security — typed failure events carry sanitized codes only; (3) regression — verifier-exception behavior and rollback covered.
 - Commits: `e64f46f565075e986ec8b19f7eaef566c838b012` (private state storage correction), `f06a3d5031d2000000a21504b07cb0ee66c6a1e2` (verification failure classification), `5aa622774ace91396542ad55f0f08216d64f7ef3` (verifier regression test).
 - The exact latest-head CI run must complete before claiming the snapshot/telemetry work passes tests, analysis or Android build.
+
+
+## 2026-11-25 — Registry, timeout and snapshot invariants
+
+- Expanded the lifecycle test suite to 30 tests.
+- Added constructor-time duplicate adapter-ID rejection (including whitespace-normalized duplicates), positive-timeout validation for both native stop and traffic verification, and validation-rejection telemetry assertions.
+- Added an explicit immutability assertion proving snapshot engine-ID lists cannot be modified by callers.
+- The tests verify rejected plans never start native adapters and that rejected-plan telemetry contains only a stable sanitized code and engine ID, never the supplied configuration text.
+- Three-pass review: (1) compatibility — constructor validation only rejects ambiguous/invalid registry or timeout configuration; (2) security — snapshot collections are unmodifiable and telemetry remains configuration-free; (3) regression — duplicate IDs, invalid durations, rejected plans and snapshot mutation are covered.
+- Commits: `2b64091a9c80709f4833b722b9312733763bba23` (invariant tests), `9ccb12c95703f31cc2be119a32b2002ff72ac495` (portable matcher correction).
