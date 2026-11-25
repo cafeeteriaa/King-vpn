@@ -8,6 +8,20 @@ bool isValidHttpResponseLine(String line) =>
 enum LinkHealth { unknown, healthy, degraded, unreachable }
 enum DetectedNetworkMode { unknown, domesticOnly, globalOnly, dualStack, offline }
 
+
+/// Classifies one independent probe group without treating absent attempts as
+/// failures. Only two or more actual successes establish a healthy group.
+LinkHealth classifyLinkHealth({
+  required int attempted,
+  required int successful,
+}) {
+  if (attempted <= 0) return LinkHealth.unknown;
+  final observedSuccesses = successful.clamp(0, attempted).toInt();
+  if (observedSuccesses >= 2) return LinkHealth.healthy;
+  if (observedSuccesses == 1) return LinkHealth.degraded;
+  return LinkHealth.unreachable;
+}
+
 /// Internal route selected by the single Smart Pilot controller.
 enum PilotNetworkStrategy { domestic, global, preserve, offline }
 
