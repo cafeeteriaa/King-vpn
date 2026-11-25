@@ -4692,16 +4692,91 @@ class ProviderPage extends StatelessWidget {
 final Map<String, String> srcFetchState = {};
 final Map<String, int> srcFetchCount = {};
 
-/// ERRB64-TEXT: فقط وقتی بدنه‌ی منبع واقعاً base64 است (هر خط فقط حروف base64) true می‌دهد
-bool _looksBase64(String body) {
-  final lines = body
-      .split(RegExp(r'[\r\n]+'))
-      .map((l) => l.trim())
-      .where((l) => l.isNotEmpty)
-      .toList();
-  if (lines.isEmpty) return false;
-  final re = RegExp(r'^[A-Za-z0-9+/=_-]+$');
-  return lines.every((l) => re.hasMatch(l)) && lines.join().length >= 16;
+/// Decode public source responses line-by-line when they contain plain configs.
+/// Base64 subscriptions retain the legacy whole-payload decoder for compatibility.
+Stream<String> _streamSourceLines(Stream<List<int>> bytes) async* {
+  final sourceLines = utf8.decoder
+      .bind(bytes)
+      .transform(const LineSplitter());
+  final iterator = StreamIterator<String>(sourceLines);
+  final prefix = <String>[];
+  final base64Line = RegExp(r'^[A-Za-z0-9+/=_-]+$');
+  var mode = 'plain';
+  var encodedLength = 0;
+
+  try {
+    // Read only enough prefix to distinguish plain links, HTML, and Base64.
+    while (await iterator.moveNext()) {
+      final line = iterator.current.trim();
+      if (line.isEmpty) continue;
+      prefix.add(line);
+      if (line.contains('://')) {
+        mode = 'plain';
+        break;
+      }
+      final lower = line.toLowerCase();
+      if (lower.startsWith('<html') || lower.startsWith('<!doctype')) {
+        mode = 'html';
+        break;
+      }
+      if (!base64Line.hasMatch(line)) {
+        mode = 'plain';
+        break;
+      }
+      encodedLength += line.length;
+      if (encodedLength >= 16) {
+        mode = 'base64';
+        break;
+      }
+    }
+
+    if (mode == 'base64') {
+      // Preserve established Base64 normalization semantics. This branch
+      // buffers only Base64 payloads; ordinary URI lists remain network-streamed.
+      final encoded = StringBuffer();
+      for (final line in prefix) {
+        encoded.write(line);
+      }
+      while (await iterator.moveNext()) {
+        encoded.write(iterator.current.trim());
+      }
+      var b64 = encoded
+          .toString()
+          .replaceAll(RegExp(r'[^A-Za-z0-9+/=_-]'), '')
+          .replaceAll('-', '+')
+          .replaceAll('_', '/');
+      if (b64.length % 4 == 1) {
+        b64 = b64.substring(0, b64.length - 1);
+      }
+      while (b64.length % 4 != 0) {
+        b64 += '=';
+      }
+      final decoded = utf8.decode(
+        base64.decode(b64),
+        allowMalformed: true,
+      );
+      yield* Stream<String>.value(decoded).transform(const LineSplitter());
+    } else if (mode == 'html') {
+      Iterable<String> extract(String line) => _linkRe
+          .allMatches(line.replaceAll('&amp;', '&'))
+          .map((match) => match.group(0)!);
+      for (final line in prefix) {
+        yield* extract(line);
+      }
+      while (await iterator.moveNext()) {
+        yield* extract(iterator.current);
+      }
+    } else {
+      for (final line in prefix) {
+        yield line;
+      }
+      while (await iterator.moveNext()) {
+        yield iterator.current.trim();
+      }
+    }
+  } finally {
+    await iterator.cancel();
+  }
 }
 
 Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async {
@@ -4722,92 +4797,57 @@ Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async 
       return;
     }
     try {
-      final r =
-          await getListMirror(u);
-      if (r.statusCode != 200) {
-        srcFetchState[u] = 'fail';
-        return;
-      }
-      var body = r.body.trim();
-      if (body.contains('<html') || body.contains('<!DOCTYPE')) {
-        body = _linkRe
-            .allMatches(body.replaceAll('&amp;', '&'))
-            .map((m) => m.group(0)!)
-            .join('\n');
-      }
-      // ERRB64-TEXT: پاسخ متن ساده مثل «Disabled for maintenance» base64 نیست؛ همان منبع رد می‌شود
-      if (!body.contains('://') && !_looksBase64(body)) {
-        srcFetchState[u] = 'fail';
-        return;
-      }
-      if (!body.contains('://')) {
-        var b64 = body.replaceAll(RegExp(r'[^A-Za-z0-9+/=_-]'), '');
-        b64 = b64.replaceAll('-', '+').replaceAll('_', '/');
-        // ERRB64: طول 4k+1 هیچ‌وقت base64 معتبر نیست؛ کاراکتر اضافه‌ی آخر کنار گذاشته می‌شود
-        if (b64.length % 4 == 1) b64 = b64.substring(0, b64.length - 1);
-        while (b64.length % 4 != 0) { b64 += '='; }
-        try {
-          body = utf8.decode(base64.decode(b64), allowMalformed: true);
-        } catch (_swE) {
-          _swl('build#1', _swE);
-          srcFetchState[u] = 'fail';
-          return;
-        }
-      }
-      // Keep full-source parsing line-streamed: splitting a large subscription
-      // into a second giant List duplicated memory pressure on low-RAM devices.
-      final lines = Stream<String>.value(body)
-          .transform(const LineSplitter())
-          .map((line) => line.trim())
-          .where((line) =>
-              line.contains('://') &&
-              !line.contains('[email') &&
-              !line.contains('protected]'));
-      var pn = 0;
-      var okN = 0;
-      Future<void> consumeLine(String line) async {
-        final server = Server.parse(line);
-        if (server != null) {
-          server.src = u;
-          okN++;
-          all.putIfAbsent(server.key, () => server);
-        }
-        // FREEZEFIX: give the UI thread a frame every few parses.
-        if (++pn % 25 == 0) {
-          await Future<void>.delayed(const Duration(milliseconds: 2));
-        }
-      }
-
-      if (quickCap != null) {
-        // Reservoir sampling keeps the quick path's randomized per-source
-        // sample without materializing every line from a large response.
-        const sampleSize = 30;
-        final quickSample = <String>[];
-        final random = Random();
-        var seenQuickLines = 0;
-        await for (final line in lines) {
-          if (quickSample.length < sampleSize) {
-            quickSample.add(line);
-          } else {
-            final replacement = random.nextInt(seenQuickLines + 1);
-            if (replacement < sampleSize) {
-              quickSample[replacement] = line;
-            }
+      await withListMirrorStream(u, (bytes) async {
+        final lines = _streamSourceLines(bytes)
+            .map((line) => line.trim())
+            .where((line) =>
+                line.contains('://') &&
+                !line.contains('[email') &&
+                !line.contains('protected]'));
+        var pn = 0;
+        var okN = 0;
+        Future<void> consumeLine(String line) async {
+          final server = Server.parse(line);
+          if (server != null) {
+            server.src = u;
+            okN++;
+            all.putIfAbsent(server.key, () => server);
           }
-          seenQuickLines++;
+          // FREEZEFIX: give the UI thread a frame every few parses.
+          if (++pn % 25 == 0) {
+            await Future<void>.delayed(const Duration(milliseconds: 2));
+          }
         }
-        for (final line in quickSample) {
-          await consumeLine(line);
+
+        if (quickCap != null) {
+          // Reservoir sampling retains only a randomized per-source sample.
+          const sampleSize = 30;
+          final quickSample = <String>[];
+          final random = Random();
+          var seenQuickLines = 0;
+          await for (final line in lines) {
+            if (quickSample.length < sampleSize) {
+              quickSample.add(line);
+            } else {
+              final replacement = random.nextInt(seenQuickLines + 1);
+              if (replacement < sampleSize) {
+                quickSample[replacement] = line;
+              }
+            }
+            seenQuickLines++;
+          }
+          for (final line in quickSample) {
+            await consumeLine(line);
+          }
+        } else {
+          // Exhaustive mode drains the network stream through the parser.
+          await for (final line in lines) {
+            await consumeLine(line);
+          }
         }
-      } else {
-        // Exhaustive mode consumes every candidate without materializing a
-        // second full list of lines in memory.
-        await for (final line in lines) {
-          await consumeLine(line);
-        }
-      }
-      srcFetchState[u] = okN > 0 ? 'ok' : 'fail';
-      srcFetchCount[u] = okN;
+        srcFetchState[u] = okN > 0 ? 'ok' : 'fail';
+        srcFetchCount[u] = okN;
+      });
     } catch (_swE) { _swl('build#2', _swE);
       srcFetchState[u] = 'fail';
       // a slow / dead list is normal: it is skipped silently
