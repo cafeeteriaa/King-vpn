@@ -615,7 +615,7 @@ extension NipHunt on _HomePageState {
     // A DNS hostname can resolve to more endpoints than one two-minute
     // probe window can cover. Process every resolved address in resumable-size
     // slices; do not advance the template cursor after only the first slice.
-    final ipBatchSize = max(1, ips.length);
+    const ipBatchSize = 256;
     final totalBatches = (ips.length + ipBatchSize - 1) ~/ ipBatchSize;
     for (var ipOffset = 0; ipOffset < ips.length; ipOffset += ipBatchSize) {
       if (abort) return false;
