@@ -3949,6 +3949,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('workflow_dispatch:', workflow)
         self.assertIn('secrets.CURSOR_API_KEY', workflow)
         self.assertIn('agent -p --mode=ask', workflow)
+        self.assertIn('git check-ref-format --branch', workflow)
         self.assertIn('actions/upload-artifact@v4', workflow)
         self.assertNotIn('pull_request:', workflow)
         self.assertNotIn('--force', workflow)
