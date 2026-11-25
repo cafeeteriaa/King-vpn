@@ -3861,7 +3861,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         hunt = nip[hunt_start:hunt_end]
         self.assertIn('const ipBatchSize = 256;', hunt)
         self.assertIn('while (completed < scanBatch.length)', hunt)
-        self.assertIn('onProgress: (done, total) => completed = done', hunt)
+        self.assertIn('onProgress: (done, total) {', hunt)
+        self.assertIn('completed = done;', hunt)
         self.assertNotIn('if (abort || hits.isEmpty) return false;', hunt)
 
 
