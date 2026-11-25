@@ -18,6 +18,8 @@ class KingFusionLearningSnapshot {
     required this.lastSequence,
     required this.totalEvents,
     required this.failureEvents,
+    required this.trafficVerificationPassed,
+    required this.trafficVerificationFailed,
     required this.lastFailureCode,
     required this.recoveryHint,
     required Map<KingFusionEventType, int> eventCounts,
@@ -32,6 +34,8 @@ class KingFusionLearningSnapshot {
   final int lastSequence;
   final int totalEvents;
   final int failureEvents;
+  final int trafficVerificationPassed;
+  final int trafficVerificationFailed;
   final String? lastFailureCode;
   final KingFusionRecoveryHint recoveryHint;
   final Map<KingFusionEventType, int> eventCounts;
@@ -49,6 +53,8 @@ class KingFusionLearningBridge {
   int _lastSequence = 0;
   int _totalEvents = 0;
   int _failureEvents = 0;
+  int _trafficVerificationPassed = 0;
+  int _trafficVerificationFailed = 0;
   String? _lastFailureCode;
   KingFusionRecoveryHint _recoveryHint = KingFusionRecoveryHint.observe;
 
@@ -59,6 +65,8 @@ class KingFusionLearningBridge {
     _lastSequence = 0;
     _totalEvents = 0;
     _failureEvents = 0;
+    _trafficVerificationPassed = 0;
+    _trafficVerificationFailed = 0;
     _lastFailureCode = null;
     _recoveryHint = KingFusionRecoveryHint.observe;
   }
@@ -94,6 +102,22 @@ class KingFusionLearningBridge {
     return true;
   }
 
+  /// Records the app's independent Android-TUN traffic gate after Fusion start.
+  /// This signal does not forge a Fusion event or alter its sequence numbers.
+  void recordExternalTrafficVerification(bool passed) {
+    if (passed) {
+      _trafficVerificationPassed++;
+      _failureStreaks.clear();
+      _lastFailureCode = null;
+      _recoveryHint = KingFusionRecoveryHint.observe;
+      return;
+    }
+    _trafficVerificationFailed++;
+    _failureEvents++;
+    _lastFailureCode = 'E-FUSION-TRAFFIC-UNVERIFIED';
+    _recoveryHint = KingFusionRecoveryHint.verifyTraffic;
+  }
+
   void _recordFailure(
     KingFusionEvent event,
     KingFusionRecoveryHint hint,
@@ -122,6 +146,8 @@ class KingFusionLearningBridge {
     return <String>[
       'Fusion events=${current.totalEvents}',
       'failures=${current.failureEvents}',
+      'traffic_verified=${current.trafficVerificationPassed}',
+      'traffic_unverified=${current.trafficVerificationFailed}',
       'recovery_hint=${current.recoveryHint.name}',
       if (current.lastFailureCode != null)
         'last_failure=${current.lastFailureCode}',
@@ -133,6 +159,8 @@ class KingFusionLearningBridge {
         lastSequence: _lastSequence,
         totalEvents: _totalEvents,
         failureEvents: _failureEvents,
+        trafficVerificationPassed: _trafficVerificationPassed,
+        trafficVerificationFailed: _trafficVerificationFailed,
         lastFailureCode: _lastFailureCode,
         recoveryHint: _recoveryHint,
         eventCounts: _eventCounts,

@@ -9011,7 +9011,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // CENTRAL ACCEPTANCE LOCK: every caller, including personal/manual/social
     // reconnect paths, must prove real HTTP traffic through the Android TUN.
     // Never let a caller's ping, proxy-only check, or social-site result bypass it.
-    if (proxyMode || !await _tunnelTrafficOk()) {
+    final routeTrafficVerified =
+        !proxyMode && await _tunnelTrafficOk();
+    if (_activeV2RayFusion != null && !proxyMode) {
+      kingFusionLearning.recordExternalTrafficVerification(
+        routeTrafficVerified,
+      );
+    }
+    if (!routeTrafficVerified) {
       final failedElapsedMs = _nnieFinishAttempt(s) ?? 0;
       unawaited(NationalNetworkIntelligence.record(
         endpointKey: NationalNetworkIntelligence.keyOfServer(s),

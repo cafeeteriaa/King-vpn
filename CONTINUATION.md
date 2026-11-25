@@ -828,3 +828,5 @@ These are three distinct technical review passes by the same assistant, not thre
 - Exact-head CI for the resulting commit must pass source guards, all Flutter tests, Dart analysis and ARM64 release build before this checkpoint is considered validated.
 
 - Follow-up integration makes the current-session bridge a shared singleton. Each new Fusion coordinator starts a fresh evidence session; the ordinary KING AI chat receives the compact sanitized summary through its existing untrusted `appContext` channel. This gives KING AI real connection-lifecycle context without granting it execution authority or exposing configuration/native handles.
+
+- The bridge now also receives the independent central Android-TUN traffic verdict from `_onConnected` for V2Ray-owned sessions. This records passed/failed data-plane verification separately from Fusion's native-start events, without forging event sequence numbers. A real traffic pass clears failure streaks; proxy-only and non-Fusion service paths are not misclassified.

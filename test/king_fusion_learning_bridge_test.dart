@@ -105,6 +105,27 @@ void main() {
       expect(bridge.snapshot.consecutiveFailuresByEngine, isEmpty);
     });
 
+    test('external Android TUN verification is reflected in AI evidence', () {
+      final bridge = KingFusionLearningBridge();
+      bridge.observe(_event(
+        1,
+        KingFusionEventType.hopFailed,
+        failureCode: 'E-START',
+      ));
+
+      bridge.recordExternalTrafficVerification(false);
+      expect(bridge.snapshot.trafficVerificationFailed, 1);
+      expect(bridge.snapshot.recoveryHint, KingFusionRecoveryHint.verifyTraffic);
+      expect(bridge.snapshot.lastFailureCode, 'E-FUSION-TRAFFIC-UNVERIFIED');
+
+      bridge.recordExternalTrafficVerification(true);
+      expect(bridge.snapshot.trafficVerificationPassed, 1);
+      expect(bridge.snapshot.trafficVerificationFailed, 1);
+      expect(bridge.snapshot.consecutiveFailuresByEngine, isEmpty);
+      expect(bridge.snapshot.recoveryHint, KingFusionRecoveryHint.observe);
+      expect(bridge.toPromptContext(), contains('traffic_verified=1'));
+    });
+
     test('new coordinator session resets sequence and prompt evidence', () {
       final bridge = KingFusionLearningBridge();
       bridge.observe(_event(
