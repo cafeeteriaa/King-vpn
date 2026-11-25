@@ -1596,15 +1596,6 @@ String _goldToday() {
   return '${n.year}-${n.month}-${n.day}';
 }
 
-int _goldBudgetLeft() {
-  // No daily probe quota: work is limited only by resumable slices and safe concurrency.
-  final d = _goldToday();
-  if (_goldDay != d) {
-    _goldDay = d;
-    _goldCnt = 0;
-  }
-  return 1 << 60;
-}
 
 Future<void>? _goldLoadF;
 
@@ -1798,13 +1789,16 @@ Future<Map<String, int?>> _goldProbe(List<String> ips) async {
 Future<void> _goldIpStep() async {
   if (nationalMode) return;
   final nowMs = DateTime.now().millisecondsSinceEpoch;
-  var left = _goldBudgetLeft();
-  if (left <= 0) return;
+  final day = _goldToday();
+  if (_goldDay != day) {
+    _goldDay = day;
+    _goldCnt = 0;
+  }
   final retestMs = kGoldRetestHours * 3600 * 1000;
 
   final due = _goldIps.values
       .where((v) => nowMs - v.testAt >= retestMs)
-      .take(left < kGoldRetestBatch ? left : kGoldRetestBatch)
+      .take(kGoldRetestBatch)
       .map((v) => v.ip)
       .toList();
   if (due.isNotEmpty) {
@@ -1823,15 +1817,13 @@ Future<void> _goldIpStep() async {
       }
     }
     _goldCnt += due.length;
-    left -= due.length;
     _goldTop = null;
   }
 
-  if (left <= 0) return;
   final cands = await _cleanCandidates();
   final batch = cands
       .where((ip) => !_goldIps.containsKey(ip))
-      .take(left < 240 ? left : 240)
+      .take(240)
       .toList();
   if (batch.isEmpty) return;
   final r = await _goldProbe(batch);
