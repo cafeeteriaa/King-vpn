@@ -21,3 +21,6 @@ Duration failoverBusyRetryDelay(int stage) {
       return const Duration(seconds: 60);
   }
 }
+
+/// Cooldown used by the failover loop breaker before recovery resumes.
+const Duration failoverLoopCooldown = Duration(minutes: 3);
