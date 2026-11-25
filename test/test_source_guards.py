@@ -2838,6 +2838,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('final Map<String, _GoldIp> _goldIps = {};', extras)
         self.assertIn('final Map<String, _GoldSrv> _goldSrv = {};', extras)
         self.assertIn("await p.setString('gold_v1', _goldEncode())", extras)
+        start = extras.index('List<CleanIp> goldIpList()')
+        end = extras.index('// NATHELP:', start)
+        ranked_inventory = extras[start:end]
+        self.assertIn('final all = _goldIps.values.toList()', ranked_inventory)
+        self.assertNotIn('best.length < 20', ranked_inventory)
+        self.assertNotIn('take(20)', ranked_inventory)
 
 
     def test_national_yield_wait_is_cancellable_for_manual_scans(self):
