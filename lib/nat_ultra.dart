@@ -2780,10 +2780,9 @@ Future<int> _hotFetchOne(String u, String path) async {
         .transform(utf8.decoder)
         .join();
     if (prefix.contains('<html') || prefix.contains('<!DOCTYPE')) {
-      // Preserve HTML-link extraction; this compatibility path is disk-spooled.
-      final html = (await spool.readAsString()).replaceAll('&amp;', '&');
-      return await _hotWriteSourceLines(
-          u, path, _linkRe.allMatches(html).map((m) => m.group(0)!));
+      // Scan HTML incrementally, retaining only the current URL token.
+      final htmlChunks = spool.openRead().transform(utf8.decoder);
+      return await _hotWriteSourceLines(u, path, _hotHtmlLinks(htmlChunks));
     }
     if (prefix.contains('://')) {
       return await _hotWriteSourceLines(
@@ -2819,12 +2818,54 @@ Future<int> _hotFetchOne(String u, String path) async {
   }
 }
 
+Stream<String> _hotHtmlLinks(Stream<String> chunks) async* {
+  const schemes = <String>['vmess://', 'vless://', 'trojan://', 'ss://'];
+  final maxPrefix = schemes.map((s) => s.length).reduce((a, b) => a > b ? a : b);
+  var probe = '';
+  StringBuffer? link;
+  await for (final chunk in chunks) {
+    for (final unit in chunk.codeUnits) {
+      final ch = String.fromCharCode(unit);
+      if (link != null) {
+        if (RegExp(r'[\\s<>"]').hasMatch(ch)) {
+          final value = link.toString().replaceAll('&amp;', '&');
+          if (value.isNotEmpty) yield value;
+          link = null;
+          probe = '';
+        } else {
+          link.write(ch);
+        }
+        continue;
+      }
+      probe += ch;
+      final lower = probe.toLowerCase();
+      String? found;
+      for (final scheme in schemes) {
+        if (lower.endsWith(scheme)) {
+          found = scheme;
+          break;
+        }
+      }
+      if (found != null) {
+        link = StringBuffer(found);
+        probe = '';
+      } else if (probe.length >= maxPrefix) {
+        probe = probe.substring(probe.length - maxPrefix + 1);
+      }
+    }
+  }
+  if (link != null) {
+    final value = link.toString().replaceAll('&amp;', '&');
+    if (value.isNotEmpty) yield value;
+  }
+}
+
 Future<int> _hotWriteSourceLines(
-    String source, String path, Iterable<String> lines) async {
+    String source, String path, Stream<String> lines) async {
   final sink = File(path).openWrite();
   var count = 0;
   try {
-    for (final line in lines) {
+    await for (final line in lines) {
       final value = line.trim();
       if (!value.contains('://') ||
           value.contains('[email') ||
