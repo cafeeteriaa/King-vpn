@@ -7934,7 +7934,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final useMatrix = nationalMode;
     final multi = useMatrix;
     final order = useMatrix
-        ? <int>[0, ..._natOrder(s, full: _resFull).where((v) => v != 0).take(max(0, natMaxVariants - 1))]
+        ? <int>[0, ..._natOrder(s, full: _resFull).where((v) => v != 0)]
         : const [0]; // اول کانفیگ اصلی، سپس variantهای سازگار
     // NATBUDGET: one server may only use a limited time per pass; the rest of
     // its variants continue in the next pass (natCursorAdvance)
