@@ -3883,6 +3883,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('await _secure.delete(key: _key(id,', provider)
         self.assertIn('SwitchListTile(', settings)
         self.assertIn('setExternalProcessingEnabled(enabled)', settings)
+        self.assertIn('getProviderModel(provider.id)', settings)
+        self.assertIn('Future<String> getProviderModel(', provider)
         self.assertIn('Cursor یک محیط/عامل برنامه‌نویسی است', settings)
 
     def test_king_ai_chat_supports_image_analysis_with_ephemeral_consent(self):
