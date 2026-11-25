@@ -2794,13 +2794,9 @@ Future<int> _hotFetchOne(String u, String path) async {
     // Decode base64 payloads incrementally from the disk spool. Whitespace
     // and URL-safe alphabet variants are normalized per chunk; the converter
     // retains incomplete quartets between chunks.
-    final normalized = spool
-        .openRead()
-        .transform(utf8.decoder)
-        .map((chunk) => chunk
-            .replaceAll(RegExp(r'\s'), '')
-            .replaceAll('-', '+')
-            .replaceAll('_', '/'));
+    final normalized = _hotBase64Chunks(
+      spool.openRead().transform(utf8.decoder),
+    );
     final decodedLines = normalized
         .transform(base64.decoder)
         .transform(utf8.decoder)
@@ -2815,6 +2811,26 @@ Future<int> _hotFetchOne(String u, String path) async {
     } catch (e, st) {
       errJournalAdd(e, st: st, kind: 'SILENT-FILE');
     }
+  }
+}
+
+Stream<String> _hotBase64Chunks(Stream<String> chunks) async* {
+  var carry = '';
+  await for (final chunk in chunks) {
+    final clean = chunk
+        .replaceAll(RegExp(r'\s'), '')
+        .replaceAll('-', '+')
+        .replaceAll('_', '/');
+    final combined = carry + clean;
+    final completeLength = combined.length - (combined.length % 4);
+    if (completeLength > 0) yield combined.substring(0, completeLength);
+    carry = combined.substring(completeLength);
+  }
+  if (carry.isNotEmpty) {
+    if (carry.length == 1) {
+      throw const FormatException('Invalid Base64 source length');
+    }
+    yield carry.padRight(4, '=');
   }
 }
 
