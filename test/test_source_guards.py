@@ -1401,6 +1401,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('SecureSocket.secure(', probe)
         self.assertNotIn('onBadCertificate', probe)
 
+    def test_cloudflare_ip_probe_uses_platform_tls_certificate_validation(self):
+        source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
+        start = source.index('Future<int?> _cfProbeMs(')
+        end = source.index('Future<', start + 20)
+        probe = source[start:end]
+        self.assertIn('SecureSocket.secure(', probe)
+        self.assertNotIn('onBadCertificate', probe)
+
     def test_active_v2ray_plugin_lifecycle_patch_is_fail_closed(self):
         patch = (ROOT / 'patch_plugin.py').read_text(encoding='utf-8')
         self.assertIn('Lifecycle foreground promotion reports success/failure', patch)
