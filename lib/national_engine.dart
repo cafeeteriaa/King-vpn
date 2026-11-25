@@ -209,8 +209,14 @@ class NatNetworkDiagnosis {
     try {
       final at = _checkedAt;
       final id = await _identityHash();
-      if (!force && at != null && id == _identityAtCheck &&
-          DateTime.now().difference(at) < _ttl) {
+      if (isProbeCacheFresh(
+        force: force,
+        currentIdentity: id,
+        cachedIdentity: _identityAtCheck,
+        cachedAt: at,
+        now: DateTime.now(),
+        ttl: _ttl,
+      )) {
         return current;
       }
       // All probes start together. Awaiting the groups one after another made
@@ -314,8 +320,14 @@ class PilotNetworkProbe {
   static Future<NetworkEvidence> _refresh({required bool force}) async {
     final identity = await _networkIdentity();
     final lastAt = _lastAt;
-    if (!force && lastAt != null && identity == _lastIdentity &&
-        DateTime.now().difference(lastAt) < const Duration(minutes: 2)) {
+    if (isProbeCacheFresh(
+      force: force,
+      currentIdentity: identity,
+      cachedIdentity: _lastIdentity,
+      cachedAt: lastAt,
+      now: DateTime.now(),
+      ttl: const Duration(minutes: 2),
+    )) {
       return _last;
     }
     final domesticFuture = Future.wait(domesticTargets.map(_probeHttps));
