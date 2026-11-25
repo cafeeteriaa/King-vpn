@@ -106,4 +106,80 @@ void main() {
     });
   });
 
+
+  group('IP Auto atomic state snapshot', () {
+    test('round-trips hits, retry backlog, cursors and position together', () {
+      final encoded = ipAutoEncodeSnapshot(
+        hits: ['192.0.2.1|443'],
+        pending: ['2001:db8::1|8443'],
+        cursors: {'block:192.0.2.0/24': '17', 'port': 8443},
+        position: 91,
+      );
+      final decoded = ipAutoDecodeSnapshot(encoded: encoded);
+      expect(decoded.hits, ['192.0.2.1|443']);
+      expect(decoded.pending, ['2001:db8::1|8443']);
+      expect(decoded.cursors, {
+        'block:192.0.2.0/24': '17',
+        'port': 8443,
+      });
+      expect(decoded.position, 91);
+    });
+
+    test('migrates independent legacy keys when no v2 snapshot exists', () {
+      final decoded = ipAutoDecodeSnapshot(
+        encoded: null,
+        legacyHits: '192.0.2.1|443\ninvalid',
+        legacyPending: '2001:db8::1|8443',
+        legacyCursors: '{"range":"21","bad":[]} ',
+        legacyPosition: '12',
+      );
+      expect(decoded.hits, ['192.0.2.1|443']);
+      expect(decoded.pending, ['2001:db8::1|8443']);
+      expect(decoded.cursors, {'range': '21'});
+      expect(decoded.position, 12);
+    });
+
+    test('valid v2 snapshot is authoritative over stale legacy values', () {
+      final encoded = ipAutoEncodeSnapshot(
+        hits: const [],
+        pending: const [],
+        cursors: const {},
+        position: 0,
+      );
+      final decoded = ipAutoDecodeSnapshot(
+        encoded: encoded,
+        legacyHits: '192.0.2.9|443',
+        legacyPending: '192.0.2.8|443',
+        legacyCursors: '{"old":99}',
+        legacyPosition: '999',
+      );
+      expect(decoded.hits, isEmpty);
+      expect(decoded.pending, isEmpty);
+      expect(decoded.cursors, isEmpty);
+      expect(decoded.position, 0);
+    });
+
+    test('corrupt v2 snapshot falls back without losing readable legacy state', () {
+      final decoded = ipAutoDecodeSnapshot(
+        encoded: '{broken',
+        legacyHits: '192.0.2.2|443',
+        legacyPending: '192.0.2.3|443',
+        legacyCursors: '{broken',
+        legacyPosition: '-5',
+      );
+      expect(decoded.hits, ['192.0.2.2|443']);
+      expect(decoded.pending, ['192.0.2.3|443']);
+      expect(decoded.cursors, isEmpty);
+      expect(decoded.position, 0);
+    });
+
+    test('rejects malformed v2 shape and negative position', () {
+      final decoded = ipAutoDecodeSnapshot(
+        encoded: '{"version":2,"hits":[],"pending":[],"cursors":{},"position":-1}',
+        legacyHits: '192.0.2.4|443',
+      );
+      expect(decoded.hits, ['192.0.2.4|443']);
+    });
+  });
+
 }
