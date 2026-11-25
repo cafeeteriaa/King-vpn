@@ -536,3 +536,13 @@ These are three distinct technical review passes by the same assistant, not thre
 - The tests verify rejected plans never start native adapters and that rejected-plan telemetry contains only a stable sanitized code and engine ID, never the supplied configuration text.
 - Three-pass review: (1) compatibility — constructor validation only rejects ambiguous/invalid registry or timeout configuration; (2) security — snapshot collections are unmodifiable and telemetry remains configuration-free; (3) regression — duplicate IDs, invalid durations, rejected plans and snapshot mutation are covered.
 - Commits: `2b64091a9c80709f4833b722b9312733763bba23` (invariant tests), `9ccb12c95703f31cc2be119a32b2002ff72ac495` (portable matcher correction).
+
+
+## 2026-11-25 — Engine identifier boundary hardening
+
+- Added a strict, bounded identifier grammar for adapter registry IDs (ASCII letters, digits, dot, underscore and hyphen; maximum 64 characters). Invalid IDs are rejected during registry construction before they can enter public engine listings or lifecycle telemetry.
+- Lifecycle event engine IDs are normalized through the same safe identifier check; malformed identifiers are omitted rather than copied into diagnostics.
+- Added a regression test proving identifiers containing unsupported characters are rejected before any adapter is started.
+- Three-pass review: (1) compatibility — all current built-in test identifiers use the supported stable-ID grammar; (2) security — identifiers cannot smuggle arbitrary text into telemetry; (3) regression — constructor rejects unsafe IDs and retains duplicate-ID handling.
+- Commits: `61250956fd099d21e121ebe9cf038208dc8d7d3c` (identifier validation), `32f0f2ffb2c4876bbbc9f1c0099be12d44561cd4` (unsafe-ID regression test).
+- Test count: 31. Latest-head CI is still required.
