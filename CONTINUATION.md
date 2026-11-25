@@ -436,3 +436,16 @@ These are three distinct technical review passes by the same assistant, not thre
 - Current engine file was re-fetched after the correction: one `KingFusionEngine` declaration, one normalizer definition, one normalizer call site, and the verifier-timeout exception declaration are present. The regression test remains present.
 - Corrective commit: `bf8bba4bc4f115309cce09876bb28aa044d188e5`.
 - Exact-head CI run 3012 is pending for that corrective commit. Do not call the change validated until source guard, all Flutter tests, Dart analysis and ARM64 release build pass on the final head.
+
+
+## 2026-11-25 — Fusion cancellation and bounded native cleanup
+
+- Added optional `KingFusionCancellableTrafficVerifier`. The coordinator now races verification against a disconnect signal, so disconnect no longer waits for a verifier future that never completes. Cancellation is requested on both user disconnect and verifier timeout; late verifier completion is not allowed to turn a cancelled operation into success.
+- The base `KingFusionTrafficVerifier` contract remains source-compatible. Existing verifiers need not implement cancellation, but implementations that own sockets/probes should implement the optional cancellation interface and make `cancel()` idempotent.
+- Added configurable `nativeStopTimeout` (default 8 seconds, must be positive). Each native stop attempt is bounded; a timed-out/failed stop remains in the cleanup-pending list so a later disconnect can retry. Adapter `stop()` implementations must tolerate retries.
+- Added regression coverage for a verifier that never completes, cancellation requests on disconnect and timeout, and a native stop that never completes while retaining its cleanup handle.
+- Three-pass review: (1) lifecycle/API — cancellation is optional and the base verifier API is unchanged; (2) safety — disconnect signal wins over late verifier results, cleanup is bounded and failed handles are retained; (3) regression — new tests cover hung verifier and hung stop paths alongside prior start/rollback/verification cases.
+- Current source/test files re-fetched from the branch: `lib/king_fusion_engine.dart` contains one coordinator declaration and one failure-code normalizer/call site; `test/king_fusion_engine_test.dart` contains 19 Fusion tests including the new cancellation/timeout cases.
+- Commits: `49574a82010826f6d634e8cbafc0e501f2ac542c` (coordinator cancellation/stop timeout), `456650ffb06afc930faae5c0ba5605e37a6c0784` (new tests), `d6c138234d33bb5e6446c2a76b870f5a620a5c2b` (cancel verifier work on timeout), `ccd66b8bcae75e9c2a9a91174735f9590bb1371b` (assert cancellation behavior).
+- CI run 3012 passed on the prior syntax-repair commit `bf8bba4bc4f115309cce09876bb28aa044d188e5`. CI run 3021 is pending for the current test commit `ccd66b8bcae75e9c2a9a91174735f9590bb1371b`; current cancellation changes are not yet CI-validated.
+- Existing application V2Ray route remains unchanged. No device-level VPN tunnel verification or native engine integration is claimed.
