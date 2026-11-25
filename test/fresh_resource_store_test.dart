@@ -73,6 +73,7 @@ void main() {
 
     test('preserves distinct payloads and rejects a missing URI scheme', () {
       expect(FreshResourceStore.normalizeLink('vless:missing-separator'), isNull);
+      expect(FreshResourceStore.normalizeLink('vless://one@example.com:443\\nvless://two@example.com:443'), isNull);
       expect(
         FreshResourceStore.normalizeLinks([
           'vless://one@example.com:443',
@@ -99,6 +100,25 @@ void main() {
       expect(metadata['count'], values.length);
       expect(metadata['schema'], 2);
       expect(metadata['source'], 'test');
+    });
+
+    test('stream-native merge persists records without requiring an Iterable input', () async {
+      final total = await FreshResourceStore.mergeStream(
+        Stream<String>.fromIterable([
+          'vless://stream-a@example.com:443',
+          'vless://stream-b@example.com:443',
+        ]),
+        source: 'stream-test',
+      );
+
+      expect(total, 2);
+      expect(
+        await FreshResourceStore.readLinks(),
+        [
+          'vless://stream-a@example.com:443',
+          'vless://stream-b@example.com:443',
+        ],
+      );
     });
 
     test('failed replacement preserves the previous committed snapshot', () async {
