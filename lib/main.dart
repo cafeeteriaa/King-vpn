@@ -4971,9 +4971,6 @@ bool inRowGid(Server s, String gid) {
 final Map<String, String> _dohCache = {};
 final Map<String, List<String>> _dohCacheAll = {};
 final Map<String, DateTime> _dohCacheAt = {};
-int _dohFail = 0;
-DateTime? _dohFailAt;
-
 Future<List<String>> dohResolveAll(String name) async {
   final cached = _dohCacheAll[name];
   final single = _dohCache[name];
@@ -4992,18 +4989,10 @@ Future<List<String>> dohResolveAll(String name) async {
         ? List<String>.of(cached)
         : (single == null ? const <String>[] : [single]);
   }
-  if (_dohFail >= 6) {
-    final failAt = _dohFailAt;
-    if (failAt != null &&
-        DateTime.now().difference(failAt) < const Duration(minutes: 5)) {
-      return const <String>[];
-    }
-    _dohFail = 0;
-  }
-
   final found = <String>{};
-  for (var offset = 0; offset < _dohEps.length; offset += 4) {
-    final batch = _dohEps.skip(offset).take(4);
+  final dohConcurrency = natAdaptiveConcurrency(0);
+  for (var offset = 0; offset < _dohEps.length; offset += dohConcurrency) {
+    final batch = _dohEps.skip(offset).take(dohConcurrency);
     await Future.wait(batch.map((endpoint) async {
       final uri =
           Uri.parse(endpoint.replaceAll('%N', Uri.encodeComponent(name)));
@@ -5057,11 +5046,8 @@ Future<List<String>> dohResolveAll(String name) async {
     _dohCacheAll[name] = addresses;
     _dohCache[name] = preferred;
     _dohCacheAt[name] = DateTime.now();
-    _dohFail = 0;
     return addresses;
   }
-  _dohFail++;
-  _dohFailAt = DateTime.now();
   return const <String>[];
 }
 
@@ -11852,8 +11838,7 @@ ListTile( // KINGEXTRAS row
       tcpTimeout = const Duration(seconds: 6);
       delayTimeout = Duration(seconds: max(delayTimeout.inSeconds, 8).clamp(8, 12));
       natWorkers = natAdaptiveWorkers();
-      _dohFail = 0;
-    } catch (e, stk) {
+      } catch (e, stk) {
       logError(e, stk);
     }
   }
@@ -11873,8 +11858,7 @@ ListTile( // KINGEXTRAS row
       tcpTimeout = Duration(seconds: round >= 8 ? 10 : (round >= 4 ? 8 : 6));
       delayTimeout = Duration(seconds: max(delayTimeout.inSeconds, round >= 8 ? 18 : 14));
       natWorkers = natAdaptiveWorkers();
-      _dohFail = 0;
-      // NATSCAN: IP و دامنه‌ی سرورها قبل از تست سنگین بررسی می‌شوند
+        // NATSCAN: IP و دامنه‌ی سرورها قبل از تست سنگین بررسی می‌شوند
       if (runNationalMode) await _natMergeCache();
       if (abort || modeChanged()) return;
       if (runNationalMode) await _natMemoryReuse();

@@ -4339,6 +4339,17 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('preserves documentation-space IPv6', tests)
 
 
+    def test_doh_resolver_retries_all_endpoints_without_global_cooldown_or_fixed_batch_cap(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        start = main.index('Future<List<String>> dohResolveAll(String name)')
+        end = main.index('Future<String?> dohResolve(String name)', start)
+        doh = main[start:end]
+        self.assertIn('final dohConcurrency = natAdaptiveConcurrency(0);', doh)
+        self.assertIn('offset += dohConcurrency', doh)
+        self.assertIn('.take(dohConcurrency)', doh)
+        self.assertNotIn('_dohFail', doh)
+        self.assertNotIn('.take(4)', doh)
+
     def test_dns_scan_has_no_fixed_result_ratio_manual_national_quota_or_cooldown(self):
         source = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
         probe_start = source.index('Future<DnsxHit?> dnsxProbe(')
@@ -4384,6 +4395,8 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('blacklanternsecurity/public-dns-servers', resolver)
         self.assertNotIn('.take(', resolver)
         self.assertNotIn('sublist(', resolver)
+        self.assertIn('final normalizedSource = source', resolver)
+        self.assertIn("replaceAll(r'\\n', '\\n')", resolver)
 
         self.assertIn('kingMajesticDomainFromCsvLine', domains)
         self.assertIn('await for (final line in response.stream', domains)

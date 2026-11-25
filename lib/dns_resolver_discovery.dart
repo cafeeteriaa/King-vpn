@@ -7,7 +7,11 @@ import 'package:http/http.dart' as http;
 /// irrespective of scope; reachability is tested by the DNS scanner.
 List<String> kingParsePublicDnsResolvers(String source) {
   final found = <String>{};
-  for (final rawLine in source.split(RegExp(r'[\r\n]+'))) {
+  final normalizedSource = source
+      .replaceAll(r'\r\n', '\n')
+      .replaceAll(r'\n', '\n')
+      .replaceAll(r'\r', '\n');
+  for (final rawLine in normalizedSource.split(RegExp(r'[\r\n]+'))) {
     final line = rawLine.split('#').first.trim();
     if (line.isEmpty) continue;
     for (var token in line.split(RegExp(r'[\s,;]+'))) {
