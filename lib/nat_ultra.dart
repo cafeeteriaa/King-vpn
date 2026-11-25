@@ -2744,43 +2744,55 @@ List<String> natHotUrls() {
 }
 
 // فیکس ۱۱: split خط‌ها برای بدنه‌ی بزرگ لیست (top-level تا با compute کار کند)
-List<String> _hotSplitIso(String body) => body.split(RegExp(r'[\r\n]+'));
-
-Future<List<String>> _hotFetchOne(String u) async {
-  final out = <String>[];
+Future<int> _hotFetchOne(String u, String path) async {
   try {
     final r = await getListMirror(u);
-    if (r.statusCode != 200) return out;
+    if (r.statusCode != 200) return 0;
     var body = r.body.trim();
     if (body.contains('<html') || body.contains('<!DOCTYPE')) {
-      body = _linkRe
-          .allMatches(body.replaceAll('&amp;', '&'))
-          .map((m) => m.group(0)!)
-          .join('\n');
+      final html = body.replaceAll('&amp;', '&');
+      final lines = _linkRe.allMatches(html).map((m) => m.group(0)!);
+      return await _hotWriteSourceLines(u, path, lines);
     }
     if (!body.contains('://')) {
-      if (!RegExp(r'^[A-Za-z0-9+/=_\-\s]+$').hasMatch(body)) return out;
+      if (!RegExp(r'^[A-Za-z0-9+/=_\-\s]+$').hasMatch(body)) return 0;
       try {
         body = utf8.decode(
-            base64.decode(base64.normalize(body.replaceAll(RegExp(r'\s'), ''))),
-            allowMalformed: true);
-      } catch (jex, jstk) { errJournalAdd(jex, st: jstk);
-        return out;
+          base64.decode(base64.normalize(body.replaceAll(RegExp(r'\s'), ''))),
+          allowMalformed: true,
+        );
+      } catch (e, st) {
+        errJournalAdd(e, st: st);
+        return 0;
       }
     }
-    // فیکس ۱۱: split روی رشته‌ی چند مگابایتی در isolate انجام می‌شود
-    final lines = await compute(_hotSplitIso, body);
-    for (final l in lines) {
-      final t = l.trim();
-      if (!t.contains('://') || t.contains('[email') || t.contains('protected]')) {
-        continue;
-      }
-      out.add('$u\t$t');
-    }
+    return await _hotWriteSourceLines(u, path, const LineSplitter().split(body));
   } catch (e, stk) {
     logError(e, stk);
+    return 0;
   }
-  return out;
+}
+
+Future<int> _hotWriteSourceLines(
+    String source, String path, Iterable<String> lines) async {
+  final sink = File(path).openWrite();
+  var count = 0;
+  try {
+    for (final line in lines) {
+      final value = line.trim();
+      if (!value.contains('://') ||
+          value.contains('[email') ||
+          value.contains('protected]')) {
+        continue;
+      }
+      sink.writeln('$source\t$value');
+      count++;
+    }
+    await sink.flush();
+  } finally {
+    await sink.close();
+  }
+  return count;
 }
 
 Future<void>? _hotEnsureFuture;
@@ -2820,9 +2832,7 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
       await pool<int>([for (var i = 0; i < urls.length; i++) i], fetchWorkers,
           (i) async {
         if (sw.elapsed > natHotFetchDeadline) return;
-        final lines = await _hotFetchOne(urls[i]);
-        if (lines.isEmpty) return;
-        await File(parts[i]).writeAsString(lines.join('\n'), flush: true);
+        await _hotFetchOne(urls[i], parts[i]);
       });
       final extraSrc = natExtraSource?.call() ?? const <Server>[];
       if (extraSrc.isNotEmpty) {
