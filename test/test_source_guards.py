@@ -1705,7 +1705,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         body = nat[start:end]
         self.assertIn('await _natLoadRangeCursors();', body)
         self.assertIn("final portPrefix = '$modeKey:port:$port:';", body)
-        self.assertIn('final scanLimit = min(maxAddrs, estimatedCapacity).toInt();', body)
+        self.assertIn('final scanLimit = maxAddrs == null', body)
         scan = body.index('await natScanIps(')
         progress = body.index('onProgress: (done, total, _) => completed = done,', scan)
         complete_guard = body.index('completed < slice.length', progress)
@@ -2595,7 +2595,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('perPortCap', body)
         self.assertNotIn('for (final port in portList)', body)
         self.assertNotIn('DateTime.now().add(budget)', body)
-        self.assertIn('int maxAddrs = 8192,', source[source.index('Future<List<String>> natRangeScanStep('):source.index('Future<List<String>> _natRangeScanStepBody(')])
+        self.assertIn('int? maxAddrs,', source[source.index('Future<List<String>> natRangeScanStep('):source.index('Future<List<String>> _natRangeScanStepBody(')])
 
     def test_dns_wire_probe_cancellation_closes_pending_udp_work(self):
         core = (ROOT / 'lib' / 'nnie_core.dart').read_text(encoding='utf-8')
@@ -3302,12 +3302,12 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
         scan_start = nip.index('Future<bool> _natTryScan(')
         scan = nip[scan_start:]
-        self.assertIn('const ipBatchSize = 256;', scan)
+        self.assertIn('final ipBatchSize = max(1, natAdaptiveConcurrency(0) * 32);', scan)
         self.assertIn('want: scanBatch.length,', scan)
         self.assertIn('while (completed < scanBatch.length)', scan)
         self.assertIn('onProgress: (done, total)', scan)
         self.assertNotIn('want: ips.length,', scan)
-        self.assertIn('for (var offset = 0; offset < hits.length; offset += 8)', scan)
+        self.assertIn('for (var offset = 0; offset < hits.length; offset += validationBatchSize)', scan)
         self.assertIn('_connectLoop(candidates, trust: false)', scan)
         self.assertIn('final winner = current;', scan)
         self.assertIn('if (winner != null) _natAdd(winner);', scan)

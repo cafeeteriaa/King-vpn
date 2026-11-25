@@ -981,7 +981,7 @@ List<int> _natOrder(Server s, {bool full = false}) {
   for (var k = head; k < gens.length; k++) {
     put(gens[k]);
   }
-  if (lvl >= 3 && !again) {
+  if (!again) {
     for (var i = 1; i <= _natTestUrls.length; i++) {
       for (final v in const [2, 8, 13]) {
         if (_natAppliesF(f, v)) put(i * _natCodeBase + v);
@@ -2014,9 +2014,10 @@ int _ipToInt(String ip) {
 String _intToIp(int v) =>
     '${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}';
 
-List<String> natExpandAny(String item, {int maxPerBlock = 65536}) {
-  if (maxPerBlock <= 0) return const [];
-  return _natExpandAnyCursorWide(item, '0', maxPerBlock).$1;
+List<String> natExpandAny(String item, {int? maxPerBlock}) {
+  final effectiveBatch = maxPerBlock ?? max(1, Platform.numberOfProcessors * 16384);
+  if (effectiveBatch <= 0) return const [];
+  return _natExpandAnyCursorWide(item, '0', effectiveBatch).$1;
 }
 
 const List<String> natIranDnsHosts = [
@@ -2365,8 +2366,8 @@ bool _natRangeScanBusy = false;
 
 Future<List<String>> natRangeScanStep({
   required List<Server> known,
-  int maxAddrs = 8192,
-  int conc = 4,
+  int? maxAddrs,
+  int conc = 0,
   bool Function()? stop,
   Duration budget = const Duration(minutes: 2),
 }) async {
@@ -2382,15 +2383,16 @@ Future<List<String>> natRangeScanStep({
 
 Future<List<String>> _natRangeScanStepBody({
   required List<Server> known,
-  int maxAddrs = 2048,
-  int conc = 4,
+  int? maxAddrs,
+  int conc = 0,
   bool Function()? stop,
   Duration budget = const Duration(minutes: 2),
 }) async {
   final modeSnapshot = nationalMode;
   bool shouldAbort() =>
       (stop?.call() ?? false) || nationalMode != modeSnapshot;
-  if (!kNatIpScanOn || shouldAbort() || budget <= Duration.zero || maxAddrs <= 0) {
+  if (!kNatIpScanOn || shouldAbort() || budget <= Duration.zero ||
+      (maxAddrs != null && maxAddrs <= 0)) {
     return const <String>[];
   }
 
@@ -2453,7 +2455,9 @@ Future<List<String>> _natRangeScanStepBody({
             effectiveConcurrency * 0.65)
         .floor(),
   );
-  final scanLimit = min(maxAddrs, estimatedCapacity).toInt();
+  final scanLimit = maxAddrs == null
+      ? estimatedCapacity
+      : min(maxAddrs, estimatedCapacity).toInt();
 
   final configuredStart =
       int.tryParse(localOffsets['__range_cursor']?.toString() ?? '') ?? 0;

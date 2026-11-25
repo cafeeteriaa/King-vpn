@@ -395,7 +395,15 @@ Future<void> autoScanRun(void Function(String) say,
     // hosts, and hostnames already present in the saved working server pool.
     // A failed handshake never removes a name; the persisted cursor rotates
     // through the complete merged inventory on subsequent completed runs.
+    final discoveredGlobalDomains = scanNationalMode
+        ? const <String>[]
+        : await kingDiscoverGlobalDnsDomains();
+    if (cancelled()) {
+      say(cancellationMessage());
+      return;
+    }
     final domainSources = <String>{
+      ...discoveredGlobalDomains,
       ...kAutoNationalSniDomains,
       ...kAutoSniDomains,
       ...dnsxFullDomains(),

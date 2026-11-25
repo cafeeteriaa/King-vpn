@@ -202,8 +202,9 @@ Future<List<String>> _ipAutoBlocks(Iterable<Server> knownServers) async {
   // configured VPN server records. Do not enumerate unrelated ISP/CDN CIDRs.
   final ips = <String>{};
   final servers = knownServers.toList(growable: false);
-  for (var offset = 0; offset < servers.length; offset += 8) {
-    final batch = servers.skip(offset).take(8);
+  final resolveConcurrency = natAdaptiveConcurrency(0);
+  for (var offset = 0; offset < servers.length; offset += resolveConcurrency) {
+    final batch = servers.skip(offset).take(resolveConcurrency);
     final resolved = await Future.wait(batch.map((server) async {
       if (server.isIp) return <String>[server.host];
       return await nipResolveAll(server.host);
@@ -348,7 +349,12 @@ extension IpAutoExt on _HomePageState {
     final baseCandidates = <String>{
       for (final entry in _goldIps.values) entry.ip,
     };
+    final discoveredGlobalDomains = runNationalMode
+        ? const <String>[]
+        : await kingDiscoverGlobalDnsDomains();
+    if (halted()) return false;
     final domainSources = <String>{
+      ...discoveredGlobalDomains,
       ...kAutoNationalSniDomains,
       ...kAutoSniDomains,
       ...dnsxFullDomains(),

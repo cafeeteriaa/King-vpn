@@ -12,22 +12,23 @@ class NipHit {
 
 /// بلوک CIDR مثل «5.160.0.0/16» را به فهرست IP تبدیل می‌کند.
 /// برای بلوک‌های بزرگ فقط [maxPerBlock] آدرس پراکنده برمی‌گرداند.
-List<String> nipExpandCidr(String cidr, {int maxPerBlock = 4096}) {
-  if (maxPerBlock <= 0) return const <String>[];
+List<String> nipExpandCidr(String cidr, {int? maxPerBlock}) {
+  final effectiveBatch = maxPerBlock ?? max(1, Platform.numberOfProcessors * 4096);
+  if (effectiveBatch <= 0) return const <String>[];
   final parts = cidr.trim().split('/');
   if (parts.length == 2) {
     final address = InternetAddress.tryParse(parts[0].trim());
     if (address?.type == InternetAddressType.IPv4) {
-      return natExpandCidr(cidr, maxPerBlock: maxPerBlock);
+      return natExpandCidr(cidr, maxPerBlock: effectiveBatch);
     }
     if (address?.type == InternetAddressType.IPv6) {
-      return natExpandIpv6Cidr(cidr, maxPerBlock: maxPerBlock);
+      return natExpandIpv6Cidr(cidr, maxPerBlock: effectiveBatch);
     }
   }
   return natExpandIpRangeCursor(
     cidr,
     '0',
-    maxPerBlock: maxPerBlock,
+    maxPerBlock: effectiveBatch,
   ).addresses;
 }
 
@@ -149,8 +150,7 @@ Future<void> _nipSaveHuntCursors(Map<String, dynamic> cursors) async {
 /// IPv4 and IPv6 prefixes announced for Iran by RIPE, cached together.
 Future<List<String>> nipIranCidrs() async {
   final prefs = await SharedPreferences.getInstance();
-  final cached = prefs.getStringList('plus_ir_cidr_v2');
-  if (cached != null && cached.isNotEmpty) return cached;
+  final cached = prefs.getStringList('plus_ir_cidr_v2') ?? const <String>[];
   final legacyV4 = prefs.getStringList('plus_ir_cidr') ?? const <String>[];
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
   try {
@@ -161,13 +161,14 @@ Future<List<String>> nipIranCidrs() async {
     final response = await request.close().timeout(const Duration(seconds: 20));
     final body = await response.transform(utf8.decoder).join();
     final decoded = jsonDecode(body);
-    if (decoded is! Map) return legacyV4;
+    if (decoded is! Map) return {...cached, ...legacyV4}.toList(growable: false);
     final data = decoded['data'];
     final resources = data is Map ? data['resources'] : null;
-    if (resources is! Map) return legacyV4;
+    if (resources is! Map) return {...cached, ...legacyV4}.toList(growable: false);
     final ipv4 = resources['ipv4'];
     final ipv6 = resources['ipv6'];
     final ranges = <String>{
+      ...cached,
       ...legacyV4,
       if (ipv4 is List) ...ipv4.map((value) => '$value').where((value) => value.contains('/')),
       if (ipv6 is List) ...ipv6.map((value) => '$value').where((value) => value.contains('/')),
@@ -297,7 +298,8 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
   final cached = prefs.getStringList(cacheKey);
   if (cached != null && cached.isNotEmpty) return cached;
   // RIPE is external; while international access is unavailable, use valid cache only.
-  if (NatNetworkDiagnosis.preferDomestic) return const [];
+  // ASN/prefix discovery remains available in either network mode; a failed
+  // external lookup is retried later rather than hidden by a mode gate.
   final failAt = _asnFailAt[ip];
   // Failed RIPE lookups remain retryable; no fixed failure cooldown hides them.
   try {
@@ -312,8 +314,9 @@ Future<List<String>> nipAsnPrefixes(String ip) async {
         ((jsonDecode(response.body)['data']?['asns']) as List?) ?? const [];
     final asns = rawAsns.map((value) => value.toString()).toList(growable: false);
     final out = <String>{};
-    for (var offset = 0; offset < asns.length; offset += 4) {
-      final batch = asns.skip(offset).take(4);
+    final asnConcurrency = natAdaptiveConcurrency(0);
+    for (var offset = 0; offset < asns.length; offset += asnConcurrency) {
+      final batch = asns.skip(offset).take(asnConcurrency);
       await Future.wait(batch.map((asn) async {
         try {
           final result = await http
@@ -607,7 +610,7 @@ extension NipHunt on _HomePageState {
     // A DNS hostname can resolve to more endpoints than one two-minute
     // probe window can cover. Process every resolved address in resumable-size
     // slices; do not advance the template cursor after only the first slice.
-    const ipBatchSize = 256;
+    final ipBatchSize = max(1, natAdaptiveConcurrency(0) * 32);
     final totalBatches = (ips.length + ipBatchSize - 1) ~/ ipBatchSize;
     for (var ipOffset = 0; ipOffset < ips.length; ipOffset += ipBatchSize) {
       if (abort) return false;

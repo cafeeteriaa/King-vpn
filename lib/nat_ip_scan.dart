@@ -218,8 +218,9 @@ class NatIpHit {
 
 /// بلوک CIDR مثل «5.160.0.0/16» را به فهرست IP تبدیل می‌کند.
 /// برای بلوک‌های بزرگ، فقط [maxPerBlock] آدرس پراکنده برمی‌گرداند.
-List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
-  if (maxPerBlock <= 0) return const [];
+List<String> natExpandCidr(String cidr, {int? maxPerBlock}) {
+  final effectiveBatch = maxPerBlock ?? max(1, Platform.numberOfProcessors * 4096);
+  if (effectiveBatch <= 0) return const [];
   final parts = cidr.trim().split('/');
   if (parts.length != 2) return const [];
   final octets = parts[0].split('.');
@@ -237,7 +238,7 @@ List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
   final start = base & ~(size - 1) & 0xFFFFFFFF;
   // Ceiling division is required: floor division can exceed maxPerBlock
   // for non-divisible subnet sizes (e.g. /24 with a limit of 100 yields 128).
-  final step = size > maxPerBlock ? (size + maxPerBlock - 1) ~/ maxPerBlock : 1;
+  final step = size > effectiveBatch ? (size + effectiveBatch - 1) ~/ effectiveBatch : 1;
   final out = <String>[];
   for (var i = 0; i < size; i += step) {
     final v = start + i;
@@ -248,8 +249,9 @@ List<String> natExpandCidr(String cidr, {int maxPerBlock = 4096}) {
 
 /// Expand an IPv6 CIDR in deterministic, evenly spaced chunks.
 /// IPv6 ranges are 128-bit; BigInt avoids truncation to Dart's 64-bit int.
-List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
-  if (maxPerBlock <= 0) return const [];
+List<String> natExpandIpv6Cidr(String cidr, {int? maxPerBlock}) {
+  final effectiveBatch = maxPerBlock ?? max(1, Platform.numberOfProcessors * 4096);
+  if (effectiveBatch <= 0) return const [];
   final parts = cidr.trim().split('/');
   if (parts.length != 2) return const [];
   final address = InternetAddress.tryParse(parts[0].trim());
@@ -271,10 +273,10 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
   final mask = prefix == 0 ? BigInt.zero :
       ((BigInt.one << 128) - BigInt.one) ^ (size - BigInt.one);
   base &= mask;
-  final count = size > BigInt.from(maxPerBlock)
-      ? maxPerBlock : size.toInt();
-  final step = size > BigInt.from(maxPerBlock)
-      ? (size + BigInt.from(maxPerBlock) - BigInt.one) ~/ BigInt.from(maxPerBlock)
+  final count = size > BigInt.from(effectiveBatch)
+      ? effectiveBatch : size.toInt();
+  final step = size > BigInt.from(effectiveBatch)
+      ? (size + BigInt.from(effectiveBatch) - BigInt.one) ~/ BigInt.from(effectiveBatch)
       : BigInt.one;
   final out = <String>[];
   for (var i = 0; i < count; i++) {
@@ -294,10 +296,11 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
 ({List<String> addresses, String nextCursor}) natExpandIpRangeCursor(
   String range,
   String cursor, {
-  int maxPerBlock = 4096,
+  int? maxPerBlock,
   bool wrap = true,
 }) {
-  if (maxPerBlock <= 0 || cursor == 'done') {
+  final effectiveBatch = maxPerBlock ?? max(1, Platform.numberOfProcessors * 4096);
+  if (effectiveBatch <= 0 || cursor == 'done') {
     return (addresses: const <String>[], nextCursor: cursor);
   }
   // Persisted cursors may be stale or malformed. A negative offset would
@@ -377,7 +380,7 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
       : (wrap
           // A wrapped slice may cross the range boundary, but never repeats
           // an address inside the same batch when the range is smaller.
-          ? (size < BigInt.from(maxPerBlock) ? size.toInt() : maxPerBlock)
+          ? (size < BigInt.from(effectiveBatch) ? size.toInt() : maxPerBlock)
           : min(
               maxPerBlock,
               remaining > BigInt.from(maxPerBlock) ? maxPerBlock : remaining.toInt(),
@@ -408,7 +411,7 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
 ({List<String> addresses, String nextCursor}) natExpandIpv6RangeCursor(
   String range,
   String cursor, {
-  int maxPerBlock = 4096,
+  int? maxPerBlock,
 }) {
   bool ipv6;
   if (range.contains('/')) {
@@ -429,8 +432,9 @@ List<String> natExpandIpv6Cidr(String cidr, {int maxPerBlock = 4096}) {
 
 /// Linear IPv4 or IPv6 address range. Large ranges are returned as a
 /// resumable-sized slice; use natExpandIpRangeCursor for subsequent slices.
-List<String> natExpandDash(String range, {int maxCount = 65536}) {
-  if (maxCount <= 0) return const [];
+List<String> natExpandDash(String range, {int? maxCount}) {
+  final effectiveCount = maxCount ?? max(1, Platform.numberOfProcessors * 16384);
+  if (effectiveCount <= 0) return const [];
   final parts = range.trim().split('-');
   if (parts.length != 2) return const [];
   final startAddress = InternetAddress.tryParse(parts[0].trim());
@@ -440,7 +444,7 @@ List<String> natExpandDash(String range, {int maxCount = 65536}) {
     return natExpandIpRangeCursor(
       range,
       '0',
-      maxPerBlock: maxCount,
+      maxPerBlock: effectiveCount,
     ).addresses;
   }
   int? toInt(String ip) {
@@ -461,7 +465,7 @@ List<String> natExpandDash(String range, {int maxCount = 65536}) {
   final first = min(a, b);
   final last = max(a, b);
   final count = last - first + 1;
-  final step = count > maxCount ? (count + maxCount - 1) ~/ maxCount : 1; // مشکل ۱۵: سقف رعایت شود
+  final step = count > effectiveCount ? (count + effectiveCount - 1) ~/ effectiveCount : 1; // مشکل ۱۵: سقف رعایت شود
   final out = <String>[];
   for (var v = first; v <= last; v += step) {
     out.add('${(v >> 24) & 255}.${(v >> 16) & 255}.${(v >> 8) & 255}.${v & 255}');

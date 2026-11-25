@@ -262,7 +262,7 @@ class NatNetworkDiagnosis {
       if (globalDnsOk && !globalTcpOk && domesticTcpOk) {
         final answered = [
           for (final r in globalDnsRes) if (r.ok) ...r.addresses,
-        ].toSet().take(2).toList();
+        ].toSet().toList(growable: false);
         final reach = await Future.wait(answered.map(_tcpOk));
         poison = reach.isNotEmpty && !reach.any((x) => x);
       }
