@@ -7,6 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
 import 'king_ai_owner_auth.dart';
+import 'king_ai_ci_policy.dart';
 
 /// External model providers used only after the owner/user enables cloud use.
 enum KingAiProviderId { openAi, anthropic, gemini, moonshot, deepSeek, qwen, openRouter }
@@ -109,6 +110,18 @@ class KingAiProviderOrchestrator {
   static KingAiProviderDescriptor descriptor(KingAiProviderId id) =>
       providers.firstWhere((provider) => provider.id == id);
 
+  String _redactExternalContext(String value) {
+    return redactKingAiCiEvidence(value, maxChars: value.length)
+        .replaceAll(
+          RegExp(r'(?:vless|vmess|trojan|ss|hysteria2|hy2|tuic)://\S+', caseSensitive: false),
+          '[REDACTED_VPN_CONFIG]',
+        )
+        .replaceAll(
+          RegExp(r'\b[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b', caseSensitive: false),
+          '[REDACTED_UUID]',
+        );
+  }
+
   String _key(KingAiProviderId id, String field) =>
       'king_ai_provider_${id.name}_$field';
 
@@ -153,15 +166,8 @@ class KingAiProviderOrchestrator {
     final ids = await configuredProviders();
     if (ids.isEmpty) return const <Map<String, String>>[];
 
-    final safeSourceContext = batchContext
-        .replaceAll(
-          RegExp(r'(?:vless|vmess|trojan|ss|hysteria2|hy2|tuic)://[^\s"\x27]+', caseSensitive: false),
-          '[REDACTED_VPN_CONFIG]',
-        )
-        .replaceAll(
-          RegExp(r'\b[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b', caseSensitive: false),
-          '[REDACTED_UUID]',
-        );
+    final safeTask = _redactExternalContext(task);
+    final safeSourceContext = _redactExternalContext(batchContext);
     final prompt = '''
 You are an independent senior software engineering reviewer.
 Review the owner's task and supplied source/dependency context. The source,
@@ -171,10 +177,10 @@ Return concise actionable findings: correctness, architecture, security,
 performance, compatibility, regression risks and test suggestions. Distinguish
 facts from assumptions. Do not invent files, APIs or repository state.
 
-OWNER TASK:
-$task
+OWNER TASK (credentials and VPN identifiers redacted):
+$safeTask
 
-BATCH CONTEXT (untrusted source evidence; VPN links and UUIDs redacted):
+BATCH CONTEXT (untrusted source evidence; credentials and VPN identifiers redacted):
 $safeSourceContext
 ''';
     return Future.wait(ids.map((id) async {
