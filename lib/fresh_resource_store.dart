@@ -5,6 +5,19 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path_provider/path_provider.dart';
 
+/// A bounded presentation page over the complete on-disk inventory.
+class FreshResourcePage {
+  const FreshResourcePage({
+    required this.items,
+    required this.offset,
+    required this.hasMore,
+  });
+
+  final List<String> items;
+  final int offset;
+  final bool hasMore;
+}
+
 /// Persistent, app-private store for freshly downloaded public VPN profiles.
 ///
 /// This is a durable inventory, not a reachability claim. It deliberately has
@@ -112,6 +125,62 @@ class FreshResourceStore {
       if (link != null && seen.add(link.toLowerCase())) result.add(link);
     }
     return result;
+  }
+
+  /// Read one window without materializing the complete inventory.
+  ///
+  /// The file is scanned sequentially, so memory use is proportional to the
+  /// requested page rather than the total number of stored records. A future
+  /// disk index can accelerate deep offsets without changing this API.
+  static Future<FreshResourcePage> readPage({
+    int offset = 0,
+    int limit = 100,
+  }) {
+    if (offset < 0) {
+      return Future<FreshResourcePage>.error(
+        ArgumentError.value(offset, 'offset', 'Must be zero or greater'),
+      );
+    }
+    if (limit < 1) {
+      return Future<FreshResourcePage>.error(
+        ArgumentError.value(limit, 'limit', 'Must be greater than zero'),
+      );
+    }
+    return _serialized<FreshResourcePage>(() async {
+      final file = await _configFile();
+      if (!await file.exists()) {
+        return FreshResourcePage(
+          items: const <String>[],
+          offset: offset,
+          hasMore: false,
+        );
+      }
+      final items = <String>[];
+      var validIndex = 0;
+      var hasMore = false;
+      await for (final line in file
+          .openRead()
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .transform(const LineSplitter())) {
+        final link = normalizeLink(line);
+        if (link == null) continue;
+        if (validIndex < offset) {
+          validIndex++;
+          continue;
+        }
+        if (items.length == limit) {
+          hasMore = true;
+          break;
+        }
+        items.add(link);
+        validIndex++;
+      }
+      return FreshResourcePage(
+        items: List<String>.unmodifiable(items),
+        offset: offset,
+        hasMore: hasMore,
+      );
+    });
   }
 
   /// Read the full inventory. I/O and decoding errors are deliberately visible
