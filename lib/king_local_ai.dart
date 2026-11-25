@@ -1549,7 +1549,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       };
     }
 
-    final safeCandidate = changes.isNotEmpty &&
+    final safeCandidate = changes.length <= 2 &&
         changes.entries.every((entry) =>
             (entry.key.startsWith('lib/') || entry.key.startsWith('test/')) &&
             context.containsKey(entry.key) &&

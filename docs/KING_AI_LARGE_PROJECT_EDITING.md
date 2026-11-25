@@ -10,8 +10,9 @@ changes are represented as one coherent change set and one review-only pull requ
 
 - Repository discovery no longer truncates candidates to 40 files or selected paths to 6.
 - Repository source reads no longer reject files at 16 KB, 4 KB, or an aggregate 7.5 KB.
-- Proposal generation no longer rejects more than 6 source files or more than 3 changed files. The autonomous maintenance proposal also no longer imposes its former two-file ceiling.
+- Proposal generation no longer rejects more than 6 source files or more than 3 changed files.
 - Documentation under `docs/` and root-level Markdown files can be included in project context; native VPN/service code, owner/security policy, CI, and dependency manifests remain protected.
+- Owner-requested feature proposals and CI repair changes have no two-file quota. The separate autonomous background maintenance audit intentionally retains its two-file safety boundary and review-only behavior.
 - Pull-request creation accepts the complete validated change map.
 - Source prompts are no longer silently truncated at 18 KB; incomplete context must not
   be passed off as complete context.

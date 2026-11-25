@@ -54,9 +54,15 @@ class LargeProjectEditingGuards(unittest.TestCase):
         self.assertIn("Large-file chunks must be edited with patch operations", self.source)
         self.assertIn("chunkedOperations", self.source)
 
-    def test_maintenance_pipeline_has_no_two_file_change_ceiling(self):
-        self.assertNotIn("changes.length <= 2", self.source)
-        self.assertIn("final safeCandidate = changes.isNotEmpty", self.source)
+    def test_owner_feature_proposals_are_not_limited_to_two_files(self):
+        start = self.source.index("Future<Map<String, Object?>> createOwnerFeatureProposal(")
+        end = self.source.index("Future<void> dispose()", start)
+        owner_proposal = self.source[start:end]
+        self.assertNotIn("changes.length <= 2", owner_proposal)
+        audit_start = self.source.index("Future<Map<String, Object?>> createAutonomousMaintenanceProposal(")
+        audit_end = self.source.index("Future<void> dispose()", audit_start)
+        autonomous_audit = self.source[audit_start:audit_end]
+        self.assertIn("changes.length <= 2", autonomous_audit)
 
     def test_documentation_paths_are_available_without_opening_native_or_ci_paths(self):
         self.assertIn("path.startsWith('docs/')", self.source)
