@@ -2960,7 +2960,7 @@ Future<_HotIdx?> _hotLoad() async {
   }
 }
 
-Future<List<Server>> natHotNext(int n,
+Future<List<Server>> natHotNext(int? n,
     {bool fetch = true, bool retried = false}) async {
   try {
     if (fetch) unawaited(natHotEnsure());
@@ -2979,10 +2979,12 @@ Future<List<Server>> natHotNext(int n,
         return natHotNext(n, fetch: false, retried: true);
       }
       var read = 0;
-      while (out.length < n && read < lines) {
+      while ((n == null || out.length < n) && read < lines) {
         var start = _hotCursor;
         if (start >= lines) start = 0;
-        final take = min(min(n - out.length, lines - start), lines - read);
+        final take = n == null
+            ? min(lines - start, lines - read)
+            : min(min(n - out.length, lines - start), lines - read);
         final from = h.offs[start];
         final to = h.offs[start + take];
         await raf.setPosition(from);
