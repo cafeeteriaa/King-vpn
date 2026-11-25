@@ -81,6 +81,7 @@ abstract interface class KingEngineAdapter {
 enum KingFusionState { idle, starting, connected, stopping, failed }
 
 class KingFusionResult {
+  /// All adapters accepted their start calls; this is not end-to-end traffic proof.
   final bool connected;
   final String? failedEngineId;
   final String? failureCode;
@@ -156,6 +157,14 @@ class KingFusionEngine {
       List<KingEngineDescriptor>.unmodifiable(
         _adapters.values.map((adapter) => adapter.descriptor),
       );
+
+  /// Adapter IDs still tracked because native cleanup has not succeeded.
+  List<String> get cleanupPendingEngineIds =>
+      List<String>.unmodifiable(
+        _active.map((item) => item.adapter.descriptor.id),
+      );
+
+  bool get isBusy => _busy;
 
   Future<KingFusionResult> connect(KingFusionPlan plan) async {
     if (_busy) {
