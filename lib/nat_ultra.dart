@@ -2139,23 +2139,11 @@ Future<List<String>> _natDomainFirst(List<Server> known,
         if (cancelled()) return out;
         final batch = ips.skip(offset).take(batchSize).toList(growable: false);
         var completed = 0;
-        final hits = await natScanIps(
-          batch,
-          port: entry.key,
-          concurrency: effectiveConcurrency,
-          want: batch.length,
-          budget: const Duration(seconds: 10),
-          timeout: const Duration(milliseconds: 1200),
-          cancelled: cancelled,
-          onProgress: (done, total, _) => completed = done,
-        );
-        if (cancelled()) return out;
-        // A batch is committed only when every endpoint received a result.
-        // Per-socket timeouts bound each attempt; a retry never skips its tail.
+        final batchHits = <String, NatIpHit>{};
         while (completed < batch.length) {
           if (cancelled()) return out;
           completed = 0;
-          final retryHits = await natScanIps(
+          final attemptHits = await natScanIps(
             batch,
             port: entry.key,
             concurrency: effectiveConcurrency,
@@ -2166,10 +2154,11 @@ Future<List<String>> _natDomainFirst(List<Server> known,
             onProgress: (done, total, _) => completed = done,
           );
           if (cancelled()) return out;
-          out.addAll(retryHits.map((hit) => '${hit.ip}|${entry.key}'));
-          natDomainOpen = out.length;
+          for (final hit in attemptHits) {
+            batchHits.putIfAbsent(hit.ip, () => hit);
+          }
         }
-        out.addAll(hits.map((hit) => '${hit.ip}|${entry.key}'));
+        out.addAll(batchHits.values.map((hit) => '${hit.ip}|${entry.key}'));
         natDomainOpen = out.length;
       }
     }
