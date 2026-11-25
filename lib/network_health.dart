@@ -66,13 +66,21 @@ class NetworkEvidence {
   double get confidence {
     // Count actual successful TLS handshakes, not attempts. Failed probes are
     // evidence for route classification but must never inflate reachability confidence.
-    final successfulSamples = (domesticSuccesses + globalSuccesses).clamp(0, 6);
+    // Clamp each success count to the number of probes actually attempted in
+    // that group (three targets per group). Defensive bounds keep malformed or
+    // stale snapshots from claiming more evidence than the scanner collected.
+    final domesticCount =
+        domesticSuccesses.clamp(0, domesticSamples.clamp(0, 3)).toInt();
+    final globalCount =
+        globalSuccesses.clamp(0, globalSamples.clamp(0, 3)).toInt();
+    final successfulSamples = domesticCount + globalCount;
     if (successfulSamples <= 0) return 0;
     // The dedicated pilot scanner samples exactly three domestic and three global targets.
     // Six successful samples with both groups verified reach 100%.
     final coverage = (successfulSamples / 6).clamp(0, 1).toDouble();
-    final verified = (domesticTlsReachabilityVerified ? 1 : 0) +
-        (globalTlsReachabilityVerified ? 1 : 0);
+    final verified =
+        (domesticTlsReachabilityVerified && domesticCount >= 2 ? 1 : 0) +
+        (globalTlsReachabilityVerified && globalCount >= 2 ? 1 : 0);
     return (coverage * (0.55 + verified * 0.225)).clamp(0, 1).toDouble();
   }
 }
