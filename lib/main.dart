@@ -558,7 +558,6 @@ int firstBatchSize = 100; // FAST100: دسته اول هم ۱۰۰تایی
 int fetchWorkers = 16;
 Duration fetchDeadline = const Duration(seconds: 60);
 int tcpWorkers = 20;
-int maxPerSource = 120;
 Duration tcpTimeout = const Duration(milliseconds: 3500);
 // TLS handshakes in the prefilter leaked sockets (crash, instant failures)
 const probeTls = false;
@@ -4713,10 +4712,13 @@ Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async 
   srcFetchCount.clear();
   final all = <String, Server>{};
   final sw = Stopwatch()..start();
-  final dl = quickCap != null ? const Duration(seconds: 12) : fetchDeadline;
+  // Full discovery walks every configured source and every parseable record.
+  // Only the explicitly requested quick-connect path has an early-return budget.
   // لینک‌های اضافه‌ی کاربر اول دریافت می‌شوند
   await pool<String>([...userListUrls, ...listUrls], fetchWorkers, (u) async {
-    if ((stop?.call() ?? false) || sw.elapsed > dl || (quickCap != null && all.length >= quickCap)) {
+    if ((stop?.call() ?? false) ||
+        (quickCap != null &&
+            (sw.elapsed >= const Duration(seconds: 12) || all.length >= quickCap))) {
       srcFetchState[u] = 'skip';
       return;
     }
@@ -4761,7 +4763,8 @@ Future<List<Server>> fetchServers({bool Function()? stop, int? quickCap}) async 
         ..shuffle();
       var pn = 0;
       var okN = 0;
-      for (final l in lines.take(quickCap != null ? 30 : maxPerSource)) {
+      final sourceLines = quickCap == null ? lines : lines.take(30);
+      for (final l in sourceLines) {
         final s = Server.parse(l);
         if (s != null) {
           s.src = u;
@@ -6815,8 +6818,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // QUICKLIST: اولین دریافت (و نه بعد از اتصال) فقط ~۲۰۰ سرور؛ لیست کامل بعد از اتصال می‌آید
         // FASTLIST: اتصال عادی هم مثل خلبان با ~۲۰۰ سرور اول شروع می‌کند و سقف ۲۵ ثانیه‌ای دارد
         final quick = !bg && !connected && !nationalMode && !offlineOnly;
-        final f = await fetchServers(stop: () => abort, quickCap: quick ? 200 : null)
-            .timeout(const Duration(seconds: 25), onTimeout: () => <Server>[]);
+        final f = await fetchServers(stop: () => abort, quickCap: quick ? 200 : null);
         _listPartial = quick && f.isNotEmpty;
         if (f.isNotEmpty) {
           // lists that were "dead" get a new chance with the new content
