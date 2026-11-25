@@ -2767,9 +2767,11 @@ Future<int> _hotFetchOne(String u, String path) async {
     if (response.statusCode != 200) return 0;
     final sink = spool.openWrite();
     try {
-      await response.stream.pipe(sink);
-    } finally {
+      await for (final chunk in response.stream) {
+        sink.add(chunk);
+      }
       await sink.flush();
+    } finally {
       await sink.close();
     }
     final size = await spool.length();
