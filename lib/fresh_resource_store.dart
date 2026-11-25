@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path_provider/path_provider.dart';
 
+import 'fresh_resource_offset_index.dart';
+
 /// A bounded presentation page over the complete on-disk inventory.
 class FreshResourcePage {
   const FreshResourcePage({
@@ -70,6 +72,9 @@ class FreshResourceStore {
 
   static Future<File> _metadataFile() async =>
       File('${(await directory()).path}/$_metadataFileName');
+
+  static Future<File> _indexFile() async =>
+      File('${(await directory()).path}/$_configFileName.idx');
 
   static Future<String> get storagePath async => (await directory()).path;
 
@@ -148,37 +153,18 @@ class FreshResourceStore {
     }
     return _serialized<FreshResourcePage>(() async {
       final file = await _configFile();
-      if (!await file.exists()) {
-        return FreshResourcePage(
-          items: const <String>[],
-          offset: offset,
-          hasMore: false,
-        );
-      }
-      final items = <String>[];
-      var validIndex = 0;
-      var hasMore = false;
-      await for (final line in file
-          .openRead()
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())) {
-        final link = normalizeLink(line);
-        if (link == null) continue;
-        if (validIndex < offset) {
-          validIndex++;
-          continue;
-        }
-        if (items.length == limit) {
-          hasMore = true;
-          break;
-        }
-        items.add(link);
-        validIndex++;
-      }
-      return FreshResourcePage(
-        items: List<String>.unmodifiable(items),
+      final index = await _indexFile();
+      final page = await FreshResourceOffsetIndex.readPage(
+        snapshot: file,
+        index: index,
         offset: offset,
-        hasMore: hasMore,
+        limit: limit,
+        normalize: normalizeLink,
+      );
+      return FreshResourcePage(
+        items: page.items,
+        offset: offset,
+        hasMore: page.hasMore,
       );
     });
   }
@@ -216,6 +202,11 @@ class FreshResourceStore {
       await output.flush();
       await output.close();
       sink = null;
+      // Invalidate the derived index before replacing the snapshot. If the
+      // rename fails, the old snapshot remains valid and its index is rebuilt
+      // lazily; a crash can never make a stale index authoritative.
+      final index = File('${target.path}.idx');
+      if (await index.exists()) await index.delete();
       // Same-directory rename is atomic on Android/Linux. Never delete the
       // current snapshot first: a failed replacement must leave it intact.
       await temp.rename(target.path);
@@ -335,7 +326,9 @@ class FreshResourceStore {
   static Future<void> clear() => _serialized<void>(() async {
         final file = await _configFile();
         final metadata = await _metadataFile();
+        final index = await _indexFile();
         if (await file.exists()) await file.delete();
+        if (await index.exists()) await index.delete();
         if (await metadata.exists()) await metadata.delete();
       });
 }
