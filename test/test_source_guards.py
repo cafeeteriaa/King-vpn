@@ -1790,13 +1790,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         start = source.index('Future<bool> natIpMemSaveMany(')
         end = source.index('Future<void> natIpMemSave(', start)
         body = source[start:end]
-        stage = body.index('final nextMem = List<Map<String, dynamic>>.of(natIpMem);')
-        write = body.index('final committed = await prefs.setString(_ipMemKey, jsonEncode(nextMem));')
-        guard = body.index('if (!committed) return false;', write)
-        mutate = body.index('..addAll(nextMem);', guard)
-        self.assertLess(stage, write)
-        self.assertLess(write, guard)
-        self.assertLess(guard, mutate)
+        write = body.index('await store.prependAndFilter(')
+        committed = body.index('return true;', write)
+        self.assertLess(write, committed)
+        self.assertIn('removeExisting:', body)
+        self.assertIn("valueSet.contains(entry['ip'])", body)
+        self.assertNotIn('natIpMem.', body)
+        self.assertNotIn('setString(_ipMemKey', body)
+        self.assertIn('if (!_natIpMemLoaded) await natIpMemLoad();', body)
 
     def test_clean_ip_inventory_ui_displays_all_entries_lazily(self):
         source = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
@@ -4341,7 +4342,9 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         memory_start = main.index('Future<void> _natMemoryReuse()')
         memory_end = main.index('Future<void> _natRangeAdd(', memory_start)
         memory = main[memory_start:memory_end]
-        self.assertIn('for (final e in natIpMem)', memory)
+        self.assertIn('await for (final entry in store.readRecords())', memory)
+        self.assertIn('const memoryBatchSize = 128;', memory)
+        self.assertIn('await _natRangeAdd(currentBatch, count: false);', memory)
         self.assertIn('natHotNext(null, fetch: false)', memory)
         range_start = main.index('Future<void> _natRangeAdd(')
         range_end = main.index('Future<void> _nat', range_start + 30)
@@ -4364,10 +4367,13 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         save_start = ultra.index('Future<bool> natIpMemSaveMany(')
         save_end = ultra.index('Future<void> natIpMemSave(', save_start)
         save_many = ultra[save_start:save_end]
-        self.assertIn('final nextMem = List<Map<String, dynamic>>.of(natIpMem);', save_many)
-        self.assertIn('final committed = await prefs.setString(_ipMemKey, jsonEncode(nextMem));', save_many)
-        self.assertIn('if (!committed) return false;', save_many)
-        self.assertIn('..addAll(nextMem);', save_many)
+        self.assertNotIn('final List<Map<String, dynamic>> natIpMem', ultra)
+        self.assertIn('await store.prependAndFilter(', save_many)
+        self.assertIn('removeExisting: (entry) =>', save_many)
+        self.assertIn("valueSet.contains(entry['ip'])", save_many)
+        self.assertNotIn('natIpMem.', save_many)
+        self.assertNotIn('setString(_ipMemKey', save_many)
+        self.assertNotIn('..addAll(', save_many)
         self.assertIn('Future<bool> _natIpMemSaveQueue = Future<bool>.value(true);', ultra)
         self.assertIn('final operation = _natIpMemSaveQueue.then((_) async {', ultra)
         self.assertIn('_natIpMemSaveQueue = operation.catchError(', ultra)
@@ -4419,6 +4425,35 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         exit_at = scanner.index('return out;', flush)
         self.assertLess(merge, cancel)
         self.assertLess(flush, exit_at)
+
+
+class NatIpMemoryPersistenceSourceGuardTests(unittest.TestCase):
+    def test_nat_ip_inventory_uses_lossless_file_backed_storage(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        store = (ROOT / 'lib' / 'nat_ip_memory_store.dart').read_text(encoding='utf-8')
+
+        self.assertIn("import 'nat_ip_memory_store.dart';", main)
+        self.assertIn('nat_ip_memory.jsonl', ultra)
+        self.assertNotIn('final List<Map<String, dynamic>> natIpMem', ultra)
+        self.assertIn('natIpMemHostsFor', ultra)
+        self.assertIn('await for (final record in store.readRecords())', ultra)
+        self.assertIn('readRecords() async*', store)
+        self.assertIn('prependAndFilter(', store)
+        self.assertIn('Future<void> _writeQueue = Future<void>.value();', store)
+        self.assertIn('final operation = _writeQueue.then(', store)
+        self.assertIn('await store.replaceAll(migrated)', ultra)
+        self.assertIn('await p.remove(_ipMemKey)', ultra)
+        self.assertIn('await store.prependAndFilter(', ultra)
+        self.assertNotIn('natIpMem.', ultra)
+        self.assertIn('await for (final record in readRecords())', store)
+        self.assertIn('await temporary.rename(file.path)', store)
+        self.assertNotIn('.take(', store)
+        self.assertNotIn('maxRecords', store)
+        self.assertNotIn('maxBytes', store)
+        self.assertIn('const memoryBatchSize = 128;', main)
+        self.assertIn('await natIpMemHostsFor(ipList.map((s) => s.host))', main)
+        self.assertIn('await for (final entry in store.readRecords())', main)
 
 
 if __name__ == '__main__':

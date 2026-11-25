@@ -1710,23 +1710,92 @@ Future<void> natLoadPersisted() async {
 const String _ipMemKey = 'natIpMem';
 const String _rangeKey = 'natRanges';
 
-final List<Map<String, dynamic>> natIpMem = [];
 List<String> natRanges = [];
 int natRangeCursor = 0; // generic range cursor
 int _natConfiguredRangeCursor = 0; // next range index for fair round-robin coverage
 final Map<String, dynamic> _natConfiguredRangeOffsets = {}; // per-range address cursor
 
-Set<String> natIpMemHosts() => {for (final e in natIpMem) '${e['ip']}'};
+/// Returns only historical hosts relevant to the current batch, without
+/// materializing the complete disk inventory in memory.
+Future<Set<String>> natIpMemHostsFor(Iterable<String> hosts) async {
+  final remaining = hosts.toSet();
+  if (remaining.isEmpty) return <String>{};
+  if (!_natIpMemLoaded) await natIpMemLoad();
+  if (!_natIpMemLoaded) return <String>{};
+
+  final found = <String>{};
+  try {
+    final store = await _natIpMemStore();
+    await for (final record in store.readRecords()) {
+      final ip = record['ip'];
+      if (ip is String && remaining.contains(ip)) {
+        found.add(ip);
+        if (found.length == remaining.length) break;
+      }
+    }
+  } catch (e, stk) {
+    logError(e, stk);
+  }
+  return found;
+}
+
+bool _natIpMemLoaded = false;
+Future<bool>? _natIpMemLoadFuture;
+
+Future<JsonLinesInventoryStore> _natIpMemStore() async {
+  final directory = await getApplicationSupportDirectory();
+  return JsonLinesInventoryStore(
+    File('${directory.path}/nat_ip_memory.jsonl'),
+  );
+}
 
 Future<void> natIpMemLoad() async {
+  if (_natIpMemLoaded) return;
+  final active = _natIpMemLoadFuture;
+  if (active != null) {
+    _natIpMemLoaded = await active;
+    return;
+  }
+  final task = _natIpMemLoadImpl();
+  _natIpMemLoadFuture = task;
+  try {
+    _natIpMemLoaded = await task;
+  } finally {
+    if (identical(_natIpMemLoadFuture, task)) _natIpMemLoadFuture = null;
+  }
+}
+
+Future<bool> _natIpMemLoadImpl() async {
   try {
     final p = await SharedPreferences.getInstance();
-    final s = p.getString(_ipMemKey);
-    if (s != null) {
-      natIpMem
-        ..clear()
-        ..addAll((jsonDecode(s) as List).cast<Map<String, dynamic>>());
+    final store = await _natIpMemStore();
+    if (await store.file.exists()) {
+      // Validate the complete snapshot in a streaming pass without retaining
+      // the inventory in RAM. Malformed records fail visibly.
+      await for (final record in store.readRecords()) {
+        if (record.isEmpty) continue;
+      }
+    } else {
+      // One-time migration. SharedPreferences exposes the legacy JSON as one
+      // String, but mapped records are yielded lazily into the file writer.
+      final legacy = p.getString(_ipMemKey);
+      if (legacy != null && legacy.isNotEmpty) {
+        final decoded = jsonDecode(legacy);
+        if (decoded is! List) {
+          throw const FormatException('Legacy NAT IP inventory is not a list');
+        }
+        final migrated = decoded.map<Map<String, dynamic>>((entry) {
+          if (entry is! Map) {
+            throw const FormatException('Legacy NAT IP entry is not an object');
+          }
+          return Map<String, dynamic>.from(entry);
+        });
+        await store.replaceAll(migrated);
+        // Remove the old preference only after the file has been committed.
+        await p.remove(_ipMemKey);
+      }
     }
+
     natRanges = (p.getString(_rangeKey) ?? '')
         .split(RegExp(r'[\r\n,; ]+'))
         .map((value) => value.trim())
@@ -1738,7 +1807,8 @@ Future<void> natIpMemLoad() async {
               wrap: false,
             ).addresses.isNotEmpty)
         .toList(growable: false);
-    _natConfiguredRangeCursor = (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
+    _natConfiguredRangeCursor =
+        (p.getInt('natConfiguredRangeCursor') ?? 0).clamp(0, 1 << 31).toInt();
     _natConfiguredRangeOffsets.clear();
     final savedOffsets = p.getString('natConfiguredRangeOffsetsV1');
     if (savedOffsets != null && savedOffsets.isNotEmpty) {
@@ -1755,8 +1825,10 @@ Future<void> natIpMemLoad() async {
         logError(e, stk);
       }
     }
+    return true;
   } catch (e, stk) {
     logError(e, stk);
+    return false;
   }
 }
 
@@ -1795,21 +1867,26 @@ Future<bool> _natIpMemSaveQueue = Future<bool>.value(true);
 
 Future<bool> natIpMemSaveMany(Iterable<String> ips, int port) {
   final values = ips.toSet().toList(growable: false);
+  final valueSet = values.toSet();
   final operation = _natIpMemSaveQueue.then((_) async {
     if (values.isEmpty) return true;
+    if (!_natIpMemLoaded) await natIpMemLoad();
+    if (!_natIpMemLoaded) return false;
+
     final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final nextMem = List<Map<String, dynamic>>.of(natIpMem);
-    for (final ip in values.reversed) {
-      nextMem.removeWhere((entry) => entry['ip'] == ip && entry['port'] == port);
-      nextMem.insert(0, {'ip': ip, 'port': port, 't': timestamp});
-    }
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final committed = await prefs.setString(_ipMemKey, jsonEncode(nextMem));
-      if (!committed) return false;
-      natIpMem
-        ..clear()
-        ..addAll(nextMem);
+      final store = await _natIpMemStore();
+      // Stream-filter old records on disk instead of cloning the complete
+      // historical inventory into RAM for every successful connection.
+      await store.prependAndFilter(
+        values.map((ip) => <String, dynamic>{
+          'ip': ip,
+          'port': port,
+          't': timestamp,
+        }),
+        removeExisting: (entry) =>
+            entry['port'] == port && valueSet.contains(entry['ip']),
+      );
       return true;
     } catch (e, stk) {
       logError(e, stk);

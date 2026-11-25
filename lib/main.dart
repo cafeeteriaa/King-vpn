@@ -39,6 +39,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'tg_proxy.dart' show tgProxyRow; // فقط پروکسی تلگرام
 import 'nat_ip_scan.dart'; // اسکن TCP آدرس IP و دامنه
+import 'nat_ip_memory_store.dart'; // Lossless disk-backed NAT IP inventory
 import 'help_page.dart';
 import 'conn_specs.dart';
 import 'transport_capabilities.dart'; // Dual-stack transport and DPI engine capability registry
@@ -7573,7 +7574,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // فقط از طریق core/transport قابل استفاده باشد. IPهای شناخته‌شده را جلوتر می‌آوریم
     // اما تمام IPها (شناخته و ناشناخته) را برای تست واقعی هسته نگه می‌داریم.
     if (nationalMode && ipList.isNotEmpty) {
-      final trusted = natIpMemHosts()..addAll(natScanHits);
+      final trusted = (await natIpMemHostsFor(ipList.map((s) => s.host)))
+        ..addAll(natScanHits);
       final known = ipList.where((s) => trusted.contains(s.host)).toList();
       final unknown = ipList.where((s) => !trusted.contains(s.host)).toList();
       final mixed = <Server>[];
@@ -10760,25 +10762,56 @@ ListTile( // KINGEXTRAS row
   // بدون اینکه دوباره اسکن شوند. تکراری‌ها (همان IP:پورت که در صف است) اضافه نمی‌شوند.
   Future<void> _natMemoryReuse() async {
     try {
+      if (!_natIpMemLoaded) await natIpMemLoad();
+      if (!_natIpMemLoaded) return;
+
       final have = {
         for (final s in [...pending, ...natRestPending]) '${s.host}|${s.port}'
       };
-      final items = <String>[];
-      for (final e in natIpMem) {
-        final ip = '${e['ip']}';
-        final port = (e['port'] as num?)?.toInt() ?? 0;
-        if (InternetAddress.tryParse(ip) == null || port <= 0) continue;
-        if (have.contains('$ip|$port') || have.contains('$ip:$port')) continue;
-        items.add('$ip|$port');
-      }
-      if (items.isEmpty) return;
       if (natTemplateSeeds.isEmpty) {
         natTemplateSeeds = await natHotNext(null, fetch: false);
       }
       final before = pending.length;
-      await _natRangeAdd(items, count: false);
+      final store = await _natIpMemStore();
+      final batch = <String>[];
+      var reused = 0;
+
+      // Working-set size only: the complete inventory is drained with no
+      // total-record ceiling, and each completed batch is merged into queues.
+      const memoryBatchSize = 128;
+      Future<void> flushMemoryBatch() async {
+        if (batch.isEmpty) return;
+        final currentBatch = List<String>.of(batch);
+        batch.clear();
+        await _natRangeAdd(currentBatch, count: false);
+        // Rebuild only from the current active/overflow queues. This avoids
+        // retaining a second full copy of every historical disk record.
+        have
+          ..clear()
+          ..addAll([
+            for (final server in [...pending, ...natRestPending])
+              '${server.host}|${server.port}',
+          ]);
+        reused += currentBatch.length;
+      }
+
+      await for (final entry in store.readRecords()) {
+        final ip = '${entry['ip']}';
+        final port = (entry['port'] as num?)?.toInt() ?? 0;
+        if (InternetAddress.tryParse(ip) == null || port <= 0 || port > 65535) {
+          continue;
+        }
+        final key = '$ip|$port';
+        if (!have.add(key)) continue;
+        have.add('$ip:$port');
+        batch.add(key);
+        if (batch.length >= memoryBatchSize) {
+          await flushMemoryBatch();
+        }
+      }
+      await flushMemoryBatch();
       natMemQueued = pending.length - before;
-      dbg('حافظه‌ی IP: $natMemQueued IP قبلی دوباره به صف اضافه شد');
+      dbg('حافظه‌ی IP: $natMemQueued مورد از $reused رکورد حافظه به صف بازگردانده شد');
     } catch (e, stk) {
       logError(e, stk);
     }
@@ -10937,11 +10970,26 @@ ListTile( // KINGEXTRAS row
           TextButton(
             // فقط خواندن: IPهای سالمی که قبلاً جواب داده‌اند را کپی می‌کند؛ چیزی را تغییر نمی‌دهد
             onPressed: () async {
-              final lines = {
-                for (final e in natIpMem) '${e['ip']}:${e['port']}'
-              }.toList();
-              await Clipboard.setData(ClipboardData(text: lines.join('\n')));
-              _set('${lines.length} IP سالم کپی شد');
+              try {
+                if (!_natIpMemLoaded) await natIpMemLoad();
+                if (!_natIpMemLoaded) {
+                  _set('حافظه‌ی IP قابل خواندن نیست؛ فایل اصلی حفظ شده است.');
+                  return;
+                }
+                final store = await _natIpMemStore();
+                final lines = StringBuffer();
+                var count = 0;
+                await for (final entry in store.readRecords()) {
+                  if (count > 0) lines.writeln();
+                  lines.write('${entry['ip']}:${entry['port']}');
+                  count++;
+                }
+                await Clipboard.setData(ClipboardData(text: lines.toString()));
+                _set('$count IP سالم کپی شد');
+              } catch (e, stk) {
+                logError(e, stk);
+                _set('کپی حافظه‌ی IP ناموفق بود؛ اطلاعات ذخیره‌شده دست‌نخورده ماند.');
+              }
             },
             child: const Text('کپی IPهای سالم'),
           ),
