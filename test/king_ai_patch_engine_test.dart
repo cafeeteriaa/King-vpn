@@ -39,7 +39,7 @@ void main() {
     });
 
     test('rejects missing or ambiguous anchors', () {
-      for (final source in ['alpha beta', 'alpha beta alpha']) {
+      for (final source in ['nothing here', 'alpha beta alpha']) {
         expect(
           () => KingAiPatchEngine.apply(
             original: source,
