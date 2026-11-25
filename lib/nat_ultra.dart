@@ -1834,13 +1834,18 @@ Future<bool> natIpMemSaveMany(Iterable<String> ips, int port) async {
   final values = ips.toSet().toList(growable: false);
   if (values.isEmpty) return true;
   final timestamp = DateTime.now().millisecondsSinceEpoch;
+  final nextMem = List<Map<String, dynamic>>.of(natIpMem);
   for (final ip in values.reversed) {
-    natIpMem.removeWhere((entry) => entry['ip'] == ip && entry['port'] == port);
-    natIpMem.insert(0, {'ip': ip, 'port': port, 't': timestamp});
+    nextMem.removeWhere((entry) => entry['ip'] == ip && entry['port'] == port);
+    nextMem.insert(0, {'ip': ip, 'port': port, 't': timestamp});
   }
   try {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_ipMemKey, jsonEncode(natIpMem));
+    final committed = await prefs.setString(_ipMemKey, jsonEncode(nextMem));
+    if (!committed) return false;
+    natIpMem
+      ..clear()
+      ..addAll(nextMem);
     return true;
   } catch (e, stk) {
     logError(e, stk);
