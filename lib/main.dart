@@ -9841,28 +9841,51 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (mounted) setState(() {});
   }
 
-  Future<void> _resSave() async {
-    if (!_resDirty) return;
+  Future<void> _resSaveQueue = Future<void>.value();
+
+  void _scheduleResSave() {
+    if (_resSaveT?.isActive == true) return;
+    _resSaveT = Timer(const Duration(seconds: 30), () {
+      _resSaveT = null;
+      unawaited(_resSave());
+    });
+  }
+
+  Future<void> _resSave() {
+    if (!_resDirty) return _resSaveQueue;
     _resDirty = false;
-    try {
-      final p = await SharedPreferences.getInstance();
-      await p.setString(
-          'natres2',
-          jsonEncode({
-            'last': _resLast?.millisecondsSinceEpoch,
-            'items': _resMap.values
-                .map((e) => {
-                      'l': e.link,
-                      'a': e.added.millisecondsSinceEpoch,
-                      'c': e.checked?.millisecondsSinceEpoch,
-                      'p': e.s.ping
-                    })
-                .toList()
-          }));
-    } catch (e) {
+    // Capture a complete immutable snapshot before entering the serialized write queue.
+    final snapshot = jsonEncode({
+      'last': _resLast?.millisecondsSinceEpoch,
+      'items': _resMap.values
+          .map((e) => {
+                'l': e.link,
+                'a': e.added.millisecondsSinceEpoch,
+                'c': e.checked?.millisecondsSinceEpoch,
+                'p': e.s.ping
+              })
+          .toList()
+    });
+    final operation = _resSaveQueue.then((_) async {
+      try {
+        final p = await SharedPreferences.getInstance();
+        final committed = await p.setString('natres2', snapshot);
+        if (!committed) {
+          _resDirty = true;
+          _scheduleResSave();
+        }
+      } catch (e, stk) {
+        _resDirty = true;
+        logError(e, stk);
+        _scheduleResSave();
+      }
+    });
+    _resSaveQueue = operation.catchError((Object e, StackTrace stk) {
       _resDirty = true;
-      logError(e);
-    }
+      logError(e, stk);
+      _scheduleResSave();
+    });
+    return operation;
   }
 
   // a server passed a real test: it goes into the folder (or is refreshed)
@@ -9888,10 +9911,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _resMap[srv.key] = e;
       }
       _resDirty = true;
-      _resSaveT ??= Timer(const Duration(seconds: 30), () { // FOLDERS: ذخیره کمتر، کمتر CPU/IO
-        _resSaveT = null;
-        _resSave();
-      });
+      _scheduleResSave(); // FOLDERS: debounce writes without dropping inventory
       final u = _resUi;
       if (mounted &&
           inForeground &&
