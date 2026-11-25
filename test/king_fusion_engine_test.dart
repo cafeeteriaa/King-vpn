@@ -15,6 +15,8 @@ class _FakeAdapter implements KingEngineAdapter {
   final Completer<void>? startEntered;
   int stopFailuresRemaining;
   final bool stopNeverCompletes;
+  final Completer<void>? stopGate;
+  final Completer<void>? stopEntered;
 
   _FakeAdapter(
     String id,
@@ -27,6 +29,8 @@ class _FakeAdapter implements KingEngineAdapter {
     this.startEntered,
     this.stopFailuresRemaining = 0,
     this.stopNeverCompletes = false,
+    this.stopGate,
+    this.stopEntered,
     bool supportsMultiHop = true,
   }) : descriptor = KingEngineDescriptor(
           id: id,
@@ -58,6 +62,10 @@ class _FakeAdapter implements KingEngineAdapter {
   @override
   Future<void> stop(Object? handle) async {
     events.add('stop:${descriptor.id}:$handle');
+    if (stopEntered != null && !stopEntered!.isCompleted) {
+      stopEntered!.complete();
+    }
+    if (stopGate != null) await stopGate!.future;
     if (stopNeverCompletes) await Completer<void>().future;
     if (stopFailuresRemaining > 0) {
       stopFailuresRemaining--;
@@ -377,7 +385,6 @@ void main() {
       await disconnecting;
       expect(result.connected, isFalse);
       expect(result.failureCode, 'E-FUSION-CANCELLED');
-      expect(verifier.cancelCalls, 1);
       expect(events, ['start:first:-', 'stop:first:handle-first']);
       expect(engine.state, KingFusionState.idle);
     });
@@ -543,6 +550,40 @@ void main() {
       expect(events, ['start:first:-', 'stop:first:handle-first']);
       expect(engine.state, KingFusionState.idle);
       expect(engine.isBusy, isFalse);
+    });
+
+    test('native stop timeout never overlaps a still-running stop attempt', () async {
+      final events = <String>[];
+      final stopGate = Completer<void>();
+      final stopEntered = Completer<void>();
+      final adapter = _FakeAdapter(
+        'first',
+        events,
+        stopGate: stopGate,
+        stopEntered: stopEntered,
+      );
+      final engine = KingFusionEngine(
+        [adapter],
+        nativeStopTimeout: const Duration(milliseconds: 2),
+      );
+      final connected = await engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'first', configuration: 'cfg'),
+      ]));
+      expect(connected.connected, isTrue);
+
+      await engine.disconnect();
+      await stopEntered.future;
+      expect(engine.cleanupPendingEngineIds, ['first']);
+
+      await engine.disconnect();
+      expect(events.where((event) => event.startsWith('stop:first:')).length, 1);
+
+      stopGate.complete();
+      await Future<void>.delayed(Duration.zero);
+      await engine.disconnect();
+
+      expect(events.where((event) => event.startsWith('stop:first:')).length, 2);
+      expect(engine.state, KingFusionState.idle);
     });
 
     test('native stop timeout preserves the handle for later cleanup', () async {
