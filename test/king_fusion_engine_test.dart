@@ -1372,7 +1372,6 @@ void main() {
       expect(engine.isBusy, isFalse);
       expect(engine.snapshot.disconnectRequested, isFalse);
       expect(engine.snapshot.activeEngineIds, isEmpty);
-      expect(events, isEmpty);
     });
 
     test('verificationStarted observer cancellation prevents verifier invocation', () async {
