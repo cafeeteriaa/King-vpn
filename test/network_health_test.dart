@@ -3,6 +3,20 @@ import '../lib/network_health.dart';
 
 void main() {
   group('Smart Pilot route policy', () {
+    test('accepts valid HTTP final response lines over the verified TLS channel', () {
+      expect(isValidHttpResponseLine('HTTP/1.1 200 OK'), isTrue);
+      expect(isValidHttpResponseLine('HTTP/1.1 204 No Content'), isTrue);
+      // A server-side 4xx/5xx still proves the network route reached the peer.
+      expect(isValidHttpResponseLine('HTTP/1.1 403 Forbidden'), isTrue);
+      expect(isValidHttpResponseLine('HTTP/1.0 503 Service Unavailable'), isTrue);
+    });
+
+    test('rejects malformed, proxy-banner and non-final response lines', () {
+      for (final line in ['', 'connected', 'HTTP/2 200', 'HTTP/1.1 101 Switching Protocols', 'HTTP/1.1 xyz OK', 'HTTP/1.1 600 Unknown']) {
+        expect(isValidHttpResponseLine(line), isFalse, reason: line);
+      }
+    });
+
     test('confidence reaches 1.0 when all six dedicated probes are verified', () {
       const evidence = NetworkEvidence(
         domestic: LinkHealth.healthy,
