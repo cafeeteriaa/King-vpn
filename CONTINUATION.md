@@ -645,3 +645,12 @@ These are three distinct technical review passes by the same assistant, not thre
 
 - Additional regression: a `verificationPassed` observer can also request teardown synchronously. The test verifies the result is cancellation (not traffic-verified success), with exactly one native start/stop and an idle final state. Dedicated Fusion test count: 44 by source test declaration count.
 - Additional test commit: `41ab80eb8b91e13c2431701eb683bd58ba36d8b7`.
+
+## 2026-11-25 — Cancellation at the hopStarting observer boundary
+
+- Found a pre-native-start reentrancy gap: `hopStarting` is synchronously delivered, so an observer could call `disconnect()` after the loop's cancellation check but immediately before `adapter.start()`. The coordinator previously still invoked native start and only rolled it back after the future settled.
+- Added a second cancellation check immediately after `hopStarting` delivery and before crossing the adapter boundary. A committed disconnect now returns `E-FUSION-CANCELLED` without starting a native hop.
+- Added a regression test asserting zero native start calls, zero stop calls, zero started hops, and an idle/non-busy final state after the waiting disconnect completes.
+- Three-pass review: (1) API/event semantics — synchronous observer cancellation is honored at the event boundary; (2) resource lifecycle — no handle is acquired, so no unnecessary native cleanup is scheduled; (3) regression — explicit call-count and final-state assertions.
+- Dedicated Fusion test count: 45 by source test declaration count. Exact-head CI remains required; no local Flutter execution is claimed.
+- Commits: `230392f94ad51484d8f0522eaeae3caf13e381da` (pre-start cancellation guard), `08cdaa27504cb5ed79468901ccc915560c9cfb62` (regression test).
