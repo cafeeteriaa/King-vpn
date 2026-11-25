@@ -49,3 +49,13 @@ double throughputStabilityFactor(List<double> samples) {
   final mad = deviations[deviations.length ~/ 2];
   return 1 / (1 + mad / median);
 }
+
+/// Median of positive finite throughput observations. For even-sized windows,
+/// average the two central values rather than biasing toward the upper sample.
+double? medianThroughput(List<double> samples) {
+  final valid = samples.where((value) => value.isFinite && value > 0).toList()..sort();
+  if (valid.isEmpty) return null;
+  final middle = valid.length ~/ 2;
+  if (valid.length.isOdd) return valid[middle];
+  return (valid[middle - 1] + valid[middle]) / 2;
+}
