@@ -3923,5 +3923,20 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('king_ai_external_code_review_enabled', provider)
 
 
+    def test_owner_console_can_analyze_reference_images_into_feature_requests(self):
+        console = (ROOT / 'lib' / 'king_ai_console.dart').read_text(encoding='utf-8')
+        self.assertIn('ImagePicker _featureImagePicker', console)
+        self.assertIn('Future<void> _analyzeFeatureImage()', console)
+        self.assertIn('_ownerAuth.hasActiveSession', console)
+        self.assertIn('_reauthenticateOwnerForCodeChange()', console)
+        self.assertIn('orchestrator.analyzeImage(', console)
+        self.assertIn('explicitApproval: explicitApproval', console)
+        self.assertIn('_featureRequestController.text = [', console)
+        self.assertIn('image_analysis_added_to_owner_request', console)
+        self.assertIn('کلید API، UUID، رمز', console)
+        self.assertIn('ساخت پیشنهاد کد و Pull Request', console)
+        self.assertNotIn('maxLength: 2000', console)
+
+
 if __name__ == '__main__':
     unittest.main()
