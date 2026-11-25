@@ -117,13 +117,12 @@ class _KingChatPageState extends State<KingChatPage> {
         ? 'این تصویر را با دقت تحلیل کن، متن‌ها و تنظیمات قابل مشاهده را استخراج کن و موارد نامشخص را حدس نزن.'
         : typedPrompt;
     final useCloud = _useCloud || image != null;
-    var temporaryConsent = false;
+    var oneTimeConsent = false;
     if (useCloud) {
       final orchestrator = KingAiProviderOrchestrator.instance;
       if (!await orchestrator.externalProcessingEnabled) {
         if (!await _confirmCloudProcessing()) return;
-        await orchestrator.setExternalProcessingEnabled(true);
-        temporaryConsent = true;
+        oneTimeConsent = true;
       }
     }
     _input.clear();
@@ -139,9 +138,13 @@ class _KingChatPageState extends State<KingChatPage> {
           prompt: prompt,
           imageBytes: await image.readAsBytes(),
           mimeType: _imageMimeType(image),
+          explicitApproval: oneTimeConsent,
         );
       } else if (useCloud) {
-        answer = await KingAiProviderOrchestrator.instance.ask(prompt: prompt);
+        answer = await KingAiProviderOrchestrator.instance.ask(
+          prompt: prompt,
+          explicitApproval: oneTimeConsent,
+        );
       } else {
         answer = await KingLocalAi.instance.ask(prompt, maxTokens: 1400);
       }
@@ -164,9 +167,6 @@ class _KingChatPageState extends State<KingChatPage> {
           ? 'مدل محلی هنوز بارگذاری نشده است. «آماده‌سازی مغز کینگ» را بزن و مدل را دانلود و بارگذاری کن.'
           : 'فعلاً نتوانستم پاسخ را تولید کنم: ${raw.replaceFirst('Exception: ', '')}', true);
     } finally {
-      if (temporaryConsent) {
-        await KingAiProviderOrchestrator.instance.setExternalProcessingEnabled(false);
-      }
       if (mounted) setState(() => _busy = false);
     }
   }
