@@ -2,6 +2,29 @@ import 'package:flutter_test/flutter_test.dart';
 import '../lib/network_health.dart';
 
 void main() {
+  group('canonical network identity', () {
+    test('interface enumeration order does not change the identity input', () {
+      expect(
+        canonicalNetworkIdentity(['wlan0=192.0.2.2', 'rmnet0=198.51.100.3']),
+        canonicalNetworkIdentity(['rmnet0=198.51.100.3', 'wlan0=192.0.2.2']),
+      );
+    });
+
+    test('empty entries and surrounding whitespace are normalized', () {
+      expect(
+        canonicalNetworkIdentity([' wlan0=192.0.2.2 ', '', '  ']),
+        'wlan0=192.0.2.2',
+      );
+    });
+
+    test('address changes produce a different identity input', () {
+      expect(
+        canonicalNetworkIdentity(['wlan0=192.0.2.2']),
+        isNot(canonicalNetworkIdentity(['wlan0=192.0.2.3'])),
+      );
+    });
+  });
+
   group('network probe cache validity', () {
     final now = DateTime.utc(2026, 11, 25, 12);
 
