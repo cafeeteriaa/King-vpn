@@ -632,3 +632,13 @@ These are three distinct technical review passes by the same assistant, not thre
 - Extended the reentrant disconnect observer regression to capture the snapshot during `disconnectRequested` and assert it is true then, and false again after disconnect completes.
 - Three-pass review: (1) compatibility — additive correction to the existing snapshot boolean; (2) lifecycle — public snapshot now reflects the committed disconnect transition during observer callbacks; (3) regression — assertions cover both pending and completed states.
 - Commits: `008d4d3de4cf84dfbf80b5200bccd9a5a3bdc67b` (snapshot projection), `232e169e73fe90445ba8bf830898653e16c93ba9` (regression assertion). Dedicated Fusion test count remains 42.
+
+
+## 2026-11-25 — Final-state observer disconnect race
+
+- Found a completion-window race during the final transition to `connected`: a synchronous lifecycle observer could call `disconnect()` from the `stateChanged(connected)` event. The disconnect operation was committed and waiting for the current connect operation, but `connect()` could still return a successful result before unwinding.
+- Added a final cancellation check after final lifecycle notifications and before constructing the success result. If an observer committed teardown in that window, the connect operation now rolls back its started handles and returns `E-FUSION-CANCELLED`; the waiting disconnect then completes the serialized cleanup.
+- Added a regression test that requests disconnect synchronously from the connected-state observer and asserts a cancellation result, exactly one native start, exactly one native stop, idle state and cleared busy state.
+- Three-pass review: (1) API semantics — success is no longer returned after a disconnect transition has been committed; (2) lifecycle — the active handle is rolled back before the waiting disconnect completes; (3) regression — deterministic observer reentrancy coverage checks result, call counts and final state.
+- Dedicated Fusion test count: 43 by source test declaration count. Exact-head CI is required; no local Flutter execution is claimed.
+- Commits: `1865d2980ad774c5caca22f14fc1951f27c56b08` (completion-window guard), `445937186afd52ea4ad05d719c0c3966617af1a8` (regression test).
