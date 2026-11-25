@@ -1390,21 +1390,14 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
         if (ba != bb) return ba.compareTo(bb);
         return groups[b]!.length.compareTo(groups[a]!.length);
       });
-    // ERRREPORT2: خطاهای عادی شبکه (دامنه‌ی مرده، timeout) در لیست نمی‌آیند؛ فقط شمارششان نشان داده می‌شود
-    bool noisy(String k) => k.startsWith('شبکه') ||
-        k.startsWith('فایل موقت') ||
-        k.startsWith('داده‌ی نامعتبر');
-    final important = keys.where((k) => !noisy(k)).toList();
-    final noiseCount = keys.length - important.length;
-    if (noiseCount > 0) {
-      out.writeln('(خطاهای عادی شبکه‌ی ${noiseCount} گروه نادیده گرفته شد؛ نیازی به کار نیست)');
-    }
+    // Keep every category visible; ordinary network failures remain useful diagnostics.
+    final important = keys;
     if (important.isEmpty) {
       out.writeln('• هیچ باگ واقعی‌ای در این اجرا ثبت نشد.');
       return out.toString();
     }
     var i = 0;
-    for (final k in important.take(40)) {
+    for (final k in important) {
       final g = groups[k]!;
       final first = g.first;
       final last = g.last;
@@ -1415,9 +1408,8 @@ static void _resetCoreDeadStreak() { _atCoreDeadStreak = 0; }
       out.writeln('   بخش تست: ${first.tag.isEmpty ? '-' : first.tag}');
       out.writeln('   جای خطا در کد: ${first.where}');
       final m = first.msg;
-      out.writeln('   نمونه‌ی پیام: ${m.length > 300 ? '${m.substring(0, 300)}…' : m}');
+      out.writeln('   پیام کامل: $m');
     }
-    if (important.length > 40) out.writeln('… و ${important.length - 40} گروه دیگر');
     return out.toString();
   }
 
