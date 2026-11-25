@@ -3765,6 +3765,30 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('quickCap: 200', ip_scan)
 
 
+    def test_connection_search_has_no_arbitrary_per_tap_or_national_deadline_caps(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        for forbidden in (
+            'kMaxRealStartsPerTap',
+            'kNatPingDeadlineSec',
+            'kNatVerifyBudget',
+            'natVerifyClock',
+            'realStartsRun',
+        ):
+            self.assertNotIn(forbidden, main)
+        start = main.index('final verifyBudget = Duration(seconds: s.personal ? 1 : 25);')
+        end = main.index('// A cancelled connection is not evidence', start)
+        verify = main[start:end]
+        self.assertIn('Duration verifyRemaining() => nationalMode', verify)
+        self.assertIn('const Duration(seconds: 30)', verify)
+        self.assertIn('i < pingTries', verify)
+
+        start = main.index('Future<bool> _startLocked(')
+        end = main.index('Future<bool> _startImpl(', start)
+        start_gate = main[start:end]
+        self.assertNotIn('realStartsRun', start_gate)
+        self.assertNotIn('kMaxRealStartsPerTap', start_gate)
+
+
     def test_national_mode_prioritizes_domestic_inventory_without_dropping_global_sources(self):
         dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
         start = dns.index('List<String> dnsxNationalFirstDomains(')
