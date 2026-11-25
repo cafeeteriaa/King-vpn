@@ -2965,7 +2965,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
     def test_configured_candidate_inventories_are_not_truncated_by_fixed_counts(self):
         auto = (ROOT / 'lib' / 'auto_scanners.dart').read_text(encoding='utf-8')
-        start = auto.index('final base = scanNationalMode')
+        start = auto.index('final base = [for (final entry in _goldIps.values) entry.ip];')
         end = auto.index('final ips =', start)
         inventory = auto[start:end]
         self.assertIn('_getCfIps(', auto)
@@ -3729,6 +3729,28 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         loop_at = grow.index('for (var i = 0; i < n; i++)')
         self.assertLess(pool_at, loop_at)
         self.assertIn('sniPool[rnd.nextInt(sniPool.length)]', grow)
+
+
+    def test_national_mode_prioritizes_domestic_inventory_without_dropping_global_sources(self):
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        start = dns.index('List<String> dnsxNationalFirstDomains(')
+        end = dns.index('/// متن نمایشی دامنه‌ها', start)
+        ordered = dns[start:end]
+        self.assertIn('...dnsxFullDomains(),', ordered)
+        self.assertIn('...extraHosts,', ordered)
+        self.assertIn('final first = domestic.intersection(all).toList()..sort();', ordered)
+        self.assertIn('final remaining = all.difference(domestic).toList()..sort();', ordered)
+        self.assertIn('return <String>[...first, ...remaining];', ordered)
+
+        for path in ('lib/auto_scanners.dart', 'lib/ip_auto_scan.dart'):
+            source = (ROOT / path).read_text(encoding='utf-8')
+            self.assertIn('...kAutoNationalSniDomains,', source)
+            self.assertIn('...kAutoSniDomains,', source)
+            self.assertIn('...dnsxFullDomains(),', source)
+            self.assertIn('...natFrontSnis,', source)
+            self.assertIn('...natRelayHosts,', source)
+            self.assertNotIn('if (!scanNationalMode) ...dnsxFullDomains()', source)
+            self.assertNotIn('if (!runNationalMode) ...dnsxFullDomains()', source)
 
 
 if __name__ == '__main__':
