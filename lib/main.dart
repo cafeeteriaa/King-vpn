@@ -17541,8 +17541,8 @@ extension ProjectNatSweep on _HomePageState {
     return blocks.toList(growable: false);
   }
 
-  // IPSWEEP: هر IP تمیز را با اتصال واقعی روی یک سرور پشت کلودفلر امتحان می‌کند.
-  // همه‌ی IPهایی که ترافیک تونل (google و youtube) بدهند نگه داشته می‌شوند؛ بدون سقف تعداد نتیجه.
+  // IPSWEEP: endpointهای دقیق Cloudflare ثبت‌شده در کانفیگ‌های پروژه
+  // با TCP و سپس ترافیک واقعی تونل اعتبارسنجی می‌شوند؛ CIDRهای عمومی passive می‌مانند.
   Future<List<CleanIp>> _atIpSweep(List<Server> pool, Duration budget) =>
       natWithSharedRangeCursorLock(() => _atIpSweepUnlocked(pool, budget));
 
