@@ -556,7 +556,6 @@ int standbyBatchSize = 40;
 const bgTimeoutSecs = 10;
 int firstBatchSize = 100; // FAST100: دسته اول هم ۱۰۰تایی
 int fetchWorkers = 16;
-Duration fetchDeadline = const Duration(seconds: 60);
 int tcpWorkers = 20;
 Duration tcpTimeout = const Duration(milliseconds: 3500);
 // TLS handshakes in the prefilter leaked sockets (crash, instant failures)
@@ -4689,7 +4688,7 @@ class ProviderPage extends StatelessWidget {
 }
 
 // وضعیت دانلود هر منبع در آخرین دریافت لیست‌ها (برای صفحه‌ی «وضعیت منابع»)
-// ok = دانلود شد • fail = جواب نداد/خالی • skip = مهلت دانلود تمام شد و نوبتش نرسید
+// ok = دانلود شد • fail = جواب نداد/خالی • skip = توقف کاربر یا پایان مسیر quick-connect
 final Map<String, String> srcFetchState = {};
 final Map<String, int> srcFetchCount = {};
 
