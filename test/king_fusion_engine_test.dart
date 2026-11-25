@@ -1194,5 +1194,34 @@ void main() {
       expect(result.trafficVerified, isFalse);
       expect(engine.state, KingFusionState.failed);
     });
+
+    test('disconnect requested by connected-state observer prevents success result', () async {
+      final events = <String>[];
+      final adapter = _FakeAdapter('first', events);
+      late final KingFusionEngine engine;
+      Future<void>? disconnecting;
+      engine = KingFusionEngine(
+        [adapter],
+        onEvent: (event) {
+          if (event.type == KingFusionEventType.stateChanged &&
+              event.state == KingFusionState.connected) {
+            disconnecting = engine.disconnect();
+          }
+        },
+      );
+
+      final result = await engine.connect(KingFusionPlan([
+        const KingFusionHop(engineId: 'first', configuration: 'cfg'),
+      ]));
+      await disconnecting;
+
+      expect(result.connected, isFalse);
+      expect(result.failureCode, 'E-FUSION-CANCELLED');
+      expect(result.startedHops, 1);
+      expect(events.where((event) => event.startsWith('start:first:')).length, 1);
+      expect(events.where((event) => event.startsWith('stop:first:')).length, 1);
+      expect(engine.state, KingFusionState.idle);
+      expect(engine.isBusy, isFalse);
+    });
   });
 }
