@@ -1811,7 +1811,8 @@ Future<void> _goldIpStep() async {
     final r = await _goldProbe(due);
     for (final ip in due) {
       final v = _goldIps[ip];
-      if (v == null) continue;
+      if (v == null || !r.containsKey(ip)) continue;
+      // A probe omitted by a timed-out partial batch is untested, not dead.
       final ms = r[ip];
       if (ms == null) {
         _goldIps.remove(ip);
