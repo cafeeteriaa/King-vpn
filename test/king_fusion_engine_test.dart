@@ -16,6 +16,7 @@ class _FakeAdapter implements KingEngineAdapter {
   int stopFailuresRemaining;
   final bool stopNeverCompletes;
   final bool throwOnChainCheck;
+  final Set<String> supportedTransports;
   final Completer<void>? stopGate;
   final Completer<void>? stopEntered;
 
@@ -31,6 +32,7 @@ class _FakeAdapter implements KingEngineAdapter {
     this.stopFailuresRemaining = 0,
     this.stopNeverCompletes = false,
     this.throwOnChainCheck = false,
+    this.supportedTransports = const <String>{},
     this.stopGate,
     this.stopEntered,
     bool supportsMultiHop = true,
@@ -39,6 +41,7 @@ class _FakeAdapter implements KingEngineAdapter {
           title: id,
           family: KingEngineFamily.custom,
           availability: KingEngineAvailability.integrated,
+          supportedTransports: supportedTransports,
           supportsMultiHop: supportsMultiHop,
         );
 
@@ -479,6 +482,56 @@ void main() {
       expect(result.connected, isTrue);
       expect(result.startedHops, 1);
       await engine.disconnect();
+    });
+
+    test('validates an explicitly requested transport against adapter capabilities', () async {
+      final events = <String>[];
+      final adapter = _FakeAdapter(
+        'first',
+        events,
+        supportedTransports: const {'tcp', 'ws'},
+      );
+      final engine = KingFusionEngine([adapter]);
+
+      final supported = await engine.connect(KingFusionPlan([
+        const KingFusionHop(
+          engineId: 'first',
+          configuration: 'opaque-config',
+          requiredTransport: ' WS ',
+        ),
+      ]));
+      expect(supported.connected, isTrue);
+      await engine.disconnect();
+
+      final unsupported = await engine.connect(KingFusionPlan([
+        const KingFusionHop(
+          engineId: 'first',
+          configuration: 'opaque-config',
+          requiredTransport: 'grpc',
+        ),
+      ]));
+      expect(unsupported.failureCode, 'E-FUSION-TRANSPORT-UNSUPPORTED');
+      expect(events.where((event) => event.startsWith('start:')).length, 1);
+    });
+
+    test('rejects malformed transport requirements before native start', () async {
+      final events = <String>[];
+      final adapter = _FakeAdapter(
+        'first',
+        events,
+        supportedTransports: const {'tcp'},
+      );
+      final engine = KingFusionEngine([adapter]);
+      final result = await engine.connect(KingFusionPlan([
+        const KingFusionHop(
+          engineId: 'first',
+          configuration: 'opaque-config',
+          requiredTransport: 'tcp\\nsecret',
+        ),
+      ]));
+
+      expect(result.failureCode, 'E-FUSION-TRANSPORT-INVALID');
+      expect(events, isEmpty);
     });
 
     test('empty configuration is rejected without exposing configuration data', () async {
