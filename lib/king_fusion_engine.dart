@@ -258,7 +258,9 @@ class KingFusionEngine {
       );
     } finally {
       _busy = false;
-      _disconnectRequested = false;
+      // Keep the cancellation latch raised until the waiting disconnect()
+      // acquires the operation slot; otherwise a new connect could slip into
+      // the microtask gap between completing this operation and its waiter.
       _operationDone?.complete();
       _operationDone = null;
     }
@@ -302,6 +304,7 @@ class KingFusionEngine {
     }
     if (_busy) return;
     _busy = true;
+    _disconnectRequested = false;
     _operationDone = Completer<void>();
     state = KingFusionState.stopping;
     try {
