@@ -41,6 +41,8 @@ class LargeProjectEditingGuards(unittest.TestCase):
         self.assertIn("operations: item['operations'] as List", self.source)
         self.assertIn("must match exactly once", patch)
         self.assertIn("sha256.convert(utf8.encode(original))", patch)
+        protected = self.source.split("const protectedPaths = <String>{", 1)[1].split("};", 1)[0]
+        self.assertIn("'lib/king_ai_patch_engine.dart'", protected)
 
     def test_owner_authenticated_engine_can_be_updated_by_its_own_pipeline(self):
         protected = self.source.split("const protectedPaths = <String>{", 1)[1]
