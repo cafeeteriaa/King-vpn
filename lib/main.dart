@@ -39,6 +39,7 @@ import 'nnie_core.dart'; // NNIE: کد خالص و قابل تست
 import 'own_vpn.dart'; // KINGVPN: سرویس VPN خودمان (پیش‌فرض خاموش)
 import 'king_fusion_engine.dart';
 import 'king_v2ray_adapter.dart';
+import 'king_fusion_learning_bridge.dart';
 import 'package:crypto/crypto.dart'; // فیکس ۱: sha256 برای APK آپدیت
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // فیکس ۲: کلیدهای AI
 import 'package:speech_to_text/speech_to_text.dart' as stt;
@@ -6106,16 +6107,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // retains the in-flight Future, preventing overlapping native stop calls.
       stop: () => v2ray.stopV2Ray(),
     );
+    final fusionLearning = KingFusionLearningBridge();
     final coordinator = KingFusionEngine(
       [adapter],
       nativeStopTimeout: const Duration(seconds: 9),
       onEvent: (event) {
-        // Fusion telemetry is deliberately limited to safe IDs/codes/counts;
-        // configurations and native handles never enter the diagnostic journal.
+        // The bridge aggregates only safe lifecycle metadata. It cannot see
+        // configurations/handles and never changes the native connection path.
+        fusionLearning.observe(event);
+        final learning = fusionLearning.snapshot;
         dbg(
           'FUSION seq=${event.sequence} type=${event.type.name} '
           'state=${event.state.name} engine=${event.engineId ?? '-'} '
-          'failure=${event.failureCode ?? '-'} active=${event.activeHopCount}',
+          'failure=${event.failureCode ?? '-'} active=${event.activeHopCount} '
+          'aiHint=${learning.recoveryHint.name} '
+          'aiFailures=${learning.failureEvents} '
+          'aiStreak=${learning.consecutiveFailureCount}',
         );
       },
     );

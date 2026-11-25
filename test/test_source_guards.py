@@ -4219,3 +4219,19 @@ class KingVpnSourceGuardTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+    def test_fusion_lifecycle_events_feed_secret_free_king_ai_evidence(self):
+        main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
+        bridge = (ROOT / 'lib' / 'king_fusion_learning_bridge.dart').read_text(encoding='utf-8')
+        tests = (ROOT / 'test' / 'king_fusion_learning_bridge_test.dart').read_text(encoding='utf-8')
+        self.assertIn("import 'king_fusion_learning_bridge.dart';", main)
+        self.assertIn('final fusionLearning = KingFusionLearningBridge();', main)
+        self.assertIn('fusionLearning.observe(event);', main)
+        self.assertIn('learning.recoveryHint.name', main)
+        self.assertIn('KingFusionRecoveryHint.retryCleanup', bridge)
+        self.assertIn('KingFusionEventType.verificationPassed', bridge)
+        self.assertIn('event.sequence <= _lastSequence', bridge)
+        self.assertNotIn('event.configuration', bridge)
+        self.assertNotIn('event.handle', bridge)
+        self.assertIn('only verified traffic clears failure streaks', tests)
+        self.assertIn('snapshot maps are immutable copies', tests)
