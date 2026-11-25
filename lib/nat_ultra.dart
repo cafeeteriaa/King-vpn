@@ -2855,17 +2855,10 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
       final sink = File(newPath).openWrite();
       try {
         final seenKeys = <String>{};
-        // Merge fresh sources additively with the previous complete inventory.
-        // A temporarily partial source response must never erase older entries.
-        final mergeFrom = <String>[
-          if (File(extraPath).existsSync()) extraPath,
-          for (final i in mixed) parts[i],
-          if (f.existsSync()) f.path,
-        ];
-        for (final pth in mergeFrom) {
-          final pf = File(pth);
-          if (!pf.existsSync()) continue;
-          await for (final line in pf
+        Future<void> appendInventoryFile(String path) async {
+          final file = File(path);
+          if (!file.existsSync()) return;
+          await for (final line in file
               .openRead()
               .transform(utf8.decoder)
               .transform(const LineSplitter())) {
@@ -2873,17 +2866,28 @@ Future<void> _natHotEnsureImpl({bool force = false}) async {
             final tab = line.indexOf('\t');
             final cfg = tab >= 0 ? line.substring(tab + 1) : line;
             if (!seenKeys.add(cfg)) continue;
-            final b = utf8.encode(line);
-            sink.add(b);
+            final bytes = utf8.encode(line);
+            sink.add(bytes);
             sink.add(const [10]);
-            pos += b.length + 1;
+            pos += bytes.length + 1;
             offs.add(pos);
           }
         }
+
+        // Fresh sources are processed in full before the old cache is appended.
+        final mergeFrom = <String>[
+          if (File(extraPath).existsSync()) extraPath,
+          for (final i in mixed) parts[i],
+        ];
+        for (final path in mergeFrom) {
+          await appendInventoryFile(path);
+        }
+        final freshTotal = offs.length - 1;
+        // A temporarily partial source response must never erase older entries.
+        if (f.existsSync()) await appendInventoryFile(f.path);
       } finally {
         await sink.close();
       }
-      final freshTotal = offs.length - 1;
       final total = offs.length - 1;
       if (freshTotal > 0 && total > 0) {
         _hotFailAt = null;
