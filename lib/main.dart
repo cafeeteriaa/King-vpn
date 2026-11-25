@@ -549,7 +549,6 @@ bool speedTestBusy = false;
 int listRefreshMin = 180;
 int failMin = 90; // minutes a failed server is not tested again
 int recheckMin = 20; // minutes before a healthy server is pinged again
-int maxBatches = 8; // safety limit per search
 const standbyBatches = 12; // batches per standby search cycle
 const bgSearchOff = false; // RETRYPATCH // SPEEDSWITCHPATCH: no search while connected
 // while connected the tunnel is shared with the tests, so the batch is bigger
@@ -6256,7 +6255,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         fetchDeadline = const Duration(seconds: 20);
         firstBatchSize = 100;
         standbyBatchSize = 30;
-        maxBatches = 5;
         watchFailLimit = 3;
         badPingLimit = 3;
         missLimit = 3;
@@ -7124,7 +7122,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             // FASTONE: یک دسته کامل، و اگر سرور سالم داد همین‌جا تمام
             if (rdyFg >= 1 && fgBatchesDone >= kFastBatchesPerSearch) return true;
             // سقف ایمنی: «حداکثر تعداد دسته در هر جستجو» واقعاً اعمال شود
-            if (fgBatchesDone >= maxBatches) return true;
           }
           return rdyFg >= 1 && pending.isEmpty;
         }
@@ -7194,16 +7191,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       var batches = 0;
       var reloaded = false;
       var stallBatches = 0; // FREEZEFIX
-      final bgStart = DateTime.now(); // BGCAP: هر دور جستجوی پس‌زمینه حداکثر ۲۰ دقیقه
       // standby search: bigger batches (the tunnel is shared), the healthy
       // servers are re-checked every 25 tests and after every batch
-      final maxB = bg ? standbyBatches : 1000000; // RETRYPATCH
       while (!abort &&
           !(bg && (!connected || appGone)) &&
           !(bg && _bgYield) &&
           !enough() &&
-          !(bg && DateTime.now().difference(bgStart) > const Duration(minutes: 20)) &&
-          batches < maxB) {
+          true) {
         // the whole list was tested: download a new one and go on (endless)
         if (pending.isEmpty && folderQ.isEmpty) {
           // V12: in national mode, two-pass search. When the queue empties,
@@ -7226,8 +7220,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               }
               continue;
             }
-            dbg('V12: pass 2 exhausted, stopping');
-            break;
+            // Keep the national scanner alive: after both passes, reload the
+            // complete source inventory and begin a fresh domestic-first cycle.
+            dbg('V12: pass 2 exhausted → restarting full national discovery');
+            natRound = 1;
+            failed.clear();
+            for (final s in good) { s.badAt = null; s.miss = 0; }
+            if (!offlineOnly) {
+              listTime = null;
+              lastFetchTry = DateTime(2000);
+            }
+            reloaded = false;
+            await _loadPending(bg: bg, exhausted: true);
+            if (pending.isEmpty) break;
+            continue;
           }
           if (!bg && !folderFallback && !noFolderFallback && !offlineOnly &&
               !nationalMode && !indestructibleMode && _ready(row) == 0) {
