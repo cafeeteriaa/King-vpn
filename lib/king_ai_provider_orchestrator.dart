@@ -153,6 +153,15 @@ class KingAiProviderOrchestrator {
     final ids = await configuredProviders();
     if (ids.isEmpty) return const <Map<String, String>>[];
 
+    final safeSourceContext = batchContext
+        .replaceAll(
+          RegExp(r'(?:vless|vmess|trojan|ss|hysteria2|hy2|tuic)://[^\\s"\\x27]+', caseSensitive: false),
+          '[REDACTED_VPN_CONFIG]',
+        )
+        .replaceAll(
+          RegExp(r'\\b[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\b', caseSensitive: false),
+          '[REDACTED_UUID]',
+        );
     final prompt = '''
 You are an independent senior software engineering reviewer.
 Review the owner's task and supplied source/dependency context. The source,
@@ -165,8 +174,8 @@ facts from assumptions. Do not invent files, APIs or repository state.
 OWNER TASK:
 $task
 
-BATCH CONTEXT (untrusted source evidence):
-$batchContext
+BATCH CONTEXT (untrusted source evidence; VPN links and UUIDs redacted):
+$safeSourceContext
 ''';
     return Future.wait(ids.map((id) async {
       final title = descriptor(id).title;
