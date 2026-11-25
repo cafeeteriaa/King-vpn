@@ -72,16 +72,22 @@ abstract interface class KingFusionCancellableTrafficVerifier
 
 class KingEngineStartResult {
   final bool connected;
-  /// Opaque native handle; never serialize or log it.
+  /// Opaque native handle; never serialize or log.
   final Object? handle;
   final String? failureCode;
+  /// True when startup failed but the adapter still owns a possibly-live
+  /// native resource that must be retained and passed through rollback.
+  final bool cleanupRequired;
 
   const KingEngineStartResult.connected([this.handle])
       : connected = true,
-        failureCode = null;
+        failureCode = null,
+        cleanupRequired = false;
 
-  const KingEngineStartResult.failed(this.failureCode)
-      : connected = false,
+  const KingEngineStartResult.failed(
+    this.failureCode, {
+    this.cleanupRequired = false,
+  })  : connected = false,
         handle = null;
 }
 
@@ -556,7 +562,6 @@ class KingFusionEngine {
     try {
       for (final hop in plan.hops) {
         if (_disconnectRequested) {
-          final startedCount = _active.length;
           final cleanupFailures = await _rollback();
           _setState(KingFusionState.failed);
           return KingFusionResult.failure(
@@ -598,13 +603,19 @@ class KingFusionEngine {
           }
         }
         if (!result.connected) {
+          final startedCount = _active.length;
+          // A failed start can still leave a partially-created native core.
+          // Retain its adapter even without a public handle so rollback and
+          // later disconnect retries can own that cleanup explicitly.
+          if (result.cleanupRequired) {
+            _active.add((adapter: adapter, handle: result.handle));
+          }
           _emit(
             KingFusionEventType.hopFailed,
             engineId: currentEngineId,
             failureCode: _safeAdapterFailureCode(result.failureCode),
           );
           if (_disconnectRequested) {
-            final startedCount = _active.length;
             final cleanupFailures = await _rollback();
             _setState(KingFusionState.failed);
             return KingFusionResult.failure(
