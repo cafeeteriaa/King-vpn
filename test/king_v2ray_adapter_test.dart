@@ -1,0 +1,139 @@
+import 'dart:async';
+
+import 'package:flutter_test/flutter_test.dart';
+
+import '../lib/king_fusion_engine.dart';
+import '../lib/king_v2ray_adapter.dart';
+
+void main() {
+  group('KingV2RayAdapter', () {
+    test('bridges plugin start and stop while preserving host verification boundary', () async {
+      final calls = <String>[];
+      final adapter = KingV2RayAdapter(
+        start: (configuration) async => calls.add('start:$configuration'),
+        stop: () async => calls.add('stop'),
+      );
+      final engine = KingFusionEngine([adapter]);
+
+      expect(engine.availableEngines.single.id, 'king-v2ray-xray');
+      expect(engine.availableEngines.single.family, KingEngineFamily.xray);
+      expect(engine.availableEngines.single.availability,
+          KingEngineAvailability.integrated);
+      expect(engine.availableEngines.single.supportsMultiHop, isFalse);
+
+      final result = await engine.connect(KingFusionPlan([
+        const KingFusionHop(
+          engineId: 'king-v2ray-xray',
+          configuration: 'opaque-vless-config',
+        ),
+      ]));
+
+      expect(result.connected, isTrue);
+      expect(result.trafficVerified, isFalse);
+      expect(engine.state, KingFusionState.connected);
+      expect(calls, ['start:opaque-vless-config']);
+
+      await engine.disconnect();
+
+      expect(calls, ['start:opaque-vless-config', 'stop']);
+      expect(engine.state, KingFusionState.idle);
+      expect(engine.snapshot.activeEngineIds, isEmpty);
+    });
+
+    test('maps native start exceptions to a stable secret-free failure code', () async {
+      final adapter = KingV2RayAdapter(
+        start: (_) async => throw StateError('secret-config-must-not-escape'),
+        stop: () async {},
+      );
+      final engine = KingFusionEngine([adapter]);
+
+      final result = await engine.connect(KingFusionPlan([
+        const KingFusionHop(
+          engineId: 'king-v2ray-xray',
+          configuration: 'private-config',
+        ),
+      ]));
+
+      expect(result.connected, isFalse);
+      expect(result.failureCode, 'E-V2RAY-START');
+      expect(result.failureCode, isNot(contains('private-config')));
+      expect(engine.recentEvents.map((event) => event.failureCode),
+          isNot(contains('secret-config-must-not-escape')));
+      expect(engine.snapshot.activeEngineIds, isEmpty);
+    });
+
+    test('rejects empty config without crossing native boundary', () async {
+      var starts = 0;
+      final adapter = KingV2RayAdapter(
+        start: (_) async => starts++,
+        stop: () async {},
+      );
+      final engine = KingFusionEngine([adapter]);
+
+      final result = await engine.connect(KingFusionPlan([
+        const KingFusionHop(
+          engineId: 'king-v2ray-xray',
+          configuration: '  ',
+        ),
+      ]));
+
+      expect(result.connected, isFalse);
+      expect(result.failureCode, 'E-V2RAY-CONFIG-EMPTY');
+      expect(starts, 0);
+    });
+
+    test('cancels a pending native start and stops again after late completion', () async {
+      final startGate = Completer<void>();
+      final startEntered = Completer<void>();
+      final firstStopEntered = Completer<void>();
+      var stops = 0;
+      final adapter = KingV2RayAdapter(
+        start: (_) {
+          if (!startEntered.isCompleted) startEntered.complete();
+          return startGate.future;
+        },
+        stop: () async {
+          stops++;
+          if (!firstStopEntered.isCompleted) firstStopEntered.complete();
+        },
+      );
+      final engine = KingFusionEngine([adapter]);
+      final connecting = engine.connect(KingFusionPlan([
+        const KingFusionHop(
+          engineId: 'king-v2ray-xray',
+          configuration: 'opaque-config',
+        ),
+      ]));
+
+      await startEntered.future;
+      final disconnecting = engine.disconnect();
+      await firstStopEntered.future;
+      expect(stops, 1);
+
+      startGate.complete();
+      final result = await connecting;
+      await disconnecting;
+
+      expect(result.connected, isFalse);
+      expect(result.failureCode, 'E-V2RAY-START-CANCELLED');
+      expect(stops, 2);
+      expect(engine.state, KingFusionState.idle);
+      expect(engine.snapshot.activeEngineIds, isEmpty);
+    });
+
+    test('stop is idempotent for an already released native handle', () async {
+      var stops = 0;
+      final adapter = KingV2RayAdapter(
+        start: (_) async {},
+        stop: () async => stops++,
+      );
+      final result = await adapter.start(configuration: 'opaque-config');
+      expect(result.connected, isTrue);
+
+      await adapter.stop(result.handle);
+      await adapter.stop(result.handle);
+
+      expect(stops, 1);
+    });
+  });
+}
