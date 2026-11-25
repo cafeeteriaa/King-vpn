@@ -3831,6 +3831,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         main = (ROOT / 'lib' / 'main.dart').read_text(encoding='utf-8')
         extras = (ROOT / 'lib' / 'npv_am_extras.dart').read_text(encoding='utf-8')
         ultra = (ROOT / 'lib' / 'nat_ultra.dart').read_text(encoding='utf-8')
+        nip = (ROOT / 'lib' / 'nip_scan.dart').read_text(encoding='utf-8')
 
         self.assertNotIn('int maxBatches = 8;', main)
         self.assertNotIn('batches < maxB', main)
