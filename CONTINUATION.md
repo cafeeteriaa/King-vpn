@@ -611,3 +611,13 @@ These are three distinct technical review passes by the same assistant, not thre
 - Three-pass review: (1) concurrency/API — the shared future is visible before callbacks run; (2) lifecycle — reentrant callers cannot start duplicate teardown or recursively dispatch the same event; (3) regression — the callback-driven test asserts exactly-once event and stop behavior.
 - Commits: `467802307f8364959445e615bfbc8a9a5b61b1ca` (reentrancy fix), `73dfadc35cad05b37367e940ebfdd413732ff66c` (regression test).
 - Dedicated Fusion test count: 41. Exact latest-head CI is required.
+
+
+## 2026-11-25 — Block reentrant connection during disconnect notification
+
+- Found a lifecycle race in the synchronous `disconnectRequested` observer window: `disconnect()` had published its shared future, but `_performDisconnect()` had not yet started and `_busy` was still false. An observer could call `connect()` in that window and begin a new native start immediately before teardown.
+- `connect()` now rejects when either `_disconnectOperation` is already published or `_disconnectRequested` is active, returning `E-FUSION-DISCONNECT-PENDING` before validation or adapter invocation.
+- Added a regression test that attempts a new connection directly from the `disconnectRequested` observer. It verifies the attempted connection is rejected, only the original start and one stop occur, and the coordinator returns to idle.
+- Three-pass review: (1) API/concurrency — the guard checks the published disconnect future, not only `_busy`; (2) lifecycle/security — no new configuration is passed to a native adapter once teardown is committed; (3) regression — observer reentrancy test asserts failure code, exactly one start/stop, and final idle state.
+- Commits: `2e0e2ff55167e23d18d3a3e7e0b786265196ead4` (guard), `6d040bad06fa6a1e4866d2e5815abd1f7b18efff` (test).
+- Dedicated Fusion test count: 42. Exact latest-head CI is required.
