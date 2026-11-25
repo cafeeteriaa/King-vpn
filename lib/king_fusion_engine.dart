@@ -713,7 +713,8 @@ class KingFusionEngine {
     for (var i = 0; i + 1 < resolved.length; i++) {
       final current = resolved[i];
       final next = resolved[i + 1];
-      final currentDescriptor = _descriptors[resolved[i].descriptor.id]!;
+      final currentId = _idByAdapter[current]!;
+      final currentDescriptor = _descriptors[currentId]!;
       if (!currentDescriptor.supportsMultiHop ||
           !current.canChainTo(next)) {
         return (currentDescriptor.id, 'E-FUSION-CHAIN-UNSUPPORTED');
