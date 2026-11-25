@@ -290,6 +290,17 @@ class KingFusionEngine {
         final verified = await verifier
             .verify(plan)
             .timeout(trafficVerificationTimeout);
+        if (_disconnectRequested) {
+          final startedCount = _active.length;
+          final cleanupFailures = await _rollback();
+          state = KingFusionState.failed;
+          return KingFusionResult.failure(
+            failedEngineId: null,
+            failureCode: 'E-FUSION-CANCELLED',
+            startedHops: startedCount,
+            cleanupFailedEngineIds: cleanupFailures,
+          );
+        }
         if (!verified) {
           final startedCount = _active.length;
           final cleanupFailures = await _rollback();
