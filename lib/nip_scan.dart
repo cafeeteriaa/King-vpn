@@ -503,20 +503,11 @@ String? nipSwapSni(Server t, String ip, String sni) {
 }
 
 extension NipHunt on _HomePageState {
-  static DateTime? _nipLastHunt;
-
   /// نت ملی: وقتی سرورهای شناخته‌شده جواب ندادند، IP های باز ایران را پیدا
   /// می‌کند و کانفیگ‌های خود کاربر را روی آن‌ها امتحان می‌کند.
   /// موفق‌ها ذخیره می‌شوند تا دفعه‌ی بعد اول امتحان شوند.
   Future<bool> _natIpHunt() async {
     if (!nationalMode || connected || abort) return false;
-    final last = _nipLastHunt;
-    if (last != null &&
-        DateTime.now().difference(last) < const Duration(minutes: 4)) {
-      return false;
-    }
-    _nipLastHunt = DateTime.now();
-
     final sourceServers = <Server>[...good, ...pending];
     final seenLinks = sourceServers.map((server) => server.link).toSet();
     for (final entry in _resMap.values) {
