@@ -1,5 +1,14 @@
 # King VPN — continuation checkpoint
 
+## Current active workstream — 2026-11-25
+- Repository: `cafeeteriaa/King-vpn`.
+- Current engineering branch: `feature/king-fusion-engine-foundation-20261125`.
+- Current pull request: #53, open Draft, targeting `feature/king-vpn-audit-hardening-20261125`; do not merge automatically.
+- The older PR #48 / DNS scanner checkpoints below are retained as historical project context and are not the active branch for this Fusion workstream.
+- Main remains at the previously recorded commit `c43d325f9803d4f6306415e511f6790deff9d87e`; no feature changes are intended for main.
+- Keep the existing `lib/main.dart` Flutter V2Ray connection path intact until a separately reviewed, tested adapter integration is ready.
+
+
 ## Source of truth
 - Latest checkpoint recorded below supersedes older status summaries; historical checkpoints are retained for traceability.
 - Repository: `cafeeteriaa/King-vpn`
@@ -274,3 +283,19 @@ These are three distinct technical review passes by the same assistant, not thre
 - Global mode retains its prior global catalog/CDN/cache sources. National mode still includes exact saved VPN endpoint hosts/configurations for endpoint validation; no active scan scope was broadened.
 - This is a candidate-source relevance fix only. It does not prove that any discovered address is reachable from an Iranian carrier during an international outage.
 - Exact-head CI and Iranian-network/device tests have not yet been observed for this repair. Do not mark it TESTED until those runs/evidence exist.
+
+
+## 2026-11-25 — Fusion lifecycle hardening and persistent-memory integrity
+
+- Active branch: `feature/king-fusion-engine-foundation-20261125`; PR #53 remains open and Draft against `feature/king-vpn-audit-hardening-20261125`. Do not merge automatically.
+- Fusion now treats a disconnect arriving during an in-flight native start as a cancellation request. It waits for the start call to settle, then rolls back the just-started adapter instead of silently ignoring the disconnect.
+- Native stop failures are no longer discarded: failed adapter handles remain tracked, are exposed through `cleanupPendingEngineIds`, and can be retried by a later disconnect. `KingFusionResult.cleanupFailedEngineIds` reports rollback failures after a failed start.
+- Fusion tests now cover busy-start rejection, disconnect-during-start cancellation, reverse-order rollback, stop failure retention, and successful retry.
+- Clarified that Fusion's `connected` result means every adapter accepted its start call; it is not proof of end-to-end traffic or a verified VPN tunnel.
+- NNIE endpoint-history writes are serialized so concurrent record/stability updates cannot finish out of order and overwrite newer snapshots.
+- NNIE history loading now marks the store loaded only after a successful read/parse. A storage or parse failure is rethrown and does not silently initialize an empty inventory that could overwrite persisted history.
+- Fresh resource writes remain serialized and use temporary-file replacement; merge reads fail closed instead of treating a read error as an empty cache.
+- KING AI research-memory writes remain serialized and atomically replaced; the fixed 500-note truncation remains removed.
+- The Fusion engine remains an adapter foundation only. The existing `flutter_v2ray_client` lifecycle in `lib/main.dart` has not been replaced, and no new native engine is claimed to be bundled or operational.
+- Exact-head CI for the latest source changes must pass source guards, Flutter tests, Dart analysis and ARM64 release build before validation is claimed. The preceding CI failure at run 2938 was a stale source-guard expectation for the NNIE serialization refactor; the guard was corrected in the following commit. Physical-device tunnel, DNS-leak, IPv4/IPv6 data-plane, network-handover and battery tests remain NOT TESTED.
+- Main is expected to remain at `c43d325f9803d4f6306415e511f6790deff9d87e`; verify this ref before future work. Do not modify or merge to main.
