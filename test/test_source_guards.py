@@ -2401,7 +2401,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
     def test_ip_auto_storage_load_and_save_are_mode_isolated_across_awaits(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
         load_start = source.index('Future<void> ipAutoLoad() async {')
-        save_start = source.index('Future<void> _ipAutoSave() async {', load_start)
+        save_start = source.index('Future<bool> _ipAutoSave() async {', load_start)
         load = source[load_start:save_start]
         save_end = source.index('/// Inventory پویا', save_start)
         save = source[save_start:save_end]
@@ -2411,8 +2411,26 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('ipAutoCursors\n      ..clear()\n      ..addAll(loadedCursors);', load)
         self.assertLess(save.index('final saveNationalMode = nationalMode;'),
                         save.index('await SharedPreferences.getInstance();'))
-        self.assertIn('final hitsKey = saveNationalMode ? _ipAutoKeyNat : _ipAutoKeyGlob;', save)
+        self.assertIn("final checkpointKey = 'ipauto_checkpoint_v2_${saveNationalMode ? 'nat' : 'glob'}';", save)
+        self.assertIn("'hits': hits.join('\\n')", save)
+        self.assertIn("'pending': pending.join('\\n')", save)
+        self.assertIn("'cursors': cursors", save)
+        self.assertIn("'position': position", save)
+        self.assertIn('return await p.setString(checkpointKey, jsonEncode({', save)
         self.assertIn('if (nationalMode != saveNationalMode ||', save)
+
+    def test_ip_auto_uses_one_mode_specific_checkpoint_for_hits_pending_and_cursors(self):
+        source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
+        self.assertIn("ipauto_checkpoint_v2_${loadNationalMode ? 'nat' : 'glob'}", source)
+        self.assertIn("ipauto_checkpoint_v2_${saveNationalMode ? 'nat' : 'glob'}", source)
+        load = source[source.index('Future<void> ipAutoLoad() async {'):source.index('Future<bool> _ipAutoSave() async {')]
+        save = source[source.index('Future<bool> _ipAutoSave() async {'):source.index('/// Inventory پویا')]
+        self.assertIn("final checkpointRaw = p.getString(checkpointKey);", load)
+        self.assertIn("if (checkpointRaw != null && checkpointRaw.isNotEmpty)", load)
+        self.assertIn('One-time migration path for the original split preference keys.', load)
+        self.assertIn('return await p.setString(checkpointKey, jsonEncode({', save)
+        self.assertNotIn('await p.setString(hitsKey,', save)
+        self.assertNotIn('await p.setString(pendingKey,', save)
 
     def test_ip_auto_background_acquires_shared_locks_before_async_work(self):
         source = (ROOT / 'lib' / 'ip_auto_scan.dart').read_text(encoding='utf-8')
