@@ -4175,7 +4175,7 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertIn('fusion.cleanupPendingEngineIds', main)
         self.assertIn('implements KingFusionCancellableEngineAdapter', adapter)
         self.assertIn('supportsMultiHop: false', adapter)
-        self.assertIn('traffic verification', adapter)
+        self.assertIn('verify real outbound traffic', adapter)
         self.assertIn('Future<void> _stopNativeSerialized()', adapter)
         self.assertIn('cancels a pending native start', tests)
         self.assertIn('trafficVerified, isFalse', tests)
