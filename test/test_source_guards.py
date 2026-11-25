@@ -2768,6 +2768,14 @@ class KingVpnSourceGuardTests(unittest.TestCase):
         self.assertNotIn('pending', body)
         self.assertNotIn('fetchedAll', body)
 
+    def test_dns_auto_cache_retains_all_verified_resolvers(self):
+        dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
+        start = dns.index('Future<void> dnsxAutoPick(')
+        end = dns.index('extension DnsxExt', start)
+        body = dns[start:end]
+        self.assertIn('final best = [for (final e in r) e.ip];', body)
+        self.assertNotIn('r.take(', body)
+
     def test_dns_probe_checks_cancellation_after_inter_batch_delay(self):
         dns = (ROOT / 'lib' / 'dns_scanner.dart').read_text(encoding='utf-8')
         start = dns.index('Future<DnsxHit?> dnsxProbe(')
