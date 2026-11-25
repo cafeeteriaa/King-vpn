@@ -1241,8 +1241,10 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       collectionKey: 'check_runs',
     )).whereType<Map>().toList();
     final failures = <Map<String, Object?>>[];
-    for (final check in checkRuns.where((item) =>
-        item['status'] == 'completed' && item['conclusion'] == 'failure')) {
+    final failedChecks = checkRuns.where((item) =>
+        item['status'] == 'completed' &&
+        !['success', 'neutral', 'skipped'].contains(item['conclusion']));
+    for (final check in failedChecks) {
       final id = check['id'];
       final output = check['output'] is Map ? check['output'] as Map : const {};
       final annotations = <Map<String, Object?>>[];
@@ -1278,7 +1280,7 @@ was tested unless supplied evidence proves it. Keep the answer concise and usefu
       collectionKey: 'workflow_runs',
     )).whereType<Map>().toList();
     final failedRuns = workflowRuns.where((run) =>
-        run['status'] == 'completed' && run['conclusion'] == 'failure');
+        run['status'] == 'completed' && run['conclusion'] != 'success');
     final checksPending = checkRuns.any((item) => item['status'] != 'completed') ||
         workflowRuns.any((run) => run['status'] == 'queued' ||
             run['status'] == 'in_progress' || run['status'] == 'waiting' ||

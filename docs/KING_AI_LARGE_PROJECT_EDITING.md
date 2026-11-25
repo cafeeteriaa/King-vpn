@@ -89,5 +89,5 @@ Before model generation, the supplied Dart/Python inventory is analyzed for rela
 ## Complete CI diagnostics for large matrices
 
 - Check runs, workflow runs, job lists, and check annotations are fetched through GitHub's paginated endpoints until the final short page. GitHub's maximum of 100 records per request is respected, but no application-level page or item ceiling discards later failures.
-- Completed CI is reported as fully passed only when all relevant check runs and workflow runs have successful conclusions (with neutral/skipped check runs treated as non-failing).
+- Completed CI is reported as fully passed only when all relevant check runs and workflow runs have successful conclusions (with neutral/skipped check runs treated as non-failing). Cancelled, timed-out, stale, and other unsuccessful completed checks are retained as failures rather than omitted.
 - Individual job logs still use a bounded in-memory download path to protect device RAM; oversized logs are reported as unavailable evidence rather than silently treated as complete.
