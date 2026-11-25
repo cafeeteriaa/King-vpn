@@ -10794,8 +10794,10 @@ ListTile( // KINGEXTRAS row
           continue;
         }
         final key = '$ip|$port';
-        if (!have.add(key)) continue;
-        have.add('$ip:$port');
+        if (have.contains(key)) continue;
+        // _natRangeAdd updates the active/overflow queues after every batch;
+        // those queues provide cross-batch deduplication without retaining an
+        // additional in-memory set proportional to the complete disk history.
         batch.add(key);
         if (batch.length >= memoryBatchSize) {
           await flushMemoryBatch();
