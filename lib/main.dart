@@ -4074,7 +4074,7 @@ Future<double?> measure(
       await for (final chunk in res) {
         final remaining = maxBytes > 0 ? maxBytes - bytes : chunk.length;
         if (remaining <= 0) break;
-        bytes += min(chunk.length, remaining);
+        bytes += chunk.length < remaining ? chunk.length : remaining;
         if ((maxBytes > 0 && bytes >= maxBytes) || sw.elapsed >= win) break;
       }
       return throughputMegabytesPerSecond(
